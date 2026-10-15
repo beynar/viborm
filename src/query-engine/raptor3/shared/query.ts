@@ -84,7 +84,14 @@ import {
   transportedIdentifier,
 } from "./identifier";
 import { unreachable } from "./invariant";
-import type { RowDomain, RowPurpose } from "./row-scope";
+import {
+  type CallScope,
+  type CallValues,
+  Condition,
+  Parameter,
+  type RowDomain,
+  type RowPurpose,
+} from "./row-scope";
 import {
   type Arguments,
   type EngineSchema,
@@ -365,11 +372,25 @@ type PreparedScalar = {
 type PreparedOperand =
   | { readonly kind: "value"; readonly value: unknown }
   | { readonly kind: "field"; readonly scalar: PreparedScalar }
+  /**
+   * A call value of a domain predicate, read at lowering; `spread` when it is
+   * a whole `in`/`notIn` list, one value operand per member once read.
+   */
+  | {
+      readonly kind: "parameter";
+      readonly parameter: Parameter;
+      readonly spread?: true;
+    }
   | {
       readonly kind: "sql";
       readonly strings: readonly string[];
-      readonly operands: readonly Exclude<PreparedOperand, { kind: "sql" }>[];
+      readonly operands: readonly Extract<
+        PreparedOperand,
+        { kind: "value" | "field" }
+      >[];
     };
+/** An operand as lowering reads it: every parameter's value read. */
+type BoundOperand = Exclude<PreparedOperand, { kind: "parameter" }>;
 /**
  * What a prepared operator compares. A physical column, a JSON value addressed
  * inside one, and an aggregate over a column are three targets of the SAME
@@ -411,6 +432,24 @@ type PreparedPredicate =
     }
   | { readonly kind: "not"; readonly predicate: PreparedPredicate }
   | { readonly kind: "always"; readonly value: boolean }
+  /** A test of a call value that reads no column. */
+  | { readonly kind: "condition"; readonly condition: Condition }
+  | {
+      /**
+       * One layer's domain predicate for `model`, the unit R6 judges: per
+       * call, its conditions fold (kept per outcome in `folded`), then a value
+       * it still reads that is absent makes it false where its control is
+       * required on `model` and drops it otherwise. While it lowers, its
+       * relation reads take every other layer at its default and never this
+       * one (R5).
+       */
+      readonly kind: "layer";
+      readonly layer: number;
+      readonly model: string;
+      readonly predicate: PreparedPredicate;
+      readonly conditions: readonly Condition[];
+      readonly folded: Map<string, Folded>;
+    }
   | {
       readonly kind: "operation";
       readonly operator: string;
@@ -460,6 +499,12 @@ type PreparedPredicate =
       readonly model: AnyModel;
       readonly last: Input;
     };
+type OperationPredicate = Extract<PreparedPredicate, { kind: "operation" }>;
+/** An operation as lowering reads it ({@link Queries.lowerOperation}). */
+type BoundOperation = Omit<OperationPredicate, "operand" | "operands"> & {
+  readonly operand?: BoundOperand;
+  readonly operands?: readonly BoundOperand[];
+};
 /**
  * A conjunction of nothing states nothing; every other prepared predicate is a
  * condition. This is the one reading of "this arm built no condition" that the
@@ -467,7 +512,97 @@ type PreparedPredicate =
  * (`builders/where-builder.ts:217-308`, `operations/groupby-having.ts:77-173`).
  */
 function states(predicate: PreparedPredicate): boolean {
+  if (predicate.kind === "layer") return states(predicate.predicate);
   return predicate.kind !== "and" || predicate.predicates.some(states);
+}
+/** A layer's predicate under one outcome of its conditions. */
+interface Folded {
+  readonly predicate: PreparedPredicate;
+  /** The parameters it still reads, `spread` where one is a whole list. */
+  readonly parameters: readonly (readonly [Parameter, boolean])[];
+}
+const ALWAYS_TRUE: PreparedPredicate = freeze({ kind: "always", value: true });
+/**
+ * `predicate` with every condition replaced by its outcome and the logical
+ * combinators simplified, so a false condition removes its arm with every
+ * parameter inside it. A relation keeps its quantifier over a folded body.
+ */
+function foldConditions(
+  predicate: PreparedPredicate,
+  holds: (condition: Condition) => boolean
+): PreparedPredicate {
+  switch (predicate.kind) {
+    case "condition":
+      return holds(predicate.condition) ? ALWAYS_TRUE : VACUOUS_FALSE;
+    case "and":
+    case "or": {
+      const conjunction = predicate.kind === "and";
+      const kept: PreparedPredicate[] = [];
+      for (const member of predicate.predicates) {
+        const folded = foldConditions(member, holds);
+        if (folded.kind !== "always") kept.push(folded);
+        else if (folded.value !== conjunction) return folded;
+      }
+      if (kept.length === 0) return conjunction ? ALWAYS_TRUE : VACUOUS_FALSE;
+      return kept.length === predicate.predicates.length &&
+        kept.every((member, index) => member === predicate.predicates[index])
+        ? predicate
+        : freeze({ kind: predicate.kind, predicates: freeze(kept) });
+    }
+    case "not": {
+      const folded = foldConditions(predicate.predicate, holds);
+      if (folded.kind === "always")
+        return folded.value ? VACUOUS_FALSE : ALWAYS_TRUE;
+      return folded === predicate.predicate
+        ? predicate
+        : freeze({ kind: "not", predicate: folded });
+    }
+    case "relation": {
+      if (!predicate.predicate) return predicate;
+      const folded = foldConditions(predicate.predicate, holds);
+      return folded === predicate.predicate
+        ? predicate
+        : freeze({ ...predicate, predicate: folded });
+    }
+    default:
+      return predicate;
+  }
+}
+/** Every parameter and condition a layer's predicate reads. */
+function callReads(
+  predicate: PreparedPredicate,
+  parameters: Map<Parameter, boolean>,
+  conditions: Set<Condition>
+): void {
+  switch (predicate.kind) {
+    case "condition":
+      conditions.add(predicate.condition);
+      return;
+    case "and":
+    case "or":
+      for (const member of predicate.predicates)
+        callReads(member, parameters, conditions);
+      return;
+    case "not":
+      callReads(predicate.predicate, parameters, conditions);
+      return;
+    case "relation":
+      if (predicate.predicate)
+        callReads(predicate.predicate, parameters, conditions);
+      return;
+    case "operation":
+      for (const operand of [predicate.operand, ...(predicate.operands ?? [])])
+        if (operand?.kind === "parameter")
+          parameters.set(operand.parameter, operand.spread === true);
+      if (
+        predicate.value instanceof Parameter &&
+        !parameters.has(predicate.value)
+      )
+        parameters.set(predicate.value, false);
+      return;
+    default:
+      return;
+  }
 }
 /**
  * An `OR` whose every arm is one value equality on the same plain column, as
@@ -529,6 +664,7 @@ function readsRelation(predicate: PreparedPredicate): boolean {
     case "or":
       return predicate.predicates.some(readsRelation);
     case "not":
+    case "layer":
       return readsRelation(predicate.predicate);
     default:
       return false;
@@ -932,43 +1068,98 @@ function reversedRows(rows: Input[]): Input[] {
 /** A filter read's controls: it takes the root domain's rows. */
 const ROOT_CANDIDATES = Object.freeze({ purpose: "root" as const });
 
+/** No layer is lowering. */
+const NO_LAYERS: readonly number[] = Object.freeze([]);
+
 /**
  * One row domain as prepared meaning: per purpose and model, the conjunction
- * of the model's inputs, prepared at most once for every `Queries` of one
- * engine view (its reads and its write contexts share it). Prepared meaning
- * holds no alias, adapter or driver, so the view's own `Queries` prepares it.
+ * of the model's inputs, each a {@link PreparedPredicate} `layer` node,
+ * prepared at most once for every `Queries` of one engine view (its reads and
+ * its write contexts share it) and for every call: a value a call supplies is
+ * a parameter. Prepared meaning holds no alias, adapter or driver, so the
+ * view's own `Queries` prepares it.
  */
 export class PreparedDomain {
   readonly rows: RowDomain;
+  /** The domain absent controls select: what a layer's traversals read (R5). */
+  readonly defaults: PreparedDomain;
   readonly #queries: Queries;
   readonly #prepared = {
-    root: new Map<string, PreparedSelector>(),
-    related: new Map<string, PreparedSelector>(),
+    root: new Map<string, PreparedSelector | null>(),
+    related: new Map<string, PreparedSelector | null>(),
   };
   #view: Queries | undefined;
-  constructor(rows: RowDomain, queries: Queries) {
+  constructor(rows: RowDomain, queries: Queries, defaults?: PreparedDomain) {
     this.rows = rows;
     this.#queries = queries;
+    this.defaults = defaults ?? this;
   }
-  /** The one read view under this domain: its lifetime is the domain's. */
-  get reads(): Queries {
-    return (this.#view ??= this.#queries.under(this));
+  /**
+   * The read view under this domain for `call`: one for every call, whose
+   * lifetime is the domain's, unless the call carries the values its
+   * parameters read.
+   */
+  reads(call: CallScope): Queries {
+    return call.rows.values === undefined
+      ? (this.#view ??= this.#queries.under(this))
+      : this.#queries.under(this, call);
   }
-  /** `model`'s predicate for `purpose`; `undefined` where it states none. */
-  selector(model: AnyModel, purpose: RowPurpose): PreparedSelector | undefined {
+  /**
+   * `model`'s predicate for `purpose` without the `excluded` layers;
+   * `undefined` where it states none.
+   */
+  selector(
+    model: AnyModel,
+    purpose: RowPurpose,
+    excluded = NO_LAYERS
+  ): PreparedSelector | undefined {
     const name = model["~"].names.ts!;
     const inputs = this.rows[purpose].get(name);
     if (inputs === undefined) return undefined;
     const queries = this.#queries;
-    return memo(this.#prepared[purpose], name, () =>
-      inputs.length === 1
-        ? queries.prepareSelector(model, inputs[0])
-        : queries.andSelectors(
-            model,
-            inputs.map((where) => queries.prepareSelector(model, where))
-          )
+    const prepared = memo(
+      this.#prepared[purpose],
+      `${name} ${excluded}`,
+      () => {
+        const parts: PreparedSelector[] = [];
+        for (const [layer, where] of inputs.entries()) {
+          if (where === undefined || excluded.includes(layer)) continue;
+          const part = queries.prepareSelector(model, where);
+          parts.push(
+            part.predicate === undefined
+              ? part
+              : freeze({
+                  ...part,
+                  predicate: layerOf(layer, name, part.predicate),
+                })
+          );
+        }
+        if (parts.length === 0) return null;
+        return parts.length === 1
+          ? parts[0]!
+          : queries.andSelectors(model, parts);
+      }
     );
+    return prepared ?? undefined;
   }
+}
+
+/** `predicate` as `model`'s domain predicate of `layer`. */
+function layerOf(
+  layer: number,
+  model: string,
+  predicate: PreparedPredicate
+): PreparedPredicate {
+  const conditions = new Set<Condition>();
+  callReads(predicate, new Map(), conditions);
+  return freeze({
+    kind: "layer",
+    layer,
+    model,
+    predicate,
+    conditions: freeze([...conditions]),
+    folded: new Map(),
+  });
 }
 
 /** Generated boolean sets must not inherit a provider's linear expression depth. */
@@ -1005,21 +1196,91 @@ export class Queries {
    * every path of a client without `rows`.
    */
   readonly domain: PreparedDomain | undefined;
+  /** The call whose values the domain's parameters read. */
+  readonly #call: CallScope | undefined;
+  /**
+   * The layers whose predicates are lowering here, outermost first: inside
+   * one, a relation read takes every other layer at its default (R5). On this
+   * `Queries`, so the statement keeps its one alias counter.
+   */
+  #excluded = NO_LAYERS;
   constructor(
     schema: EngineSchema,
     adapter: DatabaseAdapter,
     result?: DriverResultParser,
-    domain?: PreparedDomain
+    domain?: PreparedDomain,
+    call?: CallScope
   ) {
     this.schema = schema;
     this.adapter = adapter;
     this.#views = schema.queryViews(adapter);
     this.#result = result;
     this.domain = domain;
+    this.#call = call;
   }
-  /** This view's `Queries` reading under `domain`. */
-  under(domain: PreparedDomain): Queries {
-    return new Queries(this.schema, this.adapter, this.#result, domain);
+  /** This view's `Queries` reading under `domain`, for `call`'s values. */
+  under(domain: PreparedDomain, call?: CallScope): Queries {
+    return new Queries(this.schema, this.adapter, this.#result, domain, call);
+  }
+  /**
+   * The domain predicate a lowering-time read takes for `model`: the call's
+   * own outside every layer; inside one, the defaults' without the layers
+   * lowering.
+   */
+  #scope(model: AnyModel, purpose: RowPurpose): PreparedSelector | undefined {
+    const excluded = this.#excluded;
+    return excluded.length === 0
+      ? this.domain?.selector(model, purpose)
+      : this.domain?.defaults.selector(model, purpose, excluded);
+  }
+  /**
+   * The domain predicate a read lowering here takes for `model` and
+   * `purpose`; `undefined` where it states none, or the call drops all it
+   * states (R6), so the statement is the one without a domain.
+   */
+  domainOf(model: AnyModel, purpose: RowPurpose): PreparedSelector | undefined {
+    const scope = this.#scope(model, purpose);
+    return scope && !this.#drops(scope.predicate) ? scope : undefined;
+  }
+  get #values(): CallValues | undefined {
+    return this.#call?.rows.values;
+  }
+  /** The call's one instant: a domain that reads it lowers for its call. */
+  readonly #instant = (): Date => this.#call!.instant();
+  /**
+   * A layer's predicate for this call: its conditions folded, then R6 for
+   * the values it still reads; `undefined` where it drops.
+   */
+  #resolve(
+    node: Extract<PreparedPredicate, { kind: "layer" }>
+  ): PreparedPredicate | undefined {
+    const values = this.#values;
+    let key = "";
+    for (const condition of node.conditions)
+      key += condition.holds(values, this.#instant) ? "1" : "0";
+    let folded = node.folded.get(key);
+    if (folded === undefined) {
+      const predicate =
+        node.conditions.length === 0
+          ? node.predicate
+          : foldConditions(
+              node.predicate,
+              (condition) => key[node.conditions.indexOf(condition)] === "1"
+            );
+      const parameters = new Map<Parameter, boolean>();
+      callReads(predicate, parameters, new Set());
+      folded = { predicate, parameters: [...parameters] };
+      node.folded.set(key, folded);
+    }
+    let dropped = false;
+    for (const [parameter, spread] of folded.parameters) {
+      const value = parameter.read(values, this.#instant);
+      if (value !== undefined && (!spread || Array.isArray(value))) continue;
+      if (values?.required(parameter.control!, node.model))
+        return VACUOUS_FALSE;
+      dropped = true;
+    }
+    return dropped ? undefined : folded.predicate;
   }
   /**
    * The ONE provider continuation for a physical value of `type`, bound to
@@ -1969,7 +2230,7 @@ export class Queries {
     selector: Pick<PreparedSelector, "model" | "predicate"> | undefined,
     purpose: RowPurpose
   ): Pick<PreparedSelector, "model" | "predicate"> | undefined {
-    const scope = this.domain?.selector(model, purpose);
+    const scope = this.#scope(model, purpose);
     if (scope?.predicate === undefined) return selector;
     if (selector?.predicate === undefined) return scope;
     return freeze({
@@ -1980,13 +2241,50 @@ export class Queries {
       }),
     });
   }
+  /** `undefined` where it states nothing, or the call drops all it states. */
   lowerSelector(
     selector: Pick<PreparedSelector, "model" | "predicate">,
     alias?: string
   ): Sql | undefined {
     return selector.predicate
-      ? this.#lowerPredicate(selector.predicate, alias)
+      ? this.#lowerStated(selector.predicate, alias)
       : undefined;
+  }
+  /**
+   * `predicate` lowered; `undefined` where it is made of layers the call
+   * drops (R6), so a statement without them is the one without the domain.
+   */
+  #lowerStated(predicate: PreparedPredicate, alias?: string): Sql | undefined {
+    if (predicate.kind === "layer") {
+      const resolved = this.#resolve(predicate);
+      if (resolved === undefined) return undefined;
+      const outer = this.#excluded;
+      this.#excluded = [...outer, predicate.layer];
+      try {
+        return this.#lowerPredicate(resolved, alias);
+      } finally {
+        this.#excluded = outer;
+      }
+    }
+    if (predicate.kind !== "and") return this.#lowerPredicate(predicate, alias);
+    const members: Sql[] = [];
+    for (const member of predicate.predicates) {
+      const lowered = this.#lowerStated(member, alias);
+      if (lowered !== undefined) members.push(lowered);
+    }
+    return members.length === 0 && predicate.predicates.length > 0
+      ? undefined
+      : this.adapter.operators.and(...members);
+  }
+  /** Whether the call drops every layer `predicate` is made of (R6). */
+  #drops(predicate: PreparedPredicate | undefined): boolean {
+    if (predicate?.kind === "layer")
+      return this.#resolve(predicate) === undefined;
+    return (
+      predicate?.kind === "and" &&
+      predicate.predicates.length > 0 &&
+      predicate.predicates.every((member) => this.#drops(member))
+    );
   }
   /** An aggregate read's root filter: its `where` under the root domain. */
   lowerWhere(
@@ -2244,6 +2542,10 @@ export class Queries {
     unique = false,
     positive = true
   ): PreparedPredicate {
+    if (where instanceof Condition) {
+      if (facts) facts.exact = false;
+      return freeze({ kind: "condition", condition: where });
+    }
     return freeze({
       kind: "and",
       predicates: freeze(
@@ -2460,11 +2762,19 @@ export class Queries {
           operator,
           target,
           operands: freeze(
-            (value as unknown[]).map((member) =>
-              owner
-                ? this.#prepareOperand(owner, member)
-                : { kind: "value" as const, value: member }
-            )
+            value instanceof Parameter
+              ? [
+                  {
+                    kind: "parameter" as const,
+                    parameter: value,
+                    spread: true as const,
+                  },
+                ]
+              : (value as unknown[]).map((member) =>
+                  owner
+                    ? this.#prepareOperand(owner, member)
+                    : { kind: "value" as const, value: member }
+                )
           ),
           insensitive,
         });
@@ -2517,6 +2827,8 @@ export class Queries {
    * (`g4/perf2/receipts/micro-in-list.json`).
    */
   #prepareOperand(owner: PreparedScalar, value: unknown): PreparedOperand {
+    if (value instanceof Parameter)
+      return { kind: "parameter", parameter: value };
     if (isFieldRef(value)) {
       if (owner.physical.scalar["~"].state.type === "json")
         throw new UnsupportedOperationError(
@@ -2838,15 +3150,8 @@ export class Queries {
     // biome-ignore lint/style/useDefaultSwitchClause: the prepared predicate union is exhaustive; a default would be dead code.
     switch (predicate.kind) {
       case "and":
-        if (predicate.predicates.length === 1)
-          return a.operators.and(
-            this.#lowerPredicate(predicate.predicates[0]!, alias)
-          );
-        return a.operators.and(
-          ...predicate.predicates.map((member) =>
-            this.#lowerPredicate(member, alias)
-          )
-        );
+      case "layer":
+        return this.#lowerStated(predicate, alias) ?? a.literals.true();
       case "or":
         // A balanced tree, not a chain: SQLite parses `a OR b OR …` one
         // expression level deep per arm and refuses depth 1000 (platform-15).
@@ -2862,8 +3167,12 @@ export class Queries {
         );
       case "always":
         return predicate.value ? a.literals.true() : a.literals.false();
+      case "condition":
+        return predicate.condition.holds(this.#values, this.#instant)
+          ? a.literals.true()
+          : a.literals.false();
       case "operation":
-        return this.lowerOperation(predicate, alias);
+        return this.lowerOperation(this.#bound(predicate), alias);
       case "relation":
         return this.#lowerRelationPredicate(predicate, alias);
       case "window":
@@ -2880,6 +3189,35 @@ export class Queries {
       }
     }
   }
+  /**
+   * The operation with its parameters' values read for this call, so the
+   * value-dependent lowering reads them as any value. R6 has made each
+   * present (a spread one a list).
+   */
+  #bound(predicate: OperationPredicate): BoundOperation {
+    const { operand, operands, value, ...rest } = predicate;
+    if (
+      operand?.kind !== "parameter" &&
+      !(value instanceof Parameter) &&
+      !operands?.some((member) => member.kind === "parameter")
+    )
+      return predicate as BoundOperation;
+    const read = (parameter: Parameter) =>
+      parameter.read(this.#values, this.#instant);
+    const bound = (member: PreparedOperand): BoundOperand[] => {
+      if (member.kind !== "parameter") return [member];
+      const given = read(member.parameter);
+      return member.spread
+        ? (given as unknown[]).map((item) => ({ kind: "value", value: item }))
+        : [{ kind: "value", value: given }];
+    };
+    return {
+      ...rest,
+      ...(operand && { operand: bound(operand)[0]! }),
+      ...(operands && { operands: operands.flatMap(bound) }),
+      value: value instanceof Parameter ? read(value) : value,
+    };
+  }
   #preparedColumn(scalar: PreparedScalar, alias?: string): Sql {
     return alias
       ? this.adapter.identifiers.column(alias, scalar.physical.name)
@@ -2890,10 +3228,7 @@ export class Queries {
       ? this.#preparedColumn(target.scalar, alias)
       : this.#aggregateExpression(target.aggregate, target.scalar, alias);
   }
-  private lowerOperation(
-    predicate: Extract<PreparedPredicate, { kind: "operation" }>,
-    alias?: string
-  ): Sql {
+  private lowerOperation(predicate: BoundOperation, alias?: string): Sql {
     const a = this.adapter;
     const { operator, target, operand } = predicate;
     const scalar = target.scalar;
@@ -2956,13 +3291,13 @@ export class Queries {
      * admission (`validation/scalars/enum.ts`), so equality — and the `not`
      * that negates it — is the whole reach of this fact.
      */
-    const spelledAsText = (member: PreparedOperand): boolean =>
+    const spelledAsText = (member: BoundOperand): boolean =>
       state?.type === "enum" && member.kind === "field";
-    const comparableColumn = (member: PreparedOperand): Sql =>
+    const comparableColumn = (member: BoundOperand): Sql =>
       exact(
         spelledAsText(member) ? a.expressions.cast(column, "text") : column
       );
-    const bind = (member: PreparedOperand, fold = false): Sql => {
+    const bind = (member: BoundOperand, fold = false): Sql => {
       if (member.kind === "field") {
         const reference = this.#preparedColumn(member.scalar, alias);
         const comparable = spelledAsText(member)
@@ -3051,7 +3386,7 @@ export class Queries {
    * first query that compares by equality never compiles them.
    */
   #lowerOtherOperation(
-    predicate: Extract<PreparedPredicate, { kind: "operation" }>,
+    predicate: BoundOperation,
     {
       column,
       folded,
@@ -3066,7 +3401,7 @@ export class Queries {
       insensitive: boolean;
       text: boolean;
       exact: (expression: Sql) => Sql;
-      bind: (member: PreparedOperand, fold?: boolean) => Sql;
+      bind: (member: BoundOperand, fold?: boolean) => Sql;
       state: ScalarStateOf | undefined;
     }
   ): Sql {
@@ -3286,10 +3621,7 @@ export class Queries {
    * which has no column domain. A path with a null sentinel is refused at
    * admission (`pathSentinelRefusal`, validation/scalars/json.ts).
    */
-  #lowerJsonOperation(
-    predicate: Extract<PreparedPredicate, { kind: "operation" }>,
-    column: Sql
-  ): Sql {
+  #lowerJsonOperation(predicate: BoundOperation, column: Sql): Sql {
     const a = this.adapter;
     const path = [
       ...(predicate.target.kind === "column"
@@ -3546,7 +3878,7 @@ export class Queries {
    * order term and an upward recursion read a hidden target as an absent one.
    */
   #related(edge: Membership, target: string, member: Sql): Sql {
-    const domain = this.domain?.selector(edge.target, "related");
+    const domain = this.domainOf(edge.target, "related");
     if (domain === undefined) return member;
     return this.adapter.operators.and(
       member,
@@ -3977,7 +4309,7 @@ export class Queries {
     const identity = this.#identityEntries(model, cursor);
     const sourceAlias = this.alias();
     // The anchor is a candidate like any other: a hidden one is a missing one.
-    const scope = purpose && this.domain?.selector(model, purpose);
+    const scope = purpose && this.domainOf(model, purpose);
     const where = a.operators.and(
       ...(scope ? [this.lowerSelector(scope, sourceAlias)!] : []),
       ...Object.entries(identity).map(([field, value]) => {
@@ -5126,7 +5458,7 @@ export class Queries {
    */
   #missingArm(edge: Membership, parentAlias: string): Sql {
     const a = this.adapter;
-    if (this.domain?.selector(edge.target, "related") === undefined)
+    if (this.domainOf(edge.target, "related") === undefined)
       return a.json.object([]);
     const target = this.alias();
     return a.expressions.caseWhen(

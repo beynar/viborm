@@ -48,6 +48,19 @@ Apply `defaultOmit()` and any other extension that declares `rows` before
 `softDelete()`: the `restore` methods it adds are model methods, and neither
 may follow those. The [cache](#caching) can go on either side.
 
+When a `rows` extension must come after soft delete's own (one whose filters
+should see only live rows), apply soft delete's two steps apart:
+`softDelete(config).rows` declares its controls, `rows` and `deletion`, and
+`softDelete(config).methods` adds `restore` to the client it is given. Every
+`rows` step goes first:
+
+```ts
+const tombstones = softDelete({ models: { post: { deletedAt: "deletedAt" } } });
+const db = tombstones.methods(tombstones.rows(base).$extends(tenancy));
+```
+
+`softDelete(config)(base)` is `tombstones.methods(tombstones.rows(base))`.
+
 ## Configuration
 
 | Option | Meaning |

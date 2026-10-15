@@ -467,7 +467,13 @@ export class PendingOperation<T>
       const admission =
         placed.length === 0
           ? undefined
-          : admitControls(this.#modelName, this.#operation, this.#args, placed);
+          : admitControls(
+              this.#modelName,
+              this.#operation,
+              this.#args,
+              placed,
+              this.#engine.bound
+            );
       const args = preparation.prepare(
         admission?.args ?? this.#args,
         admission?.controls

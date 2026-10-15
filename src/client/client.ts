@@ -21,6 +21,7 @@ import {
   lookupResolvedExtensionHandlers,
   type ResolvedExtensionChain,
 } from "@extensions/chain";
+import { bindControls } from "@extensions/controls";
 import type {
   ClientExtension,
   ContextualExtensionDefinition,
@@ -30,10 +31,10 @@ import type {
 } from "@extensions/definition";
 import {
   type AccumulatedExtensionState,
-  type BoundExtensionMethods,
   bindExtensionMethods,
   type EmptyClientExtensionState,
   type EnableExtensionCache,
+  type ExtensionMethods,
   type ExtensionModelClient,
   type ExtensionStateConstraint,
   type ExtensionStateContributionOf,
@@ -141,25 +142,25 @@ function createModelProxy<S extends Schema, R>(
     operation: Operations;
     args: unknown;
   }) => R,
-  modelMethods?: Readonly<
-    Record<string, Readonly<Record<string, CallableFunction>>>
-  >,
+  modelMethods?: ExtensionMethods["model"],
   path: string[] = []
 ): unknown {
+  // A model's own methods, read (and their factories invoked) only once the
+  // model itself is.
+  const methods = path.length === 1 ? modelMethods?.(path[0]!) : undefined;
   const members = new Set(
     path.length === 0
       ? Object.keys(schema)
       : path.length === 1
-        ? [...ROUTED_OPERATIONS, ...Object.keys(modelMethods?.[path[0]!] ?? {})]
+        ? [...ROUTED_OPERATIONS, ...Object.keys(methods ?? {})]
         : []
   );
   const children = new Map<string, unknown>();
   const readMember = (key: string | symbol): unknown => {
     if (typeof key !== "string" || key === "then" || !members.has(key))
       return undefined;
-    if (path.length === 1) {
-      const method = modelMethods?.[path[0]!]?.[key];
-      if (method) return method;
+    if (methods !== undefined && Object.hasOwn(methods, key)) {
+      return methods[key];
     }
     let child = children.get(key);
     if (child === undefined) {
@@ -535,6 +536,8 @@ export class VibORM<C extends VibORMConfig> {
   readonly #schema: ClientSchema<C>;
   readonly #engine: QueryEngine;
   readonly #relations: ResolvedRelationIndex;
+  /** The schema's validation schemas, which also admit `rows` predicates. */
+  readonly #registry: PreparedSchema["schemaRegistry"];
   /** One resolved declarative omit per authenticated capability on this client. */
   #extensionOmitResolvers:
     | WeakMap<object, Readonly<{ resolver: ClientOmitResolver | undefined }>>
@@ -550,6 +553,7 @@ export class VibORM<C extends VibORMConfig> {
   constructor(config: C, { relations, schemaRegistry }: PreparedSchema) {
     this.#schema = config.schema as ClientSchema<C>;
     this.#relations = relations;
+    this.#registry = schemaRegistry;
 
     // The Raptor 3 route is the ONE operation owner (C-01). The two resolved
     // views above travel to it by identity, so the route's engine hydrates,
@@ -569,7 +573,7 @@ export class VibORM<C extends VibORMConfig> {
    */
   #createClient(
     engine: QueryEngine,
-    modelMethods: BoundExtensionMethods["models"] | undefined,
+    modelMethods: ExtensionMethods["model"] | undefined,
     clientOmit: ClientOmitResolver | undefined
   ): Client<C> {
     return createModelProxy(
@@ -793,27 +797,25 @@ export class VibORM<C extends VibORMConfig> {
    * The one get-trap ladder of every concrete view: the root client, an
    * interactive transaction's `tx`, and the scope each extension factory sees.
    * Every utility member is `$`-named or a symbol and a model name never is, so
-   * model access is answered first. `extra` adds the root-only utilities.
+   * model access is answered first. `extra` adds the root-only utilities, or
+   * a scope's `$bind`. No client method takes a core name, so client methods
+   * (and their factories) are read only for a member core does not answer.
    */
   #createViewProxy<V>(
     engine: QueryEngine,
     clientOmit: ClientOmitResolver | undefined,
     transaction: CallableFunction,
-    clientMethods: BoundExtensionMethods["client"] | undefined,
-    modelMethods: BoundExtensionMethods["models"] | undefined,
+    methods: ExtensionMethods | undefined,
     extra?: (prop: string | symbol) => unknown
   ): V {
     // Raw SQL rides this view's engine: inside an interactive transaction it
     // shares the transaction's connection and rolls back with it. The surface
     // is built on first `$queryRaw`-family access.
     let rawSurface: RawSurface | undefined;
-    return new Proxy(this.#createClient(engine, modelMethods, clientOmit), {
+    return new Proxy(this.#createClient(engine, methods?.model, clientOmit), {
       get: (target, prop) => {
-        if (typeof prop === "string") {
-          if (!prop.startsWith("$")) return Reflect.get(target, prop);
-          if (clientMethods && Object.hasOwn(clientMethods, prop)) {
-            return clientMethods[prop];
-          }
+        if (typeof prop === "string" && !prop.startsWith("$")) {
+          return Reflect.get(target, prop);
         }
         if (prop === "$schema") return this.#schema;
         if (prop === "$transaction") return transaction;
@@ -822,20 +824,30 @@ export class VibORM<C extends VibORMConfig> {
           return rawSurface[prop];
         }
         const member = extra?.(prop);
+        if (member !== undefined || typeof prop !== "string") return member;
+        const client = methods?.client();
+        if (client !== undefined && Object.hasOwn(client, prop)) {
+          return client[prop];
+        }
         // A `$`-named model is still reachable; anything else is absent.
-        return member === undefined &&
-          typeof prop === "string" &&
-          Object.hasOwn(this.#schema, prop)
+        return Object.hasOwn(this.#schema, prop)
           ? Reflect.get(target, prop)
-          : member;
+          : undefined;
       },
     }) as V;
   }
 
-  /** Build one concrete view over one engine scope and its extension chain. */
+  /**
+   * Build one concrete view over one engine scope and its extension chain.
+   * Each factory scope's `$bind` returns `rebuild` of this engine with the
+   * values bound: a view of this view's kind. `eager` invokes every factory
+   * now; otherwise each runs when a method it returns is first read.
+   */
   #createView<V>(
     engine: QueryEngine,
     clientOmit: ClientOmitResolver | undefined,
+    rebuild: (engine: QueryEngine) => unknown,
+    eager: boolean,
     extra?: (prop: string | symbol) => unknown
   ): V {
     const transaction = (
@@ -845,21 +857,34 @@ export class VibORM<C extends VibORMConfig> {
     const chain = engine.extensionChain;
     const methods =
       chain &&
-      bindExtensionMethods(chain, (clientMethods, modelMethods) =>
+      bindExtensionMethods(chain, (prior, extension) =>
         this.#createViewProxy<object>(
           engine,
           clientOmit,
           transaction,
-          clientMethods,
-          modelMethods
+          prior,
+          (prop) =>
+            prop === "$bind"
+              ? (values: Readonly<Record<string, unknown>>) =>
+                  rebuild(
+                    engine.withBound(
+                      bindControls(
+                        chain.controls?.all ?? [],
+                        extension,
+                        values,
+                        engine.bound
+                      )
+                    )
+                  )
+              : undefined
         )
       );
+    if (eager) methods?.force();
     return this.#createViewProxy<V>(
       engine,
       clientOmit,
       transaction,
-      methods?.client,
-      methods?.models,
+      methods,
       extra
     );
   }
@@ -901,10 +926,12 @@ export class VibORM<C extends VibORMConfig> {
         (chain?.observe.length ?? 0) > 0
           ? new TransactionWriteOutcomes()
           : undefined;
+      const view = (
+        bound: QueryEngine
+      ): TransactionClient<C, ExtensionStateConstraint> =>
+        this.#createView(bound, clientOmit, view, false);
       const body = async (txDriver: AnyDriver) =>
-        input(
-          this.#createView(engine.bind(txDriver, chain, outcomes), clientOmit)
-        );
+        input(view(engine.bind(txDriver, chain, outcomes)));
       return outcomes
         ? runOutcomeTransaction(
             engine.driver,
@@ -928,7 +955,7 @@ export class VibORM<C extends VibORMConfig> {
   #createRootView<
     X extends ExtensionStateConstraint,
     ViewConfig extends VibORMConfig = C,
-  >(engine: QueryEngine): VibORMClient<ViewConfig, X> {
+  >(engine: QueryEngine, eager = true): VibORMClient<ViewConfig, X> {
     const chain = engine.extensionChain;
     const clientOmit =
       chain === undefined ? undefined : this.#resolveClientOmit(chain);
@@ -939,14 +966,18 @@ export class VibORM<C extends VibORMConfig> {
         createOperationExecutionContext("$connection", "$disconnect", chain)
       );
 
-    return this.#createView(engine, clientOmit, (prop) => {
+    // A root view `$extends` returns invokes every factory, where an
+    // extension's faults belong; a view `$bind` derives, only those it uses.
+    const rebind = (bound: QueryEngine) => this.#createRootView(bound, false);
+    return this.#createView(engine, clientOmit, rebind, eager, (prop) => {
       if (prop === "$driver") return engine.driver;
       if (prop === "$extends") {
         return (extension: ClientExtension) => {
           const extensionChain = appendResolvedExtension(
             chain,
             extension,
-            this.#schema
+            this.#schema,
+            this.#registry
           );
           // The one point that holds both the resolved chain and the concrete
           // driver, so the one point that can partition the official cache by

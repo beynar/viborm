@@ -14,7 +14,11 @@ import {
   returningSafeProjection,
   type SelectorFacts,
 } from "../shared/query";
-import type { ModelStamps, RowPurpose } from "../shared/row-scope";
+import {
+  type ModelStamps,
+  Parameter,
+  type RowPurpose,
+} from "../shared/row-scope";
 import { type Arguments, entries, type Input, record } from "../shared/schema";
 import { type Membership, physicalField } from "../shared/storage";
 import {
@@ -500,9 +504,11 @@ export class Commands {
         written.add(foreignField);
     }
     const kept: Input = {};
-    for (const field of Object.keys(stamp))
+    for (const [field, value] of Object.entries(stamp))
       if (raw[field] === undefined && !written.has(field))
-        kept[field] = stamp[field];
+        // `{ now: true }` writes the call's one instant (R7).
+        kept[field] =
+          value instanceof Parameter ? this.context.scope!.instant() : value;
     // A create's stamps are admitted as a create admits them: a field only a
     // create takes (an insert-only timestamp) is no update field.
     const values =

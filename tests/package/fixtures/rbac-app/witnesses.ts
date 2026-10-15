@@ -35,6 +35,44 @@ const NODE_SQL: readonly Substrate[] = ["S3", "PGl", "PG", "My"];
 
 type Row = readonly [id: string, pins: string, reads: OracleReading];
 
+/** The domain-predicate witnesses' runner (SQLite3; PGlite, pg, MySQL2 beside). */
+const DOMAIN_PREDICATES = "tests/raptor3/post-prep/row-scopes.test.ts";
+
+/** The bound-view witnesses' runner (SQLite3, oracle-bound). */
+const BOUND_VIEWS =
+  "tests/contracts/public-client/extension-bound-views.core.test.ts";
+
+/** The composition witnesses' runner (SQLite3). */
+const COMPOSITION =
+  "tests/contracts/public-client/extension-composition.core.test.ts";
+
+/** Each landed case, with the test file that executes it. */
+const LANDED: Readonly<Record<string, string>> = {
+  "W-K1a": DOMAIN_PREDICATES,
+  "W-K1b": DOMAIN_PREDICATES,
+  "W-K1c": DOMAIN_PREDICATES,
+  "W-K1d": DOMAIN_PREDICATES,
+  "W-K1e": DOMAIN_PREDICATES,
+  "W-K1f": DOMAIN_PREDICATES,
+  "W-K1g": DOMAIN_PREDICATES,
+  "W-K2a": DOMAIN_PREDICATES,
+  "W-K2b": DOMAIN_PREDICATES,
+  "W-K2c": DOMAIN_PREDICATES,
+  "W-K2d": DOMAIN_PREDICATES,
+  "W-K2e": DOMAIN_PREDICATES,
+  "W-K2f": "tests/providers/workers/d1-rbac-app.test.ts",
+  "W-K2g": DOMAIN_PREDICATES,
+  "W-AS1": BOUND_VIEWS,
+  "W-AS2": BOUND_VIEWS,
+  "W-AS3": BOUND_VIEWS,
+  "W-AS4": BOUND_VIEWS,
+  "W-AS5": BOUND_VIEWS,
+  "W-AS6": BOUND_VIEWS,
+  "W-AS7": BOUND_VIEWS,
+  "W-C5": COMPOSITION,
+  "W-C8": COMPOSITION,
+};
+
 function family(
   contract: string,
   unit: string,
@@ -48,7 +86,9 @@ function family(
     reads,
     substrates,
     unit,
-    status: "pending",
+    ...(LANDED[id] === undefined
+      ? { status: "pending" as const }
+      : { status: "landed" as const, test: LANDED[id] }),
   }));
 }
 

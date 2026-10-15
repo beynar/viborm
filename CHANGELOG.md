@@ -3,6 +3,90 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## Unreleased
+
+The extension capabilities the RBAC extension (`viborm/rbac`, not yet
+published) is built on: `rows` predicates that traverse relations, values a
+call supplies as plan parameters, controls bound to a client, and
+extensions that compose by order. Nothing here names a role, a grant or an
+action.
+
+### Added
+
+- **`rows` predicates may go through relations.** A predicate is any
+  `where` of its model, `some`/`every`/`none`/`is` and `recurse` included,
+  admitted once at `$extends` through that model's `where` schema. Inside a
+  predicate's own relation reads, every other extension's filters apply at
+  their default mode and its own extension's do not, so a cycle of filters
+  terminates and no per-call mode widens what a filter reads. A `recurse`
+  in a predicate must write its `depth` (`false` for the whole closure); the
+  16-level nesting bound on a caller's `where` does not apply to them.
+- **Values a call supplies, by marker.** In a `rows` predicate,
+  `{ control, path }` reads a field of an object control, `{ now: true }` is
+  the call's one instant (the one a tombstone writes), and
+  `{ $if: { control, path?, exists | equals | in | has | hasSome } }` tests a
+  call value without a column: a false test removes its arm. `data` stamps
+  take `{ control, path }` and `{ now: true }` too.
+- **Controls bound to a client.** A control can be declared `bound: true`:
+  no call's arguments are read for it, and only a binding supplies it. A
+  client factory's scope has `$bind(values)`, which admits the calling
+  extension's own controls once and returns the receiving client with them
+  bound; interactive transactions and their savepoints, array-transaction
+  members, a client `$extends` derives and cached-read keys keep the values.
+- **References to an earlier extension's controls.** A `rows` predicate or a
+  `data` stamp may name a control an extension applied before it declares
+  (an audit stamp can take another extension's actor).
+- **`softDelete(config).rows` and `.methods`**, its two steps apart, so a
+  chain can apply every `rows` step before any methods step.
+- **Equal values bind once over a driver's bind budget.** A statement over
+  its driver's budget is sent with numbered placeholders (`?NNN`, `$n`), each
+  distinct value bound once, so D1 runs statements of up to 100 distinct
+  values: a plain `include` read on D1 that bound 125-131 values was refused,
+  and runs. MySQL and better-sqlite3 (`viborm/sqlite3`), whose transports do
+  not number placeholders, keep refusing such a statement whole.
+
+### Changed
+
+- **A `rows` predicate is admitted at `$extends`.** A misspelt key anywhere
+  inside it is a `ClientInitializationError` naming the extension, the
+  model, the mode, the purpose and the path. **Upgrade:** a definition that
+  carried a misspelt nested key used to fail at the first query that read
+  it; it now fails where it is applied.
+- **A `rows` value is always a value.** An object control value is no longer
+  read as filter operators (a tenant of `{ not: "acme" }` matched every
+  other tenant's rows); read a field of it with `path`.
+- **A `null` control value is a missing value in a `rows` predicate:** it
+  never compares as `IS NULL` (an actor with `userId: null` matched every
+  orphaned row). A required control's missing value matches nothing; an
+  optional one drops its filter, as before. **Upgrade:** to filter on
+  `IS NULL`, write the literal `null` in the predicate.
+- **Each `rows` predicate is prepared once for every call.** The 256-entry
+  memo of prepared modes and values is gone: no tenant, version or actor
+  takes room or pushes another out.
+- **A control name declared twice in a chain is refused at `$extends`**
+  with a `ClientInitializationError` naming both extensions, a second
+  extension's, a reused `rows.control` and a `rows.control` repeating the
+  definition's own controls alike. **Upgrade:** such a chain used to be
+  accepted and refused every call that passed either value.
+- **A reference to a control no earlier extension declares is refused at
+  `$extends`**, by the chain; a definition read on its own no longer checks
+  its references.
+- **Views other than the client `$extends` returns run method factories
+  lazily**: an interactive transaction's `tx` and a client `$bind` returns
+  run a model's factories when that model is first read, client factories
+  when a client method is. **Upgrade:** a factory that throws now fails at
+  that first read inside the transaction, not at `$transaction`.
+
+### Fixed
+
+- **`deleted: "with"` and `scope: "all"` no longer widen a `rows`
+  predicate's relation reads.** A predicate that reached its rows through a
+  relation counted a tombstoned row, or another tenant's, when the call
+  passed the wider mode.
+- **A `rows` predicate whose relations form a cycle** (a model's filter
+  through a relation back to itself, or two extensions' filters through each
+  other) threw a `RangeError` at the first read; it now terminates.
+
 ## 1.2.4 — 2026-10-13
 
 Fixes from a third-party review of 1.2.2 and 1.2.3: an ambiguous retry no

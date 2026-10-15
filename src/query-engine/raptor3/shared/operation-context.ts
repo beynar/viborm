@@ -441,7 +441,8 @@ export class OperationContext {
       schema,
       this.driver.adapter,
       this.driver.result,
-      scope?.domain
+      scope?.domain,
+      scope
     );
   }
   get attribution(): QueryExecutionContext {
@@ -3456,7 +3457,7 @@ export class OperationContext {
     const q = this.queries;
     // A removal takes related rows, as its lookups do: a member the call
     // cannot see keeps its link.
-    const domain = q.domain?.selector(edge.target, "related");
+    const domain = q.domainOf(edge.target, "related");
     if (edge.kind === "junction") {
       const conditions: Sql[] = [];
       for (const [side, values] of [

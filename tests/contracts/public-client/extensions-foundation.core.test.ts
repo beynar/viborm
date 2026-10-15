@@ -528,6 +528,9 @@ describe("client extension foundation", () => {
     expect(withMethods.observe).toBe(withHandlers.observe);
   });
 
+  // A root view `$extends` returns runs every factory at once, where an
+  // extension's faults belong; a transaction view runs each on first use of
+  // what it returns, so a view costs the factories it uses (RBAC plan K6(d)).
   it("runs factories once for each concrete root and transaction view", async () => {
     const base = baseClient();
     let clientRuns = 0;
@@ -559,14 +562,15 @@ describe("client extension foundation", () => {
     expect(derived.$activeScope()).toBe(derived.item.activeScope());
 
     await derived.$transaction(async (tx) => {
-      expect([clientRuns, modelRuns]).toEqual([2, 2]);
+      expect([clientRuns, modelRuns]).toEqual([1, 1]);
       expect(tx.$activeScope()).toBe(tx.item.activeScope());
+      expect([clientRuns, modelRuns]).toEqual([2, 2]);
       await expect(
         tx.$transaction([tx.$capturedRoot()])
       ).rejects.toBeInstanceOf(PendingOperationError);
       await tx.$transaction(async (nested) => {
-        expect([clientRuns, modelRuns]).toEqual([3, 3]);
         expect(nested.$activeScope()).toBe(nested.item.activeScope());
+        expect([clientRuns, modelRuns]).toEqual([3, 3]);
       });
     });
   });

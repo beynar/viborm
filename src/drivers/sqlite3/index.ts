@@ -143,6 +143,8 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
   readonly result: DriverResultParser = sqliteResultParser;
   readonly sqliteMigrationCapability = SQLITE_MIGRATION_CAPABILITY;
   protected override readonly serializeTransactions = true;
+  /** better-sqlite3 reads `?NNN` as a name, never by position. */
+  protected override readonly numbersPlaceholders = false;
 
   private readonly driverOptions: SQLite3DriverOptions;
   /**

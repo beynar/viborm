@@ -251,27 +251,35 @@ non-raw statements retain their shallow parameter-copy path because typed input
 was validated upstream and statement transforms are trusted.
 
 Generic extension ownership is exact: `src/extensions/definition.ts` owns the
-public envelope and hostile-definition boundary. `controls`, `rows`, `deletion`
-and `data` are trusted definitions: bound as written, neither copied nor
-checked against the receiving schema (only a call's values are admitted);
+public envelope and hostile-definition boundary. `controls`, `deletion` and
+`data` are trusted definitions bound as written, their model and field names
+checked against the receiving schema; each `rows` predicate is admitted once,
+when it is applied, through its model's `where` schema (`admission.ts`: the
+values a call supplies become parameters, a `recurse` writes its depth, a
+caller's nesting bound does not apply), and a call's values are read when its
+statement is built;
 `chain.ts` owns the one resolved chain,
-handler lookup, the chain's one control name space and placed controls, one
-`deletion` entry per model, and the order guard (`rows` after a result consumer
-is refused); `controls.ts` owns control placement, the call's one admission
-(taken out of the arguments before request transforms, validated once, handed
-only to the declaring extension's handlers) and the control types the model
+handler lookup, the chain's one control name space (one declaration per
+control name; a definition's references to an earlier extension's controls)
+and placed controls, one `deletion` entry per model, and the order guard
+(`rows` after a result consumer is refused); `controls.ts` owns control
+placement, the call's one admission (taken out of the arguments before
+request transforms, validated once, handed only to the declaring extension's
+handlers; `bound` controls only from a view's `$bind`) and the control types the model
 delegate reads from the extension state, beside the models a chain's `rows`
 name, from which `src/client/result-types.ts` types a to-one relation that
 can read hidden as `| null`; `rows.ts` binds, once per
 application, each mode combination's row domains, tombstones and the row
 identity a cached read is keyed on, so a call only looks its facts up;
-`methods.ts` owns client/model factories and collisions; `request.ts`,
+`methods.ts` owns client/model factories (lazy per view, eager on the
+client `$extends` returns) and collisions; `request.ts`,
 `query.ts`, `statement.ts`, and `observation.ts` each own their capability
 contract and single runner; `array-admission.ts` owns only the extension
 admission latch; and `index.ts` is the intentional surface. The pending
 operation owns the admission record; Raptor 3 receives only the resolved call
-facts (`shared/row-scope.ts`: domains by purpose, tombstones, one instant) and
-never a control, mode or extension name (see `src/query-engine/raptor3/AGENTS.md`,
+facts (`shared/row-scope.ts`: domains by purpose, tombstones, one instant, and
+the call's values its domains' parameters read by control name) and never a
+mode or an extension name (see `src/query-engine/raptor3/AGENTS.md`,
 row domains and tombstones). Core
 array dispatch and the lifecycle facts known only by client, query-engine,
 executor, cache, and driver composition roots remain with those roots.
@@ -290,9 +298,12 @@ through the public capabilities is a capability to add, not a friend import.
 The cache's mutation `cache` argument is a declared control on writes.
 Cached values are detached/fresh and custom keys are canonical-key suffixes;
 cached reads bypass callback/array transactions, raw calls, and statement-
-transform chains. Omit is presentation, not authorization. The extension
-foundation ships no RBAC helper; complete policy still needs graph-wide
-semantic ownership.
+transform chains. Omit is presentation, not authorization. A `rows`
+predicate may traverse relations: inside its own traversals every other
+layer reads at its default and never its own (`PreparedDomain.defaults`, the
+`Queries` exclusion stack), so no per-call mode widens what it reads. The
+extension foundation ships no RBAC helper yet; deciding which rows a caller
+may name stays the application's until `viborm/rbac` lands.
 
 `cache()` produces a namespace-free DEFINITION; the client composition root
 binds it to the concrete driver, deriving one scope from the private snapshot

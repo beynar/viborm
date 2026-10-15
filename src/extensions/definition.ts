@@ -4,8 +4,10 @@ import type { Operations, Schema } from "@client/types";
 import type { AnyDriver } from "@drivers/exports";
 import { ClientInitializationError } from "@errors";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
+import type { SchemaRegistryLookup } from "@validation/types";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { errorCause } from "../errors/diagnostic-safety";
+import { admitRows } from "./admission";
 import type {
   ControlsContribution,
   DataContribution,
@@ -34,15 +36,15 @@ import type {
   RequestHandlerMap,
   RuntimeRequestContribution,
 } from "./request";
-import { undeclaredControlReferencesOf } from "./rows";
 import type { StatementHandler } from "./statement";
 
 type RuntimeExtensionFunction = (...args: never[]) => unknown;
 
 /**
  * One extension definition as the chain binds it: a host-owned frozen
- * snapshot of the six handler members, and `controls`, `rows`, `deletion`
- * and `data` as the definition wrote them.
+ * snapshot of the six handler members, `rows` as admission left it (against
+ * a schema), and `controls`, `deletion` and `data` as the definition wrote
+ * them.
  */
 export interface RuntimeExtensionDefinition {
   readonly name: string;
@@ -286,17 +288,9 @@ function validateNamedPolicies(
           `Extension "${name}" ${component}.${modelName} must be an object.`,
           name
         );
-      const fields = (input: unknown, where = false, depth = 0): void => {
-        if (depth > 16)
-          extensionError(
-            `Extension "${name}" row predicate exceeds nesting limit.`,
-            name
-          );
+      // A row predicate's fields are its admission's (`admission.ts`).
+      const fields = (input: unknown): void => {
         if (input === undefined) return;
-        if (Array.isArray(input) && where) {
-          for (const member of input) fields(member, true, depth + 1);
-          return;
-        }
         if (!isRecord(input))
           extensionError(
             `Extension "${name}" ${component}.${modelName} fields must be an object.`,
@@ -304,20 +298,8 @@ function validateNamedPolicies(
           );
         for (const key of readOwnKeys(input, name)) {
           if (
-            where &&
-            typeof key === "string" &&
-            !Object.hasOwn(model["~"].state.shape, key) &&
-            (key === "AND" || key === "OR" || key === "NOT")
-          ) {
-            fields(readOwn(input, key, name), true, depth + 1);
-            continue;
-          }
-          if (
             typeof key !== "string" ||
-            !Object.hasOwn(
-              where ? model["~"].state.shape : model["~"].state.scalars,
-              key
-            )
+            !Object.hasOwn(model["~"].state.scalars, key)
           )
             extensionError(
               `Extension "${name}" ${component}.${modelName} names unknown field "${String(key)}".`,
@@ -354,8 +336,6 @@ function validateNamedPolicies(
               `Extension "${name}" row mode must be an object.`,
               name
             );
-          fields(readOwn(mode, "root", name), true);
-          fields(readOwn(mode, "related", name), true);
         }
       } else if (component === "data") {
         fields(readOwn(entry, "create", name));
@@ -380,12 +360,14 @@ function validateNamedPolicies(
 /**
  * Read a caller-owned definition once. The six handler members are validated
  * and frozen as host-owned snapshots, so a failed application cannot mutate
- * the supplied value; `controls`, `rows`, `deletion` and `data` are bound as
- * written.
+ * the supplied value; against a schema, every `rows` predicate is admitted
+ * through its model's `where` schema; `controls`, `deletion` and `data` are
+ * bound as written.
  */
 export function normalizeExtensionDefinition(
   value: ExtensionDefinitionInput,
-  schema?: Schema
+  schema?: Schema,
+  registry?: SchemaRegistryLookup<Schema>
 ): RuntimeExtensionDefinition {
   if (!isRecord(value)) {
     extensionError("Client extension must be an object.");
@@ -450,10 +432,14 @@ export function normalizeExtensionDefinition(
     rawModel === undefined
       ? undefined
       : snapshotModelFactories(rawModel, name, schema);
-  const { controls, rows, deletion, data } = value;
-  validateNamedPolicies({ rows, deletion, data }, schema, name);
+  const { controls, deletion, data } = value;
+  validateNamedPolicies({ rows: value.rows, deletion, data }, schema, name);
+  const rows =
+    schema && value.rows
+      ? admitRows(value.rows, schema, name, registry)
+      : value.rows;
 
-  const normalized = Object.freeze({
+  return Object.freeze({
     name,
     ...(request ? { request } : {}),
     ...(query ? { query } : {}),
@@ -466,12 +452,6 @@ export function normalizeExtensionDefinition(
     ...(deletion ? { deletion } : {}),
     ...(data ? { data } : {}),
   });
-  for (const control of undeclaredControlReferencesOf(normalized, schema))
-    extensionError(
-      `Extension "${name}" references undeclared control "${control}".`,
-      name
-    );
-  return normalized;
 }
 
 type ExtensionConfig<S extends Schema> = {

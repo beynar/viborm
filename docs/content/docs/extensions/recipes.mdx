@@ -214,29 +214,23 @@ await db.post.update({ where: { id }, data, expectedVersion: 3 }); // NotFoundEr
   fields and relations are the same as a named model's, is treated like it
   in a nested create. There the editor lets you leave the field out, and
   the call is refused as missing when it runs.
-- **Each tenant is prepared once.** A client keeps up to 256 prepared modes
-  and values; past that, the oldest is prepared again when it comes back,
-  which is slower but gives the same answer. Tenancy with both modes in use
-  keeps 128 tenants. Values that only `data` uses, such as `actor`, take no
-  room. A value a `rows` filter names does take room: on a client with the
-  optimistic lock, each update or delete that passes a new `expectedVersion`
-  takes an entry, so steady writes push tenants out. To keep the tenants,
-  apply the lock on a client of its own, such as
-  `const locked = db.$extends(optimisticLock([...]))`, and send the locked
-  writes there: `db` keeps its own 256 entries, and the lock's versions
-  never take them.
+- **Every tenant shares one prepared filter.** A filter's values are read
+  when each statement is built, so tenants, the lock's versions and audit's
+  actors take no room and never push one another out.
 - **Cached reads are keyed on the value**, so two tenants never share a
   cache entry.
 - **Combine them freely.** Apply them in any order, before any extension
   that adds model-mapped `query` handlers or `client`/`model` methods. When
-  two extensions write the same field, the one applied later wins.
+  two extensions write the same field, the one applied later wins. Their
+  control names differ; two extensions that declare one name are refused
+  where the second is applied, and one that names a control an earlier one
+  declares reads that one's value.
 
 ## Not covered
 
 - Raw SQL (`$queryRaw`, `$executeRaw` and the unsafe forms) and statement
   transforms are neither filtered nor stamped.
-- A filter compares a field with a value the call passed, nothing more: no
-  value computed from another, no filter through a relation, no control of
-  another extension.
+- A filter compares fields, through relations if it says so, with constants
+  and the values the call passed: no value is computed from another.
 - None of this is authorization. A filter keeps a call inside the rows it
   names; deciding what a caller may name stays in your server.

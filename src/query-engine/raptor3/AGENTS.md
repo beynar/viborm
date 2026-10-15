@@ -64,9 +64,15 @@ Junction capture stores the exact membership pair, not a synthetic row lookup.
 of a client with `rows` carries its facts (`CallScope`, `shared/row-scope.ts`):
 the domain its controls chose and the default one, each a `PreparedDomain`
 prepared at most once per engine view, model and purpose. A `Queries` is scoped
-to one domain: reads get the one `PreparedDomain.reads` owns (built on first
-use, living as long as the domain), write contexts one per call, sharing the
-prepared domain. The RELATED domain
+to one domain: reads get `PreparedDomain.reads(call)`: the domain's one read
+view (built on first use, living as long as the domain), or the call's own
+when the call carries values; each layer's predicate is a `layer` node that
+folds the call's conditions and resolves an absent value (`null` included)
+by its control's `required`, and inside it
+the lowering-time read sites (`#within`, `#related`, the cursor anchor,
+`#missingArm`, `remove`, through `domainOf`) read `PreparedDomain.defaults`
+without the layers on the `Queries` exclusion stack. Write contexts are one
+per call, sharing the prepared domain. The RELATED domain
 enters only in `correlation()`, outside every quantifier's negation, on every
 edge (milestone 2): to-many and to-one projections, polymorphic arms,
 `is`/`isNot`, relation order terms and recursion; the ROOT domain enters where a lookup names
@@ -90,7 +96,8 @@ records the domain's fields among its dependency facts, as a to-many one does.
 convergence and a hidden conflict's rethrow behave as without a domain, and
 marks the selector `scoped`, so the two consumers that trust the key alone —
 the RETURNING confirmation fast path and the targeted `ON CONFLICT` fold —
-decline. The engine never sees a control, a mode or an extension's name.
+decline. The engine never sees a mode or an extension's name; a control's
+name only as the key a parameter reads its call value under (`CallValues`).
 
 *Tombstones (extension `deletion`, plan v3.1 §2.3).* A call whose facts carry
 `tombstones` (absent when its controls matched `removeWhen`) writes an update
@@ -174,8 +181,9 @@ both `rootUpsert` arms), relation-free root `createMany` rows and `updateMany`,
 the nested relation-free `updateMany`, and `Commands.tombstone`, whose stamped
 data every tombstone site reads; a captured member a series tombstones is
 admitted again from the tombstone's raw data and stamped there. Stamps that
-name a control are put in per call outside the engine (`callRows`), never in
-the per-value domain memo, so a tenant's domain is one object whoever writes. A
+name a control are put in per call outside the engine (`callRows`); a
+domain's values are parameters read at lowering, so every tenant's domain is
+one object whoever writes. A
 `connect`/`set` that only moves a foreign key (`MEMBERSHIP_MOVE`) is not
 stamped, as no `updatedAt` moves there. A physical delete writes nothing. A
 field the schema requires and a create stamp writes may be left out by the

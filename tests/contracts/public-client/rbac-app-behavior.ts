@@ -1,6 +1,5 @@
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { UnsupportedOperationError } from "@errors";
 import {
   createOracle,
   type GovernedModel,
@@ -49,14 +48,6 @@ export interface RbacAppSubstrate {
   readonly actors?: readonly string[];
   /** Per-test timeout, for remote or slow substrates. */
   readonly timeout?: number;
-  /**
-   * The driver's bound-value budget per statement (D1: 100, Y4). A hand-rule
-   * statement over it is refused whole by the engine before it runs; such a
-   * pair is checked to fail exactly so, never to answer wrong. Plan K2(d)
-   * (value dedupe) and W-K2f exist to make every §1.1 statement fit; when
-   * they land, the allowance goes.
-   */
-  readonly bindBudget?: number;
 }
 
 export function createRbacAppClient(driver: AnyDriver) {
@@ -141,7 +132,6 @@ export function runRbacAppBehavior(substrate: RbacAppSubstrate): void {
   const oracle = createOracle(seed);
   const judged = substrate.actors ?? Object.keys(actors);
   const timeout = substrate.timeout;
-  const budget = substrate.bindBudget;
 
   describe(`${substrate.name}: the RBAC acceptance estate`, () => {
     let client: RbacAppClient;
@@ -198,31 +188,15 @@ export function runRbacAppBehavior(substrate: RbacAppSubstrate): void {
       timeout
     );
 
-    /** A statement the engine refused whole for the driver's bind budget. */
-    const REFUSED = Symbol("over the bind budget");
-    const attempt = async <T>(run: () => Promise<T>) => {
-      try {
-        return await run();
-      } catch (error) {
-        const overBudget =
-          budget !== undefined &&
-          error instanceof UnsupportedOperationError &&
-          error.message.includes(`above the verified limit of ${budget}`);
-        if (overBudget) return REFUSED;
-        throw error;
-      }
-    };
-
     /**
      * The hand rules with `grants.admin` resolved first (rules.ts
      * `administered`): the things the actor administers, read with their own
      * predicates, root default included (a tombstoned page administers
-     * nothing). `complete` is false when one of those reads was refused.
+     * nothing).
      */
     const rulesFor = async (actor: Actor, options: RuleOptions) => {
       const plain = handRules(actor, options);
       const administered = {} as Record<AdministeredThing, string[]>;
-      let complete = true;
       for (const [, , thing, action] of ADMINISTERED) {
         const where = plain.predicate(thing, action);
         const root =
@@ -232,63 +206,47 @@ export function runRbacAppBehavior(substrate: RbacAppSubstrate): void {
         const rows =
           root === null
             ? []
-            : await attempt(() =>
-                delegate(client, thing).findMany({
-                  where: root,
-                  select: { id: true },
-                })
-              );
-        if (rows === REFUSED) complete = false;
-        administered[thing] =
-          rows === REFUSED ? [] : rows.map((row) => String(row.id));
+            : await delegate(client, thing).findMany({
+                where: root,
+                select: { id: true },
+              });
+        administered[thing] = rows.map((row) => String(row.id));
       }
-      return {
-        rules: handRules(actor, { ...options, administered }),
-        complete,
-      };
+      return handRules(actor, { ...options, administered });
     };
 
-    /**
-     * The root rows the hand rules select at (model, action), or REFUSED. A
-     * grant read whose administered things could not be read is REFUSED too.
-     */
+    /** The root rows the hand rules select at (model, action). */
     const observe = async (
-      resolved: Awaited<ReturnType<typeof rulesFor>>,
+      rules: Awaited<ReturnType<typeof rulesFor>>,
       model: GovernedModel,
       action: string,
       deleted: "default" | "with"
     ) => {
-      if (model === "accessGrant" && !resolved.complete) return REFUSED;
-      const where = resolved.rules.observed(model, action);
+      const where = rules.observed(model, action);
       if (where === null) return [];
       const root =
         TOMBSTONED.has(model) && deleted === "default"
           ? and({ deletedAt: null }, where)
           : where;
-      const rows = await attempt(() =>
-        delegate(client, model).findMany({
-          where: root,
-          select: keyColumns(model),
-        })
-      );
-      return rows === REFUSED
-        ? REFUSED
-        : rows.map((row) => rowKey(model, row)).sort();
+      const rows = await delegate(client, model).findMany({
+        where: root,
+        select: keyColumns(model),
+      });
+      return rows.map((row) => rowKey(model, row)).sort();
     };
 
-    /** Every pair's answer beside the oracle's; refused pairs are left out. */
+    /** Every pair's answer beside the oracle's. */
     const answers = async (
       name: string,
       options: RuleOptions & { readonly deleted?: "default" | "with" },
       models: readonly (readonly [GovernedModel, string])[] = MODEL_ACTIONS
     ) => {
       const actor = actors[name] as Actor;
-      const resolved = await rulesFor(actor, options);
+      const rules = await rulesFor(actor, options);
       const deleted = options.deleted ?? "default";
       const answered: { label: string; got: string[]; want: string[] }[] = [];
       for (const [model, action] of models) {
-        const got = await observe(resolved, model, action, deleted);
-        if (got === REFUSED) continue;
+        const got = await observe(rules, model, action, deleted);
         answered.push({
           label: `${name} ${model}.${action} (${deleted}, ${options.ceiling ?? "declared"})`,
           got,
@@ -310,11 +268,7 @@ export function runRbacAppBehavior(substrate: RbacAppSubstrate): void {
           for (const { label, got, want } of answered) {
             expect(got, label).toEqual(want);
           }
-          if (budget === undefined) {
-            expect(answered).toHaveLength(MODEL_ACTIONS.length);
-          } else {
-            expect(answered.length).toBeGreaterThan(0);
-          }
+          expect(answered).toHaveLength(MODEL_ACTIONS.length);
         },
         timeout
       );

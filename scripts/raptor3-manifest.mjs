@@ -246,8 +246,12 @@ export const POST_G3_DELETION_SITE_TESTS = Object.freeze(
 // hidden row stops the walk and is no member, the self row is not filtered
 // again, and a soft deleteMany walking its own model (+4 on each of three
 // substrates; the pin had drifted to 103 while the file held 112 cells).
+// RBAC plan K1/K2 (U12): domain predicates admitted, layered and
+// parameterized (`domain-predicate-behavior.ts`, 16 cells) on the three
+// SQLite substrates, and one prepared predicate for 10,000 actors (+49);
+// the composed chain's SQL against its pre-K1 golden (W-K1e, +1).
 export const POST_G3_ROW_SCOPE_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/row-scopes.test.ts": 124,
+  "tests/raptor3/post-prep/row-scopes.test.ts": 174,
 });
 export const POST_G3_ROW_SCOPE_TESTS = Object.freeze(
   Object.keys(POST_G3_ROW_SCOPE_COUNTS)

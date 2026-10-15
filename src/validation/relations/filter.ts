@@ -6,6 +6,7 @@ import type { SlotMayBeEmpty } from "@schema/relation/static-membership";
 import type { RelationState } from "@schema/relation/types";
 import type { ResolvedSlot } from "@schema/validation/relation-resolution";
 import { createSchema, fail, ok, validateSchema } from "../primitives/helpers";
+import { writtenDepth } from "../primitives/parameter";
 import { type V, v } from "../primitives/v";
 import type { VibSchema } from "../types";
 import { isRecord } from "../value-guards";
@@ -218,7 +219,7 @@ const recursiveFilter = <S extends RelationState, T extends SchemaGetter<S>>(
     recurrence &&
     v.object(
       {
-        recurse: recurrence,
+        recurse: writtenDepth(recurrence),
         self: v.boolean(),
         ...quantifierEntries(targetSchemas),
         is: unavailableRecursiveClause("is"),

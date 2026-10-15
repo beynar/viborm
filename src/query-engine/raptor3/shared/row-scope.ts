@@ -3,10 +3,11 @@ import type { PreparedDomain } from "./query";
 import type { Input } from "./schema";
 
 /**
- * Plain `where` inputs per model (its TS name), as the extension wrote them,
- * with any control's value already put in outside the engine: preparation
- * reads a `where` input's shorthand itself, so none is admitted first. They
- * AND with each other; a model with none is not narrowed.
+ * `where` inputs per model (its TS name), as admission left them: a value the
+ * call supplies is a {@link Parameter}, a test of one a {@link Condition}. They
+ * AND with each other; a model with none is not narrowed. Each list is
+ * indexed by layer, the declaring `rows` member's place in the chain, so a
+ * layer stating nothing for the model leaves a hole.
  */
 export type ModelDomain = ReadonlyMap<string, readonly Input[]>;
 
@@ -64,14 +65,18 @@ export const parseStamped = <T>(
 
 /**
  * One root call's row facts, resolved from its controls outside the engine:
- * the engine never sees a control, a mode or an extension's name. Its domains
+ * the engine never sees a mode or an extension's name, and a control's only
+ * as the key a parameter reads its value under ({@link CallValues}). Its domains
  * are shared by every call that resolves to the same ones; stamps that name a
  * control are the call's own.
  */
 export interface CallRows {
   /** The domain the call's own controls select. */
   readonly domain: RowDomain;
-  /** The domain an absent control selects: what a tombstoning delete takes. */
+  /**
+   * The domain an absent control selects: what a tombstoning delete takes,
+   * and every other layer a layer's own traversals read (R5).
+   */
   readonly defaults: RowDomain;
   /**
    * Per managed model, what its deletes write; absent when the call deletes
@@ -80,6 +85,77 @@ export interface CallRows {
   readonly tombstones?: ReadonlyMap<string, Tombstone>;
   /** Per model (its TS name), the fields its creates and updates write. */
   readonly stamps?: ReadonlyMap<string, ModelStamps>;
+  /** What the domains' parameters read; absent when no predicate names one. */
+  readonly values?: CallValues;
+}
+
+/** A call's admitted controls, and how an absent value resolves (R6). */
+export interface CallValues {
+  readonly controls: Readonly<Record<string, unknown>>;
+  /** An absent value of `control` on `model` matches nothing; else it drops. */
+  readonly required: (control: string, model: string) => boolean;
+}
+
+/**
+ * A value a domain predicate reads from its call, prepared once and read at
+ * lowering: a control's value, or a field of it along `path`; with no
+ * control, the call's one instant. `null` is absent: a parameter never lowers
+ * to `IS NULL`. Its own fields are its spelling (`{ control, path }` or
+ * `{ now: true }`), which no literal of a declaration can be, so a cache key
+ * over declarations tells the two apart.
+ */
+export class Parameter {
+  readonly control?: string;
+  readonly path?: string;
+  readonly now?: true;
+  readonly #keys: readonly string[];
+  constructor(control?: string, path?: string) {
+    if (control === undefined) this.now = true;
+    else this.control = control;
+    if (path !== undefined) this.path = path;
+    this.#keys = path === undefined ? [] : path.split(".");
+    Object.freeze(this);
+  }
+  /** The call's value, `undefined` when absent. */
+  read(values: CallValues | undefined, instant: () => Date): unknown {
+    if (this.control === undefined) return instant();
+    let value = values?.controls[this.control];
+    for (const key of this.#keys) {
+      if (value === null || typeof value !== "object") return undefined;
+      value = Object.hasOwn(value, key) ? (value as Input)[key] : undefined;
+    }
+    return value ?? undefined;
+  }
+}
+
+/** What a {@link Condition} asks of its value, in the filter vocabulary. */
+export type ConditionTest =
+  | { readonly exists: boolean }
+  | { readonly equals: unknown }
+  | { readonly in: readonly unknown[] }
+  | { readonly has: unknown }
+  | { readonly hasSome: readonly unknown[] };
+
+/** A test of a call value that reads no column: folded per call. */
+export class Condition {
+  readonly parameter: Parameter;
+  readonly test: ConditionTest;
+  constructor(parameter: Parameter, test: ConditionTest) {
+    this.parameter = parameter;
+    this.test = test;
+    Object.freeze(this);
+  }
+  holds(values: CallValues | undefined, instant: () => Date): boolean {
+    const value = this.parameter.read(values, instant);
+    const test = this.test;
+    if ("exists" in test) return (value !== undefined) === test.exists;
+    if (value === undefined) return false;
+    if ("equals" in test) return Object.is(value, test.equals);
+    if ("in" in test) return test.in.includes(value);
+    if (!Array.isArray(value)) return false;
+    if ("has" in test) return value.includes(test.has);
+    return test.hasSome.some((member) => value.includes(member));
+  }
 }
 
 /** The row facts one prepared call carries, and its one instant. */
@@ -90,8 +166,9 @@ export interface CallScope {
   /** The default domain, prepared once per engine view. */
   readonly defaults: PreparedDomain;
   /**
-   * The call's deletion instant: sampled at its first use and kept for the
-   * prepared call's lifetime, so every occurrence of every attempt shares it.
+   * The call's one instant (a tombstone's, and `{ now: true }`'s): sampled at
+   * its first use and kept for the prepared call's lifetime, so every
+   * occurrence of every attempt shares it.
    */
   instant(): Date;
 }

@@ -7,6 +7,7 @@
  * NOTE: These tests require a running MySQL database.
  */
 
+import { runDomainPredicateBehavior } from "@tests/contracts/engine/query/domain-predicate-behavior";
 import { runRowScopeBehavior } from "@tests/contracts/engine/query/row-scope-behavior";
 import {
   createMySQL2Driver,
@@ -22,4 +23,8 @@ describeIf("MySQL2 Driver", () => {
   afterAll(dropEveryLiveTable);
 
   runRowScopeBehavior({ name: "MySQL2", createDriver: createMySQL2Driver });
+  runDomainPredicateBehavior({
+    name: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
 });

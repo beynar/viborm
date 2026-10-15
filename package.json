@@ -383,7 +383,8 @@
       "name": "D1 Worker (viborm/d1)",
       "path": "node_modules/.cache/viborm-size/d1-worker.mjs",
       "gzip": true,
-      "limit": "170 kB"
+      "limit": "171.9 kB",
+      "message": "Raised 170 → 171.9 kB by the measured +1,868 B of RBAC M1 wave 1 (OD-17): rows predicates admitted, layered and parameterized, numbered binds, bound views."
     },
     {
       "name": "pg + migrations Worker (viborm/pg + viborm/migrations/postgres)",
@@ -395,7 +396,8 @@
       "name": "pg application (viborm/pg)",
       "path": "node_modules/.cache/viborm-size/pg-representative.mjs",
       "gzip": true,
-      "limit": "170 kB"
+      "limit": "171.9 kB",
+      "message": "Raised 170 → 171.9 kB by the measured +1,900 B of RBAC M1 wave 1 (OD-17): rows predicates admitted, layered and parameterized, numbered binds, bound views."
     },
     {
       "name": "pg application + soft delete",
@@ -407,7 +409,8 @@
       "name": "soft-delete extension entry",
       "path": "node_modules/.cache/viborm-size/soft-delete-entry.mjs",
       "gzip": true,
-      "limit": "420 B"
+      "limit": "457 B",
+      "message": "Raised 420 → 457 B by the measured +37 B of softDelete(config).rows and .methods, its two steps apart (RBAC plan K7(b), OD-1 option (2), OD-17)."
     },
     {
       "name": "identifier generators only",

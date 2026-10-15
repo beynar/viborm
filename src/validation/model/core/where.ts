@@ -2,6 +2,7 @@ import type { AnyModel } from "@schema/model";
 import type { DecimalListScalarKeys } from "@schema/model/helper";
 import { entriesFromObject } from "@validation/primitives/from-object";
 import { scopeOperands } from "@validation/primitives/operand";
+import { conditionNodeOr } from "@validation/primitives/parameter";
 import v, { type V } from "../../primitives/v";
 import type { ScalarSchemas } from "../index";
 import {
@@ -77,7 +78,7 @@ export const getWhereSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
   // names THIS model's columns. A nested relation filter embeds the TARGET
   // model's `where`, which carries its own boundary, so depth re-scopes for
   // free and pops back on the way out (see `primitives/operand.ts`).
-  return scopeOperands(whereSchema, model);
+  return scopeOperands(conditionNodeOr(whereSchema), model);
 };
 
 // =============================================================================

@@ -49,7 +49,8 @@ type RestoreModels<
   C extends VibORMConfig,
   Config extends SoftDeleteConfig,
 > = {
-  readonly [K in Names<Config>]: (delegate: M[K & keyof M]) => {
+  // The delegate of a client generic over its state stays deferred: untyped.
+  readonly [K in Names<Config>]: (delegate: never) => {
     restore<A extends RestoreArgs<C, K, "update">>(
       args: NoExtra<A, RestoreArgs<C, K, "update">>
     ): PendingOperation<ExtendedOperationResult<M, K, "update", A>>;
@@ -59,20 +60,24 @@ type RestoreModels<
   };
 };
 
+// Every `rows` step of a chain goes before every method step (a method typed
+// against a client whose rows a later step widens would lie), so the entry
+// is both steps, `softDelete(config)(base)`, and each alone: `rows` and
+// `methods`, to apply around another entry's steps.
 export function softDelete<const Config extends SoftDeleteConfig>(
   config: Config
 ) {
+  // Step A: controls, rows and deletion, checked against base's schema.
   // Node 22's type stripper leaves a newline after `return <...>`, triggering ASI.
-  const extend = <
+  const rows = <
     C extends VibORMConfig & {
       readonly schema: Record<Names<Config>, AnyModel>;
     },
     X extends ExtensionState,
   >(
     base: VibORMClient<C, X>
-  ) => {
-    // Step A: controls, rows and deletion, checked against base's schema.
-    const managed = base.$extends({
+  ) =>
+    base.$extends({
       name: "viborm.softDelete",
       controls: { mode: { oneOf: ["soft", "hard"] } }, // deletion places it on managed deletes
       rows: {
@@ -106,8 +111,17 @@ export function softDelete<const Config extends SoftDeleteConfig>(
         ),
       },
     });
-    // Step B: restore methods, typed against the client that carries step A.
-    const model: RestoreModels<typeof managed, C, Config> = perModel(
+  // Step B: restore methods, typed against the client they are given, which
+  // carries step A.
+  const methods = <
+    C extends VibORMConfig & {
+      readonly schema: Record<Names<Config>, AnyModel>;
+    },
+    X extends ExtensionState,
+  >(
+    client: VibORMClient<C, X>
+  ) => {
+    const model: RestoreModels<typeof client, C, Config> = perModel(
       config,
       ({ deletedAt, deletedBy }) =>
         (delegate: { update: unknown; updateMany: unknown }) => {
@@ -125,7 +139,15 @@ export function softDelete<const Config extends SoftDeleteConfig>(
           };
         }
     );
-    return managed.$extends({ name: "viborm.softDelete.restore", model });
+    return client.$extends({ name: "viborm.softDelete.restore", model });
   };
-  return extend;
+  const extend = <
+    C extends VibORMConfig & {
+      readonly schema: Record<Names<Config>, AnyModel>;
+    },
+    X extends ExtensionState,
+  >(
+    base: VibORMClient<C, X>
+  ) => methods(rows(base));
+  return Object.assign(extend, { rows, methods });
 }

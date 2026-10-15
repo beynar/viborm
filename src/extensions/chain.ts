@@ -14,6 +14,7 @@ import {
 import type { Schema } from "@client/types";
 import type { ModelStamps } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
+import type { SchemaRegistryLookup } from "@validation/types";
 import { isFunction } from "@validation/value-guards";
 import {
   type DataContribution,
@@ -38,7 +39,11 @@ import {
   getTrustedProtectedObserverCapability,
   registerOfficialInstrumentationChain,
 } from "./observation";
-import { bindRows, type RowsBinding } from "./rows";
+import {
+  bindRows,
+  type RowsBinding,
+  undeclaredControlReferencesOf,
+} from "./rows";
 
 /** The fixed name admission reserves for the official instrumentation extension. */
 export const OFFICIAL_INSTRUMENTATION_NAME = "viborm.instrumentation";
@@ -310,14 +315,29 @@ function appendObserver(
 /**
  * Add one definition's controls to the chain's name space, then index every
  * control of the chain by operation, for every model and for each model some
- * control names.
+ * control names. One name, one control: a call's argument is read once and
+ * admitted against one declaration, so a second declaration of a name
+ * (another extension's, or this one's `rows` control beside its own
+ * `controls`) would refuse every call that passes either value, and a
+ * binding would answer for both.
  */
 function appendControls(
   previous: ResolvedControls | undefined,
   declarations: readonly ResolvedControl[]
 ): ResolvedControls {
   const names = new Set(previous?.names);
-  for (const { name } of declarations) names.add(name);
+  for (const { name, extension } of declarations) {
+    if (names.has(name)) {
+      const owner = [...(previous?.all ?? []), ...declarations].find(
+        (control) => control.name === name
+      )!.extension;
+      extensionError(
+        `Extension "${extension}" declares control "${name}", which extension "${owner}" already declares.`,
+        extension
+      );
+    }
+    names.add(name);
+  }
   const all = Object.freeze([
     ...(previous?.all ?? []),
     ...declarations.map((control) => Object.freeze(control)),
@@ -449,9 +469,10 @@ function assertOfficialExtensionAdmission(options: {
 export function appendResolvedExtension(
   chain: ResolvedExtensionChain | undefined,
   value: ExtensionDefinitionInput,
-  schema: Schema
+  schema: Schema,
+  registry?: SchemaRegistryLookup<Schema>
 ): ResolvedExtensionChain {
-  const definition = normalizeExtensionDefinition(value, schema);
+  const definition = normalizeExtensionDefinition(value, schema, registry);
   const incomingCache = getOfficialCacheQueryCapability(definition.query);
   const existingOfficialCache = getOfficialCacheChainDefinition(chain);
   const incomingDefaultOmit = getOfficialDefaultOmitRequestCapability(
@@ -521,6 +542,16 @@ export function appendResolvedExtension(
     effectiveDefinition.rows === undefined
       ? undefined
       : placeControls(effectiveDefinition);
+  // A definition may name its own controls and those an earlier extension
+  // declares: order owns a reference, so one value serves every extension.
+  for (const control of undeclaredControlReferencesOf(effectiveDefinition)) {
+    if (chain?.controls?.names.has(control) !== true) {
+      extensionError(
+        `Extension "${definition.name}" references undeclared control "${control}".`,
+        definition.name
+      );
+    }
+  }
   const resolved: ResolvedExtension = Object.freeze({
     name: definition.name,
     ...(effectiveDefinition.client === undefined
@@ -573,12 +604,12 @@ export function appendResolvedExtension(
       ? chain?.data
       : appendData(chain?.data, effectiveDefinition.data);
   // The binding reads `required` from the controls, already appended: a
-  // filter names only its own extension's controls, so a later definition
-  // that declares only controls changes nothing it binds.
+  // filter names only controls its own or an earlier extension declares, so
+  // a later definition that declares only controls changes nothing it binds.
   const callRows =
     rows === chain?.rows && deletion === chain?.deletion && data === chain?.data
       ? chain?.callRows
-      : bindRows(rows, deletion, data, controls, schema);
+      : bindRows(rows, deletion, data, controls);
   const resolvedChain = Object.freeze({
     ...(controls === undefined ? {} : { controls }),
     ...(rows === undefined ? {} : { rows }),

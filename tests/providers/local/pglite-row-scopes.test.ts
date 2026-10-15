@@ -5,11 +5,16 @@
  * connection.
  */
 
+import { runDomainPredicateBehavior } from "@tests/contracts/engine/query/domain-predicate-behavior";
 import { runRowScopeBehavior } from "@tests/contracts/engine/query/row-scope-behavior";
 import { createInMemoryPGliteDriver } from "@tests/fixtures/drivers/pglite";
 
 describe("PGlite Driver", () => {
   runRowScopeBehavior({
+    name: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+  });
+  runDomainPredicateBehavior({
     name: "PGlite",
     createDriver: createInMemoryPGliteDriver,
   });
