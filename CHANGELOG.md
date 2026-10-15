@@ -50,7 +50,10 @@ action.
   narrows every mode, and a mode's `root` or `related` may name a predicate.
   A delete (tombstones included) takes `delete`'s predicate; an update
   takes, for each field its data writes, that field's `writes` entry, else
-  `update`'s. A verb a model's entry leaves out matches nothing.
+  `update`'s. A verb a model's entry leaves out matches nothing. A key of a
+  model's entry other than these five is refused at `$extends` with a
+  `ClientInitializationError` naming the model and the key (a misspelt
+  `writes` would judge its fields at `update`).
 - **A write is judged by the statement it emits.** On a model with verbs,
   `data: {}`, or a parent a nested write bumps, is judged at `update`;
   stamps and generated values (`updatedAt`) never change the verb. A row
@@ -59,9 +62,7 @@ action.
   On a model with verbs, a `connect`, `set` or `disconnect` judges that row,
   at both ends of a join; `set: []` refuses, with `NestedWriteError`, a
   visible link the call may not write.
-- **`viborm/rbac`** (not yet applicable to a client:
-  `rbac(config).compile(schema)` returns the compiled policy; applying it
-  lands with the rest of the extension).
+- **`viborm/rbac`** (not yet published, OD-11).
   `rbac({ actor, levels, limit, models })` compiles one predicate per model
   and action (R1) against the schema, as plain data in the shape `rows.verbs`
   takes, and ships the helpers `owner`, `member`, `grant.to`,
@@ -71,6 +72,22 @@ action.
   models, fields and actions, predicates that read themselves, read-gated
   keys or relations, and an actor schema that is not a finite strict object
   are refused.
+- **`rbac(config)(base)` applies the policy** to every model of `base`: a
+  rows step (a bound-only, required `actor` control; the `as` mode, each
+  model's actions and named domains; every model's verbs) then a methods
+  step, also offered apart as `.rows` and `.methods`. A model the policy
+  does not list, or a verb it does not declare, is refused before any
+  statement with `ForbiddenError`; an `as` mode the model does not declare
+  with `ValidationError`. An action or domain named `default` is refused at
+  compile.
+- **`db.$as(actor)`** returns a view with the actor bound: validated once
+  against the actor schema, no chain rebuilt; transactions and clients
+  `$extends` derives from it keep it. A call on `db` without it, or passing
+  `actor` in its arguments, is a `ValidationError` before any statement.
+- **`can(action, where)` and `assert(action, where)`** on every listed
+  model: whether the actor holds the action on a row `where` selects, in
+  one statement; `assert` throws `ForbiddenError` for a hidden row and a
+  missing action alike.
 
 ### Changed
 
@@ -106,6 +123,18 @@ action.
 
 ### Fixed
 
+- **An update with nothing to assign no longer fails.** On a model with no
+  `updatedAt` and no stamp, `update({ data: {} })` and
+  `updateMany({ data: {} })` sent `UPDATE … SET` with an empty list and threw
+  `QueryError` on every provider (1.2.4 included). `update` now reads and
+  returns the row it addresses (`NotFoundError` when there is none), and
+  `updateMany` returns the count of rows it addresses.
+- **D1 runs relation filters nested deeper than its expression limit.** D1
+  compiles with an expression depth of 100, and SQLite counts nested
+  relation filters about quadratically, so a statement six `some`/`is`
+  levels deep was refused ("Expression tree is too large"). On D1 each
+  relation filter now reads its rows from a derived table, which SQLite
+  flattens back to the same plan; every other driver's SQL is unchanged.
 - **`deleted: "with"` and `scope: "all"` no longer widen a `rows`
   predicate's relation reads.** A predicate that reached its rows through a
   relation counted a tombstoned row, or another tenant's, when the call

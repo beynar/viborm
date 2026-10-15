@@ -297,6 +297,18 @@ export interface SQLiteAdapterOptions {
    * Defaults to `true`.
    */
   readonly temporaryObjects?: boolean;
+  /**
+   * Whether the transport compiles deep expression trees. SQLite counts a
+   * subquery's `WHERE` in the height of the expression that holds it, and sums
+   * those heights again while it resolves names, so k nested relation filters
+   * cost about k² of `SQLITE_MAX_EXPR_DEPTH`: SQLite's default (1000) admits
+   * that; Cloudflare D1 compiles with 100 and refuses "Expression tree is too
+   * large". Where it does not, each relation filter reads its rows from a
+   * derived table, whose `WHERE` neither count reaches through the expression:
+   * about four per level, the same plan (SQLite flattens it), one statement.
+   * Defaults to `true`.
+   */
+  readonly deepExpressions?: boolean;
 }
 
 /**
@@ -830,8 +842,14 @@ const SQLITE_SET_OPERATIONS = createSetOperations();
 const SQLITE_RAW = createRawSql();
 
 export class SQLiteAdapter implements DatabaseAdapter {
-  constructor({ temporaryObjects = true }: SQLiteAdapterOptions = {}) {
+  constructor({
+    temporaryObjects = true,
+    deepExpressions = true,
+  }: SQLiteAdapterOptions = {}) {
     installGeoPointSql(this, this.geoPoint);
+    if (!deepExpressions)
+      this.subqueries.existsCheck = (from, where) =>
+        sql`SELECT 1 FROM (${SQLITE_SUBQUERIES.existsCheck(from, where)})`;
     // Only batches read the reference-table SQL, so it is built on first use.
     let batchRefs: BatchReferenceSqlAdapter | undefined;
     const createBatchRefs = () => this.#createBatchRefs(temporaryObjects);

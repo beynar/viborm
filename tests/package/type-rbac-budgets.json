@@ -1,17 +1,18 @@
 {
   "headroom": 0.1,
+  "reason": "U5b: the program applies the policy to a client (rbac(config)(base), $as, can, assert). Inferring C and X from a VibORMClient<C, X> parameter, as every official entry does, measured 449,757 instantiations on TS 5.9.3 alone (450,166 for softDelete(...).rows(base)); rbac's own steps add the rest (466,097). Compile-only was 50,502 / 50,525 / 72,540.",
   "checkers": {
     "tsc5": {
       "typescript": "5.9.3",
-      "instantiations": 50502
+      "instantiations": 466097
     },
     "tsc6": {
       "typescript": "6.0.3",
-      "instantiations": 50525
+      "instantiations": 589616
     },
     "tsc7": {
       "typescript": "7.0.2",
-      "instantiations": 72540
+      "instantiations": 958137
     }
   }
 }

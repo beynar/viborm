@@ -433,11 +433,12 @@ await db.project.findMany({ archived: "only" }); // archived projects
   `query` handlers or `client`/`model` methods: after one, the application is
   refused, as `defaultOmit()` is. An entry that has both offers them as two
   steps, applied with every `rows` step first ([compose](#rows-steps-first)).
-- `rows` decides which rows are visible. It is not authorization: any caller
-  can choose another mode or pass another value, and raw SQL and `create`
-  are not filtered. Update `data` is not filtered either, unless the model
-  declares [`verbs`](#judge-writes-with-verbs): then the fields an update
-  writes decide which rows it may take.
+- `rows` decides which rows are visible. It is not authorization by itself:
+  any caller can choose another mode or pass another value, unless that value
+  is a `bound`, `required` control (as `viborm/rbac`'s actor), and raw SQL
+  and `create` are not filtered. Update `data` is not filtered either, unless
+  the model declares [`verbs`](#judge-writes-with-verbs): then the fields an
+  update writes decide which rows it may take.
 
 ### Filter by a value the call passes
 

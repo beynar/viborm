@@ -3451,3 +3451,18 @@ guard: it is the predicate `{ OR: [] }`, the value R9 gives it.
 | `src/extensions/admission.ts` `admitRows` · `refuse(…, "names an unknown model")`, `known(…)` (`names unknown predicate`), `refuse(…, "names an unknown field")` | Every `rows.verbs` entry names a model of the schema; every verb, `writes` entry and mode that names a predicate names one the model declares; every `writes` key is a field of the model. Refused with `ClientInitializationError` naming the extension, the model and the place in `rows`. | `$extends`, where the definition meets the receiving schema. | Without it a misspelt predicate name or field silently matches nothing (a verb) or is never judged (a `writes` field falls back to `update`). | `extension-controls.core.test.ts` "an unknown model, predicate name or written field is refused at $extends, named by its place". |
 | `src/extensions/admission.ts` `admitRows` → `cyclePath` · `refuse(…, "contains itself")` | A predicate object never contains itself (a shared sub-object is admitted). | `$extends`, before the where schema walks it. | Replaces a stack overflow (`RangeError`) at `$extends` with a refusal naming the path. | `extension-controls.core.test.ts` "a predicate that contains itself is refused at $extends; one that shares a sub-object is admitted" (`RangeError: Maximum call stack size exceeded` on HEAD). |
 | `src/query-engine/raptor3/shared/operation-context.ts` `OperationContext.remove` · the clear premise (`NestedWriteError`) | A clear (`set []`, a `remove` with no target) unlinks no visible member the actor may not unlink; a hidden member keeps its link silently (create.mdx's rule). | The clear, where its candidate members and the link judgement meet. | Without it `set []` silently keeps a visible link the actor cannot write, or unlinks it, the effect the verb denies. | `rbac-app-verbs.ts` W-W10 "set [] refuses a link the actor sees and may not write (NestedWriteError) …" (returns `ok` on HEAD). |
+
+## Addendum — verbs keys, empty updates, shallow expressions (RBAC plan M1 wave 3, E3, 2026-10-15)
+
+Plan `rbac-extension-plan.md` §4.3 (K3), R3 as amended in §11.2, §9.3
+(provider facts are met). One guard added, none deleted. Two routing
+decisions are not guards: an update whose data assigns nothing (no field, no
+stamp, no generated value) takes the located route (`Commands.rootUpdate`) or
+the series route (root `updateMany`), so it emits no `UPDATE … SET` with an
+empty list; and a SQLite adapter told `deepExpressions: false` spells every
+relation filter's rows as a derived table (`existsCheck`), so nothing is
+refused.
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `src/extensions/admission.ts` `admitRows` · `refuse(…, "is not one of predicates, read, update, delete, writes")` | A `rows.verbs` entry holds only K3's keys (`VERBS_KEYS`, typed `Record<keyof RowsVerbs, true>`). Refused with `ClientInitializationError` naming the extension, the model and the key. | `$extends`, where the definition meets the receiving schema. | Without it a misspelt `writes` (`write:`) is ignored, so the field it meant is judged at `update`, which widens the write; policies may be data built at runtime, so the types do not cover it. | `extension-controls.core.test.ts` "an unknown key in a model's verbs is refused at $extends, named with its model …" (on HEAD the definition is accepted: "expected the definition to be refused"). |

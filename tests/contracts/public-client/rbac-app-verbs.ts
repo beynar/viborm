@@ -1,4 +1,6 @@
 import { NestedWriteError, NotFoundError } from "@errors";
+import { rbac } from "@src/rbac";
+import { softDelete } from "@src/soft-delete/index";
 import {
   actionsOf,
   createOracle,
@@ -16,6 +18,7 @@ import {
   actors,
   seed,
 } from "@tests/package/fixtures/rbac-app/seed";
+import { policy } from "@tests/types/rbac/acceptance-policy";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
   createRbacAppClient,
@@ -120,6 +123,54 @@ function declaration(actor: Actor, now: Date, stamped = false) {
   };
 }
 
+/**
+ * The same judgements through `viborm/rbac` (plan §1.1): the §1.1 policy,
+ * with soft delete composed as `server.ts` composes it (rows steps first,
+ * OD-1 option 2), so its traversals and the oracle both read live
+ * memberships, team members and grants only. Two declarations of the hand
+ * policy the §1.1 text does not make are restated so each witness keeps the
+ * shape it was written for: `team`'s links written at `invite` (a lead links
+ * the teams it leads, W-W9, W-W10; §1.1 writes them at `edit`, its admins
+ * only), and a `given` domain of the grants to the actor's own user (W-N4).
+ * Every expectation stays the oracle's.
+ */
+const { models } = policy.config;
+const entryPolicy = rbac({
+  ...policy.config,
+  models: {
+    ...models,
+    team: {
+      ...models.team,
+      fields: { parents: { write: "invite" }, children: { write: "invite" } },
+    },
+    page: {
+      ...models.page,
+      domains: { given: { grants: { some: { userId: { actor: "userId" } } } } },
+    },
+  },
+});
+const tombstones = softDelete({
+  models: Object.fromEntries(
+    TOMBSTONED_MODELS.map((model) => [model, { deletedAt: "deletedAt" }])
+  ),
+});
+/** An audit stamp on every document update (W-W5′), between the steps. */
+const AUDIT = {
+  name: "audit",
+  data: { models: { document: { update: { searchKey: "audited" } } } },
+};
+function throughEntry(base: RbacAppClient, stamped: boolean) {
+  const rows = entryPolicy.rows(tombstones.rows(base));
+  return entryPolicy.methods(
+    tombstones.methods(stamped ? rows.$extends(AUDIT as never) : rows)
+  );
+}
+
+export interface VerbsRun {
+  /** `"entry"`: judge through `viborm/rbac` instead of the plain `rows` member. */
+  readonly through?: "entry";
+}
+
 const ROLLBACK = new Error("rolled back");
 type Outcome = { outcome: string; value?: unknown; seen?: unknown };
 
@@ -168,12 +219,19 @@ const ids = (rows: readonly Row[]) => rows.map((row) => String(row.id)).sort();
 /** The actors whose writes are judged: every shape of page and document access the seed holds. */
 const WRITERS = ["u03", "u04", "u05", "u20", "u22", "u42", "u45", "u56"];
 
-export function runRbacAppVerbs(substrate: RbacAppSubstrate): void {
+export function runRbacAppVerbs(
+  substrate: RbacAppSubstrate,
+  run: VerbsRun = {}
+): void {
   const oracle = createOracle(seed);
   const writers = substrate.actors ?? WRITERS;
   const timeout = substrate.timeout ?? 120_000;
+  const entry = run.through === "entry";
+  /** The mode a call takes when it names none. */
+  const unnamed = entry ? "default" : "all";
+  const label = entry ? "through viborm/rbac" : "(K3)";
 
-  describe(`${substrate.name}: verbs and written fields on the RBAC estate (K3)`, () => {
+  describe(`${substrate.name}: verbs and written fields on the RBAC estate ${label}`, () => {
     let base: RbacAppClient;
     const restore = substrate.restore && (() => substrate.restore!(base));
     const probe = (client: Loose, body: (tx: Loose) => Promise<unknown>) =>
@@ -181,12 +239,21 @@ export function runRbacAppVerbs(substrate: RbacAppSubstrate): void {
     const now = new Date();
     const at = (actor: Actor, model: GovernedModel, action: string) =>
       oracle.rows(actor, model, action, { now });
-    const governed = (actor: Actor, stamped = false) =>
-      loose(
-        Reflect.apply(Reflect.get(base, "$extends"), base, [
-          declaration(actor, now, stamped),
-        ])
-      );
+    const entries = new Map<boolean, ReturnType<typeof throughEntry>>();
+    const governed = (actor: Actor, stamped = false) => {
+      if (!entry)
+        return loose(
+          Reflect.apply(Reflect.get(base, "$extends"), base, [
+            declaration(actor, now, stamped),
+          ])
+        );
+      let client = entries.get(stamped);
+      if (client === undefined) {
+        client = throughEntry(base, stamped);
+        entries.set(stamped, client);
+      }
+      return loose(client.$as(actor));
+    };
 
     beforeAll(async () => {
       base = createRbacAppClient(substrate.createDriver());
@@ -750,7 +817,7 @@ export function runRbacAppVerbs(substrate: RbacAppSubstrate): void {
           const editOnly = minus(at(actor, "document", "edit"), share)[0];
           if (editOnly !== undefined) {
             editors += 1;
-            for (const as of ["edit", "all"])
+            for (const as of ["edit", unnamed])
               expect(
                 (
                   await probe(db, (tx) =>

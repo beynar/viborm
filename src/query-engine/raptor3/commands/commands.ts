@@ -1746,6 +1746,9 @@ export class Commands {
     const projection = ctx.queries.prepareProjection(model, args);
     if (!returningSafeProjection(projection)) return undefined;
     const values = this.stamp(model, "update", args.data, raw.data);
+    // Nothing to assign emits no UPDATE: the row is only read, on the
+    // located route.
+    if (Object.keys(values).length === 0) return undefined;
     const selector = ctx.queries.candidates(
       ctx.queries.prepareSelector(model, args.where, true),
       "root",
@@ -2323,14 +2326,17 @@ export class Commands {
     if (args.limit === 0)
       return { single: true, run: async () => ctx.emptyBulkResult(projection) };
     const judgement = this.judge(model, updateData, raw.data);
-    if (!relationBearing) {
+    const values = relationBearing
+      ? undefined
+      : this.stamp(model, "update", updateData, raw.data);
+    // Nothing to assign emits no UPDATE: the rows are only read, as a series.
+    if (values !== undefined && Object.keys(values).length > 0) {
       const selector = ctx.queries.candidates(
         ctx.queries.prepareSelector(model, args.where),
         "root",
         undefined,
         judgement
       );
-      const values = this.stamp(model, "update", updateData, raw.data);
       return {
         single: !projection || returning,
         run: () =>

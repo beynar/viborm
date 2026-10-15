@@ -59,6 +59,14 @@ const COMPILED_POLICY =
  */
 const VERBS = "tests/providers/local/sqlite3-rbac-verbs.test.ts";
 
+/**
+ * The entry's witnesses' runner (SQLite3, raw SQL included; PGlite, pg,
+ * MySQL2 and D1 beside, in
+ * tests/providers/{local,docker,workers}/*-rbac-entry.test.ts), oracle-bound;
+ * the verbs witnesses are re-run through the entry there too.
+ */
+const ENTRY = "tests/providers/local/sqlite3-rbac-entry.test.ts";
+
 /** Each landed case, with the test file that executes it. */
 const LANDED: Readonly<Record<string, string>> = {
   "W-K1a": DOMAIN_PREDICATES,
@@ -95,6 +103,39 @@ const LANDED: Readonly<Record<string, string>> = {
   "W-W9": VERBS,
   "W-W10": VERBS,
   "W-N4": VERBS,
+  "W-R1": ENTRY,
+  "W-R2": ENTRY,
+  "W-R3": ENTRY,
+  "W-R4": ENTRY,
+  "W-R5": ENTRY,
+  "W-R6": ENTRY,
+  "W-R7": ENTRY,
+  "W-R8": ENTRY,
+  "W-N1": ENTRY,
+  "W-N2": ENTRY,
+  "W-N3": ENTRY,
+  "W-D1": ENTRY,
+  "W-D2": ENTRY,
+  "W-D3": ENTRY,
+  "W-D4": ENTRY,
+  "W-D5": ENTRY,
+  "W-D6": ENTRY,
+  "W-D7": ENTRY,
+  "W-D8": ENTRY,
+  "W-D9": ENTRY,
+  "W-D10": ENTRY,
+  "W-D11": ENTRY,
+  "W-D12": ENTRY,
+  "W-CAN1": ENTRY,
+  "W-CAN3": ENTRY,
+  "W-CAN4": ENTRY,
+  "W-CAN5": ENTRY,
+  "W-CAN6": ENTRY,
+  "W-C1": ENTRY,
+  "W-C2": ENTRY,
+  "W-C3": ENTRY,
+  "W-C4": ENTRY,
+  "W-X1": ENTRY,
   "W-H1": COMPILED_POLICY,
   "W-A1": COMPILED_POLICY,
   "W-A2": COMPILED_POLICY,

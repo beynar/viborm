@@ -1,6 +1,6 @@
 import type { CompiledPolicy, ModelPolicy } from "@src/rbac";
 import { grant, member, notBanned, session, up } from "@src/rbac";
-import { compilePolicy } from "@src/rbac/compile";
+import { compilePolicy, verbsOf } from "@src/rbac/compile";
 import {
   createRbacAppClient,
   loadRbacSeed,
@@ -31,8 +31,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 
 /**
  * The compiled policy against the oracle (plan §3.3 D2, D3, D9; §7 W-H1,
- * W-A1..W-A6): `rbac(§1.1).compile(schema)` is plain data, handed as it is
- * to a plain extension's `rows.verbs` (K3), whose modes name each
+ * W-A1..W-A6): `rbac(§1.1).compile(schema)` is plain data, its K3 part
+ * (`verbsOf`) handed to a plain extension's `rows.verbs`, whose modes name each
  * `(model, action)` predicate, conjoined by K3 with the model's read
  * predicate (R2). Its `actor` control is a call argument (K1 admission, K2
  * parameters and conditions), on the seeded rbac-app fixture with no other
@@ -75,7 +75,7 @@ function observedModes(compiled: CompiledPolicy) {
 
 /**
  * A plain extension carrying the compiled policy as K3 declares it: every
- * model's compiled entry is its `verbs`, so an unlisted model reads nothing
+ * model's compiled predicates and verbs are its `verbs`, so an unlisted model reads nothing
  * (R9). The actor is an argument.
  */
 const extensionOf = (name: string, compiled: CompiledPolicy) => ({
@@ -85,7 +85,7 @@ const extensionOf = (name: string, compiled: CompiledPolicy) => ({
     control: MODE,
     default: "none",
     models: observedModes(compiled),
-    verbs: compiled.models,
+    verbs: verbsOf(compiled),
   },
 });
 

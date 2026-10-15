@@ -108,6 +108,9 @@ export interface CompiledPolicy {
   readonly models: { readonly [model: string]: CompiledModel };
 }
 
+/** The `as` value a call takes when it names none: it narrows nothing. */
+export const DEFAULT_MODE = "default";
+
 const RESERVED = new Set([
   "within",
   "arms",
@@ -180,6 +183,28 @@ function actionsOf(
         );
   }
   return implies;
+}
+
+/**
+ * Each model's K3 entry (`rows.verbs`): its predicates and the verbs and
+ * written fields that name them. Reads, modes and placement are the entry's
+ * and later capabilities' (K4, K5), never part of it.
+ */
+export function verbsOf(compiled: CompiledPolicy): Record<string, RowsVerbs> {
+  return Object.fromEntries(
+    Object.entries(compiled.models).map(
+      ([name, { predicates, writes, read, update, delete: remove }]) => [
+        name,
+        {
+          predicates,
+          writes,
+          ...(read !== undefined && { read }),
+          ...(update !== undefined && { update }),
+          ...(remove !== undefined && { delete: remove }),
+        },
+      ]
+    )
+  );
 }
 
 /** Compiles a policy against the schema it governs. */
@@ -477,6 +502,12 @@ export function compilePolicy(
         lower(name, "view", rule, `models.${name}.domains.${domain}`) || FALSE;
       modes[domain] = domain;
     }
+    // One `as` name space for every model: the default is no action's.
+    if (Object.hasOwn(modes, DEFAULT_MODE))
+      refuse(
+        `models.${name}: "${DEFAULT_MODE}" is the mode a call takes by default, not an action or a domain`,
+        name
+      );
 
     let place: string | undefined;
     if (policy.create !== undefined) {

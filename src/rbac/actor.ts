@@ -112,3 +112,25 @@ export type ActorPaths<T, Seen = never> = T extends readonly unknown[]
               | `${K}.${ActorPaths<NonNullable<T[K]>, Seen | T>}`;
           }[keyof T & string]
     : never;
+
+/**
+ * The actor a binding takes: what its schema parses to, read only, where an
+ * entry whose value may be `undefined` may also be left out (an optional
+ * entry's output keeps its key; `v.object`'s input type makes every key
+ * optional).
+ */
+export type ActorFacts<T> = T extends readonly (infer Item)[]
+  ? readonly ActorFacts<Item>[]
+  : T extends Date | ((...args: never[]) => unknown)
+    ? T
+    : T extends object
+      ? {
+          readonly [K in keyof T as undefined extends T[K]
+            ? never
+            : K]: ActorFacts<T[K]>;
+        } & {
+          readonly [K in keyof T as undefined extends T[K]
+            ? K
+            : never]?: ActorFacts<T[K]>;
+        }
+      : T;

@@ -725,6 +725,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "up",
     ],
     [
+      "ActorFacts",
       "ActorPaths",
       "Ceiling",
       "CompiledModel",

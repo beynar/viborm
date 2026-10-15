@@ -6,12 +6,12 @@
  * emptied in one batch (foreign keys deferred to its end) and the seed
  * loaded again.
  *
- * Open (2026-10-15): W-W3's grant updateMany and W-W7's nested create under
- * a document are refused by D1 with "Expression tree is too large (maximum
- * depth 100)": their statements need an expression depth of 122 and 104
- * (measured with SQLite's SQLITE_LIMIT_EXPR_DEPTH), from nested EXISTS, not
- * from flat AND/OR chains. A provider fact the plan's D1 budget (§8: binds
- * and bytes) does not yet name; the owner's decision.
+ * D1 compiles with an expression depth of 100 ("Expression tree is too
+ * large"), and SQLite counts nested EXISTS about quadratically: W-W3's grant
+ * updateMany needed 122, W-W7's nested create under a document 104. The D1
+ * driver declares `deepExpressions: false`, so every relation filter reads
+ * its rows from a derived table: 51 and 46 (SQLITE_LIMIT_EXPR_DEPTH), one
+ * statement, the same plan.
  */
 
 import { env } from "cloudflare:test";

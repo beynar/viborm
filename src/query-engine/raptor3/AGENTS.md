@@ -719,7 +719,11 @@ projection is RETURNING-safe folds onto the set-oriented owner
 `updateMany`) plus one cardinality decision; that fold is why the frozen fast
 path costs 1 statement and 0 transactions for a root `create`, the shipped
 count. A verb no longer decides the envelope in one place and the route in
-another.
+another. An update whose data assigns nothing (no field, no stamp, no
+generated value) emits no UPDATE, so it never folds: a root `update` takes the
+located route and a root `updateMany` the series route, each a read of the rows
+it addresses (`UPDATE … SET` with an empty list was a syntax error on every
+provider, 1.2.4 included).
 
 The same rule answers the TRANSPORT and not only the envelope: a set-oriented
 mutation that is the operation's ONLY statement runs on the plain execute path

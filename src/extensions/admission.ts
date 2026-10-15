@@ -36,6 +36,15 @@ function standaloneRegistry(schema: Schema): SchemaRegistryLookup<Schema> {
   return registry;
 }
 
+/** A model's `rows.verbs` entry, key by key. */
+const VERBS_KEYS: Record<keyof RowsVerbs, true> = {
+  predicates: true,
+  read: true,
+  update: true,
+  delete: true,
+  writes: true,
+};
+
 /** A condition's tests, the filter vocabulary's own words (OD-12). */
 const TESTS = ["exists", "equals", "in", "has", "hasSome"] as const;
 
@@ -159,6 +168,16 @@ export function admitRows(
     const place = `verbs.${name}`;
     if (!Object.hasOwn(schema, name))
       refuse(name, place, "root", "names an unknown model");
+    // Policies may be data built at runtime: a misspelt `writes` would leave
+    // its field judged at `update`, which widens the write.
+    for (const key of Object.keys(entry))
+      if (!Object.hasOwn(VERBS_KEYS, key))
+        refuse(
+          name,
+          place,
+          key,
+          `is not one of ${Object.keys(VERBS_KEYS).join(", ")}`
+        );
     const { state } = schema[name]!["~"];
     const predicates: Record<string, Record<string, unknown>> = {};
     for (const [key, predicate] of Object.entries(entry.predicates))

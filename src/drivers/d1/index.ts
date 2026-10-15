@@ -186,9 +186,12 @@ export class D1Driver extends Driver<
     D1Driver.prototype.executePositional;
 
   // D1's authorizer refuses temporary objects (`SQLITE_AUTH`, the whole batch
-  // rejected), witnessed by `tests/providers/workers/d1.test.ts`.
+  // rejected), witnessed by `tests/providers/workers/d1.test.ts`. D1 compiles
+  // with an expression depth of 100 ("Expression tree is too large"):
+  // relation filters nest as derived tables (d1-rbac-verbs W-W3, W-W7).
   readonly adapter: DatabaseAdapter = new SQLiteAdapter({
     temporaryObjects: false,
+    deepExpressions: false,
   });
   readonly maxBindParametersPerStatement: number | undefined = 100;
   readonly result: DriverResultParser = sqliteResultParser;

@@ -4,7 +4,10 @@
  * (`fixtures/rbac-app/schema`) writes the whole policy, its stored-role
  * variant and the blog with `viborm/rbac`'s helpers, and compiles each against
  * the schema (`policy.compile(schema)`, which checks the model and field names
- * the policy spells). Predicates are opaque data: no model's `where` type is
+ * the policy spells), and applies the policy to a client: `db.$as(actor)` is
+ * the governed client again, `can` and `assert` take each listed model's own
+ * actions, and a wrong action name is an error (an unused `@ts-expect-error`
+ * fails the check). Predicates are opaque data: no model's `where` type is
  * walked over a policy, so a policy costs about what its literal does (plan
  * §11.2 F8: ~740 instantiations per model).
  *
@@ -90,6 +93,23 @@ export const compiled = [
   blog.compile(schema),
 ];
 `;
+/** The entry on a client: `$as` is the governed client again; can and assert take each model's own actions. */
+const clientSource = `import { createClient } from "viborm/pg";
+import { schema } from "./schema";
+import { policy } from "./policy";
+
+const base = createClient({ schema, databaseUrl: "postgresql://localhost/rbac" });
+const db = policy(base);
+const call = db.$as({ userId: "user-01", organizationId: "org-1", network: "office" });
+export const same: typeof db = call;
+export const answers: [Promise<boolean>, Promise<void>, Promise<boolean>] = [
+  call.team.can("invite", { id: "t1" }),
+  call.organization.assert("export", { id: "org-1" }),
+  call.document.can("archive", { parentId: null }),
+];
+// @ts-expect-error - "export" is not an action of team
+export const wrong = call.team.can("export", { id: "t1" });
+`;
 
 function check(checker, consumerRoot) {
   const started = performance.now();
@@ -169,6 +189,7 @@ try {
   );
   writeFileSync(join(source, "policy.ts"), policySource);
   writeFileSync(join(source, "compile.ts"), compileSource);
+  writeFileSync(join(source, "client.ts"), clientSource);
   writeFileSync(join(consumerRoot, "tsconfig.json"), JSON.stringify(tsconfig));
 
   for (const checker of checkers) {

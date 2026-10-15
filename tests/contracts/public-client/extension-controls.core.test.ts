@@ -20,6 +20,8 @@ import { cache } from "@cache/extension";
 import { createClient } from "@client/client";
 import {
   ClientInitializationError,
+  NestedWriteError,
+  NotFoundError,
   QueryError,
   ValidationError,
 } from "@errors";
@@ -2210,6 +2212,131 @@ describe("rows: named predicates and verbs, per model", () => {
         declared({ post: { predicates: { mine }, writes: { author: "mine" } } })
       )
     ).not.toThrow();
+  });
+
+  test("an unknown key in a model's verbs is refused at $extends, named with its model: a misspelt `writes` would judge its field at `update`", () => {
+    // Policies may be data built at runtime, so the types do not cover it.
+    const error = refusal(() =>
+      bound(
+        declared({
+          post: {
+            predicates: { mine, nobody: { id: "-" } },
+            update: "mine",
+            write: { title: "nobody" },
+          },
+        })
+      )
+    );
+    expect(error.message).toBe(
+      'Extension "verbs" rows.verbs.post at "write": is not one of predicates, read, update, delete, writes.'
+    );
+    expect(error.meta).toMatchObject({ model: "post" });
+  });
+
+  test("`data: {}` on a model with nothing to stamp emits no UPDATE: its rows are read, on the base client as under verbs, never judged at `update`", async () => {
+    const base = await seededBase();
+    await base.user.create({ data: { id: "u2", name: "Bob" } });
+    expect(
+      await base.user.update({
+        where: { id: "u1" },
+        data: {},
+        select: { id: true },
+      })
+    ).toEqual({ id: "u1" });
+    expect(await base.user.updateMany({ data: {} })).toEqual({ count: 2 });
+    expect(
+      await failure(base.user.update({ where: { id: "u3" }, data: {} }))
+    ).toBeInstanceOf(NotFoundError);
+    const governed = applyUnchecked(
+      base,
+      declared({
+        user: {
+          predicates: { self: { id: { control: "who" } }, nobody: { id: "-" } },
+          read: "self",
+          update: "nobody",
+        },
+      })
+    );
+    const update = (where: object, data: object) =>
+      callUnchecked(governed, "user", "update", { who: "u1", where, data });
+    expect(await update({ id: "u1" }, {})).toEqual({ id: "u1", name: "Ada" });
+    expect(await failure(update({ id: "u2" }, {}))).toBeInstanceOf(
+      NotFoundError
+    );
+    expect(await failure(update({ id: "u1" }, { name: "Eve" }))).toBeInstanceOf(
+      NotFoundError
+    );
+    expect(
+      await callUnchecked(governed, "user", "updateMany", {
+        who: "u1",
+        data: {},
+      })
+    ).toEqual({ count: 1 });
+  });
+
+  test("a lax `disconnect: true` judges the member it unlinks: one the call sees and may not write is refused, as a clear is; one it cannot see keeps its link", async () => {
+    const holder = s.model({
+      id: s.string().id(),
+      badge: s.toOne(() => badge),
+    });
+    const badge = s.model({
+      id: s.string().id(),
+      label: s.string(),
+      holderId: s.string().nullable().unique(),
+      holder: s
+        .toOne(() => holder)
+        .fields("holderId")
+        .references("id"),
+    });
+    const base = createClient({
+      schema: { holder, badge },
+      driver: createInMemorySQLite3Driver(),
+    });
+    clients.push(base);
+    await syncLiveSchema(base);
+    for (const [id, label] of [
+      ["open", "open"],
+      ["locked", "locked"],
+      ["hidden", "hidden"],
+    ] as const) {
+      await base.holder.create({ data: { id } });
+      await base.badge.create({ data: { id, label, holderId: id } });
+    }
+    const governed = applyUnchecked(base, {
+      name: "badges",
+      rows: {
+        control: "as",
+        default: "all",
+        models: {},
+        verbs: {
+          holder: { predicates: { all: {} }, read: "all", update: "all" },
+          badge: {
+            predicates: {
+              seen: { label: { not: "hidden" } },
+              open: { label: "open" },
+            },
+            read: "seen",
+            update: "seen",
+            writes: { holderId: "open", holder: "open" },
+          },
+        },
+      },
+    });
+    const disconnect = (id: string) =>
+      callUnchecked(governed, "holder", "update", {
+        where: { id },
+        data: { badge: { disconnect: true } },
+      });
+    const holderOf = async (id: string) =>
+      (await base.badge.findUnique({ where: { id } }))?.holderId;
+    await disconnect("open");
+    expect(await holderOf("open")).toBeNull();
+    expect(await failure(disconnect("locked"))).toBeInstanceOf(
+      NestedWriteError
+    );
+    expect(await holderOf("locked")).toBe("locked");
+    await disconnect("hidden");
+    expect(await holderOf("hidden")).toBe("hidden");
   });
 
   test("a predicate that contains itself is refused at $extends; one that shares a sub-object is admitted", () => {

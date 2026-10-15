@@ -517,6 +517,19 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
     );
   });
 
+  test("no action or domain takes the default mode's name: one `as` name space for every model", () => {
+    const message =
+      'models.page: "default" is the mode a call takes by default, not an action or a domain';
+    expect(
+      refusalOf(() => compile({ models: { page: { view: {}, default: {} } } }))
+    ).toContain(message);
+    expect(
+      refusalOf(() =>
+        compile({ models: { page: { view: {}, domains: { default: {} } } } })
+      )
+    ).toContain(message);
+  });
+
   test("a predicate that reads itself through its relations is refused", () => {
     expect(
       refusalOf(() =>

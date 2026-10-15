@@ -8,13 +8,29 @@
 // what the types check is the declaration's names: models, fields and actions
 // against the schema and each other, actor paths against the actor schema.
 
-import type { VibORMConfig } from "../index";
+import type { OperationPayload } from "../client/exports"; // public today
+import { ForbiddenError, ValidationError } from "../errors";
+import type { RowsVerbs } from "../extensions/controls";
+import type {
+  ClientSchema,
+  ExtensionState,
+  MergeExtensionState,
+  VibORMClient,
+  VibORMConfig,
+} from "../index";
 import type { InferOutput } from "../validation";
-import { type ActorPaths, actorPaths } from "./actor";
-import { type CompiledPolicy, compilePolicy, type RbacConfig } from "./compile";
-import type { KeyLimit } from "./helpers";
+import { type ActorFacts, type ActorPaths, actorPaths } from "./actor";
+import {
+  type CompiledModel,
+  type CompiledPolicy,
+  compilePolicy,
+  DEFAULT_MODE,
+  type RbacConfig,
+  verbsOf,
+} from "./compile";
+import { FALSE, type KeyLimit, type Where } from "./helpers";
 
-export type { ActorPaths } from "./actor";
+export type { ActorFacts, ActorPaths } from "./actor";
 export type {
   CompiledModel,
   CompiledPolicy,
@@ -44,6 +60,7 @@ export {
 } from "./helpers";
 
 type Schema = VibORMConfig["schema"];
+type AnyModel = Schema[string];
 
 // =============================================================================
 // ACTIONS: what each model declares, and the names that must be among them
@@ -207,31 +224,316 @@ type SchemaCheck<S extends Schema, Config extends RbacConfig> = [
   : { readonly "unknown model": Exclude<keyof Config["models"], keyof S> };
 
 // =============================================================================
-// THE ENTRY
+// THE ENTRY: a rows step and a methods step (plan §1.1; K7(b), OD-1 option 2)
 // =============================================================================
 
+const NAME = "viborm.rbac";
+/** The call argument that narrows a call to one action or domain (R8). */
+const MODE = "as";
+
+type Listed<Config extends RbacConfig> = keyof Config["models"] & string;
+type ActionOf<Config extends RbacConfig, K extends Listed<Config>> = ActionsOf<
+  Config["models"][K],
+  Levels<Config>
+>;
+type DomainsOf<M> = M extends { readonly domains: infer D }
+  ? keyof D & string
+  : never;
+/** Every `as` value: the default, and each listed model's actions and domains. */
+type ModeOf<Config extends RbacConfig> =
+  | typeof DEFAULT_MODE
+  | {
+      [K in Listed<Config>]:
+        | ActionOf<Config, K>
+        | DomainsOf<Config["models"][K]>;
+    }[Listed<Config>];
+
+/** `$as`, declared apart: inline, the factory's contextual type makes `Self` void. */
+interface AsMethod<Actor> {
+  /**
+   * This client with the actor bound (K6): every call of the view is judged
+   * for it. Validated once, here, against the policy's actor schema.
+   */
+  $as<Self>(this: Self, actor: Actor): Self;
+}
+
+type RowsDefinition<C extends VibORMConfig, Config extends RbacConfig> = {
+  readonly name: typeof NAME;
+  readonly controls: {
+    readonly actor: {
+      readonly schema: Config["actor"];
+      readonly bound: true;
+      readonly required: true;
+    };
+  };
+  readonly rows: {
+    readonly control: typeof MODE;
+    readonly default: typeof DEFAULT_MODE;
+    readonly models: {
+      readonly [K in keyof C["schema"]]: {
+        readonly [Mode in ModeOf<Config>]: { readonly root?: string | Where };
+      };
+    };
+    readonly verbs: { readonly [model: string]: RowsVerbs };
+  };
+  readonly client: (
+    scope: never
+  ) => AsMethod<ActorFacts<InferOutput<Config["actor"]>>>;
+};
+
+type WhereOf<C extends VibORMConfig, K> = Exclude<
+  OperationPayload<"exist", ClientSchema<C>[K & keyof ClientSchema<C>]>,
+  undefined
+>["where"];
+
+/** One listed model's single-action answers, from its own predicates (D8). */
+interface ModelAnswers<Action extends string, W> {
+  /** Whether the actor holds `action` on a row `where` selects: one statement. */
+  can(action: Action, where: W): Promise<boolean>;
+  /** Resolves when `can` holds; else `ForbiddenError`, hidden row or not. */
+  assert(action: Action, where: W): Promise<void>;
+}
+
+type MethodsDefinition<C extends VibORMConfig, Config extends RbacConfig> = {
+  readonly name: `${typeof NAME}.methods`;
+  readonly model: {
+    // The delegate of a client generic over its state stays deferred: untyped.
+    readonly [K in Listed<Config>]: (
+      delegate: never
+    ) => ModelAnswers<ActionOf<Config, K>, WhereOf<C, K>>;
+  };
+};
+
+type Governing<Config extends RbacConfig> = VibORMConfig & {
+  readonly schema: Record<Listed<Config>, AnyModel>;
+};
+type RowsClient<
+  C extends VibORMConfig,
+  X extends ExtensionState,
+  Config extends RbacConfig,
+> = VibORMClient<C, MergeExtensionState<X, RowsDefinition<C, Config>>>;
+type MethodsClient<
+  C extends VibORMConfig,
+  X extends ExtensionState,
+  Config extends RbacConfig,
+> = VibORMClient<C, MergeExtensionState<X, MethodsDefinition<C, Config>>>;
+
 export interface Policy<Config extends RbacConfig> {
+  /**
+   * The governed client: the rows step, then the methods step. Every model
+   * of `base` is governed, and every call needs an actor: `db.$as(actor)`.
+   */
+  <C extends Governing<Config>, X extends ExtensionState>(
+    base: VibORMClient<C, X>
+  ): MethodsClient<
+    C,
+    MergeExtensionState<X, RowsDefinition<C, Config>>,
+    Config
+  >;
   readonly config: Config;
   /**
    * The policy compiled against the schema it governs (R1, plain data): per
    * model, its named predicates and the verbs, written fields, read-gated
    * fields, modes and placement that take them. Refusals are
-   * `ClientInitializationError`s naming the declaration's path.
+   * `ClientInitializationError`s naming the declaration's path. Public for
+   * inspection; the entry applies it as it is.
    */
   compile<S extends Schema>(schema: S & SchemaCheck<S, Config>): CompiledPolicy;
+  /**
+   * Step one: the bound-only `actor`, the `as` mode, every model's
+   * predicates (K3) and `$as`. `$as` binds the actor, so it lives where the
+   * actor is declared (K6(a)); that makes this a client consumer, so it is
+   * the last `rows` step of a chain (the order guard).
+   */
+  rows<C extends Governing<Config>, X extends ExtensionState>(
+    base: VibORMClient<C, X>
+  ): RowsClient<C, X, Config>;
+  /** Step two: `can` and `assert` on every listed model. */
+  methods<C extends Governing<Config>, X extends ExtensionState>(
+    client: VibORMClient<C, X>
+  ): MethodsClient<C, X, Config>;
+}
+
+/** The verb each root operation is judged at; a create waits for placement (K4). */
+const VERB_OF: Readonly<Record<string, "read" | "update" | "delete">> = {
+  findMany: "read",
+  findFirst: "read",
+  findUnique: "read",
+  findFirstOrThrow: "read",
+  findUniqueOrThrow: "read",
+  count: "read",
+  aggregate: "read",
+  groupBy: "read",
+  exist: "read",
+  update: "update",
+  updateMany: "update",
+  delete: "delete",
+  deleteMany: "delete",
+};
+
+/** What a root call may reach on one model before its predicates run (R9). */
+interface Reach {
+  readonly listed: boolean;
+  readonly verbs: ReadonlySet<string>;
+  readonly modes: ReadonlySet<string>;
+}
+
+interface ModelCall {
+  readonly kind: string;
+  readonly model?: string;
+  readonly operation: string;
+  readonly controls?: Readonly<Record<string, unknown>>;
+  proceed(): Promise<unknown>;
+}
+
+/**
+ * R9: a root call whose domain is false when the policy is applied (a model
+ * the policy does not list, a verb or a mode the model does not declare) is
+ * refused before any statement; one that folds false per call takes the
+ * ordinary outcome from its predicates.
+ */
+function refuseUnreachable(reach: ReadonlyMap<string, Reach>) {
+  return async (context: ModelCall): Promise<unknown> => {
+    if (context.kind === "model") {
+      const { model, operation } = context as Required<ModelCall>;
+      const at = reach.get(model)!;
+      const verb = VERB_OF[operation];
+      if (!at.listed || (verb !== undefined && !at.verbs.has(verb)))
+        throw new ForbiddenError(model, operation);
+      const mode = context.controls?.[MODE];
+      if (typeof mode === "string" && !at.modes.has(mode))
+        throw new ValidationError(
+          { kind: "operation", operation: operation as never, model },
+          [
+            {
+              path: MODE,
+              message: `Mode "${mode}" is not one ${model} declares`,
+            },
+          ],
+          { meta: { model, extension: NAME } }
+        );
+    }
+    return await context.proceed();
+  };
+}
+
+/**
+ * Every model's modes, alike in name (one control): the default and the
+ * model's read action narrow nothing (`read` already ANDs with every mode,
+ * K3); another of its actions or domains narrows by its predicate (R8); a
+ * mode it does not declare holds nothing, and a root call naming it is
+ * refused before it runs (R9).
+ */
+function modesOf(compiled: CompiledPolicy) {
+  const names = [
+    DEFAULT_MODE,
+    ...new Set(
+      Object.values(compiled.models).flatMap((model) =>
+        Object.keys(model.modes)
+      )
+    ),
+  ];
+  const narrowing = (model: CompiledModel, mode: string) => {
+    if (mode === DEFAULT_MODE || mode === model.read) return {};
+    return {
+      root: Object.hasOwn(model.modes, mode) ? model.modes[mode]! : FALSE,
+    };
+  };
+  return Object.fromEntries(
+    Object.entries(compiled.models).map(([name, model]) => [
+      name,
+      Object.fromEntries(names.map((mode) => [mode, narrowing(model, mode)])),
+    ])
+  );
+}
+
+function reachOf(config: RbacConfig, compiled: CompiledPolicy) {
+  return new Map(
+    Object.entries(compiled.models).map(([name, model]) => [
+      name,
+      {
+        listed: Object.hasOwn(config.models, name),
+        verbs: new Set([
+          ...(["read", "update", "delete"] as const).filter(
+            (verb) => model[verb] !== undefined
+          ),
+          ...(Object.keys(model.writes).length > 0 ? ["update"] : []),
+        ]),
+        modes: new Set([DEFAULT_MODE, ...Object.keys(model.modes)]),
+      },
+    ])
+  );
 }
 
 /**
  * One permission model: per model, a rule per action (`view`, `edit`, …),
  * `within` and the policy's `limit` conjoined with every action, `arms`
- * disjoined at every action. The actor schema is checked here, once.
+ * disjoined at every action. The actor schema is checked here, once;
+ * `rbac(config)(base)` compiles it against `base`'s schema and applies it.
  */
 export function rbac<const Config extends RbacConfig>(
   config: Config & DeclarationCheck<Config>
 ): Policy<Config> {
   const hasPath = actorPaths(config.actor);
-  return Object.freeze({
-    config,
-    compile: (schema: Schema) => compilePolicy(config, schema, hasPath),
-  });
+  const compile = (schema: Schema) => compilePolicy(config, schema, hasPath);
+  const rows = (base: VibORMClient<VibORMConfig, ExtensionState>) => {
+    const compiled = compile(base.$schema as Schema);
+    const definition = {
+      name: NAME,
+      controls: {
+        actor: { schema: config.actor, bound: true, required: true },
+      },
+      rows: {
+        control: MODE,
+        default: DEFAULT_MODE,
+        models: modesOf(compiled),
+        verbs: verbsOf(compiled),
+      },
+      query: refuseUnreachable(reachOf(config, compiled)),
+      client: (scope: {
+        $bind(values: Readonly<Record<string, unknown>>): unknown;
+      }) => {
+        const methods: AsMethod<unknown> = {
+          $as: (actor) => scope.$bind({ actor }) as never,
+        };
+        return methods;
+      },
+    };
+    return extend(base, definition);
+  };
+  const methods = (client: VibORMClient<VibORMConfig, ExtensionState>) => {
+    const answers = (model: string) => (delegate: never) => {
+      const read = delegate as { exist(args: object): PromiseLike<boolean> };
+      // One statement: is a row `where` selects in the action's mode (R8)?
+      const can = async (action: string, where: object) =>
+        await read.exist({ where, [MODE]: action });
+      return {
+        can,
+        assert: async (action: string, where: object) => {
+          if (!(await can(action, where)))
+            throw new ForbiddenError(model, action);
+        },
+      };
+    };
+    return extend(client, {
+      name: `${NAME}.methods`,
+      model: Object.fromEntries(
+        Object.keys(config.models).map((model) => [model, answers(model)])
+      ),
+    });
+  };
+  const apply = (base: VibORMClient<VibORMConfig, ExtensionState>) =>
+    methods(rows(base));
+  // The steps are typed by `Policy`: for a client generic over its state,
+  // the client-method guard stays deferred and refuses every client method.
+  return Object.freeze(
+    Object.assign(apply, { config, compile, rows, methods })
+  ) as unknown as Policy<Config>;
+}
+
+function extend(
+  client: VibORMClient<VibORMConfig, ExtensionState>,
+  definition: object
+): VibORMClient<VibORMConfig, ExtensionState> {
+  return Reflect.apply(client.$extends, client, [definition]);
 }

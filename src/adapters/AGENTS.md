@@ -63,7 +63,7 @@ Without adapters, we'd have `if (postgres) ... else if (mysql) ...` scattered ev
 | `aggregates` | count, sum, avg, min, max | Aggregate queries |
 | `orderBy` | asc, desc, nullsFirst, nullsLast | Sorting |
 | `clauses` | select, where, orderBy, limit | Query structure |
-| `subqueries` | scalar, correlate, existsCheck | Relation filters |
+| `subqueries` | scalar, correlate, existsCheck | Relation filters (SQLite: a derived table where the driver declares `deepExpressions: false`) |
 | `mutations` | insert, update, delete, returning | Write operations |
 
 ---

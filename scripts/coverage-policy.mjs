@@ -59,6 +59,7 @@ export const extensionCoverageTests = Object.freeze([
   "tests/unit/instrumentation/official-observer.core.test.ts",
   "tests/unit/rbac/compile.core.test.ts",
   "tests/providers/local/sqlite3-rbac-compiled-policy.test.ts",
+  "tests/providers/local/sqlite3-rbac-entry.test.ts",
 ]);
 const definitions = [
   {

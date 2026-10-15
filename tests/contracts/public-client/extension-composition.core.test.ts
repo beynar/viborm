@@ -13,8 +13,9 @@
  * its own unit lands, from public exports only: a bound-only actor and
  * `$as` in its rows step (a binding admits only its own extension's
  * controls), `can` in its methods step. Witness ids are the matrix's
- * (`tests/package/fixtures/rbac-app/witnesses.ts`, C12); W-C1 waits for the
- * entry itself, the chain it will take is pinned here.
+ * (`tests/package/fixtures/rbac-app/witnesses.ts`, C12); W-C1 runs through
+ * the entry itself (`rbac-entry-behavior.ts`), the chain it takes is pinned
+ * here.
  *
  * Runs on in-memory SQLite.
  */

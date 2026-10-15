@@ -127,7 +127,7 @@ export class NotFoundError extends VibORMError {
 /**
  * A policy refused the operation: the row a write would produce, or an explicit `assert`, is
  * not permitted to the caller. Like {@link NotFoundError}, it never says whether the row was
- * hidden or the action lacking, nor whether a referenced row is hidden or missing.
+ * hidden or visible and not permitted, nor whether a referenced row is hidden or missing.
  */
 export class ForbiddenError extends VibORMError {
   static override readonly diagnosticName = "ForbiddenError";

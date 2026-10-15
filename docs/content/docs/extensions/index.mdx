@@ -192,8 +192,8 @@ const tenant = defineExtension<typeof schema>()({
 Request and query capabilities are useful policy foundations, but a root
 filter is not complete RBAC. Nested reads and writes, relation membership,
 field use, raw SQL, statement transforms, and data-dependent write scopes need
-one graph-wide semantic policy owner. VibORM does not currently export an RBAC
-helper. `omit` is presentation control, not authorization: query-level and
+one graph-wide semantic policy owner. `viborm/rbac` is that owner: one
+predicate per model and action, judged in the statement at every scope. `omit` is presentation control, not authorization: query-level and
 client-default omission can be overridden, and even model `.omit()` does not
 replace database authorization. `rows` and the soft-delete extension built on it
 decide which rows are visible, not who may see them: any caller can choose

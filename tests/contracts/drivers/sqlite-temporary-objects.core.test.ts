@@ -4,6 +4,7 @@ import { BunSQLiteDriver } from "@drivers/bun-sqlite";
 import { D1Driver } from "@drivers/d1";
 import { LibSQLDriver } from "@drivers/libsql";
 import { SQLite3Driver } from "@drivers/sqlite3";
+import { sql } from "@sql";
 import { describe, expect, test } from "vitest";
 
 const scratchDdl = (adapter: DatabaseAdapter): string[] =>
@@ -28,5 +29,27 @@ describe("SQLite transport temporary objects", () => {
     ["d1", new D1Driver({ database: Object.create(null) }), MAIN_SCRATCH],
   ])("%s spells the batch reference scratch its transport admits", (_name, driver, ddl) => {
     expect(scratchDdl(driver.adapter)).toEqual([ddl]);
+  });
+});
+
+const check = (adapter: DatabaseAdapter): string =>
+  adapter.subqueries.existsCheck(sql.raw('"t"'), sql.raw("1")).toStatement();
+
+describe("SQLite transport expression depth", () => {
+  // SQLite's default SQLITE_MAX_EXPR_DEPTH is 1000; D1 compiles with 100
+  // ("Expression tree is too large"), so D1 alone nests relation filters in
+  // a derived table (live witness: tests/providers/workers/d1-rbac-verbs.test.ts,
+  // W-W3 and W-W7).
+  test.each([
+    ["sqlite3", new SQLite3Driver(), 'SELECT 1 FROM "t" WHERE 1'],
+    ["libsql", new LibSQLDriver(), 'SELECT 1 FROM "t" WHERE 1'],
+    ["bun-sqlite", new BunSQLiteDriver(), 'SELECT 1 FROM "t" WHERE 1'],
+    [
+      "d1",
+      new D1Driver({ database: Object.create(null) }),
+      'SELECT 1 FROM (SELECT 1 FROM "t" WHERE 1)',
+    ],
+  ])("%s spells a relation filter for the depth its transport compiles", (_name, driver, spelled) => {
+    expect(check(driver.adapter)).toBe(spelled);
   });
 });
