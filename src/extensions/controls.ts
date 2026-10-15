@@ -65,11 +65,15 @@ type ScalarFields = { readonly [field: string]: unknown };
  * a mode; every model entry declares the same mode names, `default` among
  * them. `root` filters the call's own candidates, `related` rows reached
  * through a relation; each is a model's `where`, admitted once when the
- * extension is applied. Where a filter takes a value, `{ control: "<name>",
- * path?: "a.b" }` takes the value the call passed for that control (or a
- * field of it), `{ now: true }` the call's instant, and `{ $if: … }` tests a
- * call value. An absent value (`null` included) matches nothing where its
- * control is required, and drops its filter where it is not.
+ * extension is applied, or the name of one of its `verbs` predicates. Where a
+ * filter takes a value, `{ control: "<name>", path?: "a.b" }` takes the value
+ * the call passed for that control (or a field of it), `{ now: true }` the
+ * call's instant, and `{ $if: … }` tests a call value. An absent value
+ * (`null` included) matches nothing where its control is required, and drops
+ * its filter where it is not.
+ *
+ * `verbs` judges, per model, what a call may do to the rows it sees: a mode
+ * only narrows them (R8).
  */
 export type RowsContribution = {
   readonly control: string;
@@ -77,11 +81,29 @@ export type RowsContribution = {
   readonly models: {
     readonly [model: string]: {
       readonly [mode: string]: {
-        readonly root?: ScalarFields;
-        readonly related?: ScalarFields;
+        readonly root?: ScalarFields | string;
+        readonly related?: ScalarFields | string;
       };
     };
   };
+  readonly verbs?: { readonly [model: string]: RowsVerbs };
+};
+
+/**
+ * One model's named predicates, each a `where` admitted once, and the verbs
+ * that take them. `read` ANDs with every mode's `root` and `related`; a write
+ * takes its verb's beside them: a delete `delete`'s, an update, for each
+ * field its data writes, that field's `writes` entry, else `update`'s, and
+ * `update`'s when its data writes only stamps. A join row's change is a write
+ * of the relation on both rows it links; a row only addressed to reach its
+ * children is read. A verb left out matches nothing.
+ */
+export type RowsVerbs = {
+  readonly predicates: { readonly [name: string]: ScalarFields };
+  readonly read?: string;
+  readonly update?: string;
+  readonly delete?: string;
+  readonly writes?: { readonly [field: string]: string };
 };
 
 /**
@@ -227,13 +249,17 @@ type RowsControl<Definition> = Definition extends {
 
 /**
  * The models one definition's `rows` can hide from a relation read: its
- * entries' keys. A to-one relation that targets one of them reads `null` when
+ * `models` and `verbs` keys. A to-one relation that targets one of them reads `null` when
  * its target is hidden, so the result types widen it (`result-types.ts`).
  */
 export type RowsModels<Definition> = Definition extends {
   readonly rows: infer Rows extends RowsContribution;
 }
-  ? Extract<keyof Rows["models"], string>
+  ? Extract<
+      | keyof Rows["models"]
+      | (Rows extends { readonly verbs: infer Verbs } ? keyof Verbs : never),
+      string
+    >
   : never;
 
 /** The controls one definition places, keyed by control name. */
@@ -366,6 +392,7 @@ export function placeControls(
   const named = new Set([
     ...managed,
     ...Object.keys(rows?.models ?? {}),
+    ...Object.keys(rows?.verbs ?? {}),
     ...Object.keys(data?.models ?? {}),
   ]);
   const requiredOn = named.size === 0 ? true : named;

@@ -2110,3 +2110,186 @@ describe("controls: the cache key", () => {
     expect(recorder.keys).toEqual([]);
   });
 });
+
+describe("rows: named predicates and verbs, per model", () => {
+  // Plan K3: a model's predicates are admitted once by name; `read` ANDs with
+  // every mode, a write's verb with its candidates (R2, R3, R8). What each
+  // write is judged at, against the oracle, is witnessed on four databases
+  // (tests/contracts/public-client/rbac-app-verbs.ts).
+  const declared = (verbs: object, models: object = {}) =>
+    ({
+      name: "verbs",
+      controls: { who: { schema: v.string(), required: true } },
+      rows: { control: "as", default: "all", models, verbs },
+    }) as ExtensionDefinitionInput;
+  const bound = (definition: ExtensionDefinitionInput) =>
+    appendResolvedExtension(undefined, definition, schema).callRows!;
+  const mine = { authorId: { control: "who" } };
+
+  test("each predicate is admitted once; a mode, a verb and a written field naming one share its object; a verb left out matches nothing", () => {
+    const binding = bound(
+      declared(
+        {
+          post: {
+            predicates: { mine, titled: { title: "t" } },
+            read: "mine",
+            update: "mine",
+            writes: { title: "titled" },
+          },
+        },
+        { post: { all: {}, titled: { root: "titled" } } }
+      )
+    );
+    const [all, titled] = binding.physical;
+    const layer = all!.domain.verbs!.get("post")![0]!;
+    expect(titled!.domain.root.get("post")![0]).toBe(layer.writes.get("title"));
+    expect(layer.read).toBe(layer.update);
+    expect(
+      (layer.read as { authorId: { equals: unknown } }).authorId.equals
+    ).toBeInstanceOf(Parameter);
+    expect(layer.delete).toEqual({ OR: [] });
+    // Verbs are per model, not per mode: every combination shares them.
+    expect(titled!.domain.verbs).toBe(all!.domain.verbs);
+    // A value read by a verb's predicate alone makes the calls carry theirs.
+    expect(binding.parametric).toEqual([true, true]);
+    expect(
+      bound(declared({ post: { predicates: { titled: { title: "t" } } } }))
+        .parametric
+    ).toEqual([false]);
+  });
+
+  test("an unknown model, predicate name or written field is refused at $extends, named by its place", () => {
+    const refused = (verbs: object, models?: object) =>
+      refusal(() => bound(declared(verbs, models))).message;
+    expect(refused({ nope: { predicates: {} } })).toBe(
+      'Extension "verbs" rows.verbs.nope at "root": names an unknown model.'
+    );
+    for (const verb of ["read", "update", "delete"])
+      expect(
+        refused({ post: { predicates: { mine }, [verb]: "theirs" } })
+      ).toBe(
+        `Extension "verbs" rows.verbs.post at "${verb}": names unknown predicate "theirs".`
+      );
+    expect(
+      refused({ post: { predicates: { mine }, writes: { title: "theirs" } } })
+    ).toBe(
+      'Extension "verbs" rows.verbs.post at "writes.title": names unknown predicate "theirs".'
+    );
+    expect(
+      refused({ post: { predicates: { mine }, writes: { titel: "mine" } } })
+    ).toBe(
+      'Extension "verbs" rows.verbs.post at "writes.titel": names an unknown field.'
+    );
+    expect(
+      refused({ post: { predicates: { mine: { titel: "t" } } } })
+    ).toContain('rows.verbs.post.predicates.mine at "titel"');
+    expect(
+      refused(
+        { post: { predicates: { mine } } },
+        {
+          post: { all: {}, theirs: { related: "theirs" } },
+        }
+      )
+    ).toBe(
+      'Extension "verbs" rows.post.theirs.related at "root": names unknown predicate "theirs".'
+    );
+    // A model's mode names only its own model's predicates.
+    expect(
+      refused(
+        { post: { predicates: { mine } } },
+        {
+          user: { all: {}, mine: { root: "mine" } },
+        }
+      )
+    ).toBe(
+      'Extension "verbs" rows.user.mine.root at "root": names unknown predicate "mine".'
+    );
+    // A relation is a field a write names.
+    expect(() =>
+      bound(
+        declared({ post: { predicates: { mine }, writes: { author: "mine" } } })
+      )
+    ).not.toThrow();
+  });
+
+  test("a predicate that contains itself is refused at $extends; one that shares a sub-object is admitted", () => {
+    const loop: Record<string, unknown> = { title: "t" };
+    loop.OR = [loop];
+    const nested: Record<string, unknown> = {};
+    nested.author = { is: { posts: { some: nested } } };
+    for (const [predicate, at] of [
+      [loop, "OR.0"],
+      [nested, "author.is.posts.some"],
+    ] as const) {
+      expect(
+        refusal(() =>
+          bound(declared({ post: { predicates: { loop: predicate } } }))
+        ).message
+      ).toBe(
+        `Extension "verbs" rows.verbs.post.predicates.loop at "${at}": contains itself.`
+      );
+      expect(
+        refusal(() =>
+          appendResolvedExtension(
+            undefined,
+            {
+              name: "modes",
+              rows: {
+                control: "as",
+                default: "on",
+                models: { post: { on: { root: predicate } } },
+              },
+            } as ExtensionDefinitionInput,
+            schema
+          )
+        ).message
+      ).toBe(
+        `Extension "modes" rows.post.on.root at "${at}": contains itself.`
+      );
+    }
+    const shared = { title: "t" };
+    const layer = bound(
+      declared({
+        post: { predicates: { both: { AND: [shared, { OR: [shared] }] } } },
+      })
+    ).physical[0]!.domain.verbs!.get("post")![0]!;
+    expect(layer.read).toEqual({ OR: [] });
+  });
+
+  test("a required control is asked for on a model only verbs name, and nowhere else", () => {
+    const placed = placeControls({
+      name: "verbs",
+      controls: { who: { oneOf: ["u1"], required: true } },
+      rows: {
+        control: "as",
+        default: "all",
+        models: {},
+        verbs: { post: { predicates: { mine }, read: "mine" } },
+      },
+    });
+    expect(placed.map(({ name, required: on }) => [name, on])).toEqual([
+      ["who", new Set(["post"])],
+      ["as", undefined],
+    ]);
+  });
+
+  test("a chain references a control a verb's predicate names: undeclared, it is refused at $extends", () => {
+    expect(
+      refusal(() =>
+        appendResolvedExtension(
+          undefined,
+          {
+            name: "verbs",
+            rows: {
+              control: "as",
+              default: "all",
+              models: {},
+              verbs: { post: { predicates: { mine }, read: "mine" } },
+            },
+          } as ExtensionDefinitionInput,
+          schema
+        )
+      ).message
+    ).toContain('"who"');
+  });
+});

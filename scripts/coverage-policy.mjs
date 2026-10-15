@@ -57,6 +57,8 @@ export const extensionCoverageTests = Object.freeze([
   "tests/contracts/drivers/protected-observers.core.test.ts",
   "tests/unit/instrumentation/official-observer-provider-failures.core.test.ts",
   "tests/unit/instrumentation/official-observer.core.test.ts",
+  "tests/unit/rbac/compile.core.test.ts",
+  "tests/providers/local/sqlite3-rbac-compiled-policy.test.ts",
 ]);
 const definitions = [
   {
@@ -109,9 +111,15 @@ const definitions = [
     label: "extensions",
     target: 100,
     root: "src/extensions/",
-    // The official soft-delete extension: a definition over the capabilities
-    // this subsystem owns, measured by the same lane.
-    files: new Set(["src/soft-delete/index.ts"]),
+    // The official soft-delete and rbac extensions: definitions over the
+    // capabilities this subsystem owns, measured by the same lane.
+    files: new Set([
+      "src/soft-delete/index.ts",
+      "src/rbac/actor.ts",
+      "src/rbac/compile.ts",
+      "src/rbac/helpers.ts",
+      "src/rbac/index.ts",
+    ]),
     projects: ["coverage-extensions"],
     tests: extensionCoverageTests,
   },

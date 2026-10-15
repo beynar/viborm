@@ -710,6 +710,37 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
     ["SoftDeleteConfig", "SoftDeleteModel"],
     []
   ),
+  "./rbac": surface(
+    [
+      "everyone",
+      "grant",
+      "keyLimit",
+      "member",
+      "notBanned",
+      "owner",
+      "rbac",
+      "role",
+      "session",
+      "team",
+      "up",
+    ],
+    [
+      "ActorPaths",
+      "Ceiling",
+      "CompiledModel",
+      "CompiledPolicy",
+      "GrantShape",
+      "KeyLimit",
+      "MemberOptions",
+      "ModelPolicy",
+      "Policy",
+      "PolicyModel",
+      "RbacConfig",
+      "Rule",
+      "Where",
+    ],
+    []
+  ),
   "./adapters": surface(
     [
       "MySQLAdapter",
@@ -773,6 +804,7 @@ export const ABSENT_PUBLIC_NAMES = Object.freeze({
     "ValidationRule",
     "defaultOmit",
     "instrumentation",
+    "rbac",
     "softDelete",
   ],
   "./adapters": [

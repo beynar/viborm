@@ -115,6 +115,7 @@ export default defineWorkspace([
     "tests/unit/instrumentation/**/*.core.test.ts",
   ]),
   layerProject("migrations", ["tests/unit/migrations/**/*.core.test.ts"]),
+  layerProject("rbac", ["tests/unit/rbac/**/*.core.test.ts"]),
   {
     extends: "./vitest.config.ts",
     test: {
@@ -176,6 +177,8 @@ export default defineWorkspace([
         "tests/contracts/drivers/statement-transforms.core.test.ts",
         "tests/contracts/drivers/protected-observers.core.test.ts",
         "tests/unit/instrumentation/official-observer*.core.test.ts",
+        "tests/unit/rbac/compile.core.test.ts",
+        "tests/providers/local/sqlite3-rbac-compiled-policy.test.ts",
       ],
     },
   },

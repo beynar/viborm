@@ -4,7 +4,7 @@ import type {
   PreparedSelector,
   SelectorFacts,
 } from "../shared/query";
-import type { RowPurpose } from "../shared/row-scope";
+import type { RowJudgement, RowPurpose } from "../shared/row-scope";
 import type { Input } from "../shared/schema";
 import type { Membership } from "../shared/storage";
 import { storedFields } from "../shared/storage";
@@ -50,6 +50,8 @@ export type SelectionSource =
        * the lookup is a premise or physical and takes its selector as handed.
        */
       readonly purpose?: RowPurpose;
+      /** Beside `purpose`, the verb a write's lookup is judged at (R3). */
+      readonly judgement?: RowJudgement;
     }
   | {
       readonly kind: "producer";
@@ -58,6 +60,7 @@ export type SelectionSource =
       readonly selector?: PreparedSelector;
       readonly producer: Assignments;
       readonly purpose?: RowPurpose;
+      readonly judgement?: RowJudgement;
     };
 
 /**
@@ -200,7 +203,12 @@ export class Selection {
     this.selector =
       source.purpose === undefined
         ? selector
-        : queries.candidates(selector, source.purpose);
+        : queries.candidates(
+            selector,
+            source.purpose,
+            undefined,
+            source.judgement
+          );
     this.facts = facts ?? queries.selectorFacts(this.selector);
     this.#rowProjection = queries.prepareProjection(model, {
       select: Object.fromEntries(

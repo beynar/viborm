@@ -44,6 +44,33 @@ action.
   values: a plain `include` read on D1 that bound 125-131 values was refused,
   and runs. MySQL and better-sqlite3 (`viborm/sqlite3`), whose transports do
   not number placeholders, keep refusing such a statement whole.
+- **`rows` verbs: what a call may do to the rows it sees, per model.** A
+  `rows` member may declare `verbs: { [model]: { predicates, read, update,
+  delete, writes } }`. Each named predicate is admitted once; `read`
+  narrows every mode, and a mode's `root` or `related` may name a predicate.
+  A delete (tombstones included) takes `delete`'s predicate; an update
+  takes, for each field its data writes, that field's `writes` entry, else
+  `update`'s. A verb a model's entry leaves out matches nothing.
+- **A write is judged by the statement it emits.** On a model with verbs,
+  `data: {}`, or a parent a nested write bumps, is judged at `update`;
+  stamps and generated values (`updatedAt`) never change the verb. A row
+  only addressed to reach its children is read.
+- **A link's change is a write of the row whose key or join row changes.**
+  On a model with verbs, a `connect`, `set` or `disconnect` judges that row,
+  at both ends of a join; `set: []` refuses, with `NestedWriteError`, a
+  visible link the call may not write.
+- **`viborm/rbac`** (not yet applicable to a client:
+  `rbac(config).compile(schema)` returns the compiled policy; applying it
+  lands with the rest of the extension).
+  `rbac({ actor, levels, limit, models })` compiles one predicate per model
+  and action (R1) against the schema, as plain data in the shape `rows.verbs`
+  takes, and ships the helpers `owner`, `member`, `grant.to`,
+  `grant.administer`, `team`, `role`, `everyone`, `up`, `session`,
+  `notBanned` and `keyLimit`. Actor paths are checked against the
+  `viborm/validation` actor schema, in the types and at compile; unknown
+  models, fields and actions, predicates that read themselves, read-gated
+  keys or relations, and an actor schema that is not a finite strict object
+  are refused.
 
 ### Changed
 
@@ -86,6 +113,9 @@ action.
 - **A `rows` predicate whose relations form a cycle** (a model's filter
   through a relation back to itself, or two extensions' filters through each
   other) threw a `RangeError` at the first read; it now terminates.
+- **A `rows` predicate object that contains itself** overflowed the stack at
+  `$extends`; it is refused there with a `ClientInitializationError` naming
+  its path. One that shares a sub-object is admitted.
 
 ## 1.2.4 — 2026-10-13
 

@@ -117,6 +117,14 @@ const scripts = [
         { VIBORM_RECURSIVE_WHERE_CHECKERS: checker },
       ] as const
   ),
+  ...(["tsc5", "tsc6", "tsc7"] as const).map(
+    (checker) =>
+      [
+        `type-checks the rbac acceptance policy with ${checker} within budget`,
+        "./type-rbac-smoke.mjs",
+        { VIBORM_RBAC_CHECKERS: checker },
+      ] as const
+  ),
   [
     "retains TS5.9 public query inference for extends10",
     "./declaration-consumer-smoke.mjs",

@@ -88,8 +88,10 @@ import {
   type CallScope,
   type CallValues,
   Condition,
+  type ModelVerbs,
   Parameter,
   type RowDomain,
+  type RowJudgement,
   type RowPurpose,
 } from "./row-scope";
 import {
@@ -1076,8 +1078,10 @@ const NO_LAYERS: readonly number[] = Object.freeze([]);
  * of the model's inputs, each a {@link PreparedPredicate} `layer` node,
  * prepared at most once for every `Queries` of one engine view (its reads and
  * its write contexts share it) and for every call: a value a call supplies is
- * a parameter. Prepared meaning holds no alias, adapter or driver, so the
- * view's own `Queries` prepares it.
+ * a parameter. A layer's node holds its verb predicates beside its purpose's
+ * (R2), each input prepared once whatever purposes and verbs reuse it.
+ * Prepared meaning holds no alias, adapter or driver, so the view's own
+ * `Queries` prepares it.
  */
 export class PreparedDomain {
   readonly rows: RowDomain;
@@ -1088,6 +1092,7 @@ export class PreparedDomain {
     root: new Map<string, PreparedSelector | null>(),
     related: new Map<string, PreparedSelector | null>(),
   };
+  readonly #inputs = new Map<Input, PreparedSelector>();
   #view: Queries | undefined;
   constructor(rows: RowDomain, queries: Queries, defaults?: PreparedDomain) {
     this.rows = rows;
@@ -1105,26 +1110,48 @@ export class PreparedDomain {
       : this.#queries.under(this, call);
   }
   /**
-   * `model`'s predicate for `purpose` without the `excluded` layers;
-   * `undefined` where it states none.
+   * `model`'s predicate for `purpose` without the `excluded` layers, and,
+   * under a `judgement`, each layer's predicates of its verb: `delete`'s, or
+   * one per field an update writes (that field's own, else `update`'s), or
+   * `update`'s when it writes none (R3). `undefined` where it states none.
    */
   selector(
     model: AnyModel,
     purpose: RowPurpose,
-    excluded = NO_LAYERS
+    excluded = NO_LAYERS,
+    judgement?: RowJudgement
   ): PreparedSelector | undefined {
     const name = model["~"].names.ts!;
     const inputs = this.rows[purpose].get(name);
-    if (inputs === undefined) return undefined;
+    const verbs = this.rows.verbs?.get(name);
+    if (inputs === undefined && verbs === undefined) return undefined;
+    const judged = verbs && judgement;
     const queries = this.#queries;
     const prepared = memo(
       this.#prepared[purpose],
-      `${name} ${excluded}`,
+      judged
+        ? `${name} ${excluded} ${judged.verb} ${[...judged.writes].sort()}`
+        : `${name} ${excluded}`,
       () => {
         const parts: PreparedSelector[] = [];
-        for (const [layer, where] of inputs.entries()) {
-          if (where === undefined || excluded.includes(layer)) continue;
-          const part = queries.prepareSelector(model, where);
+        const layers = Math.max(inputs?.length ?? 0, verbs?.length ?? 0);
+        for (let layer = 0; layer < layers; layer++) {
+          if (excluded.includes(layer)) continue;
+          const own = verbs?.[layer];
+          const wheres = [
+            ...(own ? [own.read] : []),
+            ...(inputs?.[layer] === undefined ? [] : [inputs[layer]!]),
+            ...(own && judged ? verbInputs(own, judged) : []),
+          ].map((where) =>
+            memo(this.#inputs, where, () =>
+              queries.prepareSelector(model, where)
+            )
+          );
+          if (wheres.length === 0) continue;
+          const part =
+            wheres.length === 1
+              ? wheres[0]!
+              : queries.andSelectors(model, wheres);
           parts.push(
             part.predicate === undefined
               ? part
@@ -1142,6 +1169,17 @@ export class PreparedDomain {
     );
     return prepared ?? undefined;
   }
+}
+
+/** The verb predicates one layer's `judgement` takes, each once. */
+function verbInputs(verbs: ModelVerbs, judgement: RowJudgement): Input[] {
+  if (judgement.verb === "delete") return [verbs.delete];
+  if (judgement.writes.length === 0) return [verbs.update];
+  return [
+    ...new Set(
+      judgement.writes.map((field) => verbs.writes.get(field) ?? verbs.update)
+    ),
+  ];
 }
 
 /** `predicate` as `model`'s domain predicate of `layer`. */
@@ -1224,13 +1262,18 @@ export class Queries {
   }
   /**
    * The domain predicate a lowering-time read takes for `model`: the call's
-   * own outside every layer; inside one, the defaults' without the layers
-   * lowering.
+   * own outside every layer, under `judgement` for a write; inside one, the
+   * defaults' without the layers lowering, which a policy's traversal only
+   * reads.
    */
-  #scope(model: AnyModel, purpose: RowPurpose): PreparedSelector | undefined {
+  #scope(
+    model: AnyModel,
+    purpose: RowPurpose,
+    judgement?: RowJudgement
+  ): PreparedSelector | undefined {
     const excluded = this.#excluded;
     return excluded.length === 0
-      ? this.domain?.selector(model, purpose)
+      ? this.domain?.selector(model, purpose, NO_LAYERS, judgement)
       : this.domain?.defaults.selector(model, purpose, excluded);
   }
   /**
@@ -1238,8 +1281,12 @@ export class Queries {
    * `purpose`; `undefined` where it states none, or the call drops all it
    * states (R6), so the statement is the one without a domain.
    */
-  domainOf(model: AnyModel, purpose: RowPurpose): PreparedSelector | undefined {
-    const scope = this.#scope(model, purpose);
+  domainOf(
+    model: AnyModel,
+    purpose: RowPurpose,
+    judgement?: RowJudgement
+  ): PreparedSelector | undefined {
+    const scope = this.#scope(model, purpose, judgement);
     return scope && !this.#drops(scope.predicate) ? scope : undefined;
   }
   get #values(): CallValues | undefined {
@@ -2203,15 +2250,22 @@ export class Queries {
    * the key to recover (race convergence, a hidden conflict's rethrow) behave
    * as without a domain; `scoped` tells the ones that trust the key alone to
    * name the row (the RETURNING confirmation fast path, the targeted
-   * `ON CONFLICT` fold) that it no longer does. The selector itself where the
-   * domain states nothing for its model.
+   * `ON CONFLICT` fold) that it no longer does. A write's `judgement` adds
+   * its verb's predicates. The selector itself where the domain states
+   * nothing for its model.
    */
   candidates(
     selector: PreparedSelector,
     purpose: RowPurpose,
-    domain: PreparedDomain | undefined = this.domain
+    domain: PreparedDomain | undefined = this.domain,
+    judgement?: RowJudgement
   ): PreparedSelector {
-    const scope = domain?.selector(selector.model, purpose);
+    const scope = domain?.selector(
+      selector.model,
+      purpose,
+      NO_LAYERS,
+      judgement
+    );
     if (scope === undefined) return selector;
     return Object.freeze({
       ...this.andSelectors(selector.model, [selector, scope]),
@@ -4409,6 +4463,8 @@ export class Queries {
       identity?: Input;
       projection?: PreparedProjection;
       selector?: Pick<PreparedSelector, "model" | "predicate">;
+      /** Rows this selector does not take, NULL read as not taken. */
+      unless?: Pick<PreparedSelector, "model" | "predicate">;
       /** The rows the read takes: its selector and cursor anchor under it. */
       purpose?: RowPurpose;
     } = {}
@@ -4434,6 +4490,15 @@ export class Queries {
         ? given
         : this.#within(model, given, controls.purpose);
     const filter = selector ? this.lowerSelector(selector, alias) : undefined;
+    const a = this.adapter;
+    const unless =
+      controls.unless &&
+      a.operators.not(
+        a.expressions.coalesce(
+          this.lowerSelector(controls.unless, alias) ?? a.literals.true(),
+          a.literals.false()
+        )
+      );
     return {
       sql: assembleAdapterSelect(this.adapter, {
         columns: sql.join(projection, ", "),
@@ -4441,6 +4506,7 @@ export class Queries {
         where:
           membership ||
           filter ||
+          unless ||
           page.cursor ||
           controls.identity ||
           controls.condition
@@ -4461,6 +4527,7 @@ export class Queries {
                     ]
                   : []),
                 ...(filter ? [filter] : []),
+                ...(unless ? [unless] : []),
                 ...(page.cursor ? [page.cursor] : []),
                 ...(controls.identity
                   ? [this.lowerIdentity(model, controls.identity, alias)]

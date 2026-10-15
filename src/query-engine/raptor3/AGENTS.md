@@ -99,6 +99,20 @@ the RETURNING confirmation fast path and the targeted `ON CONFLICT` fold —
 decline. The engine never sees a mode or an extension's name; a control's
 name only as the key a parameter reads its call value under (`CallValues`).
 
+*Verbs (rbac plan K3).* A domain may hold, per model and layer, `verbs`
+(`ModelVerbs`): `read` ANDs with that layer's predicate at every purpose, and
+a write lookup names a `RowJudgement` beside its purpose: `DELETE_JUDGEMENT`
+for every delete and tombstone candidate set, `Commands.judge` for an update
+occurrence (the fields the caller's data writes, a held key's relation with
+its key fields, a join by every verb but `update`/`updateMany`; none when only
+stamps and generated values are written; `undefined` when it emits no
+UPDATE), and `linkJudgement(edge)` for a connect, set or disconnect target
+whose key or join row changes. `PreparedDomain.selector` puts the verb's
+predicates inside the layer's node, so R5 and R6 judge them with the read
+predicate; a model without verbs ignores the judgement and keeps its bytes. A
+clear (`remove` with no target) first refuses, with `NestedWriteError`, a
+member it sees and may not unlink.
+
 *Tombstones (extension `deletion`, plan v3.1 §2.3).* A call whose facts carry
 `tombstones` (absent when its controls matched `removeWhen`) writes an update
 wherever core would delete a row of a managed model: root `delete` and

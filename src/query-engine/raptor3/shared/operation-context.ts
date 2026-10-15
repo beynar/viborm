@@ -65,7 +65,7 @@ import {
   type Operation,
   record,
 } from "./schema";
-import { type Membership, physicalField } from "./storage";
+import { linkJudgement, type Membership, physicalField } from "./storage";
 import { type ScratchPublication, TransportAttempt } from "./transport-attempt";
 
 export type Member = object;
@@ -3455,9 +3455,41 @@ export class OperationContext {
   ): Promise<void> {
     const a = this.driver.adapter;
     const q = this.queries;
-    // A removal takes related rows, as its lookups do: a member the call
-    // cannot see keeps its link.
-    const domain = q.domainOf(edge.target, "related");
+    // A removal takes related rows whose link the call may write, as its
+    // lookups do: a member it cannot see keeps its link. A clear refuses a
+    // member it sees and may not unlink (R3), as a disconnect naming it does.
+    const domain = q.domainOf(edge.target, "related", linkJudgement(edge));
+    const visible = q.domainOf(edge.target, "related");
+    const kept = keep.length
+      ? a.operators.not(
+          a.operators.or(
+            ...keep.map((row) =>
+              q.lowerIdentity(
+                edge.target,
+                this.schema.identity(edge.target, row)
+              )
+            )
+          )
+        )
+      : undefined;
+    if (target === undefined && domain !== visible)
+      await this.requireAbsent(
+        q.select(
+          edge.target,
+          {
+            take: 1,
+            select: Object.fromEntries(
+              this.schema.keys(edge.target).map((field) => [field, true])
+            ),
+          },
+          { edge, parent: source! },
+          { selector: visible, unless: domain, condition: kept }
+        ),
+        new NestedWriteError(
+          `Cannot clear relation '${edge.name}': a connected record may not be disconnected by this call.`,
+          edge.name
+        )
+      );
     if (edge.kind === "junction") {
       const conditions: Sql[] = [];
       for (const [side, values] of [
@@ -3533,20 +3565,7 @@ export class OperationContext {
             ),
           ]
         : []),
-      ...(keep.length
-        ? [
-            a.operators.not(
-              a.operators.or(
-                ...keep.map((row) =>
-                  q.lowerIdentity(
-                    edge.target,
-                    this.schema.identity(edge.target, row)
-                  )
-                )
-              )
-            ),
-          ]
-        : []),
+      ...(kept ? [kept] : []),
       ...(domain ? [q.lowerSelector(domain)!] : [])
     );
     const clearability = edge.clearability as Extract<

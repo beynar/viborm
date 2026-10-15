@@ -434,8 +434,10 @@ await db.project.findMany({ archived: "only" }); // archived projects
   refused, as `defaultOmit()` is. An entry that has both offers them as two
   steps, applied with every `rows` step first ([compose](#rows-steps-first)).
 - `rows` decides which rows are visible. It is not authorization: any caller
-  can choose another mode or pass another value, and raw SQL, `create` and
-  update `data` are not filtered.
+  can choose another mode or pass another value, and raw SQL and `create`
+  are not filtered. Update `data` is not filtered either, unless the model
+  declares [`verbs`](#judge-writes-with-verbs): then the fields an update
+  writes decide which rows it may take.
 
 ### Filter by a value the call passes
 
@@ -524,6 +526,65 @@ await db.post.create({
 
 Apply authorization in your server before admitting caller-supplied tenant
 fields or relation writes.
+
+### Judge writes with `verbs`
+
+A mode decides which rows a call reads. `verbs` decides, per model, what a
+call may do to them: each predicate is named once, and each verb names the
+one it takes.
+
+```ts
+const sharing = defineExtension({
+  name: "sharing",
+  controls: { user: { schema: v.string(), required: true } },
+  rows: {
+    control: "as",
+    default: "default",
+    models: { document: { default: {}, mine: { root: "own" } } },
+    verbs: {
+      document: {
+        predicates: {
+          seen: { OR: [{ public: true }, { ownerId: { control: "user" } }] },
+          own: { ownerId: { control: "user" } },
+          archivist: { archivistId: { control: "user" } },
+        },
+        read: "seen",
+        update: "own",
+        delete: "own",
+        writes: { archivedAt: "archivist" },
+      },
+    },
+  },
+});
+
+const db = client.$extends(sharing);
+await db.document.findMany({ user: "ada" }); // public documents and Ada's own
+await db.document.update({ user: "ada", where: { id }, data: { title } }); // own only
+await db.document.update({ user: "ada", where: { id }, data: { archivedAt: new Date() } }); // archivist only
+await db.document.delete({ user: "ada", where: { id }, as: "mine" }); // a mode narrows; it never replaces `delete`
+```
+
+- `read` holds wherever the model's rows are read, and every mode and verb is
+  conjoined with it: a write never takes a row its call cannot see. A mode's
+  `root` or `related` may name a predicate instead of writing one.
+- A delete takes `delete`'s predicate, tombstones included. An update takes,
+  for each field its `data` writes, that field's `writes` entry, else
+  `update`'s, all of them at once. A relation write counts as a write of the
+  relation on the row whose foreign key it changes, and a join row's change
+  as a write on both rows it links.
+- Stamps and schema values (`updatedAt`, `data` stamps) never change the
+  verb: `data: {}` on a row they touch is judged at `update`, as is a parent a
+  nested write bumps. A row only addressed to reach its children is read.
+- A verb the model's entry leaves out matches nothing: an entry with no
+  `delete` deletes no row.
+- A row a write may not take is a row it cannot find: `update` and `delete`
+  are `NotFoundError`, and `updateMany` and `deleteMany` count only the
+  others. A `connect`, `set` or `disconnect` naming a linked row the call may
+  not write is `NestedWriteError`. `set: []` refuses a visible link the call
+  may not write the same way; a hidden one keeps its link.
+- Each predicate is admitted once when the extension is applied. A name that
+  no predicate has, a model the schema lacks or a `writes` field the model
+  lacks is refused there, as is a predicate object that contains itself.
 
 ## Change what a delete does with `deletion`
 

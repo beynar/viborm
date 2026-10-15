@@ -149,6 +149,7 @@ if (new packagedDecimal("1.20").toString() !== "1.2") {
 requireRuntimeAbsence(".", "defaultOmit");
 requireRuntimeAbsence(".", "instrumentation");
 requireRuntimeAbsence(".", "softDelete");
+requireRuntimeAbsence(".", "rbac");
 requireRuntimeAbsence(".", "readBenchmarkOperation");
 // The approximate-number scalar, on the BUILT builder. The source barrel pins
 // the whole key set; this pins that bundling publishes the surviving factory
@@ -292,6 +293,7 @@ requireRuntimeAbsence("./migrations", "MigrationStorageDriver");
 requireRuntimeAbsence("./migrations", "diff");
 requireRuntimeFunction("./cache", "cache");
 requireRuntimeFunction("./instrumentation", "instrumentation");
+requireRuntimeFunction("./rbac", "rbac");
 requireRuntimeFunction("./soft-delete", "softDelete");
 // `viborm/soft-delete` is built from public capabilities only: it reaches the
 // client through the `$extends` of the client it receives, so its runtime

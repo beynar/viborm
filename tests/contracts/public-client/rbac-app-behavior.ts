@@ -48,6 +48,11 @@ export interface RbacAppSubstrate {
   readonly actors?: readonly string[];
   /** Per-test timeout, for remote or slow substrates. */
   readonly timeout?: number;
+  /**
+   * Puts the seed back after a write probe, on a substrate with no callback
+   * transaction to roll the probe back in (D1).
+   */
+  readonly restore?: (client: RbacAppClient) => Promise<void>;
 }
 
 export function createRbacAppClient(driver: AnyDriver) {

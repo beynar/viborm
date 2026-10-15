@@ -13,7 +13,7 @@ import {
   type DomainMarkers,
 } from "@validation/primitives/parameter";
 import type { SchemaRegistryLookup } from "@validation/types";
-import type { RowsContribution } from "./controls";
+import type { RowsContribution, RowsVerbs } from "./controls";
 
 /**
  * Each domain predicate admitted once, when its extension is applied, through
@@ -88,9 +88,34 @@ const MARKERS: DomainMarkers = {
 };
 
 /**
- * One definition's `rows` with every predicate admitted: refusals are
+ * The path at which `value` contains itself, `undefined` where it does not.
+ * Only an object inside its own descendants is refused: a predicate may share
+ * sub-objects freely.
+ */
+function cyclePath(
+  value: unknown,
+  ancestors = new Set<object>(),
+  path: string[] = []
+): string | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  // The root has no ancestor: a path is never empty here.
+  if (ancestors.has(value)) return path.join(".");
+  ancestors.add(value);
+  for (const [key, item] of Object.entries(value)) {
+    path.push(key);
+    const found = cyclePath(item, ancestors, path);
+    if (found !== undefined) return found;
+    path.pop();
+  }
+  ancestors.delete(value);
+  return undefined;
+}
+
+/**
+ * One definition's `rows` with every predicate admitted, each named predicate
+ * once and a mode naming one given its admitted object: refusals are
  * `ClientInitializationError`s naming the extension, the model, the
- * predicate's mode and purpose, and the path inside it.
+ * predicate's place in `rows` and the path inside it.
  */
 export function admitRows(
   rows: RowsContribution,
@@ -98,32 +123,91 @@ export function admitRows(
   extension: string,
   registry: SchemaRegistryLookup<Schema> = standaloneRegistry(schema)
 ): RowsContribution {
+  const refuse = (
+    name: string,
+    place: string,
+    at: string,
+    reason: string
+  ): never => {
+    throw new ClientInitializationError(
+      `Extension "${extension}" rows.${place} at "${at}": ${reason}.`,
+      { meta: { extension, model: name } }
+    );
+  };
+  const admit = (
+    name: string,
+    place: string,
+    predicate: unknown
+  ): Record<string, unknown> => {
+    const cycle = cyclePath(predicate);
+    if (cycle !== undefined) refuse(name, place, cycle, "contains itself");
+    const where = registry.getModelSchemas(schema[name]!).core.where;
+    const result = admittingDomainPredicate(MARKERS, () =>
+      validateSchema(where, predicate)
+    );
+    if (!result.issues) return result.value as Record<string, unknown>;
+    const [issue] = result.issues;
+    return refuse(
+      name,
+      place,
+      issue!.path?.map(String).join(".") || "root",
+      issue!.message
+    );
+  };
+  const verbs: Record<string, RowsVerbs> = {};
+  for (const [name, entry] of Object.entries(rows.verbs ?? {})) {
+    const place = `verbs.${name}`;
+    if (!Object.hasOwn(schema, name))
+      refuse(name, place, "root", "names an unknown model");
+    const { state } = schema[name]!["~"];
+    const predicates: Record<string, Record<string, unknown>> = {};
+    for (const [key, predicate] of Object.entries(entry.predicates))
+      predicates[key] = admit(name, `${place}.predicates.${key}`, predicate);
+    const known = (at: string, predicate: string | undefined) => {
+      if (predicate !== undefined && !Object.hasOwn(predicates, predicate))
+        refuse(name, place, at, `names unknown predicate "${predicate}"`);
+    };
+    known("read", entry.read);
+    known("update", entry.update);
+    known("delete", entry.delete);
+    for (const [field, predicate] of Object.entries(entry.writes ?? {})) {
+      if (
+        !(
+          Object.hasOwn(state.scalars, field) ||
+          Object.hasOwn(state.relations, field)
+        )
+      )
+        refuse(name, place, `writes.${field}`, "names an unknown field");
+      known(`writes.${field}`, predicate);
+    }
+    verbs[name] = Object.freeze({
+      ...entry,
+      predicates: Object.freeze(predicates),
+    });
+  }
   const models: Record<string, Record<string, object>> = {};
   for (const [name, modes] of Object.entries(rows.models)) {
-    const model = schema[name]!;
-    const where = registry.getModelSchemas(model).core.where;
     const admitted: Record<string, object> = {};
     for (const [mode, purposes] of Object.entries(modes)) {
       const out: Record<string, unknown> = {};
       for (const purpose of ["root", "related"] as const) {
         const predicate = purposes[purpose];
         if (predicate === undefined) continue;
-        const result = admittingDomainPredicate(MARKERS, () =>
-          validateSchema(where, predicate)
-        );
-        if (result.issues) {
-          const [issue] = result.issues;
-          const at = issue!.path?.map(String).join(".") || "root";
-          throw new ClientInitializationError(
-            `Extension "${extension}" rows.${name}.${mode}.${purpose} at "${at}": ${issue!.message}.`,
-            { meta: { extension, model: name } }
-          );
-        }
-        out[purpose] = result.value;
+        const place = `${name}.${mode}.${purpose}`;
+        if (typeof predicate !== "string")
+          out[purpose] = admit(name, place, predicate);
+        else if (Object.hasOwn(verbs[name]?.predicates ?? {}, predicate))
+          out[purpose] = verbs[name]!.predicates[predicate];
+        else
+          refuse(name, place, "root", `names unknown predicate "${predicate}"`);
       }
       admitted[mode] = Object.freeze(out);
     }
     models[name] = Object.freeze(admitted);
   }
-  return Object.freeze({ ...rows, models: Object.freeze(models) });
+  return Object.freeze({
+    ...rows,
+    models: Object.freeze(models),
+    ...(rows.verbs && { verbs: Object.freeze(verbs) }),
+  });
 }

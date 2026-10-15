@@ -18,6 +18,35 @@ export type ModelDomain = ReadonlyMap<string, readonly Input[]>;
 export interface RowDomain {
   readonly root: ModelDomain;
   readonly related: ModelDomain;
+  /**
+   * Per model (its TS name), indexed by layer as {@link ModelDomain} is, the
+   * predicates of the model's verbs. A model absent here judges a write by
+   * its purpose's predicates alone.
+   */
+  readonly verbs?: ReadonlyMap<string, readonly (ModelVerbs | undefined)[]>;
+}
+
+/**
+ * One layer's predicates for one model's verbs, as admission left them: `read`
+ * ANDs with the layer's predicate at every purpose, a write's verb with its
+ * candidates beside them (R2). An update takes, per field its data writes,
+ * that field's predicate, else `update`'s.
+ */
+export interface ModelVerbs {
+  readonly read: Input;
+  readonly update: Input;
+  readonly delete: Input;
+  readonly writes: ReadonlyMap<string, Input>;
+}
+
+/**
+ * The verb a write lookup takes beside its purpose (R3): `delete`, or `update`
+ * with the fields the occurrence's data writes, none when it writes only
+ * stamps and generated values.
+ */
+export interface RowJudgement {
+  readonly verb: "update" | "delete";
+  readonly writes: readonly string[];
 }
 
 /**
@@ -25,7 +54,7 @@ export interface RowDomain {
  * through a relation (`related`). A lookup that names no purpose is a premise
  * or physical: it takes exactly the selector it is handed.
  */
-export type RowPurpose = keyof RowDomain;
+export type RowPurpose = "root" | "related";
 
 /** What a delete of one model writes instead of removing the row. */
 export interface Tombstone {

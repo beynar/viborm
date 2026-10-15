@@ -46,6 +46,19 @@ const BOUND_VIEWS =
 const COMPOSITION =
   "tests/contracts/public-client/extension-composition.core.test.ts";
 
+/**
+ * The compiled policy's witnesses' runner (SQLite3; PGlite, pg, MySQL2
+ * beside, in tests/providers/{local,docker}/*-rbac-compiled-policy.test.ts).
+ */
+const COMPILED_POLICY =
+  "tests/providers/local/sqlite3-rbac-compiled-policy.test.ts";
+
+/**
+ * The verbs witnesses' runner (SQLite3; PGlite, pg, MySQL2 and D1 beside, in
+ * tests/providers/{local,docker,workers}/*-rbac-verbs.test.ts), oracle-bound.
+ */
+const VERBS = "tests/providers/local/sqlite3-rbac-verbs.test.ts";
+
 /** Each landed case, with the test file that executes it. */
 const LANDED: Readonly<Record<string, string>> = {
   "W-K1a": DOMAIN_PREDICATES,
@@ -71,6 +84,24 @@ const LANDED: Readonly<Record<string, string>> = {
   "W-AS7": BOUND_VIEWS,
   "W-C5": COMPOSITION,
   "W-C8": COMPOSITION,
+  "W-W1": VERBS,
+  "W-W2": VERBS,
+  "W-W3": VERBS,
+  "W-W4": VERBS,
+  "W-W5": VERBS,
+  "W-W6": VERBS,
+  "W-W7": VERBS,
+  "W-W8": VERBS,
+  "W-W9": VERBS,
+  "W-W10": VERBS,
+  "W-N4": VERBS,
+  "W-H1": COMPILED_POLICY,
+  "W-A1": COMPILED_POLICY,
+  "W-A2": COMPILED_POLICY,
+  "W-A3": COMPILED_POLICY,
+  "W-A4": COMPILED_POLICY,
+  "W-A5": COMPILED_POLICY,
+  "W-A6": COMPILED_POLICY,
 };
 
 function family(
@@ -131,16 +162,41 @@ export const WITNESSES: readonly WitnessCase[] = Object.freeze([
     ["W-K2g", "userId: null matches no orphaned row", "rows"],
   ]),
   ...family("C4", "U3+U5", NO_NEKI, [
+    // R3 as amended (plan §11.2): judged by the statement each write emits.
     ["W-W1", "title at edit, ownerId at full", "rows"],
     ["W-W2", "an archive-only writer archives and cannot edit", "rows"],
-    ["W-W3", "a grant write needs every attachment administered", "rows"],
+    [
+      "W-W3",
+      "a grant write is judged by the grant's own predicates: a page's editor cannot, its full holder can",
+      "rows",
+    ],
     ["W-W4", "updateMany counts editable rows only", "rows"],
-    ["W-W5", "audit's stamp takes no action (archive with updatedBy)", "rows"],
-    ["W-W6", "nested verbs judged at their own action", "rows"],
-    ["W-W7", "connect / set / disconnect judge both endpoints", "rows"],
-    ["W-W8", "a tombstone's candidates at delete", "rows"],
-    ["W-W9", "an m2m connect from the attacker's side refused", "rows"],
-    ["W-W10", "a root create and its nested equivalent agree", "rows"],
+    [
+      "W-W5",
+      "W-W5′: with an audit stamp, an archive-only write stays at archive",
+      "rows",
+    ],
+    [
+      "W-W6",
+      "data: {} by a viewer is NotFoundError (it emits an UPDATE); a row only addressed is read",
+      "rows",
+    ],
+    [
+      "W-W7",
+      "a nested create under a viewed parent it bumps is refused",
+      "rows",
+    ],
+    [
+      "W-W8",
+      "an upsert on a visible, not editable row takes its create arm, as on a hidden one",
+      "rows",
+    ],
+    [
+      "W-W9",
+      "an m2m connect from the attacker's side refused; a lead of both teams links them",
+      "rows",
+    ],
+    ["W-W10", "set [] refuses a link the actor cannot write", "rows"],
   ]),
   ...family("C5", "U6+U9", NO_NEKI, [
     ["W-P1", "root create placement", "none"],

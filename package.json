@@ -174,6 +174,11 @@
       "import": "./dist/soft-delete.mjs",
       "default": "./dist/soft-delete.mjs"
     },
+    "./rbac": {
+      "types": "./dist/rbac.d.mts",
+      "import": "./dist/rbac.mjs",
+      "default": "./dist/rbac.mjs"
+    },
     "./adapters": {
       "types": "./dist/adapters.d.mts",
       "import": "./dist/adapters.mjs",
@@ -247,6 +252,7 @@
     "test:layer:cache": "node scripts/run-layer-core.mjs cache",
     "test:layer:instrumentation": "node scripts/run-layer-core.mjs instrumentation",
     "test:layer:migrations": "node scripts/run-layer-core.mjs migrations",
+    "test:layer:rbac": "node scripts/run-layer-core.mjs rbac",
     "bench": "node scripts/run-vitest-safe.mjs --heap-limit-mb=768 --rss-limit-mb=1536 --wall-limit-ms=1200000 bench --run",
     "bench:baseline": "node scripts/run-vitest-safe.mjs --heap-limit-mb=768 --rss-limit-mb=1536 --wall-limit-ms=1200000 bench --run --outputJson benchmarks/baseline.json",
     "bench:compare": "node scripts/run-vitest-safe.mjs --heap-limit-mb=768 --rss-limit-mb=1536 --wall-limit-ms=1200000 bench --run --compare benchmarks/baseline.json",
@@ -390,14 +396,15 @@
       "name": "pg + migrations Worker (viborm/pg + viborm/migrations/postgres)",
       "path": "node_modules/.cache/viborm-size/pg-migrations-worker.mjs",
       "gzip": true,
-      "limit": "273 kB"
+      "limit": "274.4 kB",
+      "message": "Raised 273 → 274.4 kB by the measured +1,392 B of RBAC M1 wave 2 (K3, OD-17): rows verbs, written fields, write judgements and the clear premise; it held wave 1's +1,819 B inside its headroom."
     },
     {
       "name": "pg application (viborm/pg)",
       "path": "node_modules/.cache/viborm-size/pg-representative.mjs",
       "gzip": true,
-      "limit": "171.9 kB",
-      "message": "Raised 170 → 171.9 kB by the measured +1,900 B of RBAC M1 wave 1 (OD-17): rows predicates admitted, layered and parameterized, numbered binds, bound views."
+      "limit": "173.34 kB",
+      "message": "Raised 170 → 171.9 kB by the measured +1,900 B of RBAC M1 wave 1 (OD-17): rows predicates admitted, layered and parameterized, numbered binds, bound views. Raised 171.9 → 173.34 kB by the measured +1,440 B of RBAC M1 wave 2 (K3, OD-17): rows verbs, written fields, write judgements and the clear premise."
     },
     {
       "name": "pg application + soft delete",

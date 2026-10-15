@@ -33,6 +33,7 @@ const LAYERS = new Set([
   "cache",
   "instrumentation",
   "migrations",
+  "rbac",
 ]);
 
 const layer = process.argv[2];

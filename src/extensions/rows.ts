@@ -3,6 +3,7 @@ import {
   Condition,
   type ModelDomain,
   type ModelStamps,
+  type ModelVerbs,
   Parameter,
   type RowDomain,
 } from "@query-engine/raptor3/shared/row-scope";
@@ -107,6 +108,8 @@ export function undeclaredControlReferencesOf(
       collectReferences(mode.root, references);
       collectReferences(mode.related, references);
     }
+  for (const entry of Object.values(definition.rows?.verbs ?? {}))
+    collectReferences(entry.predicates, references);
   for (const entry of Object.values(definition.data?.models ?? {})) {
     collectStampReferences(entry.create, references);
     collectStampReferences(entry.update, references);
@@ -219,24 +222,58 @@ function requiredOn(controls: ResolvedControls | undefined): RequiredOn {
 
 /**
  * One purpose's predicates per model, for one mode of every member, each at
- * its member's place in the chain: the layer the engine reads it as.
+ * its member's place in the chain: the layer the engine reads it as. A mode
+ * that named a predicate holds its admitted object.
  */
 function modelDomain(
   rows: readonly RowsContribution[],
   modes: readonly string[],
   purpose: keyof Predicates
 ): ModelDomain {
-  const domain = new Map<string, Record<string, unknown>[]>();
+  const domain = new Map<string, Input[]>();
   for (const [layer, member] of rows.entries()) {
     for (const [model, entry] of Object.entries(member.models)) {
       const where = entry[modes[layer]!]?.[purpose];
       if (where === undefined) continue;
       const list = domain.get(model) ?? [];
-      list[layer] = where;
+      list[layer] = where as Input;
       domain.set(model, list);
     }
   }
   return domain;
+}
+
+/** `{ OR: [] }`, false: what a verb a model's `verbs` leaves out takes. */
+const NOTHING: Input = Object.freeze({ OR: Object.freeze([]) });
+
+/**
+ * Every member's verbs per model, each at its member's layer, their names
+ * resolved to the admitted predicates: the same for every mode combination.
+ */
+function modelVerbs(
+  rows: readonly RowsContribution[]
+): ReadonlyMap<string, readonly (ModelVerbs | undefined)[]> | undefined {
+  const verbs = new Map<string, (ModelVerbs | undefined)[]>();
+  for (const [layer, member] of rows.entries()) {
+    for (const [model, entry] of Object.entries(member.verbs ?? {})) {
+      const named = (name: string | undefined): Input =>
+        name === undefined ? NOTHING : entry.predicates[name]!;
+      const list = verbs.get(model) ?? [];
+      list[layer] = Object.freeze({
+        read: named(entry.read),
+        update: named(entry.update),
+        delete: named(entry.delete),
+        writes: new Map(
+          Object.entries(entry.writes ?? {}).map(([field, name]) => [
+            field,
+            named(name),
+          ])
+        ),
+      });
+      verbs.set(model, list);
+    }
+  }
+  return verbs.size === 0 ? undefined : verbs;
 }
 
 export function bindRows(
@@ -262,6 +299,7 @@ export function bindRows(
     return bound;
   });
   const domains: RowDomain[] = [];
+  const verbs = modelVerbs(declared);
   for (let combination = 0; combination < stride; combination++) {
     const modes = members.map(
       (member) =>
@@ -273,6 +311,7 @@ export function bindRows(
       Object.freeze({
         root: modelDomain(declared, modes, "root"),
         related: modelDomain(declared, modes, "related"),
+        ...(verbs && { verbs }),
       })
     );
   }
@@ -308,7 +347,13 @@ export function bindRows(
   const physical = domains.map((domain) =>
     Object.freeze({ domain, defaults, ...(stamps && { stamps }) })
   );
+  const verbsRead = declared.some((member) =>
+    Object.values(member.verbs ?? {}).some((entry) =>
+      readsCall(entry.predicates)
+    )
+  );
   const reads = (domain: RowDomain) =>
+    verbsRead ||
     [domain.root, domain.related].some((models) =>
       [...models.values()].some(readsCall)
     );
