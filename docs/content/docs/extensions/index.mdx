@@ -66,7 +66,7 @@ rewriting queries.
 
 Official extensions use the same composition language. Cache, instrumentation
 and default omit retain private access to the core facts they need; soft delete
-is built only from the public capabilities above:
+and RBAC are built only from the public capabilities above:
 
 <CardGroup>
   <Card
@@ -88,6 +88,11 @@ is built only from the public capabilities above:
     title="Soft delete"
     href="/docs/extensions/soft-delete">
     Tombstones instead of deletes, hidden from reads, restorable and purgeable
+  </Card>
+  <Card
+    title="RBAC"
+    href="/docs/extensions/rbac">
+    One predicate per model and action, judged in the statement that reads or writes
   </Card>
 </CardGroup>
 
@@ -192,10 +197,12 @@ const tenant = defineExtension<typeof schema>()({
 Request and query capabilities are useful policy foundations, but a root
 filter is not complete RBAC. Nested reads and writes, relation membership,
 field use, raw SQL, statement transforms, and data-dependent write scopes need
-one graph-wide semantic policy owner. `viborm/rbac` is that owner: one
-predicate per model and action, judged in the statement at every scope. `omit` is presentation control, not authorization: query-level and
-client-default omission can be overridden, and even model `.omit()` does not
-replace database authorization. `rows` and the soft-delete extension built on it
+one graph-wide semantic policy owner. [`viborm/rbac`](/docs/extensions/rbac)
+is that owner: one predicate per model and action, judged in the statement at
+every scope; raw SQL and statement transforms still see every row. `omit` is
+presentation control, not authorization: query-level and client-default
+omission can be overridden, and even model `.omit()` does not replace
+database authorization. `rows` and the soft-delete extension built on it
 decide which rows are visible, not who may see them: any caller can choose
 another mode or pass another value, and raw SQL ignores them. A tenant filter
 keeps a call inside the tenant it names; your server, not the caller, must

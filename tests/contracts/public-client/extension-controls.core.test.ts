@@ -14,6 +14,7 @@
  */
 
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
+import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import type { CacheEntry } from "@cache/driver";
 import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
@@ -2042,6 +2043,47 @@ describe("controls: the cache key", () => {
     expect(declared.keys[1]).not.toBe(plain.keys[0]);
   });
 
+  test("a read holding a value of an uncacheable control is refused before any statement, whether the cache would serve it or a statement transform bypasses it; one without it is served", async () => {
+    const recorder = new KeyRecordingCache();
+    const statements: string[] = [];
+    const judged = {
+      name: "judged",
+      controls: { caller: { oneOf: ["a"], on: "reads", uncacheable: true } },
+    } as const;
+    const cached = (await seededBase())
+      .$extends(cache({ driver: recorder, version: "v" }))
+      .$extends(judged);
+    const metered = cached.$extends({
+      name: "meter",
+      statement: (context) => {
+        statements.push(context.statement.toStatement());
+        return context.statement;
+      },
+    });
+    const read = { caller: "a", select: { id: true } } as const;
+    for (const db of [metered, cached]) {
+      statements.length = 0;
+      const refused = await db
+        .$withCache()
+        .post.findMany(read)
+        .then(
+          () => undefined,
+          (error: unknown) => error
+        );
+      expect(refused).toBeInstanceOf(ValidationError);
+      expect((refused as Error).message).toContain(
+        'Control "caller" is not cacheable'
+      );
+      expect(statements).toEqual([]);
+    }
+    expect(recorder.keys).toEqual([]);
+    await expect(metered.post.findMany(read)).resolves.toEqual([{ id: "p1" }]);
+    await expect(
+      cached.$withCache().post.findMany({ select: { id: true } })
+    ).resolves.toEqual([{ id: "p1" }]);
+    expect(recorder.keys).toHaveLength(1);
+  });
+
   test("a control value that is not plain data bypasses the cache", async () => {
     const recorder = new KeyRecordingCache();
     const db = (await seededBase())
@@ -2418,5 +2460,141 @@ describe("rows: named predicates and verbs, per model", () => {
         )
       ).message
     ).toContain('"who"');
+  });
+});
+
+/** A sent read's text up to its WHERE. */
+const SELECTED_FROM = /^SELECT .* WHERE /;
+
+describe("an array path as a list operand (G4, W-L4)", () => {
+  const item = s.model({ id: s.string().id(), rank: s.int() });
+  const listSchema = { item };
+  const ids = { control: "actor", path: "key.ids" };
+  const keyed = defineExtension({
+    name: "keyed",
+    controls: {
+      actor: {
+        schema: v.object({
+          key: v.object({
+            ids: v.optional(v.array(v.string())),
+            ranks: v.optional(v.array(v.number())),
+          }),
+        }),
+        required: true,
+      },
+    },
+    rows: {
+      control: "as",
+      default: "listed",
+      models: {
+        item: {
+          listed: { root: { id: { in: ids } } },
+          excluded: { root: { id: { notIn: ids } } },
+          ranked: {
+            root: { rank: { in: { control: "actor", path: "key.ranks" } } },
+          },
+        },
+      },
+    },
+  } as never);
+  /** The statements a driver is handed, as the transport binds them. */
+  class Recording extends SqlOnlyDriver {
+    readonly sent: [string, unknown[]][] = [];
+    override readonly maxBindParametersPerStatement: number | undefined;
+    constructor(
+      adapter: ConstructorParameters<typeof SqlOnlyDriver>[0],
+      dialect: ConstructorParameters<typeof SqlOnlyDriver>[1],
+      budget?: number
+    ) {
+      super(adapter, dialect);
+      this.maxBindParametersPerStatement = budget;
+    }
+    // (client, sql, params): the base fixture reads none of them.
+    protected override async execute<T>(
+      ...args: unknown[]
+    ): Promise<{ rows: T[]; rowCount: number }> {
+      const [, sql, params] = args as [null, string, unknown[]];
+      this.sent.push([sql.replace(SELECTED_FROM, ""), params]);
+      return { rows: [], rowCount: 0 };
+    }
+  }
+  const sent = async (driver: Recording, key: Record<string, unknown>) => {
+    const db = createClient({ schema: listSchema, driver }).$extends(keyed);
+    await callUnchecked(db, "item", "findMany", {
+      actor: { key },
+      select: { id: true },
+    });
+    return driver.sent.at(-1);
+  };
+
+  test("PostgreSQL binds the list whole; SQLite binds each member; an empty list takes nothing", async () => {
+    const pg = new Recording(new PostgresAdapter(), "postgresql");
+    expect(await sent(pg, { ids: ["a", "b", "a"] })).toEqual([
+      '"q0"."id" = ANY($1) ORDER BY "q0"."id" ASC',
+      ['{"a","b","a"}'],
+    ]);
+    expect(await sent(pg, { ids: [] })).toEqual([
+      'FALSE ORDER BY "q0"."id" ASC',
+      [],
+    ]);
+    const lite = new Recording(new SQLiteAdapter(), "sqlite");
+    expect(await sent(lite, { ids: ["a", "b", "a"] })).toEqual([
+      '"q0"."id" COLLATE BINARY IN (?, ?, ?) ORDER BY "q0"."id" ASC',
+      ["a", "b", "a"],
+    ]);
+    expect(await sent(lite, { ids: ["c"] })).toEqual([
+      '"q0"."id" COLLATE BINARY IN (?) ORDER BY "q0"."id" ASC',
+      ["c"],
+    ]);
+  });
+
+  test("over the driver's bind budget, equal members bind once and are read by number", async () => {
+    const budgeted = new Recording(new SQLiteAdapter(), "sqlite", 2);
+    expect(await sent(budgeted, { ids: ["a", "b", "a"] })).toEqual([
+      '"q0"."id" COLLATE BINARY IN (?1, ?2, ?1) ORDER BY "q0"."id" ASC',
+      ["a", "b"],
+    ]);
+  });
+
+  test("on SQLite3: every length, duplicates, notIn, a list of the field's type; an absent list matches nothing", async () => {
+    const base = createClient({
+      schema: listSchema,
+      driver: createInMemorySQLite3Driver(),
+    });
+    clients.push(base);
+    await syncLiveSchema(base);
+    await base.item.createMany({
+      data: ["a", "b", "c", "d"].map((id, rank) => ({ id, rank })),
+    });
+    const db = base.$extends(keyed);
+    const read = async (as: string, key: Record<string, unknown>) =>
+      (
+        (await callUnchecked(db, "item", "findMany", {
+          actor: { key },
+          as,
+          select: { id: true },
+          orderBy: { id: "asc" },
+        })) as { id: string }[]
+      ).map(({ id }) => id);
+    for (const [given, taken] of [
+      [["a"], ["a"]],
+      [
+        ["d", "b", "b"],
+        ["b", "d"],
+      ],
+      [[], []],
+      [["missing"], []],
+    ] as const) {
+      expect(await read("listed", { ids: given }), String(given)).toEqual(
+        taken
+      );
+      expect(await read("excluded", { ids: given }), String(given)).toEqual(
+        ["a", "b", "c", "d"].filter((id) => !taken.includes(id as never))
+      );
+    }
+    expect(await read("ranked", { ranks: [0, 3] })).toEqual(["a", "d"]);
+    // Absent, the required actor's list is false wherever it is read (R6).
+    expect(await read("listed", {})).toEqual([]);
+    expect(await read("excluded", {})).toEqual([]);
   });
 });

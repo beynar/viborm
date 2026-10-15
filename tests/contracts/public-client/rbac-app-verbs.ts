@@ -1,4 +1,4 @@
-import { NestedWriteError, NotFoundError } from "@errors";
+import { ForbiddenError, NestedWriteError, NotFoundError } from "@errors";
 import { rbac } from "@src/rbac";
 import { softDelete } from "@src/soft-delete/index";
 import {
@@ -290,14 +290,33 @@ export function runRbacAppVerbs(
             count: edit.length,
             rows: edit,
           });
-          // The actor as every row's owner keeps each row it writes at full,
-          // so the new rows (R4, K4) refuse none: the count is the old rows'.
+          // The actor as every row's owner keeps each row it writes at full
+          // (R4, K4). Through the entry `ownerId` is also a move (OD-14: the
+          // placement reads it): the statement fails whole where the oracle
+          // refuses one new row; the K3 declaration places nothing.
           const owned = await probe(db, (tx) =>
             tx.page!.updateMany({ data: { ownerId: actor.userId } })
           );
-          expect(owned.value, `${name} ownerId`).toEqual({
-            count: full.length,
-          });
+          const placed =
+            !entry ||
+            full.every((id) =>
+              oracle.produces(
+                actor,
+                "page",
+                {
+                  ...seed.page.find((page) => page.id === id)!,
+                  ownerId: actor.userId,
+                },
+                ["ownerId"],
+                ["full"],
+                { now }
+              )
+            );
+          expect(owned, `${name} ownerId`).toEqual(
+            placed
+              ? { outcome: "ok", value: { count: full.length } }
+              : { outcome: ForbiddenError.name }
+          );
           // W-W4: no count reveals a row the call sees and may not edit.
           const hidden = await probe(db, (tx) =>
             tx.page!.updateMany({
@@ -854,12 +873,26 @@ export function runRbacAppVerbs(
               return (await documents(tx)).length;
             });
           const visible = seen.length;
+          // Through the entry the cleared key is a move (OD-14: the
+          // placement reads `parentId`): only rows whose new row the oracle
+          // places isolate the nested delete's own refusal.
+          const unparented = (document: (typeof seed.document)[number]) =>
+            !entry ||
+            oracle.produces(
+              actor,
+              "document",
+              { ...document, parentId: null },
+              ["parentId"],
+              ["edit"],
+              { now }
+            );
           const guarded = seed.document.find(
             (document) =>
               document.parentId !== null &&
               editable.includes(document.id) &&
               seen.includes(document.parentId) &&
-              !deletable.includes(document.parentId)
+              !deletable.includes(document.parentId) &&
+              unparented(document)
           );
           if (guarded !== undefined) {
             refusals += 1;
@@ -869,7 +902,9 @@ export function runRbacAppVerbs(
           }
           const root = seed.document.find(
             (document) =>
-              document.parentId === null && editable.includes(document.id)
+              document.parentId === null &&
+              editable.includes(document.id) &&
+              unparented(document)
           );
           if (root === undefined) continue;
           empties += 1;

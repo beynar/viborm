@@ -308,6 +308,7 @@ const actorControl = {
       userId: v.nullable(v.string()),
       session: v.optional(v.string()),
       roles: v.optional(v.array(v.string())),
+      docs: v.optional(v.array(v.string())),
     }),
     required: true,
   },
@@ -886,6 +887,49 @@ export function runDomainPredicateBehavior(
           })
         )
       );
+    });
+
+    test("W-L4 (G4): an array path is the field's list operand, of any length and with duplicates, in and notIn; absent, it matches nothing", async () => {
+      const base = await seeded();
+      const listed = base.$extends(
+        actorRows({ doc: { id: { in: actor("docs") } } })
+      );
+      const excluded = base.$extends(
+        actorRows({ doc: { id: { notIn: actor("docs") } } })
+      );
+      const read = async (db: Loose, docs?: string[]) =>
+        shape(
+          await db.doc.findMany({
+            actor: { userId: "u1", ...(docs && { docs }) },
+            select: { id: true, children: { select: { id: true } } },
+          })
+        );
+      // The related predicate is the root's: a child is read where it is listed.
+      const expected = (keep: (d: Doc) => boolean) =>
+        shape(
+          DOCS.filter(keep).map((d) => ({
+            id: d.id,
+            children: DOCS.filter((c) => c.parentId === d.id && keep(c)).map(
+              ({ id }) => ({ id })
+            ),
+          }))
+        );
+      for (const docs of [
+        ["d1"],
+        ["d1", "d2", "d9", "d1"],
+        [],
+        ["missing"],
+        DOCS.map((d) => d.id),
+      ]) {
+        expect(await read(listed, docs), String(docs)).toEqual(
+          expected((d) => docs.includes(d.id))
+        );
+        expect(await read(excluded, docs), String(docs)).toEqual(
+          expected((d) => !docs.includes(d.id))
+        );
+      }
+      expect(await read(listed)).toEqual([]);
+      expect(await read(excluded)).toEqual([]);
     });
 
     test("W-K2g: a null value is absent, never IS NULL: userId null matches no orphaned row", async () => {

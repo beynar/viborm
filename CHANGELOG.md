@@ -5,11 +5,12 @@ Versioning.
 
 ## Unreleased
 
-The extension capabilities the RBAC extension (`viborm/rbac`, not yet
-published) is built on: `rows` predicates that traverse relations, values a
-call supplies as plan parameters, controls bound to a client, and
-extensions that compose by order. Nothing here names a role, a grant or an
-action.
+The extension capabilities the RBAC extension is built on (`rows`
+predicates that traverse relations, values a call supplies as plan
+parameters, verbs that judge the rows a write takes and the rows it
+produces, per-row evidence, controls bound to a client, extensions that
+compose by order), and `viborm/rbac` itself, built from them alone. Core
+names no role, grant or action.
 
 ### Added
 
@@ -54,7 +55,10 @@ action.
   model's entry other than these and `place`, `moves`, `acyclic`,
   `evidence` and `reads` (below) is refused at `$extends` with a
   `ClientInitializationError` naming the model and the key (a misspelt
-  `writes` would judge its fields at `update`).
+  `writes` would judge its fields at `update`). A nested `delete` takes its
+  target at the target's `delete` predicate: a to-one `delete: true` on a
+  target the call sees and may not delete is a `NestedWriteError` that never
+  tells it from a hidden one.
 - **A write is judged by the statement it emits.** On a model with verbs,
   `data: {}`, or a parent a nested write bumps, is judged at `update`;
   stamps and generated values (`updatedAt`) never change the verb. A row
@@ -81,7 +85,19 @@ action.
   `place`, is refused before any statement, as is a list `push`/`unshift` or
   an exact decimal's `multiply`/`divide` on a field the judgement reads.
 - **Adapters: `assertions.holds(condition, from?)`**, the expression a
-  judged statement carries: 1, or the statement fails before it writes.
+  judged statement carries: 1, or the statement fails on its own sentinel
+  before it writes. Only that sentinel is a refusal: a caller's division by
+  zero or invalid JSON in the same statement is the provider's `QueryError`.
+- **Shared relation bodies, a driver fact.** A driver whose transport bounds
+  a statement declares `sharesRelationBodies`: each relation filter body a
+  statement repeats is stated once, in a `WITH`, as the key set its
+  repeats test (`EXISTS (SELECT 1 FROM set WHERE set.k = parent.fk)`). D1
+  declares it; `PgDriver({ sharedRelationBodies: true })` declares it for a
+  PostgreSQL server that bounds the relations of one statement (Neki: 256).
+  Other drivers' SQL is unchanged, and the answers are the same.
+- **`uncacheable` controls.** A control declared `uncacheable: true` keeps
+  every read holding its value out of the cache: `$withCache` on such a read
+  is a `ValidationError` at the control, before any statement.
 - **`rows` verbs report and gate per row.** A model's entry may declare
   `evidence: { as, names, ordered? }`, a projection key (`$` and an
   identifier) a `select` or `include` may name at any depth, on reads and on
@@ -94,32 +110,40 @@ action.
   `connect`, `orderBy`, `distinct`, aggregates, `groupBy`, relation filters)
   reads it as absent there. Keys and foreign keys cannot be gated. The
   client's types admit the key and make gated fields optional by default.
-- **`viborm/rbac`** (not yet published, OD-11).
-  `rbac({ actor, levels, limit, models })` compiles one predicate per model
-  and action (R1) against the schema, as plain data in the shape `rows.verbs`
-  takes, and ships the helpers `owner`, `member`, `grant.to`,
-  `grant.administer`, `team`, `role`, `everyone`, `up`, `session`,
-  `notBanned` and `keyLimit`. Actor paths are checked against the
-  `viborm/validation` actor schema, in the types and at compile; unknown
-  models, fields and actions, predicates that read themselves, read-gated
-  keys or relations, and an actor schema that is not a finite strict object
-  are refused.
-- **`rbac(config)(base)` applies the policy** to every model of `base`: a
-  rows step (a bound-only, required `actor` control; the `as` mode, each
-  model's actions and named domains; every model's verbs) then a methods
-  step, also offered apart as `.rows` and `.methods`. A model the policy
-  does not list, a verb it does not declare, or an `as` mode it does not
-  declare, is refused before any statement with `ForbiddenError` (OD-7). An
-  action or domain named `default` is refused at compile. A polymorphic
-  relation's arm reads `null` where the actor cannot view its target.
-- **`db.$as(actor)`** returns a view with the actor bound: validated once
-  against the actor schema, no chain rebuilt; transactions and clients
-  `$extends` derives from it keep it. A call on `db` without it, or passing
-  `actor` in its arguments, is a `ValidationError` before any statement.
-- **`can(action, where)` and `assert(action, where)`** on every listed
-  model: whether the actor holds the action on a row `where` selects, in
-  one statement; `assert` throws `ForbiddenError` for a hidden row and a
-  missing action alike.
+- **`viborm/rbac`, authorization judged in the statement** (not yet
+  published, OD-11; [guide](docs/content/docs/extensions/rbac.mdx)).
+  `rbac({ actor, levels, limit, models })` declares one rule per model and
+  action (`within`, `arms`, `actions` with what each implies, `operations`,
+  `create`, `fields`, `domains`), with the helpers `owner`, `member`,
+  `grant.to`, `grant.administer`, `team`, `role`, `everyone`, `up`,
+  `session`, `notBanned` and `keyLimit`. `rbac(config)(base)` compiles it
+  against `base`'s schema into one predicate per model and action and
+  applies it to every model, as a rows step then a methods step, also
+  offered apart as `.rows` and `.methods` so other `rows` steps (soft
+  delete, tenancy) go first. `db.$as(actor)` returns a view with the actor
+  bound: validated once against the `viborm/validation` actor schema, no
+  chain rebuilt, kept by transactions and by clients `$extends` derives.
+  Every read takes only the rows the actor views, at every depth; an update
+  or delete is judged at the actions of the fields it writes; a created or
+  updated row is judged inside the statement that writes it (placement,
+  written keys' targets visible, no parent cycle), with `ForbiddenError`.
+  `can`/`assert` answer from the same predicates through `$access`, in one
+  statement, for one action or a list (`can([...])` returns a record;
+  `assert`'s `ForbiddenError` never tells a hidden row from a missing action),
+  `include: { $access: true }` reports the actions held per row at any
+  depth, a field with a `read` action is omitted where the actor lacks it,
+  `limit` narrows API keys by intersection and `as` narrows a call to an
+  action or a named domain, never wider. Refused before any statement: a
+  call without an actor or passing `actor` in its arguments
+  (`ValidationError`), a model the policy does not list, a verb or an `as`
+  mode the model does not declare (`ForbiddenError`, OD-7). Refused when
+  applied, with `ClientInitializationError`: unknown models, fields, actions
+  and actor paths, rules that read themselves, a read-gated key, an actor
+  schema that is not a finite strict object, an action or domain named
+  `default`. A cached read on a governed view is refused with
+  `ValidationError` before any statement, unless the policy declares
+  `cache: "allow"` (OD-10). Raw SQL and statement transforms are not
+  filtered.
 
 ### Changed
 
@@ -152,13 +176,13 @@ action.
   run a model's factories when that model is first read, client factories
   when a client method is. **Upgrade:** a factory that throws now fails at
   that first read inside the transaction, not at `$transaction`.
+- **A read allocates no more per call than in 1.2.4**, with or without a
+  `rows` extension (Node 24, a 50-model schema: `findUnique` 54,760 →
+  54,352 B, `findMany` with two includes 106,744 → 106,616 B, a relation
+  filter 62,184 → 61,824 B); a client retains about 300 B more.
 
 ### Fixed
 
-- **A nested to-one `delete: true` whose target the call may not delete**
-  (rows verbs) is refused with `NestedWriteError`, instead of clearing the
-  key, or doing nothing, and succeeding. The refusal never tells a hidden
-  target from one the call may not delete.
 - **An update with nothing to assign no longer fails.** On a model with no
   `updatedAt` and no stamp, `update({ data: {} })` and
   `updateMany({ data: {} })` sent `UPDATE … SET` with an empty list and threw
@@ -170,7 +194,8 @@ action.
   relation filters about quadratically, so a statement six `some`/`is`
   levels deep was refused ("Expression tree is too large"). On D1 each
   relation filter now reads its rows from a derived table, which SQLite
-  flattens back to the same plan; every other driver's SQL is unchanged.
+  flattens back to the same plan, and a long conjunction nests as a balanced
+  tree; every other driver's SQL is unchanged.
 - **`deleted: "with"` and `scope: "all"` no longer widen a `rows`
   predicate's relation reads.** A predicate that reached its rows through a
   relation counted a tombstoned row, or another tenant's, when the call

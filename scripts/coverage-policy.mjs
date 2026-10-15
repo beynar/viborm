@@ -113,16 +113,11 @@ const definitions = [
     id: "extensions",
     label: "extensions",
     target: 100,
-    root: "src/extensions/",
     // The official soft-delete and rbac extensions: definitions over the
-    // capabilities this subsystem owns, measured by the same lane.
-    files: new Set([
-      "src/soft-delete/index.ts",
-      "src/rbac/actor.ts",
-      "src/rbac/compile.ts",
-      "src/rbac/helpers.ts",
-      "src/rbac/index.ts",
-    ]),
+    // capabilities this subsystem owns, measured by the same lane. They own
+    // their directories, so a file the rbac entry gains is measured at 100%
+    // from its first line instead of failing the ownership audit unowned.
+    roots: ["src/extensions/", "src/rbac/", "src/soft-delete/"],
     projects: ["coverage-extensions"],
     tests: extensionCoverageTests,
   },
@@ -171,11 +166,15 @@ const definitions = [
     // `result-row-parser.ts`, deleted by D-15, and the write floors named 18
     // `write-engine/` files, of which zero remain. Since C-01 the whole
     // `raptor3/` route is in this scope, and its own deterministic test tree
-    // (`coverage-raptor3`, the fourth part below) is what measures it — the
+    // (`coverage-raptor3` and `coverage-raptor3-rest`, two halves of one list
+    // below) is what measures it — the
     // seeded campaigns and the structural measurements stay with the mode
     // runner. Measured 2026-09-19 over the four parts: statements 87.38,
     // branches 91.1, functions 90.48, lines 87.38; the floors are those
-    // numbers rounded DOWN to the half-point, a true ratchet.
+    // numbers rounded DOWN to the half-point, a true ratchet. The last part,
+    // `coverage-query-engine-extensions`, measures the engine branches only
+    // the extension language reaches (produced rows, evidence, shared relation
+    // bodies): measured 2026-10-15 with it, 94.12 / 94.16 / 95.61 / 94.12.
     target: 98,
     metricTargets: {
       statements: 87,
@@ -189,6 +188,8 @@ const definitions = [
       "coverage-write-engine-core",
       "coverage-write-engine",
       "coverage-raptor3",
+      "coverage-raptor3-rest",
+      "coverage-query-engine-extensions",
     ],
   },
   {
@@ -316,9 +317,11 @@ export function sourceFiles() {
 
 function owns(definition, source) {
   if (definition.files?.has(source)) return true;
-  return Boolean(
-    definition.root &&
-      source.startsWith(definition.root) &&
+  const roots = definition.roots ?? [definition.root];
+  return roots.some(
+    (root) =>
+      root &&
+      source.startsWith(root) &&
       !(definition.exceptRoot && source.startsWith(definition.exceptRoot))
   );
 }

@@ -57,6 +57,44 @@ export class Sql {
   }
 
   /**
+   * The projection {@link flatten} makes of `fragment`, made without keeping
+   * it: a fragment holding an open {@link SqlSlot} reads its provisional text
+   * and stays open.
+   */
+  static peek(fragment: Sql): { strings: string[]; values: Value[] } {
+    if (fragment.projection !== undefined) return fragment.projection;
+    const strings: string[] = [];
+    const values: Value[] = [];
+    let current = "";
+    const walk = (
+      rawStrings: readonly string[],
+      rawValues: readonly RawValue[]
+    ): void => {
+      current += rawStrings[0]!;
+      for (let i = 0; i < rawValues.length; i++) {
+        const child = rawValues[i]!;
+        if (child instanceof Sql) {
+          walk(child.rawStrings, child.rawValues);
+        } else {
+          values.push(child);
+          strings.push(current);
+          current = "";
+        }
+        current += rawStrings[i + 1]!;
+      }
+    };
+    walk(fragment.rawStrings, fragment.rawValues);
+    strings.push(current);
+    return { strings, values };
+  }
+
+  /** `slot`'s text replaced by `content`'s (see {@link SqlSlot.settle}). */
+  protected static fill(slot: Sql, content: Sql): void {
+    slot.rawStrings = ["", ""];
+    slot.rawValues = [content];
+  }
+
+  /**
    * Flatten the raw fragment tree in one pass, walking children's raw
    * fragments directly so nested Sql instances are never flattened themselves.
    * The flat arrays then replace the raw tree as the canonical representation,

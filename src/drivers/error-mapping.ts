@@ -52,6 +52,17 @@ const MYSQL_ERRNO_IN_MESSAGE_PATTERN = /\(errno (\d+)\)/;
 // JSON via JSON_EXTRACT/json_extract on MySQL (errno 3141) and SQLite
 // ("malformed JSON"). The statements are identifiable by their column alias.
 export const ASSERTION_MARKER = "__viborm_assert__";
+/**
+ * A write judging the row it produces (`adapter.assertions.holds`) carries
+ * this alias, and fails on its own refusal: the sentinel text its guard
+ * names (PostgreSQL, SQLite: in the message) or, on MySQL, the invalid path
+ * its sentinel is (errno 3143). Nothing else the statement raises is a
+ * refusal, so a caller's division by zero or invalid JSON in it stays the
+ * provider's failure (E5.6).
+ */
+export const JUDGEMENT_MARKER = "__viborm_judged__";
+const REFUSAL_SENTINEL = "__viborm_refused__";
+const MYSQL_INVALID_JSON_PATH = 3143;
 const POSTGRES_DIVISION_BY_ZERO = "22012";
 const MYSQL_INVALID_JSON_TEXT = 3141;
 
@@ -79,13 +90,28 @@ export function batchMayContainAssertionCollision(
 ): boolean {
   const signature = FOREIGN_ASSERTION_SIGNATURE[dialect];
   for (const [index, statement] of statements.entries()) {
-    if (statement.sql.includes(ASSERTION_MARKER)) {
+    if (
+      statement.sql.includes(ASSERTION_MARKER) ||
+      statement.sql.includes(JUDGEMENT_MARKER)
+    ) {
       if (ownedAssertions && !ownedAssertions.has(index)) return true;
       continue;
     }
     if (signature.test(statement.sql)) return true;
   }
   return false;
+}
+
+function isRefusal(
+  code: string | number | undefined,
+  errno: number | undefined,
+  message: string
+): boolean {
+  return (
+    message.includes(REFUSAL_SENTINEL) ||
+    errno === MYSQL_INVALID_JSON_PATH ||
+    code === "ER_INVALID_JSON_PATH"
+  );
 }
 
 function isAssertionFailure(
@@ -531,8 +557,10 @@ function recognizeProviderFailure(
   context: DriverErrorContext
 ): FailureConstruction | undefined {
   if (
-    context.query?.includes(ASSERTION_MARKER) &&
-    isAssertionFailure(code, errno, message)
+    (context.query?.includes(JUDGEMENT_MARKER) &&
+      isRefusal(code, errno, message)) ||
+    (context.query?.includes(ASSERTION_MARKER) &&
+      isAssertionFailure(code, errno, message))
   ) {
     return ASSERTION_FAILURE;
   }

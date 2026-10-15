@@ -204,7 +204,9 @@ describe("D1: tenancy, soft delete and an optional control: SQL unchanged (W-K1e
       recorder,
       pushed
     );
-    expect(unwrapDerivedExists(transcript)).toEqual(golden);
+    expect(unwrapDerivedExists(transcript)).toEqual(
+      unwrapDerivedExists(golden)
+    );
   });
 
   test("a nested update and delete is one atomic unit: when its update's target goes before the write, none of its writes stays", async () => {

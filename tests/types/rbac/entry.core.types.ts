@@ -48,6 +48,59 @@ describe("rbac(config)(base)", () => {
     call.page.can("view", { nope: true });
   });
 
+  test("can with a list answers a record of exactly the listed actions", () => {
+    expectTypeOf(
+      call.document.can(["comment", "share"], { id: "d1" })
+    ).toEqualTypeOf<
+      Promise<{ readonly comment: boolean; readonly share: boolean }>
+    >();
+    expectTypeOf(call.page.assert(["view", "edit"], { id: "p" })).toEqualTypeOf<
+      Promise<void>
+    >();
+    // @ts-expect-error - `archive` is not an action of page
+    call.page.can(["view", "archive"], { id: "p" });
+  });
+
+  test("$access is a projection key at every depth, typed by each model's actions (D6, OD-2)", async () => {
+    const documents = await call.document.findMany({
+      select: {
+        id: true,
+        $access: true,
+        children: { select: { id: true, $access: ["share"] } },
+      },
+    });
+    expectTypeOf(documents[0]!.$access).toEqualTypeOf<{
+      readonly view: boolean;
+      readonly comment: boolean;
+      readonly archive: boolean;
+      readonly edit: boolean;
+      readonly share: boolean;
+      readonly export: boolean;
+    }>();
+    expectTypeOf(documents[0]!.children[0]!.$access).toEqualTypeOf<{
+      readonly share: boolean;
+    }>();
+    // Ordered: the actions are exactly the levels, so the highest one held.
+    const pages = await call.page.findMany({
+      include: { $access: true, group: { include: { $access: true } } },
+    });
+    expectTypeOf(pages[0]!.$access).toEqualTypeOf<
+      "view" | "edit" | "full" | null
+    >();
+    // @ts-expect-error - `archive` is not one of page's names
+    await call.page.findMany({ select: { id: true, $access: ["archive"] } });
+  });
+
+  test("a read-gated field is omitted from the default row and present when selected (D5)", async () => {
+    // A default omit decided per row: absent where the actor lacks `full`.
+    const [row] = await call.collection.findMany();
+    expectTypeOf(row!.budget).toEqualTypeOf<number | undefined>();
+    const [named] = await call.collection.findMany({
+      select: { id: true, budget: true },
+    });
+    expectTypeOf(named!.budget).toEqualTypeOf<number>();
+  });
+
   test("a model the policy does not list has no answers", () => {
     // @ts-expect-error - `session` is not listed
     call.session.can("view", { id: "s" });

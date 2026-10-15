@@ -594,11 +594,12 @@ export class PostgresAdapter implements DatabaseAdapter {
       sql`SELECT 1 / CASE WHEN EXISTS (${query}) THEN 1 ELSE 0 END AS "__viborm_assert__"`,
     notExists: (query: Sql): Sql =>
       sql`SELECT 1 / CASE WHEN NOT EXISTS (${query}) THEN 1 ELSE 0 END AS "__viborm_assert__"`,
-    // The zero is a sublink: PostgreSQL folds `1 / 0` while planning, so a
-    // condition that folds false would raise for a statement that judges
-    // no row; a sublink is evaluated only where the division is reached.
+    // The refusal names its sentinel (22P02, `invalid input syntax for type
+    // integer: "__viborm_refused__"`), which no caller's division by zero
+    // does; the text is a sublink, which PostgreSQL does not fold while
+    // planning, so it is evaluated only where it is reached.
     holds: (condition: Sql, from?: Sql): Sql =>
-      sql`SELECT 1 / CASE WHEN ${condition} THEN 1 ELSE (SELECT 0) END AS "__viborm_assert__"${from ? sql` FROM ${from}` : sql``}`,
+      sql`SELECT CASE WHEN ${condition} THEN 1 ELSE CAST((SELECT '__viborm_refused__') AS integer) END AS "__viborm_judged__"${from ? sql` FROM ${from}` : sql``}`,
   };
 
   joins = {
@@ -612,7 +613,7 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   setOperations = createSetOperations();
 
-  capabilities = {
+  capabilities: DatabaseAdapter["capabilities"] = {
     supportsReturning: true,
     supportsCteWithMutations: true,
     supportsFullOuterJoin: true,

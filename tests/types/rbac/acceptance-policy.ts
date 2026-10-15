@@ -197,7 +197,12 @@ export const storedPolicy = rbac({
   },
 });
 
-/** The simplest case, a blog where the author edits and admins delete (§1.1), on the fixture's `page`. */
+/**
+ * The simplest case, a blog where the author edits and admins delete (§1.1),
+ * on the fixture's `page`, whose required `organization` key §1.1's `post`
+ * does not have: a created row's keys reach visible targets (R4), so the
+ * fixture's organizations are listed, visible to all.
+ */
 export const blog = rbac({
   actor: v.object({ userId: v.string(), admin: v.boolean() }), // `admin`: an identity-provider claim, not a row of this database
   models: {
@@ -208,5 +213,6 @@ export const blog = rbac({
       create: { ownerId: { actor: "userId" } },
     },
     user: { view: {} },
+    organization: { view: {} },
   },
 });

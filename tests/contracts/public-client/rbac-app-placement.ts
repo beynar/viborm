@@ -1,13 +1,11 @@
 import { ForbiddenError, NestedWriteError, NotFoundError } from "@errors";
-import type { CompiledPolicy } from "@src/rbac";
 import { verbsOf } from "@src/rbac/compile";
 import {
+  CREATES,
   createOracle,
   GOVERNED_MODELS,
   type GovernedModel,
-  KEYS,
   type OracleOptions,
-  PLACED,
 } from "@tests/package/fixtures/rbac-app/oracle";
 import { schema } from "@tests/package/fixtures/rbac-app/schema";
 import {
@@ -23,6 +21,7 @@ import {
 } from "@tests/types/rbac/acceptance-policy";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import {
+  createDataOf,
   createRbacAppClient,
   loadRbacSeed,
   type RbacAppClient,
@@ -33,16 +32,14 @@ import {
  * K4 on the RBAC acceptance estate (plan §4.4, R4, OD-13 one statement,
  * OD-14 recommended; §7 W-P1..W-P16): the row a write produces is judged as
  * a value, against the rows before the write, inside the statement that
- * writes it. The declaration is the compiled §1.1 policy handed to a plain
- * extension's `rows.verbs` (`verbsOf`), with what R4 asks the entry to
- * compile beside it, built here from the compiled predicates (the shape
- * `viborm/rbac` must emit, needsOutside for U9):
+ * writes it. The declaration is the compiled §1.1 policy exactly as
+ * `viborm/rbac` hands it to its `rows.verbs` (`verbsOf`): per model,
  *
- * - `place`: the compiled `create` (within ∧ limit ∧ `create:`) AND every
- *   written key's target visible, `P(T, view)` inlined; nothing (`OR: []`)
- *   on a model that declares no `create:`;
- * - `moves`: per written field, the compiled `create` where the placement
- *   reads it (OD-14), AND its target visible where it is a key;
+ * - `place`: within ∧ limit ∧ `create:` AND every key's target visible,
+ *   `P(T, read)` inlined; nothing (`OR: []`) on a model that declares no
+ *   `create:` or that the policy does not list (R9);
+ * - `moves`: per written field, the placement's clause where it reads the
+ *   field (OD-14), AND its target visible where it is a key;
  * - `acyclic`: `document.parent`, which `up("parent")` recurses over.
  *
  * The actor is a call argument (no bound view: that is the entry's, K6).
@@ -65,88 +62,6 @@ type Loose = Record<string, LooseDelegate> & {
   $transaction<T>(body: (tx: Loose) => Promise<T>): Promise<T>;
 };
 const loose = (client: object) => client as unknown as Loose;
-const NOWHERE = { OR: [] };
-
-type Facts = {
-  readonly state: {
-    readonly scalars: Record<
-      string,
-      { "~": { state: { nullable?: boolean } } }
-    >;
-    readonly relations: Record<
-      string,
-      { "~": { state: { foreignKey?: { fields: readonly string[] } } } }
-    >;
-  };
-};
-const factsOf = (model: GovernedModel) =>
-  (schema[model] as unknown as { "~": Facts })["~"].state;
-
-/** Each key of `model` as R4 reads it: null, or a target the actor views. */
-function keyPredicates(
-  compiled: CompiledPolicy,
-  model: GovernedModel
-): Record<string, object> {
-  const state = factsOf(model);
-  const keys: Record<string, object> = {};
-  for (const [relation, declared] of Object.entries(state.relations)) {
-    const field = declared["~"].state.foreignKey?.fields[0];
-    if (field === undefined || !Object.hasOwn(KEYS[model], field)) continue;
-    const target = compiled.models[KEYS[model][field]!]!;
-    const visible = { [relation]: { is: target.predicates[target.read!]! } };
-    keys[field] = state.scalars[field]!["~"].state.nullable
-      ? { OR: [{ [field]: null }, visible] }
-      : visible;
-  }
-  return keys;
-}
-
-/** The compiled policy with R4's placement, moves and acyclic relations (K4). */
-export function placementVerbs(compiled: CompiledPolicy) {
-  const verbs = verbsOf(compiled);
-  return Object.fromEntries(
-    GOVERNED_MODELS.map((model) => {
-      const entry = verbs[model]!;
-      const keys = keyPredicates(compiled, model);
-      const create = compiled.models[model]!.place;
-      const predicates: Record<string, object> = {
-        ...entry.predicates,
-        place: create
-          ? { AND: [entry.predicates[create]!, ...Object.values(keys)] }
-          : NOWHERE,
-      };
-      // A written field's move: the placement where `create:` reads it
-      // (OD-14), and its target visible where it is a key; never the keys it
-      // does not write.
-      const moves: Record<string, string> = {};
-      for (const field of new Set([
-        ...(create ? (PLACED[model] ?? []) : []),
-        ...Object.keys(keys),
-      ])) {
-        const parts = [
-          ...(create && (PLACED[model] ?? []).includes(field)
-            ? [entry.predicates[create]!]
-            : []),
-          ...(keys[field] ? [keys[field]!] : []),
-        ];
-        predicates[`move:${field}`] =
-          parts.length === 1 ? parts[0]! : { AND: parts };
-        moves[field] = `move:${field}`;
-      }
-      return [
-        model,
-        {
-          ...entry,
-          predicates,
-          place: "place",
-          moves,
-          ...(model === "document" && { acyclic: ["parent"] }),
-        },
-      ];
-    })
-  );
-}
-
 const ROLLBACK = new Error("rolled back");
 type Outcome = { outcome: string; value?: unknown };
 async function outcomeOf(body: () => Promise<unknown>): Promise<Outcome> {
@@ -163,22 +78,7 @@ const WRITERS = ["u03", "u04", "u05", "u20", "u22", "u42", "u45", "u56"];
 const pick = <T>(rows: readonly T[], keep: (row: T) => boolean) =>
   rows.find(keep);
 
-/** What a substrate cannot run of these witnesses, measured. */
-export interface PlacementRun {
-  /**
-   * The provider refuses a grant move's one statement before it runs: D1
-   * caps a statement at 100 KB, and moving a grant onto another thing
-   * judges `grants.place` on its new row beside `grants.admin` on its old
-   * one (measured 261 KB, expression depth 180, plan §8 D1 row). The write
-   * fails with the provider's QueryError and changes nothing.
-   */
-  readonly oversizedGrantMoves?: boolean;
-}
-
-export function runRbacAppPlacement(
-  substrate: RbacAppSubstrate,
-  run: PlacementRun = {}
-): void {
+export function runRbacAppPlacement(substrate: RbacAppSubstrate): void {
   const oracle = createOracle(seed);
   const writers = substrate.actors ?? [
     ...WRITERS,
@@ -196,7 +96,7 @@ export function runRbacAppPlacement(
       control: "as",
       default: "all",
       models: Object.fromEntries(GOVERNED_MODELS.map((m) => [m, { all: {} }])),
-      verbs: placementVerbs(compiled),
+      verbs: verbsOf(compiled),
     },
   };
   /** The oracle over the rows a nested child's statement sees: the seed and its created parent. */
@@ -414,6 +314,71 @@ export function runRbacAppPlacement(
           expect(seen.disagreements).toEqual([]);
           expect(seen.ok, "document admitted").toBeGreaterThan(0);
           expect(seen.refused, "document refused").toBeGreaterThan(0);
+        }
+      },
+      timeout
+    );
+
+    test(
+      "R9 (U6 Q2): a model that declares no create: and a model the policy does not list create nothing, at the root (ForbiddenError) and nested (NestedWriteError), before any constraint",
+      async () => {
+        const uncreated = Object.keys(schema).filter(
+          (model) => !CREATES.has(model as GovernedModel)
+        );
+        expect(uncreated.sort()).toEqual(
+          [
+            "apiKey",
+            "bookmark",
+            "organization",
+            "pageGroup",
+            "rolePermission",
+            "session",
+            "team",
+            "user",
+          ].sort()
+        );
+        for (const name of writers.slice(0, 3)) {
+          const actor = actors[name]!;
+          for (const model of uncreated) {
+            // A copy of a seeded row under a fresh id (a bookmark without its
+            // subject, whose connect would be judged first): a duplicate of
+            // every other unique value, which no constraint is reached to refuse.
+            const [first] = seed[model as keyof RbacSeed] as unknown as Row[];
+            const { subject: _subject, ...row } = createDataOf(model, first!);
+            if ("id" in row) row.id = fresh(model);
+            if (GOVERNED_MODELS.includes(model as GovernedModel))
+              expect(
+                oracle.places(actor, model as GovernedModel, row, opts)
+              ).toBe(false);
+            expect(
+              (await probe((tx) => tx[model]!.create({ data: row, actor })))
+                .outcome,
+              `${name} ${model}`
+            ).toBe(ForbiddenError.name);
+          }
+          // Nested: a bookmark created under a page the actor edits.
+          const page = oracle.rows(actor, "page", "edit", opts)[0];
+          if (page === undefined) continue;
+          expect(
+            (
+              await probe((tx) =>
+                tx.page!.update({
+                  where: { id: page },
+                  data: {
+                    bookmarks: {
+                      create: {
+                        id: fresh("bookmark"),
+                        organizationId: actor.organizationId,
+                        userId: actor.userId,
+                      },
+                    },
+                  },
+                  actor,
+                })
+              )
+            ).outcome,
+            name
+          ).toBe(NestedWriteError.name);
         }
       },
       timeout
@@ -843,27 +808,13 @@ export function runRbacAppPlacement(
                   })
               );
               expect(moved.outcome, `${name} ${grant.id} +${groupId}`).toBe(
-                run.oversizedGrantMoves
-                  ? "QueryError"
-                  : expected(allowed, ForbiddenError.name)
+                expected(allowed, ForbiddenError.name)
               );
               if (!allowed) cases += 1;
             }
           }
         }
         expect(cases).toBeGreaterThan(0);
-        if (run.oversizedGrantMoves)
-          expect(
-            await loose(base).accessGrant!.findMany({
-              where: {
-                id: { in: seed.accessGrant.map((g) => g.id) },
-                NOT: { groupId: null },
-              },
-              select: { id: true },
-            })
-          ).toHaveLength(
-            seed.accessGrant.filter((g) => g.groupId !== null).length
-          );
       },
       timeout
     );

@@ -62,6 +62,7 @@ import {
   DEFAULT_MAX_OCCURRENCES,
   type NormalizedRecurrence,
 } from "@validation/relations/recurrence";
+import { SqlSlot } from "../../../sql/slot";
 import type { Operation } from "../../types";
 import {
   canonicalDecimal,
@@ -1243,8 +1244,65 @@ function reversedRows(rows: Input[]): Input[] {
 /** A filter read's controls: it takes the root domain's rows. */
 const ROOT_CANDIDATES = Object.freeze({ purpose: "root" as const });
 
+/**
+ * One relation filter body a statement lowers ({@link Queries.relationExists}):
+ * its key set's name and query, and each place it was lowered at, with the
+ * two texts that place settles to.
+ */
+interface SharedBody {
+  readonly name: string;
+  readonly query: Sql;
+  readonly slots: {
+    readonly slot: SqlSlot;
+    readonly inline: Sql;
+    readonly use: Sql;
+  }[];
+}
+/** A statement's relation bodies, by {@link sharedKey}, in lowering order. */
+interface SharedBodies {
+  readonly byKey: Map<string, SharedBody>;
+  readonly order: SharedBody[];
+}
+/** An alias the per-statement counter minted, inside an identifier. */
+const ALIAS_TOKEN = /(?<=["_])q(\d+)(?=["_])/g;
+const valueIds = new WeakMap<object, number>();
+let nextValueId = 0;
+/** A bound value as a key: a primitive by value, a `Date` by its instant, a list by its members, anything else by identity. */
+function valueKey(value: unknown): string {
+  if (value instanceof Date) return `d${value.getTime()}`;
+  if (Array.isArray(value)) return `[${value.map(valueKey).join(",")}]`;
+  if (
+    value === null ||
+    (typeof value !== "object" && typeof value !== "function")
+  )
+    return `${typeof value}:${String(value)}`;
+  return `o${memo(valueIds, value, () => nextValueId++)}`;
+}
+/**
+ * Two bodies are one where their texts are equal once their aliases are
+ * renumbered in order of appearance, and their values are equal: the same
+ * rows of the same table under the same conditions. A body holding another
+ * reads it provisionally, by its key set's name, which equal bodies share.
+ */
+function sharedKey(query: Sql): string {
+  const { strings, values } = Sql.peek(query);
+  const renumbered = new Map<string, number>();
+  const text = strings.join("\u0001").replace(ALIAS_TOKEN, (_, n: string) => {
+    let local = renumbered.get(n);
+    if (local === undefined) {
+      local = renumbered.size;
+      renumbered.set(n, local);
+    }
+    return `q${local}`;
+  });
+  return `${text}\u0000${values.map(valueKey).join("\u0002")}`;
+}
 /** No layer is lowering. */
 const NO_LAYERS: readonly number[] = Object.freeze([]);
+/** A projection that carries no gate member (K5). */
+const NO_GATES: readonly string[] = Object.freeze([]);
+const isParameterOperand = (operand: PreparedOperand): boolean =>
+  operand.kind === "parameter";
 
 /** One layer's projection key on a model (K5), with the layer's `read`. */
 export interface DeclaredEvidence {
@@ -1337,7 +1395,9 @@ export class PreparedDomain {
   }
   /** `model`'s projection keys and read-gated fields; `undefined` for none. */
   projected(model: AnyModel): ProjectedFacts | undefined {
-    if (!this.projects) return undefined;
+    return this.projects ? this.#projectedFacts(model) : undefined;
+  }
+  #projectedFacts(model: AnyModel): ProjectedFacts | undefined {
     const name = model["~"].names.ts!;
     const facts = memo(this.#projected, name, () => {
       const keys = new Map<string, DeclaredEvidence>();
@@ -1395,52 +1455,65 @@ export class PreparedDomain {
     judgement?: RowJudgement
   ): PreparedSelector | undefined {
     const name = model["~"].names.ts!;
+    const verbs = this.rows.verbs?.get(name);
+    const judged = verbs && judgement;
+    // The plain key allocates nothing: a read takes it at every lookup.
+    const key = judged
+      ? `${name} ${excluded} ${judged.verb} ${[...judged.writes].sort()}`
+      : excluded.length === 0
+        ? name
+        : `${name} ${excluded}`;
+    let prepared = this.#prepared[purpose].get(key);
+    if (prepared === undefined)
+      prepared = this.#prepareSelector(model, purpose, excluded, judged, key);
+    return prepared ?? undefined;
+  }
+  /** {@link selector}'s answer, prepared once per key. */
+  #prepareSelector(
+    model: AnyModel,
+    purpose: RowPurpose,
+    excluded: readonly number[],
+    judged: RowJudgement | undefined,
+    key: string
+  ): PreparedSelector | null {
+    const name = model["~"].names.ts!;
     const inputs = this.rows[purpose].get(name);
     const verbs = this.rows.verbs?.get(name);
-    if (inputs === undefined && verbs === undefined) return undefined;
-    const judged = verbs && judgement;
     const queries = this.#queries;
-    const prepared = memo(
-      this.#prepared[purpose],
-      judged
-        ? `${name} ${excluded} ${judged.verb} ${[...judged.writes].sort()}`
-        : `${name} ${excluded}`,
-      () => {
-        const parts: PreparedSelector[] = [];
-        const layers = Math.max(inputs?.length ?? 0, verbs?.length ?? 0);
-        for (let layer = 0; layer < layers; layer++) {
-          if (excluded.includes(layer)) continue;
-          const own = verbs?.[layer];
-          const wheres = [
-            ...(own ? [own.read] : []),
-            ...(inputs?.[layer] === undefined ? [] : [inputs[layer]!]),
-            ...(own && judged ? verbInputs(own, judged) : []),
-          ].map((where) =>
-            memo(this.#inputs, where, () =>
-              queries.prepareSelector(model, where)
-            )
-          );
-          if (wheres.length === 0) continue;
-          const part =
-            wheres.length === 1
-              ? wheres[0]!
-              : queries.andSelectors(model, wheres);
-          parts.push(
-            part.predicate === undefined
-              ? part
-              : freeze({
-                  ...part,
-                  predicate: layerOf(layer, name, part.predicate),
-                })
-          );
-        }
-        if (parts.length === 0) return null;
-        return parts.length === 1
-          ? parts[0]!
-          : queries.andSelectors(model, parts);
+    const prepared = memo(this.#prepared[purpose], key, () => {
+      if (inputs === undefined && verbs === undefined) return null;
+      const parts: PreparedSelector[] = [];
+      const layers = Math.max(inputs?.length ?? 0, verbs?.length ?? 0);
+      for (let layer = 0; layer < layers; layer++) {
+        if (excluded.includes(layer)) continue;
+        const own = verbs?.[layer];
+        const wheres = [
+          ...(own ? [own.read] : []),
+          ...(inputs?.[layer] === undefined ? [] : [inputs[layer]!]),
+          ...(own && judged ? verbInputs(own, judged) : []),
+        ].map((where) =>
+          memo(this.#inputs, where, () => queries.prepareSelector(model, where))
+        );
+        if (wheres.length === 0) continue;
+        const part =
+          wheres.length === 1
+            ? wheres[0]!
+            : queries.andSelectors(model, wheres);
+        parts.push(
+          part.predicate === undefined
+            ? part
+            : freeze({
+                ...part,
+                predicate: layerOf(layer, name, part.predicate),
+              })
+        );
       }
-    );
-    return prepared ?? undefined;
+      if (parts.length === 0) return null;
+      return parts.length === 1
+        ? parts[0]!
+        : queries.andSelectors(model, parts);
+    });
+    return prepared;
   }
   readonly #produced = new Map<string, PreparedSelector | null>();
   /**
@@ -1559,6 +1632,27 @@ function verbInputs(verbs: ModelVerbs, judgement: RowJudgement): Input[] {
   ];
 }
 
+/**
+ * `node`'s predicate with its conditions folded as `key` says (one digit per
+ * condition), and the parameters it still reads: once per key and node.
+ */
+function foldedLayer(
+  node: Extract<PreparedPredicate, { kind: "layer" }>,
+  key: string
+): Folded {
+  const predicate =
+    node.conditions.length === 0
+      ? node.predicate
+      : foldConditions(
+          node.predicate,
+          (condition) => key[node.conditions.indexOf(condition)] === "1"
+        );
+  const parameters = new Map<Parameter, boolean>();
+  callReads(predicate, parameters, new Set());
+  const folded = { predicate, parameters: [...parameters] };
+  node.folded.set(key, folded);
+  return folded;
+}
 /** `predicate` as `model`'s domain predicate of `layer`. */
 function layerOf(
   layer: number,
@@ -1618,7 +1712,7 @@ export class Queries {
    * one, a relation read takes every other layer at its default (R5). On this
    * `Queries`, so the statement keeps its one alias counter.
    */
-  #excluded = NO_LAYERS;
+  #excluded: number[] | undefined;
   /**
    * The produced row a judgement is lowering over ({@link holds}): the alias
    * it is read under, and per field whether the value the write sets is
@@ -1632,6 +1726,11 @@ export class Queries {
    * gated columns are already NULL where their rows do not carry them.
    */
   #masked = false;
+  /**
+   * The relation filter bodies of the statement lowering here, where the
+   * adapter shares them ({@link sharingBodies}).
+   */
+  #shared: SharedBodies | undefined;
   constructor(
     schema: EngineSchema,
     adapter: DatabaseAdapter,
@@ -1645,6 +1744,46 @@ export class Queries {
     this.#result = result;
     this.domain = domain;
     this.#call = call;
+  }
+  /**
+   * `build`'s statement, where the adapter shares relation bodies
+   * (`capabilities.sharesRelationBodies`): each body the statement lowers
+   * more than once is stated once, in a `WITH` before it, as the key set
+   * every arm repeating it tests ({@link relationExists}); a body lowered once
+   * keeps its place, so a statement that repeats none is unchanged. One scope
+   * per statement: a statement lowered inside another's joins it.
+   */
+  #sharingBodies(build: () => Sql): Sql {
+    if (this.#shared !== undefined) return build();
+    const shared: SharedBodies = { byKey: new Map(), order: [] };
+    this.#shared = shared;
+    let statement: Sql;
+    try {
+      statement = build();
+    } finally {
+      this.#shared = undefined;
+    }
+    const definitions: { name: string; query: Sql }[] = [];
+    for (const body of shared.order) {
+      const repeated = body.slots.length > 1;
+      for (const placed of body.slots)
+        placed.slot.settle(repeated ? placed.use : placed.inline);
+      if (repeated) definitions.push({ name: body.name, query: body.query });
+    }
+    return definitions.length === 0
+      ? statement
+      : sql`${this.adapter.cte.with(definitions)} ${statement}`;
+  }
+  /** `build`'s statement, sharing its bodies where the adapter does. */
+  #sharing(build: () => Sql | undefined): Sql | undefined {
+    if (this.adapter.capabilities.sharesRelationBodies !== true) return build();
+    let built = true;
+    const statement = this.#sharingBodies(() => {
+      const made = build();
+      built = made !== undefined;
+      return made ?? sql.empty;
+    });
+    return built ? statement : undefined;
   }
   /** This view's `Queries` reading under `domain`, for `call`'s values. */
   under(domain: PreparedDomain, call?: CallScope): Queries {
@@ -1662,7 +1801,7 @@ export class Queries {
     judgement?: RowJudgement
   ): PreparedSelector | undefined {
     const excluded = this.#excluded;
-    return excluded.length === 0
+    return excluded === undefined || excluded.length === 0
       ? this.domain?.selector(model, purpose, NO_LAYERS, judgement)
       : this.domain?.defaults.selector(model, purpose, excluded);
   }
@@ -1679,11 +1818,21 @@ export class Queries {
     const scope = this.#scope(model, purpose, judgement);
     return scope && !this.#drops(scope.predicate) ? scope : undefined;
   }
+  /** Whether a layer's predicates are lowering here. */
+  get #lowersLayer(): boolean {
+    return (this.#excluded?.length ?? 0) > 0;
+  }
   get #values(): CallValues | undefined {
     return this.#call?.rows.values;
   }
-  /** The call's one instant: a domain that reads it lowers for its call. */
-  readonly #instant = (): Date => this.#call!.instant();
+  #instantOf: (() => Date) | undefined;
+  /**
+   * The call's one instant: a domain that reads it lowers for its call. Made
+   * when first read, so a `Queries` whose domain reads no value makes none.
+   */
+  get #instant(): () => Date {
+    return (this.#instantOf ??= () => this.#call!.instant());
+  }
   /**
    * A layer's predicate for this call: its conditions folded, then R6 for
    * the values it still reads; `undefined` where it drops.
@@ -1692,25 +1841,17 @@ export class Queries {
     node: Extract<PreparedPredicate, { kind: "layer" }>
   ): PreparedPredicate | undefined {
     const values = this.#values;
+    const { conditions } = node;
     let key = "";
-    for (const condition of node.conditions)
-      key += condition.holds(values, this.#instant) ? "1" : "0";
-    let folded = node.folded.get(key);
-    if (folded === undefined) {
-      const predicate =
-        node.conditions.length === 0
-          ? node.predicate
-          : foldConditions(
-              node.predicate,
-              (condition) => key[node.conditions.indexOf(condition)] === "1"
-            );
-      const parameters = new Map<Parameter, boolean>();
-      callReads(predicate, parameters, new Set());
-      folded = { predicate, parameters: [...parameters] };
-      node.folded.set(key, folded);
-    }
+    // biome-ignore lint/style/useForOf: no iterator on a per-statement path (E5.1, measured).
+    for (let index = 0; index < conditions.length; index++)
+      key += conditions[index]!.holds(values, this.#instant) ? "1" : "0";
+    const folded = node.folded.get(key) ?? foldedLayer(node, key);
     let dropped = false;
-    for (const [parameter, spread] of folded.parameters) {
+    const { parameters } = folded;
+    // biome-ignore lint/style/useForOf: no iterator on a per-statement path (E5.1, measured).
+    for (let index = 0; index < parameters.length; index++) {
+      const [parameter, spread] = parameters[index]!;
       const value = parameter.read(values, this.#instant);
       if (value !== undefined && (!spread || Array.isArray(value))) continue;
       if (values?.required(parameter.control!, node.model))
@@ -2806,15 +2947,17 @@ export class Queries {
       const [state] = states;
       if (states.size === 1 && state !== undefined) nulls.set(field, state);
     }
-    const guard = this.#holds(model, judged, alias, nulls);
-    if (guard === undefined) return undefined;
-    return assembleAdapterSelect(a, {
-      columns: sql.join(
-        columns.map((field) => this.column(model, field, alias)),
-        ", "
-      ),
-      from,
-      where: sql`${guard} = 1`,
+    return this.#sharing(() => {
+      const guard = this.#holds(model, judged, alias, nulls);
+      if (guard === undefined) return undefined;
+      return assembleAdapterSelect(a, {
+        columns: sql.join(
+          columns.map((field) => this.column(model, field, alias)),
+          ", "
+        ),
+        from,
+        where: sql`${guard} = 1`,
+      });
     });
   }
   /**
@@ -2887,20 +3030,24 @@ export class Queries {
       if (whole && !(whole.value instanceof Sql))
         nulls.set(field, whole.value === null);
     }
-    const guard = this.#holds(model, judged, produced, nulls, from, acyclic);
-    if (guard === undefined) return undefined;
-    const keys = this.keyOrder(model).map(current);
-    const set = assembleAdapterSelect(a, {
-      columns: sql.join(keys, ", "),
-      from: this.table(model, row),
-      where: candidates(row),
-      groupBy: sql.join(keys, ", "),
-      having: sql`${a.aggregates.min(guard)} = 1`,
-      ...(limit !== undefined && {
-        orderBy: this.#ascendingKeys(model, row),
-        limit: this.value(limit),
-      }),
-    });
+    const judgedSet = (): Sql | undefined => {
+      const guard = this.#holds(model, judged, produced, nulls, from, acyclic);
+      if (guard === undefined) return undefined;
+      const keys = this.keyOrder(model).map(current);
+      return assembleAdapterSelect(a, {
+        columns: sql.join(keys, ", "),
+        from: this.table(model, row),
+        where: candidates(row),
+        groupBy: sql.join(keys, ", "),
+        having: sql`${a.aggregates.min(guard)} = 1`,
+        ...(limit !== undefined && {
+          orderBy: this.#ascendingKeys(model, row),
+          limit: this.value(limit),
+        }),
+      });
+    };
+    const set = this.#sharing(judgedSet);
+    if (set === undefined) return undefined;
     const table = model["~"].names.sql!;
     return a.operators.in(
       rowValue(
@@ -2954,21 +3101,30 @@ export class Queries {
       const known = this.#known;
       if (known !== undefined && alias === known.alias)
         resolved = foldKnownNulls(resolved, known.nulls);
-      const outer = this.#excluded;
-      this.#excluded = [...outer, predicate.layer];
+      // A stack, made at the first layer this `Queries` lowers: what reads
+      // it reads it while it lowers (the selectors' memo keys its content).
+      const excluded = (this.#excluded ??= []);
+      excluded.push(predicate.layer);
       try {
         return this.#lowerPredicate(resolved, alias);
       } finally {
-        this.#excluded = outer;
+        excluded.pop();
       }
     }
     if (predicate.kind !== "and") return this.#lowerPredicate(predicate, alias);
+    // No closure here: this runs at every filter node of every statement.
+    const { predicates } = predicate;
+    if (predicates.length === 1) {
+      const only = this.#lowerStated(predicates[0]!, alias);
+      return only && this.adapter.operators.and(only);
+    }
     const members: Sql[] = [];
-    for (const member of predicate.predicates) {
-      const lowered = this.#lowerStated(member, alias);
+    // biome-ignore lint/style/useForOf: no iterator at every filter node (E5.1, measured).
+    for (let index = 0; index < predicates.length; index++) {
+      const lowered = this.#lowerStated(predicates[index]!, alias);
       if (lowered !== undefined) members.push(lowered);
     }
-    return members.length === 0 && predicate.predicates.length > 0
+    return members.length === 0 && predicates.length > 0
       ? undefined
       : this.adapter.operators.and(...members);
   }
@@ -3896,13 +4052,17 @@ export class Queries {
    * present (a spread one a list).
    */
   #bound(predicate: OperationPredicate): BoundOperation {
-    const { operand, operands, value, ...rest } = predicate;
     if (
-      operand?.kind !== "parameter" &&
-      !(value instanceof Parameter) &&
-      !operands?.some((member) => member.kind === "parameter")
+      predicate.operand?.kind !== "parameter" &&
+      !(predicate.value instanceof Parameter) &&
+      !predicate.operands?.some(isParameterOperand)
     )
       return predicate as BoundOperation;
+    return this.#boundParameters(predicate);
+  }
+  /** {@link bound}'s operation, which reads at least one parameter. */
+  #boundParameters(predicate: OperationPredicate): BoundOperation {
+    const { operand, operands, value, ...rest } = predicate;
     const read = (parameter: Parameter) =>
       parameter.read(this.#values, this.#instant);
     const bound = (member: PreparedOperand): BoundOperand[] => {
@@ -3936,7 +4096,7 @@ export class Queries {
    * itself: they lower inside the layer.
    */
   #guarded(model: AnyModel, field: string, column: Sql, alias?: string): Sql {
-    if (this.#excluded.length > 0 || this.#masked) return column;
+    if (this.#lowersLayer || this.#masked) return column;
     const gate = this.domain?.projected(model)?.gates.get(field);
     // Every row a caller's operand is read on is one the domain takes, so
     // `read` holds there: the gate's own predicate decides.
@@ -3955,7 +4115,7 @@ export class Queries {
   /** Whether a caller's operand over `model`'s `field` may read NULL (K5). */
   #gatedHere(model: AnyModel, field: string): boolean {
     return (
-      this.#excluded.length === 0 &&
+      !this.#lowersLayer &&
       this.domain?.projected(model)?.gates.has(field) === true
     );
   }
@@ -3966,8 +4126,7 @@ export class Queries {
    */
   #masks(model: AnyModel): boolean {
     return (
-      this.#excluded.length === 0 &&
-      !this.#masked &&
+      !(this.#lowersLayer || this.#masked) &&
       (this.domain?.projected(model)?.gates.size ?? 0) > 0
     );
   }
@@ -4526,17 +4685,12 @@ export class Queries {
         a.operators.and(...stated)
       )}`;
     } else
-      query = a.subqueries.existsCheck(
-        this.table(edge.target, childAlias),
-        a.operators.and(
-          this.correlation(
-            edge,
-            parentAlias ?? "",
-            childAlias,
-            predicate.unscoped === undefined
-          ),
-          ...stated
-        )
+      query = this.#relationExists(
+        edge,
+        parentAlias ?? "",
+        childAlias,
+        predicate.unscoped === undefined,
+        stated
       );
     switch (predicate.quantifier) {
       case "some":
@@ -4558,6 +4712,80 @@ export class Queries {
           ? a.filters.isNot(query)
           : a.filters.is(query);
     }
+  }
+  /**
+   * `EXISTS (SELECT 1 FROM target WHERE correlation AND stated)`: inside a
+   * statement sharing its bodies ({@link sharingBodies}), a slot the
+   * statement settles to that where the body is lowered once, and else to a
+   * test of the body's key set, `EXISTS (SELECT 1 FROM <set> WHERE set.k =
+   * parent.fk)`: a semijoin on the correlated columns, read under the same
+   * layers and values, so it takes exactly the rows the EXISTS takes. A
+   * reference edge only (a junction's and a variant's membership stay
+   * where they are), and a body that states something.
+   */
+  #relationExists(
+    edge: Membership,
+    parent: string,
+    child: string,
+    scoped: boolean,
+    stated: readonly Sql[]
+  ): Sql {
+    const a = this.adapter;
+    const member = this.#membershipWhere(edge, child, parent);
+    // `correlation`'s two parts, lowered in its order.
+    const domain = scoped ? this.domainOf(edge.target, "related") : undefined;
+    const related = domain && this.lowerSelector(domain, child)!;
+    const inline = a.subqueries.existsCheck(
+      this.table(edge.target, child),
+      a.operators.and(
+        related ? a.operators.and(member, related) : member,
+        ...stated
+      )
+    );
+    const shared = this.#shared;
+    const conditions = related ? [related, ...stated] : stated;
+    if (
+      shared === undefined ||
+      edge.kind !== "reference" ||
+      edge.discriminator !== undefined ||
+      conditions.length === 0
+    )
+      return inline;
+    const query = assembleAdapterSelect(a, {
+      columns: sql.join(
+        edge.pairs.map((pair, index) =>
+          a.identifiers.aliased(
+            this.column(edge.target, pair.target, child),
+            `k${index}`
+          )
+        ),
+        ", "
+      ),
+      from: this.table(edge.target, child),
+      where: a.operators.and(...conditions),
+    });
+    const key = sharedKey(query);
+    let body = shared.byKey.get(key);
+    if (body === undefined) {
+      body = { name: `__shared_${shared.order.length}`, query, slots: [] };
+      shared.byKey.set(key, body);
+      shared.order.push(body);
+    }
+    const { name } = body;
+    const use = a.subqueries.existsCheck(
+      a.identifiers.escape(name),
+      a.operators.and(
+        ...edge.pairs.map((pair, index) =>
+          a.operators.eq(
+            this.column(edge.source, pair.source, parent),
+            a.identifiers.column(name, `k${index}`)
+          )
+        )
+      )
+    );
+    const slot = new SqlSlot(use);
+    body.slots.push({ slot, inline, use });
+    return slot;
   }
   /**
    * MySQL ERROR 1093: a subquery may not read the table its own statement is
@@ -5211,38 +5439,15 @@ export class Queries {
       sql: assembleAdapterSelect(this.adapter, {
         columns: sql.join(projection, ", "),
         from: this.table(model, alias),
-        where:
-          membership ||
-          filter ||
-          unless ||
-          page.cursor ||
-          controls.identity ||
-          controls.condition
-            ? this.adapter.operators.and(
-                ...(membership
-                  ? [
-                      membership.outside
-                        ? this.outsideWhere(
-                            membership.edge,
-                            membership.parent,
-                            alias
-                          )
-                        : this.memberWhere(
-                            membership.edge,
-                            membership.parent,
-                            alias
-                          ),
-                    ]
-                  : []),
-                ...(filter ? [filter] : []),
-                ...(unless ? [unless] : []),
-                ...(page.cursor ? [page.cursor] : []),
-                ...(controls.identity
-                  ? [this.lowerIdentity(model, controls.identity, alias)]
-                  : []),
-                ...(controls.condition ? [controls.condition] : [])
-              )
-            : undefined,
+        where: this.#selectWhere(
+          model,
+          alias,
+          membership,
+          filter,
+          unless,
+          page.cursor,
+          controls
+        ),
         orderBy: page.orderBy,
         limit: page.limit,
         offset: page.offset,
@@ -5258,11 +5463,51 @@ export class Queries {
       shape: prepared.shape,
     };
   }
+  /** {@link select}'s conjunction, in its order; `undefined` for none. */
+  #selectWhere(
+    model: AnyModel,
+    alias: string,
+    membership:
+      | { edge: Membership; parent: Input; outside?: boolean }
+      | undefined,
+    filter: Sql | undefined,
+    unless: Sql | undefined,
+    cursor: Sql | undefined,
+    controls: { condition?: Sql; identity?: Input }
+  ): Sql | undefined {
+    const where: Sql[] = [];
+    if (membership)
+      where.push(
+        membership.outside
+          ? this.outsideWhere(membership.edge, membership.parent, alias)
+          : this.memberWhere(membership.edge, membership.parent, alias)
+      );
+    if (filter) where.push(filter);
+    if (unless) where.push(unless);
+    if (cursor) where.push(cursor);
+    if (controls.identity)
+      where.push(this.lowerIdentity(model, controls.identity, alias));
+    if (controls.condition) where.push(controls.condition);
+    return where.length === 0
+      ? undefined
+      : this.adapter.operators.and(...where);
+  }
   /**
    * Every read verb is one cardinality and shape decision over the same
-   * select, projection and decoder owners.
+   * select, projection and decoder owners, its statement sharing its
+   * relation bodies where the adapter does ({@link sharingBodies}).
    */
   read(model: AnyModel, operation: ReadOperation, args: Arguments): Read {
+    if (this.adapter.capabilities.sharesRelationBodies !== true)
+      return this.#read(model, operation, args);
+    let read: Read | undefined;
+    const statement = this.#sharingBodies(() => {
+      read = this.#read(model, operation, args);
+      return read.query.sql;
+    });
+    return { ...read!, query: { ...read!.query, sql: statement } };
+  }
+  #read(model: AnyModel, operation: ReadOperation, args: Arguments): Read {
     switch (operation) {
       case "findUnique": {
         // The one read verb whose `where` is a unique selector: its addressable
@@ -5837,8 +6082,9 @@ export class Queries {
       projected && args.select !== undefined
         ? namedGatedFields.get(args.select)
         : undefined;
-    const gated: Record<string, GatedMember> = {};
-    const gates = new Map<FieldGate, string>();
+    // Made only where the domain gates a field of `model` (K5).
+    const gated: Record<string, GatedMember> | undefined = projected && {};
+    const gates = projected && new Map<FieldGate, string>();
     // `omit` is desugared into `select` at admission; an explicit selection and
     // an include can therefore both be present and both belong to the result.
     let selected = args.select ?? defaultSelection(model);
@@ -5881,13 +6127,13 @@ export class Queries {
         fields[name] = this.scalarShape(model, name);
         const gate = projected?.gates.get(name);
         if (gate === undefined) continue;
-        let member = gates.get(gate);
+        let member = gates!.get(gate);
         if (member === undefined) {
-          member = gateResultKey(gates.size);
-          gates.set(gate, member);
+          member = gateResultKey(gates!.size);
+          gates!.set(gate, member);
           prepared.push(freeze({ kind: "gate", name: member, gate }));
         }
-        gated[name] = named?.has(name)
+        gated![name] = named?.has(name)
           ? freeze({ gate: member, refused: `${path}select.${name}` })
           : freeze({ gate: member });
         continue;
@@ -5925,14 +6171,16 @@ export class Queries {
     const projection: PreparedProjection = freeze({
       model,
       fields: freeze(prepared),
-      shape: freeze({
-        kind: "object",
-        fields: freeze(fields),
-        ...(gates.size > 0 && {
-          gated: freeze(gated),
-          gates: freeze([...gates.values()]),
-        }),
-      }),
+      shape: freeze(
+        gates?.size
+          ? {
+              kind: "object",
+              fields: freeze(fields),
+              gated: freeze(gated!),
+              gates: freeze([...gates.values()]),
+            }
+          : { kind: "object", fields: freeze(fields) }
+      ),
     });
     if (shared) defaults.set(model, projection);
     return projection;
@@ -6649,19 +6897,16 @@ export class Queries {
         : {}),
     });
     const pageAlias = this.alias();
-    const object = a.json.object([
-      ...childFields.map((field): [string, Sql] => [
-        field,
-        this.#carriedValue(
-          projection.shape.fields[field]!,
-          a.identifiers.column(pageAlias, field)
-        ),
-      ]),
-      ...(projection.shape.gates ?? []).map((gate): [string, Sql] => [
-        gate,
-        a.identifiers.column(pageAlias, gate),
-      ]),
+    const members = childFields.map((field): [string, Sql] => [
+      field,
+      this.#carriedValue(
+        projection.shape.fields[field]!,
+        a.identifiers.column(pageAlias, field)
+      ),
     ]);
+    for (const gate of projection.shape.gates ?? NO_GATES)
+      members.push([gate, a.identifiers.column(pageAlias, gate)]);
+    const object = a.json.object(members);
     const expression = a.subqueries.scalar(
       assembleAdapterSelect(a, {
         columns: edge.many

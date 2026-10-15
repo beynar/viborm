@@ -153,7 +153,11 @@ statement's own earlier rows. The values a write sets fold into its
 judgement where they are null tests of the produced row's own columns
 (`foldKnownNulls`): an arm on a key the write leaves null never reaches the
 statement. An acyclic relation is a physical walk under no domain
-(`#outsideOwnSubtree`). A refused write raises `NestedWriteAssertionError`,
+(`#outsideOwnSubtree`). A refused write raises its adapter's refusal sentinel
+(`__viborm_refused__` under the `__viborm_judged__` alias, never a premise's
+division by zero or invalid JSON), which the driver maps to
+`NestedWriteAssertionError`, so a caller's own division by zero or invalid
+JSON in the same statement stays the provider's failure (E5.6); it is
 reported as the write's refusal (`ForbiddenError` at the root,
 `NestedWriteError` nested) on the plain transport (`#judging`) and, in a
 batch, by its position or, where the transport reports none, by the sole
@@ -166,6 +170,27 @@ computes (a list append, an exact decimal's multiply or divide) has no
 value to judge: it is refused before any statement where the judgement
 reads it, and stands where nothing does; a row of defaults only is refused
 on a model with a `place`.
+
+*Shared relation bodies (E5.2).* Where the adapter declares
+`capabilities.sharesRelationBodies` (a driver's fact for a provider bounding
+one statement's text or the relations it references: D1's 100 KB, Neki's
+256 relations), a statement states each relation filter body it lowers more
+than once ONCE, in a `WITH` before it (`#sharingBodies`, one scope per
+statement: a read's `read()`, `producedWhere`'s judged set, `producedSource`).
+`#relationExists` lowers a reference edge's filter as today's `EXISTS` and,
+inside a scope, as an open `SqlSlot` keyed by the body's text with its
+aliases renumbered and its values (`sharedKey`): the body is the key set
+`SELECT target.k… FROM target WHERE related AND stated`, under the layers and
+values the place lowers with, and every repeat tests it, `EXISTS (SELECT 1 FROM
+set WHERE set.k = parent.fk)`, a semijoin on the correlated columns. When the
+statement is whole, a body placed once settles to its `EXISTS` (so a statement
+repeating none is byte-identical) and a repeated one to its test; a nested
+repeated body is defined before the body holding it. A junction or variant
+membership and a recursive walk keep their place (a walk inside a shared body
+is shared with it). Measured on §1.1's heaviest write (D1 form): 261 KB, 1,675
+binds, SQLite depth 144 before; 44.6 KB, 190 binds, depth 80 with the shared
+bodies and D1's balanced conjunctions; PostgreSQL 340 ms (JIT off) and 7.9 s
+(JIT on) before, 10 ms and 0.4 s after, the same answers.
 
 *Evidence and read-gated fields (rbac plan K5).* A layer's `ModelVerbs` may
 carry `evidence` (a projection key and the predicates it reports) and `reads`

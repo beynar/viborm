@@ -62,10 +62,12 @@ describe("the acceptance policy (§1.1)", () => {
     expect(Object.keys(compiled.models)).toEqual(Object.keys(schema));
     for (const unlisted of ["session", "apiKey", "rolePermission"])
       expect(compiled.models[unlisted]).toEqual({
-        predicates: {},
+        predicates: { create: NOWHERE },
         writes: {},
         reads: {},
         modes: {},
+        place: "create",
+        moves: {},
       });
   });
 
@@ -169,7 +171,11 @@ describe("R1: P(M, a) = within(a) ∧ limit(a) ∧ (⋁ rule(b ⊒ a) ∨ ⋁ ar
         },
       },
     }).models.document!;
-    expect(Object.keys(predicates)).toEqual(["view", "comment", "edit"]);
+    expect(
+      Object.keys(predicates).filter(
+        (name) => name !== "create" && !name.startsWith("move:")
+      )
+    ).toEqual(["view", "comment", "edit"]);
     expect(predicates.view).toEqual({ title: "e" });
   });
 
@@ -413,7 +419,7 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
     expect(collection.predicates.mine).toEqual({ ownerId: me });
   });
 
-  test("placement is within, the limit and create at the create action", () => {
+  test("placement is within, the limit and create at the create action, and every key's target visible (R4)", () => {
     const { models } = compile({
       levels: LEVELS,
       limit: (action) => ({ icon: action }),
@@ -424,12 +430,177 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
           create: { ownerId: { actor: "userId" } },
           operations: { create: "full" },
         },
+        organization: { view: {} },
+        user: { view: {} },
       },
     });
     expect(models.page!.place).toBe("create");
+    // A required key reads its target visible; a nullable one may be null; a
+    // key to a model the policy does not list (pageGroup) only null (R9).
     expect(models.page!.predicates.create).toEqual({
-      AND: [{ color: "full" }, { icon: "full" }, { ownerId: me }],
+      AND: [
+        { color: "full" },
+        { icon: "full" },
+        { ownerId: me },
+        { organization: { is: { icon: "view" } } },
+        { OR: [{ ownerId: null }, { owner: { is: { icon: "view" } } }] },
+        { groupId: null },
+      ],
     });
+    // A model that declares no create:, and one the policy does not list,
+    // place nothing.
+    expect(models.organization!.predicates.create).toEqual(NOWHERE);
+    expect(models.pageGroup!.predicates.create).toEqual(NOWHERE);
+    expect(models.pageGroup!.place).toBe("create");
+  });
+
+  test("moves: an update writing what the placement reads is placed again, a written key's target visible; what judged the old row is not restated (OD-14, D9)", () => {
+    const { models } = compile({
+      levels: LEVELS,
+      models: {
+        page: {
+          view: {},
+          edit: { title: "e" },
+          create: { groupId: null, ownerId: { actor: "userId" } },
+        },
+        organization: { view: {} },
+        user: { view: {} },
+      },
+    });
+    const { moves, predicates } = models.page!;
+    expect(moves).toEqual({
+      groupId: "move:groupId",
+      ownerId: "move:ownerId",
+      organizationId: "move:organizationId",
+    });
+    const created = [{ groupId: null }, { ownerId: me }];
+    // The key's own `groupId: null` is the placement's: said once.
+    expect(predicates["move:groupId"]).toEqual({ AND: created });
+    expect(predicates["move:ownerId"]).toEqual({
+      AND: [...created, { OR: [{ ownerId: null }, { owner: { is: {} } }] }],
+    });
+    // Not read by the placement: only its target, visible.
+    expect(predicates["move:organizationId"]).toEqual({
+      organization: { is: {} },
+    });
+    // What the read and update verbs judge on the new row is dropped.
+    const judged = compile({
+      levels: LEVELS,
+      models: {
+        page: {
+          view: { personal: false },
+          edit: { title: "e" },
+          create: { personal: false, title: "e" },
+        },
+        organization: { view: {} },
+        user: { view: {} },
+        pageGroup: { view: {} },
+      },
+    }).models.page!.predicates;
+    // `view` reads every rule above it (R1): only `edit`'s title is implied.
+    expect(judged["move:personal"]).toEqual({ personal: false });
+    expect(judged.create).toEqual({
+      AND: [
+        { personal: false },
+        { title: "e" },
+        { organization: { is: {} } },
+        { OR: [{ ownerId: null }, { owner: { is: {} } }] },
+        { OR: [{ groupId: null }, { group: { is: {} } }] },
+      ],
+    });
+  });
+
+  test("a placement drops a conjunct only where another provably implies it, with the actor values it reads", () => {
+    const { models } = compile({
+      levels: LEVELS,
+      models: {
+        page: {
+          view: {},
+          create: {
+            AND: [
+              { group: { label: "x" } },
+              { group: { label: "x" } },
+              { NOT: { title: { in: ["a", "b"] } } },
+              { NOT: { title: { in: ["a"] } } },
+              { title: { in: ["c"] } },
+              { title: { in: ["c", "d"] } },
+              { grants: { some: {} } },
+              { color: { actor: "userId" } },
+              { OR: [{ color: { actor: "userId" } }, { icon: "i" }] },
+              { OR: [{ icon: "i" }, { position: 1 }] },
+            ],
+          },
+        },
+        organization: { view: {} },
+        user: { view: {} },
+        pageGroup: { operations: { read: "edit" }, edit: { label: "x" } },
+      },
+    });
+    const { predicates, moves } = models.page!;
+    expect(predicates.create).toEqual({
+      AND: [
+        { group: { label: "x" } },
+        { NOT: { title: { in: ["a", "b"] } } },
+        { title: { in: ["c"] } },
+        { grants: { some: {} } },
+        { color: me },
+        // `color` alone implies it, but it reads no actor value of its own…
+        { OR: [{ icon: "i" }, { position: 1 }] },
+        { organization: { is: {} } },
+        { OR: [{ ownerId: null }, { owner: { is: {} } }] },
+        // …and a group read at `edit` (its read verb) is not one `label: x`
+        // spells as a shorthand: kept.
+        { OR: [{ groupId: null }, { group: { is: { label: "x" } } }] },
+      ],
+    });
+    // A relation the row does not hold joins on the fields its key references.
+    expect(Object.keys(moves)).toContain("id");
+    // A listed model with no action (no levels, no rule) has no projection key.
+    expect(
+      compile({ models: { collection: {} } }).models.collection!.evidence
+    ).toBeUndefined();
+  });
+
+  test("acyclic: the self relations holding a key that a predicate recurses over, wherever it is read (R4)", () => {
+    const { models } = compile({
+      levels: LEVELS,
+      models: {
+        document: { view: up("parent", owner("ownerId")) },
+        accessGrant: { view: { document: "view" } },
+        team: {
+          view: team("parents", { below: "children", memberOf: "members" }),
+        },
+      },
+    });
+    expect(models.document!.acyclic).toEqual(["parent"]);
+    // A many-to-many walk holds no key: no acyclic relation.
+    expect(models.team!.acyclic).toBeUndefined();
+    expect(models.accessGrant!.acyclic).toBeUndefined();
+  });
+
+  test("evidence: the projection key on every listed model with actions, ordered where they are exactly the levels (D6)", () => {
+    const { models } = compile({
+      levels: LEVELS,
+      models: {
+        page: { view: {} },
+        organization: { view: {}, invite: {} },
+        document: { actions: { view: [], share: ["view"] }, view: {} },
+      },
+    });
+    expect(models.page!.evidence).toEqual({
+      as: "$access",
+      names: ["view", "edit", "full"],
+      ordered: true,
+    });
+    expect(models.organization!.evidence).toEqual({
+      as: "$access",
+      names: ["view", "edit", "full", "invite"],
+    });
+    expect(models.document!.evidence).toEqual({
+      as: "$access",
+      names: ["view", "share"],
+    });
+    expect(models.user!.evidence).toBeUndefined();
   });
 
   test("declaration errors are refused, naming where", () => {
@@ -483,7 +654,17 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
         })
       )
     ).toContain(
-      "models.page.domains.edit: an action or placement has that name"
+      'models.page.domains.edit: an action, a domain, the placement or a move already has the name "edit"'
+    );
+    expect(
+      refusalOf(() =>
+        compile({
+          levels: LEVELS,
+          models: { page: { domains: { "move:groupId": {} } } },
+        })
+      )
+    ).toContain(
+      'models.page.domains.move:groupId: an action, a domain, the placement or a move already has the name "move:groupId"'
     );
     expect(
       refusalOf(() =>
@@ -648,48 +829,64 @@ describe("the helpers (D2)", () => {
     });
   });
 
-  test("grant.administer: one thing at least, each attached one administered; placement bounds the contents", () => {
+  test("grant.administer: one thing at least, each attached one administered; placement bounds the contents, without what administering implies", () => {
     const grants = grant.administer(
-      { page: "full" },
+      { page: "edit" },
       { level: "level", actions: "actions" }
     );
     const compiled = compile({
       levels: LEVELS,
       models: {
         accessGrant: { edit: grants.admin, create: grants.place },
-        page: { full: { title: "t" } },
+        page: { edit: { title: "e" }, full: { title: "f" } },
+        organization: { view: {} },
       },
     });
-    const full = compiled.models.page!.predicates.full;
+    const held = (name: string) => compiled.models.page!.predicates[name];
     const { predicates } = compiled.models.accessGrant!;
     const admin = {
       AND: [
         { pageId: { not: null } },
-        { OR: [{ pageId: null }, { page: { is: full } }] },
+        { OR: [{ pageId: null }, { page: { is: held("edit") } }] },
       ],
     };
     expect(predicates.edit).toEqual(admin);
-    const held = (name: string) => compiled.models.page!.predicates[name];
+    // P(page, edit) implies P(page, view) and itself: those bounds, and the
+    // page's own visibility, are what administering already says. `full`
+    // is above `edit`: its bounds stay. Keys to models the policy does not
+    // list are null.
+    expect(held("view")).toEqual(held("edit"));
     expect(predicates.create).toEqual({
       AND: [
         ...admin.AND,
-        ...LEVELS.map((name) => ({
+        {
           OR: [
             { pageId: null },
-            { NOT: { actions: { has: name } } },
-            { page: { is: held(name) } },
+            { NOT: { actions: { has: "full" } } },
+            { page: { is: held("full") } },
           ],
-        })),
-        ...LEVELS.map((name) => ({
+        },
+        {
           OR: [
             { pageId: null },
             { level: null },
-            { level: { not: name } },
-            { page: { is: held(name) } },
+            { level: { not: "full" } },
+            { page: { is: held("full") } },
           ],
-        })),
+        },
+        { organization: { is: {} } },
+        { groupId: null },
+        { documentId: null },
+        { collectionId: null },
+        { userId: null },
+        { granteeTeamId: null },
+        { grantedBy: null },
       ],
     });
+    // A move of the page key: the placement and its target, without what the
+    // update verb (`edit`, the administering conjunction) already judges.
+    const bounds = (predicates.create as { AND: object[] }).AND.slice(2, 4);
+    expect(predicates["move:pageId"]).toEqual({ AND: bounds });
     expect(
       refusalOf(() =>
         compile({

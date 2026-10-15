@@ -306,9 +306,19 @@ export interface SQLiteAdapterOptions {
    * large". Where it does not, each relation filter reads its rows from a
    * derived table, whose `WHERE` neither count reaches through the expression:
    * about four per level, the same plan (SQLite flattens it), one statement.
+   * A conjunction of many members nests as a balanced tree where it does not,
+   * as the engine already nests a disjunction: SQLite parses `a AND b AND …`
+   * one level per member.
    * Defaults to `true`.
    */
   readonly deepExpressions?: boolean;
+  /**
+   * Whether a statement states each relation filter body it repeats once
+   * (`capabilities.sharesRelationBodies`), for a
+   * transport that bounds statement text (Cloudflare D1: 100 KB). Defaults
+   * to `false`.
+   */
+  readonly sharedRelationBodies?: boolean;
 }
 
 /**
@@ -734,8 +744,9 @@ const SQLITE_ASSERTIONS = {
     sql`SELECT CASE WHEN EXISTS (${query}) THEN 1 ELSE json_extract('x', '$') END AS "__viborm_assert__"`,
   notExists: (query: Sql): Sql =>
     sql`SELECT CASE WHEN NOT EXISTS (${query}) THEN 1 ELSE json_extract('x', '$') END AS "__viborm_assert__"`,
+  // The refusal names its sentinel (`bad JSON path: '__viborm_refused__'`).
   holds: (condition: Sql, from?: Sql): Sql =>
-    sql`SELECT CASE WHEN ${condition} THEN 1 ELSE json_extract('x', '$') END AS "__viborm_assert__"${from ? sql` FROM ${from}` : sql``}`,
+    sql`SELECT CASE WHEN ${condition} THEN 1 ELSE json_extract('{}', '__viborm_refused__') END AS "__viborm_judged__"${from ? sql` FROM ${from}` : sql``}`,
 };
 
 const SQLITE_JOINS = {
@@ -843,15 +854,37 @@ const SQLITE_SET_OPERATIONS = createSetOperations();
 
 const SQLITE_RAW = createRawSql();
 
+/**
+ * `and` nesting its members as a balanced tree, about log2(n) levels for n
+ * members, where `and` itself nests one level per member.
+ */
+function balancedConjunction(
+  and: (...conditions: Sql[]) => Sql
+): (...conditions: Sql[]) => Sql {
+  const balanced = (...conditions: Sql[]): Sql => {
+    if (conditions.length <= 2) return and(...conditions);
+    const middle = Math.floor(conditions.length / 2);
+    return and(
+      balanced(...conditions.slice(0, middle)),
+      balanced(...conditions.slice(middle))
+    );
+  };
+  return balanced;
+}
+
 export class SQLiteAdapter implements DatabaseAdapter {
   constructor({
     temporaryObjects = true,
     deepExpressions = true,
+    sharedRelationBodies = false,
   }: SQLiteAdapterOptions = {}) {
     installGeoPointSql(this, this.geoPoint);
-    if (!deepExpressions)
+    if (!deepExpressions) {
       this.subqueries.existsCheck = (from, where) =>
         sql`SELECT 1 FROM (${SQLITE_SUBQUERIES.existsCheck(from, where)})`;
+      this.operators.and = balancedConjunction(SQLITE_OPERATORS.and);
+    }
+    if (sharedRelationBodies) this.capabilities.sharesRelationBodies = true;
     // Only batches read the reference-table SQL, so it is built on first use.
     let batchRefs: BatchReferenceSqlAdapter | undefined;
     const createBatchRefs = () => this.#createBatchRefs(temporaryObjects);
@@ -935,7 +968,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
   setOperations = { ...SQLITE_SET_OPERATIONS };
 
-  capabilities = { ...SQLITE_CAPABILITIES };
+  capabilities: DatabaseAdapter["capabilities"] = { ...SQLITE_CAPABILITIES };
 
   lastInsertId = (): Sql => sql.raw("last_insert_rowid()");
 

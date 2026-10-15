@@ -178,19 +178,17 @@ class PreparedCommand implements PreparedOperation {
   #admit(): Arguments {
     const stamps = this.#scope?.rows.stamps;
     const domain = this.#scope?.domain;
-    const parse = (raw: unknown) =>
-      this.#schema.admit(this.#model, this.#operation, raw);
-    const admit = () =>
-      domain?.projects
-        ? admitProjected(
+    const admit = domain?.projects
+      ? () =>
+          admitProjected(
             domain,
             this.#schema,
             this.#model,
             this.#operation,
             this.#rawArgs,
-            parse
+            (raw) => this.#schema.admit(this.#model, this.#operation, raw)
           )
-        : parse(this.#rawArgs);
+      : () => this.#schema.admit(this.#model, this.#operation, this.#rawArgs);
     return stamps === undefined ? admit() : parseStamped(stamps, admit);
   }
 

@@ -1,18 +1,18 @@
 {
   "headroom": 0.1,
-  "reason": "U5b: the program applies the policy to a client (rbac(config)(base), $as, can, assert). Inferring C and X from a VibORMClient<C, X> parameter, as every official entry does, measured 449,757 instantiations on TS 5.9.3 alone (450,166 for softDelete(...).rows(base)); rbac's own steps add the rest (466,097). Compile-only was 50,502 / 50,525 / 72,540.",
+  "reason": "U9: the program applies the policy to a client and reads it: $as (a key actor too), can and assert with one action and a list, $access at two depths (a document per action, a page by its highest level), a read-gated field absent by default and present when selected, a named domain, and four @ts-expect-error that bite. Measured on the same tarball: the U5b/T program alone on U9's types is 504,178 / 627,697 / 996,306 (+34,930 / +34,930 / +35,011 over T's 469,248 / 592,767 / 961,295: the rows step is now typed as `$extends` types it, ExtendedClient, so K5's projected overloads and the gated default omit reach the editor); the reads U9 adds take the rest (+123,011 / +125,068 / +118,462). Earlier: U5b 466,097 (inferring C and X from a VibORMClient<C, X> parameter, 449,757 alone); compile-only 50,502 / 50,525 / 72,540.",
   "checkers": {
     "tsc5": {
       "typescript": "5.9.3",
-      "instantiations": 466097
+      "instantiations": 627189
     },
     "tsc6": {
       "typescript": "6.0.3",
-      "instantiations": 589616
+      "instantiations": 752765
     },
     "tsc7": {
       "typescript": "7.0.2",
-      "instantiations": 958137
+      "instantiations": 1114768
     }
   }
 }

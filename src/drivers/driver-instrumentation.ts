@@ -378,9 +378,12 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
   /**
    * Whether the transport binds `?NNN` by position (PostgreSQL's `$n`
    * always is), so a statement over the bind budget may bind each equal
-   * value once. A transport that reads `?NNN` as a name says no.
+   * value once. A transport that reads `?NNN` as a name says no. A fact of
+   * the class, so a driver instance carries no slot for it.
    */
-  protected readonly numbersPlaceholders: boolean = true;
+  protected get numbersPlaceholders(): boolean {
+    return true;
+  }
 
   /** Materialize one trusted typed statement and enforce its final bind budget. */
   protected applyTrustedStatementTransforms(

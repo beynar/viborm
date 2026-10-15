@@ -40,7 +40,9 @@ export type ControlPlacement =
  * `data` or `deletion` only; an extension that names no model asks for it on
  * every model. With `bound`, it is accepted only from a binding (the client
  * scope's `$bind`), never from a call's arguments: its placement reads no
- * argument, so a call that passes it is refused as passing an unknown key. A
+ * argument, so a call that passes it is refused as passing an unknown key.
+ * With `uncacheable`, a read that holds a value of it is never served from
+ * the cache: `$withCache` on that read is refused before any statement. A
  * value held in a variable keeps its literal type only with `as const`, as a
  * held enum clause does.
  */
@@ -51,6 +53,7 @@ export type ControlDeclaration = (
   readonly on?: ControlPlacement;
   readonly required?: boolean;
   readonly bound?: boolean;
+  readonly uncacheable?: boolean;
 };
 
 export type ControlsContribution = {
@@ -398,6 +401,8 @@ export interface ResolvedControl {
   readonly fallback?: ControlLiteral;
   /** Accepted only from a binding, never read from the arguments. */
   readonly bound?: true;
+  /** A read holding a value of it is not served from the cache. */
+  readonly uncacheable?: true;
 }
 
 /**
@@ -433,6 +438,7 @@ export function placeControls(
       models: removes ? managed : undefined,
       required: declaration.required === true ? requiredOn : undefined,
       ...(declaration.bound === true && { bound: true }),
+      ...(declaration.uncacheable === true && { uncacheable: true }),
     });
   }
   if (rows !== undefined) {
@@ -827,6 +833,30 @@ function isVibORMFailure(value: unknown): value is VibORMError {
   } catch {
     return false;
   }
+}
+
+/**
+ * The refusal of a cached read that holds a value of an `uncacheable`
+ * control, or `undefined` when it holds none: such a read is an observation
+ * the control's owner does not accept (the cache would serve it after the
+ * facts it was judged on changed).
+ */
+export function uncacheableRead(
+  controls: readonly ResolvedControl[],
+  admitted: AdmittedControls | undefined,
+  model: string,
+  operation: Operation
+): ValidationError | undefined {
+  const held = controls.find(
+    (control) =>
+      control.uncacheable === true && admitted?.[control.name] !== undefined
+  );
+  return (
+    held &&
+    invalidControl(held, model, operation, [
+      "is not cacheable: a read that holds it is not served from the cache",
+    ])
+  );
 }
 
 function invalidControl(

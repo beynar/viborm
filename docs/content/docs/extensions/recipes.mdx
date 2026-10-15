@@ -233,4 +233,5 @@ await db.post.update({ where: { id }, data, expectedVersion: 3 }); // NotFoundEr
 - A filter compares fields, through relations if it says so, with constants
   and the values the call passed: no value is computed from another.
 - None of this is authorization. A filter keeps a call inside the rows it
-  names; deciding what a caller may name is `viborm/rbac`'s, or your server's.
+  names; deciding what a caller may name is
+  [`viborm/rbac`](/docs/extensions/rbac)'s, or your server's.

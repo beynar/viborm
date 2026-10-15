@@ -234,6 +234,13 @@ export interface PgDriverOptions {
   /** The PostgreSQL schema this driver's persistent objects live in. Defaults to `public`. */
   namespace?: string;
   /**
+   * Declare it for a server that bounds the relations one statement
+   * references (PlanetScale's Neki: 256): each relation filter body a
+   * statement repeats is stated once, in a `WITH`, as the key set its arms
+   * test. Defaults to `false`.
+   */
+  sharedRelationBodies?: boolean;
+  /**
    * Your claim, at your risk, that every connection this pool opens is one
    * server session for its whole life. It lifts migrations' refusal of
    * Cloudflare Hyperdrive and Neon `-pooler` hosts; application queries never
@@ -251,6 +258,7 @@ const PG_CONFIG_KEYS: Record<keyof PgDriverOptions, true> = {
   postgis: true,
   databaseUrl: true,
   namespace: true,
+  sharedRelationBodies: true,
   migrationSessionAttestation: true,
 };
 

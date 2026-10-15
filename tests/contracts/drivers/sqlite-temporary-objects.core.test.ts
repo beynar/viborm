@@ -3,6 +3,7 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { BunSQLiteDriver } from "@drivers/bun-sqlite";
 import { D1Driver } from "@drivers/d1";
 import { LibSQLDriver } from "@drivers/libsql";
+import { PgDriver } from "@drivers/pg";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { sql } from "@sql";
 import { describe, expect, test } from "vitest";
@@ -51,5 +52,31 @@ describe("SQLite transport expression depth", () => {
     ],
   ])("%s spells a relation filter for the depth its transport compiles", (_name, driver, spelled) => {
     expect(check(driver.adapter)).toBe(spelled);
+  });
+});
+
+describe("Shared relation bodies", () => {
+  // D1 refuses a statement over 100 KB; PlanetScale's Neki one referencing
+  // more than 256 relations. D1 declares the fact; a PostgreSQL server that
+  // bounds relations is declared by its user (live witnesses:
+  // tests/providers/workers/d1-rbac-placement.test.ts W-P10, Neki W-R1).
+  test.each([
+    ["sqlite3", new SQLite3Driver(), undefined],
+    ["libsql", new LibSQLDriver(), undefined],
+    ["bun-sqlite", new BunSQLiteDriver(), undefined],
+    ["d1", new D1Driver({ database: Object.create(null) }), true],
+    ["pg", new PgDriver({ databaseUrl: "postgres://h/d" }), false],
+    [
+      "pg, declared",
+      new PgDriver({
+        databaseUrl: "postgres://h/d",
+        sharedRelationBodies: true,
+      }),
+      true,
+    ],
+  ])("%s shares the relation bodies a statement repeats where its transport bounds the statement", (_name, driver, shared) => {
+    expect(driver.adapter.capabilities.sharesRelationBodies ?? false).toBe(
+      shared ?? false
+    );
   });
 });

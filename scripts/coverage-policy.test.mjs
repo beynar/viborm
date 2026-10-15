@@ -211,6 +211,36 @@ test("every TypeScript source has exactly one coverage owner", () => {
   );
 });
 
+test("the extensions lane owns every file of the official rbac and soft-delete entries, present and future", () => {
+  const extensions = coverageSubsystems.find(({ id }) => id === "extensions");
+  const official = sourceFiles().filter(
+    (source) =>
+      source.startsWith("src/rbac/") || source.startsWith("src/soft-delete/")
+  );
+  assert.ok(official.length > 1);
+  for (const source of official)
+    assert.ok(extensions.sources.includes(source), `${source} is not measured`);
+  // A file either entry gains has its one owner, at 100%, from its first line.
+  assert.deepEqual(
+    auditCoverageOwnership([
+      ...sourceFiles(),
+      "src/rbac/added.ts",
+      "src/soft-delete/added.ts",
+    ]),
+    []
+  );
+  // The tests that hold `src/rbac` at 100% are admitted, each once.
+  assert.equal(new Set(extensions.tests).size, extensions.tests.length);
+  for (const file of [
+    "tests/unit/rbac/compile.core.test.ts",
+    "tests/providers/local/sqlite3-rbac-compiled-policy.test.ts",
+    "tests/providers/local/sqlite3-rbac-entry.test.ts",
+  ]) {
+    assert.ok(extensions.tests.includes(file), `${file} is not admitted`);
+    assert.ok(existsSync(file), `${file} does not exist`);
+  }
+});
+
 test("subsystem configs derive includes and thresholds from the manifest", () => {
   for (const subsystem of coverageSubsystems) {
     const options = coverageOptionsForSubsystem(subsystem.id);
@@ -560,6 +590,8 @@ test("write coverage admits the core and audited high-signal local contracts", (
     "coverage-write-engine-core",
     "coverage-write-engine",
     "coverage-raptor3",
+    "coverage-raptor3-rest",
+    "coverage-query-engine-extensions",
   ]);
 });
 

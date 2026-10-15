@@ -309,6 +309,8 @@ predicate per (model, action) against `base`'s schema and applies a rows step
 generic `query` handler refusing a root call false when applied; and `$as`,
 which lives with the control it binds) and then a methods step
 (`can`/`assert`). Core names nothing of it.
+`tests/package/rbac-consumer-smoke.mjs` runs §1.1 and the blog from the
+packed package.
 
 `cache()` produces a namespace-free DEFINITION; the client composition root
 binds it to the concrete driver, deriving one scope from the private snapshot

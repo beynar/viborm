@@ -5,10 +5,12 @@ import {
   NestedWriteError,
   NotFoundError,
   QueryEngineError,
+  QueryError,
   UniqueConstraintError,
   UnsupportedOperationError,
 } from "@errors";
 import { s } from "@schema";
+import { sql } from "@sql";
 import { v } from "@src/validation";
 import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -148,6 +150,8 @@ export const policy = {
 };
 
 const WRITES = /^(INSERT|UPDATE)/m;
+/** A statement carrying a judgement or a premise. */
+const GUARDED = /__viborm_judged__|__viborm_assert__/;
 /** An INSERT reading its rows from their typed values, kept where judged. */
 const JUDGED_INSERT = /^INSERT INTO .* SELECT .* UNION ALL SELECT /;
 /** An UPDATE whose candidates are kept, by key, where their new rows hold. */
@@ -805,7 +809,7 @@ export function runProducedRowBehavior(substrate: ProducedRowSubstrate): void {
       expect(update).toHaveLength(1);
       expect(update[0]).toMatch(JUDGED_UPDATE);
       for (const text of [...insert, ...update])
-        expect(text).toContain("__viborm_assert__");
+        expect(text).toContain("__viborm_judged__");
     });
 
     test("a set update that writes nothing its judgement reads states its judgement once: in its candidates", async () => {
@@ -817,8 +821,40 @@ export function runProducedRowBehavior(substrate: ProducedRowSubstrate): void {
         .slice(from)
         .filter((text) => text.startsWith("UPDATE"));
       expect(update).toHaveLength(1);
-      expect(update[0]).not.toContain("__viborm_assert__");
+      expect(update[0]).not.toContain("__viborm_judged__");
       expect(update[0]).not.toMatch(JUDGED_UPDATE);
+    });
+
+    test("a judged write that fails on its own is not refused: only its judgement's sentinel is a refusal (E5.6)", async () => {
+      // A caller's fragment raising the error each dialect's batch premises
+      // fail with (division by zero, invalid JSON), inside a judged move.
+      const dialect = (base as unknown as { $driver: AnyDriver }).$driver
+        .dialect;
+      const raising =
+        dialect === "postgresql"
+          ? sql`1 / (SELECT 0)`
+          : dialect === "mysql"
+            ? sql`JSON_EXTRACT('x', '$')`
+            : sql`json_extract('x', '$')`;
+      const error = await failure(
+        db.item!.updateMany({
+          where: { title: "i1", views: { gte: raising } },
+          data: { folderId: 2 },
+          ...as("ann"),
+        })
+      );
+      expect(error).toBeInstanceOf(QueryError);
+      expect(error).not.toBeInstanceOf(ForbiddenError);
+      // The same move, refused by its judgement, is still a refusal.
+      expect(
+        await failure(
+          db.item!.updateMany({
+            where: { title: "i1" },
+            data: { folderId: 4 },
+            ...as("ann"),
+          })
+        )
+      ).toBeInstanceOf(ForbiddenError);
     });
 
     test("a model with no verbs keeps its statements", async () => {
@@ -828,7 +864,7 @@ export function runProducedRowBehavior(substrate: ProducedRowSubstrate): void {
           ...as("ann"),
         })
       ).toMatchObject({ id: "dan" });
-      expect(statements.join("\n")).not.toContain("__viborm_assert__");
+      expect(statements.join("\n")).not.toMatch(GUARDED);
     });
   });
 }

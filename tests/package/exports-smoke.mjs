@@ -101,7 +101,8 @@ function assertWorkerSafeBuiltGraph(exportNames) {
   }
 }
 
-assertWorkerSafeBuiltGraph([".", "./schema", "./d1"]);
+// `viborm/rbac` governs a Worker's client too: its graph is held to the same rule.
+assertWorkerSafeBuiltGraph([".", "./schema", "./d1", "./rbac"]);
 
 function requireRuntimeFunction(exportName, member) {
   const namespace = runtimeExports.get(exportName);
@@ -293,7 +294,64 @@ requireRuntimeAbsence("./migrations", "MigrationStorageDriver");
 requireRuntimeAbsence("./migrations", "diff");
 requireRuntimeFunction("./cache", "cache");
 requireRuntimeFunction("./instrumentation", "instrumentation");
-requireRuntimeFunction("./rbac", "rbac");
+// `viborm/rbac` publishes `rbac()` and its rule helpers, nothing of its
+// compiler, and none of them through the root entry.
+const RBAC_HELPERS = [
+  "rbac",
+  "everyone",
+  "keyLimit",
+  "member",
+  "notBanned",
+  "owner",
+  "role",
+  "session",
+  "team",
+  "up",
+];
+for (const helper of RBAC_HELPERS) {
+  requireRuntimeFunction("./rbac", helper);
+  requireRuntimeAbsence(".", helper);
+}
+const rbacGrant = runtimeExports.get("./rbac")?.grant;
+if (
+  typeof rbacGrant?.to !== "function" ||
+  typeof rbacGrant?.administer !== "function"
+) {
+  throw new Error("Export ./rbac must provide grant.to and grant.administer");
+}
+requireRuntimeAbsence(".", "grant");
+for (const internal of [
+  "compilePolicy",
+  "verbsOf",
+  "DEFAULT_MODE",
+  "actorPaths",
+  "refuse",
+  "FALSE",
+  "actor",
+]) {
+  requireRuntimeAbsence("./rbac", internal);
+}
+// It raises the library's own errors from the root's shared chunks: a
+// refusal is an instance of the class `viborm` exports, not of a copy.
+let rbacRefusal;
+try {
+  runtimeExports
+    .get("./rbac")
+    .rbac({
+      actor: runtimeExports.get("./validation").v.object({}),
+      models: { missing: {} },
+    })
+    .compile({});
+} catch (error) {
+  rbacRefusal = error;
+}
+if (
+  !(rbacRefusal instanceof runtimeExports.get(".").ClientInitializationError)
+) {
+  throw new Error(
+    `Export ./rbac must raise the root's ClientInitializationError for a policy naming no schema model, got ${rbacRefusal?.constructor?.name ?? "no refusal"}`
+  );
+}
 requireRuntimeFunction("./soft-delete", "softDelete");
 // `viborm/soft-delete` is built from public capabilities only: it reaches the
 // client through the `$extends` of the client it receives, so its runtime

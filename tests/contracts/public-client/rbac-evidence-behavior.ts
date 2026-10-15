@@ -1,5 +1,4 @@
 import { ValidationError } from "@errors";
-import type { RowsVerbs } from "@src/extensions/controls";
 import type { CompiledPolicy } from "@src/rbac";
 import { verbsOf } from "@src/rbac/compile";
 import {
@@ -31,12 +30,14 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 
 /**
  * K5 against the oracle (plan §4.5, §3.3 D5/D6; §7 W-EV1..W-EV4 and
- * W-F1..W-F8): the compiled §1.1 policy as K3 declares it (`verbsOf`), and
- * beside it, per model, what K5 declares: `evidence: { as: "$access", names }`
- * with the model's actions (`ordered` where they are exactly the levels
- * chain) and `reads` as the policy compiled them (`collection.budget` at
- * `full`). A plain extension carries it, its actor an argument; no other
- * layer, so the oracle is read without tombstones.
+ * W-F1..W-F8): the compiled §1.1 policy exactly as `viborm/rbac` hands it
+ * to its `rows.verbs` (`verbsOf`), which declares per listed model
+ * `evidence: { as: "$access", names }` with the model's actions (`ordered`
+ * where they are exactly the levels chain) and `reads` as the policy
+ * compiled them (`collection.budget` at `full`). The expectations read the
+ * oracle's own actions and order (`actionsOf`, `ordered`), never the
+ * compiled ones. A plain extension carries it, its actor an argument; no
+ * other layer, so the oracle is read without tombstones.
  *
  * What a caller observes of a row at action `a` is `P(view) ∧ P(a)` (R2), so
  * a row's `$access` is the oracle's `access` for it, and `budget` is present
@@ -75,26 +76,6 @@ const ordered = (model: GovernedModel) => {
   );
 };
 
-/** K3's entry per model, and K5's declarations beside it. */
-export function evidenceVerbs(
-  compiled: CompiledPolicy
-): Record<string, RowsVerbs> {
-  const verbs = verbsOf(compiled);
-  for (const model of GOVERNED_MODELS) {
-    const { reads } = compiled.models[model]!;
-    verbs[model] = {
-      ...verbs[model]!,
-      evidence: {
-        as: KEY,
-        names: actionsOf(model),
-        ...(ordered(model) && { ordered: true }),
-      },
-      ...(Object.keys(reads).length > 0 && { reads }),
-    };
-  }
-  return verbs;
-}
-
 /** The plain extension carrying the compiled policy and K5's declarations. */
 export const evidenceExtension = (compiled: CompiledPolicy) => ({
   name: "evidence",
@@ -105,7 +86,7 @@ export const evidenceExtension = (compiled: CompiledPolicy) => ({
     models: Object.fromEntries(
       GOVERNED_MODELS.map((model) => [model, { default: {} }])
     ),
-    verbs: evidenceVerbs(compiled),
+    verbs: verbsOf(compiled),
   },
 });
 

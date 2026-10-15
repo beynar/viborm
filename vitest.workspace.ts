@@ -53,14 +53,28 @@ const coverageProject = (name: string, include: string[]) => ({
   },
 });
 
+const RAPTOR3_COVERAGE_SPLIT = Math.ceil(
+  RAPTOR3_DETERMINISTIC_TESTS.length / 2
+);
+
 export default defineWorkspace([
+  // The engine measured by its own deterministic estate: the query-engine
+  // coverage subsystem runs these two projects beside the contract layers.
+  // Two halves of one list, each its own process: instrumented whole, the
+  // tree peaked at 1,543-1,552 MiB against the 1,536 MiB process ceiling
+  // (RBAC M2 exit, 2026-10-15).
   {
     extends: "./vitest.config.ts",
     test: {
-      // The engine measured by its own deterministic estate: the query-engine
-      // coverage subsystem runs this project beside the contract layers.
       name: "coverage-raptor3",
-      include: [...RAPTOR3_DETERMINISTIC_TESTS],
+      include: RAPTOR3_DETERMINISTIC_TESTS.slice(0, RAPTOR3_COVERAGE_SPLIT),
+    },
+  },
+  {
+    extends: "./vitest.config.ts",
+    test: {
+      name: "coverage-raptor3-rest",
+      include: RAPTOR3_DETERMINISTIC_TESTS.slice(RAPTOR3_COVERAGE_SPLIT),
     },
   },
   {
@@ -231,6 +245,16 @@ export default defineWorkspace([
   coverageProject("drivers", [...DRIVER_COVERAGE_TESTS]),
   coverageProject("migrations", [...MIGRATION_COVERAGE_TESTS]),
   coverageProject("write-engine-core", [...WRITE_ENGINE_CORE_TESTS]),
+  // The engine's K4/K5 and shared-body branches are reached through the
+  // extension language; these contracts are a part of query-engine-core.
+  coverageProject("query-engine-extensions", [
+    "tests/contracts/public-client/extension-produced.core.test.ts",
+    "tests/contracts/public-client/extension-evidence.core.test.ts",
+    "tests/contracts/public-client/extension-shared-bodies.core.test.ts",
+    "tests/contracts/public-client/extension-batch-atomicity.core.test.ts",
+    "tests/contracts/public-client/extension-verbs.core.test.ts",
+    "tests/contracts/public-client/extension-controls.core.test.ts",
+  ]),
   {
     extends: "./vitest.config.ts",
     test: {

@@ -71,8 +71,15 @@ async function dropped(schema: string): Promise<void> {
   if (left?.n !== 0) throw new Error(`the schema ${schema} was left`);
 }
 
+// Neki refuses a statement referencing more than 256 relations (SQLSTATE
+// 54000); a governed read repeats relation bodies, so the driver states each
+// once (W-R1, E5.2).
 const driverIn = (schema: string) => () =>
-  new PgDriver({ options: poolConfig(NEKI_URL as string), namespace: schema });
+  new PgDriver({
+    options: poolConfig(NEKI_URL as string),
+    namespace: schema,
+    sharedRelationBodies: true,
+  });
 
 describe.skipIf(!NEKI_URL)("Neki", () => {
   runRbacAppBehavior({

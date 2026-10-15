@@ -1,0 +1,202 @@
+/**
+ * Relation bodies a statement repeats, stated once (rbac plan §9.3, provider
+ * facts to meet; E5.2). A governed predicate repeats the same relation
+ * filter body across its arms: the §1.1 grant move was 261 KB on D1 (limit
+ * 100 KB) and the grant read referenced 241 tables on PlanetScale's Neki
+ * (limit 256). An adapter declaring `capabilities.sharesRelationBodies`
+ * states each repeated body once, in a `WITH`, as the key set every arm
+ * testing it reads: `EXISTS (SELECT 1 FROM <set> WHERE set.k = parent.fk)`,
+ * a semijoin on the correlated columns. This file pins, on SQLite3:
+ *
+ * - the spelling: one definition per repeated body, a nested repeated body
+ *   defined before the body holding it, a body lowered once left in place;
+ * - a statement repeating no body is byte-identical with the fact and
+ *   without it, and every adapter without the fact keeps today's bytes;
+ * - the rows: reads, counts and writes take the same rows both ways.
+ *
+ * The provider witnesses are tests/providers/workers/d1-rbac-placement.test.ts
+ * (W-P10's grant move) and the Neki entry run (W-R1).
+ */
+
+import { createClient } from "@client/client";
+import { defineExtension } from "@extensions/definition";
+import { s } from "@schema";
+import { v } from "@src/validation";
+import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterEach, describe, expect, test } from "vitest";
+
+const org = s.model({
+  id: s.string().id(),
+  members: s.toMany(() => member),
+  docs: s.toMany(() => doc),
+});
+const member = s.model({
+  id: s.string().id(),
+  userId: s.string(),
+  role: s.string(),
+  orgId: s.string(),
+  org: s
+    .toOne(() => org)
+    .fields("orgId")
+    .references("id"),
+});
+const doc = s.model({
+  id: s.string().id(),
+  title: s.string(),
+  orgId: s.string(),
+  org: s
+    .toOne(() => org)
+    .fields("orgId")
+    .references("id"),
+});
+const schema = { org, member, doc };
+
+/** The caller's membership of the row's organization: the repeated body. */
+const inOrg = { org: { members: { some: { userId: { control: "user" } } } } };
+const admin = {
+  org: {
+    members: { some: { userId: { control: "user" }, role: "admin" } },
+  },
+};
+const policy = defineExtension({
+  name: "policy",
+  controls: { user: { schema: v.string(), required: true } },
+  rows: {
+    control: "scope",
+    default: "member",
+    models: {
+      doc: {
+        // `inOrg` twice: in each arm, as a policy's arms repeat `within`.
+        member: {
+          root: {
+            OR: [{ AND: [inOrg, { title: "a" }] }, { AND: [inOrg, admin] }],
+          },
+          related: inOrg,
+        },
+        // No body repeats.
+        single: { root: inOrg, related: inOrg },
+      },
+    },
+  },
+});
+
+const clients: { $disconnect(): Promise<void> }[] = [];
+afterEach(async () => {
+  for (const client of clients.splice(0)) await client.$disconnect();
+});
+
+async function open(shared: boolean) {
+  const driver = createInMemorySQLite3Driver();
+  // The driver's own adapter, given the fact a driver declaring it gets.
+  if (shared) driver.adapter.capabilities.sharesRelationBodies = true;
+  const base = createClient({ schema, driver });
+  clients.push(base);
+  await syncLiveSchema(base);
+  await base.org.createMany({ data: [{ id: "o1" }, { id: "o2" }] });
+  await base.member.createMany({
+    data: [
+      { id: "m1", userId: "ann", role: "admin", orgId: "o1" },
+      { id: "m2", userId: "bob", role: "reader", orgId: "o2" },
+      { id: "m3", userId: "ann", role: "reader", orgId: "o2" },
+    ],
+  });
+  await base.doc.createMany({
+    data: [
+      { id: "d1", title: "a", orgId: "o1" },
+      { id: "d2", title: "b", orgId: "o2" },
+      { id: "d3", title: "c", orgId: "o1" },
+      { id: "d4", title: "a", orgId: "o2" },
+    ],
+  });
+  const statements: string[] = [];
+  const db = base.$extends(policy).$extends({
+    name: "statements",
+    statement(context) {
+      statements.push(context.statement.toStatement());
+      return context.statement;
+    },
+  });
+  return { db, statements };
+}
+
+const MEMBERS =
+  'SELECT "q2"."orgId" AS "k0" FROM "member" AS "q2" WHERE "q2"."userId" COLLATE BINARY = ?';
+
+describe("relation bodies a statement repeats, stated once", () => {
+  test("each repeated body is one definition its arms test; a nested one comes first; a body lowered once stays in place", async () => {
+    const { db, statements } = await open(true);
+    await db.doc.findMany({ user: "ann", select: { id: true } });
+    expect(statements).toEqual([
+      `WITH "__shared_0" AS (${MEMBERS}), "__shared_1" AS (SELECT "q1"."id" AS "k0" FROM "org" AS "q1" WHERE EXISTS (SELECT 1 FROM "__shared_0" WHERE "q1"."id" = "__shared_0"."k0")) SELECT "q0"."id" AS "id" FROM "doc" AS "q0" WHERE ((EXISTS (SELECT 1 FROM "__shared_1" WHERE "q0"."orgId" = "__shared_1"."k0") AND "q0"."title" COLLATE BINARY = ?) OR (EXISTS (SELECT 1 FROM "__shared_1" WHERE "q0"."orgId" = "__shared_1"."k0") AND EXISTS (SELECT 1 FROM "org" AS "q5" WHERE ("q0"."orgId" = "q5"."id" AND EXISTS (SELECT 1 FROM "member" AS "q6" WHERE ("q5"."id" = "q6"."orgId" AND ("q6"."userId" COLLATE BINARY = ? AND "q6"."role" COLLATE BINARY = ?))))))) ORDER BY "q0"."id" ASC`,
+    ]);
+  });
+
+  test("a statement repeating no body is the same bytes with the fact and without it", async () => {
+    const shared = await open(true);
+    const plain = await open(false);
+    for (const { db } of [shared, plain]) {
+      await db.doc.findMany({
+        user: "ann",
+        scope: "single",
+        select: { id: true },
+      });
+      await db.doc.findMany({
+        user: "ann",
+        scope: "member",
+        select: { id: true },
+      });
+    }
+    expect(shared.statements[0]).toBe(plain.statements[0]);
+    expect(plain.statements[1]).not.toContain("WITH");
+    expect(shared.statements[1]).not.toBe(plain.statements[1]);
+  });
+
+  test("both spellings read, count and write the same rows", async () => {
+    const shared = await open(true);
+    const plain = await open(false);
+    const answers: unknown[] = [];
+    for (const { db } of [shared, plain]) {
+      answers.push([
+        await db.doc.findMany({
+          user: "ann",
+          select: { id: true },
+          orderBy: { id: "asc" },
+        }),
+        await db.doc.findMany({
+          user: "bob",
+          select: { id: true },
+          orderBy: { id: "asc" },
+        }),
+        await db.doc.count({ user: "ann" }),
+        await db.org.findMany({
+          user: "ann",
+          select: { id: true, _count: { select: { docs: true } } },
+          orderBy: { id: "asc" },
+        }),
+        await db.doc.updateMany({ user: "ann", data: { title: "seen" } }),
+        await db.doc.findMany({
+          user: "ann",
+          select: { id: true, title: true },
+          orderBy: { id: "asc" },
+        }),
+      ]);
+    }
+    expect(answers[0]).toEqual(answers[1]);
+    expect(answers[1]).toEqual([
+      [{ id: "d1" }, { id: "d3" }, { id: "d4" }],
+      [{ id: "d4" }],
+      3,
+      [
+        { id: "o1", _count: { docs: 2 } },
+        { id: "o2", _count: { docs: 2 } },
+      ],
+      { count: 3 },
+      // d4 is no longer "a", and ann does not administer o2.
+      [
+        { id: "d1", title: "seen" },
+        { id: "d3", title: "seen" },
+      ],
+    ]);
+  });
+});

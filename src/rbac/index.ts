@@ -13,6 +13,7 @@ import { ForbiddenError } from "../errors";
 import type { RowsVerbs } from "../extensions/controls";
 import type {
   ClientSchema,
+  ExtendedClient,
   ExtensionState,
   MergeExtensionState,
   VibORMClient,
@@ -25,6 +26,8 @@ import {
   type CompiledPolicy,
   compilePolicy,
   DEFAULT_MODE,
+  EVIDENCE_KEY,
+  evidenceOf,
   type RbacConfig,
   verbsOf,
 } from "./compile";
@@ -61,6 +64,7 @@ export {
 
 type Schema = VibORMConfig["schema"];
 type AnyModel = Schema[string];
+type Row = Readonly<Record<string, unknown>>;
 
 // =============================================================================
 // ACTIONS: what each model declares, and the names that must be among them
@@ -248,14 +252,59 @@ type ModeOf<Config extends RbacConfig> =
         | DomainsOf<Config["models"][K]>;
     }[Listed<Config>];
 
-/** `$as`, declared apart: inline, the factory's contextual type makes `Self` void. */
-interface AsMethod<Actor> {
+/**
+ * `$as`, declared apart (inline, the factory's contextual type makes `Self`
+ * void) as a type, not an interface, so it is a method record.
+ */
+type AsMethod<Actor> = {
   /**
    * This client with the actor bound (K6): every call of the view is judged
    * for it. Validated once, here, against the policy's actor schema.
    */
   $as<Self>(this: Self, actor: Actor): Self;
+};
+
+/** Whether a model's actions are exactly the levels: its key reads the highest one held (D6). */
+type Ordered<Config extends RbacConfig, M> = M extends {
+  readonly actions: object;
 }
+  ? false
+  : [Levels<Config>] extends [never]
+    ? false
+    : [ActionsOf<M, Levels<Config>>] extends [Levels<Config>]
+      ? true
+      : false;
+/** The fields a model's declaration read-gates (D5). */
+type GatedOf<M> = M extends { readonly fields: infer F }
+  ? {
+      [K in keyof F]: F[K] extends { readonly read: string } ? K : never;
+    }[keyof F] &
+      string
+  : never;
+
+/**
+ * What the types read of a listed model's `rows.verbs` entry: its
+ * projection key and its actions (K5's projected overloads), and its
+ * read-gated fields (the gated default omit). The predicates stay opaque.
+ */
+type ModelVerbs<Config extends RbacConfig, K extends Listed<Config>> = {
+  readonly predicates: RowsVerbs["predicates"];
+} & ([ActionOf<Config, K>] extends [never]
+  ? unknown
+  : {
+      readonly evidence: {
+        readonly as: typeof EVIDENCE_KEY;
+        readonly names: readonly ActionOf<Config, K>[];
+        readonly ordered: Ordered<Config, Config["models"][K]>;
+      };
+    }) &
+  ([GatedOf<Config["models"][K]>] extends [never]
+    ? unknown
+    : {
+        readonly reads: {
+          readonly [F in GatedOf<Config["models"][K]>]: string;
+        };
+      });
 
 type RowsDefinition<C extends VibORMConfig, Config extends RbacConfig> = {
   readonly name: typeof NAME;
@@ -264,6 +313,7 @@ type RowsDefinition<C extends VibORMConfig, Config extends RbacConfig> = {
       readonly schema: Config["actor"];
       readonly bound: true;
       readonly required: true;
+      readonly uncacheable: boolean;
     };
   };
   readonly rows: {
@@ -274,10 +324,13 @@ type RowsDefinition<C extends VibORMConfig, Config extends RbacConfig> = {
         readonly [Mode in ModeOf<Config>]: { readonly root?: string | Where };
       };
     };
-    readonly verbs: { readonly [model: string]: RowsVerbs };
+    readonly verbs: {
+      readonly [K in Listed<Config>]: ModelVerbs<Config, K>;
+    };
   };
+  // Any scope: the one it is called with is the receiving client's.
   readonly client: (
-    scope: never
+    scope: unknown
   ) => AsMethod<ActorFacts<InferOutput<Config["actor"]>>>;
 };
 
@@ -286,12 +339,20 @@ type WhereOf<C extends VibORMConfig, K> = Exclude<
   undefined
 >["where"];
 
-/** One listed model's single-action answers, from its own predicates (D8). */
+/** One listed model's answers, from its own predicates, through `$access` (D8). */
 interface ModelAnswers<Action extends string, W> {
-  /** Whether the actor holds `action` on a row `where` selects: one statement. */
+  /**
+   * Whether the actor holds `action` on the row `where` selects, or, for a
+   * list, each listed action: one statement. A row the actor does not view
+   * holds none.
+   */
   can(action: Action, where: W): Promise<boolean>;
-  /** Resolves when `can` holds; else `ForbiddenError`, hidden row or not. */
-  assert(action: Action, where: W): Promise<void>;
+  can<const Asked extends readonly Action[]>(
+    actions: Asked,
+    where: W
+  ): Promise<{ readonly [A in Asked[number]]: boolean }>;
+  /** Resolves when `can` holds for every action; else `ForbiddenError`, hidden row or not. */
+  assert(action: Action | readonly Action[], where: W): Promise<void>;
 }
 
 type MethodsDefinition<C extends VibORMConfig, Config extends RbacConfig> = {
@@ -307,16 +368,18 @@ type MethodsDefinition<C extends VibORMConfig, Config extends RbacConfig> = {
 type Governing<Config extends RbacConfig> = VibORMConfig & {
   readonly schema: Record<Listed<Config>, AnyModel>;
 };
+/** The rows step's client: `$extends` of it, projected overloads and gated omit included. */
 type RowsClient<
   C extends VibORMConfig,
   X extends ExtensionState,
   Config extends RbacConfig,
-> = VibORMClient<C, MergeExtensionState<X, RowsDefinition<C, Config>>>;
+> = ExtendedClient<VibORMClient<C, X>, [RowsDefinition<C, Config>]>;
 type MethodsClient<
-  C extends VibORMConfig,
-  X extends ExtensionState,
+  Client,
   Config extends RbacConfig,
-> = VibORMClient<C, MergeExtensionState<X, MethodsDefinition<C, Config>>>;
+> = Client extends VibORMClient<infer C, infer X>
+  ? VibORMClient<C, MergeExtensionState<X, MethodsDefinition<C, Config>>>
+  : never;
 
 export interface Policy<Config extends RbacConfig> {
   /**
@@ -325,36 +388,34 @@ export interface Policy<Config extends RbacConfig> {
    */
   <C extends Governing<Config>, X extends ExtensionState>(
     base: VibORMClient<C, X>
-  ): MethodsClient<
-    C,
-    MergeExtensionState<X, RowsDefinition<C, Config>>,
-    Config
-  >;
+  ): MethodsClient<RowsClient<C, X, Config>, Config>;
   readonly config: Config;
   /**
    * The policy compiled against the schema it governs (R1, plain data): per
    * model, its named predicates and the verbs, written fields, read-gated
-   * fields, modes and placement that take them. Refusals are
+   * fields, modes, placement, moves, acyclic relations and projection key
+   * that take them. Refusals are
    * `ClientInitializationError`s naming the declaration's path. Public for
    * inspection; the entry applies it as it is.
    */
   compile<S extends Schema>(schema: S & SchemaCheck<S, Config>): CompiledPolicy;
   /**
    * Step one: the bound-only `actor`, the `as` mode, every model's
-   * predicates (K3) and `$as`. `$as` binds the actor, so it lives where the
+   * predicates and the verbs, placement, moves, projection key and
+   * read-gated fields that name them (K3, K4, K5), and `$as`. `$as` binds the actor, so it lives where the
    * actor is declared (K6(a)); that makes this a client consumer, so it is
    * the last `rows` step of a chain (the order guard).
    */
   rows<C extends Governing<Config>, X extends ExtensionState>(
     base: VibORMClient<C, X>
   ): RowsClient<C, X, Config>;
-  /** Step two: `can` and `assert` on every listed model. */
+  /** Step two: `can` and `assert` on every listed model, through `$access` (D8). */
   methods<C extends Governing<Config>, X extends ExtensionState>(
     client: VibORMClient<C, X>
-  ): MethodsClient<C, X, Config>;
+  ): MethodsClient<VibORMClient<C, X>, Config>;
 }
 
-/** The verb each root operation is judged at; a create waits for placement (K4). */
+/** The verb each root operation is judged at; a create is judged by its placement (K4). */
 const VERB_OF: Readonly<Record<string, "read" | "update" | "delete">> = {
   findMany: "read",
   findFirst: "read",
@@ -474,7 +535,12 @@ export function rbac<const Config extends RbacConfig>(
     const definition = {
       name: NAME,
       controls: {
-        actor: { schema: config.actor, bound: true, required: true },
+        actor: {
+          schema: config.actor,
+          bound: true,
+          required: true,
+          uncacheable: config.cache !== "allow",
+        },
       },
       rows: {
         control: MODE,
@@ -495,17 +561,52 @@ export function rbac<const Config extends RbacConfig>(
     return extend(base, definition);
   };
   const methods = (client: VibORMClient<VibORMConfig, ExtensionState>) => {
-    const answers = (model: string) => (delegate: never) => {
-      const read = delegate as { exist(args: object): PromiseLike<boolean> };
-      // One statement: is a row `where` selects in the action's mode (R8)?
-      const can = async (action: string, where: object) =>
-        await read.exist({ where, [MODE]: action });
-      return {
-        can,
-        assert: async (action: string, where: object) => {
-          if (!(await can(action, where)))
-            throw new ForbiddenError(model, action);
-        },
+    const answers = (model: string) => {
+      const { names, ordered } = evidenceOf(config, model);
+      /** Whether the key's value on a row reports `action` held (D6). */
+      const holds = (value: unknown, action: string) =>
+        ordered
+          ? typeof value === "string" &&
+            names.indexOf(value) >= names.indexOf(action)
+          : (value as Readonly<Record<string, boolean>>)[action] === true;
+      return (delegate: never) => {
+        const read = delegate as {
+          findFirst(args: object): PromiseLike<Row | null>;
+        };
+        /**
+         * One statement: the row `where` selects, its `$access` at `asked`
+         * (D8). A row the actor does not view reads null: nothing is held.
+         */
+        const ask = async (asked: readonly string[], where: object) => {
+          // R9 (OD-7): an action the model does not declare is refused
+          // before any statement, as an `as` mode it does not declare is.
+          for (const action of asked)
+            if (!names.includes(action))
+              throw new ForbiddenError(model, action);
+          const row = await read.findFirst({
+            where,
+            select: { [EVIDENCE_KEY]: asked },
+          });
+          return asked.map(
+            (action) => row !== null && holds(row[EVIDENCE_KEY], action)
+          );
+        };
+        return {
+          can: async (action: string | readonly string[], where: object) => {
+            if (typeof action === "string")
+              return (await ask([action], where))[0];
+            const held = await ask(action, where);
+            return Object.fromEntries(
+              action.map((name, index) => [name, held[index]])
+            );
+          },
+          assert: async (action: string | readonly string[], where: object) => {
+            const asked = typeof action === "string" ? [action] : action;
+            const held = await ask(asked, where);
+            const lacking = asked.find((_, index) => !held[index]);
+            if (lacking !== undefined) throw new ForbiddenError(model, lacking);
+          },
+        };
       };
     };
     return extend(client, {

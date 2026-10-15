@@ -325,6 +325,88 @@ function unwrapped(sql: string): string {
   return text;
 }
 
+/** The `(…)` groups of `sql` outside quoted text, as a tree. */
+type Group = (string | Group)[];
+function grouped(sql: string): Group {
+  const root: Group = [];
+  const stack: Group[] = [root];
+  let text = "";
+  let quote: string | undefined;
+  const flush = () => {
+    if (text !== "") stack.at(-1)!.push(text);
+    text = "";
+  };
+  for (const char of sql) {
+    if (quote !== undefined) {
+      text += char;
+      if (char === quote) quote = undefined;
+    } else if (char === "'" || char === '"') {
+      text += char;
+      quote = char;
+    } else if (char === "(") {
+      flush();
+      const group: Group = [];
+      stack.at(-1)!.push(group);
+      stack.push(group);
+    } else if (char === ")") {
+      flush();
+      stack.pop();
+    } else text += char;
+  }
+  flush();
+  return root;
+}
+const KEYWORD = /\b(?:SELECT|WITH|CASE|OR)\b/;
+/** `group`'s members where it is a conjunction (`a AND b …` at its top), else `undefined`. */
+function conjuncts(group: Group): Group[] | undefined {
+  const members: Group[] = [[]];
+  for (const part of group) {
+    if (typeof part !== "string") {
+      members.at(-1)!.push(part);
+      continue;
+    }
+    if (KEYWORD.test(part)) return undefined;
+    for (const [index, piece] of part.split(" AND ").entries()) {
+      if (index > 0) members.push([]);
+      if (piece !== "") members.at(-1)!.push(piece);
+    }
+  }
+  return members.length > 1 ? members : undefined;
+}
+/** `group` with each conjunction's member conjunctions spliced in: one association. */
+function flat(group: Group): Group {
+  const inner = group.map((part) =>
+    typeof part === "string" ? part : flat(part)
+  );
+  const members = conjuncts(inner);
+  if (members === undefined) return inner;
+  const spliced: Group[] = [];
+  for (const member of members) {
+    const only = member.length === 1 ? member[0] : undefined;
+    const nested =
+      only !== undefined && typeof only !== "string"
+        ? conjuncts(only)
+        : undefined;
+    spliced.push(...(nested ?? [member]));
+  }
+  return spliced.flatMap((member, index) =>
+    index === 0 ? member : [" AND ", ...member]
+  );
+}
+function rendered(group: Group): string {
+  return group
+    .map((part) => (typeof part === "string" ? part : `(${rendered(part)})`))
+    .join("");
+}
+/**
+ * `sql` with every conjunction read in one association: a driver nesting
+ * conjunctions as balanced trees (`deepExpressions: false`) spells the same
+ * conjunction with other parentheses.
+ */
+export function flattenedConjunctions(sql: string): string {
+  return rendered(flat(grouped(sql)));
+}
+
 export function unwrapDerivedExists(transcript: Transcript): Transcript {
   return Object.fromEntries(
     Object.entries(transcript).map(([name, entry]) => [
@@ -333,7 +415,7 @@ export function unwrapDerivedExists(transcript: Transcript): Transcript {
         ? entry
         : entry.map((statement) => ({
             ...statement,
-            sql: unwrapped(statement.sql),
+            sql: flattenedConjunctions(unwrapped(statement.sql)),
           })),
     ])
   );

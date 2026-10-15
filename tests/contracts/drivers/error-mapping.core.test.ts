@@ -886,6 +886,59 @@ describe("normalizeDriverError fixtures", () => {
     );
     expect(userError).not.toBeInstanceOf(NestedWriteAssertionError);
   });
+
+  test("a judged write's refusal is its sentinel's failure alone, on every dialect (E5.6)", () => {
+    const judged =
+      'UPDATE "item" SET "folderId" = ? WHERE "id" IN (SELECT "q0"."id" FROM "item" AS "q0" HAVING MIN((SELECT CASE WHEN 1 THEN 1 ELSE 0 END AS "__viborm_judged__")) = 1)';
+    // PG: the sentinel's invalid integer text (22P02)
+    expect(
+      normalizeDriverError(
+        Object.assign(
+          new Error(
+            'invalid input syntax for type integer: "__viborm_refused__"'
+          ),
+          { code: "22P02" }
+        ),
+        { driverName: "pg", query: judged }
+      )
+    ).toBeInstanceOf(NestedWriteAssertionError);
+    // MySQL: the sentinel's invalid path (3143)
+    expect(
+      normalizeDriverError(
+        Object.assign(
+          new Error(
+            "Invalid JSON path expression. The error is around character position 1."
+          ),
+          { errno: 3143, code: "ER_INVALID_JSON_PATH" }
+        ),
+        { driverName: "mysql2", query: judged }
+      )
+    ).toBeInstanceOf(NestedWriteAssertionError);
+    // SQLite and D1: the sentinel's bad path
+    expect(
+      normalizeDriverError(
+        new Error(
+          "D1_ERROR: bad JSON path: '__viborm_refused__': SQLITE_ERROR"
+        ),
+        { driverName: "d1", query: judged }
+      )
+    ).toBeInstanceOf(NestedWriteAssertionError);
+    // A caller's division by zero or invalid JSON in the same statement is
+    // the provider's failure, never a refusal.
+    for (const error of [
+      Object.assign(new Error("division by zero"), { code: "22012" }),
+      Object.assign(
+        new Error(
+          'Invalid JSON text in argument 1 to function json_extract: "Invalid value." at position 0.'
+        ),
+        { errno: 3141, code: "ER_INVALID_JSON_TEXT_IN_PARAM" }
+      ),
+      new Error("malformed JSON"),
+    ])
+      expect(
+        normalizeDriverError(error, { driverName: "pg", query: judged })
+      ).not.toBeInstanceOf(NestedWriteAssertionError);
+  });
 });
 
 class FakeNativeBatchDriver extends Driver<null, null> {

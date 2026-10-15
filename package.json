@@ -389,29 +389,29 @@
       "name": "D1 Worker (viborm/d1)",
       "path": "node_modules/.cache/viborm-size/d1-worker.mjs",
       "gzip": true,
-      "limit": "177.6 kB",
-      "message": "Raised 170 → 171.9 kB by the measured +1,868 B of RBAC M1 wave 1 (OD-17): rows predicates admitted, layered and parameterized, numbered binds, bound views. Raised 171.9 → 177.6 kB by the measured +5,630 B (177.29 kB) of RBAC M2 wave 4 (K4 produced rows judged in the statement, K5 evidence and read-gated fields; OD-17, measured + 0.3 kB headroom)."
+      "limit": "179 kB",
+      "message": "Raised 170 → 171.9 kB by the measured +1,868 B of RBAC M1 wave 1 (OD-17): rows predicates admitted, layered and parameterized, numbered binds, bound views. Raised 171.9 → 177.6 kB by the measured +5,630 B (177.29 kB) of RBAC M2 wave 4 (K4 produced rows judged in the statement, K5 evidence and read-gated fields; OD-17, measured + 0.3 kB headroom). Raised 177.6 → 179 kB by the measured +1,355 B (178.65 kB) of RBAC M2 wave 5 (E5: shared relation bodies, D1 balanced conjunctions, the judged write's own sentinel, the allocation fixes; the uncacheable control, OD-10; OD-17, measured + 0.3 kB headroom)."
     },
     {
       "name": "pg + migrations Worker (viborm/pg + viborm/migrations/postgres)",
       "path": "node_modules/.cache/viborm-size/pg-migrations-worker.mjs",
       "gzip": true,
-      "limit": "279.5 kB",
-      "message": "Raised 273 → 274.4 kB by the measured +1,392 B of RBAC M1 wave 2 (K3, OD-17): rows verbs, written fields, write judgements and the clear premise; it held wave 1's +1,819 B inside its headroom. Raised 274.4 → 279.5 kB by the measured +5,720 B (279.12 kB) of RBAC M2 wave 4 (K4 produced rows judged in the statement, K5 evidence and read-gated fields; OD-17, measured + 0.3 kB headroom)."
+      "limit": "280.8 kB",
+      "message": "Raised 273 → 274.4 kB by the measured +1,392 B of RBAC M1 wave 2 (K3, OD-17): rows verbs, written fields, write judgements and the clear premise; it held wave 1's +1,819 B inside its headroom. Raised 274.4 → 279.5 kB by the measured +5,720 B (279.12 kB) of RBAC M2 wave 4 (K4 produced rows judged in the statement, K5 evidence and read-gated fields; OD-17, measured + 0.3 kB headroom). Raised 279.5 → 280.8 kB by the measured +1,340 B (280.46 kB) of RBAC M2 wave 5 (E5: shared relation bodies, D1 balanced conjunctions, the judged write's own sentinel, the allocation fixes; the uncacheable control, OD-10; OD-17, measured + 0.3 kB headroom)."
     },
     {
       "name": "pg application (viborm/pg)",
       "path": "node_modules/.cache/viborm-size/pg-representative.mjs",
       "gzip": true,
-      "limit": "178.2 kB",
-      "message": "Raised 170 → 171.9 kB by the measured +1,900 B of RBAC M1 wave 1 (OD-17): rows predicates admitted, layered and parameterized, numbered binds, bound views. Raised 171.9 → 173.34 kB by the measured +1,440 B of RBAC M1 wave 2 (K3, OD-17): rows verbs, written fields, write judgements and the clear premise. Raised 173.34 → 178.2 kB by the measured +5,650 B (177.84 kB) of RBAC M2 wave 4 (K4 produced rows judged in the statement, K5 evidence and read-gated fields; OD-17, measured + 0.3 kB headroom)."
+      "limit": "179.5 kB",
+      "message": "Raised 170 → 171.9 kB by the measured +1,900 B of RBAC M1 wave 1 (OD-17): rows predicates admitted, layered and parameterized, numbered binds, bound views. Raised 171.9 → 173.34 kB by the measured +1,440 B of RBAC M1 wave 2 (K3, OD-17): rows verbs, written fields, write judgements and the clear premise. Raised 173.34 → 178.2 kB by the measured +5,650 B (177.84 kB) of RBAC M2 wave 4 (K4 produced rows judged in the statement, K5 evidence and read-gated fields; OD-17, measured + 0.3 kB headroom). Raised 178.2 → 179.5 kB by the measured +1,278 B (179.12 kB) of RBAC M2 wave 5 (E5: shared relation bodies, D1 balanced conjunctions, the judged write's own sentinel, the allocation fixes; the uncacheable control, OD-10; OD-17, measured + 0.3 kB headroom)."
     },
     {
       "name": "pg application + soft delete",
       "path": "node_modules/.cache/viborm-size/pg-soft-delete.mjs",
       "gzip": true,
-      "limit": "178.6 kB",
-      "message": "Raised 173.5 → 178.6 kB by the measured +5,670 B (178.24 kB) of RBAC M2 wave 4 (K4 produced rows judged in the statement, K5 evidence and read-gated fields; OD-17, measured + 0.3 kB headroom)."
+      "limit": "179.9 kB",
+      "message": "Raised 173.5 → 178.6 kB by the measured +5,670 B (178.24 kB) of RBAC M2 wave 4 (K4 produced rows judged in the statement, K5 evidence and read-gated fields; OD-17, measured + 0.3 kB headroom). Raised 178.6 → 179.9 kB by the measured +1,270 B (179.51 kB) of RBAC M2 wave 5 (E5: shared relation bodies, D1 balanced conjunctions, the judged write's own sentinel, the allocation fixes; the uncacheable control, OD-10; OD-17, measured + 0.3 kB headroom)."
     },
     {
       "name": "soft-delete extension entry",
@@ -419,6 +419,20 @@
       "gzip": true,
       "limit": "457 B",
       "message": "Raised 420 → 457 B by the measured +37 B of softDelete(config).rows and .methods, its two steps apart (RBAC plan K7(b), OD-1 option (2), OD-17)."
+    },
+    {
+      "name": "pg application + rbac",
+      "path": "node_modules/.cache/viborm-size/pg-rbac.mjs",
+      "gzip": true,
+      "limit": "185 kB",
+      "message": "The pg application with viborm/rbac applied (the guide's blog policy: an actor schema, owner() and an actor condition, $as per request, one read, one create, one can): measured 184,652 B at the M2 exit (wave 5), +5,534 B over the pg application row (the entry's compiler with placement, moves, acyclic relations and evidence, can/assert through $access). First measured 181,404 B at c7d1951cd (U10). Limit = measured rounded up to 0.1 kB + 0.3 kB (OD-17)."
+    },
+    {
+      "name": "rbac extension entry",
+      "path": "node_modules/.cache/viborm-size/rbac-entry.mjs",
+      "gzip": true,
+      "limit": "13.4 kB",
+      "message": "viborm/rbac alone: rbac(), its policy compiler (placement, moves, acyclic relations, evidence and the implication that drops what administering already says), $as, can/assert through $access and the eleven rule helpers (dist/rbac.mjs, 6,562 B of its own by gzip -9), with the error classes it raises from the root's shared chunks (VibORMError and its code table, ClientInitializationError, ForbiddenError), which an application already holds. Measured 13,061 B at the M2 exit (wave 5); 11,188 B at c7d1951cd. Limit = measured rounded up to 0.1 kB + 0.3 kB (OD-17)."
     },
     {
       "name": "identifier generators only",
@@ -436,8 +450,8 @@
       "name": "every public entry",
       "path": "node_modules/.cache/viborm-size/full.mjs",
       "gzip": true,
-      "limit": "398.1 kB",
-      "message": "Raised 394 → 398.1 kB by the measured +5,700 B (397.74 kB) of RBAC M2 wave 4 (K4 produced rows judged in the statement, K5 evidence and read-gated fields; OD-17, measured + 0.3 kB headroom)."
+      "limit": "405.9 kB",
+      "message": "Raised 394 → 398.1 kB by the measured +5,700 B (397.74 kB) of RBAC M2 wave 4 (K4 produced rows judged in the statement, K5 evidence and read-gated fields; OD-17, measured + 0.3 kB headroom). Raised 398.1 → 405.9 kB by the measured +7,818 B (405.56 kB) of RBAC M2 wave 5: the fixture now exports viborm/rbac (U10), the entry's placement, moves and evidence (U9), and the core growth of E5 and OD-10 (OD-17, measured + 0.3 kB headroom)."
     }
   ]
 }

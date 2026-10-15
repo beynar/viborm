@@ -4,10 +4,23 @@ exports[`the acceptance policy (§1.1) > its predicates for the identity models,
 {
   "member": {
     "delete": "edit",
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "view",
+        "edit",
+        "full",
+      ],
+      "ordered": true,
+    },
     "modes": {
       "edit": "edit",
       "full": "full",
       "view": "view",
+    },
+    "moves": {
+      "organizationId": "move:organizationId",
+      "userId": "move:userId",
     },
     "place": "create",
     "predicates": {
@@ -178,6 +191,46 @@ exports[`the acceptance policy (§1.1) > its predicates for the identity models,
               },
             },
           },
+          {
+            "user": {
+              "is": {
+                "AND": [
+                  {
+                    "OR": [
+                      {
+                        "$if": {
+                          "control": "actor",
+                          "exists": false,
+                          "path": "key",
+                        },
+                      },
+                      {
+                        "$if": {
+                          "control": "actor",
+                          "hasSome": [
+                            "view",
+                            "edit",
+                            "full",
+                          ],
+                          "path": "key.scopes.user",
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    "members": {
+                      "some": {
+                        "organizationId": {
+                          "control": "actor",
+                          "path": "organizationId",
+                        },
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
         ],
       },
       "edit": {
@@ -328,6 +381,89 @@ exports[`the acceptance policy (§1.1) > its predicates for the identity models,
       "full": {
         "OR": [],
       },
+      "move:organizationId": {
+        "organization": {
+          "is": {
+            "AND": [
+              {
+                "OR": [
+                  {
+                    "$if": {
+                      "control": "actor",
+                      "exists": false,
+                      "path": "key",
+                    },
+                  },
+                  {
+                    "$if": {
+                      "control": "actor",
+                      "hasSome": [
+                        "invite",
+                      ],
+                      "path": "key.scopes.organization",
+                    },
+                  },
+                ],
+              },
+              {
+                "members": {
+                  "some": {
+                    "role": {
+                      "in": [
+                        "admin",
+                      ],
+                    },
+                    "userId": {
+                      "control": "actor",
+                      "path": "userId",
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        },
+      },
+      "move:userId": {
+        "user": {
+          "is": {
+            "AND": [
+              {
+                "OR": [
+                  {
+                    "$if": {
+                      "control": "actor",
+                      "exists": false,
+                      "path": "key",
+                    },
+                  },
+                  {
+                    "$if": {
+                      "control": "actor",
+                      "hasSome": [
+                        "view",
+                        "edit",
+                        "full",
+                      ],
+                      "path": "key.scopes.user",
+                    },
+                  },
+                ],
+              },
+              {
+                "members": {
+                  "some": {
+                    "organizationId": {
+                      "control": "actor",
+                      "path": "organizationId",
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        },
+      },
       "view": {
         "AND": [
           {
@@ -463,6 +599,16 @@ exports[`the acceptance policy (§1.1) > its predicates for the identity models,
     "writes": {},
   },
   "organization": {
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "view",
+        "edit",
+        "full",
+        "invite",
+        "export",
+      ],
+    },
     "modes": {
       "edit": "edit",
       "export": "export",
@@ -470,7 +616,12 @@ exports[`the acceptance policy (§1.1) > its predicates for the identity models,
       "invite": "invite",
       "view": "view",
     },
+    "moves": {},
+    "place": "create",
     "predicates": {
+      "create": {
+        "OR": [],
+      },
       "edit": {
         "OR": [],
       },
@@ -659,12 +810,26 @@ exports[`the acceptance policy (§1.1) > its predicates for the identity models,
   },
   "user": {
     "delete": "full",
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "view",
+        "edit",
+        "full",
+      ],
+      "ordered": true,
+    },
     "modes": {
       "edit": "edit",
       "full": "full",
       "view": "view",
     },
+    "moves": {},
+    "place": "create",
     "predicates": {
+      "create": {
+        "OR": [],
+      },
       "edit": {
         "OR": [],
       },
@@ -720,10 +885,31 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
 {
   "accessGrant": {
     "delete": "edit",
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "view",
+        "edit",
+        "full",
+      ],
+      "ordered": true,
+    },
     "modes": {
       "edit": "edit",
       "full": "full",
       "view": "view",
+    },
+    "moves": {
+      "actions": "move:actions",
+      "collectionId": "move:collectionId",
+      "documentId": "move:documentId",
+      "grantedBy": "move:grantedBy",
+      "granteeTeamId": "move:granteeTeamId",
+      "groupId": "move:groupId",
+      "level": "move:level",
+      "organizationId": "move:organizationId",
+      "pageId": "move:pageId",
+      "userId": "move:userId",
     },
     "place": "create",
     "predicates": [
@@ -731,6 +917,16 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
       "edit",
       "full",
       "create",
+      "move:pageId",
+      "move:groupId",
+      "move:documentId",
+      "move:collectionId",
+      "move:actions",
+      "move:level",
+      "move:organizationId",
+      "move:userId",
+      "move:granteeTeamId",
+      "move:grantedBy",
     ],
     "read": "view",
     "reads": {},
@@ -739,21 +935,42 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
   },
   "apiKey": {
     "modes": {},
-    "predicates": [],
+    "moves": {},
+    "place": "create",
+    "predicates": [
+      "create",
+    ],
     "reads": {},
     "writes": {},
   },
   "bookmark": {
     "delete": "full",
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "view",
+        "edit",
+        "full",
+      ],
+      "ordered": true,
+    },
     "modes": {
       "edit": "edit",
       "full": "full",
       "view": "view",
     },
+    "moves": {
+      "organizationId": "move:organizationId",
+      "userId": "move:userId",
+    },
+    "place": "create",
     "predicates": [
       "view",
       "edit",
       "full",
+      "create",
+      "move:organizationId",
+      "move:userId",
     ],
     "read": "view",
     "reads": {},
@@ -762,10 +979,24 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
   },
   "collection": {
     "delete": "full",
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "view",
+        "edit",
+        "full",
+      ],
+      "ordered": true,
+    },
     "modes": {
       "edit": "edit",
       "full": "full",
       "view": "view",
+    },
+    "moves": {
+      "createdById": "move:createdById",
+      "organizationId": "move:organizationId",
+      "ownerId": "move:ownerId",
     },
     "place": "create",
     "predicates": [
@@ -773,6 +1004,9 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
       "edit",
       "full",
       "create",
+      "move:organizationId",
+      "move:createdById",
+      "move:ownerId",
     ],
     "read": "view",
     "reads": {
@@ -782,7 +1016,21 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
     "writes": {},
   },
   "document": {
+    "acyclic": [
+      "parent",
+    ],
     "delete": "share",
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "view",
+        "comment",
+        "archive",
+        "edit",
+        "share",
+        "export",
+      ],
+    },
     "modes": {
       "archive": "archive",
       "comment": "comment",
@@ -790,6 +1038,12 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
       "export": "export",
       "share": "share",
       "view": "view",
+    },
+    "moves": {
+      "id": "move:id",
+      "organizationId": "move:organizationId",
+      "ownerId": "move:ownerId",
+      "parentId": "move:parentId",
     },
     "place": "create",
     "predicates": [
@@ -800,6 +1054,10 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
       "share",
       "export",
       "create",
+      "move:organizationId",
+      "move:parentId",
+      "move:id",
+      "move:ownerId",
     ],
     "read": "view",
     "reads": {},
@@ -811,10 +1069,23 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
   },
   "member": {
     "delete": "edit",
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "view",
+        "edit",
+        "full",
+      ],
+      "ordered": true,
+    },
     "modes": {
       "edit": "edit",
       "full": "full",
       "view": "view",
+    },
+    "moves": {
+      "organizationId": "move:organizationId",
+      "userId": "move:userId",
     },
     "place": "create",
     "predicates": [
@@ -822,6 +1093,8 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
       "edit",
       "full",
       "create",
+      "move:organizationId",
+      "move:userId",
     ],
     "read": "view",
     "reads": {},
@@ -829,6 +1102,16 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
     "writes": {},
   },
   "organization": {
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "view",
+        "edit",
+        "full",
+        "invite",
+        "export",
+      ],
+    },
     "modes": {
       "edit": "edit",
       "export": "export",
@@ -836,12 +1119,15 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
       "invite": "invite",
       "view": "view",
     },
+    "moves": {},
+    "place": "create",
     "predicates": [
       "view",
       "edit",
       "full",
       "invite",
       "export",
+      "create",
     ],
     "read": "view",
     "reads": {},
@@ -850,19 +1136,38 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
   },
   "page": {
     "delete": "full",
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "view",
+        "edit",
+        "full",
+      ],
+      "ordered": true,
+    },
     "modes": {
       "edit": "edit",
       "full": "full",
       "given": "given",
       "view": "view",
     },
+    "moves": {
+      "groupId": "move:groupId",
+      "organizationId": "move:organizationId",
+      "ownerId": "move:ownerId",
+      "personal": "move:personal",
+    },
     "place": "create",
     "predicates": [
       "view",
       "edit",
       "full",
-      "given",
       "create",
+      "move:organizationId",
+      "move:groupId",
+      "move:personal",
+      "move:ownerId",
+      "given",
     ],
     "read": "view",
     "reads": {},
@@ -873,15 +1178,32 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
   },
   "pageGroup": {
     "delete": "full",
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "view",
+        "edit",
+        "full",
+      ],
+      "ordered": true,
+    },
     "modes": {
       "edit": "edit",
       "full": "full",
       "view": "view",
     },
+    "moves": {
+      "createdById": "move:createdById",
+      "organizationId": "move:organizationId",
+    },
+    "place": "create",
     "predicates": [
       "view",
       "edit",
       "full",
+      "create",
+      "move:organizationId",
+      "move:createdById",
     ],
     "read": "view",
     "reads": {},
@@ -890,28 +1212,51 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
   },
   "rolePermission": {
     "modes": {},
-    "predicates": [],
+    "moves": {},
+    "place": "create",
+    "predicates": [
+      "create",
+    ],
     "reads": {},
     "writes": {},
   },
   "session": {
     "modes": {},
-    "predicates": [],
+    "moves": {},
+    "place": "create",
+    "predicates": [
+      "create",
+    ],
     "reads": {},
     "writes": {},
   },
   "team": {
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "view",
+        "edit",
+        "full",
+        "invite",
+      ],
+    },
     "modes": {
       "edit": "edit",
       "full": "full",
       "invite": "invite",
       "view": "view",
     },
+    "moves": {
+      "organizationId": "move:organizationId",
+    },
+    "place": "create",
     "predicates": [
       "view",
       "edit",
       "full",
       "invite",
+      "create",
+      "move:organizationId",
     ],
     "read": "view",
     "reads": {},
@@ -920,11 +1265,24 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
   },
   "teamMember": {
     "delete": "manage",
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "view",
+        "edit",
+        "full",
+        "manage",
+      ],
+    },
     "modes": {
       "edit": "edit",
       "full": "full",
       "manage": "manage",
       "view": "view",
+    },
+    "moves": {
+      "teamId": "move:teamId",
+      "userId": "move:userId",
     },
     "place": "create",
     "predicates": [
@@ -933,6 +1291,8 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
       "full",
       "manage",
       "create",
+      "move:teamId",
+      "move:userId",
     ],
     "read": "view",
     "reads": {},
@@ -941,15 +1301,27 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
   },
   "user": {
     "delete": "full",
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "view",
+        "edit",
+        "full",
+      ],
+      "ordered": true,
+    },
     "modes": {
       "edit": "edit",
       "full": "full",
       "view": "view",
     },
+    "moves": {},
+    "place": "create",
     "predicates": [
       "view",
       "edit",
       "full",
+      "create",
     ],
     "read": "view",
     "reads": {},
@@ -965,60 +1337,149 @@ exports[`the acceptance policy (§1.1) > the blog compiles whole 1`] = `
   "models": {
     "accessGrant": {
       "modes": {},
-      "predicates": {},
+      "moves": {},
+      "place": "create",
+      "predicates": {
+        "create": {
+          "OR": [],
+        },
+      },
       "reads": {},
       "writes": {},
     },
     "apiKey": {
       "modes": {},
-      "predicates": {},
+      "moves": {},
+      "place": "create",
+      "predicates": {
+        "create": {
+          "OR": [],
+        },
+      },
       "reads": {},
       "writes": {},
     },
     "bookmark": {
       "modes": {},
-      "predicates": {},
+      "moves": {},
+      "place": "create",
+      "predicates": {
+        "create": {
+          "OR": [],
+        },
+      },
       "reads": {},
       "writes": {},
     },
     "collection": {
       "modes": {},
-      "predicates": {},
+      "moves": {},
+      "place": "create",
+      "predicates": {
+        "create": {
+          "OR": [],
+        },
+      },
       "reads": {},
       "writes": {},
     },
     "document": {
       "modes": {},
-      "predicates": {},
+      "moves": {},
+      "place": "create",
+      "predicates": {
+        "create": {
+          "OR": [],
+        },
+      },
       "reads": {},
       "writes": {},
     },
     "member": {
       "modes": {},
-      "predicates": {},
+      "moves": {},
+      "place": "create",
+      "predicates": {
+        "create": {
+          "OR": [],
+        },
+      },
       "reads": {},
       "writes": {},
     },
     "organization": {
-      "modes": {},
-      "predicates": {},
+      "evidence": {
+        "as": "$access",
+        "names": [
+          "view",
+        ],
+      },
+      "modes": {
+        "view": "view",
+      },
+      "moves": {},
+      "place": "create",
+      "predicates": {
+        "create": {
+          "OR": [],
+        },
+        "view": {},
+      },
+      "read": "view",
       "reads": {},
       "writes": {},
     },
     "page": {
       "delete": "delete",
+      "evidence": {
+        "as": "$access",
+        "names": [
+          "view",
+          "edit",
+          "delete",
+        ],
+      },
       "modes": {
         "delete": "delete",
         "edit": "edit",
         "view": "view",
       },
+      "moves": {
+        "groupId": "move:groupId",
+        "organizationId": "move:organizationId",
+        "ownerId": "move:ownerId",
+      },
       "place": "create",
       "predicates": {
         "create": {
-          "ownerId": {
-            "control": "actor",
-            "path": "userId",
-          },
+          "AND": [
+            {
+              "ownerId": {
+                "control": "actor",
+                "path": "userId",
+              },
+            },
+            {
+              "organization": {
+                "is": {},
+              },
+            },
+            {
+              "OR": [
+                {
+                  "ownerId": null,
+                },
+                {
+                  "owner": {
+                    "is": {},
+                  },
+                },
+              ],
+            },
+            {
+              "groupId": null,
+            },
+          ],
         },
         "delete": {
           "$if": {
@@ -1033,6 +1494,26 @@ exports[`the acceptance policy (§1.1) > the blog compiles whole 1`] = `
             "path": "userId",
           },
         },
+        "move:groupId": {
+          "groupId": null,
+        },
+        "move:organizationId": {
+          "organization": {
+            "is": {},
+          },
+        },
+        "move:ownerId": {
+          "OR": [
+            {
+              "ownerId": null,
+            },
+            {
+              "owner": {
+                "is": {},
+              },
+            },
+          ],
+        },
         "view": {},
       },
       "read": "view",
@@ -1042,39 +1523,80 @@ exports[`the acceptance policy (§1.1) > the blog compiles whole 1`] = `
     },
     "pageGroup": {
       "modes": {},
-      "predicates": {},
+      "moves": {},
+      "place": "create",
+      "predicates": {
+        "create": {
+          "OR": [],
+        },
+      },
       "reads": {},
       "writes": {},
     },
     "rolePermission": {
       "modes": {},
-      "predicates": {},
+      "moves": {},
+      "place": "create",
+      "predicates": {
+        "create": {
+          "OR": [],
+        },
+      },
       "reads": {},
       "writes": {},
     },
     "session": {
       "modes": {},
-      "predicates": {},
+      "moves": {},
+      "place": "create",
+      "predicates": {
+        "create": {
+          "OR": [],
+        },
+      },
       "reads": {},
       "writes": {},
     },
     "team": {
       "modes": {},
-      "predicates": {},
+      "moves": {},
+      "place": "create",
+      "predicates": {
+        "create": {
+          "OR": [],
+        },
+      },
       "reads": {},
       "writes": {},
     },
     "teamMember": {
       "modes": {},
-      "predicates": {},
+      "moves": {},
+      "place": "create",
+      "predicates": {
+        "create": {
+          "OR": [],
+        },
+      },
       "reads": {},
       "writes": {},
     },
     "user": {
+      "evidence": {
+        "as": "$access",
+        "names": [
+          "view",
+        ],
+      },
       "modes": {
         "view": "view",
       },
+      "moves": {},
+      "place": "create",
       "predicates": {
+        "create": {
+          "OR": [],
+        },
         "view": {},
       },
       "read": "view",

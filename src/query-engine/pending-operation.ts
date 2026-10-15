@@ -238,10 +238,19 @@ export class PendingOperation<T>
       );
     attachPendingCacheExecutionFriend = (operation, wrapper) =>
       operation.#wrapExecution(wrapper);
+    // Each part is computed when read: a read the cache bypasses asks only
+    // for its controls, admitted once with its arguments.
     readPendingCacheResultFriend = (operation) => ({
-      args: operation.cacheKeyArgs(),
-      controls: operation.#inputPreparation?.controls,
-      codec: operation.#cacheResultCodec(),
+      get args() {
+        return operation.cacheKeyArgs();
+      },
+      get controls() {
+        operation.#resolveArgs();
+        return operation.#inputPreparation?.controls;
+      },
+      get codec() {
+        return operation.#cacheResultCodec();
+      },
       executionContext: operation.#context.attribution,
     });
     pendingOperationTransactionOwner = Object.freeze({

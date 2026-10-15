@@ -63,7 +63,7 @@ Without adapters, we'd have `if (postgres) ... else if (mysql) ...` scattered ev
 | `aggregates` | count, sum, avg, min, max | Aggregate queries |
 | `orderBy` | asc, desc, nullsFirst, nullsLast | Sorting |
 | `clauses` | select, where, orderBy, limit | Query structure |
-| `subqueries` | scalar, correlate, existsCheck | Relation filters (SQLite: a derived table where the driver declares `deepExpressions: false`) |
+| `subqueries` | scalar, correlate, existsCheck | Relation filters (SQLite: a derived table where the driver declares `deepExpressions: false`, which also nests a conjunction of many members as a balanced tree) |
 | `mutations` | insert, update, delete, returning | Write operations |
 
 ---
@@ -208,6 +208,19 @@ may only be conservative index prefilters before exact public semantics.
 | NULLS FIRST/LAST | ✅ | ❌ | ❌ | Emulate with `(col IS NULL)` sort key |
 
 **Important:** When PostgreSQL has a feature others lack, the adapter must either emulate it or the capability check must prevent its use.
+
+`capabilities.sharesRelationBodies` is a transport fact, never a dialect
+one: absent everywhere, declared by D1 (`SQLiteAdapter({ sharedRelationBodies:
+true })`) and by a PostgreSQL user for a server bounding the relations one
+statement references (`PgDriver({ sharedRelationBodies: true })`). The engine
+then states each relation body a statement repeats once, through `cte.with`.
+
+`assertions.holds` (a write's judgement of the row it produces) fails with its
+own sentinel, under the `__viborm_judged__` alias: PostgreSQL a text sublink
+cast to `integer` (22P02 naming `__viborm_refused__`), SQLite a JSON path
+naming it, MySQL an invalid JSON path (3143). `exists`/`notExists` (a batch's
+premises) keep `__viborm_assert__` and their division by zero or invalid JSON
+text; `src/drivers/error-mapping.ts` tells the two apart.
 
 ---
 

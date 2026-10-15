@@ -23,3 +23,35 @@ describe("SQLite relation-filter subqueries", () => {
     );
   });
 });
+
+const conjunction = (adapter: SQLiteAdapter, members: number): string =>
+  adapter.operators
+    .and(...Array.from({ length: members }, (_, index) => sql.raw(`c${index}`)))
+    .toStatement();
+
+describe("SQLite conjunctions", () => {
+  test("a transport that compiles deep expressions joins a conjunction flat", () => {
+    expect(conjunction(new SQLiteAdapter(), 5)).toBe(
+      "(c0 AND c1 AND c2 AND c3 AND c4)"
+    );
+  });
+
+  test("a shallow one nests it as a balanced tree, as the engine nests a disjunction", () => {
+    const shallow = new SQLiteAdapter({ deepExpressions: false });
+    expect(conjunction(shallow, 1)).toBe("c0");
+    expect(conjunction(shallow, 2)).toBe("(c0 AND c1)");
+    expect(conjunction(shallow, 5)).toBe(
+      "((c0 AND c1) AND (c2 AND (c3 AND c4)))"
+    );
+  });
+
+  test("a transport bounding statement text shares the relation bodies a statement repeats", () => {
+    expect(new SQLiteAdapter().capabilities.sharesRelationBodies).toBe(
+      undefined
+    );
+    expect(
+      new SQLiteAdapter({ sharedRelationBodies: true }).capabilities
+        .sharesRelationBodies
+    ).toBe(true);
+  });
+});

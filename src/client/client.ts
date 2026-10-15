@@ -21,7 +21,7 @@ import {
   lookupResolvedExtensionHandlers,
   type ResolvedExtensionChain,
 } from "@extensions/chain";
-import { bindControls } from "@extensions/controls";
+import { bindControls, uncacheableRead } from "@extensions/controls";
 import type {
   ClientExtension,
   ContextualExtensionDefinition,
@@ -55,6 +55,7 @@ import {
 import { QueryEngine } from "@query-engine/query-engine";
 import { createCandidateRoute } from "@query-engine/raptor3/route/client-route";
 import {
+  baseOperation,
   isWriteOperation,
   ROUTED_OPERATIONS,
 } from "@query-engine/routed-operations";
@@ -806,6 +807,14 @@ export class VibORM<C extends VibORMConfig> {
     return attachPendingCacheExecution(
       pendingOperation,
       async (execute, driverOverride) => {
+        const cacheResult = readPendingCacheResult(pendingOperation);
+        const refused = uncacheableRead(
+          engine.extensionChain?.controls?.all ?? [],
+          cacheResult.controls,
+          modelName,
+          baseOperation(operation)
+        );
+        if (refused) throw refused;
         if (
           driverOverride !== undefined ||
           engine.transactionWriteOutcomes !== undefined ||
@@ -813,7 +822,6 @@ export class VibORM<C extends VibORMConfig> {
         ) {
           return execute();
         }
-        const cacheResult = readPendingCacheResult(pendingOperation);
         const runtime = officialCacheRuntime();
         const key = runtime.cacheKeyOf(
           cacheResult.args,
@@ -891,7 +899,7 @@ export class VibORM<C extends VibORMConfig> {
   #createView<V>(
     engine: QueryEngine,
     clientOmit: ClientOmitResolver | undefined,
-    rebuild: (engine: QueryEngine) => unknown,
+    rebuild: ((engine: QueryEngine) => unknown) | undefined,
     eager: boolean,
     extra?: (prop: string | symbol) => unknown
   ): V {
@@ -911,7 +919,7 @@ export class VibORM<C extends VibORMConfig> {
           (prop) =>
             prop === "$bind"
               ? (values: Readonly<Record<string, unknown>>) =>
-                  rebuild(
+                  rebuild!(
                     engine.withBound(
                       bindControls(
                         chain.controls?.all ?? [],
@@ -1013,7 +1021,9 @@ export class VibORM<C extends VibORMConfig> {
 
     // A root view `$extends` returns invokes every factory, where an
     // extension's faults belong; a view `$bind` derives, only those it uses.
-    const rebind = (bound: QueryEngine) => this.#createRootView(bound, false);
+    // Only a chain's factory scopes can `$bind`.
+    const rebind =
+      chain && ((bound: QueryEngine) => this.#createRootView(bound, false));
     return this.#createView(engine, clientOmit, rebind, eager, (prop) => {
       if (prop === "$driver") return engine.driver;
       if (prop === "$extends") {

@@ -3526,3 +3526,44 @@ owns for every extension, `viborm/rbac` included, since `verbsOf` hands
 |---|---|---|---|---|
 | `src/rbac/index.ts` `refuseUnreachable` · `throw new ForbiddenError(model, operation)` | R9: a root call false when the policy is applied (unlisted model, undeclared verb or `as` mode) is refused before any statement, with one class (OD-7). | The rows step's `query` handler, the only place that sees the entry's `as` control before a statement. | Without it the call issues statements and answers like a per-call fold. | `rbac-entry-behavior.ts` W-D2, W-D6 (`ValidationError` at HEAD for the mode: `scratchpad/rbac/t/t5-fail-before.log`). |
 | ~~`src/rbac/compile.ts` `compilePolicy` · `refuse(…, "a key or relation cannot be read-gated")`~~ (deleted) | Only a scalar that is neither a key nor a foreign key is read-gated. | `rbac(config)(base)`, the same application step as K5's admission. | None left: `verbsOf` now passes `reads` to the rows member, and `admitRows` refuses a relation (`names no scalar of the model`) and a key or foreign key (`names a key or foreign key`) with the same `ClientInitializationError` at the same step. | `rbac-entry-behavior.ts` "a read-gated key or foreign key is refused when the policy is applied (K5's admission)" (moved from `compile.core.test.ts`). |
+
+## Addendum — engine follow-ups of waves 3 and 4 (RBAC plan M2, E5, 2026-10-15)
+
+Plan `rbac-extension-plan.md` §8, §9.3; G4, G6. No guard added or deleted
+by E5.1 (allocation), E5.2 (shared relation bodies: which lowering a
+relation filter takes is a routing decision of the adapter's
+`sharesRelationBodies` fact, not a refusal), E5.3 (array parameters already
+lower per dialect; witnesses only) or E5.5 (the Docker PG harness). One
+classification narrowed, E5.6.
+
+**E5.6, the refusal of a judged write.** VibORM can put a caller-controlled
+failure into a judged statement: a caller's SQL fragment as a filter operand
+(`where: { views: { gte: sql\`1 / (SELECT 0)\` } }`) of a judged
+`update`/`updateMany`. A `divide` in `data` cannot (measured: a literal zero
+divisor is refused at admission, `nonzeroDivisor`; an exact decimal's zero
+divisor before any statement, `QueryEngineError`; `data` admits neither a
+field reference nor a fragment as a divisor). The judgement and the batch premises shared one
+failure (PostgreSQL 22012, SQLite "malformed JSON", MySQL 3141) and one
+marker (`__viborm_assert__`), so such a failure was reported as
+`ForbiddenError` (measured on SQLite3, its batch-only and no-RETURNING
+variants, Docker PostgreSQL and MySQL: `scratchpad/rbac/e5/e56-failbefore-*.log`).
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `src/drivers/error-mapping.ts` `recognizeProviderFailure` · `ASSERTION_FAILURE` where the statement carries `JUDGEMENT_MARKER` and `isRefusal(…)` (narrowed from the assertion row: a judged statement no longer carries `ASSERTION_MARKER`) | A judged write's failure is its refusal only when it is its judgement's own sentinel (`__viborm_refused__`: PostgreSQL 22P02 and SQLite name it, MySQL raises 3143, the invalid path it is); a premise's failure keeps its own marker and errors. | The driver's error normalization, the one place the provider's failure and the statement meet. | Without the narrowing a caller's division by zero or invalid JSON in a judged statement is reported as `ForbiddenError` (a refusal that did not happen) instead of the provider's `QueryError`. | `produced-row-behavior.ts` "a judged write that fails on its own is not refused: only its judgement's sentinel is a refusal (E5.6)" on S3 (three variants), PGlite, PostgreSQL, MySQL and D1; `error-mapping.core.test.ts` "a judged write's refusal is its sentinel's failure alone, on every dialect (E5.6)" (needsOutside). |
+
+Batch attribution is unchanged: `batchMayContainAssertionCollision` treats a
+statement carrying `JUDGEMENT_MARKER` as the assertion statement it was when
+it carried `ASSERTION_MARKER`, so a batch's conservative collision rule reads
+it as before.
+
+## Addendum — a cached read on a governed view (RBAC plan M2 exit, wave 5 integration, 2026-10-15)
+
+Plan `rbac-extension-plan.md` §5.3, §5.4, OD-10 (recommended, ruled by §11.1:
+refused unless `rbac({ cache: "allow" })`). One guard added. A control may be
+declared `uncacheable`; `viborm/rbac` declares its actor so unless its config
+says `cache: "allow"`.
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `src/client/client.ts` `#wrapOfficialCachedRead` · `throw uncacheableRead(…)` (`src/extensions/controls.ts`) | A read holding a value of an `uncacheable` control is never served from, nor stored in, the cache: `$withCache` on it fails with `ValidationError` at the control before any statement, whether the cache would serve it or a transaction or statement transform bypasses it. | The cached-read wrapper, the one place that knows a read is cached and sees its admitted controls (bound values included) before it executes. | Without it a governed read is keyed on `[args, controls, rows]` and served from the entry until its TTL: a grant revoked or a session expired since is not seen (T1 suspended), and the entry holds the bound actor. | `extension-controls.core.test.ts` "a read holding a value of an uncacheable control is refused before any statement…" and `rbac-entry-behavior.ts` W-C7 on S3, PGlite, PostgreSQL, MySQL and D1 (fail-before with the throw removed: `scratchpad/rbac/w5/failbefore/uncacheable-core.log`, `w-c7-s3-guard-removed.log`). |

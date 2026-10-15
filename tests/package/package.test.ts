@@ -51,6 +51,10 @@ const scripts = [
     "./extension-recipes-consumer-smoke.mjs",
   ],
   [
+    "runs the RBAC acceptance policy and the blog from the packed package alone",
+    "./rbac-consumer-smoke.mjs",
+  ],
+  [
     "runs the probe corpus against the packed package",
     "./probe-corpus-smoke.mjs",
   ],

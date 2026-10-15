@@ -4,6 +4,8 @@ import {
   NotFoundError,
   ValidationError,
 } from "@errors";
+import { MemoryCache } from "@src/cache/drivers/memory";
+import { cache } from "@src/cache/exports";
 import { owner, rbac } from "@src/rbac";
 import { softDelete } from "@src/soft-delete/index";
 import { v } from "@src/validation";
@@ -62,9 +64,13 @@ interface LooseDelegate {
   create(args: object): Promise<Row>;
   update(args: object): Promise<Row>;
   updateMany(args: object): Promise<{ count: number }>;
+  delete(args: object): Promise<Row>;
   deleteMany(args?: object): Promise<{ count: number }>;
-  can(action: string, where: object): Promise<boolean>;
-  assert(action: string, where: object): Promise<void>;
+  can<A extends string | readonly string[]>(
+    action: A,
+    where: object
+  ): Promise<A extends string ? boolean : Record<string, boolean>>;
+  assert(action: string | readonly string[], where: object): Promise<void>;
   restore(args: object): Promise<Row>;
 }
 type Loose = Record<string, LooseDelegate> & {
@@ -72,6 +78,7 @@ type Loose = Record<string, LooseDelegate> & {
   $transaction<T>(body: (tx: Loose) => Promise<T>): Promise<T>;
   $extends(definition: object): Loose;
   $queryRawUnsafe(sql: string): Promise<Row[]>;
+  $withCache(options?: object): Loose;
 };
 const loose = (client: unknown) => client as Loose;
 
@@ -90,6 +97,14 @@ export interface EntrySubstrate extends RbacAppSubstrate {
 const UNLISTED = Object.keys(schema).filter(
   (model) => !(GOVERNED_MODELS as readonly string[]).includes(model)
 );
+/** The live keys: page views, document shares, everything, no resources, beside a session. */
+const KEYED = [
+  "k02-pages-view",
+  "k05-documents-share",
+  "k21-everything",
+  "k41-no-resources",
+  "u21-session-and-key",
+];
 /** The actors whose finer reads are judged: every shape of access the seed holds. */
 const READERS = ["u01", "u03", "u04", "u05", "u20", "u22", "u42", "u56"];
 const ROLLBACK = new Error("rolled back");
@@ -616,6 +631,70 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
       timeout
     );
 
+    test(
+      "W-F5, W-EV2 in a variant arm (U7 Q3): a read-gated field inside a bookmark's page arm is omitted exactly where the oracle does not hold its action; $access and an explicit select there are K5's open gaps",
+      async () => {
+        const { models } = policy.config;
+        const gated = rbac({
+          ...policy.config,
+          models: {
+            ...models,
+            page: {
+              ...models.page,
+              fields: { ...models.page.fields, title: { read: "full" } },
+            },
+          },
+        });
+        const rows = gated.rows(tombstones.rows(base));
+        const call = (actor: Actor) =>
+          loose(gated.methods(tombstones.methods(rows))).$as(actor);
+        let present = 0;
+        let absent = 0;
+        // One statement per actor: every actor, so both readings occur.
+        for (const name of Object.keys(actors)) {
+          const actor = actors[name]!;
+          const full = new Set(at(actor, "page", "full"));
+          const arms = (await call(actor).bookmark!.findMany({
+            include: { subject: true },
+          })) as unknown as {
+            subject: { type: string; data: Row } | null;
+          }[];
+          for (const { subject } of arms) {
+            if (subject?.type !== "page") continue;
+            const held = full.has(String(subject.data.id));
+            expect("title" in subject.data, `${name} ${subject.data.id}`).toBe(
+              held
+            );
+            if (held) present += 1;
+            else absent += 1;
+          }
+        }
+        expect(present).toBeGreaterThan(0);
+        expect(absent).toBeGreaterThan(0);
+        // Open (needsOutside, K5): the arm is not walked for the key, and a
+        // field the caller names there reads as defaulted. Both are pinned
+        // as they stand so the owner's fix turns them red.
+        const actor = actors.u06!;
+        expect(
+          await outcomeOf(() =>
+            call(actor).bookmark!.findMany({
+              include: { subject: { page: { include: { $access: true } } } },
+            })
+          )
+        ).toBe(ValidationError.name);
+        expect(
+          await outcomeOf(() =>
+            call(actor).bookmark!.findMany({
+              include: {
+                subject: { page: { select: { id: true, title: true } } },
+              },
+            })
+          )
+        ).toBe("ok");
+      },
+      timeout
+    );
+
     if (substrate.raw === true)
       test("W-X1: raw SQL on the governed client is not filtered: it reads every row", async () => {
         const call = db.$as(actors.u04!);
@@ -663,6 +742,230 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
         await issued(() => as("u03").page!.findMany({ as: "nope" }))
       ).toEqual({ outcome: ValidationError.name, statements: 0 });
     });
+
+    // --- C10: a key only narrows (D10) -------------------------------------
+
+    test(
+      "W-L1, W-L2, W-L4, W-L5, W-L7, W-L8: a key narrows every model at every action to the oracle's rows: its scopes meet ↑a (closed downward), ids reach through the tree, a model it does not scope and an empty resource list hold nothing",
+      async () => {
+        for (const name of KEYED) {
+          const actor = actors[name]!;
+          const call = db.$as(actor);
+          for (const [model, action] of MODEL_ACTIONS.filter(([model]) =>
+            modeled(model)
+          ))
+            expect(
+              keys(
+                model,
+                await call[model]!.findMany({
+                  as: action,
+                  select: keyOf(model),
+                })
+              ),
+              `${name} ${model} as ${action}`
+            ).toEqual(at(actor, model, action));
+        }
+        // W-L2, W-L4: a key listing three root documents reaches their
+        // subtrees, through an array parameter, and nothing else.
+        const sharer = actors["k05-documents-share"]!;
+        const roots = sharer.key!.resources.document as readonly string[];
+        const reached = at(sharer, "document", "view");
+        expect(reached.length).toBeGreaterThan(roots.length);
+        expect(reached.some((id) => roots.includes(id))).toBe(true);
+        // W-L7: a key scoped ["share"] views (scopes close downward) and shares.
+        const shared = at(sharer, "document", "share")[0];
+        expect(shared).toBeDefined();
+        expect(
+          await db.$as(sharer).document!.can(["view", "share"], { id: shared })
+        ).toEqual({ view: true, share: true });
+        // W-L5: a model the key does not scope holds nothing, at any action.
+        const pagesOnly = db.$as(actors["k02-pages-view"]!);
+        for (const model of ["member", "document", "team", "collection"])
+          expect(await pagesOnly[model]!.count(), model).toBe(0);
+        expect(
+          at(actors["k02-pages-view"]!, "page", "view").length
+        ).toBeGreaterThan(0);
+        // W-L8: a key whose resources list nothing reaches no document.
+        const empty = actors["k41-no-resources"]!;
+        expect(empty.key!.resources.document).toEqual([]);
+        expect(await db.$as(empty).document!.count()).toBe(0);
+        expect(at(empty, "page", "view").length).toBeGreaterThan(0);
+      },
+      timeout
+    );
+
+    test(
+      "W-L3: an actor without a key is not narrowed: the policy without its limit reads the same rows, on every model",
+      async () => {
+        const { limit: _limit, ...unlimited } = policy.config;
+        const open = rbac(unlimited);
+        const rows = open.rows(tombstones.rows(base));
+        const unnarrowed = loose(open.methods(tombstones.methods(rows)));
+        for (const name of READERS) {
+          const actor = actors[name]!;
+          expect(actor.key, name).toBeUndefined();
+          for (const model of GOVERNED_MODELS)
+            expect(
+              keys(
+                model,
+                await db.$as(actor)[model]!.findMany({ select: keyOf(model) })
+              ),
+              `${name} ${model}`
+            ).toEqual(
+              keys(
+                model,
+                await unnarrowed
+                  .$as(actor)
+                  [model]!.findMany({ select: keyOf(model) })
+              )
+            );
+        }
+        // A key actor is narrowed: the same user on a session reads more.
+        const keyed = actors["k05-documents-share"]!;
+        const { key: _key, ...user } = { ...keyed, session: "ses-05-live" };
+        expect(at(user, "document", "view").length).toBeGreaterThan(
+          at(keyed, "document", "view").length
+        );
+      },
+      timeout
+    );
+
+    test(
+      "W-L6: a view-only key creates, moves and connects nothing, where the same user on a session may",
+      async () => {
+        // user-02's live key, viewing pages, and every target a page's keys
+        // reach: only the key's page action stands between it and a create.
+        const pages = actors["k02-pages-view"]!;
+        const keyed: Actor = {
+          ...pages,
+          key: {
+            ...pages.key!,
+            scopes: {
+              page: ["view"],
+              organization: ["view"],
+              user: ["view"],
+              pageGroup: ["view"],
+            },
+          },
+        };
+        const { key: _key, ...user } = { ...keyed, session: "ses-02-live" };
+        const groups = at(user, "pageGroup", "edit");
+        const page = minus(
+          at(user, "page", "edit"),
+          at(user, "page", "full")
+        ).concat(at(user, "page", "full"))[0];
+        expect(groups.length).toBeGreaterThan(0);
+        expect(page).toBeDefined();
+        const row = {
+          id: "w-l6-page",
+          organizationId: keyed.organizationId,
+          title: "w-l6",
+          position: 0,
+          ownerId: keyed.userId,
+          groupId: null,
+          personal: true,
+        };
+        const options = { now, tombstones: true };
+        expect(oracle.places(user, "page", row, options)).toBe(true);
+        expect(oracle.places(keyed, "page", row, options)).toBe(false);
+        const create = (actor: Actor) =>
+          rolledBack(db.$as(actor), (tx) =>
+            outcomeOf(() => tx.page!.create({ data: row }))
+          );
+        expect(await create(user)).toBe("ok");
+        expect(await create(keyed)).toBe(ForbiddenError.name);
+        // The old row is judged at edit, which the key does not hold.
+        for (const data of [
+          { groupId: groups[0] },
+          { group: { connect: { id: groups[0] } } },
+          { title: "w-l6" },
+        ])
+          expect(
+            await rolledBack(db.$as(keyed), (tx) =>
+              outcomeOf(() => tx.page!.update({ where: { id: page }, data }))
+            ),
+            JSON.stringify(data)
+          ).toBe(NotFoundError.name);
+        expect(await db.$as(keyed).page!.can("edit", { id: page })).toBe(false);
+        expect(await db.$as(user).page!.can("edit", { id: page })).toBe(true);
+      },
+      timeout
+    );
+
+    test(
+      "W-N1 (D11, R8): a second named domain on the same policy narrows only: as mine reads P(view) ∧ mine, never widens a write; a model that does not declare it refuses it before any statement",
+      async () => {
+        const { models } = policy.config;
+        const domains = rbac({
+          ...policy.config,
+          models: {
+            ...models,
+            page: {
+              ...models.page,
+              domains: { ...models.page.domains, mine: owner("ownerId") },
+            },
+          },
+        });
+        const rows = domains.rows(tombstones.rows(base));
+        const narrowed = loose(domains.methods(tombstones.methods(rows)));
+        let refused = 0;
+        for (const name of READERS) {
+          const actor = actors[name]!;
+          const call = narrowed.$as(actor);
+          const mine = at(actor, "page", "view").filter(
+            (id) =>
+              seed.page.find((page) => page.id === id)!.ownerId === actor.userId
+          );
+          expect(
+            keys(
+              "page",
+              await call.page!.findMany({ as: "mine", select: { id: true } })
+            ),
+            name
+          ).toEqual(mine);
+          // A row the actor edits and does not own: `mine` narrows the
+          // update's candidates; it never replaces the verb.
+          const editable = minus(at(actor, "page", "edit"), mine)[0];
+          if (editable !== undefined) {
+            refused += 1;
+            expect(
+              await rolledBack(call, (tx) =>
+                outcomeOf(() =>
+                  tx.page!.update({
+                    where: { id: editable },
+                    data: { title: "n" },
+                    as: "mine",
+                  })
+                )
+              ),
+              name
+            ).toBe(NotFoundError.name);
+          }
+          const viewedOnly = minus(mine, at(actor, "page", "edit"))[0];
+          if (viewedOnly !== undefined)
+            expect(
+              await rolledBack(call, (tx) =>
+                outcomeOf(() =>
+                  tx.page!.update({
+                    where: { id: viewedOnly },
+                    data: { title: "n" },
+                    as: "mine",
+                  })
+                )
+              ),
+              name
+            ).toBe(NotFoundError.name);
+        }
+        expect(refused).toBeGreaterThan(0);
+        statements.length = 0;
+        expect(
+          await outcomeOf(() =>
+            narrowed.$as(actors.u03!).document!.findMany({ as: "mine" })
+          )
+        ).toBe(ForbiddenError.name);
+      },
+      timeout
+    );
 
     // --- C11: default deny -------------------------------------------------
 
@@ -827,10 +1130,69 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
         await issued(() =>
           loose(blog(base))
             .$as({ userId: "user-03", admin: false })
-            .organization!.count()
+            .team!.count()
         )
       ).toEqual({ outcome: ForbiddenError.name, statements: 0 });
     });
+
+    test(
+      "the blog (§1.1, nine lines): everyone reads every page, the author edits, an admin claim deletes, a page is created by its author only",
+      async () => {
+        const blogged = loose(blog(base));
+        const author = "user-03";
+        const own = seed.page.find((page) => page.ownerId === author)!;
+        const other = seed.page.find(
+          (page) => page.ownerId !== author && page.ownerId !== null
+        )!;
+        for (const admin of [false, true]) {
+          const call = blogged.$as({ userId: author, admin });
+          const write = (body: (tx: Loose) => Promise<unknown>) =>
+            rolledBack(call, (tx) => outcomeOf(() => body(tx)));
+          expect(await call.page!.count()).toBe(seed.page.length);
+          expect(
+            await write((tx) =>
+              tx.page!.update({ where: { id: own.id }, data: { title: "b" } })
+            )
+          ).toBe("ok");
+          expect(
+            await write((tx) =>
+              tx.page!.update({ where: { id: other.id }, data: { title: "b" } })
+            )
+          ).toBe(NotFoundError.name);
+          expect(
+            await write((tx) => tx.page!.delete({ where: { id: other.id } }))
+          ).toBe(admin ? "ok" : NotFoundError.name);
+          const page = {
+            id: "blog-page",
+            organizationId: own.organizationId,
+            title: "b",
+            position: 0,
+          };
+          expect(
+            await write((tx) =>
+              tx.page!.create({ data: { ...page, ownerId: author } })
+            )
+          ).toBe("ok");
+          expect(
+            await write((tx) =>
+              tx.page!.create({ data: { ...page, ownerId: other.ownerId } })
+            )
+          ).toBe(ForbiddenError.name);
+          // R4: a key into a model the blog does not list reaches nothing.
+          expect(
+            await write((tx) =>
+              tx.page!.create({
+                data: { ...page, ownerId: author, groupId: own.groupId ?? "g" },
+              })
+            )
+          ).toBe(ForbiddenError.name);
+          expect(
+            await call.page!.can(["view", "edit", "delete"], { id: other.id })
+          ).toEqual({ view: true, edit: false, delete: admin });
+        }
+      },
+      timeout
+    );
 
     test(
       "W-D9: a per-call fold takes the ordinary outcome: export off the office network is empty, NotFoundError on a unique read, false for can",
@@ -963,6 +1325,59 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
         }
         expect(hidden).toBeGreaterThan(0);
         expect(lacking).toBeGreaterThan(0);
+      },
+      timeout
+    );
+
+    test(
+      "W-CAN2: can with a list answers every listed action at once, in one statement through $access; a hidden row holds none; assert with a list needs them all",
+      async () => {
+        let hidden = 0;
+        for (const name of READERS) {
+          const actor = actors[name]!;
+          const call = metered.$as(actor);
+          for (const model of ["document", "page"] as const) {
+            const names = actionsOf(model);
+            const view = at(actor, model, "view");
+            const held = Object.fromEntries(
+              names.map((action) => [action, at(actor, model, action)])
+            );
+            const rows = (seed[model] as unknown as Row[]).slice(0, 12);
+            for (const { id } of rows) {
+              if (!view.includes(id as string)) hidden += 1;
+              statements.length = 0;
+              const answer = await call[model]!.can(names, { id });
+              expect(statements, `${name} ${model} ${id}`).toHaveLength(1);
+              expect(answer, `${name} ${model} ${id}`).toEqual(
+                Object.fromEntries(
+                  names.map((action) => [
+                    action,
+                    held[action]!.includes(id as string),
+                  ])
+                )
+              );
+              // A sublist, out of the declared order, reads the same.
+              const some = [...names].reverse().slice(0, 2);
+              expect(
+                await call[model]!.can(some, { id }),
+                `${name} ${model} ${id} ${some}`
+              ).toEqual(
+                Object.fromEntries(
+                  some.map((action) => [action, answer[action]])
+                )
+              );
+              expect(
+                await outcomeOf(() => call[model]!.assert(names, { id })),
+                `${name} ${model} ${id}`
+              ).toBe(
+                Object.values(answer).every(Boolean)
+                  ? "ok"
+                  : ForbiddenError.name
+              );
+            }
+          }
+        }
+        expect(hidden).toBeGreaterThan(0);
       },
       timeout
     );
@@ -1206,6 +1621,74 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
             ).toEqual([]);
         }
         expect(revoked).toBeGreaterThan(0);
+      },
+      timeout
+    );
+
+    // --- OD-10: a cached read is an observation, not a judgement ----------
+
+    test(
+      'W-C7: $withCache on a governed view is refused before any statement, below or above the cache, unless the policy declares cache: "allow" (OD-10)',
+      async () => {
+        const actor = actors[judged[0]!]!;
+        const counted: string[] = [];
+        const meter = {
+          name: "meter",
+          statement: (context: { statement: unknown }) => {
+            counted.push("statement");
+            return context.statement;
+          },
+        };
+        const memo = () => cache({ driver: new MemoryCache() });
+        const metered = loose(base).$extends(meter);
+        for (const [order, governed] of [
+          ["below", loose(policy(metered.$extends(memo()) as never))],
+          ["above", loose(policy(metered as never)).$extends(memo())],
+        ] as const) {
+          const call = governed.$as(actor);
+          counted.length = 0;
+          expect(
+            await outcomeOf(() => call.$withCache().page!.findMany()),
+            order
+          ).toBe(ValidationError.name);
+          expect(counted, order).toEqual([]);
+          // The same read uncached is the policy's (no soft delete here).
+          expect(
+            keys("page", await call.page!.findMany({ select: keyOf("page") })),
+            order
+          ).toEqual(at(actor, "page", "view", { tombstones: false }));
+        }
+
+        // Declared: the read is served from the cache, stale after a write
+        // the cache did not see, which is why it is refused by default.
+        const allowing = rbac({ ...policy.config, cache: "allow" });
+        const call = loose(allowing(loose(base).$extends(memo()) as never)).$as(
+          actor
+        );
+        const [id] = at(actor, "page", "view", { tombstones: false });
+        const read = async () =>
+          await call.$withCache({ ttl: 60_000 }).page!.findMany({
+            where: { id },
+            select: { id: true, title: true },
+          });
+        const before = await read();
+        expect(before).toHaveLength(1);
+        const title = before[0]!.title;
+        await loose(base).page!.update({
+          where: { id },
+          data: { title: "w-c7" },
+        });
+        try {
+          expect(await read()).toEqual(before);
+          expect(
+            await call.page!.findMany({
+              where: { id },
+              select: { title: true },
+            })
+          ).toEqual([{ title: "w-c7" }]);
+        } finally {
+          await loose(base).page!.update({ where: { id }, data: { title } });
+        }
       },
       timeout
     );

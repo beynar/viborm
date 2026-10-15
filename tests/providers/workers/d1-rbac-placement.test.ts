@@ -6,11 +6,6 @@
  * callback transaction: a probe that wrote is undone through the base
  * client, or by `restore` (every table emptied in one batch, foreign keys
  * deferred to its end, and the seed loaded again).
- *
- * A grant MOVE does not fit D1: its one statement judges `grants.place` on
- * the new row beside `grants.admin` on the old one, 261 KB at expression
- * depth 180 against D1's 100 KB and 100 (plan §8; reported under §9.3). D1
- * refuses the statement before it runs: QueryError, nothing written.
  */
 
 import { env } from "cloudflare:test";
@@ -30,29 +25,26 @@ declare module "cloudflare:test" {
 const CREATE_TABLE = /^CREATE TABLE "([^"]+)"/;
 const tables: string[] = [];
 
-runRbacAppPlacement(
-  {
-    name: "D1",
-    createDriver: () => new D1Driver({ database: env.DB }),
-    prepare: async (client) => {
-      const preview = await createMigrationClient(client).push({
-        dryRun: true,
-      });
-      for (const statement of preview.statements) {
-        await env.DB.prepare(statement.sql).run();
-        const table = CREATE_TABLE.exec(statement.sql)?.[1];
-        if (table !== undefined) tables.push(table);
-      }
-    },
-    restore: async (client) => {
-      await env.DB.batch([
-        env.DB.prepare("PRAGMA defer_foreign_keys = ON"),
-        ...tables.map((table) => env.DB.prepare(`DELETE FROM "${table}"`)),
-      ]);
-      await loadRbacSeed(client);
-    },
-    actors: SAMPLED_ACTORS,
-    timeout: 1_800_000,
+runRbacAppPlacement({
+  name: "D1",
+  createDriver: () => new D1Driver({ database: env.DB }),
+  prepare: async (client) => {
+    const preview = await createMigrationClient(client).push({
+      dryRun: true,
+    });
+    for (const statement of preview.statements) {
+      await env.DB.prepare(statement.sql).run();
+      const table = CREATE_TABLE.exec(statement.sql)?.[1];
+      if (table !== undefined) tables.push(table);
+    }
   },
-  { oversizedGrantMoves: true }
-);
+  restore: async (client) => {
+    await env.DB.batch([
+      env.DB.prepare("PRAGMA defer_foreign_keys = ON"),
+      ...tables.map((table) => env.DB.prepare(`DELETE FROM "${table}"`)),
+    ]);
+    await loadRbacSeed(client);
+  },
+  actors: SAMPLED_ACTORS,
+  timeout: 1_800_000,
+});

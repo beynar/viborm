@@ -6,8 +6,9 @@
  * the schema (`policy.compile(schema)`, which checks the model and field names
  * the policy spells), and applies the policy to a client: `db.$as(actor)` is
  * the governed client again, `can` and `assert` take each listed model's own
- * actions, and a wrong action name is an error (an unused `@ts-expect-error`
- * fails the check). Predicates are opaque data: no model's `where` type is
+ * actions (one or a list), `$access` and a read-gated field type the result
+ * at every depth, and a wrong action, domain or key name is an error (an
+ * unused `@ts-expect-error` fails the check). Predicates are opaque data: no model's `where` type is
  * walked over a policy, so a policy costs about what its literal does (plan
  * §11.2 F8: ~740 instantiations per model).
  *
@@ -93,7 +94,15 @@ export const compiled = [
   blog.compile(schema),
 ];
 `;
-/** The entry on a client: `$as` is the governed client again; can and assert take each model's own actions. */
+/**
+ * The entry on a client: `$as` is the governed client again (a key actor
+ * too, its limit judged in the statement); can and assert take each model's
+ * own actions, one or a list; `$access` is a projection key at every depth,
+ * typed by each model's actions (the highest level where they are the
+ * levels); a read-gated field is absent from a default row and present where
+ * selected; `as` takes the policy's actions and domains. Each wrong name is
+ * an `@ts-expect-error` that must bite.
+ */
 const clientSource = `import { createClient } from "viborm/pg";
 import { schema } from "./schema";
 import { policy } from "./policy";
@@ -102,13 +111,47 @@ const base = createClient({ schema, databaseUrl: "postgresql://localhost/rbac" }
 const db = policy(base);
 const call = db.$as({ userId: "user-01", organizationId: "org-1", network: "office" });
 export const same: typeof db = call;
+export const keyed: typeof db = db.$as({
+  userId: "user-02",
+  organizationId: "org-1",
+  network: "office",
+  key: { id: "key-02-a", scopes: { page: ["view"] }, resources: { document: ["d1"] } },
+});
 export const answers: [Promise<boolean>, Promise<void>, Promise<boolean>] = [
   call.team.can("invite", { id: "t1" }),
   call.organization.assert("export", { id: "org-1" }),
   call.document.can("archive", { parentId: null }),
 ];
+export const listed: Promise<{ readonly comment: boolean; readonly share: boolean }> =
+  call.document.can(["comment", "share"], { id: "d1" });
+export const all: Promise<void> = call.page.assert(["view", "edit"], { id: "p1" });
 // @ts-expect-error - "export" is not an action of team
 export const wrong = call.team.can("export", { id: "t1" });
+// @ts-expect-error - "archive" is document's, not page's
+export const wrongList = call.page.can(["view", "archive"], { id: "p1" });
+
+export async function reads() {
+  const documents = await call.document.findMany({
+    where: { parentId: null },
+    include: { $access: true, children: { include: { $access: ["share"] } } },
+  });
+  const held: { readonly view: boolean; readonly export: boolean } = documents[0]!.$access;
+  const shared: { readonly share: boolean } = documents[0]!.children[0]!.$access;
+  const pages = await call.page.findMany({ include: { $access: true, group: true } });
+  const level: "view" | "edit" | "full" | null = pages[0]!.$access;
+  const given = await call.page.findMany({ as: "given" });
+  const [row] = await call.collection.findMany();
+  const absent: number | undefined = row!.budget;
+  const [named] = await call.collection.findMany({ select: { id: true, budget: true } });
+  const present: number = named!.budget;
+  // @ts-expect-error - "nope" is no action or domain of any model
+  await call.page.findMany({ as: "nope" });
+  // @ts-expect-error - "archive" is not one of page's names
+  await call.page.findMany({ select: { id: true, $access: ["archive"] } });
+  // @ts-expect-error - the actor is never an argument
+  await call.page.findMany({ actor: { userId: "u" } });
+  return [held, shared, level, given, absent, present];
+}
 `;
 
 function check(checker, consumerRoot) {

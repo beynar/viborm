@@ -84,7 +84,7 @@ separate [migration workflow](docs/content/docs/migration/index.mdx).
   transactions on the supported batch transports.
 - Ten extension capabilities: `request`, `query`, `statement`, `observe`, `client`,
   `model`, `controls`, `rows`, `deletion` and `data`; official cache,
-  instrumentation, omit and soft-delete tools.
+  instrumentation, omit, soft-delete and RBAC tools.
 - Fixed-decimal values, millisecond DateTime values, GeoPoint and PostgreSQL vector
   operations with explicit provider requirements.
 
@@ -104,6 +104,11 @@ VibORM has a Prisma-inspired API, with differences documented in the
 - Use one of `select` or `include` at each projection level.
 - `omit` controls row presentation. Filters, aggregates and raw SQL can still
   address omitted columns; it is not an authorization boundary.
+- [`viborm/rbac`](docs/content/docs/extensions/rbac.mdx) is the authorization
+  boundary: one predicate per model and action, judged inside the statement
+  that reads or writes, for the actor a request binds with `db.$as(actor)`.
+  Raw SQL and statement transforms are not filtered, and the client below it
+  sees every row.
 - Safe raw SQL parameterizes values; it does not apply model codecs. Compact IDs,
   SQLite decimals and temporal columns have physical representations described in
   the [raw SQL guide](docs/content/docs/client/raw-sql.mdx).
