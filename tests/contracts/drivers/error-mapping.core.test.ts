@@ -1391,6 +1391,7 @@ describe("execution-context error identity", () => {
     ConnectionError: () => new allErrors.ConnectionError("connection refused"),
     FeatureNotSupportedError: () =>
       new allErrors.FeatureNotSupportedError("savepoints", "create"),
+    ForbiddenError: () => new allErrors.ForbiddenError("page", "create"),
     ForeignKeyError: () => new ForeignKeyError("fk violated"),
     InvalidTransactionInputError: () =>
       new allErrors.InvalidTransactionInputError(),

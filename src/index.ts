@@ -196,6 +196,7 @@ export {
   ConnectionError,
   type DiagnosticDisclosure,
   FeatureNotSupportedError,
+  ForbiddenError,
   ForeignKeyError,
   InvalidTransactionInputError,
   isCheckConstraintError,

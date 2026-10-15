@@ -1,0 +1,35 @@
+/**
+ * D1 Driver Tests — the RBAC acceptance estate (plan §6.1 U0, §7 "D1"): the
+ * §1.1 fixture created from the SQLite plan `push` previews (D1 declares no
+ * migration capability, so the statements are executed here), seeded, and
+ * the hand-written policy against the independent oracle for a sample of
+ * actors, under D1's own bind and statement limits. Today the plain-`where`
+ * page and grant predicates bind 106 to 190 values (one bind per
+ * occurrence), over D1's 100: those statements are refused whole, and the
+ * rest must match the oracle (plan Z2, K2(d), W-K2f).
+ */
+
+import { env } from "cloudflare:test";
+import type { D1Database } from "@cloudflare/workers-types";
+import { D1Driver } from "@src/drivers/d1";
+import { createMigrationClient } from "@src/migrations/client";
+import { runRbacAppBehavior } from "@tests/contracts/public-client/rbac-app-behavior";
+
+declare module "cloudflare:test" {
+  interface ProvidedEnv {
+    DB: D1Database;
+  }
+}
+
+runRbacAppBehavior({
+  name: "D1",
+  createDriver: () => new D1Driver({ database: env.DB }),
+  prepare: async (client) => {
+    const preview = await createMigrationClient(client).push({ dryRun: true });
+    for (const statement of preview.statements) {
+      await env.DB.prepare(statement.sql).run();
+    }
+  },
+  actors: ["u01", "u05", "u22", "u46", "k05-documents-share", "k21-everything"],
+  bindBudget: 100,
+});

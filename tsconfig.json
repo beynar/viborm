@@ -26,6 +26,7 @@
       "@cloudflare/vitest-pool-workers"
     ],
     "paths": {
+      "viborm": ["./src/index.ts"],
       "@src/*": ["./src/*"],
       "@tests/*": ["./tests/*"],
       "@root/*": ["./*"],

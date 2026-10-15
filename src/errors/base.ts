@@ -104,6 +104,9 @@ export enum VibORMErrorCode {
   OPERATION_CLIENT_MISMATCH = "V12003",
   OPERATION_SCOPE_MISMATCH = "V12004",
 
+  // Authorization errors (13xxx)
+  FORBIDDEN = "V13001",
+
   // Internal errors (9xxx)
   INTERNAL_ERROR = "V9001",
   SCHEMA_ERROR = "V9002",
@@ -159,8 +162,8 @@ export type PrismaErrorCode =
  *   or deadlock), but VibORM's transaction family also carries `SQLITE_BUSY` and transaction
  *   timeouts, so no member is 1:1 with either. Use {@link VibORMError.isRetryable} instead.
  * - Nested-write (V7xxx), cache (V10xxx), migration (V11xxx), pending-operation (V12xxx),
- *   feature/driver support (V8xxx incl. `UnsupportedOperationError`) and internal (V9xxx)
- *   codes: VibORM-only concepts with no Prisma counterpart.
+ *   authorization (V13xxx), feature/driver support (V8xxx incl. `UnsupportedOperationError`)
+ *   and internal (V9xxx) codes: VibORM-only concepts with no Prisma counterpart.
  * - Query family (V2xxx). Prisma's P2010 is raw-query-specific and P2021/P2022 name a missing
  *   table/column; a generic `QueryError` is none of those.
  */
@@ -504,6 +507,10 @@ interface CodeDisposition {
   [VibORMErrorCode.OPERATION_EXECUTION_CONFLICT]: "expected";
   [VibORMErrorCode.OPERATION_CLIENT_MISMATCH]: "expected";
   [VibORMErrorCode.OPERATION_SCOPE_MISMATCH]: "expected";
+
+  // Authorization (13xxx). A policy judged the operation and said no: the caller's answer,
+  // and re-running it unchanged is refused again until the rows it reads change.
+  [VibORMErrorCode.FORBIDDEN]: "expected";
 
   // Internal (9xxx). The only two defects in the taxonomy: the engine broke its own
   // invariant, or the schema it was handed is not coherent. Neither is a refusal, and

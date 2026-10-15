@@ -16,6 +16,7 @@ import {
   CheckConstraintError,
   ClientInitializationError,
   ConnectionError,
+  ForbiddenError,
   ForeignKeyError,
   InvalidTransactionInputError,
   isVibORMError,
@@ -130,6 +131,10 @@ const UNCLAIMED: Array<{ label: string; error: VibORMError }> = [
     error: new NestedWriteError("Nested write failed", "posts"),
   },
   {
+    label: "ForbiddenError",
+    error: new ForbiddenError("page", "create"),
+  },
+  {
     label: "CacheInvalidTTLError",
     error: new CacheInvalidTTLError("Invalid TTL"),
   },
@@ -216,6 +221,9 @@ const EXPECTED_UNMAPPED: VibORMErrorCode[] = [
   VibORMErrorCode.OPERATION_EXECUTION_CONFLICT,
   VibORMErrorCode.OPERATION_CLIENT_MISMATCH,
   VibORMErrorCode.OPERATION_SCOPE_MISMATCH,
+  // V13001 is a policy's refusal of an operation the caller may otherwise
+  // express. Prisma has no authorization layer, so there is no P-code to claim.
+  VibORMErrorCode.FORBIDDEN,
   VibORMErrorCode.INTERNAL_ERROR,
   VibORMErrorCode.SCHEMA_ERROR,
 ];

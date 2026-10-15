@@ -420,7 +420,7 @@ try {
 | `ClientInitializationError` | `V1004` | `P1012` | Client could not be constructed from the given schema and configuration |
 
 **The table is deliberately partial.** Transaction failures, nested-write failures, cache,
-migration and pending-operation errors report `prismaCode: undefined` rather than a
+migration, pending-operation and authorization errors report `prismaCode: undefined` rather than a
 near-neighbour code — an unclaimed code is honest, a wrong one silently mis-routes your
 `catch`. For retry decisions use `error.isRetryable()`, which covers deadlocks,
 serialization failures, and timeouts on every database.
