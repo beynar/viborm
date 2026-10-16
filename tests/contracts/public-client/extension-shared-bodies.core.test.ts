@@ -22,6 +22,7 @@ import { createClient } from "@client/client";
 import { defineExtension } from "@extensions/definition";
 import { s } from "@schema";
 import { v } from "@src/validation";
+import { runSharedBodiesBehavior } from "@tests/contracts/public-client/shared-bodies-behavior";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, test } from "vitest";
@@ -199,4 +200,9 @@ describe("relation bodies a statement repeats, stated once", () => {
       ],
     ]);
   });
+});
+
+runSharedBodiesBehavior({
+  name: "SQLite3",
+  createDriver: createInMemorySQLite3Driver,
 });

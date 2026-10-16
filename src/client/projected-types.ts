@@ -21,14 +21,8 @@ import type { PendingOperation } from "@query-engine/pending-operation";
 import type { Model } from "@schema/model";
 import type { Prettify } from "@validation";
 import type { VibORMConfig } from "./client";
-import type {
-  GetTargetModel,
-  ModelResultSurface,
-  NodeInclude,
-  NodeSelect,
-  SameModelResultSurface,
-} from "./result-types";
-import type { ClientSchema } from "./schema-links";
+import type { NodeInclude, NodeSelect } from "./result-types";
+import type { ClientRelationLinks, ClientSchema } from "./schema-links";
 import type {
   ContextualOperationResult,
   NoExtraOperationKeys,
@@ -36,17 +30,6 @@ import type {
   PlacedOperationControls,
   WithControlArgs,
 } from "./types";
-
-/** One model's declared projection key, matched by its result surface. */
-export interface ProjectionEntry<
-  Surface,
-  Names extends string,
-  Ordered extends boolean,
-> {
-  readonly surface: Surface;
-  readonly names: Names;
-  readonly ordered: Ordered;
-}
 
 /** The row operations a projection key reaches. */
 type ProjectedOperation =
@@ -96,72 +79,100 @@ type KeyOf<Verbs> = {
   [M in keyof Verbs]: DeclaredEvidence<Verbs[M]>["key"];
 }[keyof Verbs];
 
-type EntriesOf<C extends VibORMConfig, Verbs> = {
-  [M in EvidenceModels<C, Verbs>]: ProjectionEntry<
-    ModelResultSurface<ClientSchema<C>[M]>,
-    DeclaredEvidence<Verbs[M]>["names"],
-    DeclaredEvidence<Verbs[M]>["ordered"]
-  >;
-}[EvidenceModels<C, Verbs>];
+/** Projection facts stay keyed by the schema name, including at relation targets. */
+type ProjectionModels<C extends VibORMConfig, Verbs> = {
+  [M in keyof ClientSchema<C>]: {
+    readonly model: ClientSchema<C>[M];
+    readonly evidence: M extends keyof Verbs
+      ? [DeclaredEvidence<Verbs[M]>] extends [never]
+        ? undefined
+        : DeclaredEvidence<Verbs[M]>
+      : undefined;
+    readonly relations: M extends keyof ClientRelationLinks<C>
+      ? ClientRelationLinks<C>[M]
+      : never;
+  };
+};
 
-/** The entry of `M`, by its result surface; `never` where it declares none. */
-type EntryFor<M extends Model<any>, Entries> = Entries extends ProjectionEntry<
-  infer Surface,
-  string,
-  boolean
->
-  ? true extends SameModelResultSurface<ModelResultSurface<M>, Surface>
-    ? Entries
+type ProjectionModelsConstraint = Readonly<
+  Record<
+    PropertyKey,
+    {
+      readonly model: Model<any>;
+      readonly evidence: unknown;
+      readonly relations: unknown;
+    }
+  >
+>;
+
+/** Indistinguishable target types may link to several keys: only shared names are safe. */
+type CommonNames<Entry> = (
+  Entry extends { readonly names: infer Names extends string }
+    ? (name: Names) => void
     : never
+) extends (name: infer Names extends string) => void
+  ? Names
   : never;
 
-type KeyValue<Entry> =
-  Entry extends ProjectionEntry<unknown, infer Names, boolean>
-    ? boolean | readonly Names[]
-    : never;
+type KeyValue<Entry> = [Entry] extends [never]
+  ? never
+  : undefined extends Entry
+    ? never
+    : boolean | readonly CommonNames<Entry>[];
 
-type RelationsOf<M extends Model<any>> = M["~"]["state"]["relations"];
+type RelationsOf<
+  Models extends ProjectionModelsConstraint,
+  Name extends keyof Models,
+> = Models[Name]["model"]["~"]["state"]["relations"];
+
+type TargetName<
+  Models extends ProjectionModelsConstraint,
+  Name extends keyof Models,
+  Field,
+> = Field extends keyof Models[Name]["relations"]
+  ? Extract<Models[Name]["relations"][Field], keyof Models>
+  : never;
 
 /** A node's relation entry, admitting the key below it at the target's own. */
 type ProjectedRelation<
   Value,
-  M extends Model<any>,
+  Models extends ProjectionModelsConstraint,
+  Name extends keyof Models,
   Field,
-  Entries,
   Key extends string,
-> = Field extends keyof RelationsOf<M>
+> = Field extends keyof RelationsOf<Models, Name>
   ? Value extends object
-    ? ProjectedArgs<Value, GetTargetModel<RelationsOf<M>[Field]>, Entries, Key>
+    ? ProjectedArgs<Value, Models, TargetName<Models, Name, Field>, Key>
     : Value
   : Value;
 
 type ProjectedNode<
   Node,
-  M extends Model<any>,
-  Entries,
+  Models extends ProjectionModelsConstraint,
+  Name extends keyof Models,
   Key extends string,
 > = Node extends object
   ? {
       [Field in keyof Node]: ProjectedRelation<
         Node[Field],
-        M,
+        Models,
+        Name,
         Field,
-        Entries,
         Key
       >;
-    } & { readonly [K in Key]?: KeyValue<EntryFor<M, Entries>> }
+    } & { readonly [K in Key]?: KeyValue<Models[Name]["evidence"]> }
   : Node;
 
 /** A payload whose every `select` and `include` admits the key at its model's names. */
 type ProjectedArgs<
   Payload,
-  M extends Model<any>,
-  Entries,
+  Models extends ProjectionModelsConstraint,
+  Name extends keyof Models,
   Key extends string,
 > = Payload extends object
   ? {
       [Field in keyof Payload]: Field extends "select" | "include"
-        ? ProjectedNode<Payload[Field], M, Entries, Key>
+        ? ProjectedNode<Payload[Field], Models, Name, Key>
         : Payload[Field];
     }
   : Payload;
@@ -190,71 +201,74 @@ type Spelled<Node> = (NodeSelect<Node> extends object
   (NodeInclude<Node> extends object ? NodeInclude<Node> : unknown);
 
 /** What the key reads for `Entry` where the node asked for `Asked`. */
-type KeyResult<Entry, Asked> =
-  Entry extends ProjectionEntry<unknown, infer Names, infer Ordered>
-    ? Asked extends readonly (infer Some extends string)[]
-      ? Ordered extends true
-        ? Some | null
-        : { readonly [Name in Some]: boolean }
-      : Ordered extends true
-        ? Names | null
-        : { readonly [Name in Names]: boolean }
-    : never;
+type KeyResult<Entry, Asked> = Entry extends {
+  readonly names: infer Names extends string;
+  readonly ordered: infer Ordered extends boolean;
+}
+  ? Asked extends readonly (infer Some extends string)[]
+    ? Ordered extends true
+      ? Some | null
+      : { readonly [Name in Some]: boolean }
+    : Ordered extends true
+      ? Names | null
+      : { readonly [Name in Names]: boolean }
+  : never;
 
 type KeyMember<
   Node,
-  M extends Model<any>,
-  Entries,
+  Models extends ProjectionModelsConstraint,
+  Name extends keyof Models,
   Key extends string,
 > = Key extends keyof Spelled<Node>
   ? Spelled<Node>[Key] extends false | undefined
     ? unknown
     : {
         readonly [K in Key]: KeyResult<
-          EntryFor<M, Entries>,
+          Models[Name]["evidence"],
           Spelled<Node>[Key]
         >;
       }
   : unknown;
 
-type SpelledRelations<Node, M extends Model<any>> = Extract<
-  keyof Spelled<Node>,
-  keyof RelationsOf<M>
->;
+type SpelledRelations<
+  Node,
+  Models extends ProjectionModelsConstraint,
+  Name extends keyof Models,
+> = Extract<keyof Spelled<Node>, keyof RelationsOf<Models, Name>>;
 
 type OverlayRow<
   Row,
   Node,
-  M extends Model<any>,
-  Entries,
+  Models extends ProjectionModelsConstraint,
+  Name extends keyof Models,
   Key extends string,
 > = Prettify<
   {
-    [Field in keyof Row]: Field extends SpelledRelations<Node, M>
+    [Field in keyof Row]: Field extends SpelledRelations<Node, Models, Name>
       ? Spelled<Node>[Field] extends object
         ? Overlay<
             Row[Field],
             Spelled<Node>[Field],
-            GetTargetModel<RelationsOf<M>[Field]>,
-            Entries,
+            Models,
+            TargetName<Models, Name, Field>,
             Key
           >
         : Row[Field]
       : Row[Field];
-  } & KeyMember<Node, M, Entries, Key>
+  } & KeyMember<Node, Models, Name, Key>
 >;
 
 /** A result with the key's member added wherever the call spelled it. */
 type Overlay<
   Result,
   Node,
-  M extends Model<any>,
-  Entries,
+  Models extends ProjectionModelsConstraint,
+  Name extends keyof Models,
   Key extends string,
 > = Result extends readonly (infer Row)[]
-  ? OverlayRow<Row, Node, M, Entries, Key>[]
+  ? OverlayRow<Row, Node, Models, Name, Key>[]
   : Result extends object
-    ? OverlayRow<Result, Node, M, Entries, Key>
+    ? OverlayRow<Result, Node, Models, Name, Key>
     : Result;
 
 type ProjectedMethod<
@@ -263,12 +277,19 @@ type ProjectedMethod<
   ModelName extends keyof ClientSchema<C>,
   ClientDefaults,
   Controls,
-  Entries,
+  Models extends ProjectionModelsConstraint,
   Key extends string,
   M extends Model<any> = ClientSchema<C>[ModelName],
   Payload = OperationPayload<O, M>,
   Placed = PlacedOperationControls<Controls, ModelName, O>,
-> = <Arg extends ProjectedArgs<Exclude<Payload, undefined>, M, Entries, Key>>(
+> = <
+  Arg extends ProjectedArgs<
+    Exclude<Payload, undefined>,
+    Models,
+    ModelName,
+    Key
+  >,
+>(
   args: Arg &
     WithControlArgs<
       NoExtraOperationKeys<
@@ -290,8 +311,8 @@ type ProjectedMethod<
       ClientDefaults
     >,
     Arg,
-    M,
-    Entries,
+    Models,
+    ModelName,
     Key
   >
 >;
@@ -315,7 +336,7 @@ export type ProjectedModelOperations<
       ModelName,
       ClientDefaults,
       Controls,
-      EntriesOf<C, Verbs>,
+      ProjectionModels<C, Verbs>,
       KeyOf<Verbs>
     >;
   };

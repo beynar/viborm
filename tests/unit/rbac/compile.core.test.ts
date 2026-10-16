@@ -240,6 +240,17 @@ describe("R1: P(M, a) = within(a) ∧ limit(a) ∧ (⋁ rule(b ⊒ a) ∨ ⋁ ar
     expect(predicates.view).toEqual({ pages: { none: {} } });
   });
 
+  test.each([
+    { every: { OR: [] }, none: { id: "blocked" } },
+    { none: { id: "blocked" }, every: { OR: [] } },
+  ])("a false every keeps its empty-relation requirement beside none: %j", (pages) => {
+    const { predicates } = compile({
+      levels: LEVELS,
+      models: { pageGroup: { view: { pages } }, page: { view: {} } },
+    }).models.pageGroup!;
+    expect(predicates.view).toEqual({ pages: { none: {} } });
+  });
+
   test("a relation whose value is an action is the target's predicate at it, inlined (D7)", () => {
     const compiled = compile({
       levels: LEVELS,

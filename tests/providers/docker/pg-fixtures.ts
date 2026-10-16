@@ -12,8 +12,8 @@ import { createClient as PgCreateClient } from "@drivers/pg";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
- * The server as configured: its own `jit` setting. Only the JIT cost witness
- * (`pg-jit-cost.test.ts`) connects through it.
+ * The transport as configured, with no added startup parameters. Used by the
+ * JIT cost witness and migration contracts that also run through PgBouncer.
  */
 export const SERVER_CONNECTION_STRING = process.env.PG_TEST_CONNECTION_STRING;
 

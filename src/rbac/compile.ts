@@ -518,6 +518,7 @@ export function compilePolicy(
     if (!Object.keys(member).some((op) => QUANTIFIERS.has(op)))
       return lower(target, action, member, at);
     const out: Record<string, unknown> = {};
+    let requiresEmpty = false;
     for (const [op, body] of Object.entries(member)) {
       if (!(QUANTIFIERS.has(op) && body !== null)) {
         out[op] = body;
@@ -528,8 +529,11 @@ export function compilePolicy(
       // `every` only where nothing is related.
       if (lowered !== false) out[op] = lowered;
       else if (op === "is" || op === "some") return false;
-      else if (op === "every") out.none = {};
+      else if (op === "every") requiresEmpty = true;
     }
+    // `every false` requires an empty relation, which implies any `none`
+    // clause. Apply it last so property order cannot weaken the conjunction.
+    if (requiresEmpty) out.none = {};
     return Object.keys(out).length === 0 ? undefined : out;
   };
 

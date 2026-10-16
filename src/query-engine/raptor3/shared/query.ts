@@ -1270,7 +1270,7 @@ let nextValueId = 0;
 /** A bound value as a key: a primitive by value, a `Date` by its instant, a list by its members, anything else by identity. */
 function valueKey(value: unknown): string {
   if (value instanceof Date) return `d${value.getTime()}`;
-  if (Array.isArray(value)) return `[${value.map(valueKey).join(",")}]`;
+  if (Array.isArray(value)) return `a${JSON.stringify(value.map(valueKey))}`;
   if (
     value === null ||
     (typeof value !== "object" && typeof value !== "function")
@@ -1287,15 +1287,59 @@ function valueKey(value: unknown): string {
 function sharedKey(query: Sql): string {
   const { strings, values } = Sql.peek(query);
   const renumbered = new Map<string, number>();
-  const text = strings.join("\u0001").replace(ALIAS_TOKEN, (_, n: string) => {
-    let local = renumbered.get(n);
-    if (local === undefined) {
-      local = renumbered.size;
-      renumbered.set(n, local);
+  const normalized = strings.map((text) =>
+    text.replace(ALIAS_TOKEN, (_, n: string) => {
+      let local = renumbered.get(n);
+      if (local === undefined) {
+        local = renumbered.size;
+        renumbered.set(n, local);
+      }
+      return `q${local}`;
+    })
+  );
+  // SQL text and bound strings may contain any delimiter. Preserve the
+  // tuple boundaries, including array members, before sharing a predicate.
+  return JSON.stringify([normalized, values.map(valueKey)]);
+}
+
+/**
+ * Textual alias renumbering cannot distinguish a physical name from an
+ * alias. Such schemas keep their relation bodies inline: an optimization
+ * must never rename a column, table, junction or namespace in its identity.
+ */
+const aliasLikeSchemas = new WeakMap<EngineSchema, boolean>();
+const ALIAS_LIKE_NAME = /q\d+/;
+const resemblesAlias = (name: string) => ALIAS_LIKE_NAME.test(name);
+function hasAliasLikeNames(schema: EngineSchema): boolean {
+  // Physical names are immutable for the schema lifetime, shared by every
+  // bound actor view. Scan them once, not for each operation's Queries.
+  return memo(aliasLikeSchemas, schema, () => {
+    for (const [model, slots] of schema.index) {
+      if (resemblesAlias(model["~"].names.sql!)) return true;
+      for (const field of schema.storedFields(model))
+        if (resemblesAlias(physicalField(schema, model, field).name))
+          return true;
+      for (const { edge } of slots.values()) {
+        const junctions =
+          edge.kind === "junction"
+            ? [edge.topology]
+            : edge.kind === "variantJunctionCarrier"
+              ? edge.members.map((member) => member.topology)
+              : [];
+        for (const junction of junctions) {
+          if (resemblesAlias(junction.table)) return true;
+          for (const side of [junction.source, junction.target])
+            if (
+              side.members.some((member) =>
+                resemblesAlias(member.junctionField)
+              )
+            )
+              return true;
+        }
+      }
     }
-    return `q${local}`;
+    return false;
   });
-  return `${text}\u0000${values.map(valueKey).join("\u0002")}`;
 }
 /** No layer is lowering. */
 const NO_LAYERS: readonly number[] = Object.freeze([]);
@@ -1734,6 +1778,7 @@ export class Queries {
    * adapter shares them ({@link sharingBodies}).
    */
   #shared: SharedBodies | undefined;
+  readonly #sharesBodies: boolean;
   constructor(
     schema: EngineSchema,
     adapter: DatabaseAdapter,
@@ -1747,6 +1792,10 @@ export class Queries {
     this.#result = result;
     this.domain = domain;
     this.#call = call;
+    this.#sharesBodies =
+      adapter.capabilities.sharesRelationBodies === true &&
+      !resemblesAlias(adapter.namespace ?? "") &&
+      !hasAliasLikeNames(schema);
   }
   /**
    * `build`'s statement, where the adapter shares relation bodies
@@ -1779,7 +1828,7 @@ export class Queries {
   }
   /** `build`'s statement, sharing its bodies where the adapter does. */
   #sharing(build: () => Sql | undefined): Sql | undefined {
-    if (this.adapter.capabilities.sharesRelationBodies !== true) return build();
+    if (!this.#sharesBodies) return build();
     let built = true;
     const statement = this.#sharingBodies(() => {
       const made = build();
@@ -5501,8 +5550,7 @@ export class Queries {
    * relation bodies where the adapter does ({@link sharingBodies}).
    */
   read(model: AnyModel, operation: ReadOperation, args: Arguments): Read {
-    if (this.adapter.capabilities.sharesRelationBodies !== true)
-      return this.#read(model, operation, args);
+    if (!this.#sharesBodies) return this.#read(model, operation, args);
     let read: Read | undefined;
     const statement = this.#sharingBodies(() => {
       read = this.#read(model, operation, args);
