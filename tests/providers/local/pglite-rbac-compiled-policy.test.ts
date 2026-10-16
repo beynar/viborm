@@ -9,6 +9,9 @@ import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 runCompiledPolicyBehavior({
   name: "PGlite",
+  // The cap witness compares two policies across every actor and action.
+  // Embedded PostgreSQL can exceed the ordinary 30s test limit on CI.
+  timeout: 120_000,
   createDriver: createInMemoryPGliteDriver,
   prepare: async (client) => {
     await syncLiveSchema(client);

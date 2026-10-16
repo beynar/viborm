@@ -1,0 +1,15 @@
+diff --git a/dist/src/index.js b/dist/src/index.js
+index b5dff1cdd64841477b0c45df564c88108a8b6aae..8ed75f27aa844dcfceb868e8d7c1b26fbb637c1a 100644
+--- a/dist/src/index.js
++++ b/dist/src/index.js
+@@ -61715,6 +61715,10 @@ var Miniflare2 = class _Miniflare {
+         /* grace */
+         0
+       );
++      // Backport https://github.com/cloudflare/workers-sdk/pull/14850:
++      // workerd reuses this socket after long tests; Node's default idle
++      // timeout otherwise races with the isolated-storage loopback request.
++      server.keepAliveTimeout = 0;
+       server.on("upgrade", this.#handleLoopbackUpgrade);
+       server.listen(0, hostname, () => resolve5(server));
+     });

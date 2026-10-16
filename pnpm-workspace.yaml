@@ -24,3 +24,4 @@ overrides:
 patchedDependencies:
   http-cache-semantics@4.3.0: patches/http-cache-semantics@4.3.0.patch
   deepmerge-ts@8.0.0: patches/deepmerge-ts@8.0.0.patch
+  miniflare@4.20251011.0: patches/miniflare@4.20251011.0.patch

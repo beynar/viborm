@@ -19,6 +19,9 @@ patchedDependencies:
   http-cache-semantics@4.3.0:
     hash: 94940fc879480fa614002f7b74ab61ac32b590402949f2a8e816b5048d990715
     path: patches/http-cache-semantics@4.3.0.patch
+  miniflare@4.20251011.0:
+    hash: 60acfa32baef3cc625efcbfbd61fdc33db4b94570718fa9c3ab76240e9a196d2
+    path: patches/miniflare@4.20251011.0.patch
 
 importers:
 
@@ -7847,7 +7850,7 @@ snapshots:
       birpc: 0.2.14
       cjs-module-lexer: 1.4.3
       devalue: 5.9.0
-      miniflare: 4.20251011.0
+      miniflare: 4.20251011.0(patch_hash=60acfa32baef3cc625efcbfbd61fdc33db4b94570718fa9c3ab76240e9a196d2)
       semver: 7.8.5
       vitest: 3.1.4(@types/debug@4.1.13)(@types/node@22.20.5)(@vitest/ui@3.1.4)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.1)
       wrangler: 4.44.0(@cloudflare/workers-types@4.20260103.0)
@@ -12635,7 +12638,7 @@ snapshots:
 
   mimic-response@3.1.0: {}
 
-  miniflare@4.20251011.0:
+  miniflare@4.20251011.0(patch_hash=60acfa32baef3cc625efcbfbd61fdc33db4b94570718fa9c3ab76240e9a196d2):
     dependencies:
       '@cspotcode/source-map-support': 0.8.1
       acorn: 8.14.0
@@ -14397,7 +14400,7 @@ snapshots:
       '@cloudflare/unenv-preset': 2.7.8(unenv@2.0.0-rc.21)(workerd@1.20251011.0)
       blake3-wasm: 2.1.5
       esbuild: 0.25.4
-      miniflare: 4.20251011.0
+      miniflare: 4.20251011.0(patch_hash=60acfa32baef3cc625efcbfbd61fdc33db4b94570718fa9c3ab76240e9a196d2)
       path-to-regexp: 6.3.0
       unenv: 2.0.0-rc.21
       workerd: 1.20251011.0

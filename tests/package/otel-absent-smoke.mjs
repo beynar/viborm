@@ -83,9 +83,12 @@ try {
   const { Driver } = await import(
     pathToFileURL(join(packageRoot, "dist", "driver.mjs")).href
   );
+  const { SQLiteAdapter } = await import(
+    pathToFileURL(join(packageRoot, "dist", "adapters.mjs")).href
+  );
 
   class ProbeDriver extends Driver {
-    adapter = {};
+    adapter = new SQLiteAdapter();
 
     constructor() {
       super("sqlite", "otel-absent-probe");
