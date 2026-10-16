@@ -23,24 +23,11 @@ and statement transforms see every row, even on a governed client. See
 
 ## 1. A blog: authors edit their own posts
 
+<Tabs>
+  <Tab title="Policy">
 ```ts
-import { s } from "viborm";
 import { owner, rbac } from "viborm/rbac";
 import { v } from "viborm/validation";
-
-const user = s.model({
-  id: s.string().id(),
-  name: s.string(),
-  admin: s.boolean().default(false),
-  posts: s.toMany(() => post),
-});
-const post = s.model({
-  id: s.string().id(),
-  title: s.string(),
-  published: s.boolean().default(false),
-  authorId: s.string(),
-  author: s.toOne(() => user).fields("authorId").references("id"),
-});
 
 const policy = rbac({
   // Who calls: the facts of the request, given by your server.
@@ -58,6 +45,27 @@ const policy = rbac({
 
 const db = policy(base); // `base` is your client
 ```
+  </Tab>
+  <Tab title="Schema">
+```ts
+import { s } from "viborm";
+
+const user = s.model({
+  id: s.string().id(),
+  name: s.string(),
+  admin: s.boolean().default(false),
+  posts: s.toMany(() => post),
+});
+const post = s.model({
+  id: s.string().id(),
+  title: s.string(),
+  published: s.boolean().default(false),
+  authorId: s.string(),
+  author: s.toOne(() => user).fields("authorId").references("id"),
+});
+```
+  </Tab>
+</Tabs>
 
 `{ actor: "userId" }` is "the value of `userId` in the actor": the same
 policy serves every user, each request supplies its own values.
@@ -196,28 +204,8 @@ follows another's, without writing it twice.
 A multi-tenant app adds a condition to *every* action of most models: "the
 caller is a member of the row's organization". Write it once in `within`.
 
-```ts
-const organization = s.model({
-  id: s.string().id(),
-  name: s.string(),
-  members: s.toMany(() => member),
-  projects: s.toMany(() => project),
-});
-const member = s.model({
-  organizationId: s.string(),
-  organization: s.toOne(() => organization).fields("organizationId").references("id"),
-  userId: s.string(),
-  role: s.enum(["admin", "member", "reader"]),
-}).id(["organizationId", "userId"]);
-const project = s.model({
-  id: s.string().id(),
-  name: s.string(),
-  organizationId: s.string(),
-  organization: s.toOne(() => organization).fields("organizationId").references("id"),
-  ownerId: s.string(),
-});
-```
-
+<Tabs>
+  <Tab title="Policy">
 ```ts
 import { member, owner, rbac } from "viborm/rbac";
 
@@ -240,6 +228,31 @@ const policy = rbac({
   },
 });
 ```
+  </Tab>
+  <Tab title="Schema">
+```ts
+const organization = s.model({
+  id: s.string().id(),
+  name: s.string(),
+  members: s.toMany(() => member),
+  projects: s.toMany(() => project),
+});
+const member = s.model({
+  organizationId: s.string(),
+  organization: s.toOne(() => organization).fields("organizationId").references("id"),
+  userId: s.string(),
+  role: s.enum(["admin", "member", "reader"]),
+}).id(["organizationId", "userId"]);
+const project = s.model({
+  id: s.string().id(),
+  name: s.string(),
+  organizationId: s.string(),
+  organization: s.toOne(() => organization).fields("organizationId").references("id"),
+  ownerId: s.string(),
+});
+```
+  </Tab>
+</Tabs>
 
 `member({ via: "organization" })` is a helper. It returns this `where`, which
 you could write yourself:
@@ -303,22 +316,12 @@ project: {
 
 To share a single row with a person, store the share as a row: a *grant*.
 
-```ts
-const accessGrant = s.model({
-  id: s.string().id(),
-  projectId: s.string(),
-  project: s.toOne(() => project).fields("projectId").references("id"),
-  userId: s.string().nullable(),          // to one user…
-  everyone: s.boolean().default(false),   // …or to everyone
-  level: s.enum(["view", "edit", "full"]),
-});
-// and on project: grants: s.toMany(() => accessGrant)
-```
-
 A project is then also reachable by "a grant on it, to me, at this level or
 above". Because that depends on the action, it goes in `arms`, a list of
 rules each read **at every action**:
 
+<Tabs>
+  <Tab title="Policy">
 ```ts
 import { everyone, grant, owner } from "viborm/rbac";
 
@@ -335,6 +338,21 @@ project: {
   arms: [shared], // a grant at a level gives that level and the ones below
 },
 ```
+  </Tab>
+  <Tab title="Schema">
+```ts
+const accessGrant = s.model({
+  id: s.string().id(),
+  projectId: s.string(),
+  project: s.toOne(() => project).fields("projectId").references("id"),
+  userId: s.string().nullable(),          // to one user…
+  everyone: s.boolean().default(false),   // …or to everyone
+  level: s.enum(["view", "edit", "full"]),
+});
+// and on project: grants: s.toMany(() => accessGrant)
+```
+  </Tab>
+</Tabs>
 
 At `edit`, `shared` is, simplified, this `where`:
 
@@ -375,6 +393,22 @@ Documents in folders: a document is readable when **it or any of its
 ancestors** is shared with the caller. That is a recursive filter, the same
 `recurse` you can already write in a `where`:
 
+<Tabs>
+  <Tab title="Policy">
+```ts
+document: {
+  within: inOrg,
+  view: {
+    parent: {
+      recurse: { depth: false }, // every ancestor, all the way up
+      self: true,                // the document itself too
+      some: { OR: [{ ownerId: { actor: "userId" } }, shared] },
+    },
+  },
+},
+```
+  </Tab>
+  <Tab title="Schema">
 ```ts
 const document = s.model({
   id: s.string().id(),
@@ -388,19 +422,8 @@ const document = s.model({
   grants: s.toMany(() => accessGrant), // accessGrant gains documentId and document
 });
 ```
-
-```ts
-document: {
-  within: inOrg,
-  view: {
-    parent: {
-      recurse: { depth: false }, // every ancestor, all the way up
-      self: true,                // the document itself too
-      some: { OR: [{ ownerId: { actor: "userId" } }, shared] },
-    },
-  },
-},
-```
+  </Tab>
+</Tabs>
 
 Read it as: "among this document and all its ancestors, *some* is owned by
 me or shared with me". The `up` helper writes exactly this object:
@@ -457,23 +480,6 @@ document: {
 Teams nested in teams: a grant to a team reaches its members **and the members
 of every team below it**. Same `recurse`, on the team graph this time:
 
-```ts
-const team = s.model({
-  id: s.string().id(),
-  parentId: s.string().nullable(),
-  parent: s.toOne(() => team).fields("parentId").references("id"),
-  children: s.toMany(() => team),
-  members: s.toMany(() => teamMember),
-  grants: s.toMany(() => accessGrant),
-});
-const teamMember = s.model({
-  teamId: s.string(),
-  team: s.toOne(() => team).fields("teamId").references("id"),
-  userId: s.string(),
-}).id(["teamId", "userId"]);
-// and on accessGrant: teamId: s.string().nullable(), team: s.toOne(() => team)…
-```
-
 "The grant's team, or one of the teams below it, has me as a member":
 
 ```ts
@@ -494,6 +500,8 @@ which is what `team("team", { below: "children", memberOf: "members" })`
 returns. Add it to the grantees of `shared`, and the whole previous section
 keeps working:
 
+<Tabs>
+  <Tab title="Policy">
 ```ts
 import { everyone, grant, owner, team, up } from "viborm/rbac";
 
@@ -515,6 +523,26 @@ document: {
   fields: { ownerId: { write: "full" } },
 },
 ```
+  </Tab>
+  <Tab title="Schema">
+```ts
+const team = s.model({
+  id: s.string().id(),
+  parentId: s.string().nullable(),
+  parent: s.toOne(() => team).fields("parentId").references("id"),
+  children: s.toMany(() => team),
+  members: s.toMany(() => teamMember),
+  grants: s.toMany(() => accessGrant),
+});
+const teamMember = s.model({
+  teamId: s.string(),
+  team: s.toOne(() => team).fields("teamId").references("id"),
+  userId: s.string(),
+}).id(["teamId", "userId"]);
+// and on accessGrant: teamId: s.string().nullable(), team: s.toOne(() => team)…
+```
+  </Tab>
+</Tabs>
 
 That one `document` entry now says: a document is reachable at a level when
 it or any ancestor is owned by the caller, or carries a grant at that level
