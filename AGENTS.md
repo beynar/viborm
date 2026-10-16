@@ -317,6 +317,10 @@ restrict them. Inherited rules and their nested callbacks evaluate the requested
 action, never the declaring action. Within one model/action, the same top-level
 rule assigned to several inherited actions contributes once. The retired `arms`
 and `within` keys are refused rather than admitted as implicit actions.
+Comma-separated rule keys assign one rule to individual actions, with surrounding
+ASCII whitespace ignored. `compile.ts` resolves the graph, rule bindings and
+evidence together; overlapping assignments, empty members and grouped reserved
+keys are refused. Levels, graph edges and call sites still name single actions.
 `tests/package/rbac-consumer-smoke.mjs` runs §1.1 and the blog from the
 packed package.
 

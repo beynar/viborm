@@ -50,6 +50,36 @@ export function checkRbacExtensionTypes() {
   );
 
   expectTypeOf(db.$driver).toEqualTypeOf<typeof base.$driver>();
+  const grouped = base.$extends(
+    rbac({
+      actor,
+      levels: ["view", "edit", "full"],
+      models: {
+        post: {
+          "view, edit": (action, model) => {
+            expectTypeOf(action).toEqualTypeOf<string>();
+            expectTypeOf(model).toEqualTypeOf<PolicyModel>();
+            return { ownerId: { actor: "userId" } };
+          },
+        },
+      },
+    })
+  );
+  expectTypeOf(grouped.post.can("edit", { id: "p" })).toEqualTypeOf<
+    Promise<boolean>
+  >();
+  grouped.post.findMany({ as: "view", select: { $access: true } });
+  // @ts-expect-error - a group is declaration syntax, not an action
+  grouped.post.can("view, edit", { id: "p" });
+  // @ts-expect-error - modes also name individual actions
+  grouped.post.findMany({ as: "view, edit" });
+  base.$extends(
+    // @ts-expect-error - grouped callbacks preserve declaration admission
+    rbac({
+      actor,
+      models: { post: { "view, arms": (action) => ({ id: action }) } },
+    })
+  );
   const dynamic = base.$extends(
     rbac({
       actor,

@@ -74,7 +74,7 @@ export interface ModelPolicy {
     };
   };
   readonly domains?: { readonly [name: string]: Rule };
-  /** A named action's rule: `view`, `edit`, `invite`, … */
+  /** A named action or comma-separated actions' rule: `view`, `view, edit`, … */
   readonly [action: string]: Rule | undefined;
 }
 
@@ -200,47 +200,102 @@ function or(clauses: readonly Clause[]): Clause {
   return flat.length === 1 ? flat[0]! : { OR: flat };
 }
 
-/** Each action of a model with what it directly implies (D3). */
+/** A model's admitted action graph, rule assignments and projection meaning. */
+interface ActionRules {
+  readonly implies: ReadonlyMap<string, readonly string[]>;
+  readonly rules: ReadonlyMap<
+    string,
+    { readonly rule: Rule | undefined; readonly source: string }
+  >;
+  readonly evidence: {
+    readonly names: readonly string[];
+    readonly ordered: boolean;
+  };
+}
+
+/** Resolve grouped rule keys once, before any consumer reads their actions. */
 function actionsOf(
   name: string,
   policy: ModelPolicy,
   levels: readonly string[]
-): ReadonlyMap<string, readonly string[]> {
+): ActionRules {
   const implies = new Map<string, readonly string[]>(
     policy.actions
       ? Object.entries(policy.actions)
       : levels.map((level, index) => [level, levels.slice(index - 1, index)])
   );
-  for (const key of Object.keys(policy)) {
-    // Never reinterpret an old global restriction as an action that grants view.
-    if (key === "within")
-      refuse(`models.${name}.within was renamed to "mandatory"`, name);
-    if (key === "arms")
+  const rules = new Map<
+    string,
+    { readonly rule: Rule | undefined; readonly source: string }
+  >();
+  // Only a model's rule keys can group actions. Graph edges and levels name
+  // individual actions, so accepting a comma there would create another action.
+  for (const action of [
+    ...levels,
+    ...implies.keys(),
+    ...[...implies.values()].flat(),
+  ])
+    if (action.includes(","))
       refuse(
-        `models.${name}.arms was removed; assign rules to named actions`,
+        `models.${name}: "${action}" is not an individual action; commas group rules only`,
         name
       );
-    if (RESERVED.has(key) || implies.has(key)) continue;
-    // A model that lists its actions names every one: a key it does not
-    // list is a typo, and as an action it would widen view (R2).
-    if (policy.actions)
-      refuse(
-        `models.${name}.${key}: neither an action ${name} lists in \`actions\` nor a key of the declaration (${[...RESERVED].join(", ")})`,
-        name
+
+  for (const sourceKey of Object.keys(policy)) {
+    if (RESERVED.has(sourceKey)) continue;
+    const source = `models.${name}.${sourceKey}`;
+    const binding = { rule: policy[sourceKey], source };
+    const keys = sourceKey.includes(",")
+      ? sourceKey
+          .split(",")
+          .map((key) => key.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, ""))
+      : [sourceKey];
+    for (const key of keys) {
+      if (key.length === 0)
+        refuse(
+          `${source}: an action group cannot contain an empty member`,
+          name
+        );
+      // Never reinterpret an old restriction or grant container as an action.
+      if (key === "within")
+        refuse(`${source} was renamed to "mandatory"`, name);
+      if (key === "arms")
+        refuse(
+          `${source}: arms was removed; assign rules to named actions`,
+          name
+        );
+      if (RESERVED.has(key))
+        refuse(
+          `${source}: "${key}" is a key of the declaration, not an action`,
+          name
+        );
+      const previous = rules.get(key);
+      if (previous !== undefined)
+        refuse(
+          `${source}: action "${key}" already has a rule at ${previous.source}`,
+          name
+        );
+      rules.set(key, binding);
+      if (implies.has(key)) continue;
+      // An explicit graph lists every action: unknown members would widen view.
+      if (policy.actions)
+        refuse(
+          `${source}: neither an action ${name} lists in \`actions\` nor a key of the declaration (${[...RESERVED].join(", ")}); unknown action "${key}"`,
+          name
+        );
+      // Implicit action members each receive the same typo protection as a key.
+      const meant = [...RESERVED, ...levels].find(
+        (known) =>
+          known.toLowerCase() === key.toLowerCase() ||
+          distance(known, key) <= (known.length <= 4 ? 1 : 2)
       );
-    // Else a rule key that is not a level names an action implying view;
-    // one spelled like a declaration key or a level is that key mistyped.
-    const meant = [...RESERVED, ...levels].find(
-      (known) =>
-        known.toLowerCase() === key.toLowerCase() ||
-        distance(known, key) <= (known.length <= 4 ? 1 : 2)
-    );
-    if (meant !== undefined)
-      refuse(
-        `models.${name}.${key}: spelled like "${meant}"; an action of that name would widen view (R2): rename it, or list the model's \`actions\``,
-        name
-      );
-    implies.set(key, key === "view" ? [] : ["view"]);
+      if (meant !== undefined)
+        refuse(
+          `${source}: spelled like "${meant}"; an action of that name would widen view (R2): rename it, or list the model's \`actions\``,
+          name
+        );
+      implies.set(key, key === "view" ? [] : ["view"]);
+    }
   }
   for (const [action, implied] of implies) {
     if (action === "arms" || action === "within")
@@ -260,28 +315,26 @@ function actionsOf(
           name
         );
   }
-  return implies;
+  const names = [...implies.keys()];
+  return {
+    implies,
+    rules,
+    evidence: {
+      names,
+      ordered:
+        policy.actions === undefined &&
+        names.length > 0 &&
+        names.length === levels.length,
+    },
+  };
 }
 
-/**
- * What a listed model's projection key reports (D6): its actions, in their
- * declared order, and whether they are exactly the levels, so that the key
- * reads the highest one held. A model that declares none has no key.
- */
+/** The projection's action names and whether they are exactly the levels (D6). */
 export function evidenceOf(
   config: RbacConfig,
   name: string
 ): { readonly names: readonly string[]; readonly ordered: boolean } {
-  const policy = config.models[name]!;
-  const levels = config.levels ?? [];
-  const names = [...actionsOf(name, policy, levels).keys()];
-  return {
-    names,
-    ordered:
-      policy.actions === undefined &&
-      names.length > 0 &&
-      names.length === levels.length,
-  };
+  return actionsOf(name, config.models[name]!, config.levels ?? []).evidence;
 }
 
 /**
@@ -331,7 +384,7 @@ export function compilePolicy(
     return names.get(settled as AnyModel);
   };
 
-  const implications = new Map<string, ReadonlyMap<string, readonly string[]>>(
+  const actions = new Map<string, ActionRules>(
     Object.entries(config.models).map(([name, policy]) => [
       name,
       actionsOf(name, policy, levels),
@@ -341,7 +394,7 @@ export function compilePolicy(
   const modelOf = (name: string): PolicyModel => {
     const known = models.get(name);
     if (known) return known;
-    const implies = implications.get(name) ?? new Map();
+    const implies = actions.get(name)?.implies ?? new Map();
     const above = new Map(
       [...implies.keys()].map((action) => {
         const reaches = (from: string, seen: Set<string>): boolean => {
@@ -389,9 +442,9 @@ export function compilePolicy(
     // Its callbacks always read the requested action, including nested rules.
     const rules = new Map<Rule, string>();
     for (const inherited of model.above(action)) {
-      const rule = policy[inherited];
-      if (rule !== undefined && !rules.has(rule))
-        rules.set(rule, `${at}.${inherited}`);
+      const binding = actions.get(name)!.rules.get(inherited);
+      if (binding?.rule !== undefined && !rules.has(binding.rule))
+        rules.set(binding.rule, binding.source);
     }
     const clause = and([
       lower(name, action, policy.mandatory ?? {}, `${at}.mandatory`),
@@ -756,7 +809,10 @@ export function compilePolicy(
     for (const [verb, fallback] of [
       ["read", "view"],
       ["update", "edit"],
-      ["delete", evidenceOf(config, name).ordered ? levels.at(-1)! : "delete"],
+      [
+        "delete",
+        actions.get(name)!.evidence.ordered ? levels.at(-1)! : "delete",
+      ],
     ] as const) {
       const action = operations[verb] ?? fallback;
       if (model.actions.includes(action)) verbs[verb] = action;
@@ -882,7 +938,7 @@ export function compilePolicy(
     for (const verb of ["read", "update", "delete"] as const)
       declared(`operations.${verb}`, operations[verb]);
     const verbs = verbsFor(name);
-    const evidence = evidenceOf(config, name);
+    const evidence = actions.get(name)!.evidence;
 
     const writes: Record<string, string> = {};
     const reads: Record<string, string> = {};

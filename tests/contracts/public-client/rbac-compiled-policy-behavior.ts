@@ -203,12 +203,7 @@ export function runCompiledPolicyBehavior(substrate: RbacAppSubstrate): void {
           ...models,
           document: {
             ...models.document,
-            view: documentOwnership,
-            comment: documentOwnership,
-            archive: documentOwnership,
-            edit: documentOwnership,
-            share: documentOwnership,
-            export: documentOwnership,
+            "view, comment, archive, edit, share, export": documentOwnership,
           },
         }));
         const stripped = governed(levelsOnly, "levels-only");

@@ -25,8 +25,11 @@ base.$extends(rbac({ actor, models: { post: { view: { owner: { is: { /*related*/
 base.$extends(rbac({ actor, models: { post: { view: { ownerId: { actor: "/*paths*/" } } } } }));
 base.$extends(rbac({ actor, models: { post: { edit: (action, model) => ({ /*callbackFields*/ }) } } }));
 base.$extends(rbac({ actor, models: { post: { edit: { OR: [(action, model) => ({ /*nestedCallbackFields*/ })] } } } }));
+base.$extends(rbac({ actor, levels: ["view", "edit", "full"], models: { post: { "view, /*groupActions*/": {} } } }));
+base.$extends(rbac({ actor, models: { post: { actions: { view: [], edit: [], export: [] }, "view,edit, /*graphGroupActions*/": {} } } }));
+base.$extends(rbac({ actor, models: { post: { "view, edit": { /*groupFields*/ } } } }));
 /*dynamicStart*/
-const dynamic = base.$extends(rbac({ actor, levels: ["view", "edit"], models: { post: { edit: (action, model) => ({ OR: [{ id: action }, (requested, current) => ({ ownerId: current.name })] }) } } }));
+const dynamic = base.$extends(rbac({ actor, levels: ["view", "edit"], models: { post: { "view, edit": (action, model) => ({ OR: [{ id: action }, (requested, current) => ({ ownerId: current.name })] }) } } }));
 dynamic.post.can("edit", { id: "p" });
 /*dynamicEnd*/
 db.post.can("/*actions*/", { id: "p" });
@@ -62,6 +65,13 @@ withPackedConsumer("rbac-autocomplete", {}, ({ root }) => {
   try {
     for (const [marker, expected, excluded] of [
       ["models", ["post", "user"], ["ownerId"]],
+      ["groupActions", ["view, edit", "view, full"], ["view, view"]],
+      [
+        "graphGroupActions",
+        ["view,edit, export"],
+        ["view,edit, view", "view,edit, edit"],
+      ],
+      ["groupFields", ["id", "ownerId", "owner"], ["name"]],
       ["policy", ["mandatory", "create"], ["within", "arms"]],
       ["fields", ["id", "ownerId", "owner"], ["name"]],
       ["mandatoryFields", ["id", "ownerId", "owner"], ["name"]],

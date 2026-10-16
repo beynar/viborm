@@ -538,7 +538,7 @@ const document = s.model({
 
 Read it as: "among this document and all its ancestors, *some* is owned by
 me or shared with me". To use the same rule for each level, name the predicate
-once and assign it to the named permissions:
+once and assign it to the named permissions with a comma-separated key:
 
 ```ts
 const inheritedAccess: Rule = {
@@ -551,9 +551,7 @@ const inheritedAccess: Rule = {
 
 document: {
   mandatory: inOrg,
-  view: inheritedAccess,
-  edit: inheritedAccess,
-  full: inheritedAccess,
+  "view, edit, full": inheritedAccess,
 },
 ```
 
@@ -643,9 +641,7 @@ const inheritedAccess: Rule = {
 
 document: {
   mandatory: inOrg,
-  view: inheritedAccess,
-  edit: inheritedAccess,
-  full: inheritedAccess,
+  "view, edit, full": inheritedAccess,
   create: {
     OR: [{ parent: "edit" }, { parentId: null, ownerId: { actor: "userId" } }],
   },
@@ -953,8 +949,8 @@ no setter on the shared client, and the actor is never a call argument.
 
 ### Actions
 
-With `levels`, a model's actions are the levels, plus one action per extra
-rule key (implying `view`). A model can declare its own instead:
+With `levels`, a model's actions are the levels, plus any extra actions named
+by its rule keys (each implying `view`). A model can declare its own instead:
 
 ```ts
 document: {
@@ -970,7 +966,8 @@ document: {
 },
 ```
 
-A model that lists its `actions` names every one: any other key is refused.
+A model that lists its `actions` names every one: an unlisted action in any
+rule key is refused.
 
 `operations` maps each operation to an action. Defaults: read `view`, update
 `edit`, create `edit`, delete `delete` (the top level on a model whose
@@ -983,6 +980,30 @@ declare is refused before any statement.
 await call.project.findMany({ as: "edit" }); // the projects the caller may edit
 page: { /* … */ domains: { given: shared } }  // await call.page.findMany({ as: "given" })
 ```
+
+### One rule for several actions
+
+Use a comma-separated key to assign the same rule to several named permissions:
+
+```ts
+document: {
+  mandatory: inOrg,
+  "view, edit": {
+    OR: [{ ownerId: { actor: "userId" } }, shared],
+  },
+}
+```
+
+`"view,edit"` and `"view, edit"` are equivalent. Spaces, tabs and line breaks
+around each member are ignored. Spaces and dots alone do not separate actions. Each member follows
+the same inheritance and validation rules as an individual action key. If you
+list an explicit `actions` graph, every member must appear in it.
+
+A group is only shorthand in the declaration: use `can("edit", where)` and
+`findMany({ as: "edit" })`, never `"view, edit"` as an action. Rule functions
+receive the individual requested action. Repeated members, empty members and
+overlapping assignments are rejected: declaring both `"view, edit"` and `edit`
+would give `edit` two rules. Combine alternatives with `OR` in one rule instead.
 
 ### Rule functions
 

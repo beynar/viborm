@@ -126,6 +126,56 @@ describe("action names", () => {
     });
   });
 
+  test("groups name individual actions and reject ambiguous bindings", () => {
+    rbac({
+      actor: Actor,
+      models: {
+        page: {
+          actions: { view: [], edit: [], export: [] },
+          " view ,\tedit, export ": { ownerId: { actor: "userId" } },
+          operations: { update: "edit" },
+          fields: { title: { read: "view" } },
+        },
+      },
+    });
+    // @ts-expect-error - explicit graphs check every group member
+    rbac({
+      actor: Actor,
+      models: { page: { actions: { view: [], edit: [] }, "view, edti": {} } },
+    });
+    // @ts-expect-error - empty members are not permissions
+    rbac({ actor: Actor, models: { page: { "view, ": {} } } });
+    // @ts-expect-error - duplicate members are likely a mistake
+    rbac({ actor: Actor, models: { page: { "view, view": {} } } });
+    // @ts-expect-error - overlapping bindings cannot silently replace each other
+    rbac({ actor: Actor, models: { page: { "view, edit": {}, edit: {} } } });
+    // @ts-expect-error - overlapping groups are also ambiguous
+    rbac({
+      actor: Actor,
+      models: { page: { "view, edit": {}, "edit, full": {} } },
+    });
+    // @ts-expect-error - restrictions cannot be mixed into grants
+    rbac({ actor: Actor, models: { page: { "view, mandatory": {} } } });
+    // @ts-expect-error - retired names cannot be hidden in a group
+    rbac({ actor: Actor, models: { page: { "view, arms": {} } } });
+    // @ts-expect-error - the ladder declares individual action names
+    rbac({
+      actor: Actor,
+      levels: ["view", "edit, full"],
+      models: { page: { view: {} } },
+    });
+    // @ts-expect-error - graph nodes are individual names, not groups
+    rbac({
+      actor: Actor,
+      models: { page: { actions: { view: [], "edit, full": [] } } },
+    });
+    // @ts-expect-error - graph edges name one action
+    rbac({
+      actor: Actor,
+      models: { page: { actions: { view: [], edit: ["view, edit"] } } },
+    });
+  });
+
   test("operations and fields name the model's actions", () => {
     // @ts-expect-error - `remove` is not an action of page
     rbac({

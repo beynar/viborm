@@ -424,8 +424,8 @@
       "name": "pg application + rbac",
       "path": "node_modules/.cache/viborm-size/pg-rbac.mjs",
       "gzip": true,
-      "limit": "185.8 kB",
-      "message": "The pg application with viborm/rbac applied (the guide's blog policy: an actor schema, an explicit authorId predicate and an actor condition, $as per request, one read, one create, one can): measured 184,652 B at the M2 exit (wave 5), +5,534 B over the pg application row (the entry's compiler with placement, moves, acyclic relations and evidence, can/assert through $access). First measured 181,404 B at c7d1951cd (U10). Limit = measured rounded up to 0.1 kB + 0.3 kB (OD-17). Raised 185 → 185.8 kB by the measured +488 B (185.49 kB) of the independent review's fixes (2026-10-16): refusals of unknown policy, model and field-entry keys, mistyped declaration keys, keyLimit models and undeclared ceilings; can/assert over findUnique with one ask per level; the prover's structural equality and R6 safeguard (OD-17)."
+      "limit": "186.2 kB",
+      "message": "The pg application with viborm/rbac applied (the guide's blog policy: an actor schema, an explicit authorId predicate and an actor condition, $as per request, one read, one create, one can): measured 184,652 B at the M2 exit (wave 5), +5,534 B over the pg application row (the entry's compiler with placement, moves, acyclic relations and evidence, can/assert through $access). First measured 181,404 B at c7d1951cd (U10). Limit = measured rounded up to 0.1 kB + 0.3 kB (OD-17). Raised 185 → 185.8 kB by the measured +488 B (185.49 kB) of the independent review's fixes (2026-10-16): refusals of unknown policy, model and field-entry keys, mistyped declaration keys, keyLimit models and undeclared ceilings; can/assert over findUnique with one ask per level; the prover's structural equality and R6 safeguard (OD-17). Comma-separated action keys measure 185,861 B (2026-10-16): normalized bindings and rejection of empty, repeated, overlapping and reserved members. Limit 186.2 kB follows the same rounding plus 0.3 kB rule (OD-17)."
     },
     {
       "name": "rbac extension entry",

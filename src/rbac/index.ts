@@ -66,10 +66,49 @@ type Levels<Config> = Config extends { readonly levels: infer L }
     : never
   : never;
 
-/** A model's actions: its own map or the levels, and every rule key (D3). */
+type RuleKeys<M> = Exclude<keyof M & string, Reserved>;
+type Space = " " | "\t" | "\r" | "\n";
+type Trim<S extends string> = S extends `${Space}${infer Rest}`
+  ? Trim<Rest>
+  : S extends `${infer Rest}${Space}`
+    ? Trim<Rest>
+    : S;
+type SplitActions<S extends string> = S extends `${infer Head},${infer Tail}`
+  ? Trim<Head> | SplitActions<Trim<Tail>>
+  : S;
+
+/** Groups contribute their individual actions, never a combined action name. */
 type ActionsOf<M, L extends string> =
   | (M extends { readonly actions: infer A } ? keyof A & string : L)
-  | Exclude<keyof M & string, Reserved>;
+  | SplitActions<RuleKeys<M>>;
+
+type InvalidGroup<
+  S extends string,
+  Seen extends string = never,
+> = S extends `${infer Head},${infer Tail}`
+  ? Trim<Head> extends "" | Reserved | "within" | "arms" | Seen
+    ? S
+    : InvalidGroup<Trim<Tail>, Seen | Trim<Head>>
+  : [Seen] extends [never]
+    ? never
+    : S extends "" | Reserved | "within" | "arms" | Seen
+      ? S
+      : never;
+
+type InvalidRuleKeys<M> = {
+  [K in RuleKeys<M>]:
+    | ([InvalidGroup<K>] extends [never] ? never : K)
+    | ([
+        Extract<SplitActions<K>, SplitActions<Exclude<RuleKeys<M>, K>>>,
+      ] extends [never]
+        ? never
+        : K);
+}[RuleKeys<M>];
+type InvalidActionName<S> = S extends string
+  ? S extends `${string},${string}` | "within" | "arms"
+    ? S
+    : never
+  : never;
 
 type Values<T> = T extends object ? T[keyof T] : never;
 type NamedActions<M> =
@@ -87,15 +126,16 @@ type NamedActions<M> =
 
 /** Retired declaration keys and rules absent from an explicit action list. */
 type UnlistedKeys<M> =
-  | Extract<keyof M, "within" | "arms">
+  | Extract<RuleKeys<M>, "within" | "arms">
+  | InvalidRuleKeys<M>
   | (M extends { readonly actions: infer A }
       ?
-          | Extract<keyof A, "within" | "arms">
-          | Exclude<keyof M & string, Reserved | (keyof A & string)>
+          | InvalidActionName<keyof A>
+          | Exclude<SplitActions<RuleKeys<M>>, keyof A & string>
       : never);
 
 type UnknownActions<Config extends RbacConfig> =
-  | Extract<Levels<Config>, "within" | "arms">
+  | InvalidActionName<Levels<Config>>
   | {
       [K in keyof Config["models"] & string]: Exclude<
         NamedActions<Config["models"][K]> | UnlistedKeys<Config["models"][K]>,
@@ -603,9 +643,23 @@ type ContextualRule<Model, Actor> =
   | ContextualWhere<Model, Actor>
   | ((action: string, model: PolicyModel) => ContextualRule<Model, Actor>);
 
+/** Complete only the edited prefix, without enumerating action permutations. */
+type GroupSuggestions<
+  Key extends string,
+  Actions extends string,
+> = Key extends `${infer Head},${infer Tail}`
+  ? Tail extends `${string},${string}`
+    ? `${Head},${GroupSuggestions<Tail, Exclude<Actions, Trim<Head>>>}`
+    : `${Head},${Tail extends ` ${string}` ? " " : ""}${Exclude<Actions, Trim<Head>>}`
+  : never;
+type SuggestedRules<M, L extends string> =
+  | ActionsOf<M, L>
+  | GroupSuggestions<RuleKeys<M>, ActionsOf<M, L>>;
+
 type ContextualPolicy<
   C extends VibORMConfig,
   Actor,
+  Config extends RbacConfig,
 > = string extends keyof C["schema"]
   ? unknown
   : {
@@ -615,6 +669,13 @@ type ContextualPolicy<
           readonly [Key in Reserved]?: Key extends "mandatory" | "create"
             ? ContextualRule<ClientSchema<C>[Model], Actor>
             : ModelPolicy[Key];
+        } & {
+          readonly [Action in SuggestedRules<
+            Model extends keyof Config["models"]
+              ? Config["models"][Model]
+              : never,
+            Levels<Config>
+          >]?: ContextualRule<ClientSchema<C>[Model], Actor>;
         } & {
           readonly [Action: string]:
             | ContextualRule<ClientSchema<C>[Model], Actor>
@@ -640,7 +701,7 @@ export function rbac<
   config: Config & {
     readonly actor: Actor;
     readonly models: Record<ModelNames, unknown>;
-  } & ContextualPolicy<NoInfer<C>, NoInfer<Actor>> &
+  } & ContextualPolicy<NoInfer<C>, NoInfer<Actor>, NoInfer<Config>> &
     DeclarationCheck<Config> &
     SchemaCheck<NoInfer<C["schema"]>, Pick<Config["models"], ModelNames>>
 ): Policy<Config> &

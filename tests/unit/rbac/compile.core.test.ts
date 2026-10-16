@@ -12,7 +12,7 @@ import {
   type Rule,
   rbac,
 } from "@src/rbac";
-import { compilePolicy } from "@src/rbac/compile";
+import { compilePolicy, evidenceOf } from "@src/rbac/compile";
 import { v } from "@src/validation";
 import { schema } from "@tests/package/fixtures/rbac-app/schema";
 import {
@@ -202,6 +202,240 @@ describe("R1: P(M, a) = mandatory(a) ∧ limit(a) ∧ ⋁ rule(b ⊒ a)(a)", () 
     expect(predicates.edit).toEqual({ title: "edit" });
     expect(predicates.share).toEqual({ title: "share" });
     expect(predicates.export).toEqual(NOWHERE);
+  });
+
+  test.each([
+    "view,edit",
+    "view, edit",
+    " \tview\r\n,\n edit\t ",
+  ])("a grouped rule %j is the same declaration as individual assignments", (key) => {
+    const rule = { title: "allowed" };
+    const grouped = compile({
+      levels: LEVELS,
+      models: { page: { mandatory: { color: "blue" }, [key]: rule } },
+    }).models.page!;
+    const separate = compile({
+      levels: LEVELS,
+      models: {
+        page: { mandatory: { color: "blue" }, view: rule, edit: rule },
+      },
+    }).models.page!;
+    expect(grouped).toEqual(separate);
+    expect(grouped.predicates.view).toEqual({
+      AND: [{ color: "blue" }, { title: "allowed" }],
+    });
+    expect(grouped.predicates.full).toEqual(NOWHERE);
+    expect(grouped.read).toBe("view");
+    expect(grouped.update).toBe("edit");
+    expect(grouped.delete).toBe("full");
+    expect(grouped.evidence).toEqual({
+      as: "$access",
+      names: ["view", "edit", "full"],
+      ordered: true,
+    });
+  });
+
+  test("a grouped dynamic rule evaluates once at each requested action and never grants an unrelated branch", () => {
+    const calls: string[] = [];
+    const shared: Rule = (action, model) => {
+      calls.push(`${model.name}.${action}`);
+      return action === "edit" ? NOWHERE : { title: action };
+    };
+    const { predicates } = compile({
+      models: {
+        page: {
+          actions: {
+            view: [],
+            comment: ["view"],
+            edit: ["comment"],
+            share: ["edit"],
+            export: ["view"],
+          },
+          "comment, share": shared,
+        },
+      },
+    }).models.page!;
+    expect(calls).toEqual([
+      "page.view",
+      "page.comment",
+      "page.edit",
+      "page.share",
+    ]);
+    expect(predicates.view).toEqual({ title: "view" });
+    expect(predicates.comment).toEqual({ title: "comment" });
+    expect(predicates.edit).toEqual(NOWHERE);
+    expect(predicates.share).toEqual({ title: "share" });
+    expect(predicates.export).toEqual(NOWHERE);
+  });
+
+  test("implicit grouped actions use individual names in evidence, modes and operation bindings", () => {
+    const config = {
+      actor: Actor,
+      levels: LEVELS,
+      models: {
+        page: {
+          "invite, archive": { title: "allowed" },
+          operations: { update: "invite", delete: "archive" },
+        },
+      },
+    };
+    const result = compile(config).models.page!;
+    const evidence = evidenceOf(config, "page");
+    expect(evidence).toEqual({
+      names: ["view", "edit", "full", "invite", "archive"],
+      ordered: false,
+    });
+    expect(result.evidence?.names).toEqual(evidence.names);
+    expect(result.modes).toEqual({
+      view: "view",
+      edit: "edit",
+      full: "full",
+      invite: "invite",
+      archive: "archive",
+    });
+    expect(result.update).toBe("invite");
+    expect(result.delete).toBe("archive");
+    expect(result.predicates.view).toEqual({ title: "allowed" });
+    expect(result.predicates.edit).toEqual(NOWHERE);
+  });
+
+  test("group syntax preserves the source key in relation and actor-path errors", () => {
+    expect(
+      refusalOf(() =>
+        compile({
+          levels: LEVELS,
+          models: { page: { "view, edit": { owner: "missingAction" } } },
+        })
+      )
+    ).toContain('models.page.view, edit reads owner at "missingAction"');
+    expect(
+      refusalOf(() =>
+        compile({
+          levels: LEVELS,
+          models: {
+            page: { "view, edit": { ownerId: { actor: "missingActor" } } },
+          },
+        })
+      )
+    ).toContain('models.page.view, edit reads actor path "missingActor"');
+  });
+
+  test("spaces and dots never split individual action names", () => {
+    const result = compile({
+      models: {
+        page: {
+          actions: { "read write": [], "read.write": [] },
+          "read write": { title: "space" },
+          "read.write": { title: "dot" },
+        },
+      },
+    }).models.page!;
+    expect(result.evidence?.names).toEqual(["read write", "read.write"]);
+    expect(result.predicates["read write"]).toEqual({ title: "space" });
+    expect(result.predicates["read.write"]).toEqual({ title: "dot" });
+    expect(result.predicates.read).toBeUndefined();
+    expect(result.predicates.write).toBeUndefined();
+  });
+
+  test.each([
+    ",view",
+    "view,",
+    "view,,edit",
+    "view, \t\r\n,edit",
+  ])("an empty action in %j is refused before a grant is compiled", (key) => {
+    expect(
+      refusalOf(() =>
+        compile({
+          levels: LEVELS,
+          models: { page: { [key]: {} } },
+        })
+      )
+    ).toContain("an action group cannot contain an empty member");
+  });
+
+  test("duplicate members and overlapping groups cannot silently override a rule", () => {
+    for (const page of [
+      { "view,view": {} },
+      { "view, edit": {}, edit: { title: "different" } },
+      { edit: {}, "view, edit": {} },
+      { "view, edit": {}, "edit, full": {} },
+      { "view, edit": undefined, view: {} },
+    ])
+      expect(
+        refusalOf(() => compile({ levels: LEVELS, models: { page } }))
+      ).toContain("already has a rule at models.page.");
+  });
+
+  test.each([
+    "mandatory",
+    "actions",
+    "create",
+    "operations",
+    "fields",
+    "domains",
+    "within",
+    "arms",
+  ])("a group cannot reinterpret %j as an action", (key) => {
+    const message = refusalOf(() =>
+      compile({
+        levels: LEVELS,
+        models: { page: { [`view, ${key}`]: {} } },
+      })
+    );
+    expect(message).not.toBe("no refusal");
+    expect(message).toContain(`models.page.view, ${key}`);
+  });
+
+  test("every member receives typo protection or explicit graph validation", () => {
+    expect(
+      refusalOf(() =>
+        compile({
+          levels: LEVELS,
+          models: { page: { "view, edti": {} } },
+        })
+      )
+    ).toContain('models.page.view, edti: spelled like "edit"');
+    expect(
+      refusalOf(() =>
+        compile({
+          levels: LEVELS,
+          models: { page: { "view, mandatroy": {} } },
+        })
+      )
+    ).toContain('models.page.view, mandatroy: spelled like "mandatory"');
+    expect(
+      refusalOf(() =>
+        compile({
+          models: {
+            page: { actions: { view: [], edit: ["view"] }, "view, invite": {} },
+          },
+        })
+      )
+    ).toContain('unknown action "invite"');
+  });
+
+  test("levels and graph nodes or edges cannot declare grouped action names", () => {
+    const configs: Omit<RbacConfig, "actor">[] = [
+      { levels: ["view", "edit, full"], models: { page: { view: {} } } },
+      {
+        levels: ["view, edit"],
+        models: { page: { actions: { view: [] }, view: {} } },
+      },
+      {
+        models: {
+          page: { actions: { view: [], "edit, full": ["view"] }, view: {} },
+        },
+      },
+      {
+        models: {
+          page: { actions: { view: [], edit: ["view, full"] }, view: {} },
+        },
+      },
+    ];
+    for (const config of configs)
+      expect(refusalOf(() => compile(config))).toContain(
+        "is not an individual action; commas group rules only"
+      );
   });
 
   test("retired arms is rejected rather than interpreted as a permission", () => {

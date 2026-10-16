@@ -329,15 +329,11 @@ export const policy = rbac({
     },
     pageGroup: {
       mandatory: inOrg,
-      view: pageGroupAccess,
-      edit: pageGroupAccess,
-      full: pageGroupAccess,
+      "view, edit, full": pageGroupAccess,
     },
     page: {
       mandatory: inOrg,
-      view: pageAccess,
-      edit: pageAccess,
-      full: pageAccess,
+      "view, edit, full": pageAccess,
       create: {
         OR: [
           { group: "edit" },
@@ -357,12 +353,7 @@ export const policy = rbac({
         share: ["edit"],
         export: ["view"],
       },
-      view: documentAccess,
-      comment: documentAccess,
-      archive: documentAccess,
-      edit: documentAccess,
-      share: documentAccess,
-      export: documentAccess,
+      "view, comment, archive, edit, share, export": documentAccess,
       operations: { delete: "share" },
       create: {
         OR: [
@@ -374,9 +365,7 @@ export const policy = rbac({
     },
     collection: {
       mandatory: inOrg,
-      view: collectionAccess,
-      edit: collectionAccess,
-      full: collectionAccess,
+      "view, edit, full": collectionAccess,
       create: { createdById: { actor: "userId" } },
       fields: { budget: { read: "full" } },
     },
@@ -384,9 +373,7 @@ export const policy = rbac({
     // documents; its `subject` arm reads under the target's own `view`.
     bookmark: {
       mandatory: inOrg,
-      view: bookmarkAccess,
-      edit: bookmarkAccess,
-      full: bookmarkAccess,
+      "view, edit, full": bookmarkAccess,
     },
   },
 });
