@@ -4,7 +4,7 @@
 // request with `$as`, with one read, one write and one `can`.
 
 import { createClient } from "../../dist/pg.mjs";
-import { owner, rbac } from "../../dist/rbac.mjs";
+import { rbac } from "../../dist/rbac.mjs";
 import { s } from "../../dist/schema.mjs";
 import { v } from "../../dist/validation.mjs";
 
@@ -29,7 +29,7 @@ const blog = rbac({
   models: {
     post: {
       view: {},
-      edit: owner("authorId"),
+      edit: { authorId: { actor: "userId" } },
       delete: { actor: { admin: true } },
       create: { authorId: { actor: "userId" } },
     },

@@ -2,7 +2,7 @@
  * The RBAC acceptance policy (plan §1.1 `policy.ts`) from the packed tarball,
  * on every checker a consumer uses: a consumer with the rbac-app schema
  * (`fixtures/rbac-app/schema`) writes the whole policy, its stored-role
- * variant and the blog with `viborm/rbac`'s helpers, and compiles each against
+ * variant and the blog with explicit RBAC predicates, and compiles each against
  * the schema (`policy.compile(schema)`, which checks the model and field names
  * the policy spells), and applies the policy to a client: `db.$as(actor)` is
  * the governed client again, `can` and `assert` take each listed model's own

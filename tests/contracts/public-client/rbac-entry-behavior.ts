@@ -6,7 +6,7 @@ import {
 } from "@errors";
 import { MemoryCache } from "@src/cache/drivers/memory";
 import { cache } from "@src/cache/exports";
-import { owner, rbac } from "@src/rbac";
+import { rbac } from "@src/rbac";
 import { softDelete } from "@src/soft-delete/index";
 import { v } from "@src/validation";
 import {
@@ -528,12 +528,12 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
               .sort((a, b) => a.id.localeCompare(b.id))
           );
         }
-        // §1.1 inherits down the tree (every arm is `up()`), so no visible
+        // §1.1 inherits down the tree (every arm traverses `parent` recursively), so no visible
         // node has a hidden child; an owner-only policy cuts branches.
         const owned = loose(
           rbac({
             actor: ActorSchema,
-            models: { document: { view: owner("ownerId") } },
+            models: { document: { view: { ownerId: { actor: "userId" } } } },
           })(base)
         );
         for (const name of READERS) {
@@ -902,7 +902,10 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
             ...models,
             page: {
               ...models.page,
-              domains: { ...models.page.domains, mine: owner("ownerId") },
+              domains: {
+                ...models.page.domains,
+                mine: { ownerId: { actor: "userId" } },
+              },
             },
           },
         });
@@ -1045,7 +1048,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
     );
 
     test(
-      "W-D4, W-D5, W-D7: an absent credential folds false (OD-6 session()): no session, an expired or unknown one, a disabled, expired or unknown key reach what the oracle says, on every model",
+      "W-D4, W-D5, W-D7: an absent credential folds false (credential predicates): no session, an expired or unknown one, a disabled, expired or unknown key reach what the oracle says, on every model",
       async () => {
         const special = [
           "u17-no-credential",
@@ -1278,7 +1281,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
       const owners = loose(
         rbac({
           actor: v.object({ userId: v.string({ nullable: true }) }),
-          models: { page: { view: owner("ownerId") } },
+          models: { page: { view: { ownerId: { actor: "userId" } } } },
         })(base)
       );
       expect(await owners.$as({ userId: null }).page!.count()).toBe(0);

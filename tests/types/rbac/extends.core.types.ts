@@ -7,7 +7,7 @@ import {
   type ExtendedOperationResult,
   s,
 } from "@src/index";
-import { owner, rbac } from "@src/rbac";
+import { rbac } from "@src/rbac";
 import { softDelete } from "@src/soft-delete";
 import { v } from "@src/validation";
 import { expectTypeOf } from "vitest";
@@ -41,7 +41,9 @@ export function checkRbacExtensionTypes() {
         post: {
           actions: { view: [], edit: [] },
           view: { owner: { is: { id: { actor: "userId" } } } },
-          edit: { AND: [owner("ownerId"), { ownerId: { actor: "userId" } }] },
+          edit: {
+            AND: [{ ownerId: { actor: "userId" } }, { id: { not: "" } }],
+          },
         },
       },
     })

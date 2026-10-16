@@ -12,9 +12,9 @@ request calls the ORM, the action that call needs picks the `where`, and the
 `where` is added to the SQL the ORM sends. The database decides, row by row,
 in the same statement. Nothing about the user is loaded beforehand.
 
-Everything else on this page, the helpers included, is a shorter way to write
-those `where`s. This page goes from the simplest policy to the most complex
-one, a permission inherited down a tree and granted to a hierarchy of teams;
+Policies use your schema’s field names and your application’s rules. There are
+no built-in assumptions about ownership, membership, sessions or grants. This
+page goes from a simple policy to permissions inherited through folders and teams;
 the [reference](#reference) at the end lists every option.
 
 **Raw SQL is not filtered.** `$queryRaw`, `$executeRaw`, their unsafe forms
@@ -28,7 +28,7 @@ Apply the policy to your existing client, `base`:
 <Tabs>
   <Tab title="Policy">
 ```ts
-import { owner, rbac } from "viborm/rbac";
+import { rbac } from "viborm/rbac";
 import { v } from "viborm/validation";
 
 const db = base.$extends(rbac({
@@ -37,7 +37,7 @@ const db = base.$extends(rbac({
   models: {
     post: {
       view: { OR: [{ published: true }, { authorId: { actor: "userId" } }] },
-      edit: { authorId: { actor: "userId" } },   // same as owner("authorId")
+      edit: { authorId: { actor: "userId" } },   // the caller is the author
       delete: { actor: { admin: true } },        // a condition on the caller alone
       create: { authorId: { actor: "userId" } }, // a new post must be the caller's
     },
@@ -136,13 +136,13 @@ written on a higher level grants every level below it.
 
 ```ts
 const policy = rbac({
-  actor: v.object({ userId: v.string() }),
+  actor: v.object({ userId: v.string(), admin: v.boolean() }),
   levels: ["view", "edit", "full"], // full implies edit, edit implies view
   models: {
     post: {
       view: { published: true },
       edit: { authorId: { actor: "userId" } },
-      full: { author: { admin: true } },
+      full: { actor: { admin: true } },
       create: { authorId: { actor: "userId" } },
     },
     user: { view: {} },
@@ -213,21 +213,28 @@ caller is a member of the row's organization". Write it once in `within`.
 <Tabs>
   <Tab title="Policy">
 ```ts
-import { member, owner, rbac } from "viborm/rbac";
+import { rbac } from "viborm/rbac";
 
-const inOrg = member({ via: "organization" });                     // any member
-const admin = member({ via: "organization", roles: ["admin"] });   // an admin
+// These names and fields belong to this application's schema.
+const inOrg = {
+  organization: { is: { members: { some: { userId: { actor: "userId" } } } } },
+};
+const admin = {
+  organization: {
+    is: { members: { some: { userId: { actor: "userId" }, role: "admin" } } },
+  },
+};
 
 const policy = rbac({
   actor: v.object({ userId: v.string() }),
   levels: ["view", "edit", "full"],
   models: {
-    organization: { view: member() },   // on the organization itself: its own members
+    organization: { view: { members: { some: { userId: { actor: "userId" } } } } },
     member: { within: inOrg, view: {}, full: admin },
     project: {
       within: inOrg,            // AND-ed into every action of project
       view: {},                 // every member views
-      edit: owner("ownerId"),   // the owner edits
+      edit: { ownerId: { actor: "userId" } }, // the owner edits
       full: admin,              // admins do everything
       create: { ownerId: { actor: "userId" } },
     },
@@ -260,13 +267,6 @@ const project = s.model({
   </Tab>
 </Tabs>
 
-`member({ via: "organization" })` is a helper. It returns this `where`, which
-you could write yourself:
-
-```ts
-{ organization: { is: { members: { some: { userId: { actor: "userId" } } } } } }
-```
-
 So a project read sends, simplified:
 
 ```sql
@@ -279,20 +279,54 @@ and `full` (the delete) becomes `… AND m.role = 'admin'`. Projects of other
 organizations are never returned, counted or updatable: `within` is part of
 every action's rule.
 
-**A role caps a member's actions.** `ceiling` maps each role to the highest
-level it may reach, whatever else would grant it:
+### Capping actions by role
+
+If readers must never edit, make that restriction part of `within`. A rule
+function receives the action and model when the policy is applied; it returns
+a predicate for that action. It does not run once per request.
 
 ```ts
-const inOrg = member({
-  via: "organization",
-  ceiling: { reader: "view", member: "full", admin: "full" }, // a reader never edits
+import type { Rule } from "viborm/rbac";
+
+const projectMembership: Rule = (action) => ({
+  organization: {
+    is: {
+      members: {
+        some: {
+          userId: { actor: "userId" },
+          role: { in: action === "view" ? ["reader", "member", "admin"] : ["member", "admin"] },
+        },
+      },
+    },
+  },
+});
+
+// In the project policy: within: projectMembership
+```
+
+These are application decisions: readers may only view; members and admins may
+pass the membership check for other actions. They still need an action rule to
+grant access. A reader who owns a project cannot edit it because `within` holds
+nowhere for that reader at `edit`.
+
+If the organization stores permissions as rows instead, match a membership's
+role to a permission for the requested action or an action implying it:
+
+```ts
+const projectMembership: Rule = (action, model) => ({
+  organization: {
+    is: {
+      OR: ["reader", "member", "admin"].map((role) => ({
+        members: { some: { userId: { actor: "userId" }, role } },
+        permissions: { some: { role, action: { in: model.above(action) } } },
+      })),
+    },
+  },
 });
 ```
 
-At `view`, every role passes; at `edit` and `full`, only `member` and `admin`.
-A reader who owns a project still cannot edit it. Ceilings can also be rows of
-a `rolePermission` table instead of being declared (see the
-[helpers](#helpers)).
+Here `organization.permissions` is this application's relation to its
+`rolePermission` rows. No role names or permission-table shape are built into RBAC.
 
 ## 5. Protecting fields
 
@@ -329,17 +363,22 @@ rules each read **at every action**:
 <Tabs>
   <Tab title="Policy">
 ```ts
-import { everyone, grant, owner } from "viborm/rbac";
+import type { Rule } from "viborm/rbac";
 
-const shared = grant.to([owner("userId"), everyone()], {
-  relation: "grants", // the grants of the row
-  level: "level",     // the column holding the granted level
+// For our models with levels: ["view", "edit", "full"].
+const shared: Rule = (action, model) => ({
+  grants: {
+    some: {
+      level: { in: model.above(action) },
+      OR: [{ userId: { actor: "userId" } }, { everyone: true }],
+    },
+  },
 });
 
 project: {
   within: inOrg,
   view: {},
-  edit: owner("ownerId"),
+  edit: { ownerId: { actor: "userId" } },
   full: admin,
   arms: [shared], // a grant at a level gives that level and the ones below
 },
@@ -390,8 +429,67 @@ accessGrant: {
 },
 ```
 
-For grants that attach to several kinds of row, `grant.administer` writes
-these rules for you (see the [helpers](#helpers)).
+For a grant with optional `projectId` and `documentId`, require at least one
+attachment and permission over **every** attached resource. In this example,
+projects require `full` and documents require `share`:
+
+```ts
+const administerGrant = {
+  AND: [
+    { OR: [{ projectId: { not: null } }, { documentId: { not: null } }] },
+    { OR: [{ projectId: null }, { project: "full" }] },
+    { OR: [{ documentId: null }, { document: "share" }] },
+  ],
+};
+```
+
+Placement must also prevent a writer granting rights they do not hold. This
+application stores a nullable `level` and an `actions` list on each grant. Its
+rule checks each attached model's declared actions and, for a model using levels,
+its levels:
+
+```ts
+const placeGrant: Rule = (_action, model) => ({
+  AND: [
+    administerGrant,
+    ...["project", "document"].flatMap((relation) => {
+      const target = model.related(relation);
+      if (!target) throw new Error(`Missing grant relation: ${relation}`);
+      const key = `${relation}Id`; // this application's single-column foreign keys
+      return [
+        ...target.actions.map((action) => ({
+          OR: [
+            { [key]: null },
+            { NOT: { actions: { has: action } } },
+            { [relation]: action },
+          ],
+        })),
+        ...(target.leveled ? target.levels.map((level) => ({
+          OR: [
+            { [key]: null },
+            { level: null },
+            { level: { not: level } },
+            { [relation]: level },
+          ],
+        })) : []),
+      ];
+    }),
+  ],
+});
+
+accessGrant: {
+  view: administerGrant,
+  edit: administerGrant,
+  create: placeGrant,
+  operations: { delete: "edit" },
+},
+```
+
+Declare the grant's `level` and `actions` with enum values your application
+supports. A change to either field is also checked against `create`, so editing
+a grant cannot bypass placement. For models with independent actions, a grant
+matches `{ actions: { hasSome: model.above(action) } }` instead of a level.
+Use that condition in `shared` when your application stores action grants.
 
 ## 7. A folder tree: permission inherited from the parents
 
@@ -432,20 +530,25 @@ const document = s.model({
 </Tabs>
 
 Read it as: "among this document and all its ancestors, *some* is owned by
-me or shared with me". The `up` helper writes exactly this object:
+me or shared with me". To inherit every level, put the recursive predicate in
+`arms` instead of only `view`:
 
 ```ts
-import { up } from "viborm/rbac";
-
 document: {
   within: inOrg,
-  arms: [up("parent", owner("ownerId")), up("parent", shared)],
+  arms: [{
+    parent: {
+      recurse: { depth: false },
+      self: true,
+      some: { OR: [{ ownerId: { actor: "userId" } }, shared] },
+    },
+  }],
 },
 ```
 
-Using `arms` means each level reads the grants at its own level: a grant of
-`edit` on a folder lets the caller edit every document below it, a grant of
-`view` only read them.
+Each action reads `shared` at that action: an `edit` grant on a folder permits
+editing its descendants; a `view` grant only permits reading. This application
+also chooses to give the owner every action through this arm.
 
 The statement walks the tree inside the database, once, with a recursive
 subquery (simplified):
@@ -502,27 +605,30 @@ const toMyTeams = {
 };
 ```
 
-which is what `team("team", { below: "children", memberOf: "members" })`
-returns. Add it to the grantees of `shared`, and the whole previous section
-keeps working:
+Add that predicate to the grant's recipients. These constants describe this
+application's team and grant schema:
 
 <Tabs>
   <Tab title="Policy">
 ```ts
-import { everyone, grant, owner, team, up } from "viborm/rbac";
-
-const shared = grant.to(
-  [
-    owner("userId"),                                         // to me
-    everyone(),                                              // to everyone
-    team("team", { below: "children", memberOf: "members" }), // to a team I am in, or below
-  ],
-  { relation: "grants", level: "level" }
-);
+const shared: Rule = (action, model) => ({
+  grants: {
+    some: {
+      level: { in: model.above(action) },
+      OR: [{ userId: { actor: "userId" } }, { everyone: true }, toMyTeams],
+    },
+  },
+});
 
 document: {
   within: inOrg,
-  arms: [up("parent", owner("ownerId")), up("parent", shared)],
+  arms: [{
+    parent: {
+      recurse: { depth: false },
+      self: true,
+      some: { OR: [{ ownerId: { actor: "userId" } }, shared] },
+    },
+  }],
   create: {
     OR: [{ parent: "edit" }, { parentId: null, ownerId: { actor: "userId" } }],
   },
@@ -594,22 +700,35 @@ asks only for the ones named.
 ## 10. API keys: `limit`
 
 An API key acts for a user with fewer rights. `limit` is AND-ed into every
-model and action, creates included; `keyLimit` writes it from what the actor
-carries:
+model and action, creates included. This application carries per-model scopes
+in the actor:
 
 ```ts
-import { keyLimit, rbac } from "viborm/rbac";
+import { rbac, type Rule } from "viborm/rbac";
+
+const keyScopes: Rule = (action, model) => ({
+  OR: [
+    { $if: { control: "actor", path: "key", exists: false } },
+    {
+      $if: {
+        control: "actor",
+        path: `key.scopes.${model.name}`,
+        hasSome: model.above(action),
+      },
+    },
+  ],
+});
 
 const policy = rbac({
   actor: v.object({
     userId: v.string(),
     key: v.optional(v.object({
       id: v.string(),
-      scopes: v.record(v.string(), v.array(v.string())), // per model, the actions the key may use
+      scopes: v.record(v.string(), v.array(v.string())),
     })),
   }),
-  limit: keyLimit({ when: "key", scopes: "key.scopes" }),
-  // …
+  limit: keyScopes,
+  // models: …
 });
 
 const keyed = db.$as({ userId, key: { id, scopes: { project: ["view"] } } });
@@ -618,9 +737,99 @@ await keyed.project.update({ … });    // NotFoundError: the key does not hold 
 await keyed.member.findMany();        // []: member is not in the key's scopes
 ```
 
-A key only ever narrows the user's own rights. An actor without `key` is not
-limited. `ids` restricts a key to listed rows, or to rows below listed ones
-(`through: "parent"`); see the [helpers](#helpers).
+`$if` is a condition on a bound value, with no row column. Here an actor
+without `key` passes the limit. A keyed actor must carry a scope equal to the
+requested action or one implying it. A missing scope or an empty list admits
+nothing. The key still cannot grant a right the user's rules do not grant.
+
+### Restricting a token to resources
+
+Add a list of document ids to the key's actor schema. If the application also
+supports unlimited document access, declare the literal `"all"` explicitly:
+
+```ts
+// Inside the actor's key schema:
+resources: v.object({
+  document: v.union([v.literal("all"), v.array(v.string())]),
+}),
+```
+
+Then combine the scope limit with a resource predicate. A document is allowed
+when it or an ancestor is listed; other models keep their scope limit:
+
+```ts
+const keyResources: Rule = (_action, model) => model.name === "document" ? {
+  OR: [
+    { $if: { control: "actor", path: "key", exists: false } },
+    { $if: { control: "actor", path: "key.resources.document", equals: "all" } },
+    {
+      parent: {
+        recurse: { depth: false },
+        self: true,
+        some: { id: { in: { actor: "key.resources.document" } } },
+      },
+    },
+  ],
+} : {};
+
+// In rbac({ … }):
+limit: { AND: [keyScopes, keyResources] },
+```
+
+An empty list permits no documents. For exact ids only, replace the recursive
+`parent` predicate with `{ id: { in: { actor: "key.resources.document" } } }`.
+
+### Live credentials and bans
+
+Authentication establishes the caller; an application can additionally make
+current credential and account state part of its row policy. For example,
+apply this predicate to the user reached by an organization membership:
+
+```ts
+const activeAccount = {
+  AND: [
+    { OR: [{ banned: null }, { banned: false }, { banExpires: { lte: { now: true } } }] },
+    {
+      OR: [
+        {
+          $if: { control: "actor", path: "sessionId", exists: true },
+          sessions: { some: { id: { actor: "sessionId" }, expiresAt: { gt: { now: true } } } },
+        },
+        {
+          $if: { control: "actor", path: "key", exists: true },
+          apiKeys: {
+            some: {
+              id: { actor: "key.id" },
+              enabled: true,
+              OR: [{ expiresAt: null }, { expiresAt: { gt: { now: true } } }],
+            },
+          },
+        },
+      ],
+    },
+  ],
+};
+
+const inOrg = {
+  organization: {
+    is: {
+      members: {
+        some: {
+          userId: { actor: "userId" },
+          user: { is: activeAccount },
+        },
+      },
+    },
+  },
+};
+```
+
+This example assumes `banned`, `banExpires`, `sessions` and `apiKeys` on the user,
+and `user` on the membership. Declare optional `sessionId` alongside `key` in
+the actor schema. Bind one credential per request: the `OR` intentionally accepts
+either live credential. A revoked key must not fall back to a live session.
+`{ now: true }` reads one instant for the call, so expiry comparisons agree.
+These choices belong to the application; RBAC supplies no authentication schema.
 
 ## 11. With soft delete and other extensions
 
@@ -668,15 +877,17 @@ rule(M, a) = within(a) AND limit(a) AND ( the rule of a, or of any action implyi
 - **`within`** and the top-level **`limit`** are AND-ed into every action.
 - An action with no rule and no arm holds nowhere.
 
-Three spellings are the policy's own; everything else is a plain `where` of
-the model (relation filters, `some`/`every`/`none`/`is`, `AND`/`OR`/`NOT`,
-`recurse`):
+Start with these three policy spellings, alongside the model's ordinary
+`where` filters (`some`/`every`/`none`/`is`, `AND`/`OR`/`NOT`, `recurse`):
 
 | Spelling | Means |
 |---|---|
 | `{ ownerId: { actor: "userId" } }` | the column equals a value of the actor |
 | `{ actor: { network: "office" } }` | a condition on the actor alone: true on every row or on none |
 | `{ group: "edit" }` | the related row passes the target model's own `edit` rule |
+
+Advanced predicates can use `$if` conditions on bound actor values and
+`{ now: true }` for the call's instant, as in the [API key recipes](#10-api-keys-limit).
 
 A rule that reads itself through these references (a model's `view` that
 needs its own `view`) is refused when the policy is applied, naming the
@@ -688,7 +899,9 @@ cycle.
 by `$as` once per request and never read from the database.
 
 - Every path a policy reads (`{ actor: "key.id" }`) is checked against the
-  schema, in TypeScript and when the policy is applied.
+  actor schema when the policy is applied. Inline declarations also receive
+  TypeScript checks and suggestions; a `Rule` function may construct paths
+  dynamically.
 - **An absent or `null` actor value matches nothing.** `userId: null` owns no
   row whose `ownerId` is null; a field the actor leaves out makes every rule
   reading it false.
@@ -743,45 +956,29 @@ await call.project.findMany({ as: "edit" }); // the projects the caller may edit
 page: { /* … */ domains: { given: shared } }  // await call.page.findMany({ as: "given" })
 ```
 
-### Helpers
+### Rule functions
 
-Every helper returns a `where` (or a function of the action). The columns
-they read must exist on your schema.
+A `Rule` is a predicate object or a function `(action, model) => Rule`. The
+function is evaluated while applying the policy, once for each action where it
+is used. It builds predicates; it does not receive the request actor or run
+queries. Actor references remain values supplied at call time.
 
-| Helper | Holds where | Equivalent `where` (simplified) |
-|---|---|---|
-| `owner("ownerId")` | the column is the caller | `{ ownerId: { actor: "userId" } }` |
-| `everyone()` | a grant to everyone | `{ everyone: true }` |
-| `up("parent", rule)` | the row or an ancestor passes `rule` | `{ parent: { recurse: { depth: false }, self: true, some: rule } }` |
-| `team("team", { below, memberOf })` | the team, or a team below it, has the caller as a member | `{ team: { is: { [below]: { recurse: …, self: true, some: { [memberOf]: { some: { userId } } } } } } }` |
-| `member({ via, roles, ceiling, user })` | the caller is a member of the row's owner through `via` | `{ [via]: { is: { members: { some: { userId, role: { in: … } } } } } }` |
-| `role("role", { via })` | the row's enum column names the caller's role in `via` | one arm per role |
-| `grant.to(grantees, { relation, level, actions })` | a grant on the row at this action or above, to one of `grantees` | `{ [relation]: { some: { AND: [level or actions cover a, OR(grantees)] } } }` |
-| `grant.administer(things, { level, actions })` | `{ admin, place }`: who writes a grant attached to `things` | each attached thing held at its action |
-| `session()` | the caller's user holds the credential it calls with (a live session or a live API key) | `sessions`/`apiKeys` with `expiresAt` in the future |
-| `notBanned()` | the user is not banned, or the ban has expired | `banned`, `banExpires` |
-| `keyLimit({ when, scopes, ids })` | the `limit` for API keys | conditions on the actor |
+The public `PolicyModel` type describes that model:
 
-- **Ceilings.** Declared per role (`{ reader: "view", admin: "full" }`), a cap
-  is an action of the model or the top level, which allows everything; a cap
-  the model does not declare is refused when applied. Stored as rows
-  (`ceiling: { relation: "permissions", action: "action" }`, with `roles`
-  listed), a row allows its action and every action that action implies.
-- **`grant.administer`** returns `admin` (at least one thing attached, and
-  every attached thing held at its administering action) and `place` (the
-  grant carries no level or action its writer does not hold there):
+| Member | Meaning |
+|---|---|
+| `name` | Schema model name |
+| `actions` | Declared actions |
+| `levels` | Policy levels, lowest first |
+| `leveled` | Whether this model uses the policy's levels rather than an explicit action graph |
+| `above(action)` | The action and every action implying it |
+| `related(relation)` | The target model, or `undefined` |
 
-```ts
-const grants = grant.administer(
-  { page: "full", document: "share" },
-  { level: "level", actions: "actions" }
-);
-accessGrant: { view: grants.admin, edit: grants.admin, create: grants.place },
-```
-
-- **`keyLimit` `ids`.** `ids: { document: { path: "key.resources.document",
-  through: "parent" } }` limits a key to the listed documents and those below
-  them; `"all"` is written, never implied, and an empty list admits nothing.
+Prefer inline predicates for simple policies: their model, field and actor
+references receive contextual editor suggestions. Extract application-owned
+constants or `Rule` functions when a policy genuinely repeats or depends on the
+action. A separately typed `Rule` has a broad predicate shape; model, field and
+actor-path mistakes are still rejected when the policy is applied.
 
 ### Writes, in detail
 
@@ -826,7 +1023,7 @@ reads and polymorphic arms.
 |---|---|---|
 | no actor, or `actor` passed as an argument | `ValidationError` | before any statement |
 | an actor value of the wrong type | `ValidationError` | at `$as` |
-| an unknown model, field, action or actor path; an unknown key of the policy, of a model or of a `fields` entry; a key spelled like `within`, `create`, a level…; a ceiling the model does not declare; a rule that reads itself; `recurse: true`; a read-protected key or unique field | `ClientInitializationError` | when the policy is applied |
+| an unknown model, field, action or actor path; an unknown key of the policy, of a model or of a `fields` entry; a key spelled like `within`, `create`, a level…; a rule that reads itself; `recurse: true`; a read-protected key or unique field | `ClientInitializationError` | when the policy is applied |
 | `can`/`assert` with a `where` that is not a unique key | `ValidationError` | before any statement |
 | an unlisted model; an operation or `as` the model does not declare | `ForbiddenError` | before any statement |
 | a hidden or non-writable root row | `NotFoundError` | after the statement |
@@ -892,11 +1089,10 @@ const driver = new PgDriver({ databaseUrl, sharedRelationBodies: true });
 
 ### Size
 
-`viborm/rbac` itself is about 6.5 kB gzip, carried only by an application
-that imports it. The engine capabilities it is built from are part of the
-core and every application carries them: about 10 kB gzip (pg 168.6 →
-178.9 kB, D1 168.0 → 178.4 kB from 1.2.4). The extension is built only from
-public extension capabilities (see [Create an extension](/docs/extensions/create)).
+`viborm/rbac` is a separate entry point, carried only by an application
+that imports it. Its supporting query-engine capabilities are part of the core.
+The extension is built only from public extension capabilities
+(see [Create an extension](/docs/extensions/create)).
 
 ### Boundaries
 
@@ -919,10 +1115,9 @@ public extension capabilities (see [Create an extension](/docs/extensions/create
   a visible foreign key whose include reads `null`, and a polymorphic arm
   each reveal that a row exists, never its content. **Include the tenant
   column in every unique key.**
-- **API keys and sessions together.** `session()` holds when either
-  credential the actor carries is live: an actor bound with a live session
-  and a revoked key keeps the session's rights (still narrowed by the key's
-  scopes). **Bind one credential per request.**
+- **Credential policy.** The live-credential example accepts either a session
+  or a key. Bind one credential per request, or write a different predicate
+  if your authentication contract requires another combination.
 - **Authentication.** Who the actor is stays your server's; `$as` trusts
   what it is given once it matches the schema.
 - **The database itself.** Nothing is installed in it: a connection used

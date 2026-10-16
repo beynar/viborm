@@ -649,7 +649,7 @@ console.log("rbac acceptance consumer: pass");
 const blog = `import assert from "node:assert/strict";
 import { ForbiddenError, NotFoundError, s, ValidationError } from "viborm";
 import { createMigrationClient } from "viborm/migrations";
-import { owner, rbac } from "viborm/rbac";
+import { rbac } from "viborm/rbac";
 import { createClient } from "viborm/sqlite3";
 import { v } from "viborm/validation";
 
@@ -674,7 +674,7 @@ await base.post.createMany({ data: [{ id: "p1", title: "a", authorId: "u1" }, { 
 const db = base.$extends(rbac({
   actor: v.object({ userId: v.string(), admin: v.boolean() }),   // \`admin\`: an identity-provider claim, not a row of this database
   models: {
-    post: { view: {}, edit: owner("authorId"), delete: { actor: { admin: true } }, create: { authorId: { actor: "userId" } } },
+    post: { view: {}, edit: { authorId: { actor: "userId" } }, delete: { actor: { admin: true } }, create: { authorId: { actor: "userId" } } },
     user: { view: {} },
   },
 }));

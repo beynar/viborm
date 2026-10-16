@@ -308,7 +308,10 @@ predicate per (model, action) against `base`'s schema and applies a rows step
 (a bound-only, required `actor`; the `as` mode; every model's `verbs`; a
 generic `query` handler refusing a root call false when applied; and `$as`,
 which lives with the control it binds) and then a methods step
-(`can`/`assert`). Core names nothing of it.
+(`can`/`assert`). Core names nothing of it. Its only runtime export is `rbac`;
+applications own field names, membership, grant, credential and role conventions through explicit
+predicates. `src/rbac/rules.ts` owns `Rule`, `Where` and the action/relation
+metadata available to rule functions; no domain helper API is shipped.
 `tests/package/rbac-consumer-smoke.mjs` runs §1.1 and the blog from the
 packed package.
 

@@ -8,18 +8,9 @@
 import { ClientInitializationError } from "@errors";
 import {
   type CompiledModel,
-  everyone,
-  grant,
-  keyLimit,
-  member,
-  owner,
   type RbacConfig,
   type Rule,
   rbac,
-  role,
-  session,
-  team,
-  up,
 } from "@src/rbac";
 import { compilePolicy } from "@src/rbac/compile";
 import { v } from "@src/validation";
@@ -27,8 +18,10 @@ import { schema } from "@tests/package/fixtures/rbac-app/schema";
 import {
   Actor,
   blog,
+  liveCredential,
   policy,
   storedPolicy,
+  tokenRestrictions,
 } from "@tests/types/rbac/acceptance-policy";
 import { describe, expect, test } from "vitest";
 
@@ -126,6 +119,23 @@ describe("R1: P(M, a) = within(a) ∧ limit(a) ∧ (⋁ rule(b ⊒ a) ∨ ⋁ ar
     }).models.page!;
     expect(calls).toEqual(["page.view", "page.edit", "page.full"]);
     expect(predicates.edit).toEqual({ title: "edit" });
+  });
+
+  test("a callback distinguishes an unlisted related model from a missing relation", () => {
+    compile({
+      models: {
+        page: {
+          view: (_action, model) => {
+            const owner = model.related("owner");
+            expect(owner?.name).toBe("user");
+            expect(owner?.actions).toEqual([]);
+            expect(owner?.leveled).toBe(false);
+            expect(model.related("unknownRelation")).toBeUndefined();
+            return {};
+          },
+        },
+      },
+    });
   });
 
   test("within and the limit are conjoined with every action", () => {
@@ -229,6 +239,17 @@ describe("R1: P(M, a) = within(a) ∧ limit(a) ∧ (⋁ rule(b ⊒ a) ∨ ⋁ ar
     expect(predicates.create).toEqual(NOWHERE);
   });
 
+  test("some and is with an impossible body match no rows", () => {
+    const { models } = compile({
+      models: {
+        page: { view: { owner: { is: { OR: [] } } } },
+        pageGroup: { view: { pages: { some: { OR: [] } } } },
+      },
+    });
+    expect(models.page!.predicates.view).toEqual(NOWHERE);
+    expect(models.pageGroup!.predicates.view).toEqual(NOWHERE);
+  });
+
   test("a quantifier over a false body folds: `every` holds only where nothing is related", () => {
     const { predicates } = compile({
       levels: LEVELS,
@@ -273,6 +294,22 @@ describe("the actor's facts (K2, R6)", () => {
       },
     }).models.page!;
     expect(predicates.view).toEqual({ ownerId: me, title: { in: ["a"] } });
+  });
+
+  test("explicit actor parameters retain their path and reject misspellings", () => {
+    expect(
+      compile({ models: { page: { view: { ownerId: me } } } }).models.page!
+        .predicates.view
+    ).toEqual({ ownerId: me });
+    expect(
+      refusalOf(() =>
+        compile({
+          models: {
+            page: { view: { ownerId: { control: "actor", path: "usrId" } } },
+          },
+        })
+      )
+    ).toContain('reads actor path "usrId"');
   });
 
   test("{ actor: { path: value } } in a filter is a condition; null is absence", () => {
@@ -321,7 +358,9 @@ describe("the actor's facts (K2, R6)", () => {
     expect(
       refusalOf(() =>
         compile({
-          limit: keyLimit({ when: "credential", scopes: "key.scopes" }),
+          limit: {
+            $if: { control: "actor", path: "credential", exists: false },
+          },
           models: { page: { view: {} } },
         })
       )
@@ -329,7 +368,7 @@ describe("the actor's facts (K2, R6)", () => {
     // A record's keys are any key: a key's scopes per model.
     expect(() =>
       compile({
-        limit: keyLimit({ when: "key", scopes: "key.scopes" }),
+        limit: tokenRestrictions,
         models: { page: { view: {} } },
       })
     ).not.toThrow();
@@ -415,7 +454,7 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
             budget: { read: "full", write: "edit" },
             owner: { write: "full" },
           },
-          domains: { mine: owner("ownerId") },
+          domains: { mine: { ownerId: { actor: "userId" } } },
         },
       },
     });
@@ -577,10 +616,28 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
     const { models } = compile({
       levels: LEVELS,
       models: {
-        document: { view: up("parent", owner("ownerId")) },
+        document: {
+          view: {
+            parent: {
+              recurse: { depth: false },
+              self: true,
+              some: { ownerId: { actor: "userId" } },
+            },
+          },
+        },
         accessGrant: { view: { document: "view" } },
         team: {
-          view: team("parents", { below: "children", memberOf: "members" }),
+          view: {
+            parents: {
+              is: {
+                children: {
+                  recurse: { depth: false },
+                  self: true,
+                  some: { members: { some: { userId: { actor: "userId" } } } },
+                },
+              },
+            },
+          },
         },
       },
     });
@@ -729,24 +786,47 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
   });
 });
 
-describe("the helpers (D2)", () => {
+describe("explicit application rules", () => {
   const at = (rule: Rule, model = "page", action = "view") =>
     compile({ levels: LEVELS, models: { [model]: { [action]: rule } } }).models[
       model
     ]!.predicates[action];
 
-  test("owner, everyone and up", () => {
-    expect(at(owner("ownerId"))).toEqual({ ownerId: me });
-    expect(at(everyone(), "accessGrant")).toEqual({ everyone: true });
-    expect(at(up("parent", owner("ownerId")), "document")).toEqual({
+  test("scalar comparisons and recursive predicates compile without schema conventions", () => {
+    expect(at({ ownerId: { actor: "userId" } })).toEqual({ ownerId: me });
+    expect(at({ everyone: true }, "accessGrant")).toEqual({ everyone: true });
+    expect(
+      at(
+        {
+          parent: {
+            recurse: { depth: false },
+            self: true,
+            some: { ownerId: { actor: "userId" } },
+          },
+        },
+        "document"
+      )
+    ).toEqual({
       parent: { recurse: { depth: false }, self: true, some: { ownerId: me } },
     });
   });
 
-  test("member: the via relation, the ceiling at each action, the owner's own members", () => {
-    const capped = member({
-      via: "organization",
-      ceiling: { reader: "view", admin: "full" },
+  test("an action callback can express a role ceiling using the implication graph", () => {
+    const capped: Rule = (action, model) => ({
+      organization: {
+        is: {
+          members: {
+            some: {
+              userId: { actor: "userId" },
+              role: {
+                in: model.above(action).includes("view")
+                  ? ["reader", "admin"]
+                  : ["admin"],
+              },
+            },
+          },
+        },
+      },
     });
     const { predicates } = compile({
       levels: LEVELS,
@@ -764,65 +844,23 @@ describe("the helpers (D2)", () => {
         is: { members: { some: { userId: me, role: { in: ["admin"] } } } },
       },
     });
-    expect(
-      at(member({ via: "organization", roles: ["admin"] }), "organization")
-    ).toEqual({
-      members: { some: { userId: me, role: { in: ["admin"] } } },
-    });
-    expect(
-      at(
-        member({ via: "organization", ceiling: { reader: "view" } }),
-        "page",
-        "edit"
-      )
-    ).toEqual(NOWHERE);
-    expect(refusalOf(() => at(member({ via: "organisation" })))).toContain(
-      'member({ via: "organisation" }) on page'
-    );
-    expect(
-      refusalOf(() =>
-        at(
-          member({
-            via: "organization",
-            ceiling: { relation: "permissions", action: "action" },
-          })
-        )
-      )
-    ).toContain("a stored ceiling enumerates its roles");
   });
 
-  test("team, role and grant.to", () => {
-    expect(
-      at(
-        team("granteeTeam", { below: "children", memberOf: "members" }),
-        "accessGrant"
-      )
-    ).toEqual({
-      granteeTeam: {
-        is: {
-          children: {
-            recurse: { depth: false },
-            self: true,
-            some: { members: { some: { userId: me } } },
-          },
+  test("a grant callback can cover levels and actions with explicit recipient conditions", () => {
+    const given: Rule = (action, model) => ({
+      grants: {
+        some: {
+          AND: [
+            {
+              OR: [
+                { level: { in: model.above(action) } },
+                { actions: { hasSome: model.above(action) } },
+              ],
+            },
+            { everyone: true },
+          ],
         },
       },
-    });
-    expect(
-      at(role("granteeRole", { via: "organization" }), "accessGrant")
-    ).toEqual({
-      OR: ["admin", "member", "reader"].map((name) => ({
-        granteeRole: name,
-        organization: { is: { members: { some: { userId: me, role: name } } } },
-      })),
-    });
-    expect(
-      refusalOf(() => at(role("role", { via: "organization" }), "member"))
-    ).toContain('role("role") on member: the field is not an enum');
-    const given = grant.to([everyone()], {
-      relation: "grants",
-      level: "level",
-      actions: "actions",
     });
     expect(at(given, "page", "edit")).toEqual({
       grants: {
@@ -841,15 +879,37 @@ describe("the helpers (D2)", () => {
     });
   });
 
-  test("grant.administer: one thing at least, each attached one administered; placement bounds the contents, without what administering implies", () => {
-    const grants = grant.administer(
-      { page: "edit" },
-      { level: "level", actions: "actions" }
-    );
+  test("explicit grant placement bounds contents beyond what administering already implies", () => {
+    const adminRule = {
+      AND: [
+        { pageId: { not: null } },
+        { OR: [{ pageId: null }, { page: "edit" }] },
+      ],
+    };
+    const placeRule = {
+      AND: [
+        adminRule,
+        ...LEVELS.map((action) => ({
+          OR: [
+            { pageId: null },
+            { NOT: { actions: { has: action } } },
+            { page: action },
+          ],
+        })),
+        ...LEVELS.map((level) => ({
+          OR: [
+            { pageId: null },
+            { level: null },
+            { level: { not: level } },
+            { page: level },
+          ],
+        })),
+      ],
+    };
     const compiled = compile({
       levels: LEVELS,
       models: {
-        accessGrant: { edit: grants.admin, create: grants.place },
+        accessGrant: { edit: adminRule, create: placeRule },
         page: { edit: { title: "e" }, full: { title: "f" } },
         organization: { view: {} },
       },
@@ -899,53 +959,28 @@ describe("the helpers (D2)", () => {
     // update verb (`edit`, the administering conjunction) already judges.
     const bounds = (predicates.create as { AND: object[] }).AND.slice(2, 4);
     expect(predicates["move:pageId"]).toEqual({ AND: bounds });
-    expect(
-      refusalOf(() =>
-        compile({
-          levels: LEVELS,
-          models: {
-            accessGrant: {
-              edit: grant.administer({ grants: "full" }, {}).admin,
-            },
-          },
-        })
-      )
-    ).toContain('"grants" is not a to-one relation with a single-field key');
   });
 
-  test("grant.administer without stored actions bounds the level only; keyLimit ids without a tree", () => {
+  test("a token can restrict exact row ids without a recursive traversal", () => {
     const { models } = compile({
       levels: LEVELS,
-      limit: keyLimit({
-        when: "key",
-        scopes: "key.scopes",
-        ids: { page: { path: "key.resources.document" } },
-      }),
-      models: {
-        accessGrant: {
-          create: grant.administer({ page: "full" }, { level: "level" }).place,
-        },
-        page: { full: {} },
+      limit: {
+        OR: [
+          { $if: { control: "actor", path: "key", exists: false } },
+          { id: { in: { actor: "key.resources.document" } } },
+        ],
       },
+      models: { page: { full: {} } },
     });
-    expect(JSON.stringify(models.accessGrant!.predicates.create)).not.toContain(
-      '"has"'
-    );
     expect(JSON.stringify(models.page!.predicates.view)).toContain(
       '{"id":{"in":{"control":"actor","path":"key.resources.document"}}}'
     );
   });
 
-  test("keyLimit: unlimited without a key; the scopes meet ↑a; ids through the tree", () => {
+  test("explicit token restrictions allow no-key requests, use implied scopes, and traverse resource subtrees", () => {
     const { predicates } = compile({
       levels: LEVELS,
-      limit: keyLimit({
-        when: "key",
-        scopes: "key.scopes",
-        ids: {
-          document: { path: "key.resources.document", through: "parent" },
-        },
-      }),
+      limit: tokenRestrictions,
       models: {
         document: { actions: { view: [], share: ["view"] }, view: {} },
       },
@@ -1022,7 +1057,7 @@ describe("definitions refused before they widen (review 2026-10-16)", () => {
     ).toEqual(["view", "edit", "full", "invite"]);
   });
 
-  test("an unknown policy key, a field entry's unknown key and a keyLimit model the schema lacks are refused (FDOCS-2, FDOCS-6)", () => {
+  test("an unknown policy key and a field entry's unknown key are refused (FDOCS-2)", () => {
     expect(
       refusalOf(() =>
         compile({
@@ -1050,38 +1085,6 @@ describe("definitions refused before they widen (review 2026-10-16)", () => {
         })
       )
     ).toContain("models.page.fields.title: a field entry takes only");
-    expect(
-      refusalOf(() =>
-        compile({
-          levels: LEVELS,
-          limit: keyLimit({
-            when: "key",
-            scopes: "key.scopes",
-            ids: { pgae: { path: "key.resources.page" } },
-          }),
-          models: { page: { view: {} } },
-        })
-      )
-    ).toContain('keyLimit({ ids }): the schema has no model "pgae"');
-  });
-
-  test("a declared ceiling at a level the model does not declare is refused; the top level allows every action (Fprinciples-3)", () => {
-    const capped = (ceiling: Record<string, string>) => () =>
-      compile({
-        levels: LEVELS,
-        models: {
-          document: {
-            actions: { view: [], publish: ["view"] },
-            arms: [member({ via: "organization", ceiling })],
-          },
-        },
-      });
-    expect(refusalOf(capped({ editor: "edit" }))).toContain(
-      'role "editor" is capped at "edit", which document does not declare'
-    );
-    expect(refusalOf(capped({ reader: "view", admin: "full" }))).toBe(
-      "no refusal"
-    );
   });
 
   test("the implication prover compares values structurally: a bigint compiles, NaN is no null (Fprinciples-2, Fprinciples-6)", () => {
@@ -1152,17 +1155,19 @@ describe("definitions refused before they widen (review 2026-10-16)", () => {
     expect(narrowed.AND).not.toContainEqual({
       group: { icon: { in: ["x", "y"] } },
     });
-    // An arm read under its own `$if … exists` (session()): an absent value
+    // An arm read under its own `$if … exists` (a live credential): an absent value
     // folds the arm away, so it falsifies nothing; the conjunct said twice
     // is said once.
     const live = compile({
       levels: LEVELS,
-      models: { user: { view: {}, create: { AND: [session(), session()] } } },
+      models: {
+        user: { view: {}, create: { AND: [liveCredential, liveCredential] } },
+      },
     }).models.user!.predicates.create;
     expect(live).toEqual(
       compile({
         levels: LEVELS,
-        models: { user: { view: {}, create: session() } },
+        models: { user: { view: {}, create: liveCredential } },
       }).models.user!.predicates.create
     );
     // A guarded conjunction inside an arm (`{ actor: … }` beside a filter):

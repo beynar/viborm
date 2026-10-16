@@ -17,7 +17,7 @@
 import type { RowsVerbs } from "../extensions/controls";
 import type { VibORMConfig } from "../index";
 import { actorPaths, refuse } from "./actor";
-import { FALSE, type PolicyModel, type Rule, type Where } from "./helpers";
+import { FALSE, type PolicyModel, type Rule, type Where } from "./rules";
 
 type Schema = VibORMConfig["schema"];
 type AnyModel = Schema[string];
@@ -32,7 +32,6 @@ interface ModelFacts {
           readonly state: {
             readonly isId?: boolean;
             readonly nullable?: boolean;
-            readonly base?: { readonly values?: readonly string[] };
           };
         };
       }
@@ -354,12 +353,6 @@ export function compilePolicy(
         const target = targetOf(name, relation);
         return target === undefined ? undefined : modelOf(target);
       },
-      foreignKey: (relation) =>
-        relationOf(name, relation)?.state.foreignKey?.fields,
-      values: (field) => stateOf(name).scalars[field]?.["~"].state.base?.values,
-      reachedBy: (relation) =>
-        [...names.values()].some((other) => targetOf(other, relation) === name),
-      modelExists: (other) => Object.hasOwn(schema, other),
     };
     models.set(name, model);
     return model;
@@ -1017,7 +1010,7 @@ export function compilePolicy(
 
   /**
    * Per model, the self relations holding a key that some compiled
-   * predicate recurses over (`up()`), wherever it is read.
+   * predicate recurses over, wherever it is read.
    */
   function recursion(models: Record<string, CompiledModel>) {
     const found = new Map<string, string[]>();

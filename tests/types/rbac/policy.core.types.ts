@@ -7,7 +7,7 @@
  * where the policy meets a schema, model and field names against it.
  */
 
-import { type ActorPaths, owner, rbac } from "@src/rbac";
+import { type ActorPaths, rbac } from "@src/rbac";
 import { v } from "@src/validation";
 import { schema } from "@tests/package/fixtures/rbac-app/schema";
 import { describe, expectTypeOf, test } from "vitest";
@@ -48,6 +48,34 @@ describe("actor paths", () => {
       key?: { userId: string; id: string };
     }>;
     expectTypeOf<"key.id">().toExtend<Paths>();
+  });
+
+  test("explicit limits and control predicates check actor paths", () => {
+    rbac({
+      actor: Actor,
+      limit: { $if: { control: "actor", path: "key", exists: false } },
+      models: { page: { view: {} } },
+    });
+    // @ts-expect-error - literal limits use the actor schema's paths
+    rbac({
+      actor: Actor,
+      limit: { ownerId: { actor: "usrId" } },
+      models: { page: { view: {} } },
+    });
+    // @ts-expect-error - explicit control conditions also check the path
+    rbac({
+      actor: Actor,
+      models: {
+        page: {
+          view: {
+            AND: [
+              { ownerId: { actor: "userId" } },
+              { $if: { control: "actor", path: "kee", exists: false } },
+            ],
+          },
+        },
+      },
+    });
   });
 
   test("an unspelled actor path is refused at rbac()", () => {
@@ -95,7 +123,7 @@ describe("action names", () => {
       models: {
         page: {
           view: {},
-          delete: owner("ownerId"),
+          delete: { ownerId: { actor: "userId" } },
           operations: { delete: "delete" },
         },
       },

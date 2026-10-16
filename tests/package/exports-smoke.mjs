@@ -294,11 +294,12 @@ requireRuntimeAbsence("./migrations", "MigrationStorageDriver");
 requireRuntimeAbsence("./migrations", "diff");
 requireRuntimeFunction("./cache", "cache");
 requireRuntimeFunction("./instrumentation", "instrumentation");
-// `viborm/rbac` publishes `rbac()` and its rule helpers, nothing of its
-// compiler, and none of them through the root entry.
-const RBAC_HELPERS = [
-  "rbac",
+// RBAC exports one runtime entry. Domain conventions belong to application policies.
+requireRuntimeFunction("./rbac", "rbac");
+requireRuntimeAbsence(".", "rbac");
+for (const removed of [
   "everyone",
+  "grant",
   "keyLimit",
   "member",
   "notBanned",
@@ -307,19 +308,10 @@ const RBAC_HELPERS = [
   "session",
   "team",
   "up",
-];
-for (const helper of RBAC_HELPERS) {
-  requireRuntimeFunction("./rbac", helper);
-  requireRuntimeAbsence(".", helper);
+]) {
+  requireRuntimeAbsence("./rbac", removed);
+  requireRuntimeAbsence(".", removed);
 }
-const rbacGrant = runtimeExports.get("./rbac")?.grant;
-if (
-  typeof rbacGrant?.to !== "function" ||
-  typeof rbacGrant?.administer !== "function"
-) {
-  throw new Error("Export ./rbac must provide grant.to and grant.administer");
-}
-requireRuntimeAbsence(".", "grant");
 for (const internal of [
   "compilePolicy",
   "verbsOf",

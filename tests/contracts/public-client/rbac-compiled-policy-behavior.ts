@@ -1,5 +1,4 @@
 import type { CompiledPolicy, ModelPolicy } from "@src/rbac";
-import { grant, member, notBanned, session, up } from "@src/rbac";
 import { compilePolicy, verbsOf } from "@src/rbac/compile";
 import {
   createRbacAppClient,
@@ -24,6 +23,7 @@ import {
 } from "@tests/package/fixtures/rbac-app/seed";
 import {
   Actor as ActorSchema,
+  activeUser,
   policy,
   storedPolicy,
 } from "@tests/types/rbac/acceptance-policy";
@@ -148,7 +148,7 @@ export function runCompiledPolicyBehavior(substrate: RbacAppSubstrate): void {
 
     for (const name of judged) {
       test(
-        `W-H1: the helpers' compiled predicates select the oracle's rows for ${name}, at every (model, action)`,
+        `W-H1: the explicit policy's compiled predicates select the oracle's rows for ${name}, at every (model, action)`,
         async () => {
           const actor = actors[name]!;
           for (const [model, action] of MODEL_ACTIONS)
@@ -195,13 +195,14 @@ export function runCompiledPolicyBehavior(substrate: RbacAppSubstrate): void {
     test(
       "W-A2: stored grant actions: document actions held only through a grant's `actions`",
       async () => {
-        // The same policy whose grants carry no `actions`: what it loses is what the stored lists give.
-        const given = grant.to([], { relation: "grants", level: "level" });
+        // Documents declare an action graph, not the policy's level ladder.
+        // Without stored `actions`, a grant therefore contributes no access;
+        // retain the owner and admin arms to isolate what the stored lists give.
         const levelsOnly = rebuild((models) => ({
           ...models,
           document: {
             ...models.document,
-            arms: [...models.document.arms.slice(0, 2), up("parent", given)],
+            arms: models.document.arms.slice(0, 2),
           },
         }));
         const stripped = governed(levelsOnly, "levels-only");
@@ -227,10 +228,18 @@ export function runCompiledPolicyBehavior(substrate: RbacAppSubstrate): void {
       "W-A3: the role ceiling caps every arm: a reader granted edit holds view",
       async () => {
         const uncapped = rebuild((models) => {
-          const inOrg = member({
-            via: "organization",
-            user: { AND: [notBanned(), session()] },
-          });
+          const inOrg = {
+            organization: {
+              is: {
+                members: {
+                  some: {
+                    userId: { actor: "userId" },
+                    user: { is: activeUser },
+                  },
+                },
+              },
+            },
+          };
           return Object.fromEntries(
             Object.entries(models).map(([model, entry]) => [
               model,

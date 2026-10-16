@@ -32,13 +32,7 @@ import {
   type RbacConfig,
   verbsOf,
 } from "./compile";
-import {
-  FALSE,
-  type KeyLimit,
-  type PolicyModel,
-  type Rule,
-  type Where,
-} from "./helpers";
+import { FALSE, type PolicyModel, type Rule, type Where } from "./rules";
 
 export type { ActorFacts, ActorPaths } from "./actor";
 export type {
@@ -47,27 +41,7 @@ export type {
   ModelPolicy,
   RbacConfig,
 } from "./compile";
-export type {
-  Ceiling,
-  GrantShape,
-  KeyLimit,
-  MemberOptions,
-  PolicyModel,
-  Rule,
-  Where,
-} from "./helpers";
-export {
-  everyone,
-  grant,
-  keyLimit,
-  member,
-  notBanned,
-  owner,
-  role,
-  session,
-  team,
-  up,
-} from "./helpers";
+export type { PolicyModel, Rule, Where } from "./rules";
 
 type Schema = VibORMConfig["schema"];
 type AnyModel = Schema[string];
@@ -143,7 +117,7 @@ type RequiredKeys<T> = {
 /**
  * The actor paths a declaration spells: `{ actor: "path" }` values and
  * `{ actor: { path: value } }` conditions, found by a walk over the
- * declaration's literal (functions and helper results are opaque).
+ * declaration's literal (functions and widened predicates are opaque).
  */
 type SpelledActorPaths<T> = T extends readonly (infer Item)[]
   ? SpelledActorPaths<Item>
@@ -152,14 +126,24 @@ type SpelledActorPaths<T> = T extends readonly (infer Item)[]
     : T extends object
       ? string extends keyof T
         ? never
-        : {
-            [K in RequiredKeys<T> & string]: K extends "actor"
-              ? T[K] extends string
-                ? T[K]
-                : ConditionPaths<T[K]>
-              : SpelledActorPaths<T[K]>;
-          }[RequiredKeys<T> & string]
+        :
+            | ControlPath<T>
+            | {
+                [K in RequiredKeys<T> & string]: K extends "actor"
+                  ? T[K] extends string
+                    ? T[K]
+                    : ConditionPaths<T[K]>
+                  : SpelledActorPaths<T[K]>;
+              }[RequiredKeys<T> & string]
       : never;
+
+/** Explicit actor parameters and `$if` conditions use the same path vocabulary. */
+type ControlPath<T> = T extends {
+  readonly control: "actor";
+  readonly path: infer Path extends string;
+}
+  ? Path
+  : never;
 
 type ConditionPaths<T> = T extends object
   ? string extends keyof T
@@ -171,23 +155,8 @@ type ConditionPaths<T> = T extends object
       }[RequiredKeys<T> & string]
   : never;
 
-type LimitPaths<Limit> = Limit extends { readonly "~limit"?: infer L }
-  ? L extends KeyLimit
-    ?
-        | L["when"]
-        | L["scopes"]
-        | Values<{
-            [K in keyof L["ids"]]: L["ids"][K] extends {
-              readonly path: infer P;
-            }
-              ? P
-              : never;
-          }>
-    : never
-  : never;
-
 type UnknownActorPaths<Config extends RbacConfig> = Exclude<
-  SpelledActorPaths<Config["models"]> | LimitPaths<Config["limit"]>,
+  SpelledActorPaths<Config["models"] | Config["limit"]>,
   ActorPaths<InferOutput<Config["actor"]>>
 >;
 
