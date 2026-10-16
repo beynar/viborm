@@ -1,659 +1,851 @@
 ---
 title: RBAC
-description: One predicate per model and action, judged inside the statement that reads or writes
+description: Who may read and write which rows, written as one where per model and action and checked by the database inside each statement
 icon: shield-check
 ---
 
-`rbac()` is the official authorization extension. A permission is a predicate,
-a `where` over the row's relations and the caller's facts, and the database
-judges it inside the statement that reads or writes. Your server says who the
-caller is, once per request; every read, count, include, update, create and
-delete then takes only the rows that caller may take, as the rows stand when
-the statement runs. Nothing about the caller is loaded beforehand.
+`viborm/rbac` decides which rows a request may read and write.
 
-One declaration per model and action is the only place a rule is written.
-Filtering at every depth, the judgement of writes and of the rows they
-produce, `can`/`assert`, `$access`, field levels and API-key limits are all
-read from it.
+**The whole idea:** for each model, and for each thing a user can do with it
+(an *action*: `view`, `edit`, `delete`…), you write a `where`. When the
+request calls the ORM, the action that call needs picks the `where`, and the
+`where` is added to the SQL the ORM sends. The database decides, row by row,
+in the same statement. Nothing about the user is loaded beforehand.
 
-The extension is built only from public extension capabilities (`controls`,
-`rows` and its `verbs`, a `query` handler, `client` and `model` methods, see
-[Create an extension](/docs/extensions/create)). It lives in its own entry
-point, about 6.5 kB gzip that only an application importing it carries. The
-capabilities it is built from are core's and every application carries them:
-they added about 10 kB gzip to an application bundle (pg 168.6 → 178.9 kB,
-D1 168.0 → 178.4 kB from 1.2.4), whether it imports `viborm/rbac` or not.
+Everything else on this page, the helpers included, is a shorter way to write
+those `where`s. This page goes from the simplest policy to the most complex
+one, a permission inherited down a tree and granted to a hierarchy of teams;
+the [reference](#reference) at the end lists every option.
+
+**Raw SQL is not filtered.** `$queryRaw`, `$executeRaw`, their unsafe forms
+and statement transforms see every row, even on a governed client. See
+[Boundaries](#boundaries).
+
+## 1. A blog: authors edit their own posts
 
 ```ts
 import { s } from "viborm";
 import { owner, rbac } from "viborm/rbac";
 import { v } from "viborm/validation";
 
+const user = s.model({
+  id: s.string().id(),
+  name: s.string(),
+  admin: s.boolean().default(false),
+  posts: s.toMany(() => post),
+});
 const post = s.model({
   id: s.string().id(),
   title: s.string(),
+  published: s.boolean().default(false),
   authorId: s.string(),
   author: s.toOne(() => user).fields("authorId").references("id"),
 });
 
-const blog = rbac({
-  actor: v.object({ userId: v.string(), admin: v.boolean() }), // `admin`: an identity-provider claim
+const policy = rbac({
+  // Who calls: the facts of the request, given by your server.
+  actor: v.object({ userId: v.string(), admin: v.boolean() }),
   models: {
     post: {
-      view: {},                                   // everyone reads every post
-      edit: owner("authorId"),                    // the author edits
-      delete: { actor: { admin: true } },         // an admin deletes
-      create: { authorId: { actor: "userId" } },  // a new post is the caller's
+      view: { OR: [{ published: true }, { authorId: { actor: "userId" } }] },
+      edit: { authorId: { actor: "userId" } },   // same as owner("authorId")
+      delete: { actor: { admin: true } },        // a condition on the caller alone
+      create: { authorId: { actor: "userId" } }, // a new post must be the caller's
+    },
+    user: { view: {} },                          // {} : every row
+  },
+});
+
+const db = policy(base); // `base` is your client
+```
+
+`{ actor: "userId" }` is "the value of `userId` in the actor": the same
+policy serves every user, each request supplies its own values.
+
+Each request binds its caller once, with `$as`, and uses the client it
+returns:
+
+```ts
+export async function handle(request: Request) {
+  const session = await authenticate(request); // yours
+  const call = db.$as({ userId: session.userId, admin: session.admin });
+
+  await call.post.findMany();
+  await call.post.update({ where: { id }, data: { title } });
+  await call.post.delete({ where: { id } });
+  await call.post.create({ data: { title, authorId: session.userId } });
+}
+```
+
+### What each call sends to the database
+
+Every operation needs one action, and that action's `where` is added to the
+statement:
+
+| Call | Action | The statement (simplified) |
+|---|---|---|
+| `findMany`, `findFirst`, `findUnique`, `count`, `aggregate`, `groupBy` | `view` | `SELECT … WHERE (your where) AND (published OR "authorId" = $me)`, every row for an admin |
+| `update`, `updateMany` | `edit` | `UPDATE post SET … WHERE id = $1 AND "authorId" = $me` |
+| `delete`, `deleteMany` | `delete` | `DELETE FROM post WHERE id = $1` for an admin, no row at all for anyone else |
+| `create`, `createMany` | the `create` rule, on the new row | `INSERT INTO post (…) SELECT $values WHERE $authorId = $me` |
+
+What follows from it:
+
+- **A row the caller may not touch is a row it cannot find.** The update of
+  someone else's post matches no row: `NotFoundError`, exactly as for an id
+  that does not exist. `updateMany` and `deleteMany` count only the rows they
+  were allowed to write.
+- **A create is judged on the row it would insert.** A post whose `authorId`
+  is not the caller's is inserted by no statement: `ForbiddenError`.
+- **`include` and relations are filtered too.** `call.user.findMany({ include:
+  { posts: true } })` returns, for each user, only the posts the caller may
+  view: every relation reads its target through the target model's own `view`.
+- **A model the policy does not list is closed.** `call.comment.findMany()`
+  is refused before any statement, and through a relation an unlisted model
+  reads `null` or `[]`. List a model with `view: {}` to open it.
+- **Nothing runs without an actor.** `db.post.findMany()` (no `$as`) is refused
+  before any statement. The client you passed in, `base`, is unchanged: it sees
+  every row and is your operator's tool.
+
+`{ actor: { admin: true } }` is a condition on the caller with no column: for
+an admin it holds on every row, for anyone else it holds on none, and the
+database still receives one statement.
+
+**Every action implies `view`.** Whoever may edit or delete a row may read it,
+so `view` is the `view` rule OR every other action's rule: here an admin, who
+holds `delete` on every post, reads every post too.
+
+## 2. Levels: `view`, `edit`, `full`
+
+Most models share the same ladder. Declare it once with `levels`; a rule
+written on a higher level grants every level below it.
+
+```ts
+const policy = rbac({
+  actor: v.object({ userId: v.string() }),
+  levels: ["view", "edit", "full"], // full implies edit, edit implies view
+  models: {
+    post: {
+      view: { published: true },
+      edit: { authorId: { actor: "userId" } },
+      full: { author: { admin: true } },
+      create: { authorId: { actor: "userId" } },
     },
     user: { view: {} },
   },
 });
-
-const db = blog(base);
-
-export async function handle(request: Request) {
-  const session = await authenticate(request);
-  const call = db.$as({ userId: session.userId, admin: session.admin });
-
-  await call.post.findMany();                                          // every post
-  await call.post.update({ where: { id }, data: { title } });          // NotFoundError unless the author
-  await call.post.create({ data: { title, authorId: session.userId } }); // ForbiddenError for another author
-  await call.$queryRaw`SELECT * FROM "post"`;                          // EVERY row: raw SQL is not filtered
-}
 ```
 
-**Raw SQL is not filtered.** `$queryRaw`, `$executeRaw`, their unsafe forms
-and statement transforms run as written on a governed client and see every
-row. **`call` is not a sandbox:** never hand it to code you do not trust. See
-[Boundaries](#boundaries).
+`view` is now "published, **or** the author, **or** an admin": the rules of
+`edit` and `full` also grant `view`. With levels, the operations take:
 
-`rbac(config)` returns a function that takes a client and returns the
-governed client. The client you pass in is unchanged: below `rbac` it sees
-every row, and it is the operator's tool. A call on `db` itself, without an
-actor, is refused before any statement; every call goes through `db.$as(actor)`.
+| Operation | Action |
+|---|---|
+| read | `view` |
+| update | `edit` |
+| delete | the top level, `full` |
+| create | the `create` rule (judged at `edit`, see [§3](#3-who-may-create-what)) |
 
-## Policy
-
-### The actor
-
-`actor` is a `viborm/validation` object schema (`v.object`) of the facts of
-the request: who calls, for which organization, from where, with which
-credential. It is bound once per request by `$as` and never read from the
-database.
+Change any of them per model with `operations`:
 
 ```ts
-const Actor = v.object({
-  userId: v.string(),
-  organizationId: v.string(),
-  network: v.string(),               // "office", "public": a request fact
-  session: v.optional(v.string()),   // the session's id, never its token
-  key: v.optional(
-    v.object({
-      id: v.string(),
-      scopes: v.record(v.string(), v.array(v.string())), // per model, the actions the key may use
-      resources: v.object({
-        document: v.union([v.literal("all"), v.array(v.string())]),
-      }),
-    })
-  ),
+post: { /* … */ operations: { delete: "edit" } }, // authors may delete too
+```
+
+A key that is not a level names one more action, which implies `view`:
+`publish: { author: { editor: true } }` adds `publish`, usable with
+[`can`](#9-asking-can-assert-access) and with [field levels](#5-protecting-fields).
+The model's actions are then no longer exactly the levels, so its delete
+takes an action named `delete` by default: write `operations: { delete:
+"full" }` to keep deleting at `full`.
+
+## 3. Who may create what
+
+A create has no row yet, so its rule reads the row it would insert: the
+values the call writes, and the rows they point at.
+
+```ts
+post: {
+  // …
+  create: { authorId: { actor: "userId" } }, // the new post is the caller's
+},
+comment: {
+  view: { post: "view" },  // a comment is visible when its post is
+  edit: { authorId: { actor: "userId" } },
+  create: {
+    authorId: { actor: "userId" },
+    post: "view",          // on a post the caller can see
+  },
+},
+```
+
+`{ post: "view" }` is a relation whose value is an action name: "the related
+post satisfies `post`'s own `view` rule". It is how one model's permission
+follows another's, without writing it twice.
+
+- Every foreign key a create writes must point at a row the caller can see
+  (a hidden target and a missing one give the same `ForbiddenError`).
+- **Moving a row is judged like a create.** An update that changes a field
+  the `create` rule reads (here `postId` or `authorId`) must leave a row the
+  `create` rule accepts, and the new row must still pass the rules that let
+  the caller update it.
+- A model without a `create` rule refuses every create.
+
+## 4. A team: the organization, and roles
+
+A multi-tenant app adds a condition to *every* action of most models: "the
+caller is a member of the row's organization". Write it once in `within`.
+
+```ts
+const organization = s.model({
+  id: s.string().id(),
+  name: s.string(),
+  members: s.toMany(() => member),
+  projects: s.toMany(() => project),
+});
+const member = s.model({
+  organizationId: s.string(),
+  organization: s.toOne(() => organization).fields("organizationId").references("id"),
+  userId: s.string(),
+  role: s.enum(["admin", "member", "reader"]),
+}).id(["organizationId", "userId"]);
+const project = s.model({
+  id: s.string().id(),
+  name: s.string(),
+  organizationId: s.string(),
+  organization: s.toOne(() => organization).fields("organizationId").references("id"),
+  ownerId: s.string(),
 });
 ```
 
-- The schema must be a finite, strict object (unknown keys refused, not
-  recursive); `rbac()` refuses any other with a `ClientInitializationError`.
-- Every actor path a policy reads (`{ actor: "key.id" }`) is checked against
-  the schema, in TypeScript and when the policy is applied. A misspelt path
-  is refused; it never folds a rule silently false.
-- **An absent or `null` actor value matches nothing.** `userId: null` owns no
-  row whose `ownerId` is null. `$as` refuses a value of the wrong type with a
-  `ValidationError`; a field the actor leaves out is absent, so every rule
-  that reads it holds nowhere.
-- **Bind ids, never bearer secrets.** Bind the session's id, not its token:
-  the actor travels in error metadata and, with the cache, in cache keys.
-
-### Actions
-
-Every model has actions. With `levels`, a model's actions are an ordered
-chain, each implying the ones below it; a rule key that is not a level
-(`invite`, `export`) names an action that implies `view`. A model may declare
-its own `actions` instead, each with the actions it implies; it then names
-every one, and any other key is refused.
-
-- A key spelled like a key of the declaration or a level (`whithin`,
-  `crate`, `edti`) is refused when the policy is applied: as an action it
-  would add its rule to `view`. So are an unknown key of the policy itself
-  (`limits:`), an unknown key of a `fields` entry (`reed:`) and a model
-  `keyLimit`'s `ids` names that the schema lacks.
-
 ```ts
-rbac({
-  actor: Actor,
-  levels: ["view", "edit", "full"], // full implies edit implies view
+import { member, owner, rbac } from "viborm/rbac";
+
+const inOrg = member({ via: "organization" });                     // any member
+const admin = member({ via: "organization", roles: ["admin"] });   // an admin
+
+const policy = rbac({
+  actor: v.object({ userId: v.string() }),
+  levels: ["view", "edit", "full"],
   models: {
-    organization: { view: member(), invite: admin },       // view, edit, full, and invite
-    document: {
-      actions: {
-        view: [],
-        comment: ["view"],
-        archive: ["view"],
-        edit: ["comment", "archive"],
-        share: ["edit"],
-        export: ["view"],
-      },
-      // ...
+    organization: { view: member() },   // on the organization itself: its own members
+    member: { within: inOrg, view: {}, full: admin },
+    project: {
+      within: inOrg,            // AND-ed into every action of project
+      view: {},                 // every member views
+      edit: owner("ownerId"),   // the owner edits
+      full: admin,              // admins do everything
+      create: { ownerId: { actor: "userId" } },
     },
   },
 });
 ```
 
-`operations` maps the four operations to actions. The defaults: a read takes
-`view`, an update `edit`, a create `edit`, a delete `delete`; on a model whose
-actions are exactly the `levels`, a delete takes the last level. An operation
-whose action the model does not declare is refused (below): a model nobody
-deletes needs no `delete: false`.
+`member({ via: "organization" })` is a helper. It returns this `where`, which
+you could write yourself:
 
 ```ts
-member: {
+{ organization: { is: { members: { some: { userId: { actor: "userId" } } } } } }
+```
+
+So a project read sends, simplified:
+
+```sql
+SELECT … FROM project p
+WHERE EXISTS (SELECT 1 FROM member m
+              WHERE m."organizationId" = p."organizationId" AND m."userId" = $me)
+```
+
+and `full` (the delete) becomes `… AND m.role = 'admin'`. Projects of other
+organizations are never returned, counted or updatable: `within` is part of
+every action's rule.
+
+**A role caps a member's actions.** `ceiling` maps each role to the highest
+level it may reach, whatever else would grant it:
+
+```ts
+const inOrg = member({
+  via: "organization",
+  ceiling: { reader: "view", member: "full", admin: "full" }, // a reader never edits
+});
+```
+
+At `view`, every role passes; at `edit` and `full`, only `member` and `admin`.
+A reader who owns a project still cannot edit it. Ceilings can also be rows of
+a `rolePermission` table instead of being declared (see the
+[helpers](#helpers)).
+
+## 5. Protecting fields
+
+Some fields need more than the row's `edit` to write, or more than `view` to
+read:
+
+```ts
+project: {
+  // …
+  fields: {
+    ownerId: { write: "full" }, // transferring a project needs full
+    budget: { read: "full" },   // only admins see the budget
+  },
+},
+```
+
+- **`write`:** an update that writes `ownerId` is judged at `full`, not at
+  `edit`. The action comes from what the call writes, never from the caller.
+- **`read`:** where the caller lacks `full`, `budget` is left out of the
+  row, and every `where`, `orderBy` or cursor over it reads it as absent.
+  Rows are never dropped because of it. Explicitly selecting it
+  (`select: { budget: true }`) on such a row is a `ValidationError`.
+- A key, a unique field or a foreign key cannot be read-protected: the
+  policy is refused when applied.
+
+## 6. Sharing with grants
+
+To share a single row with a person, store the share as a row: a *grant*.
+
+```ts
+const accessGrant = s.model({
+  id: s.string().id(),
+  projectId: s.string(),
+  project: s.toOne(() => project).fields("projectId").references("id"),
+  userId: s.string().nullable(),          // to one user…
+  everyone: s.boolean().default(false),   // …or to everyone
+  level: s.enum(["view", "edit", "full"]),
+});
+// and on project: grants: s.toMany(() => accessGrant)
+```
+
+A project is then also reachable by "a grant on it, to me, at this level or
+above". Because that depends on the action, it goes in `arms`, a list of
+rules each read **at every action**:
+
+```ts
+import { everyone, grant, owner } from "viborm/rbac";
+
+const shared = grant.to([owner("userId"), everyone()], {
+  relation: "grants", // the grants of the row
+  level: "level",     // the column holding the granted level
+});
+
+project: {
   within: inOrg,
   view: {},
-  edit: admin,
-  create: { organization: "invite" },
-  operations: { delete: "edit" },
+  edit: owner("ownerId"),
+  full: admin,
+  arms: [shared], // a grant at a level gives that level and the ones below
 },
 ```
 
-### Rules
-
-A model's predicate at action `a` is
-
-```
-P(M, a) = within(M)(a) ∧ limit(M, a) ∧ ( ⋁ rule(M, b) for every b that is a or implies it  ∨  ⋁ arms(M)(a) )
-```
-
-- **Rules** (`view: …`, `edit: …`) are written under the action's name. A
-  holder of `full` holds `edit` and `view` through them.
-- **`arms`** apply at every action: each arm is a `where`, or a function of
-  the action (`(a) => ({ personal: false, group: a })`) evaluated once per
-  declared action when the policy is applied.
-- **`within`** is conjoined at every action (the organization membership most
-  models need), and so is the top-level **`limit`** ([API keys](#api-keys-limit)).
-- An action with no rule and no arm holds nowhere.
-
-A rule is any `where` of its model: relation filters with `some`, `every`,
-`none` or `is`, `AND`/`OR`/`NOT`, and `recurse` with a written `depth`
-(`false` for the whole closure; `recurse: true` is refused, as it would stop
-at a depth the engine chose). Three spellings are the policy's own:
-
-| Spelling | Meaning |
-|---|---|
-| `{ ownerId: { actor: "userId" } }` | a column equals an actor value |
-| `{ actor: { network: "office" } }` | a condition on the actor alone, no column: when it is false, its arm is removed |
-| `{ group: "edit" }` | the related row satisfies the target model's own `edit` predicate, inlined |
-
-A rule that reads itself through these references (a model's `view` that
-needs its own `view`) is refused when the policy is applied, naming the
-cycle.
-
-A fact of a row stays a row fact: `{ plan: "pro" }` on an organization is
-read from the row, so a downgrade is seen by the next statement. Do not copy
-it onto the actor.
-
-### Helpers
-
-Each helper returns a `where`, or a function of the action, evaluated once
-when the policy is applied. What they read is fixed, so the columns they name
-must exist on your schema.
-
-| Helper | Holds where | Reads |
-|---|---|---|
-| `owner(field)` | the row's `field` is the actor's `userId` | `field` |
-| `member({ via?, roles?, ceiling?, user? })` | the actor is a member of the row's owner, reached through the relation `via` (the row's own `members` without it); `roles` admits those roles; `ceiling` caps each role at an action; `user` is a rule the member's user satisfies | `members` with `userId` and `role` |
-| `grant.to(grantees, { relation, level?, actions? })` | a grant row on the row, held by one of `grantees`, whose `level` is the action or above it, or whose `actions` list meets the action or one above it | the grant relation and its `level`/`actions` columns |
-| `grant.administer(things, { level?, actions? })` | returns `{ admin, place }` for the grant model itself (below) | each thing's foreign key |
-| `team(relation, { below, memberOf })` | the actor is a member of the team `relation` reaches, or of a team below it through `below` | the team graph and its members |
-| `role(field, { via })` | the row's enum `field` names the role the actor's membership holds | `field`, and `members` through `via` |
-| `everyone()` | a grant to everyone | `everyone` |
-| `up(relation, rule)` | the row, or one of its ancestors through `relation`, satisfies `rule` | a recursive walk, whole closure |
-| `session()` | the user holds the credential the actor calls with: its live session (when the actor carries `session`) or its enabled, unexpired API key (when it carries `key`) | `sessions` (`id`, `expiresAt`), `apiKeys` (`id`, `enabled`, `expiresAt`) |
-| `notBanned()` | the user is not banned, or the ban has expired | `banned`, `banExpires` |
-| `keyLimit({ when, scopes, ids })` | the `limit` for API keys ([below](#api-keys-limit)) | actor paths only |
-
-A ceiling is declared per role, `{ reader: "view", member: "full", admin: "full" }`,
-or stored as rows, `{ relation: "permissions", action: "action" }`, with the
-roles listed in `roles`. A ceiling is evaluated at the action: a reader
-granted `edit` holds `view`, because `edit` implies `view` and the reader's
-ceiling allows `view`.
-
-- A declared cap is an action of the model the rule is on, or the top level,
-  which allows every action of every model. A cap the model does not declare
-  (`editor: "edit"` on a model whose actions are `view` and `publish`) is
-  refused when the policy is applied.
-- A stored row allows its action and every action that action implies, as a
-  declared cap, a grant's actions and a key's scopes do: a row storing
-  `edit` admits the role at `view` too.
+At `edit`, `shared` is, simplified, this `where`:
 
 ```ts
-const ceiling = { reader: "view", member: "full", admin: "full" };
-const inOrg = member({ via: "organization", ceiling, user: { AND: [notBanned(), session()] } });
-const admin = member({ via: "organization", roles: ["admin"] });
-const given = grant.to(
-  [owner("userId"), everyone(), team("granteeTeam", { below: "children", memberOf: "members" }),
-   role("granteeRole", { via: "organization" })],
-  { relation: "grants", level: "level", actions: "actions" },
-);
+{
+  grants: {
+    some: {
+      AND: [
+        { level: { in: ["edit", "full"] } },              // edit, or a level above it
+        { OR: [{ userId: { actor: "userId" } }, { everyone: true }] },
+      ],
+    },
+  },
+}
 ```
 
-**Writing a grant is administering every thing it is attached to.** A grant,
-a membership or a team edge is part of the rule of the row it points at, so
-the attaching model's own predicates decide who writes it.
-`grant.administer` emits that decision as a conjunction over the grant's
-non-null keys, never a disjunction across them: `admin` holds when at least
-one thing is attached and every attached thing is held at its administering
-action; `place` adds that the grant carries no action and no level its writer
-does not hold there.
+and the project's `edit` rule becomes `within AND (owner OR admin OR shared)`.
+A grant deleted by another request is no longer seen by the next statement.
+
+Who may *write* a grant row is a rule on the grant model like any other: for
+example only whoever holds `full` on its project:
 
 ```ts
-const grants = grant.administer(
-  { page: "full", group: "full", document: "share", collection: "full" },
-  { level: "level", actions: "actions" },
-);
-
 accessGrant: {
-  view: { OR: [{ userId: { actor: "userId" } }, grants.admin] },
-  edit: grants.admin,
-  create: grants.place,
+  view: { project: "full" },
+  edit: { project: "full" },
+  create: { project: "full", level: { in: ["view", "edit"] } }, // full holders share up to edit
   operations: { delete: "edit" },
 },
 ```
 
-### Every model is governed
+For grants that attach to several kinds of row, `grant.administer` writes
+these rules for you (see the [helpers](#helpers)).
 
-`rbac(config)(base)` governs every model of `base`'s schema. A model the
-policy does not list holds nothing: a root call on it is refused with
-`ForbiddenError` before any statement, and through a relation it reads `null`
-or `[]`. Inside other models' rules it is still read (a `session` or
-`teamParent` model need not be listed for `session()` or `team()` to work).
+## 7. A folder tree: permission inherited from the parents
 
-## `$as`: one view per request
+Documents in folders: a document is readable when **it or any of its
+ancestors** is shared with the caller. That is a recursive filter, the same
+`recurse` you can already write in a `where`:
 
 ```ts
-const call = db.$as(actor);
+const document = s.model({
+  id: s.string().id(),
+  title: s.string(),
+  organizationId: s.string(), // and on organization: documents: s.toMany(() => document)
+  organization: s.toOne(() => organization).fields("organizationId").references("id"),
+  parentId: s.string().nullable(),
+  parent: s.toOne(() => document).fields("parentId").references("id"),
+  children: s.toMany(() => document),
+  ownerId: s.string(),
+  grants: s.toMany(() => accessGrant), // accessGrant gains documentId and document
+});
 ```
 
-`$as` validates the actor once, against the policy's actor schema, and
-returns a view of the same client with the actor bound. It builds no chain
-and copies no state: requests running at the same time each hold their own
-view, and none ever sees another's actor. There is no setter on the shared
-client, and the actor is never a call argument: passing `actor` to an
-operation is a `ValidationError`, and so is a call without one.
-
-- An interactive transaction started from `call` keeps its actor; an array
-  transaction may mix calls of several views, each judged for its own.
-- A client `$extends` derives from `call` keeps the actor.
-- `call.$as(other)` binds another actor. It is not refused: `call` can
-  already run raw SQL, so it is the application's to keep, never a capability
-  to hand out.
-
-## Reads
-
-Every read takes only rows whose `view` predicate holds, at every depth:
-root reads, `count`, `aggregate`, `groupBy`, cursors, `include` and `select`
-of relations (to-one and to-many), `some`/`every`/`none`/`is`/`isNot`,
-`_count` and ordering by a relation, recursive reads, polymorphic arms.
-
 ```ts
-await call.page.findMany({ include: { group: true } }); // pages the caller views; a hidden group reads null
-await call.page.count();                                 // the same pages, counted
-```
-
-- `every`, `none` and negated counts read "every **visible** member":
-  `none: {}` holds for a row whose members are all hidden.
-- `_count` and relation-count order count visible members; ordering by a
-  to-one field reads a hidden target as absent.
-- A cursor on a hidden row is a missing cursor: the page is empty.
-- A recursive read walks visible nodes; a hidden node cuts its branch.
-- A to-one relation, or a polymorphic arm, whose target is hidden reads
-  `null`.
-
-## Writes
-
-### Judged by the statement they emit
-
-An update or delete takes its candidates inside the read predicate, and
-judges each at the actions of what it writes:
-
-- An update is judged at the action of each field its data writes, conjoined:
-  `fields: { ownerId: { write: "full" }, archivedAt: { write: "archive" } }`.
-  A field without a `write` takes `operations.update`. A relation field
-  written by `connect`, `disconnect` or `set` counts, at both ends of a join.
-- `data: {}`, or a parent a nested write bumps, is judged at the update
-  action. Stamps (another extension's `data`) and schema values
-  (`updatedAt`, `now()`) are never written fields: they neither raise an
-  archive-only write to `edit` nor lower an update below its action.
-- A row only addressed to reach its children, whose own statement writes
-  nothing (no field of its own, no `updatedAt`), is read, at `view`.
-- A delete, and a soft delete's tombstone, takes `operations.delete`.
-
-```ts
-await call.page.update({ where: { id }, data: { title } });            // edit
-await call.page.update({ where: { id }, data: { ownerId } });          // full
-await call.document.update({ where: { id }, data: { archivedAt: now } }); // archive alone
-```
-
-A row the caller cannot view and a row it views but may not write give the
-same `NotFoundError`; `updateMany` and `deleteMany` count only the rows they
-may write.
-
-### Judged by the row they produce
-
-The row a write produces is judged as a value, against the rows as they
-stand before the write, inside the statement that writes it (`INSERT …
-SELECT … WHERE`, `UPDATE … WHERE`). A refused row is written by no statement,
-before any constraint is checked.
-
-- **Create.** A created row must satisfy the model's placement: `within`,
-  `limit` and its `create` rule, at `operations.create`. A model without a
-  `create` rule refuses every create.
-- **Every written key's target must be visible**, as a `connect` requires: a
-  missing target and a hidden one give the same `ForbiddenError`.
-- **Update.** The new row must satisfy the predicates that judged the old one
-  (PostgreSQL's `WITH CHECK` defaulting to `USING`), and placement too when the
-  update writes a field the `create` rule reads (a move).
-- **No parent cycles.** A row cannot be moved under its own subtree through a
-  relation `up()` recurses over.
-- Rows of one statement never see each other: a `createMany` cannot
-  justify one row by another, and a grant cannot justify itself.
-
-```ts
-page: {
+document: {
   within: inOrg,
-  arms: [owner("ownerId"), { AND: [{ personal: false }, admin] }, given, (a) => ({ personal: false, group: a })],
-  create: { OR: [{ group: "edit" }, { groupId: null, personal: true, ownerId: { actor: "userId" } }] },
+  view: {
+    parent: {
+      recurse: { depth: false }, // every ancestor, all the way up
+      self: true,                // the document itself too
+      some: { OR: [{ ownerId: { actor: "userId" } }, shared] },
+    },
+  },
+},
+```
+
+Read it as: "among this document and all its ancestors, *some* is owned by
+me or shared with me". The `up` helper writes exactly this object:
+
+```ts
+import { up } from "viborm/rbac";
+
+document: {
+  within: inOrg,
+  arms: [up("parent", owner("ownerId")), up("parent", shared)],
+},
+```
+
+Using `arms` means each level reads the grants at its own level: a grant of
+`edit` on a folder lets the caller edit every document below it, a grant of
+`view` only read them.
+
+The statement walks the tree inside the database, once, with a recursive
+subquery (simplified):
+
+```sql
+SELECT … FROM document d
+WHERE EXISTS (
+  WITH RECURSIVE up(id) AS (
+    SELECT d.id UNION SELECT p."parentId" FROM document p JOIN up ON p.id = up.id
+  )
+  SELECT 1 FROM document a JOIN up ON a.id = up.id
+  WHERE a."ownerId" = $me OR EXISTS (SELECT 1 FROM grant g WHERE g."documentId" = a.id AND …)
+)
+```
+
+- `depth` must be written: `{ depth: false }` for the whole tree, or a number.
+  `recurse: true` is refused in a policy, because it would stop at a depth
+  the engine chose.
+- **Moving a document is judged on both sides.** Changing `parentId` needs
+  `edit` on the document, and the new parent must be one the caller can
+  `edit` (when the `create` rule reads `parent`, as below).
+- **No cycles.** A document cannot be moved under itself or its own subtree.
+
+```ts
+document: {
+  // …
+  create: {
+    OR: [
+      { parent: "edit" },                                    // inside a folder I may edit
+      { parentId: null, ownerId: { actor: "userId" } },      // or at the root, as mine
+    ],
+  },
+},
+```
+
+## 8. Team hierarchies
+
+Teams nested in teams: a grant to a team reaches its members **and the members
+of every team below it**. Same `recurse`, on the team graph this time:
+
+```ts
+const team = s.model({
+  id: s.string().id(),
+  parentId: s.string().nullable(),
+  parent: s.toOne(() => team).fields("parentId").references("id"),
+  children: s.toMany(() => team),
+  members: s.toMany(() => teamMember),
+  grants: s.toMany(() => accessGrant),
+});
+const teamMember = s.model({
+  teamId: s.string(),
+  team: s.toOne(() => team).fields("teamId").references("id"),
+  userId: s.string(),
+}).id(["teamId", "userId"]);
+// and on accessGrant: teamId: s.string().nullable(), team: s.toOne(() => team)…
+```
+
+"The grant's team, or one of the teams below it, has me as a member":
+
+```ts
+const toMyTeams = {
+  team: {
+    is: {
+      children: {
+        recurse: { depth: false },
+        self: true,
+        some: { members: { some: { userId: { actor: "userId" } } } },
+      },
+    },
+  },
+};
+```
+
+which is what `team("team", { below: "children", memberOf: "members" })`
+returns. Add it to the grantees of `shared`, and the whole previous section
+keeps working:
+
+```ts
+import { everyone, grant, owner, team, up } from "viborm/rbac";
+
+const shared = grant.to(
+  [
+    owner("userId"),                                         // to me
+    everyone(),                                              // to everyone
+    team("team", { below: "children", memberOf: "members" }), // to a team I am in, or below
+  ],
+  { relation: "grants", level: "level" }
+);
+
+document: {
+  within: inOrg,
+  arms: [up("parent", owner("ownerId")), up("parent", shared)],
+  create: {
+    OR: [{ parent: "edit" }, { parentId: null, ownerId: { actor: "userId" } }],
+  },
   fields: { ownerId: { write: "full" } },
 },
-
-await call.page.create({ data: { title, organizationId, ownerId, groupId } }); // ForbiddenError unless the group is editable
-await call.page.update({ where: { id }, data: { groupId } });  // edit on the page, the new group editable
 ```
 
-Moving a page into another group is judged on both sides: the old row at
-`edit`, the new one at `edit` and placement (so the new group must be
-editable). **A personal page cannot be transferred:** once its owner
-changes, the caller no longer holds `full` on the new row, and the update is
-refused.
+That one `document` entry now says: a document is reachable at a level when
+it or any ancestor is owned by the caller, or carries a grant at that level
+or above, to the caller, to everyone, or to any team whose subtree contains
+the caller; always inside the caller's organization. Each statement walks
+both graphs (the folders up, the teams down) inside the database.
 
-### Nested writes and errors
+A team graph whose teams have several parents (a join model instead of
+`parentId`) is written the same way: name the relation that leads down
+(`children`) and the one to the members.
 
-| Operation | Old row | New row | Refused with |
-|---|---|---|---|
-| `update`, `updateMany` | the actions of the written fields | the same predicates; placement on a move; written keys visible; no cycle | `NotFoundError` / count (old), `ForbiddenError` (new) |
-| `delete`, `deleteMany` | `operations.delete` | | `NotFoundError` / count |
-| `create`, `createMany` | | placement; written keys visible | `ForbiddenError` |
-| `upsert` | update arm as `update` | create arm as `create` | as each arm |
-| nested `create`, `connectOrCreate` | the parent, as the statement it emits | the child's placement | `NestedWriteError` |
-| nested `update`, `delete`, `connect`, `disconnect`, `set` | the child (or both ends of a join) at what it writes | as `update` | `NestedWriteError` |
+## 9. Asking: `can`, `assert`, `$access`
 
-`set: []` and `disconnect` refuse a visible link the caller may not write; a
-hidden member keeps its link. A to-one `delete: true` on a target the caller
-may not delete is a `NestedWriteError`.
-
-### `as` narrows and never widens
-
-Every read, update and delete accepts `as`, an action or a named domain of
-the model. It narrows the rows the call takes; the operation's own action
-still applies.
+To decide what to show (buttons, menus) without writing the rule twice, ask
+the same rules:
 
 ```ts
-await call.page.findMany({ as: "edit" });                  // the pages the caller may edit
-await call.document.delete({ where: { id }, as: "edit" }); // still judged at share: NotFoundError for an editor
+await call.project.can("edit", { id });                  // true or false
+await call.document.can(["view", "edit", "full"], { id }); // { view, edit, full }
+await call.project.assert("full", { id });               // throws ForbiddenError unless held
 ```
 
-## `can` and `assert`
+- `where` names **one** row by a unique key, as `findUnique` takes it; a
+  filter or a missing id is a `ValidationError`.
+- A row the caller cannot see holds nothing: `can` is `false`, `assert`
+  throws the same `ForbiddenError` as for a missing action.
 
-Every listed model has `can` and `assert`. They answer from the same
-predicates, for the one row a unique selector names, as `findUnique` takes
-it: a filter, an empty `where` or an undefined key is a `ValidationError`
-before any statement. One statement answers a list, except on a model whose
-actions are the `levels`, where each asked level is its own statement (see
-`$access` below).
-
-```ts
-await call.team.can("invite", { id: teamId });                 // boolean
-await call.document.can(["comment", "edit", "share"], { id }); // { comment, edit, share }
-await call.organization.assert("export", { id: orgId });       // ForbiddenError unless held
-```
-
-`can` on a hidden row is `false`. `assert` throws `ForbiddenError` whether
-the row is hidden or the action is missing.
-
-## `$access`
-
-`$access` is a projection key: `select` or `include` it at any depth, on
-reads and on the rows a write returns, and each row carries the actions the
-caller holds on it, computed in the same statement.
+For a whole list, include `$access`: every row comes back with what the
+caller may do with it, computed in the same statement:
 
 ```ts
 const documents = await call.document.findMany({
   where: { parentId: null },
   include: { $access: true, children: { include: { $access: true } } },
 });
-documents[0].$access; // { view: true, comment: true, archive: false, edit: false, share: false, export: false }
+documents[0].$access; // "edit": the highest level held, on a model with levels
 ```
 
-- On a model whose actions are exactly the `levels`, `$access` is the highest
-  level held (`"edit"`). It implies the levels below it when every arm,
-  `within` and `limit` reads the action as the helpers do (a higher level
-  never holding where a lower one does not). A function of your own may
-  not: `can` asks each level by itself, never from the highest.
-- On any other model it is a record of booleans, one per action.
-  `$access: ["share"]` reports only the actions it names.
-- `view` is always true on a row the caller reads, and still reported.
+On a model with its own [`actions`](#actions) it is one boolean per action
+(`{ view: true, comment: true, share: false, … }`); `$access: ["share"]`
+asks only for the ones named.
 
-## Field levels
+## 10. API keys: `limit`
+
+An API key acts for a user with fewer rights. `limit` is AND-ed into every
+model and action, creates included; `keyLimit` writes it from what the actor
+carries:
 
 ```ts
-collection: {
-  // ...
-  fields: { budget: { read: "full" } },
+import { keyLimit, rbac } from "viborm/rbac";
+
+const policy = rbac({
+  actor: v.object({
+    userId: v.string(),
+    key: v.optional(v.object({
+      id: v.string(),
+      scopes: v.record(v.string(), v.array(v.string())), // per model, the actions the key may use
+    })),
+  }),
+  limit: keyLimit({ when: "key", scopes: "key.scopes" }),
+  // …
+});
+
+const keyed = db.$as({ userId, key: { id, scopes: { project: ["view"] } } });
+await keyed.project.findMany();       // the user's projects, read only
+await keyed.project.update({ … });    // NotFoundError: the key does not hold edit
+await keyed.member.findMany();        // []: member is not in the key's scopes
+```
+
+A key only ever narrows the user's own rights. An actor without `key` is not
+limited. `ids` restricts a key to listed rows, or to rows below listed ones
+(`through: "parent"`); see the [helpers](#helpers).
+
+## 11. With soft delete and other extensions
+
+Extensions combine by intersection: a row must pass every one of them.
+Apply every `rows` step first, `rbac`'s last among them, then the `methods`
+steps:
+
+```ts
+import { softDelete } from "viborm/soft-delete";
+
+const tombstones = softDelete({ models: { document: { deletedAt: "deletedAt" } } });
+const db = policy.methods(tombstones.methods(policy.rows(tombstones.rows(base))));
+```
+
+- A deleted grant, membership or team member grants nothing.
+- A soft delete is a delete: it needs the delete action, and so does writing
+  `deletedAt` by hand or restoring a row.
+- `policy(tombstones(base))` is refused with a `ClientInitializationError`
+  naming the order.
+
+An extension applied after `rbac` can read the bound actor:
+`{ control: "actor", path: "userId" }` in a `data` stamp writes the caller's
+id (an audit `updatedBy`, for instance).
+
+---
+
+## Reference
+
+### The formula
+
+Every model's rule at an action `a` is:
+
+```
+rule(M, a) = within(a) AND limit(a) AND ( the rule of a, or of any action implying a
+                                          OR any arm, read at a )
+```
+
+- **Rules** (`view: …`, `edit: …`, any other action name) grant their action
+  and every action it implies.
+- **`arms`** are rules for every action. An arm is a `where`, or a function of
+  the action (`(a) => ({ group: a })`, "the group at the same action").
+- **`within`** and the top-level **`limit`** are AND-ed into every action.
+- An action with no rule and no arm holds nowhere.
+
+Three spellings are the policy's own; everything else is a plain `where` of
+the model (relation filters, `some`/`every`/`none`/`is`, `AND`/`OR`/`NOT`,
+`recurse`):
+
+| Spelling | Means |
+|---|---|
+| `{ ownerId: { actor: "userId" } }` | the column equals a value of the actor |
+| `{ actor: { network: "office" } }` | a condition on the actor alone: true on every row or on none |
+| `{ group: "edit" }` | the related row passes the target model's own `edit` rule |
+
+A rule that reads itself through these references (a model's `view` that
+needs its own `view`) is refused when the policy is applied, naming the
+cycle.
+
+### The actor
+
+`actor` is a `viborm/validation` object schema of the request's facts, given
+by `$as` once per request and never read from the database.
+
+- Every path a policy reads (`{ actor: "key.id" }`) is checked against the
+  schema, in TypeScript and when the policy is applied.
+- **An absent or `null` actor value matches nothing.** `userId: null` owns no
+  row whose `ownerId` is null; a field the actor leaves out makes every rule
+  reading it false.
+- **Bind ids, never bearer secrets.** Bind a session's id, not its token: the
+  actor travels in error metadata and in cache keys.
+- A fact of a row stays a row fact: an organization's `plan` is read from the
+  row, so a downgrade is seen by the next statement.
+
+### `$as`
+
+`db.$as(actor)` validates the actor once and returns a view of the same
+client with the actor bound. It copies nothing: requests running at the same
+time each hold their own view, and none ever sees another's actor. There is
+no setter on the shared client, and the actor is never a call argument.
+
+- A transaction started from the view keeps its actor; an array transaction
+  may mix calls of several views, each judged for its own.
+- A client `$extends` derives from the view keeps the actor.
+- `call.$as(other)` binds another actor: the view can run raw SQL anyway, so
+  keep it inside your server.
+
+### Actions
+
+With `levels`, a model's actions are the levels, plus one action per extra
+rule key (implying `view`). A model can declare its own instead:
+
+```ts
+document: {
+  actions: {
+    view: [],
+    comment: ["view"],          // comment implies view
+    archive: ["view"],
+    edit: ["comment", "archive"],
+    share: ["edit"],
+  },
+  operations: { delete: "share" },
+  // rules, arms, create, fields…
 },
 ```
 
-A field with a `read` action is present only on the rows where the caller
-holds it, on reads and on the rows a write returns. Rows are never dropped
-for it.
+A model that lists its `actions` names every one: any other key is refused.
 
-- Where the caller lacks the action, the field is omitted from the row, and
-  every operand the call writes over it reads it as absent: `where`, unique
-  lookups and cursors, `connect`, `orderBy`, `distinct`, aggregates,
-  `groupBy` (a hidden key reads `null`) and relation filters.
-- An explicit `select: { budget: true }` on a row that lacks the action is a
-  `ValidationError` at `select.budget`, raised after the read statement and
-  before any result. On a write that returns the field, the write is rolled
-  back with it where the driver has transactions; on a driver without
-  callback transactions (D1), the write may already be committed when the
-  refusal is raised.
-- A key, a unique field, a foreign key or a relation cannot be read-gated:
-  the policy is refused when applied. A write of a guessed value to a
-  unique field is refused by its constraint exactly when some row holds it,
-  which would confirm a gated value.
+`operations` maps each operation to an action. Defaults: read `view`, update
+`edit`, create `edit`, delete `delete` (the top level on a model whose
+actions are exactly the levels). An operation whose action the model does not
+declare is refused before any statement.
 
-## API keys: `limit`
-
-`limit` is conjoined with every model and action, creation included. Its
-helper, `keyLimit`, narrows a caller that carries a key:
+`as` narrows a call to an action or a named domain, never wider:
 
 ```ts
-limit: keyLimit({
-  when: "key",                 // an actor without a key is not limited
-  scopes: "key.scopes",        // per model, the actions the key may use
-  ids: { document: { path: "key.resources.document", through: "parent" } },
-}),
+await call.project.findMany({ as: "edit" }); // the projects the caller may edit
+page: { /* … */ domains: { given: shared } }  // await call.page.findMany({ as: "given" })
 ```
 
-- A key reaches a model only at the actions its scope for that model lists,
-  and every action they imply: a key scoped `["share"]` views and shares.
-- A model the key's scopes do not name is closed to it, reads and creates
-  alike.
-- On a model with `ids`, the row, or an ancestor through `through`, must be
-  listed, unless the list is `"all"`. An empty list admits nothing; `"all"`
-  is written, never implied.
-- A key narrows by intersection with the user's own rights; it never adds
-  one. Its liveness is a relation: `session()` reads the key row (enabled,
-  not expired) in every statement, so a revoked key reaches nothing at once
-  **for an actor whose only credential is the key**. `session()` holds when
-  either credential the actor carries is live: an actor bound with a live
-  session and a revoked key keeps the session's rights, still narrowed by
-  the key's scopes. Bind one credential per request.
+### Helpers
+
+Every helper returns a `where` (or a function of the action). The columns
+they read must exist on your schema.
+
+| Helper | Holds where | Equivalent `where` (simplified) |
+|---|---|---|
+| `owner("ownerId")` | the column is the caller | `{ ownerId: { actor: "userId" } }` |
+| `everyone()` | a grant to everyone | `{ everyone: true }` |
+| `up("parent", rule)` | the row or an ancestor passes `rule` | `{ parent: { recurse: { depth: false }, self: true, some: rule } }` |
+| `team("team", { below, memberOf })` | the team, or a team below it, has the caller as a member | `{ team: { is: { [below]: { recurse: …, self: true, some: { [memberOf]: { some: { userId } } } } } } }` |
+| `member({ via, roles, ceiling, user })` | the caller is a member of the row's owner through `via` | `{ [via]: { is: { members: { some: { userId, role: { in: … } } } } } }` |
+| `role("role", { via })` | the row's enum column names the caller's role in `via` | one arm per role |
+| `grant.to(grantees, { relation, level, actions })` | a grant on the row at this action or above, to one of `grantees` | `{ [relation]: { some: { AND: [level or actions cover a, OR(grantees)] } } }` |
+| `grant.administer(things, { level, actions })` | `{ admin, place }`: who writes a grant attached to `things` | each attached thing held at its action |
+| `session()` | the caller's user holds the credential it calls with (a live session or a live API key) | `sessions`/`apiKeys` with `expiresAt` in the future |
+| `notBanned()` | the user is not banned, or the ban has expired | `banned`, `banExpires` |
+| `keyLimit({ when, scopes, ids })` | the `limit` for API keys | conditions on the actor |
+
+- **Ceilings.** Declared per role (`{ reader: "view", admin: "full" }`), a cap
+  is an action of the model or the top level, which allows everything; a cap
+  the model does not declare is refused when applied. Stored as rows
+  (`ceiling: { relation: "permissions", action: "action" }`, with `roles`
+  listed), a row allows its action and every action that action implies.
+- **`grant.administer`** returns `admin` (at least one thing attached, and
+  every attached thing held at its administering action) and `place` (the
+  grant carries no level or action its writer does not hold there):
 
 ```ts
-const keyed = db.$as({ ...actor, session: undefined, key: { id, scopes: { page: ["view"] }, resources: { document: ["d1"] } } });
-await keyed.page.findMany();   // pages, while the key row is live
-await keyed.member.findMany(); // []: member is not in the key's scopes
-await keyed.page.create({ data }); // ForbiddenError: the key does not hold edit
-```
-
-## Named domains
-
-```ts
-page: { /* ... */ domains: { given } },
-
-await call.page.findMany({ as: "given" }); // pages the caller views AND that a grant gives it
-```
-
-A domain is a `where` (or a function of the action, read at `view`) that
-narrows reads: `as: "given"` is `P(page, view) ∧ given(view)`. A domain is
-never wider than `view`. An `as` value the model does not declare is refused
-with `ForbiddenError` before any statement; one no model declares is a
-`ValidationError`. An action or domain named `default` is refused when the
-policy is applied.
-
-## Composition
-
-Composition is intersection. Soft delete, tenancy and any other `rows`
-extension apply to every row the call reads, and to the rows a policy's own
-relation filters read, at their default mode: `deleted: "with"` shows
-tombstoned pages, and a tombstoned membership or grant still grants nothing.
-A tombstone is a delete: it takes `operations.delete`, and so does an update
-that writes the marker by hand (`data: { deletedAt }`) or a `restore`.
-
-Apply every `rows` step first, `rbac`'s last among them (it carries `$as`,
-a client method), then any extension without `rows`, then the methods steps.
-`policy.rows` and `policy.methods` are the two steps apart, as soft delete's
-are:
-
-```ts
-const tombstones = softDelete({ models: { page: { deletedAt: "deletedAt" } } });
-const audit = defineExtension({
-  name: "audit",
-  data: { models: { document: { update: { updatedBy: { control: "actor", path: "userId" } } } } },
-});
-
-const db = policy.methods(
-  tombstones.methods(policy.rows(tombstones.rows(base)).$extends(audit))
+const grants = grant.administer(
+  { page: "full", document: "share" },
+  { level: "level", actions: "actions" }
 );
+accessGrant: { view: grants.admin, edit: grants.admin, create: grants.place },
 ```
 
-`policy(tombstones(base))` and `tombstones.rows(policy.rows(base))` are
-refused with a `ClientInitializationError`. An extension applied after
-`rbac` can read its actor by reference: `{ control: "actor", path: "userId" }`
-stamps the bound actor's id, and a stamp takes no action of its own.
+- **`keyLimit` `ids`.** `ids: { document: { path: "key.resources.document",
+  through: "parent" } }` limits a key to the listed documents and those below
+  them; `"all"` is written, never implied, and an empty list admits nothing.
 
-## Errors
+### Writes, in detail
+
+| Operation | Checked on the old row | Checked on the new row | Refused with |
+|---|---|---|---|
+| `update`, `updateMany` | the actions of the written fields (`fields.*.write`, else `edit`) | the same rules; the `create` rule when a field it reads changes; written keys visible; no cycle | `NotFoundError` / not counted (old), `ForbiddenError` (new) |
+| `delete`, `deleteMany` | the delete action | | `NotFoundError` / not counted |
+| `create`, `createMany` | | the `create` rule; written keys visible | `ForbiddenError` |
+| `upsert` | the update arm as `update` | the create arm as `create` | as each arm |
+| nested `create`, `connectOrCreate` | the parent, as the statement it emits | the child's `create` rule | `NestedWriteError` |
+| nested `update`, `delete`, `connect`, `disconnect`, `set` | the child (both ends of a join) at what it writes | as `update` | `NestedWriteError` |
+
+- `data: {}`, or a parent a nested write bumps, is judged at the update
+  action. Values another extension stamps, and `updatedAt`, never change the
+  action.
+- A row only addressed to reach its children, whose own statement writes
+  nothing, is read, at `view`.
+- The new row is judged against the rows as they are before the write,
+  inside the writing statement (`INSERT … SELECT … WHERE`, `UPDATE … WHERE`),
+  before any constraint. Rows of one statement never see each other: a
+  `createMany` row cannot justify another, and a grant cannot justify itself.
+- `set: []` and `disconnect` refuse a visible link the caller may not write;
+  a to-one `delete: true` on a target the caller may not delete is a
+  `NestedWriteError`.
+
+### Reads, in detail
+
+Every read takes only rows whose `view` rule holds, at every depth: root
+reads, `count`, `aggregate`, `groupBy`, cursors, `include`/`select` of
+relations, relation filters, `_count`, ordering by a relation, recursive
+reads and polymorphic arms.
+
+- `every`, `none` and negated counts read "every **visible** member".
+- A cursor on a hidden row is a missing cursor: the page is empty.
+- A recursive read walks visible nodes; a hidden node cuts its branch.
+- A to-one relation, or a polymorphic arm, whose target is hidden reads
+  `null`.
+
+### Errors
 
 | Situation | Class | When |
 |---|---|---|
-| no actor, or `actor` passed in arguments | `ValidationError` | before any statement |
+| no actor, or `actor` passed as an argument | `ValidationError` | before any statement |
 | an actor value of the wrong type | `ValidationError` | at `$as` |
-| an unknown model, field, action or actor path; an unknown key of the policy, a model or a `fields` entry; a key spelled like a declaration key or a level; a ceiling the model does not declare; an actor schema `rbac()` cannot walk; a rule that reads itself; `recurse: true`; a read-gated key or unique field | `ClientInitializationError` | when the policy is applied |
-| `can` or `assert` with a `where` that is not a unique selector | `ValidationError` | before any statement |
-| an unlisted model; an operation or `as` mode the model does not declare | `ForbiddenError` | before any statement |
-| a hidden or non-writable root target | `NotFoundError` | after the statement |
-| a produced row refused at the root (create, move, written key, cycle); `assert` | `ForbiddenError` (`V13001`) | in the statement, before the write |
-| a hidden nested target, or a nested placement refused | `NestedWriteError` | in the operation |
+| an unknown model, field, action or actor path; an unknown key of the policy, of a model or of a `fields` entry; a key spelled like `within`, `create`, a level…; a ceiling the model does not declare; a rule that reads itself; `recurse: true`; a read-protected key or unique field | `ClientInitializationError` | when the policy is applied |
+| `can`/`assert` with a `where` that is not a unique key | `ValidationError` | before any statement |
+| an unlisted model; an operation or `as` the model does not declare | `ForbiddenError` | before any statement |
+| a hidden or non-writable root row | `NotFoundError` | after the statement |
+| a new row refused at the root (create, move, written key, cycle); `assert` | `ForbiddenError` (`V13001`) | in the statement, before the write |
+| a hidden nested target, or a nested create refused | `NestedWriteError` | in the operation |
 | an explicit `select` of a field the row withholds | `ValidationError` at `select.<field>` | after the read |
 | `$withCache` on a governed view, unless `cache: "allow"` | `ValidationError` at `actor` | before any statement |
 | a create or upsert over a unique key a hidden row holds | `UniqueConstraintError` | the database's |
 
-No error tells a row the caller cannot view from a row it views but may not
-touch, nor a hidden written-key target from a missing one.
+No error tells a row the caller cannot see from one it sees but may not
+touch, nor a hidden target from a missing one.
 
-## Caching
+### Caching
 
-**A cached read is an observation: it suspends "judged at the moment".** A
-grant revoked by another process is served until the entry expires, and a
-session or key that expires is not seen by an entry computed while it was
-live. So `rbac` declares its actor uncacheable: `$withCache` on a governed
-view fails with `ValidationError` before any statement, whether the cache is
-applied below or above the policy.
-
-```ts
-await call.$withCache().page.findMany(); // ValidationError: "actor" is not cacheable
-```
-
-A policy that accepts the staleness says so:
+**A cached read suspends "judged now".** A grant revoked by another request
+is served until the entry expires. So a governed view refuses `$withCache`
+with a `ValidationError`, unless the policy accepts the staleness:
 
 ```ts
 const policy = rbac({ actor: Actor, cache: "allow", models: { … } });
 ```
 
-Then two actors never share an entry, but the full cache key holds the bound
-actor, and an entry answers until its TTL whatever was revoked since.
+Two actors then never share an entry, but an entry answers until its TTL
+whatever was revoked since.
 
-## Providers
+### Providers
 
-### PostgreSQL: turn JIT off
-
-**On PostgreSQL with `jit = on` (the community default), a governed statement
-can take seconds.** A policy is an `OR` of correlated subqueries. PostgreSQL
-cannot turn those into joins, so it charges each one per outer row, and the
-statement's cost estimate passes `jit_above_cost` even when it runs in
-milliseconds. PostgreSQL then compiles it with LLVM before running it.
-
-Measured on PostgreSQL 16.14 over the acceptance fixture (tables of at most
-280 rows, `EXPLAIN ANALYZE`):
+**PostgreSQL: turn JIT off.** A policy is an `OR` of correlated subqueries;
+PostgreSQL charges each one per outer row, so a statement's cost estimate
+passes `jit_above_cost` even when it runs in milliseconds, and `jit = on`
+(the community default) compiles it with LLVM first. Measured on PostgreSQL
+16.14 over the acceptance fixture:
 
 | Statement | Cost estimate | `jit = on` | `jit = off` |
 |---|---|---|---|
-| one-row `accessGrant` lookup | 408,175 | 1,954 ms (1,925 ms compiling 13,196 functions) | 19.9 ms |
+| one-row `accessGrant` lookup | 408,175 | 1,954 ms | 19.9 ms |
 | set-oriented `UPDATE "accessGrant"` | 24,424,792 | 23,019 ms | 34.4 ms |
-
-`ANALYZE` brought the lookup's estimate under the threshold (13 ms), not the
-update's (3,852,753; 25.5 s with JIT). Turn JIT off for the role your
-application connects as:
 
 ```sql
 ALTER ROLE app SET jit = off;
 ```
 
-or per connection, with node-postgres (`viborm/pg`):
-`postgresql://…/app?options=-c%20jit%3Doff`. Neki runs with `jit = off`.
+or per connection with `viborm/pg`: `postgresql://…/app?options=-c%20jit%3Doff`.
+Neki runs with `jit = off`.
 
-### Cloudflare D1
+**Cloudflare D1** refuses a statement with more than 100 bound values, more
+than 100 KB of text, or an expression deeper than 100. The D1 driver binds
+each distinct value once over its budget, reads relation filters from
+derived tables, states each repeated relation body once and balances long
+conjunctions, with nothing to configure. Over the acceptance fixture, every
+read and write binds at most 83 values in at most 18.9 KB; the heaviest write
+(moving a grant between things) is 44.6 KB at depth 80.
 
-D1 refuses a statement with more than 100 bound values, more than 100 KB of
-text, or an expression deeper than 100.
-
-- Over its bind budget, a statement binds each distinct value once.
-- On D1, every relation filter reads its rows from a derived table, which
-  SQLite flattens back to the same plan; the D1 driver declares it, and
-  nothing is asked of you.
-- The D1 driver also states each relation body a statement repeats once,
-  as a key set the repeats test, and nests long conjunctions as balanced
-  trees.
-- Measured over the acceptance fixture: its `server.ts` reads and writes,
-  and every model at every action, bind at most 83 values in at most
-  18.9 KB per statement; a `findMany`
-  including every relation of a model at once at most 98 values in 35 KB.
-  Moving an `accessGrant` from one thing to another, the heaviest write, is
-  44.6 KB at expression depth 80.
-
-### Neki
-
-Neki refuses a statement that references more than 256 relations
-(`SQLSTATE 54000`). A policy repeats relation bodies (a root read of
-`accessGrant` by a member on a session references 241), so declare the fact
-on the driver: each repeated body is stated once, in a `WITH`, and the same
-read references 41.
+**Neki** refuses a statement that references more than 256 relations. Declare
+it on the driver, so each repeated relation body is stated once (a root read
+of `accessGrant` by a member goes from 241 references to 41):
 
 ```ts
 import { PgDriver } from "viborm/pg";
@@ -661,35 +853,41 @@ import { PgDriver } from "viborm/pg";
 const driver = new PgDriver({ databaseUrl, sharedRelationBodies: true });
 ```
 
-The statements' answers are the same; on other PostgreSQL servers the option
-is off and the SQL is unchanged.
+### Size
 
-## Boundaries
+`viborm/rbac` itself is about 6.5 kB gzip, carried only by an application
+that imports it. The engine capabilities it is built from are part of the
+core and every application carries them: about 10 kB gzip (pg 168.6 →
+178.9 kB, D1 168.0 → 178.4 kB from 1.2.4). The extension is built only from
+public extension capabilities (see [Create an extension](/docs/extensions/create)).
+
+### Boundaries
 
 `rbac` decides which rows a call through `$as` reads and writes. It does
 **not** apply to:
 
 - **Raw SQL.** `$queryRaw`, `$executeRaw` and the unsafe forms see every row.
-- **Statement transforms.** They are trusted rewrites after the policy is
-  applied, and can remove it.
+- **Statement transforms.** They are trusted rewrites after the policy, and
+  can remove it.
 - **`call` is not a sandbox.** It runs raw SQL and can bind another actor:
   keep it inside your server.
 - **Database cascades.** `onDelete` `cascade` and `setNull` run as the schema
   declares, without judging each child. A `setNull` on a key a rule reads
-  moves rows without placement: deleting a page group nulls its pages'
-  `groupId`. Make a key a rule reads `restrict` or `cascade`.
-- **Soft delete's `mode: "hard"`** is open to every caller holding `delete`.
-- **Existence.** A unique constraint on a create or upsert over a hidden key
-  (`UniqueConstraintError`), `createMany({ skipDuplicates })` counts,
-  `connectOrCreate` choosing its arm, a visible foreign key whose include
-  reads `null`, and a polymorphic arm (`null` when hidden, an error when
-  gone) each reveal that a row exists, never its content. **Include the
-  tenant column in every unique key**, so a key can only collide inside the
-  caller's tenant.
-- **Bearer secrets.** Never bind a token: bind its id.
-- **Authentication.** Who the actor is stays your server's; `$as` trusts what
-  it is given once it matches the schema. Accepting an invitation for a user
-  the caller cannot see yet is an authentication flow on the base client.
+  moves rows without the `create` rule: make such a key `restrict` or
+  `cascade`.
+- **Soft delete's `mode: "hard"`** is open to every caller holding the delete
+  action.
+- **Existence.** A unique constraint on a create or upsert over a hidden key,
+  `createMany({ skipDuplicates })` counts, `connectOrCreate` choosing its arm,
+  a visible foreign key whose include reads `null`, and a polymorphic arm
+  each reveal that a row exists, never its content. **Include the tenant
+  column in every unique key.**
+- **API keys and sessions together.** `session()` holds when either
+  credential the actor carries is live: an actor bound with a live session
+  and a revoked key keeps the session's rights (still narrowed by the key's
+  scopes). **Bind one credential per request.**
+- **Authentication.** Who the actor is stays your server's; `$as` trusts
+  what it is given once it matches the schema.
 - **The database itself.** Nothing is installed in it: a connection used
   without VibORM sees every row. Migrations are unaffected.
 - **The base client.** Below `rbac`, every row: it is the operator's tool.
