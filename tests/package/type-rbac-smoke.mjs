@@ -108,7 +108,7 @@ import { schema } from "./schema";
 import { policy } from "./policy";
 
 const base = createClient({ schema, databaseUrl: "postgresql://localhost/rbac" });
-const db = policy(base);
+const db = base.$extends(policy);
 const call = db.$as({ userId: "user-01", organizationId: "org-1", network: "office" });
 export const same: typeof db = call;
 export const keyed: typeof db = db.$as({

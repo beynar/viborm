@@ -651,6 +651,8 @@ export type ExactExtensionDefinition<
   PolicyModelsGuard<Definition, C["schema"], "deletion"> &
   ExtensionMethodDefinitionGuard<Definition, C, X>;
 
+// The definition is inferred from its declaration, never from a receiving
+// `$extends` overload's return context (which may be a client factory).
 export type DefineExtensionBinder<S extends Schema> = <const Definition>(
   definition: Definition &
     ContextualExtensionDefinition<
@@ -662,7 +664,7 @@ export type DefineExtensionBinder<S extends Schema> = <const Definition>(
       ExtensionConfig<S>,
       EmptyClientExtensionState
     >
-) => SchemaBoundExtension<Definition>;
+) => SchemaBoundExtension<NoInfer<Definition>>;
 
 export function defineExtension<
   const Definition extends SchemaGenericExtensionDefinition,
@@ -673,7 +675,7 @@ export function defineExtension<
       ExtensionConfig<Schema>,
       EmptyClientExtensionState
     >
-): Definition;
+): NoInfer<Definition>;
 export function defineExtension<S extends Schema>(): DefineExtensionBinder<S>;
 export function defineExtension(
   ...definitions: [] | [definition: ClientExtension]

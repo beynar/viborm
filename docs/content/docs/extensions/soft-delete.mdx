@@ -9,7 +9,7 @@ delete stops removing the row: it writes the time (and, optionally, who did
 it) into the row instead. Reads then skip those rows, everywhere a query
 reaches them.
 
-The extension is one file of about 100 lines, built only from public extension
+The extension is built only from public extension
 capabilities (`controls`, `rows` and `deletion`, see
 [Create an extension](/docs/extensions/create#declare-arguments-with-controls)). It
 lives in its own entry point, so an application that does not import it pays
@@ -29,10 +29,10 @@ const post = s.model({
   deletedById: s.string().nullable(), // optional: who deleted it
 });
 
-const db = softDelete({
+const db = base.$extends(softDelete({
   models: { post: { deletedAt: "deletedAt", deletedBy: "deletedById" } },
   actor: session.userId,
-})(base);
+}));
 
 await db.user.findMany({ include: { posts: true } }); // each user's live posts
 await db.post.findMany({ deleted: "only" });          // recycle bin
@@ -40,9 +40,9 @@ await db.post.delete({ where: { id: "p1" } });        // tombstones p1, returns 
 await db.post.restore({ where: { id: "p1" }, select: { id: true } }); // { id }
 ```
 
-`softDelete(config)` returns a function that takes a client and returns a new
-client. The client you pass in is unchanged: keep it for maintenance work that
-must see every row.
+`softDelete(config)` returns a client factory accepted by `$extends()`. Direct
+application with `softDelete(config)(base)` also works. The original client is
+unchanged: keep it for maintenance work that must see every row.
 
 Apply `defaultOmit()` and any other extension that declares `rows` before
 `softDelete()`: the `restore` methods it adds are model methods, and neither
@@ -56,7 +56,10 @@ should see only live rows), apply soft delete's two steps apart:
 
 ```ts
 const tombstones = softDelete({ models: { post: { deletedAt: "deletedAt" } } });
-const db = tombstones.methods(tombstones.rows(base).$extends(tenancy));
+const db = base
+  .$extends(tombstones.rows)
+  .$extends(tenancy)
+  .$extends(tombstones.methods);
 ```
 
 `softDelete(config)(base)` is `tombstones.methods(tombstones.rows(base))`.

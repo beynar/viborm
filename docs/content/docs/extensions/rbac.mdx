@@ -23,13 +23,15 @@ and statement transforms see every row, even on a governed client. See
 
 ## 1. A blog: authors edit their own posts
 
+Apply the policy to your existing client, `base`:
+
 <Tabs>
   <Tab title="Policy">
 ```ts
 import { owner, rbac } from "viborm/rbac";
 import { v } from "viborm/validation";
 
-const policy = rbac({
+const db = base.$extends(rbac({
   // Who calls: the facts of the request, given by your server.
   actor: v.object({ userId: v.string(), admin: v.boolean() }),
   models: {
@@ -41,9 +43,7 @@ const policy = rbac({
     },
     user: { view: {} },                          // {} : every row
   },
-});
-
-const db = policy(base); // `base` is your client
+}));
 ```
   </Tab>
   <Tab title="Schema">
@@ -69,6 +69,12 @@ const post = s.model({
 
 `{ actor: "userId" }` is "the value of `userId` in the actor": the same
 policy serves every user, each request supplies its own values.
+
+Declare the policy inside `$extends(rbac({...}))` so the receiving client's
+schema supplies editor suggestions for model and field names. The actor schema
+supplies suggestions for actor references. A separately declared policy can also
+be applied with `base.$extends(policy)`; its declaration has no receiving-client
+context until it is applied.
 
 Each request binds its caller once, with `$as`, and uses the client it
 returns:
@@ -626,13 +632,16 @@ steps:
 import { softDelete } from "viborm/soft-delete";
 
 const tombstones = softDelete({ models: { document: { deletedAt: "deletedAt" } } });
-const db = policy.methods(tombstones.methods(policy.rows(tombstones.rows(base))));
+const db = base
+  .$extends(tombstones.rows)
+  .$extends(policy)
+  .$extends(tombstones.methods);
 ```
 
 - A deleted grant, membership or team member grants nothing.
 - A soft delete is a delete: it needs the delete action, and so does writing
   `deletedAt` by hand or restoring a row.
-- `policy(tombstones(base))` is refused with a `ClientInitializationError`
+- `base.$extends(tombstones).$extends(policy)` is refused with a `ClientInitializationError`
   naming the order.
 
 An extension applied after `rbac` can read the bound actor:

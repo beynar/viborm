@@ -303,7 +303,7 @@ predicate may traverse relations: inside its own traversals every other
 layer reads at its default and never its own (`PreparedDomain.defaults`, the
 `Queries` exclusion stack), so no per-call mode widens what it reads.
 `viborm/rbac` (`src/rbac/`) is the official authorization entry, built like
-soft delete from public exports only: `rbac(config)(base)` compiles one
+soft delete from public exports only: `base.$extends(rbac(config))` compiles one
 predicate per (model, action) against `base`'s schema and applies a rows step
 (a bound-only, required `actor`; the `as` mode; every model's `verbs`; a
 generic `query` handler refusing a root call false when applied; and `$as`,

@@ -417,13 +417,30 @@ type TransactionMethod<
   ): Promise<{ [K in keyof T]: Awaited<T[K]> }>;
 };
 
+declare const clientTypeState: unique symbol;
+
+/**
+ * Declaration-only inference metadata; no property is installed at runtime.
+ * The optional opaque arm preserves structural client assignability. The
+ * conditional exposes the tuple for inference without making C or X invariant.
+ * Result helpers check key presence and the full client surface: this metadata
+ * guides inference, but does not prove that a client has the declared methods.
+ */
+export type ClientTypeState<
+  C extends VibORMConfig,
+  X extends ExtensionStateConstraint,
+> = [C] extends [unknown]
+  ? { readonly [clientTypeState]?: readonly [C, X] | object }
+  : never;
+
 /**
  * Extended client type with utility methods
  */
 export type VibORMClient<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint = EmptyClientExtensionState,
-> = ExtensionModelClient<C, X> &
+> = ClientTypeState<C, X> &
+  ExtensionModelClient<C, X> &
   RawSurface &
   X["client"] &
   // `await using client = createClient({ ... })` disposes through the same
@@ -497,14 +514,18 @@ interface VibORMClientMembers<
   /** Disconnect from the database */
   $disconnect: () => Promise<void>;
   /**
-   * Return an immutable client view with one more named extension. The
-   * bound is F-bounded: the definition's own model keys are checked.
+   * Apply a named definition or a synchronous factory to this client view.
+   * Definitions append to the immutable chain; factories compose through the
+   * same `$extends` method. Definition model keys are checked against this schema.
    */
-  $extends: <
-    const Definition extends OfficialAwareDefinition<C, X, Definition>,
-  >(
-    extension: Definition & ExtensionAdmission<Definition, C, X>
-  ) => VibORMClient<
+  $extends<Result extends { readonly $schema: Schema } = VibORMClient<C, X>>(
+    factory: (client: NoInfer<VibORMClient<C, X>>) => Result
+  ): Result;
+  $extends<const Definition extends OfficialAwareDefinition<C, X, Definition>>(
+    extension: Definition &
+      ExtensionAdmission<Definition, C, X> &
+      (Definition extends (...args: never[]) => unknown ? never : unknown)
+  ): VibORMClient<
     AppliedClientConfig<C, Definition>,
     AppliedExtensionState<C, X, Definition>
   >;
@@ -520,19 +541,22 @@ type ApplyClientExtensions<
         infer Definition,
         ...infer RemainingDefinitions,
       ]
-    ? Definition extends OfficialAwareDefinition<C, X>
-      ? Definition extends ExtensionAdmission<Definition, C, X>
-        ? ApplyClientExtensions<
-            AppliedClientConfig<C, Definition>,
-            AppliedExtensionState<C, X, Definition>,
-            RemainingDefinitions
-          >
+    ? Definition extends (...args: never[]) => unknown
+      ? never
+      : Definition extends OfficialAwareDefinition<C, X>
+        ? Definition extends ExtensionAdmission<Definition, C, X>
+          ? ApplyClientExtensions<
+              AppliedClientConfig<C, Definition>,
+              AppliedExtensionState<C, X, Definition>,
+              RemainingDefinitions
+            >
+          : never
         : never
-      : never
     : never;
 
 /**
- * The exact client surface produced by applying an ordered extension tuple.
+ * The exact client surface produced by applying an ordered definition tuple.
+ * Factory callbacks are composed with `$extends`; name their result with `typeof`.
  *
  * @example
  * ```ts
@@ -547,8 +571,12 @@ export type ExtendedClient<
   Extensions extends readonly unknown[],
 > = number extends Extensions["length"]
   ? never
-  : Base extends VibORMClient<infer C, infer X>
-    ? ApplyClientExtensions<C, X, Extensions>
+  : typeof clientTypeState extends keyof Base
+    ? Base extends ClientTypeState<infer C, infer X>
+      ? Base extends VibORMClient<C, X>
+        ? ApplyClientExtensions<C, X, Extensions>
+        : never
+      : never
     : never;
 
 /** The extension type-state a derived client carries. */
@@ -565,14 +593,18 @@ export type ExtendedOperationResult<
   ModelName,
   O extends Operations,
   Args,
-> = Client extends VibORMClient<infer C, infer X>
-  ? ContextualOperationResult<
-      C,
-      ModelName & keyof ClientSchema<C>,
-      O,
-      Args,
-      ClientRowsContext<C, X["rows"]>
-    >
+> = typeof clientTypeState extends keyof Client
+  ? Client extends ClientTypeState<infer C, infer X>
+    ? Client extends VibORMClient<C, X>
+      ? ContextualOperationResult<
+          C,
+          ModelName & keyof ClientSchema<C>,
+          O,
+          Args,
+          ClientRowsContext<C, X["rows"]>
+        >
+      : never
+    : never
   : never;
 
 /**
@@ -1024,54 +1056,66 @@ export class VibORM<C extends VibORMConfig> {
     // Only a chain's factory scopes can `$bind`.
     const rebind =
       chain && ((bound: QueryEngine) => this.#createRootView(bound, false));
-    return this.#createView(engine, clientOmit, rebind, eager, (prop) => {
-      if (prop === "$driver") return engine.driver;
-      if (prop === "$extends") {
-        return (extension: ClientExtension) => {
-          const extensionChain = appendResolvedExtension(
-            chain,
-            extension,
-            this.#schema,
-            this.#registry
-          );
-          // The one point that holds both the resolved chain and the concrete
-          // driver, so the one point that can partition the official cache by
-          // this client's dialect and SQL namespace. A chain without the
-          // official cache makes no call at all.
-          if (extensionChain.hasCache) {
-            bindOfficialCacheChain(extensionChain, engine.driver);
-          }
-          return this.#createRootView(
-            engine.bind(engine.driver, extensionChain)
+    const view = this.#createView<VibORMClient<ViewConfig, X>>(
+      engine,
+      clientOmit,
+      rebind,
+      eager,
+      (prop) => {
+        if (prop === "$driver") return engine.driver;
+        if (prop === "$extends") {
+          return (
+            extension:
+              | ClientExtension
+              | ((client: VibORMClient<ViewConfig, X>) => unknown)
+          ) => {
+            if (typeof extension === "function") return extension(view);
+            const extensionChain = appendResolvedExtension(
+              chain,
+              extension,
+              this.#schema,
+              this.#registry
+            );
+            // The one point that holds both the resolved chain and the concrete
+            // driver, so the one point that can partition the official cache by
+            // this client's dialect and SQL namespace. A chain without the
+            // official cache makes no call at all.
+            if (extensionChain.hasCache) {
+              bindOfficialCacheChain(extensionChain, engine.driver);
+            }
+            return this.#createRootView(
+              engine.bind(engine.driver, extensionChain)
+            );
+          };
+        }
+        if (prop === "$connect") {
+          return () =>
+            engine.driver._connect(
+              createOperationExecutionContext("$connection", "$connect", chain)
+            );
+        }
+        // `await using client = createClient({ ... })`. On an engine without the
+        // protocol `ASYNC_DISPOSE` is undefined, which no property key equals, so
+        // the property is absent — what missing disposal support looks like.
+        if (prop === "$disconnect" || prop === ASYNC_DISPOSE) return disconnect;
+        if (prop !== "$withCache" && prop !== "$invalidate") return undefined;
+        const officialCache = getOfficialCacheChainCapability(chain);
+        if (officialCache === undefined) return undefined;
+        if (prop === "$withCache") {
+          return (cacheConfig?: WithCacheOptions) =>
+            this.#withCache(engine, officialCache, clientOmit, cacheConfig);
+        }
+        return async (...keys: string[]) => {
+          await officialCacheRuntime().invalidateManualCache(
+            officialCache.driver,
+            keys,
+            createOperationExecutionContext("$cache", "$invalidate", chain),
+            officialCache.scope
           );
         };
       }
-      if (prop === "$connect") {
-        return () =>
-          engine.driver._connect(
-            createOperationExecutionContext("$connection", "$connect", chain)
-          );
-      }
-      // `await using client = createClient({ ... })`. On an engine without the
-      // protocol `ASYNC_DISPOSE` is undefined, which no property key equals, so
-      // the property is absent — what missing disposal support looks like.
-      if (prop === "$disconnect" || prop === ASYNC_DISPOSE) return disconnect;
-      if (prop !== "$withCache" && prop !== "$invalidate") return undefined;
-      const officialCache = getOfficialCacheChainCapability(chain);
-      if (officialCache === undefined) return undefined;
-      if (prop === "$withCache") {
-        return (cacheConfig?: WithCacheOptions) =>
-          this.#withCache(engine, officialCache, clientOmit, cacheConfig);
-      }
-      return async (...keys: string[]) => {
-        await officialCacheRuntime().invalidateManualCache(
-          officialCache.driver,
-          keys,
-          createOperationExecutionContext("$cache", "$invalidate", chain),
-          officialCache.scope
-        );
-      };
-    });
+    );
+    return view;
   }
 
   /**

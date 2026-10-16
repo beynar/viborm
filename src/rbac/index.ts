@@ -13,6 +13,7 @@ import { ForbiddenError } from "../errors";
 import type { RowsVerbs } from "../extensions/controls";
 import type {
   ClientSchema,
+  ClientTypeState,
   ExtendedClient,
   ExtensionState,
   MergeExtensionState,
@@ -31,7 +32,13 @@ import {
   type RbacConfig,
   verbsOf,
 } from "./compile";
-import { FALSE, type KeyLimit, type Where } from "./helpers";
+import {
+  FALSE,
+  type KeyLimit,
+  type PolicyModel,
+  type Rule,
+  type Where,
+} from "./helpers";
 
 export type { ActorFacts, ActorPaths } from "./actor";
 export type {
@@ -236,13 +243,16 @@ type UnknownFields<S extends Schema, Config extends RbacConfig> = {
 }[keyof Config["models"] & keyof S & string];
 
 /** `unknown` when every model and field the declaration names is in the schema. */
-type SchemaCheck<S extends Schema, Config extends RbacConfig> = [
-  Exclude<keyof Config["models"], keyof S>,
-] extends [never]
-  ? [UnknownFields<S, Config>] extends [never]
-    ? unknown
-    : { readonly "unknown field": UnknownFields<S, Config> }
-  : { readonly "unknown model": Exclude<keyof Config["models"], keyof S> };
+type SchemaCheck<
+  S extends Schema,
+  Config extends RbacConfig,
+> = string extends keyof S
+  ? unknown
+  : [Exclude<keyof Config["models"], keyof S>] extends [never]
+    ? [UnknownFields<S, Config>] extends [never]
+      ? unknown
+      : { readonly "unknown field": UnknownFields<S, Config> }
+    : { readonly "unknown model": Exclude<keyof Config["models"], keyof S> };
 
 // =============================================================================
 // THE ENTRY: a rows step and a methods step (plan §1.1; K7(b), OD-1 option 2)
@@ -385,7 +395,7 @@ type MethodsDefinition<C extends VibORMConfig, Config extends RbacConfig> = {
 type Governing<Config extends RbacConfig> = VibORMConfig & {
   readonly schema: Record<Listed<Config>, AnyModel>;
 };
-/** The rows step's client: `$extends` of it, projected overloads and gated omit included. */
+/** The rows step is typed by the client's one extension reducer. */
 type RowsClient<
   C extends VibORMConfig,
   X extends ExtensionState,
@@ -394,8 +404,18 @@ type RowsClient<
 type MethodsClient<
   Client,
   Config extends RbacConfig,
-> = Client extends VibORMClient<infer C, infer X>
-  ? VibORMClient<C, MergeExtensionState<X, MethodsDefinition<C, Config>>>
+> = Client extends ClientTypeState<infer C, infer X>
+  ? Client extends VibORMClient<C, X>
+    ? VibORMClient<C, MergeExtensionState<X, MethodsDefinition<C, Config>>>
+    : never
+  : never;
+type PolicyClient<
+  Base,
+  Config extends RbacConfig,
+> = Base extends ClientTypeState<infer C, infer X>
+  ? Base extends VibORMClient<C, X>
+    ? MethodsClient<RowsClient<C, X, Config>, Config>
+    : never
   : never;
 
 export interface Policy<Config extends RbacConfig> {
@@ -403,9 +423,16 @@ export interface Policy<Config extends RbacConfig> {
    * The governed client: the rows step, then the methods step. Every model
    * of `base` is governed, and every call needs an actor: `db.$as(actor)`.
    */
-  <C extends Governing<Config>, X extends ExtensionState>(
-    base: VibORMClient<C, X>
-  ): MethodsClient<RowsClient<C, X, Config>, Config>;
+  // Infer the receiver from the argument only. Contextual factory comparison
+  // must not expand a complete client over the generic governing schema.
+  <
+    Base extends ClientTypeState<VibORMConfig, ExtensionState> & {
+      readonly $schema: Record<Listed<Config>, AnyModel>;
+      readonly $extends: (...args: never[]) => unknown;
+    },
+  >(
+    base: Base
+  ): NoInfer<PolicyClient<Base, Config>>;
   readonly config: Config;
   /**
    * The policy compiled against the schema it governs (R1, plain data): per
@@ -424,11 +451,11 @@ export interface Policy<Config extends RbacConfig> {
    * the last `rows` step of a chain (the order guard).
    */
   rows<C extends Governing<Config>, X extends ExtensionState>(
-    base: VibORMClient<C, X>
+    base: ClientTypeState<C, X> & NoInfer<VibORMClient<C, X>>
   ): RowsClient<C, X, Config>;
   /** Step two: `can` and `assert` on every listed model, through `$access` (D8). */
   methods<C extends Governing<Config>, X extends ExtensionState>(
-    client: VibORMClient<C, X>
+    client: ClientTypeState<C, X> & NoInfer<VibORMClient<C, X>>
   ): MethodsClient<VibORMClient<C, X>, Config>;
 }
 
@@ -536,12 +563,112 @@ function reachOf(config: RbacConfig, compiled: CompiledPolicy) {
   );
 }
 
+/** Declaration context is field names, not the recursive operation payload. */
+type PolicyValue<Actor> =
+  | string
+  | number
+  | bigint
+  | boolean
+  | null
+  | Date
+  | object
+  | {
+      readonly actor?: ActorPaths<InferOutput<Actor>>;
+      readonly [key: string]: PolicyValue<Actor> | undefined;
+    };
+
+type ModelRelations<Model> = Model extends {
+  readonly "~": { readonly state: { readonly relations: infer Relations } };
+}
+  ? Relations
+  : never;
+
+type ContextualRelation<Relation, Actor> = Relation extends {
+  readonly "~": {
+    readonly state: {
+      readonly target: { readonly getter: () => infer Target };
+    };
+  };
+}
+  ?
+      | string
+      | (ContextualWhere<Target, Actor> & {
+          readonly is?: ContextualRule<Target, Actor> | null;
+          readonly isNot?: ContextualRule<Target, Actor> | null;
+          readonly some?: ContextualRule<Target, Actor>;
+          readonly every?: ContextualRule<Target, Actor>;
+          readonly none?: ContextualRule<Target, Actor>;
+        })
+  : Where | string;
+
+type ContextualWhere<Model, Actor> = Where & {
+  readonly [Field in ScalarsOf<Model>]?: PolicyValue<Actor>;
+} & {
+  readonly [Relation in keyof ModelRelations<Model>]?: ContextualRelation<
+    ModelRelations<Model>[Relation],
+    Actor
+  >;
+} & ("actor" extends ScalarsOf<Model> | RelationsOf<Model>
+    ? unknown
+    : {
+        readonly actor?: {
+          readonly [Path in ActorPaths<InferOutput<Actor>>]?: unknown;
+        };
+      }) & {
+    readonly AND?:
+      | ContextualRule<Model, Actor>
+      | readonly ContextualRule<Model, Actor>[];
+    readonly OR?: readonly ContextualRule<Model, Actor>[];
+    readonly NOT?:
+      | ContextualRule<Model, Actor>
+      | readonly ContextualRule<Model, Actor>[];
+  };
+
+type ContextualRule<Model, Actor> =
+  | ContextualWhere<Model, Actor>
+  | ((action: string, model: PolicyModel) => Rule);
+
+type ContextualPolicy<
+  C extends VibORMConfig,
+  Actor,
+> = string extends keyof C["schema"]
+  ? unknown
+  : {
+      readonly actor: Actor;
+      readonly models: {
+        readonly [Model in keyof ClientSchema<C>]?: {
+          readonly [Action: string]:
+            | ContextualWhere<ClientSchema<C>[Model], Actor>
+            | ((action: string, model: PolicyModel) => Rule)
+            | readonly Rule[]
+            | undefined;
+        };
+      };
+    };
+
 /**
- * One permission model: per model, a rule per action (`view`, `edit`, …),
- * `within` and the policy's `limit` conjoined with every action, `arms`
- * disjoined at every action. The actor schema is checked here, once;
- * `rbac(config)(base)` compiles it against `base`'s schema and applies it.
+ * The receiving `$extends` supplies C and X before the inline declaration is
+ * contextualized. Unbound declarations retain the reusable generic Policy;
+ * only a concrete receiving schema adds the specialized callback signature.
  */
+export function rbac<
+  C extends VibORMConfig,
+  X extends ExtensionState,
+  const Actor extends object,
+  const Config extends RbacConfig,
+>(
+  config: Config & { readonly actor: Actor } & ContextualPolicy<
+      NoInfer<C>,
+      NoInfer<Actor>
+    > &
+    DeclarationCheck<Config> &
+    SchemaCheck<NoInfer<C["schema"]>, Config>
+): Policy<Config> &
+  (string extends keyof C["schema"]
+    ? unknown
+    : (
+        base: VibORMClient<C, X>
+      ) => MethodsClient<RowsClient<C, X, Config>, Config>);
 export function rbac<const Config extends RbacConfig>(
   config: Config & DeclarationCheck<Config>
 ): Policy<Config> {

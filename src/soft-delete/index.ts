@@ -3,6 +3,7 @@
 import type { OperationPayload } from "../client/exports"; // public today
 import type {
   ClientSchema,
+  ClientTypeState,
   ExtendedOperationResult,
   ExtensionState,
   PendingOperation,
@@ -75,7 +76,7 @@ export function softDelete<const Config extends SoftDeleteConfig>(
     },
     X extends ExtensionState,
   >(
-    base: VibORMClient<C, X>
+    base: ClientTypeState<C, X> & NoInfer<VibORMClient<C, X>>
   ) =>
     base.$extends({
       name: "viborm.softDelete",
@@ -119,7 +120,7 @@ export function softDelete<const Config extends SoftDeleteConfig>(
     },
     X extends ExtensionState,
   >(
-    client: VibORMClient<C, X>
+    client: ClientTypeState<C, X> & NoInfer<VibORMClient<C, X>>
   ) => {
     const model: RestoreModels<typeof client, C, Config> = perModel(
       config,
@@ -141,13 +142,54 @@ export function softDelete<const Config extends SoftDeleteConfig>(
     );
     return client.$extends({ name: "viborm.softDelete.restore", model });
   };
-  const extend = <
+  const apply = <
     C extends VibORMConfig & {
       readonly schema: Record<Names<Config>, AnyModel>;
     },
     X extends ExtensionState,
   >(
-    base: VibORMClient<C, X>
-  ) => methods(rows(base));
-  return Object.assign(extend, { rows, methods });
+    base: ClientTypeState<C, X> & NoInfer<VibORMClient<C, X>>
+  ) => methods(rows<C, X>(base));
+  type Complete<Base> =
+    Base extends ClientTypeState<
+      infer C extends VibORMConfig & {
+        readonly schema: Record<Names<Config>, AnyModel>;
+      },
+      infer X
+    >
+      ? Base extends VibORMClient<C, X>
+        ? ReturnType<typeof apply<C, X>>
+        : never
+      : never;
+  function extend<
+    Base extends ClientTypeState<VibORMConfig, ExtensionState> & {
+      readonly $schema: Record<Names<Config>, AnyModel>;
+      readonly $extends: (...args: never[]) => unknown;
+    },
+  >(base: Base): NoInfer<Complete<Base>>;
+  function extend<
+    C extends VibORMConfig & {
+      readonly schema: Record<Names<Config>, AnyModel>;
+    },
+    X extends ExtensionState,
+  >(base: ClientTypeState<C, X> & NoInfer<VibORMClient<C, X>>) {
+    return apply(base);
+  }
+  // Give the factory one callable object type. Object.assign's inferred
+  // function intersection loses the receiver when passed to generic `$extends`.
+  // A type alias also lets declaration emit inline these local derived types.
+  type Extension = {
+    <
+      Base extends ClientTypeState<VibORMConfig, ExtensionState> & {
+        readonly $schema: Record<Names<Config>, AnyModel>;
+        readonly $extends: (...args: never[]) => unknown;
+      },
+    >(
+      base: Base
+    ): NoInfer<Complete<Base>>;
+    readonly rows: typeof rows;
+    readonly methods: typeof methods;
+  };
+  const extension: Extension = Object.assign(extend, { rows, methods });
+  return extension;
 }

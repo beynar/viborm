@@ -25,6 +25,7 @@
 // =============================================================================
 
 export type {
+  ClientTypeState,
   ExtendedClient,
   ExtendedOperationResult,
   ExtensionState,

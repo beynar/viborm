@@ -16,6 +16,10 @@ const execute = promisify(execFile);
 
 const scripts = [
   [
+    "offers schema-aware RBAC editor completions",
+    "./rbac-autocomplete-smoke.mjs",
+  ],
+  [
     "shares only genuine built operation identity with benchmark harnesses",
     "./benchmark-operation-smoke.mjs",
   ],

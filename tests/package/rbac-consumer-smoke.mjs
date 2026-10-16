@@ -671,16 +671,15 @@ await migrations.push({ consent: preview.consent });
 await base.user.createMany({ data: [{ id: "u1", name: "Ada" }, { id: "u2", name: "Grace" }] });
 await base.post.createMany({ data: [{ id: "p1", title: "a", authorId: "u1" }, { id: "p2", title: "b", authorId: "u2" }] });
 
-const blog = rbac({
+const db = base.$extends(rbac({
   actor: v.object({ userId: v.string(), admin: v.boolean() }),   // \`admin\`: an identity-provider claim, not a row of this database
   models: {
     post: { view: {}, edit: owner("authorId"), delete: { actor: { admin: true } }, create: { authorId: { actor: "userId" } } },
     user: { view: {} },
   },
-});
+}));
 const session = { userId: "u1", admin: false };
-const db = blog(base);
-const call = blog(base).$as({ userId: session.userId, admin: session.admin });
+const call = db.$as({ userId: session.userId, admin: session.admin });
 const admin = db.$as({ userId: "u2", admin: true });
 
 const outcome = async (body: () => Promise<unknown>) => {

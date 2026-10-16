@@ -46,6 +46,34 @@ afterEach(async () => {
 });
 
 describe("client extension foundation", () => {
+  it("applies a client-aware factory to the exact receiving view", () => {
+    const base = baseClient();
+    const prior = base.$extends({
+      name: "prior",
+      client: () => ({ $tag: () => "prior" }),
+    });
+    let calls = 0;
+    const derived = prior.$extends((client) => {
+      calls++;
+      expect(client).toBe(prior);
+      expect(client.$tag()).toBe("prior");
+      return client.$extends({
+        name: "factory",
+        client: () => ({ $answer: () => 42 }),
+      });
+    });
+    expect(calls).toBe(1);
+    expect(derived.$answer()).toBe(42);
+    expect(derived.$tag()).toBe("prior");
+    expect(Reflect.get(base, "$answer")).toBeUndefined();
+    const failure = new Error("factory failed");
+    expect(() =>
+      prior.$extends(() => {
+        throw failure;
+      })
+    ).toThrow(failure);
+  });
+
   it("precompiles one exact application-ordered request and query lookup", () => {
     const requestA = () => ({});
     const requestB = () => ({});

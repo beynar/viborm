@@ -21,6 +21,7 @@ import {
   type ClientExtension,
   createClient,
   defineExtension,
+  type ExtendedClient,
   s,
 } from "@src/index";
 import { expectTypeOf } from "vitest";
@@ -81,6 +82,25 @@ const audit = s.model({ id: s.string().id() });
 const schema = { author, post, node, note, image, board, $audit: audit };
 
 const baseClient = () => createClient({ schema, driver: new PGliteDriver() });
+
+function _clientAwareFactory() {
+  const base = baseClient();
+  const factory = (client: typeof base) =>
+    client.$extends({
+      name: "factory-method",
+      client: () => ({ $answer: () => 42 as const }),
+    });
+  const result = base.$extends(factory);
+  expectTypeOf(result.$answer()).toEqualTypeOf<42>();
+  expectTypeOf<
+    ExtendedClient<typeof base, [typeof factory]>
+  >().toEqualTypeOf<never>();
+  result.post.findMany({ where: { title: "typed" } });
+  // @ts-expect-error - factories return a client synchronously
+  base.$extends(async (client) => client);
+  // @ts-expect-error - factories return a client, not an arbitrary value
+  base.$extends(() => 42);
+}
 
 // =============================================================================
 // PUBLIC DEFINITIONS — inline, generic, curried, and both export surfaces

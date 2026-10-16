@@ -24,6 +24,17 @@ const timing = defineExtension({
 const measured = client.$extends(timing);
 ```
 
+`$extends()` also accepts a synchronous client factory. It receives the exact
+current view, including earlier extensions, and returns its derived client:
+
+```ts
+const extended = client.$extends(base => base.$extends(timing));
+```
+
+Schema-dependent extensions such as `client.$extends(rbac({...}))` use this
+same path. Factories apply ordinary definitions through `$extends()`; they do
+not create a second extension chain or bypass its admission rules.
+
 <CardGroup>
   <Card
     title="Create an extension"

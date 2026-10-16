@@ -20,6 +20,8 @@ describe("rbac(config)(base)", () => {
 
   test("$as returns the governed client itself, in either composition", () => {
     expectTypeOf(call).toEqualTypeOf<typeof db>();
+    const extended = base.$extends(policy);
+    expectTypeOf(extended).toEqualTypeOf<typeof db>();
     const steps = policy.methods(policy.rows(base));
     expectTypeOf(steps.$as(actor)).toEqualTypeOf<typeof steps>();
   });
