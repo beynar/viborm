@@ -7,7 +7,7 @@ import {
   type ExtendedOperationResult,
   s,
 } from "@src/index";
-import { rbac } from "@src/rbac";
+import { type PolicyModel, rbac } from "@src/rbac";
 import { softDelete } from "@src/soft-delete";
 import { v } from "@src/validation";
 import { expectTypeOf } from "vitest";
@@ -50,6 +50,77 @@ export function checkRbacExtensionTypes() {
   );
 
   expectTypeOf(db.$driver).toEqualTypeOf<typeof base.$driver>();
+  const dynamic = base.$extends(
+    rbac({
+      actor,
+      levels: ["view", "edit"],
+      models: {
+        post: {
+          edit: (action, model) => {
+            expectTypeOf(action).toEqualTypeOf<string>();
+            expectTypeOf(model).toEqualTypeOf<PolicyModel>();
+            return {
+              OR: [
+                (requested, current) => {
+                  expectTypeOf(requested).toEqualTypeOf<string>();
+                  expectTypeOf(current).toEqualTypeOf<PolicyModel>();
+                  return { ownerId: { actor: "userId" } };
+                },
+                {
+                  owner: {
+                    is: (_requested, related) => ({ name: related.name }),
+                  },
+                },
+              ],
+            };
+          },
+        },
+      },
+    })
+  );
+  expectTypeOf(dynamic.post.can("edit", { id: "p" })).toEqualTypeOf<
+    Promise<boolean>
+  >();
+  base.$extends(
+    // @ts-expect-error - the contextual factory also rejects the retired grant key
+    rbac({ actor, models: { post: { arms: {}, view: {} } } })
+  );
+  // @ts-expect-error - dynamic rules do not erase the declared action names
+  dynamic.post.can("publish", { id: "p" });
+  base.$extends(
+    // @ts-expect-error - a wrong model is rejected beside a real dynamic model
+    rbac({
+      actor,
+      models: {
+        post: { edit: (action) => ({ id: action }) },
+        ghost: { view: {} },
+      },
+    })
+  );
+  base.$extends(
+    // @ts-expect-error - field admission survives context-sensitive callbacks
+    rbac({
+      actor,
+      models: {
+        post: {
+          edit: (action) => ({ id: action }),
+          fields: { ownerId: { write: "edit" }, wrong: { write: "edit" } },
+        },
+      },
+    })
+  );
+  base.$extends(
+    // @ts-expect-error - create admission survives context-sensitive callbacks
+    rbac({
+      actor,
+      models: {
+        post: {
+          edit: (action) => ({ id: action }),
+          create: { ownerId: { actor: "userId" }, wrong: 1 },
+        },
+      },
+    })
+  );
   const nonClient = {};
   expectTypeOf<ExtendedClient<typeof nonClient, []>>().toEqualTypeOf<never>();
   expectTypeOf<

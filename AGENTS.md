@@ -312,6 +312,11 @@ which lives with the control it binds) and then a methods step
 applications own field names, membership, grant, credential and role conventions through explicit
 predicates. `src/rbac/rules.ts` owns `Rule`, `Where` and the action/relation
 metadata available to rule functions; no domain helper API is shipped.
+Named action rules are the only grant declarations; `mandatory` and `limit`
+restrict them. Inherited rules and their nested callbacks evaluate the requested
+action, never the declaring action. Within one model/action, the same top-level
+rule assigned to several inherited actions contributes once. The retired `arms`
+and `within` keys are refused rather than admitted as implicit actions.
 `tests/package/rbac-consumer-smoke.mjs` runs §1.1 and the blog from the
 packed package.
 

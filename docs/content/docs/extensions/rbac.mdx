@@ -125,14 +125,15 @@ What follows from it:
 an admin it holds on every row, for anyone else it holds on none, and the
 database still receives one statement.
 
-**Every action implies `view`.** Whoever may edit or delete a row may read it,
-so `view` is the `view` rule OR every other action's rule: here an admin, who
-holds `delete` on every post, reads every post too.
+**Every action implies `view` by default.** The `view` predicate includes the
+`view` rule OR every other action's rule: here an admin, who holds `delete` on
+every post, reads every post too. [Dynamic rules](#6-sharing-with-grants) receive
+the requested action, including when inherited from another action.
 
 ## 2. Levels: `view`, `edit`, `full`
 
 Most models share the same ladder. Declare it once with `levels`; a rule
-written on a higher level grants every level below it.
+written on a higher level also contributes to every level below it.
 
 ```ts
 const policy = rbac({
@@ -357,8 +358,8 @@ project: {
 To share a single row with a person, store the share as a row: a *grant*.
 
 A project is then also reachable by "a grant on it, to me, at this level or
-above". Because that depends on the action, it goes in `arms`, a list of
-rules each read **at every action**:
+above". Write a rule function that checks the requested action, and combine
+it with the other ways to grant each named permission:
 
 <Tabs>
   <Tab title="Policy">
@@ -378,9 +379,8 @@ const shared: Rule = (action, model) => ({
 project: {
   mandatory: inOrg,
   view: {},
-  edit: { ownerId: { actor: "userId" } },
-  full: admin,
-  arms: [shared], // a grant at a level gives that level and the ones below
+  edit: { OR: [{ ownerId: { actor: "userId" } }, shared] },
+  full: { OR: [admin, shared] },
 },
 ```
   </Tab>
@@ -415,7 +415,14 @@ At `edit`, `shared` is, simplified, this `where`:
 ```
 
 and the project's `edit` rule becomes `mandatory AND (owner OR admin OR shared)`.
-A grant deleted by another request is no longer seen by the next statement.
+The inherited `full` rule also evaluates `shared` for **`edit`**, the requested
+action. It does not ask whether the caller holds `full`. A `view` share cannot
+grant editing; an `edit` share cannot grant `full`. Here `view: {}` already lets
+every organization member read, so no sharing condition is needed there.
+
+Rule functions build predicates when the policy is applied; the database reads
+the current grants when a statement runs. A grant deleted by another request
+is no longer seen by the next statement.
 
 Who may *write* a grant row is a rule on the grant model like any other: for
 example only whoever holds `full` on its project:
@@ -530,25 +537,31 @@ const document = s.model({
 </Tabs>
 
 Read it as: "among this document and all its ancestors, *some* is owned by
-me or shared with me". To inherit every level, put the recursive predicate in
-`arms` instead of only `view`:
+me or shared with me". To use the same rule for each level, name the predicate
+once and assign it to the named permissions:
 
 ```ts
+const inheritedAccess: Rule = {
+  parent: {
+    recurse: { depth: false },
+    self: true,
+    some: { OR: [{ ownerId: { actor: "userId" } }, shared] },
+  },
+};
+
 document: {
   mandatory: inOrg,
-  arms: [{
-    parent: {
-      recurse: { depth: false },
-      self: true,
-      some: { OR: [{ ownerId: { actor: "userId" } }, shared] },
-    },
-  }],
+  view: inheritedAccess,
+  edit: inheritedAccess,
+  full: inheritedAccess,
 },
 ```
 
-Each action reads `shared` at that action: an `edit` grant on a folder permits
-editing its descendants; a `view` grant only permits reading. This application
-also chooses to give the owner every action through this arm.
+Each requested action reaches the nested `shared` function with that action:
+an `edit` grant on a folder permits editing its descendants; a `view` grant
+only permits reading. This application also chooses to give the owner all
+three permissions. Reusing the same rule does not duplicate it within a
+compiled action predicate.
 
 The statement walks the tree inside the database, once, with a recursive
 subquery (simplified):
@@ -620,15 +633,19 @@ const shared: Rule = (action, model) => ({
   },
 });
 
+const inheritedAccess: Rule = {
+  parent: {
+    recurse: { depth: false },
+    self: true,
+    some: { OR: [{ ownerId: { actor: "userId" } }, shared] },
+  },
+};
+
 document: {
   mandatory: inOrg,
-  arms: [{
-    parent: {
-      recurse: { depth: false },
-      self: true,
-      some: { OR: [{ ownerId: { actor: "userId" } }, shared] },
-    },
-  }],
+  view: inheritedAccess,
+  edit: inheritedAccess,
+  full: inheritedAccess,
   create: {
     OR: [{ parent: "edit" }, { parentId: null, ownerId: { actor: "userId" } }],
   },
@@ -866,26 +883,27 @@ id (an audit `updatedBy`, for instance).
 Every model's rule at an action `a` is:
 
 ```
-rule(M, a) = mandatory(a) AND limit(a) AND ( the rule of a, or of any action implying a
-                                          OR any arm, read at a )
+rule(M, a) = mandatory(a) AND limit(a)
+             AND OR(named rules for a and actions implying a, evaluated at a)
 ```
 
-- **Rules** (`view: …`, `edit: …`, any other action name) grant their action
-  and every action it implies.
-- **`arms`** are rules for every action. An arm is a `where`, or a function of
-  the action (`(a) => ({ group: a })`, "the group at the same action").
+- **Named rules** (`view: …`, `edit: …`, any other action name) supply the
+  ways to grant permission. A higher action's rule also contributes to the
+  actions it implies.
+- **Rule functions** receive the requested action, even inside an inherited
+  rule or a nested predicate. Static predicates keep the same meaning across
+  inherited actions; functions can construct a different predicate for each.
 - **`mandatory`** and the top-level **`limit`** are AND-ed into every action.
-- An action with no rule and no arm holds nowhere.
+- An action with no applicable named rule holds nowhere.
 
 `mandatory` may contain `OR`, but it still grants nothing: `(A OR B)` must
-hold **and** a grant rule must allow access. `arms` instead supplies additional
-grant rules evaluated at the requested action, useful when a share stores its
-permission level. For simple policies, write named `view` and `edit` rules and
-omit `arms`. Named rules also grant the actions they imply; an arm is evaluated
-at the requested action itself, so the two forms are not universally equivalent.
+hold **and** a named rule must allow access. Use `OR` inside a named rule to
+combine ownership, sharing and other ways of granting that permission.
 
-`within` was renamed to `mandatory`. The old spelling is rejected so a previous
-restriction cannot accidentally become an action that grants access.
+`within` was renamed to `mandatory`, and `arms` was removed. Both old keys
+are rejected, with no compatibility alias: a former restriction or rule list
+must not accidentally become an action that grants access. Assign reusable
+rules to the named permissions they grant, as in the [folder example](#7-a-folder-tree-permission-inherited-from-the-parents).
 
 Start with these three policy spellings, alongside the model's ordinary
 `where` filters (`some`/`every`/`none`/`is`, `AND`/`OR`/`NOT`, `recurse`):
@@ -948,7 +966,7 @@ document: {
     share: ["edit"],
   },
   operations: { delete: "share" },
-  // rules, arms, create, fields…
+  // named rules, mandatory, create, fields…
 },
 ```
 
@@ -969,9 +987,15 @@ page: { /* … */ domains: { given: shared } }  // await call.page.findMany({ as
 ### Rule functions
 
 A `Rule` is a predicate object or a function `(action, model) => Rule`. The
-function is evaluated while applying the policy, once for each action where it
-is used. It builds predicates; it does not receive the request actor or run
-queries. Actor references remain values supplied at call time.
+function receives the **requested action**, even when its rule is inherited
+from a higher action. This also applies to functions nested inside `AND`, `OR`
+or relation predicates. For example, a function declared under `edit` receives
+`"view"` when contributing to a read, and `"edit"` when contributing to an update.
+
+Functions run while applying the policy. They build predicates; they do not
+receive the request actor or run queries. Actor references remain values
+supplied at call time. Keep rule functions pure: reuse of the same rule across
+named permissions is compiled once per requested model and action.
 
 The public `PolicyModel` type describes that model:
 

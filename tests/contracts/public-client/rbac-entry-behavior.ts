@@ -1526,7 +1526,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
         levels: ["view", "edit", "full"],
         models: {
           page: {
-            arms: [(a: string) => (a === "edit" ? { OR: [] } : { id })],
+            full: (action: string) => (action === "edit" ? { OR: [] } : { id }),
           },
         },
       } as never) as unknown as (client: RbacAppClient) => Loose;

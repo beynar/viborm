@@ -1,8 +1,8 @@
 // The one formula of viborm/rbac (plan §3.2 R1), compiled once per schema:
 //
-//   P(M, a) = mandatory(M)(a) ∧ limit(M, a) ∧ ( ⋁_{b ⊒ a} rule(M, b) ∨ ⋁_{g ∈ arms(M)} g(a) )
+//   P(M, a) = mandatory(M)(a) ∧ limit(M, a) ∧ ⋁_{b ⊒ a} rule(M, b)(a)
 //
-// Every function a rule holds is evaluated here, once per declared action, and
+// Rule functions are evaluated here for the requested action, and
 // the policy's spellings are lowered to the `where` vocabulary: `{ actor: "p" }`
 // in a value position is the actor's field, `{ actor: { p: v } }` in a filter a
 // condition on it, and a relation whose value is an action name the target's
@@ -59,7 +59,6 @@ interface ModelFacts {
 /** One model's declaration (plan §1.1). */
 export interface ModelPolicy {
   readonly mandatory?: Rule;
-  readonly arms?: readonly Rule[];
   readonly actions?: { readonly [action: string]: readonly string[] };
   readonly create?: Rule;
   readonly operations?: {
@@ -76,7 +75,7 @@ export interface ModelPolicy {
   };
   readonly domains?: { readonly [name: string]: Rule };
   /** A named action's rule: `view`, `edit`, `invite`, … */
-  readonly [action: string]: Rule | readonly Rule[] | undefined;
+  readonly [action: string]: Rule | undefined;
 }
 
 export interface RbacConfig {
@@ -133,7 +132,6 @@ const PLACE = "create";
 
 const RESERVED = new Set([
   "mandatory",
-  "arms",
   "actions",
   "create",
   "operations",
@@ -217,6 +215,11 @@ function actionsOf(
     // Never reinterpret an old global restriction as an action that grants view.
     if (key === "within")
       refuse(`models.${name}.within was renamed to "mandatory"`, name);
+    if (key === "arms")
+      refuse(
+        `models.${name}.arms was removed; assign rules to named actions`,
+        name
+      );
     if (RESERVED.has(key) || implies.has(key)) continue;
     // A model that lists its actions names every one: a key it does not
     // list is a typo, and as an action it would widen view (R2).
@@ -240,6 +243,11 @@ function actionsOf(
     implies.set(key, key === "view" ? [] : ["view"]);
   }
   for (const [action, implied] of implies) {
+    if (action === "arms" || action === "within")
+      refuse(
+        `models.${name}: "${action}" is a retired declaration key, not an action`,
+        name
+      );
     if (RESERVED.has(action))
       refuse(
         `models.${name}: "${action}" is a key of the declaration, not an action`,
@@ -377,18 +385,18 @@ export function compilePolicy(
     const policy = config.models[name]!;
     const model = modelOf(name);
     const at = `models.${name}`;
+    // A shared rule assigned to several inherited actions contributes once.
+    // Its callbacks always read the requested action, including nested rules.
+    const rules = new Map<Rule, string>();
+    for (const inherited of model.above(action)) {
+      const rule = policy[inherited];
+      if (rule !== undefined && !rules.has(rule))
+        rules.set(rule, `${at}.${inherited}`);
+    }
     const clause = and([
       lower(name, action, policy.mandatory ?? {}, `${at}.mandatory`),
       lower(name, action, config.limit ?? {}, "limit"),
-      or([
-        ...model
-          .above(action)
-          .filter((b) => policy[b] !== undefined)
-          .map((b) => lower(name, b, policy[b], `${at}.${b}`)),
-        ...(policy.arms ?? []).map((arm, index) =>
-          lower(name, action, arm, `${at}.arms[${index}]`)
-        ),
-      ]),
+      or([...rules].map(([rule, source]) => lower(name, action, rule, source))),
     ]);
     open.pop();
     predicates.set(key, clause);

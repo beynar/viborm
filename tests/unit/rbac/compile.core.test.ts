@@ -27,6 +27,7 @@ import { describe, expect, test } from "vitest";
 
 const me = { control: "actor", path: "userId" };
 const NOWHERE = { OR: [] };
+const RETIRED_ARMS = /arms.*(removed|retired)/;
 const compile = (config: Omit<RbacConfig, "actor"> & { actor?: object }) =>
   compilePolicy({ actor: Actor, ...config } as RbacConfig, schema);
 /** The message of the `ClientInitializationError` `run` throws, or what it did instead. */
@@ -96,7 +97,7 @@ describe("the acceptance policy (§1.1)", () => {
   });
 });
 
-describe("R1: P(M, a) = mandatory(a) ∧ limit(a) ∧ (⋁ rule(b ⊒ a) ∨ ⋁ arms(a))", () => {
+describe("R1: P(M, a) = mandatory(a) ∧ limit(a) ∧ ⋁ rule(b ⊒ a)(a)", () => {
   test("a rule written at an action that implies a holds at a", () => {
     const { predicates } = compile({
       levels: LEVELS,
@@ -107,15 +108,15 @@ describe("R1: P(M, a) = mandatory(a) ∧ limit(a) ∧ (⋁ rule(b ⊒ a) ∨ ⋁
     expect(predicates.full).toEqual({ title: "f" });
   });
 
-  test("each function is evaluated once per declared action, at that action and its model", () => {
+  test("a shared rule is evaluated once per requested action, at that action and its model", () => {
     const calls: string[] = [];
-    const arm = (action: string, model: { name: string }) => {
+    const shared = (action: string, model: { name: string }) => {
       calls.push(`${model.name}.${action}`);
       return { title: action };
     };
     const { predicates } = compile({
       levels: LEVELS,
-      models: { page: { arms: [arm] } },
+      models: { page: { view: shared, edit: shared, full: shared } },
     }).models.page!;
     expect(calls).toEqual(["page.view", "page.edit", "page.full"]);
     expect(predicates.edit).toEqual({ title: "edit" });
@@ -136,6 +137,86 @@ describe("R1: P(M, a) = mandatory(a) ∧ limit(a) ∧ (⋁ rule(b ⊒ a) ∨ ⋁
         },
       },
     });
+  });
+
+  test("an inherited callback evaluates the requested action, including a denied lower action", () => {
+    const { predicates } = compile({
+      levels: LEVELS,
+      models: {
+        page: {
+          full: (action) => (action === "edit" ? NOWHERE : { title: action }),
+        },
+      },
+    }).models.page!;
+    expect(predicates.view).toEqual({ title: "view" });
+    expect(predicates.edit).toEqual(NOWHERE);
+    expect(predicates.full).toEqual({ title: "full" });
+  });
+
+  test("nested callbacks inherit the requested action and read the related model", () => {
+    const { predicates } = compile({
+      levels: LEVELS,
+      models: {
+        page: {
+          full: {
+            OR: [
+              {
+                owner: {
+                  is: (action: string, model: { name: string }) => ({
+                    name: `${model.name}.${action}`,
+                  }),
+                },
+              },
+              (action: string) => ({ title: action }),
+            ],
+          },
+        },
+      },
+    }).models.page!;
+    expect(predicates.view).toEqual({
+      OR: [{ owner: { is: { name: "user.view" } } }, { title: "view" }],
+    });
+    expect(predicates.edit).toEqual({
+      OR: [{ owner: { is: { name: "user.edit" } } }, { title: "edit" }],
+    });
+  });
+
+  test("a branched action graph shares a rule without granting an unrelated action", () => {
+    const shared: Rule = (action) => ({ title: action });
+    const { predicates } = compile({
+      models: {
+        page: {
+          actions: {
+            view: [],
+            comment: ["view"],
+            edit: ["comment"],
+            share: ["edit"],
+            export: ["view"],
+          },
+          comment: shared,
+          share: shared,
+        },
+      },
+    }).models.page!;
+    expect(predicates.view).toEqual({ title: "view" });
+    expect(predicates.edit).toEqual({ title: "edit" });
+    expect(predicates.share).toEqual({ title: "share" });
+    expect(predicates.export).toEqual(NOWHERE);
+  });
+
+  test("retired arms is rejected rather than interpreted as a permission", () => {
+    for (const page of [
+      { arms: [{}], view: {} },
+      { arms: {}, view: {} },
+      { actions: { view: [], arms: ["view"] }, arms: {}, view: {} },
+      { actions: { view: [], arms: ["view"] }, view: {} },
+    ]) {
+      expect(
+        refusalOf(() =>
+          Reflect.apply(compile, undefined, [{ models: { page } }])
+        )
+      ).toMatch(RETIRED_ARMS);
+    }
   });
 
   test("an OR in mandatory restricts grants but grants nothing by itself", () => {
@@ -166,6 +247,13 @@ describe("R1: P(M, a) = mandatory(a) ∧ limit(a) ∧ (⋁ rule(b ⊒ a) ∨ ⋁
         })
       )
     ).toContain('models.page.within was renamed to "mandatory"');
+    expect(
+      refusalOf(() =>
+        compile({
+          models: { page: { actions: { view: [], within: [] }, view: {} } },
+        })
+      )
+    ).toContain('"within" is a retired declaration key');
   });
 
   test("mandatory and the limit are conjoined with every action", () => {
@@ -860,7 +948,7 @@ describe("explicit application rules", () => {
     });
     const { predicates } = compile({
       levels: LEVELS,
-      models: { page: { arms: [capped] } },
+      models: { page: { full: capped } },
     }).models.page!;
     expect(predicates.view).toEqual({
       organization: {

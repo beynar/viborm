@@ -33,7 +33,7 @@ import {
   type RbacConfig,
   verbsOf,
 } from "./compile";
-import { FALSE, type PolicyModel, type Rule, type Where } from "./rules";
+import { FALSE, type PolicyModel, type Where } from "./rules";
 
 export type { ActorFacts, ActorPaths } from "./actor";
 export type {
@@ -54,7 +54,6 @@ type Row = Readonly<Record<string, unknown>>;
 
 type Reserved =
   | "mandatory"
-  | "arms"
   | "actions"
   | "create"
   | "operations"
@@ -86,27 +85,31 @@ type NamedActions<M> =
         }>
       : never);
 
-/** Retired restriction keys and rules absent from an explicit action list. */
+/** Retired declaration keys and rules absent from an explicit action list. */
 type UnlistedKeys<M> =
-  | Extract<keyof M, "within">
+  | Extract<keyof M, "within" | "arms">
   | (M extends { readonly actions: infer A }
-      ? Exclude<keyof M & string, Reserved | (keyof A & string)>
+      ?
+          | Extract<keyof A, "within" | "arms">
+          | Exclude<keyof M & string, Reserved | (keyof A & string)>
       : never);
 
-type UnknownActions<Config extends RbacConfig> = {
-  [K in keyof Config["models"] & string]: Exclude<
-    NamedActions<Config["models"][K]> | UnlistedKeys<Config["models"][K]>,
-    | Exclude<
-        ActionsOf<Config["models"][K], Levels<Config>>,
-        UnlistedKeys<Config["models"][K]>
-      >
-    | undefined
-  > extends infer Unknown extends string
-    ? [Unknown] extends [never]
-      ? never
-      : `${K}: ${Unknown}`
-    : never;
-}[keyof Config["models"] & string];
+type UnknownActions<Config extends RbacConfig> =
+  | Extract<Levels<Config>, "within" | "arms">
+  | {
+      [K in keyof Config["models"] & string]: Exclude<
+        NamedActions<Config["models"][K]> | UnlistedKeys<Config["models"][K]>,
+        | Exclude<
+            ActionsOf<Config["models"][K], Levels<Config>>,
+            UnlistedKeys<Config["models"][K]>
+          >
+        | undefined
+      > extends infer Unknown extends string
+        ? [Unknown] extends [never]
+          ? never
+          : `${K}: ${Unknown}`
+        : never;
+    }[keyof Config["models"] & string];
 
 // =============================================================================
 // ACTOR PATHS: the ones the declaration spells, against the actor schema
@@ -200,31 +203,29 @@ type CreateKeys<M> = M extends { readonly create: infer C }
     : keyof C
   : never;
 
-type UnknownFields<S extends Schema, Config extends RbacConfig> = {
-  [K in keyof Config["models"] & keyof S & string]: Exclude<
-    | (Config["models"][K] extends { readonly fields: infer F }
-        ? keyof F
-        : never)
-    | CreateKeys<Config["models"][K]>,
+type UnknownFields<S extends Schema, Models extends RbacConfig["models"]> = {
+  [K in keyof Models & keyof S & string]: Exclude<
+    | (Models[K] extends { readonly fields: infer F } ? keyof F : never)
+    | CreateKeys<Models[K]>,
     ScalarsOf<S[K]> | RelationsOf<S[K]> | "AND" | "OR" | "NOT" | "actor" | "$if"
   > extends infer Unknown extends string
     ? [Unknown] extends [never]
       ? never
       : `${K}.${Unknown}`
     : never;
-}[keyof Config["models"] & keyof S & string];
+}[keyof Models & keyof S & string];
 
 /** `unknown` when every model and field the declaration names is in the schema. */
 type SchemaCheck<
   S extends Schema,
-  Config extends RbacConfig,
+  Models extends RbacConfig["models"],
 > = string extends keyof S
   ? unknown
-  : [Exclude<keyof Config["models"], keyof S>] extends [never]
-    ? [UnknownFields<S, Config>] extends [never]
+  : [Exclude<keyof Models, keyof S>] extends [never]
+    ? [UnknownFields<S, Models>] extends [never]
       ? unknown
-      : { readonly "unknown field": UnknownFields<S, Config> }
-    : { readonly "unknown model": Exclude<keyof Config["models"], keyof S> };
+      : { readonly "unknown field": UnknownFields<S, Models> }
+    : { readonly "unknown model": Exclude<keyof Models, keyof S> };
 
 // =============================================================================
 // THE ENTRY: a rows step and a methods step (plan §1.1; K7(b), OD-1 option 2)
@@ -414,7 +415,9 @@ export interface Policy<Config extends RbacConfig> {
    * `ClientInitializationError`s naming the declaration's path. Public for
    * inspection; the entry applies it as it is.
    */
-  compile<S extends Schema>(schema: S & SchemaCheck<S, Config>): CompiledPolicy;
+  compile<S extends Schema>(
+    schema: S & SchemaCheck<S, Config["models"]>
+  ): CompiledPolicy;
   /**
    * Step one: the bound-only `actor`, the `as` mode, every model's
    * predicates and the verbs, placement, moves, projection key and
@@ -598,7 +601,7 @@ type ContextualWhere<Model, Actor> = Where & {
 
 type ContextualRule<Model, Actor> =
   | ContextualWhere<Model, Actor>
-  | ((action: string, model: PolicyModel) => Rule);
+  | ((action: string, model: PolicyModel) => ContextualRule<Model, Actor>);
 
 type ContextualPolicy<
   C extends VibORMConfig,
@@ -611,20 +614,18 @@ type ContextualPolicy<
         readonly [Model in keyof ClientSchema<C>]?: {
           readonly [Key in Reserved]?: Key extends "mandatory" | "create"
             ? ContextualRule<ClientSchema<C>[Model], Actor>
-            : Key extends "arms"
-              ? readonly ContextualRule<ClientSchema<C>[Model], Actor>[]
-              : ModelPolicy[Key];
+            : ModelPolicy[Key];
         } & {
           readonly [Action: string]:
-            | ContextualWhere<ClientSchema<C>[Model], Actor>
-            | ((action: string, model: PolicyModel) => Rule)
-            | readonly Rule[]
+            | ContextualRule<ClientSchema<C>[Model], Actor>
             | undefined;
         };
       };
     };
 
 /**
+ * Model names are inferred from keys independently of callback bodies, so schema
+ * admission does not force a context-sensitive Config to its broad constraint.
  * The receiving `$extends` supplies C and X before the inline declaration is
  * contextualized. Unbound declarations retain the reusable generic Policy;
  * only a concrete receiving schema adds the specialized callback signature.
@@ -633,14 +634,15 @@ export function rbac<
   C extends VibORMConfig,
   X extends ExtensionState,
   const Actor extends object,
+  const ModelNames extends string,
   const Config extends RbacConfig,
 >(
-  config: Config & { readonly actor: Actor } & ContextualPolicy<
-      NoInfer<C>,
-      NoInfer<Actor>
-    > &
+  config: Config & {
+    readonly actor: Actor;
+    readonly models: Record<ModelNames, unknown>;
+  } & ContextualPolicy<NoInfer<C>, NoInfer<Actor>> &
     DeclarationCheck<Config> &
-    SchemaCheck<NoInfer<C["schema"]>, Config>
+    SchemaCheck<NoInfer<C["schema"]>, Pick<Config["models"], ModelNames>>
 ): Policy<Config> &
   (string extends keyof C["schema"]
     ? unknown
@@ -692,7 +694,7 @@ export function rbac<const Config extends RbacConfig>(
         /**
          * The row `where` names, its `$access` at `asked` (D8): one statement,
          * or one per asked level on an ordered model. There the key reads the highest level held, which
-         * says nothing of a lower one whose predicate an arm, `mandatory` or
+         * says nothing of a lower one whose predicate a dynamic rule, `mandatory` or
          * `limit` reads apart (R1 does not make P monotone), so each level
          * is asked by itself. A row the actor does not view reads null.
          */

@@ -107,6 +107,25 @@ describe("action names", () => {
     });
   });
 
+  test("retired arms cannot be a model key or an explicit action", () => {
+    // @ts-expect-error - a held config cannot retain the former grant property
+    rbac({ actor: Actor, models: { page: { arms: {}, view: {} } } });
+    const stale = { actor: Actor, models: { page: { arms: [{}], view: {} } } };
+    // @ts-expect-error - old arrays are refused even in non-fresh declarations
+    rbac(stale);
+    // @ts-expect-error - the level ladder cannot reintroduce retired names either
+    rbac({
+      actor: Actor,
+      levels: ["view", "arms"],
+      models: { page: { view: {} } },
+    });
+    // @ts-expect-error - an explicit graph cannot reintroduce the retired key
+    rbac({
+      actor: Actor,
+      models: { page: { actions: { view: [], arms: ["view"] }, view: {} } },
+    });
+  });
+
   test("operations and fields name the model's actions", () => {
     // @ts-expect-error - `remove` is not an action of page
     rbac({

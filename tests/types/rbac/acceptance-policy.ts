@@ -225,6 +225,61 @@ export const tokenRestrictions: Rule = (action, model) => ({
   ],
 });
 
+const pageGroupAccess: Rule = {
+  OR: [{ createdById: { actor: "userId" } }, admin, given],
+};
+
+const pageAccess: Rule = {
+  OR: [
+    { ownerId: { actor: "userId" } },
+    { AND: [{ personal: false }, admin] },
+    given,
+    (a: string) => ({ personal: false, group: a }),
+  ],
+};
+
+export const documentOwnership: Rule = {
+  OR: [
+    {
+      parent: {
+        recurse: { depth: false },
+        self: true,
+        some: { ownerId: { actor: "userId" } },
+      },
+    },
+    {
+      AND: [
+        admin,
+        {
+          parent: {
+            recurse: { depth: false },
+            self: true,
+            some: { parentId: null, personal: false },
+          },
+        },
+      ],
+    },
+  ],
+};
+const documentAccess: Rule = {
+  OR: [
+    documentOwnership,
+    { parent: { recurse: { depth: false }, self: true, some: given } },
+  ],
+};
+
+const collectionAccess: Rule = {
+  OR: [
+    { ownerId: { actor: "userId" } },
+    { status: "draft", createdById: { actor: "userId" } },
+    given,
+  ],
+};
+
+const bookmarkAccess: Rule = {
+  OR: [{ userId: { actor: "userId" } }, admin],
+};
+
 export const policy = rbac({
   actor: Actor,
   levels: ["view", "edit", "full"], // ordered: full implies edit implies view
@@ -274,16 +329,15 @@ export const policy = rbac({
     },
     pageGroup: {
       mandatory: inOrg,
-      arms: [{ createdById: { actor: "userId" } }, admin, given],
+      view: pageGroupAccess,
+      edit: pageGroupAccess,
+      full: pageGroupAccess,
     },
     page: {
       mandatory: inOrg,
-      arms: [
-        { ownerId: { actor: "userId" } },
-        { AND: [{ personal: false }, admin] },
-        given,
-        (a) => ({ personal: false, group: a }),
-      ],
+      view: pageAccess,
+      edit: pageAccess,
+      full: pageAccess,
       create: {
         OR: [
           { group: "edit" },
@@ -303,28 +357,12 @@ export const policy = rbac({
         share: ["edit"],
         export: ["view"],
       },
-      arms: [
-        {
-          parent: {
-            recurse: { depth: false },
-            self: true,
-            some: { ownerId: { actor: "userId" } },
-          },
-        },
-        {
-          AND: [
-            admin,
-            {
-              parent: {
-                recurse: { depth: false },
-                self: true,
-                some: { parentId: null, personal: false },
-              },
-            },
-          ],
-        },
-        { parent: { recurse: { depth: false }, self: true, some: given } },
-      ],
+      view: documentAccess,
+      comment: documentAccess,
+      archive: documentAccess,
+      edit: documentAccess,
+      share: documentAccess,
+      export: documentAccess,
       operations: { delete: "share" },
       create: {
         OR: [
@@ -336,11 +374,9 @@ export const policy = rbac({
     },
     collection: {
       mandatory: inOrg,
-      arms: [
-        { ownerId: { actor: "userId" } },
-        { status: "draft", createdById: { actor: "userId" } },
-        given,
-      ],
+      view: collectionAccess,
+      edit: collectionAccess,
+      full: collectionAccess,
       create: { createdById: { actor: "userId" } },
       fields: { budget: { read: "full" } },
     },
@@ -348,7 +384,9 @@ export const policy = rbac({
     // documents; its `subject` arm reads under the target's own `view`.
     bookmark: {
       mandatory: inOrg,
-      arms: [{ userId: { actor: "userId" } }, admin],
+      view: bookmarkAccess,
+      edit: bookmarkAccess,
+      full: bookmarkAccess,
     },
   },
 });

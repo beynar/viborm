@@ -24,6 +24,7 @@ import {
 import {
   Actor as ActorSchema,
   activeUser,
+  documentOwnership,
   policy,
   storedPolicy,
 } from "@tests/types/rbac/acceptance-policy";
@@ -197,12 +198,17 @@ export function runCompiledPolicyBehavior(substrate: RbacAppSubstrate): void {
       async () => {
         // Documents declare an action graph, not the policy's level ladder.
         // Without stored `actions`, a grant therefore contributes no access;
-        // retain the owner and admin arms to isolate what the stored lists give.
+        // retain the owner and admin rules to isolate what the stored lists give.
         const levelsOnly = rebuild((models) => ({
           ...models,
           document: {
             ...models.document,
-            arms: models.document.arms.slice(0, 2),
+            view: documentOwnership,
+            comment: documentOwnership,
+            archive: documentOwnership,
+            edit: documentOwnership,
+            share: documentOwnership,
+            export: documentOwnership,
           },
         }));
         const stripped = governed(levelsOnly, "levels-only");

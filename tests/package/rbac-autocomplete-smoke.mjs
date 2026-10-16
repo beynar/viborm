@@ -20,9 +20,15 @@ base.$extends(rbac({ actor, models: { post: { /*policy*/ } } }));
 base.$extends(rbac({ actor, models: { post: { view: { /*fields*/ } } } }));
 base.$extends(rbac({ actor, models: { post: { mandatory: { /*mandatoryFields*/ }, view: {} } } }));
 base.$extends(rbac({ actor, models: { post: { create: { /*createFields*/ }, view: {} } } }));
-base.$extends(rbac({ actor, models: { post: { arms: [{ /*armFields*/ }] } } }));
+base.$extends(rbac({ actor, models: { post: { edit: { OR: [{ /*grantFields*/ }] } } } }));
 base.$extends(rbac({ actor, models: { post: { view: { owner: { is: { /*related*/ } } } } } }));
 base.$extends(rbac({ actor, models: { post: { view: { ownerId: { actor: "/*paths*/" } } } } }));
+base.$extends(rbac({ actor, models: { post: { edit: (action, model) => ({ /*callbackFields*/ }) } } }));
+base.$extends(rbac({ actor, models: { post: { edit: { OR: [(action, model) => ({ /*nestedCallbackFields*/ })] } } } }));
+/*dynamicStart*/
+const dynamic = base.$extends(rbac({ actor, levels: ["view", "edit"], models: { post: { edit: (action, model) => ({ OR: [{ id: action }, (requested, current) => ({ ownerId: current.name })] }) } } }));
+dynamic.post.can("edit", { id: "p" });
+/*dynamicEnd*/
 db.post.can("/*actions*/", { id: "p" });
 db.$as({ /*binding*/ });
 `;
@@ -56,11 +62,13 @@ withPackedConsumer("rbac-autocomplete", {}, ({ root }) => {
   try {
     for (const [marker, expected, excluded] of [
       ["models", ["post", "user"], ["ownerId"]],
-      ["policy", ["mandatory", "arms", "create"], ["within"]],
+      ["policy", ["mandatory", "create"], ["within", "arms"]],
       ["fields", ["id", "ownerId", "owner"], ["name"]],
       ["mandatoryFields", ["id", "ownerId", "owner"], ["name"]],
       ["createFields", ["id", "ownerId", "owner"], ["name"]],
-      ["armFields", ["id", "ownerId", "owner"], ["name"]],
+      ["grantFields", ["id", "ownerId", "owner"], ["name"]],
+      ["callbackFields", ["id", "ownerId", "owner"], ["name"]],
+      ["nestedCallbackFields", ["id", "ownerId", "owner"], ["name"]],
       ["related", ["id", "name"], ["ownerId"]],
       ["paths", ["userId", "organizationId"], ["ownerId"]],
       ["actions", ["view", "edit"], ["publish"]],
@@ -77,6 +85,20 @@ withPackedConsumer("rbac-autocomplete", {}, ({ root }) => {
         assert.ok(!names.has(name), `${marker}: unexpected ${name}`);
       console.log(`${marker}: ${expected.join(", ")}`);
     }
+    const start = source.indexOf("/*dynamicStart*/");
+    const end = source.indexOf("/*dynamicEnd*/");
+    const errors = service
+      .getSemanticDiagnostics(file)
+      .filter(
+        (diagnostic) => diagnostic.start >= start && diagnostic.start < end
+      );
+    assert.deepEqual(
+      errors.map((diagnostic) =>
+        ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")
+      ),
+      [],
+      "dynamic policies must type-check, not just offer suggestions"
+    );
   } finally {
     service.dispose();
   }
