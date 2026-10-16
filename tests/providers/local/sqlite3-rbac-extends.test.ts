@@ -1,5 +1,5 @@
 import { createClient } from "@drivers/sqlite3";
-import { ClientInitializationError } from "@errors";
+import { ClientInitializationError, ForbiddenError } from "@errors";
 import { s } from "@schema";
 import { rbac } from "@src/rbac";
 import { softDelete } from "@src/soft-delete";
@@ -174,7 +174,10 @@ test("$extends refuses repeated levels before a view rule can authorize a write"
   }
 });
 
-test("a target without the requested action contributes no role grants", async () => {
+test("an explicit target role table denies an undeclared requested action", async () => {
+  const roles: Readonly<Record<string, readonly string[]>> = {
+    view: ["reader"],
+  };
   const user = s.model({
     id: s.string().id(),
     role: s.string(),
@@ -207,8 +210,8 @@ test("a target without the requested action contributes no role grants", async (
               view: {},
               edit: {
                 author: {
-                  is: (action, model) => ({
-                    role: { in: model.above(action), not: "banned" },
+                  is: (action) => ({
+                    role: { in: roles[action] ?? [], not: "banned" },
                   }),
                 },
               },
@@ -273,6 +276,49 @@ test("prototype-spelled action and domain names preserve filtering and answers",
     expect(await narrowed.post.findMany({ as: "__proto__" })).toEqual([
       { id: "allowed" },
     ]);
+  } finally {
+    await base.$disconnect();
+  }
+});
+
+test("delete always requires its own action unless explicitly mapped", async () => {
+  const post = s.model({ id: s.string().id() });
+  const base = createClient({ schema: { post }, dataDir: ":memory:" });
+  try {
+    await syncLiveSchema(base);
+    await base.post.create({ data: { id: "p" } });
+    for (const rules of [{ full: {} }, { full: {}, share: {} }]) {
+      const db = base
+        .$extends(
+          rbac({
+            actor: v.object({}),
+            levels: ["view", "edit", "full"],
+            models: { post: rules },
+          })
+        )
+        .$as({});
+      expect(await db.post.can("full", { id: "p" })).toBe(true);
+      await expect(
+        db.post.delete({ where: { id: "p" } })
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(db.post.deleteMany({})).rejects.toBeInstanceOf(
+        ForbiddenError
+      );
+      expect(await base.post.count()).toBe(1);
+    }
+    const mapped = base
+      .$extends(
+        rbac({
+          actor: v.object({}),
+          levels: ["view", "edit", "full"],
+          models: { post: { full: {}, operations: { delete: "full" } } },
+        })
+      )
+      .$as({});
+    expect(await mapped.post.delete({ where: { id: "p" } })).toEqual({
+      id: "p",
+    });
+    expect(await base.post.count()).toBe(0);
   } finally {
     await base.$disconnect();
   }

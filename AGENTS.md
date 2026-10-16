@@ -310,8 +310,11 @@ generic `query` handler refusing a root call false when applied; and `$as`,
 which lives with the control it binds) and then a methods step
 (`can`/`assert`). Core names nothing of it. Its only runtime export is `rbac`;
 applications own field names, membership, grant, credential and role conventions through explicit
-predicates. `src/rbac/rules.ts` owns `Rule`, `Where` and the action/relation
-metadata available to rule functions; no domain helper API is shipped.
+predicates. `src/rbac/rules.ts` owns `Rule`, `Where` and rule functions' readonly
+model `name` and `actions` metadata; no graph traversal or domain helper API is
+shipped. Operation defaults are always read `view`, update `edit`, delete
+`delete`; levels never change the mapping. `operations.create` selects the action
+used to evaluate the separate placement rule (default `edit`), not a named grant.
 Named action rules are the only grant declarations; `mandatory` and `limit`
 restrict them. Inherited rules and their nested callbacks evaluate the requested
 action, never the declaring action. Within one model/action, the same top-level

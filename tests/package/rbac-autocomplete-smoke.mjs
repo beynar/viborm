@@ -24,6 +24,7 @@ base.$extends(rbac({ actor, models: { post: { edit: { OR: [{ /*grantFields*/ }] 
 base.$extends(rbac({ actor, models: { post: { view: { owner: { is: { /*related*/ } } } } } }));
 base.$extends(rbac({ actor, models: { post: { view: { ownerId: { actor: "/*paths*/" } } } } }));
 base.$extends(rbac({ actor, models: { post: { edit: (action, model) => ({ /*callbackFields*/ }) } } }));
+base.$extends(rbac({ actor, models: { post: { edit: (action, model) => { model./*modelMetadata*/; return {}; } } } }));
 base.$extends(rbac({ actor, models: { post: { edit: { OR: [(action, model) => ({ /*nestedCallbackFields*/ })] } } } }));
 base.$extends(rbac({ actor, levels: ["view", "edit", "full"], models: { post: { "view, /*groupActions*/": {} } } }));
 base.$extends(rbac({ actor, models: { post: { actions: { view: [], edit: [], export: [] }, "view,edit, /*graphGroupActions*/": {} } } }));
@@ -78,6 +79,11 @@ withPackedConsumer("rbac-autocomplete", {}, ({ root }) => {
       ["createFields", ["id", "ownerId", "owner"], ["name"]],
       ["grantFields", ["id", "ownerId", "owner"], ["name"]],
       ["callbackFields", ["id", "ownerId", "owner"], ["name"]],
+      [
+        "modelMetadata",
+        ["name", "actions"],
+        ["above", "related", "levels", "leveled"],
+      ],
       ["nestedCallbackFields", ["id", "ownerId", "owner"], ["name"]],
       ["related", ["id", "name"], ["ownerId"]],
       ["paths", ["userId", "organizationId"], ["ownerId"]],

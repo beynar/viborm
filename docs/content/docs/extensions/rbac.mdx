@@ -36,6 +36,8 @@ const db = base.$extends(rbac({
   actor: v.object({ userId: v.string(), admin: v.boolean() }),
   models: {
     post: {
+      // Which named permission each database operation requires:
+      operations: { read: "view", update: "edit", delete: "delete" },
       view: { OR: [{ published: true }, { authorId: { actor: "userId" } }] },
       edit: { authorId: { actor: "userId" } },   // the caller is the author
       delete: { actor: { admin: true } },        // a condition on the caller alone
@@ -93,15 +95,25 @@ export async function handle(request: Request) {
 
 ### What each call sends to the database
 
-Every operation needs one action, and that action's `where` is added to the
-statement:
+The `operations` mapping connects database calls to your named permissions.
+`view`, `edit`, and `delete` are action names; `findMany`, `update`, and `delete`
+are database methods. You can choose other action names by changing the mapping.
+The mapping above writes out the defaults, which never depend on `levels` or on
+other rule names. The selected permission is added to the statement:
 
 | Call | Action | The statement (simplified) |
 |---|---|---|
 | `findMany`, `findFirst`, `findUnique`, `count`, `aggregate`, `groupBy` | `view` | `SELECT … WHERE (your where) AND (published OR "authorId" = $me)`, every row for an admin |
 | `update`, `updateMany` | `edit` | `UPDATE post SET … WHERE id = $1 AND "authorId" = $me` |
 | `delete`, `deleteMany` | `delete` | `DELETE FROM post WHERE id = $1` for an admin, no row at all for anyone else |
-| `create`, `createMany` | the `create` rule, on the new row | `INSERT INTO post (…) SELECT $values WHERE $authorId = $me` |
+| `create`, `createMany` | the separate `create` rule, on the new row | `INSERT INTO post (…) SELECT $values WHERE $authorId = $me` |
+| `upsert` | `edit` for its update branch; `create` for its insert branch | the corresponding checks above |
+
+`create` is a reserved rule for admitting new rows. It is not an action to add
+to `levels`, and an admin's `delete` permission does not grant creation. The
+advanced `operations.create` option selects the action passed to rule functions
+in the creation check; it does not replace `create` with an existing-row rule.
+See [creation](#3-who-may-create-what).
 
 What follows from it:
 
@@ -132,9 +144,13 @@ the requested action, including when inherited from another action.
 
 ## 2. Levels: `view`, `edit`, `full`
 
-Most models share the same ladder. Declare it once with `levels`; a rule
-written on a higher level also contributes to every level below it. Each action
-must appear only once; repeated levels are rejected when applying the policy.
+Use `levels` only when your application has an ordered permission hierarchy.
+The policy above works without it. A rule written on a higher level also
+contributes to every level below it. Each action must appear only once; repeated
+levels are rejected when applying the policy.
+
+`full` below is an application-chosen permission name, not a database operation.
+The explicit `operations.delete` mapping makes deletion require it:
 
 ```ts
 const policy = rbac({
@@ -142,6 +158,7 @@ const policy = rbac({
   levels: ["view", "edit", "full"], // full implies edit, edit implies view
   models: {
     post: {
+      operations: { read: "view", update: "edit", delete: "full" },
       view: { published: true },
       edit: { authorId: { actor: "userId" } },
       full: { actor: { admin: true } },
@@ -153,13 +170,13 @@ const policy = rbac({
 ```
 
 `view` is now "published, **or** the author, **or** an admin": the rules of
-`edit` and `full` also grant `view`. With levels, the operations take:
+`edit` and `full` also grant `view`. This example's explicit mapping gives:
 
 | Operation | Action |
 |---|---|
 | read | `view` |
 | update | `edit` |
-| delete | the top level, `full` |
+| delete | `full`, because `operations.delete` names it |
 | create | the `create` rule (judged at `edit`, see [§3](#3-who-may-create-what)) |
 
 Change any of them per model with `operations`:
@@ -171,9 +188,15 @@ post: { /* … */ operations: { delete: "edit" } }, // authors may delete too
 A key that is not a level names one more action, which implies `view`:
 `publish: { author: { editor: true } }` adds `publish`, usable with
 [`can`](#9-asking-can-assert-access) and with [field levels](#5-protecting-fields).
-The model's actions are then no longer exactly the levels, so its delete
-takes an action named `delete` by default: write `operations: { delete:
-"full" }` to keep deleting at `full`.
+Adding an action never changes the operation mapping. Without
+`operations: { delete: "full" }`, deletion would require an action named
+`delete`, even with this hierarchy; no rule granting it means no deletion.
+
+For a `findUnique` in this example, the effective permission is
+`published OR authorId = actor.userId OR actor.admin`. For an update, it is
+`authorId = actor.userId OR actor.admin`. These are alternative ways to grant
+access, not a requirement to satisfy every level. SQL simplification and the
+database optimizer decide which expressions actually need execution.
 
 ## 3. Who may create what
 
@@ -206,6 +229,9 @@ follows another's, without writing it twice.
   `create` rule accepts, and the new row must still pass the rules that let
   the caller update it.
 - A model without a `create` rule refuses every create.
+- Creation checks `mandatory AND limit AND create`. It does not OR in `edit`
+  or `full`. If those restrictions use rule functions, they receive `edit` by
+  default, or the model's explicit `operations.create` action.
 
 ## 4. A team: the organization, and roles
 
@@ -232,12 +258,16 @@ const policy = rbac({
   levels: ["view", "edit", "full"],
   models: {
     organization: { view: { members: { some: { userId: { actor: "userId" } } } } },
-    member: { mandatory: inOrg, view: {}, full: admin },
+    member: {
+      operations: { delete: "full" },
+      mandatory: inOrg, view: {}, full: admin,
+    },
     project: {
+      operations: { delete: "full" },
       mandatory: inOrg,            // AND-ed into every action of project
       view: {},                 // every member views
       edit: { ownerId: { actor: "userId" } }, // the owner edits
-      full: admin,              // admins do everything
+      full: admin,              // admins read, edit, and delete
       create: { ownerId: { actor: "userId" } },
     },
   },
@@ -315,12 +345,18 @@ If the organization stores permissions as rows instead, match a membership's
 role to a permission for the requested action or an action implying it:
 
 ```ts
-const projectMembership: Rule = (action, model) => ({
+// These are the stored action values that satisfy each requested permission.
+const storedPermissions = new Map<string, readonly string[]>([
+  ["view", ["view", "edit", "full"]],
+  ["edit", ["edit", "full"]],
+  ["full", ["full"]],
+]);
+const projectMembership: Rule = (action) => ({
   organization: {
     is: {
       OR: ["reader", "member", "admin"].map((role) => ({
         members: { some: { userId: { actor: "userId" }, role } },
-        permissions: { some: { role, action: { in: model.above(action) } } },
+        permissions: { some: { role, action: { in: storedPermissions.get(action) ?? [] } } },
       })),
     },
   },
@@ -328,7 +364,9 @@ const projectMembership: Rule = (action, model) => ({
 ```
 
 Here `organization.permissions` is this application's relation to its
-`rolePermission` rows. No role names or permission-table shape are built into RBAC.
+`rolePermission` rows. The table explicitly defines how its stored values grant
+permissions; an unrecognized action matches no stored permission. No role names
+or permission-table shape are built into RBAC.
 
 ## 5. Protecting fields
 
@@ -367,11 +405,16 @@ it with the other ways to grant each named permission:
 ```ts
 import type { Rule } from "viborm/rbac";
 
-// For our models with levels: ["view", "edit", "full"].
-const shared: Rule = (action, model) => ({
+// Meaning of this application's stored grant levels.
+const grantLevels = new Map<string, readonly string[]>([
+  ["view", ["view", "edit", "full"]],
+  ["edit", ["edit", "full"]],
+  ["full", ["full"]],
+]);
+const shared: Rule = (action) => ({
   grants: {
     some: {
-      level: { in: model.above(action) },
+      level: { in: grantLevels.get(action) ?? [] },
       OR: [{ userId: { actor: "userId" } }, { everyone: true }],
     },
   },
@@ -452,38 +495,44 @@ const administerGrant = {
 ```
 
 Placement must also prevent a writer granting rights they do not hold. This
-application stores a nullable `level` and an `actions` list on each grant. Its
-rule checks each attached model's declared actions and, for a model using levels,
-its levels:
+application stores a nullable `level` and an `actions` list on each grant.
+Declare which values each attachment accepts, then require the writer to hold
+every permission the grant carries:
 
 ```ts
-const placeGrant: Rule = (_action, model) => ({
+// Application data: document uses independent actions in this example.
+const grantTargets = [
+  {
+    relation: "project", key: "projectId",
+    actions: ["view", "edit", "full"], levels: ["view", "edit", "full"],
+  },
+  {
+    relation: "document", key: "documentId",
+    actions: ["view", "comment", "archive", "edit", "share"], levels: [],
+  },
+];
+const placeGrant = {
   AND: [
     administerGrant,
-    ...["project", "document"].flatMap((relation) => {
-      const target = model.related(relation);
-      if (!target) throw new Error(`Missing grant relation: ${relation}`);
-      const key = `${relation}Id`; // this application's single-column foreign keys
-      return [
-        ...target.actions.map((action) => ({
-          OR: [
-            { [key]: null },
-            { NOT: { actions: { has: action } } },
-            { [relation]: action },
-          ],
-        })),
-        ...(target.leveled ? target.levels.map((level) => ({
-          OR: [
-            { [key]: null },
-            { level: null },
-            { level: { not: level } },
-            { [relation]: level },
-          ],
-        })) : []),
-      ];
-    }),
+    ...grantTargets.flatMap(({ relation, key, actions, levels }) => [
+      ...actions.map((action) => ({
+        OR: [
+          { [key]: null },
+          { NOT: { actions: { has: action } } },
+          { [relation]: action },
+        ],
+      })),
+      ...levels.map((level) => ({
+        OR: [
+          { [key]: null },
+          { level: null },
+          { level: { not: level } },
+          { [relation]: level },
+        ],
+      })),
+    ]),
   ],
-});
+};
 
 accessGrant: {
   view: administerGrant,
@@ -495,9 +544,12 @@ accessGrant: {
 
 Declare the grant's `level` and `actions` with enum values your application
 supports. A change to either field is also checked against `create`, so editing
-a grant cannot bypass placement. For models with independent actions, a grant
-matches `{ actions: { hasSome: model.above(action) } }` instead of a level.
-Use that condition in `shared` when your application stores action grants.
+a grant cannot bypass placement. For independent action grants, replace the
+`level` test in `shared` with an `actions: { hasSome: … }` test and explicitly
+list the stored actions that grant each requested permission, just as
+`grantLevels` does above. Keep those application tables together with the action
+declarations; changing your permission model must change its stored-grant
+interpretation too.
 
 ## 7. A folder tree: permission inherited from the parents
 
@@ -623,10 +675,11 @@ application's team and grant schema:
 <Tabs>
   <Tab title="Policy">
 ```ts
-const shared: Rule = (action, model) => ({
+// Reuse grantLevels from the sharing example.
+const shared: Rule = (action) => ({
   grants: {
     some: {
-      level: { in: model.above(action) },
+      level: { in: grantLevels.get(action) ?? [] },
       OR: [{ userId: { actor: "userId" } }, { everyone: true }, toMyTeams],
     },
   },
@@ -693,8 +746,9 @@ await call.project.assert("full", { id });               // throws ForbiddenErro
 
 - `where` names **one** row by a unique key, as `findUnique` takes it; a
   filter or a missing id is a `ValidationError`.
-- A row the caller cannot see holds nothing: `can` is `false`, `assert`
-  throws the same `ForbiddenError` as for a missing action.
+- A row the caller cannot see holds nothing: `can` is `false`, and `assert`
+  throws `ForbiddenError`, just as for a visible row lacking that permission.
+- Asking for an undeclared action is a `ForbiddenError`, including in `can`.
 
 For a whole list, include `$access`: every row comes back with what the
 caller may do with it, computed in the same statement:
@@ -711,6 +765,56 @@ On a model with its own [`actions`](#actions) it is one boolean per action
 (`{ view: true, comment: true, share: false, … }`); `$access: ["share"]`
 asks only for the ones named.
 
+These answers describe the database when the check ran. They do not authorize
+a later operation: continue using the same governed client for the write, which
+checks its rules again. Never switch to `base` after a successful `can`.
+
+### Understanding an unexpected result
+
+Start with the declared operation mapping and expand only the permission it
+requests. For the [levels example](#2-levels-view-edit-full):
+
+```text
+update → edit
+edit   → author rule OR inherited full rule
+       → authorId = actor.userId OR actor.admin = true
+```
+
+If you add organization membership as `mandatory`, it becomes:
+
+```text
+organization membership AND (author OR admin)
+```
+
+`mandatory` and `limit` restrict every alternative. For creation, use
+`mandatory AND limit AND create` instead of the existing-row permission. For an
+update that changes ownership or an attachment, inspect both the old-row
+permission and the new-row checks in [Writes, in detail](#writes-in-detail).
+
+To investigate a concrete row in a development fixture:
+
+1. Bind the same actor. Check that actor paths contain the intended values;
+   absent or `null` values do not grant access. Account separately for a call's
+   `as` domain and other extension controls: they can narrow the operation beyond
+   the named permission that `can` asks about.
+2. Ask `can` for the action named by `operations`, plus any higher permissions
+   required by fields the update writes. `can("edit", { id })` does not promise
+   that a particular update payload will pass placement or field checks.
+3. Use `$access` on a visible row to see held permissions. On ordered models it
+   returns the highest held level; dynamic restrictions may reject a lower one,
+   so ask `can` for that exact action when its answer matters.
+4. Follow the [error's stage](#errors): a declaration error means the policy
+   could not be applied; a missing-row result means the governed selector found
+   no accessible candidate; a placement failure means the proposed row was
+   refused. An empty list or a zero bulk-write count is also a valid denial
+   result, not proof that the database has no matching rows.
+
+A production denial intentionally does not explain whether a hidden row exists,
+which membership is absent, or which private relationship failed. Keep detailed
+fixture inspection and actor diagnostics in trusted development tools, and do
+not expose unfiltered reads or actor metadata to the caller. Use the existing
+rules and checks to investigate; there is no separate policy-debugging language.
+
 ## 10. API keys: `limit`
 
 An API key acts for a user with fewer rights. `limit` is AND-ed into every
@@ -720,6 +824,12 @@ in the actor:
 ```ts
 import { rbac, type Rule } from "viborm/rbac";
 
+// This application's token scopes follow its view/edit/full hierarchy.
+const tokenScopes = new Map<string, readonly string[]>([
+  ["view", ["view", "edit", "full"]],
+  ["edit", ["edit", "full"]],
+  ["full", ["full"]],
+]);
 const keyScopes: Rule = (action, model) => ({
   OR: [
     { $if: { control: "actor", path: "key", exists: false } },
@@ -727,7 +837,7 @@ const keyScopes: Rule = (action, model) => ({
       $if: {
         control: "actor",
         path: `key.scopes.${model.name}`,
-        hasSome: model.above(action),
+        hasSome: tokenScopes.get(action) ?? [],
       },
     },
   ],
@@ -970,10 +1080,15 @@ document: {
 A model that lists its `actions` names every one: an unlisted action in any
 rule key is refused.
 
-`operations` maps each operation to an action. Defaults: read `view`, update
-`edit`, create `edit`, delete `delete` (the top level on a model whose
-actions are exactly the levels). An operation whose action the model does not
-declare is refused before any statement.
+`operations` maps reads, updates, and deletes to named actions. Defaults are
+always read `view`, update `edit`, and delete `delete`. `levels` and additional
+actions never change them. An operation whose action the model does not declare
+is refused before any statement. To require the highest level for deletion,
+name it explicitly, for example `operations: { delete: "full" }`.
+
+`operations.create` defaults to `edit`: it selects the requested action used
+while evaluating `mandatory`, `limit`, and the separate `create` rule on a new
+row. It does not use that action's named grant rules to authorize creation.
 
 `as` narrows a call to an action or a named domain, never wider:
 
@@ -1019,16 +1134,14 @@ receive the request actor or run queries. Actor references remain values
 supplied at call time. Keep rule functions pure: reuse of the same rule across
 named permissions is compiled once per requested model and action.
 
-The public `PolicyModel` type describes that model:
+The public `PolicyModel` type contains only metadata about the model where the
+function is evaluated. Inside a relation predicate, this is the relation's target
+model; the action remains the requested action:
 
 | Member | Meaning |
 |---|---|
 | `name` | Schema model name |
 | `actions` | Declared actions |
-| `levels` | Policy levels, lowest first |
-| `leveled` | Whether this model uses the policy's levels rather than an explicit action graph |
-| `above(action)` | The action and every action implying it; an empty array if this model does not declare it |
-| `related(relation)` | The target model, or `undefined` |
 
 Prefer inline predicates for simple policies: their model, field and actor
 references receive contextual editor suggestions. Extract application-owned
@@ -1040,7 +1153,7 @@ actor-path mistakes are still rejected when the policy is applied.
 
 | Operation | Checked on the old row | Checked on the new row | Refused with |
 |---|---|---|---|
-| `update`, `updateMany` | the actions of the written fields (`fields.*.write`, else `edit`) | the same rules; the `create` rule when a field it reads changes; written keys visible; no cycle | `NotFoundError` / not counted (old), `ForbiddenError` (new) |
+| `update`, `updateMany` | the actions of the written fields (`fields.*.write`, else `operations.update`) | the same rules; the `create` rule when a field it reads changes; written keys visible; no cycle | `NotFoundError` / not counted (old), `ForbiddenError` (new) |
 | `delete`, `deleteMany` | the delete action | | `NotFoundError` / not counted |
 | `create`, `createMany` | | the `create` rule; written keys visible | `ForbiddenError` |
 | `upsert` | the update arm as `update` | the create arm as `create` | as each arm |
@@ -1062,7 +1175,7 @@ actor-path mistakes are still rejected when the policy is applied.
 
 ### Reads, in detail
 
-Every read takes only rows whose `view` rule holds, at every depth: root
+Every read takes only rows whose read action (`view` by default) holds, at every depth: root
 reads, `count`, `aggregate`, `groupBy`, cursors, `include`/`select` of
 relations, relation filters, `_count`, ordering by a relation, recursive
 reads and polymorphic arms.
@@ -1082,15 +1195,17 @@ reads and polymorphic arms.
 | an unknown model, field, action or actor path; an unknown key of the policy, of a model or of a `fields` entry; a key spelled like `mandatory`, `create`, a level…; a rule that reads itself; `recurse: true`; a read-protected key or unique field | `ClientInitializationError` | when the policy is applied |
 | `can`/`assert` with a `where` that is not a unique key | `ValidationError` | before any statement |
 | an unlisted model; an operation or `as` the model does not declare | `ForbiddenError` | before any statement |
-| a hidden or non-writable root row | `NotFoundError` | after the statement |
+| a hidden root row in `findUnique` or `findFirst` | `null` (or `NotFoundError` for the `OrThrow` variants) | after the statement |
+| a hidden or non-writable root row in a singular update/delete | `NotFoundError` | after the statement |
 | a new row refused at the root (create, move, written key, cycle); `assert` | `ForbiddenError` (`V13001`) | in the statement, before the write |
 | a hidden nested target, or a nested create refused | `NestedWriteError` | in the operation |
 | an explicit `select` of a field the row withholds | `ValidationError` at `select.<field>` | after the read |
 | `$withCache` on a governed view, unless `cache: "allow"` | `ValidationError` at `actor` | before any statement |
 | a create or upsert over a unique key a hidden row holds | `UniqueConstraintError` | the database's |
 
-No error tells a row the caller cannot see from one it sees but may not
-touch, nor a hidden target from a missing one.
+Authorization refusals do not distinguish a hidden target from a missing one,
+or a row the caller cannot see from one it cannot write. Database constraint
+errors are a separate boundary; see [Boundaries](#boundaries).
 
 ### Caching
 

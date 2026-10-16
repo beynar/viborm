@@ -59,6 +59,17 @@ export function checkRbacExtensionTypes() {
           "view, edit": (action, model) => {
             expectTypeOf(action).toEqualTypeOf<string>();
             expectTypeOf(model).toEqualTypeOf<PolicyModel>();
+            expectTypeOf<keyof PolicyModel>().toEqualTypeOf<
+              "name" | "actions"
+            >();
+            // @ts-expect-error - implication helpers are not public policy vocabulary
+            model.above(action);
+            // @ts-expect-error - relation callbacks receive their own model metadata
+            model.related("owner");
+            // @ts-expect-error - inheritance configuration is not callback metadata
+            model.levels;
+            // @ts-expect-error - no implicit level-versus-graph flag
+            model.leveled;
             return { ownerId: { actor: "userId" } };
           },
         },

@@ -8,6 +8,7 @@
 import { ClientInitializationError } from "@errors";
 import {
   type CompiledModel,
+  type PolicyModel,
   type RbacConfig,
   type Rule,
   rbac,
@@ -119,7 +120,10 @@ describe("R1: P(M, a) = mandatory(a) ∧ limit(a) ∧ ⋁ rule(b ⊒ a)(a)", () 
     expect(predicates.edit).toEqual({});
   });
 
-  test("above returns an immutable empty set for an undeclared target action", () => {
+  test("an explicit role table denies an unknown requested target action", () => {
+    const roles: Readonly<Record<string, readonly string[]>> = {
+      view: ["reader"],
+    };
     const { predicates } = compile({
       models: {
         user: { actions: { view: [] }, view: {} },
@@ -128,14 +132,9 @@ describe("R1: P(M, a) = mandatory(a) ∧ limit(a) ∧ ⋁ rule(b ⊒ a)(a)", () 
           view: {},
           edit: {
             owner: {
-              is: (
-                action: string,
-                model: { above(action: string): readonly string[] }
-              ) => {
-                const actions = model.above(action);
-                expect(Object.isFrozen(actions)).toBe(true);
-                return { name: { in: actions, not: "banned" } };
-              },
+              is: (action: string) => ({
+                name: { in: roles[action] ?? [], not: "banned" },
+              }),
             },
           },
         },
@@ -187,17 +186,19 @@ describe("R1: P(M, a) = mandatory(a) ∧ limit(a) ∧ ⋁ rule(b ⊒ a)(a)", () 
     expect(predicates.edit).toEqual({ title: "edit" });
   });
 
-  test("a callback distinguishes an unlisted related model from a missing relation", () => {
+  test("a nested callback receives only immutable name and action metadata", () => {
     compile({
       models: {
         page: {
-          view: (_action, model) => {
-            const owner = model.related("owner");
-            expect(owner?.name).toBe("user");
-            expect(owner?.actions).toEqual([]);
-            expect(owner?.leveled).toBe(false);
-            expect(model.related("unknownRelation")).toBeUndefined();
-            return {};
+          view: {
+            owner: {
+              is: (_action: string, model: PolicyModel) => {
+                expect(model).toEqual({ name: "user", actions: [] });
+                expect(Object.isFrozen(model)).toBe(true);
+                expect(Object.isFrozen(model.actions)).toBe(true);
+                return {};
+              },
+            },
           },
         },
       },
@@ -292,7 +293,7 @@ describe("R1: P(M, a) = mandatory(a) ∧ limit(a) ∧ ⋁ rule(b ⊒ a)(a)", () 
     expect(grouped.predicates.full).toEqual(NOWHERE);
     expect(grouped.read).toBe("view");
     expect(grouped.update).toBe("edit");
-    expect(grouped.delete).toBe("full");
+    expect(grouped.delete).toBeUndefined();
     expect(grouped.evidence).toEqual({
       as: "$access",
       names: ["view", "edit", "full"],
@@ -829,13 +830,15 @@ describe("the actor's facts (K2, R6)", () => {
 });
 
 describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
-  test("operations default to view, edit and the top level when the actions are exactly the levels", () => {
+  test("operations default to view, edit and delete independently of levels and extra actions", () => {
     const { models } = compile({
       levels: LEVELS,
       models: {
         page: { view: {} },
         team: { view: {}, invite: {} },
         member: { view: {}, operations: { delete: "edit" } },
+        collection: { view: {}, operations: { delete: "full" } },
+        bookmark: { view: {}, delete: {} },
       },
     });
     const verbs = ({ read, update, delete: remove }: CompiledModel) => ({
@@ -846,9 +849,9 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
     expect(verbs(models.page!)).toEqual({
       read: "view",
       update: "edit",
-      delete: "full",
+      delete: undefined,
     });
-    // `invite` makes team's actions more than the levels: nothing deletes it.
+    // Adding an action does not change which action delete requires.
     expect(verbs(models.team!)).toEqual({
       read: "view",
       update: "edit",
@@ -858,6 +861,16 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
       read: "view",
       update: "edit",
       delete: "edit",
+    });
+    expect(verbs(models.collection!)).toEqual({
+      read: "view",
+      update: "edit",
+      delete: "full",
+    });
+    expect(verbs(models.bookmark!)).toEqual({
+      read: "view",
+      update: "edit",
+      delete: "delete",
     });
   });
 
@@ -1090,6 +1103,13 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
   });
 
   test("declaration errors are refused, naming where", () => {
+    expect(
+      refusalOf(() =>
+        compile({ models: { page: { operations: { delete: "remove" } } } })
+      )
+    ).toContain(
+      'models.page.operations.delete names "remove", which page does not declare. Declared actions: none. Add its rule or choose a declared action.'
+    );
     expect(refusalOf(() => compile({ models: { pages: {} } }))).toContain(
       "models.pages: the schema has no such model"
     );
@@ -1116,7 +1136,9 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
           models: { page: { operations: { delete: "remove" } } },
         })
       )
-    ).toContain('models.page.operations.delete names "remove"');
+    ).toContain(
+      'models.page.operations.delete names "remove", which page does not declare. Declared actions: view, edit, full. Add its rule or choose a declared action.'
+    );
     expect(
       refusalOf(() =>
         compile({
@@ -1228,17 +1250,15 @@ describe("explicit application rules", () => {
     });
   });
 
-  test("an action callback can express a role ceiling using the implication graph", () => {
-    const capped: Rule = (action, model) => ({
+  test("an action callback can express an explicit role ceiling", () => {
+    const capped: Rule = (action) => ({
       organization: {
         is: {
           members: {
             some: {
               userId: { actor: "userId" },
               role: {
-                in: model.above(action).includes("view")
-                  ? ["reader", "admin"]
-                  : ["admin"],
+                in: action === "view" ? ["reader", "admin"] : ["admin"],
               },
             },
           },
@@ -1264,14 +1284,19 @@ describe("explicit application rules", () => {
   });
 
   test("a grant callback can cover levels and actions with explicit recipient conditions", () => {
-    const given: Rule = (action, model) => ({
+    const grantActions: Readonly<Record<string, readonly string[]>> = {
+      view: ["view", "edit", "full"],
+      edit: ["edit", "full"],
+      full: ["full"],
+    };
+    const given: Rule = (action) => ({
       grants: {
         some: {
           AND: [
             {
               OR: [
-                { level: { in: model.above(action) } },
-                { actions: { hasSome: model.above(action) } },
+                { level: { in: grantActions[action] ?? [] } },
+                { actions: { hasSome: grantActions[action] ?? [] } },
               ],
             },
             { everyone: true },
@@ -1399,7 +1424,7 @@ describe("explicit application rules", () => {
       levels: LEVELS,
       limit: tokenRestrictions,
       models: {
-        document: { actions: { view: [], share: ["view"] }, view: {} },
+        document: { actions: policy.config.models.document.actions, view: {} },
       },
     }).models.document!;
     const ids = { control: "actor", path: "key.resources.document" };
@@ -1413,7 +1438,14 @@ describe("explicit application rules", () => {
               $if: {
                 control: "actor",
                 path: "key.scopes.document",
-                hasSome: ["view", "share"],
+                hasSome: [
+                  "view",
+                  "comment",
+                  "archive",
+                  "edit",
+                  "share",
+                  "export",
+                ],
               },
             },
             {

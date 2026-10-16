@@ -11,14 +11,6 @@ export interface PolicyModel {
   readonly name: string;
   /** Its actions, in declaration order (none for a model the policy does not list). */
   readonly actions: readonly string[];
-  /** The policy's `levels`, lowest first. */
-  readonly levels: readonly string[];
-  /** Whether it uses the policy's levels rather than an explicit action graph. */
-  readonly leveled: boolean;
-  /** ↑a: the actions equal to or implying `action`; empty if it is undeclared. */
-  above(action: string): readonly string[];
-  /** The model a relation of it reaches. */
-  related(relation: string): PolicyModel | undefined;
 }
 
 /** A `where` no row satisfies. Internal compiler identity, not a public helper. */

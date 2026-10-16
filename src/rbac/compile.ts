@@ -397,30 +397,10 @@ export function compilePolicy(
   const modelOf = (name: string): PolicyModel => {
     const known = models.get(name);
     if (known) return known;
-    const implies = actions.get(name)?.implies ?? new Map();
-    const above = new Map(
-      [...implies.keys()].map((action) => {
-        const reaches = (from: string, seen: Set<string>): boolean => {
-          if (from === action) return true;
-          if (seen.has(from)) return false;
-          seen.add(from);
-          return implies.get(from)!.some((next) => reaches(next, seen));
-        };
-        const up = [...implies.keys()].filter((b) => reaches(b, new Set()));
-        return [action, Object.freeze(up)] as const;
-      })
-    );
-    const model: PolicyModel = {
+    const model: PolicyModel = Object.freeze({
       name,
-      actions: [...implies.keys()],
-      levels,
-      leveled: implies.size > 0 && !config.models[name]!.actions,
-      above: (action) => above.get(action) ?? noActions,
-      related: (relation) => {
-        const target = targetOf(name, relation);
-        return target === undefined ? undefined : modelOf(target);
-      },
-    };
+      actions: Object.freeze([...(actions.get(name)?.evidence.names ?? [])]),
+    });
     models.set(name, model);
     return model;
   };
@@ -439,13 +419,22 @@ export function compilePolicy(
       );
     open.push(key);
     const policy = config.models[name]!;
-    const model = modelOf(name);
     const at = `models.${name}`;
     // A shared rule assigned to several inherited actions contributes once.
     // Its callbacks always read the requested action, including nested rules.
+    // Resolve inheritance only when compiling this predicate, never when
+    // projecting action names for evidence. P is cached once per model/action.
+    const declared = actions.get(name)!;
+    const reaches = (from: string, seen: Set<string>): boolean => {
+      if (from === action) return true;
+      if (seen.has(from)) return false;
+      seen.add(from);
+      return declared.implies.get(from)!.some((next) => reaches(next, seen));
+    };
     const rules = new Map<Rule, string>();
-    for (const inherited of model.above(action)) {
-      const binding = actions.get(name)!.rules.get(inherited);
+    for (const inherited of declared.implies.keys()) {
+      if (!reaches(inherited, new Set())) continue;
+      const binding = declared.rules.get(inherited);
       if (binding?.rule !== undefined && !rules.has(binding.rule))
         rules.set(binding.rule, binding.source);
     }
@@ -802,8 +791,8 @@ export function compilePolicy(
 
   /**
    * The action each verb of a listed model takes (K3, OD-3): `operations`,
-   * else view, edit and delete (the top level where its actions are exactly
-   * the levels); a verb whose action the model does not declare takes none.
+   * else view, edit and delete; a verb whose action the model does not
+   * declare takes none. Adding actions never changes an operation mapping.
    */
   const verbsFor = (name: string) => {
     const model = modelOf(name);
@@ -812,10 +801,7 @@ export function compilePolicy(
     for (const [verb, fallback] of [
       ["read", "view"],
       ["update", "edit"],
-      [
-        "delete",
-        actions.get(name)!.evidence.ordered ? levels.at(-1)! : "delete",
-      ],
+      ["delete", "delete"],
     ] as const) {
       const action = operations[verb] ?? fallback;
       if (model.actions.includes(action)) verbs[verb] = action;
@@ -913,7 +899,7 @@ export function compilePolicy(
     const declared = (role: string, action: string | undefined) => {
       if (action !== undefined && !model.actions.includes(action))
         refuse(
-          `models.${name}.${role} names "${action}", which ${name} does not declare`,
+          `models.${name}.${role} names "${action}", which ${name} does not declare. Declared actions: ${model.actions.join(", ") || "none"}. Add its rule or choose a declared action.`,
           name
         );
       return action;
@@ -935,7 +921,7 @@ export function compilePolicy(
     for (const operation of Object.keys(operations))
       if (!OPERATIONS.has(operation))
         refuse(
-          `models.${name}.operations.${operation}: not an operation`,
+          `models.${name}.operations.${operation}: not an operation; use read, update, delete or create`,
           name
         );
     for (const verb of ["read", "update", "delete"] as const)

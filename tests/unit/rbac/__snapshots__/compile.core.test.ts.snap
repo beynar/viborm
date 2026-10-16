@@ -809,7 +809,6 @@ exports[`the acceptance policy (§1.1) > its predicates for the identity models,
     "writes": {},
   },
   "user": {
-    "delete": "full",
     "evidence": {
       "as": "$access",
       "names": [
@@ -1300,7 +1299,6 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
     "writes": {},
   },
   "user": {
-    "delete": "full",
     "evidence": {
       "as": "$access",
       "names": [

@@ -5,6 +5,42 @@
 import { type Rule, rbac } from "@src/rbac";
 import { v } from "@src/validation";
 
+// Application grant/token vocabulary. These explicit tables describe which
+// stored values cover each requested action; they are not a graph interpreter.
+const levels = ["view", "edit", "full"] as const;
+const levelCoverage = { view: levels, edit: ["edit", "full"], full: ["full"] };
+const coverage: Readonly<
+  Record<string, Readonly<Record<string, readonly string[]>>>
+> = {
+  organization: {
+    ...levelCoverage,
+    view: [...levels, "invite", "export"],
+    invite: ["invite"],
+    export: ["export"],
+  },
+  member: levelCoverage,
+  user: levelCoverage,
+  team: { ...levelCoverage, view: [...levels, "invite"], invite: ["invite"] },
+  teamMember: {
+    ...levelCoverage,
+    view: [...levels, "manage"],
+    manage: ["manage"],
+  },
+  accessGrant: levelCoverage,
+  pageGroup: levelCoverage,
+  page: levelCoverage,
+  document: {
+    view: ["view", "comment", "archive", "edit", "share", "export"],
+    comment: ["comment", "edit", "share"],
+    archive: ["archive", "edit", "share"],
+    edit: ["edit", "share"],
+    share: ["share"],
+    export: ["export"],
+  },
+  collection: levelCoverage,
+  bookmark: levelCoverage,
+};
+
 /** Who calls: facts of the request only. Bound once by `db.$as(actor)`; nothing here is read from the database. */
 export const Actor = v.object({
   userId: v.string(),
@@ -59,16 +95,17 @@ export const activeUser = {
 } satisfies Rule;
 
 /** Readers only view; members and admins may exercise every declared action. */
-const inOrg: Rule = (action, model) => ({
+const inOrg: Rule = (action) => ({
   organization: {
     is: {
       members: {
         some: {
           userId: { actor: "userId" },
           role: {
-            in: model.above(action).includes("view")
-              ? ["reader", "member", "admin"]
-              : ["member", "admin"],
+            in:
+              action === "view"
+                ? ["reader", "member", "admin"]
+                : ["member", "admin"],
           },
           user: { is: activeUser },
         },
@@ -117,18 +154,18 @@ const given: Rule = (action, model) => ({
       AND: [
         {
           OR: [
-            ...(model.leveled
+            ...(model.name !== "document"
               ? [
                   {
                     level: {
-                      in: model
-                        .above(action)
-                        .filter((name) => model.levels.includes(name)),
+                      in: (coverage[model.name]?.[action] ?? []).filter(
+                        (name) => levels.some((level) => level === name)
+                      ),
                     },
                   },
                 ]
               : []),
-            { actions: { hasSome: model.above(action) } },
+            { actions: { hasSome: coverage[model.name]?.[action] ?? [] } },
           ],
         },
         { OR: recipients },
@@ -156,40 +193,38 @@ const administerGrant = {
 } satisfies Rule;
 
 /** Each attached resource also bounds every level/action the new grant carries. */
-const placeGrant: Rule = (_action, model) => ({
+const placeGrant = {
   AND: [
     administerGrant,
     ...[
-      { relation: "page", key: "pageId" },
-      { relation: "group", key: "groupId" },
-      { relation: "document", key: "documentId" },
-      { relation: "collection", key: "collectionId" },
-    ].flatMap(({ relation, key }) => {
-      const target = model.related(relation);
-      if (!target)
-        throw new Error(`The acceptance schema is missing ${relation}`);
-      return [
-        ...target.actions.map((action) => ({
-          OR: [
-            { [key]: null },
-            { NOT: { actions: { has: action } } },
-            { [relation]: action },
-          ],
-        })),
-        ...(target.leveled
-          ? target.levels.map((level) => ({
-              OR: [
-                { [key]: null },
-                { level: null },
-                { level: { not: level } },
-                { [relation]: level },
-              ],
-            }))
-          : []),
-      ];
-    }),
+      { relation: "page", key: "pageId", actions: levels, levels },
+      { relation: "group", key: "groupId", actions: levels, levels },
+      {
+        relation: "document",
+        key: "documentId",
+        actions: Object.keys(coverage.document!),
+        levels: [],
+      },
+      { relation: "collection", key: "collectionId", actions: levels, levels },
+    ].flatMap(({ relation, key, actions, levels }) => [
+      ...actions.map((action) => ({
+        OR: [
+          { [key]: null },
+          { NOT: { actions: { has: action } } },
+          { [relation]: action },
+        ],
+      })),
+      ...levels.map((level) => ({
+        OR: [
+          { [key]: null },
+          { level: null },
+          { level: { not: level } },
+          { [relation]: level },
+        ],
+      })),
+    ]),
   ],
-});
+} satisfies Rule;
 
 /** Tokens restrict every model's scopes, and documents to listed subtrees. */
 export const tokenRestrictions: Rule = (action, model) => ({
@@ -199,7 +234,7 @@ export const tokenRestrictions: Rule = (action, model) => ({
       $if: {
         control: "actor",
         path: `key.scopes.${model.name}`,
-        hasSome: [...model.above(action)],
+        hasSome: [...(coverage[model.name]?.[action] ?? [])],
       },
       ...(model.name === "document"
         ? {
@@ -282,7 +317,7 @@ const bookmarkAccess: Rule = {
 
 export const policy = rbac({
   actor: Actor,
-  levels: ["view", "edit", "full"], // ordered: full implies edit implies view
+  levels, // ordered: full implies edit implies view
   limit: tokenRestrictions,
   models: {
     organization: {
@@ -328,10 +363,12 @@ export const policy = rbac({
       operations: { delete: "edit" },
     },
     pageGroup: {
+      operations: { delete: "full" },
       mandatory: inOrg,
       "view, edit, full": pageGroupAccess,
     },
     page: {
+      operations: { delete: "full" },
       mandatory: inOrg,
       "view, edit, full": pageAccess,
       create: {
@@ -364,6 +401,7 @@ export const policy = rbac({
       fields: { ownerId: { write: "share" }, archivedAt: { write: "archive" } },
     },
     collection: {
+      operations: { delete: "full" },
       mandatory: inOrg,
       "view, edit, full": collectionAccess,
       create: { createdById: { actor: "userId" } },
@@ -372,6 +410,7 @@ export const policy = rbac({
     // The fixture's polymorphic model (W-R9): a user's pins of pages and
     // documents; its `subject` arm reads under the target's own `view`.
     bookmark: {
+      operations: { delete: "full" },
       mandatory: inOrg,
       "view, edit, full": bookmarkAccess,
     },
@@ -386,7 +425,9 @@ const inOrgStored: Rule = (action, model) => ({
         members: {
           some: { userId: { actor: "userId" }, role, user: { is: activeUser } },
         },
-        permissions: { some: { role, action: { in: model.above(action) } } },
+        permissions: {
+          some: { role, action: { in: coverage[model.name]?.[action] ?? [] } },
+        },
       })),
     },
   },
