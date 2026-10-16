@@ -243,7 +243,7 @@ export function runCompiledPolicyBehavior(substrate: RbacAppSubstrate): void {
           return Object.fromEntries(
             Object.entries(models).map(([model, entry]) => [
               model,
-              "within" in entry ? { ...entry, within: inOrg } : entry,
+              "mandatory" in entry ? { ...entry, mandatory: inOrg } : entry,
             ])
           );
         });

@@ -35,7 +35,7 @@ import {
  * writes it. The declaration is the compiled §1.1 policy exactly as
  * `viborm/rbac` hands it to its `rows.verbs` (`verbsOf`): per model,
  *
- * - `place`: within ∧ limit ∧ `create:` AND every key's target visible,
+ * - `place`: mandatory ∧ limit ∧ `create:` AND every key's target visible,
  *   `P(T, read)` inlined; nothing (`OR: []`) on a model that declares no
  *   `create:` or that the policy does not list (R9);
  * - `moves`: per written field, the placement's clause where it reads the
@@ -298,7 +298,7 @@ export function runRbacAppPlacement(substrate: RbacAppSubstrate): void {
     };
 
     test(
-      "W-P1, W-P7, W-P16: a root create is written where the oracle places it, and is ForbiddenError elsewhere: outside `within`, a hidden and a missing key target alike",
+      "W-P1, W-P7, W-P16: a root create is written where the oracle places it, and is ForbiddenError elsewhere: outside `mandatory`, a hidden and a missing key target alike",
       async () => {
         {
           const seen = await createsAgainstOracle("page", pageCandidates);

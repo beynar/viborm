@@ -29,6 +29,7 @@ import {
   DEFAULT_MODE,
   EVIDENCE_KEY,
   evidenceOf,
+  type ModelPolicy,
   type RbacConfig,
   verbsOf,
 } from "./compile";
@@ -52,7 +53,7 @@ type Row = Readonly<Record<string, unknown>>;
 // =============================================================================
 
 type Reserved =
-  | "within"
+  | "mandatory"
   | "arms"
   | "actions"
   | "create"
@@ -85,10 +86,12 @@ type NamedActions<M> =
         }>
       : never);
 
-/** On a model that lists its `actions`, a rule key it does not list (a typo). */
-type UnlistedKeys<M> = M extends { readonly actions: infer A }
-  ? Exclude<keyof M & string, Reserved | (keyof A & string)>
-  : never;
+/** Retired restriction keys and rules absent from an explicit action list. */
+type UnlistedKeys<M> =
+  | Extract<keyof M, "within">
+  | (M extends { readonly actions: infer A }
+      ? Exclude<keyof M & string, Reserved | (keyof A & string)>
+      : never);
 
 type UnknownActions<Config extends RbacConfig> = {
   [K in keyof Config["models"] & string]: Exclude<
@@ -606,6 +609,12 @@ type ContextualPolicy<
       readonly actor: Actor;
       readonly models: {
         readonly [Model in keyof ClientSchema<C>]?: {
+          readonly [Key in Reserved]?: Key extends "mandatory" | "create"
+            ? ContextualRule<ClientSchema<C>[Model], Actor>
+            : Key extends "arms"
+              ? readonly ContextualRule<ClientSchema<C>[Model], Actor>[]
+              : ModelPolicy[Key];
+        } & {
           readonly [Action: string]:
             | ContextualWhere<ClientSchema<C>[Model], Actor>
             | ((action: string, model: PolicyModel) => Rule)
@@ -683,7 +692,7 @@ export function rbac<const Config extends RbacConfig>(
         /**
          * The row `where` names, its `$access` at `asked` (D8): one statement,
          * or one per asked level on an ordered model. There the key reads the highest level held, which
-         * says nothing of a lower one whose predicate an arm, `within` or
+         * says nothing of a lower one whose predicate an arm, `mandatory` or
          * `limit` reads apart (R1 does not make P monotone), so each level
          * is asked by itself. A row the actor does not view reads null.
          */

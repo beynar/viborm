@@ -1,6 +1,6 @@
 // The one formula of viborm/rbac (plan §3.2 R1), compiled once per schema:
 //
-//   P(M, a) = within(M)(a) ∧ limit(M, a) ∧ ( ⋁_{b ⊒ a} rule(M, b) ∨ ⋁_{g ∈ arms(M)} g(a) )
+//   P(M, a) = mandatory(M)(a) ∧ limit(M, a) ∧ ( ⋁_{b ⊒ a} rule(M, b) ∨ ⋁_{g ∈ arms(M)} g(a) )
 //
 // Every function a rule holds is evaluated here, once per declared action, and
 // the policy's spellings are lowered to the `where` vocabulary: `{ actor: "p" }`
@@ -58,7 +58,7 @@ interface ModelFacts {
 
 /** One model's declaration (plan §1.1). */
 export interface ModelPolicy {
-  readonly within?: Rule;
+  readonly mandatory?: Rule;
   readonly arms?: readonly Rule[];
   readonly actions?: { readonly [action: string]: readonly string[] };
   readonly create?: Rule;
@@ -132,7 +132,7 @@ export const EVIDENCE_KEY = "$access";
 const PLACE = "create";
 
 const RESERVED = new Set([
-  "within",
+  "mandatory",
   "arms",
   "actions",
   "create",
@@ -214,6 +214,9 @@ function actionsOf(
       : levels.map((level, index) => [level, levels.slice(index - 1, index)])
   );
   for (const key of Object.keys(policy)) {
+    // Never reinterpret an old global restriction as an action that grants view.
+    if (key === "within")
+      refuse(`models.${name}.within was renamed to "mandatory"`, name);
     if (RESERVED.has(key) || implies.has(key)) continue;
     // A model that lists its actions names every one: a key it does not
     // list is a typo, and as an action it would widen view (R2).
@@ -375,7 +378,7 @@ export function compilePolicy(
     const model = modelOf(name);
     const at = `models.${name}`;
     const clause = and([
-      lower(name, action, policy.within ?? {}, `${at}.within`),
+      lower(name, action, policy.mandatory ?? {}, `${at}.mandatory`),
       lower(name, action, config.limit ?? {}, "limit"),
       or([
         ...model
@@ -902,7 +905,7 @@ export function compilePolicy(
       if (read === undefined) continue;
       reads[field] = declared(`fields.${field}.read`, read)!;
     }
-    // R4: place = within ∧ limit ∧ create: at the create action, and every
+    // R4: place = mandatory ∧ limit ∧ create: at the create action, and every
     // key's target visible; false where the model declares no `create:`.
     const at = (rule: Rule, where: string) => {
       const action = declared(
@@ -915,7 +918,7 @@ export function compilePolicy(
       policy.create === undefined
         ? false
         : and([
-            at(policy.within ?? {}, `models.${name}.within`),
+            at(policy.mandatory ?? {}, `models.${name}.mandatory`),
             at(config.limit ?? {}, "limit"),
             at(policy.create, `models.${name}.create`),
           ]);

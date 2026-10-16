@@ -4,7 +4,7 @@
 // from the policy of plan §1.1 and the rules of §3.2, never from an engine's
 // output: it imports nothing from VibORM and reads only `seed.ts`.
 //
-//   P(M, a) = within(M)(a) ∧ limit(M, a) ∧ ( ⋁_{b ⊒ a} rule(M, b) ∨ ⋁_{g ∈ arms(M)} g(a) )
+//   P(M, a) = mandatory(M)(a) ∧ limit(M, a) ∧ ( ⋁_{b ⊒ a} rule(M, b) ∨ ⋁_{g ∈ arms(M)} g(a) )
 //
 // What a caller observes at action `a` is `P(M, view) ∧ P(M, a)` (R2: every
 // verb and every evidence projection is conjoined with the read predicate), and
@@ -208,7 +208,7 @@ export const CREATES: ReadonlySet<GovernedModel> = new Set([
   "document",
   "collection",
 ]);
-/** The models §1.1 declares `within: inOrg` on. */
+/** The models §1.1 declares `mandatory: inOrg` on. */
 const WITHIN: ReadonlySet<GovernedModel> = new Set([
   "member",
   "team",
@@ -219,7 +219,7 @@ const WITHIN: ReadonlySet<GovernedModel> = new Set([
   "bookmark",
 ]);
 /**
- * Per model, the fields its placement reads (`within`, `limit`, `create:`):
+ * Per model, the fields its placement reads (`mandatory`, `limit`, `create:`):
  * an update writing one is judged at the placement too (OD-14).
  */
 export const PLACED: Partial<Record<GovernedModel, readonly string[]>> = {
@@ -706,14 +706,14 @@ export function createOracle(seed: RbacSeed) {
           return false;
       }
     };
-    /** `within(M)(c) ∧ limit(M, c) ∧ create(M)` at c = `edit` (OD-3). */
+    /** `mandatory(M)(c) ∧ limit(M, c) ∧ create(M)` at c = `edit` (OD-3). */
     const placeRule = (model: GovernedModel, row: Row): boolean => {
       if (!CREATES.has(model)) return false;
       const organizationId = row.organizationId as string;
-      const within =
+      const mandatory =
         !WITHIN.has(model) ||
         (organizationId !== undefined && inOrg(organizationId, "edit"));
-      return within && limit(model, "edit", row) && createRule(model, row);
+      return mandatory && limit(model, "edit", row) && createRule(model, row);
     };
     /** Every created row: its placement, and every key's target visible. */
     const places = (model: GovernedModel, row: Row) =>
@@ -733,7 +733,7 @@ export function createOracle(seed: RbacSeed) {
     /**
      * An updated row: under the predicates that judged its old one (`view`
      * and each written field's action), the placement where it writes what
-     * `create:` reads (OD-14, `within ∧ limit ∧ create:`), each written
+     * `create:` reads (OD-14, `mandatory ∧ limit ∧ create:`), each written
      * key's target visible, and a document's parent outside its own subtree.
      */
     const produces = (

@@ -31,7 +31,7 @@ const rows = (
   action = "view"
 ) => oracle.rows(actor(name), model, action, { now: NOW });
 
-/** Models whose every action is under `within: inOrg` (an active member, a live credential). */
+/** Models whose every action is under `mandatory: inOrg` (an active member, a live credential). */
 const IN_ORG = [
   "member",
   "team",
@@ -166,7 +166,7 @@ export function runRbacOracleChecks(): void {
       }
     });
 
-    test("no live credential, a ban, a tombstoned or absent membership: no row under `within`", () => {
+    test("no live credential, a ban, a tombstoned or absent membership: no row under `mandatory`", () => {
       for (const name of [
         "u07-expired",
         "u17-no-credential",
@@ -273,7 +273,7 @@ export function runRbacOracleChecks(): void {
         }
       }
       // A1: a reader's ceiling is view. A reader in every organization it
-      // belongs to holds nothing above view under `within`, even where a grant
+      // belongs to holds nothing above view under `mandatory`, even where a grant
       // gives it edit or full; and such a grant exists in the seed.
       const readersOnly = Object.entries(actors).filter(([, a]) => {
         const live = seed.member.filter(

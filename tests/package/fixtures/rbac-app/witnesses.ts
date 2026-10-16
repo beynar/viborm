@@ -318,7 +318,7 @@ export const WITNESSES: readonly WitnessCase[] = Object.freeze([
     ["W-P4", "nested create and connectOrCreate", "none"],
     ["W-P5", "a scalar-key move", "none"],
     ["W-P6", "a connect move", "none"],
-    ["W-P7", "within on create", "none"],
+    ["W-P7", "mandatory on create", "none"],
     ["W-P8", "a concurrent revocation", "none"],
     ["W-P9", "rollback of a refused produced row", "none"],
     ["W-P10", "the grant arc, create and update forms", "none"],

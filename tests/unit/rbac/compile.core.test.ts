@@ -96,7 +96,7 @@ describe("the acceptance policy (§1.1)", () => {
   });
 });
 
-describe("R1: P(M, a) = within(a) ∧ limit(a) ∧ (⋁ rule(b ⊒ a) ∨ ⋁ arms(a))", () => {
+describe("R1: P(M, a) = mandatory(a) ∧ limit(a) ∧ (⋁ rule(b ⊒ a) ∨ ⋁ arms(a))", () => {
   test("a rule written at an action that implies a holds at a", () => {
     const { predicates } = compile({
       levels: LEVELS,
@@ -138,11 +138,41 @@ describe("R1: P(M, a) = within(a) ∧ limit(a) ∧ (⋁ rule(b ⊒ a) ∨ ⋁ ar
     });
   });
 
-  test("within and the limit are conjoined with every action", () => {
+  test("an OR in mandatory restricts grants but grants nothing by itself", () => {
+    const mandatory = {
+      OR: [{ title: "public" }, { ownerId: { actor: "userId" } }],
+    };
+    const closed = compile({ levels: LEVELS, models: { page: { mandatory } } })
+      .models.page!;
+    expect(closed.predicates.view).toEqual(NOWHERE);
+    expect(closed.predicates.edit).toEqual(NOWHERE);
+    const granted = compile({
+      levels: LEVELS,
+      models: { page: { mandatory, edit: { icon: "editable" } } },
+    }).models.page!;
+    expect(granted.predicates.edit).toEqual({
+      AND: [
+        { OR: [{ title: "public" }, { ownerId: me }] },
+        { icon: "editable" },
+      ],
+    });
+  });
+
+  test("the former restriction name cannot silently become a grant", () => {
+    expect(
+      refusalOf(() =>
+        compile({
+          models: { page: { within: { title: "private" }, view: {} } },
+        })
+      )
+    ).toContain('models.page.within was renamed to "mandatory"');
+  });
+
+  test("mandatory and the limit are conjoined with every action", () => {
     const { predicates } = compile({
       levels: LEVELS,
       limit: (action) => ({ icon: action }),
-      models: { page: { within: { color: "c" }, edit: { title: "e" } } },
+      models: { page: { mandatory: { color: "c" }, edit: { title: "e" } } },
     }).models.page!;
     expect(predicates.view).toEqual({
       AND: [{ color: "c" }, { icon: "view" }, { title: "e" }],
@@ -470,13 +500,13 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
     expect(collection.predicates.mine).toEqual({ ownerId: me });
   });
 
-  test("placement is within, the limit and create at the create action, and every key's target visible (R4)", () => {
+  test("placement is mandatory, the limit and create at the create action, and every key's target visible (R4)", () => {
     const { models } = compile({
       levels: LEVELS,
       limit: (action) => ({ icon: action }),
       models: {
         page: {
-          within: (action) => ({ color: action }),
+          mandatory: (action) => ({ color: action }),
           view: {},
           create: { ownerId: { actor: "userId" } },
           operations: { create: "full" },
@@ -1024,9 +1054,12 @@ describe("definitions refused before they widen (review 2026-10-16)", () => {
   test("a declaration key or a level mistyped is refused; a model that lists its actions refuses every other key (FDOCS-1)", () => {
     expect(
       refusalOf(() =>
-        compile({ levels: LEVELS, models: { page: { whithin: {}, view: {} } } })
+        compile({
+          levels: LEVELS,
+          models: { page: { mandatroy: {}, view: {} } },
+        })
       )
-    ).toContain('models.page.whithin: spelled like "within"');
+    ).toContain('models.page.mandatroy: spelled like "mandatory"');
     expect(
       refusalOf(() =>
         compile({
@@ -1094,7 +1127,7 @@ describe("definitions refused before they widen (review 2026-10-16)", () => {
           levels: LEVELS,
           models: {
             document: {
-              within: { sizeBytes: { lt: 10n } },
+              mandatory: { sizeBytes: { lt: 10n } },
               view: {},
               create: { sizeBytes: { gte: 1n }, ownerId: { actor: "userId" } },
             },

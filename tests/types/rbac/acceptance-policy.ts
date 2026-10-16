@@ -238,7 +238,7 @@ export const policy = rbac({
       }, // a row fact, and a request fact
     },
     member: {
-      within: inOrg,
+      mandatory: inOrg,
       view: {},
       edit: admin, // the new row too: no move into an org the actor does not run
       create: { organization: "invite" }, // the invited user must be visible to the actor
@@ -250,7 +250,7 @@ export const policy = rbac({
       },
     },
     team: {
-      within: inOrg,
+      mandatory: inOrg,
       view: {},
       invite: {
         OR: [
@@ -273,11 +273,11 @@ export const policy = rbac({
       operations: { delete: "edit" },
     },
     pageGroup: {
-      within: inOrg,
+      mandatory: inOrg,
       arms: [{ createdById: { actor: "userId" } }, admin, given],
     },
     page: {
-      within: inOrg,
+      mandatory: inOrg,
       arms: [
         { ownerId: { actor: "userId" } },
         { AND: [{ personal: false }, admin] },
@@ -294,7 +294,7 @@ export const policy = rbac({
       domains: { given }, // `as: "given"`: P(view) ∧ given(view)
     },
     document: {
-      within: inOrg,
+      mandatory: inOrg,
       actions: {
         view: [],
         comment: ["view"],
@@ -335,7 +335,7 @@ export const policy = rbac({
       fields: { ownerId: { write: "share" }, archivedAt: { write: "archive" } },
     },
     collection: {
-      within: inOrg,
+      mandatory: inOrg,
       arms: [
         { ownerId: { actor: "userId" } },
         { status: "draft", createdById: { actor: "userId" } },
@@ -346,7 +346,10 @@ export const policy = rbac({
     },
     // The fixture's polymorphic model (W-R9): a user's pins of pages and
     // documents; its `subject` arm reads under the target's own `view`.
-    bookmark: { within: inOrg, arms: [{ userId: { actor: "userId" } }, admin] },
+    bookmark: {
+      mandatory: inOrg,
+      arms: [{ userId: { actor: "userId" } }, admin],
+    },
   },
 });
 
@@ -364,18 +367,18 @@ const inOrgStored: Rule = (action, model) => ({
   },
 });
 const { models } = policy.config;
-const within = { within: inOrgStored } as const;
+const mandatory = { mandatory: inOrgStored } as const;
 export const storedPolicy = rbac({
   ...policy.config,
   models: {
     ...models,
-    member: { ...models.member, ...within },
-    team: { ...models.team, ...within },
-    pageGroup: { ...models.pageGroup, ...within },
-    page: { ...models.page, ...within },
-    document: { ...models.document, ...within },
-    collection: { ...models.collection, ...within },
-    bookmark: { ...models.bookmark, ...within },
+    member: { ...models.member, ...mandatory },
+    team: { ...models.team, ...mandatory },
+    pageGroup: { ...models.pageGroup, ...mandatory },
+    page: { ...models.page, ...mandatory },
+    document: { ...models.document, ...mandatory },
+    collection: { ...models.collection, ...mandatory },
+    bookmark: { ...models.bookmark, ...mandatory },
   },
 });
 

@@ -208,7 +208,7 @@ follows another's, without writing it twice.
 ## 4. A team: the organization, and roles
 
 A multi-tenant app adds a condition to *every* action of most models: "the
-caller is a member of the row's organization". Write it once in `within`.
+caller is a member of the row's organization". Write it once in `mandatory`.
 
 <Tabs>
   <Tab title="Policy">
@@ -230,9 +230,9 @@ const policy = rbac({
   levels: ["view", "edit", "full"],
   models: {
     organization: { view: { members: { some: { userId: { actor: "userId" } } } } },
-    member: { within: inOrg, view: {}, full: admin },
+    member: { mandatory: inOrg, view: {}, full: admin },
     project: {
-      within: inOrg,            // AND-ed into every action of project
+      mandatory: inOrg,            // AND-ed into every action of project
       view: {},                 // every member views
       edit: { ownerId: { actor: "userId" } }, // the owner edits
       full: admin,              // admins do everything
@@ -276,12 +276,12 @@ WHERE EXISTS (SELECT 1 FROM member m
 ```
 
 and `full` (the delete) becomes `… AND m.role = 'admin'`. Projects of other
-organizations are never returned, counted or updatable: `within` is part of
+organizations are never returned, counted or updatable: `mandatory` is part of
 every action's rule.
 
 ### Capping actions by role
 
-If readers must never edit, make that restriction part of `within`. A rule
+If readers must never edit, make that restriction part of `mandatory`. A rule
 function receives the action and model when the policy is applied; it returns
 a predicate for that action. It does not run once per request.
 
@@ -301,12 +301,12 @@ const projectMembership: Rule = (action) => ({
   },
 });
 
-// In the project policy: within: projectMembership
+// In the project policy: mandatory: projectMembership
 ```
 
 These are application decisions: readers may only view; members and admins may
 pass the membership check for other actions. They still need an action rule to
-grant access. A reader who owns a project cannot edit it because `within` holds
+grant access. A reader who owns a project cannot edit it because `mandatory` holds
 nowhere for that reader at `edit`.
 
 If the organization stores permissions as rows instead, match a membership's
@@ -376,7 +376,7 @@ const shared: Rule = (action, model) => ({
 });
 
 project: {
-  within: inOrg,
+  mandatory: inOrg,
   view: {},
   edit: { ownerId: { actor: "userId" } },
   full: admin,
@@ -414,7 +414,7 @@ At `edit`, `shared` is, simplified, this `where`:
 }
 ```
 
-and the project's `edit` rule becomes `within AND (owner OR admin OR shared)`.
+and the project's `edit` rule becomes `mandatory AND (owner OR admin OR shared)`.
 A grant deleted by another request is no longer seen by the next statement.
 
 Who may *write* a grant row is a rule on the grant model like any other: for
@@ -501,7 +501,7 @@ ancestors** is shared with the caller. That is a recursive filter, the same
   <Tab title="Policy">
 ```ts
 document: {
-  within: inOrg,
+  mandatory: inOrg,
   view: {
     parent: {
       recurse: { depth: false }, // every ancestor, all the way up
@@ -535,7 +535,7 @@ me or shared with me". To inherit every level, put the recursive predicate in
 
 ```ts
 document: {
-  within: inOrg,
+  mandatory: inOrg,
   arms: [{
     parent: {
       recurse: { depth: false },
@@ -621,7 +621,7 @@ const shared: Rule = (action, model) => ({
 });
 
 document: {
-  within: inOrg,
+  mandatory: inOrg,
   arms: [{
     parent: {
       recurse: { depth: false },
@@ -866,7 +866,7 @@ id (an audit `updatedBy`, for instance).
 Every model's rule at an action `a` is:
 
 ```
-rule(M, a) = within(a) AND limit(a) AND ( the rule of a, or of any action implying a
+rule(M, a) = mandatory(a) AND limit(a) AND ( the rule of a, or of any action implying a
                                           OR any arm, read at a )
 ```
 
@@ -874,8 +874,18 @@ rule(M, a) = within(a) AND limit(a) AND ( the rule of a, or of any action implyi
   and every action it implies.
 - **`arms`** are rules for every action. An arm is a `where`, or a function of
   the action (`(a) => ({ group: a })`, "the group at the same action").
-- **`within`** and the top-level **`limit`** are AND-ed into every action.
+- **`mandatory`** and the top-level **`limit`** are AND-ed into every action.
 - An action with no rule and no arm holds nowhere.
+
+`mandatory` may contain `OR`, but it still grants nothing: `(A OR B)` must
+hold **and** a grant rule must allow access. `arms` instead supplies additional
+grant rules evaluated at the requested action, useful when a share stores its
+permission level. For simple policies, write named `view` and `edit` rules and
+omit `arms`. Named rules also grant the actions they imply; an arm is evaluated
+at the requested action itself, so the two forms are not universally equivalent.
+
+`within` was renamed to `mandatory`. The old spelling is rejected so a previous
+restriction cannot accidentally become an action that grants access.
 
 Start with these three policy spellings, alongside the model's ordinary
 `where` filters (`some`/`every`/`none`/`is`, `AND`/`OR`/`NOT`, `recurse`):
@@ -1023,7 +1033,7 @@ reads and polymorphic arms.
 |---|---|---|
 | no actor, or `actor` passed as an argument | `ValidationError` | before any statement |
 | an actor value of the wrong type | `ValidationError` | at `$as` |
-| an unknown model, field, action or actor path; an unknown key of the policy, of a model or of a `fields` entry; a key spelled like `within`, `create`, a level…; a rule that reads itself; `recurse: true`; a read-protected key or unique field | `ClientInitializationError` | when the policy is applied |
+| an unknown model, field, action or actor path; an unknown key of the policy, of a model or of a `fields` entry; a key spelled like `mandatory`, `create`, a level…; a rule that reads itself; `recurse: true`; a read-protected key or unique field | `ClientInitializationError` | when the policy is applied |
 | `can`/`assert` with a `where` that is not a unique key | `ValidationError` | before any statement |
 | an unlisted model; an operation or `as` the model does not declare | `ForbiddenError` | before any statement |
 | a hidden or non-writable root row | `NotFoundError` | after the statement |

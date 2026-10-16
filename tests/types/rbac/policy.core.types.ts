@@ -93,6 +93,20 @@ describe("actor paths", () => {
 });
 
 describe("action names", () => {
+  test("mandatory is a restriction and the retired within key is rejected", () => {
+    rbac({
+      actor: Actor,
+      models: {
+        page: { mandatory: { ownerId: { actor: "userId" } }, view: {} },
+      },
+    });
+    // @ts-expect-error - within must never become an action granting view
+    rbac({
+      actor: Actor,
+      models: { page: { within: { ownerId: { actor: "userId" } }, view: {} } },
+    });
+  });
+
   test("operations and fields name the model's actions", () => {
     // @ts-expect-error - `remove` is not an action of page
     rbac({

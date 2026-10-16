@@ -16,7 +16,11 @@ const base = createClient({ schema: { post, user }, dataDir: ":memory:" });
 const actor = v.object({ userId: v.string(), organizationId: v.string() });
 const db = base.$extends(rbac({ actor, models: { post: { actions: { view: [], edit: [] }, view: { ownerId: { actor: "userId" } }, edit: {} } } }));
 base.$extends(rbac({ actor, models: { /*models*/ } }));
+base.$extends(rbac({ actor, models: { post: { /*policy*/ } } }));
 base.$extends(rbac({ actor, models: { post: { view: { /*fields*/ } } } }));
+base.$extends(rbac({ actor, models: { post: { mandatory: { /*mandatoryFields*/ }, view: {} } } }));
+base.$extends(rbac({ actor, models: { post: { create: { /*createFields*/ }, view: {} } } }));
+base.$extends(rbac({ actor, models: { post: { arms: [{ /*armFields*/ }] } } }));
 base.$extends(rbac({ actor, models: { post: { view: { owner: { is: { /*related*/ } } } } } }));
 base.$extends(rbac({ actor, models: { post: { view: { ownerId: { actor: "/*paths*/" } } } } }));
 db.post.can("/*actions*/", { id: "p" });
@@ -52,7 +56,11 @@ withPackedConsumer("rbac-autocomplete", {}, ({ root }) => {
   try {
     for (const [marker, expected, excluded] of [
       ["models", ["post", "user"], ["ownerId"]],
+      ["policy", ["mandatory", "arms", "create"], ["within"]],
       ["fields", ["id", "ownerId", "owner"], ["name"]],
+      ["mandatoryFields", ["id", "ownerId", "owner"], ["name"]],
+      ["createFields", ["id", "ownerId", "owner"], ["name"]],
+      ["armFields", ["id", "ownerId", "owner"], ["name"]],
       ["related", ["id", "name"], ["ownerId"]],
       ["paths", ["userId", "organizationId"], ["ownerId"]],
       ["actions", ["view", "edit"], ["publish"]],

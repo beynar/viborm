@@ -68,7 +68,7 @@ const policy = defineExtension({
     default: "member",
     models: {
       doc: {
-        // `inOrg` twice: in each arm, as a policy's arms repeat `within`.
+        // `inOrg` twice: in each arm, as a policy's arms repeat `mandatory`.
         member: {
           root: {
             OR: [{ AND: [inOrg, { title: "a" }] }, { AND: [inOrg, admin] }],
