@@ -59,17 +59,22 @@ const VERBS_KEYS: Record<keyof RowsVerbs, true> = {
 const PROJECTION_KEY = /^\$[a-zA-Z_][a-zA-Z0-9_]*$/;
 
 /**
- * A model's key and foreign-key fields: what identity and every join read, so
- * none of them is ever read-gated.
+ * A model's key, unique and foreign-key fields: what identity and every join
+ * read, and what a unique constraint answers for on a write, so none of them
+ * is ever read-gated.
  */
 function keyFields(state: ModelState): ReadonlySet<string> {
   return new Set([
     ...Object.entries(state.scalars)
       .filter(([, scalar]) => scalar["~"].state.isId === true)
       .map(([field]) => field),
-    ...Object.values(state.compoundId ?? {}).flatMap(({ entries }) =>
-      Object.keys(entries)
-    ),
+    // A write of a guessed value fails on the constraint exactly when some
+    // row holds it: a gate on a unique field would be confirmed by it.
+    ...Object.keys(state.uniques),
+    ...[
+      ...Object.values(state.compoundId ?? {}),
+      ...Object.values(state.compoundUniques ?? {}),
+    ].flatMap(({ entries }) => Object.keys(entries)),
     ...Object.values(state.relations).flatMap(
       (relation) => relation["~"].state.foreignKey?.fields ?? []
     ),
@@ -261,7 +266,12 @@ export function admitRows(
       // Masked in a caller's operands while identity and joins read it raw,
       // a key would answer through a relation what a filter hides.
       if (keys!.has(field))
-        refuse(name, place, `reads.${field}`, "names a key or foreign key");
+        refuse(
+          name,
+          place,
+          `reads.${field}`,
+          "names a key, a unique or a foreign key field"
+        );
       known(`reads.${field}`, predicate);
     }
     verbs[name] = Object.freeze({

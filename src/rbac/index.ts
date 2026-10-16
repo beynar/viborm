@@ -104,10 +104,19 @@ type NamedActions<M> =
         }>
       : never);
 
+/** On a model that lists its `actions`, a rule key it does not list (a typo). */
+type UnlistedKeys<M> = M extends { readonly actions: infer A }
+  ? Exclude<keyof M & string, Reserved | (keyof A & string)>
+  : never;
+
 type UnknownActions<Config extends RbacConfig> = {
   [K in keyof Config["models"] & string]: Exclude<
-    NamedActions<Config["models"][K]>,
-    ActionsOf<Config["models"][K], Levels<Config>> | undefined
+    NamedActions<Config["models"][K]> | UnlistedKeys<Config["models"][K]>,
+    | Exclude<
+        ActionsOf<Config["models"][K], Levels<Config>>,
+        UnlistedKeys<Config["models"][K]>
+      >
+    | undefined
   > extends infer Unknown extends string
     ? [Unknown] extends [never]
       ? never
@@ -175,8 +184,16 @@ type UnknownActorPaths<Config extends RbacConfig> = Exclude<
   ActorPaths<InferOutput<Config["actor"]>>
 >;
 
+type ConfigKey = "actor" | "levels" | "limit" | "models" | "cache";
+
 /** `unknown` when the declaration's names agree; else a member naming the first disagreement. */
 type DeclarationCheck<Config extends RbacConfig> = [
+  Exclude<keyof Config, ConfigKey>,
+] extends [never]
+  ? ActorAndActionCheck<Config>
+  : { readonly "unknown policy key": Exclude<keyof Config, ConfigKey> };
+
+type ActorAndActionCheck<Config extends RbacConfig> = [
   UnknownActorPaths<Config>,
 ] extends [never]
   ? [UnknownActions<Config>] extends [never]
@@ -335,16 +352,16 @@ type RowsDefinition<C extends VibORMConfig, Config extends RbacConfig> = {
 };
 
 type WhereOf<C extends VibORMConfig, K> = Exclude<
-  OperationPayload<"exist", ClientSchema<C>[K & keyof ClientSchema<C>]>,
+  OperationPayload<"findUnique", ClientSchema<C>[K & keyof ClientSchema<C>]>,
   undefined
 >["where"];
 
 /** One listed model's answers, from its own predicates, through `$access` (D8). */
 interface ModelAnswers<Action extends string, W> {
   /**
-   * Whether the actor holds `action` on the row `where` selects, or, for a
-   * list, each listed action: one statement. A row the actor does not view
-   * holds none.
+   * Whether the actor holds `action` on the one row `where` names (a unique
+   * selector, as `findUnique` takes), or, for a list, each listed action,
+   * each from its own predicate. A row the actor does not view holds none.
    */
   can(action: Action, where: W): Promise<boolean>;
   can<const Asked extends readonly Action[]>(
@@ -563,19 +580,16 @@ export function rbac<const Config extends RbacConfig>(
   const methods = (client: VibORMClient<VibORMConfig, ExtensionState>) => {
     const answers = (model: string) => {
       const { names, ordered } = evidenceOf(config, model);
-      /** Whether the key's value on a row reports `action` held (D6). */
-      const holds = (value: unknown, action: string) =>
-        ordered
-          ? typeof value === "string" &&
-            names.indexOf(value) >= names.indexOf(action)
-          : (value as Readonly<Record<string, boolean>>)[action] === true;
       return (delegate: never) => {
         const read = delegate as {
-          findFirst(args: object): PromiseLike<Row | null>;
+          findUnique(args: object): PromiseLike<Row | null>;
         };
         /**
-         * One statement: the row `where` selects, its `$access` at `asked`
-         * (D8). A row the actor does not view reads null: nothing is held.
+         * The row `where` names, its `$access` at `asked` (D8): one statement,
+         * or one per asked level on an ordered model. There the key reads the highest level held, which
+         * says nothing of a lower one whose predicate an arm, `within` or
+         * `limit` reads apart (R1 does not make P monotone), so each level
+         * is asked by itself. A row the actor does not view reads null.
          */
         const ask = async (asked: readonly string[], where: object) => {
           // R9 (OD-7): an action the model does not declare is refused
@@ -583,13 +597,21 @@ export function rbac<const Config extends RbacConfig>(
           for (const action of asked)
             if (!names.includes(action))
               throw new ForbiddenError(model, action);
-          const row = await read.findFirst({
-            where,
-            select: { [EVIDENCE_KEY]: asked },
-          });
-          return asked.map(
-            (action) => row !== null && holds(row[EVIDENCE_KEY], action)
-          );
+          const evidence = async (some: readonly string[]) =>
+            (
+              await read.findUnique({
+                where,
+                select: { [EVIDENCE_KEY]: some },
+              })
+            )?.[EVIDENCE_KEY];
+          if (ordered)
+            return Promise.all(
+              asked.map(async (action) => (await evidence([action])) === action)
+            );
+          const held = (await evidence(asked)) as
+            | Readonly<Record<string, boolean>>
+            | undefined;
+          return asked.map((action) => held?.[action] === true);
         };
         return {
           can: async (action: string | readonly string[], where: object) => {

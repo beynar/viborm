@@ -3567,3 +3567,32 @@ says `cache: "allow"`.
 | Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
 |---|---|---|---|---|
 | `src/client/client.ts` `#wrapOfficialCachedRead` · `throw uncacheableRead(…)` (`src/extensions/controls.ts`) | A read holding a value of an `uncacheable` control is never served from, nor stored in, the cache: `$withCache` on it fails with `ValidationError` at the control before any statement, whether the cache would serve it or a transaction or statement transform bypasses it. | The cached-read wrapper, the one place that knows a read is cached and sees its admitted controls (bound values included) before it executes. | Without it a governed read is keyed on `[args, controls, rows]` and served from the entry until its TTL: a grant revoked or a session expired since is not seen (T1 suspended), and the entry holds the bound actor. | `extension-controls.core.test.ts` "a read holding a value of an uncacheable control is refused before any statement…" and `rbac-entry-behavior.ts` W-C7 on S3, PGlite, PostgreSQL, MySQL and D1 (fail-before with the throw removed: `scratchpad/rbac/w5/failbefore/uncacheable-core.log`, `w-c7-s3-guard-removed.log`). |
+
+## Addendum — definitions refused before they widen (RBAC independent review, 2026-10-16)
+
+`rbac-extension-plan.md` §11.4, `rbac-extension-review-2026-10-16.md`. Each
+guard below refuses, when the policy is applied, a definition the compiler
+would otherwise read as judging less than it says. The types refuse the
+literal spellings too; the runtime guard's unique coverage is a policy built
+as data (a non-literal value, JavaScript, a spread whose excess keys the
+generic does not check), which the types cannot see.
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `src/rbac/compile.ts` `compilePolicy` · `refuse(… "is not a key of the policy" …)` | Every key of the policy is one the compiler reads | `rbac(config)(base)` | a misspelt `limit:` (`limits:`) drops the API-key limit silently | `compile.core.test.ts` "an unknown policy key…" (FDOCS-2) |
+| `src/rbac/compile.ts` `actionsOf` · the two `refuse` of a model key | A model key is a declaration key or an action: every one listed where the model lists `actions`; else not spelled like a declaration key or a level | the same | a typo of `within`, `create`, a level, or an unlisted key beside `actions`, became an action implying `view`, so its rule joined `view`'s (R2) and the misspelt conjunct vanished | "a declaration key or a level mistyped…" (FDOCS-1) |
+| `src/rbac/compile.ts` the `fields` loop · `refuse(… "a field entry takes only read and write")` | A `fields` entry holds only `read` and `write` | the same | `{ reed: "full" }` left the field ungated, `{ wirte: … }` writable at `update` | "…a field entry's unknown key…" (FDOCS-6) |
+| `src/rbac/helpers.ts` `keyLimit` · `refuse(… "the schema has no model" …)` | Every model `ids` names exists | the same (the limit lowers per model) | `ids: { pots: … }` dropped the row-id restriction silently | "…a keyLimit model the schema lacks…" (FDOCS-2) |
+| `src/rbac/helpers.ts` `member` · `refuse(… "is capped at" …)` | A declared cap is an action of the model the rule is on, or the top level | the same (the rule lowers per model) | a cap the model does not declare admitted the role at nothing, while a lower cap admitted it at `view` (not monotone in the levels) | "a declared ceiling at a level the model does not declare…" (Fprinciples-3) |
+| `src/extensions/admission.ts` `keyFields` (widened, no new site) | A read-gated field is no key, unique or foreign-key field | `$extends` | a unique constraint refuses a write of a guessed value exactly when a row holds it: the gate on a unique field was confirmed by any write | `rbac-entry-behavior.ts` "a read-gated key or foreign key is refused…" (FDOCS-4) |
+
+Not a guard either: `compile.ts`'s implication prover (`implies`,
+`provable`, `conjoin`) drops a conjunct, it refuses nothing. Its two
+defects are fixed in place (plan §11.4, D13): structural value equality
+(bigint, NaN, ±Infinity, dates) and an R6 safeguard that counts only actor
+values read outside every `$if` arm (Fprinciples-2, -6).
+
+Not a guard: an update that writes a field a tombstone manages takes the
+`delete` verb beside its own (`RowJudgement.marks`, `Commands.judge`,
+`verbInputs`). It is the verb's choice (R3), as a write's field takes its
+`writes` entry.

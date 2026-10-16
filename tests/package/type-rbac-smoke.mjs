@@ -120,8 +120,10 @@ export const keyed: typeof db = db.$as({
 export const answers: [Promise<boolean>, Promise<void>, Promise<boolean>] = [
   call.team.can("invite", { id: "t1" }),
   call.organization.assert("export", { id: "org-1" }),
-  call.document.can("archive", { parentId: null }),
+  call.document.can("archive", { id: "d1" }),
 ];
+// @ts-expect-error - a filter is not the unique selector can takes
+export const filtered = call.document.can("archive", { parentId: null });
 export const listed: Promise<{ readonly comment: boolean; readonly share: boolean }> =
   call.document.can(["comment", "share"], { id: "d1" });
 export const all: Promise<void> = call.page.assert(["view", "edit"], { id: "p1" });

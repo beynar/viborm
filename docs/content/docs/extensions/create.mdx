@@ -578,7 +578,8 @@ await db.document.delete({ user: "ada", where: { id }, as: "mine" }); // a mode 
   `root` or `related` may name a predicate instead of writing one.
 - A delete takes `delete`'s predicate, tombstones included. An update takes,
   for each field its `data` writes, that field's `writes` entry, else
-  `update`'s, all of them at once. A relation write counts as a write of the
+  `update`'s, all of them at once. An update that writes a field a tombstone
+  manages (the marker, by hand or through a restore) also takes `delete`'s. A relation write counts as a write of the
   relation on the row whose foreign key it changes, and a join row's change
   as a write on both rows it links.
 - Stamps and schema values (`updatedAt`, `data` stamps) never change the

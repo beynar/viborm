@@ -17,6 +17,7 @@ import {
   type Rule,
   rbac,
   role,
+  session,
   team,
   up,
 } from "@src/rbac";
@@ -97,7 +98,7 @@ describe("the acceptance policy (§1.1)", () => {
       compiled.models.member!.predicates.view
     );
     expect(JSON.stringify(stored.models.member!.predicates.view)).toContain(
-      '"permissions":{"some":{"role":"reader","action":"view"}}'
+      '"permissions":{"some":{"role":"reader","action":{"in":["view","edit","full"]}}}'
     );
   });
 });
@@ -968,5 +969,258 @@ describe("the helpers (D2)", () => {
         },
       ],
     });
+  });
+});
+
+// The review of 2026-10-16 (docs/architecture/rbac-extension-review-2026-10-16.md):
+// a definition that would judge less than it says is refused when applied.
+describe("definitions refused before they widen (review 2026-10-16)", () => {
+  test("a declaration key or a level mistyped is refused; a model that lists its actions refuses every other key (FDOCS-1)", () => {
+    expect(
+      refusalOf(() =>
+        compile({ levels: LEVELS, models: { page: { whithin: {}, view: {} } } })
+      )
+    ).toContain('models.page.whithin: spelled like "within"');
+    expect(
+      refusalOf(() =>
+        compile({
+          levels: LEVELS,
+          models: { page: { view: {}, edti: { title: "e" } } },
+        })
+      )
+    ).toContain('models.page.edti: spelled like "edit"');
+    expect(
+      refusalOf(() =>
+        compile({
+          models: {
+            document: {
+              actions: { view: [], publish: ["view"] },
+              view: {},
+              pubish: {},
+            },
+          },
+        })
+      )
+    ).toContain(
+      "models.document.pubish: neither an action document lists in `actions`"
+    );
+    // A rule key that is no level and no near miss still names an action.
+    expect(
+      compile({ levels: LEVELS, models: { page: { view: {}, invite: {} } } })
+        .models.page!.evidence?.names
+    ).toEqual(["view", "edit", "full", "invite"]);
+  });
+
+  test("an unknown policy key, a field entry's unknown key and a keyLimit model the schema lacks are refused (FDOCS-2, FDOCS-6)", () => {
+    expect(
+      refusalOf(() =>
+        compile({
+          levels: LEVELS,
+          limits: {},
+          models: { page: { view: {} } },
+        } as never)
+      )
+    ).toContain('"limits" is not a key of the policy');
+    expect(
+      refusalOf(() =>
+        compile({
+          levels: LEVELS,
+          models: {
+            page: { view: {}, fields: { title: { reed: "view" } } },
+          } as never,
+        })
+      )
+    ).toContain("models.page.fields.title.reed: a field entry takes only");
+    expect(
+      refusalOf(() =>
+        compile({
+          levels: LEVELS,
+          models: { page: { view: {}, fields: { title: "full" } } } as never,
+        })
+      )
+    ).toContain("models.page.fields.title: a field entry takes only");
+    expect(
+      refusalOf(() =>
+        compile({
+          levels: LEVELS,
+          limit: keyLimit({
+            when: "key",
+            scopes: "key.scopes",
+            ids: { pgae: { path: "key.resources.page" } },
+          }),
+          models: { page: { view: {} } },
+        })
+      )
+    ).toContain('keyLimit({ ids }): the schema has no model "pgae"');
+  });
+
+  test("a declared ceiling at a level the model does not declare is refused; the top level allows every action (Fprinciples-3)", () => {
+    const capped = (ceiling: Record<string, string>) => () =>
+      compile({
+        levels: LEVELS,
+        models: {
+          document: {
+            actions: { view: [], publish: ["view"] },
+            arms: [member({ via: "organization", ceiling })],
+          },
+        },
+      });
+    expect(refusalOf(capped({ editor: "edit" }))).toContain(
+      'role "editor" is capped at "edit", which document does not declare'
+    );
+    expect(refusalOf(capped({ reader: "view", admin: "full" }))).toBe(
+      "no refusal"
+    );
+  });
+
+  test("the implication prover compares values structurally: a bigint compiles, NaN is no null (Fprinciples-2, Fprinciples-6)", () => {
+    expect(
+      refusalOf(() =>
+        compile({
+          levels: LEVELS,
+          models: {
+            document: {
+              within: { sizeBytes: { lt: 10n } },
+              view: {},
+              create: { sizeBytes: { gte: 1n }, ownerId: { actor: "userId" } },
+            },
+          },
+        })
+      )
+    ).toBe("no refusal");
+  });
+
+  test("the prover drops a conjunct only where an absent actor value makes what implies it false too, never through a $if arm (Fprinciples-6)", () => {
+    // `other` implies `mine` arm by arm, but reads `userId` in one arm only,
+    // and that arm is guarded: absent `userId` with `network: "office"`,
+    // `other` holds while `mine` does not (R6), so `mine` stays.
+    const mine = { OR: [{ ownerId: { actor: "userId" } }, { personal: true }] };
+    const other = {
+      OR: [
+        { AND: [{ actor: { network: "office" } }, { personal: true }] },
+        {
+          AND: [
+            { actor: { network: "home" } },
+            { ownerId: { actor: "userId" } },
+          ],
+        },
+      ],
+    };
+    const { predicates } = compile({
+      levels: LEVELS,
+      models: {
+        page: { view: {}, create: { AND: [mine, other] } },
+        organization: { view: {} },
+        user: { view: {} },
+        pageGroup: { view: {} },
+      },
+    }).models.page!;
+    expect(JSON.stringify(predicates.create)).toContain(
+      '{"OR":[{"ownerId":{"control":"actor","path":"userId"}},{"personal":true}]}'
+    );
+    // A relation's shorthand body is implied at its target: `in ["x"]`
+    // implies `in ["x", "y"]`, which is dropped.
+    const narrowed = compile({
+      levels: LEVELS,
+      models: {
+        page: {
+          view: {},
+          create: {
+            AND: [
+              { group: { icon: { in: ["x"] } } },
+              { group: { icon: { in: ["x", "y"] } } },
+            ],
+          },
+        },
+        organization: { view: {} },
+        user: { view: {} },
+        pageGroup: { view: {} },
+      },
+    }).models.page!.predicates.create as { AND: Record<string, unknown>[] };
+    expect(narrowed.AND).toContainEqual({ group: { icon: { in: ["x"] } } });
+    expect(narrowed.AND).not.toContainEqual({
+      group: { icon: { in: ["x", "y"] } },
+    });
+    // An arm read under its own `$if … exists` (session()): an absent value
+    // folds the arm away, so it falsifies nothing; the conjunct said twice
+    // is said once.
+    const live = compile({
+      levels: LEVELS,
+      models: { user: { view: {}, create: { AND: [session(), session()] } } },
+    }).models.user!.predicates.create;
+    expect(live).toEqual(
+      compile({
+        levels: LEVELS,
+        models: { user: { view: {}, create: session() } },
+      }).models.user!.predicates.create
+    );
+    // A guarded conjunction inside an arm (`{ actor: … }` beside a filter):
+    // its values falsify, its own test asserts nothing carried.
+    const office = {
+      OR: [
+        { AND: [{ actor: { network: "office" } }, { name: "x" }] },
+        { name: "y" },
+      ],
+    };
+    const twice = compile({
+      levels: LEVELS,
+      models: { user: { view: {}, create: { AND: [office, office] } } },
+    }).models.user!.predicates.create;
+    expect(twice).toEqual(
+      compile({
+        levels: LEVELS,
+        models: { user: { view: {}, create: office } },
+      }).models.user!.predicates.create
+    );
+    // Dates compare by their instant: the same one is said once, another kept.
+    const dated = (other: Date) =>
+      compile({
+        levels: LEVELS,
+        models: {
+          page: {
+            view: {},
+            create: {
+              AND: [
+                { createdAt: { gt: new Date(0) } },
+                { createdAt: { gt: other } },
+              ],
+            },
+          },
+          organization: { view: {} },
+          user: { view: {} },
+          pageGroup: { view: {} },
+        },
+      }).models.page!.predicates.create as { AND: object[] };
+    const kept = (other: Date) =>
+      dated(other).AND.filter((member) => "createdAt" in member).length;
+    expect(kept(new Date(0))).toBe(1);
+    expect(kept(new Date(1))).toBe(2);
+    // A value is never walked as a clause: the date reaches the predicate.
+    expect(
+      (dated(new Date(1)).AND[0] as { createdAt: { gt: unknown } }).createdAt.gt
+    ).toEqual(new Date(0));
+    // NaN equals nothing, null included: neither conjunct implies the other.
+    const nan = compile({
+      levels: LEVELS,
+      models: {
+        page: {
+          view: {},
+          create: {
+            AND: [
+              { position: { equals: null } },
+              { position: { equals: Number.NaN } },
+            ],
+          },
+        },
+        organization: { view: {} },
+        user: { view: {} },
+        pageGroup: { view: {} },
+      },
+    }).models.page!.predicates.create as {
+      AND: Record<string, { equals: unknown }>[];
+    };
+    expect(
+      nan.AND.some((member) => Number.isNaN(member.position?.equals))
+    ).toBe(true);
   });
 });

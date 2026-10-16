@@ -1256,7 +1256,17 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
       } as never);
       expect(() => gated(base as never)).toThrow(ClientInitializationError);
       expect(() => gated(base as never)).toThrow(
-        'rows.verbs.page at "reads.groupId": names a key or foreign key'
+        'rows.verbs.page at "reads.groupId": names a key, a unique or a foreign key field'
+      );
+      // A unique field: a write of a guessed value would be refused by its
+      // constraint exactly when a row holds it (review FDOCS-4).
+      const unique = rbac({
+        actor: ActorSchema,
+        levels: ["view", "edit", "full"],
+        models: { user: { view: {}, fields: { email: { read: "full" } } } },
+      } as never);
+      expect(() => unique(base as never)).toThrow(
+        'rows.verbs.user at "reads.email": names a key, a unique or a foreign key field'
       );
     });
 
@@ -1330,7 +1340,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
     );
 
     test(
-      "W-CAN2: can with a list answers every listed action at once, in one statement through $access; a hidden row holds none; assert with a list needs them all",
+      "W-CAN2: can with a list answers every listed action through $access, in one statement (one per level on an ordered model, W-CAN8); a hidden row holds none; assert with a list needs them all",
       async () => {
         let hidden = 0;
         for (const name of READERS) {
@@ -1347,7 +1357,9 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
               if (!view.includes(id as string)) hidden += 1;
               statements.length = 0;
               const answer = await call[model]!.can(names, { id });
-              expect(statements, `${name} ${model} ${id}`).toHaveLength(1);
+              expect(statements, `${name} ${model} ${id}`).toHaveLength(
+                model === "page" ? names.length : 1
+              );
               expect(answer, `${name} ${model} ${id}`).toEqual(
                 Object.fromEntries(
                   names.map((action) => [
@@ -1419,7 +1431,12 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
                   call[model]!.can(
                     action,
                     model === "teamMember"
-                      ? { teamId: row.teamId, userId: row.userId }
+                      ? {
+                          teamId_userId: {
+                            teamId: row.teamId,
+                            userId: row.userId,
+                          },
+                        }
                       : { id: row.id }
                   )
                 )
@@ -1441,7 +1458,89 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
     // --- C12: composition is intersection ---------------------------------
 
     test(
-      "W-C1: with soft delete composed rows steps first (OD-1 option 2), each deleted mode chooses root rows only, restore needs edit, and the order guard stands",
+      "W-C9: a caller who writes the tombstone marker by hand is judged at the delete action, as the tombstone is (review Fsecurity-1)",
+      async () => {
+        let refused = 0;
+        let written = 0;
+        for (const name of READERS) {
+          const actor = actors[name]!;
+          const call = db.$as(actor);
+          const full = at(actor, "page", "full");
+          const editOnly = minus(at(actor, "page", "edit"), full)[0];
+          if (editOnly !== undefined) {
+            refused += 1;
+            expect(
+              await outcomeOf(() =>
+                rolledBack(call, (tx) =>
+                  tx.page!.update({
+                    where: { id: editOnly },
+                    data: { deletedAt: new Date() },
+                  })
+                )
+              ),
+              `${name} ${editOnly}`
+            ).toBe(NotFoundError.name);
+          }
+          if (full[0] !== undefined) {
+            written += 1;
+            expect(
+              await outcomeOf(() =>
+                rolledBack(call, (tx) =>
+                  tx.page!.update({
+                    where: { id: full[0] },
+                    data: { deletedAt: new Date() },
+                  })
+                )
+              ),
+              `${name} ${full[0]}`
+            ).toBe("ok");
+          }
+        }
+        expect(refused).toBeGreaterThan(0);
+        expect(written).toBeGreaterThan(0);
+      },
+      timeout
+    );
+
+    test("W-CAN7: can and assert take the one row a unique selector names: an undefined key, an empty where or a filter is refused before any statement (review Fsecurity-2, Fprinciples-5)", async () => {
+      const call = db.$as(actors.u03!);
+      for (const where of [{ id: undefined }, {}, { title: "x" }])
+        for (const run of [
+          () => call.document!.can("share", where),
+          () => call.document!.assert("share", where),
+        ])
+          expect(await outcomeOf(run), JSON.stringify(where)).toBe(
+            ValidationError.name
+          );
+    });
+
+    test("W-CAN8: on an ordered model each asked level is answered by its own predicate, never inferred from a higher one (review Fprinciples-1)", async () => {
+      // `edit` holds nowhere, `view` and `full` on one page: R1 does not make
+      // P monotone, so the highest level held says nothing of `edit`.
+      const [id] = at(actors.u01!, "page", "view");
+      const gapped = rbac({
+        actor: ActorSchema,
+        levels: ["view", "edit", "full"],
+        models: {
+          page: {
+            arms: [(a: string) => (a === "edit" ? { OR: [] } : { id })],
+          },
+        },
+      } as never) as unknown as (client: RbacAppClient) => Loose;
+      const call = gapped(base).$as(actors.u01!);
+      expect(await call.page!.can(["view", "edit", "full"], { id })).toEqual({
+        view: true,
+        edit: false,
+        full: true,
+      });
+      expect(await call.page!.can("edit", { id })).toBe(false);
+      expect(
+        await outcomeOf(() => call.page!.assert(["edit", "full"], { id }))
+      ).toBe(ForbiddenError.name);
+    });
+
+    test(
+      "W-C1: with soft delete composed rows steps first (OD-1 option 2), each deleted mode chooses root rows only, restore needs the delete action (it writes the marker), and the order guard stands",
       async () => {
         let restored = 0;
         for (const name of READERS) {
@@ -1455,7 +1554,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
               ),
               `${name} ${deleted}`
             ).toEqual(at(actor, "page", "view", { deleted }));
-          const edit = at(actor, "page", "edit", { deleted: "only" });
+          const edit = at(actor, "page", "full", { deleted: "only" });
           const view = at(actor, "page", "view", { deleted: "only" });
           const editable = edit[0];
           if (editable !== undefined) {

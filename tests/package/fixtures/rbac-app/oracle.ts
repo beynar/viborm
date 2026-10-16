@@ -19,9 +19,12 @@
 //
 //   A1  A role ceiling admits a role at `a` iff `a` is in the role's allowed set:
 //       declared, `reader: "view"` allows {view}; `full`, the top of `levels`,
-//       allows every action of every model (document's included). Stored,
-//       iff a `rolePermission` row (organization, role, a) exists; the seed
-//       stores each allowed action explicitly, so the two agree (W-A6).
+//       allows every action of every model (document's included); a cap a
+//       model does not declare is refused (review Fprinciples-3). Stored,
+//       iff a `rolePermission` row (organization, role, b) exists for some b
+//       in ↑a, as a declared cap, a grant's actions and a key's scopes read
+//       (review Fprinciples-4); the seed stores closed sets, so the exact
+//       row below and ↑a agree on it (W-A6).
 //   A2  `member({ via: "organization" })` on `organization` itself reads the
 //       row's own `members`; `admin` checks neither ban nor session (§1.1
 //       passes `user:` to `inOrg` only).

@@ -424,15 +424,15 @@
       "name": "pg application + rbac",
       "path": "node_modules/.cache/viborm-size/pg-rbac.mjs",
       "gzip": true,
-      "limit": "185 kB",
-      "message": "The pg application with viborm/rbac applied (the guide's blog policy: an actor schema, owner() and an actor condition, $as per request, one read, one create, one can): measured 184,652 B at the M2 exit (wave 5), +5,534 B over the pg application row (the entry's compiler with placement, moves, acyclic relations and evidence, can/assert through $access). First measured 181,404 B at c7d1951cd (U10). Limit = measured rounded up to 0.1 kB + 0.3 kB (OD-17)."
+      "limit": "185.8 kB",
+      "message": "The pg application with viborm/rbac applied (the guide's blog policy: an actor schema, owner() and an actor condition, $as per request, one read, one create, one can): measured 184,652 B at the M2 exit (wave 5), +5,534 B over the pg application row (the entry's compiler with placement, moves, acyclic relations and evidence, can/assert through $access). First measured 181,404 B at c7d1951cd (U10). Limit = measured rounded up to 0.1 kB + 0.3 kB (OD-17). Raised 185 → 185.8 kB by the measured +488 B (185.49 kB) of the independent review's fixes (2026-10-16): refusals of unknown policy, model and field-entry keys, mistyped declaration keys, keyLimit models and undeclared ceilings; can/assert over findUnique with one ask per level; the prover's structural equality and R6 safeguard (OD-17)."
     },
     {
       "name": "rbac extension entry",
       "path": "node_modules/.cache/viborm-size/rbac-entry.mjs",
       "gzip": true,
-      "limit": "13.4 kB",
-      "message": "viborm/rbac alone: rbac(), its policy compiler (placement, moves, acyclic relations, evidence and the implication that drops what administering already says), $as, can/assert through $access and the eleven rule helpers (dist/rbac.mjs, 6,562 B of its own by gzip -9), with the error classes it raises from the root's shared chunks (VibORMError and its code table, ClientInitializationError, ForbiddenError), which an application already holds. Measured 13,061 B at the M2 exit (wave 5); 11,188 B at c7d1951cd. Limit = measured rounded up to 0.1 kB + 0.3 kB (OD-17)."
+      "limit": "14.3 kB",
+      "message": "viborm/rbac alone: rbac(), its policy compiler (placement, moves, acyclic relations, evidence and the implication that drops what administering already says), $as, can/assert through $access and the eleven rule helpers (dist/rbac.mjs, 6,562 B of its own by gzip -9), with the error classes it raises from the root's shared chunks (VibORMError and its code table, ClientInitializationError, ForbiddenError), which an application already holds. Measured 13,061 B at the M2 exit (wave 5); 11,188 B at c7d1951cd. Limit = measured rounded up to 0.1 kB + 0.3 kB (OD-17). Raised 13.4 → 14.3 kB by the measured +509 B (13.91 kB) of the independent review's fixes (2026-10-16), the same code as the pg + rbac row (OD-17)."
     },
     {
       "name": "identifier generators only",
@@ -450,8 +450,8 @@
       "name": "every public entry",
       "path": "node_modules/.cache/viborm-size/full.mjs",
       "gzip": true,
-      "limit": "405.9 kB",
-      "message": "Raised 394 → 398.1 kB by the measured +5,700 B (397.74 kB) of RBAC M2 wave 4 (K4 produced rows judged in the statement, K5 evidence and read-gated fields; OD-17, measured + 0.3 kB headroom). Raised 398.1 → 405.9 kB by the measured +7,818 B (405.56 kB) of RBAC M2 wave 5: the fixture now exports viborm/rbac (U10), the entry's placement, moves and evidence (U9), and the core growth of E5 and OD-10 (OD-17, measured + 0.3 kB headroom)."
+      "limit": "406.9 kB",
+      "message": "Raised 394 → 398.1 kB by the measured +5,700 B (397.74 kB) of RBAC M2 wave 4 (K4 produced rows judged in the statement, K5 evidence and read-gated fields; OD-17, measured + 0.3 kB headroom). Raised 398.1 → 405.9 kB by the measured +7,818 B (405.56 kB) of RBAC M2 wave 5: the fixture now exports viborm/rbac (U10), the entry's placement, moves and evidence (U9), and the core growth of E5 and OD-10 (OD-17, measured + 0.3 kB headroom). Raised 405.9 → 406.9 kB by the measured +692 B (406.59 kB) of the independent review's fixes (2026-10-16): the rbac entry's refusals and prover fixes, and the marker judgement in core (OD-17)."
     }
   ]
 }

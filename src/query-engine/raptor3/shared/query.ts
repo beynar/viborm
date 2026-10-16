@@ -1459,7 +1459,7 @@ export class PreparedDomain {
     const judged = verbs && judgement;
     // The plain key allocates nothing: a read takes it at every lookup.
     const key = judged
-      ? `${name} ${excluded} ${judged.verb} ${[...judged.writes].sort()}`
+      ? `${name} ${excluded} ${judged.verb}${judged.marks ? "+" : ""} ${[...judged.writes].sort()}`
       : excluded.length === 0
         ? name
         : `${name} ${excluded}`;
@@ -1626,9 +1626,12 @@ function verbInputs(verbs: ModelVerbs, judgement: RowJudgement): Input[] {
   if (judgement.verb === "delete") return [verbs.delete];
   if (judgement.writes.length === 0) return [verbs.update];
   return [
-    ...new Set(
-      judgement.writes.map((field) => verbs.writes.get(field) ?? verbs.update)
-    ),
+    ...new Set([
+      ...judgement.writes.map(
+        (field) => verbs.writes.get(field) ?? verbs.update
+      ),
+      ...(judgement.marks ? [verbs.delete] : []),
+    ]),
   ];
 }
 

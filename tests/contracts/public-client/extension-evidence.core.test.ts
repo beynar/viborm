@@ -4,15 +4,11 @@
  * hand over the rbac-app fixture (`ownerId` against a `who` control). The
  * oracle-bound witnesses run the compiled §1.1 policy on every database
  * (`rbac-evidence-behavior.ts`); these pin what they do not reach:
- * admission's refusals, a gated unique key, a recursive projection, a value
+ * admission's refusals, a unique field refused, a recursive projection, a value
  * a call supplies, and that a model without declarations keeps its bytes.
  */
 
-import {
-  ClientInitializationError,
-  NestedWriteError,
-  ValidationError,
-} from "@errors";
+import { ClientInitializationError, ValidationError } from "@errors";
 import {
   createRbacAppClient,
   loadRbacSeed,
@@ -68,7 +64,7 @@ const DECLARED = {
     evidence: { as: "$own", names: ["mine", "archived"] },
     reads: { title: "mine" },
   },
-  user: { reads: { email: "self" } },
+  user: { reads: { name: "self" } },
 };
 
 describe("K5: declared projection keys and read-gated fields", () => {
@@ -217,38 +213,29 @@ describe("K5: declared projection keys and read-gated fields", () => {
     }
   });
 
-  test("a gated unique key reads as absent in a unique lookup, a cursor and a connect", async () => {
+  test("a gated field reads as absent in a filter; a unique field cannot be gated, its constraint would confirm a guessed value (review FDOCS-4)", async () => {
     const [self, other] = seed.user;
-    const find = (email: string) =>
-      db.user!.findUnique!({
+    const find = (name: string) =>
+      db.user!.findFirst!({
         who: self!.id,
-        where: { email },
+        where: { name },
         select: { id: true },
       });
-    expect(await find(self!.email)).toEqual({ id: self!.id });
-    expect(await find(other!.email)).toBeNull();
+    expect(await find(self!.name)).toEqual({ id: self!.id });
+    expect(await find(other!.name)).toBeNull();
     const rows = (await db.user!.findMany!({ who: self!.id })) as Row[];
     for (const row of rows)
-      expect("email" in row, String(row.id)).toBe(row.id === self!.id);
-    const paged = await db.user!.findMany!({
-      who: self!.id,
-      cursor: { email: other!.email },
-      select: { id: true },
-    });
-    expect(paged).toEqual([]);
-    // A connect by a gated unique key: the hidden target is a missing one.
-    const document = seed.document.find((d) => d.ownerId === self!.id)!;
-    const connect = (email: string) =>
-      db.document!.update!({
-        who: self!.id,
-        where: { id: document.id },
-        data: { owner: { connect: { email } } },
-        select: { ownerId: true },
-      });
-    expect(await failure(connect(other!.email))).toBeInstanceOf(
-      NestedWriteError
-    );
-    expect(await connect(self!.email)).toEqual({ ownerId: self!.id });
+      expect("name" in row, String(row.id)).toBe(row.id === self!.id);
+    for (const field of ["email", "handle"])
+      expect(
+        () =>
+          (base as unknown as Loose).$extends(
+            definition({ user: { reads: { [field]: "self" } } })
+          ),
+        field
+      ).toThrow(
+        `rows.verbs.user at "reads.${field}": names a key, a unique or a foreign key field`
+      );
   });
 
   test("a recursive projection carries the gate at every hop; a select naming the field fails at the hop's path", async () => {

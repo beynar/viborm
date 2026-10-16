@@ -32,13 +32,14 @@ describe("rbac(config)(base)", () => {
     db.$as({ userId: "user-01", network: "office" });
   });
 
-  test("can and assert take the model's own actions and where", () => {
+  test("can and assert take the model's own actions and a unique where", () => {
     expectTypeOf(call.team.can("invite", { id: "t1" })).toEqualTypeOf<
       Promise<boolean>
     >();
     expectTypeOf(
       call.organization.assert("export", { id: "org-1" })
     ).toEqualTypeOf<Promise<void>>();
+    // @ts-expect-error - a filter is not a unique selector (review Fsecurity-2)
     call.document.can("archive", { parentId: null });
     // @ts-expect-error - `export` is not an action of team
     call.team.can("export", { id: "t1" });

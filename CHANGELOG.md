@@ -127,9 +127,11 @@ names no role, grant or action.
   or delete is judged at the actions of the fields it writes; a created or
   updated row is judged inside the statement that writes it (placement,
   written keys' targets visible, no parent cycle), with `ForbiddenError`.
-  `can`/`assert` answer from the same predicates through `$access`, in one
-  statement, for one action or a list (`can([...])` returns a record;
-  `assert`'s `ForbiddenError` never tells a hidden row from a missing action),
+  `can`/`assert` answer from the same predicates through `$access`, for the
+  one row a unique selector names, for one action or a list (`can([...])`
+  returns a record, one statement, one per asked level on a model whose
+  actions are the `levels`; `assert`'s `ForbiddenError` never tells a hidden
+  row from a missing action),
   `include: { $access: true }` reports the actions held per row at any
   depth, a field with a `read` action is omitted where the actor lacks it,
   `limit` narrows API keys by intersection and `as` narrows a call to an
@@ -138,9 +140,16 @@ names no role, grant or action.
   (`ValidationError`), a model the policy does not list, a verb or an `as`
   mode the model does not declare (`ForbiddenError`, OD-7). Refused when
   applied, with `ClientInitializationError`: unknown models, fields, actions
-  and actor paths, rules that read themselves, a read-gated key, an actor
-  schema that is not a finite strict object, an action or domain named
-  `default`. A cached read on a governed view is refused with
+  and actor paths, unknown keys of the policy, of a model that lists its
+  `actions` and of a `fields` entry, a key spelled like a declaration key or
+  a level, a `keyLimit` model the schema lacks, a declared ceiling the model
+  does not declare, rules that read themselves, a read-gated key or unique
+  field, an actor schema that is not a finite strict object, an action or
+  domain named `default`. A stored ceiling row allows its action and every
+  action it implies. An update that writes a tombstone's marker by hand, or a
+  restore, is judged at the delete action too. A `Date`, `Decimal` or
+  bytes constant in a policy reaches its predicate as a value (it was
+  walked as a clause and lost). A cached read on a governed view is refused with
   `ValidationError` before any statement, unless the policy declares
   `cache: "allow"` (OD-10). Raw SQL and statement transforms are not
   filtered.

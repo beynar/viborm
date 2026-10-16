@@ -568,7 +568,18 @@ export class Commands {
             writes.push(foreignField);
       }
     }
-    if (writes.length > 0) return { verb: "update", writes };
+    if (writes.length > 0) {
+      const tombstone = rows.tombstones?.get(name);
+      const marks =
+        tombstone !== undefined &&
+        writes.some(
+          (field) =>
+            field === tombstone.at || Object.hasOwn(tombstone.assign, field)
+        );
+      return marks
+        ? { verb: "update", writes, marks: true }
+        : { verb: "update", writes };
+    }
     const stamped =
       Object.keys(rows.stamps?.get(name)?.update ?? {}).length > 0 ||
       model["~"].scalarFieldNames.some(

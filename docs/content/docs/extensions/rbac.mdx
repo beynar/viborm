@@ -19,7 +19,10 @@ read from it.
 The extension is built only from public extension capabilities (`controls`,
 `rows` and its `verbs`, a `query` handler, `client` and `model` methods, see
 [Create an extension](/docs/extensions/create)). It lives in its own entry
-point, so an application that does not import it pays nothing for it.
+point, about 6.5 kB gzip that only an application importing it carries. The
+capabilities it is built from are core's and every application carries them:
+they added about 10 kB gzip to an application bundle (pg 168.6 → 178.9 kB,
+D1 168.0 → 178.4 kB from 1.2.4), whether it imports `viborm/rbac` or not.
 
 ```ts
 import { s } from "viborm";
@@ -113,7 +116,14 @@ const Actor = v.object({
 Every model has actions. With `levels`, a model's actions are an ordered
 chain, each implying the ones below it; a rule key that is not a level
 (`invite`, `export`) names an action that implies `view`. A model may declare
-its own `actions` instead, each with the actions it implies:
+its own `actions` instead, each with the actions it implies; it then names
+every one, and any other key is refused.
+
+- A key spelled like a key of the declaration or a level (`whithin`,
+  `crate`, `edti`) is refused when the policy is applied: as an action it
+  would add its rule to `view`. So are an unknown key of the policy itself
+  (`limits:`), an unknown key of a `fields` entry (`reed:`) and a model
+  `keyLimit`'s `ids` names that the schema lacks.
 
 ```ts
 rbac({
@@ -213,6 +223,14 @@ or stored as rows, `{ relation: "permissions", action: "action" }`, with the
 roles listed in `roles`. A ceiling is evaluated at the action: a reader
 granted `edit` holds `view`, because `edit` implies `view` and the reader's
 ceiling allows `view`.
+
+- A declared cap is an action of the model the rule is on, or the top level,
+  which allows every action of every model. A cap the model does not declare
+  (`editor: "edit"` on a model whose actions are `view` and `publish`) is
+  refused when the policy is applied.
+- A stored row allows its action and every action that action implies, as a
+  declared cap, a grant's actions and a key's scopes do: a row storing
+  `edit` admits the role at `view` too.
 
 ```ts
 const ceiling = { reader: "view", member: "full", admin: "full" };
@@ -393,7 +411,11 @@ await call.document.delete({ where: { id }, as: "edit" }); // still judged at sh
 ## `can` and `assert`
 
 Every listed model has `can` and `assert`. They answer from the same
-predicates, in one statement.
+predicates, for the one row a unique selector names, as `findUnique` takes
+it: a filter, an empty `where` or an undefined key is a `ValidationError`
+before any statement. One statement answers a list, except on a model whose
+actions are the `levels`, where each asked level is its own statement (see
+`$access` below).
 
 ```ts
 await call.team.can("invite", { id: teamId });                 // boolean
@@ -419,7 +441,10 @@ documents[0].$access; // { view: true, comment: true, archive: false, edit: fals
 ```
 
 - On a model whose actions are exactly the `levels`, `$access` is the highest
-  level held (`"edit"`).
+  level held (`"edit"`). It implies the levels below it when every arm,
+  `within` and `limit` reads the action as the helpers do (a higher level
+  never holding where a lower one does not). A function of your own may
+  not: `can` asks each level by itself, never from the highest.
 - On any other model it is a record of booleans, one per action.
   `$access: ["share"]` reports only the actions it names.
 - `view` is always true on a row the caller reads, and still reported.
@@ -447,8 +472,10 @@ for it.
   back with it where the driver has transactions; on a driver without
   callback transactions (D1), the write may already be committed when the
   refusal is raised.
-- A key, a foreign key or a relation cannot be read-gated: the policy is
-  refused when applied.
+- A key, a unique field, a foreign key or a relation cannot be read-gated:
+  the policy is refused when applied. A write of a guessed value to a
+  unique field is refused by its constraint exactly when some row holds it,
+  which would confirm a gated value.
 
 ## API keys: `limit`
 
@@ -472,7 +499,11 @@ limit: keyLimit({
   is written, never implied.
 - A key narrows by intersection with the user's own rights; it never adds
   one. Its liveness is a relation: `session()` reads the key row (enabled,
-  not expired) in every statement, so a revoked key reaches nothing at once.
+  not expired) in every statement, so a revoked key reaches nothing at once
+  **for an actor whose only credential is the key**. `session()` holds when
+  either credential the actor carries is live: an actor bound with a live
+  session and a revoked key keeps the session's rights, still narrowed by
+  the key's scopes. Bind one credential per request.
 
 ```ts
 const keyed = db.$as({ ...actor, session: undefined, key: { id, scopes: { page: ["view"] }, resources: { document: ["d1"] } } });
@@ -502,6 +533,8 @@ Composition is intersection. Soft delete, tenancy and any other `rows`
 extension apply to every row the call reads, and to the rows a policy's own
 relation filters read, at their default mode: `deleted: "with"` shows
 tombstoned pages, and a tombstoned membership or grant still grants nothing.
+A tombstone is a delete: it takes `operations.delete`, and so does an update
+that writes the marker by hand (`data: { deletedAt }`) or a `restore`.
 
 Apply every `rows` step first, `rbac`'s last among them (it carries `$as`,
 a client method), then any extension without `rows`, then the methods steps.
@@ -531,7 +564,8 @@ stamps the bound actor's id, and a stamp takes no action of its own.
 |---|---|---|
 | no actor, or `actor` passed in arguments | `ValidationError` | before any statement |
 | an actor value of the wrong type | `ValidationError` | at `$as` |
-| an unknown model, field, action or actor path; an actor schema `rbac()` cannot walk; a rule that reads itself; `recurse: true`; a read-gated key | `ClientInitializationError` | when the policy is applied |
+| an unknown model, field, action or actor path; an unknown key of the policy, a model or a `fields` entry; a key spelled like a declaration key or a level; a ceiling the model does not declare; an actor schema `rbac()` cannot walk; a rule that reads itself; `recurse: true`; a read-gated key or unique field | `ClientInitializationError` | when the policy is applied |
+| `can` or `assert` with a `where` that is not a unique selector | `ValidationError` | before any statement |
 | an unlisted model; an operation or `as` mode the model does not declare | `ForbiddenError` | before any statement |
 | a hidden or non-writable root target | `NotFoundError` | after the statement |
 | a produced row refused at the root (create, move, written key, cycle); `assert` | `ForbiddenError` (`V13001`) | in the statement, before the write |

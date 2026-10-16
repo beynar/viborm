@@ -10,9 +10,9 @@
 // model (K3): named predicates, the verbs and written fields that take them,
 // the modes that narrow by them, the produced row's placement, moves and
 // acyclic relations (R4, K4), and the projection key and read-gated fields
-// (D5, D6, K5). A placement or a move drops a conjunct another one provably
-// implies, so what administering already says is said once (D9). It names
-// no engine structure; the entry hands it to the chain.
+// (D5, D6, K5). A placement or a move drops a conjunct another one, or a
+// judgement the same statement makes, provably implies (plan §11.4). It
+// names no engine structure; the entry hands it to the chain.
 
 import type { RowsVerbs } from "../extensions/controls";
 import type { VibORMConfig } from "../index";
@@ -142,10 +142,38 @@ const RESERVED = new Set([
   "domains",
 ]);
 const OPERATIONS = new Set(["read", "update", "delete", "create"]);
+const CONFIG_KEYS = new Set(["actor", "levels", "limit", "models", "cache"]);
+const FIELD_KEYS = new Set(["read", "write"]);
+
+/** Edits between two names (insert, delete, substitute, swap): how close a typo is. */
+function distance(a: string, b: string): number {
+  const rows = Array.from({ length: a.length + 1 }, (_, i) =>
+    Array.from({ length: b.length + 1 }, (_, j) =>
+      i === 0 ? j : j === 0 ? i : 0
+    )
+  );
+  for (let i = 1; i <= a.length; i++)
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      let best = Math.min(
+        rows[i - 1]![j]! + 1,
+        rows[i]![j - 1]! + 1,
+        rows[i - 1]![j - 1]! + cost
+      );
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1])
+        best = Math.min(best, rows[i - 2]![j - 2]! + 1);
+      rows[i]![j] = best;
+    }
+  return rows[a.length]![b.length]!;
+}
 const LOGICAL = new Set(["AND", "OR", "NOT"]);
 const QUANTIFIERS = new Set(["is", "isNot", "some", "every", "none"]);
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
+/** A plain object: a clause or an operator's record, never a value (a Date, a Decimal, bytes). */
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  if (typeof value !== "object" || value === null) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+};
 const isActorField = (value: unknown): value is { actor: string } =>
   isRecord(value) &&
   typeof value.actor === "string" &&
@@ -186,10 +214,29 @@ function actionsOf(
       ? Object.entries(policy.actions)
       : levels.map((level, index) => [level, levels.slice(index - 1, index)])
   );
-  // A rule key that is not an action of the model names one implying view.
-  for (const key of Object.keys(policy))
-    if (!(RESERVED.has(key) || implies.has(key)))
-      implies.set(key, key === "view" ? [] : ["view"]);
+  for (const key of Object.keys(policy)) {
+    if (RESERVED.has(key) || implies.has(key)) continue;
+    // A model that lists its actions names every one: a key it does not
+    // list is a typo, and as an action it would widen view (R2).
+    if (policy.actions)
+      refuse(
+        `models.${name}.${key}: neither an action ${name} lists in \`actions\` nor a key of the declaration (${[...RESERVED].join(", ")})`,
+        name
+      );
+    // Else a rule key that is not a level names an action implying view;
+    // one spelled like a declaration key or a level is that key mistyped.
+    const meant = [...RESERVED, ...levels].find(
+      (known) =>
+        known.toLowerCase() === key.toLowerCase() ||
+        distance(known, key) <= (known.length <= 4 ? 1 : 2)
+    );
+    if (meant !== undefined)
+      refuse(
+        `models.${name}.${key}: spelled like "${meant}"; an action of that name would widen view (R2): rename it, or list the model's \`actions\``,
+        name
+      );
+    implies.set(key, key === "view" ? [] : ["view"]);
+  }
   for (const [action, implied] of implies) {
     if (RESERVED.has(action))
       refuse(
@@ -251,6 +298,11 @@ export function compilePolicy(
   hasPath: (path: string) => boolean = actorPaths(config.actor)
 ): CompiledPolicy {
   const levels = config.levels ?? [];
+  for (const key of Object.keys(config))
+    if (!CONFIG_KEYS.has(key))
+      refuse(
+        `"${key}" is not a key of the policy (${[...CONFIG_KEYS].join(", ")})`
+      );
   for (const name of Object.keys(config.models))
     if (!Object.hasOwn(schema, name))
       refuse(`models.${name}: the schema has no such model`, name);
@@ -307,6 +359,7 @@ export function compilePolicy(
       values: (field) => stateOf(name).scalars[field]?.["~"].state.base?.values,
       reachedBy: (relation) =>
         [...names.values()].some((other) => targetOf(other, relation) === name),
+      modelExists: (other) => Object.hasOwn(schema, other),
     };
     models.set(name, model);
     return model;
@@ -483,7 +536,8 @@ export function compilePolicy(
   /**
    * Whether `a` implies `b`, both read at `name`, by their structure alone:
    * sound, never complete (a `false` only keeps a conjunct). It is what lets
-   * a placement drop what its administering action already says (D9).
+   * a placement and a move say once what the statement already judges, so
+   * the heaviest writes fit a provider's statement limits (plan §11.4).
    */
   const implied = new Map(
     Object.keys(schema).map((name) => [
@@ -563,34 +617,89 @@ export function compilePolicy(
     (given[op] as unknown[]).every((item) =>
       (value[op] as unknown[]).some((other) => same(item, other))
     );
-  const texts = new WeakMap<object, string>();
+  /**
+   * Whether two values of a clause are the same value: numbers by
+   * `Object.is` (NaN and ±Infinity are no `null`), bigints, dates by their
+   * instant, arrays and records member by member; anything else by identity.
+   */
   const same = (x: unknown, y: unknown): boolean => {
+    if (typeof x === "number" || typeof y === "number") return Object.is(x, y);
     if (x === y) return true;
-    if (
-      !((isRecord(x) || Array.isArray(x)) && (isRecord(y) || Array.isArray(y)))
-    )
-      return false;
-    const text = (item: object) => {
-      const known = texts.get(item);
-      if (known !== undefined) return known;
-      const written = JSON.stringify(item);
-      texts.set(item, written);
-      return written;
-    };
-    return text(x) === text(y);
+    if (x instanceof Date || y instanceof Date)
+      return (
+        x instanceof Date && y instanceof Date && x.getTime() === y.getTime()
+      );
+    if (Array.isArray(x) || Array.isArray(y))
+      return (
+        Array.isArray(x) &&
+        Array.isArray(y) &&
+        x.length === y.length &&
+        x.every((item, index) => same(item, y[index]))
+      );
+    if (!(isRecord(x) && isRecord(y))) return false;
+    const keys = Object.keys(x);
+    return (
+      keys.length === Object.keys(y).length &&
+      keys.every((key) => Object.hasOwn(y, key) && same(x[key], y[key]))
+    );
   };
-  /** The actor paths a clause reads as values (R6 resolves them per predicate). */
-  const references = (
+  /**
+   * Whether the engine may fold `clause` away with every value inside it: a
+   * `$if` arm, or a conjunction one of whose members is one.
+   */
+  const guarded = (clause: unknown): boolean =>
+    isRecord(clause) &&
+    (Object.hasOwn(clause, "$if") ||
+      (Array.isArray(clause.AND) && clause.AND.some(guarded)));
+  /**
+   * The actor paths `clause` reads outside any guarded arm: an absent one
+   * makes the whole predicate false whatever the call's conditions (R6).
+   */
+  const unguarded = (
     clause: unknown,
     into = new Set<string>()
   ): Set<string> => {
-    if (Array.isArray(clause))
-      for (const item of clause) references(item, into);
-    else if (isRecord(clause)) {
+    if (Array.isArray(clause)) for (const item of clause) unguarded(item, into);
+    else if (isRecord(clause) && !guarded(clause)) {
       if (clause.control === "actor" && typeof clause.path === "string")
         into.add(clause.path);
+      for (const member of Object.values(clause)) unguarded(member, into);
+    }
+    return into;
+  };
+  /** The paths a guarded arm's own `$if` tests carry (`exists: true`). */
+  const asserted = (clause: Where): string[] =>
+    [
+      clause,
+      ...(Array.isArray(clause.AND) ? (clause.AND as Where[]) : []),
+    ].flatMap(({ $if: test }) =>
+      isRecord(test) && test.exists === true && typeof test.path === "string"
+        ? [test.path]
+        : []
+    );
+  /**
+   * The actor paths whose absence can make `clause` false (R6): every path
+   * it reads, but those an arm reads under its own test that the path is
+   * carried, where an absent value folds the arm away instead.
+   */
+  const falsifying = (
+    clause: unknown,
+    carried: readonly string[] = [],
+    into = new Set<string>()
+  ): Set<string> => {
+    if (Array.isArray(clause))
+      for (const item of clause) falsifying(item, carried, into);
+    else if (isRecord(clause)) {
+      const held = guarded(clause)
+        ? [...carried, ...asserted(clause)]
+        : carried;
+      if (clause.control === "actor" && typeof clause.path === "string") {
+        const path = clause.path;
+        if (!held.some((at) => path === at || path.startsWith(`${at}.`)))
+          into.add(path);
+      }
       for (const [key, member] of Object.entries(clause))
-        if (key !== "$if") references(member, into);
+        if (key !== "$if") falsifying(member, held, into);
     }
     return into;
   };
@@ -610,10 +719,14 @@ export function compilePolicy(
     const kept = conjuncts(all);
     for (let index = kept.length - 1; index >= 0; index--) {
       const member = kept[index]!;
-      const read = references(member);
+      const read = falsifying(member);
+      // Dropped where `other` holds it as a conjunct, or where an absent
+      // value `member` reads makes `other` false too (R6): one `other` reads
+      // outside every arm the engine may fold away (a `$if` arm).
       const covers = (other: Where) =>
-        implies(name, other, member) &&
-        [...read].every((path) => references(other).has(path));
+        conjuncts(other).some((conjunct) => same(conjunct, member)) ||
+        (implies(name, other, member) &&
+          [...read].every((path) => unguarded(other).has(path)));
       if (
         given.some(covers) ||
         kept.some((other, at) => at !== index && covers(other))
@@ -766,9 +879,16 @@ export function compilePolicy(
     const writes: Record<string, string> = {};
     const reads: Record<string, string> = {};
     const state = stateOf(name);
-    for (const [field, { read, write }] of Object.entries(
-      policy.fields ?? {}
-    )) {
+    for (const [field, entry] of Object.entries(policy.fields ?? {})) {
+      const unknown = isRecord(entry)
+        ? Object.keys(entry).find((key) => !FIELD_KEYS.has(key))
+        : "";
+      if (unknown !== undefined)
+        refuse(
+          `models.${name}.fields.${field}${unknown ? `.${unknown}` : ""}: a field entry takes only read and write`,
+          name
+        );
+      const { read, write } = entry;
       if (
         !(
           Object.hasOwn(state.scalars, field) ||

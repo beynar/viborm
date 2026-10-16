@@ -76,6 +76,12 @@ export interface ModelEvidence {
 export interface RowJudgement {
   readonly verb: "update" | "delete";
   readonly writes: readonly string[];
+  /**
+   * The caller writes a field the model's tombstone manages (sets or clears
+   * a marker by hand, a restore): the row is also judged at `delete`, as the
+   * tombstone the extension writes is.
+   */
+  readonly marks?: true;
 }
 
 /**

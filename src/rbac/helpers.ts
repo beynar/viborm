@@ -36,6 +36,8 @@ export interface PolicyModel {
   values(field: string): readonly string[] | undefined;
   /** Whether a relation of that name on some model reaches this one. */
   reachedBy(relation: string): boolean;
+  /** Whether the schema has a model of that name. */
+  modelExists(name: string): boolean;
 }
 
 /** The value of an actor field (K2). */
@@ -166,15 +168,25 @@ export const member =
           `member() on ${model.name}: a stored ceiling enumerates its roles`
         );
       held = {
+        // A stored row allows its action and every action it implies (its
+        // action is in ↑a), as a declared cap, a grant and a key scope do.
         OR: stored.map((name) => ({
           ...membership(name),
           [ceiling.relation]: {
-            some: { role: name, [ceiling.action]: action },
+            some: { role: name, [ceiling.action]: { in: model.above(action) } },
           },
         })),
       };
     } else {
       const top = model.levels.at(-1);
+      // A cap the model does not declare would admit the role at nothing:
+      // refused, but the top level, which allows every action (A1).
+      for (const [name, level] of Object.entries(ceiling ?? {}))
+        if (level !== top && !model.actions.includes(level))
+          refuse(
+            `member({ ceiling }) on ${model.name}: role "${name}" is capped at "${level}", which ${model.name} does not declare (its actions: ${model.actions.join(", ")}; or the top level "${top}")`,
+            model.name
+          );
       const admitted = (roles ?? Object.keys(ceiling ?? {})).filter(
         (name) =>
           ceiling === undefined ||
@@ -316,6 +328,9 @@ export const keyLimit = <const Limit extends KeyLimit>({
   ids,
 }: Limit): Rule & { readonly "~limit"?: Limit } => {
   const limit = (action: string, model: PolicyModel): Rule => {
+    for (const named of Object.keys(ids ?? {}))
+      if (!model.modelExists(named))
+        refuse(`keyLimit({ ids }): the schema has no model "${named}"`);
     const listed = ids?.[model.name];
     const row =
       listed === undefined
