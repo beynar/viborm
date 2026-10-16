@@ -81,7 +81,7 @@ export interface ModelPolicy {
 export interface RbacConfig {
   /** Who calls: a `viborm/validation` object schema of the request's facts. */
   readonly actor: object;
-  /** Ordered actions every model without its own `actions` takes, lowest first. */
+  /** Distinct ordered actions every model without its own `actions` takes, lowest first. */
   readonly levels?: readonly string[];
   readonly limit?: Rule;
   readonly models: { readonly [model: string]: ModelPolicy };
@@ -360,7 +360,10 @@ export function compilePolicy(
   schema: Schema,
   hasPath: (path: string) => boolean = actorPaths(config.actor)
 ): CompiledPolicy {
-  const levels = config.levels ?? [];
+  const noActions: readonly string[] = Object.freeze([]);
+  const levels = config.levels ?? noActions;
+  if (new Set(levels).size !== levels.length)
+    refuse("levels must list each action only once");
   for (const key of Object.keys(config))
     if (!CONFIG_KEYS.has(key))
       refuse(
@@ -412,7 +415,7 @@ export function compilePolicy(
       actions: [...implies.keys()],
       levels,
       leveled: implies.size > 0 && !config.models[name]!.actions,
-      above: (action) => above.get(action)!,
+      above: (action) => above.get(action) ?? noActions,
       related: (relation) => {
         const target = targetOf(name, relation);
         return target === undefined ? undefined : modelOf(target);
@@ -915,18 +918,18 @@ export function compilePolicy(
         );
       return action;
     };
-    const named: Record<string, Where> = {};
+    const named = new Map<string, Where>();
     /** One name space per model: actions, domains, placement and moves. */
     const claim = (key: string, at: string, clause: Where) => {
-      if (Object.hasOwn(named, key))
+      if (named.has(key))
         refuse(
           `${at}: an action, a domain, the placement or a move already has the name "${key}"`,
           name
         );
-      named[key] = clause;
+      named.set(key, clause);
     };
     for (const action of model.actions)
-      named[action] = P(name, action) || FALSE;
+      named.set(action, P(name, action) || FALSE);
 
     const operations = policy.operations ?? {};
     for (const operation of Object.keys(operations))
@@ -1015,7 +1018,7 @@ export function compilePolicy(
       );
       const judged = [verbs.read, ...(spelled.size === 1 ? spelled : [])]
         .filter((action) => action !== undefined)
-        .map((action) => named[action]!);
+        .map((action) => named.get(action)!);
       claim(
         move,
         `models.${name}.fields.${field}`,
@@ -1033,27 +1036,27 @@ export function compilePolicy(
       moves[field] = move;
     }
 
-    const modes: Record<string, string> = Object.fromEntries(
+    const modes = new Map<string, string>(
       model.actions.map((action) => [action, action])
     );
     for (const [domain, rule] of Object.entries(policy.domains ?? {})) {
       const at = `models.${name}.domains.${domain}`;
       claim(domain, at, lower(name, "view", rule, at) || FALSE);
-      modes[domain] = domain;
+      modes.set(domain, domain);
     }
     // One `as` name space for every model: the default is no action's.
-    if (Object.hasOwn(modes, DEFAULT_MODE))
+    if (modes.has(DEFAULT_MODE))
       refuse(
         `models.${name}: "${DEFAULT_MODE}" is the mode a call takes by default, not an action or a domain`,
         name
       );
 
     compiled[name] = Object.freeze({
-      predicates: Object.freeze(named),
+      predicates: Object.freeze(Object.fromEntries(named)),
       ...verbs,
       writes: Object.freeze(writes),
       reads: Object.freeze(reads),
-      modes: Object.freeze(modes),
+      modes: Object.freeze(Object.fromEntries(modes)),
       place: PLACE,
       moves: Object.freeze(moves),
       // D6: per row, the actions held; the highest one where they are the levels.

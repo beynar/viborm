@@ -518,8 +518,12 @@ interface VibORMClientMembers<
    * Definitions append to the immutable chain; factories compose through the
    * same `$extends` method. Definition model keys are checked against this schema.
    */
-  $extends<Result extends { readonly $schema: Schema } = VibORMClient<C, X>>(
-    factory: (client: NoInfer<VibORMClient<C, X>>) => Result
+  // Check the factory output here: constraining the client-valued default
+  // eagerly expands every delegate, even when applying a plain definition.
+  $extends<Result = VibORMClient<C, X>>(
+    factory: (client: NoInfer<VibORMClient<C, X>>) => Result & {
+      readonly $schema: Schema;
+    }
   ): Result;
   $extends<const Definition extends OfficialAwareDefinition<C, X, Definition>>(
     extension: Definition &

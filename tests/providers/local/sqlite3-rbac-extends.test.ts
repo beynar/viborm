@@ -137,3 +137,143 @@ test("$extends composes soft-delete rows, RBAC and restore methods", async () =>
     await base.$disconnect();
   }
 });
+
+test("$extends refuses repeated levels before a view rule can authorize a write", async () => {
+  const post = s.model({ id: s.string().id(), title: s.string() });
+  const base = createClient({ schema: { post }, dataDir: ":memory:" });
+  try {
+    await syncLiveSchema(base);
+    await base.post.create({ data: { id: "p", title: "original" } });
+    expect(() =>
+      base.$extends(
+        rbac({
+          actor: v.object({}),
+          levels: ["view", "edit", "view"],
+          models: { post: { view: {} } },
+        })
+      )
+    ).toThrow("levels must list each action only once");
+    const db = base
+      .$extends(
+        rbac({
+          actor: v.object({}),
+          levels: ["view", "edit"],
+          models: { post: { view: {} } },
+        })
+      )
+      .$as({});
+    expect(await db.post.can("edit", { id: "p" })).toBe(false);
+    await expect(
+      db.post.update({ where: { id: "p" }, data: { title: "changed" } })
+    ).rejects.toThrow();
+    expect((await base.post.findUnique({ where: { id: "p" } }))?.title).toBe(
+      "original"
+    );
+  } finally {
+    await base.$disconnect();
+  }
+});
+
+test("a target without the requested action contributes no role grants", async () => {
+  const user = s.model({
+    id: s.string().id(),
+    role: s.string(),
+    posts: s.toMany(() => post),
+  });
+  const post = s.model({
+    id: s.string().id(),
+    title: s.string(),
+    authorId: s.string(),
+    author: s
+      .toOne(() => user)
+      .fields("authorId")
+      .references("id"),
+  });
+  const base = createClient({ schema: { post, user }, dataDir: ":memory:" });
+  try {
+    await syncLiveSchema(base);
+    await base.user.create({ data: { id: "u", role: "outsider" } });
+    await base.post.create({
+      data: { id: "p", title: "original", authorId: "u" },
+    });
+    const db = base
+      .$extends(
+        rbac({
+          actor: v.object({}),
+          models: {
+            user: { actions: { view: [] }, view: {} },
+            post: {
+              actions: { view: [], edit: ["view"] },
+              view: {},
+              edit: {
+                author: {
+                  is: (action, model) => ({
+                    role: { in: model.above(action), not: "banned" },
+                  }),
+                },
+              },
+            },
+          },
+        })
+      )
+      .$as({});
+    expect(await db.post.can("edit", { id: "p" })).toBe(false);
+    await expect(
+      db.post.update({ where: { id: "p" }, data: { title: "changed" } })
+    ).rejects.toThrow();
+    expect((await base.post.findUnique({ where: { id: "p" } }))?.title).toBe(
+      "original"
+    );
+  } finally {
+    await base.$disconnect();
+  }
+});
+
+test("prototype-spelled action and domain names preserve filtering and answers", async () => {
+  const post = s.model({ id: s.string().id() });
+  const base = createClient({ schema: { post }, dataDir: ":memory:" });
+  try {
+    await syncLiveSchema(base);
+    await base.post.createMany({ data: [{ id: "allowed" }, { id: "denied" }] });
+    const db = base
+      .$extends(
+        rbac({
+          actor: v.object({}),
+          models: {
+            post: {
+              actions: { view: [], ["__proto__"]: [] },
+              view: {},
+              ["__proto__"]: { id: "allowed" },
+            },
+          },
+        })
+      )
+      .$as({});
+    expect(await db.post.findMany({ as: "__proto__" })).toEqual([
+      { id: "allowed" },
+    ]);
+    expect(await db.post.can("__proto__", { id: "allowed" })).toBe(true);
+    expect(await db.post.can("__proto__", { id: "denied" })).toBe(false);
+    expect(await db.post.can(["__proto__"], { id: "allowed" })).toEqual({
+      ["__proto__"]: true,
+    });
+    const narrowed = base
+      .$extends(
+        rbac({
+          actor: v.object({}),
+          models: {
+            post: {
+              view: {},
+              domains: { ["__proto__"]: { id: "allowed" } },
+            },
+          },
+        })
+      )
+      .$as({});
+    expect(await narrowed.post.findMany({ as: "__proto__" })).toEqual([
+      { id: "allowed" },
+    ]);
+  } finally {
+    await base.$disconnect();
+  }
+});

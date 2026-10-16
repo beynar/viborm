@@ -215,9 +215,12 @@ export function admitRows(
           `is not one of ${Object.keys(VERBS_KEYS).join(", ")}`
         );
     const { state } = schema[name]!["~"];
-    const predicates: Record<string, Record<string, unknown>> = {};
-    for (const [key, predicate] of Object.entries(entry.predicates))
-      predicates[key] = admit(name, `${place}.predicates.${key}`, predicate);
+    const predicates = Object.fromEntries(
+      Object.entries(entry.predicates).map(([key, predicate]) => [
+        key,
+        admit(name, `${place}.predicates.${key}`, predicate),
+      ])
+    );
     const known = (at: string, predicate: string | undefined) => {
       if (predicate !== undefined && !Object.hasOwn(predicates, predicate))
         refuse(name, place, at, `names unknown predicate "${predicate}"`);
@@ -281,7 +284,7 @@ export function admitRows(
   }
   const models: Record<string, Record<string, object>> = {};
   for (const [name, modes] of Object.entries(rows.models)) {
-    const admitted: Record<string, object> = {};
+    const admitted = new Map<string, object>();
     for (const [mode, purposes] of Object.entries(modes)) {
       const out: Record<string, unknown> = {};
       for (const purpose of ["root", "related"] as const) {
@@ -295,9 +298,9 @@ export function admitRows(
         else
           refuse(name, place, "root", `names unknown predicate "${predicate}"`);
       }
-      admitted[mode] = Object.freeze(out);
+      admitted.set(mode, Object.freeze(out));
     }
-    models[name] = Object.freeze(admitted);
+    models[name] = Object.freeze(Object.fromEntries(admitted));
   }
   return Object.freeze({
     ...rows,

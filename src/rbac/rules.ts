@@ -15,7 +15,7 @@ export interface PolicyModel {
   readonly levels: readonly string[];
   /** Whether it uses the policy's levels rather than an explicit action graph. */
   readonly leveled: boolean;
-  /** ↑a: the actions that are `action` (one of `actions`) or imply it. */
+  /** ↑a: the actions equal to or implying `action`; empty if it is undeclared. */
   above(action: string): readonly string[];
   /** The model a relation of it reaches. */
   related(relation: string): PolicyModel | undefined;

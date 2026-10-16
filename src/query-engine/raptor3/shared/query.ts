@@ -8073,15 +8073,21 @@ export class Queries {
       // OWN-key semantics ({@link own}): a plain member read on a
       // `JSON.parse` result finds `Object.prototype`'s own members, so a
       // field named `toString` the provider OMITTED would inherit a function
-      // instead of failing closed. The write is a plain assignment because
-      // the destination key is a schema identifier — `schema/identifier.ts`
-      // refuses every `Object.prototype` own name, `__proto__` among them, at
-      // hydration — or one of this engine's own carrier names, which is the
-      // same write the shape owners take to build `fields`.
+      // instead of failing closed. Nested evidence documents also contain
+      // user-named predicates, not just schema identifiers. Their `__proto__`
+      // member must be an own data property, never the inherited setter.
       const document: Input = {};
       for (let index = 0; index < fields.length; index++) {
         const field = fields[index]!;
-        document[field] = readers[index]!(own(source, field));
+        const decoded = readers[index]!(own(source, field));
+        if (field === "__proto__")
+          Object.defineProperty(document, field, {
+            value: decoded,
+            enumerable: true,
+            configurable: true,
+            writable: true,
+          });
+        else document[field] = decoded;
       }
       return document;
     };

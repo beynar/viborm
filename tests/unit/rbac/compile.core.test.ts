@@ -98,6 +98,71 @@ describe("the acceptance policy (§1.1)", () => {
 });
 
 describe("R1: P(M, a) = mandatory(a) ∧ limit(a) ∧ ⋁ rule(b ⊒ a)(a)", () => {
+  test.each([
+    ["view", "edit", "view"],
+    ["view", "edit", "edit"],
+  ])("repeated levels %j cannot reverse the permission ladder", (...levels) => {
+    const declarations: RbacConfig["models"][] = [{ page: { view: {} } }, {}];
+    for (const models of declarations)
+      expect(refusalOf(() => compile({ levels, models }))).toContain(
+        "levels must list each action only once"
+      );
+  });
+
+  test("explicit action equivalence remains valid", () => {
+    const { predicates } = compile({
+      models: {
+        page: { actions: { view: ["edit"], edit: ["view"] }, view: {} },
+      },
+    }).models.page!;
+    expect(predicates.view).toEqual({});
+    expect(predicates.edit).toEqual({});
+  });
+
+  test("above returns an immutable empty set for an undeclared target action", () => {
+    const { predicates } = compile({
+      models: {
+        user: { actions: { view: [] }, view: {} },
+        page: {
+          actions: { view: [], edit: ["view"] },
+          view: {},
+          edit: {
+            owner: {
+              is: (
+                action: string,
+                model: { above(action: string): readonly string[] }
+              ) => {
+                const actions = model.above(action);
+                expect(Object.isFrozen(actions)).toBe(true);
+                return { name: { in: actions, not: "banned" } };
+              },
+            },
+          },
+        },
+      },
+    }).models.page!;
+    expect(predicates.edit).toEqual({
+      owner: { is: { name: { in: [], not: "banned" } } },
+    });
+  });
+
+  test("prototype-spelled actions and domains remain own predicates and modes", () => {
+    for (const page of [
+      {
+        actions: { view: [], ["__proto__"]: [] },
+        view: {},
+        ["__proto__"]: { title: "private" },
+      },
+      { view: {}, domains: { ["__proto__"]: { title: "private" } } },
+    ]) {
+      const compiled = compile({ models: { page } }).models.page!;
+      expect(Object.hasOwn(compiled.predicates, "__proto__")).toBe(true);
+      expect(compiled.predicates.__proto__).toEqual({ title: "private" });
+      expect(Object.hasOwn(compiled.modes, "__proto__")).toBe(true);
+      expect(compiled.modes.__proto__).toBe("__proto__");
+    }
+  });
+
   test("a rule written at an action that implies a holds at a", () => {
     const { predicates } = compile({
       levels: LEVELS,

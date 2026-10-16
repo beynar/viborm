@@ -133,7 +133,8 @@ the requested action, including when inherited from another action.
 ## 2. Levels: `view`, `edit`, `full`
 
 Most models share the same ladder. Declare it once with `levels`; a rule
-written on a higher level also contributes to every level below it.
+written on a higher level also contributes to every level below it. Each action
+must appear only once; repeated levels are rejected when applying the policy.
 
 ```ts
 const policy = rbac({
@@ -1026,7 +1027,7 @@ The public `PolicyModel` type describes that model:
 | `actions` | Declared actions |
 | `levels` | Policy levels, lowest first |
 | `leveled` | Whether this model uses the policy's levels rather than an explicit action graph |
-| `above(action)` | The action and every action implying it |
+| `above(action)` | The action and every action implying it; an empty array if this model does not declare it |
 | `related(relation)` | The target model, or `undefined` |
 
 Prefer inline predicates for simple policies: their model, field and actor
