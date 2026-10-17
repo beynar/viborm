@@ -14,6 +14,7 @@
 import { env } from "cloudflare:test";
 import type { D1Database } from "@cloudflare/workers-types";
 import { D1Driver } from "@src/drivers/d1";
+import { ForbiddenError, NotFoundError } from "@src/errors";
 import { createMigrationClient } from "@src/migrations/client";
 import { softDelete } from "@src/soft-delete/index";
 import {
@@ -120,8 +121,12 @@ describe("D1: W-K2f, every governed statement inside D1's budget", () => {
       const from = recorder.statements.length;
       try {
         await run();
-      } catch {
-        // A refusal is an ordinary outcome here; only the statements count.
+      } catch (error) {
+        // Hidden rows are expected. SQL/provider failures must fail this test.
+        if (
+          !(error instanceof NotFoundError || error instanceof ForbiddenError)
+        )
+          throw new Error(`Unexpected failure in ${label}`, { cause: error });
         refused.add(label);
       } finally {
         for (let at = from; at < recorder.statements.length; at++)

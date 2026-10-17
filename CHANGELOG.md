@@ -202,9 +202,11 @@ names no role, grant or action.
 
 ### Fixed
 
-- Permission-rule simplification preserves missing actor facts: a contained
-  inherited branch is retained when removing it would stop an absent actor
-  value from denying the query.
+- Permission-rule simplification preserves missing actor facts and whole-list
+  validation, including conditional rules and alternatives that fold to true.
+  Safe inherited branches still collapse to keep D1 statements compact.
+- Negative relation rules (`none` and `isNot`) use reverse containment when
+  simplifying permissions, including models with operator-like field names.
 - All five PostgreSQL `createClient` factories forward `sharedRelationBodies`,
   so `false` disables sharing as it does on direct driver construction.
 - Fast layer typechecks use the native compiler already used by the complete

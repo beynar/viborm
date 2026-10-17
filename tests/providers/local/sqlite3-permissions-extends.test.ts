@@ -10,9 +10,10 @@ import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { expect, test } from "vitest";
 
 test.each([
-  false,
-  true,
-])("absorbing an inherited rule preserves missing-actor refusals (guarded=%s)", async (guarded) => {
+  "absent",
+  "false guard",
+  "true alternative",
+])("absorbing an inherited rule preserves missing-actor refusals (%s)", async (shape) => {
   const post = s.model({
     id: s.string().id(),
     authorId: s.string(),
@@ -32,14 +33,26 @@ test.each([
         }),
         models: {
           post: {
-            read: guarded
-              ? {
-                  OR: [
-                    { title: "public" },
-                    { actor: { admin: true }, authorId: { actor: "userId" } },
-                  ],
-                }
-              : { title: "public" },
+            read:
+              shape === "true alternative"
+                ? {
+                    title: "public",
+                    OR: [
+                      { authorId: { actor: "userId" } },
+                      { actor: { admin: false } },
+                    ],
+                  }
+                : shape === "false guard"
+                  ? {
+                      OR: [
+                        { title: "public" },
+                        {
+                          actor: { admin: true },
+                          authorId: { actor: "userId" },
+                        },
+                      ],
+                    }
+                  : { title: "public" },
             update: { title: "public", authorId: { actor: "userId" } },
           },
         },
@@ -60,6 +73,94 @@ test.each([
     expect(
       await db.$as({ userId: "bob", admin: false }).post.findMany()
     ).toEqual([{ id: "p", authorId: "alice", title: "public" }]);
+  } finally {
+    await base.$disconnect();
+  }
+});
+
+test("absorption preserves conditional actor reads and whole-list validation", async () => {
+  const post = s.model({
+    id: s.string().id(),
+    authorId: s.string(),
+    title: s.string(),
+  });
+  const base = createClient({ schema: { post }, dataDir: ":memory:" });
+  try {
+    await syncLiveSchema(base);
+    const row = { id: "p", authorId: "alice", title: "public" };
+    await base.post.create({ data: row });
+    const actor = v.object({
+      network: v.string(),
+      ids: v.optional(v.union([v.string(), v.array(v.string())])),
+    });
+    const db = base.$extends(
+      permissions({
+        actor,
+        models: {
+          post: {
+            read: { title: "public" },
+            update: {
+              actor: { network: "home" },
+              title: "public",
+              authorId: { in: { actor: "ids" } },
+            },
+          },
+        },
+      })
+    );
+    // The disabled branch reads no values. When enabled, the whole-list
+    // parameter must still be a list even though the broad read rule matches.
+    expect(
+      await db.$as({ network: "office", ids: undefined }).post.findMany()
+    ).toEqual([row]);
+    for (const ids of [undefined, "alice"]) {
+      expect(await db.$as({ network: "home", ids }).post.findMany()).toEqual(
+        []
+      );
+    }
+    expect(await db.$as({ network: "home", ids: [] }).post.findMany()).toEqual([
+      row,
+    ]);
+  } finally {
+    await base.$disconnect();
+  }
+});
+
+test("absorption reverses containment for a negative relation quantifier", async () => {
+  const parent = s.model({
+    id: s.string().id(),
+    children: s.toMany(() => child),
+  });
+  const child = s.model({
+    id: s.string().id(),
+    parentId: s.string(),
+    in: s.string().array(),
+    parent: s
+      .toOne(() => parent)
+      .fields("parentId")
+      .references("id"),
+  });
+  const base = createClient({ schema: { parent, child }, dataDir: ":memory:" });
+  try {
+    await syncLiveSchema(base);
+    await base.parent.create({ data: { id: "p" } });
+    await base.child.create({
+      data: { id: "c", parentId: "p", in: ["a", "b"] },
+    });
+    const db = base.$extends(
+      permissions({
+        actor: v.object({}),
+        models: {
+          parent: {
+            read: { children: { none: { in: ["a", "b"] } } },
+            update: { children: { none: { in: ["a"] } } },
+          },
+        },
+      })
+    );
+    // This parent has no child whose array is exactly ["a"]. Update grants
+    // read by inheritance; the child column's name is not a set operator.
+    expect(await db.$as({}).parent.findMany()).toEqual([{ id: "p" }]);
   } finally {
     await base.$disconnect();
   }

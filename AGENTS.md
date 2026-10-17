@@ -336,8 +336,10 @@ evidence together; overlapping assignments, empty members and grouped reserved
 keys are refused. Levels, graph edges and call sites still name single actions.
 Predicate simplification preserves both row truth and missing actor facts:
 structural containment alone cannot remove a branch whose actor reads can deny
-the complete predicate. Reads behind a conditional arm do not establish an
-unconditional dependency.
+the complete predicate. Conditional read summaries include AND-false and
+OR-true folding, distinguish scalar from whole-list parameters, and compare the
+complete predicate before
+and after simplification. Unproved or unsupported shapes remain unchanged.
 `tests/package/permissions-consumer-smoke.mjs` runs §1.1 and the blog from the
 packed package.
 
@@ -704,7 +706,7 @@ issues, and `SchemaRegistry` translates thrown external-validator failures.
 # npx tsx node_modules/.bin/viborm push. Plain Node is not that loader.
 pnpm build               # Complete typecheck, one native program; compiles nothing
 pnpm package:build       # tsdown - actual package build (dist output)
-pnpm test:types          # COMPLETE typecheck: every file the root tsconfig intends, one native TS 7 program, ~6s
+pnpm test:types          # COMPLETE typecheck: every file the root tsconfig intends, one native TS 7 program
 pnpm test                # test:types then test:core - the trusted gate, budgeted under five minutes
 pnpm test:core           # All core runtime projects
 pnpm test:all            # Core, extended-local, local providers, optional Bun, local D1, and package checks
@@ -779,6 +781,8 @@ pnpm bench:operation-pipeline:diagnostic # Fast directional tuning only; never k
 # with a 768 MB heap. Coverage orchestration and report merging also use a 768 MB
 # Node heap. Complete TypeScript checking is ONE program over the root tsconfig
 # under the native TypeScript 7 compiler (scripts/run-typecheck.mjs), not shards.
+# Its Go collection target is 6 GiB, leaving room for the complete linked
+# graph. The 300 s and 8192 MiB detectors remain unchanged.
 # Every child process group has a 1536 MiB sampled RSS ceiling, with exactly TWO
 # allowlisted departures: 2560 MiB for an isolated live-PGlite provider stage,
 # and 8192 MiB for that whole-estate native typecheck (measured 5342 MiB).

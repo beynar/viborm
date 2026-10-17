@@ -51,8 +51,10 @@ try {
       "--singleThreaded",
     ],
     command: process.execPath,
-    // Collect before the existing RSS ceiling; the native compiler uses Go.
-    env: { ...process.env, GOMEMLIMIT: process.env.GOMEMLIMIT ?? "5GiB" },
+    // This is Go's collection target, not the process limit. At 5 GiB the
+    // linked type graph exceeded 300 s; 6 GiB completed in 100 s
+    // at 6896 MiB RSS, inside the unchanged 8192 MiB / 300 s detectors.
+    env: { ...process.env, GOMEMLIMIT: process.env.GOMEMLIMIT ?? "6GiB" },
     label,
     rssCeiling: WHOLE_ESTATE_TYPECHECK_RSS_CEILING,
     wallLimitMs: WALL_LIMIT_MS,

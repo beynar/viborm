@@ -276,6 +276,87 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
     expect(apart.read).toEqual({ OR: [{ title: "a" }, { personal: true }] });
   });
 
+  test("absorption keeps adjacent restrictions and chooses a stable widest grant", () => {
+    const mixed = { personal: true, OR: [{ title: "a" }, { title: "b" }] };
+    expect(
+      compile({ models: { page: { read: mixed } } }).models.page!.predicates
+        .read
+    ).toEqual({ AND: [{ personal: true }, { OR: mixed.OR }] });
+
+    // A wider inherited grant can appear after the narrower direct grant.
+    expect(
+      compile({
+        models: {
+          page: {
+            read: { title: { in: ["a"] } },
+            update: { title: { in: ["a", "b"] } },
+          },
+        },
+      }).models.page!.predicates.read
+    ).toEqual({ title: { in: ["a", "b"] } });
+
+    // Equal sets with different spellings still denote one grant. Keep the
+    // first spelling deterministically rather than dropping both branches.
+    expect(
+      compile({
+        models: {
+          page: {
+            read: { title: { in: ["a", "b"] } },
+            update: { title: { in: ["b", "a"] } },
+          },
+        },
+      }).models.page!.predicates.read
+    ).toEqual({ title: { in: ["a", "b"] } });
+  });
+
+  test("absorption preserves conditional reads while collapsing narrower credential scopes", () => {
+    const scoped: Rule = (action) => ({
+      $if: {
+        control: "actor",
+        path: "key.scopes.page",
+        hasSome: action === "read" ? ["read", "update"] : ["update"],
+      },
+      OR: [
+        {
+          $if: {
+            control: "actor",
+            path: "key.resources.document",
+            equals: "all",
+          },
+        },
+        { id: { in: { actor: "key.resources.document" } } },
+      ],
+    });
+    const compiled = compile({ models: { page: { "read, update": scoped } } })
+      .models.page!;
+    const readOnly = compile({ models: { page: { read: scoped } } }).models
+      .page!;
+    expect(compiled.predicates.read).toEqual(readOnly.predicates.read);
+
+    // A mandatory read is retained in the complete predicate, so the same
+    // dependency need not keep an otherwise redundant inherited grant alive.
+    const mandatory = { ownerId: { actor: "userId" } };
+    const narrowed = compile({
+      models: {
+        page: {
+          mandatory,
+          read: { title: "public" },
+          update: { title: "public", ...mandatory },
+        },
+      },
+    }).models.page!;
+    expect(narrowed.predicates.read).toEqual(
+      compile({
+        models: {
+          page: {
+            mandatory,
+            read: { title: "public" },
+          },
+        },
+      }).models.page!.predicates.read
+    );
+  });
+
   test("a shared rule is evaluated once per declared action, at that action and its model", () => {
     const calls: string[] = [];
     const shared = (action: string, model: { name: string }) => {
@@ -1884,6 +1965,144 @@ describe("credential scope envelopes", () => {
           compile({ models: { page: { mandatory, read: true } } } as never)
         )
       ).toContain("mandatory");
+    }
+  });
+});
+
+describe("conditional-read simplification", () => {
+  test("negative relation quantifiers reverse body containment", () => {
+    const many = { pages: { none: { title: { in: ["a"] } } } };
+    expect(
+      compile({
+        models: {
+          pageGroup: {
+            read: many,
+            update: { pages: { none: { title: { in: ["a", "b"] } } } },
+          },
+        },
+      }).models.pageGroup!.predicates.read
+    ).toEqual(many);
+
+    const one = { group: { isNot: { label: { in: ["a"] } } } };
+    expect(
+      compile({
+        models: {
+          page: {
+            read: one,
+            update: { group: { isNot: { label: { in: ["a", "b"] } } } },
+          },
+        },
+      }).models.page!.predicates.read
+    ).toEqual(one);
+  });
+
+  test("equivalent parameter reads and null relations permit removing a narrower grant", () => {
+    const cases = [
+      { model: "page", wide: { title: { not: { equals: me } } } },
+      { model: "page", wide: { title: { in: [me, "public"] } } },
+      {
+        model: "page",
+        wide: { title: { contains: "a", mode: "insensitive" } },
+      },
+      { model: "page", wide: { group: null } },
+      { model: "document", wide: { attributes: { control: "actor" } } },
+    ];
+    for (const { model, wide } of cases) {
+      const baseline = compile({ models: { [model]: { read: wide } } });
+      const inherited = compile({
+        models: {
+          [model]: { read: wide, update: { ...wide, id: "restricted" } },
+        },
+      });
+      expect(inherited.models[model]!.predicates.read).toEqual(
+        baseline.models[model]!.predicates.read
+      );
+    }
+
+    // The prover need not reason about a null quantifier to preserve it as
+    // an independent mandatory restriction while absorbing a scalar grant.
+    const mandatory = { group: { is: null } };
+    expect(
+      compile({
+        models: {
+          page: {
+            mandatory,
+            read: { title: "a" },
+            update: { title: "a", id: "restricted" },
+          },
+        },
+      }).models.page!.predicates.read
+    ).toEqual(
+      compile({
+        models: { page: { mandatory, read: { title: "a" } } },
+      }).models.page!.predicates.read
+    );
+  });
+
+  test("literal JSON and array operands are retained when read interpretation is uncertain", () => {
+    const cases = [
+      { model: "document", wide: { attributes: {} } },
+      { model: "document", wide: { attributes: { equals: {} } } },
+      {
+        model: "document",
+        wide: { attributes: { equals: { custom: "value" } } },
+      },
+      { model: "accessGrant", wide: { actions: [me] } },
+    ];
+    for (const { model, wide } of cases) {
+      const narrow = { ...wide, id: "restricted" };
+      const expectedWide = compile({ models: { [model]: { read: wide } } })
+        .models[model]!.predicates.read;
+      const expectedNarrow = compile({ models: { [model]: { read: narrow } } })
+        .models[model]!.predicates.read;
+      expect(
+        compile({ models: { [model]: { read: wide, update: narrow } } }).models[
+          model
+        ]!.predicates.read
+      ).toEqual({ OR: [expectedWide, expectedNarrow] });
+    }
+  });
+
+  test("a false mandatory restriction remains false during absorption", () => {
+    expect(
+      compile({
+        models: {
+          page: {
+            mandatory: NOWHERE,
+            read: { title: { in: ["a", "b"] } },
+            update: { title: { in: ["a"] } },
+          },
+        },
+      }).models.page!.predicates.read
+    ).toEqual(NOWHERE);
+  });
+});
+
+describe("coverage low value", () => {
+  test("simplification preserves unsupported inputs for downstream where admission", () => {
+    // These are intentionally hostile definitions at the compiler boundary.
+    // Simplification must not erase either branch before where admission can
+    // diagnose an unsupported shape. Public runtime refusal is tested there.
+    const cases = [
+      { $if: null },
+      { group: 42 },
+      { group: { is: { label: "a" }, extra: "unknown" } },
+      { title: { in: [{ nested: me }] } },
+      { title: { contains: { nested: me } } },
+      { title: { path: ["key"] } },
+    ];
+    for (const wide of cases) {
+      const narrow = { ...wide, id: "restricted" };
+      const expectedWide = compile({
+        models: { page: { read: wide } },
+      } as never).models.page!.predicates.read;
+      const expectedNarrow = compile({
+        models: { page: { read: narrow } },
+      } as never).models.page!.predicates.read;
+      expect(
+        compile({ models: { page: { read: wide, update: narrow } } } as never)
+          .models.page!.predicates.read
+      ).toEqual({ OR: [expectedWide, expectedNarrow] });
     }
   });
 });

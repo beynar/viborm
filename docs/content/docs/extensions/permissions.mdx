@@ -251,10 +251,10 @@ follows another's, without writing it twice.
 - Creation checks the global and model `mandatory` predicates, credential scopes
   when supplied, and the effective `create` permission. There is no
   `operations.create` option and no implicit dependency on `update`.
-- The effective creation predicate contributes to `read` on existing rows. For example,
-  `create: { authorId: { actor: "userId" } }` also lets authors read their rows.
-  `create: true` therefore grants reading all rows that pass the restrictions,
-  unless `read: false` explicitly denies it.
+- Creation does not grant reading existing rows by default. Opt in with
+  `actions: { create: ["read"] }` when the creation predicate should also grant
+  reads. With that explicit implication, `create: true` grants reading every row
+  that passes the restrictions, unless `read: false` denies it.
 
 ## 4. A team: the organization, and roles
 
@@ -1343,13 +1343,14 @@ text and an expression depth of 100. The driver deduplicates bound values,
 shares repeated relation bodies and balances conjunctions, but these measures
 do not guarantee that every policy and query fits.
 
-On 17 October 2026, before `create` stopped implying `read`, the §1.1 acceptance
-run measured 795 statements: at most 98 bound values and 85,807 bytes of SQL. A separate 66-statement diagnostic including every
-relation measured at most 89 values and 125,953 bytes. Broad reads of
-`organization`, `user`, `accessGrant` and `document` exceeded the SQL-text limit;
-the largest was the `u02` document read. Local workerd does not enforce this text
-cap, so local execution alone does not establish that hosted D1 will accept a
-statement. Hosted D1 rejects statements exceeding its limit.
+On 17 October 2026, the §1.1 acceptance run measured 795 statements: at most
+98 bound values and 43,168 bytes of SQL. A separate 66-statement diagnostic
+including every relation measured at most 96 values and 38,731 bytes. Every
+measured statement stayed within both limits. The acceptance run had 49
+expected hidden-row or permission refusals; unexpected SQL errors fail the test.
+These are local workerd measurements for this fixture, not a guarantee for
+other policies or hosted D1. Local workerd does not enforce the SQL-text cap,
+so the tests also measure it explicitly.
 
 **Select and include only the fields and relations the request needs.** If a
 broad read remains too large, split it into smaller queries through the same

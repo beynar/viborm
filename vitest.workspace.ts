@@ -17,6 +17,7 @@ import {
   RAPTOR3_PROJECT_TESTS,
   RAPTOR3_PROVIDER_TESTS,
 } from "./scripts/raptor3-manifest.mjs";
+import baseConfig from "./vitest.config";
 
 const layerProject = (
   name: string,
@@ -329,8 +330,12 @@ export default defineWorkspace([
   providerProject("neki", ["tests/providers/hosted/neki*.test.ts"]),
   providerProject("bun", ["tests/providers/platform/*.test.ts"]),
   {
-    extends: "./vitest.config.ts",
+    // Compose directly: Vite would concatenate inherited setupFiles with [],
+    // retaining source-only registration in this isolated consumer harness.
+    ...baseConfig,
     test: {
+      ...baseConfig.test,
+      setupFiles: [],
       name: "package",
       // A failed smoke can leave compiler descendants alive until the bounded
       // launcher closes its group. Never start a successor in that group.

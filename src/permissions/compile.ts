@@ -536,7 +536,7 @@ export function compilePolicy(
    */
   const absorb = (name: string, clause: Clause): Clause => {
     if (clause === false || !Array.isArray(clause.OR)) return clause;
-    if (Object.keys(clause).length !== 1) return clause;
+    // lower/or normalize siblings into AND, so OR is the only root key here.
     const members = clause.OR as Where[];
     const dropped = new Set<number>();
     for (let at = 0; at < members.length; at++) {
@@ -545,14 +545,20 @@ export function compilePolicy(
         if (other === at || dropped.has(other)) continue;
         const wider = members[other]!;
         if (!implies(name, member, wider)) continue;
-        // R6 judges missing actor facts across the complete predicate, not
-        // just the matching branch. Retain any read whose absence could
-        // otherwise stop falsifying the predicate after absorption.
-        const retained = unguarded(wider);
-        if ([...falsifying(member)].some((path) => !retained.has(path)))
-          continue;
         // Equivalent members keep the earlier one.
         if (other > at && implies(name, wider, member)) continue;
+        const before = members.filter((_, index) => !dropped.has(index));
+        const after = members.filter(
+          (_, index) => index !== at && !dropped.has(index)
+        );
+        if (
+          !preservesReads(
+            name,
+            and([restriction(name), or(before)]),
+            and([restriction(name), or(after)])
+          )
+        )
+          continue;
         dropped.add(at);
         break;
       }
@@ -749,17 +755,18 @@ export function compilePolicy(
         narrower(given, value, "hasSome") ||
         narrower(given, value, "in")
       );
-    // A relation: the same walk, its body implied at the target.
-    const ops = ["is", "some", "every"].filter((op) =>
-      Object.hasOwn(value, op)
-    );
+    // A relation: the same walk, its body implied at the target. Negative
+    // quantifiers reverse containment; their wrappers are never scalar keys.
+    const ops = [...QUANTIFIERS].filter((op) => Object.hasOwn(value, op));
     if (ops.length === 0) return implies(target, given, value);
     return ops.every(
       (op) =>
         isRecord(given[op]) &&
         isRecord(value[op]) &&
         same(without(given, op), without(value, op)) &&
-        implies(target, given[op], value[op])
+        (op === "none" || op === "isNot"
+          ? implies(target, value[op], given[op])
+          : implies(target, given[op], value[op]))
     );
   };
   /** A clause as a conjunction of single-key members. */
@@ -785,70 +792,240 @@ export function compilePolicy(
       (value[op] as unknown[]).some((other) => same(item, other))
     );
   /**
-   * Whether the engine may fold `clause` away with every value inside it: a
-   * `$if` arm, or a conjunction one of whose members is one.
+   * R6 reads parameters only after call conditions have folded. A read's
+   * guard therefore includes both AND's false siblings and OR's true
+   * siblings. Flat sets lose this distinction and can widen a policy.
+   * These summaries describe only folding, never row truth or SQL.
    */
-  const guarded = (clause: unknown): boolean =>
-    isRecord(clause) &&
-    (Object.hasOwn(clause, "$if") ||
-      (Array.isArray(clause.AND) && clause.AND.some(guarded)));
-  /**
-   * The actor paths `clause` reads outside any guarded arm: an absent one
-   * makes the whole predicate false whatever the call's conditions (R6).
-   */
-  const unguarded = (
-    clause: unknown,
-    into = new Set<string>()
-  ): Set<string> => {
-    if (Array.isArray(clause)) for (const item of clause) unguarded(item, into);
-    else if (isRecord(clause) && !guarded(clause)) {
-      if (clause.control === "actor" && typeof clause.path === "string")
-        into.add(clause.path);
-      for (const member of Object.values(clause)) unguarded(member, into);
-    }
-    return into;
+  interface ReadSummary {
+    readonly yes: Clause;
+    readonly no: Clause;
+    readonly reads: ReadonlyMap<string, Clause>;
+  }
+  const negate = (guard: Clause): Clause => {
+    if (guard === false) return {};
+    if (isTrue(guard)) return false;
+    if (Object.keys(guard).length === 1 && isRecord(guard.NOT))
+      return guard.NOT;
+    if (Array.isArray(guard.AND))
+      return or(guard.AND.map((member: Where) => negate(member)));
+    if (Array.isArray(guard.OR))
+      return guardAnd(guard.OR.map((member: Where) => negate(member)));
+    return { NOT: guard };
   };
-  /** The paths a guarded arm's own `$if` tests carry (`exists: true`). */
-  const asserted = (clause: Where): string[] =>
-    [
-      clause,
-      ...(Array.isArray(clause.AND) ? (clause.AND as Where[]) : []),
-    ].flatMap(({ $if: test }) =>
-      isRecord(test) && test.exists === true && typeof test.path === "string"
-        ? [test.path]
-        : []
+  /** Boolean guards, unlike row predicates, have two-valued logic. Push
+   * negation to conditions and remove repeated factors without distributing
+   * conjunctions over disjunctions or expanding a truth table. */
+  const guardAnd = (guards: readonly Clause[]): Clause => {
+    const combined = and(guards);
+    if (combined === false || !Array.isArray(combined.AND)) return combined;
+    const kept: Where[] = [];
+    for (const member of combined.AND)
+      if (!kept.some((prior) => same(prior, member))) kept.push(member);
+    return and(kept);
+  };
+  const falseSummary: ReadSummary = {
+    yes: false,
+    no: {},
+    reads: new Map(),
+  };
+  const atomic = (
+    reads: ReadonlyMap<string, Clause> = new Map()
+  ): ReadSummary => ({
+    yes: false,
+    no: false,
+    reads,
+  });
+  const combineReads = (
+    conjunction: boolean,
+    summaries: readonly ReadSummary[]
+  ): ReadSummary => {
+    const yes = (conjunction ? guardAnd : or)(
+      summaries.map((part) => part.yes)
     );
-  /**
-   * The actor paths whose absence can make `clause` false (R6): every path
-   * it reads, but those an arm reads under its own test that the path is
-   * carried, where an absent value folds the arm away instead.
-   */
-  const falsifying = (
-    clause: unknown,
-    carried: readonly string[] = [],
-    into = new Set<string>()
-  ): Set<string> => {
-    if (Array.isArray(clause))
-      for (const item of clause) falsifying(item, carried, into);
-    else if (isRecord(clause)) {
-      const held = guarded(clause)
-        ? [...carried, ...asserted(clause)]
-        : carried;
-      if (clause.control === "actor" && typeof clause.path === "string") {
-        const path = clause.path;
-        if (!held.some((at) => path === at || path.startsWith(`${at}.`)))
-          into.add(path);
+    const no = (conjunction ? or : guardAnd)(summaries.map((part) => part.no));
+    const live = negate(conjunction ? no : yes);
+    const reads = new Map<string, Clause>();
+    for (const part of summaries)
+      for (const [key, guard] of part.reads) {
+        const held = guardAnd([live, guard]);
+        reads.set(key, or([reads.get(key) ?? false, held]));
       }
-      for (const [key, member] of Object.entries(clause))
-        if (key !== "$if") falsifying(member, held, into);
+    return { yes, no, reads };
+  };
+  const summaries = new Map(
+    Object.keys(schema).map((name) => [
+      name,
+      new WeakMap<object, ReadSummary | null>(),
+    ])
+  );
+  const parameterKey = (
+    operand: unknown,
+    spread: boolean
+  ): string | undefined =>
+    isRecord(operand) &&
+    typeof operand.control === "string" &&
+    (operand.path === undefined || typeof operand.path === "string") &&
+    Object.keys(operand).every((key) => key === "control" || key === "path")
+      ? JSON.stringify([operand.control, operand.path ?? null, spread])
+      : undefined;
+  const containsParameter = (operand: unknown): boolean =>
+    parameterKey(operand, false) !== undefined ||
+    (Array.isArray(operand)
+      ? operand.some(containsParameter)
+      : isRecord(operand) && Object.values(operand).some(containsParameter));
+  const readOperators = new Set([
+    "equals",
+    "not",
+    "in",
+    "notIn",
+    "lt",
+    "lte",
+    "gt",
+    "gte",
+    "contains",
+    "startsWith",
+    "endsWith",
+    "has",
+    "hasSome",
+    "hasEvery",
+    "isEmpty",
+  ]);
+  /** Ordinary scalar filters contain no call conditions. Exotic operands
+   * are left alone rather than guessing how a provider reads their values. */
+  const scalarReads = (operand: unknown): ReadSummary | null => {
+    const direct = parameterKey(operand, false);
+    if (direct !== undefined) return atomic(new Map([[direct, {}]]));
+    if (!isRecord(operand)) return containsParameter(operand) ? null : atomic();
+    if (Object.keys(operand).length === 0) return null;
+    const reads = new Map<string, Clause>();
+    for (const [operator, value] of Object.entries(operand)) {
+      if (operator === "mode" || operator === "path") continue;
+      if (!readOperators.has(operator)) return null;
+      const key = parameterKey(
+        value,
+        operator === "in" || operator === "notIn"
+      );
+      if (key !== undefined) reads.set(key, {});
+      else if (operator === "not" || operator === "equals") {
+        const nested = scalarReads(value);
+        if (nested === null) return null;
+        for (const [read, guard] of nested.reads) reads.set(read, guard);
+      } else if (
+        Array.isArray(value) &&
+        (operator === "in" || operator === "notIn")
+      ) {
+        for (const item of value) {
+          const read = parameterKey(item, false);
+          if (read !== undefined) reads.set(read, {});
+          else if (containsParameter(item)) return null;
+        }
+      } else if (containsParameter(value)) return null;
     }
-    return into;
+    // Modifier-only objects can also be literal JSON. Do not infer folding
+    // without the scalar codec's admission decision.
+    if (Object.keys(operand).every((key) => key === "mode" || key === "path"))
+      return null;
+    return atomic(reads);
+  };
+  const summarizeReads = (
+    name: string,
+    clause: unknown
+  ): ReadSummary | null => {
+    if (clause === false) return falseSummary;
+    if (!isRecord(clause)) return null;
+    const cache = summaries.get(name)!;
+    const known = cache.get(clause);
+    if (known !== undefined) return known;
+    const parts: ReadSummary[] = [];
+    const unsupported = () => {
+      cache.set(clause, null);
+      return null;
+    };
+    for (const [key, value] of Object.entries(clause)) {
+      if (LOGICAL.has(key)) {
+        const bodies = Array.isArray(value) ? value : [value];
+        const nested: ReadSummary[] = [];
+        for (const body of bodies) {
+          const summary = summarizeReads(name, body);
+          if (summary === null) return unsupported();
+          nested.push(
+            key === "NOT"
+              ? { yes: summary.no, no: summary.yes, reads: summary.reads }
+              : summary
+          );
+        }
+        parts.push(combineReads(key !== "OR", nested));
+      } else if (key === "$if") {
+        if (!isRecord(value)) return unsupported();
+        const guard = { $if: value };
+        parts.push({ yes: guard, no: negate(guard), reads: new Map() });
+      } else if (Object.hasOwn(stateOf(name).scalars, key)) {
+        const summary = scalarReads(value);
+        if (summary === null) return unsupported();
+        parts.push(summary);
+      } else {
+        const target = targetOf(name, key);
+        if (target === undefined) return unsupported();
+        if (value === null) {
+          parts.push(atomic());
+          continue;
+        }
+        const bodies: unknown[] = [];
+        if (
+          isRecord(value) &&
+          Object.keys(value).some((op) => QUANTIFIERS.has(op))
+        ) {
+          for (const [op, body] of Object.entries(value)) {
+            if (QUANTIFIERS.has(op)) bodies.push(body);
+            else if (op !== "recurse" && op !== "self") return unsupported();
+          }
+        } else bodies.push(value);
+        const relations: ReadSummary[] = [];
+        for (const body of bodies) {
+          if (body === null) {
+            relations.push(atomic());
+            continue;
+          }
+          const summary = summarizeReads(target, body);
+          if (summary === null) return unsupported();
+          // A relation keeps its quantifier even when its body folds constant.
+          relations.push(atomic(summary.reads));
+        }
+        parts.push(combineReads(true, relations));
+      }
+    }
+    const result = combineReads(true, parts);
+    cache.set(clause, result);
+    return result;
+  };
+  const provesGuard = (name: string, a: Clause, b: Clause): boolean =>
+    a === false || (b !== false && (isTrue(b) || implies(name, a, b)));
+  /** Equal conditional reads preserve missing/null AND non-list spread
+   * refusals. No guard is injected into the public predicate. An unsupported
+   * shape or unproved equivalence simply retains the original expression. */
+  const preservesReads = (
+    name: string,
+    before: Clause,
+    after: Clause
+  ): boolean => {
+    const left = summarizeReads(name, before);
+    const right = summarizeReads(name, after);
+    if (left === null || right === null) return false;
+    // Both callers only delete clauses: no new parameter can appear after.
+    // Entries survive even when their guard is false, so guard changes still
+    // have to prove equivalence in both directions.
+    for (const [key, a] of left.reads) {
+      const b = right.reads.get(key) ?? false;
+      if (!(provesGuard(name, a, b) && provesGuard(name, b, a))) return false;
+    }
+    return true;
   };
   /**
    * The conjunction of `clauses` without a member another one implies (or
    * one of `given`, which the same statement already judges). A member is
-   * dropped only where its actor values are read by what implies it, so an
-   * absent value still makes the predicate false (R6).
+   * dropped only where the complete judgement retains the same conditional
+   * parameter reads, including those supplied by `given` (R6).
    */
   const conjoin = (
     name: string,
@@ -860,17 +1037,21 @@ export function compilePolicy(
     const kept = conjuncts(all);
     for (let index = kept.length - 1; index >= 0; index--) {
       const member = kept[index]!;
-      const read = falsifying(member);
-      // Dropped where `other` holds it as a conjunct, or where an absent
-      // value `member` reads makes `other` false too (R6): one `other` reads
-      // outside every arm the engine may fold away (a `$if` arm).
-      const covers = (other: Where) =>
-        conjuncts(other).some((conjunct) => same(conjunct, member)) ||
-        (implies(name, other, member) &&
-          [...read].every((path) => unguarded(other).has(path)));
+      const covers = (other: Where) => implies(name, other, member);
       if (
-        given.some(covers) ||
-        kept.some((other, at) => at !== index && covers(other))
+        !(
+          given.some(covers) ||
+          kept.some((other, at) => at !== index && covers(other))
+        )
+      )
+        continue;
+      const remaining = kept.filter((_, at) => at !== index);
+      if (
+        preservesReads(
+          name,
+          and([...given, ...kept]),
+          and([...given, ...remaining])
+        )
       )
         kept.splice(index, 1);
     }
