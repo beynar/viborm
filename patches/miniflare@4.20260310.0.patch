@@ -1,0 +1,14 @@
+diff --git a/dist/src/index.js b/dist/src/index.js
+--- a/dist/src/index.js
++++ b/dist/src/index.js
+@@ -82140,6 +82140,10 @@
+         import_node_http2.default.createServer(this.#handleLoopback),
+         /* grace */
+         0
+       );
++      // Backport https://github.com/cloudflare/workers-sdk/pull/14850:
++      // workerd reuses this socket after long tests; Node's default idle
++      // timeout otherwise races with the isolated-storage loopback request.
++      server.keepAliveTimeout = 0;
+       server.on("upgrade", this.#handleLoopbackUpgrade);
+       server.listen(0, hostname, () => resolve6(server));
