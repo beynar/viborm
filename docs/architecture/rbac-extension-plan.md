@@ -721,6 +721,7 @@ The two lenses that §11.4 left out ran on `9c50a3191` (PR #101, CI green). Each
 - **The composed and soft-delete client types type-check at 60 models (COST-1, COST-2).** The steps of `softDelete` and `rbac` are module-level and take the whole receiver, reading C and X once from `ClientTypeState`; the declaration names each step's return type instead of inlining the definition. Budgets at 30 and 60 models in `tests/package/type-composition-budgets.json` (§8). **Owner question:** `NoInfer<PolicyClient>` on the policy's call signature makes a third-party step written `<C, X>(client: VibORMClient<C, X>)` lose the methods step when applied to `held(base)` (TS2339, already so at `9c50a3191`); dropping it fixes the inference and costs `base.$extends(policy)` about 650 k once (30 models: 108,074 → 805,788).
 - **Policy constants are bound values (COST-5).** On D1 they share the 100 values with the actor's and the call's values. This is documented, not changed.
 - **§8's unextended-client row is breached on `create`, +1.9% (COST-9).** It is recorded, not yet fixed.
+- **Rulings (Arnaud, 2026-10-17).** R6 stays per predicate (fail closed). `NoInfer<PolicyClient>` stays: a third-party step is a definition or an `$extends` factory, or names its result with `typeof`. D1's four refused `$access` reads are documented and pinned; splitting per depth or sharing recursive walks is post-merge work.
 
 ## Appendix A. Review dispositions
 

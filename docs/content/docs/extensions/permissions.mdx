@@ -1066,6 +1066,12 @@ An extension applied after `permissions` can read the bound actor:
 `{ control: "actor", path: "userId" }` in a `data` stamp writes the caller's
 id (an audit `updatedBy`, for instance).
 
+A step of your own that takes the governed client should be written as an
+extension definition or a factory passed to `$extends`, so the client's types
+flow through it. A plain function generic over a whole client,
+`<C, X>(client: VibORMClient<C, X>) => client`, does not keep `can` and
+`assert` in its result type: name its result with `typeof db` instead.
+
 ---
 
 ## Reference

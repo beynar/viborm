@@ -449,6 +449,12 @@ The "after skeptics" column gives each skeptic's severity. Every fix landed in t
 | COST-6 | cost | medium | refuted | With PostgreSQL's default JIT, governed reads take 0.3-24 s against 10-100 ms with JIT off; the guide's numbers are stale | Refuted (below). The guide unchanged. |
 | COST-8 | cost | medium | refuted | The core carries code that only rbac reaches; 10.7 kB gzip per application, measured from both builds | Refuted (below). The cost stays FDOCS-7's owner question. |
 
+### Ruled (Arnaud, 2026-10-17): R6 stays per predicate; `NoInfer` stays; D1's refused `$access` reads are documented and pinned
+
+- **R6:** per predicate, today's behaviour, fail closed. A forgotten guard denies more, never less. The guide documents it and the `$if: { exists: true }` guard; `permissions-entry-behavior.ts` pins it on every substrate.
+- **`NoInfer<PolicyClient>`:** kept. A third-party step must be a definition or an `$extends` factory, or name its result with `typeof`; the guide says so in its composition section. No type cost is added to every governed client.
+- **D1's four refused `$access` reads (COST-3):** documented in the guide's D1 section and pinned by `d1-permissions-statement-budget.test.ts`, which turns red when one starts to run. Splitting per depth or sharing the recursive walks is left for after the merge.
+
 ### Owner question: R6 per rule or per predicate
 
 Today R6 applies per predicate (`#resolve`, `src/query-engine/raptor3/shared/query.ts`). The engine folds `$if` conditions first. If the folded layer predicate still reads an actor value that the call lacks, the whole `P(M, a)` lowers to `WHERE 0`. So one unguarded read of an optional path closes its action, and every action it implies, `read` included. That holds inside one rule's `OR` too, and in a target rule that `{ group: "update" }` inlines. The rule fails closed, and the guide now states it with its remedy.
