@@ -334,6 +334,10 @@ Comma-separated rule keys assign one rule to individual actions, with surroundin
 ASCII whitespace ignored. `compile.ts` resolves the graph, rule bindings and
 evidence together; overlapping assignments, empty members and grouped reserved
 keys are refused. Levels, graph edges and call sites still name single actions.
+Predicate simplification preserves both row truth and missing actor facts:
+structural containment alone cannot remove a branch whose actor reads can deny
+the complete predicate. Reads behind a conditional arm do not establish an
+unconditional dependency.
 `tests/package/rbac-consumer-smoke.mjs` runs §1.1 and the blog from the
 packed package.
 

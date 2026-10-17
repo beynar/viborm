@@ -9,6 +9,59 @@ import { v } from "@src/validation";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { expect, test } from "vitest";
 
+test.each([
+  false,
+  true,
+])("absorbing an inherited rule preserves missing-actor refusals (guarded=%s)", async (guarded) => {
+  const post = s.model({
+    id: s.string().id(),
+    authorId: s.string(),
+    title: s.string(),
+  });
+  const base = createClient({ schema: { post }, dataDir: ":memory:" });
+  try {
+    await syncLiveSchema(base);
+    await base.post.create({
+      data: { id: "p", authorId: "alice", title: "public" },
+    });
+    const db = base.$extends(
+      rbac({
+        actor: v.object({
+          userId: v.string({ optional: true, nullable: true }),
+          admin: v.boolean(),
+        }),
+        models: {
+          post: {
+            read: guarded
+              ? {
+                  OR: [
+                    { title: "public" },
+                    { actor: { admin: true }, authorId: { actor: "userId" } },
+                  ],
+                }
+              : { title: "public" },
+            update: { title: "public", authorId: { actor: "userId" } },
+          },
+        },
+      })
+    );
+    // A missing referenced fact makes the complete predicate false (R6),
+    // even when the retained OR branch reads it behind a folded-away guard.
+    for (const actor of [
+      { admin: false },
+      { admin: false, userId: undefined },
+      { admin: false, userId: null },
+    ]) {
+      expect(await db.$as(actor).post.findMany()).toEqual([]);
+    }
+    expect(
+      await db.$as({ userId: "bob", admin: false }).post.findMany()
+    ).toEqual([{ id: "p", authorId: "alice", title: "public" }]);
+  } finally {
+    await base.$disconnect();
+  }
+});
+
 test("$extends applies RBAC with actor isolation, methods and transactions", async () => {
   const post = s.model({
     id: s.string().id(),

@@ -1130,8 +1130,9 @@ by `$as` once per request and never read from the database.
   TypeScript checks and suggestions; a `Rule` function may construct paths
   dynamically.
 - **An absent or `null` actor value matches nothing.** `userId: null` owns no
-  row whose `ownerId` is null; a field the actor leaves out makes every rule
-  reading it false.
+  row whose `ownerId` is null. A missing value read by a permission makes its
+  complete predicate false, including inherited `OR` alternatives. An actor
+  condition can guard an optional branch before its values are read.
 - **Bind ids, never bearer secrets.** Bind a session's id, not its token: the
   actor travels in error metadata and in cache keys.
 - A fact of a row stays a row fact: an organization's `plan` is read from the

@@ -198,6 +198,12 @@ names no role, grant or action.
 
 ### Fixed
 
+- Permission-rule simplification preserves missing actor facts: a contained
+  inherited branch is retained when removing it would stop an absent actor
+  value from denying the query.
+- All five PostgreSQL `createClient` factories forward `sharedRelationBodies`,
+  so `false` disables sharing as it does on direct driver construction.
+
 - **An update with nothing to assign no longer fails.** On a model with no
   `updatedAt` and no stamp, `update({ data: {} })` and
   `updateMany({ data: {} })` sent `UPDATE … SET` with an empty list and threw

@@ -1,10 +1,15 @@
 import { getAdapterInternals } from "@adapters/adapter-internals";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
+import { createClient as bunSQLClient } from "@drivers/bun-sql";
 import { BunSQLiteDriver } from "@drivers/bun-sqlite";
 import { D1Driver } from "@drivers/d1";
 import { LibSQLDriver } from "@drivers/libsql";
-import { PgDriver } from "@drivers/pg";
+import { createClient as neonClient } from "@drivers/neon-http";
+import { PgDriver, createClient as pgClient } from "@drivers/pg";
+import { createClient as pgliteClient } from "@drivers/pglite";
+import { createClient as postgresClient } from "@drivers/postgres";
 import { SQLite3Driver } from "@drivers/sqlite3";
+import { s } from "@schema";
 import { sql } from "@sql";
 import { describe, expect, test } from "vitest";
 
@@ -56,6 +61,30 @@ describe("SQLite transport expression depth", () => {
 });
 
 describe("Shared relation bodies", () => {
+  test.each([
+    undefined,
+    true,
+    false,
+  ])("every PostgreSQL client factory preserves sharedRelationBodies=%s", (sharedRelationBodies) => {
+    const config = {
+      schema: { item: s.model({ id: s.string().id() }) },
+      sharedRelationBodies,
+    };
+    const remote = { ...config, databaseUrl: "postgres://h/d" };
+    // Construction is lazy: this checks the public configuration boundary
+    // without connecting to a provider or loading PGlite's Wasm runtime.
+    for (const client of [
+      pgClient(remote),
+      pgliteClient(config),
+      postgresClient(remote),
+      neonClient(remote),
+      bunSQLClient(remote),
+    ]) {
+      expect(
+        client.$driver.adapter.capabilities.sharesRelationBodies ?? false
+      ).toBe(sharedRelationBodies !== false);
+    }
+  });
   // D1 refuses a statement over 100 KB; PlanetScale's Neki one referencing
   // more than 256 relations. D1 declares the fact, and so does every
   // PostgreSQL driver by default (the answers are the same, the statement

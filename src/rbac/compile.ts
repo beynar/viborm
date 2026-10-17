@@ -545,6 +545,12 @@ export function compilePolicy(
         if (other === at || dropped.has(other)) continue;
         const wider = members[other]!;
         if (!implies(name, member, wider)) continue;
+        // R6 judges missing actor facts across the complete predicate, not
+        // just the matching branch. Retain any read whose absence could
+        // otherwise stop falsifying the predicate after absorption.
+        const retained = unguarded(wider);
+        if ([...falsifying(member)].some((path) => !retained.has(path)))
+          continue;
         // Equivalent members keep the earlier one.
         if (other > at && implies(name, wider, member)) continue;
         dropped.add(at);

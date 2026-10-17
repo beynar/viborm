@@ -735,6 +735,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     ...(Object.hasOwn(config, "databaseUrl") ? { databaseUrl } : {}),
     pgvector,
     postgis,
+    sharedRelationBodies: config.sharedRelationBodies,
   });
 
   return createClientFromDriverConfig<S, C, PgDriver>(config, driver);

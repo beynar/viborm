@@ -321,6 +321,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     options,
     pgvector,
     postgis,
+    sharedRelationBodies: config.sharedRelationBodies,
     namespace,
   });
 
