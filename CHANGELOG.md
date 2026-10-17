@@ -92,9 +92,11 @@ names no role, grant or action.
   a statement declares `sharesRelationBodies`: each relation filter body a
   statement repeats is stated once, in a `WITH`, as the key set its
   repeats test (`EXISTS (SELECT 1 FROM set WHERE set.k = parent.fk)`). D1
-  declares it; `PgDriver({ sharedRelationBodies: true })` declares it for a
-  PostgreSQL server that bounds the relations of one statement (Neki: 256).
-  Other drivers' SQL is unchanged, and the answers are the same.
+  and every PostgreSQL driver declare it by default; `sharedRelationBodies:
+  false` keeps the bodies inline, as 1.2.4 spelled them (a server that bounds
+  the relations of one statement, Neki's 256, needs the shared form). The
+  answers are the same; SQLite3, libSQL, Bun SQLite and MySQL SQL is
+  unchanged.
 - **`uncacheable` controls.** A control declared `uncacheable: true` keeps
   every read holding its value out of the cache: `$withCache` on such a read
   is a `ValidationError` at the control, before any statement.
@@ -110,6 +112,9 @@ names no role, grant or action.
   `connect`, `orderBy`, `distinct`, aggregates, `groupBy`, relation filters)
   reads it as absent there. Keys and foreign keys cannot be gated. The
   client's types admit the key and make gated fields optional by default.
+- **`viborm/rbac` defaults:** `update` and `delete` imply `read`; `create`
+  judges a proposed row and implies nothing (declare `actions: { create:
+  ["read"] }` to say otherwise).
 - **`viborm/rbac`, authorization judged in the statement** (not yet
   published, OD-11; [guide](docs/content/docs/extensions/rbac.mdx)).
   `rbac({ actor, levels, limit, models })` declares one rule per model and

@@ -423,7 +423,7 @@ test("CRUD grants, explicit denials and scoped service principals compose", asyn
   }
 });
 
-test("create-only policies admit proposed rows and grant read without granting update", async () => {
+test("create-only policies admit proposed rows and grant neither read nor update", async () => {
   const post = s.model({ id: s.string().id(), ownerId: s.string() });
   const base = createClient({ schema: { post }, dataDir: ":memory:" });
   try {
@@ -441,7 +441,11 @@ test("create-only policies admit proposed rows and grant read without granting u
       .$extends(rbac(config))
       .$as({ userId: "alice" }, ["post.create"]);
     await call.post.create({ data: { id: "p", ownerId: "alice" } });
-    expect(await call.post.findMany()).toEqual([{ id: "p", ownerId: "alice" }]);
+    // A creation rule judges a proposed row and grants no read of stored
+    // rows: the model declares no read action, so a read is refused before
+    // any statement (R9), and the row exists below the policy.
+    await expect(call.post.findMany()).rejects.toBeInstanceOf(ForbiddenError);
+    expect(await base.post.findMany()).toEqual([{ id: "p", ownerId: "alice" }]);
     await expect(
       call.post.create({ data: { id: "foreign", ownerId: "bob" } })
     ).rejects.toThrow();

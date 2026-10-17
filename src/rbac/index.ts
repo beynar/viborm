@@ -77,10 +77,7 @@ type DeclaredActions<M, L extends string> =
   | SplitActions<RuleKeys<M>>;
 type ActionsOf<M, L extends string> =
   | DeclaredActions<M, L>
-  | (Extract<
-      DeclaredActions<M, L>,
-      "create" | "update" | "delete"
-    > extends never
+  | (Extract<DeclaredActions<M, L>, "update" | "delete"> extends never
       ? never
       : "read");
 
@@ -627,7 +624,6 @@ function reachOf(config: RbacConfig, compiled: CompiledPolicy) {
           ...(["read", "update", "delete"] as const).filter(
             (verb) => model[verb] !== undefined
           ),
-          ...(Object.keys(model.writes).length > 0 ? ["update"] : []),
         ]),
         modes: new Set([DEFAULT_MODE, ...Object.keys(model.modes)]),
       },

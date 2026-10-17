@@ -136,10 +136,12 @@ What follows from it:
 an admin it holds on every row, for anyone else it holds on none, and the
 database still receives one statement.
 
-**`create`, `update` and `delete` each imply `read` by default.** They do not
-imply one another. Here an author reads their posts through `update` or `create`,
-and an admin reads every post through `delete`. A custom action such as `publish`
-does not imply another action unless you declare that relationship.
+**`update` and `delete` each imply `read` by default; `create` implies nothing.**
+Whoever may change or remove a row may see it. A creation rule judges a
+proposed row and grants no read of stored rows: here an author reads their
+posts through `update`, and an admin reads every post through `delete`. A
+custom action such as `publish` implies no other action unless you declare the
+relationship, and so does `create` (`actions: { create: ["read"] }`).
 
 ### Grant, deny, or leave unspecified
 
@@ -843,8 +845,8 @@ user may read. It cannot create or delete posts. `post.update` implies
 | `$as(actor, [])` | Deny every permission |
 
 Scope names are exact `model.permission` strings. There are no wildcards.
-`create`, `update` and `delete` scopes each imply `read`; additional implications
-follow the model's `levels` or `actions` graph. For custom operation mappings,
+`update` and `delete` scopes each imply `read`, `create` does not; additional
+implications follow the model's `levels` or `actions` graph. For custom operation mappings,
 name the mapped permission: `operations: { delete: "full" }` requires
 `"post.full"`, or a scope implying `full`.
 
@@ -1148,7 +1150,8 @@ no setter on the shared client, and the actor is never a call argument.
 
 ### Actions
 
-The default graph makes `create`, `update` and `delete` imply `read`.
+The default graph makes `update` and `delete` imply `read`; `create` judges a
+proposed row and implies nothing.
 Custom actions have no default implication. `levels` adds an ordered hierarchy.
 A model can declare its action graph explicitly:
 
@@ -1169,7 +1172,7 @@ document: {
 
 A model that lists its `actions` names every one: an unlisted action in any
 rule key is refused. Include `create` if it has a creation rule. The default
-CRUD-to-read implications still apply; graph edges add relationships.
+implications of `update` and `delete` still apply; graph edges add relationships.
 
 `operations` maps reads, updates and deletes to named permissions. The defaults
 are `read`, `update` and `delete`. Creation uses `create` directly; there is no
@@ -1336,8 +1339,8 @@ text and an expression depth of 100. The driver deduplicates bound values,
 shares repeated relation bodies and balances conjunctions, but these measures
 do not guarantee that every policy and query fits.
 
-The current §1.1 acceptance run measured 795 statements: at most 98 bound values
-and 85,807 bytes of SQL. A separate 66-statement diagnostic including every
+On 17 October 2026, before `create` stopped implying `read`, the §1.1 acceptance
+run measured 795 statements: at most 98 bound values and 85,807 bytes of SQL. A separate 66-statement diagnostic including every
 relation measured at most 89 values and 125,953 bytes. Broad reads of
 `organization`, `user`, `accessGrant` and `document` exceeded the SQL-text limit;
 the largest was the `u02` document read. Local workerd does not enforce this text
@@ -1349,15 +1352,20 @@ broad read remains too large, split it into smaller queries through the same
 `$as(actor, scopes)` client, with each query independently authorized. Do not
 switch to the base client to avoid the limit.
 
-**Neki** refuses a statement that references more than 256 relations. Declare
-it on the driver, so each repeated relation body is stated once. An earlier
-acceptance fixture reduced a member's `accessGrant` read from 241 references
-to 41; this is not a bound for every policy:
+**PostgreSQL drivers state each repeated relation body once** (`viborm/pg`,
+`viborm/pglite`, `viborm/postgres`, `viborm/neon-http`, `viborm/bun-sql`):
+a policy repeats the same bodies at every arm and every key check, and the
+shared form keeps the statement small with the same answers. A member's
+`accessGrant` read of the acceptance fixture is 415 KB inline and 2,711 bound
+values; shared, it fits D1's 100 KB. **Neki** refuses a statement that
+references more than 256 relations; the shared form keeps it under (the same
+read went from 241 references to 41; not a bound for every policy).
+`sharedRelationBodies: false` keeps every body inline, as 1.2.4 spelled it:
 
 ```ts
 import { PgDriver } from "viborm/pg";
 
-const driver = new PgDriver({ databaseUrl, sharedRelationBodies: true });
+const driver = new PgDriver({ databaseUrl, sharedRelationBodies: false }); // inline bodies
 ```
 
 ### Size

@@ -234,10 +234,11 @@ export interface PgDriverOptions {
   /** The PostgreSQL schema this driver's persistent objects live in. Defaults to `public`. */
   namespace?: string;
   /**
-   * Declare it for a server that bounds the relations one statement
-   * references (PlanetScale's Neki: 256): each relation filter body a
-   * statement repeats is stated once, in a `WITH`, as the key set its arms
-   * test. Defaults to `false`.
+   * Each relation filter body a statement repeats is stated once, in a
+   * `WITH`, as the key set its arms test: the answers are the same, the
+   * statement smaller, and a server that bounds the relations one statement
+   * references (PlanetScale's Neki: 256) accepts it. Defaults to `true`;
+   * `false` keeps every body inline.
    */
   sharedRelationBodies?: boolean;
   /**

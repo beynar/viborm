@@ -57,15 +57,17 @@ describe("SQLite transport expression depth", () => {
 
 describe("Shared relation bodies", () => {
   // D1 refuses a statement over 100 KB; PlanetScale's Neki one referencing
-  // more than 256 relations. D1 declares the fact; a PostgreSQL server that
-  // bounds relations is declared by its user (live witnesses:
-  // tests/providers/workers/d1-rbac-placement.test.ts W-P10, Neki W-R1).
+  // more than 256 relations. D1 declares the fact, and so does every
+  // PostgreSQL driver by default (the answers are the same, the statement
+  // smaller); `sharedRelationBodies: false` keeps the bodies inline (live
+  // witnesses: tests/providers/workers/d1-rbac-placement.test.ts W-P10,
+  // Neki W-R1).
   test.each([
     ["sqlite3", new SQLite3Driver(), undefined],
     ["libsql", new LibSQLDriver(), undefined],
     ["bun-sqlite", new BunSQLiteDriver(), undefined],
     ["d1", new D1Driver({ database: Object.create(null) }), true],
-    ["pg", new PgDriver({ databaseUrl: "postgres://h/d" }), false],
+    ["pg", new PgDriver({ databaseUrl: "postgres://h/d" }), true],
     [
       "pg, declared",
       new PgDriver({
@@ -73,6 +75,14 @@ describe("Shared relation bodies", () => {
         sharedRelationBodies: true,
       }),
       true,
+    ],
+    [
+      "pg, inline",
+      new PgDriver({
+        databaseUrl: "postgres://h/d",
+        sharedRelationBodies: false,
+      }),
+      false,
     ],
   ])("%s shares the relation bodies a statement repeats where its transport bounds the statement", (_name, driver, shared) => {
     expect(driver.adapter.capabilities.sharesRelationBodies ?? false).toBe(

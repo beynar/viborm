@@ -9,7 +9,7 @@ import { v } from "@src/validation";
 // stored values cover each requested action; they are not a graph interpreter.
 const levels = ["read", "update", "full"] as const;
 const levelCoverage = {
-  read: [...levels, "create"],
+  read: [...levels],
   update: ["update", "full"],
   full: ["full"],
   create: ["create"],

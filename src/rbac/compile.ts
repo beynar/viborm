@@ -331,8 +331,10 @@ function actionsOf(
       implies.set(key, []);
     }
   }
-  // CRUD writes grant read by default; custom actions imply only what is declared.
-  for (const action of ["create", "update", "delete"]) {
+  // An update or a delete grants read by default: whoever may change a row
+  // may see it. A create is a placement over a proposed row and implies
+  // nothing; custom actions imply only what is declared.
+  for (const action of ["update", "delete"]) {
     const inherited = implies.get(action);
     if (inherited === undefined) continue;
     if (!implies.has("read")) implies.set("read", []);

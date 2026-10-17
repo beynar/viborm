@@ -210,10 +210,11 @@ may only be conservative index prefilters before exact public semantics.
 **Important:** When PostgreSQL has a feature others lack, the adapter must either emulate it or the capability check must prevent its use.
 
 `capabilities.sharesRelationBodies` is a transport fact, never a dialect
-one: absent everywhere, declared by D1 (`SQLiteAdapter({ sharedRelationBodies:
-true })`) and by a PostgreSQL user for a server bounding the relations one
-statement references (`PgDriver({ sharedRelationBodies: true })`). The engine
-then states each relation body a statement repeats once, through `cte.with`.
+one: declared by D1 (`SQLiteAdapter({ sharedRelationBodies: true })`) and by
+every PostgreSQL driver by default (`installPostgresAdapter`;
+`sharedRelationBodies: false` keeps the bodies inline), absent on SQLite3,
+libSQL, Bun SQLite and MySQL. The engine then states each relation body a
+statement repeats once, through `cte.with`.
 
 `assertions.holds` (a write's judgement of the row it produces) fails with its
 own sentinel, under the `__viborm_judged__` alias: PostgreSQL a text sublink

@@ -128,7 +128,11 @@ const ladder = (model: GovernedModel): Record<string, readonly string[]> => {
     full: ["update"],
   };
   for (const extra of EXTRA_ACTIONS[model]) implied[extra] = ["read"];
-  if (CREATES.has(model)) implied.create = ["read"];
+  // §1.1 lists an explicit graph on teamMember (`create: ["read"]`); on the
+  // leveled models `create` is a placement over a proposed row and implies
+  // nothing.
+  if (CREATES.has(model))
+    implied.create = model === "teamMember" ? ["read"] : [];
   return implied;
 };
 const IMPLIES = {} as Record<

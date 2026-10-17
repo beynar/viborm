@@ -147,7 +147,7 @@ describe("the acceptance policy (§1.1)", () => {
       compiled.models.member!.predicates.read
     );
     expect(JSON.stringify(stored.models.member!.predicates.read)).toContain(
-      '"permissions":{"some":{"role":"reader","action":{"in":["read","update","full","create"]}}}'
+      '"permissions":{"some":{"role":"reader","action":{"in":["read","update","full"]}}}'
     );
   });
 });
@@ -1775,7 +1775,7 @@ describe("definitions refused before they widen (review 2026-10-16)", () => {
 });
 
 describe("credential scope envelopes", () => {
-  test("compiled scopes use the same transitive CRUD and explicit action graph", () => {
+  test("compiled scopes use the same transitive graph: update and delete reach read, create does not", () => {
     const compiled = compilePolicy(
       {
         actor: Actor,
@@ -1797,8 +1797,9 @@ describe("credential scope envelopes", () => {
     expect(compiled.scopes["page.update"]).toEqual(
       expect.arrayContaining(["page.update", "page.read"])
     );
-    expect(compiled.scopes["page.create"]).toEqual(
-      expect.arrayContaining(["page.create", "page.read"])
+    expect(compiled.scopes["page.create"]).toEqual(["page.create"]);
+    expect(compiled.scopes["page.delete"]).toEqual(
+      expect.arrayContaining(["page.delete", "page.read"])
     );
     expect(compiled.scopes["page.full"]).toEqual(
       expect.arrayContaining(["page.full", "page.update", "page.read"])

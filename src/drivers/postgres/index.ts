@@ -63,6 +63,8 @@ export interface PostgresDriverOptions {
   options?: PostgresOptions;
   pgvector?: boolean;
   postgis?: boolean;
+  /** Each relation filter body a statement repeats is stated once (default `true`); `false` keeps every body inline. */
+  sharedRelationBodies?: boolean;
   databaseUrl?: string;
   /** The PostgreSQL schema this driver's persistent objects live in. Defaults to `public`. */
   namespace?: string;
@@ -124,6 +126,7 @@ const POSTGRES_CONFIG_KEYS: Record<keyof PostgresDriverOptions, true> = {
   options: true,
   pgvector: true,
   postgis: true,
+  sharedRelationBodies: true,
   databaseUrl: true,
   namespace: true,
   migrationSessionAttestation: true,

@@ -314,8 +314,9 @@ predicates. `src/rbac/rules.ts` owns `Rule`, `Where` and rule functions' readonl
 model `name` and `actions` metadata; no graph traversal or domain helper API is
 shipped. CRUD permissions are `create`, `read`, `update` and `delete`;
 `operations` remaps read/update/delete only. Creation uses `create` independently
-of update and evaluates the proposed row. The default graph makes create,
-update and delete imply read; custom graphs and levels add implications.
+of update and evaluates the proposed row. The default graph makes update
+and delete imply read; create implies nothing; custom graphs and levels add
+implications.
 A rule's `true` grants; a directly declared literal `false` blocks inherited
 grants, while a callback returning `false` or an omitted rule supplies no direct
 grant. Global and model `mandatory` are action-independent predicates;

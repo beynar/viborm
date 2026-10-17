@@ -81,8 +81,8 @@ export async function linkedEvidenceNames() {
     // @ts-expect-error - nested alpha keeps its own action names despite sharing beta's field-name surface
     include: { alpha: { select: { id: true, $access: ["read", "publish"] } } },
   });
+  // @ts-expect-error - nested beta cannot project alpha's action (reported on the call)
   db.parent.findMany({
-    // @ts-expect-error - nested beta cannot project alpha's action
     include: { beta: { include: { $access: ["read", "archive"] } } },
   });
 }

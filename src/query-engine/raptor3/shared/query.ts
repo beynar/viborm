@@ -1306,9 +1306,12 @@ function sharedKey(query: Sql): string {
  * Textual alias renumbering cannot distinguish a physical name from an
  * alias. Such schemas keep their relation bodies inline: an optimization
  * must never rename a column, table, junction or namespace in its identity.
+ * An alias is `q<n>` between quotes or underscores ({@link ALIAS_TOKEN}), so
+ * only a name that is one, or holds one at an end or between underscores,
+ * resembles it; `seq1` or `freq2` do not.
  */
 const aliasLikeSchemas = new WeakMap<EngineSchema, boolean>();
-const ALIAS_LIKE_NAME = /q\d+/;
+const ALIAS_LIKE_NAME = /(?:^|_)q\d+(?:_|$)/;
 const resemblesAlias = (name: string) => ALIAS_LIKE_NAME.test(name);
 function hasAliasLikeNames(schema: EngineSchema): boolean {
   // Physical names are immutable for the schema lifetime, shared by every

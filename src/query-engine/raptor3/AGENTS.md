@@ -172,9 +172,9 @@ reads it, and stands where nothing does; a row of defaults only is refused
 on a model with a `place`.
 
 *Shared relation bodies (E5.2).* Where the adapter declares
-`capabilities.sharesRelationBodies` (a driver's fact for a provider bounding
-one statement's text or the relations it references: D1's 100 KB, Neki's
-256 relations), a statement states each relation filter body it lowers more
+`capabilities.sharesRelationBodies` (a driver's fact: D1, whose statements are
+bounded to 100 KB, and every PostgreSQL driver by default, where Neki bounds
+one statement to 256 relations), a statement states each relation filter body it lowers more
 than once ONCE, in a `WITH` before it (`#sharingBodies`, one scope per
 statement: a read's `read()`, `producedWhere`'s judged set, `producedSource`).
 `#relationExists` lowers a reference edge's filter as today's `EXISTS` and,
