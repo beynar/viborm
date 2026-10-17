@@ -38,12 +38,13 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
  * invariants below red and names the file, pattern, or script at fault.
  */
 
-// `defineWorkspace` is an identity function over the project list, but the real
-// `vitest/config` drags the whole Vite Node API into this worker to supply it.
+// `defineWorkspace` and `defineConfig` are identity functions, but the real
+// `vitest/config` drags the whole Vite Node API into this worker to supply them.
 // The stub keeps the census inside the core lane's memory budget; the resolved
 // project list is the same either way, so this is a cost control and not a
 // correctness dependency.
 vi.mock("vitest/config", () => ({
+  defineConfig: (config: unknown) => config,
   defineWorkspace: (projects: unknown) => projects,
 }));
 
