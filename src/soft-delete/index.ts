@@ -74,7 +74,7 @@ export function softDelete<const Config extends SoftDeleteConfig>(
     C extends VibORMConfig & {
       readonly schema: Record<Names<Config>, AnyModel>;
     },
-    X extends ExtensionState,
+    X extends ExtensionState & { readonly resultConsumer: undefined },
   >(
     base: ClientTypeState<C, X> & NoInfer<VibORMClient<C, X>>
   ) =>
@@ -146,7 +146,7 @@ export function softDelete<const Config extends SoftDeleteConfig>(
     C extends VibORMConfig & {
       readonly schema: Record<Names<Config>, AnyModel>;
     },
-    X extends ExtensionState,
+    X extends ExtensionState & { readonly resultConsumer: undefined },
   >(
     base: ClientTypeState<C, X> & NoInfer<VibORMClient<C, X>>
   ) => methods(rows<C, X>(base));
@@ -155,7 +155,7 @@ export function softDelete<const Config extends SoftDeleteConfig>(
       infer C extends VibORMConfig & {
         readonly schema: Record<Names<Config>, AnyModel>;
       },
-      infer X
+      infer X extends ExtensionState & { readonly resultConsumer: undefined }
     >
       ? Base extends VibORMClient<C, X>
         ? ReturnType<typeof apply<C, X>>
@@ -171,7 +171,7 @@ export function softDelete<const Config extends SoftDeleteConfig>(
     C extends VibORMConfig & {
       readonly schema: Record<Names<Config>, AnyModel>;
     },
-    X extends ExtensionState,
+    X extends ExtensionState & { readonly resultConsumer: undefined },
   >(base: ClientTypeState<C, X> & NoInfer<VibORMClient<C, X>>) {
     return apply(base);
   }

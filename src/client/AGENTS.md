@@ -429,6 +429,12 @@ before omission.
 
 ## Caching integration
 
+Cached views retain declared row-evidence projections, including their exact
+permission names and relation targets, through type-only metadata owned by
+`projected-types.ts`. Their methods reuse the same projection argument/result
+types with a Promise carrier. They expose only cacheable reads: extension model
+methods, mutations, and batchable `PendingOperation` carriers do not propagate.
+
 Only an exact client derived with `cache({ driver, version?, waitUntil? })` has
 `$withCache()` and `$invalidate()`:
 

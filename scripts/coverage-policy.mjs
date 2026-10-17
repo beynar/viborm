@@ -61,6 +61,7 @@ export const extensionCoverageTests = Object.freeze([
   "tests/unit/rbac/compile.core.test.ts",
   "tests/providers/local/sqlite3-rbac-compiled-policy.test.ts",
   "tests/providers/local/sqlite3-rbac-entry.test.ts",
+  "tests/providers/local/sqlite3-rbac-extends.test.ts",
   "tests/contracts/public-client/extension-produced.core.test.ts",
 ]);
 const definitions = [
@@ -120,6 +121,16 @@ const definitions = [
     roots: ["src/extensions/", "src/rbac/", "src/soft-delete/"],
     projects: ["coverage-extensions"],
     tests: extensionCoverageTests,
+    // The complete RBAC oracle sweeps need their own bounded process each.
+    // Keep every test and merge the parts under the unchanged 100% gate.
+    testGroups: [
+      extensionCoverageTests.filter(
+        (test) => !test.startsWith("tests/providers/")
+      ),
+      ...extensionCoverageTests
+        .filter((test) => test.startsWith("tests/providers/"))
+        .map((test) => [test]),
+    ],
   },
   {
     id: "errors",

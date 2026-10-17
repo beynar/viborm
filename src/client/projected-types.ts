@@ -24,6 +24,7 @@ import type { VibORMConfig } from "./client";
 import type { NodeInclude, NodeSelect } from "./result-types";
 import type { ClientRelationLinks, ClientSchema } from "./schema-links";
 import type {
+  CacheableOperations,
   ContextualOperationResult,
   NoExtraOperationKeys,
   OperationPayload,
@@ -279,6 +280,7 @@ type ProjectedMethod<
   Controls,
   Models extends ProjectionModelsConstraint,
   Key extends string,
+  Pending extends boolean = true,
   M extends Model<any> = ClientSchema<C>[ModelName],
   Payload = OperationPayload<O, M>,
   Placed = PlacedOperationControls<Controls, ModelName, O>,
@@ -301,7 +303,7 @@ type ProjectedMethod<
       >,
       Placed
     >
-) => PendingOperation<
+) => ProjectedCarrier<
   Overlay<
     ContextualOperationResult<
       C,
@@ -314,8 +316,16 @@ type ProjectedMethod<
     Models,
     ModelName,
     Key
-  >
+  >,
+  Pending
 >;
+
+type ProjectedCarrier<Result, Pending extends boolean> = Pending extends true
+  ? PendingOperation<Result>
+  : Promise<Result>;
+
+/** Type-only projection facts retained when a cached view changes the carrier. */
+declare const projectedModelState: unique symbol;
 
 /**
  * The projected overloads a definition adds, per model declaring a key, for
@@ -330,6 +340,10 @@ export type ProjectedModelOperations<
   Verbs = VerbsOf<Definition>,
 > = {
   readonly [ModelName in EvidenceModels<C, Verbs>]: {
+    readonly [projectedModelState]?: {
+      readonly [Key in KeyOf<Verbs>]: ProjectionModels<C, Verbs>;
+    };
+  } & {
     readonly [O in ProjectedOperation]: ProjectedMethod<
       O,
       C,
@@ -341,6 +355,50 @@ export type ProjectedModelOperations<
     >;
   };
 };
+
+/** Cached views retain projections, but expose only read operations and Promises. */
+export type CachedProjectedOperations<
+  C extends VibORMConfig,
+  ModelName extends keyof ClientSchema<C>,
+  ClientDefaults,
+  Controls,
+  ModelMethods,
+> = typeof projectedModelState extends keyof ModelMethods
+  ? NonNullable<
+      ModelMethods[typeof projectedModelState]
+    > extends infer Projections extends Record<
+      string,
+      ProjectionModelsConstraint
+    >
+    ? UnionToIntersection<
+        {
+          [Key in keyof Projections & string]: {
+            readonly [O in Extract<
+              ProjectedOperation,
+              CacheableOperations
+            >]: ProjectedMethod<
+              O,
+              C,
+              ModelName,
+              ClientDefaults,
+              Controls,
+              Projections[Key],
+              Key,
+              false
+            >;
+          };
+        }[keyof Projections & string]
+      >
+    : unknown
+  : unknown;
+
+type UnionToIntersection<Value> = (
+  Value extends unknown
+    ? (value: Value) => void
+    : never
+) extends (value: infer Intersection) => void
+  ? Intersection
+  : never;
 
 /**
  * Whether a definition's verbs declare a projection key. A definition with no

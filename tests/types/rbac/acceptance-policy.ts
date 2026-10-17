@@ -2,38 +2,44 @@
 // independent authorization oracle. Every schema convention is written here;
 // viborm/rbac supplies only the predicate and action language.
 
-import { type Rule, rbac } from "@src/rbac";
+import { type Rule, rbac, type Where } from "@src/rbac";
 import { v } from "@src/validation";
 
 // Application grant/token vocabulary. These explicit tables describe which
 // stored values cover each requested action; they are not a graph interpreter.
-const levels = ["view", "edit", "full"] as const;
-const levelCoverage = { view: levels, edit: ["edit", "full"], full: ["full"] };
+const levels = ["read", "update", "full"] as const;
+const levelCoverage = {
+  read: [...levels, "create"],
+  update: ["update", "full"],
+  full: ["full"],
+  create: ["create"],
+};
 const coverage: Readonly<
   Record<string, Readonly<Record<string, readonly string[]>>>
 > = {
   organization: {
     ...levelCoverage,
-    view: [...levels, "invite", "export"],
+    read: [...levels, "invite", "export"],
     invite: ["invite"],
     export: ["export"],
   },
   member: levelCoverage,
   user: levelCoverage,
-  team: { ...levelCoverage, view: [...levels, "invite"], invite: ["invite"] },
+  team: { ...levelCoverage, read: [...levels, "invite"], invite: ["invite"] },
   teamMember: {
     ...levelCoverage,
-    view: [...levels, "manage"],
+    read: [...levels, "manage", "create"],
     manage: ["manage"],
   },
   accessGrant: levelCoverage,
   pageGroup: levelCoverage,
   page: levelCoverage,
   document: {
-    view: ["view", "comment", "archive", "edit", "share", "export"],
-    comment: ["comment", "edit", "share"],
-    archive: ["archive", "edit", "share"],
-    edit: ["edit", "share"],
+    create: ["create"],
+    read: ["read", "comment", "archive", "update", "share", "export", "create"],
+    comment: ["comment", "update", "share"],
+    archive: ["archive", "update", "share"],
+    update: ["update", "share"],
     share: ["share"],
     export: ["export"],
   },
@@ -94,7 +100,7 @@ export const activeUser = {
   ],
 } satisfies Rule;
 
-/** Readers only view; members and admins may exercise every declared action. */
+/** Readers only read; members and admins may exercise every declared action. */
 const inOrg: Rule = (action) => ({
   organization: {
     is: {
@@ -103,7 +109,7 @@ const inOrg: Rule = (action) => ({
           userId: { actor: "userId" },
           role: {
             in:
-              action === "view"
+              action === "read"
                 ? ["reader", "member", "admin"]
                 : ["member", "admin"],
           },
@@ -315,107 +321,157 @@ const bookmarkAccess: Rule = {
   OR: [{ userId: { actor: "userId" } }, admin],
 };
 
-export const policy = rbac({
-  actor: Actor,
-  levels, // ordered: full implies edit implies view
-  limit: tokenRestrictions,
-  models: {
-    organization: {
-      view: { members: { some: { userId: { actor: "userId" } } } },
-      invite: admin,
-      export: {
-        AND: [admin, { plan: "pro" }, { actor: { network: "office" } }],
-      }, // a row fact, and a request fact
-    },
-    member: {
-      mandatory: inOrg,
-      view: {},
-      edit: admin, // the new row too: no move into an org the actor does not run
-      create: { organization: "invite" }, // the invited user must be visible to the actor
-      operations: { delete: "edit" },
-    },
-    user: {
-      view: {
-        members: { some: { organizationId: { actor: "organizationId" } } },
+const memberBoundary: Where = {
+  organization: {
+    is: {
+      members: {
+        some: {
+          userId: { actor: "userId" },
+          user: { is: activeUser },
+        },
       },
-    },
-    team: {
-      mandatory: inOrg,
-      view: {},
-      invite: {
-        OR: [
-          admin,
-          { members: { some: { userId: { actor: "userId" }, role: "lead" } } },
-        ],
-      },
-      edit: admin, // `parents` is read by the grant recipient rule: only admins re-parent
-    },
-    teamMember: {
-      view: { team: "view" },
-      manage: { team: "invite" },
-      create: { team: "invite" },
-      operations: { update: "manage", delete: "manage" },
-    },
-    accessGrant: {
-      view: { OR: [{ userId: { actor: "userId" } }, administerGrant] },
-      edit: administerGrant,
-      create: placeGrant, // admin, one thing at least, contents bounded by what is held
-      operations: { delete: "edit" },
-    },
-    pageGroup: {
-      operations: { delete: "full" },
-      mandatory: inOrg,
-      "view, edit, full": pageGroupAccess,
-    },
-    page: {
-      operations: { delete: "full" },
-      mandatory: inOrg,
-      "view, edit, full": pageAccess,
-      create: {
-        OR: [
-          { group: "edit" },
-          { groupId: null, personal: true, ownerId: { actor: "userId" } },
-        ],
-      },
-      fields: { ownerId: { write: "full" } },
-      domains: { given }, // `as: "given"`: P(view) ∧ given(view)
-    },
-    document: {
-      mandatory: inOrg,
-      actions: {
-        view: [],
-        comment: ["view"],
-        archive: ["view"],
-        edit: ["comment", "archive"],
-        share: ["edit"],
-        export: ["view"],
-      },
-      "view, comment, archive, edit, share, export": documentAccess,
-      operations: { delete: "share" },
-      create: {
-        OR: [
-          { parent: "edit" },
-          { parentId: null, ownerId: { actor: "userId" } },
-        ],
-      },
-      fields: { ownerId: { write: "share" }, archivedAt: { write: "archive" } },
-    },
-    collection: {
-      operations: { delete: "full" },
-      mandatory: inOrg,
-      "view, edit, full": collectionAccess,
-      create: { createdById: { actor: "userId" } },
-      fields: { budget: { read: "full" } },
-    },
-    // The fixture's polymorphic model (W-R9): a user's pins of pages and
-    // documents; its `subject` arm reads under the target's own `view`.
-    bookmark: {
-      operations: { delete: "full" },
-      mandatory: inOrg,
-      "view, edit, full": bookmarkAccess,
     },
   },
-});
+};
+
+// Application-owned restrictions live in named grants. They are evaluated for
+// the action declared by that grant, then inherited without reinterpretation.
+export function policyFor(
+  ceiling: Rule = inOrg,
+  documentRule: Rule = documentAccess
+) {
+  const token = (rule: Rule): Rule => ({ AND: [tokenRestrictions, rule] });
+  const capped = (rule: Rule): Rule => ({
+    AND: [ceiling, tokenRestrictions, rule],
+  });
+  return rbac({
+    actor: Actor,
+    levels, // ordered: full implies update implies read
+    models: {
+      organization: {
+        actions: {
+          read: [],
+          update: ["read"],
+          full: ["update"],
+          invite: ["read"],
+          export: ["read"],
+        },
+        read: token({ members: { some: { userId: { actor: "userId" } } } }),
+        invite: token(admin),
+        export: token({
+          AND: [admin, { plan: "pro" }, { actor: { network: "office" } }],
+        }), // a row fact, and a request fact
+      },
+      member: {
+        mandatory: memberBoundary,
+        read: capped({}),
+        update: capped(admin), // the new row too: no move into an org the actor does not run
+        create: capped({ organization: "invite" }), // the invited user must be visible to the actor
+        operations: { delete: "update" },
+      },
+      user: {
+        read: token({
+          members: { some: { organizationId: { actor: "organizationId" } } },
+        }),
+      },
+      team: {
+        actions: {
+          read: [],
+          update: ["read"],
+          full: ["update"],
+          invite: ["read"],
+        },
+        mandatory: memberBoundary,
+        read: capped({}),
+        invite: capped({
+          OR: [
+            admin,
+            {
+              members: { some: { userId: { actor: "userId" }, role: "lead" } },
+            },
+          ],
+        }),
+        update: capped(admin), // `parents` is read by the grant recipient rule: only admins re-parent
+      },
+      teamMember: {
+        actions: {
+          read: [],
+          update: ["read"],
+          full: ["update"],
+          manage: ["read"],
+          create: ["read"],
+        },
+        read: token({ team: "read" }),
+        manage: token({ team: "invite" }),
+        create: token({ team: "invite" }),
+        operations: { update: "manage", delete: "manage" },
+      },
+      accessGrant: {
+        read: token({ OR: [{ userId: { actor: "userId" } }, administerGrant] }),
+        update: token(administerGrant),
+        create: token(placeGrant), // admin, one thing at least, contents bounded by what is held
+        operations: { delete: "update" },
+      },
+      pageGroup: {
+        operations: { delete: "full" },
+        mandatory: memberBoundary,
+        "read, update, full": capped(pageGroupAccess),
+      },
+      page: {
+        operations: { delete: "full" },
+        mandatory: memberBoundary,
+        "read, update, full": capped(pageAccess),
+        create: capped({
+          OR: [
+            { group: "update" },
+            { groupId: null, personal: true, ownerId: { actor: "userId" } },
+          ],
+        }),
+        fields: { ownerId: { write: "full" } },
+        domains: { given }, // `as: "given"`: P(read) ∧ given(read)
+      },
+      document: {
+        mandatory: memberBoundary,
+        actions: {
+          read: [],
+          create: ["read"],
+          comment: ["read"],
+          archive: ["read"],
+          update: ["comment", "archive"],
+          share: ["update"],
+          export: ["read"],
+        },
+        "read, comment, archive, update, share, export": capped(documentRule),
+        operations: { delete: "share" },
+        create: capped({
+          OR: [
+            { parent: "update" },
+            { parentId: null, ownerId: { actor: "userId" } },
+          ],
+        }),
+        fields: {
+          ownerId: { write: "share" },
+          archivedAt: { write: "archive" },
+        },
+      },
+      collection: {
+        operations: { delete: "full" },
+        mandatory: memberBoundary,
+        "read, update, full": capped(collectionAccess),
+        create: capped({ createdById: { actor: "userId" } }),
+        fields: { budget: { read: "full" } },
+      },
+      // The fixture's polymorphic model (W-R9): a user's pins of pages and
+      // documents; its `subject` arm reads under the target's own `read`.
+      bookmark: {
+        operations: { delete: "full" },
+        mandatory: memberBoundary,
+        "read, update, full": capped(bookmarkAccess),
+      },
+    },
+  });
+}
+export const policy = policyFor(inOrg);
 
 // The stored-role variant: the ceiling read from `rolePermission` rows instead of declared.
 const inOrgStored: Rule = (action, model) => ({
@@ -432,21 +488,7 @@ const inOrgStored: Rule = (action, model) => ({
     },
   },
 });
-const { models } = policy.config;
-const mandatory = { mandatory: inOrgStored } as const;
-export const storedPolicy = rbac({
-  ...policy.config,
-  models: {
-    ...models,
-    member: { ...models.member, ...mandatory },
-    team: { ...models.team, ...mandatory },
-    pageGroup: { ...models.pageGroup, ...mandatory },
-    page: { ...models.page, ...mandatory },
-    document: { ...models.document, ...mandatory },
-    collection: { ...models.collection, ...mandatory },
-    bookmark: { ...models.bookmark, ...mandatory },
-  },
-});
+export const storedPolicy = policyFor(inOrgStored);
 
 /**
  * The simplest case, a blog where the author edits and admins delete (§1.1),
@@ -458,12 +500,12 @@ export const blog = rbac({
   actor: v.object({ userId: v.string(), admin: v.boolean() }), // `admin`: an identity-provider claim, not a row of this database
   models: {
     page: {
-      view: {},
-      edit: { ownerId: { actor: "userId" } },
+      read: {},
+      update: { ownerId: { actor: "userId" } },
       delete: { actor: { admin: true } },
       create: { ownerId: { actor: "userId" } },
     },
-    user: { view: {} },
-    organization: { view: {} },
+    user: { read: {} },
+    organization: { read: {} },
   },
 });

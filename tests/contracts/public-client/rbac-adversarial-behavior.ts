@@ -54,19 +54,19 @@ const policy = rbac({
   models: {
     organization: {
       mandatory: { id: { actor: "organizationId" } },
-      "view, edit": member,
-      operations: { read: "view", update: "edit" },
+      "read, update": member,
+      operations: { read: "read", update: "update" },
     },
     membership: {
       mandatory: tenant,
-      view: { userId: { actor: "userId" } },
+      read: { userId: { actor: "userId" } },
     },
     document: {
       mandatory: { AND: [tenant, { organization: { is: member } }] },
-      view: {},
-      "edit, delete": owner,
+      read: {},
+      "update, delete": owner,
       create: { AND: [tenant, owner] },
-      operations: { read: "view", update: "edit", delete: "delete" },
+      operations: { read: "read", update: "update", delete: "delete" },
     },
   },
 });
@@ -91,6 +91,62 @@ export function runRbacAdversarialBehavior(substrate: {
     const governed = () => base.$extends(policy);
     const alice = () =>
       governed().$as({ userId: "alice", organizationId: "a" });
+    test("credential scopes restrict nested writes and preserve model and tenant checks", async () => {
+      const actor = { userId: "alice", organizationId: "a" };
+      const rootOnly = governed().$as(actor, ["organization.update"]);
+      const hiddenRelations = await rootOnly.organization.findUnique({
+        where: { id: "a" },
+        include: { documents: true, members: true },
+      });
+      expect(hiddenRelations?.documents).toEqual([]);
+      expect(hiddenRelations?.members).toEqual([]);
+      await expect(
+        rootOnly.organization.update({
+          where: { id: "a" },
+          data: {
+            documents: {
+              update: { where: { id: "alice-a" }, data: { title: "denied" } },
+            },
+          },
+        })
+      ).rejects.toThrow();
+      const both = governed().$as(actor, [
+        "organization.update",
+        "document.update",
+      ]);
+      const visibleRelations = await both.organization.findUnique({
+        where: { id: "a" },
+        include: { documents: { orderBy: { id: "asc" } }, members: true },
+      });
+      expect(visibleRelations?.documents.map(({ id }) => id)).toEqual([
+        "alice-a",
+        "bob-a",
+      ]);
+      expect(visibleRelations?.members).toEqual([]);
+      await both.organization.update({
+        where: { id: "a" },
+        data: {
+          documents: {
+            update: { where: { id: "alice-a" }, data: { title: "scoped" } },
+          },
+        },
+      });
+      expect(
+        (await base.document.findUnique({ where: { id: "alice-a" } }))?.title
+      ).toBe("scoped");
+      await expect(
+        both.document.update({
+          where: { id: "bob-a" },
+          data: { title: "denied" },
+        })
+      ).rejects.toThrow();
+      await expect(
+        both.document.update({
+          where: { id: "bob-b" },
+          data: { title: "denied" },
+        })
+      ).rejects.toThrow();
+    });
     beforeAll(async () => {
       base = createBase(substrate.createDriver());
       await substrate.prepare(base);
@@ -269,9 +325,9 @@ export function runRbacAdversarialBehavior(substrate: {
 
     test("a successful can check does not outlive a committed membership revocation", async () => {
       const db = alice();
-      expect(await db.document.can("edit", { id: "alice-a" })).toBe(true);
+      expect(await db.document.can("update", { id: "alice-a" })).toBe(true);
       await base.membership.delete({ where: { id: "alice-a" } });
-      expect(await db.document.can("edit", { id: "alice-a" })).toBe(false);
+      expect(await db.document.can("update", { id: "alice-a" })).toBe(false);
       await expect(
         db.document.update({
           where: { id: "alice-a" },

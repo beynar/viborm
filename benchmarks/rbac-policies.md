@@ -90,3 +90,5 @@ parameters. Baseline and protected queries returned identical expected rows.
 Raw evidence: [SQLite](results/rbac-2026-10-17/sqlite.json),
 [PostgreSQL default JIT](results/rbac-2026-10-17/postgres-jit-default.json), and
 [PostgreSQL JIT off](results/rbac-2026-10-17/postgres-jit-off.json).
+
+The committed 2026-10-17 receipts describe the pre-CRUD API revision recorded in each receipt. The current harness uses CRUD permission names; historical receipts are preserved unchanged and are not evidence for the revised scope-binding implementation.

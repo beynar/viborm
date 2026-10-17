@@ -63,8 +63,8 @@ const UPDATE: Partial<Record<GovernedModel, string>> = { teamMember: "manage" };
 const DELETE: Partial<Record<GovernedModel, string>> = {
   document: "share",
   teamMember: "manage",
-  accessGrant: "edit",
-  member: "edit",
+  accessGrant: "update",
+  member: "update",
 };
 /** `fields.write` of §1.1, and the team graph written at `invite` (W-W9). */
 const WRITES: Partial<Record<GovernedModel, Record<string, string>>> = {
@@ -81,7 +81,7 @@ const givenTo = (actor: Actor): Where => ({
 
 /**
  * The plain `rows` declaration of one actor's policy: per model its actions
- * as named predicates, `read` at `view` (live rows only on a tombstoned
+ * as named predicates, `read` at `read` (live rows only on a tombstoned
  * model), each write verb at its action; `page` and `document` carry modes
  * that narrow by name.
  */
@@ -93,19 +93,19 @@ function declaration(actor: Actor, now: Date, stamped = false) {
     for (const action of actionsOf(model))
       predicates[action] = rules.predicate(model, action) ?? NOTHING;
     if (TOMBSTONED.has(model))
-      predicates.view = and({ deletedAt: null }, predicates.view!) ?? NOTHING;
+      predicates.read = and({ deletedAt: null }, predicates.read!) ?? NOTHING;
     verbs[model] = {
       predicates,
-      read: "view",
-      update: UPDATE[model] ?? "edit",
+      read: "read",
+      update: UPDATE[model] ?? "update",
       delete: DELETE[model] ?? "full",
       ...(WRITES[model] && { writes: WRITES[model] }),
     };
   }
   const modes = {
     all: {},
-    view: { root: "view" },
-    edit: { root: "edit" },
+    read: { root: "read" },
+    update: { root: "update" },
     given: { root: givenTo(actor) },
   };
   return {
@@ -130,7 +130,7 @@ function declaration(actor: Actor, now: Date, stamped = false) {
  * memberships, team members and grants only. Two declarations of the hand
  * policy the §1.1 text does not make are restated so each witness keeps the
  * shape it was written for: `team`'s links written at `invite` (a lead links
- * the teams it leads, W-W9, W-W10; §1.1 writes them at `edit`, its admins
+ * the teams it leads, W-W9, W-W10; §1.1 writes them at `update`, its admins
  * only), and a `given` domain of the grants to the actor's own user (W-N4).
  * Every expectation stays the oracle's.
  */
@@ -141,6 +141,7 @@ const entryPolicy = rbac({
     ...models,
     team: {
       ...models.team,
+      operations: { update: "invite" },
       fields: { parents: { write: "invite" }, children: { write: "invite" } },
     },
     page: {
@@ -273,8 +274,8 @@ export function runRbacAppVerbs(
         for (const name of writers) {
           const actor = actors[name]!;
           const db = governed(actor);
-          const view = at(actor, "page", "view");
-          const edit = at(actor, "page", "edit");
+          const read = at(actor, "page", "read");
+          const update = at(actor, "page", "update");
           const full = at(actor, "page", "full");
           const titled = await probe(db, async (tx) => {
             const { count } = await tx.page!.updateMany({
@@ -287,8 +288,8 @@ export function runRbacAppVerbs(
             return { count, rows: ids(rows) };
           });
           expect(titled.value, `${name} title`).toEqual({
-            count: edit.length,
-            rows: edit,
+            count: update.length,
+            rows: update,
           });
           // The actor as every row's owner keeps each row it writes at full
           // (R4, K4). Through the entry `ownerId` is also a move (OD-14: the
@@ -317,15 +318,15 @@ export function runRbacAppVerbs(
               ? { outcome: "ok", value: { count: full.length } }
               : { outcome: ForbiddenError.name }
           );
-          // W-W4: no count reveals a row the call sees and may not edit.
+          // W-W4: no count reveals a row the call sees and may not update.
           const hidden = await probe(db, (tx) =>
             tx.page!.updateMany({
-              where: { id: { in: minus(view, edit) } },
+              where: { id: { in: minus(read, update) } },
               data: { title: "w4" },
             })
           );
           expect(hidden.value, `${name} viewed only`).toEqual({ count: 0 });
-          const editOnly = minus(edit, full)[0];
+          const editOnly = minus(update, full)[0];
           if (editOnly !== undefined) {
             edited += 1;
             const owner = seed.page.find((p) => p.id === editOnly)!.ownerId;
@@ -358,7 +359,7 @@ export function runRbacAppVerbs(
     );
 
     test(
-      "W-W2: an archive-only writer archives and cannot edit; archive and edit together need both",
+      "W-W2: RBAC field grants require update too; generic field overrides retain their contract",
       async () => {
         const instant = new Date("2031-01-01T00:00:00.000Z");
         let archivers = 0;
@@ -366,7 +367,7 @@ export function runRbacAppVerbs(
           const actor = actors[name]!;
           const db = governed(actor);
           const archive = at(actor, "document", "archive");
-          const edit = at(actor, "document", "edit");
+          const update = at(actor, "document", "update");
           const archived = await probe(db, async (tx) => {
             const { count } = await tx.document!.updateMany({
               data: { archivedAt: instant },
@@ -377,26 +378,31 @@ export function runRbacAppVerbs(
             });
             return { count, rows: ids(rows) };
           });
+          const allowedArchive = entry
+            ? archive.filter((id) => update.includes(id))
+            : archive;
           expect(archived.value, `${name} archive`).toEqual({
-            count: archive.length,
-            rows: archive,
+            count: allowedArchive.length,
+            rows: allowedArchive,
           });
           const both = await probe(db, (tx) =>
             tx.document!.updateMany({
               data: { archivedAt: instant, title: "w2" },
             })
           );
-          expect(both.value, `${name} archive and edit`).toEqual({
-            count: edit.length,
+          expect(both.value, `${name} archive and update`).toEqual({
+            count: update.length,
           });
-          const only = minus(archive, edit)[0];
+          const only = minus(archive, update)[0];
           if (only === undefined) continue;
           archivers += 1;
           const write = (data: object) =>
             probe(db, (tx) =>
               tx.document!.update({ where: { id: only }, data })
             );
-          expect((await write({ archivedAt: instant })).outcome).toBe("ok");
+          expect((await write({ archivedAt: instant })).outcome).toBe(
+            entry ? NotFoundError.name : "ok"
+          );
           expect((await write({ title: "w2" })).outcome).toBe(
             NotFoundError.name
           );
@@ -410,14 +416,14 @@ export function runRbacAppVerbs(
     );
 
     test(
-      "W-W5′: with an audit stamp on every update, an archive-only write stays at archive and is stamped",
+      "W-W5′: audit stamps preserve the applicable base and field permission checks",
       async () => {
         const instant = new Date("2031-01-01T00:00:00.000Z");
         let archivers = 0;
         for (const name of writers) {
           const actor = actors[name]!;
           const archive = at(actor, "document", "archive");
-          const only = minus(archive, at(actor, "document", "edit"))[0];
+          const only = minus(archive, at(actor, "document", "update"))[0];
           if (only === undefined) continue;
           archivers += 1;
           const db = governed(actor, true);
@@ -431,9 +437,14 @@ export function runRbacAppVerbs(
             });
             return { count, rows: ids(rows) };
           });
+          const allowedArchive = entry
+            ? archive.filter((id) =>
+                at(actor, "document", "update").includes(id)
+              )
+            : archive;
           expect(stamped.value, name).toEqual({
-            count: archive.length,
-            rows: archive,
+            count: allowedArchive.length,
+            rows: allowedArchive,
           });
           const one = await probe(db, (tx) =>
             tx.document!.update({
@@ -442,10 +453,14 @@ export function runRbacAppVerbs(
               select: { searchKey: true },
             })
           );
-          expect(one).toEqual({
-            outcome: "ok",
-            value: { searchKey: "audited" },
-          });
+          expect(one).toEqual(
+            entry
+              ? { outcome: NotFoundError.name }
+              : {
+                  outcome: "ok",
+                  value: { searchKey: "audited" },
+                }
+          );
         }
         expect(archivers).toBeGreaterThan(0);
       },
@@ -468,22 +483,22 @@ export function runRbacAppVerbs(
         for (const name of writers) {
           const actor = actors[name]!;
           const db = governed(actor);
-          const writable = at(actor, "accessGrant", "edit");
+          const writable = at(actor, "accessGrant", "update");
           const written = await probe(db, (tx) =>
             tx.accessGrant!.updateMany({ data: { everyone: false } })
           );
           expect(written.value, name).toEqual({ count: writable.length });
-          const edit = at(actor, "page", "edit");
+          const update = at(actor, "page", "update");
           const full = at(actor, "page", "full");
           const onEdited = pageOnly.find(
-            (g) => edit.includes(g.pageId!) && !full.includes(g.pageId!)
+            (g) => update.includes(g.pageId!) && !full.includes(g.pageId!)
           );
           const onFull = pageOnly.find((g) => full.includes(g.pageId!));
           const write = (id: string) =>
             probe(db, (tx) =>
               tx.accessGrant!.update({
                 where: { id },
-                data: { level: "view" },
+                data: { level: "read" },
               })
             );
           if (onEdited) {
@@ -511,13 +526,13 @@ export function runRbacAppVerbs(
         for (const name of writers) {
           const actor = actors[name]!;
           const db = governed(actor);
-          const view = at(actor, "page", "view");
-          const edit = at(actor, "page", "edit");
+          const read = at(actor, "page", "read");
+          const update = at(actor, "page", "update");
           const bumped = await probe(db, (tx) =>
             tx.page!.updateMany({ data: {} })
           );
-          expect(bumped.value, name).toEqual({ count: edit.length });
-          const viewed = minus(view, edit)[0];
+          expect(bumped.value, name).toEqual({ count: update.length });
+          const viewed = minus(read, update)[0];
           if (viewed !== undefined) {
             viewers += 1;
             expect(
@@ -530,11 +545,11 @@ export function runRbacAppVerbs(
             ).toBe(NotFoundError.name);
           }
           // `team` has no updatedAt: a team addressed only to reach its
-          // members emits no UPDATE, so it is read at view, and a lead who
-          // may not edit it writes its members at their own verb.
+          // members emits no UPDATE, so it is read at read, and a lead who
+          // may not update it writes its members at their own verb.
           const led = minus(
             at(actor, "team", "invite"),
-            at(actor, "team", "edit")
+            at(actor, "team", "update")
           )[0];
           if (led !== undefined) {
             leads += 1;
@@ -567,7 +582,7 @@ export function runRbacAppVerbs(
         for (const name of writers) {
           const actor = actors[name]!;
           const db = governed(actor);
-          const edit = at(actor, "document", "edit");
+          const update = at(actor, "document", "update");
           const nested = (parent: string) =>
             probe(db, async (tx) => {
               await tx.document!.update({
@@ -591,14 +606,14 @@ export function runRbacAppVerbs(
                 })
               ).length;
             });
-          const viewed = minus(at(actor, "document", "view"), edit)[0];
+          const viewed = minus(at(actor, "document", "read"), update)[0];
           if (viewed !== undefined) {
             viewers += 1;
             expect((await nested(viewed)).outcome, name).toBe(
               NotFoundError.name
             );
           }
-          const editable = edit[0];
+          const editable = update[0];
           if (editable !== undefined) {
             editors += 1;
             const accepted = await nested(editable);
@@ -613,16 +628,16 @@ export function runRbacAppVerbs(
     );
 
     test(
-      "W-W8: an upsert on a row the actor views and may not edit takes its create arm, as on a row it cannot see; the row is unchanged",
+      "W-W8: an upsert on a row the actor views and may not update takes its create arm, as on a row it cannot see; the row is unchanged",
       async () => {
         let cases = 0;
         for (const name of writers) {
           const actor = actors[name]!;
           const db = governed(actor);
-          const view = at(actor, "page", "view");
-          const viewed = minus(view, at(actor, "page", "edit"))[0];
+          const read = at(actor, "page", "read");
+          const viewed = minus(read, at(actor, "page", "update"))[0];
           const hidden = seed.page.find(
-            (p) => p.deletedAt === null && !view.includes(p.id)
+            (p) => p.deletedAt === null && !read.includes(p.id)
           );
           if (viewed === undefined || hidden === undefined) continue;
           cases += 1;
@@ -688,7 +703,7 @@ export function runRbacAppVerbs(
           const actor = actors[name]!;
           const db = governed(actor);
           const invite = at(actor, "team", "invite");
-          const viewedOnly = minus(at(actor, "team", "view"), invite);
+          const viewedOnly = minus(at(actor, "team", "read"), invite);
           const mine = invite.find((team) =>
             viewedOnly.some((other) => !SEEDED_EDGES.has(`${team}>${other}`))
           );
@@ -747,7 +762,7 @@ export function runRbacAppVerbs(
           const actor = actors[name]!;
           const db = governed(actor);
           const invite = at(actor, "team", "invite");
-          const view = at(actor, "team", "view");
+          const read = at(actor, "team", "read");
           const childrenOf = (team: string) =>
             seed.teamParent
               .filter((edge) => edge.parentId === team)
@@ -764,7 +779,7 @@ export function runRbacAppVerbs(
             });
           const guarded = invite.find((team) =>
             childrenOf(team).some(
-              (child) => view.includes(child) && !invite.includes(child)
+              (child) => read.includes(child) && !invite.includes(child)
             )
           );
           if (guarded !== undefined) {
@@ -773,7 +788,7 @@ export function runRbacAppVerbs(
               NestedWriteError.name
             );
             const child = childrenOf(guarded).find(
-              (c) => view.includes(c) && !invite.includes(c)
+              (c) => read.includes(c) && !invite.includes(c)
             )!;
             const disconnected = await probe(db, async (tx) => {
               await tx.team!.update({
@@ -819,8 +834,8 @@ export function runRbacAppVerbs(
         for (const name of writers) {
           const actor = actors[name]!;
           const db = governed(actor);
-          const editable = at(actor, "accessGrant", "edit");
-          const seen = at(actor, "team", "view");
+          const editable = at(actor, "accessGrant", "update");
+          const seen = at(actor, "team", "read");
           const deletable = at(actor, "team", "full");
           const held = seed.accessGrant.filter(
             (grant) =>
@@ -861,8 +876,8 @@ export function runRbacAppVerbs(
         for (const name of writers) {
           const actor = actors[name]!;
           const db = governed(actor);
-          const editable = at(actor, "document", "edit");
-          const seen = at(actor, "document", "view");
+          const editable = at(actor, "document", "update");
+          const seen = at(actor, "document", "read");
           const deletable = at(actor, "document", DELETE.document!);
           const drop = (document: string) =>
             probe(db, async (tx) => {
@@ -883,7 +898,7 @@ export function runRbacAppVerbs(
               "document",
               { ...document, parentId: null },
               ["parentId"],
-              ["edit"],
+              ["update"],
               { now }
             );
           const guarded = seed.document.find(
@@ -921,7 +936,7 @@ export function runRbacAppVerbs(
     );
 
     test(
-      "W-N4: a mode only narrows a verb: update as view by a viewer, delete as edit by a non-deleter are NotFoundError; deleteMany as given counts deletable rows only",
+      "W-N4: a mode only narrows a verb: update as read by a viewer, delete as update by a non-deleter are NotFoundError; deleteMany as given counts deletable rows only",
       async () => {
         let viewers = 0;
         let editors = 0;
@@ -929,8 +944,8 @@ export function runRbacAppVerbs(
         for (const name of writers) {
           const actor = actors[name]!;
           const db = governed(actor);
-          const pageView = at(actor, "page", "view");
-          const pageEdit = at(actor, "page", "edit");
+          const pageView = at(actor, "page", "read");
+          const pageEdit = at(actor, "page", "update");
           const viewed = minus(pageView, pageEdit)[0];
           if (viewed !== undefined) {
             viewers += 1;
@@ -940,7 +955,7 @@ export function runRbacAppVerbs(
                   tx.page!.update({
                     where: { id: viewed },
                     data: { title: "n4" },
-                    as: "view",
+                    as: "read",
                   })
                 )
               ).outcome,
@@ -955,17 +970,17 @@ export function runRbacAppVerbs(
                   tx.page!.update({
                     where: { id: editable },
                     data: { title: "n4" },
-                    as: "view",
+                    as: "read",
                   })
                 )
               ).outcome,
               name
             ).toBe("ok");
           const share = at(actor, "document", "share");
-          const editOnly = minus(at(actor, "document", "edit"), share)[0];
+          const editOnly = minus(at(actor, "document", "update"), share)[0];
           if (editOnly !== undefined) {
             editors += 1;
-            for (const as of ["edit", unnamed])
+            for (const as of ["update", unnamed])
               expect(
                 (
                   await probe(db, (tx) =>

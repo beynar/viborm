@@ -48,7 +48,7 @@ describe("rbac(config)(base)", () => {
     // @ts-expect-error - `archive` is document's, not page's
     call.page.assert("archive", { id: "p" });
     // @ts-expect-error - `nope` is not a field of page
-    call.page.can("view", { nope: true });
+    call.page.can("read", { nope: true });
   });
 
   test("can with a list answers a record of exactly the listed actions", () => {
@@ -57,11 +57,11 @@ describe("rbac(config)(base)", () => {
     ).toEqualTypeOf<
       Promise<{ readonly comment: boolean; readonly share: boolean }>
     >();
-    expectTypeOf(call.page.assert(["view", "edit"], { id: "p" })).toEqualTypeOf<
-      Promise<void>
-    >();
+    expectTypeOf(
+      call.page.assert(["read", "update"], { id: "p" })
+    ).toEqualTypeOf<Promise<void>>();
     // @ts-expect-error - `archive` is not an action of page
-    call.page.can(["view", "archive"], { id: "p" });
+    call.page.can(["read", "archive"], { id: "p" });
   });
 
   test("$access is a projection key at every depth, typed by each model's actions (D6, OD-2)", async () => {
@@ -73,23 +73,27 @@ describe("rbac(config)(base)", () => {
       },
     });
     expectTypeOf(documents[0]!.$access).toEqualTypeOf<{
-      readonly view: boolean;
+      readonly read: boolean;
       readonly comment: boolean;
       readonly archive: boolean;
-      readonly edit: boolean;
+      readonly update: boolean;
       readonly share: boolean;
       readonly export: boolean;
+      readonly create: boolean;
     }>();
     expectTypeOf(documents[0]!.children[0]!.$access).toEqualTypeOf<{
       readonly share: boolean;
     }>();
-    // Ordered: the actions are exactly the levels, so the highest one held.
+    // Levels retain the same boolean-map evidence shape.
     const pages = await call.page.findMany({
       include: { $access: true, group: { include: { $access: true } } },
     });
-    expectTypeOf(pages[0]!.$access).toEqualTypeOf<
-      "view" | "edit" | "full" | null
-    >();
+    expectTypeOf(pages[0]!.$access).toEqualTypeOf<{
+      readonly read: boolean;
+      readonly update: boolean;
+      readonly full: boolean;
+      readonly create: boolean;
+    }>();
     // @ts-expect-error - `archive` is not one of page's names
     await call.page.findMany({ select: { id: true, $access: ["archive"] } });
   });
@@ -106,7 +110,7 @@ describe("rbac(config)(base)", () => {
 
   test("a model the policy does not list has no answers", () => {
     // @ts-expect-error - `session` is not listed
-    call.session.can("view", { id: "s" });
+    call.session.can("read", { id: "s" });
   });
 
   test("the actor is bound only; `as` takes the policy's modes", () => {

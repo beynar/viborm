@@ -231,10 +231,15 @@ test("the extensions lane owns every file of the official rbac and soft-delete e
   );
   // The tests that hold `src/rbac` at 100% are admitted, each once.
   assert.equal(new Set(extensions.tests).size, extensions.tests.length);
+  assert.deepEqual(
+    extensions.testGroups.flat().sort(),
+    [...extensions.tests].sort()
+  );
   for (const file of [
     "tests/unit/rbac/compile.core.test.ts",
     "tests/providers/local/sqlite3-rbac-compiled-policy.test.ts",
     "tests/providers/local/sqlite3-rbac-entry.test.ts",
+    "tests/providers/local/sqlite3-rbac-extends.test.ts",
   ]) {
     assert.ok(extensions.tests.includes(file), `${file} is not admitted`);
     assert.ok(existsSync(file), `${file} does not exist`);

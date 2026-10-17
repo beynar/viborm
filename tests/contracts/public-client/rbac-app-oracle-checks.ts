@@ -10,6 +10,7 @@ import {
 import {
   type Actor,
   actors,
+  DOCUMENT_ACTIONS,
   seed,
 } from "@tests/package/fixtures/rbac-app/seed";
 import { WITNESSES } from "@tests/package/fixtures/rbac-app/witnesses";
@@ -28,7 +29,7 @@ const actor = (name: string) => actors[name] as Actor;
 const rows = (
   name: string,
   model: (typeof GOVERNED_MODELS)[number],
-  action = "view"
+  action = "read"
 ) => oracle.rows(actor(name), model, action, { now: NOW });
 
 /** Models whose every action is under `mandatory: inOrg` (an active member, a live credential). */
@@ -43,13 +44,13 @@ const IN_ORG = [
 ] as const;
 /** Actions no rule and no arm declares: false for everyone (R9, A7). */
 const UNDECLARED = new Set([
-  "organization.edit",
+  "organization.update",
   "organization.full",
   "member.full",
-  "user.edit",
+  "user.update",
   "user.full",
   "team.full",
-  "teamMember.edit",
+  "teamMember.update",
   "teamMember.full",
   "accessGrant.full",
 ]);
@@ -90,7 +91,7 @@ export function runRbacOracleChecks(): void {
         session: 78,
         apiKey: 8,
         member: 71,
-        rolePermission: 57,
+        rolePermission: 63,
         team: 20,
         teamParent: 19,
         teamMember: 84,
@@ -135,13 +136,14 @@ export function runRbacOracleChecks(): void {
             ).length > 1
         ).length
       ).toBeGreaterThan(5);
-      for (const level of ["view", "edit", "full"]) {
+      for (const level of ["read", "update", "full"]) {
         expect(
           grants.some((g) => g.level === level),
           level
         ).toBe(true);
       }
-      for (const action of actionsOf("document")) {
+      // Creation uses ownership/placement, not a stored document grant.
+      for (const action of DOCUMENT_ACTIONS) {
         expect(
           grants.some(
             (g) => g.documentId !== null && g.actions.includes(action)
@@ -186,15 +188,15 @@ export function runRbacOracleChecks(): void {
       // A ban that expired bans nothing; `banned: null` is not a ban.
       expect(rows("u46", "page").length).toBeGreaterThan(0);
       expect(rows("u22", "page").length).toBeGreaterThan(0);
-      // Without a credential, `organization.view: member()` and `user.view` still hold (A2).
+      // Without a credential, `organization.read: member()` and `user.read` still hold (A2).
       expect(rows("u17-no-credential", "organization")).toEqual(["org-1"]);
     });
 
     test("a key narrows: actions, models and documents through the tree", () => {
-      expect(rows("k02-pages-view", "page").length).toBeGreaterThan(0);
-      expect(rows("k02-pages-view", "page", "edit")).toEqual([]);
+      expect(rows("k02-pages-read", "page").length).toBeGreaterThan(0);
+      expect(rows("k02-pages-read", "page", "update")).toEqual([]);
       for (const model of GOVERNED_MODELS.filter((m) => m !== "page")) {
-        expect(rows("k02-pages-view", model), model).toEqual([]);
+        expect(rows("k02-pages-read", model), model).toEqual([]);
       }
       expect(rows("k41-no-resources", "document")).toEqual([]);
       const shared = rows("k05-documents-share", "document");
@@ -217,7 +219,7 @@ export function runRbacOracleChecks(): void {
       // Session and key at once: the key's scopes still narrow.
       expect(rows("u21-session-and-key", "document")).toEqual([]);
       expect(
-        rows("u21-session-and-key", "page", "edit").length
+        rows("u21-session-and-key", "page", "update").length
       ).toBeGreaterThan(0);
     });
 
@@ -243,11 +245,11 @@ export function runRbacOracleChecks(): void {
         }
       }
       expect(widened).toBeGreaterThan(0);
-      const withTombstones = oracle.rows(actor("u01"), "page", "view", {
+      const withTombstones = oracle.rows(actor("u01"), "page", "read", {
         now: NOW,
         deleted: "with",
       });
-      const only = oracle.rows(actor("u01"), "page", "view", {
+      const only = oracle.rows(actor("u01"), "page", "read", {
         now: NOW,
         deleted: "only",
       });
@@ -265,16 +267,16 @@ export function runRbacOracleChecks(): void {
         for (const model of GOVERNED_MODELS) {
           const evidence = oracle.access(a, model, { now: NOW });
           expect([...evidence.keys()].sort()).toEqual(
-            oracle.rows(a, model, "view", { now: NOW })
+            oracle.rows(a, model, "read", { now: NOW })
           );
           for (const [id, held] of evidence) {
-            expect(held, `${model} ${id}`).toContain("view");
+            expect(held, `${model} ${id}`).toContain("read");
           }
         }
       }
-      // A1: a reader's ceiling is view. A reader in every organization it
-      // belongs to holds nothing above view under `mandatory`, even where a grant
-      // gives it edit or full; and such a grant exists in the seed.
+      // A1: a reader's ceiling is read. A reader in every organization it
+      // belongs to holds nothing above read under `mandatory`, even where a grant
+      // gives it update or full; and such a grant exists in the seed.
       const readersOnly = Object.entries(actors).filter(([, a]) => {
         const live = seed.member.filter(
           (m) => m.userId === a.userId && m.deletedAt === null
@@ -284,7 +286,7 @@ export function runRbacOracleChecks(): void {
       expect(readersOnly.length).toBeGreaterThan(0);
       for (const [name, a] of readersOnly) {
         for (const model of IN_ORG) {
-          for (const action of actionsOf(model).filter((x) => x !== "view")) {
+          for (const action of actionsOf(model).filter((x) => x !== "read")) {
             expect(
               oracle.rows(a, model, action, { now: NOW }),
               `${name} ${model}.${action}`
@@ -296,7 +298,7 @@ export function runRbacOracleChecks(): void {
         seed.accessGrant.some(
           (g) =>
             g.deletedAt === null &&
-            (g.level === "edit" || g.level === "full") &&
+            (g.level === "update" || g.level === "full") &&
             readersOnly.some(([, a]) => a.userId === g.userId)
         )
       ).toBe(true);

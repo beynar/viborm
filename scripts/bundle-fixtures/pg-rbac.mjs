@@ -28,12 +28,12 @@ const blog = rbac({
   actor: v.object({ userId: v.string(), admin: v.boolean() }),
   models: {
     post: {
-      view: {},
-      edit: { authorId: { actor: "userId" } },
+      read: {},
+      update: { authorId: { actor: "userId" } },
       delete: { actor: { admin: true } },
       create: { authorId: { actor: "userId" } },
     },
-    user: { view: {} },
+    user: { read: {} },
   },
 });
 
@@ -53,6 +53,6 @@ export async function run(session) {
   const created = await call.post.create({
     data: { title: "hello", authorId: session.userId },
   });
-  await call.post.can("edit", { id: created.id });
+  await call.post.can("update", { id: created.id });
   return users;
 }

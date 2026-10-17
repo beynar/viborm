@@ -1,6 +1,7 @@
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import {
+  actionsOf,
   createOracle,
   type GovernedModel,
   MODEL_ACTIONS,
@@ -218,30 +219,36 @@ export function runRbacAppBehavior(substrate: RbacAppSubstrate): void {
     );
 
     /**
-     * The hand rules with `grants.admin` resolved first (rules.ts
-     * `administered`): the things the actor administers, read with their own
-     * predicates, root default included (a tombstoned page administers
-     * nothing).
+     * Resolve the handwritten grant rules' target permissions first. This
+     * independent baseline uses ordinary queries and their nesting bound;
+     * production RBAC performs the authorization in one protected statement.
      */
     const rulesFor = async (actor: Actor, options: RuleOptions) => {
       const plain = handRules(actor, options);
-      const administered = {} as Record<AdministeredThing, string[]>;
-      for (const [, , thing, action] of ADMINISTERED) {
-        const where = plain.predicate(thing, action);
-        const root =
-          where !== null && TOMBSTONED.has(thing)
-            ? and({ deletedAt: null }, where)
-            : where;
-        const rows =
-          root === null
-            ? []
-            : await delegate(client, thing).findMany({
-                where: root,
-                select: { id: true },
-              });
-        administered[thing] = rows.map((row) => String(row.id));
+      const permissions: Record<AdministeredThing, Record<string, string[]>> = {
+        page: {},
+        pageGroup: {},
+        document: {},
+        collection: {},
+      };
+      for (const [, , thing] of ADMINISTERED) {
+        for (const action of actionsOf(thing)) {
+          const where = plain.predicate(thing, action);
+          const root =
+            where !== null && TOMBSTONED.has(thing)
+              ? and({ deletedAt: null }, where)
+              : where;
+          const rows =
+            root === null
+              ? []
+              : await delegate(client, thing).findMany({
+                  where: root,
+                  select: { id: true },
+                });
+          permissions[thing][action] = rows.map((row) => String(row.id));
+        }
       }
-      return handRules(actor, { ...options, administered });
+      return handRules(actor, { ...options, permissions });
     };
 
     /** The root rows the hand rules select at (model, action). */

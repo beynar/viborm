@@ -3,28 +3,29 @@
 exports[`the acceptance policy (§1.1) > its predicates for the identity models, as data 1`] = `
 {
   "member": {
-    "delete": "edit",
+    "delete": "update",
     "evidence": {
       "as": "$access",
       "names": [
-        "view",
-        "edit",
+        "read",
+        "update",
         "full",
+        "create",
       ],
-      "ordered": true,
     },
     "modes": {
-      "edit": "edit",
+      "create": "create",
       "full": "full",
-      "view": "view",
+      "read": "read",
+      "update": "update",
     },
     "moves": {
       "organizationId": "move:organizationId",
       "userId": "move:userId",
     },
-    "place": "create",
+    "place": "$create",
     "predicates": {
-      "create": {
+      "$create": {
         "AND": [
           {
             "organization": {
@@ -140,8 +141,7 @@ exports[`the acceptance policy (§1.1) > its predicates for the identity models,
                 "$if": {
                   "control": "actor",
                   "hasSome": [
-                    "edit",
-                    "full",
+                    "create",
                   ],
                   "path": "key.scopes.member",
                 },
@@ -192,6 +192,24 @@ exports[`the acceptance policy (§1.1) > its predicates for the identity models,
             },
           },
           {
+            "OR": [
+              {
+                "$if": {
+                  "control": "scopes",
+                  "equals": true,
+                  "path": "unrestricted",
+                },
+              },
+              {
+                "$if": {
+                  "control": "scopes",
+                  "has": "member.create",
+                  "path": "allowed",
+                },
+              },
+            ],
+          },
+          {
             "user": {
               "is": {
                 "AND": [
@@ -208,9 +226,10 @@ exports[`the acceptance policy (§1.1) > its predicates for the identity models,
                         "$if": {
                           "control": "actor",
                           "hasSome": [
-                            "view",
-                            "edit",
+                            "read",
+                            "update",
                             "full",
+                            "create",
                           ],
                           "path": "key.scopes.user",
                         },
@@ -233,8 +252,103 @@ exports[`the acceptance policy (§1.1) > its predicates for the identity models,
           },
         ],
       },
-      "edit": {
+      "create": {
         "AND": [
+          {
+            "organization": {
+              "is": {
+                "members": {
+                  "some": {
+                    "user": {
+                      "is": {
+                        "AND": [
+                          {
+                            "OR": [
+                              {
+                                "banned": null,
+                              },
+                              {
+                                "banned": false,
+                              },
+                              {
+                                "banExpires": {
+                                  "lte": {
+                                    "now": true,
+                                  },
+                                },
+                              },
+                            ],
+                          },
+                          {
+                            "OR": [
+                              {
+                                "$if": {
+                                  "control": "actor",
+                                  "exists": true,
+                                  "path": "session",
+                                },
+                                "sessions": {
+                                  "some": {
+                                    "expiresAt": {
+                                      "gt": {
+                                        "now": true,
+                                      },
+                                    },
+                                    "id": {
+                                      "control": "actor",
+                                      "path": "session",
+                                    },
+                                  },
+                                },
+                              },
+                              {
+                                "$if": {
+                                  "control": "actor",
+                                  "exists": true,
+                                  "path": "key",
+                                },
+                                "apiKeys": {
+                                  "some": {
+                                    "AND": [
+                                      {
+                                        "enabled": true,
+                                        "id": {
+                                          "control": "actor",
+                                          "path": "key.id",
+                                        },
+                                      },
+                                      {
+                                        "OR": [
+                                          {
+                                            "expiresAt": null,
+                                          },
+                                          {
+                                            "expiresAt": {
+                                              "gt": {
+                                                "now": true,
+                                              },
+                                            },
+                                          },
+                                        ],
+                                      },
+                                    ],
+                                  },
+                                },
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                    },
+                    "userId": {
+                      "control": "actor",
+                      "path": "userId",
+                    },
+                  },
+                },
+              },
+            },
+          },
           {
             "organization": {
               "is": {
@@ -349,8 +463,7 @@ exports[`the acceptance policy (§1.1) > its predicates for the identity models,
                 "$if": {
                   "control": "actor",
                   "hasSome": [
-                    "edit",
-                    "full",
+                    "create",
                   ],
                   "path": "key.scopes.member",
                 },
@@ -360,21 +473,63 @@ exports[`the acceptance policy (§1.1) > its predicates for the identity models,
           {
             "organization": {
               "is": {
-                "members": {
-                  "some": {
-                    "role": {
-                      "in": [
-                        "admin",
-                      ],
-                    },
-                    "userId": {
-                      "control": "actor",
-                      "path": "userId",
+                "AND": [
+                  {
+                    "OR": [
+                      {
+                        "$if": {
+                          "control": "actor",
+                          "exists": false,
+                          "path": "key",
+                        },
+                      },
+                      {
+                        "$if": {
+                          "control": "actor",
+                          "hasSome": [
+                            "invite",
+                          ],
+                          "path": "key.scopes.organization",
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    "members": {
+                      "some": {
+                        "role": {
+                          "in": [
+                            "admin",
+                          ],
+                        },
+                        "userId": {
+                          "control": "actor",
+                          "path": "userId",
+                        },
+                      },
                     },
                   },
-                },
+                ],
               },
             },
+          },
+          {
+            "OR": [
+              {
+                "$if": {
+                  "control": "scopes",
+                  "equals": true,
+                  "path": "unrestricted",
+                },
+              },
+              {
+                "$if": {
+                  "control": "scopes",
+                  "has": "member.create",
+                  "path": "allowed",
+                },
+              },
+            ],
           },
         ],
       },
@@ -382,47 +537,71 @@ exports[`the acceptance policy (§1.1) > its predicates for the identity models,
         "OR": [],
       },
       "move:organizationId": {
-        "organization": {
-          "is": {
-            "AND": [
+        "AND": [
+          {
+            "OR": [
               {
-                "OR": [
-                  {
-                    "$if": {
-                      "control": "actor",
-                      "exists": false,
-                      "path": "key",
-                    },
-                  },
-                  {
-                    "$if": {
-                      "control": "actor",
-                      "hasSome": [
-                        "invite",
-                      ],
-                      "path": "key.scopes.organization",
-                    },
-                  },
-                ],
+                "$if": {
+                  "control": "actor",
+                  "exists": false,
+                  "path": "key",
+                },
               },
               {
-                "members": {
-                  "some": {
-                    "role": {
-                      "in": [
-                        "admin",
-                      ],
-                    },
-                    "userId": {
-                      "control": "actor",
-                      "path": "userId",
-                    },
-                  },
+                "$if": {
+                  "control": "actor",
+                  "hasSome": [
+                    "create",
+                  ],
+                  "path": "key.scopes.member",
                 },
               },
             ],
           },
-        },
+          {
+            "organization": {
+              "is": {
+                "AND": [
+                  {
+                    "OR": [
+                      {
+                        "$if": {
+                          "control": "actor",
+                          "exists": false,
+                          "path": "key",
+                        },
+                      },
+                      {
+                        "$if": {
+                          "control": "actor",
+                          "hasSome": [
+                            "invite",
+                          ],
+                          "path": "key.scopes.organization",
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    "members": {
+                      "some": {
+                        "role": {
+                          "in": [
+                            "admin",
+                          ],
+                        },
+                        "userId": {
+                          "control": "actor",
+                          "path": "userId",
+                        },
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        ],
       },
       "move:userId": {
         "user": {
@@ -441,9 +620,10 @@ exports[`the acceptance policy (§1.1) > its predicates for the identity models,
                     "$if": {
                       "control": "actor",
                       "hasSome": [
-                        "view",
-                        "edit",
+                        "read",
+                        "update",
                         "full",
+                        "create",
                       ],
                       "path": "key.scopes.user",
                     },
@@ -464,8 +644,666 @@ exports[`the acceptance policy (§1.1) > its predicates for the identity models,
           },
         },
       },
-      "view": {
+      "read": {
         "AND": [
+          {
+            "organization": {
+              "is": {
+                "members": {
+                  "some": {
+                    "user": {
+                      "is": {
+                        "AND": [
+                          {
+                            "OR": [
+                              {
+                                "banned": null,
+                              },
+                              {
+                                "banned": false,
+                              },
+                              {
+                                "banExpires": {
+                                  "lte": {
+                                    "now": true,
+                                  },
+                                },
+                              },
+                            ],
+                          },
+                          {
+                            "OR": [
+                              {
+                                "$if": {
+                                  "control": "actor",
+                                  "exists": true,
+                                  "path": "session",
+                                },
+                                "sessions": {
+                                  "some": {
+                                    "expiresAt": {
+                                      "gt": {
+                                        "now": true,
+                                      },
+                                    },
+                                    "id": {
+                                      "control": "actor",
+                                      "path": "session",
+                                    },
+                                  },
+                                },
+                              },
+                              {
+                                "$if": {
+                                  "control": "actor",
+                                  "exists": true,
+                                  "path": "key",
+                                },
+                                "apiKeys": {
+                                  "some": {
+                                    "AND": [
+                                      {
+                                        "enabled": true,
+                                        "id": {
+                                          "control": "actor",
+                                          "path": "key.id",
+                                        },
+                                      },
+                                      {
+                                        "OR": [
+                                          {
+                                            "expiresAt": null,
+                                          },
+                                          {
+                                            "expiresAt": {
+                                              "gt": {
+                                                "now": true,
+                                              },
+                                            },
+                                          },
+                                        ],
+                                      },
+                                    ],
+                                  },
+                                },
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                    },
+                    "userId": {
+                      "control": "actor",
+                      "path": "userId",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          {
+            "OR": [
+              {
+                "AND": [
+                  {
+                    "organization": {
+                      "is": {
+                        "members": {
+                          "some": {
+                            "role": {
+                              "in": [
+                                "reader",
+                                "member",
+                                "admin",
+                              ],
+                            },
+                            "user": {
+                              "is": {
+                                "AND": [
+                                  {
+                                    "OR": [
+                                      {
+                                        "banned": null,
+                                      },
+                                      {
+                                        "banned": false,
+                                      },
+                                      {
+                                        "banExpires": {
+                                          "lte": {
+                                            "now": true,
+                                          },
+                                        },
+                                      },
+                                    ],
+                                  },
+                                  {
+                                    "OR": [
+                                      {
+                                        "$if": {
+                                          "control": "actor",
+                                          "exists": true,
+                                          "path": "session",
+                                        },
+                                        "sessions": {
+                                          "some": {
+                                            "expiresAt": {
+                                              "gt": {
+                                                "now": true,
+                                              },
+                                            },
+                                            "id": {
+                                              "control": "actor",
+                                              "path": "session",
+                                            },
+                                          },
+                                        },
+                                      },
+                                      {
+                                        "$if": {
+                                          "control": "actor",
+                                          "exists": true,
+                                          "path": "key",
+                                        },
+                                        "apiKeys": {
+                                          "some": {
+                                            "AND": [
+                                              {
+                                                "enabled": true,
+                                                "id": {
+                                                  "control": "actor",
+                                                  "path": "key.id",
+                                                },
+                                              },
+                                              {
+                                                "OR": [
+                                                  {
+                                                    "expiresAt": null,
+                                                  },
+                                                  {
+                                                    "expiresAt": {
+                                                      "gt": {
+                                                        "now": true,
+                                                      },
+                                                    },
+                                                  },
+                                                ],
+                                              },
+                                            ],
+                                          },
+                                        },
+                                      },
+                                    ],
+                                  },
+                                ],
+                              },
+                            },
+                            "userId": {
+                              "control": "actor",
+                              "path": "userId",
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                  {
+                    "OR": [
+                      {
+                        "$if": {
+                          "control": "actor",
+                          "exists": false,
+                          "path": "key",
+                        },
+                      },
+                      {
+                        "$if": {
+                          "control": "actor",
+                          "hasSome": [
+                            "read",
+                            "update",
+                            "full",
+                            "create",
+                          ],
+                          "path": "key.scopes.member",
+                        },
+                      },
+                    ],
+                  },
+                ],
+              },
+              {
+                "AND": [
+                  {
+                    "organization": {
+                      "is": {
+                        "members": {
+                          "some": {
+                            "role": {
+                              "in": [
+                                "member",
+                                "admin",
+                              ],
+                            },
+                            "user": {
+                              "is": {
+                                "AND": [
+                                  {
+                                    "OR": [
+                                      {
+                                        "banned": null,
+                                      },
+                                      {
+                                        "banned": false,
+                                      },
+                                      {
+                                        "banExpires": {
+                                          "lte": {
+                                            "now": true,
+                                          },
+                                        },
+                                      },
+                                    ],
+                                  },
+                                  {
+                                    "OR": [
+                                      {
+                                        "$if": {
+                                          "control": "actor",
+                                          "exists": true,
+                                          "path": "session",
+                                        },
+                                        "sessions": {
+                                          "some": {
+                                            "expiresAt": {
+                                              "gt": {
+                                                "now": true,
+                                              },
+                                            },
+                                            "id": {
+                                              "control": "actor",
+                                              "path": "session",
+                                            },
+                                          },
+                                        },
+                                      },
+                                      {
+                                        "$if": {
+                                          "control": "actor",
+                                          "exists": true,
+                                          "path": "key",
+                                        },
+                                        "apiKeys": {
+                                          "some": {
+                                            "AND": [
+                                              {
+                                                "enabled": true,
+                                                "id": {
+                                                  "control": "actor",
+                                                  "path": "key.id",
+                                                },
+                                              },
+                                              {
+                                                "OR": [
+                                                  {
+                                                    "expiresAt": null,
+                                                  },
+                                                  {
+                                                    "expiresAt": {
+                                                      "gt": {
+                                                        "now": true,
+                                                      },
+                                                    },
+                                                  },
+                                                ],
+                                              },
+                                            ],
+                                          },
+                                        },
+                                      },
+                                    ],
+                                  },
+                                ],
+                              },
+                            },
+                            "userId": {
+                              "control": "actor",
+                              "path": "userId",
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                  {
+                    "OR": [
+                      {
+                        "$if": {
+                          "control": "actor",
+                          "exists": false,
+                          "path": "key",
+                        },
+                      },
+                      {
+                        "$if": {
+                          "control": "actor",
+                          "hasSome": [
+                            "update",
+                            "full",
+                          ],
+                          "path": "key.scopes.member",
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    "organization": {
+                      "is": {
+                        "members": {
+                          "some": {
+                            "role": {
+                              "in": [
+                                "admin",
+                              ],
+                            },
+                            "userId": {
+                              "control": "actor",
+                              "path": "userId",
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                ],
+              },
+              {
+                "AND": [
+                  {
+                    "organization": {
+                      "is": {
+                        "members": {
+                          "some": {
+                            "role": {
+                              "in": [
+                                "member",
+                                "admin",
+                              ],
+                            },
+                            "user": {
+                              "is": {
+                                "AND": [
+                                  {
+                                    "OR": [
+                                      {
+                                        "banned": null,
+                                      },
+                                      {
+                                        "banned": false,
+                                      },
+                                      {
+                                        "banExpires": {
+                                          "lte": {
+                                            "now": true,
+                                          },
+                                        },
+                                      },
+                                    ],
+                                  },
+                                  {
+                                    "OR": [
+                                      {
+                                        "$if": {
+                                          "control": "actor",
+                                          "exists": true,
+                                          "path": "session",
+                                        },
+                                        "sessions": {
+                                          "some": {
+                                            "expiresAt": {
+                                              "gt": {
+                                                "now": true,
+                                              },
+                                            },
+                                            "id": {
+                                              "control": "actor",
+                                              "path": "session",
+                                            },
+                                          },
+                                        },
+                                      },
+                                      {
+                                        "$if": {
+                                          "control": "actor",
+                                          "exists": true,
+                                          "path": "key",
+                                        },
+                                        "apiKeys": {
+                                          "some": {
+                                            "AND": [
+                                              {
+                                                "enabled": true,
+                                                "id": {
+                                                  "control": "actor",
+                                                  "path": "key.id",
+                                                },
+                                              },
+                                              {
+                                                "OR": [
+                                                  {
+                                                    "expiresAt": null,
+                                                  },
+                                                  {
+                                                    "expiresAt": {
+                                                      "gt": {
+                                                        "now": true,
+                                                      },
+                                                    },
+                                                  },
+                                                ],
+                                              },
+                                            ],
+                                          },
+                                        },
+                                      },
+                                    ],
+                                  },
+                                ],
+                              },
+                            },
+                            "userId": {
+                              "control": "actor",
+                              "path": "userId",
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                  {
+                    "OR": [
+                      {
+                        "$if": {
+                          "control": "actor",
+                          "exists": false,
+                          "path": "key",
+                        },
+                      },
+                      {
+                        "$if": {
+                          "control": "actor",
+                          "hasSome": [
+                            "create",
+                          ],
+                          "path": "key.scopes.member",
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    "organization": {
+                      "is": {
+                        "AND": [
+                          {
+                            "OR": [
+                              {
+                                "$if": {
+                                  "control": "actor",
+                                  "exists": false,
+                                  "path": "key",
+                                },
+                              },
+                              {
+                                "$if": {
+                                  "control": "actor",
+                                  "hasSome": [
+                                    "invite",
+                                  ],
+                                  "path": "key.scopes.organization",
+                                },
+                              },
+                            ],
+                          },
+                          {
+                            "members": {
+                              "some": {
+                                "role": {
+                                  "in": [
+                                    "admin",
+                                  ],
+                                },
+                                "userId": {
+                                  "control": "actor",
+                                  "path": "userId",
+                                },
+                              },
+                            },
+                          },
+                        ],
+                      },
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            "OR": [
+              {
+                "$if": {
+                  "control": "scopes",
+                  "equals": true,
+                  "path": "unrestricted",
+                },
+              },
+              {
+                "$if": {
+                  "control": "scopes",
+                  "has": "member.read",
+                  "path": "allowed",
+                },
+              },
+            ],
+          },
+        ],
+      },
+      "update": {
+        "AND": [
+          {
+            "organization": {
+              "is": {
+                "members": {
+                  "some": {
+                    "user": {
+                      "is": {
+                        "AND": [
+                          {
+                            "OR": [
+                              {
+                                "banned": null,
+                              },
+                              {
+                                "banned": false,
+                              },
+                              {
+                                "banExpires": {
+                                  "lte": {
+                                    "now": true,
+                                  },
+                                },
+                              },
+                            ],
+                          },
+                          {
+                            "OR": [
+                              {
+                                "$if": {
+                                  "control": "actor",
+                                  "exists": true,
+                                  "path": "session",
+                                },
+                                "sessions": {
+                                  "some": {
+                                    "expiresAt": {
+                                      "gt": {
+                                        "now": true,
+                                      },
+                                    },
+                                    "id": {
+                                      "control": "actor",
+                                      "path": "session",
+                                    },
+                                  },
+                                },
+                              },
+                              {
+                                "$if": {
+                                  "control": "actor",
+                                  "exists": true,
+                                  "path": "key",
+                                },
+                                "apiKeys": {
+                                  "some": {
+                                    "AND": [
+                                      {
+                                        "enabled": true,
+                                        "id": {
+                                          "control": "actor",
+                                          "path": "key.id",
+                                        },
+                                      },
+                                      {
+                                        "OR": [
+                                          {
+                                            "expiresAt": null,
+                                          },
+                                          {
+                                            "expiresAt": {
+                                              "gt": {
+                                                "now": true,
+                                              },
+                                            },
+                                          },
+                                        ],
+                                      },
+                                    ],
+                                  },
+                                },
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                    },
+                    "userId": {
+                      "control": "actor",
+                      "path": "userId",
+                    },
+                  },
+                },
+              },
+            },
+          },
           {
             "organization": {
               "is": {
@@ -473,7 +1311,6 @@ exports[`the acceptance policy (§1.1) > its predicates for the identity models,
                   "some": {
                     "role": {
                       "in": [
-                        "reader",
                         "member",
                         "admin",
                       ],
@@ -581,8 +1418,7 @@ exports[`the acceptance policy (§1.1) > its predicates for the identity models,
                 "$if": {
                   "control": "actor",
                   "hasSome": [
-                    "view",
-                    "edit",
+                    "update",
                     "full",
                   ],
                   "path": "key.scopes.member",
@@ -590,39 +1426,73 @@ exports[`the acceptance policy (§1.1) > its predicates for the identity models,
               },
             ],
           },
+          {
+            "organization": {
+              "is": {
+                "members": {
+                  "some": {
+                    "role": {
+                      "in": [
+                        "admin",
+                      ],
+                    },
+                    "userId": {
+                      "control": "actor",
+                      "path": "userId",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          {
+            "OR": [
+              {
+                "$if": {
+                  "control": "scopes",
+                  "equals": true,
+                  "path": "unrestricted",
+                },
+              },
+              {
+                "$if": {
+                  "control": "scopes",
+                  "has": "member.update",
+                  "path": "allowed",
+                },
+              },
+            ],
+          },
         ],
       },
     },
-    "read": "view",
+    "read": "read",
     "reads": {},
-    "update": "edit",
+    "update": "update",
     "writes": {},
   },
   "organization": {
     "evidence": {
       "as": "$access",
       "names": [
-        "view",
-        "edit",
+        "read",
+        "update",
         "full",
         "invite",
         "export",
       ],
     },
     "modes": {
-      "edit": "edit",
       "export": "export",
       "full": "full",
       "invite": "invite",
-      "view": "view",
+      "read": "read",
+      "update": "update",
     },
     "moves": {},
-    "place": "create",
+    "place": "$create",
     "predicates": {
-      "create": {
-        "OR": [],
-      },
-      "edit": {
+      "$create": {
         "OR": [],
       },
       "export": {
@@ -672,6 +1542,24 @@ exports[`the acceptance policy (§1.1) > its predicates for the identity models,
               "path": "network",
             },
           },
+          {
+            "OR": [
+              {
+                "$if": {
+                  "control": "scopes",
+                  "equals": true,
+                  "path": "unrestricted",
+                },
+              },
+              {
+                "$if": {
+                  "control": "scopes",
+                  "has": "organization.export",
+                  "path": "allowed",
+                },
+              },
+            ],
+          },
         ],
       },
       "full": {
@@ -714,63 +1602,129 @@ exports[`the acceptance policy (§1.1) > its predicates for the identity models,
               },
             },
           },
-        ],
-      },
-      "view": {
-        "AND": [
           {
             "OR": [
               {
                 "$if": {
-                  "control": "actor",
-                  "exists": false,
-                  "path": "key",
+                  "control": "scopes",
+                  "equals": true,
+                  "path": "unrestricted",
                 },
               },
               {
                 "$if": {
-                  "control": "actor",
-                  "hasSome": [
-                    "view",
-                    "edit",
-                    "full",
-                    "invite",
-                    "export",
-                  ],
-                  "path": "key.scopes.organization",
+                  "control": "scopes",
+                  "has": "organization.invite",
+                  "path": "allowed",
                 },
               },
             ],
           },
+        ],
+      },
+      "read": {
+        "AND": [
           {
             "OR": [
               {
-                "members": {
-                  "some": {
-                    "userId": {
-                      "control": "actor",
-                      "path": "userId",
+                "AND": [
+                  {
+                    "OR": [
+                      {
+                        "$if": {
+                          "control": "actor",
+                          "exists": false,
+                          "path": "key",
+                        },
+                      },
+                      {
+                        "$if": {
+                          "control": "actor",
+                          "hasSome": [
+                            "read",
+                            "update",
+                            "full",
+                            "invite",
+                            "export",
+                          ],
+                          "path": "key.scopes.organization",
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    "members": {
+                      "some": {
+                        "userId": {
+                          "control": "actor",
+                          "path": "userId",
+                        },
+                      },
                     },
                   },
-                },
-              },
-              {
-                "members": {
-                  "some": {
-                    "role": {
-                      "in": [
-                        "admin",
-                      ],
-                    },
-                    "userId": {
-                      "control": "actor",
-                      "path": "userId",
-                    },
-                  },
-                },
+                ],
               },
               {
                 "AND": [
+                  {
+                    "OR": [
+                      {
+                        "$if": {
+                          "control": "actor",
+                          "exists": false,
+                          "path": "key",
+                        },
+                      },
+                      {
+                        "$if": {
+                          "control": "actor",
+                          "hasSome": [
+                            "invite",
+                          ],
+                          "path": "key.scopes.organization",
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    "members": {
+                      "some": {
+                        "role": {
+                          "in": [
+                            "admin",
+                          ],
+                        },
+                        "userId": {
+                          "control": "actor",
+                          "path": "userId",
+                        },
+                      },
+                    },
+                  },
+                ],
+              },
+              {
+                "AND": [
+                  {
+                    "OR": [
+                      {
+                        "$if": {
+                          "control": "actor",
+                          "exists": false,
+                          "path": "key",
+                        },
+                      },
+                      {
+                        "$if": {
+                          "control": "actor",
+                          "hasSome": [
+                            "export",
+                          ],
+                          "path": "key.scopes.organization",
+                        },
+                      },
+                    ],
+                  },
                   {
                     "members": {
                       "some": {
@@ -800,42 +1754,59 @@ exports[`the acceptance policy (§1.1) > its predicates for the identity models,
               },
             ],
           },
+          {
+            "OR": [
+              {
+                "$if": {
+                  "control": "scopes",
+                  "equals": true,
+                  "path": "unrestricted",
+                },
+              },
+              {
+                "$if": {
+                  "control": "scopes",
+                  "has": "organization.read",
+                  "path": "allowed",
+                },
+              },
+            ],
+          },
         ],
       },
+      "update": {
+        "OR": [],
+      },
     },
-    "read": "view",
+    "read": "read",
     "reads": {},
-    "update": "edit",
+    "update": "update",
     "writes": {},
   },
   "user": {
     "evidence": {
       "as": "$access",
       "names": [
-        "view",
-        "edit",
+        "read",
+        "update",
         "full",
       ],
-      "ordered": true,
     },
     "modes": {
-      "edit": "edit",
       "full": "full",
-      "view": "view",
+      "read": "read",
+      "update": "update",
     },
     "moves": {},
-    "place": "create",
+    "place": "$create",
     "predicates": {
-      "create": {
-        "OR": [],
-      },
-      "edit": {
+      "$create": {
         "OR": [],
       },
       "full": {
         "OR": [],
       },
-      "view": {
+      "read": {
         "AND": [
           {
             "OR": [
@@ -850,9 +1821,10 @@ exports[`the acceptance policy (§1.1) > its predicates for the identity models,
                 "$if": {
                   "control": "actor",
                   "hasSome": [
-                    "view",
-                    "edit",
+                    "read",
+                    "update",
                     "full",
+                    "create",
                   ],
                   "path": "key.scopes.user",
                 },
@@ -869,12 +1841,33 @@ exports[`the acceptance policy (§1.1) > its predicates for the identity models,
               },
             },
           },
+          {
+            "OR": [
+              {
+                "$if": {
+                  "control": "scopes",
+                  "equals": true,
+                  "path": "unrestricted",
+                },
+              },
+              {
+                "$if": {
+                  "control": "scopes",
+                  "has": "user.read",
+                  "path": "allowed",
+                },
+              },
+            ],
+          },
         ],
       },
+      "update": {
+        "OR": [],
+      },
     },
-    "read": "view",
+    "read": "read",
     "reads": {},
-    "update": "edit",
+    "update": "update",
     "writes": {},
   },
 }
@@ -883,20 +1876,21 @@ exports[`the acceptance policy (§1.1) > its predicates for the identity models,
 exports[`the acceptance policy (§1.1) > its verbs, written and read fields, modes and placement 1`] = `
 {
   "accessGrant": {
-    "delete": "edit",
+    "delete": "update",
     "evidence": {
       "as": "$access",
       "names": [
-        "view",
-        "edit",
+        "read",
+        "update",
         "full",
+        "create",
       ],
-      "ordered": true,
     },
     "modes": {
-      "edit": "edit",
+      "create": "create",
       "full": "full",
-      "view": "view",
+      "read": "read",
+      "update": "update",
     },
     "moves": {
       "actions": "move:actions",
@@ -910,12 +1904,13 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
       "pageId": "move:pageId",
       "userId": "move:userId",
     },
-    "place": "create",
+    "place": "$create",
     "predicates": [
-      "view",
-      "edit",
+      "read",
+      "update",
       "full",
       "create",
+      "$create",
       "move:pageId",
       "move:groupId",
       "move:documentId",
@@ -927,17 +1922,17 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
       "move:granteeTeamId",
       "move:grantedBy",
     ],
-    "read": "view",
+    "read": "read",
     "reads": {},
-    "update": "edit",
+    "update": "update",
     "writes": {},
   },
   "apiKey": {
     "modes": {},
     "moves": {},
-    "place": "create",
+    "place": "$create",
     "predicates": [
-      "create",
+      "$create",
     ],
     "reads": {},
     "writes": {},
@@ -947,33 +1942,32 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
     "evidence": {
       "as": "$access",
       "names": [
-        "view",
-        "edit",
+        "read",
+        "update",
         "full",
       ],
-      "ordered": true,
     },
     "modes": {
-      "edit": "edit",
       "full": "full",
-      "view": "view",
+      "read": "read",
+      "update": "update",
     },
     "moves": {
       "organizationId": "move:organizationId",
       "userId": "move:userId",
     },
-    "place": "create",
+    "place": "$create",
     "predicates": [
-      "view",
-      "edit",
+      "read",
+      "update",
       "full",
-      "create",
+      "$create",
       "move:organizationId",
       "move:userId",
     ],
-    "read": "view",
+    "read": "read",
     "reads": {},
-    "update": "edit",
+    "update": "update",
     "writes": {},
   },
   "collection": {
@@ -981,37 +1975,39 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
     "evidence": {
       "as": "$access",
       "names": [
-        "view",
-        "edit",
+        "read",
+        "update",
         "full",
+        "create",
       ],
-      "ordered": true,
     },
     "modes": {
-      "edit": "edit",
+      "create": "create",
       "full": "full",
-      "view": "view",
+      "read": "read",
+      "update": "update",
     },
     "moves": {
       "createdById": "move:createdById",
       "organizationId": "move:organizationId",
       "ownerId": "move:ownerId",
     },
-    "place": "create",
+    "place": "$create",
     "predicates": [
-      "view",
-      "edit",
+      "read",
+      "update",
       "full",
       "create",
+      "$create",
       "move:organizationId",
       "move:createdById",
       "move:ownerId",
     ],
-    "read": "view",
+    "read": "read",
     "reads": {
       "budget": "full",
     },
-    "update": "edit",
+    "update": "update",
     "writes": {},
   },
   "document": {
@@ -1022,10 +2018,11 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
     "evidence": {
       "as": "$access",
       "names": [
-        "view",
+        "read",
+        "create",
         "comment",
         "archive",
-        "edit",
+        "update",
         "share",
         "export",
       ],
@@ -1033,10 +2030,11 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
     "modes": {
       "archive": "archive",
       "comment": "comment",
-      "edit": "edit",
+      "create": "create",
       "export": "export",
+      "read": "read",
       "share": "share",
-      "view": "view",
+      "update": "update",
     },
     "moves": {
       "id": "move:id",
@@ -1044,93 +2042,98 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
       "ownerId": "move:ownerId",
       "parentId": "move:parentId",
     },
-    "place": "create",
+    "place": "$create",
     "predicates": [
-      "view",
+      "read",
+      "create",
       "comment",
       "archive",
-      "edit",
+      "update",
       "share",
       "export",
-      "create",
+      "$write:ownerId",
+      "$write:archivedAt",
+      "$create",
       "move:organizationId",
       "move:parentId",
       "move:id",
       "move:ownerId",
     ],
-    "read": "view",
+    "read": "read",
     "reads": {},
-    "update": "edit",
+    "update": "update",
     "writes": {
-      "archivedAt": "archive",
-      "ownerId": "share",
+      "archivedAt": "$write:archivedAt",
+      "ownerId": "$write:ownerId",
     },
   },
   "member": {
-    "delete": "edit",
+    "delete": "update",
     "evidence": {
       "as": "$access",
       "names": [
-        "view",
-        "edit",
+        "read",
+        "update",
         "full",
+        "create",
       ],
-      "ordered": true,
     },
     "modes": {
-      "edit": "edit",
+      "create": "create",
       "full": "full",
-      "view": "view",
+      "read": "read",
+      "update": "update",
     },
     "moves": {
       "organizationId": "move:organizationId",
       "userId": "move:userId",
     },
-    "place": "create",
+    "place": "$create",
     "predicates": [
-      "view",
-      "edit",
+      "read",
+      "update",
       "full",
       "create",
+      "$create",
       "move:organizationId",
       "move:userId",
     ],
-    "read": "view",
+    "read": "read",
     "reads": {},
-    "update": "edit",
+    "update": "update",
     "writes": {},
   },
   "organization": {
     "evidence": {
       "as": "$access",
       "names": [
-        "view",
-        "edit",
+        "read",
+        "update",
         "full",
         "invite",
         "export",
       ],
     },
     "modes": {
-      "edit": "edit",
       "export": "export",
       "full": "full",
       "invite": "invite",
-      "view": "view",
+      "read": "read",
+      "update": "update",
     },
     "moves": {},
-    "place": "create",
+    "place": "$create",
     "predicates": [
-      "view",
-      "edit",
+      "read",
+      "update",
       "full",
       "invite",
       "export",
-      "create",
+      "$create",
     ],
-    "read": "view",
+    "read": "read",
     "reads": {},
-    "update": "edit",
+    "update": "update",
     "writes": {},
   },
   "page": {
@@ -1138,17 +2141,18 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
     "evidence": {
       "as": "$access",
       "names": [
-        "view",
-        "edit",
+        "read",
+        "update",
         "full",
+        "create",
       ],
-      "ordered": true,
     },
     "modes": {
-      "edit": "edit",
+      "create": "create",
       "full": "full",
       "given": "given",
-      "view": "view",
+      "read": "read",
+      "update": "update",
     },
     "moves": {
       "groupId": "move:groupId",
@@ -1156,23 +2160,25 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
       "ownerId": "move:ownerId",
       "personal": "move:personal",
     },
-    "place": "create",
+    "place": "$create",
     "predicates": [
-      "view",
-      "edit",
+      "read",
+      "update",
       "full",
       "create",
+      "$write:ownerId",
+      "$create",
       "move:organizationId",
       "move:groupId",
       "move:personal",
       "move:ownerId",
       "given",
     ],
-    "read": "view",
+    "read": "read",
     "reads": {},
-    "update": "edit",
+    "update": "update",
     "writes": {
-      "ownerId": "full",
+      "ownerId": "$write:ownerId",
     },
   },
   "pageGroup": {
@@ -1180,41 +2186,40 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
     "evidence": {
       "as": "$access",
       "names": [
-        "view",
-        "edit",
+        "read",
+        "update",
         "full",
       ],
-      "ordered": true,
     },
     "modes": {
-      "edit": "edit",
       "full": "full",
-      "view": "view",
+      "read": "read",
+      "update": "update",
     },
     "moves": {
       "createdById": "move:createdById",
       "organizationId": "move:organizationId",
     },
-    "place": "create",
+    "place": "$create",
     "predicates": [
-      "view",
-      "edit",
+      "read",
+      "update",
       "full",
-      "create",
+      "$create",
       "move:organizationId",
       "move:createdById",
     ],
-    "read": "view",
+    "read": "read",
     "reads": {},
-    "update": "edit",
+    "update": "update",
     "writes": {},
   },
   "rolePermission": {
     "modes": {},
     "moves": {},
-    "place": "create",
+    "place": "$create",
     "predicates": [
-      "create",
+      "$create",
     ],
     "reads": {},
     "writes": {},
@@ -1222,9 +2227,9 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
   "session": {
     "modes": {},
     "moves": {},
-    "place": "create",
+    "place": "$create",
     "predicates": [
-      "create",
+      "$create",
     ],
     "reads": {},
     "writes": {},
@@ -1233,33 +2238,33 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
     "evidence": {
       "as": "$access",
       "names": [
-        "view",
-        "edit",
+        "read",
+        "update",
         "full",
         "invite",
       ],
     },
     "modes": {
-      "edit": "edit",
       "full": "full",
       "invite": "invite",
-      "view": "view",
+      "read": "read",
+      "update": "update",
     },
     "moves": {
       "organizationId": "move:organizationId",
     },
-    "place": "create",
+    "place": "$create",
     "predicates": [
-      "view",
-      "edit",
+      "read",
+      "update",
       "full",
       "invite",
-      "create",
+      "$create",
       "move:organizationId",
     ],
-    "read": "view",
+    "read": "read",
     "reads": {},
-    "update": "edit",
+    "update": "update",
     "writes": {},
   },
   "teamMember": {
@@ -1267,33 +2272,36 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
     "evidence": {
       "as": "$access",
       "names": [
-        "view",
-        "edit",
+        "read",
+        "update",
         "full",
         "manage",
+        "create",
       ],
     },
     "modes": {
-      "edit": "edit",
+      "create": "create",
       "full": "full",
       "manage": "manage",
-      "view": "view",
+      "read": "read",
+      "update": "update",
     },
     "moves": {
       "teamId": "move:teamId",
       "userId": "move:userId",
     },
-    "place": "create",
+    "place": "$create",
     "predicates": [
-      "view",
-      "edit",
+      "read",
+      "update",
       "full",
       "manage",
       "create",
+      "$create",
       "move:teamId",
       "move:userId",
     ],
-    "read": "view",
+    "read": "read",
     "reads": {},
     "update": "manage",
     "writes": {},
@@ -1302,28 +2310,27 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
     "evidence": {
       "as": "$access",
       "names": [
-        "view",
-        "edit",
+        "read",
+        "update",
         "full",
       ],
-      "ordered": true,
     },
     "modes": {
-      "edit": "edit",
       "full": "full",
-      "view": "view",
+      "read": "read",
+      "update": "update",
     },
     "moves": {},
-    "place": "create",
+    "place": "$create",
     "predicates": [
-      "view",
-      "edit",
+      "read",
+      "update",
       "full",
-      "create",
+      "$create",
     ],
-    "read": "view",
+    "read": "read",
     "reads": {},
-    "update": "edit",
+    "update": "update",
     "writes": {},
   },
 }
@@ -1336,9 +2343,9 @@ exports[`the acceptance policy (§1.1) > the blog compiles whole 1`] = `
     "accessGrant": {
       "modes": {},
       "moves": {},
-      "place": "create",
+      "place": "$create",
       "predicates": {
-        "create": {
+        "$create": {
           "OR": [],
         },
       },
@@ -1348,9 +2355,9 @@ exports[`the acceptance policy (§1.1) > the blog compiles whole 1`] = `
     "apiKey": {
       "modes": {},
       "moves": {},
-      "place": "create",
+      "place": "$create",
       "predicates": {
-        "create": {
+        "$create": {
           "OR": [],
         },
       },
@@ -1360,9 +2367,9 @@ exports[`the acceptance policy (§1.1) > the blog compiles whole 1`] = `
     "bookmark": {
       "modes": {},
       "moves": {},
-      "place": "create",
+      "place": "$create",
       "predicates": {
-        "create": {
+        "$create": {
           "OR": [],
         },
       },
@@ -1372,9 +2379,9 @@ exports[`the acceptance policy (§1.1) > the blog compiles whole 1`] = `
     "collection": {
       "modes": {},
       "moves": {},
-      "place": "create",
+      "place": "$create",
       "predicates": {
-        "create": {
+        "$create": {
           "OR": [],
         },
       },
@@ -1384,9 +2391,9 @@ exports[`the acceptance policy (§1.1) > the blog compiles whole 1`] = `
     "document": {
       "modes": {},
       "moves": {},
-      "place": "create",
+      "place": "$create",
       "predicates": {
-        "create": {
+        "$create": {
           "OR": [],
         },
       },
@@ -1396,9 +2403,9 @@ exports[`the acceptance policy (§1.1) > the blog compiles whole 1`] = `
     "member": {
       "modes": {},
       "moves": {},
-      "place": "create",
+      "place": "$create",
       "predicates": {
-        "create": {
+        "$create": {
           "OR": [],
         },
       },
@@ -1409,21 +2416,38 @@ exports[`the acceptance policy (§1.1) > the blog compiles whole 1`] = `
       "evidence": {
         "as": "$access",
         "names": [
-          "view",
+          "read",
         ],
       },
       "modes": {
-        "view": "view",
+        "read": "read",
       },
       "moves": {},
-      "place": "create",
+      "place": "$create",
       "predicates": {
-        "create": {
+        "$create": {
           "OR": [],
         },
-        "view": {},
+        "read": {
+          "OR": [
+            {
+              "$if": {
+                "control": "scopes",
+                "equals": true,
+                "path": "unrestricted",
+              },
+            },
+            {
+              "$if": {
+                "control": "scopes",
+                "has": "organization.read",
+                "path": "allowed",
+              },
+            },
+          ],
+        },
       },
-      "read": "view",
+      "read": "read",
       "reads": {},
       "writes": {},
     },
@@ -1432,30 +2456,50 @@ exports[`the acceptance policy (§1.1) > the blog compiles whole 1`] = `
       "evidence": {
         "as": "$access",
         "names": [
-          "view",
-          "edit",
+          "read",
+          "update",
           "delete",
+          "create",
         ],
       },
       "modes": {
+        "create": "create",
         "delete": "delete",
-        "edit": "edit",
-        "view": "view",
+        "read": "read",
+        "update": "update",
       },
       "moves": {
         "groupId": "move:groupId",
         "organizationId": "move:organizationId",
         "ownerId": "move:ownerId",
       },
-      "place": "create",
+      "place": "$create",
       "predicates": {
-        "create": {
+        "$create": {
           "AND": [
             {
               "ownerId": {
                 "control": "actor",
                 "path": "userId",
               },
+            },
+            {
+              "OR": [
+                {
+                  "$if": {
+                    "control": "scopes",
+                    "equals": true,
+                    "path": "unrestricted",
+                  },
+                },
+                {
+                  "$if": {
+                    "control": "scopes",
+                    "has": "page.create",
+                    "path": "allowed",
+                  },
+                },
+              ],
             },
             {
               "organization": {
@@ -1479,18 +2523,62 @@ exports[`the acceptance policy (§1.1) > the blog compiles whole 1`] = `
             },
           ],
         },
-        "delete": {
-          "$if": {
-            "control": "actor",
-            "equals": true,
-            "path": "admin",
-          },
+        "create": {
+          "AND": [
+            {
+              "ownerId": {
+                "control": "actor",
+                "path": "userId",
+              },
+            },
+            {
+              "OR": [
+                {
+                  "$if": {
+                    "control": "scopes",
+                    "equals": true,
+                    "path": "unrestricted",
+                  },
+                },
+                {
+                  "$if": {
+                    "control": "scopes",
+                    "has": "page.create",
+                    "path": "allowed",
+                  },
+                },
+              ],
+            },
+          ],
         },
-        "edit": {
-          "ownerId": {
-            "control": "actor",
-            "path": "userId",
-          },
+        "delete": {
+          "AND": [
+            {
+              "$if": {
+                "control": "actor",
+                "equals": true,
+                "path": "admin",
+              },
+            },
+            {
+              "OR": [
+                {
+                  "$if": {
+                    "control": "scopes",
+                    "equals": true,
+                    "path": "unrestricted",
+                  },
+                },
+                {
+                  "$if": {
+                    "control": "scopes",
+                    "has": "page.delete",
+                    "path": "allowed",
+                  },
+                },
+              ],
+            },
+          ],
         },
         "move:groupId": {
           "groupId": null,
@@ -1512,19 +2600,64 @@ exports[`the acceptance policy (§1.1) > the blog compiles whole 1`] = `
             },
           ],
         },
-        "view": {},
+        "read": {
+          "OR": [
+            {
+              "$if": {
+                "control": "scopes",
+                "equals": true,
+                "path": "unrestricted",
+              },
+            },
+            {
+              "$if": {
+                "control": "scopes",
+                "has": "page.read",
+                "path": "allowed",
+              },
+            },
+          ],
+        },
+        "update": {
+          "AND": [
+            {
+              "ownerId": {
+                "control": "actor",
+                "path": "userId",
+              },
+            },
+            {
+              "OR": [
+                {
+                  "$if": {
+                    "control": "scopes",
+                    "equals": true,
+                    "path": "unrestricted",
+                  },
+                },
+                {
+                  "$if": {
+                    "control": "scopes",
+                    "has": "page.update",
+                    "path": "allowed",
+                  },
+                },
+              ],
+            },
+          ],
+        },
       },
-      "read": "view",
+      "read": "read",
       "reads": {},
-      "update": "edit",
+      "update": "update",
       "writes": {},
     },
     "pageGroup": {
       "modes": {},
       "moves": {},
-      "place": "create",
+      "place": "$create",
       "predicates": {
-        "create": {
+        "$create": {
           "OR": [],
         },
       },
@@ -1534,9 +2667,9 @@ exports[`the acceptance policy (§1.1) > the blog compiles whole 1`] = `
     "rolePermission": {
       "modes": {},
       "moves": {},
-      "place": "create",
+      "place": "$create",
       "predicates": {
-        "create": {
+        "$create": {
           "OR": [],
         },
       },
@@ -1546,9 +2679,9 @@ exports[`the acceptance policy (§1.1) > the blog compiles whole 1`] = `
     "session": {
       "modes": {},
       "moves": {},
-      "place": "create",
+      "place": "$create",
       "predicates": {
-        "create": {
+        "$create": {
           "OR": [],
         },
       },
@@ -1558,9 +2691,9 @@ exports[`the acceptance policy (§1.1) > the blog compiles whole 1`] = `
     "team": {
       "modes": {},
       "moves": {},
-      "place": "create",
+      "place": "$create",
       "predicates": {
-        "create": {
+        "$create": {
           "OR": [],
         },
       },
@@ -1570,9 +2703,9 @@ exports[`the acceptance policy (§1.1) > the blog compiles whole 1`] = `
     "teamMember": {
       "modes": {},
       "moves": {},
-      "place": "create",
+      "place": "$create",
       "predicates": {
-        "create": {
+        "$create": {
           "OR": [],
         },
       },
@@ -1583,24 +2716,64 @@ exports[`the acceptance policy (§1.1) > the blog compiles whole 1`] = `
       "evidence": {
         "as": "$access",
         "names": [
-          "view",
+          "read",
         ],
       },
       "modes": {
-        "view": "view",
+        "read": "read",
       },
       "moves": {},
-      "place": "create",
+      "place": "$create",
       "predicates": {
-        "create": {
+        "$create": {
           "OR": [],
         },
-        "view": {},
+        "read": {
+          "OR": [
+            {
+              "$if": {
+                "control": "scopes",
+                "equals": true,
+                "path": "unrestricted",
+              },
+            },
+            {
+              "$if": {
+                "control": "scopes",
+                "has": "user.read",
+                "path": "allowed",
+              },
+            },
+          ],
+        },
       },
-      "read": "view",
+      "read": "read",
       "reads": {},
       "writes": {},
     },
+  },
+  "scopes": {
+    "organization.read": [
+      "organization.read",
+    ],
+    "page.create": [
+      "page.create",
+      "page.read",
+    ],
+    "page.delete": [
+      "page.delete",
+      "page.read",
+    ],
+    "page.read": [
+      "page.read",
+    ],
+    "page.update": [
+      "page.update",
+      "page.read",
+    ],
+    "user.read": [
+      "user.read",
+    ],
   },
 }
 `;

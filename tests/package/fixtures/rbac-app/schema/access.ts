@@ -8,7 +8,7 @@ import { s } from "viborm";
 import { document, page, pageGroup } from "./content";
 import { organization, ROLES, user } from "./identity";
 
-export const LEVELS = ["view", "edit", "full"] as const;
+export const LEVELS = ["read", "update", "full"] as const;
 export const COLLECTION_STATUSES = ["draft", "active", "archived"] as const;
 
 export const team = s

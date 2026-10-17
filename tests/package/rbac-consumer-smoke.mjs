@@ -230,6 +230,7 @@ const READERS = ["u01", "u03", "u04", "u05", "u20", "u22", "u42", "u56"];
 const KEYED = Object.keys(actors).filter((name) => actors[name]!.key !== undefined);
 
 await line("policy(tombstones(base)).$extends(audit) is refused: every rows step goes first (§11.2 F6)", async () => {
+  // @ts-expect-error - rows after result-consuming methods are also refused statically
   const got = await outcome(async () => policy(tombstones(base)).$extends(audit));
   return got === ClientInitializationError.name ? undefined : got;
 });
@@ -239,17 +240,17 @@ await line("page.findMany({ include: { group: true } }): pages the actor views; 
   for (const name of READERS) {
     const actor = actors[name]!;
     const pages = await db.$as(actor).page.findMany({ include: { group: true } });
-    const failure = differs(ids(pages), at(actor, "page", "view"));
+    const failure = differs(ids(pages), at(actor, "page", "read"));
     if (failure) return name + ": " + failure;
-    const groups = new Set(at(actor, "pageGroup", "view"));
+    const groups = new Set(at(actor, "pageGroup", "read"));
     for (const page of pages)
       if ((page.group !== null) !== (page.groupId !== null && groups.has(page.groupId)))
         return name + ": page " + page.id + "'s group " + page.groupId;
   }
 });
 
-await line('page.findMany({ as: "given" }): given to me: P(view) ∧ given(view)', async () => {
-  const wanted = above("page", "view");
+await line('page.findMany({ as: "given" }): given to me: P(read) ∧ given(read)', async () => {
+  const wanted = above("page", "read");
   const below = (team: string, seen = new Set<string>()): Set<string> => {
     if (seen.has(team)) return seen;
     seen.add(team);
@@ -259,7 +260,7 @@ await line('page.findMany({ as: "given" }): given to me: P(view) ∧ given(view)
   let given = 0;
   for (const name of READERS) {
     const actor = actors[name]!;
-    const viewed = new Set(at(actor, "page", "view"));
+    const viewed = new Set(at(actor, "page", "read"));
     const names = (grant: (typeof seed.accessGrant)[number]) =>
       grant.userId === actor.userId ||
       grant.everyone ||
@@ -291,7 +292,7 @@ await line('page.findMany({ as: "given" }): given to me: P(view) ∧ given(view)
 await line('page.findMany({ deleted: "with" }): tombstoned pages too; a tombstoned grant or membership still grants nothing', async () => {
   for (const name of READERS) {
     const actor = actors[name]!;
-    const failure = differs(ids(await db.$as(actor).page.findMany({ deleted: "with" })), at(actor, "page", "view", { deleted: "with" }));
+    const failure = differs(ids(await db.$as(actor).page.findMany({ deleted: "with" })), at(actor, "page", "read", { deleted: "with" }));
     if (failure) return name + ": " + failure;
   }
 });
@@ -313,13 +314,13 @@ await line("document.findMany({ where: { parentId: null }, include: { $access: t
   }
 });
 
-await line("page.update({ where: { id }, data: { title } }): edit; NotFoundError when not editable", async () => {
+await line("page.update({ where: { id }, data: { title } }): update; NotFoundError when not editable", async () => {
   let both = 0;
   for (const name of READERS) {
     const actor = actors[name]!;
     const call = db.$as(actor);
-    const editable = pick(actor, "page", "edit");
-    const viewOnly = pick(actor, "page", "view", "edit");
+    const editable = pick(actor, "page", "update");
+    const viewOnly = pick(actor, "page", "read", "update");
     if (editable) {
       const got = await judged(call, (tx) => tx.page.update({ where: { id: editable }, data: { title: "t" } }));
       if (got !== "ok") return name + " " + editable + ": " + got;
@@ -330,7 +331,7 @@ await line("page.update({ where: { id }, data: { title } }): edit; NotFoundError
     }
     if (editable && viewOnly) both += 1;
   }
-  return both > 0 ? undefined : "no reader has both an editable and a view-only page";
+  return both > 0 ? undefined : "no reader has both an editable and a read-only page";
 });
 
 await line("page.update({ where: { id }, data: { ownerId } }): full; the new owner must be visible", async () => {
@@ -339,17 +340,17 @@ await line("page.update({ where: { id }, data: { ownerId } }): full; the new own
     const actor = actors[name]!;
     const call = db.$as(actor);
     const full = pick(actor, "page", "full");
-    const editOnly = pick(actor, "page", "edit", "full");
+    const editOnly = pick(actor, "page", "update", "full");
     if (editOnly) {
       const got = await judged(call, (tx) => tx.page.update({ where: { id: editOnly }, data: { ownerId: actor.userId } }));
-      if (got !== NotFoundError.name) return name + " " + editOnly + " (edit, not full): " + got;
+      if (got !== NotFoundError.name) return name + " " + editOnly + " (update, not full): " + got;
     }
     if (!full) continue;
     const row = seed.page.find((page) => page.id === full)!;
     const kept = oracle.produces(actor, "page", { ...row, ownerId: actor.userId }, ["ownerId"], ["full"], { now });
     const got = await judged(call, (tx) => tx.page.update({ where: { id: full }, data: { ownerId: actor.userId } }));
     if (got !== (kept ? "ok" : ForbiddenError.name)) return name + " " + full + " to the actor: " + got;
-    const users = new Set(at(actor, "user", "view"));
+    const users = new Set(at(actor, "user", "read"));
     const stranger = seed.user.find((user) => !users.has(user.id));
     if (!stranger) continue;
     const refused = await judged(call, (tx) => tx.page.update({ where: { id: full }, data: { ownerId: stranger.id } }));
@@ -359,29 +360,29 @@ await line("page.update({ where: { id }, data: { ownerId } }): full; the new own
   return hidden > 0 ? undefined : "no reader holds full on a page and cannot see some user";
 });
 
-await line("page.update({ where: { id }, data: { groupId } }): edit on the page, the new group editable; else ForbiddenError", async () => {
+await line("page.update({ where: { id }, data: { groupId } }): update on the page, the new group editable; else ForbiddenError", async () => {
   let refused = 0;
   for (const name of READERS) {
     const actor = actors[name]!;
-    const editable = pick(actor, "page", "edit");
+    const editable = pick(actor, "page", "update");
     if (!editable) continue;
     const page = seed.page.find((row) => row.id === editable)!;
-    const groups = new Set(at(actor, "pageGroup", "edit"));
+    const groups = new Set(at(actor, "pageGroup", "update"));
     const target = seed.pageGroup.find((g) => g.organizationId === page.organizationId && g.id !== page.groupId && !groups.has(g.id));
     if (!target) continue;
     const got = await judged(db.$as(actor), (tx) => tx.page.update({ where: { id: editable }, data: { groupId: target.id } }));
     if (got !== ForbiddenError.name) return name + " " + editable + " into " + target.id + ": " + got;
     refused += 1;
   }
-  return refused > 0 ? undefined : "no reader can edit a page and not some group of its organization";
+  return refused > 0 ? undefined : "no reader can update a page and not some group of its organization";
 });
 
 await line("page.update({ where: { id }, data: { group: { connect: { id: hiddenGroup } } } }): NestedWriteError", async () => {
   let cases = 0;
   for (const name of READERS) {
     const actor = actors[name]!;
-    const editable = pick(actor, "page", "edit");
-    const groups = new Set(at(actor, "pageGroup", "view"));
+    const editable = pick(actor, "page", "update");
+    const groups = new Set(at(actor, "pageGroup", "read"));
     const hidden = seed.pageGroup.find((g) => !groups.has(g.id));
     if (!(editable && hidden)) continue;
     const got = await judged(db.$as(actor), (tx) => tx.page.update({ where: { id: editable }, data: { group: { connect: { id: hidden.id } } } }));
@@ -391,21 +392,30 @@ await line("page.update({ where: { id }, data: { group: { connect: { id: hiddenG
   return cases > 0 ? undefined : "no case";
 });
 
-await line("document.update({ where: { id }, data: { archivedAt: now } }): archive alone (audit's updatedBy takes no action)", async () => {
+await line("document.update({ where: { id }, data: { archivedAt: now } }): update and archive (audit's updatedBy takes no action)", async () => {
   let archivers = 0;
+  let refused = 0;
   for (const name of READERS) {
     const actor = actors[name]!;
-    const archiveOnly = pick(actor, "document", "archive", "edit");
-    if (!archiveOnly) continue;
+    const archiveOnly = pick(actor, "document", "archive", "update");
+    if (archiveOnly) {
+      const denied = await judged(db.$as(actor), (tx) =>
+        tx.document.update({ where: { id: archiveOnly }, data: { archivedAt: now } }));
+      if (denied !== NotFoundError.name) return name + " archive without update: " + denied;
+      refused += 1;
+    }
+    const editable = new Set(at(actor, "document", "update"));
+    const id = at(actor, "document", "archive").find((id) => editable.has(id));
+    if (!id) continue;
     const got = await judged(db.$as(actor), async (tx) => {
-      await tx.document.update({ where: { id: archiveOnly }, data: { archivedAt: now } });
-      const row = await tx.document.findUnique({ where: { id: archiveOnly }, select: { searchKey: true } });
+      await tx.document.update({ where: { id }, data: { archivedAt: now } });
+      const row = await tx.document.findUnique({ where: { id }, select: { searchKey: true } });
       assert.equal(row?.searchKey, actor.userId);
     });
-    if (got !== "ok") return name + " " + archiveOnly + ": " + got;
+    if (got !== "ok") return name + " " + id + ": " + got;
     archivers += 1;
   }
-  return archivers > 0 ? undefined : "no reader may archive without editing";
+  return archivers > 0 && refused > 0 ? undefined : "missing archive/update intersection witnesses";
 });
 
 await line("document.update({ where: { id }, data: { parentId: childId } }): ForbiddenError: a parent inside its own subtree", async () => {
@@ -422,13 +432,13 @@ await line("document.update({ where: { id }, data: { parentId: childId } }): For
   return cases > 0 ? undefined : "no reader shares a parent and its child";
 });
 
-await line('document.delete({ where: { id }, as: "edit" }): still judged at share: NotFoundError for an editor', async () => {
+await line('document.delete({ where: { id }, as: "update" }): still judged at share: NotFoundError for an editor', async () => {
   let cases = 0;
   for (const name of READERS) {
     const actor = actors[name]!;
-    const editor = pick(actor, "document", "edit", "share");
+    const editor = pick(actor, "document", "update", "share");
     if (!editor) continue;
-    const got = await judged(db.$as(actor), (tx) => tx.document.delete({ where: { id: editor }, as: "edit" }));
+    const got = await judged(db.$as(actor), (tx) => tx.document.delete({ where: { id: editor }, as: "update" }));
     if (got !== NotFoundError.name) return name + " " + editor + ": " + got;
     cases += 1;
   }
@@ -439,7 +449,7 @@ await line("member.update({ where: { id }, data: { organizationId: otherOrg } })
   let cases = 0;
   for (const name of READERS) {
     const actor = actors[name]!;
-    const editable = pick(actor, "member", "edit");
+    const editable = pick(actor, "member", "update");
     if (!editable) continue;
     const row = seed.member.find((m) => m.id === editable)!;
     const runs = new Set(at(actor, "organization", "invite"));
@@ -509,7 +519,7 @@ await line("teamMember.create({ data: { teamId, userId } }): invite on the team;
   let refused = 0;
   for (const name of READERS) {
     const actor = actors[name]!;
-    const users = at(actor, "user", "view");
+    const users = at(actor, "user", "read");
     for (const team of seed.team.filter((t) => t.organizationId === actor.organizationId).slice(0, 4)) {
       const user = users.find((u) => !seed.teamMember.some((tm) => tm.teamId === team.id && tm.userId === u));
       if (!user) continue;
@@ -529,7 +539,7 @@ await line("team.update({ where: { id: myTeam }, data: { parents: { connect: { i
   for (const name of Object.keys(actors)) {
     const actor = actors[name]!;
     const lead = seed.teamMember.find((tm) => tm.userId === actor.userId && tm.role === "lead" && tm.deletedAt === null);
-    if (!(lead && at(actor, "team", "view").includes(lead.teamId)) || at(actor, "team", "edit").includes(lead.teamId)) continue;
+    if (!(lead && at(actor, "team", "read").includes(lead.teamId)) || at(actor, "team", "update").includes(lead.teamId)) continue;
     const other = seed.team.find((t) => t.organizationId === actor.organizationId && t.id !== lead.teamId);
     if (!other) continue;
     const got = await judged(db.$as(actor), (tx) => tx.team.update({ where: { id: lead.teamId }, data: { parents: { connect: { id: other.id } } } }));
@@ -550,14 +560,14 @@ await line('team.can("invite", { id: teamId }): boolean, one statement', async (
   }
 });
 
-await line('document.can(["comment", "edit", "share"], { id }): { comment, edit, share }, one statement', async () => {
+await line('document.can(["comment", "update", "share"], { id }): { comment, update, share }, one statement', async () => {
   for (const name of READERS) {
     const actor = actors[name]!;
     const holds = (action: string) => new Set(at(actor, "document", action));
-    const [comment, edit, share] = [holds("comment"), holds("edit"), holds("share")];
+    const [comment, update, share] = [holds("comment"), holds("update"), holds("share")];
     for (const document of seed.document.slice(0, 20)) {
-      const got = await db.$as(actor).document.can(["comment", "edit", "share"], { id: document.id });
-      const failure = differs(got, { comment: comment.has(document.id), edit: edit.has(document.id), share: share.has(document.id) });
+      const got = await db.$as(actor).document.can(["comment", "update", "share"], { id: document.id });
+      const failure = differs(got, { comment: comment.has(document.id), update: update.has(document.id), share: share.has(document.id) });
       if (failure) return name + " " + document.id + ": " + failure;
     }
   }
@@ -585,7 +595,7 @@ await line("collection.findMany({ select: { id: true, budget: true } }): Validat
   for (const name of READERS) {
     const actor = actors[name]!;
     const full = new Set(at(actor, "collection", "full"));
-    const lacking = at(actor, "collection", "view").some((id) => !full.has(id));
+    const lacking = at(actor, "collection", "read").some((id) => !full.has(id));
     const got = await outcome(() => db.$as(actor).collection.findMany({ select: { id: true, budget: true } }));
     if (got !== (lacking ? ValidationError.name : "ok")) return name + ": " + got;
     if (lacking) refused += 1;
@@ -602,17 +612,17 @@ await line('call.$queryRaw\\\`SELECT * FROM "page"\\\`: EVERY row: raw SQL is no
 });
 
 const keyedAs = (actor: Actor) =>
-  db.$as({ ...actor, session: undefined, key: { ...actor.key!, scopes: { page: ["view"] } } });
+  db.$as({ ...actor, session: undefined, key: { ...actor.key!, scopes: { page: ["read"] } } });
 await line("keyed.page.findMany(): pages, if the key row is live (enabled, not expired)", async () => {
   for (const name of KEYED) {
     const actor = actors[name]!;
-    const keyed = { ...actor, session: undefined, key: { ...actor.key!, scopes: { page: ["view"] } } };
-    const failure = differs(ids(await keyedAs(actor).page.findMany()), at(keyed, "page", "view"));
+    const keyed = { ...actor, session: undefined, key: { ...actor.key!, scopes: { page: ["read"] } } };
+    const failure = differs(ids(await keyedAs(actor).page.findMany()), at(keyed, "page", "read"));
     if (failure) return name + ": " + failure;
   }
   return KEYED.length > 0 ? undefined : "no key actor";
 });
-await line("keyed.page.create({ data: { title, organizationId, ownerId } }): ForbiddenError: the key does not hold edit (create)", async () => {
+await line("keyed.page.create({ data: { title, organizationId, ownerId } }): ForbiddenError: the key does not hold update (create)", async () => {
   for (const name of KEYED) {
     const actor = actors[name]!;
     const got = await judged(keyedAs(actor), (tx) =>
@@ -674,8 +684,8 @@ await base.post.createMany({ data: [{ id: "p1", title: "a", authorId: "u1" }, { 
 const db = base.$extends(rbac({
   actor: v.object({ userId: v.string(), admin: v.boolean() }),   // \`admin\`: an identity-provider claim, not a row of this database
   models: {
-    post: { view: {}, edit: { authorId: { actor: "userId" } }, delete: { actor: { admin: true } }, create: { authorId: { actor: "userId" } } },
-    user: { view: {} },
+    post: { read: {}, update: { authorId: { actor: "userId" } }, delete: { actor: { admin: true } }, create: { authorId: { actor: "userId" } } },
+    user: { read: {} },
   },
 }));
 const session = { userId: "u1", admin: false };
@@ -700,15 +710,15 @@ assert.deepEqual(await titles(), ["all", "b"]);
 assert.equal(await outcome(() => call.post.delete({ where: { id: "p1" } })), NotFoundError.name);
 assert.equal(await outcome(() => call.post.create({ data: { id: "p3", title: "c", authorId: "u2" } })), ForbiddenError.name);
 assert.equal((await call.post.create({ data: { id: "p3", title: "c", authorId: "u1" } })).authorId, "u1");
-assert.equal(await call.post.can("edit", { id: "p1" }), true);
-assert.equal(await call.post.can("edit", { id: "p2" }), false);
+assert.equal(await call.post.can("update", { id: "p1" }), true);
+assert.equal(await call.post.can("update", { id: "p2" }), false);
 assert.equal(await outcome(() => call.post.assert("delete", { id: "p1" })), ForbiddenError.name);
 assert.equal((await admin.post.delete({ where: { id: "p2" } })).id, "p2");
 assert.equal(await outcome(() => db.post.findMany()), ValidationError.name);
 assert.equal(await outcome(() => call.$as({ userId: 1 as never, admin: false }).post.findMany()), ValidationError.name);
 assert.equal((await base.post.findMany()).length, 2);
 
-// The governed view is the governed client again, and its answers take each model's actions.
+// The governed read is the governed client again, and its answers take each model's actions.
 export const same: typeof db = call;
 export async function flagged() {
   // @ts-expect-error "publish" is not an action of post

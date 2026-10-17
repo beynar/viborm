@@ -6,14 +6,14 @@
 // execute it through the base client against the oracle today, so the seed,
 // the oracle and a second encoding of the policy agree before any engine
 // unit lands. Plain data: no VibORM import. One exception to "one where":
-// `accessGrant`'s `grants.admin` is too deep for the where validator when
-// inlined, so it takes the administered ids read first (`administered`).
+// `accessGrant`'s administration and creation rules exceed the ordinary where
+// nesting bound when inlined, so the baseline pre-reads target permission ids.
 //
 // `null` is false (an arm that folded false at build time, R6); `{}` is true.
 // The readings A1..A7 are the oracle's (oracle.ts).
 
-import { above, type GovernedModel } from "./oracle";
-import type { Actor } from "./seed";
+import { above, actionsOf, CREATES, type GovernedModel } from "./oracle";
+import { type Actor, LEVELS } from "./seed";
 
 export type Where = Record<string, unknown>;
 type Clause = Where | null;
@@ -66,15 +66,14 @@ export interface RuleOptions {
   readonly now: Date;
   readonly ceiling?: "declared" | "stored";
   /**
-   * The ids of the things the actor administers, read beforehand with
-   * `predicate(thing, action)`. Inlined, `grants.admin` nests a page's group
-   * arm, its grants and their team walk under the grant: deeper than the
-   * where validator's 16 filter levels (src/validation/primitives/
-   * filter-depth.ts), so the hand-written form needs these two statements
-   * where the plan's engine (K1) must state the rule in one.
+   * Target ids per permission, independently read before the grant query.
+   * Grant administration and creation traverse each target's policy; inlining
+   * those policies exceeds the ordinary where validator's 16-level bound.
+   * Only the handwritten baseline uses these extra reads. The production
+   * policy checks the same conditions in its protected database statement.
    */
-  readonly administered?: Readonly<
-    Record<AdministeredThing, readonly string[]>
+  readonly permissions?: Readonly<
+    Record<AdministeredThing, Readonly<Record<string, readonly string[]>>>
   >;
 }
 
@@ -113,7 +112,7 @@ export function handRules(actor: Actor, options: RuleOptions) {
             organization: { permissions: { some: { role, action: a } } },
           })),
         }
-      : { role: { in: a === "view" ? [...ROLES] : ["admin", "member"] } };
+      : { role: { in: a === "read" ? [...ROLES] : ["admin", "member"] } };
 
   const inOrg = (a: string): Clause => {
     const user = and(notBanned, session);
@@ -164,7 +163,16 @@ export function handRules(actor: Actor, options: RuleOptions) {
     return model === "document"
       ? { actions: { hasSome: wanted } }
       : {
-          OR: [{ level: { in: wanted } }, { actions: { hasSome: wanted } }],
+          OR: [
+            {
+              level: {
+                in: wanted.filter((name) =>
+                  LEVELS.some((level) => level === name)
+                ),
+              },
+            },
+            { actions: { hasSome: wanted } },
+          ],
         };
   };
   const given = (model: GovernedModel, a: string): Where => ({
@@ -173,20 +181,127 @@ export function handRules(actor: Actor, options: RuleOptions) {
     },
   });
 
-  /** ⋁_{b ⊒ a} rule(M, b). */
-  const anyRule = (
-    model: GovernedModel,
-    a: string,
-    rules: Record<string, () => Clause>
-  ): Clause => or(...above(model, a).map((b) => rules[b]?.() ?? null));
+  /** One direct declaration; P alone combines inherited grants. */
+  const directRule = (a: string, rules: Record<string, () => Clause>): Clause =>
+    rules[a]?.() ?? null;
 
-  const P = (model: GovernedModel, a: string): Clause => {
+  const P = (model: GovernedModel, a: string): Clause =>
+    or(...above(model, a).map((declared) => declaration(model, declared)));
+
+  const administerGrant = (): Clause =>
+    and(
+      {
+        OR: [
+          { pageId: { not: null } },
+          { groupId: { not: null } },
+          { documentId: { not: null } },
+          { collectionId: { not: null } },
+        ],
+      },
+      ...ADMINISTERED.map(([key, relation, thing, action]) => {
+        const known = options.permissions?.[thing]?.[action];
+        if (known !== undefined) {
+          return or({ [key]: null }, { [key]: { in: [...known] } });
+        }
+        const held = P(thing, action);
+        const target =
+          held === null
+            ? null
+            : thing === "page"
+              ? and({ deletedAt: null }, held)
+              : held;
+        return or({ [key]: null }, target && { [relation]: { is: target } });
+      })
+    );
+
+  const createRule = (model: GovernedModel): Clause => {
+    const related = (
+      relation: string,
+      target: GovernedModel,
+      action: string
+    ): Clause => {
+      const known =
+        target === "page" ||
+        target === "pageGroup" ||
+        target === "document" ||
+        target === "collection"
+          ? options.permissions?.[target]?.[action]
+          : undefined;
+      if (known !== undefined)
+        return { [relation]: { is: { id: { in: [...known] } } } };
+      const held = P(target, action);
+      return held === null ? null : { [relation]: { is: held } };
+    };
+    switch (model) {
+      case "member":
+        return related("organization", "organization", "invite");
+      case "teamMember":
+        return related("team", "team", "invite");
+      case "page":
+        return or(related("group", "pageGroup", "update"), {
+          groupId: null,
+          personal: true,
+          ownerId: me,
+        });
+      case "document":
+        return or(related("parent", "document", "update"), {
+          parentId: null,
+          ownerId: me,
+        });
+      case "collection":
+        return { createdById: me };
+      case "accessGrant":
+        return and(
+          administerGrant(),
+          ...ADMINISTERED.flatMap(([key, relation, target]) => [
+            ...(target === "document" ? actionsOf(target) : LEVELS).map(
+              (action) =>
+                or(
+                  { [key]: null },
+                  { NOT: { actions: { has: action } } },
+                  related(relation, target, action)
+                )
+            ),
+            ...(target === "document"
+              ? []
+              : LEVELS.map((level) =>
+                  or(
+                    { [key]: null },
+                    { level: null },
+                    { level: { not: level } },
+                    related(relation, target, level)
+                  )
+                )),
+          ])
+        );
+      default:
+        return null;
+    }
+  };
+  const capped = new Set<GovernedModel>([
+    "member",
+    "team",
+    "pageGroup",
+    "page",
+    "document",
+    "collection",
+    "bookmark",
+  ]);
+  const declaration = (model: GovernedModel, a: string): Clause => {
+    if (a === "create")
+      return CREATES.has(model)
+        ? and(
+            limit(model, a),
+            capped.has(model) ? inOrg(a) : {},
+            createRule(model)
+          )
+        : null;
     switch (model) {
       case "organization":
         return and(
           limit(model, a),
-          anyRule(model, a, {
-            view: () => ({ members: { some: liveMembership } }),
+          directRule(a, {
+            read: () => ({ members: { some: liveMembership } }),
             invite: () => adminHere,
             export: () =>
               and(
@@ -200,13 +315,13 @@ export function handRules(actor: Actor, options: RuleOptions) {
         return and(
           inOrg(a),
           limit(model, a),
-          anyRule(model, a, { view: () => ({}), edit: () => admin })
+          directRule(a, { read: () => ({}), update: () => admin })
         );
       case "user":
         return and(
           limit(model, a),
-          anyRule(model, a, {
-            view: () => ({
+          directRule(a, {
+            read: () => ({
               members: {
                 some: {
                   organizationId: actor.organizationId,
@@ -220,15 +335,15 @@ export function handRules(actor: Actor, options: RuleOptions) {
         return and(
           inOrg(a),
           limit(model, a),
-          anyRule(model, a, {
-            view: () => ({}),
+          directRule(a, {
+            read: () => ({}),
             invite: () =>
               or(admin, {
                 members: {
                   some: { userId: me, role: "lead", deletedAt: null },
                 },
               }),
-            edit: () => admin,
+            update: () => admin,
           })
         );
       case "teamMember": {
@@ -238,45 +353,19 @@ export function handRules(actor: Actor, options: RuleOptions) {
         };
         return and(
           limit(model, a),
-          anyRule(model, a, {
-            view: () => teamAt("view"),
+          directRule(a, {
+            read: () => teamAt("read"),
             manage: () => teamAt("invite"),
           })
         );
       }
       case "accessGrant": {
-        const administers = and(
-          {
-            OR: [
-              { pageId: { not: null } },
-              { groupId: { not: null } },
-              { documentId: { not: null } },
-              { collectionId: { not: null } },
-            ],
-          },
-          ...ADMINISTERED.map(([key, relation, thing, action]) => {
-            const known = options.administered?.[thing];
-            if (known !== undefined) {
-              return or({ [key]: null }, { [key]: { in: [...known] } });
-            }
-            const held = P(thing, action);
-            const target =
-              held === null
-                ? null
-                : thing === "page"
-                  ? and({ deletedAt: null }, held)
-                  : held;
-            return or(
-              { [key]: null },
-              target && { [relation]: { is: target } }
-            );
-          })
-        );
+        const administers = administerGrant();
         return and(
           limit(model, a),
-          anyRule(model, a, {
-            view: () => or({ userId: me }, administers),
-            edit: () => administers,
+          directRule(a, {
+            read: () => or({ userId: me }, administers),
+            update: () => administers,
           })
         );
       }
@@ -329,8 +418,8 @@ export function handRules(actor: Actor, options: RuleOptions) {
   return {
     /** R1 at (model, action), or `null` when it folds false. */
     predicate: P,
-    /** What a root read observes at `a`: `P(view) ∧ P(a)` (R2). */
+    /** What a root read observes at `a`: `P(read) ∧ P(a)` (R2). */
     observed: (model: GovernedModel, a: string): Clause =>
-      and(P(model, "view"), P(model, a)),
+      and(P(model, "read"), P(model, a)),
   };
 }

@@ -96,10 +96,10 @@ export const compiled = [
 `;
 /**
  * The entry on a client: `$as` is the governed client again (a key actor
- * too, its limit judged in the statement); can and assert take each model's
+ * too, its restrictions judged in the statement); can and assert take each model's
  * own actions, one or a list; `$access` is a projection key at every depth,
- * typed by each model's actions (the highest level where they are the
- * levels); a read-gated field is absent from a default row and present where
+ * typed as a boolean map of each model's actions; a read-gated field is absent
+ * from a default row and present where
  * selected; `as` takes the policy's actions and domains. Each wrong name is
  * an `@ts-expect-error` that must bite.
  */
@@ -115,7 +115,7 @@ export const keyed: typeof db = db.$as({
   userId: "user-02",
   organizationId: "org-1",
   network: "office",
-  key: { id: "key-02-a", scopes: { page: ["view"] }, resources: { document: ["d1"] } },
+  key: { id: "key-02-a", scopes: { page: ["read"] }, resources: { document: ["d1"] } },
 });
 export const answers: [Promise<boolean>, Promise<void>, Promise<boolean>] = [
   call.team.can("invite", { id: "t1" }),
@@ -126,21 +126,21 @@ export const answers: [Promise<boolean>, Promise<void>, Promise<boolean>] = [
 export const filtered = call.document.can("archive", { parentId: null });
 export const listed: Promise<{ readonly comment: boolean; readonly share: boolean }> =
   call.document.can(["comment", "share"], { id: "d1" });
-export const all: Promise<void> = call.page.assert(["view", "edit"], { id: "p1" });
+export const all: Promise<void> = call.page.assert(["read", "update"], { id: "p1" });
 // @ts-expect-error - "export" is not an action of team
 export const wrong = call.team.can("export", { id: "t1" });
 // @ts-expect-error - "archive" is document's, not page's
-export const wrongList = call.page.can(["view", "archive"], { id: "p1" });
+export const wrongList = call.page.can(["read", "archive"], { id: "p1" });
 
 export async function reads() {
   const documents = await call.document.findMany({
     where: { parentId: null },
     include: { $access: true, children: { include: { $access: ["share"] } } },
   });
-  const held: { readonly view: boolean; readonly export: boolean } = documents[0]!.$access;
+  const held: { readonly read: boolean; readonly export: boolean } = documents[0]!.$access;
   const shared: { readonly share: boolean } = documents[0]!.children[0]!.$access;
   const pages = await call.page.findMany({ include: { $access: true, group: true } });
-  const level: "view" | "edit" | "full" | null = pages[0]!.$access;
+  const level: { readonly read: boolean; readonly update: boolean; readonly full: boolean; readonly create: boolean } = pages[0]!.$access;
   const given = await call.page.findMany({ as: "given" });
   const [row] = await call.collection.findMany();
   const absent: number | undefined = row!.budget;

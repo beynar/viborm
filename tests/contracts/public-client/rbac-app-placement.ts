@@ -1,5 +1,6 @@
 import { ForbiddenError, NestedWriteError, NotFoundError } from "@errors";
 import { verbsOf } from "@src/rbac/compile";
+import { v } from "@src/validation";
 import {
   CREATES,
   createOracle,
@@ -35,14 +36,14 @@ import {
  * writes it. The declaration is the compiled §1.1 policy exactly as
  * `viborm/rbac` hands it to its `rows.verbs` (`verbsOf`): per model,
  *
- * - `place`: mandatory ∧ limit ∧ `create:` AND every key's target visible,
+ * - `place`: mandatory ∧ the named `create` rule AND every key's target visible,
  *   `P(T, read)` inlined; nothing (`OR: []`) on a model that declares no
  *   `create:` or that the policy does not list (R9);
  * - `moves`: per written field, the placement's clause where it reads the
  *   field (OD-14), AND its target visible where it is a key;
- * - `acyclic`: `document.parent`, which `up("parent")` recurses over.
+ * - `acyclic`: `document.parent`, which the policy traverses recursively.
  *
- * The actor is a call argument (no bound view: that is the entry's, K6).
+ * The actor is a call argument (no bound read: that is the entry's, K6).
  * Every expectation is the independent oracle's (`oracle.ts`, `places` and
  * `produces`), read without tombstones as soft delete is not composed. A
  * probe runs in a transaction rolled back after it, or is followed by the
@@ -91,7 +92,22 @@ export function runRbacAppPlacement(substrate: RbacAppSubstrate): void {
   const compiled = policy.compile(schema);
   const declaration = {
     name: "placement",
-    controls: { actor: { schema: ActorSchema, required: true } },
+    controls: {
+      actor: { schema: ActorSchema, required: true },
+      scopes: {
+        schema: v.object({
+          unrestricted: v.boolean(),
+          allowed: v.array(v.string()),
+        }),
+        required: true,
+      },
+    },
+    client: (scope: {
+      $bind(values: Readonly<Record<string, unknown>>): unknown;
+    }) => ({
+      $unrestricted: () =>
+        scope.$bind({ scopes: { unrestricted: true, allowed: [] } }),
+    }),
     rows: {
       control: "as",
       default: "all",
@@ -138,7 +154,10 @@ export function runRbacAppPlacement(substrate: RbacAppSubstrate): void {
       base = createRbacAppClient(substrate.createDriver());
       await substrate.prepare(base);
       await loadRbacSeed(base);
-      db = loose(base.$extends(declaration as never));
+      const unbound = base.$extends(declaration as never) as unknown as {
+        $unrestricted(): Loose;
+      };
+      db = unbound.$unrestricted();
     }, timeout);
     afterAll(async () => {
       await base?.$disconnect();
@@ -233,9 +252,9 @@ export function runRbacAppPlacement(substrate: RbacAppSubstrate): void {
       ];
       for (const [key, id] of things)
         for (const [level, actions] of [
-          [key === "documentId" ? null : "view", []],
+          [key === "documentId" ? null : "read", []],
           [key === "documentId" ? null : "full", []],
-          [null, key === "documentId" ? ["share"] : ["edit"]],
+          [null, key === "documentId" ? ["share"] : ["update"]],
           [null, key === "documentId" ? ["export"] : ["full"]],
         ] as const)
           rows.push(
@@ -357,7 +376,7 @@ export function runRbacAppPlacement(substrate: RbacAppSubstrate): void {
             ).toBe(ForbiddenError.name);
           }
           // Nested: a bookmark created under a page the actor edits.
-          const page = oracle.rows(actor, "page", "edit", opts)[0];
+          const page = oracle.rows(actor, "page", "update", opts)[0];
           if (page === undefined) continue;
           expect(
             (
@@ -412,7 +431,7 @@ export function runRbacAppPlacement(substrate: RbacAppSubstrate): void {
             pageId: full,
             groupId: group.id,
             userId: actor.userId,
-            level: "view",
+            level: "read",
           });
           expect(oracle.places(actor, "accessGrant", row, opts)).toBe(false);
           expect(
@@ -472,7 +491,7 @@ export function runRbacAppPlacement(substrate: RbacAppSubstrate): void {
 
     /** Pages the actor edits, with the group moves R4 judges on each. */
     const groupMoves = (actor: Actor) => {
-      const edit = oracle.rows(actor, "page", "edit", opts);
+      const update = oracle.rows(actor, "page", "update", opts);
       const local = seed.pageGroup.filter(
         (g) => g.organizationId === actor.organizationId
       );
@@ -484,7 +503,7 @@ export function runRbacAppPlacement(substrate: RbacAppSubstrate): void {
         null,
       ];
       return seed.page
-        .filter((p) => edit.includes(p.id))
+        .filter((p) => update.includes(p.id))
         .slice(0, 4)
         .flatMap((page) =>
           targets
@@ -494,7 +513,7 @@ export function runRbacAppPlacement(substrate: RbacAppSubstrate): void {
     };
 
     test(
-      "W-P5, W-P16: a scalar-key move: the old row at edit, the new row under what judged it, at placement (it writes what create reads) and with its group visible; a hidden and a missing group give one error",
+      "W-P5, W-P16: a scalar-key move: the old row at update, the new row under what judged it, at placement (it writes what create reads) and with its group visible; a hidden and a missing group give one error",
       async () => {
         const seen = { ok: 0, refused: 0 };
         for (const name of writers) {
@@ -506,7 +525,7 @@ export function runRbacAppPlacement(substrate: RbacAppSubstrate): void {
               "page",
               after,
               ["groupId"],
-              ["edit"],
+              ["update"],
               opts
             );
             const moved = await probe(
@@ -541,7 +560,7 @@ export function runRbacAppPlacement(substrate: RbacAppSubstrate): void {
         const seen = { ok: 0, refused: 0, hidden: 0 };
         for (const name of writers) {
           const actor = actors[name]!;
-          const groups = oracle.rows(actor, "pageGroup", "view", opts);
+          const groups = oracle.rows(actor, "pageGroup", "read", opts);
           for (const { page, groupId } of groupMoves(actor)) {
             if (groupId === null) continue;
             const visible = groups.includes(groupId);
@@ -552,7 +571,7 @@ export function runRbacAppPlacement(substrate: RbacAppSubstrate): void {
                 "page",
                 { ...page, groupId },
                 ["groupId", "group"],
-                ["edit"],
+                ["update"],
                 opts
               );
             const moved = await probe(
@@ -614,7 +633,7 @@ export function runRbacAppPlacement(substrate: RbacAppSubstrate): void {
               "page",
               { ...page, groupId },
               ["groupId"],
-              ["edit"],
+              ["update"],
               opts
             );
             const updated = await probe(
@@ -706,9 +725,9 @@ export function runRbacAppPlacement(substrate: RbacAppSubstrate): void {
             seen[allowed ? "ok" : "refused"] += 1;
           }
           // Under an existing parent the actor edits (the parent is bumped,
-          // so it is judged at its update action, edit).
+          // so it is judged at its update action, update).
           const parent = seed.document.find((d) =>
-            oracle.rows(actor, "document", "edit", opts).includes(d.id)
+            oracle.rows(actor, "document", "update", opts).includes(d.id)
           );
           if (parent) {
             const leaf = { ...child(actor.userId), parentId: parent.id };
@@ -731,13 +750,13 @@ export function runRbacAppPlacement(substrate: RbacAppSubstrate): void {
           }
           // connectOrCreate's create arm, from a page the actor edits.
           const page = seed.page.find((p) =>
-            oracle.rows(actor, "page", "edit", opts).includes(p.id)
+            oracle.rows(actor, "page", "update", opts).includes(p.id)
           );
           if (page) {
             const created = grantRow(actor, {
               pageId: page.id,
               userId: actor.userId,
-              level: "view",
+              level: "read",
             });
             const allowed = oracle.places(actor, "accessGrant", created, opts);
             const { pageId: _page, ...nested } = created;
@@ -776,7 +795,7 @@ export function runRbacAppPlacement(substrate: RbacAppSubstrate): void {
         let cases = 0;
         for (const name of writers) {
           const actor = actors[name]!;
-          const editable = oracle.rows(actor, "accessGrant", "edit", opts);
+          const editable = oracle.rows(actor, "accessGrant", "update", opts);
           for (const grant of seed.accessGrant
             .filter((g) => editable.includes(g.id) && g.pageId !== null)
             .slice(0, 3)) {
@@ -790,7 +809,7 @@ export function runRbacAppPlacement(substrate: RbacAppSubstrate): void {
                 "accessGrant",
                 after,
                 ["groupId"],
-                ["edit"],
+                ["update"],
                 opts
               );
               const moved = await probe(
@@ -825,7 +844,7 @@ export function runRbacAppPlacement(substrate: RbacAppSubstrate): void {
         const seen = { ok: 0, refused: 0 };
         for (const name of writers) {
           const actor = actors[name]!;
-          const editable = oracle.rows(actor, "team", "edit", opts);
+          const editable = oracle.rows(actor, "team", "update", opts);
           for (const team of seed.team
             .filter((t) => editable.includes(t.id))
             .slice(0, 2))
@@ -836,7 +855,7 @@ export function runRbacAppPlacement(substrate: RbacAppSubstrate): void {
                 "team",
                 { ...team, organizationId },
                 ["organizationId"],
-                ["edit"],
+                ["update"],
                 opts
               );
               const moved = await probe(
@@ -918,9 +937,9 @@ export function runRbacAppPlacement(substrate: RbacAppSubstrate): void {
           seed.document.filter((d) => d.parentId === id);
         for (const name of writers) {
           const actor = actors[name]!;
-          const edit = oracle.rows(actor, "document", "edit", opts);
+          const update = oracle.rows(actor, "document", "update", opts);
           const moved = seed.document.find(
-            (d) => edit.includes(d.id) && childrenOf(d.id).length > 0
+            (d) => update.includes(d.id) && childrenOf(d.id).length > 0
           );
           if (moved === undefined) continue;
           const below = childrenOf(moved.id)[0]!;
@@ -932,7 +951,7 @@ export function runRbacAppPlacement(substrate: RbacAppSubstrate): void {
               "document",
               after,
               ["parentId"],
-              ["edit"],
+              ["update"],
               opts
             );
             const outcome = await probe(
@@ -967,9 +986,9 @@ export function runRbacAppPlacement(substrate: RbacAppSubstrate): void {
         let viewers = 0;
         for (const name of writers) {
           const actor = actors[name]!;
-          const view = oracle.rows(actor, "page", "view", opts);
-          const edit = oracle.rows(actor, "page", "edit", opts);
-          const viewed = view.find((id) => !edit.includes(id));
+          const read = oracle.rows(actor, "page", "read", opts);
+          const update = oracle.rows(actor, "page", "update", opts);
+          const viewed = read.find((id) => !update.includes(id));
           if (viewed === undefined) continue;
           viewers += 1;
           expect(

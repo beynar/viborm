@@ -20,19 +20,20 @@ export const PAST = new Date("2020-01-01T00:00:00.000Z");
 export const FUTURE = new Date("2099-01-01T00:00:00.000Z");
 const CREATED = new Date("2026-01-01T00:00:00.000Z");
 
-export const LEVELS = ["view", "edit", "full"] as const;
+export const LEVELS = ["read", "update", "full"] as const;
 export const DOCUMENT_ACTIONS = [
-  "view",
+  "read",
   "comment",
   "archive",
-  "edit",
+  "update",
   "share",
   "export",
 ] as const;
 /** Every action name a §1.1 model declares; what `member` and `admin` store in `rolePermission`. */
 export const ALL_ACTIONS = [
-  "view",
-  "edit",
+  "create",
+  "read",
+  "update",
   "full",
   "invite",
   "export",
@@ -377,7 +378,7 @@ function buildSeed(): RbacSeed {
   const rolePermissions: RolePermissionRow[] = [];
   for (const { id } of ORGANIZATIONS) {
     for (const role of ["admin", "member", "reader"]) {
-      for (const action of role === "reader" ? ["view"] : ALL_ACTIONS) {
+      for (const action of role === "reader" ? ["read"] : ALL_ACTIONS) {
         rolePermissions.push({ organizationId: id, role, action });
       }
     }
@@ -760,17 +761,17 @@ function buildActors(): Readonly<Record<string, Actor>> {
       session: "ses-21-live",
       key: {
         id: "key-21-a",
-        scopes: { page: ["edit"] },
+        scopes: { page: ["update"] },
         resources: { document: "all" },
       },
     },
-    "k02-pages-view": {
+    "k02-pages-read": {
       userId: userId(2),
       organizationId: "org-1",
       network: "office",
       key: {
         id: "key-02-a",
-        scopes: { page: ["view"] },
+        scopes: { page: ["read"] },
         resources: { document: rootDocuments("org-1").slice(0, 2) },
       },
     },
@@ -800,7 +801,7 @@ function buildActors(): Readonly<Record<string, Actor>> {
       network: "public",
       key: {
         id: "key-05-a",
-        scopes: { document: ["share"], organization: ["view"] },
+        scopes: { document: ["share"], organization: ["read"] },
         resources: { document: rootDocuments("org-1").slice(0, 3) },
       },
     },
@@ -812,11 +813,11 @@ function buildActors(): Readonly<Record<string, Actor>> {
         id: "key-21-a",
         scopes: {
           organization: ["invite", "export"],
-          member: ["edit"],
-          user: ["view"],
-          team: ["edit", "invite"],
+          member: ["update"],
+          user: ["read"],
+          team: ["update", "invite"],
           teamMember: ["manage"],
-          accessGrant: ["edit"],
+          accessGrant: ["update"],
           pageGroup: ["full"],
           page: ["full"],
           document: ["share", "export"],
@@ -831,7 +832,7 @@ function buildActors(): Readonly<Record<string, Actor>> {
       network: "office",
       key: {
         id: "key-41-a",
-        scopes: { document: ["view"], page: ["view"] },
+        scopes: { document: ["read"], page: ["read"] },
         resources: { document: [] },
       },
     },

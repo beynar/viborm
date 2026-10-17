@@ -12,8 +12,8 @@ function sameShapeClient() {
   return rbac({
     actor,
     models: {
-      alpha: { actions: { view: [], archive: [] }, view: {}, archive: {} },
-      beta: { actions: { view: [], publish: [] }, view: {}, publish: {} },
+      alpha: { actions: { read: [], archive: [] }, read: {}, archive: {} },
+      beta: { actions: { read: [], publish: [] }, read: {}, publish: {} },
     },
   })(createClient({ schema: { alpha, beta }, dataDir: ":memory:" }));
 }
@@ -22,7 +22,7 @@ export async function rootEvidenceNames() {
   const db = sameShapeClient().$as({ userId: "reader" });
   const alpha = await db.alpha.findMany({ include: { $access: true } });
   expectTypeOf(alpha[0]!.$access).toEqualTypeOf<{
-    readonly view: boolean;
+    readonly read: boolean;
     readonly archive: boolean;
   }>();
   const beta = await db.beta.findMany({
@@ -30,9 +30,9 @@ export async function rootEvidenceNames() {
   });
   expectTypeOf(beta[0]!.$access).toEqualTypeOf<{ readonly publish: boolean }>();
   // @ts-expect-error - publish belongs to beta, even though both models have identical types
-  db.alpha.findMany({ include: { $access: ["view", "publish"] } });
+  db.alpha.findMany({ include: { $access: ["read", "publish"] } });
   // @ts-expect-error - archive belongs to alpha
-  db.beta.findMany({ select: { id: true, $access: ["view", "archive"] } });
+  db.beta.findMany({ select: { id: true, $access: ["read", "archive"] } });
 }
 
 function linkedClient() {
@@ -54,9 +54,9 @@ function linkedClient() {
   return rbac({
     actor,
     models: {
-      parent: { view: {} },
-      alpha: { actions: { view: [], archive: [] }, view: {}, archive: {} },
-      beta: { actions: { view: [], publish: [] }, view: {}, publish: {} },
+      parent: { read: {} },
+      alpha: { actions: { read: [], archive: [] }, read: {}, archive: {} },
+      beta: { actions: { read: [], publish: [] }, read: {}, publish: {} },
     },
   })(createClient({ schema: { parent, alpha, beta }, dataDir: ":memory:" }));
 }
@@ -71,7 +71,7 @@ export async function linkedEvidenceNames() {
     },
   });
   expectTypeOf(rows[0]!.alpha!.$access).toEqualTypeOf<{
-    readonly view: boolean;
+    readonly read: boolean;
     readonly archive: boolean;
   }>();
   expectTypeOf(rows[0]!.beta!.$access).toEqualTypeOf<{
@@ -79,10 +79,10 @@ export async function linkedEvidenceNames() {
   }>();
   db.parent.findMany({
     // @ts-expect-error - nested alpha keeps its own action names despite sharing beta's field-name surface
-    include: { alpha: { select: { id: true, $access: ["view", "publish"] } } },
+    include: { alpha: { select: { id: true, $access: ["read", "publish"] } } },
   });
   db.parent.findMany({
     // @ts-expect-error - nested beta cannot project alpha's action
-    include: { beta: { include: { $access: ["view", "archive"] } } },
+    include: { beta: { include: { $access: ["read", "archive"] } } },
   });
 }

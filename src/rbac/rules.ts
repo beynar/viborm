@@ -3,8 +3,11 @@
 
 /** A `where` over a model's relations and the actor's facts, held as data. */
 export type Where = { readonly [key: string]: unknown };
-/** A `where`, or a function of the requested action and model, even when inherited. */
-export type Rule = Where | ((action: string, model: PolicyModel) => Rule);
+/** A boolean grant, a `where`, or a function of its declared action and model. */
+export type Rule =
+  | boolean
+  | Where
+  | ((action: string, model: PolicyModel) => Rule);
 
 /** What a rule function reads of the model it is evaluated at. */
 export interface PolicyModel {

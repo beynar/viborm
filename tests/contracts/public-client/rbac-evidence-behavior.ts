@@ -1,6 +1,7 @@
 import { ValidationError } from "@errors";
 import type { CompiledPolicy } from "@src/rbac";
 import { verbsOf } from "@src/rbac/compile";
+import { v } from "@src/validation";
 import {
   createRbacAppClient,
   loadRbacSeed,
@@ -19,7 +20,6 @@ import { schema } from "@tests/package/fixtures/rbac-app/schema";
 import {
   type Actor,
   actors,
-  LEVELS,
   seed,
 } from "@tests/package/fixtures/rbac-app/seed";
 import {
@@ -39,7 +39,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
  * compiled ones. A plain extension carries it, its actor an argument; no
  * other layer, so the oracle is read without tombstones.
  *
- * What a caller observes of a row at action `a` is `P(view) ∧ P(a)` (R2), so
+ * What a caller observes of a row at action `a` is `P(read) ∧ P(a)` (R2), so
  * a row's `$access` is the oracle's `access` for it, and `budget` is present
  * exactly where the oracle holds `full`. A `select` that names `budget` fails
  * on a row without it (OD-5); every operand the caller writes over `budget`
@@ -61,25 +61,32 @@ interface Delegate {
 type Client = Record<string, Delegate> & {
   $transaction<T>(body: (tx: Client) => Promise<T>): Promise<T>;
   $extends(definition: object): Client;
+  $unrestricted(): Client;
 };
 
 const KEY = "$access";
 const MODE = "as";
 const ROLLBACK = new Error("rolled back");
 
-/** A model whose actions are exactly the levels chain reports its highest. */
-const ordered = (model: GovernedModel) => {
-  const actions = actionsOf(model);
-  return (
-    actions.length === LEVELS.length &&
-    actions.every((action, index) => action === LEVELS[index])
-  );
-};
-
 /** The plain extension carrying the compiled policy and K5's declarations. */
 export const evidenceExtension = (compiled: CompiledPolicy) => ({
   name: "evidence",
-  controls: { actor: { schema: ActorSchema, required: true } },
+  controls: {
+    actor: { schema: ActorSchema, required: true },
+    scopes: {
+      schema: v.object({
+        unrestricted: v.boolean(),
+        allowed: v.array(v.string()),
+      }),
+      required: true,
+    },
+  },
+  client: (scope: {
+    $bind(values: Readonly<Record<string, unknown>>): unknown;
+  }) => ({
+    $unrestricted: () =>
+      scope.$bind({ scopes: { unrestricted: true, allowed: [] } }),
+  }),
   rows: {
     control: MODE,
     default: "default",
@@ -121,11 +128,9 @@ export function runRbacEvidenceBehavior(substrate: EvidenceSubstrate): void {
     oracle.access(actor, model, options);
   /** What a row's `$access` reads for one held action list. */
   const evidenceOf = (model: GovernedModel, held: readonly string[]) =>
-    ordered(model)
-      ? (oracle.highestLevel(held) ?? null)
-      : Object.fromEntries(
-          actionsOf(model).map((action) => [action, held.includes(action)])
-        );
+    Object.fromEntries(
+      actionsOf(model).map((action) => [action, held.includes(action)])
+    );
   /** The collections an actor holds at full: where `budget` is present. */
   const full = (actor: Actor) =>
     new Set(oracle.rows(actor, "collection", "full", options));
@@ -189,7 +194,7 @@ export function runRbacEvidenceBehavior(substrate: EvidenceSubstrate): void {
     const mixed = () =>
       judged.filter((name) => {
         const actor = actors[name]!;
-        const visible = oracle.rows(actor, "collection", "view", options);
+        const visible = oracle.rows(actor, "collection", "read", options);
         const held = full(actor);
         return (
           visible.some((id) => held.has(id)) &&
@@ -203,6 +208,7 @@ export function runRbacEvidenceBehavior(substrate: EvidenceSubstrate): void {
       await loadRbacSeed(base);
       db = (base as unknown as Client)
         .$extends(evidenceExtension(policy.compile(schema)))
+        .$unrestricted()
         .$extends({
           name: "meter",
           statement: (context: { statement: unknown }) => {
@@ -222,7 +228,7 @@ export function runRbacEvidenceBehavior(substrate: EvidenceSubstrate): void {
 
     for (const name of judged) {
       test(
-        `W-EV1, W-EV3, W-F6: ${name}'s $access on every row of every model is the oracle's, the highest level where ordered; no row dropped`,
+        `W-EV1, W-EV3, W-F6: ${name}'s $access on every row of every model is the oracle's, booleans for every declared action; no row dropped`,
         async () => {
           const actor = actors[name]!;
           const as = call(name);
@@ -314,19 +320,20 @@ export function runRbacEvidenceBehavior(substrate: EvidenceSubstrate): void {
     );
 
     test(
-      "W-EV3: a list of names reports those only; ordered, the highest of them",
+      "W-EV3: a list of names reports those only; always a boolean map",
       async () => {
         for (const name of judged) {
           const actor = actors[name]!;
           const as = call(name);
           const pages = access(actor, "page");
           for (const row of await as.page!.findMany({
-            select: { id: true, [KEY]: ["view", "edit"] },
+            select: { id: true, [KEY]: ["read", "update"] },
           })) {
             const held = pages.get(row.id as string)!;
-            expect(row[KEY], `${name} ${row.id}`).toEqual(
-              oracle.highestLevel(held.filter((a) => a !== "full")) ?? null
-            );
+            expect(row[KEY], `${name} ${row.id}`).toEqual({
+              read: held.includes("read"),
+              update: held.includes("update"),
+            });
           }
           const documents = access(actor, "document");
           for (const row of await as.document!.findMany({
@@ -377,7 +384,7 @@ export function runRbacEvidenceBehavior(substrate: EvidenceSubstrate): void {
         let judgedWrites = 0;
         for (const name of judged.slice(0, 3)) {
           const actor = actors[name]!;
-          const editable = oracle.rows(actor, "document", "edit", options);
+          const editable = oracle.rows(actor, "document", "update", options);
           const id = editable[0];
           if (id === undefined) continue;
           judgedWrites += 1;
@@ -407,7 +414,7 @@ export function runRbacEvidenceBehavior(substrate: EvidenceSubstrate): void {
           async () => {
             const actor = actors[name]!;
             const held = full(actor);
-            const visible = oracle.rows(actor, "collection", "view", options);
+            const visible = oracle.rows(actor, "collection", "read", options);
             const as = call(name);
             const check = (rows: Row[], where: string) => {
               for (const row of rows) {
@@ -456,7 +463,7 @@ export function runRbacEvidenceBehavior(substrate: EvidenceSubstrate): void {
         async () => {
           for (const name of judged) {
             const actor = actors[name]!;
-            const visible = oracle.rows(actor, "collection", "view", options);
+            const visible = oracle.rows(actor, "collection", "read", options);
             const held = full(actor);
             const lacking = visible.some((id) => !held.has(id));
             const as = call(name);
@@ -505,7 +512,7 @@ export function runRbacEvidenceBehavior(substrate: EvidenceSubstrate): void {
         async () => {
           for (const name of judged) {
             const actor = actors[name]!;
-            const visible = oracle.rows(actor, "collection", "view", options);
+            const visible = oracle.rows(actor, "collection", "read", options);
             const held = full(actor);
             const known = visible.filter((id) => held.has(id));
             const budget = (id: string) => collections.get(id)!.budget;
@@ -623,7 +630,12 @@ export function runRbacEvidenceBehavior(substrate: EvidenceSubstrate): void {
           const writes = { lacking: 0, holding: 0 };
           for (const name of judged) {
             const actor = actors[name]!;
-            const editable = oracle.rows(actor, "collection", "edit", options);
+            const editable = oracle.rows(
+              actor,
+              "collection",
+              "update",
+              options
+            );
             const held = full(actor);
             if (editable.length === 0) continue;
             const lacking = editable.find((id) => !held.has(id));
@@ -672,7 +684,7 @@ export function runRbacEvidenceBehavior(substrate: EvidenceSubstrate): void {
         async () => {
           for (const name of judged) {
             const actor = actors[name]!;
-            const visible = oracle.rows(actor, "collection", "view", options);
+            const visible = oracle.rows(actor, "collection", "read", options);
             const held = full(actor);
             const as = call(name);
             for (const id of visible) {
@@ -689,7 +701,7 @@ export function runRbacEvidenceBehavior(substrate: EvidenceSubstrate): void {
               where: { collections: { some: { budget: { gt: 0 } } } },
               select: { id: true },
             });
-            const orgs = oracle.rows(actor, "organization", "view", options);
+            const orgs = oracle.rows(actor, "organization", "read", options);
             expect(
               organizations.map((row) => row.id).sort(),
               `${name} some`
@@ -730,7 +742,7 @@ export function runRbacEvidenceBehavior(substrate: EvidenceSubstrate): void {
         const sides = { present: 0, absent: 0, refused: 0, admitted: 0 };
         for (const name of judged) {
           const actor = actors[name]!;
-          const visible = oracle.rows(actor, "collection", "view", options);
+          const visible = oracle.rows(actor, "collection", "read", options);
           const held = full(actor);
           sides.present += visible.filter((id) => held.has(id)).length;
           sides.absent += visible.filter((id) => !held.has(id)).length;

@@ -36,6 +36,7 @@ import type {
   StampedFields,
 } from "../extensions/controls";
 import type { VibORMConfig } from "./client";
+import type { CachedProjectedOperations } from "./projected-types";
 import type {
   AggregateResultType,
   BatchPayload,
@@ -1929,6 +1930,7 @@ export type CachedClient<
   C extends VibORMConfig,
   ClientDefaults = ClientRelationOmitContext<C>,
   Controls extends object = NoControls,
+  Models extends object = Record<never, never>,
 > = {
   [K in keyof ClientSchema<C>]: {
     [O in CacheableOperations]: CachedOperation<
@@ -1938,5 +1940,11 @@ export type CachedClient<
       ClientDefaults,
       PlacedOperationControls<Controls, K, O>
     >;
-  };
+  } & CachedProjectedOperations<
+    C,
+    K,
+    ClientDefaults,
+    Controls,
+    K extends keyof Models ? Models[K] : Record<never, never>
+  >;
 };

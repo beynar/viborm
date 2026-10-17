@@ -105,9 +105,11 @@ export type EnableExtensionCache<X extends ExtensionStateConstraint> =
 /** Whether an earlier extension was typed against result-bearing delegates. */
 export type HasResultConsumingExtension<X extends ExtensionStateConstraint> = [
   X["resultConsumer"],
-] extends [ExtensionResultConsumerState]
-  ? true
-  : false;
+] extends [undefined]
+  ? false
+  : [X["resultConsumer"]] extends [ExtensionResultConsumerState]
+    ? true
+    : false;
 
 type MethodsForModel<
   X extends ExtensionStateConstraint,

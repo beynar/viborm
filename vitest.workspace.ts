@@ -195,6 +195,7 @@ export default defineWorkspace([
         "tests/unit/rbac/compile.core.test.ts",
         "tests/providers/local/sqlite3-rbac-compiled-policy.test.ts",
         "tests/providers/local/sqlite3-rbac-entry.test.ts",
+        "tests/providers/local/sqlite3-rbac-extends.test.ts",
         "tests/contracts/public-client/extension-produced.core.test.ts",
       ],
     },

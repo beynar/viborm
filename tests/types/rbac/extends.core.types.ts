@@ -37,11 +37,11 @@ export function checkRbacExtensionTypes() {
     rbac({
       actor,
       models: {
-        user: { view: {} },
+        user: { read: {} },
         post: {
-          actions: { view: [], edit: [] },
-          view: { owner: { is: { id: { actor: "userId" } } } },
-          edit: {
+          actions: { read: [], update: [] },
+          read: { owner: { is: { id: { actor: "userId" } } } },
+          update: {
             AND: [{ ownerId: { actor: "userId" } }, { id: { not: "" } }],
           },
         },
@@ -53,10 +53,10 @@ export function checkRbacExtensionTypes() {
   const grouped = base.$extends(
     rbac({
       actor,
-      levels: ["view", "edit", "full"],
+      levels: ["read", "update", "full"],
       models: {
         post: {
-          "view, edit": (action, model) => {
+          "read, update": (action, model) => {
             expectTypeOf(action).toEqualTypeOf<string>();
             expectTypeOf(model).toEqualTypeOf<PolicyModel>();
             expectTypeOf<keyof PolicyModel>().toEqualTypeOf<
@@ -76,28 +76,28 @@ export function checkRbacExtensionTypes() {
       },
     })
   );
-  expectTypeOf(grouped.post.can("edit", { id: "p" })).toEqualTypeOf<
+  expectTypeOf(grouped.post.can("update", { id: "p" })).toEqualTypeOf<
     Promise<boolean>
   >();
-  grouped.post.findMany({ as: "view", select: { $access: true } });
+  grouped.post.findMany({ as: "read", select: { $access: true } });
   // @ts-expect-error - a group is declaration syntax, not an action
-  grouped.post.can("view, edit", { id: "p" });
+  grouped.post.can("read, update", { id: "p" });
   // @ts-expect-error - modes also name individual actions
-  grouped.post.findMany({ as: "view, edit" });
+  grouped.post.findMany({ as: "read, update" });
   base.$extends(
     // @ts-expect-error - grouped callbacks preserve declaration admission
     rbac({
       actor,
-      models: { post: { "view, arms": (action) => ({ id: action }) } },
+      models: { post: { "read, arms": (action) => ({ id: action }) } },
     })
   );
   const dynamic = base.$extends(
     rbac({
       actor,
-      levels: ["view", "edit"],
+      levels: ["read", "update"],
       models: {
         post: {
-          edit: (action, model) => {
+          update: (action, model) => {
             expectTypeOf(action).toEqualTypeOf<string>();
             expectTypeOf(model).toEqualTypeOf<PolicyModel>();
             return {
@@ -119,12 +119,12 @@ export function checkRbacExtensionTypes() {
       },
     })
   );
-  expectTypeOf(dynamic.post.can("edit", { id: "p" })).toEqualTypeOf<
+  expectTypeOf(dynamic.post.can("update", { id: "p" })).toEqualTypeOf<
     Promise<boolean>
   >();
   base.$extends(
     // @ts-expect-error - the contextual factory also rejects the retired grant key
-    rbac({ actor, models: { post: { arms: {}, view: {} } } })
+    rbac({ actor, models: { post: { arms: {}, read: {} } } })
   );
   // @ts-expect-error - dynamic rules do not erase the declared action names
   dynamic.post.can("publish", { id: "p" });
@@ -133,8 +133,8 @@ export function checkRbacExtensionTypes() {
     rbac({
       actor,
       models: {
-        post: { edit: (action) => ({ id: action }) },
-        ghost: { view: {} },
+        post: { update: (action) => ({ id: action }) },
+        ghost: { read: {} },
       },
     })
   );
@@ -144,8 +144,8 @@ export function checkRbacExtensionTypes() {
       actor,
       models: {
         post: {
-          edit: (action) => ({ id: action }),
-          fields: { ownerId: { write: "edit" }, wrong: { write: "edit" } },
+          update: (action) => ({ id: action }),
+          fields: { ownerId: { write: "update" }, wrong: { write: "update" } },
         },
       },
     })
@@ -156,7 +156,7 @@ export function checkRbacExtensionTypes() {
       actor,
       models: {
         post: {
-          edit: (action) => ({ id: action }),
+          update: (action) => ({ id: action }),
           create: { ownerId: { actor: "userId" }, wrong: 1 },
         },
       },
@@ -173,7 +173,7 @@ export function checkRbacExtensionTypes() {
     >
   >().toEqualTypeOf<never>();
 
-  const held = rbac({ actor, models: { post: { view: {} } } });
+  const held = rbac({ actor, models: { post: { read: {} } } });
   const tombstones = softDelete({
     models: { post: { deletedAt: "deletedAt" } },
   });
@@ -182,12 +182,12 @@ export function checkRbacExtensionTypes() {
     .$extends(held)
     .$extends(tombstones.methods);
   const boundCombined = combined.$as({ userId: "u", organizationId: "o" });
-  boundCombined.post.can("view", { id: "p" });
+  boundCombined.post.can("read", { id: "p" });
   boundCombined.post.restore({ where: { id: "p" } });
   const continued = combined.$extends({ name: "after-composition" });
-  continued.post.can("view", { id: "p" });
+  continued.post.can("read", { id: "p" });
   continued.post.restore({ where: { id: "p" } });
-  expectTypeOf(combined.post.can("view", { id: "p" })).toEqualTypeOf<
+  expectTypeOf(combined.post.can("read", { id: "p" })).toEqualTypeOf<
     Promise<boolean>
   >();
   const restoration = combined.post.restore({
@@ -219,7 +219,7 @@ export function checkRbacExtensionTypes() {
   const continuedTenant = tenantCombined.$extends({
     name: "after-tenant-composition",
   });
-  continuedTenant.post.can("view", { id: "p" });
+  continuedTenant.post.can("read", { id: "p" });
   continuedTenant.post.restore({ where: { id: "p" } });
   continuedTenant.post.findMany({ tenant: "acme" });
   // @ts-expect-error - subsequent views keep the control value type
@@ -235,7 +235,7 @@ export function checkRbacExtensionTypes() {
   const legacy = held(tenantBase);
   const splitPolicy = tenantBase.$extends(held.rows).$extends(held.methods);
   splitPolicy.post.findMany({ tenant: "acme" });
-  splitPolicy.post.can("view", { id: "p" });
+  splitPolicy.post.can("read", { id: "p" });
   // @ts-expect-error - split policy factories retain the prior control schema
   splitPolicy.post.findMany({ tenant: 1 });
   type Hint<T> =
@@ -265,7 +265,7 @@ export function checkRbacExtensionTypes() {
     // @ts-expect-error - a transaction cannot extend its already-fixed chain
     held(tx);
   });
-  const foreign = rbac({ actor, models: { ghost: { view: {} } } });
+  const foreign = rbac({ actor, models: { ghost: { read: {} } } });
   // @ts-expect-error - held factories cannot apply to a missing model
   base.$extends(foreign);
   // @ts-expect-error - legacy factory calls enforce the same schema contract
@@ -275,7 +275,7 @@ export function checkRbacExtensionTypes() {
 
   expectTypeOf<keyof typeof db.$schema>().toEqualTypeOf<"user" | "post">();
   db.$as({ userId: "u", organizationId: "o" });
-  expectTypeOf(db.post.can("edit", { id: "p" })).toEqualTypeOf<
+  expectTypeOf(db.post.can("update", { id: "p" })).toEqualTypeOf<
     Promise<boolean>
   >();
   // @ts-expect-error - exact declared actions survive contextual factory inference
@@ -283,16 +283,140 @@ export function checkRbacExtensionTypes() {
   // @ts-expect-error - every required actor field is retained
   db.$as({ userId: "u" });
   // @ts-expect-error - a model outside the receiving schema is refused
-  base.$extends(rbac({ actor, models: { ghost: { view: {} } } }));
+  base.$extends(rbac({ actor, models: { ghost: { read: {} } } }));
   base.$extends(
     // @ts-expect-error - actor references name the actor schema's paths
-    rbac({ actor, models: { post: { view: { ownerId: { actor: "usrId" } } } } })
+    rbac({ actor, models: { post: { read: { ownerId: { actor: "usrId" } } } } })
   );
   base.$extends(
     // @ts-expect-error - an operation cannot name an undeclared action
     rbac({
       actor,
-      models: { post: { view: {}, operations: { delete: "remove" } } },
+      models: { post: { read: {}, operations: { delete: "remove" } } },
     })
   );
+}
+
+export function scopedPrincipalTypes() {
+  const post = s.model({ id: s.string().id(), ownerId: s.string() });
+  const base = createClient({ schema: { post }, dataDir: ":memory:" });
+  const db = base.$extends(
+    rbac({
+      actor: v.object({
+        principalId: v.string(),
+        kind: v.union([v.literal("user"), v.literal("service")]),
+      }),
+      models: {
+        post: {
+          create: true,
+          update: { ownerId: { actor: "principalId" } },
+          delete: false,
+        },
+      },
+    })
+  );
+  const actor = { principalId: "worker", kind: "service" as const };
+  db.$as(actor);
+  db.$as(actor, []);
+  db.$as(actor, ["post.create", "post.read", "post.update", "post.delete"]);
+  // @ts-expect-error - no wildcard scopes
+  db.$as(actor, ["post.*"]);
+  // @ts-expect-error - a scope names an existing model
+  db.$as(actor, ["missing.read"]);
+  // @ts-expect-error - no invented action
+  db.$as(actor, ["post.publish"]);
+  // @ts-expect-error - principal context remains validated
+  db.$as({ principalId: "worker" }, ["post.read"]);
+}
+
+export function cacheAndPolicyComposition() {
+  const post = s.model({ id: s.string().id(), ownerId: s.string() });
+  const base = createClient({ schema: { post }, dataDir: ":memory:" });
+  const cached = base.$extends(cache({ driver: new MemoryCache() }));
+  // @ts-expect-error - plain cached models have no evidence projection
+  cached.$withCache().post.findMany({ select: { $access: true } });
+  // @ts-expect-error - cache views retain ordinary scalar-key admission
+  cached.$withCache().post.findMany({ select: { missing: true } });
+  const policy = rbac({
+    actor: v.object({ userId: v.string() }),
+    cache: "allow",
+    models: { post: { read: { ownerId: { actor: "userId" } }, update: true } },
+  });
+  const inline = cached.$extends(
+    rbac({
+      actor: v.object({ userId: v.string() }),
+      cache: "allow",
+      models: {
+        post: { read: { ownerId: { actor: "userId" } }, update: true },
+      },
+    })
+  );
+  const cachedView = inline
+    .$as({ userId: "alice" }, ["post.read"])
+    .$withCache();
+  const evidence = cachedView.post.findMany({ include: { $access: true } });
+  expectTypeOf(evidence).toEqualTypeOf<
+    Promise<
+      {
+        id: string;
+        ownerId: string;
+        readonly $access: { readonly read: boolean; readonly update: boolean };
+      }[]
+    >
+  >();
+  // @ts-expect-error - cache reads return Promises, not batchable pending operations
+  inline.$transaction([evidence]);
+  // @ts-expect-error - a cached view does not publish mutation operations
+  cachedView.post.update({ where: { id: "p" }, data: { ownerId: "bob" } });
+  // @ts-expect-error - cached views do not publish arbitrary extension methods
+  cachedView.post.can("read", { id: "p" });
+  // @ts-expect-error - cached evidence retains exact declared permission names
+  cachedView.post.findMany({ include: { $access: ["publish"] } });
+  const direct = policy(cached);
+  const held = cached.$extends(policy);
+  const rows = policy.rows(cached);
+  const cacheAfter = base
+    .$extends(policy)
+    .$extends(cache({ driver: new MemoryCache() }));
+  direct
+    .$as({ userId: "alice" }, ["post.read"])
+    .$withCache()
+    .post.findMany({ include: { $access: true } });
+  held
+    .$as({ userId: "alice" }, ["post.update"])
+    .$withCache()
+    .post.findMany({ include: { $access: true } });
+  rows.$as({ userId: "alice" }, []).$withCache().post.findMany();
+  cacheAfter
+    .$as({ userId: "alice" }, ["post.read"])
+    .$withCache()
+    .post.findMany({ include: { $access: true } });
+}
+
+export function rowDefinitionOrdering() {
+  const post = s.model({ id: s.string().id() });
+  const base = createClient({ schema: { post }, dataDir: ":memory:" });
+  const consumer = base.$extends({
+    name: "consumer",
+    client: () => ({ $ready: () => true }),
+  });
+  const rowsOnly = {
+    name: "visibility",
+    rows: {
+      control: "visibility",
+      default: "all",
+      models: { post: { all: {} } },
+    },
+  } as const;
+  base.$extends(rowsOnly);
+  // @ts-expect-error - result consumers precede no later row-filter definition
+  consumer.$extends(rowsOnly);
+  consumer.$extends({
+    name: "more-methods",
+    client: () => ({ $stillReady: () => true }),
+  });
+  consumer.$extends({
+    name: "control",
+    controls: { tag: { schema: v.string() } },
+  });
 }

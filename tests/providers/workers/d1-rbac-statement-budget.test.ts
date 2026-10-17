@@ -251,11 +251,11 @@ describe("D1: W-K2f, every governed statement inside D1's budget", () => {
               }),
           ],
           [
-            "document delete as edit",
+            "document delete as update",
             () =>
               call.document!.delete!({
                 where: { id: document.id },
-                as: "edit",
+                as: "update",
               }),
           ],
           [
@@ -274,7 +274,7 @@ describe("D1: W-K2f, every governed statement inside D1's budget", () => {
           ],
           [
             "grant updateMany",
-            () => call.accessGrant!.updateMany!({ data: { level: "view" } }),
+            () => call.accessGrant!.updateMany!({ data: { level: "read" } }),
           ],
           [
             "page updateMany",

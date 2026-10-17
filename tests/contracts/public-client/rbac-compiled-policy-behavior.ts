@@ -1,5 +1,6 @@
-import type { CompiledPolicy, ModelPolicy } from "@src/rbac";
-import { compilePolicy, verbsOf } from "@src/rbac/compile";
+import type { CompiledPolicy } from "@src/rbac";
+import { verbsOf } from "@src/rbac/compile";
+import { v } from "@src/validation";
 import {
   createRbacAppClient,
   loadRbacSeed,
@@ -23,9 +24,9 @@ import {
 } from "@tests/package/fixtures/rbac-app/seed";
 import {
   Actor as ActorSchema,
-  activeUser,
   documentOwnership,
   policy,
+  policyFor,
   storedPolicy,
 } from "@tests/types/rbac/acceptance-policy";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
@@ -81,7 +82,22 @@ function observedModes(compiled: CompiledPolicy) {
  */
 const extensionOf = (name: string, compiled: CompiledPolicy) => ({
   name,
-  controls: { actor: { schema: ActorSchema, required: true } },
+  controls: {
+    actor: { schema: ActorSchema, required: true },
+    scopes: {
+      schema: v.object({
+        unrestricted: v.boolean(),
+        allowed: v.array(v.string()),
+      }),
+      required: true,
+    },
+  },
+  client: (scope: {
+    $bind(values: Readonly<Record<string, unknown>>): unknown;
+  }) => ({
+    $unrestricted: () =>
+      scope.$bind({ scopes: { unrestricted: true, allowed: [] } }),
+  }),
   rows: {
     control: MODE,
     default: "none",
@@ -107,12 +123,18 @@ export function runCompiledPolicyBehavior(substrate: RbacAppSubstrate): void {
     const governed = (compiled: CompiledPolicy, name: string) => {
       let client = clients.get(name);
       if (client === undefined) {
-        client = base.$extends(extensionOf(name, compiled) as never);
+        const unbound = base.$extends(
+          extensionOf(name, compiled) as never
+        ) as unknown as { $unrestricted(): unknown };
+        client = unbound.$unrestricted();
         clients.set(name, client);
       }
       return client as Record<string, Delegate>;
     };
-    const declared = () => governed(policy.compile(schema), "declared");
+    let compiledDeclared: CompiledPolicy | undefined;
+    let compiledStored: CompiledPolicy | undefined;
+    const declaredPolicy = () => (compiledDeclared ??= policy.compile(schema));
+    const declared = () => governed(declaredPolicy(), "declared");
 
     /** The root rows the compiled predicate selects for one actor at (model, action). */
     const select = async (
@@ -165,7 +187,7 @@ export function runCompiledPolicyBehavior(substrate: RbacAppSubstrate): void {
     test(
       "W-A1: R1 per action: each model's actions are the oracle's, and their row sets differ",
       async () => {
-        const compiled = policy.compile(schema);
+        const compiled = declaredPolicy();
         for (const model of GOVERNED_MODELS)
           expect(Object.keys(compiled.models[model]!.modes), model).toEqual([
             ...actionsOf(model),
@@ -199,13 +221,9 @@ export function runCompiledPolicyBehavior(substrate: RbacAppSubstrate): void {
         // Documents declare an action graph, not the policy's level ladder.
         // Without stored `actions`, a grant therefore contributes no access;
         // retain the owner and admin rules to isolate what the stored lists give.
-        const levelsOnly = rebuild((models) => ({
-          ...models,
-          document: {
-            ...models.document,
-            "view, comment, archive, edit, share, export": documentOwnership,
-          },
-        }));
+        const levelsOnly = policyFor(undefined, documentOwnership).compile(
+          schema
+        );
         const stripped = governed(levelsOnly, "levels-only");
         let lost = 0;
         for (const name of judged) {
@@ -225,51 +243,46 @@ export function runCompiledPolicyBehavior(substrate: RbacAppSubstrate): void {
       timeout
     );
 
-    test(
-      "W-A3: the role ceiling caps every arm: a reader granted edit holds view",
-      async () => {
-        const uncapped = rebuild((models) => {
-          const inOrg = {
-            organization: {
-              is: {
-                members: {
-                  some: {
-                    userId: { actor: "userId" },
-                    user: { is: activeUser },
-                  },
-                },
-              },
-            },
-          };
-          return Object.fromEntries(
-            Object.entries(models).map(([model, entry]) => [
-              model,
-              "mandatory" in entry ? { ...entry, mandatory: inOrg } : entry,
-            ])
-          );
-        });
-        const open = governed(uncapped, "uncapped");
-        let capped = 0;
-        // The pages and documents a grant above view reaches: where a cap shows.
-        const capping = MODEL_ACTIONS.filter(
-          ([model, action]) =>
-            (model === "page" || model === "document") && action !== "view"
+    describe.sequential("W-A3: the role ceiling caps every grant", () => {
+      let open: Record<string, Delegate>;
+      const cappedByActor = new Map<string, number>();
+      // The pages and documents a grant above read reaches: where a cap shows.
+      const capping = MODEL_ACTIONS.filter(
+        ([model, action]) =>
+          (model === "page" || model === "document") && action !== "read"
+      );
+      beforeAll(() => {
+        open = governed(policyFor({}).compile(schema), "uncapped");
+      });
+      for (const name of judged) {
+        test(
+          `a reader granted update holds read: ${name}`,
+          async () => {
+            const actor = actors[name]!;
+            let capped = 0;
+            for (const [model, action] of capping) {
+              const held = await select(declared(), actor, model, action);
+              expect(held, `${name} ${model}.${action}`).toEqual(
+                oracle.rows(actor, model, action, without())
+              );
+              capped +=
+                (await select(open, actor, model, action)).length - held.length;
+            }
+            cappedByActor.set(name, capped);
+          },
+          timeout
         );
-        for (const name of judged) {
-          const actor = actors[name]!;
-          for (const [model, action] of capping) {
-            const held = await select(declared(), actor, model, action);
-            expect(held, `${name} ${model}.${action}`).toEqual(
-              oracle.rows(actor, model, action, without())
-            );
-            capped +=
-              (await select(open, actor, model, action)).length - held.length;
-          }
-        }
-        expect(capped).toBeGreaterThan(0);
-      },
-      timeout
-    );
+      }
+      test("the complete actor sweep contains a role-cap witness", () => {
+        expect([...cappedByActor.keys()].sort()).toEqual([...judged].sort());
+        expect(
+          [...cappedByActor.values()].reduce(
+            (total, capped) => total + capped,
+            0
+          )
+        ).toBeGreaterThan(0);
+      });
+    });
 
     test(
       "W-A4: a request fact folds both ways: export needs the office network",
@@ -335,7 +348,10 @@ export function runCompiledPolicyBehavior(substrate: RbacAppSubstrate): void {
       test(
         `W-A6: the stored ceiling selects the oracle's stored rows for ${name}, which are the declared ones on this seed`,
         async () => {
-          const stored = governed(storedPolicy.compile(schema), "stored");
+          const stored = governed(
+            (compiledStored ??= storedPolicy.compile(schema)),
+            "stored"
+          );
           const actor = actors[name]!;
           for (const [model, action] of MODEL_ACTIONS) {
             const rows = await select(stored, actor, model, action);
@@ -351,16 +367,4 @@ export function runCompiledPolicyBehavior(substrate: RbacAppSubstrate): void {
       );
     }
   });
-}
-
-/** The acceptance policy with some models replaced, compiled. */
-function rebuild(
-  models: (
-    models: typeof policy.config.models
-  ) => Readonly<Record<string, ModelPolicy>>
-): CompiledPolicy {
-  return compilePolicy(
-    { ...policy.config, models: models(policy.config.models) },
-    schema
-  );
 }

@@ -42,7 +42,7 @@ type Row = readonly [id: string, pins: string, reads: OracleReading];
 const DOMAIN_PREDICATES = "tests/raptor3/post-prep/row-scopes.test.ts";
 
 /**
- * The bound-view witnesses' runner (SQLite3, oracle-bound; PGlite and D1
+ * The bound-read witnesses' runner (SQLite3, oracle-bound; PGlite and D1
  * beside, in tests/providers/{local/pglite,workers/d1}-bound-views.test.ts).
  */
 const BOUND_VIEWS =
@@ -228,7 +228,7 @@ function family(
 
 export const WITNESSES: readonly WitnessCase[] = Object.freeze([
   ...family("C1", "U5", EVERY, [
-    ["W-R1", "root reads, aggregates and groupBy under P(view)", "rows"],
+    ["W-R1", "root reads, aggregates and groupBy under P(read)", "rows"],
     ["W-R2", "cursors: a cursor on a hidden row is a missing cursor", "rows"],
     ["W-R3", "includes, to-one: a hidden target reads null", "rows"],
     ["W-R4", "includes, to-many: only visible members", "rows"],
@@ -236,7 +236,7 @@ export const WITNESSES: readonly WitnessCase[] = Object.freeze([
     ["W-R6", "is / isNot over a hidden target", "rows"],
     ["W-R7", "relation counts and relation-count order", "rows"],
     ["W-R8", "recursive reads walk visible nodes only", "rows"],
-    ["W-R9", "polymorphic arms under the target's P(view)", "rows"],
+    ["W-R9", "polymorphic arms under the target's P(read)", "rows"],
   ]),
   ...family("C2", "U1", EVERY, [
     [
@@ -266,8 +266,8 @@ export const WITNESSES: readonly WitnessCase[] = Object.freeze([
   ]),
   ...family("C4", "U3+U5", NO_NEKI, [
     // R3 as amended (plan §11.2): judged by the statement each write emits.
-    ["W-W1", "title at edit, ownerId at full", "rows"],
-    ["W-W2", "an archive-only writer archives and cannot edit", "rows"],
+    ["W-W1", "title at update, ownerId at full", "rows"],
+    ["W-W2", "an archive-only writer archives and cannot update", "rows"],
     [
       "W-W3",
       "a grant write is judged by the grant's own predicates: a page's editor cannot, its full holder can",
@@ -346,7 +346,7 @@ export const WITNESSES: readonly WitnessCase[] = Object.freeze([
       ],
       ["W-AS3", "an interactive transaction keeps the actor", "rows"],
       ["W-AS4", "an array transaction mixes views", "rows"],
-      ["W-AS5", "$extends from a bound view keeps it", "rows"],
+      ["W-AS5", "$extends from a bound read keeps it", "rows"],
       ["W-AS6", "bind refuses another extension's control", "none"],
       ["W-AS7", "the cache key is per actor", "none"],
     ]
@@ -381,11 +381,11 @@ export const WITNESSES: readonly WitnessCase[] = Object.freeze([
     ["W-L3", "an actor with no key is unaffected", "rows"],
     ["W-L4", "array parameters per dialect", "rows"],
     ["W-L5", "a model the key does not list reaches nothing", "rows"],
-    ["W-L6", "a view-only key cannot create, move or connect", "none"],
+    ["W-L6", "a read-only key cannot create, move or connect", "none"],
     ["W-L7", 'a ["share"] key views and shares', "rows"],
     ["W-L8", "absent resources deny", "rows"],
-    ["W-N1", 'as: "given" is P(view) ∧ given(view)', "rows"],
-    ["W-N2", 'as: "edit" is P(view) ∧ P(edit)', "rows"],
+    ["W-N1", 'as: "given" is P(read) ∧ given(read)', "rows"],
+    ["W-N2", 'as: "update" is P(read) ∧ P(update)', "rows"],
     ["W-N3", "an unknown domain name is a ValidationError", "none"],
     ["W-N4", "a mode never replaces a verb", "rows"],
   ]),
@@ -419,7 +419,7 @@ export const WITNESSES: readonly WitnessCase[] = Object.freeze([
     ["W-C4", "a tombstoned grant grants nothing", "rows"],
     ["W-C5", "a duplicate control name is refused", "none"],
     ["W-C6", "(not described by plan §7, which names seven of eight)", "none"],
-    ["W-C7", "a cached read on a governed view is refused", "none"],
+    ["W-C7", "a cached read on a governed read is refused", "none"],
     ["W-C8", "audit stamps rbac's actor path", "none"],
   ]),
   ...family(

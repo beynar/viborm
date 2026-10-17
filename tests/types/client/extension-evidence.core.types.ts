@@ -7,6 +7,8 @@
  * it. A call that names no key keeps its exact types.
  */
 
+import { MemoryCache } from "@src/cache/drivers/memory";
+import { cache } from "@src/cache/exports";
 import { PGliteDriver } from "@src/drivers/pglite";
 import { createClient, s } from "@src/index";
 import { describe, expectTypeOf, test } from "vitest";
@@ -157,4 +159,70 @@ describe("a read-gated field", () => {
       string | undefined
     >();
   });
+});
+
+/** A second projection on the same model must not erase the first in a cache view. */
+test("cached views preserve two projection keys and exact nested results", () => {
+  const composed = db
+    .$extends({
+      name: "review-evidence",
+      rows: {
+        control: "reviewMode",
+        default: "all",
+        models: {},
+        verbs: {
+          post: {
+            predicates: { draft: {}, published: { title: "published" } },
+            read: "draft",
+            evidence: { as: "$review", names: ["draft", "published"] },
+          },
+          user: {
+            predicates: { contact: {} },
+            read: "contact",
+            evidence: { as: "$review", names: ["contact"] },
+          },
+        },
+      },
+    })
+    .$extends(cache({ driver: new MemoryCache() }));
+  const cached = composed.$withCache();
+  const access = cached.post.findMany({
+    select: { id: true, $access: ["edit"] },
+  });
+  expectTypeOf(access).toEqualTypeOf<
+    Promise<{ id: string; readonly $access: { readonly edit: boolean } }[]>
+  >();
+  const review = cached.post.findMany({
+    select: { id: true, $review: ["published"] },
+  });
+  expectTypeOf(review).toEqualTypeOf<
+    Promise<{ id: string; readonly $review: { readonly published: boolean } }[]>
+  >();
+  const nested = cached.post.findMany({
+    select: { author: { select: { id: true, $review: ["contact"] } } },
+  });
+  expectTypeOf(nested).toEqualTypeOf<
+    Promise<
+      {
+        author: {
+          id: string;
+          readonly $review: { readonly contact: boolean };
+        } | null;
+      }[]
+    >
+  >();
+  const ordered = cached.user.findMany({ select: { $access: true } });
+  expectTypeOf(ordered).toEqualTypeOf<
+    Promise<{ readonly $access: "view" | "edit" | "full" | null }[]>
+  >();
+  // @ts-expect-error - each projection retains its own permission vocabulary
+  cached.post.findMany({ select: { $review: ["edit"] } });
+  cached.post.findMany({
+    // @ts-expect-error - a related projection uses the target's vocabulary
+    include: { author: { select: { $review: ["published"] } } },
+  });
+  // @ts-expect-error - cached projected reads are not batchable pending operations
+  composed.$transaction([review]);
+  // @ts-expect-error - projection metadata does not add cached mutation methods
+  cached.post.update({ where: { id: "p" }, data: { title: "changed" } });
 });

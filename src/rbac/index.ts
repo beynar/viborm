@@ -52,13 +52,7 @@ type Row = Readonly<Record<string, unknown>>;
 // ACTIONS: what each model declares, and the names that must be among them
 // =============================================================================
 
-type Reserved =
-  | "mandatory"
-  | "actions"
-  | "create"
-  | "operations"
-  | "fields"
-  | "domains";
+type Reserved = "mandatory" | "actions" | "operations" | "fields" | "domains";
 
 type Levels<Config> = Config extends { readonly levels: infer L }
   ? L extends readonly (infer Level extends string)[]
@@ -78,9 +72,17 @@ type SplitActions<S extends string> = S extends `${infer Head},${infer Tail}`
   : S;
 
 /** Groups contribute their individual actions, never a combined action name. */
-type ActionsOf<M, L extends string> =
+type DeclaredActions<M, L extends string> =
   | (M extends { readonly actions: infer A } ? keyof A & string : L)
   | SplitActions<RuleKeys<M>>;
+type ActionsOf<M, L extends string> =
+  | DeclaredActions<M, L>
+  | (Extract<
+      DeclaredActions<M, L>,
+      "create" | "update" | "delete"
+    > extends never
+      ? never
+      : "read");
 
 type InvalidGroup<
   S extends string,
@@ -202,11 +204,11 @@ type ConditionPaths<T> = T extends object
   : never;
 
 type UnknownActorPaths<Config extends RbacConfig> = Exclude<
-  SpelledActorPaths<Config["models"] | Config["limit"]>,
+  SpelledActorPaths<Config["models"] | Config["mandatory"]>,
   ActorPaths<InferOutput<Config["actor"]>>
 >;
 
-type ConfigKey = "actor" | "levels" | "limit" | "models" | "cache";
+type ConfigKey = "actor" | "levels" | "mandatory" | "models" | "cache";
 
 /** `unknown` when the declaration's names agree; else a member naming the first disagreement. */
 type DeclarationCheck<Config extends RbacConfig> = [
@@ -238,7 +240,7 @@ type RelationsOf<M> = M extends {
   ? keyof R
   : never;
 type CreateKeys<M> = M extends { readonly create: infer C }
-  ? C extends (...args: never[]) => unknown
+  ? C extends boolean | ((...args: never[]) => unknown)
     ? never
     : keyof C
   : never;
@@ -296,24 +298,18 @@ type ModeOf<Config extends RbacConfig> =
  * `$as`, declared apart (inline, the factory's contextual type makes `Self`
  * void) as a type, not an interface, so it is a method record.
  */
-type AsMethod<Actor> = {
+type ScopeOf<Config extends RbacConfig> = {
+  [K in Listed<Config>]: `${K}.${ActionOf<Config, K>}`;
+}[Listed<Config>];
+
+type AsMethod<Actor, Scope extends string = string> = {
   /**
    * This client with the actor bound (K6): every call of the view is judged
    * for it. Validated once, here, against the policy's actor schema.
    */
-  $as<Self>(this: Self, actor: Actor): Self;
+  $as<Self>(this: Self, actor: Actor, scopes?: readonly Scope[]): Self;
 };
 
-/** Whether a model's actions are exactly the levels: its key reads the highest one held (D6). */
-type Ordered<Config extends RbacConfig, M> = M extends {
-  readonly actions: object;
-}
-  ? false
-  : [Levels<Config>] extends [never]
-    ? false
-    : [ActionsOf<M, Levels<Config>>] extends [Levels<Config>]
-      ? true
-      : false;
 /** The fields a model's declaration read-gates (D5). */
 type GatedOf<M> = M extends { readonly fields: infer F }
   ? {
@@ -335,7 +331,7 @@ type ModelVerbs<Config extends RbacConfig, K extends Listed<Config>> = {
       readonly evidence: {
         readonly as: typeof EVIDENCE_KEY;
         readonly names: readonly ActionOf<Config, K>[];
-        readonly ordered: Ordered<Config, Config["models"][K]>;
+        readonly ordered: false;
       };
     }) &
   ([GatedOf<Config["models"][K]>] extends [never]
@@ -351,6 +347,12 @@ type RowsDefinition<C extends VibORMConfig, Config extends RbacConfig> = {
   readonly controls: {
     readonly actor: {
       readonly schema: Config["actor"];
+      readonly bound: true;
+      readonly required: true;
+      readonly uncacheable: boolean;
+    };
+    readonly scopes: {
+      readonly schema: ScopeSchema;
       readonly bound: true;
       readonly required: true;
       readonly uncacheable: boolean;
@@ -371,7 +373,7 @@ type RowsDefinition<C extends VibORMConfig, Config extends RbacConfig> = {
   // Any scope: the one it is called with is the receiving client's.
   readonly client: (
     scope: unknown
-  ) => AsMethod<ActorFacts<InferOutput<Config["actor"]>>>;
+  ) => AsMethod<ActorFacts<InferOutput<Config["actor"]>>, ScopeOf<Config>>;
 };
 
 type WhereOf<C extends VibORMConfig, K> = Exclude<
@@ -537,6 +539,61 @@ function refuseUnreachable(reach: ReadonlyMap<string, Reach>) {
  * mode it does not declare holds nothing, and a root call naming it is
  * refused before it runs (R9).
  */
+interface ScopeValues {
+  readonly unrestricted: boolean;
+  readonly allowed: readonly string[];
+}
+interface ScopeSchema {
+  readonly "~standard": {
+    readonly version: 1;
+    readonly vendor: string;
+    readonly types?: {
+      readonly input: readonly string[] | undefined;
+      readonly output: ScopeValues;
+    };
+    validate(
+      input: unknown
+    ):
+      | { readonly value: ScopeValues }
+      | { readonly issues: readonly { readonly message: string }[] };
+  };
+}
+
+/** Admit the credential once at binding, using the compiler's action closure. */
+function scopeSchema(
+  implications: Readonly<Record<string, readonly string[]>>
+): ScopeSchema {
+  return {
+    "~standard": {
+      version: 1,
+      vendor: NAME,
+      validate(input) {
+        if (input === undefined)
+          return { value: { unrestricted: true, allowed: [] } };
+        if (!Array.isArray(input))
+          return {
+            issues: [
+              { message: "Scopes must be an array of model.permission names" },
+            ],
+          };
+        const allowed = new Set<string>();
+        for (const scope of input) {
+          if (typeof scope !== "string" || !Object.hasOwn(implications, scope))
+            return {
+              issues: [
+                {
+                  message: `Unknown permission scope: ${typeof scope === "string" ? scope : "expected a string"}`,
+                },
+              ],
+            };
+          for (const implied of implications[scope]!) allowed.add(implied);
+        }
+        return { value: { unrestricted: false, allowed: [...allowed] } };
+      },
+    },
+  };
+}
+
 function modesOf(compiled: CompiledPolicy) {
   const names = [
     DEFAULT_MODE,
@@ -598,7 +655,11 @@ type ModelRelations<Model> = Model extends {
   ? Relations
   : never;
 
-type ContextualRelation<Relation, Actor> = Relation extends {
+type ContextualRelation<
+  Relation,
+  Actor,
+  Dynamic extends boolean = true,
+> = Relation extends {
   readonly "~": {
     readonly state: {
       readonly target: { readonly getter: () => infer Target };
@@ -607,21 +668,22 @@ type ContextualRelation<Relation, Actor> = Relation extends {
 }
   ?
       | string
-      | (ContextualWhere<Target, Actor> & {
-          readonly is?: ContextualRule<Target, Actor> | null;
-          readonly isNot?: ContextualRule<Target, Actor> | null;
-          readonly some?: ContextualRule<Target, Actor>;
-          readonly every?: ContextualRule<Target, Actor>;
-          readonly none?: ContextualRule<Target, Actor>;
+      | (ContextualWhere<Target, Actor, Dynamic> & {
+          readonly is?: ContextualRule<Target, Actor, Dynamic> | null;
+          readonly isNot?: ContextualRule<Target, Actor, Dynamic> | null;
+          readonly some?: ContextualRule<Target, Actor, Dynamic>;
+          readonly every?: ContextualRule<Target, Actor, Dynamic>;
+          readonly none?: ContextualRule<Target, Actor, Dynamic>;
         })
   : Where | string;
 
-type ContextualWhere<Model, Actor> = Where & {
+type ContextualWhere<Model, Actor, Dynamic extends boolean = true> = Where & {
   readonly [Field in ScalarsOf<Model>]?: PolicyValue<Actor>;
 } & {
   readonly [Relation in keyof ModelRelations<Model>]?: ContextualRelation<
     ModelRelations<Model>[Relation],
-    Actor
+    Actor,
+    Dynamic
   >;
 } & ("actor" extends ScalarsOf<Model> | RelationsOf<Model>
     ? unknown
@@ -631,17 +693,23 @@ type ContextualWhere<Model, Actor> = Where & {
         };
       }) & {
     readonly AND?:
-      | ContextualRule<Model, Actor>
-      | readonly ContextualRule<Model, Actor>[];
-    readonly OR?: readonly ContextualRule<Model, Actor>[];
+      | ContextualRule<Model, Actor, Dynamic>
+      | readonly ContextualRule<Model, Actor, Dynamic>[];
+    readonly OR?: readonly ContextualRule<Model, Actor, Dynamic>[];
     readonly NOT?:
-      | ContextualRule<Model, Actor>
-      | readonly ContextualRule<Model, Actor>[];
+      | ContextualRule<Model, Actor, Dynamic>
+      | readonly ContextualRule<Model, Actor, Dynamic>[];
   };
 
-type ContextualRule<Model, Actor> =
-  | ContextualWhere<Model, Actor>
-  | ((action: string, model: PolicyModel) => ContextualRule<Model, Actor>);
+type ContextualRule<Model, Actor, Dynamic extends boolean = true> =
+  | boolean
+  | ContextualWhere<Model, Actor, Dynamic>
+  | (Dynamic extends true
+      ? (
+          action: string,
+          model: PolicyModel
+        ) => ContextualRule<Model, Actor, Dynamic>
+      : never);
 
 /** Complete only the edited prefix, without enumerating action permutations. */
 type GroupSuggestions<
@@ -653,6 +721,10 @@ type GroupSuggestions<
     : `${Head},${Tail extends ` ${string}` ? " " : ""}${Exclude<Actions, Trim<Head>>}`
   : never;
 type SuggestedRules<M, L extends string> =
+  | "create"
+  | "read"
+  | "update"
+  | "delete"
   | ActionsOf<M, L>
   | GroupSuggestions<RuleKeys<M>, ActionsOf<M, L>>;
 
@@ -666,8 +738,8 @@ type ContextualPolicy<
       readonly actor: Actor;
       readonly models: {
         readonly [Model in keyof ClientSchema<C>]?: {
-          readonly [Key in Reserved]?: Key extends "mandatory" | "create"
-            ? ContextualRule<ClientSchema<C>[Model], Actor>
+          readonly [Key in Reserved]?: Key extends "mandatory"
+            ? ContextualWhere<ClientSchema<C>[Model], Actor, false>
             : ModelPolicy[Key];
         } & {
           readonly [Action in SuggestedRules<
@@ -688,7 +760,9 @@ type ContextualPolicy<
  * Model names are inferred from keys independently of callback bodies, so schema
  * admission does not force a context-sensitive Config to its broad constraint.
  * The receiving `$extends` supplies C and X before the inline declaration is
- * contextualized. Unbound declarations retain the reusable generic Policy;
+ * contextualized. Infer them from client metadata: reconstructing the receiver
+ * during inference can intersect incompatible extension-control states.
+ * Unbound declarations retain the reusable generic Policy;
  * only a concrete receiving schema adds the specialized callback signature.
  */
 export function rbac<
@@ -703,12 +777,29 @@ export function rbac<
     readonly models: Record<ModelNames, unknown>;
   } & ContextualPolicy<NoInfer<C>, NoInfer<Actor>, NoInfer<Config>> &
     DeclarationCheck<Config> &
-    SchemaCheck<NoInfer<C["schema"]>, Pick<Config["models"], ModelNames>>
+    SchemaCheck<NoInfer<C["schema"]>, Pick<Config["models"], ModelNames>> &
+    ([
+      ExtendedClient<
+        VibORMClient<NoInfer<C>, NoInfer<X>>,
+        [
+          {
+            readonly name: typeof NAME;
+            readonly rows: {
+              readonly control: typeof MODE;
+              readonly default: typeof DEFAULT_MODE;
+              readonly models: Record<never, never>;
+            };
+          },
+        ]
+      >,
+    ] extends [never]
+      ? never
+      : unknown)
 ): Policy<Config> &
   (string extends keyof C["schema"]
     ? unknown
     : (
-        base: VibORMClient<C, X>
+        base: ClientTypeState<C, X> & NoInfer<VibORMClient<C, X>>
       ) => MethodsClient<RowsClient<C, X, Config>, Config>);
 export function rbac<const Config extends RbacConfig>(
   config: Config & DeclarationCheck<Config>
@@ -726,6 +817,12 @@ export function rbac<const Config extends RbacConfig>(
           required: true,
           uncacheable: config.cache !== "allow",
         },
+        scopes: {
+          schema: scopeSchema(compiled.scopes),
+          bound: true,
+          required: true,
+          uncacheable: config.cache !== "allow",
+        },
       },
       rows: {
         control: MODE,
@@ -738,7 +835,7 @@ export function rbac<const Config extends RbacConfig>(
         $bind(values: Readonly<Record<string, unknown>>): unknown;
       }) => {
         const methods: AsMethod<unknown> = {
-          $as: (actor) => scope.$bind({ actor }) as never,
+          $as: (actor, scopes) => scope.$bind({ actor, scopes }) as never,
         };
         return methods;
       },
@@ -747,18 +844,12 @@ export function rbac<const Config extends RbacConfig>(
   };
   const methods = (client: VibORMClient<VibORMConfig, ExtensionState>) => {
     const answers = (model: string) => {
-      const { names, ordered } = evidenceOf(config, model);
+      const { names } = evidenceOf(config, model);
       return (delegate: never) => {
         const read = delegate as {
           findUnique(args: object): PromiseLike<Row | null>;
         };
-        /**
-         * The row `where` names, its `$access` at `asked` (D8): one statement,
-         * or one per asked level on an ordered model. There the key reads the highest level held, which
-         * says nothing of a lower one whose predicate a dynamic rule, `mandatory` or
-         * `limit` reads apart (R1 does not make P monotone), so each level
-         * is asked by itself. A row the actor does not view reads null.
-         */
+        // One scoped read projects each requested permission independently.
         const ask = async (asked: readonly string[], where: object) => {
           // R9 (OD-7): an action the model does not declare is refused
           // before any statement, as an `as` mode it does not declare is.
@@ -772,10 +863,6 @@ export function rbac<const Config extends RbacConfig>(
                 select: { [EVIDENCE_KEY]: some },
               })
             )?.[EVIDENCE_KEY];
-          if (ordered)
-            return Promise.all(
-              asked.map(async (action) => (await evidence([action])) === action)
-            );
           const held = (await evidence(asked)) as
             | Readonly<Record<string, boolean>>
             | undefined;

@@ -1,7 +1,9 @@
+import { MemoryCache } from "@cache/drivers/memory";
+import { cache } from "@cache/extension";
 import { createClient } from "@drivers/sqlite3";
 import { ClientInitializationError, ForbiddenError } from "@errors";
 import { s } from "@schema";
-import { rbac } from "@src/rbac";
+import { type Rule, rbac } from "@src/rbac";
 import { softDelete } from "@src/soft-delete";
 import { v } from "@src/validation";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -27,8 +29,8 @@ test("$extends applies RBAC with actor isolation, methods and transactions", asy
         actor: v.object({ userId: v.string() }),
         models: {
           post: {
-            view: { authorId: { actor: "userId" } },
-            edit: { authorId: { actor: "userId" } },
+            read: { authorId: { actor: "userId" } },
+            update: { authorId: { actor: "userId" } },
           },
         },
       })
@@ -41,10 +43,10 @@ test("$extends applies RBAC with actor isolation, methods and transactions", asy
     expect(await bob.post.findMany()).toEqual([
       { id: "b", authorId: "bob", title: "Bob" },
     ]);
-    expect(await alice.post.can("edit", { id: "b" })).toBe(false);
-    await alice.post.assert("edit", { id: "a" });
+    expect(await alice.post.can("update", { id: "b" })).toBe(false);
+    await alice.post.assert("update", { id: "a" });
     expect(
-      await alice.$transaction((tx) => tx.post.can("edit", { id: "a" }))
+      await alice.$transaction((tx) => tx.post.can("update", { id: "a" }))
     ).toBe(true);
     const derived = alice.$extends((client) =>
       client.$extends({ name: "after-policy" })
@@ -53,7 +55,7 @@ test("$extends applies RBAC with actor isolation, methods and transactions", asy
     const rollback = new Error("rollback governed transaction");
     await expect(
       derived.$transaction(async (tx) => {
-        expect(await tx.post.can("edit", { id: "b" })).toBe(false);
+        expect(await tx.post.can("update", { id: "b" })).toBe(false);
         await tx.post.update({
           where: { id: "a" },
           data: { title: "temporary" },
@@ -76,7 +78,7 @@ test("$extends applies RBAC with actor isolation, methods and transactions", asy
         // @ts-expect-error - exercise the runtime refusal for invalid ordering
         rbac({
           actor: v.object({ userId: v.string() }),
-          models: { post: { view: {} } },
+          models: { post: { read: {} } },
         })
       )
     ).toThrow(ClientInitializationError);
@@ -107,8 +109,8 @@ test("$extends composes soft-delete rows, RBAC and restore methods", async () =>
       actor: v.object({ userId: v.string() }),
       models: {
         post: {
-          view: { authorId: { actor: "userId" } },
-          edit: { authorId: { actor: "userId" } },
+          read: { authorId: { actor: "userId" } },
+          update: { authorId: { actor: "userId" } },
           delete: { authorId: { actor: "userId" } },
         },
       },
@@ -138,7 +140,7 @@ test("$extends composes soft-delete rows, RBAC and restore methods", async () =>
   }
 });
 
-test("$extends refuses repeated levels before a view rule can authorize a write", async () => {
+test("$extends refuses repeated levels before a read rule can authorize a write", async () => {
   const post = s.model({ id: s.string().id(), title: s.string() });
   const base = createClient({ schema: { post }, dataDir: ":memory:" });
   try {
@@ -148,8 +150,8 @@ test("$extends refuses repeated levels before a view rule can authorize a write"
       base.$extends(
         rbac({
           actor: v.object({}),
-          levels: ["view", "edit", "view"],
-          models: { post: { view: {} } },
+          levels: ["read", "update", "read"],
+          models: { post: { read: {} } },
         })
       )
     ).toThrow("levels must list each action only once");
@@ -157,12 +159,12 @@ test("$extends refuses repeated levels before a view rule can authorize a write"
       .$extends(
         rbac({
           actor: v.object({}),
-          levels: ["view", "edit"],
-          models: { post: { view: {} } },
+          levels: ["read", "update"],
+          models: { post: { read: {} } },
         })
       )
       .$as({});
-    expect(await db.post.can("edit", { id: "p" })).toBe(false);
+    expect(await db.post.can("update", { id: "p" })).toBe(false);
     await expect(
       db.post.update({ where: { id: "p" }, data: { title: "changed" } })
     ).rejects.toThrow();
@@ -176,7 +178,7 @@ test("$extends refuses repeated levels before a view rule can authorize a write"
 
 test("an explicit target role table denies an undeclared requested action", async () => {
   const roles: Readonly<Record<string, readonly string[]>> = {
-    view: ["reader"],
+    read: ["reader"],
   };
   const user = s.model({
     id: s.string().id(),
@@ -204,11 +206,11 @@ test("an explicit target role table denies an undeclared requested action", asyn
         rbac({
           actor: v.object({}),
           models: {
-            user: { actions: { view: [] }, view: {} },
+            user: { actions: { read: [] }, read: {} },
             post: {
-              actions: { view: [], edit: ["view"] },
-              view: {},
-              edit: {
+              actions: { read: [], update: ["read"] },
+              read: {},
+              update: {
                 author: {
                   is: (action) => ({
                     role: { in: roles[action] ?? [], not: "banned" },
@@ -220,7 +222,7 @@ test("an explicit target role table denies an undeclared requested action", asyn
         })
       )
       .$as({});
-    expect(await db.post.can("edit", { id: "p" })).toBe(false);
+    expect(await db.post.can("update", { id: "p" })).toBe(false);
     await expect(
       db.post.update({ where: { id: "p" }, data: { title: "changed" } })
     ).rejects.toThrow();
@@ -244,8 +246,8 @@ test("prototype-spelled action and domain names preserve filtering and answers",
           actor: v.object({}),
           models: {
             post: {
-              actions: { view: [], ["__proto__"]: [] },
-              view: {},
+              actions: { read: [], ["__proto__"]: [] },
+              read: {},
               ["__proto__"]: { id: "allowed" },
             },
           },
@@ -266,7 +268,7 @@ test("prototype-spelled action and domain names preserve filtering and answers",
           actor: v.object({}),
           models: {
             post: {
-              view: {},
+              read: {},
               domains: { ["__proto__"]: { id: "allowed" } },
             },
           },
@@ -292,7 +294,7 @@ test("delete always requires its own action unless explicitly mapped", async () 
         .$extends(
           rbac({
             actor: v.object({}),
-            levels: ["view", "edit", "full"],
+            levels: ["read", "update", "full"],
             models: { post: rules },
           })
         )
@@ -310,7 +312,7 @@ test("delete always requires its own action unless explicitly mapped", async () 
       .$extends(
         rbac({
           actor: v.object({}),
-          levels: ["view", "edit", "full"],
+          levels: ["read", "update", "full"],
           models: { post: { full: {}, operations: { delete: "full" } } },
         })
       )
@@ -319,6 +321,345 @@ test("delete always requires its own action unless explicitly mapped", async () 
       id: "p",
     });
     expect(await base.post.count()).toBe(0);
+  } finally {
+    await base.$disconnect();
+  }
+});
+
+test("CRUD grants, explicit denials and scoped service principals compose", async () => {
+  const post = s.model({
+    id: s.string().id(),
+    organizationId: s.string(),
+    authorId: s.string(),
+    title: s.string(),
+  });
+  const base = createClient({ schema: { post }, dataDir: ":memory:" });
+  const actor = v.object({
+    kind: v.union([v.literal("user"), v.literal("service")]),
+    principalId: v.string(),
+    organizationId: v.string(),
+  });
+  try {
+    await syncLiveSchema(base);
+    await base.post.createMany({
+      data: [
+        { id: "mine", organizationId: "a", authorId: "alice", title: "mine" },
+        { id: "other", organizationId: "a", authorId: "bob", title: "other" },
+        {
+          id: "foreign",
+          organizationId: "b",
+          authorId: "alice",
+          title: "foreign",
+        },
+      ],
+    });
+    const db = base.$extends(
+      rbac({
+        actor,
+        models: {
+          post: {
+            mandatory: { organizationId: { actor: "organizationId" } },
+            update: {
+              OR: [
+                { authorId: { actor: "principalId" } },
+                { actor: { kind: "service" } },
+              ],
+            },
+            delete: false,
+          },
+        },
+      })
+    );
+    const alice = {
+      kind: "user" as const,
+      principalId: "alice",
+      organizationId: "a",
+    };
+    const service = {
+      kind: "service" as const,
+      principalId: "worker",
+      organizationId: "a",
+    };
+    const [normal, scoped, denied] = await Promise.all([
+      db.$as(alice).post.findMany({ orderBy: { id: "asc" } }),
+      db
+        .$as(service, ["post.update"])
+        .post.findMany({ orderBy: { id: "asc" } }),
+      db.$as(alice, []).post.findMany(),
+    ]);
+    expect(normal.map(({ id }) => id)).toEqual(["mine"]);
+    expect(scoped.map(({ id }) => id)).toEqual(["mine", "other"]);
+    expect(denied).toEqual([]);
+    expect(
+      await db.$as(alice, ["post.update"]).post.can("update", { id: "other" })
+    ).toBe(false);
+    expect(
+      await db.$as(service, ["post.delete"]).post.can("delete", { id: "mine" })
+    ).toBe(false);
+    await expect(
+      db
+        .$as(service, ["post.read"])
+        .post.update({ where: { id: "mine" }, data: { title: "no" } })
+    ).rejects.toThrow();
+    await db
+      .$as(service, ["post.update"])
+      .post.update({ where: { id: "other" }, data: { title: "service" } });
+    expect(
+      (await base.post.findUnique({ where: { id: "other" } }))?.title
+    ).toBe("service");
+    expect(
+      (await base.post.findUnique({ where: { id: "foreign" } }))?.title
+    ).toBe("foreign");
+    const evidence = await db
+      .$as(service, ["post.update"])
+      .post.findUnique({ where: { id: "mine" }, include: { $access: true } });
+    expect(evidence?.$access).toEqual({
+      update: true,
+      delete: false,
+      read: true,
+    });
+  } finally {
+    await base.$disconnect();
+  }
+});
+
+test("create-only policies admit proposed rows and grant read without granting update", async () => {
+  const post = s.model({ id: s.string().id(), ownerId: s.string() });
+  const base = createClient({ schema: { post }, dataDir: ":memory:" });
+  try {
+    await syncLiveSchema(base);
+    const owned: Rule = { ownerId: { actor: "userId" } };
+    const config = {
+      actor: v.object({ userId: v.string() }),
+      models: {
+        post: {
+          create: owned,
+        },
+      },
+    };
+    const call = base
+      .$extends(rbac(config))
+      .$as({ userId: "alice" }, ["post.create"]);
+    await call.post.create({ data: { id: "p", ownerId: "alice" } });
+    expect(await call.post.findMany()).toEqual([{ id: "p", ownerId: "alice" }]);
+    await expect(
+      call.post.create({ data: { id: "foreign", ownerId: "bob" } })
+    ).rejects.toThrow();
+    await expect(
+      call.post.update({ where: { id: "p" }, data: { ownerId: "bob" } })
+    ).rejects.toThrow();
+    const hidden = base
+      .$extends(
+        rbac({
+          ...config,
+          models: { post: { ...config.models.post, read: false } },
+        })
+      )
+      .$as({ userId: "alice" }, ["post.create"]);
+    expect(await hidden.post.findMany()).toEqual([]);
+    expect(await base.post.count()).toBe(1);
+  } finally {
+    await base.$disconnect();
+  }
+});
+
+test("grouped callbacks retain declaring actions through inheritance and evidence", async () => {
+  const post = s.model({ id: s.string().id(), ownerId: s.string() });
+  const base = createClient({ schema: { post }, dataDir: ":memory:" });
+  try {
+    await syncLiveSchema(base);
+    await base.post.createMany({
+      data: [
+        { id: "update", ownerId: "alice" },
+        { id: "delete", ownerId: "alice" },
+      ],
+    });
+    const calls: string[] = [];
+    const call = base
+      .$extends(
+        rbac({
+          actor: v.object({}),
+          models: {
+            post: {
+              "update, delete": (action) => {
+                calls.push(action);
+                return { id: action };
+              },
+            },
+          },
+        })
+      )
+      .$as({});
+    expect(calls).toEqual(["update", "delete"]);
+    const rows = await call.post.findMany({
+      orderBy: { id: "asc" },
+      include: { $access: true },
+    });
+    expect(rows.map(({ id, $access }) => ({ id, $access }))).toEqual([
+      { id: "delete", $access: { update: false, delete: true, read: true } },
+      { id: "update", $access: { update: true, delete: false, read: true } },
+    ]);
+    expect(calls).toEqual(["update", "delete"]);
+  } finally {
+    await base.$disconnect();
+  }
+});
+
+test("scope binding validates, detaches caller input, and resets on a new unrestricted actor binding", async () => {
+  const post = s.model({ id: s.string().id(), title: s.string() });
+  const base = createClient({ schema: { post }, dataDir: ":memory:" });
+  try {
+    await syncLiveSchema(base);
+    await base.post.create({ data: { id: "p", title: "original" } });
+    const db = base.$extends(
+      rbac({
+        actor: v.object({}),
+        models: { post: { read: true, update: true } },
+      })
+    );
+    for (const scopes of [
+      null,
+      "post.read",
+      [1],
+      ["missing.read"],
+      ["post.publish"],
+      ["post.*"],
+    ]) {
+      await expect(async () => {
+        // @ts-expect-error - hostile runtime values must still be refused
+        await db.$as({}, scopes).post.findMany();
+      }).rejects.toThrow();
+    }
+    const scopes: "post.read"[] = ["post.read"];
+    const readOnly = db.$as({}, scopes);
+    scopes.length = 0;
+    expect(await readOnly.post.count()).toBe(1);
+    await expect(
+      readOnly.post.update({ where: { id: "p" }, data: { title: "denied" } })
+    ).rejects.toThrow();
+    await readOnly
+      .$as({})
+      .post.update({ where: { id: "p" }, data: { title: "allowed" } });
+    expect((await base.post.findUnique({ where: { id: "p" } }))?.title).toBe(
+      "allowed"
+    );
+  } finally {
+    await base.$disconnect();
+  }
+});
+
+test("field write grants complement the base update permission and credential scope", async () => {
+  const post = s.model({ id: s.string().id(), title: s.string() });
+  const base = createClient({ schema: { post }, dataDir: ":memory:" });
+  try {
+    await syncLiveSchema(base);
+    await base.post.create({ data: { id: "p", title: "original" } });
+    for (const model of [
+      {
+        read: true,
+        update: false,
+        full: true,
+        fields: { title: { write: "full" as const } },
+      },
+      { read: true, full: true, fields: { title: { write: "full" as const } } },
+    ]) {
+      const call = base
+        .$extends(rbac({ actor: v.object({}), models: { post: model } }))
+        .$as({});
+      await expect(
+        call.post.update({ where: { id: "p" }, data: { title: "denied" } })
+      ).rejects.toThrow();
+    }
+    const db = base.$extends(
+      rbac({
+        actor: v.object({}),
+        models: {
+          post: {
+            read: true,
+            update: true,
+            full: true,
+            fields: { title: { write: "full" as const } },
+          },
+        },
+      })
+    );
+    for (const scopes of [
+      ["post.update"] as const,
+      ["post.full", "post.read"] as const,
+    ]) {
+      await expect(
+        db
+          .$as({}, scopes)
+          .post.update({ where: { id: "p" }, data: { title: "denied" } })
+      ).rejects.toThrow();
+    }
+    await db
+      .$as({}, ["post.update", "post.full"])
+      .post.update({ where: { id: "p" }, data: { title: "allowed" } });
+    expect((await base.post.findUnique({ where: { id: "p" } }))?.title).toBe(
+      "allowed"
+    );
+  } finally {
+    await base.$disconnect();
+  }
+});
+
+test("cached evidence and rows are isolated between scopes for the same actor", async () => {
+  const post = s.model({
+    id: s.string().id(),
+    ownerId: s.string(),
+    title: s.string(),
+  });
+  const base = createClient({ schema: { post }, dataDir: ":memory:" });
+  try {
+    await syncLiveSchema(base);
+    await base.post.create({
+      data: { id: "p", ownerId: "alice", title: "original" },
+    });
+    const db = base.$extends(cache({ driver: new MemoryCache() })).$extends(
+      rbac({
+        actor: v.object({ userId: v.string() }),
+        cache: "allow",
+        models: {
+          post: { read: { ownerId: { actor: "userId" } }, update: true },
+        },
+      })
+    );
+    const actor = { userId: "alice" };
+    const reader = db.$as(actor, ["post.read"]).$withCache({ ttl: 60_000 });
+    const writer = db.$as(actor, ["post.update"]).$withCache({ ttl: 60_000 });
+    const denied = db.$as(actor, []).$withCache({ ttl: 60_000 });
+    const args = { include: { $access: true } } as const;
+    const readOnly = [
+      {
+        id: "p",
+        ownerId: "alice",
+        title: "original",
+        $access: { read: true, update: false },
+      },
+    ];
+    expect(await reader.post.findMany(args)).toEqual(readOnly);
+    // The base client bypasses this cache extension's invalidation. A stale
+    // answer establishes that the repeated request really is a cache hit.
+    await base.post.update({ where: { id: "p" }, data: { title: "changed" } });
+    expect(await reader.post.findMany(args)).toEqual(readOnly);
+    const writable = [
+      {
+        id: "p",
+        ownerId: "alice",
+        title: "changed",
+        $access: { read: true, update: true },
+      },
+    ];
+    expect(await writer.post.findMany(args)).toEqual(writable);
+    expect(await denied.post.findMany(args)).toEqual([]);
+    await base.post.update({ where: { id: "p" }, data: { title: "newest" } });
+    expect(await writer.post.findMany(args)).toEqual(writable);
+    expect(await reader.post.findMany(args)).toEqual(readOnly);
+    expect(await denied.post.findMany(args)).toEqual([]);
+    expect((await base.post.findUnique({ where: { id: "p" } }))?.title).toBe(
+      "newest"
+    );
   } finally {
     await base.$disconnect();
   }

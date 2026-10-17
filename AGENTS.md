@@ -312,13 +312,22 @@ which lives with the control it binds) and then a methods step
 applications own field names, membership, grant, credential and role conventions through explicit
 predicates. `src/rbac/rules.ts` owns `Rule`, `Where` and rule functions' readonly
 model `name` and `actions` metadata; no graph traversal or domain helper API is
-shipped. Operation defaults are always read `view`, update `edit`, delete
-`delete`; levels never change the mapping. `operations.create` selects the action
-used to evaluate the separate placement rule (default `edit`), not a named grant.
-Named action rules are the only grant declarations; `mandatory` and `limit`
-restrict them. Inherited rules and their nested callbacks evaluate the requested
-action, never the declaring action. Within one model/action, the same top-level
-rule assigned to several inherited actions contributes once. The retired `arms`
+shipped. CRUD permissions are `create`, `read`, `update` and `delete`;
+`operations` remaps read/update/delete only. Creation uses `create` independently
+of update and evaluates the proposed row. The default graph makes create,
+update and delete imply read; custom graphs and levels add implications.
+A rule's `true` grants; a directly declared literal `false` blocks inherited
+grants, while a callback returning `false` or an omitted rule supplies no direct
+grant. Global and model `mandatory` are action-independent predicates;
+the retired top-level `limit` is refused. Inherited rules and their nested
+callbacks evaluate the declaring action and reuse that predicate unchanged;
+grouped declarations evaluate separately per action. `$as(actor, scopes?)` binds
+optional exact `model.permission` credential scopes. Omission adds no credential
+restriction; an empty list denies all; supplied scopes follow the same action
+graph and intersect model grants, mandatory restrictions and field protections.
+Scopes never override `false`. Service identities use the application's actor
+schema and need explicit model grants; the server authenticates their keys.
+`$access` always returns an action-keyed boolean map. The retired `arms`
 and `within` keys are refused rather than admitted as implicit actions.
 Comma-separated rule keys assign one rule to individual actions, with surrounding
 ASCII whitespace ignored. `compile.ts` resolves the graph, rule bindings and

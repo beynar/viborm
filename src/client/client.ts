@@ -293,6 +293,9 @@ type ExtensionAdmission<
     ? OfficialDefaultOmitAdmission<Definition, C, X>
     : Definition extends ContextualExtensionDefinition<C, X, Definition>
       ? ExactExtensionDefinition<Definition, C, X> &
+          (HasResultConsumingExtension<X> extends true
+            ? { readonly rows?: never }
+            : unknown) &
           OrdinaryOfficialExtensionGuard<Definition> &
           SchemaBoundExtensionAdmission<Definition, C>
       : never;
@@ -455,7 +458,12 @@ export type VibORMClient<
       /** Create a client with cache - only read operations available */
       $withCache: (
         config?: WithCacheOptions
-      ) => CachedClient<C, ClientRowsContext<C, X["rows"]>, X["controls"]>;
+      ) => CachedClient<
+        C,
+        ClientRowsContext<C, X["rows"]>,
+        X["controls"],
+        X["models"]
+      >;
       /** Invalidate cache entries by keys or patterns (use * suffix for prefix matching) */
       $invalidate: (...keys: string[]) => Promise<void>;
     },

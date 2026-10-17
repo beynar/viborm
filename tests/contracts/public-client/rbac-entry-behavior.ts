@@ -99,7 +99,7 @@ const UNLISTED = Object.keys(schema).filter(
 );
 /** The live keys: page views, document shares, everything, no resources, beside a session. */
 const KEYED = [
-  "k02-pages-view",
+  "k02-pages-read",
   "k05-documents-share",
   "k21-everything",
   "k41-no-resources",
@@ -155,8 +155,8 @@ async function outcomeOf(body: () => Promise<unknown>): Promise<string> {
 }
 
 /**
- * `given(view)` of plan §1.1 on a page, read from the seed as oracle reading
- * A4 states it: a live grant on the page whose level or actions cover view,
+ * `given(read)` of plan §1.1 on a page, read from the seed as oracle reading
+ * A4 states it: a live grant on the page whose level or actions cover read,
  * to the actor's user, to everyone, to a team the actor is a live member of
  * or below, or to the actor's live role in the grant's organization.
  */
@@ -170,7 +170,7 @@ function givenPages(actor: Actor): Set<string> {
     for (const child of children.get(team) ?? []) below(child, seen);
     return seen;
   };
-  const wanted = above("page", "view");
+  const wanted = above("page", "read");
   const names = (grant: AccessGrantRow) =>
     grant.userId === actor.userId ||
     grant.everyone ||
@@ -283,13 +283,13 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
     // --- C1: filtering at every scope ------------------------------------
 
     test(
-      "W-R1: root reads, counts, aggregates and groupBy select exactly the oracle's view rows, on every model, for every judged actor",
+      "W-R1: root reads, counts, aggregates and groupBy select exactly the oracle's read rows, on every model, for every judged actor",
       async () => {
         for (const name of judged) {
           const actor = actors[name]!;
           const call = db.$as(actor);
           for (const model of GOVERNED_MODELS) {
-            const expected = at(actor, model, "view");
+            const expected = at(actor, model, "read");
             const where = `${name} ${model}`;
             expect(
               keys(
@@ -300,7 +300,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
             ).toEqual(expected);
             expect(await call[model]!.count(), where).toBe(expected.length);
           }
-          const pages = new Set(at(actor, "page", "view"));
+          const pages = new Set(at(actor, "page", "read"));
           const visible = seed.page.filter((page) => pages.has(page.id));
           expect(
             await call.page!.aggregate({ _count: { _all: true } }),
@@ -335,9 +335,9 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
         for (const name of READERS) {
           const actor = actors[name]!;
           const call = db.$as(actor);
-          const view = at(actor, "page", "view");
+          const read = at(actor, "page", "read");
           const hidden = seed.page.find(
-            (page) => page.deletedAt === null && !view.includes(page.id)
+            (page) => page.deletedAt === null && !read.includes(page.id)
           );
           const page = (cursor: string) =>
             call.page!.findMany({
@@ -350,10 +350,10 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
             hiddenCursors += 1;
             expect(await page(hidden.id), name).toEqual([]);
           }
-          const first = view[0];
+          const first = read[0];
           if (first !== undefined)
             expect(keys("page", await page(first)), name).toEqual(
-              view.slice(0, 3)
+              read.slice(0, 3)
             );
           const distinct = await call.page!.findMany({
             distinct: ["groupId"],
@@ -366,7 +366,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
             [
               ...new Set(
                 seed.page
-                  .filter((p) => view.includes(p.id))
+                  .filter((p) => read.includes(p.id))
                   .map((p) => String(p.groupId))
               ),
             ].sort()
@@ -384,8 +384,8 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
         for (const name of READERS) {
           const actor = actors[name]!;
           const call = db.$as(actor);
-          const pages = new Set(at(actor, "page", "view"));
-          const groups = new Set(at(actor, "pageGroup", "view"));
+          const pages = new Set(at(actor, "page", "read"));
+          const groups = new Set(at(actor, "pageGroup", "read"));
           const withGroups = await call.page!.findMany({
             select: { id: true, group: { select: { id: true } } },
           });
@@ -446,8 +446,8 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
         for (const name of READERS) {
           const actor = actors[name]!;
           const call = db.$as(actor);
-          const pages = new Set(at(actor, "page", "view"));
-          const groups = at(actor, "pageGroup", "view");
+          const pages = new Set(at(actor, "page", "read"));
+          const groups = at(actor, "pageGroup", "read");
           const visibleIn = (group: string) =>
             seed.page.filter((p) => p.groupId === group && pages.has(p.id));
           const where = async (filter: object) =>
@@ -503,11 +503,11 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
         let cut = 0;
         for (const name of READERS) {
           const actor = actors[name]!;
-          const view = new Set(at(actor, "document", "view"));
+          const read = new Set(at(actor, "document", "read"));
           const treeOf = (id: string): Tree => ({
             id,
             children: seed.document
-              .filter((d) => d.parentId === id && view.has(d.id))
+              .filter((d) => d.parentId === id && read.has(d.id))
               .map((d) => treeOf(d.id))
               .sort((a, b) => a.id.localeCompare(b.id)),
           });
@@ -523,7 +523,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
             name
           ).toEqual(
             seed.document
-              .filter((d) => d.parentId === null && view.has(d.id))
+              .filter((d) => d.parentId === null && read.has(d.id))
               .map((d) => treeOf(d.id))
               .sort((a, b) => a.id.localeCompare(b.id))
           );
@@ -533,7 +533,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
         const owned = loose(
           rbac({
             actor: ActorSchema,
-            models: { document: { view: { ownerId: { actor: "userId" } } } },
+            models: { document: { read: { ownerId: { actor: "userId" } } } },
           })(base)
         );
         for (const name of READERS) {
@@ -576,7 +576,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
     );
 
     test(
-      "W-R9: a polymorphic arm reads under its target's P(view): a bookmark's subject is its variant and row where the actor views the target, null where it does not, and a filter through the arm reads the same",
+      "W-R9: a polymorphic arm reads under its target's P(read): a bookmark's subject is its variant and row where the actor views the target, null where it does not, and a filter through the arm reads the same",
       async () => {
         type Arm = { type: "page" | "document"; id: string } | null;
         const sorted = (arms: Iterable<[string, Arm]>) =>
@@ -706,7 +706,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
     // --- C10: modes narrow only -------------------------------------------
 
     test(
-      'W-N1, W-N2: as an action reads P(view) ∧ P(action), on every (model, action); as "given" reads P(view) ∧ given(view)',
+      'W-N1, W-N2: as an action reads P(read) ∧ P(action), on every (model, action); as "given" reads P(read) ∧ given(read)',
       async () => {
         for (const name of judged) {
           const actor = actors[name]!;
@@ -731,7 +731,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
               await call.page!.findMany({ as: "given", select: { id: true } })
             ),
             `${name} as given`
-          ).toEqual(at(actor, "page", "view").filter((id) => given.has(id)));
+          ).toEqual(at(actor, "page", "read").filter((id) => given.has(id)));
         }
       },
       timeout
@@ -769,36 +769,35 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
         // subtrees, through an array parameter, and nothing else.
         const sharer = actors["k05-documents-share"]!;
         const roots = sharer.key!.resources.document as readonly string[];
-        const reached = at(sharer, "document", "view");
+        const reached = at(sharer, "document", "read");
         expect(reached.length).toBeGreaterThan(roots.length);
         expect(reached.some((id) => roots.includes(id))).toBe(true);
         // W-L7: a key scoped ["share"] views (scopes close downward) and shares.
         const shared = at(sharer, "document", "share")[0];
         expect(shared).toBeDefined();
         expect(
-          await db.$as(sharer).document!.can(["view", "share"], { id: shared })
-        ).toEqual({ view: true, share: true });
+          await db.$as(sharer).document!.can(["read", "share"], { id: shared })
+        ).toEqual({ read: true, share: true });
         // W-L5: a model the key does not scope holds nothing, at any action.
-        const pagesOnly = db.$as(actors["k02-pages-view"]!);
+        const pagesOnly = db.$as(actors["k02-pages-read"]!);
         for (const model of ["member", "document", "team", "collection"])
           expect(await pagesOnly[model]!.count(), model).toBe(0);
         expect(
-          at(actors["k02-pages-view"]!, "page", "view").length
+          at(actors["k02-pages-read"]!, "page", "read").length
         ).toBeGreaterThan(0);
         // W-L8: a key whose resources list nothing reaches no document.
         const empty = actors["k41-no-resources"]!;
         expect(empty.key!.resources.document).toEqual([]);
         expect(await db.$as(empty).document!.count()).toBe(0);
-        expect(at(empty, "page", "view").length).toBeGreaterThan(0);
+        expect(at(empty, "page", "read").length).toBeGreaterThan(0);
       },
       timeout
     );
 
     test(
-      "W-L3: an actor without a key is not narrowed: the policy without its limit reads the same rows, on every model",
+      "W-L3: an actor without a key is not narrowed: reapplying the policy reads the same rows, on every model",
       async () => {
-        const { limit: _limit, ...unlimited } = policy.config;
-        const open = rbac(unlimited);
+        const open = rbac(policy.config);
         const rows = open.rows(tombstones.rows(base));
         const unnarrowed = loose(open.methods(tombstones.methods(rows)));
         for (const name of READERS) {
@@ -823,35 +822,35 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
         // A key actor is narrowed: the same user on a session reads more.
         const keyed = actors["k05-documents-share"]!;
         const { key: _key, ...user } = { ...keyed, session: "ses-05-live" };
-        expect(at(user, "document", "view").length).toBeGreaterThan(
-          at(keyed, "document", "view").length
+        expect(at(user, "document", "read").length).toBeGreaterThan(
+          at(keyed, "document", "read").length
         );
       },
       timeout
     );
 
     test(
-      "W-L6: a view-only key creates, moves and connects nothing, where the same user on a session may",
+      "W-L6: a read-only key creates, moves and connects nothing, where the same user on a session may",
       async () => {
         // user-02's live key, viewing pages, and every target a page's keys
         // reach: only the key's page action stands between it and a create.
-        const pages = actors["k02-pages-view"]!;
+        const pages = actors["k02-pages-read"]!;
         const keyed: Actor = {
           ...pages,
           key: {
             ...pages.key!,
             scopes: {
-              page: ["view"],
-              organization: ["view"],
-              user: ["view"],
-              pageGroup: ["view"],
+              page: ["read"],
+              organization: ["read"],
+              user: ["read"],
+              pageGroup: ["read"],
             },
           },
         };
         const { key: _key, ...user } = { ...keyed, session: "ses-02-live" };
-        const groups = at(user, "pageGroup", "edit");
+        const groups = at(user, "pageGroup", "update");
         const page = minus(
-          at(user, "page", "edit"),
+          at(user, "page", "update"),
           at(user, "page", "full")
         ).concat(at(user, "page", "full"))[0];
         expect(groups.length).toBeGreaterThan(0);
@@ -874,7 +873,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
           );
         expect(await create(user)).toBe("ok");
         expect(await create(keyed)).toBe(ForbiddenError.name);
-        // The old row is judged at edit, which the key does not hold.
+        // The old row is judged at update, which the key does not hold.
         for (const data of [
           { groupId: groups[0] },
           { group: { connect: { id: groups[0] } } },
@@ -886,14 +885,16 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
             ),
             JSON.stringify(data)
           ).toBe(NotFoundError.name);
-        expect(await db.$as(keyed).page!.can("edit", { id: page })).toBe(false);
-        expect(await db.$as(user).page!.can("edit", { id: page })).toBe(true);
+        expect(await db.$as(keyed).page!.can("update", { id: page })).toBe(
+          false
+        );
+        expect(await db.$as(user).page!.can("update", { id: page })).toBe(true);
       },
       timeout
     );
 
     test(
-      "W-N1 (D11, R8): a second named domain on the same policy narrows only: as mine reads P(view) ∧ mine, never widens a write; a model that does not declare it refuses it before any statement",
+      "W-N1 (D11, R8): a second named domain on the same policy narrows only: as mine reads P(read) ∧ mine, never widens a write; a model that does not declare it refuses it before any statement",
       async () => {
         const { models } = policy.config;
         const domains = rbac({
@@ -915,7 +916,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
         for (const name of READERS) {
           const actor = actors[name]!;
           const call = narrowed.$as(actor);
-          const mine = at(actor, "page", "view").filter(
+          const mine = at(actor, "page", "read").filter(
             (id) =>
               seed.page.find((page) => page.id === id)!.ownerId === actor.userId
           );
@@ -928,7 +929,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
           ).toEqual(mine);
           // A row the actor edits and does not own: `mine` narrows the
           // update's candidates; it never replaces the verb.
-          const editable = minus(at(actor, "page", "edit"), mine)[0];
+          const editable = minus(at(actor, "page", "update"), mine)[0];
           if (editable !== undefined) {
             refused += 1;
             expect(
@@ -944,7 +945,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
               name
             ).toBe(NotFoundError.name);
           }
-          const viewedOnly = minus(mine, at(actor, "page", "edit"))[0];
+          const viewedOnly = minus(mine, at(actor, "page", "update"))[0];
           if (viewedOnly !== undefined)
             expect(
               await rolledBack(call, (tx) =>
@@ -1024,7 +1025,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
         let cases = 0;
         for (const name of READERS) {
           const actor = actors[name]!;
-          const parent = at(actor, "team", "edit").find((team) =>
+          const parent = at(actor, "team", "update").find((team) =>
             seed.teamParent.some((edge) => edge.parentId === team)
           );
           if (parent === undefined) continue;
@@ -1055,7 +1056,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
           "u07-expired",
           "u27-unknown-session",
           "u21-session-and-key",
-          "k02-pages-view",
+          "k02-pages-read",
           "k02-disabled-key",
           "k03-expired-key",
           "k50-unknown-key",
@@ -1065,7 +1066,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
           const actor = actors[name]!;
           const call = db.$as(actor);
           for (const model of GOVERNED_MODELS) {
-            const expected = at(actor, model, "view");
+            const expected = at(actor, model, "read");
             expect(
               keys(
                 model,
@@ -1079,7 +1080,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
         // The dead credentials and keys reach no page; a live one does.
         expect(reachedNothing).toBeGreaterThanOrEqual(6);
         expect(
-          at(actors["k02-pages-view"]!, "page", "view").length
+          at(actors["k02-pages-read"]!, "page", "read").length
         ).toBeGreaterThan(0);
       },
       timeout
@@ -1190,8 +1191,8 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
             )
           ).toBe(ForbiddenError.name);
           expect(
-            await call.page!.can(["view", "edit", "delete"], { id: other.id })
-          ).toEqual({ view: true, edit: false, delete: admin });
+            await call.page!.can(["read", "update", "delete"], { id: other.id })
+          ).toEqual({ read: true, update: false, delete: admin });
         }
       },
       timeout
@@ -1245,7 +1246,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
     test("W-D10: an actor path the actor schema does not declare is refused when the policy is applied", () => {
       const misspelt = rbac({
         actor: ActorSchema,
-        models: { page: { view: { ownerId: { actor: "usrId" } } } },
+        models: { page: { read: { ownerId: { actor: "usrId" } } } },
       } as never);
       expect(() => misspelt(base as never)).toThrow(ClientInitializationError);
       expect(() => misspelt(base as never)).toThrow('actor path "usrId"');
@@ -1254,7 +1255,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
     test("a read-gated key or foreign key is refused when the policy is applied (K5's admission)", () => {
       const gated = rbac({
         actor: ActorSchema,
-        levels: ["view", "edit", "full"],
+        levels: ["read", "update", "full"],
         models: { page: { fields: { groupId: { read: "full" } } } },
       } as never);
       expect(() => gated(base as never)).toThrow(ClientInitializationError);
@@ -1265,8 +1266,8 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
       // constraint exactly when a row holds it (review FDOCS-4).
       const unique = rbac({
         actor: ActorSchema,
-        levels: ["view", "edit", "full"],
-        models: { user: { view: {}, fields: { email: { read: "full" } } } },
+        levels: ["read", "update", "full"],
+        models: { user: { read: {}, fields: { email: { read: "full" } } } },
       } as never);
       expect(() => unique(base as never)).toThrow(
         'rows.verbs.user at "reads.email": names a key, a unique or a foreign key field'
@@ -1281,7 +1282,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
       const owners = loose(
         rbac({
           actor: v.object({ userId: v.string({ nullable: true }) }),
-          models: { page: { view: { ownerId: { actor: "userId" } } } },
+          models: { page: { read: { ownerId: { actor: "userId" } } } },
         })(base)
       );
       expect(await owners.$as({ userId: null }).page!.count()).toBe(0);
@@ -1315,11 +1316,11 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
           const call = metered.$as(actor);
           for (const action of actionsOf("document")) {
             const holds = at(actor, "document", action);
-            const view = at(actor, "document", "view");
+            const read = at(actor, "document", "read");
             const cases = [
               holds[0],
-              minus(view, holds)[0],
-              seed.document.find((d) => !view.includes(d.id))?.id,
+              minus(read, holds)[0],
+              seed.document.find((d) => !read.includes(d.id))?.id,
             ];
             for (const [index, id] of cases.entries()) {
               if (id === undefined) continue;
@@ -1343,7 +1344,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
     );
 
     test(
-      "W-CAN2: can with a list answers every listed action through $access, in one statement (one per level on an ordered model, W-CAN8); a hidden row holds none; assert with a list needs them all",
+      "W-CAN2: can with a list answers every listed action through $access, in one statement, including models using levels; a hidden row holds none; assert with a list needs them all",
       async () => {
         let hidden = 0;
         for (const name of READERS) {
@@ -1351,18 +1352,16 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
           const call = metered.$as(actor);
           for (const model of ["document", "page"] as const) {
             const names = actionsOf(model);
-            const view = at(actor, model, "view");
+            const read = at(actor, model, "read");
             const held = Object.fromEntries(
               names.map((action) => [action, at(actor, model, action)])
             );
             const rows = (seed[model] as unknown as Row[]).slice(0, 12);
             for (const { id } of rows) {
-              if (!view.includes(id as string)) hidden += 1;
+              if (!read.includes(id as string)) hidden += 1;
               statements.length = 0;
               const answer = await call[model]!.can(names, { id });
-              expect(statements, `${name} ${model} ${id}`).toHaveLength(
-                model === "page" ? names.length : 1
-              );
+              expect(statements, `${name} ${model} ${id}`).toHaveLength(1);
               expect(answer, `${name} ${model} ${id}`).toEqual(
                 Object.fromEntries(
                   names.map((action) => [
@@ -1429,9 +1428,12 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
             const rows = seed[model] as unknown as Row[];
             for (const action of actionsOf(model)) {
               const holds = new Set(at(actor, model, action));
-              const answers = await Promise.all(
-                rows.map((row) =>
-                  call[model]!.can(
+              // Sweep every oracle row without retaining hundreds of prepared
+              // permission graphs at once. Actor isolation has separate concurrent tests.
+              const answers: boolean[] = [];
+              for (const row of rows) {
+                answers.push(
+                  await call[model]!.can(
                     action,
                     model === "teamMember"
                       ? {
@@ -1442,8 +1444,8 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
                         }
                       : { id: row.id }
                   )
-                )
-              );
+                );
+              }
               expect(
                 rows
                   .filter((_, index) => answers[index])
@@ -1469,7 +1471,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
           const actor = actors[name]!;
           const call = db.$as(actor);
           const full = at(actor, "page", "full");
-          const editOnly = minus(at(actor, "page", "edit"), full)[0];
+          const editOnly = minus(at(actor, "page", "update"), full)[0];
           if (editOnly !== undefined) {
             refused += 1;
             expect(
@@ -1517,28 +1519,29 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
           );
     });
 
-    test("W-CAN8: on an ordered model each asked level is answered by its own predicate, never inferred from a higher one (review Fprinciples-1)", async () => {
-      // `edit` holds nowhere, `view` and `full` on one page: R1 does not make
-      // P monotone, so the highest level held says nothing of `edit`.
-      const [id] = at(actors.u01!, "page", "view");
+    test("W-CAN8: an explicit denial overrides the inherited higher grant (review Fprinciples-1)", async () => {
+      // `update` holds nowhere, `read` and `full` on one page: R1 does not make
+      // P monotone, so the highest level held says nothing of `update`.
+      const [id] = at(actors.u01!, "page", "read");
       const gapped = rbac({
         actor: ActorSchema,
-        levels: ["view", "edit", "full"],
+        levels: ["read", "update", "full"],
         models: {
           page: {
-            full: (action: string) => (action === "edit" ? { OR: [] } : { id }),
+            full: { id },
+            update: false,
           },
         },
       } as never) as unknown as (client: RbacAppClient) => Loose;
       const call = gapped(base).$as(actors.u01!);
-      expect(await call.page!.can(["view", "edit", "full"], { id })).toEqual({
-        view: true,
-        edit: false,
+      expect(await call.page!.can(["read", "update", "full"], { id })).toEqual({
+        read: true,
+        update: false,
         full: true,
       });
-      expect(await call.page!.can("edit", { id })).toBe(false);
+      expect(await call.page!.can("update", { id })).toBe(false);
       expect(
-        await outcomeOf(() => call.page!.assert(["edit", "full"], { id }))
+        await outcomeOf(() => call.page!.assert(["update", "full"], { id }))
       ).toBe(ForbiddenError.name);
     });
 
@@ -1556,10 +1559,10 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
                 await call.page!.findMany({ deleted, select: { id: true } })
               ),
               `${name} ${deleted}`
-            ).toEqual(at(actor, "page", "view", { deleted }));
-          const edit = at(actor, "page", "full", { deleted: "only" });
-          const view = at(actor, "page", "view", { deleted: "only" });
-          const editable = edit[0];
+            ).toEqual(at(actor, "page", "read", { deleted }));
+          const update = at(actor, "page", "full", { deleted: "only" });
+          const read = at(actor, "page", "read", { deleted: "only" });
+          const editable = update[0];
           if (editable !== undefined) {
             restored += 1;
             expect(
@@ -1571,7 +1574,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
               name
             ).toBe(1);
           }
-          const viewedOnly = minus(view, edit)[0];
+          const viewedOnly = minus(read, update)[0];
           if (viewedOnly !== undefined)
             expect(
               await outcomeOf(() =>
@@ -1631,12 +1634,12 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
                   .filter((row) => row.organizationId === tenant)
                   .map((row) => String(row.id))
               );
-              const expected = at(actor, model, "view").filter((id) =>
+              const expected = at(actor, model, "read").filter((id) =>
                 inTenant.has(id)
               );
               if (
                 expected.length > 0 &&
-                expected.length < at(actor, model, "view").length
+                expected.length < at(actor, model, "read").length
               )
                 split += 1;
               expect(
@@ -1655,7 +1658,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
     );
 
     test(
-      "W-C3: audit after the rows steps stamps the bound actor's userId (K7(c)) and takes no action: an archive-only writer archives exactly the oracle's rows",
+      "W-C3: audit after the rows steps stamps the bound actor's userId (K7(c)) and cannot bypass base update and field permissions",
       async () => {
         const audit = {
           name: "audit",
@@ -1673,7 +1676,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
         for (const name of READERS) {
           const actor = actors[name]!;
           const archive = at(actor, "document", "archive");
-          if (minus(archive, at(actor, "document", "edit")).length > 0)
+          if (minus(archive, at(actor, "document", "update")).length > 0)
             archivers += 1;
           const stamped = await rolledBack(governed.$as(actor), async (tx) => {
             const { count } = await tx.document!.updateMany({
@@ -1685,9 +1688,12 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
             });
             return { count, rows: keys("document", rows) };
           });
+          const permitted = archive.filter((id) =>
+            at(actor, "document", "update").includes(id)
+          );
           expect(stamped, name).toEqual({
-            count: archive.length,
-            rows: archive,
+            count: permitted.length,
+            rows: permitted,
           });
         }
         expect(archivers).toBeGreaterThan(0);
@@ -1701,8 +1707,8 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
         let revoked = 0;
         for (const name of judged) {
           const actor = actors[name]!;
-          const live = new Set(at(actor, "page", "view", { deleted: "with" }));
-          const lost = at(actor, "page", "view", {
+          const live = new Set(at(actor, "page", "read", { deleted: "with" }));
+          const lost = at(actor, "page", "read", {
             tombstones: false,
           }).filter(
             (id) =>
@@ -1730,7 +1736,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
     // --- OD-10: a cached read is an observation, not a judgement ----------
 
     test(
-      'W-C7: $withCache on a governed view is refused before any statement, below or above the cache, unless the policy declares cache: "allow" (OD-10)',
+      'W-C7: $withCache on a governed read is refused before any statement, below or above the cache, unless the policy declares cache: "allow" (OD-10)',
       async () => {
         const actor = actors[judged[0]!]!;
         const counted: string[] = [];
@@ -1758,7 +1764,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
           expect(
             keys("page", await call.page!.findMany({ select: keyOf("page") })),
             order
-          ).toEqual(at(actor, "page", "view", { tombstones: false }));
+          ).toEqual(at(actor, "page", "read", { tombstones: false }));
         }
 
         // Declared: the read is served from the cache, stale after a write
@@ -1767,7 +1773,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
         const call = loose(allowing(loose(base).$extends(memo()) as never)).$as(
           actor
         );
-        const [id] = at(actor, "page", "view", { tombstones: false });
+        const [id] = at(actor, "page", "read", { tombstones: false });
         const read = async () =>
           await call.$withCache({ ttl: 60_000 }).page!.findMany({
             where: { id },

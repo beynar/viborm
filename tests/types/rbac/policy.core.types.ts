@@ -50,24 +50,24 @@ describe("actor paths", () => {
     expectTypeOf<"key.id">().toExtend<Paths>();
   });
 
-  test("explicit limits and control predicates check actor paths", () => {
+  test("global mandatory restrictions and control predicates check actor paths", () => {
     rbac({
       actor: Actor,
-      limit: { $if: { control: "actor", path: "key", exists: false } },
-      models: { page: { view: {} } },
+      mandatory: { $if: { control: "actor", path: "key", exists: false } },
+      models: { page: { read: {} } },
     });
-    // @ts-expect-error - literal limits use the actor schema's paths
+    // @ts-expect-error - literal mandatory restrictions use the actor schema's paths
     rbac({
       actor: Actor,
-      limit: { ownerId: { actor: "usrId" } },
-      models: { page: { view: {} } },
+      mandatory: { ownerId: { actor: "usrId" } },
+      models: { page: { read: {} } },
     });
     // @ts-expect-error - explicit control conditions also check the path
     rbac({
       actor: Actor,
       models: {
         page: {
-          view: {
+          read: {
             AND: [
               { ownerId: { actor: "userId" } },
               { $if: { control: "actor", path: "kee", exists: false } },
@@ -82,7 +82,7 @@ describe("actor paths", () => {
     // @ts-expect-error - "usrId" is not a path of the actor schema
     rbac({
       actor: Actor,
-      models: { page: { view: { ownerId: { actor: "usrId" } } } },
+      models: { page: { read: { ownerId: { actor: "usrId" } } } },
     });
     // @ts-expect-error - a condition on an undeclared path
     rbac({
@@ -97,32 +97,32 @@ describe("action names", () => {
     rbac({
       actor: Actor,
       models: {
-        page: { mandatory: { ownerId: { actor: "userId" } }, view: {} },
+        page: { mandatory: { ownerId: { actor: "userId" } }, read: {} },
       },
     });
-    // @ts-expect-error - within must never become an action granting view
+    // @ts-expect-error - within must never become an action granting read
     rbac({
       actor: Actor,
-      models: { page: { within: { ownerId: { actor: "userId" } }, view: {} } },
+      models: { page: { within: { ownerId: { actor: "userId" } }, read: {} } },
     });
   });
 
   test("retired arms cannot be a model key or an explicit action", () => {
     // @ts-expect-error - a held config cannot retain the former grant property
-    rbac({ actor: Actor, models: { page: { arms: {}, view: {} } } });
-    const stale = { actor: Actor, models: { page: { arms: [{}], view: {} } } };
+    rbac({ actor: Actor, models: { page: { arms: {}, read: {} } } });
+    const stale = { actor: Actor, models: { page: { arms: [{}], read: {} } } };
     // @ts-expect-error - old arrays are refused even in non-fresh declarations
     rbac(stale);
     // @ts-expect-error - the level ladder cannot reintroduce retired names either
     rbac({
       actor: Actor,
-      levels: ["view", "arms"],
-      models: { page: { view: {} } },
+      levels: ["read", "arms"],
+      models: { page: { read: {} } },
     });
     // @ts-expect-error - an explicit graph cannot reintroduce the retired key
     rbac({
       actor: Actor,
-      models: { page: { actions: { view: [], arms: ["view"] }, view: {} } },
+      models: { page: { actions: { read: [], arms: ["read"] }, read: {} } },
     });
   });
 
@@ -131,48 +131,51 @@ describe("action names", () => {
       actor: Actor,
       models: {
         page: {
-          actions: { view: [], edit: [], export: [] },
-          " view ,\tedit, export ": { ownerId: { actor: "userId" } },
-          operations: { update: "edit" },
-          fields: { title: { read: "view" } },
+          actions: { read: [], update: [], export: [] },
+          " read ,\tupdate, export ": { ownerId: { actor: "userId" } },
+          operations: { update: "update" },
+          fields: { title: { read: "read" } },
         },
       },
     });
     // @ts-expect-error - explicit graphs check every group member
     rbac({
       actor: Actor,
-      models: { page: { actions: { view: [], edit: [] }, "view, edti": {} } },
+      models: { page: { actions: { read: [], update: [] }, "read, edti": {} } },
     });
     // @ts-expect-error - empty members are not permissions
-    rbac({ actor: Actor, models: { page: { "view, ": {} } } });
+    rbac({ actor: Actor, models: { page: { "read, ": {} } } });
     // @ts-expect-error - duplicate members are likely a mistake
-    rbac({ actor: Actor, models: { page: { "view, view": {} } } });
+    rbac({ actor: Actor, models: { page: { "read, read": {} } } });
     // @ts-expect-error - overlapping bindings cannot silently replace each other
-    rbac({ actor: Actor, models: { page: { "view, edit": {}, edit: {} } } });
+    rbac({
+      actor: Actor,
+      models: { page: { "read, update": {}, update: {} } },
+    });
     // @ts-expect-error - overlapping groups are also ambiguous
     rbac({
       actor: Actor,
-      models: { page: { "view, edit": {}, "edit, full": {} } },
+      models: { page: { "read, update": {}, "update, full": {} } },
     });
     // @ts-expect-error - restrictions cannot be mixed into grants
-    rbac({ actor: Actor, models: { page: { "view, mandatory": {} } } });
+    rbac({ actor: Actor, models: { page: { "read, mandatory": {} } } });
     // @ts-expect-error - retired names cannot be hidden in a group
-    rbac({ actor: Actor, models: { page: { "view, arms": {} } } });
+    rbac({ actor: Actor, models: { page: { "read, arms": {} } } });
     // @ts-expect-error - the ladder declares individual action names
     rbac({
       actor: Actor,
-      levels: ["view", "edit, full"],
-      models: { page: { view: {} } },
+      levels: ["read", "update, full"],
+      models: { page: { read: {} } },
     });
     // @ts-expect-error - graph nodes are individual names, not groups
     rbac({
       actor: Actor,
-      models: { page: { actions: { view: [], "edit, full": [] } } },
+      models: { page: { actions: { read: [], "update, full": [] } } },
     });
     // @ts-expect-error - graph edges name one action
     rbac({
       actor: Actor,
-      models: { page: { actions: { view: [], edit: ["view, edit"] } } },
+      models: { page: { actions: { read: [], update: ["read, update"] } } },
     });
   });
 
@@ -180,15 +183,15 @@ describe("action names", () => {
     // @ts-expect-error - `remove` is not an action of page
     rbac({
       actor: Actor,
-      levels: ["view", "edit", "full"],
-      models: { page: { view: {}, operations: { delete: "remove" } } },
+      levels: ["read", "update", "full"],
+      models: { page: { read: {}, operations: { delete: "remove" } } },
     });
     // @ts-expect-error - `full` is not an action of a model with its own actions
     rbac({
       actor: Actor,
       models: {
         document: {
-          actions: { view: [] },
+          actions: { read: [] },
           fields: { ownerId: { write: "full" } },
         },
       },
@@ -196,7 +199,7 @@ describe("action names", () => {
     // @ts-expect-error - an action implies one the model does not declare
     rbac({
       actor: Actor,
-      models: { document: { actions: { view: [], edit: ["veiw"] } } },
+      models: { document: { actions: { read: [], update: ["veiw"] } } },
     });
   });
 
@@ -205,7 +208,7 @@ describe("action names", () => {
       actor: v.object({ userId: v.string() }),
       models: {
         page: {
-          view: {},
+          read: {},
           delete: { ownerId: { actor: "userId" } },
           operations: { delete: "delete" },
         },
@@ -216,20 +219,20 @@ describe("action names", () => {
 
 describe("schema names", () => {
   test("models and fields are the schema's", () => {
-    const misspelt = rbac({ actor: Actor, models: { pages: { view: {} } } });
+    const misspelt = rbac({ actor: Actor, models: { pages: { read: {} } } });
     // @ts-expect-error - the schema has no model `pages`
     misspelt.compile(schema);
     const field = rbac({
       actor: Actor,
       models: {
-        collection: { view: {}, fields: { budjet: { read: "view" } } },
+        collection: { read: {}, fields: { budjet: { read: "read" } } },
       },
     });
     // @ts-expect-error - collection has no field `budjet`
     field.compile(schema);
     const create = rbac({
       actor: Actor,
-      models: { page: { view: {}, create: { titel: "x" } } },
+      models: { page: { read: {}, create: { titel: "x" } } },
     });
     // @ts-expect-error - a create names a field page does not have
     create.compile(schema);

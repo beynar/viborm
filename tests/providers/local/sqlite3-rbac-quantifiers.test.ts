@@ -30,11 +30,11 @@ test.each([
     await base.child.create({ data: { id: "allowed", parentId: "populated" } });
     const db = rbac({
       actor: v.object({ id: v.string() }),
-      levels: ["view"],
-      models: { parent: { view: { children } }, child: { view: {} } },
+      levels: ["read"],
+      models: { parent: { read: { children } }, child: { read: {} } },
     })(base).$as({ id: "actor" });
     expect(await db.parent.findMany()).toEqual([{ id: "empty" }]);
-    expect(await db.parent.can("view", { id: "populated" })).toBe(false);
+    expect(await db.parent.can("read", { id: "populated" })).toBe(false);
   } finally {
     await base.$disconnect();
   }

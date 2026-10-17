@@ -14,27 +14,28 @@ const user = s.model({ id: s.string().id(), name: s.string() });
 const post = s.model({ id: s.string().id(), ownerId: s.string(), owner: s.toOne(() => user).fields("ownerId").references("id") });
 const base = createClient({ schema: { post, user }, dataDir: ":memory:" });
 const actor = v.object({ userId: v.string(), organizationId: v.string() });
-const db = base.$extends(rbac({ actor, models: { post: { actions: { view: [], edit: [] }, view: { ownerId: { actor: "userId" } }, edit: {} } } }));
+const db = base.$extends(rbac({ actor, models: { post: { actions: { read: [], update: [] }, read: { ownerId: { actor: "userId" } }, update: {} } } }));
 base.$extends(rbac({ actor, models: { /*models*/ } }));
 base.$extends(rbac({ actor, models: { post: { /*policy*/ } } }));
-base.$extends(rbac({ actor, models: { post: { view: { /*fields*/ } } } }));
-base.$extends(rbac({ actor, models: { post: { mandatory: { /*mandatoryFields*/ }, view: {} } } }));
-base.$extends(rbac({ actor, models: { post: { create: { /*createFields*/ }, view: {} } } }));
-base.$extends(rbac({ actor, models: { post: { edit: { OR: [{ /*grantFields*/ }] } } } }));
-base.$extends(rbac({ actor, models: { post: { view: { owner: { is: { /*related*/ } } } } } }));
-base.$extends(rbac({ actor, models: { post: { view: { ownerId: { actor: "/*paths*/" } } } } }));
-base.$extends(rbac({ actor, models: { post: { edit: (action, model) => ({ /*callbackFields*/ }) } } }));
-base.$extends(rbac({ actor, models: { post: { edit: (action, model) => { model./*modelMetadata*/; return {}; } } } }));
-base.$extends(rbac({ actor, models: { post: { edit: { OR: [(action, model) => ({ /*nestedCallbackFields*/ })] } } } }));
-base.$extends(rbac({ actor, levels: ["view", "edit", "full"], models: { post: { "view, /*groupActions*/": {} } } }));
-base.$extends(rbac({ actor, models: { post: { actions: { view: [], edit: [], export: [] }, "view,edit, /*graphGroupActions*/": {} } } }));
-base.$extends(rbac({ actor, models: { post: { "view, edit": { /*groupFields*/ } } } }));
+base.$extends(rbac({ actor, models: { post: { read: { /*fields*/ } } } }));
+base.$extends(rbac({ actor, models: { post: { mandatory: { /*mandatoryFields*/ }, read: {} } } }));
+base.$extends(rbac({ actor, models: { post: { create: { /*createFields*/ }, read: {} } } }));
+base.$extends(rbac({ actor, models: { post: { update: { OR: [{ /*grantFields*/ }] } } } }));
+base.$extends(rbac({ actor, models: { post: { read: { owner: { is: { /*related*/ } } } } } }));
+base.$extends(rbac({ actor, models: { post: { read: { ownerId: { actor: "/*paths*/" } } } } }));
+base.$extends(rbac({ actor, models: { post: { update: (action, model) => ({ /*callbackFields*/ }) } } }));
+base.$extends(rbac({ actor, models: { post: { update: (action, model) => { model./*modelMetadata*/; return {}; } } } }));
+base.$extends(rbac({ actor, models: { post: { update: { OR: [(action, model) => ({ /*nestedCallbackFields*/ })] } } } }));
+base.$extends(rbac({ actor, levels: ["read", "update", "full"], models: { post: { "read, /*groupActions*/": {} } } }));
+base.$extends(rbac({ actor, models: { post: { actions: { read: [], update: [], export: [] }, "read,update, /*graphGroupActions*/": {} } } }));
+base.$extends(rbac({ actor, models: { post: { "read, update": { /*groupFields*/ } } } }));
 /*dynamicStart*/
-const dynamic = base.$extends(rbac({ actor, levels: ["view", "edit"], models: { post: { "view, edit": (action, model) => ({ OR: [{ id: action }, (requested, current) => ({ ownerId: current.name })] }) } } }));
-dynamic.post.can("edit", { id: "p" });
+const dynamic = base.$extends(rbac({ actor, levels: ["read", "update"], models: { post: { "read, update": (action, model) => ({ OR: [{ id: action }, (requested, current) => ({ ownerId: current.name })] }) } } }));
+dynamic.post.can("update", { id: "p" });
 /*dynamicEnd*/
 db.post.can("/*actions*/", { id: "p" });
 db.$as({ /*binding*/ });
+db.$as({ userId: "u", organizationId: "o" }, ["/*scopes*/"]);
 `;
 withPackedConsumer("rbac-autocomplete", {}, ({ root }) => {
   const file = resolve(root, "autocomplete.ts");
@@ -66,14 +67,18 @@ withPackedConsumer("rbac-autocomplete", {}, ({ root }) => {
   try {
     for (const [marker, expected, excluded] of [
       ["models", ["post", "user"], ["ownerId"]],
-      ["groupActions", ["view, edit", "view, full"], ["view, view"]],
+      ["groupActions", ["read, update", "read, full"], ["read, read"]],
       [
         "graphGroupActions",
-        ["view,edit, export"],
-        ["view,edit, view", "view,edit, edit"],
+        ["read,update, export"],
+        ["read,update, read", "read,update, update"],
       ],
       ["groupFields", ["id", "ownerId", "owner"], ["name"]],
-      ["policy", ["mandatory", "create"], ["within", "arms"]],
+      [
+        "policy",
+        ["mandatory", "create", "read", "update", "delete"],
+        ["within", "arms"],
+      ],
       ["fields", ["id", "ownerId", "owner"], ["name"]],
       ["mandatoryFields", ["id", "ownerId", "owner"], ["name"]],
       ["createFields", ["id", "ownerId", "owner"], ["name"]],
@@ -87,8 +92,13 @@ withPackedConsumer("rbac-autocomplete", {}, ({ root }) => {
       ["nestedCallbackFields", ["id", "ownerId", "owner"], ["name"]],
       ["related", ["id", "name"], ["ownerId"]],
       ["paths", ["userId", "organizationId"], ["ownerId"]],
-      ["actions", ["view", "edit"], ["publish"]],
+      ["actions", ["read", "update"], ["publish"]],
       ["binding", ["userId", "organizationId"], ["id"]],
+      [
+        "scopes",
+        ["post.read", "post.update"],
+        ["post.publish", "user.read", "post.*"],
+      ],
     ]) {
       const position = source.indexOf(`/*${marker}*/`);
       assert.ok(position >= 0);

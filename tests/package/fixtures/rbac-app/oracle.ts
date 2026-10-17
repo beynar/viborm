@@ -4,9 +4,9 @@
 // from the policy of plan §1.1 and the rules of §3.2, never from an engine's
 // output: it imports nothing from VibORM and reads only `seed.ts`.
 //
-//   P(M, a) = mandatory(M)(a) ∧ limit(M, a) ∧ ( ⋁_{b ⊒ a} rule(M, b) ∨ ⋁_{g ∈ arms(M)} g(a) )
+//   P(M, a) = mandatory(M) ∧ ⋁_{b ⊒ a} rule(M, b)(b)
 //
-// What a caller observes at action `a` is `P(M, view) ∧ P(M, a)` (R2: every
+// What a caller observes at action `a` is `P(M, read) ∧ P(M, a)` (R2: every
 // verb and every evidence projection is conjoined with the read predicate), and
 // a row's `$access` is the set of actions holding on it (D6). The policy's own
 // traversals read the other layers at their default mode and never rbac's own
@@ -18,7 +18,7 @@
 // rules otherwise amends the reading and this file together.
 //
 //   A1  A role ceiling admits a role at `a` iff `a` is in the role's allowed set:
-//       declared, `reader: "view"` allows {view}; `full`, the top of `levels`,
+//       declared, `reader: "read"` allows {read}; `full`, the top of `levels`,
 //       allows every action of every model (document's included); a cap a
 //       model does not declare is refused (review Fprinciples-3). Stored,
 //       iff a `rolePermission` row (organization, role, b) exists for some b
@@ -46,11 +46,11 @@
 //       scope list for the model must contain an action b ⊒ a, and on
 //       `document` the row or an ancestor must be in `key.resources.document`
 //       unless it is "all" (an empty list admits nothing).
-//   A7  A rule key that is neither a level nor in a model's `actions` names an
-//       action implying `view` only (D3); an action with no rule and no arm is
-//       false (R9).
+//   A7  CRUD writes imply read. The fixture explicitly declares its additional
+//       hierarchy; every inherited rule retains its own declaring action.
+//       An action with no direct or inherited rule is false (R9).
 //   A8  A polymorphic arm (`bookmark.subject`) is read under its target's
-//       `P(view)` and the other layers' related domain (a tombstoned page is
+//       `P(read)` and the other layers' related domain (a tombstoned page is
 //       hidden): it reads the variant and its row where the target is viewed,
 //       `null` where it is not, and `null` where the bookmark holds none.
 
@@ -102,22 +102,33 @@ const EXTRA_ACTIONS: Record<GovernedModel, readonly string[]> = {
   bookmark: [],
 };
 
+/** The models §1.1 declares `create:` on; the others create nothing (R9). */
+export const CREATES: ReadonlySet<GovernedModel> = new Set([
+  "member",
+  "teamMember",
+  "accessGrant",
+  "page",
+  "document",
+  "collection",
+]);
 /** Each model's actions with what each one directly implies (D3). */
 const DOCUMENT_IMPLIES: Readonly<Record<string, readonly string[]>> = {
-  view: [],
-  comment: ["view"],
-  archive: ["view"],
-  edit: ["comment", "archive"],
-  share: ["edit"],
-  export: ["view"],
+  read: [],
+  create: ["read"],
+  comment: ["read"],
+  archive: ["read"],
+  update: ["comment", "archive"],
+  share: ["update"],
+  export: ["read"],
 };
 const ladder = (model: GovernedModel): Record<string, readonly string[]> => {
   const implied: Record<string, readonly string[]> = {
-    view: [],
-    edit: ["view"],
-    full: ["edit"],
+    read: [],
+    update: ["read"],
+    full: ["update"],
   };
-  for (const extra of EXTRA_ACTIONS[model]) implied[extra] = ["view"];
+  for (const extra of EXTRA_ACTIONS[model]) implied[extra] = ["read"];
+  if (CREATES.has(model)) implied.create = ["read"];
   return implied;
 };
 const IMPLIES = {} as Record<
@@ -199,16 +210,7 @@ export const KEYS: Record<
   // placement witness writes it.
   bookmark: { organizationId: "organization", userId: "user" },
 };
-/** The models §1.1 declares `create:` on; the others create nothing (R9). */
-export const CREATES: ReadonlySet<GovernedModel> = new Set([
-  "member",
-  "teamMember",
-  "accessGrant",
-  "page",
-  "document",
-  "collection",
-]);
-/** The models §1.1 declares `mandatory: inOrg` on. */
+/** Models whose grants require active organization membership and a role ceiling. */
 const WITHIN: ReadonlySet<GovernedModel> = new Set([
   "member",
   "team",
@@ -219,7 +221,7 @@ const WITHIN: ReadonlySet<GovernedModel> = new Set([
   "bookmark",
 ]);
 /**
- * Per model, the fields its placement reads (`mandatory`, `limit`, `create:`):
+ * Per model, the fields its creation permission reads:
  * an update writing one is judged at the placement too (OD-14).
  */
 export const PLACED: Partial<Record<GovernedModel, readonly string[]>> = {
@@ -352,7 +354,7 @@ export function createOracle(seed: RbacSeed) {
         );
       }
       if (role === "member" || role === "admin") return true;
-      return role === "reader" && a === "view";
+      return role === "reader" && a === "read";
     };
 
     /** `inOrg`: an active member of the row's organization, capped at `a` by its role. */
@@ -429,24 +431,29 @@ export function createOracle(seed: RbacSeed) {
       const memoKey = `${model}|${a}|${rowKey(model, row)}`;
       const known = memo.get(memoKey);
       if (known !== undefined) return known;
-      const verdict = limit(model, a, row) && judge(model, a, row);
+      const verdict = above(model, a).some(
+        (declared) => limit(model, declared, row) && judge(model, declared, row)
+      );
       memo.set(memoKey, verdict);
       return verdict;
     };
-    /** ⋁_{b ⊒ a} rule(M, b) for models whose rules are written under actions. */
-    const anyRule = (
-      model: GovernedModel,
-      a: string,
-      rules: Record<string, () => boolean>
-    ) => above(model, a).some((b) => rules[b]?.() === true);
+    /** One direct declaration; P alone owns inherited grants. */
+    const directRule = (a: string, rules: Record<string, () => boolean>) =>
+      rules[a]?.() === true;
 
     const judge = (model: GovernedModel, a: string, row: Row): boolean => {
       const organizationId = row.organizationId as string;
+      if (a === "create")
+        return (
+          CREATES.has(model) &&
+          (!WITHIN.has(model) || inOrg(organizationId, a)) &&
+          createRule(model, row)
+        );
       switch (model) {
         case "organization": {
           const id = row.id as string;
-          return anyRule(model, a, {
-            view: () => isMember(id),
+          return directRule(a, {
+            read: () => isMember(id),
             invite: () => isAdmin(id),
             export: () =>
               isAdmin(id) &&
@@ -457,14 +464,14 @@ export function createOracle(seed: RbacSeed) {
         case "member":
           return (
             inOrg(organizationId, a) &&
-            anyRule(model, a, {
-              view: () => true,
-              edit: () => isAdmin(organizationId),
+            directRule(a, {
+              read: () => true,
+              update: () => isAdmin(organizationId),
             })
           );
         case "user":
-          return anyRule(model, a, {
-            view: () =>
+          return directRule(a, {
+            read: () =>
               liveMembers.some(
                 (m) =>
                   m.userId === row.id &&
@@ -474,8 +481,8 @@ export function createOracle(seed: RbacSeed) {
         case "team":
           return (
             inOrg(organizationId, a) &&
-            anyRule(model, a, {
-              view: () => true,
+            directRule(a, {
+              read: () => true,
               invite: () =>
                 isAdmin(organizationId) ||
                 liveTeamMembers.some(
@@ -484,23 +491,23 @@ export function createOracle(seed: RbacSeed) {
                     tm.userId === actor.userId &&
                     tm.role === "lead"
                 ),
-              edit: () => isAdmin(organizationId),
+              update: () => isAdmin(organizationId),
             })
           );
         case "teamMember": {
           const team = teams.get(row.teamId as string);
           if (!team) return false;
-          return anyRule(model, a, {
-            view: () => P("team", "view", team),
+          return directRule(a, {
+            read: () => P("team", "read", team),
             manage: () => P("team", "invite", team),
           });
         }
         case "accessGrant": {
           const grant = row as unknown as AccessGrantRow;
           const administered = () => administers(grant);
-          return anyRule(model, a, {
-            view: () => grant.userId === actor.userId || administered(),
-            edit: administered,
+          return directRule(a, {
+            read: () => grant.userId === actor.userId || administered(),
+            update: administered,
           });
         }
         case "pageGroup":
@@ -587,7 +594,7 @@ export function createOracle(seed: RbacSeed) {
         const thing = thingRow(model, id as string);
         if (thing === undefined) return false;
         return (
-          actionsOf(model).every(
+          (model === "document" ? actionsOf(model) : LEVELS).every(
             (x) => !grant.actions.includes(x) || P(model, x, thing)
           ) &&
           (model === "document" ||
@@ -622,9 +629,9 @@ export function createOracle(seed: RbacSeed) {
       );
     };
 
-    /** What the caller observes at `a`: `P(view) ∧ P(a)` (R2). */
+    /** What the caller observes at `a`: `P(read) ∧ P(a)` (R2). */
     const holds = (model: GovernedModel, a: string, row: Row) =>
-      P(model, "view", row) && P(model, a, row);
+      P(model, "read", row) && P(model, a, row);
 
     // R4, the produced row, judged as a value against the seeded rows (plan
     // §3.2 R4, §4.4 K4, OD-14 recommended): never memoized, since a moved
@@ -632,8 +639,9 @@ export function createOracle(seed: RbacSeed) {
     /** R1 for a row that is not (or not yet) the seeded one. */
     const fresh = (model: GovernedModel, a: string, row: Row) =>
       actionsOf(model).includes(a) &&
-      limit(model, a, row) &&
-      judge(model, a, row);
+      above(model, a).some(
+        (declared) => limit(model, declared, row) && judge(model, declared, row)
+      );
 
     /** The target of a written key: seeded, live under soft delete, and viewed (R4, R5). */
     const targetVisible = (model: GovernedModel, id: string): boolean => {
@@ -649,7 +657,7 @@ export function createOracle(seed: RbacSeed) {
         row.deletedAt !== null
       )
         return false;
-      return P(model, "view", row);
+      return P(model, "read", row);
     };
     const keysVisible = (
       model: GovernedModel,
@@ -684,7 +692,7 @@ export function createOracle(seed: RbacSeed) {
               ? undefined
               : pageGroups.get(row.groupId as string);
           return (
-            (group !== undefined && P("pageGroup", "edit", group)) ||
+            (group !== undefined && P("pageGroup", "update", group)) ||
             ((row.groupId ?? null) === null &&
               row.personal === true &&
               row.ownerId === actor.userId)
@@ -696,7 +704,7 @@ export function createOracle(seed: RbacSeed) {
               ? undefined
               : documents.get(row.parentId as string);
           return (
-            (parent !== undefined && P("document", "edit", parent)) ||
+            (parent !== undefined && P("document", "update", parent)) ||
             ((row.parentId ?? null) === null && row.ownerId === actor.userId)
           );
         }
@@ -706,15 +714,9 @@ export function createOracle(seed: RbacSeed) {
           return false;
       }
     };
-    /** `mandatory(M)(c) ∧ limit(M, c) ∧ create(M)` at c = `edit` (OD-3). */
-    const placeRule = (model: GovernedModel, row: Row): boolean => {
-      if (!CREATES.has(model)) return false;
-      const organizationId = row.organizationId as string;
-      const mandatory =
-        !WITHIN.has(model) ||
-        (organizationId !== undefined && inOrg(organizationId, "edit"));
-      return mandatory && limit(model, "edit", row) && createRule(model, row);
-    };
+    /** Creation is its own permission; it never borrows update's action. */
+    const placeRule = (model: GovernedModel, row: Row): boolean =>
+      fresh(model, "create", row);
     /** Every created row: its placement, and every key's target visible. */
     const places = (model: GovernedModel, row: Row) =>
       placeRule(model, row) && keysVisible(model, row);
@@ -731,9 +733,9 @@ export function createOracle(seed: RbacSeed) {
       return true;
     };
     /**
-     * An updated row: under the predicates that judged its old one (`view`
-     * and each written field's action), the placement where it writes what
-     * `create:` reads (OD-14, `mandatory ∧ limit ∧ create:`), each written
+     * An updated row: under the predicates that judged its old one (`read`,
+     * the mapped update action and each written field's additional action), the placement where it writes what
+     * `create` reads (including mandatory boundaries and per-grant restrictions), each written
      * key's target visible, and a document's parent outside its own subtree.
      */
     const produces = (
@@ -742,7 +744,8 @@ export function createOracle(seed: RbacSeed) {
       writes: readonly string[],
       actions: readonly string[]
     ) =>
-      fresh(model, "view", row) &&
+      fresh(model, "read", row) &&
+      fresh(model, model === "teamMember" ? "manage" : "update", row) &&
       actions.every((a) => fresh(model, a, row)) &&
       (!writes.some((field) => (PLACED[model] ?? []).includes(field)) ||
         placeRule(model, row)) &&
@@ -779,7 +782,7 @@ export function createOracle(seed: RbacSeed) {
       const { holds, rootRows } = evaluate(actor, options);
       const evidence = new Map<string, string[]>();
       for (const row of rootRows(model)) {
-        if (!holds(model, "view", row)) continue;
+        if (!holds(model, "read", row)) continue;
         evidence.set(
           rowKey(model, row),
           actionsOf(model).filter((a) => holds(model, a, row))
@@ -801,13 +804,13 @@ export function createOracle(seed: RbacSeed) {
       const viewed = (model: "page" | "document", id: string) =>
         related
           .rootRows(model)
-          .some((row) => row.id === id && related.holds(model, "view", row));
+          .some((row) => row.id === id && related.holds(model, "read", row));
       const arms = new Map<
         string,
         { type: "page" | "document"; id: string } | null
       >();
       for (const row of rootRows("bookmark")) {
-        if (!holds("bookmark", "view", row)) continue;
+        if (!holds("bookmark", "read", row)) continue;
         const { subjectType: type, subjectId: id } = row as unknown as {
           subjectType: "page" | "document" | null;
           subjectId: string | null;
@@ -847,10 +850,6 @@ export function createOracle(seed: RbacSeed) {
         writes,
         actions
       );
-    },
-    /** The highest held level, for a model whose actions are ordered (`$access` with `levels`). */
-    highestLevel(held: readonly string[]): (typeof LEVELS)[number] | undefined {
-      return [...LEVELS].reverse().find((level) => held.includes(level));
     },
   };
 }

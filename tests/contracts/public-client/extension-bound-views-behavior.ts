@@ -63,7 +63,7 @@ function modesOf(model: "page" | "pageGroup") {
   };
   for (const name of NAMES) {
     const view = {
-      id: { in: oracle.rows(actors[name]!, model, "view", { now }) },
+      id: { in: oracle.rows(actors[name]!, model, "read", { now }) },
     };
     modes[name] = { root: view, related: view };
   }
@@ -109,8 +109,8 @@ const requests = {
 const expectations = new Map(
   NAMES.map((name) => {
     const actor = actors[name]!;
-    const pages = new Set(oracle.rows(actor, "page", "view", { now }));
-    const groups = new Set(oracle.rows(actor, "pageGroup", "view", { now }));
+    const pages = new Set(oracle.rows(actor, "page", "read", { now }));
+    const groups = new Set(oracle.rows(actor, "pageGroup", "read", { now }));
     return [
       name,
       seed.page
