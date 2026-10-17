@@ -5,11 +5,15 @@ Versioning.
 
 ## Unreleased
 
-The extension capabilities the RBAC extension is built on (`rows`
+The authorization extension is named `permissions`, imported from
+`viborm/permissions`. This replaces the pre-release `rbac` name; no alias is
+shipped. Its rules and authorization behavior are unchanged by the rename.
+
+The extension capabilities the Permissions extension is built on (`rows`
 predicates that traverse relations, values a call supplies as plan
 parameters, verbs that judge the rows a write takes and the rows it
 produces, per-row evidence, controls bound to a client, extensions that
-compose by order), and `viborm/rbac` itself, built from them alone. Core
+compose by order), and `viborm/permissions` itself, built from them alone. Core
 names no role, grant or action.
 
 ### Added
@@ -112,17 +116,17 @@ names no role, grant or action.
   `connect`, `orderBy`, `distinct`, aggregates, `groupBy`, relation filters)
   reads it as absent there. Keys and foreign keys cannot be gated. The
   client's types admit the key and make gated fields optional by default.
-- **`viborm/rbac` defaults:** `update` and `delete` imply `read`; `create`
+- **`viborm/permissions` defaults:** `update` and `delete` imply `read`; `create`
   judges a proposed row and implies nothing (declare `actions: { create:
   ["read"] }` to say otherwise). An inherited branch another branch provably
   contains is dropped from a predicate: the same rows, a smaller statement.
-- **`viborm/rbac`, authorization judged in the statement** (not yet
-  published, OD-11; [guide](docs/content/docs/extensions/rbac.mdx)).
-  `rbac({ actor, levels, limit, models })` declares one rule per model and
+- **`viborm/permissions`, authorization judged in the statement** (not yet
+  published, OD-11; [guide](docs/content/docs/extensions/permissions.mdx)).
+  `permissions({ actor, levels, limit, models })` declares one rule per model and
   action (`within`, `arms`, `actions` with what each implies, `operations`,
   `create`, `fields`, `domains`), with the helpers `owner`, `member`,
   `grant.to`, `grant.administer`, `team`, `role`, `everyone`, `up`,
-  `session`, `notBanned` and `keyLimit`. `rbac(config)(base)` compiles it
+  `session`, `notBanned` and `keyLimit`. `permissions(config)(base)` compiles it
   against `base`'s schema into one predicate per model and action and
   applies it to every model, as a rows step then a methods step, also
   offered apart as `.rows` and `.methods` so other `rows` steps (soft
@@ -204,7 +208,7 @@ names no role, grant or action.
 - All five PostgreSQL `createClient` factories forward `sharedRelationBodies`,
   so `false` disables sharing as it does on direct driver construction.
 - Fast layer typechecks use the native compiler already used by the complete
-  typecheck, avoiding the RBAC layer's JavaScript-compiler out-of-memory failure
+  typecheck, avoiding the Permissions layer's JavaScript-compiler out-of-memory failure
   without increasing its time or process-memory limits or removing type probes.
 
 - **An update with nothing to assign no longer fails.** On a model with no

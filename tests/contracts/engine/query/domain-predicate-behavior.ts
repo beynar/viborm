@@ -9,7 +9,7 @@ import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, test } from "vitest";
 
 /**
- * Domain predicates as the RBAC plan's K1 and K2 make them (plan §4.1, §4.2,
+ * Domain predicates as the Permissions plan's K1 and K2 make them (plan §4.1, §4.2,
  * §11.2 F1-F3), through public entry points, against oracles computed by
  * hand from the seed arrays below (no engine involved):
  *

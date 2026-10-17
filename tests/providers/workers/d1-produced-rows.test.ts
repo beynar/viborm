@@ -1,5 +1,5 @@
 /**
- * D1 Driver Tests — K4, the produced row (rbac plan §4.4, R4, OD-13) on
+ * D1 Driver Tests — K4, the produced row (permissions plan §4.4, R4, OD-13) on
  * Workers D1: a batch-only transport (a write's statements ride one batch;
  * a database-generated key reaches the rows after it through the batch
  * scratch) with D1's expression depth, bind and statement limits:

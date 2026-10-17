@@ -1,5 +1,5 @@
 /**
- * Composition (RBAC plan K7, §4.7 as amended by spike F6 in §11.2; OD-1
+ * Composition (Permissions plan K7, §4.7 as amended by spike F6 in §11.2; OD-1
  * option (2)).
  *
  * (a) One control name, one declaration across a chain: a second one is
@@ -9,12 +9,12 @@
  * chain applies every rows step first. (c) A definition may name a control an
  * earlier extension declares, never a later one.
  *
- * The rows-with-controls entry here is the shape `viborm/rbac` takes before
+ * The rows-with-controls entry here is the shape `viborm/permissions` takes before
  * its own unit lands, from public exports only: a bound-only actor and
  * `$as` in its rows step (a binding admits only its own extension's
  * controls), `can` in its methods step. Witness ids are the matrix's
- * (`tests/package/fixtures/rbac-app/witnesses.ts`, C12); W-C1 runs through
- * the entry itself (`rbac-entry-behavior.ts`), the chain it takes is pinned
+ * (`tests/package/fixtures/permissions-app/witnesses.ts`, C12); W-C1 runs through
+ * the entry itself (`permissions-entry-behavior.ts`), the chain it takes is pinned
  * here.
  *
  * Runs on in-memory SQLite.
@@ -191,7 +191,7 @@ const policy = {
     base: VibORMClient<C, X>
   ) => {
     const definition = {
-      name: "rbacLike",
+      name: "permissionsLike",
       controls: { actor: { schema: v.string(), bound: true, required: true } },
       rows: { control: "as", default: "view", models: rowModes },
       client: (scope: {
@@ -223,7 +223,7 @@ const policy = {
       };
     };
     const definition = {
-      name: "rbacLike.methods",
+      name: "permissionsLike.methods",
       model: Object.fromEntries(
         Object.keys(rowModes).map((model) => [model, can])
       ) as { readonly [M in Governed]: typeof can },
@@ -258,7 +258,7 @@ describe("composition: one name, one control (K7(a))", () => {
     });
     expect(apply(governed, audit)).toThrow(ClientInitializationError);
     expect(apply(governed, audit)).toThrow(
-      'Extension "audit" declares control "actor", which extension "rbacLike" already declares.'
+      'Extension "audit" declares control "actor", which extension "permissionsLike" already declares.'
     );
     expect(
       apply(
@@ -328,7 +328,7 @@ describe("composition: references to earlier controls (K7(c))", () => {
       $as<Self>(this: Self, actor: { readonly userId: string }): Self;
     };
     const governed = base.$extends({
-      name: "rbacLike",
+      name: "permissionsLike",
       controls: {
         actor: {
           schema: v.object({ userId: v.string() }),
@@ -389,7 +389,7 @@ describe("composition: rows steps first (K7(b), OD-1 option (2))", () => {
       where: { id: "p2" },
       include: { organization: true },
     });
-    // rbac, applied after soft delete's rows, can hide the organization.
+    // permissions, applied after soft delete's rows, can hide the organization.
     expectTypeOf(restored.organization).toEqualTypeOf<{
       id: string;
       name: string;

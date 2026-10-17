@@ -1,6 +1,6 @@
 /**
- * PGlite Driver Tests — bound views (RBAC plan K6, §7 "PGl" for W-AS1..W-AS7)
- * over the RBAC acceptance estate: `extension-bound-views-behavior.ts`, the
+ * PGlite Driver Tests — bound views (Permissions plan K6, §7 "PGl" for W-AS1..W-AS7)
+ * over the Permissions acceptance estate: `extension-bound-views-behavior.ts`, the
  * runner SQLite3 runs in `extension-bound-views.core.test.ts`, against the
  * independent oracle.
  */

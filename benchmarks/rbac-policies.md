@@ -1,11 +1,14 @@
-# RBAC policy benchmark
+# Authorization policy benchmark
+
+The runnable harness now imports `viborm/permissions`; the measurements below
+retain their original RBAC labels and result paths.
 
 Build the current package, then run this benchmark sequentially, without another
 test, typecheck or benchmark process in the workspace:
 
 ```sh
 pnpm package:build
-RBAC_BENCH_OUTPUT=/tmp/viborm-rbac-policies.json node scripts/run-node-safe.mjs 768 180000 benchmarks/rbac-policies.mjs
+PERMISSIONS_BENCH_OUTPUT=/tmp/viborm-rbac-policies.json node scripts/run-node-safe.mjs 768 180000 benchmarks/permissions-policies.mjs
 ```
 
 The output path must not already exist. The command uses the normal 1536 MiB
@@ -13,16 +16,16 @@ sampled process-group RSS ceiling and a three-minute wall bound. No database URL
 credential, persistent database, migration or external service is used in the
 default SQLite lane. It owns one fresh in-memory database and closes it on completion.
 
-An optional PostgreSQL lane accepts `RBAC_BENCH_PROVIDER=pg` and
-`RBAC_BENCH_PG_URL` pointing to a **loopback** PostgreSQL server. Supply the URL
+An optional PostgreSQL lane accepts `PERMISSIONS_BENCH_PROVIDER=pg` and
+`PERMISSIONS_BENCH_PG_URL` pointing to a **loopback** PostgreSQL server. Supply the URL
 through the environment; the benchmark never prints it. It creates a random
 schema inside one transaction on a pool capped at one connection and rolls the
 transaction back on completion, so it does not touch existing tables or leave
 schema objects behind. The role needs permission to create a schema. Per-statement
 timeout is 15 seconds. The same bounded launcher and memory ceiling apply.
 
-Run the PostgreSQL lane once with `RBAC_BENCH_JIT=default`, and again with
-`RBAC_BENCH_JIT=off`, using distinct output paths. `on` is also accepted; it
+Run the PostgreSQL lane once with `PERMISSIONS_BENCH_JIT=default`, and again with
+`PERMISSIONS_BENCH_JIT=off`, using distinct output paths. `on` is also accepted; it
 enables JIT but retains the server's cost thresholds rather than forcing every
 query to compile. JSON includes effective JIT settings and a separate
 `EXPLAIN (ANALYZE, FORMAT JSON)` observation per query: plan-node count, estimated
@@ -32,8 +35,8 @@ query did not report JIT work; enabling the setting alone is not proof it ran.
 
 Defaults are 10,000 documents, 100 organizations, 1,000 memberships, roughly
 3,334 shares, trees of up to 16 nodes, 50-row pages, 10 warmup pairs and 100
-measured pairs per workload. Override with `RBAC_BENCH_ROWS` (1,000–100,000),
-`RBAC_BENCH_SAMPLES` (10–1,000), and `RBAC_BENCH_WARMUPS` (1–100). Larger inputs
+measured pairs per workload. Override with `PERMISSIONS_BENCH_ROWS` (1,000–100,000),
+`PERMISSIONS_BENCH_SAMPLES` (10–1,000), and `PERMISSIONS_BENCH_WARMUPS` (1–100). Larger inputs
 may exceed the fixed command wall bound; report a failed bounded run honestly.
 
 Four workloads measure ownership, organization membership, direct sharing, and

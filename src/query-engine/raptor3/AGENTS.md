@@ -104,7 +104,7 @@ later read (N1), so a control's value never turns an independent lookup
 into an ordered observation, which on a batch-only driver would split the
 operation into two batches and commit the first alone.
 
-*Verbs (rbac plan K3).* A domain may hold, per model and layer, `verbs`
+*Verbs (permissions plan K3).* A domain may hold, per model and layer, `verbs`
 (`ModelVerbs`): `read` ANDs with that layer's predicate at every purpose, and
 a write lookup names a `RowJudgement` beside its purpose: `DELETE_JUDGEMENT`
 for every delete and tombstone candidate set, `Commands.judge` for an update
@@ -124,7 +124,7 @@ strict form's "not found" sentence. A key the parent holds addresses its
 member seen or not; a key the member holds addresses only members the call
 sees, so a hidden one is an empty slot.
 
-*Produced rows (rbac plan K4, OD-13: one statement).* A layer's `ModelVerbs`
+*Produced rows (permissions plan K4, OD-13: one statement).* A layer's `ModelVerbs`
 may name `place` (every created row), `moves` (per field, the new row of an
 update writing it) and `acyclic` self relations. `PreparedDomain.produced`
 is the one answer to "what is the row this write produces judged at":
@@ -192,7 +192,7 @@ binds, SQLite depth 144 before; 44.6 KB, 190 binds, depth 80 with the shared
 bodies and D1's balanced conjunctions; PostgreSQL 340 ms (JIT off) and 7.9 s
 (JIT on) before, 10 ms and 0.4 s after, the same answers.
 
-*Evidence and read-gated fields (rbac plan K5).* A layer's `ModelVerbs` may
+*Evidence and read-gated fields (permissions plan K5).* A layer's `ModelVerbs` may
 carry `evidence` (a projection key and the predicates it reports) and `reads`
 (per field, the predicate its row holds where it carries the field);
 `PreparedDomain.projected(model)` gathers them per model, and `layered`

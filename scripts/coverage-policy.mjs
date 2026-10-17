@@ -58,10 +58,10 @@ export const extensionCoverageTests = Object.freeze([
   "tests/contracts/drivers/protected-observers.core.test.ts",
   "tests/unit/instrumentation/official-observer-provider-failures.core.test.ts",
   "tests/unit/instrumentation/official-observer.core.test.ts",
-  "tests/unit/rbac/compile.core.test.ts",
-  "tests/providers/local/sqlite3-rbac-compiled-policy.test.ts",
-  "tests/providers/local/sqlite3-rbac-entry.test.ts",
-  "tests/providers/local/sqlite3-rbac-extends.test.ts",
+  "tests/unit/permissions/compile.core.test.ts",
+  "tests/providers/local/sqlite3-permissions-compiled-policy.test.ts",
+  "tests/providers/local/sqlite3-permissions-entry.test.ts",
+  "tests/providers/local/sqlite3-permissions-extends.test.ts",
   "tests/contracts/public-client/extension-produced.core.test.ts",
 ]);
 const definitions = [
@@ -114,14 +114,14 @@ const definitions = [
     id: "extensions",
     label: "extensions",
     target: 100,
-    // The official soft-delete and rbac extensions: definitions over the
+    // The official soft-delete and permissions extensions: definitions over the
     // capabilities this subsystem owns, measured by the same lane. They own
-    // their directories, so a file the rbac entry gains is measured at 100%
+    // their directories, so a file the permissions entry gains is measured at 100%
     // from its first line instead of failing the ownership audit unowned.
-    roots: ["src/extensions/", "src/rbac/", "src/soft-delete/"],
+    roots: ["src/extensions/", "src/permissions/", "src/soft-delete/"],
     projects: ["coverage-extensions"],
     tests: extensionCoverageTests,
-    // The complete RBAC oracle sweeps need their own bounded process each.
+    // The complete Permissions oracle sweeps need their own bounded process each.
     // Keep every test and merge the parts under the unchanged 100% gate.
     testGroups: [
       extensionCoverageTests.filter(

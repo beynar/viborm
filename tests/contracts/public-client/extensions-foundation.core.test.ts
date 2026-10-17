@@ -558,7 +558,7 @@ describe("client extension foundation", () => {
 
   // A root view `$extends` returns runs every factory at once, where an
   // extension's faults belong; a transaction view runs each on first use of
-  // what it returns, so a view costs the factories it uses (RBAC plan K6(d)).
+  // what it returns, so a view costs the factories it uses (Permissions plan K6(d)).
   it("runs factories once for each concrete root and transaction view", async () => {
     const base = baseClient();
     let clientRuns = 0;

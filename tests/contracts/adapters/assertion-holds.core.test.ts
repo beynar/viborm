@@ -1,5 +1,5 @@
 /**
- * `assertions.holds`: the guard a write carries for the row it produces (rbac
+ * `assertions.holds`: the guard a write carries for the row it produces (permissions
  * plan K4, R4): 1 where the condition holds, the statement's own failure
  * otherwise, marked as a judgement (the driver maps its failure by the
  * marker and its refusal's sentinel, so a caller's division by zero or

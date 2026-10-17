@@ -189,8 +189,8 @@ export class D1Driver extends Driver<
   // rejected), witnessed by `tests/providers/workers/d1.test.ts`. D1 compiles
   // with an expression depth of 100 ("Expression tree is too large"):
   // relation filters nest as derived tables and conjunctions as balanced
-  // trees (d1-rbac-verbs W-W3, W-W7). D1 refuses a statement over 100 KB: a
-  // relation body a statement repeats is stated once (d1-rbac-placement
+  // trees (d1-permissions-verbs W-W3, W-W7). D1 refuses a statement over 100 KB: a
+  // relation body a statement repeats is stated once (d1-permissions-placement
   // W-P10's update form).
   readonly adapter: DatabaseAdapter = new SQLiteAdapter({
     temporaryObjects: false,

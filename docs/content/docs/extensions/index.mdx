@@ -31,7 +31,7 @@ current view, including earlier extensions, and returns its derived client:
 const extended = client.$extends(base => base.$extends(timing));
 ```
 
-Schema-dependent extensions such as `client.$extends(rbac({...}))` use this
+Schema-dependent extensions such as `client.$extends(permissions({...}))` use this
 same path. Factories apply ordinary definitions through `$extends()`; they do
 not create a second extension chain or bypass its admission rules.
 
@@ -77,7 +77,7 @@ rewriting queries.
 
 Official extensions use the same composition language. Cache, instrumentation
 and default omit retain private access to the core facts they need; soft delete
-and RBAC are built only from the public capabilities above:
+and Permissions are built only from the public capabilities above:
 
 <CardGroup>
   <Card
@@ -101,8 +101,8 @@ and RBAC are built only from the public capabilities above:
     Tombstones instead of deletes, hidden from reads, restorable and purgeable
   </Card>
   <Card
-    title="RBAC"
-    href="/docs/extensions/rbac">
+    title="Permissions"
+    href="/docs/extensions/permissions">
     One predicate per model and action, judged in the statement that reads or writes
   </Card>
 </CardGroup>
@@ -206,9 +206,9 @@ const tenant = defineExtension<typeof schema>()({
 ## Authorization boundary
 
 Request and query capabilities are useful policy foundations, but a root
-filter is not complete RBAC. Nested reads and writes, relation membership,
+filter is not complete authorization. Nested reads and writes, relation membership,
 field use, raw SQL, statement transforms, and data-dependent write scopes need
-one graph-wide semantic policy owner. [`viborm/rbac`](/docs/extensions/rbac)
+one graph-wide semantic policy owner. [`viborm/permissions`](/docs/extensions/permissions)
 is that owner: one predicate per model and action, judged in the statement at
 every scope; raw SQL and statement transforms still see every row. `omit` is
 presentation control, not authorization: query-level and client-default

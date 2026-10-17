@@ -16,8 +16,8 @@ const execute = promisify(execFile);
 
 const scripts = [
   [
-    "offers schema-aware RBAC editor completions",
-    "./rbac-autocomplete-smoke.mjs",
+    "offers schema-aware Permissions editor completions",
+    "./permissions-autocomplete-smoke.mjs",
   ],
   [
     "shares only genuine built operation identity with benchmark harnesses",
@@ -55,8 +55,8 @@ const scripts = [
     "./extension-recipes-consumer-smoke.mjs",
   ],
   [
-    "runs the RBAC acceptance policy and the blog from the packed package alone",
-    "./rbac-consumer-smoke.mjs",
+    "runs the Permissions acceptance policy and the blog from the packed package alone",
+    "./permissions-consumer-smoke.mjs",
   ],
   [
     "runs the probe corpus against the packed package",
@@ -128,9 +128,9 @@ const scripts = [
   ...(["tsc5", "tsc6", "tsc7"] as const).map(
     (checker) =>
       [
-        `type-checks the rbac acceptance policy with ${checker} within budget`,
-        "./type-rbac-smoke.mjs",
-        { VIBORM_RBAC_CHECKERS: checker },
+        `type-checks the permissions acceptance policy with ${checker} within budget`,
+        "./type-permissions-smoke.mjs",
+        { VIBORM_PERMISSIONS_CHECKERS: checker },
       ] as const
   ),
   [

@@ -14,7 +14,7 @@ export const TEST_LAYERS = [
   "cache",
   "instrumentation",
   "migrations",
-  "rbac",
+  "permissions",
 ] as const;
 
 export type TestLayer = (typeof TEST_LAYERS)[number];

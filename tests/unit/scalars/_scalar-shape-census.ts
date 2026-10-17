@@ -105,7 +105,7 @@ export const buildScalarShapeCensus = (): ShapeCensus => {
   return census;
 };
 
-// `value_node_or` (RBAC plan K1(a)): the value positions a domain predicate's
+// `value_node_or` (Permissions plan K1(a)): the value positions a domain predicate's
 // parameter may take, `in`/`notIn`, the list operators and a list's `equals`,
 // keep a value node (`validation/primitives/parameter.ts`) around the operand
 // recorded before it.

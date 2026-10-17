@@ -608,7 +608,7 @@ function foldConditions(
  * (`nulls`: field to whether its value is null), each null test of such a
  * field replaced by its outcome and the combinators simplified as
  * {@link foldConditions} does: the values a write sets fold into its
- * judgement (rbac plan §11.2 F2), so an arm on a key it leaves null does not
+ * judgement (permissions plan §11.2 F2), so an arm on a key it leaves null does not
  * reach the statement. Only the row's own columns: a relation reads other
  * rows, and is kept as it is.
  */

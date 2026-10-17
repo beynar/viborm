@@ -101,8 +101,8 @@ function assertWorkerSafeBuiltGraph(exportNames) {
   }
 }
 
-// `viborm/rbac` governs a Worker's client too: its graph is held to the same rule.
-assertWorkerSafeBuiltGraph([".", "./schema", "./d1", "./rbac"]);
+// `viborm/permissions` governs a Worker's client too: its graph is held to the same rule.
+assertWorkerSafeBuiltGraph([".", "./schema", "./d1", "./permissions"]);
 
 function requireRuntimeFunction(exportName, member) {
   const namespace = runtimeExports.get(exportName);
@@ -150,7 +150,7 @@ if (new packagedDecimal("1.20").toString() !== "1.2") {
 requireRuntimeAbsence(".", "defaultOmit");
 requireRuntimeAbsence(".", "instrumentation");
 requireRuntimeAbsence(".", "softDelete");
-requireRuntimeAbsence(".", "rbac");
+requireRuntimeAbsence(".", "permissions");
 requireRuntimeAbsence(".", "readBenchmarkOperation");
 // The approximate-number scalar, on the BUILT builder. The source barrel pins
 // the whole key set; this pins that bundling publishes the surviving factory
@@ -294,9 +294,14 @@ requireRuntimeAbsence("./migrations", "MigrationStorageDriver");
 requireRuntimeAbsence("./migrations", "diff");
 requireRuntimeFunction("./cache", "cache");
 requireRuntimeFunction("./instrumentation", "instrumentation");
-// RBAC exports one runtime entry. Domain conventions belong to application policies.
-requireRuntimeFunction("./rbac", "rbac");
+// Permissions exports one runtime entry. Domain conventions belong to application policies.
+requireRuntimeFunction("./permissions", "permissions");
+if (Object.hasOwn(packageJson.exports, "./rbac")) {
+  throw new Error("The pre-release rbac entry must not remain an alias");
+}
+requireRuntimeAbsence("./permissions", "rbac");
 requireRuntimeAbsence(".", "rbac");
+requireRuntimeAbsence(".", "permissions");
 for (const removed of [
   "everyone",
   "grant",
@@ -309,7 +314,7 @@ for (const removed of [
   "team",
   "up",
 ]) {
-  requireRuntimeAbsence("./rbac", removed);
+  requireRuntimeAbsence("./permissions", removed);
   requireRuntimeAbsence(".", removed);
 }
 for (const internal of [
@@ -321,27 +326,30 @@ for (const internal of [
   "FALSE",
   "actor",
 ]) {
-  requireRuntimeAbsence("./rbac", internal);
+  requireRuntimeAbsence("./permissions", internal);
 }
 // It raises the library's own errors from the root's shared chunks: a
 // refusal is an instance of the class `viborm` exports, not of a copy.
-let rbacRefusal;
+let permissionsRefusal;
 try {
   runtimeExports
-    .get("./rbac")
-    .rbac({
+    .get("./permissions")
+    .permissions({
       actor: runtimeExports.get("./validation").v.object({}),
       models: { missing: {} },
     })
     .compile({});
 } catch (error) {
-  rbacRefusal = error;
+  permissionsRefusal = error;
 }
 if (
-  !(rbacRefusal instanceof runtimeExports.get(".").ClientInitializationError)
+  !(
+    permissionsRefusal instanceof
+    runtimeExports.get(".").ClientInitializationError
+  )
 ) {
   throw new Error(
-    `Export ./rbac must raise the root's ClientInitializationError for a policy naming no schema model, got ${rbacRefusal?.constructor?.name ?? "no refusal"}`
+    `Export ./permissions must raise the root's ClientInitializationError for a policy naming no schema model, got ${permissionsRefusal?.constructor?.name ?? "no refusal"}`
   );
 }
 requireRuntimeFunction("./soft-delete", "softDelete");

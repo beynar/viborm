@@ -17,7 +17,7 @@ import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 /**
- * K4, the produced row (rbac plan §4.4, R4, OD-13 ruled one statement): a
+ * K4, the produced row (permissions plan §4.4, R4, OD-13 ruled one statement): a
  * `rows` member's `verbs` judge the row a write produces as a value, against
  * the rows as they stand before the write, inside the statement that writes
  * it. A created row is judged at `place`, an updated row at the predicates

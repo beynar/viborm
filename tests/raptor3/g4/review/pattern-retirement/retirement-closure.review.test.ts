@@ -198,7 +198,7 @@ describe("D-15 type anchor: the relocated shape is the base's shape", () => {
     expectTypeOf<BaseFailure>().toMatchTypeOf<PreparedBatchGuard["failure"]>();
     // Extension capabilities U3 repair: a tombstoning delete's referential
     // premise, packaged into an array member, is rebuilt as `ForeignKeyError`;
-    // RBAC K4: a refused produced row at the root is rebuilt as
+    // Permissions K4: a refused produced row at the root is rebuilt as
     // `ForbiddenError`.
     expectTypeOf<
       Exclude<PreparedBatchGuard["failure"]["kind"], BaseFailure["kind"]>

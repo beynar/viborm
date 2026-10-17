@@ -71,10 +71,10 @@ const runtime = {
     // capabilities only; the root entry never imports it.
     "soft-delete": "./src/soft-delete/index.ts",
 
-    // RBAC (viborm/rbac): an extension built from public capabilities only.
+    // Permissions (viborm/permissions): an extension built from public capabilities only.
     // It raises the library's own errors, so it shares the root's chunks
     // (one `ClientInitializationError` class), unlike soft delete.
-    rbac: "./src/rbac/index.ts",
+    permissions: "./src/permissions/index.ts",
 
     // Adapters (internal, but exposed for advanced usage)
     adapters: "./src/adapters/index.ts",

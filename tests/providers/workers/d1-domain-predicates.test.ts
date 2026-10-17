@@ -1,5 +1,5 @@
 /**
- * D1 Driver Tests — domain predicates as the RBAC plan's K1 and K2 make them
+ * D1 Driver Tests — domain predicates as the Permissions plan's K1 and K2 make them
  * (plan §4.1, §4.2, §7 "D1" for W-K1a..g and W-K2a..g), on D1 itself, not
  * only through the entry runner:
  *
@@ -15,7 +15,7 @@
  *   those recorded on D1 before K1/K2 (W-K1e; the golden and its recording
  *   are described beside the test).
  *
- * W-K2f (binds and bytes of §1.1's statements) is `d1-rbac-statement-budget.test.ts`.
+ * W-K2f (binds and bytes of §1.1's statements) is `d1-permissions-statement-budget.test.ts`.
  * D1 declares no migration capability: the tables are the SQLite plan's
  * `push` statements, run on the binding.
  */

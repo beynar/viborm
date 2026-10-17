@@ -712,17 +712,17 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
     ["SoftDeleteConfig", "SoftDeleteModel"],
     []
   ),
-  "./rbac": surface(
-    ["rbac"],
+  "./permissions": surface(
+    ["permissions"],
     [
       "ActorFacts",
       "ActorPaths",
       "CompiledModel",
       "CompiledPolicy",
       "ModelPolicy",
+      "PermissionsConfig",
       "Policy",
       "PolicyModel",
-      "RbacConfig",
       "Rule",
       "Where",
     ],
@@ -791,7 +791,7 @@ export const ABSENT_PUBLIC_NAMES = Object.freeze({
     "ValidationRule",
     "defaultOmit",
     "instrumentation",
-    "rbac",
+    "permissions",
     "softDelete",
   ],
   "./adapters": [

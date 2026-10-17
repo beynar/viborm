@@ -3,9 +3,9 @@
  * connects with JIT off (`pg-fixtures.ts`): a governed statement is
  * estimated over the server's JIT thresholds on tables nobody ANALYZEd, and
  * the server then compiles thousands of functions before it runs it (E4,
- * `rbac/e4/pg-cost.md`). This file keeps that cost visible on the server's
+ * `permissions/e4/pg-cost.md`). This file keeps that cost visible on the server's
  * own configuration: one governed read, the §1.1 grant read of a session
- * actor through `viborm/rbac`, run with the server's `jit` and with JIT off.
+ * actor through `viborm/permissions`, run with the server's `jit` and with JIT off.
  *
  * It asserts the two answers are one and records the durations and the
  * JIT work the server reports; it asserts no time bound, the duration being
@@ -19,12 +19,12 @@ import { randomBytes } from "node:crypto";
 import { PgDriver } from "@drivers/pg";
 import { softDelete } from "@src/soft-delete/index";
 import {
-  createRbacAppClient,
-  loadRbacSeed,
-} from "@tests/contracts/public-client/rbac-app-behavior";
+  createPermissionsAppClient,
+  loadPermissionsSeed,
+} from "@tests/contracts/public-client/permissions-app-behavior";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import { actors } from "@tests/package/fixtures/rbac-app/seed";
-import { policy } from "@tests/types/rbac/acceptance-policy";
+import { actors } from "@tests/package/fixtures/permissions-app/seed";
+import { policy } from "@tests/types/permissions/acceptance-policy";
 import pg from "pg";
 import { afterAll, describe, expect, test } from "vitest";
 import {
@@ -33,7 +33,7 @@ import {
 } from "./pg-fixtures";
 
 const describeIf = SERVER_CONNECTION_STRING ? describe : describe.skip;
-const namespace = `viborm_rbac_jit_${randomBytes(5).toString("hex")}`;
+const namespace = `viborm_permissions_jit_${randomBytes(5).toString("hex")}`;
 const TIMEOUT = 600_000;
 
 async function on<T>(
@@ -61,7 +61,7 @@ const tombstones = softDelete({
 /** The governed client over `url`, and the statements it sends. */
 function governed(url: string) {
   const statements: { text: string; values: unknown[] }[] = [];
-  const base = createRbacAppClient(
+  const base = createPermissionsAppClient(
     new PgDriver({ databaseUrl: url, namespace })
   );
   const recorded = base.$extends({
@@ -93,11 +93,11 @@ describeIf("pg: the cost of PostgreSQL's JIT on a governed statement", () => {
       await on(TEST_CONNECTION_STRING!, (c) =>
         c.query(`CREATE SCHEMA "${namespace}"`)
       );
-      const seeding = createRbacAppClient(
+      const seeding = createPermissionsAppClient(
         new PgDriver({ databaseUrl: TEST_CONNECTION_STRING!, namespace })
       );
       await syncLiveSchema(seeding);
-      await loadRbacSeed(seeding);
+      await loadPermissionsSeed(seeding);
       await seeding.$disconnect();
 
       const actor = actors.u02!;

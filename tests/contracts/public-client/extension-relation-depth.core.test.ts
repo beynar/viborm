@@ -1,12 +1,12 @@
 /**
- * Relation filters on a transport with a shallow expression limit (rbac plan
+ * Relation filters on a transport with a shallow expression limit (permissions plan
  * §9.3, provider facts to meet). SQLite counts a subquery's `WHERE` in the
  * height of the expression holding it and again while resolving names, so
  * nested relation filters cost about k² of the limit; Cloudflare D1 compiles
  * with 100 and refused a grant `updateMany` (depth 122) and a nested create
  * (104). A driver that declares `deepExpressions: false` gets every relation
  * filter's rows from a derived table: one statement, the same rows, linear
- * depth. The D1 witnesses are tests/providers/workers/d1-rbac-verbs.test.ts
+ * depth. The D1 witnesses are tests/providers/workers/d1-permissions-verbs.test.ts
  * (W-W3, W-W7); this file pins the spelling and the rows on SQLite3, where
  * the default adapter keeps its bytes.
  */

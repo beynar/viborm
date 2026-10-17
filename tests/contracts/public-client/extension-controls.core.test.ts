@@ -2159,7 +2159,7 @@ describe("rows: named predicates and verbs, per model", () => {
   // Plan K3: a model's predicates are admitted once by name; `read` ANDs with
   // every mode, a write's verb with its candidates (R2, R3, R8). What each
   // write is judged at, against the oracle, is witnessed on four databases
-  // (tests/contracts/public-client/rbac-app-verbs.ts).
+  // (tests/contracts/public-client/permissions-app-verbs.ts).
   const declared = (verbs: object, models: object = {}) =>
     ({
       name: "verbs",

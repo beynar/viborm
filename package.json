@@ -174,10 +174,10 @@
       "import": "./dist/soft-delete.mjs",
       "default": "./dist/soft-delete.mjs"
     },
-    "./rbac": {
-      "types": "./dist/rbac.d.mts",
-      "import": "./dist/rbac.mjs",
-      "default": "./dist/rbac.mjs"
+    "./permissions": {
+      "types": "./dist/permissions.d.mts",
+      "import": "./dist/permissions.mjs",
+      "default": "./dist/permissions.mjs"
     },
     "./adapters": {
       "types": "./dist/adapters.d.mts",
@@ -252,7 +252,7 @@
     "test:layer:cache": "node scripts/run-layer-core.mjs cache",
     "test:layer:instrumentation": "node scripts/run-layer-core.mjs instrumentation",
     "test:layer:migrations": "node scripts/run-layer-core.mjs migrations",
-    "test:layer:rbac": "node scripts/run-layer-core.mjs rbac",
+    "test:layer:permissions": "node scripts/run-layer-core.mjs permissions",
     "bench": "node scripts/run-vitest-safe.mjs --heap-limit-mb=768 --rss-limit-mb=1536 --wall-limit-ms=1200000 bench --run",
     "bench:baseline": "node scripts/run-vitest-safe.mjs --heap-limit-mb=768 --rss-limit-mb=1536 --wall-limit-ms=1200000 bench --run --outputJson benchmarks/baseline.json",
     "bench:compare": "node scripts/run-vitest-safe.mjs --heap-limit-mb=768 --rss-limit-mb=1536 --wall-limit-ms=1200000 bench --run --compare benchmarks/baseline.json",
@@ -421,15 +421,15 @@
       "message": "Raised 420 → 457 B by the measured +37 B of softDelete(config).rows and .methods, its two steps apart (RBAC plan K7(b), OD-1 option (2), OD-17). Measured 462 B after the schema-preserving normal $extends factory overload (69f820c11), +5 B; limit follows that measured size under OD-17."
     },
     {
-      "name": "pg application + rbac",
-      "path": "node_modules/.cache/viborm-size/pg-rbac.mjs",
+      "name": "pg application + permissions",
+      "path": "node_modules/.cache/viborm-size/pg-permissions.mjs",
       "gzip": true,
       "limit": "186.7 kB",
       "message": "The pg application with viborm/rbac applied (the guide's blog policy: an actor schema, an explicit authorId predicate and an actor condition, $as per request, one read, one create, one can): measured 184,652 B at the M2 exit (wave 5), +5,534 B over the pg application row (the entry's compiler with placement, moves, acyclic relations and evidence, can/assert through $access). First measured 181,404 B at c7d1951cd (U10). Limit = measured rounded up to 0.1 kB + 0.3 kB (OD-17). Raised 185 → 185.8 kB by the measured +488 B (185.49 kB) of the independent review's fixes (2026-10-16): refusals of unknown policy, model and field-entry keys, mistyped declaration keys, keyLimit models and undeclared ceilings; can/assert over findUnique with one ask per level; the prover's structural equality and R6 safeguard (OD-17). Comma-separated action keys measure 185,861 B (2026-10-16): normalized bindings and rejection of empty, repeated, overlapping and reserved members. Limit 186.2 kB follows the same rounding plus 0.3 kB rule (OD-17). CRUD permissions and complementary credential scopes measure 186,347 B (2026-10-17); limit 186.7 kB follows the approved measured rounding plus 0.3 kB rule (OD-17)."
     },
     {
-      "name": "rbac extension entry",
-      "path": "node_modules/.cache/viborm-size/rbac-entry.mjs",
+      "name": "permissions extension entry",
+      "path": "node_modules/.cache/viborm-size/permissions-entry.mjs",
       "gzip": true,
       "limit": "14.3 kB",
       "message": "viborm/rbac alone: rbac(), its policy compiler (placement, moves, acyclic relations, evidence and the implication that drops what administering already says), $as, can/assert through $access with explicit application predicates, and the error classes it raises from the root's shared chunks (VibORMError and its code table, ClientInitializationError, ForbiddenError), which an application already holds. Measured 13,061 B at the M2 exit (wave 5); 11,188 B at c7d1951cd. Limit = measured rounded up to 0.1 kB + 0.3 kB (OD-17). Raised 13.4 → 14.3 kB by the measured +509 B (13.91 kB) of the independent review's fixes (2026-10-16), the same code as the pg + rbac row (OD-17)."

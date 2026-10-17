@@ -1,7 +1,7 @@
 /**
- * pg Driver Tests — W-P8, a concurrent revocation (rbac plan §4.4, §7, OD-13
+ * pg Driver Tests — W-P8, a concurrent revocation (permissions plan §4.4, §7, OD-13
  * ruled one statement; §5.4 READ COMMITTED) on a real PostgreSQL server, in a
- * schema of its own (`viborm_rbac_u6_<random>`, dropped after). The row a
+ * schema of its own (`viborm_permissions_u6_<random>`, dropped after). The row a
  * write produces is judged inside the statement that writes it, so there is
  * no point between a judgement and its write for a revocation to fall into:
  *
@@ -67,7 +67,7 @@ describeIf(
       }
     };
     beforeEach(async () => {
-      namespace = `viborm_rbac_u6_${randomBytes(5).toString("hex")}`;
+      namespace = `viborm_permissions_u6_${randomBytes(5).toString("hex")}`;
       await admin(`CREATE SCHEMA "${namespace}"`);
       base = createProducedRowClient(
         new PgDriver({ databaseUrl: TEST_CONNECTION_STRING, namespace })

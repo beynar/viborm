@@ -33,7 +33,7 @@ const LAYERS = new Set([
   "cache",
   "instrumentation",
   "migrations",
-  "rbac",
+  "permissions",
 ]);
 
 const layer = process.argv[2];
@@ -86,7 +86,7 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
 
 // Keep the existing byte-based partitions: large files get their own program,
 // while smaller files share the budget. The native compiler uses the same
-// source programs as the previous JS compiler, with no RBAC-specific shards.
+// source programs as the previous JS compiler, with no Permissions-specific shards.
 const TYPE_SHARD_LARGE_BYTES = 40_000;
 const TYPE_SHARD_BUDGET_BYTES = 100_000;
 let typeShardDirectory;

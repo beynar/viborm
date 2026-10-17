@@ -154,7 +154,7 @@ patch instead of mutating `input` or anything inside it.
 Use `request` for argument defaults, normalization, and ordinary filters. A
 root filter alone is not complete authorization: nested relations, writes,
 raw SQL, and field use require a graph-wide policy
-([`viborm/rbac`](/docs/extensions/rbac)).
+([`viborm/permissions`](/docs/extensions/permissions)).
 
 ## Wrap logical execution
 
@@ -321,7 +321,7 @@ await db.post.update({ where: { id }, data: { title }, reason: "typo" });
 - `uncacheable: true` keeps every read that holds a value of the control out
   of the cache: `$withCache` on it is a `ValidationError` at the control's
   path, before any statement. Declare it for a value whose answers must be
-  judged when they are read (`viborm/rbac`'s actor is).
+  judged when they are read (`viborm/permissions`'s actor is).
 
 ### Bind controls to a client with `$bind`
 
@@ -441,7 +441,7 @@ await db.project.findMany({ archived: "only" }); // archived projects
   steps, applied with every `rows` step first ([compose](#rows-steps-first)).
 - `rows` decides which rows are visible. It is not authorization by itself:
   any caller can choose another mode or pass another value, unless that value
-  is a `bound`, `required` control (as [`viborm/rbac`](/docs/extensions/rbac)'s
+  is a `bound`, `required` control (as [`viborm/permissions`](/docs/extensions/permissions)'s
   actor), and raw SQL is not filtered, and `create` only where the model's
   `verbs` name `place`. Update `data` is not
   filtered either, unless the model declares
@@ -945,4 +945,4 @@ operations.
 See the [extension overview](/docs/extensions) for the complete lifecycle and
 the [official extensions](/docs/extensions#official-extensions) for production
 cache, instrumentation, default omission, soft delete and
-[authorization](/docs/extensions/rbac).
+[authorization](/docs/extensions/permissions).

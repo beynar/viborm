@@ -4,7 +4,7 @@ import { describe, expect, test } from "vitest";
 
 /**
  * A statement over its driver's bind budget, with equal values bound once and
- * referenced by number (RBAC plan K2(d)): what the driver sends instead of
+ * referenced by number (Permissions plan K2(d)): what the driver sends instead of
  * the plain statement.
  */
 describe("numbered statements", () => {

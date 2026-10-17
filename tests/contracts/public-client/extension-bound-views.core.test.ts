@@ -1,5 +1,5 @@
 /**
- * Bound views (RBAC plan K6, §4.6 as amended by spike F5 in §11.2) on
+ * Bound views (Permissions plan K6, §4.6 as amended by spike F5 in §11.2) on
  * in-memory SQLite: the witnesses W-AS1..W-AS7 of
  * `extension-bound-views-behavior.ts`, which PGlite and D1 run beside
  * (`tests/providers/local/pglite-bound-views.test.ts`,

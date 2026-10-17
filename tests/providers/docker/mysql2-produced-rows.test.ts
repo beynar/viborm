@@ -1,9 +1,9 @@
 /**
- * MySQL2 Driver Tests — K4, the produced row (rbac plan §4.4, R4, OD-13) on a
+ * MySQL2 Driver Tests — K4, the produced row (permissions plan §4.4, R4, OD-13) on a
  * real MySQL server, which returns no row from an INSERT (the key comes back
  * as the insert id) and refuses to read a table from a subquery of its own
  * UPDATE: tests/contracts/engine/query/produced-row-behavior.ts, in a database
- * of its own per test (`viborm_rbac_u6_<random>`, dropped after).
+ * of its own per test (`viborm_permissions_u6_<random>`, dropped after).
  *
  * NOTE: These tests require a running MySQL database
  * (MYSQL_TEST_CONNECTION_STRING).
@@ -39,7 +39,7 @@ describeIf("MySQL2 Driver", () => {
   runProducedRowBehavior({
     name: "MySQL2",
     createDriver: () => {
-      database = `viborm_rbac_u6_${randomBytes(5).toString("hex")}`;
+      database = `viborm_permissions_u6_${randomBytes(5).toString("hex")}`;
       return new MySQL2Driver({
         databaseUrl: databaseUrl(),
         migrationNamespaceAttestation: "non-redirecting",

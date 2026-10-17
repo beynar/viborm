@@ -1,6 +1,6 @@
 /**
- * pg Driver Tests — K4, the produced row (rbac plan §4.4, R4, OD-13) on a real
- * PostgreSQL server, in a schema of its own per test (`viborm_rbac_u6_<random>`,
+ * pg Driver Tests — K4, the produced row (permissions plan §4.4, R4, OD-13) on a real
+ * PostgreSQL server, in a schema of its own per test (`viborm_permissions_u6_<random>`,
  * dropped after): tests/contracts/engine/query/produced-row-behavior.ts.
  *
  * NOTE: These tests require a running PostgreSQL database
@@ -34,7 +34,7 @@ describeIf("pg Driver", () => {
   runProducedRowBehavior({
     name: "pg",
     createDriver: () => {
-      namespace = `viborm_rbac_u6_${randomBytes(5).toString("hex")}`;
+      namespace = `viborm_permissions_u6_${randomBytes(5).toString("hex")}`;
       return new PgDriver({ databaseUrl: TEST_CONNECTION_STRING, namespace });
     },
     prepare: async (client) => {

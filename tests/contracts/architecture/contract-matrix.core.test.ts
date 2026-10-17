@@ -121,7 +121,7 @@ const runtimeOwners: ReadonlyArray<{
   { prefix: "tests/unit/cache/", layer: "cache" },
   { prefix: "tests/unit/instrumentation/", layer: "instrumentation" },
   { prefix: "tests/unit/migrations/", layer: "migrations" },
-  { prefix: "tests/unit/rbac/", layer: "rbac" },
+  { prefix: "tests/unit/permissions/", layer: "permissions" },
 ];
 
 describe("contract and provider matrix", () => {

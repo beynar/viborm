@@ -44,7 +44,7 @@ const check = (adapter: DatabaseAdapter): string =>
 describe("SQLite transport expression depth", () => {
   // SQLite's default SQLITE_MAX_EXPR_DEPTH is 1000; D1 compiles with 100
   // ("Expression tree is too large"), so D1 alone nests relation filters in
-  // a derived table (live witness: tests/providers/workers/d1-rbac-verbs.test.ts,
+  // a derived table (live witness: tests/providers/workers/d1-permissions-verbs.test.ts,
   // W-W3 and W-W7).
   test.each([
     ["sqlite3", new SQLite3Driver(), 'SELECT 1 FROM "t" WHERE 1'],
@@ -89,7 +89,7 @@ describe("Shared relation bodies", () => {
   // more than 256 relations. D1 declares the fact, and so does every
   // PostgreSQL driver by default (the answers are the same, the statement
   // smaller); `sharedRelationBodies: false` keeps the bodies inline (live
-  // witnesses: tests/providers/workers/d1-rbac-placement.test.ts W-P10,
+  // witnesses: tests/providers/workers/d1-permissions-placement.test.ts W-P10,
   // Neki W-R1).
   test.each([
     ["sqlite3", new SQLite3Driver(), undefined],

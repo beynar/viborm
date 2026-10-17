@@ -1,5 +1,5 @@
 /**
- * K4, the produced row (rbac plan §4.4, R4, OD-13), on in-memory SQLite: the
+ * K4, the produced row (permissions plan §4.4, R4, OD-13), on in-memory SQLite: the
  * interactive route, the batch-only substrate (every statement of a write in
  * one batch, a database-generated key carried to the rows after it by the
  * batch scratch) and a driver without RETURNING (MySQL's shape: the key read

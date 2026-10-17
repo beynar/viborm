@@ -302,15 +302,15 @@ transform chains. Omit is presentation, not authorization. A `rows`
 predicate may traverse relations: inside its own traversals every other
 layer reads at its default and never its own (`PreparedDomain.defaults`, the
 `Queries` exclusion stack), so no per-call mode widens what it reads.
-`viborm/rbac` (`src/rbac/`) is the official authorization entry, built like
-soft delete from public exports only: `base.$extends(rbac(config))` compiles one
+`viborm/permissions` (`src/permissions/`) is the official authorization entry, built like
+soft delete from public exports only: `base.$extends(permissions(config))` compiles one
 predicate per (model, action) against `base`'s schema and applies a rows step
 (a bound-only, required `actor`; the `as` mode; every model's `verbs`; a
 generic `query` handler refusing a root call false when applied; and `$as`,
 which lives with the control it binds) and then a methods step
-(`can`/`assert`). Core names nothing of it. Its only runtime export is `rbac`;
+(`can`/`assert`). Core names nothing of it. Its only runtime export is `permissions`;
 applications own field names, membership, grant, credential and role conventions through explicit
-predicates. `src/rbac/rules.ts` owns `Rule`, `Where` and rule functions' readonly
+predicates. `src/permissions/rules.ts` owns `Rule`, `Where` and rule functions' readonly
 model `name` and `actions` metadata; no graph traversal or domain helper API is
 shipped. CRUD permissions are `create`, `read`, `update` and `delete`;
 `operations` remaps read/update/delete only. Creation uses `create` independently
@@ -338,7 +338,7 @@ Predicate simplification preserves both row truth and missing actor facts:
 structural containment alone cannot remove a branch whose actor reads can deny
 the complete predicate. Reads behind a conditional arm do not establish an
 unconditional dependency.
-`tests/package/rbac-consumer-smoke.mjs` runs §1.1 and the blog from the
+`tests/package/permissions-consumer-smoke.mjs` runs §1.1 and the blog from the
 packed package.
 
 `cache()` produces a namespace-free DEFINITION; the client composition root
@@ -767,7 +767,7 @@ pnpm test:layer:client   # 45 seconds; every other layer has 30
 pnpm test:layer:cache
 pnpm test:layer:instrumentation
 pnpm test:layer:migrations
-pnpm test:layer:rbac
+pnpm test:layer:permissions
 
 # Operation-pipeline performance evidence
 pnpm bench:operation-pipeline

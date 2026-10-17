@@ -22,8 +22,8 @@ export const SERVER_CONNECTION_STRING = process.env.PG_TEST_CONNECTION_STRING;
  * set. A governed statement (an OR of correlated EXISTS) is estimated over
  * the JIT thresholds on tables nobody ANALYZEd, and the server then compiles
  * thousands of functions per statement: 1.9 s for a one-row lookup, 21-25 s
- * for a policy write, the rbac runs 40+ minutes against about one without
- * (E4, `rbac/e4/pg-cost.md`). The statements and their answers are the same.
+ * for a policy write, the permissions runs 40+ minutes against about one without
+ * (E4, `permissions/e4/pg-cost.md`). The statements and their answers are the same.
  */
 function withJitOff(url: string): string {
   const parsed = new URL(url);

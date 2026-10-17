@@ -1,5 +1,5 @@
 /**
- * Bound views (RBAC plan K6, §4.6 as amended by spike F5 in §11.2), on one
+ * Bound views (Permissions plan K6, §4.6 as amended by spike F5 in §11.2), on one
  * substrate.
  *
  * A client factory's scope has `$bind(values)`: it admits values of the
@@ -10,13 +10,13 @@
  * `$extends` derives from it and a cached read keep its values, and its
  * method factories run only for what it uses.
  *
- * The extension here is the shape `viborm/rbac` takes before its own unit
- * lands, over the RBAC acceptance fixture: a bound-only `actor`, and one rows
+ * The extension here is the shape `viborm/permissions` takes before its own unit
+ * lands, over the Permissions acceptance fixture: a bound-only `actor`, and one rows
  * mode per actor selecting the rows the independent oracle (`oracle.ts`)
  * says that actor views, so a result that mixed two actors' rows would show.
  * Whether a policy selects those rows is the policy's witnesses' concern;
  * these pin the binding. Witness ids are the matrix's
- * (`tests/package/fixtures/rbac-app/witnesses.ts`, C6); the bound-only
+ * (`tests/package/fixtures/permissions-app/witnesses.ts`, C6); the bound-only
  * placement is K6(b)'s.
  *
  * A substrate with no callback transaction (D1) runs every witness but the
@@ -34,17 +34,17 @@ import {
 } from "@errors";
 import { v } from "@src/validation";
 import { failure } from "@tests/fixtures/failure";
-import { createOracle } from "@tests/package/fixtures/rbac-app/oracle";
-import { actors, seed } from "@tests/package/fixtures/rbac-app/seed";
+import { createOracle } from "@tests/package/fixtures/permissions-app/oracle";
+import { actors, seed } from "@tests/package/fixtures/permissions-app/seed";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import {
-  createRbacAppClient,
-  loadRbacSeed,
-  type RbacAppClient,
-  type RbacAppSubstrate,
-} from "./rbac-app-behavior";
+  createPermissionsAppClient,
+  loadPermissionsSeed,
+  type PermissionsAppClient,
+  type PermissionsAppSubstrate,
+} from "./permissions-app-behavior";
 
-export interface BoundViewsSubstrate extends RbacAppSubstrate {
+export interface BoundViewsSubstrate extends PermissionsAppSubstrate {
   /** `false` where the driver declares no callback transaction (D1). */
   readonly callbackTransactions?: boolean;
 }
@@ -135,7 +135,7 @@ const observed = (rows: readonly PageRow[]) =>
 const sorted = (rows: ReturnType<typeof expected>) =>
   [...rows].sort((a, b) => a.id.localeCompare(b.id));
 
-const extend = (client: RbacAppClient) => client.$extends(requests);
+const extend = (client: PermissionsAppClient) => client.$extends(requests);
 const pagesWithGroups = {
   select: { id: true, group: { select: { id: true } } },
 } as const;
@@ -143,14 +143,14 @@ const pagesWithGroups = {
 export function runBoundViewsBehavior(substrate: BoundViewsSubstrate): void {
   const callbackTransactions = substrate.callbackTransactions ?? true;
   const timeout = substrate.timeout ?? 120_000;
-  let base: RbacAppClient;
+  let base: PermissionsAppClient;
   let db: ReturnType<typeof extend>;
 
   describe(`${substrate.name}: bound views`, () => {
     beforeAll(async () => {
-      base = createRbacAppClient(substrate.createDriver());
+      base = createPermissionsAppClient(substrate.createDriver());
       await substrate.prepare(base);
-      await loadRbacSeed(base);
+      await loadPermissionsSeed(base);
       db = extend(base);
     }, timeout);
 
@@ -160,7 +160,7 @@ export function runBoundViewsBehavior(substrate: BoundViewsSubstrate): void {
     }, timeout);
 
     // PGlite answers in microtasks: a macrotask turn between tests keeps the
-    // worker's RPC alive on long runs (see rbac-compiled-policy-behavior.ts).
+    // worker's RPC alive on long runs (see permissions-compiled-policy-behavior.ts).
     afterEach(() => new Promise((resolve) => setTimeout(resolve, 0)));
 
     test("the fixture's actors read differing pages: an interleaving that mixed them would show", () => {

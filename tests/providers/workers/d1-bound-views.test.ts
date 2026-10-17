@@ -1,6 +1,6 @@
 /**
- * D1 Driver Tests — bound views (RBAC plan K6, §7 "D1" for W-AS1..W-AS7)
- * over the RBAC acceptance estate: `extension-bound-views-behavior.ts`, the
+ * D1 Driver Tests — bound views (Permissions plan K6, §7 "D1" for W-AS1..W-AS7)
+ * over the Permissions acceptance estate: `extension-bound-views-behavior.ts`, the
  * runner SQLite3 runs in `extension-bound-views.core.test.ts`, against the
  * independent oracle. D1 declares no callback transaction: W-AS3 pins that a
  * bound view's interactive transaction is refused exactly as the base

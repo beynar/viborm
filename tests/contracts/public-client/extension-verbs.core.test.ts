@@ -3,8 +3,8 @@
  * carrier is written by the row that holds it, a variant join by both rows it
  * links, through the same per-model `verbs` a plain relation takes. A model
  * whose join to the carrier declares no inverse is judged at its `update`
- * verb. The plain relations are witnessed against the RBAC oracle on four
- * databases (tests/contracts/public-client/rbac-app-verbs.ts).
+ * verb. The plain relations are witnessed against the Permissions oracle on four
+ * databases (tests/contracts/public-client/permissions-app-verbs.ts).
  *
  * Fixture: `openRowScopeFixture` (row-scope-behavior.ts). Pin 1 is on post
  * 11; board 3 holds post 10.

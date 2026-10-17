@@ -1,5 +1,5 @@
 /**
- * Relation bodies a statement repeats, stated once (rbac plan §9.3, provider
+ * Relation bodies a statement repeats, stated once (permissions plan §9.3, provider
  * facts to meet; E5.2). A governed predicate repeats the same relation
  * filter body across its arms: the §1.1 grant move was 261 KB on D1 (limit
  * 100 KB) and the grant read referenced 241 tables on PlanetScale's Neki
@@ -14,7 +14,7 @@
  *   without it, and every adapter without the fact keeps today's bytes;
  * - the rows: reads, counts and writes take the same rows both ways.
  *
- * The provider witnesses are tests/providers/workers/d1-rbac-placement.test.ts
+ * The provider witnesses are tests/providers/workers/d1-permissions-placement.test.ts
  * (W-P10's grant move) and the Neki entry run (W-R1).
  */
 

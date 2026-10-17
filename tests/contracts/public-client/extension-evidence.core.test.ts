@@ -1,23 +1,23 @@
 /**
  * K5 (plan §4.5): a `rows.verbs` entry's declared projection key
  * (`evidence`) and read-gated fields (`reads`), with predicates written by
- * hand over the rbac-app fixture (`ownerId` against a `who` control). The
+ * hand over the permissions-app fixture (`ownerId` against a `who` control). The
  * oracle-bound witnesses run the compiled §1.1 policy on every database
- * (`rbac-evidence-behavior.ts`); these pin what they do not reach:
+ * (`permissions-evidence-behavior.ts`); these pin what they do not reach:
  * admission's refusals, a unique field refused, a recursive projection, a value
  * a call supplies, and that a model without declarations keeps its bytes.
  */
 
 import { ClientInitializationError, ValidationError } from "@errors";
 import {
-  createRbacAppClient,
-  loadRbacSeed,
-  type RbacAppClient,
-} from "@tests/contracts/public-client/rbac-app-behavior";
+  createPermissionsAppClient,
+  loadPermissionsSeed,
+  type PermissionsAppClient,
+} from "@tests/contracts/public-client/permissions-app-behavior";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import { seed } from "@tests/package/fixtures/rbac-app/seed";
+import { seed } from "@tests/package/fixtures/permissions-app/seed";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 type Row = Record<string, unknown>;
@@ -68,7 +68,7 @@ const DECLARED = {
 };
 
 describe("K5: declared projection keys and read-gated fields", () => {
-  let base: RbacAppClient;
+  let base: PermissionsAppClient;
   let db: Loose;
   const statements: string[] = [];
   const metered = (client: Loose) =>
@@ -80,9 +80,9 @@ describe("K5: declared projection keys and read-gated fields", () => {
       },
     });
   beforeAll(async () => {
-    base = createRbacAppClient(createInMemorySQLite3Driver());
+    base = createPermissionsAppClient(createInMemorySQLite3Driver());
     await syncLiveSchema(base);
-    await loadRbacSeed(base);
+    await loadPermissionsSeed(base);
     db = metered((base as unknown as Loose).$extends(definition(DECLARED)));
   });
   afterAll(async () => {

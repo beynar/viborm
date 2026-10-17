@@ -62,7 +62,7 @@ export default defineWorkspace([
   // coverage subsystem runs these two projects beside the contract layers.
   // Two halves of one list, each its own process: instrumented whole, the
   // tree peaked at 1,543-1,552 MiB against the 1,536 MiB process ceiling
-  // (RBAC M2 exit, 2026-10-15).
+  // (Permissions M2 exit, 2026-10-15).
   {
     extends: "./vitest.config.ts",
     test: {
@@ -129,7 +129,7 @@ export default defineWorkspace([
     "tests/unit/instrumentation/**/*.core.test.ts",
   ]),
   layerProject("migrations", ["tests/unit/migrations/**/*.core.test.ts"]),
-  layerProject("rbac", ["tests/unit/rbac/**/*.core.test.ts"]),
+  layerProject("permissions", ["tests/unit/permissions/**/*.core.test.ts"]),
   {
     extends: "./vitest.config.ts",
     test: {
@@ -192,10 +192,10 @@ export default defineWorkspace([
         "tests/contracts/drivers/statement-transforms.core.test.ts",
         "tests/contracts/drivers/protected-observers.core.test.ts",
         "tests/unit/instrumentation/official-observer*.core.test.ts",
-        "tests/unit/rbac/compile.core.test.ts",
-        "tests/providers/local/sqlite3-rbac-compiled-policy.test.ts",
-        "tests/providers/local/sqlite3-rbac-entry.test.ts",
-        "tests/providers/local/sqlite3-rbac-extends.test.ts",
+        "tests/unit/permissions/compile.core.test.ts",
+        "tests/providers/local/sqlite3-permissions-compiled-policy.test.ts",
+        "tests/providers/local/sqlite3-permissions-entry.test.ts",
+        "tests/providers/local/sqlite3-permissions-extends.test.ts",
         "tests/contracts/public-client/extension-produced.core.test.ts",
       ],
     },

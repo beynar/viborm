@@ -10,7 +10,7 @@ import v from "@validation/primitives/v";
 import { describe, expect, it } from "vitest";
 
 /**
- * The nodes a domain predicate's admission answers (RBAC plan K1(a)): while
+ * The nodes a domain predicate's admission answers (Permissions plan K1(a)): while
  * one is admitted, each value position of the `where` schemas and each
  * `where`'s `$if` ask the admission what they stand for, so the schemas alone
  * decide which place is a value; the nodes are kept as they are, by

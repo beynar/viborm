@@ -327,7 +327,7 @@ public operation token, or deferred-operation type.
 client factory. The factory applies ordinary definitions through that view's
 `$extends`; it is composition at the client boundary, not a chain capability.
 Its contextual argument carries the receiving schema and extension state into
-schema-dependent factories such as `rbac`. Core must not name those extensions.
+schema-dependent factories such as `permissions`. Core must not name those extensions.
 `ClientTypeState<C, X>` carries inference metadata under a private optional
 symbol, so factories can recover the existing config and extension state without
 reverse-inferencing the entire client surface. Its opaque object alternative

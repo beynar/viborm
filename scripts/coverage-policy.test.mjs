@@ -211,11 +211,12 @@ test("every TypeScript source has exactly one coverage owner", () => {
   );
 });
 
-test("the extensions lane owns every file of the official rbac and soft-delete entries, present and future", () => {
+test("the extensions lane owns every file of the official permissions and soft-delete entries, present and future", () => {
   const extensions = coverageSubsystems.find(({ id }) => id === "extensions");
   const official = sourceFiles().filter(
     (source) =>
-      source.startsWith("src/rbac/") || source.startsWith("src/soft-delete/")
+      source.startsWith("src/permissions/") ||
+      source.startsWith("src/soft-delete/")
   );
   assert.ok(official.length > 1);
   for (const source of official)
@@ -224,22 +225,22 @@ test("the extensions lane owns every file of the official rbac and soft-delete e
   assert.deepEqual(
     auditCoverageOwnership([
       ...sourceFiles(),
-      "src/rbac/added.ts",
+      "src/permissions/added.ts",
       "src/soft-delete/added.ts",
     ]),
     []
   );
-  // The tests that hold `src/rbac` at 100% are admitted, each once.
+  // The tests that hold `src/permissions` at 100% are admitted, each once.
   assert.equal(new Set(extensions.tests).size, extensions.tests.length);
   assert.deepEqual(
     extensions.testGroups.flat().sort(),
     [...extensions.tests].sort()
   );
   for (const file of [
-    "tests/unit/rbac/compile.core.test.ts",
-    "tests/providers/local/sqlite3-rbac-compiled-policy.test.ts",
-    "tests/providers/local/sqlite3-rbac-entry.test.ts",
-    "tests/providers/local/sqlite3-rbac-extends.test.ts",
+    "tests/unit/permissions/compile.core.test.ts",
+    "tests/providers/local/sqlite3-permissions-compiled-policy.test.ts",
+    "tests/providers/local/sqlite3-permissions-entry.test.ts",
+    "tests/providers/local/sqlite3-permissions-extends.test.ts",
   ]) {
     assert.ok(extensions.tests.includes(file), `${file} is not admitted`);
     assert.ok(existsSync(file), `${file} does not exist`);
