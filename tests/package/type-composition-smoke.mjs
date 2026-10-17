@@ -1,6 +1,7 @@
 /**
  * Soft delete alone and the permissions guide's composition (§11) from the packed
- * tarball, at application scale, on every TypeScript a consumer uses. Each
+ * tarball, at application scale (60 models), on every TypeScript a consumer
+ * uses, in one packed consumer. Each
  * program is a generated schema of `models` models (a `user` with one to-many
  * relation per other model; every other model owned by a user and
  * soft-deletable), then:
@@ -175,7 +176,10 @@ export async function reads() {
 }
 `;
 
-const programs = [30, 60].flatMap((models) => [
+// 60 models only: the regression appeared from 10 to 25 models on every
+// checker, so 60 catches it with room to spare, and the package job keeps
+// its wall budget (one packed consumer, two programs per checker).
+const programs = [60].flatMap((models) => [
   { name: `soft-${models}`, models, source: softSource(models) },
   { name: `chain-${models}`, models, source: chainSource(models) },
 ]);

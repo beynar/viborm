@@ -896,6 +896,8 @@ export interface DatabaseAdapter {
       typed: {
         readonly head: Sql;
         readonly from: Sql;
+        /** The table itself, unaliased: its row type names the columns' types. */
+        readonly table: Sql;
         readonly alias: string;
         readonly columns: readonly string[];
       },

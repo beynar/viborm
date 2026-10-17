@@ -133,14 +133,11 @@ const scripts = [
         { VIBORM_PERMISSIONS_CHECKERS: checker },
       ] as const
   ),
-  ...(["tsc5", "tsc6", "tsc7"] as const).map(
-    (checker) =>
-      [
-        `type-checks soft delete and the permissions guide's composition at 30 and 60 models with ${checker} within budget`,
-        "./type-composition-smoke.mjs",
-        { VIBORM_COMPOSITION_CHECKERS: checker },
-      ] as const
-  ),
+  [
+    "type-checks soft delete and the permissions guide's composition at 60 models with tsc5, tsc6 and tsc7 within budget",
+    "./type-composition-smoke.mjs",
+    { VIBORM_COMPOSITION_CHECKERS: "tsc5,tsc6,tsc7" },
+  ] as const,
   [
     "retains TS5.9 public query inference for extends10",
     "./declaration-consumer-smoke.mjs",

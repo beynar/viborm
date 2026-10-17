@@ -81,7 +81,29 @@ const item = s.model({
 const tick = s.model({ id: s.int().id().increment() });
 /** A model nobody updates: its `update` verb is left out, so false. */
 const counter = s.model({ id: s.int().id(), n: s.int() });
-export const producedRowSchema = { user, folder, grant, item, tick, counter };
+/**
+ * Columns spelled like the engine's own aliases (`q0`, `q1`, …): a judged
+ * write's typed rows must never read one of them as a table reference.
+ */
+const aliased = s.model({
+  id: s.int().id(),
+  ownerId: s.string(),
+  ...Object.fromEntries(
+    Array.from({ length: 12 }, (_, index) => [
+      `q${index}`,
+      s.string().default(""),
+    ])
+  ),
+});
+export const producedRowSchema = {
+  user,
+  folder,
+  grant,
+  item,
+  tick,
+  counter,
+  aliased,
+};
 
 const me = { control: "user" };
 const viewFolder = {
@@ -145,6 +167,12 @@ export const policy = {
         place: "anyone",
       },
       counter: { predicates: { anyone: {} }, read: "anyone" },
+      aliased: {
+        predicates: { mine: { ownerId: me } },
+        read: "mine",
+        update: "mine",
+        place: "mine",
+      },
     },
   },
 };
@@ -441,6 +469,39 @@ export function runProducedRowBehavior(substrate: ProducedRowSubstrate): void {
         }
       }
     );
+
+    // Review of 2026-10-17 (P2): PostgreSQL typed the produced rows from
+    // `SELECT "qN" FROM table AS "qN"`, which reads a column named `qN`
+    // where the table has one (42809). Columns spelled like every alias
+    // the statement can mint: a judged create, createMany and update run.
+    test("a judged write on a model whose columns are spelled like the engine's aliases is typed from the table's row type", async () => {
+      const row = { ownerId: "ann", q0: "a", q1: "b", q2: "c", q11: "z" };
+      expect(
+        await db.aliased!.create({ data: { id: 1, ...row }, ...as("ann") })
+      ).toMatchObject(row);
+      expect(
+        await db.aliased!.createMany({
+          data: [
+            { id: 2, ownerId: "ann", q3: "d" },
+            { id: 3, ownerId: "ann", q4: "e" },
+          ],
+          ...as("ann"),
+        })
+      ).toEqual({ count: 2 });
+      expect(
+        await db.aliased!.update({
+          where: { id: 1 },
+          data: { q2: "changed" },
+          ...as("ann"),
+        })
+      ).toMatchObject({ q2: "changed" });
+      expect(
+        await failure(
+          db.aliased!.create({ data: { id: 4, ownerId: "bob" }, ...as("ann") })
+        )
+      ).toBeInstanceOf(ForbiddenError);
+      expect(await plain().aliased!.count()).toBe(3);
+    });
 
     test("W-P4, W-P9: a nested create under a parent created by the same call is judged against that parent's values; a refused child rolls the call back", async () => {
       const created = await db.folder!.create({

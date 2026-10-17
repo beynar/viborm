@@ -2906,6 +2906,7 @@ export class Queries {
       {
         head,
         from,
+        table: this.table(model),
         alias: typed,
         columns: fields.map((field) => this.columnName(model, field)),
       },

@@ -1,35 +1,7 @@
 {
   "headroom": 0.1,
-  "reason": "COST-1/COST-2 (rbac review 2): soft delete alone and the guide's composition, generated at 30 and 60 models. `before` records the same programs, same checkers, on the 1.2.4 tarball (git archive 2fcaa26a8; soft only: 1.2.4 has neither rbac nor $extends(factory), so its soft program omits that one line) and on 9c50a3191, where every program raised TS2589 (the whole factory and the steps were typed from their inferred return types, inlined per declaration; `$extends(step)` fell back to the step's generic constraint and compared the whole client with it).",
+  "reason": "COST-1/COST-2 (rbac review 2): soft delete alone and the guide's composition, generated at 30 and 60 models. `before` records the same programs, same checkers, on the 1.2.4 tarball (git archive 2fcaa26a8; soft only: 1.2.4 has neither rbac nor $extends(factory), so its soft program omits that one line) and on 9c50a3191, where every program raised TS2589 (the whole factory and the steps were typed from their inferred return types, inlined per declaration; `$extends(step)` fell back to the step's generic constraint and compared the whole client with it). Measured at 60 models only since 2026-10-17 (the 30-model programs were dropped to keep the package job inside its wall budget; the regression they guard appears from 10 to 25 models).",
   "programs": {
-    "soft-30": {
-      "tsc5": {
-        "typescript": "5.9.3",
-        "instantiations": 221049
-      },
-      "tsc6": {
-        "typescript": "6.0.3",
-        "instantiations": 222338
-      },
-      "tsc7": {
-        "typescript": "7.0.2",
-        "instantiations": 227634
-      }
-    },
-    "chain-30": {
-      "tsc5": {
-        "typescript": "5.9.3",
-        "instantiations": 1117944
-      },
-      "tsc6": {
-        "typescript": "6.0.3",
-        "instantiations": 1254041
-      },
-      "tsc7": {
-        "typescript": "7.0.2",
-        "instantiations": 1581409
-      }
-    },
     "soft-60": {
       "tsc5": {
         "typescript": "5.9.3",

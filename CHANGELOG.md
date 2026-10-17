@@ -47,7 +47,7 @@ names no role, grant or action.
   the type of its two steps applied in turn, and the guide's chain
   `base.$extends(tombstones.rows).$extends(policy).$extends(tombstones.methods)`
   type-checks at 60 models, as soft delete alone does. Both are budgeted
-  at 30 and 60 models on TypeScript 5.9, 6 and 7
+  at 60 models on TypeScript 5.9, 6 and 7
   (`tests/package/type-composition-budgets.json`).
 - **Equal values bind once over a driver's bind budget.** A statement over
   its driver's budget is sent with numbered placeholders (`?NNN`, `$n`), each
