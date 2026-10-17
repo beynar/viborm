@@ -105,48 +105,52 @@ export const buildScalarShapeCensus = (): ShapeCensus => {
   return census;
 };
 
+// `value_node_or` (Permissions plan K1(a)): the value positions a domain predicate's
+// parameter may take, `in`/`notIn`, the list operators and a list's `equals`,
+// keep a value node (`validation/primitives/parameter.ts`) around the operand
+// recorded before it.
 export const EXPECTED_SCALAR_SHAPE_CENSUS: ShapeCensus = {
   int: {
     create: "integer",
     update:
       "union[transform, object{set: integer, increment: integer, decrement: integer, multiply: integer, divide: integer}]",
     filter:
-      "union[transform, object{in: integer, notIn: integer, lt: comparison_operand, lte: comparison_operand, gt: comparison_operand, gte: comparison_operand, equals: comparison_operand, not: union[transform, lazyRef]}]",
+      "union[transform, object{in: value_node_or, notIn: value_node_or, lt: comparison_operand, lte: comparison_operand, gt: comparison_operand, gte: comparison_operand, equals: comparison_operand, not: union[transform, lazyRef]}]",
   },
   "int[]": {
     create: "integer",
     update:
       "union[transform, object{set: integer, push: union[transform, integer], unshift: union[transform, integer]}]",
     filter:
-      "union[transform, object{has: integer, hasEvery: integer, hasSome: integer, isEmpty: boolean, equals: integer, not: union[transform, lazyRef]}]",
+      "union[transform, object{has: value_node_or, hasEvery: value_node_or, hasSome: value_node_or, isEmpty: boolean, equals: value_node_or, not: union[transform, lazyRef]}]",
   },
   number: {
     create: "number",
     update:
       "union[transform, object{set: number, increment: number, decrement: number, multiply: number, divide: number}]",
     filter:
-      "union[transform, object{in: number, notIn: number, lt: comparison_operand, lte: comparison_operand, gt: comparison_operand, gte: comparison_operand, equals: comparison_operand, not: union[transform, lazyRef]}]",
+      "union[transform, object{in: value_node_or, notIn: value_node_or, lt: comparison_operand, lte: comparison_operand, gt: comparison_operand, gte: comparison_operand, equals: comparison_operand, not: union[transform, lazyRef]}]",
   },
   "number[]": {
     create: "number",
     update:
       "union[transform, object{set: number, push: union[transform, number], unshift: union[transform, number]}]",
     filter:
-      "union[transform, object{has: number, hasEvery: number, hasSome: number, isEmpty: boolean, equals: number, not: union[transform, lazyRef]}]",
+      "union[transform, object{has: value_node_or, hasEvery: value_node_or, hasSome: value_node_or, isEmpty: boolean, equals: value_node_or, not: union[transform, lazyRef]}]",
   },
   bigInt: {
     create: "bigint",
     update:
       "union[transform, object{set: bigint, increment: bigint, decrement: bigint, multiply: bigint, divide: bigint}]",
     filter:
-      "union[transform, object{in: bigint, notIn: bigint, lt: comparison_operand, lte: comparison_operand, gt: comparison_operand, gte: comparison_operand, equals: comparison_operand, not: union[transform, lazyRef]}]",
+      "union[transform, object{in: value_node_or, notIn: value_node_or, lt: comparison_operand, lte: comparison_operand, gt: comparison_operand, gte: comparison_operand, equals: comparison_operand, not: union[transform, lazyRef]}]",
   },
   "bigInt[]": {
     create: "bigint",
     update:
       "union[transform, object{set: bigint, push: union[transform, bigint], unshift: union[transform, bigint]}]",
     filter:
-      "union[transform, object{has: bigint, hasEvery: bigint, hasSome: bigint, isEmpty: boolean, equals: bigint, not: union[transform, lazyRef]}]",
+      "union[transform, object{has: value_node_or, hasEvery: value_node_or, hasSome: value_node_or, isEmpty: boolean, equals: value_node_or, not: union[transform, lazyRef]}]",
   },
   boolean: {
     create: "boolean",
@@ -159,64 +163,64 @@ export const EXPECTED_SCALAR_SHAPE_CENSUS: ShapeCensus = {
     update:
       "union[transform, object{set: boolean, push: union[transform, boolean], unshift: union[transform, boolean]}]",
     filter:
-      "union[transform, object{has: boolean, hasEvery: boolean, hasSome: boolean, isEmpty: boolean, equals: boolean, not: union[transform, lazyRef]}]",
+      "union[transform, object{has: value_node_or, hasEvery: value_node_or, hasSome: value_node_or, isEmpty: boolean, equals: value_node_or, not: union[transform, lazyRef]}]",
   },
   string: {
     create: "string",
     update: "union[transform, object{set: string}]",
     filter:
-      "union[transform, object{in: string, notIn: string, contains: field_ref_or, startsWith: field_ref_or, endsWith: field_ref_or, mode: enum, equals: comparison_operand, lt: comparison_operand, lte: comparison_operand, gt: comparison_operand, gte: comparison_operand, not: union[transform, lazyRef]}]",
+      "union[transform, object{in: value_node_or, notIn: value_node_or, contains: field_ref_or, startsWith: field_ref_or, endsWith: field_ref_or, mode: enum, equals: comparison_operand, lt: comparison_operand, lte: comparison_operand, gt: comparison_operand, gte: comparison_operand, not: union[transform, lazyRef]}]",
   },
   "string[]": {
     create: "string",
     update:
       "union[transform, object{set: string, push: union[transform, string], unshift: union[transform, string]}]",
     filter:
-      "union[transform, object{has: string, hasEvery: string, hasSome: string, isEmpty: boolean, equals: string, not: union[transform, lazyRef]}]",
+      "union[transform, object{has: value_node_or, hasEvery: value_node_or, hasSome: value_node_or, isEmpty: boolean, equals: value_node_or, not: union[transform, lazyRef]}]",
   },
   "string.uuid": {
     create: "string",
     update: "union[transform, object{set: string}]",
     filter:
-      "union[transform, object{in: string, notIn: string, equals: comparison_operand, lt: comparison_operand, lte: comparison_operand, gt: comparison_operand, gte: comparison_operand, not: union[transform, lazyRef]}]",
+      "union[transform, object{in: value_node_or, notIn: value_node_or, equals: comparison_operand, lt: comparison_operand, lte: comparison_operand, gt: comparison_operand, gte: comparison_operand, not: union[transform, lazyRef]}]",
   },
   "string.cuid": {
     create: "string",
     update: "union[transform, object{set: string}]",
     filter:
-      "union[transform, object{in: string, notIn: string, contains: field_ref_or, startsWith: field_ref_or, endsWith: field_ref_or, mode: enum, equals: comparison_operand, lt: comparison_operand, lte: comparison_operand, gt: comparison_operand, gte: comparison_operand, not: union[transform, lazyRef]}]",
+      "union[transform, object{in: value_node_or, notIn: value_node_or, contains: field_ref_or, startsWith: field_ref_or, endsWith: field_ref_or, mode: enum, equals: comparison_operand, lt: comparison_operand, lte: comparison_operand, gt: comparison_operand, gte: comparison_operand, not: union[transform, lazyRef]}]",
   },
   dateTime: {
     create: "iso_timestamp",
     update: "union[transform, object{set: iso_timestamp}]",
     filter:
-      "union[transform, object{in: iso_timestamp, notIn: iso_timestamp, lt: comparison_operand, lte: comparison_operand, gt: comparison_operand, gte: comparison_operand, equals: comparison_operand, not: union[transform, lazyRef]}]",
+      "union[transform, object{in: value_node_or, notIn: value_node_or, lt: comparison_operand, lte: comparison_operand, gt: comparison_operand, gte: comparison_operand, equals: comparison_operand, not: union[transform, lazyRef]}]",
   },
   "dateTime[]": {
     create: "iso_timestamp",
     update:
       "union[transform, object{set: iso_timestamp, push: union[transform, iso_timestamp], unshift: union[transform, iso_timestamp]}]",
     filter:
-      "union[transform, object{has: iso_timestamp, hasEvery: iso_timestamp, hasSome: iso_timestamp, isEmpty: boolean, equals: iso_timestamp, not: union[transform, lazyRef]}]",
+      "union[transform, object{has: value_node_or, hasEvery: value_node_or, hasSome: value_node_or, isEmpty: boolean, equals: value_node_or, not: union[transform, lazyRef]}]",
   },
   date: {
     create: "iso_date",
     update: "union[transform, object{set: iso_date}]",
     filter:
-      "union[transform, object{in: iso_date, notIn: iso_date, lt: comparison_operand, lte: comparison_operand, gt: comparison_operand, gte: comparison_operand, equals: comparison_operand, not: union[transform, lazyRef]}]",
+      "union[transform, object{in: value_node_or, notIn: value_node_or, lt: comparison_operand, lte: comparison_operand, gt: comparison_operand, gte: comparison_operand, equals: comparison_operand, not: union[transform, lazyRef]}]",
   },
   time: {
     create: "iso_time",
     update: "union[transform, object{set: iso_time}]",
     filter:
-      "union[transform, object{in: iso_time, notIn: iso_time, lt: comparison_operand, lte: comparison_operand, gt: comparison_operand, gte: comparison_operand, equals: comparison_operand, not: union[transform, lazyRef]}]",
+      "union[transform, object{in: value_node_or, notIn: value_node_or, lt: comparison_operand, lte: comparison_operand, gt: comparison_operand, gte: comparison_operand, equals: comparison_operand, not: union[transform, lazyRef]}]",
   },
   decimal: {
     create: "decimal",
     update:
       "union[transform, exact_one{set: decimal, increment: decimal, decrement: decimal, multiply: decimal, divide: decimal}]",
     filter:
-      "union[transform, object{equals: comparison_operand, in: decimal, notIn: decimal, lt: comparison_operand, lte: comparison_operand, gt: comparison_operand, gte: comparison_operand, not: union[transform, lazyRef]}]",
+      "union[transform, object{equals: comparison_operand, in: value_node_or, notIn: value_node_or, lt: comparison_operand, lte: comparison_operand, gt: comparison_operand, gte: comparison_operand, not: union[transform, lazyRef]}]",
   },
   "decimal[]": {
     create: "decimal",
@@ -229,20 +233,20 @@ export const EXPECTED_SCALAR_SHAPE_CENSUS: ShapeCensus = {
     create: "enum",
     update: "union[transform, object{set: enum}]",
     filter:
-      "union[transform, object{equals: comparison_operand, in: enum, notIn: enum, lt: refused, lte: refused, gt: refused, gte: refused, not: union[transform, lazyRef]}]",
+      "union[transform, object{equals: comparison_operand, in: value_node_or, notIn: value_node_or, lt: refused, lte: refused, gt: refused, gte: refused, not: union[transform, lazyRef]}]",
   },
   "enum[]": {
     create: "enum",
     update:
       "union[transform, object{set: enum, push: union[transform, enum], unshift: union[transform, enum]}]",
     filter:
-      "union[transform, object{has: enum, hasEvery: enum, hasSome: enum, isEmpty: boolean, equals: enum, not: union[transform, lazyRef]}]",
+      "union[transform, object{has: value_node_or, hasEvery: value_node_or, hasSome: value_node_or, isEmpty: boolean, equals: value_node_or, not: union[transform, lazyRef]}]",
   },
   json: {
     create: "json_write",
     update: "union[object{set: json_write}, transform]",
     filter:
-      "object{equals: json_null_or, path: union[array, string], mode: enum, lt: union[number, string], lte: union[number, string], gt: union[number, string], gte: union[number, string], string_contains: string, string_starts_with: string, string_ends_with: string, array_contains: no_field_ref, array_starts_with: no_field_ref, array_ends_with: no_field_ref, not: json_null_or}",
+      "object{equals: value_node_or, path: union[array, string], mode: enum, lt: union[number, string], lte: union[number, string], gt: union[number, string], gte: union[number, string], string_contains: string, string_starts_with: string, string_ends_with: string, array_contains: no_field_ref, array_starts_with: no_field_ref, array_ends_with: no_field_ref, not: json_null_or}",
   },
   blob: {
     create: "blob",

@@ -400,18 +400,9 @@ export async function twoExtensions() {
 // A list whose model names cannot be proven against the schema is refused.
 declare const names: string[];
 // @ts-expect-error a schema-bound policy cannot admit arbitrary runtime model names
-const listed = base.$extends(audit(names));
-
-export async function aPlainListNarrowsNothing() {
-  await listed.post.create({
-    data: { id: 1, title: "a", createdBy: "mallory" },
-    actor: "ann",
-  });
-  await listed.invoice.create({
-    data: { id: 1, createdBy: "ann" },
-    actor: "ann",
-  });
-}
+base.$extends(audit(names));
+// A refused call has no client contract. Do not test TypeScript's overload
+// error-recovery result as though it were an admitted extension.
 
 // The guide's tenancy over a schema that requires `tenantId`: a plain field
 // on `article`, a required foreign key on `reply`, and `memo`, which the

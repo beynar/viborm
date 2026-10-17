@@ -48,4 +48,13 @@ export interface DatabaseAdapterCapabilities {
    * clause, so a read taken only to lock rows is skipped there.
    */
   supportsRowLocks: boolean;
+  /**
+   * Whether a statement states each relation filter body it repeats ONCE, in
+   * a `WITH`, as the key set every arm repeating it tests (a semijoin on the
+   * correlated columns), rather than once per arm. A driver declares it for
+   * a provider that bounds one statement's text or the relations one
+   * statement references; a statement that repeats no body is unchanged, and
+   * a recursive walk stays where it is. Absent: false.
+   */
+  sharesRelationBodies?: boolean;
 }

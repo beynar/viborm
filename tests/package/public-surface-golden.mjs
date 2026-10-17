@@ -112,6 +112,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "DbNull",
       "Decimal",
       "FeatureNotSupportedError",
+      "ForbiddenError",
       "ForeignKeyError",
       "JsonNull",
       "JsonNullSentinel",
@@ -178,6 +179,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "AnyFieldRef",
       "AnyJsonNullSentinel",
       "ClientSchema",
+      "ClientTypeState",
       "ExtensionCacheState",
       "ExtensionResultConsumerState",
       "FlatSchema",
@@ -287,6 +289,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "ConnectionError",
       "Decimal",
       "FeatureNotSupportedError",
+      "ForbiddenError",
       "ForeignKeyError",
       "JsonNullSentinel",
       "NestedWriteError",
@@ -571,6 +574,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "CachedClient",
       "Client",
       "ClientSchema",
+      "ClientTypeState",
       "ExtensionCacheState",
       "ExtensionResultConsumerState",
       "FlatSchema",
@@ -708,6 +712,22 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
     ["SoftDeleteConfig", "SoftDeleteModel"],
     []
   ),
+  "./permissions": surface(
+    ["permissions"],
+    [
+      "ActorFacts",
+      "ActorPaths",
+      "CompiledModel",
+      "CompiledPolicy",
+      "ModelPolicy",
+      "PermissionsConfig",
+      "Policy",
+      "PolicyModel",
+      "Rule",
+      "Where",
+    ],
+    []
+  ),
   "./adapters": surface(
     [
       "MySQLAdapter",
@@ -771,6 +791,7 @@ export const ABSENT_PUBLIC_NAMES = Object.freeze({
     "ValidationRule",
     "defaultOmit",
     "instrumentation",
+    "permissions",
     "softDelete",
   ],
   "./adapters": [

@@ -42,6 +42,7 @@ import {
   ConnectionError,
   classifyFailure,
   FeatureNotSupportedError,
+  ForbiddenError,
   ForeignKeyError,
   InvalidTransactionInputError,
   MigrationError,
@@ -171,6 +172,14 @@ const REGISTRY: readonly RegistryRow[] = [
     name: "FeatureNotSupportedError",
     make: () => new FeatureNotSupportedError("vector", "l2Distance"),
     code: VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+    driverFailure: false,
+    classification: "failure",
+    prismaCode: null,
+  },
+  {
+    name: "ForbiddenError",
+    make: () => new ForbiddenError("page", "create"),
+    code: VibORMErrorCode.FORBIDDEN,
     driverFailure: false,
     classification: "failure",
     prismaCode: null,
@@ -330,7 +339,7 @@ const REGISTRY: readonly RegistryRow[] = [
 ];
 
 /** The census pin. Moves only when a class is deliberately added or removed. */
-const REGISTRY_COUNT = 25;
+const REGISTRY_COUNT = 26;
 
 /* ------------------------------------------------------------------ *
  * Source discovery: the registry cannot quietly fall behind the tree. *
@@ -675,6 +684,7 @@ describe("surface 3 — the prismaCode map", () => {
       "CacheInvalidTTLError",
       "CacheOperationNotCacheableError",
       "FeatureNotSupportedError",
+      "ForbiddenError",
       "InvalidTransactionInputError",
       "MigrationError",
       "NestedWriteAssertionError",

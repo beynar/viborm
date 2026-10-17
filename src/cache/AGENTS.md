@@ -55,7 +55,11 @@ data application admitted (`cacheKeyOf`, `src/client/client.ts`); a read that ad
 key byte for byte, and a control value that is not plain data bypasses the
 cache. The mutation `cache` argument is the cache's own declared control on
 writes: it is taken out of the arguments before request transforms and read
-from the operation's admission record, never from request input.
+from the operation's admission record, never from request input. A read
+holding a value of a control declared `uncacheable` (an entry's bound
+caller, for one) is refused with `ValidationError` before any
+statement (`uncacheableRead`, checked in `#wrapOfficialCachedRead` before the
+bypass decisions), so a governed answer is never stored or served.
 
 Official namespaces are injectively encoded and authenticated by a private
 capability. Public/unscoped driver methods must refuse the reserved

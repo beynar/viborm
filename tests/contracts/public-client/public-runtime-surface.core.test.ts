@@ -31,6 +31,7 @@ const documentedRuntimeExports = [
   "DbNull",
   "Decimal",
   "FeatureNotSupportedError",
+  "ForbiddenError",
   "ForeignKeyError",
   "JsonNull",
   "JsonNullSentinel",

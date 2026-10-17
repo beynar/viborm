@@ -62,6 +62,10 @@ export default defineConfig({
         find: /^@drivers$/,
         replacement: resolve(__dirname, "src/drivers/exports.ts"),
       },
+      // The package's root entry, as a consumer imports it: the Permissions
+      // acceptance fixture (tests/package/fixtures/permissions-app) is written
+      // against "viborm" so a packed-tarball consumer compiles it unchanged.
+      { find: /^viborm$/, replacement: resolve(__dirname, "src/index.ts") },
       ...Object.entries({
         "@src": resolve(__dirname, "src"),
         "@tests": resolve(__dirname, "tests"),

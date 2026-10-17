@@ -17,6 +17,7 @@ import {
   RAPTOR3_PROJECT_TESTS,
   RAPTOR3_PROVIDER_TESTS,
 } from "./scripts/raptor3-manifest.mjs";
+import baseConfig from "./vitest.config";
 
 const layerProject = (
   name: string,
@@ -53,14 +54,28 @@ const coverageProject = (name: string, include: string[]) => ({
   },
 });
 
+const RAPTOR3_COVERAGE_SPLIT = Math.ceil(
+  RAPTOR3_DETERMINISTIC_TESTS.length / 2
+);
+
 export default defineWorkspace([
+  // The engine measured by its own deterministic estate: the query-engine
+  // coverage subsystem runs these two projects beside the contract layers.
+  // Two halves of one list, each its own process: instrumented whole, the
+  // tree peaked at 1,543-1,552 MiB against the 1,536 MiB process ceiling
+  // (Permissions M2 exit, 2026-10-15).
   {
     extends: "./vitest.config.ts",
     test: {
-      // The engine measured by its own deterministic estate: the query-engine
-      // coverage subsystem runs this project beside the contract layers.
       name: "coverage-raptor3",
-      include: [...RAPTOR3_DETERMINISTIC_TESTS],
+      include: RAPTOR3_DETERMINISTIC_TESTS.slice(0, RAPTOR3_COVERAGE_SPLIT),
+    },
+  },
+  {
+    extends: "./vitest.config.ts",
+    test: {
+      name: "coverage-raptor3-rest",
+      include: RAPTOR3_DETERMINISTIC_TESTS.slice(RAPTOR3_COVERAGE_SPLIT),
     },
   },
   {
@@ -115,6 +130,7 @@ export default defineWorkspace([
     "tests/unit/instrumentation/**/*.core.test.ts",
   ]),
   layerProject("migrations", ["tests/unit/migrations/**/*.core.test.ts"]),
+  layerProject("permissions", ["tests/unit/permissions/**/*.core.test.ts"]),
   {
     extends: "./vitest.config.ts",
     test: {
@@ -165,6 +181,9 @@ export default defineWorkspace([
         "tests/contracts/public-client/official-cache-extension.core.test.ts",
         "tests/contracts/public-client/official-instrumentation-extension.core.test.ts",
         "tests/contracts/public-client/soft-delete.core.test.ts",
+        "tests/contracts/public-client/extension-bound-views.core.test.ts",
+        "tests/contracts/public-client/extension-composition.core.test.ts",
+        "tests/contracts/public-client/extension-evidence.core.test.ts",
         "tests/contracts/engine/query/operation-program-read-contracts.core.test.ts",
         "tests/contracts/engine/query/pending-operation-contracts.core.test.ts",
         "tests/contracts/public-client/extensions/array-admission.core.test.ts",
@@ -174,6 +193,13 @@ export default defineWorkspace([
         "tests/contracts/drivers/statement-transforms.core.test.ts",
         "tests/contracts/drivers/protected-observers.core.test.ts",
         "tests/unit/instrumentation/official-observer*.core.test.ts",
+        "tests/unit/permissions/actor.core.test.ts",
+        "tests/unit/permissions/compile.core.test.ts",
+        "tests/providers/local/sqlite3-permissions-compiled-policy.test.ts",
+        "tests/providers/local/sqlite3-permissions-entry.test.ts",
+        "tests/providers/local/sqlite3-permissions-extends.test.ts",
+        "tests/providers/local/sqlite3-permissions-quantifiers.test.ts",
+        "tests/contracts/public-client/extension-produced.core.test.ts",
       ],
     },
   },
@@ -223,6 +249,16 @@ export default defineWorkspace([
   coverageProject("drivers", [...DRIVER_COVERAGE_TESTS]),
   coverageProject("migrations", [...MIGRATION_COVERAGE_TESTS]),
   coverageProject("write-engine-core", [...WRITE_ENGINE_CORE_TESTS]),
+  // The engine's K4/K5 and shared-body branches are reached through the
+  // extension language; these contracts are a part of query-engine-core.
+  coverageProject("query-engine-extensions", [
+    "tests/contracts/public-client/extension-produced.core.test.ts",
+    "tests/contracts/public-client/extension-evidence.core.test.ts",
+    "tests/contracts/public-client/extension-shared-bodies.core.test.ts",
+    "tests/contracts/public-client/extension-batch-atomicity.core.test.ts",
+    "tests/contracts/public-client/extension-verbs.core.test.ts",
+    "tests/contracts/public-client/extension-controls.core.test.ts",
+  ]),
   {
     extends: "./vitest.config.ts",
     test: {
@@ -296,8 +332,12 @@ export default defineWorkspace([
   providerProject("neki", ["tests/providers/hosted/neki*.test.ts"]),
   providerProject("bun", ["tests/providers/platform/*.test.ts"]),
   {
-    extends: "./vitest.config.ts",
+    // Compose directly: Vite would concatenate inherited setupFiles with [],
+    // retaining source-only registration in this isolated consumer harness.
+    ...baseConfig,
     test: {
+      ...baseConfig.test,
+      setupFiles: [],
       name: "package",
       // A failed smoke can leave compiler descendants alive until the bounded
       // launcher closes its group. Never start a successor in that group.

@@ -3422,3 +3422,190 @@ The T1 row above ("Without the exception the field can be neither passed
 (refused by `Commands.stamp`) nor left out") keeps its unique coverage under
 the new rule: a required stamped field left out is still admitted only
 through it; passing the field is now accepted as well.
+
+## Addendum — rows predicates admitted, bound views, composition (RBAC plan M1 wave 1, 2026-10-15)
+
+Plan `rbac-extension-plan.md` §4.1 (K1), §4.2 (K2), §4.6 (K6), §4.7 (K7) as
+amended in §11.2. Four guards added or moved, three deleted. A bound-only
+control passed as an argument is not a guard: its placement reads no
+argument, so core validation refuses the key as unknown.
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `src/extensions/admission.ts` `admitRows` · `if (result.issues) throw new ClientInitializationError(…)` | Every `rows` predicate is a `where` of its model: a misspelt key at any depth, a malformed `$if`, or a `recurse` without a written depth (`parameter.ts` `writtenDepth`) is refused, naming the extension, model, mode, purpose and path. Positions (value or filter) are the `where` schema's alone (`valueNodeOf`, `conditionNodeOr`). | `$extends`, where the definition meets the receiving schema. | Without it a misspelt nested key reached the preparer as written and failed (S-X5's raw `TypeError`) or filtered nothing at the first read; a `recurse: true` stopped inheritance at a depth nobody wrote. | `extension-controls.core.test.ts` "rows: each predicate admitted at $extends" (refusal paths; "positions are the where schema's", red before the position move: `at "parent.is.path": Unknown key: path`); `domain-predicate-behavior.ts` W-K1a, W-K1b on SQLite3, PGlite, PG, MySQL; `domain-predicate-nodes.core.test.ts` (written depth). |
+| **DELETED.** `src/extensions/definition.ts` `validateNamedPolicies` · the `rows` field walk and `depth > 16` (`row predicate exceeds nesting limit`) | — | — | None left: admission parses the whole predicate; a domain predicate's termination is proven by its lowering (R5), not by a depth number. | W-K1f: a 20-deep predicate admitted; a 101-deep tree inherits. |
+| `src/extensions/chain.ts` `appendControls` · `if (names.has(name)) extensionError(…)` | One control name, one declaration across a chain (a second extension's, a reused `rows.control`, a `rows.control` repeating the definition's own controls). | `$extends`, where the chain's name space is appended. | Without it a call's argument is admitted against one declaration and refused by the other, so every write that passes either value fails (C10), and a binding answers for both. | `extension-composition.core.test.ts` "W-C5: a second declaration of a control name …" (red at HEAD). |
+| `src/extensions/chain.ts` `appendResolvedExtension` · `if (chain?.controls?.names.has(control) !== true) extensionError(…references undeclared control…)` (moved from `normalizeExtensionDefinition`) | A definition's predicates, stamps and `removeWhen` name only controls it or an earlier extension of the chain declares. | `$extends`: only the chain knows the earlier declarations. | Without it a reference to a control nobody declares reads as absent on every call: a required one matches nothing, an optional one drops its filter. | `extension-composition.core.test.ts` "K7(c): a definition naming a control no earlier extension declares …"; `adversarial-v1-extension.core.test.ts` "refuses dangling control references …". |
+| **DELETED.** `src/extensions/definition.ts` `normalizeExtensionDefinition` · the definition-time undeclared-reference check | — | — | None left: the chain's check above covers every application, and reading a definition on its own cannot know an earlier extension's controls (it refused W-C8). | W-C8 (red with the check kept: `references undeclared control "actor"`). |
+| `src/extensions/controls.ts` `bindControls` · `if (control === undefined) throw new ClientInitializationError(…binds control…which it does not declare)` | A binding admits only the calling extension's own controls. | `$bind`, the one place a binding is made. | Without it any extension's method could fix another extension's control for every call of a view (a tenant, an actor), which no call could then override. | `extension-bound-views.core.test.ts` "W-AS6: $bind admits only the calling extension's own controls …" (red at HEAD). |
+| **DELETED.** `src/extensions/rows.ts` `domainFacts` · `if (!Object.values(values).every(isStableControlValue)) return boundFacts(facts, controls, binding)` (the ledger's earlier `isCanonicalKeyData` row) and the 256-entry FIFO | — | — | None left: values are parameters read at lowering, so no per-value memo exists for two calls to share. | `extension-controls.core.test.ts` "stamps and values are a call's own …"; W-K2a (10,000 actors, one prepared predicate, one SQL text). |
+
+## Addendum — named predicates, verbs and written fields (RBAC plan M1 wave 2, U3/K3, 2026-10-15)
+
+Plan `rbac-extension-plan.md` §4.3 (K3), R3 as amended in §11.2. Three
+guards added, none deleted. A verb a model's `verbs` leaves out is not a
+guard: it is the predicate `{ OR: [] }`, the value R9 gives it.
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `src/extensions/admission.ts` `admitRows` · `refuse(…, "names an unknown model")`, `known(…)` (`names unknown predicate`), `refuse(…, "names an unknown field")` | Every `rows.verbs` entry names a model of the schema; every verb, `writes` entry and mode that names a predicate names one the model declares; every `writes` key is a field of the model. Refused with `ClientInitializationError` naming the extension, the model and the place in `rows`. | `$extends`, where the definition meets the receiving schema. | Without it a misspelt predicate name or field silently matches nothing (a verb) or is never judged (a `writes` field falls back to `update`). | `extension-controls.core.test.ts` "an unknown model, predicate name or written field is refused at $extends, named by its place". |
+| `src/extensions/admission.ts` `admitRows` → `cyclePath` · `refuse(…, "contains itself")` | A predicate object never contains itself (a shared sub-object is admitted). | `$extends`, before the where schema walks it. | Replaces a stack overflow (`RangeError`) at `$extends` with a refusal naming the path. | `extension-controls.core.test.ts` "a predicate that contains itself is refused at $extends; one that shares a sub-object is admitted" (`RangeError: Maximum call stack size exceeded` on HEAD). |
+| `src/query-engine/raptor3/shared/operation-context.ts` `OperationContext.remove` · the clear premise (`NestedWriteError`) | A clear (`set []`, a `remove` with no target) unlinks no visible member the actor may not unlink; a hidden member keeps its link silently (create.mdx's rule). | The clear, where its candidate members and the link judgement meet. | Without it `set []` silently keeps a visible link the actor cannot write, or unlinks it, the effect the verb denies. | `rbac-app-verbs.ts` W-W10 "set [] refuses a link the actor sees and may not write (NestedWriteError) …" (returns `ok` on HEAD). |
+
+## Addendum — verbs keys, empty updates, shallow expressions (RBAC plan M1 wave 3, E3, 2026-10-15)
+
+Plan `rbac-extension-plan.md` §4.3 (K3), R3 as amended in §11.2, §9.3
+(provider facts are met). One guard added, none deleted. Two routing
+decisions are not guards: an update whose data assigns nothing (no field, no
+stamp, no generated value) takes the located route (`Commands.rootUpdate`) or
+the series route (root `updateMany`), so it emits no `UPDATE … SET` with an
+empty list; and a SQLite adapter told `deepExpressions: false` spells every
+relation filter's rows as a derived table (`existsCheck`), so nothing is
+refused.
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `src/extensions/admission.ts` `admitRows` · `refuse(…, "is not one of predicates, read, update, delete, writes")` | A `rows.verbs` entry holds only K3's keys (`VERBS_KEYS`, typed `Record<keyof RowsVerbs, true>`). Refused with `ClientInitializationError` naming the extension, the model and the key. | `$extends`, where the definition meets the receiving schema. | Without it a misspelt `writes` (`write:`) is ignored, so the field it meant is judged at `update`, which widens the write; policies may be data built at runtime, so the types do not cover it. | `extension-controls.core.test.ts` "an unknown key in a model's verbs is refused at $extends, named with its model …" (on HEAD the definition is accepted: "expected the definition to be refused"). |
+
+## Addendum — a lax nested delete under its verb (RBAC plan M1, E4, 2026-10-15)
+
+Plan `rbac-extension-plan.md` §5.1 (nested `delete`: "a hidden or
+ineligible target gives `NestedWriteError`"), §5.3, R3 as amended in §11.2.
+One guard added, none deleted. The strict nested delete needs none: its
+lookup is required and judged at the delete verb, so a hidden, missing or
+non-deletable target is already the one `missingTarget` refusal. The gate
+(`domainOf` with and without `DELETE_JUDGEMENT`) is not a guard: a model
+without verbs keeps its statements byte for byte.
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `src/query-engine/raptor3/commands/relation-body.ts` (`outgoing.unjudged`, case `delete`) → `commands/execution.ts` `runSelection` · `requireAbsent(selection.outsideVerb(), …)` (`NestedWriteError`, `missingTarget`'s sentence) | A lax `delete: true` never succeeds while the slot holds a member the call addresses and its delete verb does not take: the parent's own key addresses its member seen or not (one refusal for hidden and non-deletable); a member's key addresses only a member the call sees (a hidden one is an empty slot, as for a clear). | The judged lookup's empty answer, where an empty slot and an untaken member first differ. | The lax spelling only: on HEAD a key-holding parent's `delete: true` on a member it may not delete nulls the key and returns ok; a member-held one is a silent no-op. The clear premise (`OperationContext.remove`) covers `set []` and the lax `disconnect`, not a delete. | `rbac-app-verbs.ts` W-W11 (`accessGrant.granteeTeam`) and W-W12 (`document.parent`), "expected 'ok' to be 'NestedWriteError'" on HEAD; `extension-verbs.core.test.ts` "a nested delete judged at the target's delete verb" (both slot kinds; "expected the operation to fail" on HEAD). |
+
+## Addendum — the produced row (RBAC plan M2, U6/K4, 2026-10-15)
+
+Plan `rbac-extension-plan.md` §4.4 (K4), R4, OD-13 (one statement), OD-14.
+Two guards added, one widened, none deleted. A refused produced row is not
+a guard of its own: it is the judgement the write's statement carries
+(`Queries.producedSource`, `Queries.producedWhere`), and its report is the
+statement's assertion (`assertions.holds`), attributed to the write.
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `src/extensions/admission.ts` `admitRows` · `known("place", …)`, `refuse(…, "names an unknown field")` and `known(…)` for `moves` (widened from the K3 row) | A `place` or `moves` entry names a predicate the model declares; a `moves` key is a field of the model. | `$extends`. | Without it a misspelt `place` or move silently judges nothing (an unjudged create, an unjudged move). | `extension-produced.core.test.ts` "a placement or a move names one of the model's predicates, and a move one of its fields". |
+| `src/extensions/admission.ts` `admitRows` · `refuse(…, "names no to-one relation of the model to itself holding its key")` | An `acyclic` relation is a to-one relation of its model to itself whose key the model holds. | `$extends`, where the relation's target is settled. | Without it a relation the walk cannot follow (a junction, another model's) is lowered as a cycle check that reads the wrong rows, or throws at the first write. | `extension-produced.core.test.ts` "an acyclic relation is a to-one relation of the model to itself that holds its key". |
+| `src/query-engine/raptor3/shared/operation-context.ts` `#insertStatement` · `throw new UnsupportedOperationError(…writes no field…)` | A judged create writes a value: a row of database defaults only has none to judge before it is written. | The INSERT's construction, where its columns are known. | Without it `INSERT … DEFAULT VALUES` carries no judgement: a placement on such a model would be bypassed (fail open). | `produced-row-behavior.ts` "a value only the database computes is judged where it is read: … a defaults-only create always". |
+| `src/query-engine/raptor3/shared/query.ts` `Queries.updateValue` · `throw new QueryEngineError(…before '…' executes…)` (reached from `producedWhere` where the judgement reads the field) | The new row of a judged update has a value for every field its judgement reads; a list append and an exact decimal's multiply or divide have none. | The UPDATE's construction. | Newly reached: without it the new row would be judged on its old value (fail open on `actions: { push: "export" }`). A field no judged predicate reads keeps its old value in the produced row, since no answer depends on it. | `produced-row-behavior.ts` "a value only the database computes is judged where it is read …" (QueryEngineError before any statement). |
+
+## Addendum — declared projection keys and read-gated fields (RBAC plan M2, U7/K5, 2026-10-15)
+
+Plan `rbac-extension-plan.md` §4.5 (K5), §3.3 D5/D6, OD-2, OD-5. Five guards
+added, none deleted. The `ValidationError` a `select` naming a read-gated
+field raises on a row without its gate (`GatedFieldRefusal`, OD-5) is not a
+guard: it is the field's one meaning when a caller named it, the decoder's
+answer after the statement. The two extra keys of a `rows.verbs` entry
+(`evidence`, `reads`) widen E3's `VERBS_KEYS` row, whose message now lists
+them; that row's guard is unchanged.
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `src/extensions/admission.ts` `admitRows` · `refuse(…, "evidence.as", "is not \`$\` and an identifier")` (`PROJECTION_KEY`) | A declared projection key is spelled `$` and an identifier: outside the schema identifier grammar (`schema/identifier.ts`) and the engine's carrier names, so it never hides a member of the model, whatever the schema later adds. | `$extends`, where the definition meets the receiving schema. | Without it a key spelled like a field (or `_count`) takes that member's place in every projection of the model and strips it from every `select` before admission. | `extension-evidence.core.test.ts` "admission refuses a key not spelled `$` …" (`evidence.as: "own"`). |
+| `src/extensions/admission.ts` `admitRows` · `known("evidence.names.<i>" \| "reads.<field>", …)` | Every name a key reports and every gate names a predicate the model declares. | `$extends`. | Without it a misspelt name binds `undefined` as its predicate: the key reports nothing true there, or a gated field is never present. | `extension-evidence.core.test.ts` "admission refuses …" (`evidence.names.0`, `reads.title`). |
+| `src/extensions/admission.ts` `admitRows` · `refuse(…, "reads.<field>", "names no scalar of the model" \| "names a key or foreign key")` | Only a scalar that is neither a key nor a foreign key is read-gated. | `$extends`: the model's keys are first known there. | A caller's operands read a gated field masked while identity, joins and relation filters read keys raw: a gated foreign key would answer through `include`/`some` what a scalar filter hides. Any extension may declare `reads`, so `viborm/rbac`'s own refusal (`compile.ts`, "a key or relation cannot be read-gated") covers its policies only; with this guard that one names no unique failure (needsOutside, U9). | `extension-evidence.core.test.ts` "admission refuses …" (`reads.id`, `reads.organizationId`, `reads.parent`, `reads.nothing`). |
+| `src/extensions/rows.ts` `modelVerbs` · `throw new ClientInitializationError(…is declared by two extensions of the chain)` | One projection key per model, one layer. | `$extends`, where the chain's layers are bound. | Without it the first layer's key answers and the second's is unreachable: its evidence never reported, silently. | `extension-evidence.core.test.ts` "two extensions of one chain declaring one key on one model are refused". |
+| `src/query-engine/raptor3/shared/projected.ts` `admitKey` · `throw new ValidationError(…, "<path>.<key>", …)` | A declared key's value is `true`, `false` or a non-empty list of the names its model declares. | Admission of the call: the shared `select` schema never sees the key. | Without it a value the schema never checked (a string, an unknown name) lowered as a list filter: `"yes"` reported nothing, `["owner"]` an empty document. | `extension-evidence.core.test.ts` "the key reports each name … an invalid value or an undeclared key is a ValidationError at its path"; `rbac-evidence-behavior.ts` W-EV3 (`["owner"]`). |
+
+## Addendum — the entry's unreachable calls; one read-gate refusal (RBAC plan M2 wave 4 integration, 2026-10-15)
+
+Plan `rbac-extension-plan.md` R9, OD-7 (ruled: `ForbiddenError`), §5.3; K5.
+One guard recorded (unit T's, widened to the `as` mode), one deleted
+(`viborm/rbac`'s read-gated key refusal, whose invariant K5's admission now
+owns for every extension, `viborm/rbac` included, since `verbsOf` hands
+`reads` to the rows member).
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `src/rbac/index.ts` `refuseUnreachable` · `throw new ForbiddenError(model, operation)` | R9: a root call false when the policy is applied (unlisted model, undeclared verb or `as` mode) is refused before any statement, with one class (OD-7). | The rows step's `query` handler, the only place that sees the entry's `as` control before a statement. | Without it the call issues statements and answers like a per-call fold. | `rbac-entry-behavior.ts` W-D2, W-D6 (`ValidationError` at HEAD for the mode: `scratchpad/rbac/t/t5-fail-before.log`). |
+| ~~`src/rbac/compile.ts` `compilePolicy` · `refuse(…, "a key or relation cannot be read-gated")`~~ (deleted) | Only a scalar that is neither a key nor a foreign key is read-gated. | `rbac(config)(base)`, the same application step as K5's admission. | None left: `verbsOf` now passes `reads` to the rows member, and `admitRows` refuses a relation (`names no scalar of the model`) and a key or foreign key (`names a key or foreign key`) with the same `ClientInitializationError` at the same step. | `rbac-entry-behavior.ts` "a read-gated key or foreign key is refused when the policy is applied (K5's admission)" (moved from `compile.core.test.ts`). |
+
+## Addendum — engine follow-ups of waves 3 and 4 (RBAC plan M2, E5, 2026-10-15)
+
+Plan `rbac-extension-plan.md` §8, §9.3; G4, G6. No guard added or deleted
+by E5.1 (allocation), E5.2 (shared relation bodies: which lowering a
+relation filter takes is a routing decision of the adapter's
+`sharesRelationBodies` fact, not a refusal), E5.3 (array parameters already
+lower per dialect; witnesses only) or E5.5 (the Docker PG harness). One
+classification narrowed, E5.6.
+
+**E5.6, the refusal of a judged write.** VibORM can put a caller-controlled
+failure into a judged statement: a caller's SQL fragment as a filter operand
+(`where: { views: { gte: sql\`1 / (SELECT 0)\` } }`) of a judged
+`update`/`updateMany`. A `divide` in `data` cannot (measured: a literal zero
+divisor is refused at admission, `nonzeroDivisor`; an exact decimal's zero
+divisor before any statement, `QueryEngineError`; `data` admits neither a
+field reference nor a fragment as a divisor). The judgement and the batch premises shared one
+failure (PostgreSQL 22012, SQLite "malformed JSON", MySQL 3141) and one
+marker (`__viborm_assert__`), so such a failure was reported as
+`ForbiddenError` (measured on SQLite3, its batch-only and no-RETURNING
+variants, Docker PostgreSQL and MySQL: `scratchpad/rbac/e5/e56-failbefore-*.log`).
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `src/drivers/error-mapping.ts` `recognizeProviderFailure` · `ASSERTION_FAILURE` where the statement carries `JUDGEMENT_MARKER` and `isRefusal(…)` (narrowed from the assertion row: a judged statement no longer carries `ASSERTION_MARKER`) | A judged write's failure is its refusal only when it is its judgement's own sentinel (`__viborm_refused__`: PostgreSQL 22P02 and SQLite name it, MySQL raises 3143, the invalid path it is); a premise's failure keeps its own marker and errors. | The driver's error normalization, the one place the provider's failure and the statement meet. | Without the narrowing a caller's division by zero or invalid JSON in a judged statement is reported as `ForbiddenError` (a refusal that did not happen) instead of the provider's `QueryError`. | `produced-row-behavior.ts` "a judged write that fails on its own is not refused: only its judgement's sentinel is a refusal (E5.6)" on S3 (three variants), PGlite, PostgreSQL, MySQL and D1; `error-mapping.core.test.ts` "a judged write's refusal is its sentinel's failure alone, on every dialect (E5.6)" (needsOutside). |
+
+Batch attribution is unchanged: `batchMayContainAssertionCollision` treats a
+statement carrying `JUDGEMENT_MARKER` as the assertion statement it was when
+it carried `ASSERTION_MARKER`, so a batch's conservative collision rule reads
+it as before.
+
+## Addendum — a cached read on a governed view (RBAC plan M2 exit, wave 5 integration, 2026-10-15)
+
+Plan `rbac-extension-plan.md` §5.3, §5.4, OD-10 (recommended, ruled by §11.1:
+refused unless `rbac({ cache: "allow" })`). One guard added. A control may be
+declared `uncacheable`; `viborm/rbac` declares its actor so unless its config
+says `cache: "allow"`.
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `src/client/client.ts` `#wrapOfficialCachedRead` · `throw uncacheableRead(…)` (`src/extensions/controls.ts`) | A read holding a value of an `uncacheable` control is never served from, nor stored in, the cache: `$withCache` on it fails with `ValidationError` at the control before any statement, whether the cache would serve it or a transaction or statement transform bypasses it. | The cached-read wrapper, the one place that knows a read is cached and sees its admitted controls (bound values included) before it executes. | Without it a governed read is keyed on `[args, controls, rows]` and served from the entry until its TTL: a grant revoked or a session expired since is not seen (T1 suspended), and the entry holds the bound actor. | `extension-controls.core.test.ts` "a read holding a value of an uncacheable control is refused before any statement…" and `rbac-entry-behavior.ts` W-C7 on S3, PGlite, PostgreSQL, MySQL and D1 (fail-before with the throw removed: `scratchpad/rbac/w5/failbefore/uncacheable-core.log`, `w-c7-s3-guard-removed.log`). |
+
+## Addendum — definitions refused before they widen (RBAC independent review, 2026-10-16)
+
+`rbac-extension-plan.md` §11.4, `rbac-extension-review-2026-10-16.md`. Each
+guard below refuses, when the policy is applied, a definition the compiler
+would otherwise read as judging less than it says. The types refuse the
+literal spellings too; the runtime guard's unique coverage is a policy built
+as data (a non-literal value, JavaScript, a spread whose excess keys the
+generic does not check), which the types cannot see.
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `src/rbac/compile.ts` `compilePolicy` · `refuse(… "is not a key of the policy" …)` | Every key of the policy is one the compiler reads | `rbac(config)(base)` | a misspelt `limit:` (`limits:`) drops the API-key limit silently | `compile.core.test.ts` "an unknown policy key…" (FDOCS-2) |
+| `src/rbac/compile.ts` `actionsOf` · the two `refuse` of a model key | A model key is a declaration key or an action: every one listed where the model lists `actions`; else not spelled like a declaration key or a level | the same | a typo of `within`, `create`, a level, or an unlisted key beside `actions`, became an action implying `view`, so its rule joined `view`'s (R2) and the misspelt conjunct vanished | "a declaration key or a level mistyped…" (FDOCS-1) |
+| `src/rbac/compile.ts` the `fields` loop · `refuse(… "a field entry takes only read and write")` | A `fields` entry holds only `read` and `write` | the same | `{ reed: "full" }` left the field ungated, `{ wirte: … }` writable at `update` | "…a field entry's unknown key…" (FDOCS-6) |
+| `src/rbac/helpers.ts` `keyLimit` · `refuse(… "the schema has no model" …)` | Every model `ids` names exists | the same (the limit lowers per model) | `ids: { pots: … }` dropped the row-id restriction silently | "…a keyLimit model the schema lacks…" (FDOCS-2) |
+| `src/rbac/helpers.ts` `member` · `refuse(… "is capped at" …)` | A declared cap is an action of the model the rule is on, or the top level | the same (the rule lowers per model) | a cap the model does not declare admitted the role at nothing, while a lower cap admitted it at `view` (not monotone in the levels) | "a declared ceiling at a level the model does not declare…" (Fprinciples-3) |
+| `src/extensions/admission.ts` `keyFields` (widened, no new site) | A read-gated field is no key, unique or foreign-key field | `$extends` | a unique constraint refuses a write of a guessed value exactly when a row holds it: the gate on a unique field was confirmed by any write | `rbac-entry-behavior.ts` "a read-gated key or foreign key is refused…" (FDOCS-4) |
+
+Not a guard either: `compile.ts`'s implication prover (`implies`,
+`provable`, `conjoin`) drops a conjunct, it refuses nothing. Its two
+defects are fixed in place (plan §11.4, D13): structural value equality
+(bigint, NaN, ±Infinity, dates) and an R6 safeguard that counts only actor
+values read outside every `$if` arm (Fprinciples-2, -6).
+
+Not a guard: an update that writes a field a tombstone manages takes the
+`delete` verb beside its own (`RowJudgement.marks`, `Commands.judge`,
+`verbInputs`). It is the verb's choice (R3), as a write's field takes its
+`writes` entry.
+
+## Addendum — the engine's review 2 fixes (RBAC second review, ENG-3, ENG-4, ENG-6, 2026-10-17)
+
+`rbac-extension-plan.md` §11.5; review 2's `confirmed.json`. No guard is
+added and no limit is invented. Each fix changes a representation, so the
+failure it repairs cannot be stated.
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `src/query-engine/raptor3/shared/query.ts` `hasAliasLikeNames` (unchanged; its coverage narrowed) | The renumbering in `sharedKey` never renames a physical name | the schema, once per schema | a table, column, junction or namespace named like an alias (`q98`, `prefix_q98_suffix`). Since ENG-4 it is the only guard on that renumbering: a caller's `Sql` operand is lowered as `CallerText` (`Queries.value`, `#scalarValue`), and `sharedKey` keeps its runs as written (`Sql.peekRuns`). So `'_q1_'` and `'_q2_'` are two bodies, and no caller text turns sharing off. | `shared-bodies-behavior.ts` "keeps alias-shaped text in a caller's SQL operand" on SQLite3 (both sharing settings) and PGlite: `[d1]` before, `[d1, d2]` after, on the base and the governed client. "preserves physical fields that resemble aliases" still pins the schema guard. |
+| `src/adapters/database-adapter.ts` `setOperations.typedRows` (not a guard) | A judged insert of any size the bind budget chunks is one statement per chunk, with the same judgement | the dialect | Not a guard: before it, the compound limit was reached first. SQLite's `SQLITE_MAX_COMPOUND_SELECT` (500) refused 500 rows. PostgreSQL's parser stack (`54001`) refused 8,000 rows, and PGlite refused 12,000. SQLite now reads one `VALUES` list after the typed head, which the compound limit does not count. PostgreSQL reads one `VALUES` list typed by its first row. MySQL keeps its arms (65,535 measured). | `produced-row-behavior.ts` "a judged createMany of any size…" on SQLite3 (three substrates), PGlite, Docker PostgreSQL, MySQL and D1. It fails before on SQLite3, PGlite and PG (`fix-engine/eng3-before-*.log`). |
+| `src/query-engine/raptor3/shared/operation-context.ts` `createMany` · each chunk's `probe` (not a guard) | A batch that rolls back on one chunk's refusal reports that refusal | the batch's settlement (`submit`) | Not a guard: it names which judged write refused, as a lone create already does. Without it, a judged createMany of two or more chunks on a batch-only driver reported `NestedWriteError` for a refused row. On D1 that is any createMany over the 100-bind budget. | the same test on D1 and SQLite3 batch-only: `NestedWriteError` with the probe removed (`fix-engine/eng3-before-d1-probe.log`) |
+| `src/adapters/databases/sqlite/sqlite-adapter.ts` `subqueries.isolated` under `deepExpressions: false` (not a guard) | A relation filter nested to admission's 15 levels compiles under D1's expression depth (100), whatever the target's row domain | the dialect, and the engine where a filter goes on below a level (`readsRelation`) | Not a guard: the level's domain is moved to a branch of its own, so its height is paid once. Before, it was paid at every level: 10 per level for the three-arm policy, refused at 9. Now it costs 5 per level, 94 at 15. | `d1-rbac-nesting-depth.test.ts`: depths 9 to 15 refused with the isolation removed (`fix-engine/eng6-before-d1.log`) |

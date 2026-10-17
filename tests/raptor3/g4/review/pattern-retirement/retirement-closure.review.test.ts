@@ -197,10 +197,12 @@ describe("D-15 type anchor: the relocated shape is the base's shape", () => {
   it("keeps every failure the deleted declaration had, and extends through the existing failure taxonomy", () => {
     expectTypeOf<BaseFailure>().toMatchTypeOf<PreparedBatchGuard["failure"]>();
     // Extension capabilities U3 repair: a tombstoning delete's referential
-    // premise, packaged into an array member, is rebuilt as `ForeignKeyError`.
+    // premise, packaged into an array member, is rebuilt as `ForeignKeyError`;
+    // Permissions K4: a refused produced row at the root is rebuilt as
+    // `ForbiddenError`.
     expectTypeOf<
       Exclude<PreparedBatchGuard["failure"]["kind"], BaseFailure["kind"]>
-    >().toEqualTypeOf<"foreignKey">();
+    >().toEqualTypeOf<"foreignKey" | "forbidden">();
     expectTypeOf<Omit<PreparedBatchGuard["failure"], "kind">>().toEqualTypeOf<
       Omit<BaseFailure, "kind">
     >();

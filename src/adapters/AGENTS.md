@@ -63,7 +63,8 @@ Without adapters, we'd have `if (postgres) ... else if (mysql) ...` scattered ev
 | `aggregates` | count, sum, avg, min, max | Aggregate queries |
 | `orderBy` | asc, desc, nullsFirst, nullsLast | Sorting |
 | `clauses` | select, where, orderBy, limit | Query structure |
-| `subqueries` | scalar, correlate, existsCheck | Relation filters |
+| `subqueries` | scalar, correlate, existsCheck, isolated | Relation filters (SQLite: a derived table where the driver declares `deepExpressions: false`, which also nests a conjunction of many members as a balanced tree and isolates a nesting level's row domain; `isolated` is the identity elsewhere) |
+| `setOperations` | union, unionAll, intersect, except, typedRows | `typedRows`: the rows a judged write produces, typed by the table. One `UNION ALL SELECT` arm per row by default (MySQL); a `VALUES` list after the typed head on SQLite (`SQLITE_MAX_COMPOUND_SELECT`, 500, does not count it); a `VALUES` list typed by its first row on PostgreSQL (each `UNION ALL` arm is one parser recursion: `54001` at 8,000 rows). The bind budget is a chunk's only bound |
 | `mutations` | insert, update, delete, returning | Write operations |
 
 ---
@@ -208,6 +209,20 @@ may only be conservative index prefilters before exact public semantics.
 | NULLS FIRST/LAST | ✅ | ❌ | ❌ | Emulate with `(col IS NULL)` sort key |
 
 **Important:** When PostgreSQL has a feature others lack, the adapter must either emulate it or the capability check must prevent its use.
+
+`capabilities.sharesRelationBodies` is a transport fact, never a dialect
+one: declared by D1 (`SQLiteAdapter({ sharedRelationBodies: true })`) and by
+every PostgreSQL driver by default (`installPostgresAdapter`;
+`sharedRelationBodies: false` keeps the bodies inline), absent on SQLite3,
+libSQL, Bun SQLite and MySQL. The engine then states each relation body a
+statement repeats once, through `cte.with`.
+
+`assertions.holds` (a write's judgement of the row it produces) fails with its
+own sentinel, under the `__viborm_judged__` alias: PostgreSQL a text sublink
+cast to `integer` (22P02 naming `__viborm_refused__`), SQLite a JSON path
+naming it, MySQL an invalid JSON path (3143). `exists`/`notExists` (a batch's
+premises) keep `__viborm_assert__` and their division by zero or invalid JSON
+text; `src/drivers/error-mapping.ts` tells the two apart.
 
 ---
 

@@ -4,6 +4,7 @@ import {
   idMemberDomainOfState,
 } from "@schema/scalars/string/id-domain";
 import { type IdDomain, isCompactIdFormat } from "../primitives/id-codec";
+import { valueNodeOr } from "../primitives/parameter";
 import v, { type V } from "../primitives/v";
 import {
   buildSetUpdate,
@@ -154,8 +155,8 @@ const buildStringFilterSchema = <S extends V.Schema, C extends V.Operand<any>>(
     lte: operand,
     gt: operand,
     gte: operand,
-    in: members,
-    notIn: members,
+    in: valueNodeOr(members),
+    notIn: valueNodeOr(members),
   });
   return buildNegatableFilterSchema<
     StringOperand<S, C>,
@@ -177,8 +178,8 @@ const buildCompactIdFilterSchema = <
     lte: operand,
     gt: operand,
     gte: operand,
-    in: members,
-    notIn: members,
+    in: valueNodeOr(members),
+    notIn: valueNodeOr(members),
   });
   return buildNegatableFilterSchema<
     StringOperand<S, C>,

@@ -2,11 +2,13 @@ import type { AnyModel } from "@schema/model";
 import type { ClearableMembership } from "@schema/relation/clearability";
 import type { ResolvedJunctionSide } from "@schema/relation/junction-topology";
 import type { PolymorphicStorageColumn } from "@schema/relation/polymorphic";
+import type { RelationSlot } from "@schema/relation/types";
 import type { Scalar } from "@schema/scalars/base";
 import type {
   ResolvedSlot,
   ResolvedStoredReference,
 } from "@schema/validation/relation-resolution";
+import type { RowJudgement } from "./row-scope";
 import type { EngineSchema } from "./schema";
 
 export type Membership = {
@@ -44,6 +46,32 @@ export type PhysicalField = {
    */
   readonly reference?: PolymorphicStorageColumn["reference"];
 };
+
+/**
+ * What the row a link through `edge` reaches is judged at when the link
+ * changes on it (R3): the key fields it holds and its own side of the
+ * relation, so a join judges both endpoints, the source by its own data.
+ * `undefined` where the source holds the key: the target's row does not
+ * change, and is only read.
+ */
+export function linkJudgement(edge: Membership): RowJudgement | undefined {
+  if (edge.kind === "reference" && edge.owner === "source") return undefined;
+  const resolved = edge.scope.edge;
+  const writes =
+    edge.kind === "reference" && resolved.kind === "foreignKey"
+      ? edge.pairs.map((pair) => pair.target)
+      : [];
+  const own = (slot: RelationSlot) =>
+    slot.source === edge.source && slot.field === edge.name;
+  const inverse =
+    resolved.kind === "foreignKey" || resolved.kind === "junction"
+      ? resolved.endpoints.find((end) => !own(end))
+      : own(resolved.carrier)
+        ? edge.scope.member?.inverse
+        : resolved.carrier;
+  if (inverse) writes.push(inverse.field);
+  return { verb: "update", writes };
+}
 
 /** Orient the already resolved storage once; no declaration getter or inverse search. */
 export function bindMembership(

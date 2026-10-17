@@ -28,7 +28,7 @@ export {
 } from "../query-engine/pending-operation";
 export type { IndexDefinition, IndexOptions } from "../schema/model";
 export type { ObjectSchema, VibSchema } from "../validation";
-export type { ExtendedClient } from "./client";
+export type { ClientTypeState, ExtendedClient } from "./client";
 export { defaultOmit } from "./default-omit-extension";
 export type { RawOperation } from "./raw";
 // Result types

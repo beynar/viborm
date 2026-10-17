@@ -25,6 +25,7 @@ import {
   ConnectionError,
   classifyFailure,
   FeatureNotSupportedError,
+  ForbiddenError,
   ForeignKeyError,
   InvalidTransactionInputError,
   isRetryableError,
@@ -153,6 +154,12 @@ const CENSUS: Array<{
   {
     label: "NotFoundError",
     error: new NotFoundError("user", "findUniqueOrThrow"),
+    kind: "failure",
+    retryable: false,
+  },
+  {
+    label: "ForbiddenError",
+    error: new ForbiddenError("page", "create"),
     kind: "failure",
     retryable: false,
   },

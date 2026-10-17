@@ -46,6 +46,34 @@ afterEach(async () => {
 });
 
 describe("client extension foundation", () => {
+  it("applies a client-aware factory to the exact receiving view", () => {
+    const base = baseClient();
+    const prior = base.$extends({
+      name: "prior",
+      client: () => ({ $tag: () => "prior" }),
+    });
+    let calls = 0;
+    const derived = prior.$extends((client) => {
+      calls++;
+      expect(client).toBe(prior);
+      expect(client.$tag()).toBe("prior");
+      return client.$extends({
+        name: "factory",
+        client: () => ({ $answer: () => 42 }),
+      });
+    });
+    expect(calls).toBe(1);
+    expect(derived.$answer()).toBe(42);
+    expect(derived.$tag()).toBe("prior");
+    expect(Reflect.get(base, "$answer")).toBeUndefined();
+    const failure = new Error("factory failed");
+    expect(() =>
+      prior.$extends(() => {
+        throw failure;
+      })
+    ).toThrow(failure);
+  });
+
   it("precompiles one exact application-ordered request and query lookup", () => {
     const requestA = () => ({});
     const requestB = () => ({});
@@ -528,6 +556,9 @@ describe("client extension foundation", () => {
     expect(withMethods.observe).toBe(withHandlers.observe);
   });
 
+  // A root view `$extends` returns runs every factory at once, where an
+  // extension's faults belong; a transaction view runs each on first use of
+  // what it returns, so a view costs the factories it uses (Permissions plan K6(d)).
   it("runs factories once for each concrete root and transaction view", async () => {
     const base = baseClient();
     let clientRuns = 0;
@@ -559,14 +590,15 @@ describe("client extension foundation", () => {
     expect(derived.$activeScope()).toBe(derived.item.activeScope());
 
     await derived.$transaction(async (tx) => {
-      expect([clientRuns, modelRuns]).toEqual([2, 2]);
+      expect([clientRuns, modelRuns]).toEqual([1, 1]);
       expect(tx.$activeScope()).toBe(tx.item.activeScope());
+      expect([clientRuns, modelRuns]).toEqual([2, 2]);
       await expect(
         tx.$transaction([tx.$capturedRoot()])
       ).rejects.toBeInstanceOf(PendingOperationError);
       await tx.$transaction(async (nested) => {
-        expect([clientRuns, modelRuns]).toEqual([3, 3]);
         expect(nested.$activeScope()).toBe(nested.item.activeScope());
+        expect([clientRuns, modelRuns]).toEqual([3, 3]);
       });
     });
   });

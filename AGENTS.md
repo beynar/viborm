@@ -251,27 +251,35 @@ non-raw statements retain their shallow parameter-copy path because typed input
 was validated upstream and statement transforms are trusted.
 
 Generic extension ownership is exact: `src/extensions/definition.ts` owns the
-public envelope and hostile-definition boundary. `controls`, `rows`, `deletion`
-and `data` are trusted definitions: bound as written, neither copied nor
-checked against the receiving schema (only a call's values are admitted);
+public envelope and hostile-definition boundary. `controls`, `deletion` and
+`data` are trusted definitions bound as written, their model and field names
+checked against the receiving schema; each `rows` predicate is admitted once,
+when it is applied, through its model's `where` schema (`admission.ts`: the
+values a call supplies become parameters, a `recurse` writes its depth, a
+caller's nesting bound does not apply), and a call's values are read when its
+statement is built;
 `chain.ts` owns the one resolved chain,
-handler lookup, the chain's one control name space and placed controls, one
-`deletion` entry per model, and the order guard (`rows` after a result consumer
-is refused); `controls.ts` owns control placement, the call's one admission
-(taken out of the arguments before request transforms, validated once, handed
-only to the declaring extension's handlers) and the control types the model
+handler lookup, the chain's one control name space (one declaration per
+control name; a definition's references to an earlier extension's controls)
+and placed controls, one `deletion` entry per model, and the order guard
+(`rows` after a result consumer is refused); `controls.ts` owns control
+placement, the call's one admission (taken out of the arguments before
+request transforms, validated once, handed only to the declaring extension's
+handlers; `bound` controls only from a view's `$bind`) and the control types the model
 delegate reads from the extension state, beside the models a chain's `rows`
 name, from which `src/client/result-types.ts` types a to-one relation that
 can read hidden as `| null`; `rows.ts` binds, once per
 application, each mode combination's row domains, tombstones and the row
 identity a cached read is keyed on, so a call only looks its facts up;
-`methods.ts` owns client/model factories and collisions; `request.ts`,
+`methods.ts` owns client/model factories (lazy per view, eager on the
+client `$extends` returns) and collisions; `request.ts`,
 `query.ts`, `statement.ts`, and `observation.ts` each own their capability
 contract and single runner; `array-admission.ts` owns only the extension
 admission latch; and `index.ts` is the intentional surface. The pending
 operation owns the admission record; Raptor 3 receives only the resolved call
-facts (`shared/row-scope.ts`: domains by purpose, tombstones, one instant) and
-never a control, mode or extension name (see `src/query-engine/raptor3/AGENTS.md`,
+facts (`shared/row-scope.ts`: domains by purpose, tombstones, one instant, and
+the call's values its domains' parameters read by control name) and never a
+mode or an extension name (see `src/query-engine/raptor3/AGENTS.md`,
 row domains and tombstones). Core
 array dispatch and the lifecycle facts known only by client, query-engine,
 executor, cache, and driver composition roots remain with those roots.
@@ -290,9 +298,60 @@ through the public capabilities is a capability to add, not a friend import.
 The cache's mutation `cache` argument is a declared control on writes.
 Cached values are detached/fresh and custom keys are canonical-key suffixes;
 cached reads bypass callback/array transactions, raw calls, and statement-
-transform chains. Omit is presentation, not authorization. The extension
-foundation ships no RBAC helper; complete policy still needs graph-wide
-semantic ownership.
+transform chains. Omit is presentation, not authorization. A `rows`
+predicate may traverse relations: inside its own traversals every other
+layer reads at its default and never its own (`PreparedDomain.defaults`, the
+`Queries` exclusion stack), so no per-call mode widens what it reads.
+`viborm/permissions` (`src/permissions/`) is the official authorization entry, built like
+soft delete from public exports only: `base.$extends(permissions(config))` compiles one
+predicate per (model, action) against `base`'s schema and applies a rows step
+(a bound-only, required `actor`; the `as` mode; every model's `verbs`; a
+generic `query` handler refusing a root call false when applied; and `$as`,
+which lives with the control it binds) and then a methods step
+(`can`/`assert`). Core names nothing of it. Its only runtime export is `permissions`;
+applications own field names, membership, grant, credential and role conventions through explicit
+predicates. `src/permissions/rules.ts` owns `Rule`, `Where` and rule functions' readonly
+model `name` and `actions` metadata; no graph traversal or domain helper API is
+shipped. CRUD permissions are `create`, `read`, `update` and `delete`;
+`operations` remaps read/update/delete only. Creation uses `create` independently
+of update and evaluates the proposed row. The default graph makes update
+and delete imply read; create implies nothing; custom graphs and levels add
+implications.
+A rule's `true` grants; a directly declared literal `false` blocks inherited
+grants, while a callback returning `false` or an omitted rule supplies no direct
+grant. Global and model `mandatory` are action-independent predicates;
+the retired top-level `limit` is refused. Inherited rules and their nested
+callbacks evaluate the declaring action and reuse that predicate unchanged;
+grouped declarations evaluate separately per action. `$as(actor, scopes?)` binds
+optional exact `model.permission` credential scopes. Omission adds no credential
+restriction; an empty list denies all; supplied scopes follow the same action
+graph and intersect model grants, mandatory restrictions and field protections.
+Scopes never override `false`. Service identities use the application's actor
+schema and need explicit model grants; the server authenticates their keys.
+`$access` always returns an action-keyed boolean map, including inside each
+polymorphic variant. Variant projection admission preserves both evidence keys
+and explicitly selected gated fields, with the same refusal as an ordinary
+relation; default selection omits unreadable fields. The retired `arms`
+and `within` keys are refused rather than admitted as implicit actions.
+Comma-separated rule keys assign one rule to individual actions, with surrounding
+ASCII whitespace ignored. `compile.ts` resolves the graph, rule bindings and
+evidence together; overlapping assignments, empty members and grouped reserved
+keys are refused. Levels, graph edges and call sites still name single actions.
+`$as` rejects missing required actor fields at binding. A missing optional
+actor dependency disables its positive OR alternative, or its declared grant
+when there is no enclosing positive OR. Other alternatives and inherited grants
+remain available. Automatic guards traverse AND and positive relation bodies,
+never NOT/none/isNot/every or named predicate boundaries; authored dependencies
+remain authoritative under negation. Explicit `$if` guards fold first.
+Missing dependencies in global or model `mandatory` still deny the complete
+permission. Generic `rows` R6 semantics are unchanged: Permissions expresses
+grant availability through the existing public conditions.
+Predicate simplification preserves row truth and conditional actor dependency
+checks. Conditional read summaries include AND-false and OR-true folding and
+distinguish scalar from whole-list parameters. Unproved or unsupported shapes
+remain unchanged.
+`tests/package/permissions-consumer-smoke.mjs` runs §1.1 and the blog from the
+packed package.
 
 `cache()` produces a namespace-free DEFINITION; the client composition root
 binds it to the concrete driver, deriving one scope from the private snapshot
@@ -657,7 +716,7 @@ issues, and `SchemaRegistry` translates thrown external-validator failures.
 # npx tsx node_modules/.bin/viborm push. Plain Node is not that loader.
 pnpm build               # Complete typecheck, one native program; compiles nothing
 pnpm package:build       # tsdown - actual package build (dist output)
-pnpm test:types          # COMPLETE typecheck: every file the root tsconfig intends, one native TS 7 program, ~6s
+pnpm test:types          # COMPLETE typecheck: every file the root tsconfig intends, one native TS 7 program
 pnpm test                # test:types then test:core - the trusted gate, budgeted under five minutes
 pnpm test:core           # All core runtime projects
 pnpm test:all            # Core, extended-local, local providers, optional Bun, local D1, and package checks
@@ -691,17 +750,18 @@ pnpm test:providers      # Docker and hosted projects only; missing environment 
 pnpm test:watch          # Core projects only
 pnpm test:ui             # Core projects in the Vitest UI
 
-# Fast layer feedback: 14 commands, one per `layer-*` project in
-# vitest.workspace.ts. That is the 13-entry architectural taxonomy in
-# tests/contracts/contract.ts plus a second engine command, because the
-# query-engine runtime core is split into a read half and a write half.
+# Fast layer feedback: one command per `layer-*` project in
+# vitest.workspace.ts. Projects follow the architectural taxonomy in
+# tests/contracts/contract.ts, with two engine commands because the runtime
+# core is split into a read half and a write half.
 # Each runs its runtime sentinels, then its compile-only probes, inside a single
 # 30 second wall budget covering both stages - except test:layer:client, which
-# holds an explicit 45 second exception. Client is the only layer whose
-# compile-only estate needs three separate tsc programs to stay inside the
-# 1280 MB shard heap, and three tsc startups plus its runtime stage do not fit in
-# 30 seconds; scripts/run-layer-core.mjs records the measurement. The exception
-# buys WALL time only: the 768 / 1280 / 1536 MiB memory contract is untouched.
+# holds an explicit 45 second exception. Type probes use the same native
+# TypeScript compiler as test:types, single-threaded with a 1200 MiB Go GC
+# target inside the unchanged 1536 MiB process-group RSS ceiling. Client keeps
+# its source-size shards and wall exception; scripts/run-layer-core.mjs records
+# why they were introduced. Runtime tests retain their 768 MiB Node heap.
+# Package consumer checks separately retain TypeScript 5.9, 6 and 7 coverage.
 # test:layer:write-engine has no type stage of its own and prints that it was
 # skipped: the write engine's compile-only probes live in the query-engine type
 # core, so tests/types/write-engine/ deliberately does not exist.
@@ -719,6 +779,7 @@ pnpm test:layer:client   # 45 seconds; every other layer has 30
 pnpm test:layer:cache
 pnpm test:layer:instrumentation
 pnpm test:layer:migrations
+pnpm test:layer:permissions
 
 # Operation-pipeline performance evidence
 pnpm bench:operation-pipeline
@@ -730,6 +791,8 @@ pnpm bench:operation-pipeline:diagnostic # Fast directional tuning only; never k
 # with a 768 MB heap. Coverage orchestration and report merging also use a 768 MB
 # Node heap. Complete TypeScript checking is ONE program over the root tsconfig
 # under the native TypeScript 7 compiler (scripts/run-typecheck.mjs), not shards.
+# Its Go collection target is 6 GiB, leaving room for the complete linked
+# graph. The 300 s and 8192 MiB detectors remain unchanged.
 # Every child process group has a 1536 MiB sampled RSS ceiling, with exactly TWO
 # allowlisted departures: 2560 MiB for an isolated live-PGlite provider stage,
 # and 8192 MiB for that whole-estate native typecheck (measured 5342 MiB).

@@ -11,6 +11,7 @@ import {
   validateSchema,
 } from "../primitives/helpers";
 import type { ObjectEntries, ObjectSchema } from "../primitives/object";
+import { valueNodeOr } from "../primitives/parameter";
 import v, { type V } from "../primitives/v";
 import type { InferInput, InferOutput, VibSchema } from "../types";
 import { isRecord } from "../value-guards";
@@ -541,8 +542,8 @@ const buildDecimalFilterSchema = <S extends V.Schema>(
   return buildNegatableFilterSchema(
     v.object({
       equals: operand,
-      in: list(),
-      notIn: list(),
+      in: valueNodeOr(list()),
+      notIn: valueNodeOr(list()),
       lt: decimalComparisonOperand(member()),
       lte: decimalComparisonOperand(member()),
       gt: decimalComparisonOperand(member()),

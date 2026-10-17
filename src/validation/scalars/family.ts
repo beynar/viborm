@@ -1,6 +1,7 @@
 import type { ScalarState, ScalarType } from "@schema/scalars/common";
 import { lazyScalarSchemas, type ScalarVariantSchemas } from "../lazy";
 import { createSchema, fail, ok, validateSchema } from "../primitives/helpers";
+import { valueNodeOr } from "../primitives/parameter";
 import type { UnionSchema } from "../primitives/union";
 import v, { type V } from "../primitives/v";
 import { createScalarInterner, scalarInternKey } from "./intern";
@@ -121,8 +122,8 @@ export const comparisonFilterFamily = <
   // filters this kind never constructs it.
   const createBase = () =>
     v.object({
-      in: list(),
-      notIn: list(),
+      in: valueNodeOr(list()),
+      notIn: valueNodeOr(list()),
       lt: v.comparisonOperand(kind, member()),
       lte: v.comparisonOperand(kind, member()),
       gt: v.comparisonOperand(kind, member()),
@@ -153,16 +154,16 @@ export const listFilterFamily = <M extends V.Schema, L extends V.Schema>(
 ) => {
   const createBase = () =>
     v.object({
-      has: member(),
-      hasEvery: list(),
-      hasSome: list(),
+      has: valueNodeOr(member()),
+      hasEvery: valueNodeOr(list()),
+      hasSome: valueNodeOr(list()),
       isEmpty: v.boolean(),
     });
   let base: ReturnType<typeof createBase> | undefined;
   return <S extends V.Schema>(schema: S): ListFilterSchema<S, M, L> => {
     base ??= createBase();
     return buildNegatableFilterSchema<S, ListFilterBase<S, M, L>>(
-      base.extend({ equals: schema }),
+      base.extend({ equals: valueNodeOr(schema) }),
       schema
     );
   };

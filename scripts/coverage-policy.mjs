@@ -43,6 +43,9 @@ export const extensionCoverageTests = Object.freeze([
   "tests/contracts/public-client/official-cache-extension.core.test.ts",
   "tests/contracts/public-client/official-instrumentation-extension.core.test.ts",
   "tests/contracts/public-client/soft-delete.core.test.ts",
+  "tests/contracts/public-client/extension-bound-views.core.test.ts",
+  "tests/contracts/public-client/extension-composition.core.test.ts",
+  "tests/contracts/public-client/extension-evidence.core.test.ts",
   "tests/contracts/engine/query/operation-program-read-contracts.core.test.ts",
   "tests/contracts/engine/query/pending-operation-contracts.core.test.ts",
   "tests/contracts/public-client/extensions/array-admission.core.test.ts",
@@ -55,6 +58,13 @@ export const extensionCoverageTests = Object.freeze([
   "tests/contracts/drivers/protected-observers.core.test.ts",
   "tests/unit/instrumentation/official-observer-provider-failures.core.test.ts",
   "tests/unit/instrumentation/official-observer.core.test.ts",
+  "tests/unit/permissions/actor.core.test.ts",
+  "tests/unit/permissions/compile.core.test.ts",
+  "tests/providers/local/sqlite3-permissions-compiled-policy.test.ts",
+  "tests/providers/local/sqlite3-permissions-entry.test.ts",
+  "tests/providers/local/sqlite3-permissions-extends.test.ts",
+  "tests/providers/local/sqlite3-permissions-quantifiers.test.ts",
+  "tests/contracts/public-client/extension-produced.core.test.ts",
 ]);
 const definitions = [
   {
@@ -106,12 +116,23 @@ const definitions = [
     id: "extensions",
     label: "extensions",
     target: 100,
-    root: "src/extensions/",
-    // The official soft-delete extension: a definition over the capabilities
-    // this subsystem owns, measured by the same lane.
-    files: new Set(["src/soft-delete/index.ts"]),
+    // The official soft-delete and permissions extensions: definitions over the
+    // capabilities this subsystem owns, measured by the same lane. They own
+    // their directories, so a file the permissions entry gains is measured at 100%
+    // from its first line instead of failing the ownership audit unowned.
+    roots: ["src/extensions/", "src/permissions/", "src/soft-delete/"],
     projects: ["coverage-extensions"],
     tests: extensionCoverageTests,
+    // The complete Permissions oracle sweeps need their own bounded process each.
+    // Keep every test and merge the parts under the unchanged 100% gate.
+    testGroups: [
+      extensionCoverageTests.filter(
+        (test) => !test.startsWith("tests/providers/")
+      ),
+      ...extensionCoverageTests
+        .filter((test) => test.startsWith("tests/providers/"))
+        .map((test) => [test]),
+    ],
   },
   {
     id: "errors",
@@ -158,11 +179,15 @@ const definitions = [
     // `result-row-parser.ts`, deleted by D-15, and the write floors named 18
     // `write-engine/` files, of which zero remain. Since C-01 the whole
     // `raptor3/` route is in this scope, and its own deterministic test tree
-    // (`coverage-raptor3`, the fourth part below) is what measures it — the
+    // (`coverage-raptor3` and `coverage-raptor3-rest`, two halves of one list
+    // below) is what measures it — the
     // seeded campaigns and the structural measurements stay with the mode
     // runner. Measured 2026-09-19 over the four parts: statements 87.38,
     // branches 91.1, functions 90.48, lines 87.38; the floors are those
-    // numbers rounded DOWN to the half-point, a true ratchet.
+    // numbers rounded DOWN to the half-point, a true ratchet. The last part,
+    // `coverage-query-engine-extensions`, measures the engine branches only
+    // the extension language reaches (produced rows, evidence, shared relation
+    // bodies): measured 2026-10-15 with it, 94.12 / 94.16 / 95.61 / 94.12.
     target: 98,
     metricTargets: {
       statements: 87,
@@ -176,6 +201,8 @@ const definitions = [
       "coverage-write-engine-core",
       "coverage-write-engine",
       "coverage-raptor3",
+      "coverage-raptor3-rest",
+      "coverage-query-engine-extensions",
     ],
   },
   {
@@ -303,9 +330,11 @@ export function sourceFiles() {
 
 function owns(definition, source) {
   if (definition.files?.has(source)) return true;
-  return Boolean(
-    definition.root &&
-      source.startsWith(definition.root) &&
+  const roots = definition.roots ?? [definition.root];
+  return roots.some(
+    (root) =>
+      root &&
+      source.startsWith(root) &&
       !(definition.exceptRoot && source.startsWith(definition.exceptRoot))
   );
 }

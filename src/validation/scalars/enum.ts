@@ -1,6 +1,7 @@
 import type { ScalarState } from "@schema/scalars/common";
 import type { EnumSchema, EnumValues } from "@validation/primitives/enum";
 import { lazyScalarSchemas } from "../lazy";
+import { valueNodeOr } from "../primitives/parameter";
 import v, { type V } from "../primitives/v";
 import {
   buildSetUpdate,
@@ -102,8 +103,8 @@ const buildEnumFilterSchema = <
   const operand = v.comparisonOperand("enum", schema);
   const filter = v.object({
     equals: operand,
-    in: list,
-    notIn: list,
+    in: valueNodeOr(list),
+    notIn: valueNodeOr(list),
     lt: orderedEnumRefusal("lt"),
     lte: orderedEnumRefusal("lte"),
     gt: orderedEnumRefusal("gt"),

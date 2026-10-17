@@ -14,7 +14,12 @@ import {
   returningSafeProjection,
   type SelectorFacts,
 } from "../shared/query";
-import type { ModelStamps, RowPurpose } from "../shared/row-scope";
+import {
+  type ModelStamps,
+  Parameter,
+  type RowJudgement,
+  type RowPurpose,
+} from "../shared/row-scope";
 import { type Arguments, entries, type Input, record } from "../shared/schema";
 import { type Membership, physicalField } from "../shared/storage";
 import {
@@ -277,6 +282,12 @@ export interface MembershipMutation {
   readonly kind: "membership";
 }
 export type Placement = "root" | "before" | "capture" | "after";
+
+/** A delete's candidates take their model's delete predicate (R3). */
+export const DELETE_JUDGEMENT: RowJudgement = Object.freeze({
+  verb: "delete",
+  writes: Object.freeze([]),
+});
 export interface CommandOccurrence<C extends Command = Command> {
   readonly kind: "occurrence";
   readonly command: C;
@@ -500,9 +511,11 @@ export class Commands {
         written.add(foreignField);
     }
     const kept: Input = {};
-    for (const field of Object.keys(stamp))
+    for (const [field, value] of Object.entries(stamp))
       if (raw[field] === undefined && !written.has(field))
-        kept[field] = stamp[field];
+        // `{ now: true }` writes the call's one instant (R7).
+        kept[field] =
+          value instanceof Parameter ? this.context.scope!.instant() : value;
     // A create's stamps are admitted as a create admits them: a field only a
     // create takes (an insert-only timestamp) is no update field.
     const values =
@@ -512,18 +525,90 @@ export class Commands {
     return this.context.schema.scalars(model, { ...admitted, ...values });
   }
   /**
+   * What an update occurrence of `model` is judged at (R3): the fields the
+   * caller's data writes on this row (`raw`, as the chain's request transforms
+   * leave it, before any stamp or generated value), none where it emits an
+   * UPDATE of stamps and generated values only. `undefined` where it emits no
+   * UPDATE, an upsert's empty arm or a row only addressed to reach its
+   * children, so it is only read; and where the call's domain judges `model`
+   * by no verb. A scalar is written by name; a relation whose key this row
+   * holds, with its key fields, by every verb but `update`; a join by every
+   * verb but `update` and `updateMany`, since each changes this row's link
+   * rows. A relation whose key the other row holds writes nothing here: its
+   * rows are judged themselves.
+   */
+  judge(
+    model: AnyModel,
+    admitted: Input,
+    raw: Input,
+    operation: "update" | "upsert" = "update"
+  ): RowJudgement | undefined {
+    const name = model["~"].names.ts!;
+    const rows = this.context.scope?.rows;
+    if (!rows?.domain.verbs?.has(name)) return undefined;
+    const writes: string[] = [];
+    const slots = this.context.schema.index.get(model)!;
+    for (const [field, value] of Object.entries(raw)) {
+      if (value === undefined) continue;
+      const edge = slots.get(field)?.edge;
+      if (edge === undefined) {
+        writes.push(field);
+        continue;
+      }
+      const verbs = Object.keys(record(value));
+      if (edge.kind === "junction" || edge.kind === "variantJunctionCarrier") {
+        if (verbs.some((verb) => verb !== "update" && verb !== "updateMany"))
+          writes.push(field);
+      } else if (verbs.some((verb) => verb !== "update")) {
+        const holder = edge.kind === "foreignKey" ? edge.owner : edge.carrier;
+        if (holder.source !== model || holder.field !== field) continue;
+        writes.push(field);
+        if (edge.kind === "foreignKey")
+          for (const { foreignField } of edge.reference.members)
+            writes.push(foreignField);
+      }
+    }
+    if (writes.length > 0) {
+      const tombstone = rows.tombstones?.get(name);
+      const marks =
+        tombstone !== undefined &&
+        writes.some(
+          (field) =>
+            field === tombstone.at || Object.hasOwn(tombstone.assign, field)
+        );
+      return marks
+        ? { verb: "update", writes, marks: true }
+        : { verb: "update", writes };
+    }
+    const stamped =
+      Object.keys(rows.stamps?.get(name)?.update ?? {}).length > 0 ||
+      model["~"].scalarFieldNames.some(
+        (field) => admitted[field] !== undefined
+      );
+    return stamped && (operation === "update" || Object.keys(raw).length > 0)
+      ? { verb: "update", writes }
+      : undefined;
+  }
+  /**
    * A write's candidates: the caller's selector AND the call's domain for
-   * `purpose`, AND, for a tombstone, the model's default domain — once when the
-   * call's controls select the default. The selector's unique key is kept.
+   * `purpose` under the write's `judgement`, AND, for a tombstone, the model's
+   * default domain — once when the call's controls select the default. The
+   * selector's unique key is kept.
    */
   candidates(
     selector: PreparedSelector,
     purpose: RowPurpose,
-    tombstone: boolean
+    tombstone: boolean,
+    judgement?: RowJudgement
   ): PreparedSelector {
     const scope = this.context.scope;
     const queries = this.context.queries;
-    const candidates = queries.candidates(selector, purpose);
+    const candidates = queries.candidates(
+      selector,
+      purpose,
+      undefined,
+      judgement
+    );
     return tombstone && scope && scope.defaults !== scope.domain
       ? queries.candidates(candidates, purpose, scope.defaults)
       : candidates;
@@ -1636,6 +1721,9 @@ export class Commands {
           selection.model,
           this.context.schema.identity(selection.model, row)
         ),
+        // The captured row was judged where it was selected; the row its
+        // write produces is judged at the same verb (R4).
+        ...(selection.judgement && { judgement: selection.judgement }),
       },
       selection.required
     );
@@ -1672,9 +1760,14 @@ export class Commands {
     const projection = ctx.queries.prepareProjection(model, args);
     if (!returningSafeProjection(projection)) return undefined;
     const values = this.stamp(model, "update", args.data, raw.data);
+    // Nothing to assign emits no UPDATE: the row is only read, on the
+    // located route.
+    if (Object.keys(values).length === 0) return undefined;
     const selector = ctx.queries.candidates(
       ctx.queries.prepareSelector(model, args.where, true),
-      "root"
+      "root",
+      undefined,
+      this.judge(model, args.data, raw.data)
     );
     return () =>
       ctx.updateMany(
@@ -1884,11 +1977,18 @@ export class Commands {
           "INSERT did not produce the required record"
         );
       });
+    const judgement = this.judge(
+      model,
+      args.update!,
+      record(raw.update),
+      "upsert"
+    );
     const lookup = this.lookup(model, {
       kind: "query",
       where: args.where,
       unique: true,
       purpose: "root",
+      judgement,
     });
     // The arm this probe chooses INSERTS the key it just looked for, so the
     // probe does not lock the absence it may find (`Selection.insertsWhenAbsent`).
@@ -1939,7 +2039,9 @@ export class Commands {
             ctx.schema.identity(model, captured),
             true
           ),
-          "root"
+          "root",
+          undefined,
+          judgement
         );
         return ctx.updateMany(
           model,
@@ -2054,7 +2156,8 @@ export class Commands {
       const selector = this.candidates(
         ctx.queries.prepareSelector(model, args.where, one),
         "root",
-        tombstone !== undefined
+        tombstone !== undefined,
+        DELETE_JUDGEMENT
       );
       const missing = one
         ? () => new NotFoundError(model["~"].names.ts!, "delete")
@@ -2098,6 +2201,7 @@ export class Commands {
         where: args.where,
         unique: true,
         purpose: "root",
+        judgement: this.judge(model, args.update!, raw.update!, "upsert"),
       });
       // As above: the missing arm below inserts this very key
       // (`Selection.insertsWhenAbsent`).
@@ -2216,6 +2320,7 @@ export class Commands {
                   where: args.where!,
                   unique: true,
                   purpose: "root",
+                  judgement: this.judge(model, args.data, raw.data),
                 },
                 () => new NotFoundError(model["~"].names.ts!, "update")
               ),
@@ -2234,12 +2339,18 @@ export class Commands {
     const projection = bulkProjection(ctx, model, args);
     if (args.limit === 0)
       return { single: true, run: async () => ctx.emptyBulkResult(projection) };
-    if (!relationBearing) {
+    const judgement = this.judge(model, updateData, raw.data);
+    const values = relationBearing
+      ? undefined
+      : this.stamp(model, "update", updateData, raw.data);
+    // Nothing to assign emits no UPDATE: the rows are only read, as a series.
+    if (values !== undefined && Object.keys(values).length > 0) {
       const selector = ctx.queries.candidates(
         ctx.queries.prepareSelector(model, args.where),
-        "root"
+        "root",
+        undefined,
+        judgement
       );
-      const values = this.stamp(model, "update", updateData, raw.data);
       return {
         single: !projection || returning,
         run: () =>
@@ -2248,7 +2359,7 @@ export class Commands {
     }
     const selection = this.lookup(
       model,
-      { kind: "query", where: args.where, purpose: "root" },
+      { kind: "query", where: args.where, purpose: "root", judgement },
       () => new NotFoundError(model["~"].names.ts!, "update")
     );
     const analysis = this.update(selection, updateData, raw.data, true);

@@ -8,6 +8,7 @@ import {
   type ExecutionBinding,
   OperationContext,
 } from "../shared/operation-context";
+import { admitProjected } from "../shared/projected";
 import type { Leaf, ProjectionShape, Read } from "../shared/query";
 import { PreparedDomain, Queries } from "../shared/query";
 import {
@@ -142,10 +143,11 @@ class PreparedCommand implements PreparedOperation {
     // The call's one instant lives with the prepared call, so a replan and
     // every occurrence it re-admits share it.
     let instant: Date | undefined;
+    const defaults = rows && preparedDomain(queries, rows.defaults);
     this.#scope = rows && {
       rows,
-      domain: preparedDomain(queries, rows.domain),
-      defaults: preparedDomain(queries, rows.defaults),
+      domain: preparedDomain(queries, rows.domain, defaults),
+      defaults: defaults!,
       instant: () => (instant ??= new Date()),
     };
     this.#config = config;
@@ -169,18 +171,31 @@ class PreparedCommand implements PreparedOperation {
     return (this.#admitted ??= this.#admit());
   }
 
-  /** Admitted where a required field the call's stamps write may be left out. */
+  /**
+   * Admitted where a required field the call's stamps write may be left out,
+   * with the projection keys its domain declares kept beside the schema's.
+   */
   #admit(): Arguments {
     const stamps = this.#scope?.rows.stamps;
-    const admit = () =>
-      this.#schema.admit(this.#model, this.#operation, this.#rawArgs);
+    const domain = this.#scope?.domain;
+    const admit = domain?.projects
+      ? () =>
+          admitProjected(
+            domain,
+            this.#schema,
+            this.#model,
+            this.#operation,
+            this.#rawArgs,
+            (raw) => this.#schema.admit(this.#model, this.#operation, raw)
+          )
+      : () => this.#schema.admit(this.#model, this.#operation, this.#rawArgs);
     return stamps === undefined ? admit() : parseStamped(stamps, admit);
   }
 
   #read(): Read | undefined {
     if (!isReadOperation(this.#operation)) return undefined;
     return (this.#prepared ??= (
-      this.#scope?.domain.reads ?? this.#queries
+      this.#scope?.domain.reads(this.#scope) ?? this.#queries
     ).read(this.#model, this.#operation, this.args));
   }
 
@@ -319,18 +334,27 @@ const sharedEngines = new WeakMap<
 
 /**
  * Each row domain a call selects, prepared once per query owner. A prepared
- * domain derives only from the domain and that owner (its adapter and result
- * parser), so clients sharing the owner share it too; a client without `rows`
- * never reaches the map.
+ * domain derives only from the domain, that owner (its adapter and result
+ * parser) and its defaults, so clients sharing the owner share it too; a
+ * client without `rows` never reaches the map. The domain alone keys it: a
+ * chain's binding builds each domain with its one default domain.
  */
 const preparedDomains = new WeakMap<
   Queries,
   WeakMap<RowDomain, PreparedDomain>
 >();
 
-function preparedDomain(queries: Queries, rows: RowDomain): PreparedDomain {
+function preparedDomain(
+  queries: Queries,
+  rows: RowDomain,
+  defaults?: PreparedDomain
+): PreparedDomain {
   const byDomain = memo(preparedDomains, queries, () => new WeakMap());
-  return memo(byDomain, rows, () => new PreparedDomain(rows, queries));
+  return memo(
+    byDomain,
+    rows,
+    () => new PreparedDomain(rows, queries, defaults)
+  );
 }
 
 function sharedQueries(config: EngineConfig): Queries {

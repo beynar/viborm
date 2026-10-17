@@ -69,5 +69,6 @@ present.
 Query omit and `defaultOmit()` are presentation defaults and are intentionally
 overridable. Model `.omit()` makes the row projection exclusion permanent,
 but none of the three authorizes access to fields, rows, relations or raw SQL.
-VibORM's extension system is a foundation for a future graph-wide policy
-capability; it does not ship an RBAC helper today.
+Use [`viborm/permissions`](/docs/extensions/permissions) for authorization
+rules enforced across the query graph. Its raw SQL and statement-transform
+boundaries still apply.

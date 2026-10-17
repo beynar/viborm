@@ -11,18 +11,27 @@
  * concurrent writer produces (DC10, DC11).
  */
 
+import { readFileSync } from "node:fs";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
+import { createClient } from "@client/client";
 import { ASSERTION_MARKER } from "@drivers/error-mapping";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { NotFoundError, UniqueConstraintError } from "@errors";
+import { defineExtension } from "@extensions/definition";
 import { PreparedDomain, Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { s } from "@schema";
+import { v } from "@src/validation";
 import {
   type BoundRowsFixture,
   openBoundRowsFixture,
   runBoundRowsBehavior,
 } from "@tests/contracts/engine/query/bound-rows-behavior";
+import {
+  domainPredicateSchema,
+  runDomainPredicateBehavior,
+} from "@tests/contracts/engine/query/domain-predicate-behavior";
 import {
   ids,
   openRowScopeFixture,
@@ -32,6 +41,7 @@ import {
 } from "@tests/contracts/engine/query/row-scope-behavior";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { failure } from "@tests/fixtures/failure";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import {
   createBatchOnlySQLite3Driver,
   createNonReturningSQLite3Driver,
@@ -49,6 +59,21 @@ describe("the rows capability's set scopes", () => {
     createDriver: createBatchOnlySQLite3Driver,
   });
   runRowScopeBehavior({
+    name: "SQLite3 without RETURNING",
+    createDriver: createNonReturningSQLite3Driver,
+  });
+});
+
+describe("domain predicates: admitted, layered, parameterized", () => {
+  runDomainPredicateBehavior({
+    name: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runDomainPredicateBehavior({
+    name: "SQLite3 batch-only",
+    createDriver: createBatchOnlySQLite3Driver,
+  });
+  runDomainPredicateBehavior({
     name: "SQLite3 without RETURNING",
     createDriver: createNonReturningSQLite3Driver,
   });
@@ -354,7 +379,8 @@ describe("one engine view", () => {
           [10, 14]
         )
       );
-      expect([...first]).toContainEqual({ deletedAt: null });
+      // As admission left it: the shorthand `{ deletedAt: null }` is `equals`.
+      expect([...first]).toContainEqual({ deletedAt: { equals: null } });
       const second = await preparedIn(async () =>
         expect(await db.post.count({ where: { authorId: 2 } })).toBe(1)
       );
@@ -373,6 +399,364 @@ describe("one engine view", () => {
         plain: scoped === plain,
         perMode: only === scoped,
       }).toEqual({ reused: true, plain: false, perMode: false });
+    } finally {
+      await base.$disconnect();
+    }
+  });
+});
+
+describe("one prepared predicate for every call value (W-K2a)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test("10,000 actors: the domain's predicate is prepared once, by identity, and every call emits one statement text", async () => {
+    const driver = new InterleavingSQLite3Driver();
+    const base = createClient({ schema: domainPredicateSchema(), driver });
+    try {
+      await syncLiveSchema(base);
+      await base.account.createMany({
+        data: [{ id: "u1" }, { id: "u2" }],
+      });
+      await base.doc.createMany({
+        data: [
+          { id: "d1", ownerId: "u1", parentId: null, expiresAt: null },
+          { id: "d2", ownerId: "u2", parentId: "d1", expiresAt: null },
+        ],
+      });
+      const db = base.$extends(
+        defineExtension({
+          name: "actor",
+          controls: {
+            actor: {
+              schema: v.object({ userId: v.string() }),
+              required: true,
+            },
+          },
+          rows: {
+            control: "actorMode",
+            default: "on",
+            models: {
+              doc: {
+                on: {
+                  root: {
+                    OR: [
+                      { ownerId: { control: "actor", path: "userId" } },
+                      {
+                        parent: {
+                          is: { ownerId: { control: "actor", path: "userId" } },
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        })
+      );
+      const prepare = vi.spyOn(Queries.prototype, "prepareSelector");
+      expect(
+        await db.doc.findMany({ actor: { userId: "u1" }, select: { id: true } })
+      ).toEqual([{ id: "d1" }, { id: "d2" }]);
+      const domain = prepare.mock.calls.map(([, where]) => where);
+      expect(domain).toHaveLength(1);
+      prepare.mockClear();
+      driver.statements.length = 0;
+      for (let index = 0; index < 10_000; index++) {
+        const userId = index === 9999 ? "u2" : `actor-${index}`;
+        const found = await db.doc.findMany({
+          actor: { userId },
+          select: { id: true },
+        });
+        expect(found).toEqual(index === 9999 ? [{ id: "d2" }] : []);
+      }
+      expect(prepare).not.toHaveBeenCalled();
+      expect(new Set(driver.statements).size).toBe(1);
+    } finally {
+      await base.$disconnect();
+    }
+  }, 120_000);
+});
+
+/** An ISO instant among a statement's values: the call's clock, not a pin. */
+const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+/** SQLite that records every statement it runs, with its values. */
+class RecordingSQLite3Driver extends SQLite3Driver {
+  readonly log: { sql: string; params: unknown[] }[] = [];
+  constructor() {
+    super({ dataDir: ":memory:" });
+  }
+  protected override async execute<T>(
+    client: Database.Database,
+    sql: string,
+    params: unknown[]
+  ): Promise<QueryResult<T>> {
+    this.log.push({
+      sql,
+      params: params.map((value) =>
+        value instanceof Date ||
+        (typeof value === "string" && INSTANT.test(value))
+          ? "<instant>"
+          : value
+      ),
+    });
+    return super.execute<T>(client, sql, params);
+  }
+}
+
+describe("tenancy, soft delete and an optional control: SQL unchanged (W-K1e)", () => {
+  // The golden was recorded before K1/K2 (layers, parameters, admission):
+  // a chain whose predicates read only columns, and values that are the
+  // call's, lowers to the text and values it did when values were
+  // substituted into a copy of the predicate.
+  const author = s.model({
+    id: s.int().id(),
+    tenantId: s.string(),
+    name: s.string(),
+    deletedAt: s.dateTime().nullable(),
+    version: s.int().default(0),
+    posts: s.toMany(() => post),
+  });
+  const post = s.model({
+    id: s.int().id(),
+    tenantId: s.string(),
+    title: s.string(),
+    authorId: s.int(),
+    author: s
+      .toOne(() => author)
+      .fields("authorId")
+      .references("id"),
+    deletedAt: s.dateTime().nullable(),
+    version: s.int().default(0),
+    comments: s.toMany(() => comment),
+  });
+  const comment = s.model({
+    id: s.int().id(),
+    tenantId: s.string(),
+    body: s.string(),
+    postId: s.int(),
+    post: s
+      .toOne(() => post)
+      .fields("postId")
+      .references("id"),
+    deletedAt: s.dateTime().nullable(),
+    version: s.int().default(0),
+  });
+  const MODELS = ["author", "post", "comment"] as const;
+  const each = <T>(build: () => T) =>
+    Object.fromEntries(MODELS.map((model) => [model, build()])) as Record<
+      (typeof MODELS)[number],
+      T
+    >;
+  const tenancy = defineExtension({
+    name: "tenancy",
+    controls: { tenant: { schema: v.string(), required: true } },
+    rows: {
+      control: "scope",
+      default: "tenant",
+      models: each(() => ({
+        tenant: {
+          root: { tenantId: { control: "tenant" } },
+          related: { tenantId: { control: "tenant" } },
+        },
+        all: {},
+      })),
+    },
+    data: {
+      models: each(() => ({ create: { tenantId: { control: "tenant" } } })),
+    },
+  });
+  const soft = defineExtension({
+    name: "soft",
+    controls: { mode: { oneOf: ["soft", "hard"] } },
+    rows: {
+      control: "deleted",
+      default: "without",
+      models: each(() => ({
+        without: { root: { deletedAt: null }, related: { deletedAt: null } },
+        with: {},
+        only: {
+          root: { deletedAt: { not: null } },
+          related: { deletedAt: null },
+        },
+      })),
+    },
+    deletion: {
+      removeWhen: { mode: "hard" },
+      models: each(() => ({ at: "deletedAt", assign: {} })),
+    },
+  });
+  const lock = defineExtension({
+    name: "lock",
+    controls: {
+      expectedVersion: { schema: v.number(), on: ["update", "delete"] },
+    },
+    rows: {
+      control: "versionCheck",
+      default: "checked",
+      models: each(() => ({
+        checked: { root: { version: { control: "expectedVersion" } } },
+        unchecked: {},
+      })),
+    },
+  });
+
+  test("every statement of 27 calls matches the golden recorded before K1/K2", async () => {
+    const driver = new RecordingSQLite3Driver();
+    const base = createClient({ schema: { author, post, comment }, driver });
+    try {
+      await syncLiveSchema(base);
+      const db = base.$extends(tenancy).$extends(soft).$extends(lock);
+      const transcript: Record<string, unknown> = {};
+      const at = async (name: string, run: () => Promise<unknown>) => {
+        driver.log.length = 0;
+        try {
+          await run();
+          transcript[name] = [...driver.log];
+        } catch (error) {
+          transcript[name] =
+            `ERROR ${(error as Error).constructor.name}: ${(error as Error).message}`;
+        }
+      };
+      const T = { tenant: "acme" } as const;
+      await at("create author", () =>
+        db.author.create({ ...T, data: { id: 1, name: "a" } })
+      );
+      await at("create post nested comments", () =>
+        db.post.create({
+          ...T,
+          data: {
+            id: 10,
+            title: "t",
+            authorId: 1,
+            comments: { create: [{ id: 100, body: "b", tenantId: "acme" }] },
+          },
+        })
+      );
+      await at("createMany posts", () =>
+        db.post.createMany({
+          ...T,
+          data: [
+            { id: 11, title: "u", authorId: 1 },
+            { id: 12, title: "v", authorId: 1 },
+          ],
+        })
+      );
+      await at("findMany", () => db.post.findMany(T));
+      await at("findMany where", () =>
+        db.post.findMany({ ...T, where: { title: "t" } })
+      );
+      await at("findMany all", () => db.post.findMany({ ...T, scope: "all" }));
+      await at("findMany with", () =>
+        db.post.findMany({ ...T, deleted: "with" })
+      );
+      await at("findMany only", () =>
+        db.post.findMany({ ...T, deleted: "only" })
+      );
+      await at("findMany include", () =>
+        db.author.findMany({
+          ...T,
+          include: { posts: { include: { comments: true } } },
+        })
+      );
+      await at("findMany include to-one", () =>
+        db.post.findMany({ ...T, include: { author: true } })
+      );
+      await at("relation filters", () =>
+        db.author.findMany({
+          ...T,
+          where: {
+            posts: {
+              some: { title: "t" },
+              none: { title: "x" },
+              every: { authorId: 1 },
+            },
+          },
+        })
+      );
+      await at("is filter", () =>
+        db.post.findMany({ ...T, where: { author: { is: { name: "a" } } } })
+      );
+      await at("count", () => db.post.count(T));
+      await at("aggregate", () =>
+        db.post.aggregate({ ...T, _count: { _all: true } })
+      );
+      await at("groupBy", () =>
+        db.post.groupBy({ ...T, by: ["authorId"], _count: { _all: true } })
+      );
+      await at("cursor", () =>
+        db.post.findMany({ ...T, cursor: { id: 10 }, take: 2 })
+      );
+      await at("findUnique", () =>
+        db.post.findUnique({ ...T, where: { id: 10 } })
+      );
+      await at("relation count order", () =>
+        db.author.findMany({
+          ...T,
+          orderBy: { posts: { _count: "desc" } },
+          select: { id: true, _count: { select: { posts: true } } },
+        })
+      );
+      await at("update", () =>
+        db.post.update({ ...T, where: { id: 10 }, data: { title: "t2" } })
+      );
+      await at("update locked", () =>
+        db.post.update({
+          ...T,
+          expectedVersion: 0,
+          where: { id: 10 },
+          data: { title: "t3" },
+        })
+      );
+      await at("updateMany", () =>
+        db.post.updateMany({
+          ...T,
+          where: { title: "u" },
+          data: { title: "u2" },
+        })
+      );
+      await at("upsert", () =>
+        db.post.upsert({
+          ...T,
+          where: { id: 13 },
+          create: { id: 13, title: "w", authorId: 1 },
+          update: { title: "w2" },
+        })
+      );
+      await at("nested update", () =>
+        db.author.update({
+          ...T,
+          where: { id: 1 },
+          data: {
+            posts: {
+              update: { where: { id: 10 }, data: { title: "n" } },
+              delete: { id: 13 },
+            },
+          },
+        })
+      );
+      await at("delete tombstone", () =>
+        db.post.delete({ ...T, where: { id: 12 } })
+      );
+      await at("deleteMany", () =>
+        db.comment.deleteMany({ ...T, where: { body: "zz" } })
+      );
+      await at("delete hard", () =>
+        db.post.delete({ ...T, mode: "hard", where: { id: 11 } })
+      );
+      await at("no tenant", () =>
+        (db.post.findMany as (args: object) => Promise<unknown>)({})
+      );
+      expect(transcript).toEqual(
+        JSON.parse(
+          readFileSync(
+            new URL("./__golden__/composed-rows-sql.json", import.meta.url),
+            "utf8"
+          )
+        )
+      );
     } finally {
       await base.$disconnect();
     }

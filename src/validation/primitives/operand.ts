@@ -31,6 +31,7 @@ import type { InferInput, InferOutput, VibSchema } from "../types";
 import { isFunction, isRecord } from "../value-guards";
 import { limitFilterDepth } from "./filter-depth";
 import { createSchema, fail, ok, validateSchema } from "./helpers";
+import { valueNodeOf } from "./parameter";
 
 // =============================================================================
 // THE CALLBACK CONTEXT
@@ -247,6 +248,8 @@ export function comparisonOperand<
     | ((ctx: TCtx) => FieldRef<string, TType> | Sql),
     InferOutput<TSchema> | FieldRef<string, TType> | Sql
   >("comparison_operand", (value) => {
+    const node = valueNodeOf(value);
+    if (node !== undefined) return ok(node) as never;
     if (isFunction(value)) {
       return resolveCallback(
         value as (ctx: AnyOperandCtx) => unknown,
@@ -310,6 +313,8 @@ export function fieldRefOr<
     InferInput<TSchema> | FieldRef<string, TType>,
     InferOutput<TSchema> | FieldRef<string, TType>
   >("field_ref_or", (value) => {
+    const node = valueNodeOf(value);
+    if (node !== undefined) return ok(node) as never;
     if (isFieldRef(value)) {
       return checkRef(value, fieldType);
     }

@@ -5,6 +5,7 @@ import {
   CacheOperationNotCacheableError,
   CheckConstraintError,
   ClientInitializationError,
+  ForbiddenError,
   ForeignKeyError,
   InvalidTransactionInputError,
   isCheckConstraintError,
@@ -308,6 +309,16 @@ describe("concrete error contracts", () => {
       correlationId: "request-1",
       model: "user",
       operation: "findUniqueOrThrow",
+    });
+
+    const forbidden = new ForbiddenError("page", "create", {
+      meta: { correlationId: "request-2" },
+    });
+    expect(forbidden.message).toBe("The create on page is not permitted");
+    expect(forbidden.meta).toEqual({
+      correlationId: "request-2",
+      model: "page",
+      operation: "create",
     });
   });
 });

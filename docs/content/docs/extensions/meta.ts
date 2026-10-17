@@ -11,5 +11,6 @@ export default defineMeta({
     "instrumentation",
     "omit",
     "soft-delete",
+    "permissions",
   ],
 });

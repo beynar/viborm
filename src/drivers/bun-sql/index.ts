@@ -144,6 +144,8 @@ export interface BunSQLDriverOptions {
   options?: BunSQLOptions;
   pgvector?: boolean;
   postgis?: boolean;
+  /** Each relation filter body a statement repeats is stated once (default `true`); `false` keeps every body inline. */
+  sharedRelationBodies?: boolean;
   /** The PostgreSQL schema this driver's persistent objects live in. Defaults to `public`. */
   namespace?: string;
   /**
@@ -164,6 +166,7 @@ const BUN_SQL_CONFIG_KEYS: Record<keyof BunSQLDriverOptions, true> = {
   options: true,
   pgvector: true,
   postgis: true,
+  sharedRelationBodies: true,
   namespace: true,
   migrationSessionAttestation: true,
 };
@@ -396,6 +399,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     options,
     pgvector,
     postgis,
+    sharedRelationBodies: config.sharedRelationBodies,
     namespace,
     migrationSessionAttestation,
   });

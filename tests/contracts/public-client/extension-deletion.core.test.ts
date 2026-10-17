@@ -258,11 +258,15 @@ describe("a chain's rows and deletion resolve to one call's facts", () => {
     const binding = chain.callRows!;
     const defaults = callRows(binding, "item", undefined);
     expect(defaults.domain).toBe(defaults.defaults);
+    // Each predicate as admission left it, at its member's layer.
     expect(defaults.domain.root.get("item")).toEqual([
-      { archivedAt: null },
-      { hidden: false },
+      { archivedAt: { equals: null } },
+      { hidden: { equals: false } },
     ]);
-    expect(defaults.domain.related.get("item")).toEqual([{ hidden: false }]);
+    const related = defaults.domain.related.get("item")!;
+    expect(related).toHaveLength(2);
+    expect(0 in related).toBe(false);
+    expect(related[1]).toEqual({ hidden: { equals: false } });
     expect(defaults.tombstones?.get("item")).toMatchObject({
       at: "archivedAt",
     });
@@ -272,7 +276,7 @@ describe("a chain's rows and deletion resolve to one call's facts", () => {
     });
     expect(archived.defaults).toBe(defaults.domain);
     expect(archived.domain.root.get("item")).toEqual([
-      { archivedAt: { not: null } },
+      { archivedAt: { not: { equals: null } } },
     ]);
     // Explicit defaults resolve to the very same facts as absent controls.
     expect(

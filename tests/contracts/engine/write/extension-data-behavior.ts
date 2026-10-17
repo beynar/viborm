@@ -819,5 +819,29 @@ export function runExtensionDataBehavior(provider: DataProvider): void {
       await db.post.delete({ where: { id: 2 }, expectedVersion: 10 });
       expect(await base.post.findUnique({ where: { id: 2 } })).toBeNull();
     });
+
+    test("a stamp's { now: true } writes the call's one instant: every row one call stamps gets the same", async () => {
+      const { base, logged } = context;
+      for (const id of [1, 2])
+        await base.post.create({ data: { id, title: `p${id}` } });
+      const touched = logged.$extends({
+        name: "touched",
+        data: { models: { post: { update: { deletedAt: { now: true } } } } },
+      });
+      const before = Date.now();
+      expect(await touched.post.updateMany({ data: { title: "x" } })).toEqual({
+        count: 2,
+      });
+      const after = Date.now();
+      const [first, second] = await base.post.findMany({
+        ...byId,
+        select: { deletedAt: true },
+      });
+      expect(second!.deletedAt).toEqual(first!.deletedAt);
+      // Within a second either way: a provider may round to its precision.
+      const at = first!.deletedAt!.getTime();
+      expect(at).toBeGreaterThan(before - 1000);
+      expect(at).toBeLessThan(after + 1000);
+    });
   });
 }

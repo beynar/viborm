@@ -105,9 +105,11 @@ export type EnableExtensionCache<X extends ExtensionStateConstraint> =
 /** Whether an earlier extension was typed against result-bearing delegates. */
 export type HasResultConsumingExtension<X extends ExtensionStateConstraint> = [
   X["resultConsumer"],
-] extends [ExtensionResultConsumerState]
-  ? true
-  : false;
+] extends [undefined]
+  ? false
+  : [X["resultConsumer"]] extends [ExtensionResultConsumerState]
+    ? true
+    : false;
 
 type MethodsForModel<
   X extends ExtensionStateConstraint,
@@ -166,6 +168,15 @@ export type ExtensionClientScope<
   X["client"] & {
     readonly $schema: ClientSchema<C>;
     readonly $transaction: TransactionClient<C, X>["$transaction"];
+    /**
+     * The client this scope's methods are called on, its calls admitting
+     * these values of this extension's own controls as if passed (a
+     * `bound: true` control only from here). Its type is that client's,
+     * which only the method knows: declare it with a `this` parameter,
+     * `$with<Self>(this: Self, value: Value): Self`, outside the returned
+     * literal (inside it, the factory's contextual type makes `Self` void).
+     */
+    readonly $bind: (values: Readonly<Record<string, unknown>>) => unknown;
   };
 
 type NonFunctionKeys<Methods extends object> = {
@@ -282,7 +293,7 @@ type ModelMethodsOf<Definition> = Definition extends {
     : NoMethods
   : NoMethods;
 
-type MergeModelMethods<Left extends object, Right extends object> = {
+export type MergeModelMethods<Left extends object, Right extends object> = {
   readonly [ModelName in
     | keyof Left
     | keyof Right]: (ModelName extends keyof Left
@@ -357,12 +368,22 @@ export type MergeExtensionState<
   Definition,
 > = AccumulatedExtensionState<X, ExtensionStateContributionOf<Definition>>;
 
-export interface BoundExtensionMethods {
-  readonly client: Readonly<Record<string, RuntimeExtensionMethodFunction>>;
-  readonly models: Readonly<
-    Record<string, Readonly<Record<string, RuntimeExtensionMethodFunction>>>
-  >;
+type MethodRecord = Readonly<Record<string, RuntimeExtensionMethodFunction>>;
+
+/**
+ * The methods a view answers after some prefix of its chain: its client
+ * methods, and one model's. Each is computed the first time it is read.
+ */
+export interface ExtensionMethods {
+  readonly client: () => MethodRecord;
+  readonly model: (model: string) => MethodRecord;
 }
+
+const NO_METHODS: MethodRecord = Object.freeze(Object.create(null));
+const NO_LAYER: ExtensionMethods = Object.freeze({
+  client: () => NO_METHODS,
+  model: () => NO_METHODS,
+});
 
 const CORE_CLIENT_METHODS = new Set([
   "$driver",
@@ -446,120 +467,124 @@ function bindExtensionMethod(
   return (...args: never[]) => Reflect.apply(method, undefined, args);
 }
 
-function snapshotMethods(
-  clientMethods: Readonly<Record<string, RuntimeExtensionMethodFunction>>,
-  modelMethods: Readonly<
-    Record<string, Readonly<Record<string, RuntimeExtensionMethodFunction>>>
-  >
-): BoundExtensionMethods {
-  const client: Record<string, RuntimeExtensionMethodFunction> =
+/** The methods before one extension with its own added, each name checked. */
+function addMethods(
+  previous: MethodRecord,
+  added: MethodRecord,
+  check: (name: string, taken: boolean) => void
+): MethodRecord {
+  const methods: Record<string, RuntimeExtensionMethodFunction> =
     Object.create(null);
-  for (const [name, method] of Object.entries(clientMethods)) {
-    client[name] = method;
+  Object.assign(methods, previous);
+  for (const [name, method] of Object.entries(added)) {
+    check(name, Object.hasOwn(methods, name));
+    methods[name] = method;
   }
-  const models: Record<
-    string,
-    Readonly<Record<string, RuntimeExtensionMethodFunction>>
-  > = Object.create(null);
-  for (const [modelName, methods] of Object.entries(modelMethods)) {
-    const model: Record<string, RuntimeExtensionMethodFunction> =
-      Object.create(null);
-    for (const [name, method] of Object.entries(methods)) {
-      model[name] = method;
-    }
-    models[modelName] = Object.freeze(model);
-  }
-  return Object.freeze({
-    client: Object.freeze(client),
-    models: Object.freeze(models),
-  });
+  return Object.freeze(methods);
 }
 
+/**
+ * The methods of one view's chain. Extension `i`'s factories are invoked
+ * against the scope `createScope` builds over the methods of the extensions
+ * before it, the first time a method they return could be read, one model at
+ * a time: a view costs the factories it uses. `force` invokes every factory
+ * in chain order, where a root view surfaces an extension's faults.
+ */
 export function bindExtensionMethods(
   chain: ResolvedExtensionChain,
-  createScope: (
-    clientMethods: Readonly<Record<string, RuntimeExtensionMethodFunction>>,
-    modelMethods: Readonly<
-      Record<string, Readonly<Record<string, RuntimeExtensionMethodFunction>>>
-    >
-  ) => object
-): BoundExtensionMethods {
-  const clientMethods: Record<string, RuntimeExtensionMethodFunction> =
-    Object.create(null);
-  const modelMethods: Record<
-    string,
-    Record<string, RuntimeExtensionMethodFunction>
-  > = Object.create(null);
-
-  for (const extension of chain.extensions) {
-    const prior = snapshotMethods(clientMethods, modelMethods);
-    const scope = createScope(prior.client, prior.models);
-    const nextClientMethods = extension.client
-      ? readMethodRecord(
-          invokeFactory(extension.client, scope, "client", extension.name),
-          "client",
-          extension.name
-        )
-      : undefined;
-    const nextModelMethods: Record<
-      string,
-      Record<string, RuntimeExtensionMethodFunction>
-    > = Object.create(null);
-    if (extension.model) {
-      for (const [modelName, factory] of Object.entries(extension.model)) {
-        const delegate = Reflect.get(scope, modelName);
-        nextModelMethods[modelName] = readMethodRecord(
-          invokeFactory(
-            factory,
-            delegate,
-            `model.${modelName}`,
-            extension.name
-          ),
-          `model.${modelName}`,
-          extension.name
-        );
-      }
-    }
-
-    if (nextClientMethods) {
-      for (const [name, method] of Object.entries(nextClientMethods)) {
-        if (!name.startsWith("$")) {
-          extensionError(
-            `Extension "${extension.name}" client method "${name}" must be dollar-prefixed.`,
-            extension.name
-          );
+  createScope: (prior: ExtensionMethods, extension: string) => object
+): ExtensionMethods & { readonly force: () => void } {
+  const layers: ExtensionMethods[] = [NO_LAYER];
+  for (const {
+    name,
+    client: clientFactory,
+    model: modelFactories,
+  } of chain.extensions) {
+    const prior = layers.at(-1)!;
+    let scope: object | undefined;
+    const scopeOf = () => (scope ??= createScope(prior, name));
+    let client: MethodRecord | undefined;
+    const models = new Map<string, MethodRecord>();
+    layers.push({
+      client: () =>
+        (client ??=
+          clientFactory === undefined
+            ? prior.client()
+            : addMethods(
+                prior.client(),
+                readMethodRecord(
+                  invokeFactory(clientFactory, scopeOf(), "client", name),
+                  "client",
+                  name
+                ),
+                (method, taken) => {
+                  if (!method.startsWith("$")) {
+                    extensionError(
+                      `Extension "${name}" client method "${method}" must be dollar-prefixed.`,
+                      name
+                    );
+                  }
+                  if (
+                    taken ||
+                    CORE_CLIENT_METHODS.has(method) ||
+                    Object.hasOwn(RAW_METHOD_NAMES, method)
+                  ) {
+                    extensionError(
+                      `Extension "${name}" client method "${method}" collides with the existing client surface.`,
+                      name
+                    );
+                  }
+                }
+              )),
+      model: (model) => {
+        let methods = models.get(model);
+        if (methods === undefined) {
+          const factory = modelFactories?.[model];
+          const label = `model.${model}`;
+          methods =
+            factory === undefined
+              ? prior.model(model)
+              : addMethods(
+                  prior.model(model),
+                  readMethodRecord(
+                    invokeFactory(
+                      factory,
+                      Reflect.get(scopeOf(), model),
+                      label,
+                      name
+                    ),
+                    label,
+                    name
+                  ),
+                  (method, taken) => {
+                    if (
+                      taken ||
+                      method === "then" ||
+                      ROUTED_OPERATIONS.has(method)
+                    ) {
+                      extensionError(
+                        `Extension "${name}" model method "${model}.${method}" collides with the existing model surface.`,
+                        name
+                      );
+                    }
+                  }
+                );
+          models.set(model, methods);
         }
-        if (
-          CORE_CLIENT_METHODS.has(name) ||
-          Object.hasOwn(RAW_METHOD_NAMES, name) ||
-          Object.hasOwn(clientMethods, name)
-        ) {
-          extensionError(
-            `Extension "${extension.name}" client method "${name}" collides with the existing client surface.`,
-            extension.name
-          );
-        }
-        clientMethods[name] = method;
-      }
-    }
-
-    for (const [modelName, methods] of Object.entries(nextModelMethods)) {
-      const accumulated = (modelMethods[modelName] ??= Object.create(null));
-      for (const [name, method] of Object.entries(methods)) {
-        if (
-          name === "then" ||
-          ROUTED_OPERATIONS.has(name) ||
-          Object.hasOwn(accumulated, name)
-        ) {
-          extensionError(
-            `Extension "${extension.name}" model method "${modelName}.${name}" collides with the existing model surface.`,
-            extension.name
-          );
-        }
-        accumulated[name] = method;
-      }
-    }
+        return methods;
+      },
+    });
   }
-
-  return snapshotMethods(clientMethods, modelMethods);
+  const view = layers.at(-1)!;
+  return {
+    client: view.client,
+    model: view.model,
+    force: () => {
+      for (const [index, { model }] of chain.extensions.entries()) {
+        const layer = layers[index + 1]!;
+        layer.client();
+        for (const name of Object.keys(model ?? {})) layer.model(name);
+      }
+    },
+  };
 }

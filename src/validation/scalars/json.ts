@@ -2,6 +2,7 @@ import { JsonNull, type JsonNullKind, jsonNullKindOf } from "@schema/json-null";
 import type { ScalarState } from "@schema/scalars/common";
 import { lazyScalarSchemas } from "../lazy";
 import { createSchema, fail, ok, validateSchema } from "../primitives/helpers";
+import { valueNodeOr } from "../primitives/parameter";
 import v, { type V } from "../primitives/v";
 import type { VibSchema } from "../types";
 import { isRecord } from "../value-guards";
@@ -328,7 +329,7 @@ const buildJsonFilterSchema = <S extends V.Schema>(
   const operand = v.noFieldRef(schema, JSON_FILTER_SITE);
   const nullOperand = v.jsonNullOr(FILTER_SENTINELS, operand, JSON_FILTER_SITE);
   const entries = {
-    equals: nullOperand,
+    equals: valueNodeOr(nullOperand),
     path: buildJsonPathSchema(),
     mode: v.enum(["default", "insensitive"]),
     lt: comparisonOperand,

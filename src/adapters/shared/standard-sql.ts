@@ -239,11 +239,33 @@ export const createMutationCommands = (): MutationCommands => ({
   },
 });
 
-export const createSetOperations = (): DatabaseAdapter["setOperations"] => ({
+type TypedRows = DatabaseAdapter["setOperations"]["typedRows"];
+
+/** One row's values, in order: `(a, b)`. */
+export const rowValues = (row: readonly Sql[]): Sql =>
+  sql`(${sql.join(row, ", ")})`;
+
+/**
+ * `typedRows`' default form: the empty typed read, then one `UNION ALL
+ * SELECT` per row, each typed against the arms before it.
+ */
+const unionTypedRows =
+  (quoteIdent: IdentifierQuoter): TypedRows =>
+  (typed, rows, alias) =>
+    sql`(${sql.join(
+      [typed.head, ...rows.map((row) => sql`SELECT ${sql.join(row, ", ")}`)],
+      " UNION ALL "
+    )}) AS ${sql.raw(quoteIdent(alias))}`;
+
+export const createSetOperations = (
+  quoteIdent: IdentifierQuoter,
+  typedRows: TypedRows = unionTypedRows(quoteIdent)
+): DatabaseAdapter["setOperations"] => ({
   union: (...queries: Sql[]): Sql => sql.join(queries, " UNION "),
   unionAll: (...queries: Sql[]): Sql => sql.join(queries, " UNION ALL "),
   intersect: (...queries: Sql[]): Sql => sql.join(queries, " INTERSECT "),
   except: (left: Sql, right: Sql): Sql => sql`${left} EXCEPT ${right}`,
+  typedRows,
 });
 
 // ============================================================
@@ -294,6 +316,8 @@ export const createSubqueries = (
 
   existsCheck: (from: Sql, where: Sql): Sql =>
     sql`SELECT 1 FROM ${from} WHERE ${where}`,
+
+  isolated: (condition: Sql): Sql => condition,
 });
 
 export const createCteBuilders = (

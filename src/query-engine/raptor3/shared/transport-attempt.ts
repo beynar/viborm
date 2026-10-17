@@ -21,6 +21,17 @@ type AssertedPremise = {
 };
 
 /**
+ * One queued write that judges the row it produces and fails on its own
+ * assertion when refused (R4): the refusal it raises, and, where it reads
+ * no value of this unit's batch scratch, the SELECT it reads its rows from,
+ * which fails the same way when asked again after a rollback.
+ */
+type JudgedWrite = {
+  refusal: Error;
+  probe?: Sql;
+};
+
+/**
  * One value this unit PRODUCED and stored in its own batch scratch: the
  * expression every statement of that unit binds it by, and the model field
  * whose codec reads it back at the unit's boundary (D-58).
@@ -55,11 +66,12 @@ export class TransportAttempt {
    */
   scratchId?: string;
   nextField = 0;
-  #publications: (ScratchPublication[]) | undefined;
-  #carriedValues: (Map<Sql, unknown>) | undefined;
-  #producers: (Map<BatchQuery, object>) | undefined;
-  #premises: (Map<BatchQuery, AssertedPremise>) | undefined;
-  #members: (Set<Member>) | undefined;
+  #publications: ScratchPublication[] | undefined;
+  #carriedValues: Map<Sql, unknown> | undefined;
+  #producers: Map<BatchQuery, object> | undefined;
+  #premises: Map<BatchQuery, AssertedPremise> | undefined;
+  #judged: Map<BatchQuery, JudgedWrite> | undefined;
+  #members: Set<Member> | undefined;
   /** Record one produced value this unit stored in its scratch (D-58). */
   publishScratchValue(publication: ScratchPublication): void {
     (this.#publications ??= []).push(publication);
@@ -95,6 +107,20 @@ export class TransportAttempt {
   /** Record the failure one queued assertion raises when it disagrees. */
   assertPremise(assertion: BatchQuery, premise: AssertedPremise): void {
     (this.#premises ??= new Map()).set(assertion, premise);
+  }
+  /**
+   * Record the refusal one queued WRITE raises when the row it produces is
+   * not permitted: the statement fails on its own assertion before it
+   * writes (R4). It is a write, never a premise ({@link holdsWrite}).
+   */
+  judgeWrite(write: BatchQuery, judged: JudgedWrite): void {
+    (this.#judged ??= new Map()).set(write, judged);
+  }
+  /** The judged writes recorded so far; this attempt keeps none of them. */
+  drainJudgedWrites(): Map<BatchQuery, JudgedWrite> {
+    const judged = this.#judged ?? new Map<BatchQuery, JudgedWrite>();
+    this.#judged = undefined;
+    return judged;
   }
   /** Declare one queued statement as belonging to a record-series member. */
   recordMember(member: Member): void {

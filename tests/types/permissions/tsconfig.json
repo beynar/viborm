@@ -1,0 +1,4 @@
+{
+  "extends": "../tsconfig.layer.json",
+  "include": ["./*.core.types.ts"]
+}
