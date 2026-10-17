@@ -519,10 +519,40 @@ export function compilePolicy(
               reaches.includes(action) ? [ruleAt(name, from)] : []
             )
           );
-    const clause = and([restriction(name), granted]);
+    const clause = and([restriction(name), absorb(name, granted)]);
     open.pop();
     predicates.set(key, clause);
     return clause;
+  };
+  /**
+   * A disjunction without a member another member provably contains: where
+   * `x ⇒ y`, `x ∨ y` is `y`, so `x` is dropped (the later of two equivalent
+   * members). Rules evaluated at their declared action and inherited (a
+   * grouped `"read, update": capped(rule)`) differ per action only by what
+   * the higher action narrows (`role in [...]`, a coverage list), so the
+   * narrower branches fold into the widest one, as the plan's one-branch
+   * form had them, with the same rows. Sound, never complete (§11.4 D13):
+   * what the prover cannot show stays.
+   */
+  const absorb = (name: string, clause: Clause): Clause => {
+    if (clause === false || !Array.isArray(clause.OR)) return clause;
+    if (Object.keys(clause).length !== 1) return clause;
+    const members = clause.OR as Where[];
+    const dropped = new Set<number>();
+    for (let at = 0; at < members.length; at++) {
+      const member = members[at]!;
+      for (let other = 0; other < members.length; other++) {
+        if (other === at || dropped.has(other)) continue;
+        const wider = members[other]!;
+        if (!implies(name, member, wider)) continue;
+        // Equivalent members keep the earlier one.
+        if (other > at && implies(name, wider, member)) continue;
+        dropped.add(at);
+        break;
+      }
+    }
+    const kept = members.filter((_, at) => !dropped.has(at));
+    return kept.length === 1 ? kept[0]! : { OR: kept };
   };
 
   /** A path the actor schema declares, or the refusal naming where it is read. */

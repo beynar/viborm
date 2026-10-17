@@ -114,7 +114,8 @@ names no role, grant or action.
   client's types admit the key and make gated fields optional by default.
 - **`viborm/rbac` defaults:** `update` and `delete` imply `read`; `create`
   judges a proposed row and implies nothing (declare `actions: { create:
-  ["read"] }` to say otherwise).
+  ["read"] }` to say otherwise). An inherited branch another branch provably
+  contains is dropped from a predicate: the same rows, a smaller statement.
 - **`viborm/rbac`, authorization judged in the statement** (not yet
   published, OD-11; [guide](docs/content/docs/extensions/rbac.mdx)).
   `rbac({ actor, levels, limit, models })` declares one rule per model and

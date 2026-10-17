@@ -81,8 +81,11 @@ export async function linkedEvidenceNames() {
     // @ts-expect-error - nested alpha keeps its own action names despite sharing beta's field-name surface
     include: { alpha: { select: { id: true, $access: ["read", "publish"] } } },
   });
-  // @ts-expect-error - nested beta cannot project alpha's action (reported on the call)
-  db.parent.findMany({
-    include: { beta: { include: { $access: ["read", "archive"] } } },
-  });
+  // One line, so the overload error has one place to land whatever program
+  // checks this file: nested beta cannot project alpha's action.
+  const betaWithAlphaAction = {
+    beta: { include: { $access: ["read", "archive"] } },
+  } as const;
+  // @ts-expect-error - nested beta cannot project alpha's action
+  db.parent.findMany({ include: betaWithAlphaAction });
 }

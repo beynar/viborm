@@ -1085,7 +1085,10 @@ AND OR(named grants for a and actions implying a)
   permission. `true` grants without an additional predicate; `false` explicitly
   denies the action, even if another action implies it.
 - **Rule callbacks** receive their declared action. The resulting predicate is
-  reused unchanged when inherited, including callbacks nested inside it.
+  reused unchanged when inherited, including callbacks nested inside it. Where
+  an inherited branch provably contains another (`role in ["member", "admin"]`
+  inside `role in ["reader", "member", "admin"]`), the narrower one is dropped:
+  the same rows, one branch.
 - **Global and model `mandatory`** are ordinary, action-independent predicates.
   Both restrict every permission; neither grants access. They do not accept
   rule callbacks, including callbacks nested inside their predicates.

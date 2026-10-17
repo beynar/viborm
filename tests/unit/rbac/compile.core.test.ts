@@ -226,6 +226,51 @@ describe("R1: P(M, a) = mandatory ∧ scope(a) ∧ ⋁ rule(b ⊒ a)(b)", () => 
     expect(predicates.full).toEqual({ title: "f" });
   });
 
+  test("an inherited branch another branch provably contains is dropped; one it does not is kept", () => {
+    // `inOrg(update)` admits members and admins, `inOrg(read)` readers too:
+    // the update branch is contained in the read one, so P(read) is one
+    // branch, as the plan's one-branch form had it; the rows are the same.
+    const inOrg = (action: string) => ({
+      organization: {
+        is: {
+          members: {
+            some: {
+              userId: { actor: "userId" },
+              role: {
+                in:
+                  action === "read"
+                    ? ["reader", "member", "admin"]
+                    : ["member", "admin"],
+              },
+            },
+          },
+        },
+      },
+    });
+    const { predicates } = compile({
+      levels: LEVELS,
+      models: { page: { "read, update, full": inOrg } },
+    }).models.page!;
+    const roles = (clause: unknown) =>
+      (
+        clause as {
+          organization: {
+            is: { members: { some: { role: { in: string[] } } } };
+          };
+        }
+      ).organization.is.members.some.role.in;
+    expect(Object.keys(predicates.read!)).toEqual(["organization"]);
+    expect(roles(predicates.read)).toEqual(["reader", "member", "admin"]);
+    expect(roles(predicates.update)).toEqual(["member", "admin"]);
+    expect(roles(predicates.full)).toEqual(["member", "admin"]);
+    // Two branches neither of which contains the other both stay.
+    const apart = compile({
+      levels: LEVELS,
+      models: { page: { read: { title: "a" }, full: { personal: true } } },
+    }).models.page!.predicates;
+    expect(apart.read).toEqual({ OR: [{ title: "a" }, { personal: true }] });
+  });
+
   test("a shared rule is evaluated once per declared action, at that action and its model", () => {
     const calls: string[] = [];
     const shared = (action: string, model: { name: string }) => {

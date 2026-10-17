@@ -212,23 +212,26 @@ const placeGrant = {
         levels: [],
       },
       { relation: "collection", key: "collectionId", actions: levels, levels },
-    ].flatMap(({ relation, key, actions, levels }) => [
-      ...actions.map((action) => ({
+    ].flatMap(({ relation, key, actions, levels }) =>
+      // One bound per (thing, action): the grant carries `action` neither in
+      // `actions` nor as its `level`, or the writer holds it on the thing.
+      // `(¬A ∨ P) ∧ (¬L ∨ P)` is `(¬A ∧ ¬L) ∨ P`: the same rows, the thing's
+      // predicate inlined once instead of twice.
+      actions.map((action) => ({
         OR: [
           { [key]: null },
-          { NOT: { actions: { has: action } } },
+          {
+            AND: [
+              { NOT: { actions: { has: action } } },
+              ...(levels.some((level) => level === action)
+                ? [{ OR: [{ level: null }, { level: { not: action } }] }]
+                : []),
+            ],
+          },
           { [relation]: action },
         ],
-      })),
-      ...levels.map((level) => ({
-        OR: [
-          { [key]: null },
-          { level: null },
-          { level: { not: level } },
-          { [relation]: level },
-        ],
-      })),
-    ]),
+      }))
+    ),
   ],
 } satisfies Rule;
 

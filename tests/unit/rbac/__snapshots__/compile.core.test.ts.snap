@@ -740,279 +740,126 @@ exports[`the acceptance policy (§1.1) > its predicates for the identity models,
             },
           },
           {
+            "organization": {
+              "is": {
+                "members": {
+                  "some": {
+                    "role": {
+                      "in": [
+                        "reader",
+                        "member",
+                        "admin",
+                      ],
+                    },
+                    "user": {
+                      "is": {
+                        "AND": [
+                          {
+                            "OR": [
+                              {
+                                "banned": null,
+                              },
+                              {
+                                "banned": false,
+                              },
+                              {
+                                "banExpires": {
+                                  "lte": {
+                                    "now": true,
+                                  },
+                                },
+                              },
+                            ],
+                          },
+                          {
+                            "OR": [
+                              {
+                                "$if": {
+                                  "control": "actor",
+                                  "exists": true,
+                                  "path": "session",
+                                },
+                                "sessions": {
+                                  "some": {
+                                    "expiresAt": {
+                                      "gt": {
+                                        "now": true,
+                                      },
+                                    },
+                                    "id": {
+                                      "control": "actor",
+                                      "path": "session",
+                                    },
+                                  },
+                                },
+                              },
+                              {
+                                "$if": {
+                                  "control": "actor",
+                                  "exists": true,
+                                  "path": "key",
+                                },
+                                "apiKeys": {
+                                  "some": {
+                                    "AND": [
+                                      {
+                                        "enabled": true,
+                                        "id": {
+                                          "control": "actor",
+                                          "path": "key.id",
+                                        },
+                                      },
+                                      {
+                                        "OR": [
+                                          {
+                                            "expiresAt": null,
+                                          },
+                                          {
+                                            "expiresAt": {
+                                              "gt": {
+                                                "now": true,
+                                              },
+                                            },
+                                          },
+                                        ],
+                                      },
+                                    ],
+                                  },
+                                },
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                    },
+                    "userId": {
+                      "control": "actor",
+                      "path": "userId",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          {
             "OR": [
               {
-                "AND": [
-                  {
-                    "organization": {
-                      "is": {
-                        "members": {
-                          "some": {
-                            "role": {
-                              "in": [
-                                "reader",
-                                "member",
-                                "admin",
-                              ],
-                            },
-                            "user": {
-                              "is": {
-                                "AND": [
-                                  {
-                                    "OR": [
-                                      {
-                                        "banned": null,
-                                      },
-                                      {
-                                        "banned": false,
-                                      },
-                                      {
-                                        "banExpires": {
-                                          "lte": {
-                                            "now": true,
-                                          },
-                                        },
-                                      },
-                                    ],
-                                  },
-                                  {
-                                    "OR": [
-                                      {
-                                        "$if": {
-                                          "control": "actor",
-                                          "exists": true,
-                                          "path": "session",
-                                        },
-                                        "sessions": {
-                                          "some": {
-                                            "expiresAt": {
-                                              "gt": {
-                                                "now": true,
-                                              },
-                                            },
-                                            "id": {
-                                              "control": "actor",
-                                              "path": "session",
-                                            },
-                                          },
-                                        },
-                                      },
-                                      {
-                                        "$if": {
-                                          "control": "actor",
-                                          "exists": true,
-                                          "path": "key",
-                                        },
-                                        "apiKeys": {
-                                          "some": {
-                                            "AND": [
-                                              {
-                                                "enabled": true,
-                                                "id": {
-                                                  "control": "actor",
-                                                  "path": "key.id",
-                                                },
-                                              },
-                                              {
-                                                "OR": [
-                                                  {
-                                                    "expiresAt": null,
-                                                  },
-                                                  {
-                                                    "expiresAt": {
-                                                      "gt": {
-                                                        "now": true,
-                                                      },
-                                                    },
-                                                  },
-                                                ],
-                                              },
-                                            ],
-                                          },
-                                        },
-                                      },
-                                    ],
-                                  },
-                                ],
-                              },
-                            },
-                            "userId": {
-                              "control": "actor",
-                              "path": "userId",
-                            },
-                          },
-                        },
-                      },
-                    },
-                  },
-                  {
-                    "OR": [
-                      {
-                        "$if": {
-                          "control": "actor",
-                          "exists": false,
-                          "path": "key",
-                        },
-                      },
-                      {
-                        "$if": {
-                          "control": "actor",
-                          "hasSome": [
-                            "read",
-                            "update",
-                            "full",
-                          ],
-                          "path": "key.scopes.member",
-                        },
-                      },
-                    ],
-                  },
-                ],
+                "$if": {
+                  "control": "actor",
+                  "exists": false,
+                  "path": "key",
+                },
               },
               {
-                "AND": [
-                  {
-                    "organization": {
-                      "is": {
-                        "members": {
-                          "some": {
-                            "role": {
-                              "in": [
-                                "member",
-                                "admin",
-                              ],
-                            },
-                            "user": {
-                              "is": {
-                                "AND": [
-                                  {
-                                    "OR": [
-                                      {
-                                        "banned": null,
-                                      },
-                                      {
-                                        "banned": false,
-                                      },
-                                      {
-                                        "banExpires": {
-                                          "lte": {
-                                            "now": true,
-                                          },
-                                        },
-                                      },
-                                    ],
-                                  },
-                                  {
-                                    "OR": [
-                                      {
-                                        "$if": {
-                                          "control": "actor",
-                                          "exists": true,
-                                          "path": "session",
-                                        },
-                                        "sessions": {
-                                          "some": {
-                                            "expiresAt": {
-                                              "gt": {
-                                                "now": true,
-                                              },
-                                            },
-                                            "id": {
-                                              "control": "actor",
-                                              "path": "session",
-                                            },
-                                          },
-                                        },
-                                      },
-                                      {
-                                        "$if": {
-                                          "control": "actor",
-                                          "exists": true,
-                                          "path": "key",
-                                        },
-                                        "apiKeys": {
-                                          "some": {
-                                            "AND": [
-                                              {
-                                                "enabled": true,
-                                                "id": {
-                                                  "control": "actor",
-                                                  "path": "key.id",
-                                                },
-                                              },
-                                              {
-                                                "OR": [
-                                                  {
-                                                    "expiresAt": null,
-                                                  },
-                                                  {
-                                                    "expiresAt": {
-                                                      "gt": {
-                                                        "now": true,
-                                                      },
-                                                    },
-                                                  },
-                                                ],
-                                              },
-                                            ],
-                                          },
-                                        },
-                                      },
-                                    ],
-                                  },
-                                ],
-                              },
-                            },
-                            "userId": {
-                              "control": "actor",
-                              "path": "userId",
-                            },
-                          },
-                        },
-                      },
-                    },
-                  },
-                  {
-                    "OR": [
-                      {
-                        "$if": {
-                          "control": "actor",
-                          "exists": false,
-                          "path": "key",
-                        },
-                      },
-                      {
-                        "$if": {
-                          "control": "actor",
-                          "hasSome": [
-                            "update",
-                            "full",
-                          ],
-                          "path": "key.scopes.member",
-                        },
-                      },
-                    ],
-                  },
-                  {
-                    "organization": {
-                      "is": {
-                        "members": {
-                          "some": {
-                            "role": {
-                              "in": [
-                                "admin",
-                              ],
-                            },
-                            "userId": {
-                              "control": "actor",
-                              "path": "userId",
-                            },
-                          },
-                        },
-                      },
-                    },
-                  },
-                ],
+                "$if": {
+                  "control": "actor",
+                  "hasSome": [
+                    "read",
+                    "update",
+                    "full",
+                  ],
+                  "path": "key.scopes.member",
+                },
               },
             ],
           },
@@ -1456,132 +1303,36 @@ exports[`the acceptance policy (§1.1) > its predicates for the identity models,
           {
             "OR": [
               {
-                "AND": [
-                  {
-                    "OR": [
-                      {
-                        "$if": {
-                          "control": "actor",
-                          "exists": false,
-                          "path": "key",
-                        },
-                      },
-                      {
-                        "$if": {
-                          "control": "actor",
-                          "hasSome": [
-                            "read",
-                            "update",
-                            "full",
-                            "invite",
-                            "export",
-                          ],
-                          "path": "key.scopes.organization",
-                        },
-                      },
-                    ],
-                  },
-                  {
-                    "members": {
-                      "some": {
-                        "userId": {
-                          "control": "actor",
-                          "path": "userId",
-                        },
-                      },
-                    },
-                  },
-                ],
+                "$if": {
+                  "control": "actor",
+                  "exists": false,
+                  "path": "key",
+                },
               },
               {
-                "AND": [
-                  {
-                    "OR": [
-                      {
-                        "$if": {
-                          "control": "actor",
-                          "exists": false,
-                          "path": "key",
-                        },
-                      },
-                      {
-                        "$if": {
-                          "control": "actor",
-                          "hasSome": [
-                            "invite",
-                          ],
-                          "path": "key.scopes.organization",
-                        },
-                      },
-                    ],
-                  },
-                  {
-                    "members": {
-                      "some": {
-                        "role": {
-                          "in": [
-                            "admin",
-                          ],
-                        },
-                        "userId": {
-                          "control": "actor",
-                          "path": "userId",
-                        },
-                      },
-                    },
-                  },
-                ],
-              },
-              {
-                "AND": [
-                  {
-                    "OR": [
-                      {
-                        "$if": {
-                          "control": "actor",
-                          "exists": false,
-                          "path": "key",
-                        },
-                      },
-                      {
-                        "$if": {
-                          "control": "actor",
-                          "hasSome": [
-                            "export",
-                          ],
-                          "path": "key.scopes.organization",
-                        },
-                      },
-                    ],
-                  },
-                  {
-                    "members": {
-                      "some": {
-                        "role": {
-                          "in": [
-                            "admin",
-                          ],
-                        },
-                        "userId": {
-                          "control": "actor",
-                          "path": "userId",
-                        },
-                      },
-                    },
-                  },
-                  {
-                    "plan": "pro",
-                  },
-                  {
-                    "$if": {
-                      "control": "actor",
-                      "equals": "office",
-                      "path": "network",
-                    },
-                  },
-                ],
+                "$if": {
+                  "control": "actor",
+                  "hasSome": [
+                    "read",
+                    "update",
+                    "full",
+                    "invite",
+                    "export",
+                  ],
+                  "path": "key.scopes.organization",
+                },
               },
             ],
+          },
+          {
+            "members": {
+              "some": {
+                "userId": {
+                  "control": "actor",
+                  "path": "userId",
+                },
+              },
+            },
           },
           {
             "OR": [
