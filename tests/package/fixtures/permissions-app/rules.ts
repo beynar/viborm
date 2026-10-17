@@ -185,8 +185,30 @@ export function handRules(actor: Actor, options: RuleOptions) {
   const directRule = (a: string, rules: Record<string, () => Clause>): Clause =>
     rules[a]?.() ?? null;
 
-  const P = (model: GovernedModel, a: string): Clause =>
-    or(...above(model, a).map((declared) => declaration(model, declared)));
+  /**
+   * R1 at (model, action): the declaration at `a` and every declaration
+   * inherited into it. Every declaration of this application is monotone
+   * in the action (a higher action narrows the role ceiling, the key's
+   * scopes, the grant coverage and the targets' own predicates), so an
+   * inherited one is contained in `a`'s own and adds no row: only `a`'s is
+   * written, as the library's absorption leaves it, within Neki's 256
+   * relations per statement. `create` is not of that shape (a placement
+   * over the proposed row): where the graph makes it imply `a`, its arm
+   * stays. The oracle, written apart, checks this on every substrate.
+   */
+  const P = (model: GovernedModel, a: string): Clause => {
+    const own = declaration(model, a);
+    if (own === null)
+      return or(
+        ...above(model, a).map((declared) => declaration(model, declared))
+      );
+    return or(
+      own,
+      ...above(model, a)
+        .filter((declared) => declared === "create" && declared !== a)
+        .map((declared) => declaration(model, declared))
+    );
+  };
 
   const administerGrant = (): Clause =>
     and(
