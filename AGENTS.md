@@ -738,17 +738,18 @@ pnpm test:providers      # Docker and hosted projects only; missing environment 
 pnpm test:watch          # Core projects only
 pnpm test:ui             # Core projects in the Vitest UI
 
-# Fast layer feedback: 14 commands, one per `layer-*` project in
-# vitest.workspace.ts. That is the 13-entry architectural taxonomy in
-# tests/contracts/contract.ts plus a second engine command, because the
-# query-engine runtime core is split into a read half and a write half.
+# Fast layer feedback: one command per `layer-*` project in
+# vitest.workspace.ts. Projects follow the architectural taxonomy in
+# tests/contracts/contract.ts, with two engine commands because the runtime
+# core is split into a read half and a write half.
 # Each runs its runtime sentinels, then its compile-only probes, inside a single
 # 30 second wall budget covering both stages - except test:layer:client, which
-# holds an explicit 45 second exception. Client is the only layer whose
-# compile-only estate needs three separate tsc programs to stay inside the
-# 1280 MB shard heap, and three tsc startups plus its runtime stage do not fit in
-# 30 seconds; scripts/run-layer-core.mjs records the measurement. The exception
-# buys WALL time only: the 768 / 1280 / 1536 MiB memory contract is untouched.
+# holds an explicit 45 second exception. Type probes use the same native
+# TypeScript compiler as test:types, single-threaded with a 1200 MiB Go GC
+# target inside the unchanged 1536 MiB process-group RSS ceiling. Client keeps
+# its source-size shards and wall exception; scripts/run-layer-core.mjs records
+# why they were introduced. Runtime tests retain their 768 MiB Node heap.
+# Package consumer checks separately retain TypeScript 5.9, 6 and 7 coverage.
 # test:layer:write-engine has no type stage of its own and prints that it was
 # skipped: the write engine's compile-only probes live in the query-engine type
 # core, so tests/types/write-engine/ deliberately does not exist.
@@ -766,6 +767,7 @@ pnpm test:layer:client   # 45 seconds; every other layer has 30
 pnpm test:layer:cache
 pnpm test:layer:instrumentation
 pnpm test:layer:migrations
+pnpm test:layer:rbac
 
 # Operation-pipeline performance evidence
 pnpm bench:operation-pipeline

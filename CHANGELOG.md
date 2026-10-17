@@ -203,6 +203,9 @@ names no role, grant or action.
   value from denying the query.
 - All five PostgreSQL `createClient` factories forward `sharedRelationBodies`,
   so `false` disables sharing as it does on direct driver construction.
+- Fast layer typechecks use the native compiler already used by the complete
+  typecheck, avoiding the RBAC layer's JavaScript-compiler out-of-memory failure
+  without increasing its time or process-memory limits or removing type probes.
 
 - **An update with nothing to assign no longer fails.** On a model with no
   `updatedAt` and no stamp, `update({ data: {} })` and
