@@ -14,12 +14,15 @@
  */
 
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
+import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import type { CacheEntry } from "@cache/driver";
 import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
 import { createClient } from "@client/client";
 import {
   ClientInitializationError,
+  NestedWriteError,
+  NotFoundError,
   QueryError,
   ValidationError,
 } from "@errors";
@@ -29,11 +32,16 @@ import {
   placeControls,
   snapshotControlValue,
 } from "@extensions/controls";
-import { defineExtension } from "@extensions/definition";
+import {
+  defineExtension,
+  type ExtensionDefinitionInput,
+} from "@extensions/definition";
 import { bindRows, callRows } from "@extensions/rows";
+import { Condition, Parameter } from "@query-engine/raptor3/shared/row-scope";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { s } from "@schema";
 import { Decimal } from "@src/index";
+import { v } from "@src/validation";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
@@ -1091,131 +1099,162 @@ describe("controls: required", () => {
 });
 
 describe("controls: rows bound to the call", () => {
-  const WRITTEN = new Date("2026-01-01T00:00:00.000Z");
-  const live = { deletedAt: null };
-  const tenantRoot = {
-    AND: [
-      { tenantId: { control: "tenant" } },
-      {
-        OR: [
-          { authorId: { in: [{ control: "author" }, "u0"] } },
-          { NOT: { deletedById: { control: "by" } } },
-        ],
-      },
-    ],
-    title: { in: ["a", "b"] },
-    deletedAt: { lt: WRITTEN },
-  };
-  const tenantRelated = { tenantId: { control: "tenant" } };
-  const tenancy = {
-    control: "scope",
-    default: "tenant",
-    models: {
-      post: {
-        tenant: { root: tenantRoot, related: tenantRelated },
-        all: {},
-      },
-    },
-  } as const;
-  const soft = {
-    control: "deleted",
-    default: "without",
-    models: { post: { without: { root: live }, with: {} } },
-  } as const;
+  // A predicate's values are parameters (plan K2): the domains are built once
+  // per chain, as admission left them, and a call carries its controls
+  // beside them. What each call then reads is witnessed on real databases
+  // (tests/contracts/engine/query/domain-predicate-behavior.ts).
+  const scopedPost = s.model({
+    id: s.string().id(),
+    tenantId: s.string(),
+    title: s.string(),
+    deletedAt: s.dateTime().nullable(),
+    version: s.int(),
+  });
+  const scopedSchema = { post: scopedPost };
   const deletion = {
     post: { extension: "managed", at: "deletedAt", assign: {} },
   } as const;
+  const bound = (...definitions: ExtensionDefinitionInput[]) => {
+    let chain: ReturnType<typeof appendResolvedExtension> | undefined;
+    for (const definition of definitions)
+      chain = appendResolvedExtension(chain, definition, scopedSchema);
+    return chain!.callRows!;
+  };
 
-  test("a reference at any depth takes the call's value, null included; everything else is kept as written", () => {
-    const binding = bindRows([tenancy, soft], undefined);
-    // Every combination takes the default domain, which names all three.
-    expect(binding.references).toEqual(
-      Array.from({ length: 4 }, () => ["tenant", "author", "by"])
+  test("every call shares its combination's domains; a call whose predicates read a value carries its controls, others the precomputed facts", () => {
+    const binding = bound(tenancyRecipe(["post"]), softRows);
+    // Every combination's default domain reads the tenant.
+    expect(binding.parametric).toEqual([true, true, true, true, true, true]);
+    const acme = callRows(binding, "post", { tenant: "acme" });
+    const globex = callRows(binding, "post", { tenant: "globex" });
+    expect(acme.domain).toBe(globex.domain);
+    expect(acme.domain).toBe(binding.tombstoning[0]!.domain);
+    expect(acme.values?.controls).toEqual({ tenant: "acme" });
+    expect(globex.values?.controls).toEqual({ tenant: "globex" });
+    expect(acme.values?.required("tenant", "post")).toBe(true);
+    const soft = bound(softRows);
+    expect(soft.parametric).toEqual([false, false, false]);
+    expect(callRows(soft, "post", { deleted: "with" })).toBe(
+      soft.tombstoning[1]
     );
-    const facts = callRows(binding, "post", {
-      scope: "tenant",
-      deleted: "without",
-      tenant: "acme",
-      author: "u1",
-      by: null,
-    });
-    const [bound, kept] = facts.domain.root.get("post")!;
-    expect(bound).toEqual({
-      AND: [
-        { tenantId: "acme" },
-        {
-          OR: [
-            { authorId: { in: ["u1", "u0"] } },
-            { NOT: { deletedById: null } },
-          ],
-        },
-      ],
-      title: { in: ["a", "b"] },
-      deletedAt: { lt: WRITTEN },
-    });
-    expect(bound!.title).toBe(tenantRoot.title);
-    expect(bound!.deletedAt).toBe(tenantRoot.deletedAt);
-    expect(kept).toBe(live);
-    expect(facts.domain.related.get("post")).toEqual([{ tenantId: "acme" }]);
-    // A combination whose predicates name no control is v3.1's own domain.
-    const all = callRows(binding, "post", { scope: "all", tenant: "acme" });
-    expect(all.domain).toBe(binding.physical[1]!.domain);
   });
 
-  test("a control the call did not pass drops each predicate that names it: that predicate filters nothing, the others stay", () => {
-    const binding = bindRows([tenancy, soft], undefined);
-    const absent = callRows(binding, "post", { tenant: "acme" });
-    expect(absent.domain.root.get("post")).toEqual([live]);
-    expect(absent.domain.related.get("post")).toEqual([{ tenantId: "acme" }]);
-    const none = callRows(binding, "post", undefined);
-    expect(none.domain.root.get("post")).toEqual([live]);
-    expect(none.domain.related.has("post")).toBe(false);
-  });
-
-  test("a required control the call did not pass matches nothing on the model it is required on, at any depth", () => {
-    // Required on `post`: a call that did not pass it reached `post` through a
-    // model it is not required on, and must read none of its rows.
-    const controls = {
-      all: [{ name: "author", required: new Set(["post"]) }],
-    } as unknown as Parameters<typeof bindRows>[3];
-    const binding = bindRows([tenancy, soft], undefined, undefined, controls);
-    const facts = callRows(binding, "post", { tenant: "acme", by: "u2" });
-    const nothing = { OR: [] };
-    // `author` sits in an `in` list inside the root predicate's `AND`.
-    expect(facts.domain.root.get("post")).toEqual([nothing, live]);
-    // The related predicate names only `tenant`, which the call passed.
-    expect(facts.domain.related.get("post")).toEqual([{ tenantId: "acme" }]);
-  });
-
-  test("one object passed as two controls binds both, memoized like two equal objects", () => {
-    const binding = bindRows([tenancy], undefined);
-    const shared = snapshotControlValue({ team: "red" });
-    const facts = callRows(binding, "post", {
-      tenant: "acme",
-      author: shared,
-      by: shared,
-    });
-    const [bound] = facts.domain.root.get("post")!;
-    expect(JSON.stringify(bound)).toContain('"authorId":{"in":[{"team":"red"}');
+  test("a predicate's value is a parameter; an absent optional value travels as absent", () => {
+    const binding = bound(optimisticLock(["post"]));
+    // `unchecked` names nothing, but its default domain does.
+    expect(binding.parametric).toEqual([true, true]);
+    const [checked] = binding.physical[0]!.domain.root.get("post")!;
+    const operand = (checked as { version: { equals: unknown } }).version
+      .equals;
+    expect(operand).toBeInstanceOf(Parameter);
+    expect(operand).toMatchObject({ control: "expectedVersion" });
+    // Absent, the lock's value still travels as absent: the engine drops it,
+    // as no control of the chain is required.
+    const absent = callRows(binding, "post", undefined).values!;
+    expect(absent.controls).toEqual({});
+    expect(absent.required("expectedVersion", "post")).toBe(false);
     expect(
-      callRows(binding, "post", {
-        tenant: "acme",
-        author: snapshotControlValue({ team: "red" }),
-        by: snapshotControlValue({ team: "red" }),
-      })
-    ).toBe(facts);
+      callRows(binding, "post", { versionCheck: "unchecked" }).domain
+    ).toBe(binding.tombstoning[1]!.domain);
   });
 
-  test("a value that cannot be copied (a Proxy) is bound for its call alone", () => {
-    const binding = bindRows([tenancy], undefined);
-    const proxied = new Proxy({ tenant: "acme" }, {});
-    const facts = callRows(binding, "post", {
-      tenant: proxied,
-      author: "u1",
-      by: null,
+  test("a model's own AND, OR or NOT field is a field at its filter, a combinator elsewhere", () => {
+    const logical = s.model({
+      id: s.int().id(),
+      AND: s.string(),
+      OR: s.string(),
+      NOT: s.string(),
     });
-    expect(facts.domain.related.get("post")).toEqual([{ tenantId: proxied }]);
-    expect(binding.bound.size).toBe(0);
+    const chain = appendResolvedExtension(
+      undefined,
+      {
+        name: "picked",
+        controls: {
+          a: { schema: v.string() },
+          o: { schema: v.string() },
+          n: { schema: v.string() },
+        },
+        rows: {
+          control: "scope",
+          default: "picked",
+          models: {
+            logical: {
+              picked: {
+                root: {
+                  AND: { control: "a" },
+                  OR: { control: "o" },
+                  NOT: { control: "n" },
+                },
+              },
+            },
+            post: {
+              picked: { root: { AND: [{ title: { control: "a" } }] } },
+            },
+          },
+        },
+      },
+      { ...schema, logical }
+    );
+    const [fields] = chain.callRows!.physical[0]!.domain.root.get("logical")!;
+    for (const field of ["AND", "OR", "NOT"])
+      expect(
+        (fields as Record<string, { equals: unknown }>)[field]!.equals
+      ).toBeInstanceOf(Parameter);
+    // `post` declares no such field: there `AND` combines filters.
+    const [combined] = chain.callRows!.physical[0]!.domain.root.get("post")!;
+    expect(
+      (combined as { AND: { title: { equals: unknown } }[] }).AND[0]!.title
+        .equals
+    ).toBeInstanceOf(Parameter);
+  });
+
+  test("a filter is never a reference, at the top or as an item of AND, OR and NOT: `control` there is a field", async () => {
+    const switched = s.model({ id: s.string().id(), control: s.string() });
+    const base = createClient({
+      schema: { switched },
+      driver: createInMemorySQLite3Driver(),
+    });
+    clients.push(base);
+    await syncLiveSchema(base);
+    await base.switched.createMany({
+      data: [
+        { id: "a", control: "x" },
+        { id: "b", control: "y" },
+      ],
+    });
+    const named = { control: "x" };
+    const db = base.$extends({
+      name: "field",
+      rows: {
+        control: "kind",
+        default: "a",
+        models: {
+          switched: {
+            a: {
+              root: named,
+              related: { AND: [named], OR: [named], NOT: { control: "y" } },
+            },
+          },
+        },
+      },
+    });
+    expect(db.$extends).toBeTypeOf("function");
+    expect(
+      await callUnchecked(db, "switched", "findMany", { select: { id: true } })
+    ).toEqual([{ id: "a" }]);
+    // Under such a filter, a field's value is still one.
+    expect(() =>
+      base.$extends({
+        name: "nested",
+        rows: {
+          control: "kind",
+          default: "a",
+          models: {
+            switched: { a: { root: { NOT: { control: { control: "x" } } } } },
+          },
+        },
+      })
+    ).toThrow('references undeclared control "x"');
   });
 
   test("admission fixes plain data once: a frozen copy, the immutable as given, anything else unstable", () => {
@@ -1309,197 +1348,6 @@ describe("controls: rows bound to the call", () => {
     expect(isStableControlValue(proxied)).toBe(false);
     expect(snapshotControlValue("acme")).toBe("acme");
     expect(isStableControlValue("acme")).toBe(true);
-  });
-
-  test("a model's own AND, OR or NOT field is a field at its filter, a combinator elsewhere", () => {
-    const logical = s.model({
-      id: s.int().id(),
-      AND: s.string(),
-      OR: s.string(),
-      NOT: s.string(),
-    });
-    const rows = {
-      control: "scope",
-      default: "picked",
-      models: {
-        logical: {
-          picked: {
-            root: {
-              AND: { control: "a" },
-              OR: { control: "o" },
-              NOT: { control: "n" },
-            },
-          },
-        },
-        post: {
-          picked: { root: { AND: [{ title: { control: "a" } }] } },
-        },
-      },
-    } as const;
-    const binding = bindRows([rows], undefined, undefined, undefined, {
-      ...schema,
-      logical,
-    });
-    expect(binding.references[0]).toEqual(["a", "o", "n"]);
-    const values = { a: "x", o: "y", n: "z" };
-    expect(
-      callRows(binding, "logical", values).domain.root.get("logical")
-    ).toEqual([{ AND: "x", OR: "y", NOT: "z" }]);
-    // `post` declares no such field: there `AND` combines filters.
-    expect(callRows(binding, "post", values).domain.root.get("post")).toEqual([
-      { AND: [{ title: "x" }] },
-    ]);
-  });
-
-  test("the same values give the same facts; the 257th distinct value evicts the oldest", () => {
-    const binding = bindRows([tenancy], undefined);
-    const call = (tenant: string, scope = "tenant") =>
-      callRows(binding, "post", { tenant, scope });
-    const first = call("t0");
-    expect(call("t0")).toBe(first);
-    expect(call("t0").domain).toBe(first.domain);
-    expect(call("t1")).not.toBe(first);
-    expect(call("t0", "all")).not.toBe(first);
-    const kept = [first, binding.bound.get([...binding.bound.keys()][1]!)];
-    for (let index = 2; index < 255; index++) call(`t${index}`);
-    expect(binding.bound.size).toBe(256);
-    expect(call("t0")).toBe(kept[0]);
-    call("t255");
-    expect(binding.bound.size).toBe(256);
-    expect(call("t0")).not.toBe(first);
-    expect(call("t1")).not.toBe(kept[1]);
-  });
-
-  test("the lock's version takes room beside the tenant: each new version on one client pushes tenants out; a client of its own leaves them", () => {
-    const memoSchema = {
-      post: s.model({
-        id: s.string().id(),
-        tenantId: s.string(),
-        version: s.int(),
-      }),
-    };
-    const tenanted = appendResolvedExtension(
-      undefined,
-      tenancyRecipe(["post"]),
-      memoSchema
-    );
-    const locked = appendResolvedExtension(
-      tenanted,
-      optimisticLock(["post"]),
-      memoSchema
-    );
-    const binding = locked.callRows!;
-    // Every combination takes both default domains, which name both values.
-    expect(binding.references.map((names) => [...names].sort())).toEqual(
-      Array.from({ length: 4 }, () => ["expectedVersion", "tenant"])
-    );
-    const read = callRows(binding, "post", { tenant: "acme" }).domain;
-    expect(callRows(binding, "post", { tenant: "acme" }).domain).toBe(read);
-    for (let version = 0; version < 256; version++) {
-      callRows(binding, "post", { tenant: "acme", expectedVersion: version });
-    }
-    expect(binding.bound.size).toBe(256);
-    const again = callRows(binding, "post", { tenant: "acme" }).domain;
-    expect(again).not.toBe(read);
-    expect(again).toEqual(read);
-    // The client the lock was applied to keeps its own memo: its tenant stays.
-    const tenantOnly = tenanted.callRows!;
-    expect(tenantOnly).not.toBe(binding);
-    const kept = callRows(tenantOnly, "post", { tenant: "acme" }).domain;
-    expect(binding.bound.size).toBe(256);
-    expect(tenantOnly.bound.size).toBe(1);
-    expect(callRows(tenantOnly, "post", { tenant: "acme" }).domain).toBe(kept);
-  });
-
-  test("a chain whose predicates name no control keeps its precomputed facts: nothing is bound or kept", () => {
-    const binding = bindRows([soft], undefined);
-    expect(binding.references).toEqual([[], []]);
-    expect(callRows(binding, "post", { deleted: "with" })).toBe(
-      binding.physical[1]
-    );
-    expect(binding.bound.size).toBe(0);
-  });
-
-  test("a filter is never a reference, at the top or as an item of AND, OR and NOT: `control` there is a field", () => {
-    const named = { control: "x" };
-    const field = {
-      control: "kind",
-      default: "a",
-      models: {
-        post: {
-          a: {
-            root: named,
-            related: { AND: [named], OR: [named], NOT: named },
-          },
-        },
-      },
-    } as const;
-    const binding = bindRows([field], undefined);
-    expect(binding.references).toEqual([[]]);
-    const facts = callRows(binding, "post", { x: "value" });
-    expect(facts).toBe(binding.physical[0]);
-    expect(facts.domain.root.get("post")).toEqual([named]);
-    expect(facts.domain.related.get("post")).toEqual([
-      { AND: [named], OR: [named], NOT: named },
-    ]);
-    // Under such a filter, a field's value is still one.
-    const nested = bindRows(
-      [
-        {
-          ...field,
-          models: {
-            post: { a: { root: { NOT: { control: { control: "x" } } } } },
-          },
-        },
-      ],
-      undefined
-    );
-    expect(nested.references).toEqual([["x"]]);
-    expect(
-      callRows(nested, "post", { x: "value" }).domain.root.get("post")
-    ).toEqual([{ NOT: { control: "value" } }]);
-  });
-
-  test("a combination binds only when its predicates or the default ones name a control", () => {
-    // The default mode names nothing: its calls keep the precomputed facts.
-    const optIn = {
-      control: "scope",
-      default: "all",
-      models: { post: { all: {}, tenant: { related: tenantRelated } } },
-    } as const;
-    const binding = bindRows([optIn], undefined);
-    expect(binding.references).toEqual([[], ["tenant"]]);
-    expect(callRows(binding, "post", { tenant: "acme" })).toBe(
-      binding.physical[0]
-    );
-    expect(binding.bound.size).toBe(0);
-    // Tenancy's `all` names nothing, but its default domain does: two
-    // tenants keep two entries, one domain, each its own default domain.
-    const tenancyBinding = bindRows([tenancy], undefined);
-    const acme = callRows(tenancyBinding, "post", {
-      scope: "all",
-      tenant: "acme",
-    });
-    const globex = callRows(tenancyBinding, "post", {
-      scope: "all",
-      tenant: "globex",
-    });
-    expect(tenancyBinding.bound.size).toBe(2);
-    expect(acme.domain).toBe(globex.domain);
-    expect(acme.domain).toBe(tenancyBinding.physical[1]!.domain);
-    expect(globex.defaults.related.get("post")).toEqual([
-      { tenantId: "globex" },
-    ]);
-  });
-
-  test("a value no key spells by its content is bound for its call alone", () => {
-    const binding = bindRows([tenancy], undefined);
-    const tenant = new Map([["id", "acme"]]);
-    const first = callRows(binding, "post", { tenant });
-    expect(first.domain.related.get("post")).toEqual([{ tenantId: tenant }]);
-    expect(first.domain.related.get("post")![0]!.tenantId).toBe(tenant);
-    expect(callRows(binding, "post", { tenant })).not.toBe(first);
-    expect(binding.bound.size).toBe(0);
   });
 
   test("a remembered domain holds its own copy of the values it was bound from: a Date or an array the caller mutates after its call never reaches a later call with equal values (F1)", async () => {
@@ -1602,76 +1450,24 @@ describe("controls: rows bound to the call", () => {
     expect(await relatedIds({ view: "all" })).toEqual(["d1", "d2", "t1", "t2"]);
   });
 
-  test("a memo hit returns the one domain for equal plain values; a Date is bound for its call alone", () => {
-    const dated = {
-      control: "scope",
-      default: "tenant",
-      models: {
-        post: {
-          tenant: {
-            root: {
-              deletedAt: { control: "day" },
-              authorId: { in: { control: "authors" } },
-            },
-          },
-          all: {},
-        },
-      },
-    } as const;
-    const binding = bindRows([dated], undefined);
-    const day = new Date("2026-01-01T00:00:00.000Z");
-    const authors = ["u1"];
-    // Admission copies plain data once: the facts never hold the caller's own.
-    const first = callRows(binding, "post", {
-      day: snapshotControlValue(day),
-      authors: snapshotControlValue(authors),
-    });
-    const [where] = first.domain.root.get("post")!;
-    expect(where).toEqual({ deletedAt: day, authorId: { in: authors } });
-    expect(where!.deletedAt).not.toBe(day);
-    expect((where!.authorId as { in: unknown }).in).not.toBe(authors);
-    // A Date stays writable after admission (a handler's `setTime`), so it
-    // never keys the memo: an equal call binds its own domain.
-    const again = callRows(binding, "post", {
-      day: snapshotControlValue(new Date("2026-01-01T00:00:00.000Z")),
-      authors: snapshotControlValue(["u1"]),
-    });
-    expect(again).not.toBe(first);
-    expect(again.domain.root.get("post")).toEqual([where]);
-    expect(binding.bound.size).toBe(0);
-    // Equal plain data does key it: one domain for both calls.
-    const listed = {
-      day: null,
-      authors: snapshotControlValue(["u1"]),
-    };
-    const memoized = callRows(binding, "post", listed);
-    expect(
-      callRows(binding, "post", {
-        day: null,
-        authors: snapshotControlValue(["u1"]),
-      })
-    ).toBe(memoized);
-    expect(binding.bound.size).toBe(1);
-    // The combination whose own predicates name nothing keeps its domain.
-    expect(callRows(binding, "post", { scope: "all", day }).domain).toBe(
-      binding.physical[1]!.domain
-    );
-  });
-
-  test("a tombstoning call's default domain takes the same values; a physical one is kept apart", () => {
-    const binding = bindRows([tenancy], deletion);
+  test("a tombstoning call's default domain is the chain's; a physical one keeps the same domains", () => {
+    const [tenantRows] = appendResolvedExtension(
+      undefined,
+      tenancyRecipe(["post"]),
+      scopedSchema
+    ).rows!;
+    const binding = bindRows([tenantRows!], deletion);
     const operator = callRows(binding, "post", {
       tenant: "acme",
       scope: "all",
     });
     expect(operator.domain.related.has("post")).toBe(false);
-    expect(operator.defaults.related.get("post")).toEqual([
-      { tenantId: "acme" },
-    ]);
+    expect(operator.defaults).toBe(binding.tombstoning[0]!.domain);
     expect(operator.tombstones).toBe(binding.tombstoning[1]!.tombstones);
+    expect(operator.values?.controls).toEqual({ tenant: "acme", scope: "all" });
     const own = callRows(binding, "post", { tenant: "acme" });
     expect(own.defaults).toBe(own.domain);
-    const physical = bindRows([tenancy], {
+    const physical = bindRows([tenantRows!], {
       post: { ...deletion.post, removeWhen: { mode: "hard" } },
     });
     const removing = callRows(physical, "post", {
@@ -1679,9 +1475,180 @@ describe("controls: rows bound to the call", () => {
       mode: "hard",
     });
     expect(removing.tombstones).toBeUndefined();
+    expect(removing.domain).toBe(physical.physical[0]!.domain);
     expect(callRows(physical, "post", { tenant: "acme" }).tombstones).toBe(
       physical.tombstoning[0]!.tombstones
     );
+  });
+});
+
+describe("rows: each predicate admitted at $extends", () => {
+  // Plan K1(a): a predicate is parsed once through its model's `where`
+  // schema, its values the call supplies held as registered parameters.
+  const admitted = (root: object) => {
+    const chain = appendResolvedExtension(
+      undefined,
+      {
+        name: "admitted",
+        controls: { who: { schema: v.object({ id: v.string() }) } },
+        rows: {
+          control: "scope",
+          default: "on",
+          models: { post: { on: { root } } },
+        },
+      } as ExtensionDefinitionInput,
+      schema
+    );
+    return chain.callRows!.physical[0]!.domain.root.get("post")![0] as Record<
+      string,
+      unknown
+    >;
+  };
+
+  test("a reference, a path into one and the call's instant are parameters; anything else is a literal", () => {
+    const where = admitted({
+      authorId: { control: "who", path: "id" },
+      deletedAt: { lt: { now: true } },
+      title: { in: ["a", "b"] },
+    });
+    const author = (where.authorId as { equals: Parameter }).equals;
+    expect(author).toBeInstanceOf(Parameter);
+    expect(author).toMatchObject({ control: "who", path: "id" });
+    const now = (where.deletedAt as { lt: Parameter }).lt;
+    expect(now).toBeInstanceOf(Parameter);
+    expect(now).toMatchObject({ now: true });
+    expect(where.title).toEqual({ in: ["a", "b"] });
+    // A record with other keys, or a path that is not one, is a value.
+    expect(() => admitted({ title: { control: "who", other: 1 } })).toThrow(
+      ClientInitializationError
+    );
+    expect(() => admitted({ title: { control: "who", path: 1 } })).toThrow(
+      ClientInitializationError
+    );
+  });
+
+  test("a condition is a where of its own, conjoined with what it sits beside", () => {
+    const alone = admitted({
+      $if: { control: "who", path: "id", equals: "u1" },
+    });
+    expect(alone).toBeInstanceOf(Condition);
+    expect(alone).toMatchObject({ test: { equals: "u1" } });
+    const beside = admitted({
+      title: "a",
+      $if: { control: "who", exists: true },
+    }) as { AND: unknown[] };
+    expect(beside.AND[0]).toEqual({ title: { equals: "a" } });
+    expect(beside.AND[1]).toBeInstanceOf(Condition);
+  });
+
+  test("a refusal names the extension, the model, the predicate and the path; the root is named so", () => {
+    const refused = (root: object) => {
+      try {
+        admitted(root);
+      } catch (error) {
+        expect(error).toBeInstanceOf(ClientInitializationError);
+        return (error as ClientInitializationError).message;
+      }
+      throw new Error("expected a refusal");
+    };
+    expect(refused(42 as unknown as object)).toContain(
+      'Extension "admitted" rows.post.on.root at "root":'
+    );
+    expect(refused({ author: { is: { nmae: "x" } } })).toContain(
+      'at "author.is.nmae"'
+    );
+    for (const spec of [
+      "who",
+      { exists: true },
+      { control: "who", path: 1, exists: true },
+      { control: "who" },
+      { control: "who", exists: true, has: 1 },
+      { control: "who", exists: true, extra: 1 },
+      { control: "who", exists: "yes" },
+      { control: "who", in: "u1" },
+      { control: "who", hasSome: "u1" },
+    ])
+      expect(refused({ OR: [{ $if: spec }] }), JSON.stringify(spec)).toContain(
+        'at "OR.0.$if": a condition names one control and exactly one of exists, equals, in, has, hasSome'
+      );
+  });
+
+  test("positions are the where schema's: inside a relation filter, a field named control or now is that field", () => {
+    const node = s.model({
+      id: s.string().id(),
+      control: s.string(),
+      now: s.boolean(),
+      parentId: s.string().nullable(),
+      parent: s
+        .toOne(() => node)
+        .fields("parentId")
+        .references("id"),
+      children: s.toMany(() => node),
+    });
+    const where = appendResolvedExtension(
+      undefined,
+      {
+        name: "fields",
+        controls: { who: { schema: v.string() } },
+        rows: {
+          control: "scope",
+          default: "on",
+          models: {
+            node: {
+              on: {
+                root: {
+                  parent: { is: { control: "literal" } },
+                  children: {
+                    some: { now: true },
+                    every: { control: { control: "who" } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      { node }
+    ).callRows!.physical[0]!.domain.root.get("node")![0] as {
+      parent: { is: unknown };
+      children: { some: unknown; every: { control: { equals: unknown } } };
+    };
+    expect(where.parent.is).toEqual({ control: { equals: "literal" } });
+    expect(where.children.some).toEqual({ now: { equals: true } });
+    const who = where.children.every.control.equals;
+    expect(who).toBeInstanceOf(Parameter);
+    expect(who).toMatchObject({ control: "who" });
+  });
+
+  test("an admitted predicate admits again as itself", () => {
+    const first = appendResolvedExtension(
+      undefined,
+      {
+        name: "again",
+        controls: { who: { schema: v.string() } },
+        rows: {
+          control: "scope",
+          default: "on",
+          models: {
+            post: {
+              on: {
+                root: {
+                  authorId: { control: "who" },
+                  $if: { control: "who", exists: true },
+                },
+              },
+            },
+          },
+        },
+      },
+      schema
+    ).rows![0]!;
+    const second = appendResolvedExtension(
+      undefined,
+      { name: "again", controls: { who: { schema: v.string() } }, rows: first },
+      schema
+    ).rows![0]!;
+    expect(second.models.post!.on!.root).toEqual(first.models.post!.on!.root);
   });
 });
 
@@ -1697,9 +1664,9 @@ describe("data: fields an extension writes", () => {
     user: { update: { name: "touched" } },
   };
 
-  test("a stamp's control takes the call's value, put in per call; a field whose control the call did not pass is not written", () => {
+  test("a stamp's control takes the call's value, put in per call, a field of an object control by its path; a field whose control the call did not pass is not written", () => {
     const binding = bindRows(undefined, undefined, audit);
-    expect(binding.references).toEqual([[]]);
+    expect(binding.parametric).toEqual([false]);
     expect(binding.bindsStamps).toBe(true);
     const facts = callRows(binding, "post", { actor: "ann" });
     const post = facts.stamps!.get("post")!;
@@ -1707,59 +1674,125 @@ describe("data: fields an extension writes", () => {
     expect(post.update).toBe(audit.post.update);
     expect(facts.stamps!.get("user")).toBe(audit.user);
     expect(facts.domain).toBe(binding.physical[0]!.domain);
-    expect(binding.bound.size).toBe(0);
+    expect(facts.values).toBeUndefined();
     const absent = callRows(binding, "post", undefined);
     expect(absent.stamps!.get("post")!.create).toEqual({ source: "api" });
-  });
-
-  test("stamps take no room in the domain memo: one tenant keeps one domain whoever writes, past 256 writers", () => {
-    const scoped = {
-      control: "scope",
-      default: "tenant",
-      models: {
-        post: {
-          tenant: { root: { tenantId: { control: "tenant" } } },
-          all: {},
+    const pathed = bindRows(undefined, undefined, {
+      post: { update: { deletedById: { control: "who", path: "user.id" } } },
+    });
+    expect(
+      callRows(pathed, "post", { who: { user: { id: "u7" } } }).stamps!.get(
+        "post"
+      )!.update
+    ).toEqual({ deletedById: "u7" });
+    expect(
+      callRows(pathed, "post", { who: { user: {} } }).stamps!.get("post")!
+        .update
+    ).toEqual({});
+    // Inside a list, a reference is bound too, and its absence leaves the
+    // field unwritten; a record with other keys is data.
+    const listed = bindRows(undefined, undefined, {
+      post: {
+        update: {
+          title: [{ control: "who" }, "x"],
+          deletedById: { control: "who", note: 1 },
+          version: { increment: { control: "step" } },
+          name: ["a", "b"],
         },
       },
-    } as const;
-    const binding = bindRows([scoped], undefined, audit);
-    expect(binding.references).toEqual([["tenant"], ["tenant"]]);
+    } as never);
+    expect(
+      callRows(listed, "post", { who: "u1", step: 2 }).stamps!.get("post")!
+        .update
+    ).toEqual({
+      title: ["u1", "x"],
+      deletedById: { control: "who", note: 1 },
+      version: { increment: 2 },
+      name: ["a", "b"],
+    });
+    expect(
+      callRows(listed, "post", undefined).stamps!.get("post")!.update
+    ).toEqual({ deletedById: { control: "who", note: 1 }, name: ["a", "b"] });
+  });
+
+  test("a stamp's { now: true } is the call's instant, left for the engine to write; a record with other keys is data", () => {
+    const binding = bindRows(undefined, undefined, {
+      post: {
+        create: { title: { now: true }, source: { now: true, at: 1 } },
+        update: { title: { now: true }, createdBy: { now: true } },
+      },
+    } as never);
+    const post = binding.physical[0]!.stamps!.get("post")!;
+    const { title, source } = post.create as Record<string, unknown>;
+    expect(title).toBeInstanceOf(Parameter);
+    expect(title).toMatchObject({ now: true });
+    expect(source).toEqual({ now: true, at: 1 });
+    const update = post.update as Record<string, unknown>;
+    expect([update.title, update.createdBy]).toEqual([title, title]);
+    // An instant names no control: no call binds anything.
+    expect(binding.bindsStamps).toBe(false);
+    expect(callRows(binding, "post", undefined)).toBe(binding.physical[0]);
+  });
+
+  test("stamps and values are a call's own: every tenant and writer shares one domain", () => {
+    const scoped = appendResolvedExtension(
+      undefined,
+      {
+        name: "scoped",
+        controls: { tenant: { schema: v.string() } },
+        rows: {
+          control: "scope",
+          default: "tenant",
+          models: {
+            post: {
+              tenant: { root: { title: { control: "tenant" } } },
+              all: {},
+            },
+          },
+        },
+      },
+      schema
+    ).rows!;
+    const binding = bindRows(scoped, undefined, audit);
+    expect(binding.parametric).toEqual([true, true]);
     const read = callRows(binding, "post", { tenant: "acme" });
     const ann = callRows(binding, "post", { tenant: "acme", actor: "ann" });
-    const bob = callRows(binding, "post", { tenant: "acme", actor: "bob" });
+    const bob = callRows(binding, "post", { tenant: "globex", actor: "bob" });
     expect(ann.domain).toBe(read.domain);
     expect(bob.domain).toBe(read.domain);
     expect(bob.defaults).toBe(read.defaults);
+    expect(bob.values?.controls).toEqual({ tenant: "globex", actor: "bob" });
     expect(bob.stamps!.get("post")!.create).toEqual({
       createdBy: "bob",
       source: "api",
     });
-    for (let index = 0; index < 300; index++) {
-      callRows(binding, "post", { tenant: "acme", actor: `a${index}` });
-    }
-    expect(binding.bound.size).toBe(1);
-    expect(callRows(binding, "post", { tenant: "acme" }).domain).toBe(
-      read.domain
-    );
   });
 
-  test("constant stamps keep the precomputed facts; bound rows leave them as declared", () => {
+  test("constant stamps keep the precomputed facts; parameterized rows leave them as declared", () => {
     const constant = { user: audit.user };
     const binding = bindRows(undefined, undefined, constant);
-    expect(binding.references).toEqual([[]]);
+    expect(binding.parametric).toEqual([false]);
     expect(binding.bindsStamps).toBe(false);
     const facts = callRows(binding, "user", undefined);
     expect(facts).toBe(binding.physical[0]);
     expect(facts.stamps!.get("user")).toBe(audit.user);
-    const scoped = {
-      control: "scope",
-      default: "tenant",
-      models: { post: { tenant: { root: { tenantId: { control: "t" } } } } },
-    } as const;
-    const bound = bindRows([scoped], undefined, constant);
+    const scoped = appendResolvedExtension(
+      undefined,
+      {
+        name: "scoped",
+        controls: { t: { schema: v.string() } },
+        rows: {
+          control: "scope",
+          default: "tenant",
+          models: { post: { tenant: { root: { title: { control: "t" } } } } },
+        },
+      },
+      schema
+    ).rows!;
+    const bound = bindRows(scoped, undefined, constant);
     const tenant = callRows(bound, "post", { t: "acme" });
-    expect(tenant.domain.root.get("post")).toEqual([{ tenantId: "acme" }]);
+    expect(tenant.domain).toBe(bound.physical[0]!.domain);
+    expect(tenant.values?.controls).toEqual({ t: "acme" });
     expect(tenant.stamps).toBe(bound.physical[0]!.stamps);
     // A tombstoning call writes them too: a tombstone is an update.
     const managed = bindRows(
@@ -2010,6 +2043,47 @@ describe("controls: the cache key", () => {
     expect(declared.keys[1]).not.toBe(plain.keys[0]);
   });
 
+  test("a read holding a value of an uncacheable control is refused before any statement, whether the cache would serve it or a statement transform bypasses it; one without it is served", async () => {
+    const recorder = new KeyRecordingCache();
+    const statements: string[] = [];
+    const judged = {
+      name: "judged",
+      controls: { caller: { oneOf: ["a"], on: "reads", uncacheable: true } },
+    } as const;
+    const cached = (await seededBase())
+      .$extends(cache({ driver: recorder, version: "v" }))
+      .$extends(judged);
+    const metered = cached.$extends({
+      name: "meter",
+      statement: (context) => {
+        statements.push(context.statement.toStatement());
+        return context.statement;
+      },
+    });
+    const read = { caller: "a", select: { id: true } } as const;
+    for (const db of [metered, cached]) {
+      statements.length = 0;
+      const refused = await db
+        .$withCache()
+        .post.findMany(read)
+        .then(
+          () => undefined,
+          (error: unknown) => error
+        );
+      expect(refused).toBeInstanceOf(ValidationError);
+      expect((refused as Error).message).toContain(
+        'Control "caller" is not cacheable'
+      );
+      expect(statements).toEqual([]);
+    }
+    expect(recorder.keys).toEqual([]);
+    await expect(metered.post.findMany(read)).resolves.toEqual([{ id: "p1" }]);
+    await expect(
+      cached.$withCache().post.findMany({ select: { id: true } })
+    ).resolves.toEqual([{ id: "p1" }]);
+    expect(recorder.keys).toHaveLength(1);
+  });
+
   test("a control value that is not plain data bypasses the cache", async () => {
     const recorder = new KeyRecordingCache();
     const db = (await seededBase())
@@ -2078,5 +2152,449 @@ describe("controls: the cache key", () => {
     expect(await above("1")).toEqual([1, 2]);
     expect(await above("2")).toEqual([2]);
     expect(recorder.keys).toEqual([]);
+  });
+});
+
+describe("rows: named predicates and verbs, per model", () => {
+  // Plan K3: a model's predicates are admitted once by name; `read` ANDs with
+  // every mode, a write's verb with its candidates (R2, R3, R8). What each
+  // write is judged at, against the oracle, is witnessed on four databases
+  // (tests/contracts/public-client/permissions-app-verbs.ts).
+  const declared = (verbs: object, models: object = {}) =>
+    ({
+      name: "verbs",
+      controls: { who: { schema: v.string(), required: true } },
+      rows: { control: "as", default: "all", models, verbs },
+    }) as ExtensionDefinitionInput;
+  const bound = (definition: ExtensionDefinitionInput) =>
+    appendResolvedExtension(undefined, definition, schema).callRows!;
+  const mine = { authorId: { control: "who" } };
+
+  test("each predicate is admitted once; a mode, a verb and a written field naming one share its object; a verb left out matches nothing", () => {
+    const binding = bound(
+      declared(
+        {
+          post: {
+            predicates: { mine, titled: { title: "t" } },
+            read: "mine",
+            update: "mine",
+            writes: { title: "titled" },
+          },
+        },
+        { post: { all: {}, titled: { root: "titled" } } }
+      )
+    );
+    const [all, titled] = binding.physical;
+    const layer = all!.domain.verbs!.get("post")![0]!;
+    expect(titled!.domain.root.get("post")![0]).toBe(layer.writes.get("title"));
+    expect(layer.read).toBe(layer.update);
+    expect(
+      (layer.read as { authorId: { equals: unknown } }).authorId.equals
+    ).toBeInstanceOf(Parameter);
+    expect(layer.delete).toEqual({ OR: [] });
+    // Verbs are per model, not per mode: every combination shares them.
+    expect(titled!.domain.verbs).toBe(all!.domain.verbs);
+    // A value read by a verb's predicate alone makes the calls carry theirs.
+    expect(binding.parametric).toEqual([true, true]);
+    expect(
+      bound(declared({ post: { predicates: { titled: { title: "t" } } } }))
+        .parametric
+    ).toEqual([false]);
+  });
+
+  test("an unknown model, predicate name or written field is refused at $extends, named by its place", () => {
+    const refused = (verbs: object, models?: object) =>
+      refusal(() => bound(declared(verbs, models))).message;
+    expect(refused({ nope: { predicates: {} } })).toBe(
+      'Extension "verbs" rows.verbs.nope at "root": names an unknown model.'
+    );
+    for (const verb of ["read", "update", "delete"])
+      expect(
+        refused({ post: { predicates: { mine }, [verb]: "theirs" } })
+      ).toBe(
+        `Extension "verbs" rows.verbs.post at "${verb}": names unknown predicate "theirs".`
+      );
+    expect(
+      refused({ post: { predicates: { mine }, writes: { title: "theirs" } } })
+    ).toBe(
+      'Extension "verbs" rows.verbs.post at "writes.title": names unknown predicate "theirs".'
+    );
+    expect(
+      refused({ post: { predicates: { mine }, writes: { titel: "mine" } } })
+    ).toBe(
+      'Extension "verbs" rows.verbs.post at "writes.titel": names an unknown field.'
+    );
+    expect(
+      refused({ post: { predicates: { mine: { titel: "t" } } } })
+    ).toContain('rows.verbs.post.predicates.mine at "titel"');
+    expect(
+      refused(
+        { post: { predicates: { mine } } },
+        {
+          post: { all: {}, theirs: { related: "theirs" } },
+        }
+      )
+    ).toBe(
+      'Extension "verbs" rows.post.theirs.related at "root": names unknown predicate "theirs".'
+    );
+    // A model's mode names only its own model's predicates.
+    expect(
+      refused(
+        { post: { predicates: { mine } } },
+        {
+          user: { all: {}, mine: { root: "mine" } },
+        }
+      )
+    ).toBe(
+      'Extension "verbs" rows.user.mine.root at "root": names unknown predicate "mine".'
+    );
+    // A relation is a field a write names.
+    expect(() =>
+      bound(
+        declared({ post: { predicates: { mine }, writes: { author: "mine" } } })
+      )
+    ).not.toThrow();
+  });
+
+  test("an unknown key in a model's verbs is refused at $extends, named with its model: a misspelt `writes` would judge its field at `update`", () => {
+    // Policies may be data built at runtime, so the types do not cover it.
+    const error = refusal(() =>
+      bound(
+        declared({
+          post: {
+            predicates: { mine, nobody: { id: "-" } },
+            update: "mine",
+            write: { title: "nobody" },
+          },
+        })
+      )
+    );
+    expect(error.message).toBe(
+      'Extension "verbs" rows.verbs.post at "write": is not one of predicates, read, update, delete, writes, place, moves, acyclic, evidence, reads.'
+    );
+    expect(error.meta).toMatchObject({ model: "post" });
+  });
+
+  test("`data: {}` on a model with nothing to stamp emits no UPDATE: its rows are read, on the base client as under verbs, never judged at `update`", async () => {
+    const base = await seededBase();
+    await base.user.create({ data: { id: "u2", name: "Bob" } });
+    expect(
+      await base.user.update({
+        where: { id: "u1" },
+        data: {},
+        select: { id: true },
+      })
+    ).toEqual({ id: "u1" });
+    expect(await base.user.updateMany({ data: {} })).toEqual({ count: 2 });
+    expect(
+      await failure(base.user.update({ where: { id: "u3" }, data: {} }))
+    ).toBeInstanceOf(NotFoundError);
+    const governed = applyUnchecked(
+      base,
+      declared({
+        user: {
+          predicates: { self: { id: { control: "who" } }, nobody: { id: "-" } },
+          read: "self",
+          update: "nobody",
+        },
+      })
+    );
+    const update = (where: object, data: object) =>
+      callUnchecked(governed, "user", "update", { who: "u1", where, data });
+    expect(await update({ id: "u1" }, {})).toEqual({ id: "u1", name: "Ada" });
+    expect(await failure(update({ id: "u2" }, {}))).toBeInstanceOf(
+      NotFoundError
+    );
+    expect(await failure(update({ id: "u1" }, { name: "Eve" }))).toBeInstanceOf(
+      NotFoundError
+    );
+    expect(
+      await callUnchecked(governed, "user", "updateMany", {
+        who: "u1",
+        data: {},
+      })
+    ).toEqual({ count: 1 });
+  });
+
+  test("a lax `disconnect: true` judges the member it unlinks: one the call sees and may not write is refused, as a clear is; one it cannot see keeps its link", async () => {
+    const holder = s.model({
+      id: s.string().id(),
+      badge: s.toOne(() => badge),
+    });
+    const badge = s.model({
+      id: s.string().id(),
+      label: s.string(),
+      holderId: s.string().nullable().unique(),
+      holder: s
+        .toOne(() => holder)
+        .fields("holderId")
+        .references("id"),
+    });
+    const base = createClient({
+      schema: { holder, badge },
+      driver: createInMemorySQLite3Driver(),
+    });
+    clients.push(base);
+    await syncLiveSchema(base);
+    for (const [id, label] of [
+      ["open", "open"],
+      ["locked", "locked"],
+      ["hidden", "hidden"],
+    ] as const) {
+      await base.holder.create({ data: { id } });
+      await base.badge.create({ data: { id, label, holderId: id } });
+    }
+    const governed = applyUnchecked(base, {
+      name: "badges",
+      rows: {
+        control: "as",
+        default: "all",
+        models: {},
+        verbs: {
+          holder: { predicates: { all: {} }, read: "all", update: "all" },
+          badge: {
+            predicates: {
+              seen: { label: { not: "hidden" } },
+              open: { label: "open" },
+            },
+            read: "seen",
+            update: "seen",
+            writes: { holderId: "open", holder: "open" },
+          },
+        },
+      },
+    });
+    const disconnect = (id: string) =>
+      callUnchecked(governed, "holder", "update", {
+        where: { id },
+        data: { badge: { disconnect: true } },
+      });
+    const holderOf = async (id: string) =>
+      (await base.badge.findUnique({ where: { id } }))?.holderId;
+    await disconnect("open");
+    expect(await holderOf("open")).toBeNull();
+    expect(await failure(disconnect("locked"))).toBeInstanceOf(
+      NestedWriteError
+    );
+    expect(await holderOf("locked")).toBe("locked");
+    await disconnect("hidden");
+    expect(await holderOf("hidden")).toBe("hidden");
+  });
+
+  test("a predicate that contains itself is refused at $extends; one that shares a sub-object is admitted", () => {
+    const loop: Record<string, unknown> = { title: "t" };
+    loop.OR = [loop];
+    const nested: Record<string, unknown> = {};
+    nested.author = { is: { posts: { some: nested } } };
+    for (const [predicate, at] of [
+      [loop, "OR.0"],
+      [nested, "author.is.posts.some"],
+    ] as const) {
+      expect(
+        refusal(() =>
+          bound(declared({ post: { predicates: { loop: predicate } } }))
+        ).message
+      ).toBe(
+        `Extension "verbs" rows.verbs.post.predicates.loop at "${at}": contains itself.`
+      );
+      expect(
+        refusal(() =>
+          appendResolvedExtension(
+            undefined,
+            {
+              name: "modes",
+              rows: {
+                control: "as",
+                default: "on",
+                models: { post: { on: { root: predicate } } },
+              },
+            } as ExtensionDefinitionInput,
+            schema
+          )
+        ).message
+      ).toBe(
+        `Extension "modes" rows.post.on.root at "${at}": contains itself.`
+      );
+    }
+    const shared = { title: "t" };
+    const layer = bound(
+      declared({
+        post: { predicates: { both: { AND: [shared, { OR: [shared] }] } } },
+      })
+    ).physical[0]!.domain.verbs!.get("post")![0]!;
+    expect(layer.read).toEqual({ OR: [] });
+  });
+
+  test("a required control is asked for on a model only verbs name, and nowhere else", () => {
+    const placed = placeControls({
+      name: "verbs",
+      controls: { who: { oneOf: ["u1"], required: true } },
+      rows: {
+        control: "as",
+        default: "all",
+        models: {},
+        verbs: { post: { predicates: { mine }, read: "mine" } },
+      },
+    });
+    expect(placed.map(({ name, required: on }) => [name, on])).toEqual([
+      ["who", new Set(["post"])],
+      ["as", undefined],
+    ]);
+  });
+
+  test("a chain references a control a verb's predicate names: undeclared, it is refused at $extends", () => {
+    expect(
+      refusal(() =>
+        appendResolvedExtension(
+          undefined,
+          {
+            name: "verbs",
+            rows: {
+              control: "as",
+              default: "all",
+              models: {},
+              verbs: { post: { predicates: { mine }, read: "mine" } },
+            },
+          } as ExtensionDefinitionInput,
+          schema
+        )
+      ).message
+    ).toContain('"who"');
+  });
+});
+
+/** A sent read's text up to its WHERE. */
+const SELECTED_FROM = /^SELECT .* WHERE /;
+
+describe("an array path as a list operand (G4, W-L4)", () => {
+  const item = s.model({ id: s.string().id(), rank: s.int() });
+  const listSchema = { item };
+  const ids = { control: "actor", path: "key.ids" };
+  const keyed = defineExtension({
+    name: "keyed",
+    controls: {
+      actor: {
+        schema: v.object({
+          key: v.object({
+            ids: v.optional(v.array(v.string())),
+            ranks: v.optional(v.array(v.number())),
+          }),
+        }),
+        required: true,
+      },
+    },
+    rows: {
+      control: "as",
+      default: "listed",
+      models: {
+        item: {
+          listed: { root: { id: { in: ids } } },
+          excluded: { root: { id: { notIn: ids } } },
+          ranked: {
+            root: { rank: { in: { control: "actor", path: "key.ranks" } } },
+          },
+        },
+      },
+    },
+  } as never);
+  /** The statements a driver is handed, as the transport binds them. */
+  class Recording extends SqlOnlyDriver {
+    readonly sent: [string, unknown[]][] = [];
+    override readonly maxBindParametersPerStatement: number | undefined;
+    constructor(
+      adapter: ConstructorParameters<typeof SqlOnlyDriver>[0],
+      dialect: ConstructorParameters<typeof SqlOnlyDriver>[1],
+      budget?: number
+    ) {
+      super(adapter, dialect);
+      this.maxBindParametersPerStatement = budget;
+    }
+    // (client, sql, params): the base fixture reads none of them.
+    protected override async execute<T>(
+      ...args: unknown[]
+    ): Promise<{ rows: T[]; rowCount: number }> {
+      const [, sql, params] = args as [null, string, unknown[]];
+      this.sent.push([sql.replace(SELECTED_FROM, ""), params]);
+      return { rows: [], rowCount: 0 };
+    }
+  }
+  const sent = async (driver: Recording, key: Record<string, unknown>) => {
+    const db = createClient({ schema: listSchema, driver }).$extends(keyed);
+    await callUnchecked(db, "item", "findMany", {
+      actor: { key },
+      select: { id: true },
+    });
+    return driver.sent.at(-1);
+  };
+
+  test("PostgreSQL binds the list whole; SQLite binds each member; an empty list takes nothing", async () => {
+    const pg = new Recording(new PostgresAdapter(), "postgresql");
+    expect(await sent(pg, { ids: ["a", "b", "a"] })).toEqual([
+      '"q0"."id" = ANY($1) ORDER BY "q0"."id" ASC',
+      ['{"a","b","a"}'],
+    ]);
+    expect(await sent(pg, { ids: [] })).toEqual([
+      'FALSE ORDER BY "q0"."id" ASC',
+      [],
+    ]);
+    const lite = new Recording(new SQLiteAdapter(), "sqlite");
+    expect(await sent(lite, { ids: ["a", "b", "a"] })).toEqual([
+      '"q0"."id" COLLATE BINARY IN (?, ?, ?) ORDER BY "q0"."id" ASC',
+      ["a", "b", "a"],
+    ]);
+    expect(await sent(lite, { ids: ["c"] })).toEqual([
+      '"q0"."id" COLLATE BINARY IN (?) ORDER BY "q0"."id" ASC',
+      ["c"],
+    ]);
+  });
+
+  test("over the driver's bind budget, equal members bind once and are read by number", async () => {
+    const budgeted = new Recording(new SQLiteAdapter(), "sqlite", 2);
+    expect(await sent(budgeted, { ids: ["a", "b", "a"] })).toEqual([
+      '"q0"."id" COLLATE BINARY IN (?1, ?2, ?1) ORDER BY "q0"."id" ASC',
+      ["a", "b"],
+    ]);
+  });
+
+  test("on SQLite3: every length, duplicates, notIn, a list of the field's type; an absent list matches nothing", async () => {
+    const base = createClient({
+      schema: listSchema,
+      driver: createInMemorySQLite3Driver(),
+    });
+    clients.push(base);
+    await syncLiveSchema(base);
+    await base.item.createMany({
+      data: ["a", "b", "c", "d"].map((id, rank) => ({ id, rank })),
+    });
+    const db = base.$extends(keyed);
+    const read = async (as: string, key: Record<string, unknown>) =>
+      (
+        (await callUnchecked(db, "item", "findMany", {
+          actor: { key },
+          as,
+          select: { id: true },
+          orderBy: { id: "asc" },
+        })) as { id: string }[]
+      ).map(({ id }) => id);
+    for (const [given, taken] of [
+      [["a"], ["a"]],
+      [
+        ["d", "b", "b"],
+        ["b", "d"],
+      ],
+      [[], []],
+      [["missing"], []],
+    ] as const) {
+      expect(await read("listed", { ids: given }), String(given)).toEqual(
+        taken
+      );
+      expect(await read("excluded", { ids: given }), String(given)).toEqual(
+        ["a", "b", "c", "d"].filter((id) => !taken.includes(id as never))
+      );
+    }
+    expect(await read("ranked", { ranks: [0, 3] })).toEqual(["a", "d"]);
+    // Absent, the required actor's list is false wherever it is read (R6).
+    expect(await read("listed", {})).toEqual([]);
+    expect(await read("excluded", {})).toEqual([]);
   });
 });

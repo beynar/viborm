@@ -11,10 +11,10 @@
  * PostgreSQL driver owns its introspection and its catalog digest.
  */
 
+import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import { repositoryRoot } from "./packed-consumer.mjs";
 
 const esbuild = createRequire(
@@ -87,12 +87,12 @@ const outDirectory = join(
 mkdirSync(outDirectory, { recursive: true });
 
 // Each push's operation count, or the code it was refused with.
+// The ORM owns these in-memory providers, so the push's finally disconnect
+// releases them before the next bundled consumer opens another database.
 const pushes = async (entry) => {
   const outfile = join(outDirectory, `${entry.replaceAll("/", "-")}.mjs`);
   await bundle(
-    `import { PGlite } from "@electric-sql/pglite";
-import Database from "better-sqlite3";
-import { createMigrationClient } from "${entry}";
+    `import { createMigrationClient } from "${entry}";
 import { createClient as createPgliteClient } from "viborm/pglite";
 import { s } from "viborm/schema";
 import { createClient as createSqliteClient } from "viborm/sqlite3";
@@ -104,16 +104,26 @@ const push = (client) =>
     .then((preview) => preview.operations.length, (error) => error.code)
     .finally(() => client.$disconnect());
 
-export const run = async () => [
-  await push(createPgliteClient({ client: new PGlite(), schema: { user } })),
+const run = async () => [
+  await push(createPgliteClient({ schema: { user } })),
   await push(
-    createSqliteClient({ client: new Database(":memory:"), schema: { user } })
+    createSqliteClient({ dataDir: ":memory:", schema: { user } })
   ),
 ];
+console.log(JSON.stringify(await run()));
 `,
     { outfile, platform: "node" }
   );
-  return (await import(pathToFileURL(outfile).href)).run();
+  // Closing PGlite releases its database, but the process may retain its Wasm
+  // allocation. A finished consumer process releases that memory before the
+  // next consumer starts, while also isolating their dialect registries.
+  // This smoke checks SQL and dialect registration, not V8 tiering. Baseline
+  // Wasm compilation avoids PGlite startup exceeding the shared RSS ceiling.
+  return JSON.parse(
+    execFileSync(process.execPath, ["--liftoff-only", outfile], {
+      encoding: "utf8",
+    })
+  );
 };
 
 for (const [entry, sqlite] of [

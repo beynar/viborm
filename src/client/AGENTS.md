@@ -246,8 +246,9 @@ naming an immutable extension chain across modules. `Extensions` is a finite
 readonly tuple in application order. Its implementation delegates every step
 to the same extension admission, client-config, and accumulated-state types as
 `$extends()`; do not add a second public extension-state description or a
-runtime "apply all" owner. Statically invalid ordering and repeated official
-cache/default-omit capabilities resolve to `never`; name and instrumentation
+runtime "apply all" owner. `ExtendedClient` takes object-definition tuples;
+name a factory's result with `typeof derived`. Statically invalid ordering and
+repeated official cache/default-omit capabilities resolve to `never`; name and instrumentation
 collisions remain runtime-owned.
 
 ---
@@ -321,6 +322,19 @@ chain. The public extension language has exactly ten capabilities: `request`,
 `query`, `statement`, `observe`, `client`, `model`, `controls`, `rows`,
 `deletion`, and `data`. Do not add another hook registry, priority system,
 public operation token, or deferred-operation type.
+
+`$extends(factory)` supplies the exact receiving root view to a synchronous
+client factory. The factory applies ordinary definitions through that view's
+`$extends`; it is composition at the client boundary, not a chain capability.
+Its contextual argument carries the receiving schema and extension state into
+schema-dependent factories such as `permissions`. Core must not name those extensions.
+`ClientTypeState<C, X>` carries inference metadata under a private optional
+symbol, so factories can recover the existing config and extension state without
+reverse-inferencing the entire client surface. Its opaque object alternative
+preserves structural client assignability; it is not runtime provenance or an
+authorization boundary. The public result helpers require the symbol key and
+check the complete client surface before publishing results, so metadata alone
+cannot promise methods that the client does not have.
 
 `src/extensions/` owns the one normalized definition boundary, immutable chain,
 method binding, and one runner per execution capability. A definition's
@@ -414,6 +428,12 @@ a schema-mapped query or client/model factory whose result types were fixed
 before omission.
 
 ## Caching integration
+
+Cached views retain declared row-evidence projections, including their exact
+permission names and relation targets, through type-only metadata owned by
+`projected-types.ts`. Their methods reuse the same projection argument/result
+types with a Promise carrier. They expose only cacheable reads: extension model
+methods, mutations, and batchable `PendingOperation` carriers do not propagate.
 
 Only an exact client derived with `cache({ driver, version?, waitUntil? })` has
 `$withCache()` and `$invalidate()`:

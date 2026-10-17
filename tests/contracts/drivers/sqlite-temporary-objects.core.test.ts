@@ -1,9 +1,16 @@
 import { getAdapterInternals } from "@adapters/adapter-internals";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
+import { createClient as bunSQLClient } from "@drivers/bun-sql";
 import { BunSQLiteDriver } from "@drivers/bun-sqlite";
 import { D1Driver } from "@drivers/d1";
 import { LibSQLDriver } from "@drivers/libsql";
+import { createClient as neonClient } from "@drivers/neon-http";
+import { PgDriver, createClient as pgClient } from "@drivers/pg";
+import { createClient as pgliteClient } from "@drivers/pglite";
+import { createClient as postgresClient } from "@drivers/postgres";
 import { SQLite3Driver } from "@drivers/sqlite3";
+import { s } from "@schema";
+import { sql } from "@sql";
 import { describe, expect, test } from "vitest";
 
 const scratchDdl = (adapter: DatabaseAdapter): string[] =>
@@ -28,5 +35,87 @@ describe("SQLite transport temporary objects", () => {
     ["d1", new D1Driver({ database: Object.create(null) }), MAIN_SCRATCH],
   ])("%s spells the batch reference scratch its transport admits", (_name, driver, ddl) => {
     expect(scratchDdl(driver.adapter)).toEqual([ddl]);
+  });
+});
+
+const check = (adapter: DatabaseAdapter): string =>
+  adapter.subqueries.existsCheck(sql.raw('"t"'), sql.raw("1")).toStatement();
+
+describe("SQLite transport expression depth", () => {
+  // SQLite's default SQLITE_MAX_EXPR_DEPTH is 1000; D1 compiles with 100
+  // ("Expression tree is too large"), so D1 alone nests relation filters in
+  // a derived table (live witness: tests/providers/workers/d1-permissions-verbs.test.ts,
+  // W-W3 and W-W7).
+  test.each([
+    ["sqlite3", new SQLite3Driver(), 'SELECT 1 FROM "t" WHERE 1'],
+    ["libsql", new LibSQLDriver(), 'SELECT 1 FROM "t" WHERE 1'],
+    ["bun-sqlite", new BunSQLiteDriver(), 'SELECT 1 FROM "t" WHERE 1'],
+    [
+      "d1",
+      new D1Driver({ database: Object.create(null) }),
+      'SELECT 1 FROM (SELECT 1 FROM "t" WHERE 1)',
+    ],
+  ])("%s spells a relation filter for the depth its transport compiles", (_name, driver, spelled) => {
+    expect(check(driver.adapter)).toBe(spelled);
+  });
+});
+
+describe("Shared relation bodies", () => {
+  test.each([
+    undefined,
+    true,
+    false,
+  ])("every PostgreSQL client factory preserves sharedRelationBodies=%s", (sharedRelationBodies) => {
+    const config = {
+      schema: { item: s.model({ id: s.string().id() }) },
+      sharedRelationBodies,
+    };
+    const remote = { ...config, databaseUrl: "postgres://h/d" };
+    // Construction is lazy: this checks the public configuration boundary
+    // without connecting to a provider or loading PGlite's Wasm runtime.
+    for (const client of [
+      pgClient(remote),
+      pgliteClient(config),
+      postgresClient(remote),
+      neonClient(remote),
+      bunSQLClient(remote),
+    ]) {
+      expect(
+        client.$driver.adapter.capabilities.sharesRelationBodies ?? false
+      ).toBe(sharedRelationBodies !== false);
+    }
+  });
+  // D1 refuses a statement over 100 KB; PlanetScale's Neki one referencing
+  // more than 256 relations. D1 declares the fact, and so does every
+  // PostgreSQL driver by default (the answers are the same, the statement
+  // smaller); `sharedRelationBodies: false` keeps the bodies inline (live
+  // witnesses: tests/providers/workers/d1-permissions-placement.test.ts W-P10,
+  // Neki W-R1).
+  test.each([
+    ["sqlite3", new SQLite3Driver(), undefined],
+    ["libsql", new LibSQLDriver(), undefined],
+    ["bun-sqlite", new BunSQLiteDriver(), undefined],
+    ["d1", new D1Driver({ database: Object.create(null) }), true],
+    ["pg", new PgDriver({ databaseUrl: "postgres://h/d" }), true],
+    [
+      "pg, declared",
+      new PgDriver({
+        databaseUrl: "postgres://h/d",
+        sharedRelationBodies: true,
+      }),
+      true,
+    ],
+    [
+      "pg, inline",
+      new PgDriver({
+        databaseUrl: "postgres://h/d",
+        sharedRelationBodies: false,
+      }),
+      false,
+    ],
+  ])("%s shares the relation bodies a statement repeats where its transport bounds the statement", (_name, driver, shared) => {
+    expect(driver.adapter.capabilities.sharesRelationBodies ?? false).toBe(
+      shared ?? false
+    );
   });
 });

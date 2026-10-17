@@ -1,3 +1,4 @@
+import { appendResolvedExtension } from "@extensions/chain";
 import {
   type ExtensionDefinitionInput,
   normalizeExtensionDefinition,
@@ -6,7 +7,7 @@ import { createClient, defineExtension, s } from "@src/index";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { describe, expect, it } from "vitest";
 
-const UNKNOWN_PATTERN = /unknown/;
+const UNKNOWN_PATTERN = /unknown/i;
 const SHARE_MODE_NAMES_PATTERN = /share mode names/;
 const UNDECLARED_CONTROL_TENNAT_PATTERN = /undeclared control "tennat"/;
 
@@ -50,7 +51,9 @@ describe("named extension policy admission", () => {
       ).toThrow(message);
   });
 
-  it("rejects excessive predicates and different mode counts before binding", () => {
+  it("admits a predicate past a caller's nesting bound and refuses different mode counts before binding", () => {
+    // A domain predicate is the application's own data: its lowering, not a
+    // depth number, bounds it (plan K1(a)).
     let predicate: Record<string, unknown> = { tenantId: "acme" };
     for (let depth = 0; depth < 17; depth++) predicate = { AND: [predicate] };
     expect(() =>
@@ -67,7 +70,7 @@ describe("named extension policy admission", () => {
         },
         schema
       )
-    ).toThrow("exceeds nesting limit");
+    ).not.toThrow();
     expect(() =>
       normalizeExtensionDefinition(
         {
@@ -174,9 +177,13 @@ describe("named extension policy admission", () => {
         },
       },
     };
-    expect(() => normalizeExtensionDefinition(definition, schema)).toThrow(
-      UNDECLARED_CONTROL_TENNAT_PATTERN
-    );
+    // A reference is the chain's to judge: order owns it (K7(c)).
+    expect(() =>
+      normalizeExtensionDefinition(definition, schema)
+    ).not.toThrow();
+    expect(() =>
+      appendResolvedExtension(undefined, definition, schema)
+    ).toThrow(UNDECLARED_CONTROL_TENNAT_PATTERN);
     expect(() =>
       normalizeExtensionDefinition(
         {

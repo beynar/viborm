@@ -234,6 +234,14 @@ export interface PgDriverOptions {
   /** The PostgreSQL schema this driver's persistent objects live in. Defaults to `public`. */
   namespace?: string;
   /**
+   * Each relation filter body a statement repeats is stated once, in a
+   * `WITH`, as the key set its arms test: the answers are the same, the
+   * statement smaller, and a server that bounds the relations one statement
+   * references (PlanetScale's Neki: 256) accepts it. Defaults to `true`;
+   * `false` keeps every body inline.
+   */
+  sharedRelationBodies?: boolean;
+  /**
    * Your claim, at your risk, that every connection this pool opens is one
    * server session for its whole life. It lifts migrations' refusal of
    * Cloudflare Hyperdrive and Neon `-pooler` hosts; application queries never
@@ -251,6 +259,7 @@ const PG_CONFIG_KEYS: Record<keyof PgDriverOptions, true> = {
   postgis: true,
   databaseUrl: true,
   namespace: true,
+  sharedRelationBodies: true,
   migrationSessionAttestation: true,
 };
 
@@ -726,6 +735,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     ...(Object.hasOwn(config, "databaseUrl") ? { databaseUrl } : {}),
     pgvector,
     postgis,
+    sharedRelationBodies: config.sharedRelationBodies,
   });
 
   return createClientFromDriverConfig<S, C, PgDriver>(config, driver);

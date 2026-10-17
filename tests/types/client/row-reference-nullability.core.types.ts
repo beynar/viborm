@@ -227,11 +227,8 @@ declare const everyModel: {
   };
 };
 // @ts-expect-error arbitrary string model maps are refused at schema-bound application
-const wide = base.$extends(everyModel);
-export async function everyStringHidesEveryModel() {
-  const rows = await wide.post.findMany({ include: { author: true } });
-  type _wide = Expect<Equal<(typeof rows)[number]["author"], UserRow | null>>;
-}
+base.$extends(everyModel);
+// The rejected application's error-recovery type is not a public client.
 
 // The cached, transaction and helper surfaces read the same context.
 const cachedDb = softDelete({ models: { post: { deletedAt: "deletedAt" } } })(

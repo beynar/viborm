@@ -75,6 +75,7 @@ import {
   createStandardLiterals,
   createSubqueries,
   escapeLikeLiteral,
+  rowValues,
 } from "../../shared/standard-sql";
 import { arrayLiteralText } from "./array-literal";
 
@@ -594,6 +595,12 @@ export class PostgresAdapter implements DatabaseAdapter {
       sql`SELECT 1 / CASE WHEN EXISTS (${query}) THEN 1 ELSE 0 END AS "__viborm_assert__"`,
     notExists: (query: Sql): Sql =>
       sql`SELECT 1 / CASE WHEN NOT EXISTS (${query}) THEN 1 ELSE 0 END AS "__viborm_assert__"`,
+    // The refusal names its sentinel (22P02, `invalid input syntax for type
+    // integer: "__viborm_refused__"`), which no caller's division by zero
+    // does; the text is a sublink, which PostgreSQL does not fold while
+    // planning, so it is evaluated only where it is reached.
+    holds: (condition: Sql, from?: Sql): Sql =>
+      sql`SELECT CASE WHEN ${condition} THEN 1 ELSE CAST((SELECT '__viborm_refused__') AS integer) END AS "__viborm_judged__"${from ? sql` FROM ${from}` : sql``}`,
   };
 
   joins = {
@@ -605,9 +612,32 @@ export class PostgresAdapter implements DatabaseAdapter {
     ...createLateralJoins(quoteIdent),
   };
 
-  setOperations = createSetOperations();
+  /**
+   * The produced rows as a `VALUES` list: PostgreSQL parses each `UNION ALL`
+   * arm one recursion deeper (`54001`, stack depth, at 8,000 rows on 16.14),
+   * and a list is no deeper for its length. A `VALUES` column is typed by its
+   * own rows, an unknown parameter as `text`, so the first row takes each
+   * column's type from a NULL of the table's row type (`COALESCE`, the rule
+   * a `UNION` arm met), beside the list, as a one-row FROM item. The NULL is
+   * cast to the table's type, never read as `SELECT "qN" FROM table AS "qN"`:
+   * there a column named `qN` would win over the whole-row reference (42809),
+   * and the cast reads no relation at all.
+   */
+  setOperations = createSetOperations(quoteIdent, (typed, rows, alias) => {
+    const name = sql.raw(quoteIdent(typed.alias));
+    const column = (field: string) => sql.raw(quoteIdent(field));
+    const [first, ...rest] = rows;
+    const typedFirst = first!.map(
+      (value, index) =>
+        sql`COALESCE(${value}, (${name}."row").${column(typed.columns[index]!)})`
+    );
+    return sql`(SELECT NULL::${typed.table} AS "row") AS ${name} CROSS JOIN LATERAL (VALUES ${sql.join(
+      [typedFirst, ...rest].map(rowValues),
+      ", "
+    )}) AS ${sql.raw(quoteIdent(alias))}(${sql.join(typed.columns.map(column), ", ")})`;
+  });
 
-  capabilities = {
+  capabilities: DatabaseAdapter["capabilities"] = {
     supportsReturning: true,
     supportsCteWithMutations: true,
     supportsFullOuterJoin: true,

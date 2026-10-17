@@ -112,9 +112,13 @@ supplied value so the methods also work inside callback and nested
 transactions. Capturing an unrelated root client in the extension closure
 deliberately escapes that transaction scope.
 
-Definition normalization and client/model factories run when each concrete
-root or transaction view is constructed. Operation handlers remain lazy until
-an operation is awaited or admitted to an array transaction.
+Definition normalization runs when the extension is applied, and the client
+`$extends()` returns runs every client and model factory then, so a faulty
+factory fails there. Every other view (an interactive transaction's `tx`, a
+client `$bind` returns, below) runs a factory when what it returns is first
+read: a model's factories when that model is, client factories when a client
+method is. Operation handlers remain lazy until an operation is awaited or
+admitted to an array transaction.
 
 Client method names must start with `$`. A contributed method cannot replace a
 core method, a model name, `then`, or a method from an earlier extension. The
@@ -149,7 +153,8 @@ patch instead of mutating `input` or anything inside it.
 
 Use `request` for argument defaults, normalization, and ordinary filters. A
 root filter alone is not complete authorization: nested relations, writes,
-raw SQL, and field use require a graph-wide policy.
+raw SQL, and field use require a graph-wide policy
+([`viborm/permissions`](/docs/extensions/permissions)).
 
 ## Wrap logical execution
 
@@ -299,14 +304,65 @@ await db.post.update({ where: { id }, data: { title }, reason: "typo" });
   before anything runs. A model the extension does not name still accepts the
   argument where `on` places it, but does not ask for it. An extension that
   names no model at all (only controls) asks for it on every model.
-- Control names are one list per client, shared with `rows.control`. Do not
-  take a name core already uses as an argument (`where`, `data`, `select`, …)
-  or one another extension declares.
+- `bound: true` makes the control a value of the client rather than of the
+  call: no call's arguments are read for it (a call that passes it is refused
+  as an unknown argument is), and only a binding supplies it (below). With
+  `required`, a client that binds none refuses every call it is required on.
+- Control names are one list per client, shared with `rows.control`: a name an
+  earlier extension declares, or a `rows.control` that repeats one of the
+  definition's own controls, is refused when the extension is applied
+  (`ClientInitializationError`, naming both extensions). Do not take a name
+  core already uses as an argument (`where`, `data`, `select`, …).
 - The official [cache](/docs/extensions/cache) declares its mutation `cache`
   option this way. A cached read is keyed on the controls it received. A
   value holding a `Date`, bytes, a getter or a non-enumerable property is
   never part of a key: VibORM cannot fix such a value when the call takes it,
   so a read with such a control always runs.
+- `uncacheable: true` keeps every read that holds a value of the control out
+  of the cache: `$withCache` on it is a `ValidationError` at the control's
+  path, before any statement. Declare it for a value whose answers must be
+  judged when they are read (`viborm/permissions`'s actor is).
+
+### Bind controls to a client with `$bind`
+
+A client factory's scope has `$bind(values)`: it admits values of the
+extension's **own** controls once, against their declarations, and returns
+the client the method is called on, every call of which admits those values
+as if it passed them:
+
+```ts
+type Requests = { $as<Self>(this: Self, actor: string): Self };
+
+const requests = defineExtension<typeof schema>()({
+  name: "requests",
+  controls: { actor: { schema: v.string(), bound: true, required: true } },
+  client: (scope) => {
+    const methods: Requests = {
+      $as: (actor) => scope.$bind({ actor }) as never,
+    };
+    return methods;
+  },
+});
+
+const db = client.$extends(requests);
+const call = db.$as(session.userId); // per request: nothing shared changes
+await call.post.findMany(); // as if every call passed `actor`
+```
+
+- The bound client shares `db`'s chain, its prepared rows and its scope: an
+  array transaction may mix operations of `db` and of any client bound from
+  it, each under its own values. An interactive transaction from it, and a
+  client its `$extends()` derives, keep the values; calling `$as` again
+  replaces them. Its cached reads are keyed on them, unless a bound control
+  is `uncacheable`.
+- A value the declaration refuses is a `ValidationError`; binding a control
+  another extension declares is a `ClientInitializationError`.
+- `$bind` returns `unknown`: the method that returns the bound client types
+  it with a `this` parameter, so each client sees itself. Declare the methods
+  apart from the returned object, as above: written inline, the factory's own
+  type makes that `this` `void`.
+- A bound client is not a sandbox: it still runs raw SQL as written, and
+  code holding it can bind other values.
 
 ## Choose visible rows with `rows`
 
@@ -346,11 +402,20 @@ await db.project.findMany({ archived: "only" }); // archived projects
   control is accepted by every operation that selects rows (reads, `count`,
   `aggregate`, `groupBy`, updates, `upsert`, deletes) of every model;
   `create` and `createMany` do not take it.
-- Filters are `where` data on scalar fields: constants, or a value the call
-  passes (below). TypeScript checks schema-bound model names, including
-  non-fresh definitions; arbitrary string-indexed model maps are refused.
-  `$extends()` checks model and top-level field names at runtime, including
-  fields inside logical AND/OR/NOT predicates.
+- Filters are `where` data: constants, or a value the call passes (below).
+  They may go through relations, `some`/`every`/`none`/`is` and `recurse`
+  included. `$extends()` parses each filter once through its model's `where`,
+  so a misspelt key anywhere inside it is refused there, naming the model,
+  the mode and the path. A `recurse` must write its `depth` (`false` for the
+  whole closure, or a number); `true` and `{}` are refused. TypeScript checks
+  schema-bound model names, including non-fresh definitions; arbitrary
+  string-indexed model maps are refused.
+- Inside a filter's own relation reads, every other extension's filters apply
+  at their default mode, whatever mode the call passes, and the filter's own
+  extension does not apply: `deleted: "with"` revives no tombstoned row a
+  filter reads through, and a filter over its own model's relation (a parent)
+  reads that row unfiltered. Write "visible if the parent is visible" as a
+  `recurse` over the parent.
 - Core applies them everywhere a query selects rows: root reads and writes,
   aggregates, cursors, `include`/`select` of every relation,
   `some`/`none`/`every` and `is`/`isNot`, relation counts and ordering,
@@ -372,10 +437,16 @@ await db.project.findMany({ archived: "only" }); // archived projects
   shares a cache entry with a client without them.
 - Apply an extension with `rows` before any extension that adds model-mapped
   `query` handlers or `client`/`model` methods: after one, the application is
-  refused, as `defaultOmit()` is.
-- `rows` decides which rows are visible. It is not authorization: any caller
-  can choose another mode or pass another value, and raw SQL, `create` and
-  update `data` are not filtered.
+  refused, as `defaultOmit()` is. An entry that has both offers them as two
+  steps, applied with every `rows` step first ([compose](#rows-steps-first)).
+- `rows` decides which rows are visible. It is not authorization by itself:
+  any caller can choose another mode or pass another value, unless that value
+  is a `bound`, `required` control (as [`viborm/permissions`](/docs/extensions/permissions)'s
+  actor), and raw SQL is not filtered, and `create` only where the model's
+  `verbs` name `place`. Update `data` is not
+  filtered either, unless the model declares
+  [`verbs`](#judge-writes-with-verbs): then the fields an update writes
+  decide which rows it may take.
 
 ### Filter by a value the call passes
 
@@ -416,36 +487,34 @@ version: every model you name, and `tenantId` supplied on creates that omit it.
 
 - The reference can sit anywhere a filter takes a value, at any depth:
   `{ tenantId: { in: { control: "tenants" } } }`, or on a field inside `AND`,
-  `OR` and `NOT`. Declare the control in the same extension: naming another
-  extension's control is not supported.
+  `OR` and `NOT`. Declare the control in this extension or in one applied
+  before it, so one value serves both (an audit stamp can take the actor
+  another extension declares): a definition naming a control no earlier
+  extension declares is refused when it is applied.
 - A filter itself is never a reference: the whole filter of a mode, and each
   filter inside `AND`, `OR` and `NOT`. There `{ control: "x" }` filters a
   field named `control`. Where a value goes, write
   `{ control: { equals: "x" } }` to filter that field.
-- Give the control a schema that accepts a plain value: a string, a number, a
-  date, or a list of them. The value is put in as it is, so an object's keys
-  become filter operators: a tenant of `{ not: "acme" }` would show every
-  other tenant's rows.
+- A reference is always a value, never filter operators. An object control
+  is read by a field of it: `{ control: "actor", path: "userId" }`. The
+  call's own instant is `{ now: true }`, the same one a tombstone writes.
+- `{ $if: { control, path, <test> } }` tests a value the call passed,
+  without a column, wherever a filter goes. The test is one of `exists`,
+  `equals`, `in`, `has` and `hasSome`. A false test removes its arm, the
+  references inside it included, before anything below applies.
 - A call that does not pass the control drops every filter that names it:
   that filter hides nothing. Mark the control `required` when a missing value
   must be refused instead, as tenancy does. A model the control is required
   on is then never read without it: a call that reaches that model's rows
   through a relation of another model, where the control is not required,
-  and does not pass it, matches none of them.
-- Each mode and value is prepared once and then reused. A client keeps up to
-  256 of them; past that, the oldest is prepared again when it comes back. A
-  mode takes no room when neither its filters nor the default mode's name a
-  control. Tenancy's `all` still takes one per tenant, since its default
-  mode names `tenant`: with both modes in use, a client keeps 128 tenants.
-  Values that only `data` uses, such as audit's `actor`, take no room: they
-  are put in for their call alone. Every value a filter names does: the
-  optimistic lock's `expectedVersion` takes an entry for each new version,
-  and on a client that also has tenancy it pushes tenants out. Apply such an
-  extension on a client of its own (`db.$extends(...)` keeps a memo apart
-  from `db`'s).
+  and does not pass it, matches none of them. `null`, and a path the value
+  does not have, are a missing value: a filter never compares with `IS NULL`.
+- Each filter is prepared once for every call: a value is read when the
+  statement is built, so no tenant, version or actor takes room or pushes
+  another out.
 - Cached reads are keyed on the value, so two tenants never share an entry. A
-  value that is not plain data, such as a `Decimal` or a `Map`, is prepared
-  for its call alone and skips the cache.
+  value that is not plain data, such as a `Decimal` or a `Map`, skips the
+  cache.
 - Pass the tenant from your own server's session, never from the request:
   the extension keeps a call inside the tenant it names, it does not check
   that the caller may name it. The recipe's `data` member supplies `tenantId`
@@ -466,6 +535,141 @@ await db.post.create({
 
 Apply authorization in your server before admitting caller-supplied tenant
 fields or relation writes.
+
+### Judge writes with `verbs`
+
+A mode decides which rows a call reads. `verbs` decides, per model, what a
+call may do to them: each predicate is named once, and each verb names the
+one it takes.
+
+```ts
+const sharing = defineExtension({
+  name: "sharing",
+  controls: { user: { schema: v.string(), required: true } },
+  rows: {
+    control: "as",
+    default: "default",
+    models: { document: { default: {}, mine: { root: "own" } } },
+    verbs: {
+      document: {
+        predicates: {
+          seen: { OR: [{ public: true }, { ownerId: { control: "user" } }] },
+          own: { ownerId: { control: "user" } },
+          archivist: { archivistId: { control: "user" } },
+        },
+        read: "seen",
+        update: "own",
+        delete: "own",
+        writes: { archivedAt: "archivist" },
+      },
+    },
+  },
+});
+
+const db = client.$extends(sharing);
+await db.document.findMany({ user: "ada" }); // public documents and Ada's own
+await db.document.update({ user: "ada", where: { id }, data: { title } }); // own only
+await db.document.update({ user: "ada", where: { id }, data: { archivedAt: new Date() } }); // archivist only
+await db.document.delete({ user: "ada", where: { id }, as: "mine" }); // a mode narrows; it never replaces `delete`
+```
+
+- `read` holds wherever the model's rows are read, and every mode and verb is
+  conjoined with it: a write never takes a row its call cannot see. A mode's
+  `root` or `related` may name a predicate instead of writing one.
+- A delete takes `delete`'s predicate, tombstones included. An update takes,
+  for each field its `data` writes, that field's `writes` entry, else
+  `update`'s, all of them at once. An update that writes a field a tombstone
+  manages (the marker, by hand or through a restore) also takes `delete`'s. A relation write counts as a write of the
+  relation on the row whose foreign key it changes, and a join row's change
+  as a write on both rows it links.
+- Stamps and schema values (`updatedAt`, `data` stamps) never change the
+  verb: `data: {}` on a row they touch is judged at `update`, as is a parent a
+  nested write bumps. A row only addressed to reach its children is read.
+- A verb the model's entry leaves out matches nothing: an entry with no
+  `delete` deletes no row.
+- A row a write may not take is a row it cannot find: `update` and `delete`
+  are `NotFoundError`, and `updateMany` and `deleteMany` count only the
+  others. A `connect`, `set` or `disconnect` naming a linked row the call may
+  not write is `NestedWriteError`. `set: []` refuses a visible link the call
+  may not write the same way; a hidden one keeps its link.
+- Each predicate is admitted once when the extension is applied. A name that
+  no predicate has, a model the schema lacks or a `writes` field the model
+  lacks is refused there, as is a predicate object that contains itself.
+
+### Judge the row a write produces
+
+`verbs` also judges the row a write leaves behind, as a value, against the
+rows as they stand before the write, inside the statement that writes it:
+
+```ts
+document: {
+  predicates: { seen, own, placed: { ownerId: { control: "user" } } },
+  read: "seen",
+  update: "own",
+  place: "placed",                   // every created row
+  moves: { folderId: "placed" },     // an update writing folderId
+  acyclic: ["parent"],               // a document never moves under itself
+},
+```
+
+- A created row is judged at `place` (a model naming none is not judged on
+  create). An updated row is judged at the predicates that judged its old
+  row (`read` and its verb's), and at each written field's `moves` entry: an
+  update cannot leave a row its call could not have written.
+- A refused row is written by no statement: at the root `ForbiddenError`,
+  in a nested write `NestedWriteError`, before any constraint, so a unique
+  key or a missing target never answers first. `createMany` and
+  `updateMany` refuse the whole statement when one row is refused; a row the
+  write does not take is never judged.
+- Nothing a statement writes is visible to its own judgement: a row cannot
+  justify itself, and one row of a `createMany` or `updateMany` never
+  decides another. A child created under a parent the same call created is
+  judged with that parent as written.
+- A value only the database computes cannot be judged before it exists: a
+  list `push`/`unshift` or an exact decimal's `multiply`/`divide` is refused
+  before any statement where the row's judgement reads that field (write the
+  whole value instead), and a row of defaults only on a model with a
+  `place`.
+
+### Report and gate with `evidence` and `reads`
+
+The same predicates can answer per row. `evidence` declares a key a call may
+put in any `select` or `include`, at any depth, on reads and on the rows a
+write returns; `reads` gates a field on a predicate.
+
+```ts
+verbs: {
+  document: {
+    predicates: { seen, own, archivist },
+    read: "seen",
+    update: "own",
+    evidence: { as: "$access", names: ["seen", "own", "archivist"] },
+    reads: { notes: "own" },
+  },
+},
+
+await db.document.findMany({
+  user: "ada",
+  include: { $access: true, children: { include: { $access: ["own"] } } },
+}); // each row: { …, $access: { seen: true, own: boolean, archivist: boolean } }
+await db.document.findMany({ user: "ada" }); // `notes` only on Ada's own
+await db.document.findMany({ user: "ada", select: { id: true, notes: true } }); // ValidationError if a row is not hers
+```
+
+- The key is spelled `$` and an identifier, so no field of the model can take
+  its name. Each name reports whether its predicate holds on the row beside
+  `read`, computed in the statement that reads the row (for a write, when its
+  result row is read). `ordered: true` reports instead the last name that
+  holds, or `null`. `$access: ["own"]` asks for some names only.
+- A gated field is present where its predicate holds and absent elsewhere; the
+  row is never dropped. A `select` (or an `omit: { notes: false }`) that names
+  it fails with `ValidationError` at its path when a returned row lacks the
+  predicate. Every operand a call writes over it (`where`, `orderBy`,
+  `distinct`, aggregates and `groupBy`, unique lookups, `connect`, relation
+  filters and relation order) reads it as absent (`NULL`) on those rows.
+- A key or foreign key cannot be gated, and two extensions of one chain cannot
+  declare the same key on a model: both are refused when the extension is
+  applied.
 
 ## Change what a delete does with `deletion`
 
@@ -506,8 +710,11 @@ capabilities plus two model methods.
 
 For the models `data.models` names, the extension writes fields itself:
 `create` on every create of the model, `update` on every update of it. A value
-is a constant, `{ control: "<name>" }` for the value the call passed, or, for
-`update`, one of the field's update operators such as `{ increment: 1 }`.
+is a constant, `{ control: "<name>" }` for the value the call passed (with
+`path: "a.b"`, a field of an object control's value), `{ now: true }` for the
+call's one instant, or, for `update`, one of the field's update operators such
+as `{ increment: 1 }`. The control may be this extension's or one an earlier
+extension declares, so an audit stamp can take another extension's actor.
 
 ```ts
 const audit = defineExtension({
@@ -640,6 +847,26 @@ const db = client
   .$extends(postTools);
 ```
 
+### Rows steps first
+
+An extension that declares `rows` cannot follow one that adds methods, since
+those were typed against rows that the later step would hide. An entry with
+both, as the official soft delete, is two steps as well as one:
+`softDelete(config).rows` (its controls, `rows` and `deletion`) and
+`softDelete(config).methods` (`restore`). Apply every `rows` step of the
+chain, then the methods:
+
+```ts
+const tombstones = softDelete({ models: { post: { deletedAt: "deletedAt" } } });
+
+const db = tombstones.methods(tombstones.rows(client).$extends(tenancy));
+```
+
+A method that binds a control belongs to the extension that declares it
+(`$bind` takes no other's), so an entry whose `rows` step declares a bound
+control carries that method there, and that step is the last `rows` step of
+the chain.
+
 ### Name the complete client type
 
 Use `ExtendedClient` when the base client, extension definitions, and final
@@ -678,6 +905,10 @@ statically invalid order or repeated cache/default-omit capability resolves to
 `never`, matching `$extends()` admission. Name collisions and repeated
 instrumentation remain runtime checks and fail when the extension is applied.
 
+Client factories infer their return type automatically; use `typeof derived`
+to name the resulting client. `ExtendedClient` accepts tuples of object
+definitions.
+
 Request transforms run in application order. Query interceptors are nested in
 that order: the first applied interceptor is outermost. Statement transforms
 also receive the previous transform's `Sql` value in application order.
@@ -688,8 +919,9 @@ it.
 
 Transaction clients inherit contributed methods but do not expose `$extends()`.
 Derive the client before entering the callback. Every member of an array
-transaction must also come from the same derived client scope; do not mix base
-and sibling-client operations.
+transaction must also come from the same derived client scope (a client
+`$bind` returns shares its client's); do not mix base and sibling-client
+operations.
 
 ## Before publishing an extension
 
@@ -703,7 +935,8 @@ and sibling-client operations.
 - Use the supplied scope in client and model factories.
 - Build a definition from the client it is applied to. Apply `rows` and
   `defaultOmit()` before extensions that add model-mapped query handlers or
-  client/model methods.
+  client/model methods; an entry with both offers a `rows` step and a methods
+  step.
 - Keep `rows` for visibility, never for authorization: take a tenant or an
   owner from your server, not from the caller.
 - Test direct, callback-transaction, and array-transaction execution when the
@@ -711,4 +944,5 @@ and sibling-client operations.
 
 See the [extension overview](/docs/extensions) for the complete lifecycle and
 the [official extensions](/docs/extensions#official-extensions) for production
-cache, instrumentation, default omission, and soft delete.
+cache, instrumentation, default omission, soft delete and
+[authorization](/docs/extensions/permissions).

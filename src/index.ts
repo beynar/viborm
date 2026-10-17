@@ -25,6 +25,7 @@
 // =============================================================================
 
 export type {
+  ClientTypeState,
   ExtendedClient,
   ExtendedOperationResult,
   ExtensionState,
@@ -196,6 +197,7 @@ export {
   ConnectionError,
   type DiagnosticDisclosure,
   FeatureNotSupportedError,
+  ForbiddenError,
   ForeignKeyError,
   InvalidTransactionInputError,
   isCheckConstraintError,

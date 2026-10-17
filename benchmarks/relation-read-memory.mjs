@@ -11,7 +11,7 @@
 import inspector from "node:inspector";
 import { createClient } from "../dist/index.mjs";
 import { readBenchmarkOperation } from "../dist/internal/benchmark-operation.mjs";
-import { push } from "../dist/migrations.mjs";
+import { createMigrationClient } from "../dist/migrations.mjs";
 import { s } from "../dist/schema.mjs";
 import { SQLite3Driver } from "../dist/sqlite3.mjs";
 
@@ -47,7 +47,7 @@ const post = s
 const schema = { user, post };
 const driver = new SQLite3Driver({ dataDir: ":memory:" });
 const client = createClient({ schema, driver });
-await push(client, { force: true });
+await createMigrationClient(client).push();
 
 const ROWS_PER_OPERATION = Number(process.env.VIBORM_RELATION_ROWS ?? 20);
 if (!Number.isSafeInteger(ROWS_PER_OPERATION) || ROWS_PER_OPERATION < 1) {

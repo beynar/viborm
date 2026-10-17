@@ -67,6 +67,7 @@ import {
   createSubqueries,
   decimalCoefficientPrecision,
   escapeGlobLiteral,
+  rowValues,
   stringifyJson,
 } from "../../shared/standard-sql";
 import { SQLITE_BINARY64_FORMAT } from "./storage/json-number";
@@ -297,6 +298,32 @@ export interface SQLiteAdapterOptions {
    * Defaults to `true`.
    */
   readonly temporaryObjects?: boolean;
+  /**
+   * Whether the transport compiles deep expression trees. SQLite counts a
+   * subquery's `WHERE` in the height of the expression that holds it, and sums
+   * those heights again while it resolves names, so k nested relation filters
+   * cost about k² of `SQLITE_MAX_EXPR_DEPTH`: SQLite's default (1000) admits
+   * that; Cloudflare D1 compiles with 100 and refuses "Expression tree is too
+   * large". Where it does not, each relation filter reads its rows from a
+   * derived table, whose `WHERE` neither count reaches through the expression:
+   * about four per level, the same plan (SQLite flattens it), one statement.
+   * A conjunction of many members nests as a balanced tree where it does not,
+   * as the engine already nests a disjunction: SQLite parses `a AND b AND …`
+   * one level per member. A level's row domain, where the filter goes on
+   * below it, is isolated the same way (`subqueries.isolated`), so a policy
+   * costs its height once and not at every level (measured on D1: a
+   * three-arm read policy 10 per level, failing at 9 levels; isolated, 5 per
+   * level, 94 at the 15 levels admission takes).
+   * Defaults to `true`.
+   */
+  readonly deepExpressions?: boolean;
+  /**
+   * Whether a statement states each relation filter body it repeats once
+   * (`capabilities.sharesRelationBodies`), for a
+   * transport that bounds statement text (Cloudflare D1: 100 KB). Defaults
+   * to `false`.
+   */
+  readonly sharedRelationBodies?: boolean;
 }
 
 /**
@@ -722,6 +749,9 @@ const SQLITE_ASSERTIONS = {
     sql`SELECT CASE WHEN EXISTS (${query}) THEN 1 ELSE json_extract('x', '$') END AS "__viborm_assert__"`,
   notExists: (query: Sql): Sql =>
     sql`SELECT CASE WHEN NOT EXISTS (${query}) THEN 1 ELSE json_extract('x', '$') END AS "__viborm_assert__"`,
+  // The refusal names its sentinel (`bad JSON path: '__viborm_refused__'`).
+  holds: (condition: Sql, from?: Sql): Sql =>
+    sql`SELECT CASE WHEN ${condition} THEN 1 ELSE json_extract('{}', '__viborm_refused__') END AS "__viborm_judged__"${from ? sql` FROM ${from}` : sql``}`,
 };
 
 const SQLITE_JOINS = {
@@ -825,13 +855,56 @@ const SQLITE_SUBQUERIES = createSubqueries(quoteIdent);
 
 const SQLITE_CTE = createCteBuilders(quoteIdent);
 
-const SQLITE_SET_OPERATIONS = createSetOperations();
+/**
+ * A multi-row `VALUES` is the one compound SQLite does not count against
+ * `SQLITE_MAX_COMPOUND_SELECT` (500 terms; measured on 3.53.2: 500 `UNION
+ * ALL SELECT` arms refused, 10,922 `VALUES` rows read), so the produced rows
+ * follow their typed head as one: the head's columns still type every row,
+ * as an arm's did (affinity and collation measured equal).
+ */
+const SQLITE_SET_OPERATIONS = createSetOperations(
+  quoteIdent,
+  (typed, rows, alias) =>
+    sql`(${typed.head} UNION ALL VALUES ${sql.join(rows.map(rowValues), ", ")}) AS ${sql.raw(quoteIdent(alias))}`
+);
 
 const SQLITE_RAW = createRawSql();
 
+/**
+ * `and` nesting its members as a balanced tree, about log2(n) levels for n
+ * members, where `and` itself nests one level per member.
+ */
+function balancedConjunction(
+  and: (...conditions: Sql[]) => Sql
+): (...conditions: Sql[]) => Sql {
+  const balanced = (...conditions: Sql[]): Sql => {
+    if (conditions.length <= 2) return and(...conditions);
+    const middle = Math.floor(conditions.length / 2);
+    return and(
+      balanced(...conditions.slice(0, middle)),
+      balanced(...conditions.slice(middle))
+    );
+  };
+  return balanced;
+}
+
 export class SQLiteAdapter implements DatabaseAdapter {
-  constructor({ temporaryObjects = true }: SQLiteAdapterOptions = {}) {
+  constructor({
+    temporaryObjects = true,
+    deepExpressions = true,
+    sharedRelationBodies = false,
+  }: SQLiteAdapterOptions = {}) {
     installGeoPointSql(this, this.geoPoint);
+    if (!deepExpressions) {
+      this.subqueries.existsCheck = (from, where) =>
+        sql`SELECT 1 FROM (${SQLITE_SUBQUERIES.existsCheck(from, where)})`;
+      // A derived table's `WHERE` is resolved on its own branch: a level's
+      // row domain costs its height there, once, not at every level below.
+      this.subqueries.isolated = (condition) =>
+        sql`EXISTS (SELECT 1 FROM (SELECT 1 WHERE ${condition}))`;
+      this.operators.and = balancedConjunction(SQLITE_OPERATORS.and);
+    }
+    if (sharedRelationBodies) this.capabilities.sharesRelationBodies = true;
     // Only batches read the reference-table SQL, so it is built on first use.
     let batchRefs: BatchReferenceSqlAdapter | undefined;
     const createBatchRefs = () => this.#createBatchRefs(temporaryObjects);
@@ -915,7 +988,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
   setOperations = { ...SQLITE_SET_OPERATIONS };
 
-  capabilities = { ...SQLITE_CAPABILITIES };
+  capabilities: DatabaseAdapter["capabilities"] = { ...SQLITE_CAPABILITIES };
 
   lastInsertId = (): Sql => sql.raw("last_insert_rowid()");
 

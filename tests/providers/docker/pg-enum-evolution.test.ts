@@ -9,7 +9,9 @@ import { PgDriver } from "@drivers/pg";
 import { enumEvolutionTests } from "@tests/fixtures/enum-evolution";
 import { Pool } from "pg";
 import { afterAll, describe } from "vitest";
-import { TEST_CONNECTION_STRING } from "./pg-fixtures";
+// Migration contracts also run through PgBouncer, which rejects the JIT
+// startup option used by the direct-server policy performance fixtures.
+import { SERVER_CONNECTION_STRING as TEST_CONNECTION_STRING } from "./pg-fixtures";
 
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
 

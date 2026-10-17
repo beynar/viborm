@@ -101,7 +101,8 @@ function assertWorkerSafeBuiltGraph(exportNames) {
   }
 }
 
-assertWorkerSafeBuiltGraph([".", "./schema", "./d1"]);
+// `viborm/permissions` governs a Worker's client too: its graph is held to the same rule.
+assertWorkerSafeBuiltGraph([".", "./schema", "./d1", "./permissions"]);
 
 function requireRuntimeFunction(exportName, member) {
   const namespace = runtimeExports.get(exportName);
@@ -149,6 +150,7 @@ if (new packagedDecimal("1.20").toString() !== "1.2") {
 requireRuntimeAbsence(".", "defaultOmit");
 requireRuntimeAbsence(".", "instrumentation");
 requireRuntimeAbsence(".", "softDelete");
+requireRuntimeAbsence(".", "permissions");
 requireRuntimeAbsence(".", "readBenchmarkOperation");
 // The approximate-number scalar, on the BUILT builder. The source barrel pins
 // the whole key set; this pins that bundling publishes the surviving factory
@@ -292,6 +294,64 @@ requireRuntimeAbsence("./migrations", "MigrationStorageDriver");
 requireRuntimeAbsence("./migrations", "diff");
 requireRuntimeFunction("./cache", "cache");
 requireRuntimeFunction("./instrumentation", "instrumentation");
+// Permissions exports one runtime entry. Domain conventions belong to application policies.
+requireRuntimeFunction("./permissions", "permissions");
+if (Object.hasOwn(packageJson.exports, "./rbac")) {
+  throw new Error("The pre-release rbac entry must not remain an alias");
+}
+requireRuntimeAbsence("./permissions", "rbac");
+requireRuntimeAbsence(".", "rbac");
+requireRuntimeAbsence(".", "permissions");
+for (const removed of [
+  "everyone",
+  "grant",
+  "keyLimit",
+  "member",
+  "notBanned",
+  "owner",
+  "role",
+  "session",
+  "team",
+  "up",
+]) {
+  requireRuntimeAbsence("./permissions", removed);
+  requireRuntimeAbsence(".", removed);
+}
+for (const internal of [
+  "compilePolicy",
+  "verbsOf",
+  "DEFAULT_MODE",
+  "actorPaths",
+  "refuse",
+  "FALSE",
+  "actor",
+]) {
+  requireRuntimeAbsence("./permissions", internal);
+}
+// It raises the library's own errors from the root's shared chunks: a
+// refusal is an instance of the class `viborm` exports, not of a copy.
+let permissionsRefusal;
+try {
+  runtimeExports
+    .get("./permissions")
+    .permissions({
+      actor: runtimeExports.get("./validation").v.object({}),
+      models: { missing: {} },
+    })
+    .compile({});
+} catch (error) {
+  permissionsRefusal = error;
+}
+if (
+  !(
+    permissionsRefusal instanceof
+    runtimeExports.get(".").ClientInitializationError
+  )
+) {
+  throw new Error(
+    `Export ./permissions must raise the root's ClientInitializationError for a policy naming no schema model, got ${permissionsRefusal?.constructor?.name ?? "no refusal"}`
+  );
+}
 requireRuntimeFunction("./soft-delete", "softDelete");
 // `viborm/soft-delete` is built from public capabilities only: it reaches the
 // client through the `$extends` of the client it receives, so its runtime

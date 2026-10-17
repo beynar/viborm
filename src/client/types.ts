@@ -36,6 +36,7 @@ import type {
   StampedFields,
 } from "../extensions/controls";
 import type { VibORMConfig } from "./client";
+import type { CachedProjectedOperations } from "./projected-types";
 import type {
   AggregateResultType,
   BatchPayload,
@@ -518,7 +519,7 @@ export type Client<
 };
 
 /** The controls one (model, operation) accepts; none without a declaration. */
-type PlacedOperationControls<Controls, ModelName, O> = [
+export type PlacedOperationControls<Controls, ModelName, O> = [
   keyof Controls,
 ] extends [never]
   ? NoControls
@@ -729,7 +730,9 @@ type NamesTarget<Names, Target extends Model<any>, S> = Names extends keyof S
  * a client with controls. The parameter gives a control value its contextual
  * literal type all the same.
  */
-type WithControlArgs<Parameter, Controls> = [keyof Controls] extends [never]
+export type WithControlArgs<Parameter, Controls> = [keyof Controls] extends [
+  never,
+]
   ? Parameter
   : Parameter & Controls;
 
@@ -1817,7 +1820,7 @@ type GroupByOrderGuard<
     : unknown
   : unknown;
 
-type NoExtraOperationKeys<
+export type NoExtraOperationKeys<
   O extends Operations,
   Arg,
   Payload,
@@ -1927,6 +1930,7 @@ export type CachedClient<
   C extends VibORMConfig,
   ClientDefaults = ClientRelationOmitContext<C>,
   Controls extends object = NoControls,
+  Models extends object = Record<never, never>,
 > = {
   [K in keyof ClientSchema<C>]: {
     [O in CacheableOperations]: CachedOperation<
@@ -1936,5 +1940,11 @@ export type CachedClient<
       ClientDefaults,
       PlacedOperationControls<Controls, K, O>
     >;
-  };
+  } & CachedProjectedOperations<
+    C,
+    K,
+    ClientDefaults,
+    Controls,
+    K extends keyof Models ? Models[K] : Record<never, never>
+  >;
 };

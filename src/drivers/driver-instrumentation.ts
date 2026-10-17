@@ -27,6 +27,7 @@ import { applyStatementTransforms } from "@extensions/statement";
 import type { Operation } from "@query-engine/types";
 import type { Sql } from "@sql";
 import { markErrorLogged } from "../errors/logged-errors";
+import { NumberedSql } from "../sql/numbered";
 import {
   assertStatementBindParameterCapacity,
   normalizedBindParameterLimit,
@@ -374,6 +375,16 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     );
   }
 
+  /**
+   * Whether the transport binds `?NNN` by position (PostgreSQL's `$n`
+   * always is), so a statement over the bind budget may bind each equal
+   * value once. A transport that reads `?NNN` as a name says no. A fact of
+   * the class, so a driver instance carries no slot for it.
+   */
+  protected get numbersPlaceholders(): boolean {
+    return true;
+  }
+
   /** Materialize one trusted typed statement and enforce its final bind budget. */
   protected applyTrustedStatementTransforms(
     query: Sql,
@@ -397,10 +408,25 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
         transforms
       );
     }
+    const limit = normalizedBindParameterLimit(
+      this.maxBindParametersPerStatement
+    );
+    // Over the budget, equal values bind once where the transport numbers
+    // its placeholders: a governed read repeats its constants and values.
+    if (
+      limit !== undefined &&
+      transformed.values.length > limit &&
+      this.dialect !== "mysql" &&
+      this.numbersPlaceholders
+    )
+      transformed = new NumberedSql(
+        transformed,
+        this.dialect === "postgresql" ? "$" : "?"
+      );
     assertStatementBindParameterCapacity(
       transformed,
       this.driverName,
-      normalizedBindParameterLimit(this.maxBindParametersPerStatement),
+      limit,
       "operation"
     );
     return transformed;

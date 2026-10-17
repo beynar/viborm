@@ -7,6 +7,7 @@ import {
   QueryEngineError,
   TransactionError,
   UnsupportedOperationError,
+  ValidationError,
   VibORMError,
 } from "@errors";
 import {
@@ -16,6 +17,7 @@ import {
 import {
   CURSOR_CARRIER_PREFIX,
   EMPTY_ROW_RESULT_KEY,
+  gateResultKey,
   POLYMORPHIC_COLLECTION_ORPHANS_KEY,
 } from "@query-engine/result-aliases";
 import { fieldRefPayload, formatFieldRef, isFieldRef } from "@schema/field-ref";
@@ -60,6 +62,7 @@ import {
   DEFAULT_MAX_OCCURRENCES,
   type NormalizedRecurrence,
 } from "@validation/relations/recurrence";
+import { SqlSlot } from "../../../sql/slot";
 import type { Operation } from "../../types";
 import {
   canonicalDecimal,
@@ -84,7 +87,16 @@ import {
   transportedIdentifier,
 } from "./identifier";
 import { unreachable } from "./invariant";
-import type { RowDomain, RowPurpose } from "./row-scope";
+import {
+  type CallScope,
+  type CallValues,
+  Condition,
+  type ModelVerbs,
+  Parameter,
+  type RowDomain,
+  type RowJudgement,
+  type RowPurpose,
+} from "./row-scope";
 import {
   type Arguments,
   type EngineSchema,
@@ -161,6 +173,14 @@ export type ProjectionShape =
        */
       nullable?: boolean;
       fields: Record<string, ProjectionShape | Leaf>;
+      /**
+       * Read-gated members (K5): each is present only where its gate, one of
+       * `gates`, reads true; where it reads false the member is left out, or,
+       * when the caller named it, the read fails at `refused`.
+       */
+      gated?: Readonly<Record<string, GatedMember>>;
+      /** The boolean members the row carries for `gated`, never published. */
+      gates?: readonly string[];
     }
   | CollectionShape
   | {
@@ -187,6 +207,11 @@ export type ProjectionShape =
       identity: readonly Leaf[];
     };
 type Shape = ProjectionShape;
+/** One read-gated member of a document: its gate, and the path a caller named it at. */
+export interface GatedMember {
+  readonly gate: string;
+  readonly refused?: string;
+}
 /** A to-many relation's rows. */
 type CollectionShape = {
   kind: "collection";
@@ -242,6 +267,23 @@ export type PreparedProjectionField =
       readonly kind: "counts";
       readonly name: string;
       readonly counts: readonly PreparedCount[];
+    }
+  | {
+      /**
+       * A declared projection key (K5): per row, whether each named
+       * predicate holds beside the layer's `read`, or, `ordered`, the last
+       * name that does.
+       */
+      readonly kind: "evidence";
+      readonly name: string;
+      readonly evidence: DeclaredEvidence;
+      readonly names: readonly (readonly [string, Input])[];
+    }
+  | {
+      /** A read-gated member's gate (K5): a boolean the decoder reads. */
+      readonly kind: "gate";
+      readonly name: string;
+      readonly gate: FieldGate;
     }
   | {
       readonly kind: "distance";
@@ -365,11 +407,25 @@ type PreparedScalar = {
 type PreparedOperand =
   | { readonly kind: "value"; readonly value: unknown }
   | { readonly kind: "field"; readonly scalar: PreparedScalar }
+  /**
+   * A call value of a domain predicate, read at lowering; `spread` when it is
+   * a whole `in`/`notIn` list, one value operand per member once read.
+   */
+  | {
+      readonly kind: "parameter";
+      readonly parameter: Parameter;
+      readonly spread?: true;
+    }
   | {
       readonly kind: "sql";
       readonly strings: readonly string[];
-      readonly operands: readonly Exclude<PreparedOperand, { kind: "sql" }>[];
+      readonly operands: readonly Extract<
+        PreparedOperand,
+        { kind: "value" | "field" }
+      >[];
     };
+/** An operand as lowering reads it: every parameter's value read. */
+type BoundOperand = Exclude<PreparedOperand, { kind: "parameter" }>;
 /**
  * What a prepared operator compares. A physical column, a JSON value addressed
  * inside one, and an aggregate over a column are three targets of the SAME
@@ -411,6 +467,24 @@ type PreparedPredicate =
     }
   | { readonly kind: "not"; readonly predicate: PreparedPredicate }
   | { readonly kind: "always"; readonly value: boolean }
+  /** A test of a call value that reads no column. */
+  | { readonly kind: "condition"; readonly condition: Condition }
+  | {
+      /**
+       * One layer's domain predicate for `model`, the unit R6 judges: per
+       * call, its conditions fold (kept per outcome in `folded`), then a value
+       * it still reads that is absent makes it false where its control is
+       * required on `model` and drops it otherwise. While it lowers, its
+       * relation reads take every other layer at its default and never this
+       * one (R5).
+       */
+      readonly kind: "layer";
+      readonly layer: number;
+      readonly model: string;
+      readonly predicate: PreparedPredicate;
+      readonly conditions: readonly Condition[];
+      readonly folded: Map<string, Folded>;
+    }
   | {
       readonly kind: "operation";
       readonly operator: string;
@@ -460,6 +534,12 @@ type PreparedPredicate =
       readonly model: AnyModel;
       readonly last: Input;
     };
+type OperationPredicate = Extract<PreparedPredicate, { kind: "operation" }>;
+/** An operation as lowering reads it ({@link Queries.lowerOperation}). */
+type BoundOperation = Omit<OperationPredicate, "operand" | "operands"> & {
+  readonly operand?: BoundOperand;
+  readonly operands?: readonly BoundOperand[];
+};
 /**
  * A conjunction of nothing states nothing; every other prepared predicate is a
  * condition. This is the one reading of "this arm built no condition" that the
@@ -467,7 +547,211 @@ type PreparedPredicate =
  * (`builders/where-builder.ts:217-308`, `operations/groupby-having.ts:77-173`).
  */
 function states(predicate: PreparedPredicate): boolean {
+  if (predicate.kind === "layer") return states(predicate.predicate);
   return predicate.kind !== "and" || predicate.predicates.some(states);
+}
+/** A layer's predicate under one outcome of its conditions. */
+interface Folded {
+  readonly predicate: PreparedPredicate;
+  /** The parameters it still reads, `spread` where one is a whole list. */
+  readonly parameters: readonly (readonly [Parameter, boolean])[];
+}
+const ALWAYS_TRUE: PreparedPredicate = freeze({ kind: "always", value: true });
+/**
+ * `predicate` with every condition replaced by its outcome and the logical
+ * combinators simplified, so a false condition removes its arm with every
+ * parameter inside it. A relation keeps its quantifier over a folded body.
+ */
+function foldConditions(
+  predicate: PreparedPredicate,
+  holds: (condition: Condition) => boolean
+): PreparedPredicate {
+  switch (predicate.kind) {
+    case "condition":
+      return holds(predicate.condition) ? ALWAYS_TRUE : VACUOUS_FALSE;
+    case "and":
+    case "or": {
+      const conjunction = predicate.kind === "and";
+      const kept: PreparedPredicate[] = [];
+      for (const member of predicate.predicates) {
+        const folded = foldConditions(member, holds);
+        if (folded.kind !== "always") kept.push(folded);
+        else if (folded.value !== conjunction) return folded;
+      }
+      if (kept.length === 0) return conjunction ? ALWAYS_TRUE : VACUOUS_FALSE;
+      return kept.length === predicate.predicates.length &&
+        kept.every((member, index) => member === predicate.predicates[index])
+        ? predicate
+        : freeze({ kind: predicate.kind, predicates: freeze(kept) });
+    }
+    case "not": {
+      const folded = foldConditions(predicate.predicate, holds);
+      if (folded.kind === "always")
+        return folded.value ? VACUOUS_FALSE : ALWAYS_TRUE;
+      return folded === predicate.predicate
+        ? predicate
+        : freeze({ kind: "not", predicate: folded });
+    }
+    case "relation": {
+      if (!predicate.predicate) return predicate;
+      const folded = foldConditions(predicate.predicate, holds);
+      return folded === predicate.predicate
+        ? predicate
+        : freeze({ ...predicate, predicate: folded });
+    }
+    default:
+      return predicate;
+  }
+}
+/**
+ * `predicate` over a produced row whose fields' nullness the write states
+ * (`nulls`: field to whether its value is null), each null test of such a
+ * field replaced by its outcome and the combinators simplified as
+ * {@link foldConditions} does: the values a write sets fold into its
+ * judgement (permissions plan §11.2 F2), so an arm on a key it leaves null does not
+ * reach the statement. Only the row's own columns: a relation reads other
+ * rows, and is kept as it is.
+ */
+function foldKnownNulls(
+  predicate: PreparedPredicate,
+  nulls: ReadonlyMap<string, boolean>
+): PreparedPredicate {
+  switch (predicate.kind) {
+    case "operation": {
+      const { target, operand } = predicate;
+      if (
+        predicate.operator !== "equals" ||
+        target.kind !== "column" ||
+        target.path !== undefined ||
+        operand?.kind !== "value" ||
+        operand.value !== null ||
+        target.scalar.physical.scalar["~"].state.type === "json"
+      )
+        return predicate;
+      const known = nulls.get(target.scalar.field);
+      if (known === undefined) return predicate;
+      return known ? ALWAYS_TRUE : VACUOUS_FALSE;
+    }
+    case "and":
+    case "or": {
+      const conjunction = predicate.kind === "and";
+      const kept: PreparedPredicate[] = [];
+      for (const member of predicate.predicates) {
+        const folded = foldKnownNulls(member, nulls);
+        if (folded.kind !== "always") kept.push(folded);
+        else if (folded.value !== conjunction) return folded;
+      }
+      if (kept.length === 0) return conjunction ? ALWAYS_TRUE : VACUOUS_FALSE;
+      return kept.length === predicate.predicates.length &&
+        kept.every((member, index) => member === predicate.predicates[index])
+        ? predicate
+        : freeze({ kind: predicate.kind, predicates: freeze(kept) });
+    }
+    case "not": {
+      const folded = foldKnownNulls(predicate.predicate, nulls);
+      if (folded.kind === "always")
+        return folded.value ? VACUOUS_FALSE : ALWAYS_TRUE;
+      return folded === predicate.predicate
+        ? predicate
+        : freeze({ kind: "not", predicate: folded });
+    }
+    default:
+      return predicate;
+  }
+}
+/**
+ * Whether `predicate`, judged over a row of `model`, may read one of
+ * `fields` of that row: an operation's column or field operand, a
+ * relation's own side of its link (a junction's: the row's keys). Anything
+ * it cannot answer for (an aggregate, a window) reads them all. A row that
+ * differs from another only outside what a predicate reads gets the same
+ * answer from it, against the same rows.
+ */
+function readsAny(
+  predicate: PreparedPredicate,
+  fields: ReadonlySet<string>,
+  keys: readonly string[]
+): boolean {
+  switch (predicate.kind) {
+    case "and":
+    case "or":
+      return predicate.predicates.some((member) =>
+        readsAny(member, fields, keys)
+      );
+    case "not":
+    case "layer":
+      return readsAny(predicate.predicate, fields, keys);
+    case "always":
+    case "condition":
+      return false;
+    case "operation": {
+      if (predicate.target.kind !== "column") return true;
+      const operands = [predicate.operand, ...(predicate.operands ?? [])];
+      return (
+        fields.has(predicate.target.scalar.field) ||
+        operands.some(
+          (operand) =>
+            (operand?.kind === "field" && fields.has(operand.scalar.field)) ||
+            (operand?.kind === "sql" &&
+              operand.operands.some(
+                (member) =>
+                  member.kind === "field" && fields.has(member.scalar.field)
+              ))
+        )
+      );
+    }
+    case "relation": {
+      const { edge } = predicate;
+      const own =
+        edge.kind === "reference"
+          ? [
+              ...edge.pairs.map((pair) => pair.source),
+              ...(edge.discriminator?.side === "source"
+                ? [edge.discriminator.field]
+                : []),
+            ]
+          : keys;
+      return own.some((field) => fields.has(field));
+    }
+    default:
+      return true;
+  }
+}
+/** Every parameter and condition a layer's predicate reads. */
+function callReads(
+  predicate: PreparedPredicate,
+  parameters: Map<Parameter, boolean>,
+  conditions: Set<Condition>
+): void {
+  switch (predicate.kind) {
+    case "condition":
+      conditions.add(predicate.condition);
+      return;
+    case "and":
+    case "or":
+      for (const member of predicate.predicates)
+        callReads(member, parameters, conditions);
+      return;
+    case "not":
+      callReads(predicate.predicate, parameters, conditions);
+      return;
+    case "relation":
+      if (predicate.predicate)
+        callReads(predicate.predicate, parameters, conditions);
+      return;
+    case "operation":
+      for (const operand of [predicate.operand, ...(predicate.operands ?? [])])
+        if (operand?.kind === "parameter")
+          parameters.set(operand.parameter, operand.spread === true);
+      if (
+        predicate.value instanceof Parameter &&
+        !parameters.has(predicate.value)
+      )
+        parameters.set(predicate.value, false);
+      return;
+    default:
+      return;
+  }
 }
 /**
  * An `OR` whose every arm is one value equality on the same plain column, as
@@ -529,6 +813,7 @@ function readsRelation(predicate: PreparedPredicate): boolean {
     case "or":
       return predicate.predicates.some(readsRelation);
     case "not":
+    case "layer":
       return readsRelation(predicate.predicate);
     default:
       return false;
@@ -644,6 +929,12 @@ export interface PreparedSelector {
    * alone to name the row must not.
    */
   readonly scoped?: true;
+  /**
+   * The verb a write's candidates were judged at ({@link Queries.candidates}):
+   * the row such a write produces is judged at the same predicates
+   * ({@link PreparedDomain.produced}).
+   */
+  readonly judgement?: RowJudgement;
 }
 /** The decoder identifies the invalid value; its operation owns public errors. */
 export class InvalidScalarResult extends TypeError {
@@ -681,6 +972,27 @@ export class RecursiveOutputOverBudget extends RangeError {
           feature: "recursive output budget",
         },
       }
+    );
+  }
+}
+
+/**
+ * A row the read returned lacks the gate of a field the caller named (K5,
+ * OD-5): raised while decoding, after the statement and before any result.
+ * Like {@link InvalidScalarResult}, its operation owns the public error.
+ */
+export class GatedFieldRefusal extends Error {
+  readonly path: string;
+  constructor(path: string) {
+    super(`The selected field at '${path}' is not readable on a returned row`);
+    this.path = path;
+  }
+  /** The `ValidationError` of `operation`, at the path the caller named. */
+  refusal(operation: Operation, model: string): ValidationError {
+    return new ValidationError(
+      operation,
+      [{ path: this.path, message: "is not readable on a returned row" }],
+      { meta: { model } }
     );
   }
 }
@@ -933,42 +1245,495 @@ function reversedRows(rows: Input[]): Input[] {
 const ROOT_CANDIDATES = Object.freeze({ purpose: "root" as const });
 
 /**
+ * One relation filter body a statement lowers ({@link Queries.relationExists}):
+ * its key set's name and query, and each place it was lowered at, with the
+ * two texts that place settles to.
+ */
+interface SharedBody {
+  readonly name: string;
+  readonly query: Sql;
+  readonly slots: {
+    readonly slot: SqlSlot;
+    readonly inline: Sql;
+    readonly use: Sql;
+  }[];
+}
+/** A statement's relation bodies, by {@link sharedKey}, in lowering order. */
+interface SharedBodies {
+  readonly byKey: Map<string, SharedBody>;
+  readonly order: SharedBody[];
+}
+/** An alias the per-statement counter minted, inside an identifier. */
+const ALIAS_TOKEN = /(?<=["_])q(\d+)(?=["_])/g;
+/**
+ * A caller's `Sql` operand as lowered, parenthesized ({@link Queries.value}):
+ * text the engine did not write, so nothing in it is an alias of the
+ * engine's, whatever it spells ({@link sharedKey}).
+ */
+class CallerText extends Sql {}
+const isCallerText = (fragment: Sql): boolean => fragment instanceof CallerText;
+const callerText = (fragment: Sql): Sql =>
+  new CallerText(["(", ")"], [fragment]);
+const valueIds = new WeakMap<object, number>();
+let nextValueId = 0;
+/** A bound value as a key: a primitive by value, a `Date` by its instant, a list by its members, anything else by identity. */
+function valueKey(value: unknown): string {
+  if (value instanceof Date) return `d${value.getTime()}`;
+  if (Array.isArray(value)) return `a${JSON.stringify(value.map(valueKey))}`;
+  if (
+    value === null ||
+    (typeof value !== "object" && typeof value !== "function")
+  )
+    return `${typeof value}:${String(value)}`;
+  return `o${memo(valueIds, value, () => nextValueId++)}`;
+}
+/**
+ * Two bodies are one where their texts are equal once their aliases are
+ * renumbered in order of appearance, and their values are equal: the same
+ * rows of the same table under the same conditions. A body holding another
+ * reads it provisionally, by its key set's name, which equal bodies share.
+ * Only the engine's own text holds its aliases: a caller's `Sql` operand
+ * ({@link CallerText}) is compared as written, so `'_q1_'` and `'_q2_'` stay
+ * two bodies (ENG-4, review 2). Its runs are found on the fragment tree,
+ * which no lowering flattens before its statement settles ({@link SqlSlot}).
+ */
+function sharedKey(query: Sql): string {
+  const { runs, values } = Sql.peekRuns(query, isCallerText);
+  const renumbered = new Map<string, number>();
+  const normalized = runs.map(({ text, opaque }) =>
+    opaque
+      ? [text]
+      : text.replace(ALIAS_TOKEN, (_, n: string) => {
+          let local = renumbered.get(n);
+          if (local === undefined) {
+            local = renumbered.size;
+            renumbered.set(n, local);
+          }
+          return `q${local}`;
+        })
+  );
+  // SQL text and bound strings may contain any delimiter. Preserve the
+  // tuple boundaries, including array members, before sharing a predicate.
+  return JSON.stringify([normalized, values.map(valueKey)]);
+}
+
+/**
+ * Textual alias renumbering cannot distinguish a physical name from an
+ * alias. Such schemas keep their relation bodies inline: an optimization
+ * must never rename a column, table, junction or namespace in its identity.
+ * An alias is `q<n>` between quotes or underscores ({@link ALIAS_TOKEN}), so
+ * only a name that is one, or holds one at an end or between underscores,
+ * resembles it; `seq1` or `freq2` do not.
+ */
+const aliasLikeSchemas = new WeakMap<EngineSchema, boolean>();
+const ALIAS_LIKE_NAME = /(?:^|_)q\d+(?:_|$)/;
+const resemblesAlias = (name: string) => ALIAS_LIKE_NAME.test(name);
+function hasAliasLikeNames(schema: EngineSchema): boolean {
+  // Physical names are immutable for the schema lifetime, shared by every
+  // bound actor view. Scan them once, not for each operation's Queries.
+  return memo(aliasLikeSchemas, schema, () => {
+    for (const [model, slots] of schema.index) {
+      if (resemblesAlias(model["~"].names.sql!)) return true;
+      for (const field of schema.storedFields(model))
+        if (resemblesAlias(physicalField(schema, model, field).name))
+          return true;
+      for (const { edge } of slots.values()) {
+        const junctions =
+          edge.kind === "junction"
+            ? [edge.topology]
+            : edge.kind === "variantJunctionCarrier"
+              ? edge.members.map((member) => member.topology)
+              : [];
+        for (const junction of junctions) {
+          if (resemblesAlias(junction.table)) return true;
+          for (const side of [junction.source, junction.target])
+            if (
+              side.members.some((member) =>
+                resemblesAlias(member.junctionField)
+              )
+            )
+              return true;
+        }
+      }
+    }
+    return false;
+  });
+}
+/** No layer is lowering. */
+const NO_LAYERS: readonly number[] = Object.freeze([]);
+/** A projection that carries no gate member (K5). */
+const NO_GATES: readonly string[] = Object.freeze([]);
+const isParameterOperand = (operand: PreparedOperand): boolean =>
+  operand.kind === "parameter";
+
+/** One layer's projection key on a model (K5), with the layer's `read`. */
+export interface DeclaredEvidence {
+  readonly layer: number;
+  readonly read: Input;
+  readonly names: readonly (readonly [string, Input])[];
+  readonly ordered: boolean;
+}
+/**
+ * What a read-gated field's row must hold, per layer gating it: the layer's
+ * `read` and the field's predicate there.
+ */
+export type FieldGate = readonly (readonly [number, Input, Input])[];
+/** A model's projection keys and read-gated fields under one domain (K5). */
+export interface ProjectedFacts {
+  readonly keys: ReadonlyMap<string, DeclaredEvidence>;
+  readonly gates: ReadonlyMap<string, FieldGate>;
+}
+/**
+ * The selections a caller wrote, and the read-gated fields each names (K5):
+ * admission marks them by identity, as `omit` and `include` desugar every
+ * node into a `select` naming every scalar. A field a selection does not mark
+ * is projected where its gate holds and left out elsewhere.
+ */
+export const namedGatedFields = new WeakMap<object, ReadonlySet<string>>();
+
+/** Equal gates shared, so a projection carries one member per distinct gate. */
+function sharedGate(gate: FieldGate, known: FieldGate[]): FieldGate {
+  const same = known.find(
+    (other) =>
+      other.length === gate.length &&
+      other.every(
+        ([layer, , input], index) =>
+          layer === gate[index]![0] && input === gate[index]![2]
+      )
+  );
+  if (same) return same;
+  known.push(gate);
+  return gate;
+}
+
+/**
  * One row domain as prepared meaning: per purpose and model, the conjunction
- * of the model's inputs, prepared at most once for every `Queries` of one
- * engine view (its reads and its write contexts share it). Prepared meaning
- * holds no alias, adapter or driver, so the view's own `Queries` prepares it.
+ * of the model's inputs, each a {@link PreparedPredicate} `layer` node,
+ * prepared at most once for every `Queries` of one engine view (its reads and
+ * its write contexts share it) and for every call: a value a call supplies is
+ * a parameter. A layer's node holds its verb predicates beside its purpose's
+ * (R2), each input prepared once whatever purposes and verbs reuse it.
+ * Prepared meaning holds no alias, adapter or driver, so the view's own
+ * `Queries` prepares it.
  */
 export class PreparedDomain {
   readonly rows: RowDomain;
+  /** The domain absent controls select: what a layer's traversals read (R5). */
+  readonly defaults: PreparedDomain;
   readonly #queries: Queries;
   readonly #prepared = {
-    root: new Map<string, PreparedSelector>(),
-    related: new Map<string, PreparedSelector>(),
+    root: new Map<string, PreparedSelector | null>(),
+    related: new Map<string, PreparedSelector | null>(),
   };
+  readonly #inputs = new Map<Input, PreparedSelector>();
+  readonly #layered = new Map<string, Map<Input, PreparedSelector>>();
+  readonly #projected = new Map<string, ProjectedFacts | null>();
+  /** Whether a model's verbs declare a projection key or a gated field. */
+  readonly projects: boolean;
+  /**
+   * The default projections of the models this domain projects facts for:
+   * theirs differ from the view's shared ones, which carry no gate.
+   */
+  readonly defaultProjections = new WeakMap<AnyModel, PreparedProjection>();
   #view: Queries | undefined;
-  constructor(rows: RowDomain, queries: Queries) {
+  constructor(rows: RowDomain, queries: Queries, defaults?: PreparedDomain) {
     this.rows = rows;
     this.#queries = queries;
-  }
-  /** The one read view under this domain: its lifetime is the domain's. */
-  get reads(): Queries {
-    return (this.#view ??= this.#queries.under(this));
-  }
-  /** `model`'s predicate for `purpose`; `undefined` where it states none. */
-  selector(model: AnyModel, purpose: RowPurpose): PreparedSelector | undefined {
-    const name = model["~"].names.ts!;
-    const inputs = this.rows[purpose].get(name);
-    if (inputs === undefined) return undefined;
-    const queries = this.#queries;
-    return memo(this.#prepared[purpose], name, () =>
-      inputs.length === 1
-        ? queries.prepareSelector(model, inputs[0])
-        : queries.andSelectors(
-            model,
-            inputs.map((where) => queries.prepareSelector(model, where))
-          )
+    this.defaults = defaults ?? this;
+    this.projects = [...(rows.verbs?.values() ?? [])].some((layers) =>
+      layers.some((verbs) => verbs?.evidence || verbs?.reads.size)
     );
   }
+  /** `input`, one of `model`'s predicates in `layer`, as that layer's node. */
+  layered(model: AnyModel, layer: number, input: Input): PreparedSelector {
+    const name = model["~"].names.ts!;
+    const inputs = memo(this.#layered, `${name} ${layer}`, () => new Map());
+    return memo(inputs, input, () => {
+      const part = this.#queries.prepareSelector(model, input);
+      return part.predicate === undefined
+        ? part
+        : freeze({ ...part, predicate: layerOf(layer, name, part.predicate) });
+    });
+  }
+  /** `model`'s projection keys and read-gated fields; `undefined` for none. */
+  projected(model: AnyModel): ProjectedFacts | undefined {
+    return this.projects ? this.#projectedFacts(model) : undefined;
+  }
+  #projectedFacts(model: AnyModel): ProjectedFacts | undefined {
+    const name = model["~"].names.ts!;
+    const facts = memo(this.#projected, name, () => {
+      const keys = new Map<string, DeclaredEvidence>();
+      const gates = new Map<string, FieldGate>();
+      for (const [layer, verbs] of (
+        this.rows.verbs?.get(name) ?? []
+      ).entries()) {
+        if (verbs === undefined) continue;
+        const { evidence, read } = verbs;
+        if (evidence)
+          keys.set(
+            evidence.as,
+            freeze({
+              layer,
+              read,
+              names: evidence.names,
+              ordered: evidence.ordered,
+            })
+          );
+        for (const [field, input] of verbs.reads)
+          gates.set(field, [
+            ...(gates.get(field) ?? []),
+            freeze([layer, read, input] as const),
+          ]);
+      }
+      const known: FieldGate[] = [];
+      for (const [field, gate] of gates)
+        gates.set(field, sharedGate(freeze(gate), known));
+      return keys.size === 0 && gates.size === 0
+        ? null
+        : freeze({ keys, gates });
+    });
+    return facts ?? undefined;
+  }
+  /**
+   * The read view under this domain for `call`: one for every call, whose
+   * lifetime is the domain's, unless the call carries the values its
+   * parameters read.
+   */
+  reads(call: CallScope): Queries {
+    return call.rows.values === undefined
+      ? (this.#view ??= this.#queries.under(this))
+      : this.#queries.under(this, call);
+  }
+  /**
+   * `model`'s predicate for `purpose` without the `excluded` layers, and,
+   * under a `judgement`, each layer's predicates of its verb: `delete`'s, or
+   * one per field an update writes (that field's own, else `update`'s), or
+   * `update`'s when it writes none (R3). `undefined` where it states none.
+   */
+  selector(
+    model: AnyModel,
+    purpose: RowPurpose,
+    excluded = NO_LAYERS,
+    judgement?: RowJudgement
+  ): PreparedSelector | undefined {
+    const name = model["~"].names.ts!;
+    const verbs = this.rows.verbs?.get(name);
+    const judged = verbs && judgement;
+    // The plain key allocates nothing: a read takes it at every lookup.
+    const key = judged
+      ? `${name} ${excluded} ${judged.verb}${judged.marks ? "+" : ""} ${[...judged.writes].sort()}`
+      : excluded.length === 0
+        ? name
+        : `${name} ${excluded}`;
+    let prepared = this.#prepared[purpose].get(key);
+    if (prepared === undefined)
+      prepared = this.#prepareSelector(model, purpose, excluded, judged, key);
+    return prepared ?? undefined;
+  }
+  /** {@link selector}'s answer, prepared once per key. */
+  #prepareSelector(
+    model: AnyModel,
+    purpose: RowPurpose,
+    excluded: readonly number[],
+    judged: RowJudgement | undefined,
+    key: string
+  ): PreparedSelector | null {
+    const name = model["~"].names.ts!;
+    const inputs = this.rows[purpose].get(name);
+    const verbs = this.rows.verbs?.get(name);
+    const queries = this.#queries;
+    const prepared = memo(this.#prepared[purpose], key, () => {
+      if (inputs === undefined && verbs === undefined) return null;
+      const parts: PreparedSelector[] = [];
+      const layers = Math.max(inputs?.length ?? 0, verbs?.length ?? 0);
+      for (let layer = 0; layer < layers; layer++) {
+        if (excluded.includes(layer)) continue;
+        const own = verbs?.[layer];
+        const wheres = [
+          ...(own ? [own.read] : []),
+          ...(inputs?.[layer] === undefined ? [] : [inputs[layer]!]),
+          ...(own && judged ? verbInputs(own, judged) : []),
+        ].map((where) =>
+          memo(this.#inputs, where, () => queries.prepareSelector(model, where))
+        );
+        if (wheres.length === 0) continue;
+        const part =
+          wheres.length === 1
+            ? wheres[0]!
+            : queries.andSelectors(model, wheres);
+        parts.push(
+          part.predicate === undefined
+            ? part
+            : freeze({
+                ...part,
+                predicate: layerOf(layer, name, part.predicate),
+              })
+        );
+      }
+      if (parts.length === 0) return null;
+      return parts.length === 1
+        ? parts[0]!
+        : queries.andSelectors(model, parts);
+    });
+    return prepared;
+  }
+  readonly #produced = new Map<string, PreparedSelector | null>();
+  /**
+   * What the row a write of `model` produces is judged at, as a value,
+   * against the rows as they stand before the write (R4): a created row
+   * (no `judgement`) at each layer's `place`; an updated one at the
+   * predicates that judged its old row, `read` and its verb's (WITH CHECK),
+   * and its written fields' `moves`. A write that states its candidates'
+   * judgement in its own statement names the fields it `assigned`: where it
+   * assigns none of what judged its old row, that judgement is the old
+   * row's and is not stated twice. `undefined` where no layer judges it: no
+   * verbs, no `place` for a create, a delete, an update nothing judges.
+   */
+  produced(
+    model: AnyModel,
+    judgement?: RowJudgement,
+    assigned?: readonly string[]
+  ): PreparedSelector | undefined {
+    if (judgement?.verb === "delete") return undefined;
+    const name = model["~"].names.ts!;
+    const verbs = this.rows.verbs?.get(name);
+    if (verbs === undefined) return undefined;
+    const queries = this.#queries;
+    const changed = assigned && new Set(assigned);
+    const keys = queries.schema.keys(model);
+    const prepare = (where: Input) =>
+      memo(this.#inputs, where, () => queries.prepareSelector(model, where));
+    const prepared = memo(
+      this.#produced,
+      judgement
+        ? `update ${name} ${[...judgement.writes].sort()} ${assigned ? [...assigned].sort() : "*"}`
+        : `create ${name}`,
+      () => {
+        const parts: PreparedSelector[] = [];
+        for (const [layer, own] of verbs.entries()) {
+          if (own === undefined) continue;
+          // What judged the old row judges the new one, unless the write
+          // assigns nothing it reads: then the new row's answer is the old
+          // row's, which the statement's own candidates already state.
+          const checked = judgement
+            ? [own.read, ...verbInputs(own, judgement)]
+            : [];
+          const unchanged =
+            changed !== undefined &&
+            checked.every(
+              (where) =>
+                prepare(where).predicate === undefined ||
+                !readsAny(prepare(where).predicate!, changed, keys)
+            );
+          const wheres = judgement
+            ? [
+                ...(unchanged ? [] : checked),
+                ...judgement.writes.flatMap((field) => {
+                  const move = own.moves.get(field);
+                  return move === undefined ? [] : [move];
+                }),
+              ]
+            : own.place === undefined
+              ? []
+              : [own.place];
+          if (wheres.length === 0) continue;
+          const selectors = [...new Set(wheres)].map(prepare);
+          const part =
+            selectors.length === 1
+              ? selectors[0]!
+              : queries.andSelectors(model, selectors);
+          if (part.predicate !== undefined)
+            parts.push(
+              freeze({
+                ...part,
+                predicate: layerOf(layer, name, part.predicate),
+              })
+            );
+        }
+        if (parts.length === 0) return null;
+        return parts.length === 1
+          ? parts[0]!
+          : queries.andSelectors(model, parts);
+      }
+    );
+    return prepared ?? undefined;
+  }
+  /**
+   * The self relations whose links an update judged at `judgement` must
+   * keep acyclic (R4): each layer's `acyclic` relations of `model` whose key
+   * fields it writes.
+   */
+  cycles(model: AnyModel, judgement: RowJudgement): readonly string[] {
+    if (judgement.verb === "delete") return NO_RELATIONS;
+    const verbs = this.rows.verbs?.get(model["~"].names.ts!);
+    if (verbs === undefined) return NO_RELATIONS;
+    const relations = new Set<string>();
+    for (const own of verbs)
+      for (const relation of own?.acyclic ?? []) {
+        const edge = this.#queries.schema.membership(model, relation);
+        if (
+          judgement.writes.includes(relation) ||
+          (edge.kind === "reference" &&
+            edge.pairs.some((pair) => judgement.writes.includes(pair.source)))
+        )
+          relations.add(relation);
+      }
+    return relations.size === 0 ? NO_RELATIONS : [...relations];
+  }
+}
+const NO_RELATIONS: readonly string[] = Object.freeze([]);
+
+/** The verb predicates one layer's `judgement` takes, each once. */
+function verbInputs(verbs: ModelVerbs, judgement: RowJudgement): Input[] {
+  if (judgement.verb === "delete") return [verbs.delete];
+  if (judgement.writes.length === 0) return [verbs.update];
+  return [
+    ...new Set([
+      ...judgement.writes.map(
+        (field) => verbs.writes.get(field) ?? verbs.update
+      ),
+      ...(judgement.marks ? [verbs.delete] : []),
+    ]),
+  ];
+}
+
+/**
+ * `node`'s predicate with its conditions folded as `key` says (one digit per
+ * condition), and the parameters it still reads: once per key and node.
+ */
+function foldedLayer(
+  node: Extract<PreparedPredicate, { kind: "layer" }>,
+  key: string
+): Folded {
+  const predicate =
+    node.conditions.length === 0
+      ? node.predicate
+      : foldConditions(
+          node.predicate,
+          (condition) => key[node.conditions.indexOf(condition)] === "1"
+        );
+  const parameters = new Map<Parameter, boolean>();
+  callReads(predicate, parameters, new Set());
+  const folded = { predicate, parameters: [...parameters] };
+  node.folded.set(key, folded);
+  return folded;
+}
+/** `predicate` as `model`'s domain predicate of `layer`. */
+function layerOf(
+  layer: number,
+  model: string,
+  predicate: PreparedPredicate
+): PreparedPredicate {
+  const conditions = new Set<Condition>();
+  callReads(predicate, new Map(), conditions);
+  return freeze({
+    kind: "layer",
+    layer,
+    model,
+    predicate,
+    conditions: freeze([...conditions]),
+    folded: new Map(),
+  });
 }
 
 /** Generated boolean sets must not inherit a provider's linear expression depth. */
@@ -1005,21 +1770,165 @@ export class Queries {
    * every path of a client without `rows`.
    */
   readonly domain: PreparedDomain | undefined;
+  /** The call whose values the domain's parameters read. */
+  readonly #call: CallScope | undefined;
+  /**
+   * The layers whose predicates are lowering here, outermost first: inside
+   * one, a relation read takes every other layer at its default (R5). On this
+   * `Queries`, so the statement keeps its one alias counter.
+   */
+  #excluded: number[] | undefined;
+  /**
+   * The produced row a judgement is lowering over ({@link holds}): the alias
+   * it is read under, and per field whether the value the write sets is
+   * null, where the write states it.
+   */
+  #known:
+    | { readonly alias: string; readonly nulls: ReadonlyMap<string, boolean> }
+    | undefined;
+  /**
+   * The statement part lowering here reads a masked window (K5): its read-
+   * gated columns are already NULL where their rows do not carry them.
+   */
+  #masked = false;
+  /**
+   * The relation filter bodies of the statement lowering here, where the
+   * adapter shares them ({@link sharingBodies}).
+   */
+  #shared: SharedBodies | undefined;
+  readonly #sharesBodies: boolean;
   constructor(
     schema: EngineSchema,
     adapter: DatabaseAdapter,
     result?: DriverResultParser,
-    domain?: PreparedDomain
+    domain?: PreparedDomain,
+    call?: CallScope
   ) {
     this.schema = schema;
     this.adapter = adapter;
     this.#views = schema.queryViews(adapter);
     this.#result = result;
     this.domain = domain;
+    this.#call = call;
+    this.#sharesBodies =
+      adapter.capabilities.sharesRelationBodies === true &&
+      !resemblesAlias(adapter.namespace ?? "") &&
+      !hasAliasLikeNames(schema);
   }
-  /** This view's `Queries` reading under `domain`. */
-  under(domain: PreparedDomain): Queries {
-    return new Queries(this.schema, this.adapter, this.#result, domain);
+  /**
+   * `build`'s statement, where the adapter shares relation bodies
+   * (`capabilities.sharesRelationBodies`): each body the statement lowers
+   * more than once is stated once, in a `WITH` before it, as the key set
+   * every arm repeating it tests ({@link relationExists}); a body lowered once
+   * keeps its place, so a statement that repeats none is unchanged. One scope
+   * per statement: a statement lowered inside another's joins it.
+   */
+  #sharingBodies(build: () => Sql): Sql {
+    if (this.#shared !== undefined) return build();
+    const shared: SharedBodies = { byKey: new Map(), order: [] };
+    this.#shared = shared;
+    let statement: Sql;
+    try {
+      statement = build();
+    } finally {
+      this.#shared = undefined;
+    }
+    const definitions: { name: string; query: Sql }[] = [];
+    for (const body of shared.order) {
+      const repeated = body.slots.length > 1;
+      for (const placed of body.slots)
+        placed.slot.settle(repeated ? placed.use : placed.inline);
+      if (repeated) definitions.push({ name: body.name, query: body.query });
+    }
+    return definitions.length === 0
+      ? statement
+      : sql`${this.adapter.cte.with(definitions)} ${statement}`;
+  }
+  /** `build`'s statement, sharing its bodies where the adapter does. */
+  #sharing(build: () => Sql | undefined): Sql | undefined {
+    if (!this.#sharesBodies) return build();
+    let built = true;
+    const statement = this.#sharingBodies(() => {
+      const made = build();
+      built = made !== undefined;
+      return made ?? sql.empty;
+    });
+    return built ? statement : undefined;
+  }
+  /** This view's `Queries` reading under `domain`, for `call`'s values. */
+  under(domain: PreparedDomain, call?: CallScope): Queries {
+    return new Queries(this.schema, this.adapter, this.#result, domain, call);
+  }
+  /**
+   * The domain predicate a lowering-time read takes for `model`: the call's
+   * own outside every layer, under `judgement` for a write; inside one, the
+   * defaults' without the layers lowering, which a policy's traversal only
+   * reads.
+   */
+  #scope(
+    model: AnyModel,
+    purpose: RowPurpose,
+    judgement?: RowJudgement
+  ): PreparedSelector | undefined {
+    const excluded = this.#excluded;
+    return excluded === undefined || excluded.length === 0
+      ? this.domain?.selector(model, purpose, NO_LAYERS, judgement)
+      : this.domain?.defaults.selector(model, purpose, excluded);
+  }
+  /**
+   * The domain predicate a read lowering here takes for `model` and
+   * `purpose`; `undefined` where it states none, or the call drops all it
+   * states (R6), so the statement is the one without a domain.
+   */
+  domainOf(
+    model: AnyModel,
+    purpose: RowPurpose,
+    judgement?: RowJudgement
+  ): PreparedSelector | undefined {
+    const scope = this.#scope(model, purpose, judgement);
+    return scope && !this.#drops(scope.predicate) ? scope : undefined;
+  }
+  /** Whether a layer's predicates are lowering here. */
+  get #lowersLayer(): boolean {
+    return (this.#excluded?.length ?? 0) > 0;
+  }
+  get #values(): CallValues | undefined {
+    return this.#call?.rows.values;
+  }
+  #instantOf: (() => Date) | undefined;
+  /**
+   * The call's one instant: a domain that reads it lowers for its call. Made
+   * when first read, so a `Queries` whose domain reads no value makes none.
+   */
+  get #instant(): () => Date {
+    return (this.#instantOf ??= () => this.#call!.instant());
+  }
+  /**
+   * A layer's predicate for this call: its conditions folded, then R6 for
+   * the values it still reads; `undefined` where it drops.
+   */
+  #resolve(
+    node: Extract<PreparedPredicate, { kind: "layer" }>
+  ): PreparedPredicate | undefined {
+    const values = this.#values;
+    const { conditions } = node;
+    let key = "";
+    // biome-ignore lint/style/useForOf: no iterator on a per-statement path (E5.1, measured).
+    for (let index = 0; index < conditions.length; index++)
+      key += conditions[index]!.holds(values, this.#instant) ? "1" : "0";
+    const folded = node.folded.get(key) ?? foldedLayer(node, key);
+    let dropped = false;
+    const { parameters } = folded;
+    // biome-ignore lint/style/useForOf: no iterator on a per-statement path (E5.1, measured).
+    for (let index = 0; index < parameters.length; index++) {
+      const [parameter, spread] = parameters[index]!;
+      const value = parameter.read(values, this.#instant);
+      if (value !== undefined && (!spread || Array.isArray(value))) continue;
+      if (values?.required(parameter.control!, node.model))
+        return VACUOUS_FALSE;
+      dropped = true;
+    }
+    return dropped ? undefined : folded.predicate;
   }
   /**
    * The ONE provider continuation for a physical value of `type`, bound to
@@ -1155,7 +2064,7 @@ export class Queries {
    */
   value(value: unknown): Sql {
     return value instanceof Sql
-      ? sql`(${value})`
+      ? callerText(value)
       : this.adapter.literals.value(value);
   }
   /**
@@ -1187,7 +2096,7 @@ export class Queries {
     const a = this.adapter;
     const state = scalar["~"].state;
     if (value instanceof Sql) {
-      const fragment = sql`(${value})`;
+      const fragment = callerText(value);
       return state.type === "decimal" && state.array !== true
         ? a.expressions.decimalCast(fragment, state.decimal)
         : fragment;
@@ -1942,22 +2851,284 @@ export class Queries {
    * the key to recover (race convergence, a hidden conflict's rethrow) behave
    * as without a domain; `scoped` tells the ones that trust the key alone to
    * name the row (the RETURNING confirmation fast path, the targeted
-   * `ON CONFLICT` fold) that it no longer does. The selector itself where the
-   * domain states nothing for its model.
+   * `ON CONFLICT` fold) that it no longer does. A write's `judgement` adds
+   * its verb's predicates. The selector itself where the domain states
+   * nothing for its model.
    */
   candidates(
     selector: PreparedSelector,
     purpose: RowPurpose,
-    domain: PreparedDomain | undefined = this.domain
+    domain: PreparedDomain | undefined = this.domain,
+    judgement?: RowJudgement
   ): PreparedSelector {
-    const scope = domain?.selector(selector.model, purpose);
+    const scope = domain?.selector(
+      selector.model,
+      purpose,
+      NO_LAYERS,
+      judgement
+    );
     if (scope === undefined) return selector;
     return Object.freeze({
       ...this.andSelectors(selector.model, [selector, scope]),
       uniqueKey: selector.uniqueKey,
       uniqueValues: selector.uniqueValues,
       scoped: true,
+      ...(judgement && { judgement }),
     });
+  }
+  /**
+   * The rows of `model` a write produces, as ONE FROM item read under
+   * `alias`: every stored field, each row's value as `row` lowers it (NULL
+   * where it says nothing). The model's own columns type them, through an
+   * empty read of the table, so a bound value takes its column's type where
+   * PostgreSQL would resolve a bare parameter as text; how the rows follow
+   * it is the dialect's (`setOperations.typedRows`), so a chunk is bounded
+   * by its binds alone.
+   */
+  #producedRows(
+    model: AnyModel,
+    rows: readonly ((field: string) => Sql | undefined)[],
+    alias: string
+  ): Sql {
+    const a = this.adapter;
+    const fields = this.schema.storedFields(model);
+    const typed = this.alias();
+    const from = this.table(model, typed);
+    const head = assembleAdapterSelect(a, {
+      columns: sql.join(
+        fields.map((field) => this.column(model, field, typed)),
+        ", "
+      ),
+      from,
+      where: a.literals.false(),
+    });
+    return a.setOperations.typedRows(
+      {
+        head,
+        from,
+        table: this.table(model),
+        alias: typed,
+        columns: fields.map((field) => this.columnName(model, field)),
+      },
+      rows.map((row) => fields.map((field) => row(field) ?? a.literals.null())),
+      alias
+    );
+  }
+  /**
+   * `judged` over the produced row `from` reads (and, for each `acyclic`
+   * relation, the row outside its own subtree), as the adapter's assertion:
+   * 1, or the statement that carries it fails before it writes. `undefined`
+   * where nothing is left to judge: the call drops every layer `judged` is
+   * made of (R6).
+   */
+  #holds(
+    model: AnyModel,
+    judged: Pick<PreparedSelector, "model" | "predicate"> | undefined,
+    alias: string,
+    nulls: ReadonlyMap<string, boolean>,
+    from?: Sql,
+    acyclic: readonly string[] = NO_RELATIONS
+  ): Sql | undefined {
+    const a = this.adapter;
+    const outer = this.#known;
+    this.#known = { alias, nulls };
+    let lowered: Sql | undefined;
+    try {
+      lowered = judged && this.lowerSelector(judged, alias);
+    } finally {
+      this.#known = outer;
+    }
+    const conditions = [
+      ...(lowered === undefined ? [] : [lowered]),
+      ...acyclic.map((relation) =>
+        this.#outsideOwnSubtree(model, relation, alias)
+      ),
+    ];
+    if (conditions.length === 0) return undefined;
+    return a.subqueries.scalar(
+      a.assertions.holds(a.operators.and(...conditions), from)
+    );
+  }
+  /**
+   * The row read as `alias` does not reach itself through `relation`, a
+   * to-one relation of its model to itself: no row its new target leads to,
+   * that target included, is the row. The walk is physical, read under no
+   * domain: a cycle through a row the caller cannot see is still a cycle.
+   */
+  #outsideOwnSubtree(model: AnyModel, relation: string, alias: string): Sql {
+    const a = this.adapter;
+    const edge = this.schema.membership(model, relation);
+    const { cte, cteName, walk, childColumns } = this.#walk(
+      edge,
+      alias,
+      { depth: false, self: false },
+      false
+    );
+    return a.filters.none(
+      sql`${cte} ${assembleAdapterSelect(a, {
+        columns: sql.raw("1"),
+        from: a.identifiers.aliased(a.identifiers.escape(cteName), walk),
+        where: this.#sameRow(
+          model,
+          alias,
+          childColumns.map((name) => a.identifiers.column(walk, name))
+        ),
+      })}`
+    );
+  }
+  /**
+   * The SELECT an INSERT of `rows` reads its values from when the rows it
+   * creates are judged (R4): each row a value of the derived table, kept
+   * where `judged` holds of it and failing the statement where it does not,
+   * before any row is written or any constraint is checked. One statement:
+   * nothing it writes is visible to its own judgement.
+   */
+  producedSource(
+    model: AnyModel,
+    columns: readonly string[],
+    rows: readonly Input[],
+    judged: PreparedSelector
+  ): Sql | undefined {
+    const a = this.adapter;
+    const alias = this.alias();
+    const written = new Set(columns);
+    const from = this.#producedRows(
+      model,
+      rows.map(
+        (row) => (field) =>
+          written.has(field)
+            ? this.fieldValue(model, field, row[field])
+            : undefined
+      ),
+      alias
+    );
+    // A field's nullness folds where every row states the same one; a field
+    // no row writes is null in each.
+    const nulls = new Map<string, boolean>();
+    for (const field of this.schema.storedFields(model)) {
+      const states = new Set(
+        rows.map((row) => {
+          const value = written.has(field) ? row[field] : null;
+          return value instanceof Sql
+            ? undefined
+            : value === null || value === undefined;
+        })
+      );
+      const [state] = states;
+      if (states.size === 1 && state !== undefined) nulls.set(field, state);
+    }
+    return this.#sharing(() => {
+      const guard = this.#holds(model, judged, alias, nulls);
+      if (guard === undefined) return undefined;
+      return assembleAdapterSelect(a, {
+        columns: sql.join(
+          columns.map((field) => this.column(model, field, alias)),
+          ", "
+        ),
+        from,
+        where: sql`${guard} = 1`,
+      });
+    });
+  }
+  /**
+   * The WHERE of an UPDATE of `model` assigning `values` that judges the
+   * rows it produces (R4): the keys of the rows `candidates` selects
+   * (lowered at the alias it is handed; the first `limit` in key order),
+   * read ONCE, before the statement writes any of them, each group of one
+   * key kept where its produced row's assertion holds (the row as it stands
+   * with the assignments applied, typed as {@link producedRows}): 1, or the
+   * statement fails before it writes.
+   *
+   * An aggregate is computed over the rows its WHERE kept, so a row the
+   * update does not write is never judged: a guard in a select list or a
+   * WHERE is not, since PostgreSQL and MySQL flatten an `IN` subquery and
+   * order its conditions by cost (measured: a viewed row's refused guard
+   * raised before the predicate that excludes it). A set read once is
+   * judged against the rows as they stand before the write, never against
+   * a row the statement wrote earlier: SQLite and MySQL evaluate an
+   * UPDATE's own SET row by row (measured: a team's lead demoted early made
+   * its other members' new rows unwritable). On MySQL, which refuses to read
+   * the written table from its own subquery, the set is a derived table,
+   * materialized before the write (`#capped`'s form). `undefined` where
+   * nothing is left to judge.
+   */
+  producedWhere(
+    model: AnyModel,
+    candidates: (alias: string) => Sql | undefined,
+    values: Input,
+    judged: PreparedSelector | undefined,
+    acyclic: readonly string[] = NO_RELATIONS,
+    limit?: number
+  ): Sql | undefined {
+    if (judged === undefined && acyclic.length === 0) return undefined;
+    const a = this.adapter;
+    const row = this.alias();
+    const produced = this.alias();
+    const current = (field: string) => this.column(model, field, row);
+    const rowKeys = this.schema.keys(model);
+    // A value only the database computes (a list append, an exact
+    // decimal's multiply or divide) has no value to judge: it is refused
+    // where the judgement reads it (`updateValue`), and stands as it was
+    // where nothing does, since no answer depends on it.
+    const unread = (field: string) =>
+      !(
+        this.namesUpdate(model, field, values[field]) ||
+        (judged?.predicate &&
+          readsAny(judged.predicate, new Set([field]), rowKeys)) ||
+        acyclic.some((relation) => {
+          const edge = this.schema.membership(model, relation);
+          return (
+            edge.kind === "reference" &&
+            edge.pairs.some((pair) => pair.source === field)
+          );
+        })
+      );
+    const from = this.#producedRows(
+      model,
+      [
+        (field) =>
+          values[field] === undefined || unread(field)
+            ? current(field)
+            : this.updateValue(model, field, values[field], current(field)),
+      ],
+      produced
+    );
+    const nulls = new Map<string, boolean>();
+    for (const [field, value] of Object.entries(values)) {
+      if (value === undefined) continue;
+      const whole = wholeValue(value);
+      if (whole && !(whole.value instanceof Sql))
+        nulls.set(field, whole.value === null);
+    }
+    const judgedSet = (): Sql | undefined => {
+      const guard = this.#holds(model, judged, produced, nulls, from, acyclic);
+      if (guard === undefined) return undefined;
+      const keys = this.keyOrder(model).map(current);
+      return assembleAdapterSelect(a, {
+        columns: sql.join(keys, ", "),
+        from: this.table(model, row),
+        where: candidates(row),
+        groupBy: sql.join(keys, ", "),
+        having: sql`${a.aggregates.min(guard)} = 1`,
+        ...(limit !== undefined && {
+          orderBy: this.#ascendingKeys(model, row),
+          limit: this.value(limit),
+        }),
+      });
+    };
+    const set = this.#sharing(judgedSet);
+    if (set === undefined) return undefined;
+    const table = model["~"].names.sql!;
+    return a.operators.in(
+      rowValue(
+        this.keyOrder(model).map((field) => this.column(model, field, table))
+      ),
+      a.subqueries.scalar(
+        a.capabilities.supportsMutationTargetInSubquery
+          ? set
+          : sql`SELECT * FROM ${a.subqueries.correlate(set, this.alias())}`
+      )
+    );
   }
   /**
    * A read's own candidates: `selector` (absent: every row) under `purpose`.
@@ -1969,7 +3140,7 @@ export class Queries {
     selector: Pick<PreparedSelector, "model" | "predicate"> | undefined,
     purpose: RowPurpose
   ): Pick<PreparedSelector, "model" | "predicate"> | undefined {
-    const scope = this.domain?.selector(model, purpose);
+    const scope = this.#scope(model, purpose);
     if (scope?.predicate === undefined) return selector;
     if (selector?.predicate === undefined) return scope;
     return freeze({
@@ -1980,13 +3151,62 @@ export class Queries {
       }),
     });
   }
+  /** `undefined` where it states nothing, or the call drops all it states. */
   lowerSelector(
     selector: Pick<PreparedSelector, "model" | "predicate">,
     alias?: string
   ): Sql | undefined {
     return selector.predicate
-      ? this.#lowerPredicate(selector.predicate, alias)
+      ? this.#lowerStated(selector.predicate, alias)
       : undefined;
+  }
+  /**
+   * `predicate` lowered; `undefined` where it is made of layers the call
+   * drops (R6), so a statement without them is the one without the domain.
+   */
+  #lowerStated(predicate: PreparedPredicate, alias?: string): Sql | undefined {
+    if (predicate.kind === "layer") {
+      let resolved = this.#resolve(predicate);
+      if (resolved === undefined) return undefined;
+      const known = this.#known;
+      if (known !== undefined && alias === known.alias)
+        resolved = foldKnownNulls(resolved, known.nulls);
+      // A stack, made at the first layer this `Queries` lowers: what reads
+      // it reads it while it lowers (the selectors' memo keys its content).
+      const excluded = (this.#excluded ??= []);
+      excluded.push(predicate.layer);
+      try {
+        return this.#lowerPredicate(resolved, alias);
+      } finally {
+        excluded.pop();
+      }
+    }
+    if (predicate.kind !== "and") return this.#lowerPredicate(predicate, alias);
+    // No closure here: this runs at every filter node of every statement.
+    const { predicates } = predicate;
+    if (predicates.length === 1) {
+      const only = this.#lowerStated(predicates[0]!, alias);
+      return only && this.adapter.operators.and(only);
+    }
+    const members: Sql[] = [];
+    // biome-ignore lint/style/useForOf: no iterator at every filter node (E5.1, measured).
+    for (let index = 0; index < predicates.length; index++) {
+      const lowered = this.#lowerStated(predicates[index]!, alias);
+      if (lowered !== undefined) members.push(lowered);
+    }
+    return members.length === 0 && predicates.length > 0
+      ? undefined
+      : this.adapter.operators.and(...members);
+  }
+  /** Whether the call drops every layer `predicate` is made of (R6). */
+  #drops(predicate: PreparedPredicate | undefined): boolean {
+    if (predicate?.kind === "layer")
+      return this.#resolve(predicate) === undefined;
+    return (
+      predicate?.kind === "and" &&
+      predicate.predicates.length > 0 &&
+      predicate.predicates.every((member) => this.#drops(member))
+    );
   }
   /** An aggregate read's root filter: its `where` under the root domain. */
   lowerWhere(
@@ -2244,6 +3464,10 @@ export class Queries {
     unique = false,
     positive = true
   ): PreparedPredicate {
+    if (where instanceof Condition) {
+      if (facts) facts.exact = false;
+      return freeze({ kind: "condition", condition: where });
+    }
     return freeze({
       kind: "and",
       predicates: freeze(
@@ -2330,6 +3554,7 @@ export class Queries {
         value !== null &&
         typeof value === "object" &&
         !(value instanceof Sql) &&
+        !(value instanceof Parameter) &&
         !isFieldRef(value)
           ? record(value)
           : undefined;
@@ -2344,7 +3569,11 @@ export class Queries {
       ) {
         facts.equals.set(field, equality);
         if (key) facts.keys.set(field, equality);
-      } else facts.exact = false;
+      } else if (!(hasEquality && equality instanceof Parameter))
+        facts.exact = false;
+      // A call's value (K2) is an equality whose value preparation does not
+      // know: it pins nothing, and leaves the selector a conjunction of
+      // equalities, so its literal ones still prove a write disjoint (N1).
     }
     return this.#prepareOperations(
       key
@@ -2460,11 +3689,19 @@ export class Queries {
           operator,
           target,
           operands: freeze(
-            (value as unknown[]).map((member) =>
-              owner
-                ? this.#prepareOperand(owner, member)
-                : { kind: "value" as const, value: member }
-            )
+            value instanceof Parameter
+              ? [
+                  {
+                    kind: "parameter" as const,
+                    parameter: value,
+                    spread: true as const,
+                  },
+                ]
+              : (value as unknown[]).map((member) =>
+                  owner
+                    ? this.#prepareOperand(owner, member)
+                    : { kind: "value" as const, value: member }
+                )
           ),
           insensitive,
         });
@@ -2517,6 +3754,8 @@ export class Queries {
    * (`g4/perf2/receipts/micro-in-list.json`).
    */
   #prepareOperand(owner: PreparedScalar, value: unknown): PreparedOperand {
+    if (value instanceof Parameter)
+      return { kind: "parameter", parameter: value };
     if (isFieldRef(value)) {
       if (owner.physical.scalar["~"].state.type === "json")
         throw new UnsupportedOperationError(
@@ -2838,15 +4077,8 @@ export class Queries {
     // biome-ignore lint/style/useDefaultSwitchClause: the prepared predicate union is exhaustive; a default would be dead code.
     switch (predicate.kind) {
       case "and":
-        if (predicate.predicates.length === 1)
-          return a.operators.and(
-            this.#lowerPredicate(predicate.predicates[0]!, alias)
-          );
-        return a.operators.and(
-          ...predicate.predicates.map((member) =>
-            this.#lowerPredicate(member, alias)
-          )
-        );
+      case "layer":
+        return this.#lowerStated(predicate, alias) ?? a.literals.true();
       case "or":
         // A balanced tree, not a chain: SQLite parses `a OR b OR …` one
         // expression level deep per arm and refuses depth 1000 (platform-15).
@@ -2862,8 +4094,12 @@ export class Queries {
         );
       case "always":
         return predicate.value ? a.literals.true() : a.literals.false();
+      case "condition":
+        return predicate.condition.holds(this.#values, this.#instant)
+          ? a.literals.true()
+          : a.literals.false();
       case "operation":
-        return this.lowerOperation(predicate, alias);
+        return this.lowerOperation(this.#bound(predicate), alias);
       case "relation":
         return this.#lowerRelationPredicate(predicate, alias);
       case "window":
@@ -2880,20 +4116,105 @@ export class Queries {
       }
     }
   }
+  /**
+   * The operation with its parameters' values read for this call, so the
+   * value-dependent lowering reads them as any value. R6 has made each
+   * present (a spread one a list).
+   */
+  #bound(predicate: OperationPredicate): BoundOperation {
+    if (
+      predicate.operand?.kind !== "parameter" &&
+      !(predicate.value instanceof Parameter) &&
+      !predicate.operands?.some(isParameterOperand)
+    )
+      return predicate as BoundOperation;
+    return this.#boundParameters(predicate);
+  }
+  /** {@link bound}'s operation, which reads at least one parameter. */
+  #boundParameters(predicate: OperationPredicate): BoundOperation {
+    const { operand, operands, value, ...rest } = predicate;
+    const read = (parameter: Parameter) =>
+      parameter.read(this.#values, this.#instant);
+    const bound = (member: PreparedOperand): BoundOperand[] => {
+      if (member.kind !== "parameter") return [member];
+      const given = read(member.parameter);
+      return member.spread
+        ? (given as unknown[]).map((item) => ({ kind: "value", value: item }))
+        : [{ kind: "value", value: given }];
+    };
+    return {
+      ...rest,
+      ...(operand && { operand: bound(operand)[0]! }),
+      ...(operands && { operands: operands.flatMap(bound) }),
+      value: value instanceof Parameter ? read(value) : value,
+    };
+  }
   #preparedColumn(scalar: PreparedScalar, alias?: string): Sql {
-    return alias
-      ? this.adapter.identifiers.column(alias, scalar.physical.name)
-      : this.adapter.identifiers.escape(scalar.physical.name);
+    return this.#guarded(
+      scalar.model,
+      scalar.field,
+      alias
+        ? this.adapter.identifiers.column(alias, scalar.physical.name)
+        : this.adapter.identifiers.escape(scalar.physical.name),
+      alias
+    );
+  }
+  /**
+   * `column`, `model`'s `field` at `alias`, as an operand the caller wrote
+   * (K5): a read-gated field reads NULL on a row that does not carry it, in
+   * every position a caller writes it. A layer's predicates read the column
+   * itself: they lower inside the layer.
+   */
+  #guarded(model: AnyModel, field: string, column: Sql, alias?: string): Sql {
+    if (this.#lowersLayer || this.#masked) return column;
+    const gate = this.domain?.projected(model)?.gates.get(field);
+    // Every row a caller's operand is read on is one the domain takes, so
+    // `read` holds there: the gate's own predicate decides.
+    const holds = gate && this.#gateHolds(model, gate, alias, true);
+    return holds === undefined
+      ? column
+      : this.adapter.expressions.caseWhen(
+          [{ when: holds, then: column }],
+          this.adapter.literals.null()
+        );
+  }
+  /** `model`'s `field` at `alias` as an operand the caller wrote ({@link guarded}). */
+  #operand(model: AnyModel, field: string, alias?: string): Sql {
+    return this.#guarded(model, field, this.column(model, field, alias), alias);
+  }
+  /** Whether a caller's operand over `model`'s `field` may read NULL (K5). */
+  #gatedHere(model: AnyModel, field: string): boolean {
+    return (
+      !this.#lowersLayer &&
+      this.domain?.projected(model)?.gates.has(field) === true
+    );
+  }
+  /**
+   * Whether `model`'s rows lower through a masked window: a read-gated field
+   * the call reads under aggregation, where a gate repeated per expression
+   * would bind its values again in every copy.
+   */
+  #masks(model: AnyModel): boolean {
+    return (
+      !(this.#lowersLayer || this.#masked) &&
+      (this.domain?.projected(model)?.gates.size ?? 0) > 0
+    );
+  }
+  /** `fn` lowered over a masked window ({@link masked}). */
+  #overMasked<T>(fn: () => T): T {
+    this.#masked = true;
+    try {
+      return fn();
+    } finally {
+      this.#masked = false;
+    }
   }
   #lowerTarget(target: PreparedTarget, alias?: string): Sql {
     return target.kind === "column"
       ? this.#preparedColumn(target.scalar, alias)
       : this.#aggregateExpression(target.aggregate, target.scalar, alias);
   }
-  private lowerOperation(
-    predicate: Extract<PreparedPredicate, { kind: "operation" }>,
-    alias?: string
-  ): Sql {
+  private lowerOperation(predicate: BoundOperation, alias?: string): Sql {
     const a = this.adapter;
     const { operator, target, operand } = predicate;
     const scalar = target.scalar;
@@ -2956,13 +4277,13 @@ export class Queries {
      * admission (`validation/scalars/enum.ts`), so equality — and the `not`
      * that negates it — is the whole reach of this fact.
      */
-    const spelledAsText = (member: PreparedOperand): boolean =>
+    const spelledAsText = (member: BoundOperand): boolean =>
       state?.type === "enum" && member.kind === "field";
-    const comparableColumn = (member: PreparedOperand): Sql =>
+    const comparableColumn = (member: BoundOperand): Sql =>
       exact(
         spelledAsText(member) ? a.expressions.cast(column, "text") : column
       );
-    const bind = (member: PreparedOperand, fold = false): Sql => {
+    const bind = (member: BoundOperand, fold = false): Sql => {
       if (member.kind === "field") {
         const reference = this.#preparedColumn(member.scalar, alias);
         const comparable = spelledAsText(member)
@@ -3051,7 +4372,7 @@ export class Queries {
    * first query that compares by equality never compiles them.
    */
   #lowerOtherOperation(
-    predicate: Extract<PreparedPredicate, { kind: "operation" }>,
+    predicate: BoundOperation,
     {
       column,
       folded,
@@ -3066,7 +4387,7 @@ export class Queries {
       insensitive: boolean;
       text: boolean;
       exact: (expression: Sql) => Sql;
-      bind: (member: PreparedOperand, fold?: boolean) => Sql;
+      bind: (member: BoundOperand, fold?: boolean) => Sql;
       state: ScalarStateOf | undefined;
     }
   ): Sql {
@@ -3286,10 +4607,7 @@ export class Queries {
    * which has no column domain. A path with a null sentinel is refused at
    * admission (`pathSentinelRefusal`, validation/scalars/json.ts).
    */
-  #lowerJsonOperation(
-    predicate: Extract<PreparedPredicate, { kind: "operation" }>,
-    column: Sql
-  ): Sql {
+  #lowerJsonOperation(predicate: BoundOperation, column: Sql): Sql {
     const a = this.adapter;
     const path = [
       ...(predicate.target.kind === "column"
@@ -3437,17 +4755,13 @@ export class Queries {
         a.operators.and(...stated)
       )}`;
     } else
-      query = a.subqueries.existsCheck(
-        this.table(edge.target, childAlias),
-        a.operators.and(
-          this.correlation(
-            edge,
-            parentAlias ?? "",
-            childAlias,
-            predicate.unscoped === undefined
-          ),
-          ...stated
-        )
+      query = this.#relationExists(
+        edge,
+        parentAlias ?? "",
+        childAlias,
+        predicate.unscoped === undefined,
+        stated,
+        predicate.predicate !== undefined && readsRelation(predicate.predicate)
       );
     switch (predicate.quantifier) {
       case "some":
@@ -3469,6 +4783,87 @@ export class Queries {
           ? a.filters.isNot(query)
           : a.filters.is(query);
     }
+  }
+  /**
+   * `EXISTS (SELECT 1 FROM target WHERE correlation AND stated)`: inside a
+   * statement sharing its bodies ({@link sharingBodies}), a slot the
+   * statement settles to that where the body is lowered once, and else to a
+   * test of the body's key set, `EXISTS (SELECT 1 FROM <set> WHERE set.k =
+   * parent.fk)`: a semijoin on the correlated columns, read under the same
+   * layers and values, so it takes exactly the rows the EXISTS takes. A
+   * reference edge only (a junction's and a variant's membership stay
+   * where they are), and a body that states something.
+   */
+  #relationExists(
+    edge: Membership,
+    parent: string,
+    child: string,
+    scoped: boolean,
+    stated: readonly Sql[],
+    deeper = false
+  ): Sql {
+    const a = this.adapter;
+    const member = this.#membershipWhere(edge, child, parent);
+    // `correlation`'s two parts, lowered in its order.
+    const domain = scoped ? this.domainOf(edge.target, "related") : undefined;
+    const lowered = domain && this.lowerSelector(domain, child)!;
+    // Where the filter goes on below (`deeper`), a dialect that sums nested
+    // heights adds this level's `WHERE` height to every level under it: the
+    // domain, isolated, pays its own height once, at the end of its branch
+    // (`subqueries.isolated`; ENG-6, review 2).
+    const related =
+      lowered && deeper ? a.subqueries.isolated(lowered) : lowered;
+    const inline = a.subqueries.existsCheck(
+      this.table(edge.target, child),
+      a.operators.and(
+        related ? a.operators.and(member, related) : member,
+        ...stated
+      )
+    );
+    const shared = this.#shared;
+    const conditions = related ? [related, ...stated] : stated;
+    if (
+      shared === undefined ||
+      edge.kind !== "reference" ||
+      edge.discriminator !== undefined ||
+      conditions.length === 0
+    )
+      return inline;
+    const query = assembleAdapterSelect(a, {
+      columns: sql.join(
+        edge.pairs.map((pair, index) =>
+          a.identifiers.aliased(
+            this.column(edge.target, pair.target, child),
+            `k${index}`
+          )
+        ),
+        ", "
+      ),
+      from: this.table(edge.target, child),
+      where: a.operators.and(...conditions),
+    });
+    const key = sharedKey(query);
+    let body = shared.byKey.get(key);
+    if (body === undefined) {
+      body = { name: `__shared_${shared.order.length}`, query, slots: [] };
+      shared.byKey.set(key, body);
+      shared.order.push(body);
+    }
+    const { name } = body;
+    const use = a.subqueries.existsCheck(
+      a.identifiers.escape(name),
+      a.operators.and(
+        ...edge.pairs.map((pair, index) =>
+          a.operators.eq(
+            this.column(edge.source, pair.source, parent),
+            a.identifiers.column(name, `k${index}`)
+          )
+        )
+      )
+    );
+    const slot = new SqlSlot(use);
+    body.slots.push({ slot, inline, use });
+    return slot;
   }
   /**
    * MySQL ERROR 1093: a subquery may not read the table its own statement is
@@ -3546,7 +4941,7 @@ export class Queries {
    * order term and an upward recursion read a hidden target as an absent one.
    */
   #related(edge: Membership, target: string, member: Sql): Sql {
-    const domain = this.domain?.selector(edge.target, "related");
+    const domain = this.domainOf(edge.target, "related");
     if (domain === undefined) return member;
     return this.adapter.operators.and(
       member,
@@ -3697,7 +5092,8 @@ export class Queries {
       return this.#relationOrderTerm(model, field, record(direction), alias);
     const physical = physicalField(this.schema, model, field);
     const state = physical.scalar["~"].state;
-    const column = this.column(model, field, alias);
+    const column = this.#operand(model, field, alias);
+    const nullable = physical.nullable || this.#gatedHere(model, field);
     if (direction !== "asc" && direction !== "desc") {
       const specification = record(direction);
       if (specification._distance !== undefined) {
@@ -3722,7 +5118,7 @@ export class Queries {
         column,
         specification.sort === "desc",
         specification.nulls as "first" | "last" | undefined,
-        physical.nullable,
+        nullable,
         field
       );
     }
@@ -3730,7 +5126,7 @@ export class Queries {
       column,
       direction === "desc",
       undefined,
-      physical.nullable,
+      nullable,
       field
     );
   }
@@ -3857,7 +5253,7 @@ export class Queries {
             ),
       distinct: args.distinct?.length
         ? sql.join(
-            args.distinct.map((field) => this.column(model, field, alias)),
+            args.distinct.map((field) => this.#operand(model, field, alias)),
             ", "
           )
         : undefined,
@@ -3920,10 +5316,10 @@ export class Queries {
       const physical = physicalField(this.schema, model, field);
       terms.push(
         this.#sortKey(
-          this.column(model, field, alias),
+          this.#operand(model, field, alias),
           false,
           "last",
-          physical.nullable,
+          physical.nullable || this.#gatedHere(model, field),
           field
         )
       );
@@ -3977,7 +5373,7 @@ export class Queries {
     const identity = this.#identityEntries(model, cursor);
     const sourceAlias = this.alias();
     // The anchor is a candidate like any other: a hidden one is a missing one.
-    const scope = purpose && this.domain?.selector(model, purpose);
+    const scope = purpose && this.domainOf(model, purpose);
     const where = a.operators.and(
       ...(scope ? [this.lowerSelector(scope, sourceAlias)!] : []),
       ...Object.entries(identity).map(([field, value]) => {
@@ -3986,7 +5382,7 @@ export class Queries {
             `Cursor field '${field}' cannot be null. Cursor must point to a specific record.`
           );
         return a.operators.eq(
-          this.column(model, field, sourceAlias),
+          this.#operand(model, field, sourceAlias),
           this.fieldValue(model, field, value)
         );
       })
@@ -4003,7 +5399,7 @@ export class Queries {
         limit: this.value(1),
       });
     const keyColumns = order.map((term) =>
-      this.column(model, term.field!, sourceAlias)
+      this.#operand(model, term.field!, sourceAlias)
     );
     if (sargable)
       return (descending ? a.operators.lte : a.operators.gte)(
@@ -4077,6 +5473,8 @@ export class Queries {
       identity?: Input;
       projection?: PreparedProjection;
       selector?: Pick<PreparedSelector, "model" | "predicate">;
+      /** Rows this selector does not take, NULL read as not taken. */
+      unless?: Pick<PreparedSelector, "model" | "predicate">;
       /** The rows the read takes: its selector and cursor anchor under it. */
       purpose?: RowPurpose;
     } = {}
@@ -4091,7 +5489,11 @@ export class Queries {
     // an ORDER, not a dependency (`g4/unit01-review-followup-3.md` finding K).
     const page = this.#page(model, args, alias, controls.purpose);
     const prepared = controls.projection ?? this.prepareProjection(model, args);
-    const projection = this.lowerProjection(prepared, alias);
+    const projection = this.lowerProjection(
+      prepared,
+      alias,
+      controls.purpose !== undefined
+    );
     const given =
       controls.selector ??
       (args.where === undefined
@@ -4102,40 +5504,28 @@ export class Queries {
         ? given
         : this.#within(model, given, controls.purpose);
     const filter = selector ? this.lowerSelector(selector, alias) : undefined;
+    const a = this.adapter;
+    const unless =
+      controls.unless &&
+      a.operators.not(
+        a.expressions.coalesce(
+          this.lowerSelector(controls.unless, alias) ?? a.literals.true(),
+          a.literals.false()
+        )
+      );
     return {
       sql: assembleAdapterSelect(this.adapter, {
         columns: sql.join(projection, ", "),
         from: this.table(model, alias),
-        where:
-          membership ||
-          filter ||
-          page.cursor ||
-          controls.identity ||
-          controls.condition
-            ? this.adapter.operators.and(
-                ...(membership
-                  ? [
-                      membership.outside
-                        ? this.outsideWhere(
-                            membership.edge,
-                            membership.parent,
-                            alias
-                          )
-                        : this.memberWhere(
-                            membership.edge,
-                            membership.parent,
-                            alias
-                          ),
-                    ]
-                  : []),
-                ...(filter ? [filter] : []),
-                ...(page.cursor ? [page.cursor] : []),
-                ...(controls.identity
-                  ? [this.lowerIdentity(model, controls.identity, alias)]
-                  : []),
-                ...(controls.condition ? [controls.condition] : [])
-              )
-            : undefined,
+        where: this.#selectWhere(
+          model,
+          alias,
+          membership,
+          filter,
+          unless,
+          page.cursor,
+          controls
+        ),
         orderBy: page.orderBy,
         limit: page.limit,
         offset: page.offset,
@@ -4151,11 +5541,50 @@ export class Queries {
       shape: prepared.shape,
     };
   }
+  /** {@link select}'s conjunction, in its order; `undefined` for none. */
+  #selectWhere(
+    model: AnyModel,
+    alias: string,
+    membership:
+      | { edge: Membership; parent: Input; outside?: boolean }
+      | undefined,
+    filter: Sql | undefined,
+    unless: Sql | undefined,
+    cursor: Sql | undefined,
+    controls: { condition?: Sql; identity?: Input }
+  ): Sql | undefined {
+    const where: Sql[] = [];
+    if (membership)
+      where.push(
+        membership.outside
+          ? this.outsideWhere(membership.edge, membership.parent, alias)
+          : this.memberWhere(membership.edge, membership.parent, alias)
+      );
+    if (filter) where.push(filter);
+    if (unless) where.push(unless);
+    if (cursor) where.push(cursor);
+    if (controls.identity)
+      where.push(this.lowerIdentity(model, controls.identity, alias));
+    if (controls.condition) where.push(controls.condition);
+    return where.length === 0
+      ? undefined
+      : this.adapter.operators.and(...where);
+  }
   /**
    * Every read verb is one cardinality and shape decision over the same
-   * select, projection and decoder owners.
+   * select, projection and decoder owners, its statement sharing its
+   * relation bodies where the adapter does ({@link sharingBodies}).
    */
   read(model: AnyModel, operation: ReadOperation, args: Arguments): Read {
+    if (!this.#sharesBodies) return this.#read(model, operation, args);
+    let read: Read | undefined;
+    const statement = this.#sharingBodies(() => {
+      read = this.#read(model, operation, args);
+      return read.query.sql;
+    });
+    return { ...read!, query: { ...read!.query, sql: statement } };
+  }
+  #read(model: AnyModel, operation: ReadOperation, args: Arguments): Read {
     switch (operation) {
       case "findUnique": {
         // The one read verb whose `where` is a unique selector: its addressable
@@ -4266,7 +5695,7 @@ export class Queries {
               this.adapter.aggregates.count(
                 field === undefined
                   ? undefined
-                  : this.column(model, field, alias)
+                  : this.#operand(model, field, alias)
               ),
             ]),
           () => ({
@@ -4352,14 +5781,16 @@ export class Queries {
       }),
       shape: shape(alias),
     });
-    if (!(page.limit ?? page.offset ?? page.cursor))
+    // A read-gated model aggregates a masked window (K5): its gate lowered
+    // once per row, not once per aggregate over the field.
+    if (!((page.limit ?? page.offset ?? page.cursor) || this.#masks(model)))
       return aggregate(inner, this.table(model, inner), filter);
     const window = assembleAdapterSelect(a, {
       columns: fields.length
         ? sql.join(
             [...new Set(fields)].map((field) =>
               a.identifiers.aliased(
-                this.column(model, field, inner),
+                this.#operand(model, field, inner),
                 this.columnName(model, field)
               )
             ),
@@ -4376,7 +5807,11 @@ export class Queries {
       offset: page.offset,
     });
     const outer = this.alias();
-    return aggregate(outer, a.subqueries.correlate(window, outer));
+    // The window masks its read-gated columns: the aggregate reads them as
+    // they are.
+    return this.#overMasked(() =>
+      aggregate(outer, a.subqueries.correlate(window, outer))
+    );
   }
   /** The admitted aggregate selections, as columns and as decoder leaves. */
   #prepareAggregates(
@@ -4699,15 +6134,34 @@ export class Queries {
    * ({@link QueryViews}). Every other operation prepares per operation exactly
    * as before, reusing only the per-field leaves.
    */
+  /**
+   * `internal` names a projection the engine reads for itself (a stored row,
+   * an identity): it carries no declared key and no gate, whatever the domain
+   * declares (K5); every projection a caller's result reads is not internal.
+   */
   prepareProjection(
     model: AnyModel,
-    args: Partial<Arguments>
+    args: Partial<Arguments>,
+    internal = false,
+    path = ""
   ): PreparedProjection {
+    const projected = internal ? undefined : this.domain?.projected(model);
     const shared = args.select === undefined && args.include === undefined;
+    const defaults =
+      projected === undefined
+        ? this.#views.defaultProjections
+        : this.domain!.defaultProjections;
     if (shared) {
-      const resolved = this.#views.defaultProjections.get(model);
+      const resolved = defaults.get(model);
       if (resolved !== undefined) return resolved;
     }
+    const named =
+      projected && args.select !== undefined
+        ? namedGatedFields.get(args.select)
+        : undefined;
+    // Made only where the domain gates a field of `model` (K5).
+    const gated: Record<string, GatedMember> | undefined = projected && {};
+    const gates = projected && new Map<FieldGate, string>();
     // `omit` is desugared into `select` at admission; an explicit selection and
     // an include can therefore both be present and both belong to the result.
     let selected = args.select ?? defaultSelection(model);
@@ -4740,9 +6194,25 @@ export class Queries {
           continue;
         }
       }
+      const evidence = projected?.keys.get(name);
+      if (evidence !== undefined) {
+        this.#projectEvidence(evidence, name, selection, fields, prepared);
+        continue;
+      }
       if (!model["~"].state.relations[name]) {
         prepared.push(freeze({ kind: "scalar", name }));
         fields[name] = this.scalarShape(model, name);
+        const gate = projected?.gates.get(name);
+        if (gate === undefined) continue;
+        let member = gates!.get(gate);
+        if (member === undefined) {
+          member = gateResultKey(gates!.size);
+          gates!.set(gate, member);
+          prepared.push(freeze({ kind: "gate", name: member, gate }));
+        }
+        gated![name] = named?.has(name)
+          ? freeze({ gate: member, refused: `${path}select.${name}` })
+          : freeze({ gate: member });
         continue;
       }
       const resolved = this.schema.index.get(model)!.get(name)!;
@@ -4763,7 +6233,8 @@ export class Queries {
       }
       const nested = this.#prepareRelationProjection(
         bindMembership(this.schema, model, name),
-        selection
+        selection,
+        `${path}${args.include?.[name] === undefined ? "select" : "include"}.${name}.`
       );
       fields[name] = this.#relationShape(nested);
       prepared.push(freeze({ kind: "relation", name, ...nested }));
@@ -4777,10 +6248,54 @@ export class Queries {
     const projection: PreparedProjection = freeze({
       model,
       fields: freeze(prepared),
-      shape: freeze({ kind: "object", fields: freeze(fields) }),
+      shape: freeze(
+        gates?.size
+          ? {
+              kind: "object",
+              fields: freeze(fields),
+              gated: freeze(gated!),
+              gates: freeze([...gates.values()]),
+            }
+          : { kind: "object", fields: freeze(fields) }
+      ),
     });
-    if (shared) this.#views.defaultProjections.set(model, projection);
+    if (shared) defaults.set(model, projection);
     return projection;
+  }
+  /**
+   * A declared projection key (K5): `true` reports every declared name, a
+   * list the names it gives, in declared order. Admission refused any other
+   * value. With `ordered`, the last name that holds, `null` where `read` does
+   * not; else one boolean per name.
+   */
+  #projectEvidence(
+    evidence: DeclaredEvidence,
+    name: string,
+    selection: unknown,
+    fields: Record<string, Shape | Leaf>,
+    prepared: PreparedProjectionField[]
+  ): void {
+    const names =
+      selection === true
+        ? evidence.names
+        : evidence.names.filter(([held]) =>
+            (selection as readonly string[]).includes(held)
+          );
+    fields[name] = evidence.ordered
+      ? freeze({
+          kind: "scalar",
+          type: "enum",
+          nullable: true,
+          enumValues: new Set(names.map(([held]) => held)),
+        })
+      : freeze({
+          kind: "object",
+          nullable: false,
+          fields: freeze(
+            Object.fromEntries(names.map(([held]) => [held, BOOLEAN_LEAF]))
+          ),
+        });
+    prepared.push(freeze({ kind: "evidence", name, evidence, names }));
   }
   /**
    * A to-many node's decoded shape. A negative `take` runs the reversed window
@@ -4832,7 +6347,8 @@ export class Queries {
   }
   #prepareRelationProjection(
     edge: Membership,
-    selection: unknown
+    selection: unknown,
+    path = ""
   ): PreparedRelationProjection {
     const nested =
       selection === true ? {} : (record(selection) as Partial<Arguments>);
@@ -4848,7 +6364,7 @@ export class Queries {
         cursor: nested.cursor,
         distinct: nested.distinct,
       }),
-      projection: this.prepareProjection(edge.target, nested),
+      projection: this.prepareProjection(edge.target, nested, false, path),
       recurrence: nested.recurse,
     });
   }
@@ -4953,12 +6469,21 @@ export class Queries {
       variants: carrier !== undefined,
     });
   }
-  lowerProjection(projection: PreparedProjection, alias?: string): Sql[] {
+  /**
+   * `visible`: every row this projection reads is one the domain takes, so
+   * each layer's `read` holds there and its evidence tests the rest alone; a
+   * row captured by identity (a write's) is not (K5).
+   */
+  lowerProjection(
+    projection: PreparedProjection,
+    alias?: string,
+    visible = false
+  ): Sql[] {
     const columns: Sql[] = [];
     for (const field of projection.fields) {
       columns.push(
         this.adapter.identifiers.aliased(
-          this.#lowerProjectionField(projection, field, alias),
+          this.#lowerProjectionField(projection, field, alias, visible),
           field.name
         )
       );
@@ -4970,7 +6495,7 @@ export class Queries {
     projection: PreparedProjection,
     field: Exclude<
       PreparedProjectionField,
-      { kind: "scalar" | "sentinel" | "relation" }
+      { kind: "scalar" | "sentinel" | "relation" | "evidence" | "gate" }
     >,
     alias?: string
   ): Sql {
@@ -5091,7 +6616,8 @@ export class Queries {
   #lowerProjectionField(
     projection: PreparedProjection,
     field: PreparedProjectionField,
-    alias?: string
+    alias?: string,
+    visible = false
   ): Sql {
     const a = this.adapter;
     let expression: Sql;
@@ -5099,6 +6625,12 @@ export class Queries {
       expression = this.projectedColumn(projection.model, field.name, alias);
     } else if (field.kind === "sentinel") {
       expression = a.expressions.cast(a.literals.value(1), "integer");
+    } else if (field.kind === "evidence") {
+      expression = this.#lowerEvidence(projection.model, field, alias, visible);
+    } else if (field.kind === "gate") {
+      expression = this.#truth(
+        this.#gateHolds(projection.model, field.gate, alias, visible)
+      );
     } else if (field.kind === "relation") {
       expression = this.#duplicateMembershipGuard(
         field.edge,
@@ -5117,6 +6649,91 @@ export class Queries {
     return expression;
   }
   /**
+   * Where `input`, one of `model`'s predicates in `layer`, holds on the row
+   * at `alias`, as that layer's node: R5 and R6 judge it as they judge the
+   * layer's filter. `undefined` where the call drops it (it holds).
+   */
+  #layerHolds(
+    model: AnyModel,
+    layer: number,
+    input: Input,
+    alias?: string
+  ): Sql | undefined {
+    return this.lowerSelector(this.domain!.layered(model, layer, input), alias);
+  }
+  /** Where a read-gated field's row carries it: every gating layer's `read` and predicate. */
+  #gateHolds(
+    model: AnyModel,
+    gate: FieldGate,
+    alias: string | undefined,
+    visible: boolean
+  ): Sql | undefined {
+    const held: Sql[] = [];
+    for (const [layer, read, input] of gate) {
+      const tested = input === read ? [read] : [read, input];
+      for (const where of visible ? tested.slice(1) : tested) {
+        const lowered = this.#layerHolds(model, layer, where, alias);
+        if (lowered !== undefined) held.push(lowered);
+      }
+    }
+    return held.length === 0 ? undefined : this.adapter.operators.and(...held);
+  }
+  /** A condition as a value: true or false, never NULL; `undefined` holds. */
+  #truth(condition: Sql | undefined): Sql {
+    const a = this.adapter;
+    return condition === undefined
+      ? a.literals.true()
+      : a.expressions.caseWhen(
+          [{ when: condition, then: a.literals.true() }],
+          a.literals.false()
+        );
+  }
+  /**
+   * A declared projection key's value on the row at `alias` (K5): the
+   * layer's `read` once, around one test per name. Ordered, the last name
+   * that holds; else a document of one boolean per name.
+   */
+  #lowerEvidence(
+    model: AnyModel,
+    field: Extract<PreparedProjectionField, { kind: "evidence" }>,
+    alias: string | undefined,
+    taken: boolean
+  ): Sql {
+    const a = this.adapter;
+    const { layer, read, ordered } = field.evidence;
+    const visible = taken
+      ? undefined
+      : this.#layerHolds(model, layer, read, alias);
+    const test = (input: Input) =>
+      input === read ? undefined : this.#layerHolds(model, layer, input, alias);
+    if (ordered) {
+      const highest = a.expressions.caseWhen(
+        [...field.names].reverse().map(([name, input]) => ({
+          when: test(input) ?? a.literals.true(),
+          then: a.expressions.cast(this.value(name), "text"),
+        })),
+        a.literals.null()
+      );
+      return visible === undefined
+        ? highest
+        : a.expressions.caseWhen(
+            [{ when: visible, then: highest }],
+            a.literals.null()
+          );
+    }
+    const held = a.json.objectFromColumns(
+      field.names.map(([name, input]) => [name, this.#truth(test(input))])
+    );
+    return visible === undefined
+      ? held
+      : a.expressions.caseWhen(
+          [{ when: visible, then: held }],
+          a.json.objectFromColumns(
+            field.names.map(([name]) => [name, a.literals.false()])
+          )
+        );
+  }
+  /**
    * What a claimed arm whose row did not come back carries: the empty
    * document, "the row is gone", which the decoder refuses. Under a related
    * domain the row may exist and be hidden, which reads as an empty slot, so
@@ -5126,7 +6743,7 @@ export class Queries {
    */
   #missingArm(edge: Membership, parentAlias: string): Sql {
     const a = this.adapter;
-    if (this.domain?.selector(edge.target, "related") === undefined)
+    if (this.domainOf(edge.target, "related") === undefined)
       return a.json.object([]);
     const target = this.alias();
     return a.expressions.caseWhen(
@@ -5313,7 +6930,7 @@ export class Queries {
     const a = this.adapter;
     const { edge, arguments: nested, projection } = relation;
     const childAlias = this.alias();
-    const child = this.lowerProjection(projection, childAlias);
+    const child = this.lowerProjection(projection, childAlias, true);
     const childFields = Object.keys(projection.shape.fields);
     // A nested node is the ordinary page operator inside the parent's
     // correlation scope; `take: -n` reverses the window exactly as at the root.
@@ -5357,15 +6974,16 @@ export class Queries {
         : {}),
     });
     const pageAlias = this.alias();
-    const object = a.json.object(
-      childFields.map((field) => [
-        field,
-        this.#carriedValue(
-          projection.shape.fields[field]!,
-          a.identifiers.column(pageAlias, field)
-        ),
-      ])
-    );
+    const members = childFields.map((field): [string, Sql] => [
+      field,
+      this.#carriedValue(
+        projection.shape.fields[field]!,
+        a.identifiers.column(pageAlias, field)
+      ),
+    ]);
+    for (const gate of projection.shape.gates ?? NO_GATES)
+      members.push([gate, a.identifiers.column(pageAlias, gate)]);
+    const object = a.json.object(members);
     const expression = a.subqueries.scalar(
       assembleAdapterSelect(a, {
         columns: edge.many
@@ -5425,12 +7043,12 @@ export class Queries {
    * current.key)` correlates to `next`'s sibling, which PostgreSQL cannot turn
    * into a semi-join, so it would run once per target row at every hop.
    */
-  #step(edge: Membership, current: string, next: string): Sql {
+  #step(edge: Membership, current: string, next: string, scoped = true): Sql {
     const a = this.adapter;
     if (edge.kind !== "junction")
       return a.joins.inner(
         this.table(edge.target, next),
-        this.correlation(edge, current, next)
+        this.correlation(edge, current, next, scoped)
       );
     const link = this.alias();
     return sql`${a.joins.inner(
@@ -5517,7 +7135,8 @@ export class Queries {
           readonly depth: number | false;
           readonly edges: true;
           readonly selector?: Pick<PreparedSelector, "model" | "predicate">;
-        }
+        },
+    scoped = true
   ) {
     const a = this.adapter;
     const model = edge.target;
@@ -5549,7 +7168,7 @@ export class Queries {
       ),
       from: this.table(model, anchorChild),
       where: a.operators.and(
-        this.correlation(edge, parentAlias, anchorChild),
+        this.correlation(edge, parentAlias, anchorChild, scoped),
         ...reached(anchorChild)
       ),
     });
@@ -5599,7 +7218,7 @@ export class Queries {
       from: sql`${a.identifiers.aliased(a.identifiers.escape(cteName), walk)} ${a.joins.inner(
         this.table(model, current),
         this.#sameRow(model, current, childColumns.map(carried))
-      )} ${this.#step(edge, current, next)}`,
+      )} ${this.#step(edge, current, next, scoped)}`,
       where: a.operators.and(
         ...(depth === false
           ? []
@@ -5672,8 +7291,9 @@ export class Queries {
       relation.projection.fields.map((field) => [
         field.name,
         this.#carriedValue(
-          relation.projection.shape.fields[field.name]!,
-          this.#lowerProjectionField(relation.projection, field, node)
+          // A gate is the one member the decoded shape does not list.
+          relation.projection.shape.fields[field.name] ?? BOOLEAN_LEAF,
+          this.#lowerProjectionField(relation.projection, field, node, true)
         ),
       ])
     );
@@ -5810,10 +7430,57 @@ export class Queries {
     // the grouped `orderBy` — instead of each re-reading `args`.
     const by = args.by!;
     const grouped: ReadonlySet<string> = new Set(by);
+    // A read-gated model groups a masked window of its filtered rows (K5): a
+    // gate lowered once per row, where a gate repeated in the grouping, the
+    // projection and the order would be three expressions to the provider.
+    if (this.#masks(model)) {
+      const inner = this.alias();
+      const window = assembleAdapterSelect(a, {
+        columns: sql.join(
+          this.schema
+            .storedFields(model)
+            .map((field) =>
+              a.identifiers.aliased(
+                this.#operand(model, field, inner),
+                this.columnName(model, field)
+              )
+            ),
+          ", "
+        ),
+        from: this.table(model, inner),
+        where: this.lowerWhere(model, args.where, inner),
+      });
+      return this.#overMasked(() =>
+        this.#grouped(model, args, alias, by, grouped, {
+          from: a.subqueries.correlate(window, alias),
+        })
+      );
+    }
+    return this.#grouped(model, args, alias, by, grouped, {
+      from: this.table(model, alias),
+      where: this.lowerWhere(model, args.where, alias),
+    });
+  }
+  #grouped(
+    model: AnyModel,
+    args: Arguments,
+    alias: string,
+    by: readonly string[],
+    grouped: ReadonlySet<string>,
+    rows: { readonly from: Sql; readonly where?: Sql }
+  ): Query {
+    const a = this.adapter;
     const aggregates = this.#prepareAggregates(model, args);
     const fields: Record<string, Shape | Leaf> = {};
+    const gates = this.#masked
+      ? this.domain?.projected(model)?.gates
+      : undefined;
     const columns: Sql[] = by.map((field) => {
-      fields[field] = this.scalarShape(model, field);
+      const leaf = this.scalarShape(model, field);
+      // A masked group reads a gated key as absent: the NULL group.
+      fields[field] = gates?.has(field)
+        ? freeze({ ...leaf, nullable: true })
+        : leaf;
       return a.identifiers.aliased(
         this.projectedColumn(model, field, alias),
         field
@@ -5826,8 +7493,8 @@ export class Queries {
     return {
       sql: assembleAdapterSelect(a, {
         columns: sql.join(columns, ", "),
-        from: this.table(model, alias),
-        where: this.lowerWhere(model, args.where, alias),
+        from: rows.from,
+        where: rows.where,
         groupBy: sql.join(
           by.map((field) => this.column(model, field, alias)),
           ", "
@@ -6384,6 +8051,16 @@ export class Queries {
         carried || nested.kind !== "scalar"
       );
     });
+    // An internal read is the engine's own: it reads every member it asked
+    // for, its gates unread (K5).
+    if (shape.gates !== undefined && !internal)
+      return this.#compileGatedDocument(
+        shape,
+        fields,
+        readers,
+        carried,
+        columns
+      );
     if (columns) {
       // Native aliases locate cells once; a statement transform may reorder
       // columns. Last occurrence matches the keyed transport's duplicate names.
@@ -6422,15 +8099,91 @@ export class Queries {
       // OWN-key semantics ({@link own}): a plain member read on a
       // `JSON.parse` result finds `Object.prototype`'s own members, so a
       // field named `toString` the provider OMITTED would inherit a function
-      // instead of failing closed. The write is a plain assignment because
-      // the destination key is a schema identifier — `schema/identifier.ts`
-      // refuses every `Object.prototype` own name, `__proto__` among them, at
-      // hydration — or one of this engine's own carrier names, which is the
-      // same write the shape owners take to build `fields`.
+      // instead of failing closed. Nested evidence documents also contain
+      // user-named predicates, not just schema identifiers. Their `__proto__`
+      // member must be an own data property, never the inherited setter.
       const document: Input = {};
       for (let index = 0; index < fields.length; index++) {
         const field = fields[index]!;
-        document[field] = readers[index]!(own(source, field));
+        const decoded = readers[index]!(own(source, field));
+        if (field === "__proto__")
+          Object.defineProperty(document, field, {
+            value: decoded,
+            enumerable: true,
+            configurable: true,
+            writable: true,
+          });
+        else document[field] = decoded;
+      }
+      return document;
+    };
+  }
+  /**
+   * A document with read-gated members (K5), out of line from the plain
+   * reader: its gates are read first, once per row, and each gated member is
+   * written only where its gate holds; where it does not, a member the caller
+   * named fails the read, and any other is left out (the row's shape
+   * changes, so the document is always a new object).
+   */
+  #compileGatedDocument(
+    shape: Extract<ProjectionShape, { kind: "object" }>,
+    fields: readonly string[],
+    readers: readonly Reader[],
+    carried: boolean,
+    columns?: readonly string[]
+  ): Reader {
+    const gates = shape.gates!;
+    const readGate = this.compileReader(BOOLEAN_LEAF, false, carried);
+    const gated = fields.map((field) => shape.gated![field]);
+    const gateIndex = gated.map((member) =>
+      member === undefined ? -1 : gates.indexOf(member.gate)
+    );
+    const positions = columns && [
+      ...fields.map((field) => columns.lastIndexOf(field)),
+      ...gates.map((gate) => columns.lastIndexOf(gate)),
+    ];
+    const cell = (source: unknown, index: number, key: string): unknown => {
+      if (positions === undefined) return own(source as Input, key);
+      const position = positions[index]!;
+      return position < 0 ? undefined : (source as unknown[])[position];
+    };
+    return (value) => {
+      let source: unknown = value;
+      if (positions) {
+        if (!Array.isArray(value))
+          throw new InvalidScalarResult(
+            "row",
+            "a positional row is not an array"
+          );
+      } else {
+        source = providerDocument(providerJson(value));
+        if (source === null) {
+          if (shape.nullable === false)
+            throw new InvalidScalarResult(
+              "row",
+              "a document the statement always builds is null"
+            );
+          return null;
+        }
+        if (source === undefined)
+          throw new InvalidScalarResult(
+            "row",
+            "a requested document is not a provider row"
+          );
+      }
+      const held = gates.map((gate, index) =>
+        readGate(cell(source, fields.length + index, gate))
+      );
+      const document: Input = {};
+      for (let index = 0; index < fields.length; index++) {
+        const field = fields[index]!;
+        const gate = gateIndex[index]!;
+        if (gate >= 0 && held[gate] !== true) {
+          const refused = gated[index]!.refused;
+          if (refused !== undefined) throw new GatedFieldRefusal(refused);
+          continue;
+        }
+        document[field] = readers[index]!(cell(source, index, field));
       }
       return document;
     };

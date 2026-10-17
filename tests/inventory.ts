@@ -32,6 +32,7 @@ const unitOwners: ReadonlyArray<{ prefix: string; layer: TestLayer }> = [
   { prefix: "tests/unit/cache/", layer: "cache" },
   { prefix: "tests/unit/instrumentation/", layer: "instrumentation" },
   { prefix: "tests/unit/migrations/", layer: "migrations" },
+  { prefix: "tests/unit/permissions/", layer: "permissions" },
 ];
 
 const contractOwners: ReadonlyArray<{ prefix: string; layer: TestLayer }> = [
@@ -58,6 +59,7 @@ function typeLayer(file: string): TestLayer | undefined {
     case "cache":
     case "instrumentation":
     case "migrations":
+    case "permissions":
       return layerName;
     default:
       return undefined;

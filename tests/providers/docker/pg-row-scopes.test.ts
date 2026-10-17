@@ -7,6 +7,7 @@
  */
 
 import { PgDriver } from "@drivers/pg";
+import { runDomainPredicateBehavior } from "@tests/contracts/engine/query/domain-predicate-behavior";
 import { runRowScopeBehavior } from "@tests/contracts/engine/query/row-scope-behavior";
 import { dropEveryLiveTable, TEST_CONNECTION_STRING } from "./pg-fixtures";
 
@@ -18,6 +19,10 @@ describeIf("pg Driver", () => {
   afterAll(dropEveryLiveTable);
 
   runRowScopeBehavior({
+    name: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runDomainPredicateBehavior({
     name: "pg",
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });

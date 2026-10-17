@@ -73,9 +73,12 @@ export function boundRowsSchema() {
 const MODELS = ["post", "comment", "tag"] as const;
 
 /** The seeded database and its tenancy client. */
-export async function openBoundRowsFixture(driver: AnyDriver) {
+export async function openBoundRowsFixture(
+  driver: AnyDriver,
+  prepare: (client: any) => Promise<unknown> = syncLiveSchema
+) {
   const base = createClient({ schema: boundRowsSchema(), driver });
-  await syncLiveSchema(base);
+  await prepare(base);
   for (const [id, tenantId, title, parentId] of [
     [1, "acme", "a", null],
     [2, "acme", "b", 1],
@@ -139,6 +142,8 @@ class KeyRecordingCache extends MemoryCache {
 export interface BoundRowsProvider {
   readonly name: string;
   readonly createDriver: () => AnyDriver;
+  /** Creates the tables (default: a live `push`; D1 runs the plan itself). */
+  readonly prepare?: (client: any) => Promise<unknown>;
 }
 
 export function runBoundRowsBehavior(provider: BoundRowsProvider): void {
@@ -146,7 +151,10 @@ export function runBoundRowsBehavior(provider: BoundRowsProvider): void {
     let context: BoundRowsFixture;
 
     beforeEach(async () => {
-      context = await openBoundRowsFixture(provider.createDriver());
+      context = await openBoundRowsFixture(
+        provider.createDriver(),
+        provider.prepare
+      );
     });
     afterEach(async () => {
       await context.base.$disconnect();

@@ -355,6 +355,14 @@ type SchemaModel<S extends Schema, L, K extends keyof S> = [L] extends [
   ? S[K]
   : Linked<S, L, K>;
 
+/** The existing declaration links, for consumers walking named schema slots. */
+export type ClientRelationLinks<C extends VibORMConfig> =
+  " vibLinks" extends keyof C
+    ? C extends Links<infer L>
+      ? L
+      : never
+    : SchemaLinks<C["schema"]>;
+
 /** Raw aliases and carried configs share the same schema-only model view. */
 export type ClientSchema<C extends VibORMConfig> = {
   [K in keyof C["schema"]]: " vibLinks" extends keyof C

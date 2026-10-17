@@ -57,6 +57,86 @@ export class Sql {
   }
 
   /**
+   * The projection {@link flatten} makes of `fragment`, made without keeping
+   * it: a fragment holding an open {@link SqlSlot} reads its provisional text
+   * and stays open.
+   */
+  static peek(fragment: Sql): { strings: string[]; values: Value[] } {
+    if (fragment.projection !== undefined) return fragment.projection;
+    const strings: string[] = [];
+    const values: Value[] = [];
+    let current = "";
+    const walk = (
+      rawStrings: readonly string[],
+      rawValues: readonly RawValue[]
+    ): void => {
+      current += rawStrings[0]!;
+      for (let i = 0; i < rawValues.length; i++) {
+        const child = rawValues[i]!;
+        if (child instanceof Sql) {
+          walk(child.rawStrings, child.rawValues);
+        } else {
+          values.push(child);
+          strings.push(current);
+          current = "";
+        }
+        current += rawStrings[i + 1]!;
+      }
+    };
+    walk(fragment.rawStrings, fragment.rawValues);
+    strings.push(current);
+    return { strings, values };
+  }
+
+  /**
+   * {@link peek}'s text, also cut where a fragment `opaque` accepts begins
+   * and ends, each run saying whether it lies inside one: a reader rewriting
+   * the text its owner wrote can leave the text another party wrote alone.
+   * Without an opaque fragment the runs are {@link peek}'s strings.
+   */
+  static peekRuns(
+    fragment: Sql,
+    opaque: (fragment: Sql) => boolean
+  ): { runs: { text: string; opaque: boolean }[]; values: Value[] } {
+    const runs: { text: string; opaque: boolean }[] = [];
+    const values: Value[] = [];
+    let current = "";
+    let inside = false;
+    const cut = (next: boolean): void => {
+      if (next === inside) return;
+      runs.push({ text: current, opaque: inside });
+      current = "";
+      inside = next;
+    };
+    const walk = (node: Sql, within: boolean): void => {
+      const here = within || opaque(node);
+      cut(here);
+      current += node.rawStrings[0]!;
+      for (let i = 0; i < node.rawValues.length; i++) {
+        const child = node.rawValues[i]!;
+        if (child instanceof Sql) {
+          walk(child, here);
+          cut(here);
+        } else {
+          values.push(child);
+          runs.push({ text: current, opaque: inside });
+          current = "";
+        }
+        current += node.rawStrings[i + 1]!;
+      }
+    };
+    walk(fragment, false);
+    runs.push({ text: current, opaque: inside });
+    return { runs, values };
+  }
+
+  /** `slot`'s text replaced by `content`'s (see {@link SqlSlot.settle}). */
+  protected static fill(slot: Sql, content: Sql): void {
+    slot.rawStrings = ["", ""];
+    slot.rawValues = [content];
+  }
+
+  /**
    * Flatten the raw fragment tree in one pass, walking children's raw
    * fragments directly so nested Sql instances are never flattened themselves.
    * The flat arrays then replace the raw tree as the canonical representation,

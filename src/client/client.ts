@@ -21,6 +21,7 @@ import {
   lookupResolvedExtensionHandlers,
   type ResolvedExtensionChain,
 } from "@extensions/chain";
+import { bindControls, uncacheableRead } from "@extensions/controls";
 import type {
   ClientExtension,
   ContextualExtensionDefinition,
@@ -30,15 +31,16 @@ import type {
 } from "@extensions/definition";
 import {
   type AccumulatedExtensionState,
-  type BoundExtensionMethods,
   bindExtensionMethods,
   type EmptyClientExtensionState,
   type EnableExtensionCache,
+  type ExtensionMethods,
   type ExtensionModelClient,
   type ExtensionStateConstraint,
   type ExtensionStateContributionOf,
   type HasExtensionCache,
   type HasResultConsumingExtension,
+  type MergeModelMethods,
 } from "@extensions/methods";
 import { TransactionWriteOutcomes } from "@extensions/query";
 import { applyRequestTransforms } from "@extensions/request";
@@ -53,6 +55,7 @@ import {
 import { QueryEngine } from "@query-engine/query-engine";
 import { createCandidateRoute } from "@query-engine/raptor3/route/client-route";
 import {
+  baseOperation,
   isWriteOperation,
   ROUTED_OPERATIONS,
 } from "@query-engine/routed-operations";
@@ -83,6 +86,11 @@ import {
   type ClientOmitResolver,
   createClientOmitResolver,
 } from "./omit";
+import type {
+  DeclaresEvidence,
+  GatedConfig,
+  ProjectedModelOperations,
+} from "./projected-types";
 import {
   createRawSurface,
   RAW_METHOD_NAMES,
@@ -141,25 +149,25 @@ function createModelProxy<S extends Schema, R>(
     operation: Operations;
     args: unknown;
   }) => R,
-  modelMethods?: Readonly<
-    Record<string, Readonly<Record<string, CallableFunction>>>
-  >,
+  modelMethods?: ExtensionMethods["model"],
   path: string[] = []
 ): unknown {
+  // A model's own methods, read (and their factories invoked) only once the
+  // model itself is.
+  const methods = path.length === 1 ? modelMethods?.(path[0]!) : undefined;
   const members = new Set(
     path.length === 0
       ? Object.keys(schema)
       : path.length === 1
-        ? [...ROUTED_OPERATIONS, ...Object.keys(modelMethods?.[path[0]!] ?? {})]
+        ? [...ROUTED_OPERATIONS, ...Object.keys(methods ?? {})]
         : []
   );
   const children = new Map<string, unknown>();
   const readMember = (key: string | symbol): unknown => {
     if (typeof key !== "string" || key === "then" || !members.has(key))
       return undefined;
-    if (path.length === 1) {
-      const method = modelMethods?.[path[0]!]?.[key];
-      if (method) return method;
+    if (methods !== undefined && Object.hasOwn(methods, key)) {
+      return methods[key];
     }
     let child = children.get(key);
     if (child === undefined) {
@@ -285,6 +293,9 @@ type ExtensionAdmission<
     ? OfficialDefaultOmitAdmission<Definition, C, X>
     : Definition extends ContextualExtensionDefinition<C, X, Definition>
       ? ExactExtensionDefinition<Definition, C, X> &
+          (HasResultConsumingExtension<X> extends true
+            ? { readonly rows?: never }
+            : unknown) &
           OrdinaryOfficialExtensionGuard<Definition> &
           SchemaBoundExtensionAdmission<Definition, C>
       : never;
@@ -298,16 +309,55 @@ type AppliedClientConfig<
   Definition,
 > = Definition extends OfficialDefaultOmitExtension<infer OmitConfig>
   ? WithDefaultOmit<C, OmitConfig>
-  : C;
+  : GatedConfig<C, Definition>;
+
+/**
+ * A contribution whose model slot also carries the projected overloads of a
+ * declared key (K5), typed against the client as this step leaves it.
+ */
+export interface ProjectedContribution<
+  Contribution extends ExtensionStateConstraint,
+  Projected extends object,
+> extends ExtensionStateConstraint {
+  readonly client: Contribution["client"];
+  readonly models: MergeModelMethods<Contribution["models"], Projected>;
+  readonly cache: Contribution["cache"];
+  readonly resultConsumer: Contribution["resultConsumer"];
+  readonly controls: Contribution["controls"];
+  readonly rows: Contribution["rows"];
+  readonly data: Contribution["data"];
+}
+
+type ContributionOf<
+  C extends VibORMConfig,
+  X extends ExtensionStateConstraint,
+  Definition,
+  Contribution extends
+    ExtensionStateConstraint = ExtensionStateContributionOf<Definition>,
+> = DeclaresEvidence<C, Definition> extends false
+  ? Contribution
+  : ProjectedContribution<
+      Contribution,
+      ProjectedModelOperations<
+        GatedConfig<C, Definition>,
+        ClientRowsContext<
+          GatedConfig<C, Definition>,
+          X["rows"] | Contribution["rows"]
+        >,
+        X["controls"] & Contribution["controls"],
+        Definition
+      >
+    >;
 
 type AppliedExtensionState<
+  C extends VibORMConfig,
   X extends ExtensionStateConstraint,
   Definition,
 > = Definition extends OfficialCacheExtension
   ? EnableExtensionCache<X>
   : Definition extends OfficialDefaultOmitExtension
     ? X
-    : AccumulatedExtensionState<X, ExtensionStateContributionOf<Definition>>;
+    : AccumulatedExtensionState<X, ContributionOf<C, X, Definition>>;
 
 /**
  * The keys a proposed config names that the surface does not have: the typos.
@@ -370,13 +420,30 @@ type TransactionMethod<
   ): Promise<{ [K in keyof T]: Awaited<T[K]> }>;
 };
 
+declare const clientTypeState: unique symbol;
+
+/**
+ * Declaration-only inference metadata; no property is installed at runtime.
+ * The optional opaque arm preserves structural client assignability. The
+ * conditional exposes the tuple for inference without making C or X invariant.
+ * Result helpers check key presence and the full client surface: this metadata
+ * guides inference, but does not prove that a client has the declared methods.
+ */
+export type ClientTypeState<
+  C extends VibORMConfig,
+  X extends ExtensionStateConstraint,
+> = [C] extends [unknown]
+  ? { readonly [clientTypeState]?: readonly [C, X] | object }
+  : never;
+
 /**
  * Extended client type with utility methods
  */
 export type VibORMClient<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint = EmptyClientExtensionState,
-> = ExtensionModelClient<C, X> &
+> = ClientTypeState<C, X> &
+  ExtensionModelClient<C, X> &
   RawSurface &
   X["client"] &
   // `await using client = createClient({ ... })` disposes through the same
@@ -391,7 +458,12 @@ export type VibORMClient<
       /** Create a client with cache - only read operations available */
       $withCache: (
         config?: WithCacheOptions
-      ) => CachedClient<C, ClientRowsContext<C, X["rows"]>, X["controls"]>;
+      ) => CachedClient<
+        C,
+        ClientRowsContext<C, X["rows"]>,
+        X["controls"],
+        X["models"]
+      >;
       /** Invalidate cache entries by keys or patterns (use * suffix for prefix matching) */
       $invalidate: (...keys: string[]) => Promise<void>;
     },
@@ -450,16 +522,24 @@ interface VibORMClientMembers<
   /** Disconnect from the database */
   $disconnect: () => Promise<void>;
   /**
-   * Return an immutable client view with one more named extension. The
-   * bound is F-bounded: the definition's own model keys are checked.
+   * Apply a named definition or a synchronous factory to this client view.
+   * Definitions append to the immutable chain; factories compose through the
+   * same `$extends` method. Definition model keys are checked against this schema.
    */
-  $extends: <
-    const Definition extends OfficialAwareDefinition<C, X, Definition>,
-  >(
-    extension: Definition & ExtensionAdmission<Definition, C, X>
-  ) => VibORMClient<
+  // Check the factory output here: constraining the client-valued default
+  // eagerly expands every delegate, even when applying a plain definition.
+  $extends<Result = VibORMClient<C, X>>(
+    factory: (client: NoInfer<VibORMClient<C, X>>) => Result & {
+      readonly $schema: Schema;
+    }
+  ): Result;
+  $extends<const Definition extends OfficialAwareDefinition<C, X, Definition>>(
+    extension: Definition &
+      ExtensionAdmission<Definition, C, X> &
+      (Definition extends (...args: never[]) => unknown ? never : unknown)
+  ): VibORMClient<
     AppliedClientConfig<C, Definition>,
-    AppliedExtensionState<X, Definition>
+    AppliedExtensionState<C, X, Definition>
   >;
 }
 
@@ -473,19 +553,22 @@ type ApplyClientExtensions<
         infer Definition,
         ...infer RemainingDefinitions,
       ]
-    ? Definition extends OfficialAwareDefinition<C, X>
-      ? Definition extends ExtensionAdmission<Definition, C, X>
-        ? ApplyClientExtensions<
-            AppliedClientConfig<C, Definition>,
-            AppliedExtensionState<X, Definition>,
-            RemainingDefinitions
-          >
+    ? Definition extends (...args: never[]) => unknown
+      ? never
+      : Definition extends OfficialAwareDefinition<C, X>
+        ? Definition extends ExtensionAdmission<Definition, C, X>
+          ? ApplyClientExtensions<
+              AppliedClientConfig<C, Definition>,
+              AppliedExtensionState<C, X, Definition>,
+              RemainingDefinitions
+            >
+          : never
         : never
-      : never
     : never;
 
 /**
- * The exact client surface produced by applying an ordered extension tuple.
+ * The exact client surface produced by applying an ordered definition tuple.
+ * Factory callbacks are composed with `$extends`; name their result with `typeof`.
  *
  * @example
  * ```ts
@@ -500,8 +583,12 @@ export type ExtendedClient<
   Extensions extends readonly unknown[],
 > = number extends Extensions["length"]
   ? never
-  : Base extends VibORMClient<infer C, infer X>
-    ? ApplyClientExtensions<C, X, Extensions>
+  : typeof clientTypeState extends keyof Base
+    ? Base extends ClientTypeState<infer C, infer X>
+      ? Base extends VibORMClient<C, X>
+        ? ApplyClientExtensions<C, X, Extensions>
+        : never
+      : never
     : never;
 
 /** The extension type-state a derived client carries. */
@@ -518,14 +605,18 @@ export type ExtendedOperationResult<
   ModelName,
   O extends Operations,
   Args,
-> = Client extends VibORMClient<infer C, infer X>
-  ? ContextualOperationResult<
-      C,
-      ModelName & keyof ClientSchema<C>,
-      O,
-      Args,
-      ClientRowsContext<C, X["rows"]>
-    >
+> = typeof clientTypeState extends keyof Client
+  ? Client extends ClientTypeState<infer C, infer X>
+    ? Client extends VibORMClient<C, X>
+      ? ContextualOperationResult<
+          C,
+          ModelName & keyof ClientSchema<C>,
+          O,
+          Args,
+          ClientRowsContext<C, X["rows"]>
+        >
+      : never
+    : never
   : never;
 
 /**
@@ -535,6 +626,8 @@ export class VibORM<C extends VibORMConfig> {
   readonly #schema: ClientSchema<C>;
   readonly #engine: QueryEngine;
   readonly #relations: ResolvedRelationIndex;
+  /** The schema's validation schemas, which also admit `rows` predicates. */
+  readonly #registry: PreparedSchema["schemaRegistry"];
   /** One resolved declarative omit per authenticated capability on this client. */
   #extensionOmitResolvers:
     | WeakMap<object, Readonly<{ resolver: ClientOmitResolver | undefined }>>
@@ -550,6 +643,7 @@ export class VibORM<C extends VibORMConfig> {
   constructor(config: C, { relations, schemaRegistry }: PreparedSchema) {
     this.#schema = config.schema as ClientSchema<C>;
     this.#relations = relations;
+    this.#registry = schemaRegistry;
 
     // The Raptor 3 route is the ONE operation owner (C-01). The two resolved
     // views above travel to it by identity, so the route's engine hydrates,
@@ -569,7 +663,7 @@ export class VibORM<C extends VibORMConfig> {
    */
   #createClient(
     engine: QueryEngine,
-    modelMethods: BoundExtensionMethods["models"] | undefined,
+    modelMethods: ExtensionMethods["model"] | undefined,
     clientOmit: ClientOmitResolver | undefined
   ): Client<C> {
     return createModelProxy(
@@ -757,6 +851,14 @@ export class VibORM<C extends VibORMConfig> {
     return attachPendingCacheExecution(
       pendingOperation,
       async (execute, driverOverride) => {
+        const cacheResult = readPendingCacheResult(pendingOperation);
+        const refused = uncacheableRead(
+          engine.extensionChain?.controls?.all ?? [],
+          cacheResult.controls,
+          modelName,
+          baseOperation(operation)
+        );
+        if (refused) throw refused;
         if (
           driverOverride !== undefined ||
           engine.transactionWriteOutcomes !== undefined ||
@@ -764,7 +866,6 @@ export class VibORM<C extends VibORMConfig> {
         ) {
           return execute();
         }
-        const cacheResult = readPendingCacheResult(pendingOperation);
         const runtime = officialCacheRuntime();
         const key = runtime.cacheKeyOf(
           cacheResult.args,
@@ -793,27 +894,25 @@ export class VibORM<C extends VibORMConfig> {
    * The one get-trap ladder of every concrete view: the root client, an
    * interactive transaction's `tx`, and the scope each extension factory sees.
    * Every utility member is `$`-named or a symbol and a model name never is, so
-   * model access is answered first. `extra` adds the root-only utilities.
+   * model access is answered first. `extra` adds the root-only utilities, or
+   * a scope's `$bind`. No client method takes a core name, so client methods
+   * (and their factories) are read only for a member core does not answer.
    */
   #createViewProxy<V>(
     engine: QueryEngine,
     clientOmit: ClientOmitResolver | undefined,
     transaction: CallableFunction,
-    clientMethods: BoundExtensionMethods["client"] | undefined,
-    modelMethods: BoundExtensionMethods["models"] | undefined,
+    methods: ExtensionMethods | undefined,
     extra?: (prop: string | symbol) => unknown
   ): V {
     // Raw SQL rides this view's engine: inside an interactive transaction it
     // shares the transaction's connection and rolls back with it. The surface
     // is built on first `$queryRaw`-family access.
     let rawSurface: RawSurface | undefined;
-    return new Proxy(this.#createClient(engine, modelMethods, clientOmit), {
+    return new Proxy(this.#createClient(engine, methods?.model, clientOmit), {
       get: (target, prop) => {
-        if (typeof prop === "string") {
-          if (!prop.startsWith("$")) return Reflect.get(target, prop);
-          if (clientMethods && Object.hasOwn(clientMethods, prop)) {
-            return clientMethods[prop];
-          }
+        if (typeof prop === "string" && !prop.startsWith("$")) {
+          return Reflect.get(target, prop);
         }
         if (prop === "$schema") return this.#schema;
         if (prop === "$transaction") return transaction;
@@ -822,20 +921,30 @@ export class VibORM<C extends VibORMConfig> {
           return rawSurface[prop];
         }
         const member = extra?.(prop);
+        if (member !== undefined || typeof prop !== "string") return member;
+        const client = methods?.client();
+        if (client !== undefined && Object.hasOwn(client, prop)) {
+          return client[prop];
+        }
         // A `$`-named model is still reachable; anything else is absent.
-        return member === undefined &&
-          typeof prop === "string" &&
-          Object.hasOwn(this.#schema, prop)
+        return Object.hasOwn(this.#schema, prop)
           ? Reflect.get(target, prop)
-          : member;
+          : undefined;
       },
     }) as V;
   }
 
-  /** Build one concrete view over one engine scope and its extension chain. */
+  /**
+   * Build one concrete view over one engine scope and its extension chain.
+   * Each factory scope's `$bind` returns `rebuild` of this engine with the
+   * values bound: a view of this view's kind. `eager` invokes every factory
+   * now; otherwise each runs when a method it returns is first read.
+   */
   #createView<V>(
     engine: QueryEngine,
     clientOmit: ClientOmitResolver | undefined,
+    rebuild: ((engine: QueryEngine) => unknown) | undefined,
+    eager: boolean,
     extra?: (prop: string | symbol) => unknown
   ): V {
     const transaction = (
@@ -845,21 +954,34 @@ export class VibORM<C extends VibORMConfig> {
     const chain = engine.extensionChain;
     const methods =
       chain &&
-      bindExtensionMethods(chain, (clientMethods, modelMethods) =>
+      bindExtensionMethods(chain, (prior, extension) =>
         this.#createViewProxy<object>(
           engine,
           clientOmit,
           transaction,
-          clientMethods,
-          modelMethods
+          prior,
+          (prop) =>
+            prop === "$bind"
+              ? (values: Readonly<Record<string, unknown>>) =>
+                  rebuild!(
+                    engine.withBound(
+                      bindControls(
+                        chain.controls?.all ?? [],
+                        extension,
+                        values,
+                        engine.bound
+                      )
+                    )
+                  )
+              : undefined
         )
       );
+    if (eager) methods?.force();
     return this.#createViewProxy<V>(
       engine,
       clientOmit,
       transaction,
-      methods?.client,
-      methods?.models,
+      methods,
       extra
     );
   }
@@ -901,10 +1023,12 @@ export class VibORM<C extends VibORMConfig> {
         (chain?.observe.length ?? 0) > 0
           ? new TransactionWriteOutcomes()
           : undefined;
+      const view = (
+        bound: QueryEngine
+      ): TransactionClient<C, ExtensionStateConstraint> =>
+        this.#createView(bound, clientOmit, view, false);
       const body = async (txDriver: AnyDriver) =>
-        input(
-          this.#createView(engine.bind(txDriver, chain, outcomes), clientOmit)
-        );
+        input(view(engine.bind(txDriver, chain, outcomes)));
       return outcomes
         ? runOutcomeTransaction(
             engine.driver,
@@ -928,7 +1052,7 @@ export class VibORM<C extends VibORMConfig> {
   #createRootView<
     X extends ExtensionStateConstraint,
     ViewConfig extends VibORMConfig = C,
-  >(engine: QueryEngine): VibORMClient<ViewConfig, X> {
+  >(engine: QueryEngine, eager = true): VibORMClient<ViewConfig, X> {
     const chain = engine.extensionChain;
     const clientOmit =
       chain === undefined ? undefined : this.#resolveClientOmit(chain);
@@ -939,53 +1063,71 @@ export class VibORM<C extends VibORMConfig> {
         createOperationExecutionContext("$connection", "$disconnect", chain)
       );
 
-    return this.#createView(engine, clientOmit, (prop) => {
-      if (prop === "$driver") return engine.driver;
-      if (prop === "$extends") {
-        return (extension: ClientExtension) => {
-          const extensionChain = appendResolvedExtension(
-            chain,
-            extension,
-            this.#schema
-          );
-          // The one point that holds both the resolved chain and the concrete
-          // driver, so the one point that can partition the official cache by
-          // this client's dialect and SQL namespace. A chain without the
-          // official cache makes no call at all.
-          if (extensionChain.hasCache) {
-            bindOfficialCacheChain(extensionChain, engine.driver);
-          }
-          return this.#createRootView(
-            engine.bind(engine.driver, extensionChain)
+    // A root view `$extends` returns invokes every factory, where an
+    // extension's faults belong; a view `$bind` derives, only those it uses.
+    // Only a chain's factory scopes can `$bind`.
+    const rebind =
+      chain && ((bound: QueryEngine) => this.#createRootView(bound, false));
+    const view = this.#createView<VibORMClient<ViewConfig, X>>(
+      engine,
+      clientOmit,
+      rebind,
+      eager,
+      (prop) => {
+        if (prop === "$driver") return engine.driver;
+        if (prop === "$extends") {
+          return (
+            extension:
+              | ClientExtension
+              | ((client: VibORMClient<ViewConfig, X>) => unknown)
+          ) => {
+            if (typeof extension === "function") return extension(view);
+            const extensionChain = appendResolvedExtension(
+              chain,
+              extension,
+              this.#schema,
+              this.#registry
+            );
+            // The one point that holds both the resolved chain and the concrete
+            // driver, so the one point that can partition the official cache by
+            // this client's dialect and SQL namespace. A chain without the
+            // official cache makes no call at all.
+            if (extensionChain.hasCache) {
+              bindOfficialCacheChain(extensionChain, engine.driver);
+            }
+            return this.#createRootView(
+              engine.bind(engine.driver, extensionChain)
+            );
+          };
+        }
+        if (prop === "$connect") {
+          return () =>
+            engine.driver._connect(
+              createOperationExecutionContext("$connection", "$connect", chain)
+            );
+        }
+        // `await using client = createClient({ ... })`. On an engine without the
+        // protocol `ASYNC_DISPOSE` is undefined, which no property key equals, so
+        // the property is absent — what missing disposal support looks like.
+        if (prop === "$disconnect" || prop === ASYNC_DISPOSE) return disconnect;
+        if (prop !== "$withCache" && prop !== "$invalidate") return undefined;
+        const officialCache = getOfficialCacheChainCapability(chain);
+        if (officialCache === undefined) return undefined;
+        if (prop === "$withCache") {
+          return (cacheConfig?: WithCacheOptions) =>
+            this.#withCache(engine, officialCache, clientOmit, cacheConfig);
+        }
+        return async (...keys: string[]) => {
+          await officialCacheRuntime().invalidateManualCache(
+            officialCache.driver,
+            keys,
+            createOperationExecutionContext("$cache", "$invalidate", chain),
+            officialCache.scope
           );
         };
       }
-      if (prop === "$connect") {
-        return () =>
-          engine.driver._connect(
-            createOperationExecutionContext("$connection", "$connect", chain)
-          );
-      }
-      // `await using client = createClient({ ... })`. On an engine without the
-      // protocol `ASYNC_DISPOSE` is undefined, which no property key equals, so
-      // the property is absent — what missing disposal support looks like.
-      if (prop === "$disconnect" || prop === ASYNC_DISPOSE) return disconnect;
-      if (prop !== "$withCache" && prop !== "$invalidate") return undefined;
-      const officialCache = getOfficialCacheChainCapability(chain);
-      if (officialCache === undefined) return undefined;
-      if (prop === "$withCache") {
-        return (cacheConfig?: WithCacheOptions) =>
-          this.#withCache(engine, officialCache, clientOmit, cacheConfig);
-      }
-      return async (...keys: string[]) => {
-        await officialCacheRuntime().invalidateManualCache(
-          officialCache.driver,
-          keys,
-          createOperationExecutionContext("$cache", "$invalidate", chain),
-          officialCache.scope
-        );
-      };
-    });
+    );
+    return view;
   }
 
   /**

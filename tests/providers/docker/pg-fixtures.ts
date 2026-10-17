@@ -11,8 +11,33 @@
 import { createClient as PgCreateClient } from "@drivers/pg";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+/**
+ * The transport as configured, with no added startup parameters. Used by the
+ * JIT cost witness and migration contracts that also run through PgBouncer.
+ */
+export const SERVER_CONNECTION_STRING = process.env.PG_TEST_CONNECTION_STRING;
+
+/**
+ * `url`'s sessions with PostgreSQL's JIT off, whatever else its `options`
+ * set. A governed statement (an OR of correlated EXISTS) is estimated over
+ * the JIT thresholds on tables nobody ANALYZEd, and the server then compiles
+ * thousands of functions per statement: 1.9 s for a one-row lookup, 21-25 s
+ * for a policy write, the permissions runs 40+ minutes against about one without
+ * (E4, `permissions/e4/pg-cost.md`). The statements and their answers are the same.
+ */
+function withJitOff(url: string): string {
+  const parsed = new URL(url);
+  const options = parsed.searchParams.get("options");
+  parsed.searchParams.set(
+    "options",
+    options ? `${options} -c jit=off` : "-c jit=off"
+  );
+  return parsed.href;
+}
+
 // Skip tests if no PostgreSQL connection is available
-export const TEST_CONNECTION_STRING = process.env.PG_TEST_CONNECTION_STRING;
+export const TEST_CONNECTION_STRING =
+  SERVER_CONNECTION_STRING && withJitOff(SERVER_CONNECTION_STRING);
 
 /**
  * The shared behavior suites and client-integration tests assume a fresh

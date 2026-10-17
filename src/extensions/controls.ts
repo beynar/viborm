@@ -4,7 +4,12 @@ import type {
   MutationOperations,
   Operations,
 } from "@client/types";
-import { QueryError, ValidationError, VibORMError } from "@errors";
+import {
+  ClientInitializationError,
+  QueryError,
+  ValidationError,
+  VibORMError,
+} from "@errors";
 import {
   isReadOperation,
   isWriteOperation,
@@ -33,13 +38,23 @@ export type ControlPlacement =
  * when absent). With `required`, a call on one of those operations that does
  * not pass it is refused, on the models the extension names in `rows`,
  * `data` or `deletion` only; an extension that names no model asks for it on
- * every model. A value held in a variable keeps its literal type only with
- * `as const`, as a held enum clause does.
+ * every model. With `bound`, it is accepted only from a binding (the client
+ * scope's `$bind`), never from a call's arguments: its placement reads no
+ * argument, so a call that passes it is refused as passing an unknown key.
+ * With `uncacheable`, a read that holds a value of it is never served from
+ * the cache: `$withCache` on that read is refused before any statement. A
+ * value held in a variable keeps its literal type only with `as const`, as a
+ * held enum clause does.
  */
 export type ControlDeclaration = (
   | { readonly oneOf: readonly (string | number | boolean)[] }
   | { readonly schema: StandardSchemaV1 }
-) & { readonly on?: ControlPlacement; readonly required?: boolean };
+) & {
+  readonly on?: ControlPlacement;
+  readonly required?: boolean;
+  readonly bound?: boolean;
+  readonly uncacheable?: boolean;
+};
 
 export type ControlsContribution = {
   readonly [name: string]: ControlDeclaration;
@@ -52,9 +67,16 @@ type ScalarFields = { readonly [field: string]: unknown };
  * Which rows an operation sees. `control` names the call argument that picks
  * a mode; every model entry declares the same mode names, `default` among
  * them. `root` filters the call's own candidates, `related` rows reached
- * through a relation. Where a filter takes a value, `{ control: "<name>" }`
- * takes the value the call passed for that control; a call that passed none
- * drops that filter.
+ * through a relation; each is a model's `where`, admitted once when the
+ * extension is applied, or the name of one of its `verbs` predicates. Where a
+ * filter takes a value, `{ control: "<name>", path?: "a.b" }` takes the value
+ * the call passed for that control (or a field of it), `{ now: true }` the
+ * call's instant, and `{ $if: … }` tests a call value. An absent value
+ * (`null` included) matches nothing where its control is required, and drops
+ * its filter where it is not.
+ *
+ * `verbs` judges, per model, what a call may do to the rows it sees: a mode
+ * only narrows them (R8).
  */
 export type RowsContribution = {
   readonly control: string;
@@ -62,11 +84,56 @@ export type RowsContribution = {
   readonly models: {
     readonly [model: string]: {
       readonly [mode: string]: {
-        readonly root?: ScalarFields;
-        readonly related?: ScalarFields;
+        readonly root?: ScalarFields | string;
+        readonly related?: ScalarFields | string;
       };
     };
   };
+  readonly verbs?: { readonly [model: string]: RowsVerbs };
+};
+
+/**
+ * One model's named predicates, each a `where` admitted once, and the verbs
+ * that take them. `read` ANDs with every mode's `root` and `related`; a write
+ * takes its verb's beside them: a delete `delete`'s, an update, for each
+ * field its data writes, that field's `writes` entry, else `update`'s, and
+ * `update`'s when its data writes only stamps. A join row's change is a write
+ * of the relation on both rows it links; a row only addressed to reach its
+ * children is read. A verb left out matches nothing.
+ *
+ * The row a write produces is judged too, as a value, against the rows as
+ * they stand before the write, inside the statement that writes it (R4): a
+ * created row at `place` (a model naming none is not judged on create); an
+ * updated row at the predicates that judged its old row, and, for each field
+ * its data writes, at that field's `moves` entry, and where it writes the
+ * key of an `acyclic` relation (a to-one relation of the model to itself),
+ * outside its own subtree. A refused row is written by no statement.
+ *
+ * `evidence` declares a projection key (`evidence.as`) a `select` or
+ * `include` may name at every depth, on reads and on the rows a write
+ * returns: per row, whether each of `names` holds there beside `read`, or,
+ * `ordered`, the last of them that holds (`null` on a row `read` does not
+ * hold). `reads` gates a field on a predicate: the row carries it only where
+ * `read` and that predicate hold, a `select` naming it fails on a row
+ * without them, and every operand a call writes over it (`where`, `orderBy`,
+ * aggregates, `distinct`, unique lookups, relation filters) reads it as
+ * absent there. A key or foreign-key field is never gated.
+ */
+export type RowsVerbs = {
+  readonly predicates: { readonly [name: string]: ScalarFields };
+  readonly read?: string;
+  readonly update?: string;
+  readonly delete?: string;
+  readonly writes?: { readonly [field: string]: string };
+  readonly place?: string;
+  readonly moves?: { readonly [field: string]: string };
+  readonly acyclic?: readonly string[];
+  readonly evidence?: {
+    readonly as: string;
+    readonly names: readonly string[];
+    readonly ordered?: boolean;
+  };
+  readonly reads?: { readonly [field: string]: string };
 };
 
 /**
@@ -89,10 +156,10 @@ export type DeletionContribution = {
 /**
  * Fields an extension writes on the models named here: `create` on every
  * create of the model, `update` on every update of it, a soft delete's
- * included. A value is a constant, `{ control: "<name>" }` for the value the
- * call passed for that control (a call that passed none writes nothing
- * there), or, on `update`, one of the field's update operators
- * (`{ increment: 1 }`). A field is written only where the caller left it
+ * included. A value is a constant, `{ control: "<name>", path?: "a.b" }` for
+ * the value the call passed for that control or a field of it (a call that
+ * passed none writes nothing there), `{ now: true }` for the call's instant,
+ * or, on `update`, one of the field's update operators (`{ increment: 1 }`). A field is written only where the caller left it
  * out: a call that writes it itself, or writes the relation whose foreign key
  * holds it, keeps its own value there. A create may leave out such a field
  * even where the schema requires it: the call's data is checked with it
@@ -176,7 +243,11 @@ type DeclaredControls<Definition> = Definition extends {
   readonly controls: infer Controls extends ControlsContribution;
 }
   ? {
-      readonly [Name in keyof Controls]: PlaceControl<
+      readonly [Name in keyof Controls as Controls[Name] extends {
+        readonly bound: true;
+      }
+        ? never
+        : Name]: PlaceControl<
         Name,
         Controls[Name],
         Definition extends { readonly deletion: infer Deletion }
@@ -208,13 +279,17 @@ type RowsControl<Definition> = Definition extends {
 
 /**
  * The models one definition's `rows` can hide from a relation read: its
- * entries' keys. A to-one relation that targets one of them reads `null` when
+ * `models` and `verbs` keys. A to-one relation that targets one of them reads `null` when
  * its target is hidden, so the result types widen it (`result-types.ts`).
  */
 export type RowsModels<Definition> = Definition extends {
   readonly rows: infer Rows extends RowsContribution;
 }
-  ? Extract<keyof Rows["models"], string>
+  ? Extract<
+      | keyof Rows["models"]
+      | (Rows extends { readonly verbs: infer Verbs } ? keyof Verbs : never),
+      string
+    >
   : never;
 
 /** The controls one definition places, keyed by control name. */
@@ -324,6 +399,10 @@ export interface ResolvedControl {
   readonly required?: true | ReadonlySet<string>;
   /** What an absent argument admits: the `rows` control's default mode. */
   readonly fallback?: ControlLiteral;
+  /** Accepted only from a binding, never read from the arguments. */
+  readonly bound?: true;
+  /** A read holding a value of it is not served from the cache. */
+  readonly uncacheable?: true;
 }
 
 /**
@@ -345,6 +424,7 @@ export function placeControls(
   const named = new Set([
     ...managed,
     ...Object.keys(rows?.models ?? {}),
+    ...Object.keys(rows?.verbs ?? {}),
     ...Object.keys(data?.models ?? {}),
   ]);
   const requiredOn = named.size === 0 ? true : named;
@@ -357,6 +437,8 @@ export function placeControls(
       operations: removes ? DELETE_OPERATIONS : placementOf(declaration.on),
       models: removes ? managed : undefined,
       required: declaration.required === true ? requiredOn : undefined,
+      ...(declaration.bound === true && { bound: true }),
+      ...(declaration.uncacheable === true && { uncacheable: true }),
     });
   }
   if (rows !== undefined) {
@@ -505,15 +587,17 @@ export function isStableControlValue(value: unknown): boolean {
 /**
  * Remove every control placed on this operation from its arguments and admit
  * each once, before any request handler runs. A key naming a control placed
- * elsewhere stays in the arguments, where core validation refuses it as an
- * unknown key. A control the call did not pass is refused here on the models
- * its placement requires it on.
+ * elsewhere, or a bound-only one, stays in the arguments, where core
+ * validation refuses it as an unknown key. A control the call did not pass
+ * takes the value its view binds, if any; without one it is refused here on
+ * the models its placement requires it on.
  */
 export function admitControls(
   model: string,
   operation: Operation,
   input: Record<string, unknown>,
-  placed: readonly ResolvedControl[]
+  placed: readonly ResolvedControl[],
+  bound?: AdmittedControls
 ): ControlAdmission {
   // Arguments that are not an object hold no control: core validation refuses
   // them as it does on a client without controls.
@@ -534,18 +618,18 @@ export function admitControls(
   const admitted: [string, unknown][] = [];
   let given: Set<PropertyKey> | undefined;
   for (const control of placed) {
+    const { name, required } = control;
     let raw: unknown;
-    if (keys.includes(control.name)) {
-      (given ??= new Set()).add(control.name);
+    if (control.bound !== true && keys.includes(name)) {
+      (given ??= new Set()).add(name);
       raw = readControl(input, control, model, operation);
     }
+    // A bound value was admitted and fixed once, when its view was bound.
     const value =
       raw === undefined
-        ? control.fallback
-        : admitControl(control, raw, model, operation);
-    const { required } = control;
-    if (value !== undefined)
-      admitted.push([control.name, snapshotControlValue(value)]);
+        ? (bound?.[name] ?? control.fallback)
+        : snapshotControlValue(admitControl(control, raw, model, operation));
+    if (value !== undefined) admitted.push([name, value]);
     else if (required === true || required?.has(model)) {
       throw invalidControl(control, model, operation, ["is required"]);
     }
@@ -560,6 +644,34 @@ export function admitControls(
         ? undefined
         : Object.freeze(Object.fromEntries(admitted)),
   };
+}
+
+/**
+ * The values a view binds after one extension binds its own controls: each
+ * admitted once and fixed, over the values the view already binds, a value
+ * replacing an earlier one.
+ */
+export function bindControls(
+  controls: readonly ResolvedControl[],
+  extension: string,
+  values: Readonly<Record<string, unknown>>,
+  previous: AdmittedControls | undefined
+): AdmittedControls {
+  const next: Record<string, unknown> = { ...previous };
+  for (const [name, raw] of Object.entries(values)) {
+    const control = controls.find(
+      (candidate) =>
+        candidate.name === name && candidate.extension === extension
+    );
+    if (control === undefined) {
+      throw new ClientInitializationError(
+        `Extension "${extension}" binds control "${name}", which it does not declare.`,
+        { meta: { extension } }
+      );
+    }
+    next[name] = snapshotControlValue(admitControl(control, raw));
+  }
+  return Object.freeze(next);
 }
 
 /** One extension's own admitted controls, as its handlers see them. */
@@ -620,11 +732,12 @@ function withoutControls(
   return args;
 }
 
+/** One value admitted for a call's (model, operation), or, without them, a binding. */
 function admitControl(
   control: ResolvedControl,
   value: unknown,
-  model: string,
-  operation: Operation
+  model?: string,
+  operation?: Operation
 ): unknown {
   const { declaration } = control;
   if ("oneOf" in declaration) {
@@ -722,14 +835,40 @@ function isVibORMFailure(value: unknown): value is VibORMError {
   }
 }
 
+/**
+ * The refusal of a cached read that holds a value of an `uncacheable`
+ * control, or `undefined` when it holds none: such a read is an observation
+ * the control's owner does not accept (the cache would serve it after the
+ * facts it was judged on changed).
+ */
+export function uncacheableRead(
+  controls: readonly ResolvedControl[],
+  admitted: AdmittedControls | undefined,
+  model: string,
+  operation: Operation
+): ValidationError | undefined {
+  const held = controls.find(
+    (control) =>
+      control.uncacheable === true && admitted?.[control.name] !== undefined
+  );
+  return (
+    held &&
+    invalidControl(held, model, operation, [
+      "is not cacheable: a read that holds it is not served from the cache",
+    ])
+  );
+}
+
 function invalidControl(
   control: ResolvedControl,
-  model: string,
-  operation: Operation,
+  model: string | undefined,
+  operation: Operation | undefined,
   messages: readonly string[]
 ): ValidationError {
   return new ValidationError(
-    { kind: "operation", operation, model },
+    operation === undefined
+      ? { kind: "schema-builder", builder: "$bind", path: control.name }
+      : { kind: "operation", operation, model },
     messages.map((message) => ({
       path: control.name,
       message: `Control "${control.name}" ${message}`,
@@ -740,13 +879,13 @@ function invalidControl(
 
 function validatorFailure(
   control: ResolvedControl,
-  model: string,
-  operation: Operation,
+  model: string | undefined,
+  operation: Operation | undefined,
   failure: string,
   cause: unknown
 ): QueryError {
   return controlFailure(
-    `Extension "${control.extension}" control "${control.name}" validator for ${model}.${operation} ${failure}`,
+    `Extension "${control.extension}" control "${control.name}" validator for ${operation === undefined ? "$bind" : `${model}.${operation}`} ${failure}`,
     model,
     operation,
     cause
@@ -755,8 +894,8 @@ function validatorFailure(
 
 function controlFailure(
   message: string,
-  model: string,
-  operation: Operation,
+  model: string | undefined,
+  operation: Operation | undefined,
   cause: unknown
 ): QueryError {
   return new QueryError(`${message}.`, {

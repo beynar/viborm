@@ -607,10 +607,12 @@ function convertSchemaBody(
     }
 
     case "field_ref_or":
-    case "comparison_operand": {
-      // A field reference, an SQL fragment, and the callback that returns one
-      // are in-process values with no JSON representation: only the literal
-      // operand they stand beside can cross a JSON boundary.
+    case "comparison_operand":
+    case "value_node_or": {
+      // A field reference, an SQL fragment, the callback that returns one and
+      // a domain predicate's value node are in-process values with no JSON
+      // representation: only the literal operand they stand beside can cross
+      // a JSON boundary.
       const operand = (schema as any).wrapped as VibSchema<unknown, unknown>;
       return convertSchema(operand as any, context);
     }
@@ -625,10 +627,12 @@ function convertSchemaBody(
       return convertSchema(target as any, context);
     }
 
-    case "no_field_ref": {
+    case "no_field_ref":
+    case "written_depth": {
       // The mirror image: this wrapper only REMOVES in-process tokens, which
       // have no JSON representation to remove in the first place, so the JSON
-      // shape is exactly the wrapped schema's.
+      // shape is exactly the wrapped schema's (a domain predicate's written
+      // depth refuses a value only while one is admitted).
       const inner = (schema as any).wrapped as VibSchema<unknown, unknown>;
       return convertSchema(inner as any, context);
     }

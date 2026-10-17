@@ -3,6 +3,272 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## Unreleased
+
+The authorization extension is named `permissions`, imported from
+`viborm/permissions`. This replaces the pre-release `rbac` name; no alias is
+shipped. Its rules and authorization behavior are unchanged by the rename.
+
+The extension capabilities the Permissions extension is built on (`rows`
+predicates that traverse relations, values a call supplies as plan
+parameters, verbs that judge the rows a write takes and the rows it
+produces, per-row evidence, controls bound to a client, extensions that
+compose by order), and `viborm/permissions` itself, built from them alone. Core
+names no role, grant or action.
+
+### Added
+
+- **`rows` predicates may go through relations.** A predicate is any
+  `where` of its model, `some`/`every`/`none`/`is` and `recurse` included,
+  admitted once at `$extends` through that model's `where` schema. Inside a
+  predicate's own relation reads, every other extension's filters apply at
+  their default mode and its own extension's do not, so a cycle of filters
+  terminates and no per-call mode widens what a filter reads. A `recurse`
+  in a predicate must write its `depth` (`false` for the whole closure); the
+  16-level nesting bound on a caller's `where` does not apply to them.
+- **Values a call supplies, by marker.** In a `rows` predicate,
+  `{ control, path }` reads a field of an object control, `{ now: true }` is
+  the call's one instant (the one a tombstone writes), and
+  `{ $if: { control, path?, exists | equals | in | has | hasSome } }` tests a
+  call value without a column: a false test removes its arm. `data` stamps
+  take `{ control, path }` and `{ now: true }` too.
+- **Controls bound to a client.** A control can be declared `bound: true`:
+  no call's arguments are read for it, and only a binding supplies it. A
+  client factory's scope has `$bind(values)`, which admits the calling
+  extension's own controls once and returns the receiving client with them
+  bound; interactive transactions and their savepoints, array-transaction
+  members, a client `$extends` derives and cached-read keys keep the values.
+- **References to an earlier extension's controls.** A `rows` predicate or a
+  `data` stamp may name a control an extension applied before it declares
+  (an audit stamp can take another extension's actor).
+- **`softDelete(config).rows` and `.methods`**, its two steps apart, so a
+  chain can apply every `rows` step before any methods step. The type of the
+  whole factory (`softDelete(config)(base)`, `base.$extends(tombstones)`) is
+  the type of its two steps applied in turn, and the guide's chain
+  `base.$extends(tombstones.rows).$extends(policy).$extends(tombstones.methods)`
+  type-checks at 60 models, as soft delete alone does. Both are budgeted
+  at 60 models on TypeScript 5.9, 6 and 7
+  (`tests/package/type-composition-budgets.json`).
+- **Equal values bind once over a driver's bind budget.** A statement over
+  its driver's budget is sent with numbered placeholders (`?NNN`, `$n`), each
+  distinct value bound once, so D1 runs statements of up to 100 distinct
+  values: a plain `include` read on D1 that bound 125-131 values was refused,
+  and runs. MySQL and better-sqlite3 (`viborm/sqlite3`), whose transports do
+  not number placeholders, keep refusing such a statement whole.
+- **`rows` verbs: what a call may do to the rows it sees, per model.** A
+  `rows` member may declare `verbs: { [model]: { predicates, read, update,
+  delete, writes } }`. Each named predicate is admitted once; `read`
+  narrows every mode, and a mode's `root` or `related` may name a predicate.
+  A delete (tombstones included) takes `delete`'s predicate; an update
+  takes, for each field its data writes, that field's `writes` entry, else
+  `update`'s. A verb a model's entry leaves out matches nothing. A key of a
+  model's entry other than these and `place`, `moves`, `acyclic`,
+  `evidence` and `reads` (below) is refused at `$extends` with a
+  `ClientInitializationError` naming the model and the key (a misspelt
+  `writes` would judge its fields at `update`). A nested `delete` takes its
+  target at the target's `delete` predicate: a to-one `delete: true` on a
+  target the call sees and may not delete is a `NestedWriteError` that never
+  tells it from a hidden one.
+- **A write is judged by the statement it emits.** On a model with verbs,
+  `data: {}`, or a parent a nested write bumps, is judged at `update`;
+  stamps and generated values (`updatedAt`) never change the verb. A row
+  only addressed to reach its children is read.
+- **A link's change is a write of the row whose key or join row changes.**
+  On a model with verbs, a `connect`, `set` or `disconnect` judges that row,
+  at both ends of a join; `set: []` refuses, with `NestedWriteError`, a
+  visible link the call may not write.
+- **`rows` verbs judge the row a write produces.** A model's entry may name
+  `place` (the predicate every created row holds), `moves: { [field]: name }`
+  (the predicate the new row of an update writing that field holds) and
+  `acyclic: [relation]` (a to-one relation of the model to itself whose new
+  target must lie outside the row's own subtree). An updated row is also
+  judged at the predicates that judged its old row. The produced row is
+  judged as a value, against the rows as they stand before the write, inside
+  the statement that writes it (`INSERT … SELECT … WHERE`, `UPDATE … WHERE`
+  over the produced rows), on every create and update site: `create`,
+  `createMany`, `upsert`'s two arms, nested `create`, `connectOrCreate`,
+  `update`, `updateMany` and a foreign key's `connect` or unlink. A refused
+  row is written by no statement, before any constraint is checked:
+  `ForbiddenError` at the root, `NestedWriteError` nested. A missing key
+  target and a hidden one give the same error. A model naming no `place` is
+  not judged on create; a row of database defaults only, on a model with a
+  `place`, is refused before any statement, as is a list `push`/`unshift` or
+  an exact decimal's `multiply`/`divide` on a field the judgement reads.
+  A judged `createMany` is split by its driver's bind budget alone, as the
+  same call without a judgement: the rows it produces are one `VALUES` list
+  on SQLite and PostgreSQL (MySQL reads one `UNION ALL SELECT` per row), so
+  neither SQLite's 500-term compound limit nor PostgreSQL's parser depth
+  bounds it. On D1 a refused row in a call of several statements is a
+  `ForbiddenError`. Adapters: `setOperations.typedRows`.
+- **Adapters: `assertions.holds(condition, from?)`**, the expression a
+  judged statement carries: 1, or the statement fails on its own sentinel
+  before it writes. Only that sentinel is a refusal: a caller's division by
+  zero or invalid JSON in the same statement is the provider's `QueryError`.
+- **Shared relation bodies, a driver fact.** A driver whose transport bounds
+  a statement declares `sharesRelationBodies`: each relation filter body a
+  statement repeats is stated once, in a `WITH`, as the key set its
+  repeats test (`EXISTS (SELECT 1 FROM set WHERE set.k = parent.fk)`). D1
+  and every PostgreSQL driver declare it by default; `sharedRelationBodies:
+  false` keeps the bodies inline, as 1.2.4 spelled them (a server that bounds
+  the relations of one statement, Neki's 256, needs the shared form). The
+  answers are the same; SQLite3, libSQL, Bun SQLite and MySQL SQL is
+  unchanged. `createClient` on each PostgreSQL driver takes
+  `sharedRelationBodies` as its driver does. Two bodies share a key set only
+  when they are the same body: the aliases the engine minted are renumbered
+  when bodies are compared, and alias-shaped text in a caller's `sql` operand
+  (`'_q1_'`) is not.
+- **`uncacheable` controls.** A control declared `uncacheable: true` keeps
+  every read holding its value out of the cache: `$withCache` on such a read
+  is a `ValidationError` at the control, before any statement.
+- **`rows` verbs report and gate per row.** A model's entry may declare
+  `evidence: { as, names, ordered? }`, a projection key (`$` and an
+  identifier) a `select` or `include` may name at any depth, on reads and on
+  the rows a write returns: per row, whether each named predicate holds
+  there, or with `ordered` the last one that holds (`null` where the row's
+  `read` does not). `reads: { [field]: name }` gates a scalar field: a row
+  carries it only where the predicate holds, an explicit `select` of it on a
+  row without it is a `ValidationError` at `select.<field>`, and every
+  operand a call writes over it (`where`, unique lookups, cursors,
+  `connect`, `orderBy`, `distinct`, aggregates, `groupBy`, relation filters)
+  reads it as absent there. Keys and foreign keys cannot be gated. The
+  client's types admit the key and make gated fields optional by default.
+- **`viborm/permissions` defaults:** `update` and `delete` imply `read`; `create`
+  judges a proposed row and implies nothing (declare `actions: { create:
+  ["read"] }` to say otherwise). An inherited branch another branch provably
+  contains is dropped from a predicate: the same rows, a smaller statement.
+- **`viborm/permissions`, authorization judged in the statement** (not yet
+  published, OD-11; [guide](docs/content/docs/extensions/permissions.mdx)).
+  `permissions({ actor, levels, mandatory, models, cache })` declares, per model, a
+  rule under each action it grants (`"read, update"` gives several actions
+  one rule), a `mandatory` predicate every action conjoins (also global),
+  `actions` with what each implies, `operations`, `fields` and `domains`.
+  Actions are `create`, `read`, `update`, `delete` and any custom name. A
+  rule is a `where` of its model, `{ group: "update" }` (that action's
+  predicate inlined), a literal `false` (an explicit deny, even where another
+  action implies it), or a `Rule` function `(action, model)` evaluated once
+  at its declared action; there are no rule helpers.
+  `base.$extends(permissions(config))` (or `permissions(config)(base)`) compiles it
+  against `base`'s schema into one predicate per model and action and
+  applies it to every model, as a rows step then a methods step, also
+  offered apart as `.rows` and `.methods` so other `rows` steps (soft
+  delete, tenancy) go first. `db.$as(actor, scopes?)` returns a view with
+  the actor bound: validated once against the `viborm/validation` actor
+  schema, no chain rebuilt, kept by transactions and by clients `$extends`
+  derives.
+  Every read takes only the rows the actor views, at every depth; an update
+  or delete is judged at the actions of the fields it writes; a created or
+  updated row is judged inside the statement that writes it (placement,
+  written keys' targets visible, no parent cycle), with `ForbiddenError`.
+  `can`/`assert` answer from the same predicates through `$access`, for the
+  one row a unique selector names, for one action or a list (`can([...])`
+  returns a record, one statement, one per asked level on a model whose
+  actions are the `levels`; `assert`'s `ForbiddenError` never tells a hidden
+  row from a missing action),
+  `include: { $access: true }` reads one boolean per declared action per
+  row at any depth, a field with a `read` action is omitted where the actor
+  lacks it, `scopes` (exact `model.action` strings, closed under the model's
+  implications; `[]` grants nothing) narrow an API key on every predicate of
+  the model, and `as` narrows a call to an action or a named domain, never
+  wider. Refused before any statement: a
+  call without an actor or passing `actor` in its arguments
+  (`ValidationError`), a model the policy does not list, a verb or an `as`
+  mode the model does not declare (`ForbiddenError`, OD-7). Refused when
+  applied, with `ClientInitializationError`: unknown models, fields, actions
+  and actor paths, unknown keys of the policy, of a model that lists its
+  `actions` and of a `fields` entry, a key spelled like a declaration key or
+  a level, a declared ceiling the model does not declare, rules that read themselves, a read-gated key or unique
+  field, an actor schema that is not a finite strict object, an action or
+  domain named `default`. A stored ceiling row allows its action and every
+  action it implies. An update that writes a tombstone's marker by hand, or a
+  restore, is judged at the delete action too. A `Date`, `Decimal` or
+  bytes constant in a policy reaches its predicate as a value (it was
+  walked as a clause and lost). A cached read on a governed view is refused with
+  `ValidationError` before any statement, unless the policy declares
+  `cache: "allow"` (OD-10). Raw SQL and statement transforms are not
+  filtered.
+
+### Changed
+
+- **A `rows` predicate is admitted at `$extends`.** A misspelt key anywhere
+  inside it is a `ClientInitializationError` naming the extension, the
+  model, the mode, the purpose and the path. **Upgrade:** a definition that
+  carried a misspelt nested key used to fail at the first query that read
+  it; it now fails where it is applied.
+- **A `rows` value is always a value.** An object control value is no longer
+  read as filter operators (a tenant of `{ not: "acme" }` matched every
+  other tenant's rows); read a field of it with `path`.
+- **A `null` control value is a missing value in a `rows` predicate:** it
+  never compares as `IS NULL` (an actor with `userId: null` matched every
+  orphaned row). A required control's missing value makes the
+  extension's whole predicate for that model match nothing (`WHERE 0`),
+  not only the arm that reads it; a `$if` testing the value guards the
+  read. An optional control's missing value drops its filter, as before. **Upgrade:** to filter on
+  `IS NULL`, write the literal `null` in the predicate.
+- **Each `rows` predicate is prepared once for every call.** The 256-entry
+  memo of prepared modes and values is gone: no tenant, version or actor
+  takes room or pushes another out.
+- **A control name declared twice in a chain is refused at `$extends`**
+  with a `ClientInitializationError` naming both extensions, a second
+  extension's, a reused `rows.control` and a `rows.control` repeating the
+  definition's own controls alike. **Upgrade:** such a chain used to be
+  accepted and refused every call that passed either value.
+- **A reference to a control no earlier extension declares is refused at
+  `$extends`**, by the chain; a definition read on its own no longer checks
+  its references.
+- **Views other than the client `$extends` returns run method factories
+  lazily**: an interactive transaction's `tx` and a client `$bind` returns
+  run a model's factories when that model is first read, client factories
+  when a client method is. **Upgrade:** a factory that throws now fails at
+  that first read inside the transaction, not at `$transaction`.
+- **A read allocates no more per call than in 1.2.4**, with or without a
+  `rows` extension (Node 24, a 50-model schema: `findUnique` 54,760 →
+  54,352 B, `findMany` with two includes 106,744 → 106,616 B, a relation
+  filter 62,184 → 61,824 B); a client retains about 300 B more. A `create`
+  without extensions allocates about 1.9% more than in 1.2.4 (two models on
+  SQLite3: 60,312 → 61,440 B).
+
+### Fixed
+
+- Permission-rule simplification preserves missing actor facts and whole-list
+  validation, including conditional rules and alternatives that fold to true.
+  Safe inherited branches still collapse to keep D1 statements compact.
+- Negative relation rules (`none` and `isNot`) use reverse containment when
+  simplifying permissions, including models with operator-like field names.
+- All five PostgreSQL `createClient` factories forward `sharedRelationBodies`,
+  so `false` disables sharing as it does on direct driver construction.
+- Fast layer typechecks use the native compiler already used by the complete
+  typecheck, avoiding the Permissions layer's JavaScript-compiler out-of-memory failure
+  without increasing its time or process-memory limits or removing type probes.
+
+- **An update with nothing to assign no longer fails.** On a model with no
+  `updatedAt` and no stamp, `update({ data: {} })` and
+  `updateMany({ data: {} })` sent `UPDATE … SET` with an empty list and threw
+  `QueryError` on every provider (1.2.4 included). `update` now reads and
+  returns the row it addresses (`NotFoundError` when there is none), and
+  `updateMany` returns the count of rows it addresses.
+- **D1 runs relation filters nested deeper than its expression limit.** D1
+  compiles with an expression depth of 100, and SQLite counts nested
+  relation filters about quadratically, so a statement six `some`/`is`
+  levels deep was refused ("Expression tree is too large"). On D1 each
+  relation filter now reads its rows from a derived table, which SQLite
+  flattens back to the same plan, and a long conjunction nests as a balanced
+  tree; every other driver's SQL is unchanged.
+  Under a `rows` predicate, a level whose filter goes on below it tests the
+  predicate on its related rows in a derived table of its own, so its depth is
+  paid once and not at every level: on D1 a `parent` chain at the 15 levels
+  a filter admits runs under a three-arm read rule (depth about 5 per level
+  plus the rule's own height). Adapters: `subqueries.isolated`.
+- **`deleted: "with"` and `scope: "all"` no longer widen a `rows`
+  predicate's relation reads.** A predicate that reached its rows through a
+  relation counted a tombstoned row, or another tenant's, when the call
+  passed the wider mode.
+- **A `rows` predicate whose relations form a cycle** (a model's filter
+  through a relation back to itself, or two extensions' filters through each
+  other) threw a `RangeError` at the first read; it now terminates.
+- **A `rows` predicate object that contains itself** overflowed the stack at
+  `$extends`; it is refused there with a `ClientInitializationError` naming
+  its path. One that shares a sub-object is admitted.
+
 ## 1.2.4 — 2026-10-13
 
 Fixes from a third-party review of 1.2.2 and 1.2.3: an ambiguous retry no

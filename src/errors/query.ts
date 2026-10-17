@@ -125,6 +125,32 @@ export class NotFoundError extends VibORMError {
 }
 
 /**
+ * A policy refused the operation: the row a write would produce, or an explicit `assert`, is
+ * not permitted to the caller. Like {@link NotFoundError}, it never says whether the row was
+ * hidden or visible and not permitted, nor whether a referenced row is hidden or missing.
+ */
+export class ForbiddenError extends VibORMError {
+  static override readonly diagnosticName = "ForbiddenError";
+
+  /** Literal discriminant: this class always carries `FORBIDDEN`. */
+  declare readonly code: typeof VibORMErrorCode.FORBIDDEN;
+
+  constructor(
+    model: string,
+    operation: string,
+    options?: { meta?: VibORMErrorMeta }
+  ) {
+    super(
+      `The ${operation} on ${model} is not permitted`,
+      VibORMErrorCode.FORBIDDEN,
+      {
+        meta: { ...options?.meta, model, operation },
+      }
+    );
+  }
+}
+
+/**
  * Every code {@link NestedWriteError} can carry.
  *
  * `NESTED_WRITE_ASSERTION_FAILED` is in the union even though

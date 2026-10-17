@@ -5,6 +5,7 @@ import type { PreparedSelector, SelectorFacts } from "../shared/query";
 import { entries, type Input, record } from "../shared/schema";
 import {
   bindMembership,
+  linkJudgement,
   type Membership,
   storedFields,
 } from "../shared/storage";
@@ -24,7 +25,11 @@ import type {
   SeriesOccurrence,
   SetMutation,
 } from "./commands";
-import { MEMBERSHIP_MOVE, membershipRaceFailure } from "./commands";
+import {
+  DELETE_JUDGEMENT,
+  MEMBERSHIP_MOVE,
+  membershipRaceFailure,
+} from "./commands";
 import {
   type BoundMembership,
   junctionPairs,
@@ -307,30 +312,53 @@ export class RelationBody {
             verb === "delete"
               ? this.#commands.tombstone(edge.target)
               : undefined;
+          const queries = this.#commands.context.queries;
+          const prepared = queries.prepareSelector(
+            edge.target,
+            selector,
+            unique
+          );
           const outgoing = this.#commands.lookup(
             edge.target,
             {
               kind: "query",
               where: selector,
               unique,
-              ...(verb === "delete" || verb === "disconnect"
-                ? {
-                    selector: this.#commands.candidates(
-                      this.#commands.context.queries.prepareSelector(
-                        edge.target,
-                        selector,
-                        unique
-                      ),
-                      "related",
-                      tombstone !== undefined
-                    ),
-                  }
-                : {}),
+              selector: this.#commands.candidates(
+                prepared,
+                "related",
+                tombstone !== undefined,
+                verb === "delete" ? DELETE_JUDGEMENT : linkJudgement(edge)
+              ),
               membership: { edge, parent: parent.located!.fields },
             },
             lax ? undefined : () => missingTarget(verb, edge.name)
           );
           outgoing.origin = origin;
+          // A lax delete takes the member the slot holds: one its delete verb
+          // does not take is refused, never kept while the call succeeds
+          // (plan §5.1). The parent's own key names its member, seen or not;
+          // a member's key names it only where the call sees it, so a hidden
+          // one is an empty slot, as for a clear. The strict form's sentence:
+          // no refusal tells a hidden target from one it may not delete (§5.3).
+          // A lax disconnect is the clear's ({@link OperationContext.remove}).
+          if (
+            lax &&
+            verb === "delete" &&
+            queries.domainOf(edge.target, "related", DELETE_JUDGEMENT) !==
+              queries.domainOf(edge.target, "related")
+          )
+            outgoing.unjudged = {
+              addressed:
+                edge.kind === "reference" && edge.owner === "source"
+                  ? prepared
+                  : this.#commands.candidates(
+                      prepared,
+                      "related",
+                      tombstone !== undefined
+                    ),
+              failure: () => missingTarget(verb, edge.name),
+            };
           this.#membershipSource(edge, parent.located!.fields);
           // Initial absence and loss after observation are distinct facts
           // (ELEGANCE §6, D-32): `required` says what an empty slot means
@@ -564,12 +592,27 @@ export class RelationBody {
               createdTargets.push(addressed);
           }
           // Targets are related rows: a hidden one is not found, so a connect
-          // never links it and an upsert never updates it.
+          // never links it and an upsert never updates it. An update, or an
+          // upsert's found arm, writes the target's own data; a connect changes
+          // the target's link where the target holds it (R3).
+          const rawUpdate = record(
+            verb === "upsert" ? source.update : (source.data ?? source)
+          );
+          const judgement =
+            verb === "update" || verb === "upsert"
+              ? this.#commands.judge(
+                  edge.target,
+                  record(childUpdate),
+                  rawUpdate,
+                  verb
+                )
+              : linkJudgement(edge);
           let selectionSource: SelectionSource = {
             kind: "query",
             where: conditional.where as Input | undefined,
             selector: ownSelector,
             purpose: "related",
+            judgement,
           };
           let facts: SelectorFacts | undefined;
           if (suppliedSelector) {
@@ -577,13 +620,17 @@ export class RelationBody {
             const ownFacts = queries.selectorFacts(ownSelector);
             const supplierFacts = queries.selectorFacts(supplierSelector);
             facts = ownFacts.fields.size === 0 ? supplierFacts : ownFacts;
-            // The supplier's selector already takes related rows.
+            // The supplier's selector already takes related rows; the
+            // update it continues still takes its verb.
+            const supplied = queries.andSelectors(edge.target, [
+              supplierSelector,
+              ownSelector,
+            ]);
             selectionSource = {
               kind: "query",
-              selector: queries.andSelectors(edge.target, [
-                supplierSelector,
-                ownSelector,
-              ]),
+              selector: judgement
+                ? queries.candidates(supplied, "related", undefined, judgement)
+                : supplied,
             };
           }
           if (continuation?.kind === "producer") {
@@ -593,6 +640,7 @@ export class RelationBody {
               selector: selectionSource.selector,
               producer: continuation.producer,
               purpose: selectionSource.purpose,
+              judgement: selectionSource.judgement,
             };
             continuation.producer.select(
               storedFields(this.#commands.context.schema, edge.target)
@@ -644,6 +692,7 @@ export class RelationBody {
                 selector: selectionSource.selector,
                 membership,
                 purpose: selectionSource.purpose,
+                judgement: selectionSource.judgement,
               };
           }
           const lookup = this.#commands.lookup(
@@ -721,11 +770,7 @@ export class RelationBody {
                     this.#commands.update(
                       lookup,
                       record(childUpdate),
-                      record(
-                        verb === "upsert"
-                          ? source.update
-                          : (source.data ?? source)
-                      ),
+                      rawUpdate,
                       true,
                       verb === "upsert" ? "upsert" : "update"
                     ),
@@ -791,7 +836,14 @@ export class RelationBody {
           const selector = this.#commands.candidates(
             context.queries.prepareSelector(edge.target, where),
             "related",
-            tombstone !== undefined
+            tombstone !== undefined,
+            verb === "deleteMany"
+              ? DELETE_JUDGEMENT
+              : this.#commands.judge(
+                  edge.target,
+                  record(input.data),
+                  record(rawMembers[index]!.data)
+                )
           );
           const data = tombstone ? tombstone.admitted : record(input.data);
           if (
@@ -952,6 +1004,7 @@ export class RelationBody {
           where,
           unique: nestedTargetAddressesConstraint(edge, "set"),
           purpose: "related",
+          judgement: linkJudgement(edge),
         },
         () => missingTarget("set", edge.name, false)
       );

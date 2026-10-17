@@ -1,6 +1,7 @@
 import { batchMayContainAssertionCollision } from "@drivers/error-mapping";
 import type { AnyDriver, QueryExecutionContext } from "@drivers/exports";
 import {
+  ForbiddenError,
   ForeignKeyError,
   NESTED_WRITE_ASSERTION_FLOOR_MESSAGE,
   NestedWriteAssertionError,
@@ -37,6 +38,9 @@ export function createFailureError(
   }
   if (failure.kind === "notFound") {
     return new NotFoundError(model, operation);
+  }
+  if (failure.kind === "forbidden") {
+    return new ForbiddenError(model, operation);
   }
   const error = new TransactionError(failure.message, {
     meta: { model, operation },

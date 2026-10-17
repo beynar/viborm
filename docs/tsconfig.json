@@ -4,6 +4,7 @@
     "module": "ESNext",
     "moduleResolution": "Bundler"
   },
+  "exclude": ["architecture/raptor3-evidence/**", "node_modules", "dist"],
   "include": [
     ".blume/.astro/types.d.ts",
     ".blume/src/env.d.ts",

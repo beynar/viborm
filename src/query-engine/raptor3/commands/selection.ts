@@ -4,7 +4,7 @@ import type {
   PreparedSelector,
   SelectorFacts,
 } from "../shared/query";
-import type { RowPurpose } from "../shared/row-scope";
+import type { RowJudgement, RowPurpose } from "../shared/row-scope";
 import type { Input } from "../shared/schema";
 import type { Membership } from "../shared/storage";
 import { storedFields } from "../shared/storage";
@@ -50,6 +50,8 @@ export type SelectionSource =
        * the lookup is a premise or physical and takes its selector as handed.
        */
       readonly purpose?: RowPurpose;
+      /** Beside `purpose`, the verb a write's lookup is judged at (R3). */
+      readonly judgement?: RowJudgement;
     }
   | {
       readonly kind: "producer";
@@ -58,6 +60,7 @@ export type SelectionSource =
       readonly selector?: PreparedSelector;
       readonly producer: Assignments;
       readonly purpose?: RowPurpose;
+      readonly judgement?: RowJudgement;
     };
 
 /**
@@ -175,10 +178,26 @@ export class Selection {
    * unlocked probe is the answer the other two routes already give.
    */
   insertsWhenAbsent?: boolean;
+  /**
+   * A LAX lookup judged at its verb (R3) answers "nothing" for an empty slot
+   * and for a member the verb may not take alike; only the first is a no-op.
+   * `addressed` is what the lookup takes before the verb's judgement, and
+   * `failure` refuses a member there outside its candidates
+   * ({@link outsideVerb}), so the call never succeeds keeping it.
+   */
+  unjudged?: {
+    readonly addressed: PreparedSelector;
+    readonly failure: DeferredFailure;
+  };
 
   private readonly execution: CommandExecution;
   readonly model: AnyModel;
   readonly source: SelectionSource;
+  /**
+   * The verb a write of the row this selection locates is judged at (R3),
+   * and so the row it produces (R4); `undefined` where nothing judges it.
+   */
+  readonly judgement: RowJudgement | undefined;
   readonly required: DeferredFailure | undefined;
 
   constructor(
@@ -200,21 +219,35 @@ export class Selection {
     this.selector =
       source.purpose === undefined
         ? selector
-        : queries.candidates(selector, source.purpose);
+        : queries.candidates(
+            selector,
+            source.purpose,
+            undefined,
+            source.judgement
+          );
+    this.judgement = source.judgement ?? this.selector.judgement;
     this.facts = facts ?? queries.selectorFacts(this.selector);
-    this.#rowProjection = queries.prepareProjection(model, {
-      select: Object.fromEntries(
-        storedFields(execution.context.schema, model).map((field) => [
-          field,
-          true,
-        ])
-      ),
-    });
-    this.#identityProjection = queries.prepareProjection(model, {
-      select: Object.fromEntries(
-        execution.context.schema.keys(model).map((field) => [field, true])
-      ),
-    });
+    this.#rowProjection = queries.prepareProjection(
+      model,
+      {
+        select: Object.fromEntries(
+          storedFields(execution.context.schema, model).map((field) => [
+            field,
+            true,
+          ])
+        ),
+      },
+      true
+    );
+    this.#identityProjection = queries.prepareProjection(
+      model,
+      {
+        select: Object.fromEntries(
+          execution.context.schema.keys(model).map((field) => [field, true])
+        ),
+      },
+      true
+    );
   }
   membership() {
     return this.source.kind === "query" ? this.source.membership : undefined;
@@ -326,6 +359,19 @@ export class Selection {
       { take: 1 },
       bound && { ...bound, outside: true },
       { projection: this.#identityProjection, selector: this.selector }
+    );
+  }
+  /** A member of this lookup's slot it addresses and its verb may not take. */
+  outsideVerb() {
+    return this.execution.context.queries.select(
+      this.model,
+      { take: 1 },
+      this.#bindMembership(this.membership()),
+      {
+        projection: this.#identityProjection,
+        selector: this.unjudged!.addressed,
+        unless: this.selector,
+      }
     );
   }
   query() {

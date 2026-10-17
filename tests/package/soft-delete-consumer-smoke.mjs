@@ -108,10 +108,10 @@ const cutoff = day("2026-06-01");
 const ids = (rows: readonly { id: string }[]) => rows.map((row) => row.id);
 
 // §1.1's use block.
-const db = softDelete({
+const db = base.$extends(softDelete({
   models: { post: { deletedAt: "deletedAt", deletedBy: "deletedById" } },
   actor: session.userId,
-})(base);
+}));
 const users = await db.user.findMany({ include: { posts: { orderBy: { id: "asc" } } } });
 assert.deepEqual(ids(users[0]?.posts ?? []), ["p1", "p2"]);
 const bin = await db.post.findMany({ deleted: "only", orderBy: { id: "asc" } });

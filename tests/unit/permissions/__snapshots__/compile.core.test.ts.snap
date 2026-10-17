@@ -1,0 +1,2357 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`the acceptance policy (§1.1) > its predicates for the identity models, as data 1`] = `
+{
+  "member": {
+    "delete": "update",
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "read",
+        "update",
+        "full",
+        "create",
+      ],
+    },
+    "modes": {
+      "create": "create",
+      "full": "full",
+      "read": "read",
+      "update": "update",
+    },
+    "moves": {
+      "organizationId": "move:organizationId",
+      "userId": "move:userId",
+    },
+    "place": "$create",
+    "predicates": {
+      "$create": {
+        "AND": [
+          {
+            "organization": {
+              "is": {
+                "members": {
+                  "some": {
+                    "role": {
+                      "in": [
+                        "member",
+                        "admin",
+                      ],
+                    },
+                    "user": {
+                      "is": {
+                        "AND": [
+                          {
+                            "OR": [
+                              {
+                                "banned": null,
+                              },
+                              {
+                                "banned": false,
+                              },
+                              {
+                                "banExpires": {
+                                  "lte": {
+                                    "now": true,
+                                  },
+                                },
+                              },
+                            ],
+                          },
+                          {
+                            "OR": [
+                              {
+                                "$if": {
+                                  "control": "actor",
+                                  "exists": true,
+                                  "path": "session",
+                                },
+                                "sessions": {
+                                  "some": {
+                                    "expiresAt": {
+                                      "gt": {
+                                        "now": true,
+                                      },
+                                    },
+                                    "id": {
+                                      "control": "actor",
+                                      "path": "session",
+                                    },
+                                  },
+                                },
+                              },
+                              {
+                                "$if": {
+                                  "control": "actor",
+                                  "exists": true,
+                                  "path": "key",
+                                },
+                                "apiKeys": {
+                                  "some": {
+                                    "AND": [
+                                      {
+                                        "enabled": true,
+                                        "id": {
+                                          "control": "actor",
+                                          "path": "key.id",
+                                        },
+                                      },
+                                      {
+                                        "OR": [
+                                          {
+                                            "expiresAt": null,
+                                          },
+                                          {
+                                            "expiresAt": {
+                                              "gt": {
+                                                "now": true,
+                                              },
+                                            },
+                                          },
+                                        ],
+                                      },
+                                    ],
+                                  },
+                                },
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                    },
+                    "userId": {
+                      "control": "actor",
+                      "path": "userId",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          {
+            "OR": [
+              {
+                "$if": {
+                  "control": "actor",
+                  "exists": false,
+                  "path": "key",
+                },
+              },
+              {
+                "$if": {
+                  "control": "actor",
+                  "hasSome": [
+                    "create",
+                  ],
+                  "path": "key.scopes.member",
+                },
+              },
+            ],
+          },
+          {
+            "organization": {
+              "is": {
+                "AND": [
+                  {
+                    "OR": [
+                      {
+                        "$if": {
+                          "control": "actor",
+                          "exists": false,
+                          "path": "key",
+                        },
+                      },
+                      {
+                        "$if": {
+                          "control": "actor",
+                          "hasSome": [
+                            "invite",
+                          ],
+                          "path": "key.scopes.organization",
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    "members": {
+                      "some": {
+                        "role": {
+                          "in": [
+                            "admin",
+                          ],
+                        },
+                        "userId": {
+                          "control": "actor",
+                          "path": "userId",
+                        },
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+          {
+            "OR": [
+              {
+                "$if": {
+                  "control": "scopes",
+                  "equals": true,
+                  "path": "unrestricted",
+                },
+              },
+              {
+                "$if": {
+                  "control": "scopes",
+                  "has": "member.create",
+                  "path": "allowed",
+                },
+              },
+            ],
+          },
+          {
+            "user": {
+              "is": {
+                "AND": [
+                  {
+                    "OR": [
+                      {
+                        "$if": {
+                          "control": "actor",
+                          "exists": false,
+                          "path": "key",
+                        },
+                      },
+                      {
+                        "$if": {
+                          "control": "actor",
+                          "hasSome": [
+                            "read",
+                            "update",
+                            "full",
+                          ],
+                          "path": "key.scopes.user",
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    "members": {
+                      "some": {
+                        "organizationId": {
+                          "control": "actor",
+                          "path": "organizationId",
+                        },
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        ],
+      },
+      "create": {
+        "AND": [
+          {
+            "organization": {
+              "is": {
+                "members": {
+                  "some": {
+                    "user": {
+                      "is": {
+                        "AND": [
+                          {
+                            "OR": [
+                              {
+                                "banned": null,
+                              },
+                              {
+                                "banned": false,
+                              },
+                              {
+                                "banExpires": {
+                                  "lte": {
+                                    "now": true,
+                                  },
+                                },
+                              },
+                            ],
+                          },
+                          {
+                            "OR": [
+                              {
+                                "$if": {
+                                  "control": "actor",
+                                  "exists": true,
+                                  "path": "session",
+                                },
+                                "sessions": {
+                                  "some": {
+                                    "expiresAt": {
+                                      "gt": {
+                                        "now": true,
+                                      },
+                                    },
+                                    "id": {
+                                      "control": "actor",
+                                      "path": "session",
+                                    },
+                                  },
+                                },
+                              },
+                              {
+                                "$if": {
+                                  "control": "actor",
+                                  "exists": true,
+                                  "path": "key",
+                                },
+                                "apiKeys": {
+                                  "some": {
+                                    "AND": [
+                                      {
+                                        "enabled": true,
+                                        "id": {
+                                          "control": "actor",
+                                          "path": "key.id",
+                                        },
+                                      },
+                                      {
+                                        "OR": [
+                                          {
+                                            "expiresAt": null,
+                                          },
+                                          {
+                                            "expiresAt": {
+                                              "gt": {
+                                                "now": true,
+                                              },
+                                            },
+                                          },
+                                        ],
+                                      },
+                                    ],
+                                  },
+                                },
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                    },
+                    "userId": {
+                      "control": "actor",
+                      "path": "userId",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          {
+            "organization": {
+              "is": {
+                "members": {
+                  "some": {
+                    "role": {
+                      "in": [
+                        "member",
+                        "admin",
+                      ],
+                    },
+                    "user": {
+                      "is": {
+                        "AND": [
+                          {
+                            "OR": [
+                              {
+                                "banned": null,
+                              },
+                              {
+                                "banned": false,
+                              },
+                              {
+                                "banExpires": {
+                                  "lte": {
+                                    "now": true,
+                                  },
+                                },
+                              },
+                            ],
+                          },
+                          {
+                            "OR": [
+                              {
+                                "$if": {
+                                  "control": "actor",
+                                  "exists": true,
+                                  "path": "session",
+                                },
+                                "sessions": {
+                                  "some": {
+                                    "expiresAt": {
+                                      "gt": {
+                                        "now": true,
+                                      },
+                                    },
+                                    "id": {
+                                      "control": "actor",
+                                      "path": "session",
+                                    },
+                                  },
+                                },
+                              },
+                              {
+                                "$if": {
+                                  "control": "actor",
+                                  "exists": true,
+                                  "path": "key",
+                                },
+                                "apiKeys": {
+                                  "some": {
+                                    "AND": [
+                                      {
+                                        "enabled": true,
+                                        "id": {
+                                          "control": "actor",
+                                          "path": "key.id",
+                                        },
+                                      },
+                                      {
+                                        "OR": [
+                                          {
+                                            "expiresAt": null,
+                                          },
+                                          {
+                                            "expiresAt": {
+                                              "gt": {
+                                                "now": true,
+                                              },
+                                            },
+                                          },
+                                        ],
+                                      },
+                                    ],
+                                  },
+                                },
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                    },
+                    "userId": {
+                      "control": "actor",
+                      "path": "userId",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          {
+            "OR": [
+              {
+                "$if": {
+                  "control": "actor",
+                  "exists": false,
+                  "path": "key",
+                },
+              },
+              {
+                "$if": {
+                  "control": "actor",
+                  "hasSome": [
+                    "create",
+                  ],
+                  "path": "key.scopes.member",
+                },
+              },
+            ],
+          },
+          {
+            "organization": {
+              "is": {
+                "AND": [
+                  {
+                    "OR": [
+                      {
+                        "$if": {
+                          "control": "actor",
+                          "exists": false,
+                          "path": "key",
+                        },
+                      },
+                      {
+                        "$if": {
+                          "control": "actor",
+                          "hasSome": [
+                            "invite",
+                          ],
+                          "path": "key.scopes.organization",
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    "members": {
+                      "some": {
+                        "role": {
+                          "in": [
+                            "admin",
+                          ],
+                        },
+                        "userId": {
+                          "control": "actor",
+                          "path": "userId",
+                        },
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+          {
+            "OR": [
+              {
+                "$if": {
+                  "control": "scopes",
+                  "equals": true,
+                  "path": "unrestricted",
+                },
+              },
+              {
+                "$if": {
+                  "control": "scopes",
+                  "has": "member.create",
+                  "path": "allowed",
+                },
+              },
+            ],
+          },
+        ],
+      },
+      "full": {
+        "OR": [],
+      },
+      "move:organizationId": {
+        "AND": [
+          {
+            "OR": [
+              {
+                "$if": {
+                  "control": "actor",
+                  "exists": false,
+                  "path": "key",
+                },
+              },
+              {
+                "$if": {
+                  "control": "actor",
+                  "hasSome": [
+                    "create",
+                  ],
+                  "path": "key.scopes.member",
+                },
+              },
+            ],
+          },
+          {
+            "organization": {
+              "is": {
+                "AND": [
+                  {
+                    "OR": [
+                      {
+                        "$if": {
+                          "control": "actor",
+                          "exists": false,
+                          "path": "key",
+                        },
+                      },
+                      {
+                        "$if": {
+                          "control": "actor",
+                          "hasSome": [
+                            "invite",
+                          ],
+                          "path": "key.scopes.organization",
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    "members": {
+                      "some": {
+                        "role": {
+                          "in": [
+                            "admin",
+                          ],
+                        },
+                        "userId": {
+                          "control": "actor",
+                          "path": "userId",
+                        },
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        ],
+      },
+      "move:userId": {
+        "user": {
+          "is": {
+            "AND": [
+              {
+                "OR": [
+                  {
+                    "$if": {
+                      "control": "actor",
+                      "exists": false,
+                      "path": "key",
+                    },
+                  },
+                  {
+                    "$if": {
+                      "control": "actor",
+                      "hasSome": [
+                        "read",
+                        "update",
+                        "full",
+                      ],
+                      "path": "key.scopes.user",
+                    },
+                  },
+                ],
+              },
+              {
+                "members": {
+                  "some": {
+                    "organizationId": {
+                      "control": "actor",
+                      "path": "organizationId",
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        },
+      },
+      "read": {
+        "AND": [
+          {
+            "organization": {
+              "is": {
+                "members": {
+                  "some": {
+                    "user": {
+                      "is": {
+                        "AND": [
+                          {
+                            "OR": [
+                              {
+                                "banned": null,
+                              },
+                              {
+                                "banned": false,
+                              },
+                              {
+                                "banExpires": {
+                                  "lte": {
+                                    "now": true,
+                                  },
+                                },
+                              },
+                            ],
+                          },
+                          {
+                            "OR": [
+                              {
+                                "$if": {
+                                  "control": "actor",
+                                  "exists": true,
+                                  "path": "session",
+                                },
+                                "sessions": {
+                                  "some": {
+                                    "expiresAt": {
+                                      "gt": {
+                                        "now": true,
+                                      },
+                                    },
+                                    "id": {
+                                      "control": "actor",
+                                      "path": "session",
+                                    },
+                                  },
+                                },
+                              },
+                              {
+                                "$if": {
+                                  "control": "actor",
+                                  "exists": true,
+                                  "path": "key",
+                                },
+                                "apiKeys": {
+                                  "some": {
+                                    "AND": [
+                                      {
+                                        "enabled": true,
+                                        "id": {
+                                          "control": "actor",
+                                          "path": "key.id",
+                                        },
+                                      },
+                                      {
+                                        "OR": [
+                                          {
+                                            "expiresAt": null,
+                                          },
+                                          {
+                                            "expiresAt": {
+                                              "gt": {
+                                                "now": true,
+                                              },
+                                            },
+                                          },
+                                        ],
+                                      },
+                                    ],
+                                  },
+                                },
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                    },
+                    "userId": {
+                      "control": "actor",
+                      "path": "userId",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          {
+            "organization": {
+              "is": {
+                "members": {
+                  "some": {
+                    "role": {
+                      "in": [
+                        "reader",
+                        "member",
+                        "admin",
+                      ],
+                    },
+                    "user": {
+                      "is": {
+                        "AND": [
+                          {
+                            "OR": [
+                              {
+                                "banned": null,
+                              },
+                              {
+                                "banned": false,
+                              },
+                              {
+                                "banExpires": {
+                                  "lte": {
+                                    "now": true,
+                                  },
+                                },
+                              },
+                            ],
+                          },
+                          {
+                            "OR": [
+                              {
+                                "$if": {
+                                  "control": "actor",
+                                  "exists": true,
+                                  "path": "session",
+                                },
+                                "sessions": {
+                                  "some": {
+                                    "expiresAt": {
+                                      "gt": {
+                                        "now": true,
+                                      },
+                                    },
+                                    "id": {
+                                      "control": "actor",
+                                      "path": "session",
+                                    },
+                                  },
+                                },
+                              },
+                              {
+                                "$if": {
+                                  "control": "actor",
+                                  "exists": true,
+                                  "path": "key",
+                                },
+                                "apiKeys": {
+                                  "some": {
+                                    "AND": [
+                                      {
+                                        "enabled": true,
+                                        "id": {
+                                          "control": "actor",
+                                          "path": "key.id",
+                                        },
+                                      },
+                                      {
+                                        "OR": [
+                                          {
+                                            "expiresAt": null,
+                                          },
+                                          {
+                                            "expiresAt": {
+                                              "gt": {
+                                                "now": true,
+                                              },
+                                            },
+                                          },
+                                        ],
+                                      },
+                                    ],
+                                  },
+                                },
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                    },
+                    "userId": {
+                      "control": "actor",
+                      "path": "userId",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          {
+            "OR": [
+              {
+                "$if": {
+                  "control": "actor",
+                  "exists": false,
+                  "path": "key",
+                },
+              },
+              {
+                "$if": {
+                  "control": "actor",
+                  "hasSome": [
+                    "read",
+                    "update",
+                    "full",
+                  ],
+                  "path": "key.scopes.member",
+                },
+              },
+            ],
+          },
+          {
+            "OR": [
+              {
+                "$if": {
+                  "control": "scopes",
+                  "equals": true,
+                  "path": "unrestricted",
+                },
+              },
+              {
+                "$if": {
+                  "control": "scopes",
+                  "has": "member.read",
+                  "path": "allowed",
+                },
+              },
+            ],
+          },
+        ],
+      },
+      "update": {
+        "AND": [
+          {
+            "organization": {
+              "is": {
+                "members": {
+                  "some": {
+                    "user": {
+                      "is": {
+                        "AND": [
+                          {
+                            "OR": [
+                              {
+                                "banned": null,
+                              },
+                              {
+                                "banned": false,
+                              },
+                              {
+                                "banExpires": {
+                                  "lte": {
+                                    "now": true,
+                                  },
+                                },
+                              },
+                            ],
+                          },
+                          {
+                            "OR": [
+                              {
+                                "$if": {
+                                  "control": "actor",
+                                  "exists": true,
+                                  "path": "session",
+                                },
+                                "sessions": {
+                                  "some": {
+                                    "expiresAt": {
+                                      "gt": {
+                                        "now": true,
+                                      },
+                                    },
+                                    "id": {
+                                      "control": "actor",
+                                      "path": "session",
+                                    },
+                                  },
+                                },
+                              },
+                              {
+                                "$if": {
+                                  "control": "actor",
+                                  "exists": true,
+                                  "path": "key",
+                                },
+                                "apiKeys": {
+                                  "some": {
+                                    "AND": [
+                                      {
+                                        "enabled": true,
+                                        "id": {
+                                          "control": "actor",
+                                          "path": "key.id",
+                                        },
+                                      },
+                                      {
+                                        "OR": [
+                                          {
+                                            "expiresAt": null,
+                                          },
+                                          {
+                                            "expiresAt": {
+                                              "gt": {
+                                                "now": true,
+                                              },
+                                            },
+                                          },
+                                        ],
+                                      },
+                                    ],
+                                  },
+                                },
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                    },
+                    "userId": {
+                      "control": "actor",
+                      "path": "userId",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          {
+            "organization": {
+              "is": {
+                "members": {
+                  "some": {
+                    "role": {
+                      "in": [
+                        "member",
+                        "admin",
+                      ],
+                    },
+                    "user": {
+                      "is": {
+                        "AND": [
+                          {
+                            "OR": [
+                              {
+                                "banned": null,
+                              },
+                              {
+                                "banned": false,
+                              },
+                              {
+                                "banExpires": {
+                                  "lte": {
+                                    "now": true,
+                                  },
+                                },
+                              },
+                            ],
+                          },
+                          {
+                            "OR": [
+                              {
+                                "$if": {
+                                  "control": "actor",
+                                  "exists": true,
+                                  "path": "session",
+                                },
+                                "sessions": {
+                                  "some": {
+                                    "expiresAt": {
+                                      "gt": {
+                                        "now": true,
+                                      },
+                                    },
+                                    "id": {
+                                      "control": "actor",
+                                      "path": "session",
+                                    },
+                                  },
+                                },
+                              },
+                              {
+                                "$if": {
+                                  "control": "actor",
+                                  "exists": true,
+                                  "path": "key",
+                                },
+                                "apiKeys": {
+                                  "some": {
+                                    "AND": [
+                                      {
+                                        "enabled": true,
+                                        "id": {
+                                          "control": "actor",
+                                          "path": "key.id",
+                                        },
+                                      },
+                                      {
+                                        "OR": [
+                                          {
+                                            "expiresAt": null,
+                                          },
+                                          {
+                                            "expiresAt": {
+                                              "gt": {
+                                                "now": true,
+                                              },
+                                            },
+                                          },
+                                        ],
+                                      },
+                                    ],
+                                  },
+                                },
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                    },
+                    "userId": {
+                      "control": "actor",
+                      "path": "userId",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          {
+            "OR": [
+              {
+                "$if": {
+                  "control": "actor",
+                  "exists": false,
+                  "path": "key",
+                },
+              },
+              {
+                "$if": {
+                  "control": "actor",
+                  "hasSome": [
+                    "update",
+                    "full",
+                  ],
+                  "path": "key.scopes.member",
+                },
+              },
+            ],
+          },
+          {
+            "organization": {
+              "is": {
+                "members": {
+                  "some": {
+                    "role": {
+                      "in": [
+                        "admin",
+                      ],
+                    },
+                    "userId": {
+                      "control": "actor",
+                      "path": "userId",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          {
+            "OR": [
+              {
+                "$if": {
+                  "control": "scopes",
+                  "equals": true,
+                  "path": "unrestricted",
+                },
+              },
+              {
+                "$if": {
+                  "control": "scopes",
+                  "has": "member.update",
+                  "path": "allowed",
+                },
+              },
+            ],
+          },
+        ],
+      },
+    },
+    "read": "read",
+    "reads": {},
+    "update": "update",
+    "writes": {},
+  },
+  "organization": {
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "read",
+        "update",
+        "full",
+        "invite",
+        "export",
+      ],
+    },
+    "modes": {
+      "export": "export",
+      "full": "full",
+      "invite": "invite",
+      "read": "read",
+      "update": "update",
+    },
+    "moves": {},
+    "place": "$create",
+    "predicates": {
+      "$create": {
+        "OR": [],
+      },
+      "export": {
+        "AND": [
+          {
+            "OR": [
+              {
+                "$if": {
+                  "control": "actor",
+                  "exists": false,
+                  "path": "key",
+                },
+              },
+              {
+                "$if": {
+                  "control": "actor",
+                  "hasSome": [
+                    "export",
+                  ],
+                  "path": "key.scopes.organization",
+                },
+              },
+            ],
+          },
+          {
+            "members": {
+              "some": {
+                "role": {
+                  "in": [
+                    "admin",
+                  ],
+                },
+                "userId": {
+                  "control": "actor",
+                  "path": "userId",
+                },
+              },
+            },
+          },
+          {
+            "plan": "pro",
+          },
+          {
+            "$if": {
+              "control": "actor",
+              "equals": "office",
+              "path": "network",
+            },
+          },
+          {
+            "OR": [
+              {
+                "$if": {
+                  "control": "scopes",
+                  "equals": true,
+                  "path": "unrestricted",
+                },
+              },
+              {
+                "$if": {
+                  "control": "scopes",
+                  "has": "organization.export",
+                  "path": "allowed",
+                },
+              },
+            ],
+          },
+        ],
+      },
+      "full": {
+        "OR": [],
+      },
+      "invite": {
+        "AND": [
+          {
+            "OR": [
+              {
+                "$if": {
+                  "control": "actor",
+                  "exists": false,
+                  "path": "key",
+                },
+              },
+              {
+                "$if": {
+                  "control": "actor",
+                  "hasSome": [
+                    "invite",
+                  ],
+                  "path": "key.scopes.organization",
+                },
+              },
+            ],
+          },
+          {
+            "members": {
+              "some": {
+                "role": {
+                  "in": [
+                    "admin",
+                  ],
+                },
+                "userId": {
+                  "control": "actor",
+                  "path": "userId",
+                },
+              },
+            },
+          },
+          {
+            "OR": [
+              {
+                "$if": {
+                  "control": "scopes",
+                  "equals": true,
+                  "path": "unrestricted",
+                },
+              },
+              {
+                "$if": {
+                  "control": "scopes",
+                  "has": "organization.invite",
+                  "path": "allowed",
+                },
+              },
+            ],
+          },
+        ],
+      },
+      "read": {
+        "AND": [
+          {
+            "OR": [
+              {
+                "$if": {
+                  "control": "actor",
+                  "exists": false,
+                  "path": "key",
+                },
+              },
+              {
+                "$if": {
+                  "control": "actor",
+                  "hasSome": [
+                    "read",
+                    "update",
+                    "full",
+                    "invite",
+                    "export",
+                  ],
+                  "path": "key.scopes.organization",
+                },
+              },
+            ],
+          },
+          {
+            "members": {
+              "some": {
+                "userId": {
+                  "control": "actor",
+                  "path": "userId",
+                },
+              },
+            },
+          },
+          {
+            "OR": [
+              {
+                "$if": {
+                  "control": "scopes",
+                  "equals": true,
+                  "path": "unrestricted",
+                },
+              },
+              {
+                "$if": {
+                  "control": "scopes",
+                  "has": "organization.read",
+                  "path": "allowed",
+                },
+              },
+            ],
+          },
+        ],
+      },
+      "update": {
+        "OR": [],
+      },
+    },
+    "read": "read",
+    "reads": {},
+    "update": "update",
+    "writes": {},
+  },
+  "user": {
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "read",
+        "update",
+        "full",
+      ],
+    },
+    "modes": {
+      "full": "full",
+      "read": "read",
+      "update": "update",
+    },
+    "moves": {},
+    "place": "$create",
+    "predicates": {
+      "$create": {
+        "OR": [],
+      },
+      "full": {
+        "OR": [],
+      },
+      "read": {
+        "AND": [
+          {
+            "OR": [
+              {
+                "$if": {
+                  "control": "actor",
+                  "exists": false,
+                  "path": "key",
+                },
+              },
+              {
+                "$if": {
+                  "control": "actor",
+                  "hasSome": [
+                    "read",
+                    "update",
+                    "full",
+                  ],
+                  "path": "key.scopes.user",
+                },
+              },
+            ],
+          },
+          {
+            "members": {
+              "some": {
+                "organizationId": {
+                  "control": "actor",
+                  "path": "organizationId",
+                },
+              },
+            },
+          },
+          {
+            "OR": [
+              {
+                "$if": {
+                  "control": "scopes",
+                  "equals": true,
+                  "path": "unrestricted",
+                },
+              },
+              {
+                "$if": {
+                  "control": "scopes",
+                  "has": "user.read",
+                  "path": "allowed",
+                },
+              },
+            ],
+          },
+        ],
+      },
+      "update": {
+        "OR": [],
+      },
+    },
+    "read": "read",
+    "reads": {},
+    "update": "update",
+    "writes": {},
+  },
+}
+`;
+
+exports[`the acceptance policy (§1.1) > its verbs, written and read fields, modes and placement 1`] = `
+{
+  "accessGrant": {
+    "delete": "update",
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "read",
+        "update",
+        "full",
+        "create",
+      ],
+    },
+    "modes": {
+      "create": "create",
+      "full": "full",
+      "read": "read",
+      "update": "update",
+    },
+    "moves": {
+      "actions": "move:actions",
+      "collectionId": "move:collectionId",
+      "documentId": "move:documentId",
+      "grantedBy": "move:grantedBy",
+      "granteeTeamId": "move:granteeTeamId",
+      "groupId": "move:groupId",
+      "level": "move:level",
+      "organizationId": "move:organizationId",
+      "pageId": "move:pageId",
+      "userId": "move:userId",
+    },
+    "place": "$create",
+    "predicates": [
+      "read",
+      "update",
+      "full",
+      "create",
+      "$create",
+      "move:pageId",
+      "move:groupId",
+      "move:documentId",
+      "move:collectionId",
+      "move:actions",
+      "move:level",
+      "move:organizationId",
+      "move:userId",
+      "move:granteeTeamId",
+      "move:grantedBy",
+    ],
+    "read": "read",
+    "reads": {},
+    "update": "update",
+    "writes": {},
+  },
+  "apiKey": {
+    "modes": {},
+    "moves": {},
+    "place": "$create",
+    "predicates": [
+      "$create",
+    ],
+    "reads": {},
+    "writes": {},
+  },
+  "bookmark": {
+    "delete": "full",
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "read",
+        "update",
+        "full",
+      ],
+    },
+    "modes": {
+      "full": "full",
+      "read": "read",
+      "update": "update",
+    },
+    "moves": {
+      "organizationId": "move:organizationId",
+      "userId": "move:userId",
+    },
+    "place": "$create",
+    "predicates": [
+      "read",
+      "update",
+      "full",
+      "$create",
+      "move:organizationId",
+      "move:userId",
+    ],
+    "read": "read",
+    "reads": {},
+    "update": "update",
+    "writes": {},
+  },
+  "collection": {
+    "delete": "full",
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "read",
+        "update",
+        "full",
+        "create",
+      ],
+    },
+    "modes": {
+      "create": "create",
+      "full": "full",
+      "read": "read",
+      "update": "update",
+    },
+    "moves": {
+      "createdById": "move:createdById",
+      "organizationId": "move:organizationId",
+      "ownerId": "move:ownerId",
+    },
+    "place": "$create",
+    "predicates": [
+      "read",
+      "update",
+      "full",
+      "create",
+      "$create",
+      "move:organizationId",
+      "move:createdById",
+      "move:ownerId",
+    ],
+    "read": "read",
+    "reads": {
+      "budget": "full",
+    },
+    "update": "update",
+    "writes": {},
+  },
+  "document": {
+    "acyclic": [
+      "parent",
+    ],
+    "delete": "share",
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "read",
+        "create",
+        "comment",
+        "archive",
+        "update",
+        "share",
+        "export",
+      ],
+    },
+    "modes": {
+      "archive": "archive",
+      "comment": "comment",
+      "create": "create",
+      "export": "export",
+      "read": "read",
+      "share": "share",
+      "update": "update",
+    },
+    "moves": {
+      "id": "move:id",
+      "organizationId": "move:organizationId",
+      "ownerId": "move:ownerId",
+      "parentId": "move:parentId",
+    },
+    "place": "$create",
+    "predicates": [
+      "read",
+      "create",
+      "comment",
+      "archive",
+      "update",
+      "share",
+      "export",
+      "$write:ownerId",
+      "$write:archivedAt",
+      "$create",
+      "move:organizationId",
+      "move:parentId",
+      "move:id",
+      "move:ownerId",
+    ],
+    "read": "read",
+    "reads": {},
+    "update": "update",
+    "writes": {
+      "archivedAt": "$write:archivedAt",
+      "ownerId": "$write:ownerId",
+    },
+  },
+  "member": {
+    "delete": "update",
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "read",
+        "update",
+        "full",
+        "create",
+      ],
+    },
+    "modes": {
+      "create": "create",
+      "full": "full",
+      "read": "read",
+      "update": "update",
+    },
+    "moves": {
+      "organizationId": "move:organizationId",
+      "userId": "move:userId",
+    },
+    "place": "$create",
+    "predicates": [
+      "read",
+      "update",
+      "full",
+      "create",
+      "$create",
+      "move:organizationId",
+      "move:userId",
+    ],
+    "read": "read",
+    "reads": {},
+    "update": "update",
+    "writes": {},
+  },
+  "organization": {
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "read",
+        "update",
+        "full",
+        "invite",
+        "export",
+      ],
+    },
+    "modes": {
+      "export": "export",
+      "full": "full",
+      "invite": "invite",
+      "read": "read",
+      "update": "update",
+    },
+    "moves": {},
+    "place": "$create",
+    "predicates": [
+      "read",
+      "update",
+      "full",
+      "invite",
+      "export",
+      "$create",
+    ],
+    "read": "read",
+    "reads": {},
+    "update": "update",
+    "writes": {},
+  },
+  "page": {
+    "delete": "full",
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "read",
+        "update",
+        "full",
+        "create",
+      ],
+    },
+    "modes": {
+      "create": "create",
+      "full": "full",
+      "given": "given",
+      "read": "read",
+      "update": "update",
+    },
+    "moves": {
+      "groupId": "move:groupId",
+      "organizationId": "move:organizationId",
+      "ownerId": "move:ownerId",
+      "personal": "move:personal",
+    },
+    "place": "$create",
+    "predicates": [
+      "read",
+      "update",
+      "full",
+      "create",
+      "$write:ownerId",
+      "$create",
+      "move:organizationId",
+      "move:groupId",
+      "move:personal",
+      "move:ownerId",
+      "given",
+    ],
+    "read": "read",
+    "reads": {},
+    "update": "update",
+    "writes": {
+      "ownerId": "$write:ownerId",
+    },
+  },
+  "pageGroup": {
+    "delete": "full",
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "read",
+        "update",
+        "full",
+      ],
+    },
+    "modes": {
+      "full": "full",
+      "read": "read",
+      "update": "update",
+    },
+    "moves": {
+      "createdById": "move:createdById",
+      "organizationId": "move:organizationId",
+    },
+    "place": "$create",
+    "predicates": [
+      "read",
+      "update",
+      "full",
+      "$create",
+      "move:organizationId",
+      "move:createdById",
+    ],
+    "read": "read",
+    "reads": {},
+    "update": "update",
+    "writes": {},
+  },
+  "rolePermission": {
+    "modes": {},
+    "moves": {},
+    "place": "$create",
+    "predicates": [
+      "$create",
+    ],
+    "reads": {},
+    "writes": {},
+  },
+  "session": {
+    "modes": {},
+    "moves": {},
+    "place": "$create",
+    "predicates": [
+      "$create",
+    ],
+    "reads": {},
+    "writes": {},
+  },
+  "team": {
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "read",
+        "update",
+        "full",
+        "invite",
+      ],
+    },
+    "modes": {
+      "full": "full",
+      "invite": "invite",
+      "read": "read",
+      "update": "update",
+    },
+    "moves": {
+      "organizationId": "move:organizationId",
+    },
+    "place": "$create",
+    "predicates": [
+      "read",
+      "update",
+      "full",
+      "invite",
+      "$create",
+      "move:organizationId",
+    ],
+    "read": "read",
+    "reads": {},
+    "update": "update",
+    "writes": {},
+  },
+  "teamMember": {
+    "delete": "manage",
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "read",
+        "update",
+        "full",
+        "manage",
+        "create",
+      ],
+    },
+    "modes": {
+      "create": "create",
+      "full": "full",
+      "manage": "manage",
+      "read": "read",
+      "update": "update",
+    },
+    "moves": {
+      "teamId": "move:teamId",
+      "userId": "move:userId",
+    },
+    "place": "$create",
+    "predicates": [
+      "read",
+      "update",
+      "full",
+      "manage",
+      "create",
+      "$create",
+      "move:teamId",
+      "move:userId",
+    ],
+    "read": "read",
+    "reads": {},
+    "update": "manage",
+    "writes": {},
+  },
+  "user": {
+    "evidence": {
+      "as": "$access",
+      "names": [
+        "read",
+        "update",
+        "full",
+      ],
+    },
+    "modes": {
+      "full": "full",
+      "read": "read",
+      "update": "update",
+    },
+    "moves": {},
+    "place": "$create",
+    "predicates": [
+      "read",
+      "update",
+      "full",
+      "$create",
+    ],
+    "read": "read",
+    "reads": {},
+    "update": "update",
+    "writes": {},
+  },
+}
+`;
+
+exports[`the acceptance policy (§1.1) > the blog compiles whole 1`] = `
+{
+  "control": "actor",
+  "models": {
+    "accessGrant": {
+      "modes": {},
+      "moves": {},
+      "place": "$create",
+      "predicates": {
+        "$create": {
+          "OR": [],
+        },
+      },
+      "reads": {},
+      "writes": {},
+    },
+    "apiKey": {
+      "modes": {},
+      "moves": {},
+      "place": "$create",
+      "predicates": {
+        "$create": {
+          "OR": [],
+        },
+      },
+      "reads": {},
+      "writes": {},
+    },
+    "bookmark": {
+      "modes": {},
+      "moves": {},
+      "place": "$create",
+      "predicates": {
+        "$create": {
+          "OR": [],
+        },
+      },
+      "reads": {},
+      "writes": {},
+    },
+    "collection": {
+      "modes": {},
+      "moves": {},
+      "place": "$create",
+      "predicates": {
+        "$create": {
+          "OR": [],
+        },
+      },
+      "reads": {},
+      "writes": {},
+    },
+    "document": {
+      "modes": {},
+      "moves": {},
+      "place": "$create",
+      "predicates": {
+        "$create": {
+          "OR": [],
+        },
+      },
+      "reads": {},
+      "writes": {},
+    },
+    "member": {
+      "modes": {},
+      "moves": {},
+      "place": "$create",
+      "predicates": {
+        "$create": {
+          "OR": [],
+        },
+      },
+      "reads": {},
+      "writes": {},
+    },
+    "organization": {
+      "evidence": {
+        "as": "$access",
+        "names": [
+          "read",
+        ],
+      },
+      "modes": {
+        "read": "read",
+      },
+      "moves": {},
+      "place": "$create",
+      "predicates": {
+        "$create": {
+          "OR": [],
+        },
+        "read": {
+          "OR": [
+            {
+              "$if": {
+                "control": "scopes",
+                "equals": true,
+                "path": "unrestricted",
+              },
+            },
+            {
+              "$if": {
+                "control": "scopes",
+                "has": "organization.read",
+                "path": "allowed",
+              },
+            },
+          ],
+        },
+      },
+      "read": "read",
+      "reads": {},
+      "writes": {},
+    },
+    "page": {
+      "delete": "delete",
+      "evidence": {
+        "as": "$access",
+        "names": [
+          "read",
+          "update",
+          "delete",
+          "create",
+        ],
+      },
+      "modes": {
+        "create": "create",
+        "delete": "delete",
+        "read": "read",
+        "update": "update",
+      },
+      "moves": {
+        "groupId": "move:groupId",
+        "organizationId": "move:organizationId",
+        "ownerId": "move:ownerId",
+      },
+      "place": "$create",
+      "predicates": {
+        "$create": {
+          "AND": [
+            {
+              "ownerId": {
+                "control": "actor",
+                "path": "userId",
+              },
+            },
+            {
+              "OR": [
+                {
+                  "$if": {
+                    "control": "scopes",
+                    "equals": true,
+                    "path": "unrestricted",
+                  },
+                },
+                {
+                  "$if": {
+                    "control": "scopes",
+                    "has": "page.create",
+                    "path": "allowed",
+                  },
+                },
+              ],
+            },
+            {
+              "organization": {
+                "is": {},
+              },
+            },
+            {
+              "OR": [
+                {
+                  "ownerId": null,
+                },
+                {
+                  "owner": {
+                    "is": {},
+                  },
+                },
+              ],
+            },
+            {
+              "groupId": null,
+            },
+          ],
+        },
+        "create": {
+          "AND": [
+            {
+              "ownerId": {
+                "control": "actor",
+                "path": "userId",
+              },
+            },
+            {
+              "OR": [
+                {
+                  "$if": {
+                    "control": "scopes",
+                    "equals": true,
+                    "path": "unrestricted",
+                  },
+                },
+                {
+                  "$if": {
+                    "control": "scopes",
+                    "has": "page.create",
+                    "path": "allowed",
+                  },
+                },
+              ],
+            },
+          ],
+        },
+        "delete": {
+          "AND": [
+            {
+              "$if": {
+                "control": "actor",
+                "equals": true,
+                "path": "admin",
+              },
+            },
+            {
+              "OR": [
+                {
+                  "$if": {
+                    "control": "scopes",
+                    "equals": true,
+                    "path": "unrestricted",
+                  },
+                },
+                {
+                  "$if": {
+                    "control": "scopes",
+                    "has": "page.delete",
+                    "path": "allowed",
+                  },
+                },
+              ],
+            },
+          ],
+        },
+        "move:groupId": {
+          "groupId": null,
+        },
+        "move:organizationId": {
+          "organization": {
+            "is": {},
+          },
+        },
+        "move:ownerId": {
+          "OR": [
+            {
+              "ownerId": null,
+            },
+            {
+              "owner": {
+                "is": {},
+              },
+            },
+          ],
+        },
+        "read": {
+          "OR": [
+            {
+              "$if": {
+                "control": "scopes",
+                "equals": true,
+                "path": "unrestricted",
+              },
+            },
+            {
+              "$if": {
+                "control": "scopes",
+                "has": "page.read",
+                "path": "allowed",
+              },
+            },
+          ],
+        },
+        "update": {
+          "AND": [
+            {
+              "ownerId": {
+                "control": "actor",
+                "path": "userId",
+              },
+            },
+            {
+              "OR": [
+                {
+                  "$if": {
+                    "control": "scopes",
+                    "equals": true,
+                    "path": "unrestricted",
+                  },
+                },
+                {
+                  "$if": {
+                    "control": "scopes",
+                    "has": "page.update",
+                    "path": "allowed",
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      },
+      "read": "read",
+      "reads": {},
+      "update": "update",
+      "writes": {},
+    },
+    "pageGroup": {
+      "modes": {},
+      "moves": {},
+      "place": "$create",
+      "predicates": {
+        "$create": {
+          "OR": [],
+        },
+      },
+      "reads": {},
+      "writes": {},
+    },
+    "rolePermission": {
+      "modes": {},
+      "moves": {},
+      "place": "$create",
+      "predicates": {
+        "$create": {
+          "OR": [],
+        },
+      },
+      "reads": {},
+      "writes": {},
+    },
+    "session": {
+      "modes": {},
+      "moves": {},
+      "place": "$create",
+      "predicates": {
+        "$create": {
+          "OR": [],
+        },
+      },
+      "reads": {},
+      "writes": {},
+    },
+    "team": {
+      "modes": {},
+      "moves": {},
+      "place": "$create",
+      "predicates": {
+        "$create": {
+          "OR": [],
+        },
+      },
+      "reads": {},
+      "writes": {},
+    },
+    "teamMember": {
+      "modes": {},
+      "moves": {},
+      "place": "$create",
+      "predicates": {
+        "$create": {
+          "OR": [],
+        },
+      },
+      "reads": {},
+      "writes": {},
+    },
+    "user": {
+      "evidence": {
+        "as": "$access",
+        "names": [
+          "read",
+        ],
+      },
+      "modes": {
+        "read": "read",
+      },
+      "moves": {},
+      "place": "$create",
+      "predicates": {
+        "$create": {
+          "OR": [],
+        },
+        "read": {
+          "OR": [
+            {
+              "$if": {
+                "control": "scopes",
+                "equals": true,
+                "path": "unrestricted",
+              },
+            },
+            {
+              "$if": {
+                "control": "scopes",
+                "has": "user.read",
+                "path": "allowed",
+              },
+            },
+          ],
+        },
+      },
+      "read": "read",
+      "reads": {},
+      "writes": {},
+    },
+  },
+  "scopes": {
+    "organization.read": [
+      "organization.read",
+    ],
+    "page.create": [
+      "page.create",
+    ],
+    "page.delete": [
+      "page.delete",
+      "page.read",
+    ],
+    "page.read": [
+      "page.read",
+    ],
+    "page.update": [
+      "page.update",
+      "page.read",
+    ],
+    "user.read": [
+      "user.read",
+    ],
+  },
+}
+`;

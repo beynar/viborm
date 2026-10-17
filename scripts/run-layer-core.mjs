@@ -33,6 +33,7 @@ const LAYERS = new Set([
   "cache",
   "instrumentation",
   "migrations",
+  "permissions",
 ]);
 
 const layer = process.argv[2];
@@ -57,25 +58,14 @@ const vitestEntry = fileURLToPath(
   new URL("../node_modules/vitest/vitest.mjs", import.meta.url)
 );
 const tscEntry = fileURLToPath(
-  new URL("../node_modules/typescript/bin/tsc", import.meta.url)
+  new URL("../node_modules/typescript-native/bin/tsc", import.meta.url)
 );
 const startedAt = performance.now();
 /**
- * Every layer holds the 30-second budget except client, which gets 45.
- *
- * This is a WALL budget, not a memory one: the 768 / 1280 / 1536 MiB contract is
- * untouched. Client needs the extra time BECAUSE of that contract. Its
- * compile-only estate is 21 files and 221 KB of source - the byte total the
- * shard budget below actually weighs, not the 268 KB of disk blocks a `du`
- * reports - and at a 1280 MB shard heap it cannot be one program:
- * contextual-typing-gate.core.types.ts alone is 74 KB and OOMs anything packed
- * with it, and the other twenty OOM together too. So it runs as three programs,
- * each measured clean under 1536 MiB, and three tsc startups cost ~24.9s on top
- * of a 5.4s runtime stage.
- *
- * Raising this is the right lever precisely because the memory ceiling is not.
- * If the client type estate is ever trimmed back under two programs, put it
- * back to 30.
+ * Preserve the existing 30-second layer budget and 45-second client exception.
+ * The client estate is partitioned to stay below the same 1536 MiB RSS ceiling;
+ * each compiler startup consumes part of that wall budget. Using the native
+ * compiler changes neither the discovered probes nor these resource limits.
  */
 const DEFAULT_WALL_LIMIT_MS = 30_000;
 const LAYER_WALL_LIMIT_MS = new Map([["client", 45_000]]);
@@ -94,11 +84,9 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   });
 }
 
-// Chunk by BYTES, not by file count. A count-based split kept
-// contextual-typing-gate.core.types.ts (74 KB, alphabetically first) together
-// with nine others and still OOMed, while the same file alone typechecks in
-// 7.8s. Any file heavier than LARGE gets its own program; the rest pack to
-// BUDGET. Both numbers are measured against the 1280 MB shard heap.
+// Keep the existing byte-based partitions: large files get their own program,
+// while smaller files share the budget. The native compiler uses the same
+// source programs as the previous JS compiler, with no Permissions-specific shards.
 const TYPE_SHARD_LARGE_BYTES = 40_000;
 const TYPE_SHARD_BUDGET_BYTES = 100_000;
 let typeShardDirectory;
@@ -186,6 +174,12 @@ const runStage = async (label, entry, arguments_, heapLimitMb) => {
     arguments: [entry, ...arguments_],
     command: process.execPath,
     heapLimitMb,
+    // Match the authoritative whole-estate compiler. Its Go collector must
+    // collect below this lane's unchanged 1536 MiB process-group RSS ceiling.
+    env:
+      entry === tscEntry
+        ? { ...process.env, GOMEMLIMIT: "1200MiB" }
+        : process.env,
     label,
     rssLimitMb: DEFAULT_PROCESS_GROUP_RSS_LIMIT_MB,
     wallLimitMs: remainingWallMs,
@@ -229,11 +223,9 @@ try {
     runtime.code === 0 &&
     runtime.stopReason === undefined
   ) {
-    // One program per layer no longer fits the 1280 MB shard heap: the client
-    // layer's twenty-one .core.types.ts files OOM together, and so do any
-    // twenty of them - contextual-typing-gate.core.types.ts alone is 74 KB of
-    // inference. Chunk the layer's type files so each program stays inside the
-    // heap. Splitting the work is the remedy; raising the heap is not.
+    // Retain every discovered compile-only probe and the existing partitions.
+    // Native TypeScript is also the authoritative whole-estate compiler; the
+    // JS package remains installed for compiler-API tooling and compatibility.
     types = { code: 0 };
     const typeProjects = typeShardProjects(layer);
     if (typeProjects.length === 0) {
@@ -261,7 +253,7 @@ try {
       types = await runStage(
         `Layer ${layer} types ${index + 1}`,
         tscEntry,
-        ["--project", project, "--noEmit"],
+        ["--project", project, "--noEmit", "--singleThreaded"],
         1280
       );
       if (types.code !== 0 || types.error || types.stopReason) break;

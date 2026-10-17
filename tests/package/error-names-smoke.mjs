@@ -1,5 +1,6 @@
 import {
   ClientInitializationError,
+  ForbiddenError,
   QueryError,
   ValidationError,
   ValueTooLongError,
@@ -12,6 +13,9 @@ if (VibORMErrorCode.OPERATION_CLIENT_MISMATCH !== "V12003") {
 }
 if (VibORMErrorCode.OPERATION_SCOPE_MISMATCH !== "V12004") {
   throw new Error("OPERATION_SCOPE_MISMATCH code missing");
+}
+if (VibORMErrorCode.FORBIDDEN !== "V13001") {
+  throw new Error("FORBIDDEN code missing");
 }
 
 const cases = [
@@ -31,6 +35,7 @@ const cases = [
     "ClientInitializationError",
     new ClientInitializationError("driver is required"),
   ],
+  ["ForbiddenError", new ForbiddenError("page", "create")],
 ];
 
 for (const [expectedName, error] of cases) {
@@ -55,6 +60,7 @@ const prismaCases = [
     "P1012",
   ],
   ["QueryError", new QueryError("query failure"), undefined],
+  ["ForbiddenError", new ForbiddenError("page", "create"), undefined],
 ];
 
 for (const [label, error, expected] of prismaCases) {
