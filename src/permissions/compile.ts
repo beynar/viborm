@@ -16,7 +16,7 @@
 
 import type { RowsVerbs } from "../extensions/controls";
 import type { VibORMConfig } from "../index";
-import { actorPaths, refuse } from "./actor";
+import { type ActorContract, actorContract, refuse } from "./actor";
 import { FALSE, type PolicyModel, type Rule, type Where } from "./rules";
 
 type Schema = VibORMConfig["schema"];
@@ -30,6 +30,7 @@ interface ModelFacts {
       {
         readonly "~": {
           readonly state: {
+            readonly type: string;
             readonly isId?: boolean;
             readonly nullable?: boolean;
           };
@@ -406,7 +407,7 @@ export function verbsOf(compiled: CompiledPolicy): Record<string, RowsVerbs> {
 export function compilePolicy(
   config: PermissionsConfig,
   schema: Schema,
-  hasPath: (path: string) => boolean = actorPaths(config.actor)
+  actor: ActorContract = actorContract(config.actor)
 ): CompiledPolicy {
   const noActions: readonly string[] = Object.freeze([]);
   const levels = config.levels ?? noActions;
@@ -455,6 +456,8 @@ export function compilePolicy(
 
   // The declared rule owns callback evaluation. Inheritance reuses that exact
   // predicate; credential scope gates apply only to the requested action.
+  const authoredRules = new Map<string, Clause>();
+  const authoredPredicates = new WeakMap<Where, ReadSummary>();
   const rules = new Map<string, Clause>();
   const predicates = new Map<string, Clause>();
   const open: string[] = [];
@@ -469,10 +472,12 @@ export function compilePolicy(
     const known = rules.get(key);
     if (known !== undefined) return known;
     const binding = actions.get(name)!.rules.get(action);
-    const clause =
+    const source =
       binding?.rule === undefined
         ? false
         : lower(name, action, binding.rule, binding.source);
+    authoredRules.set(key, source);
+    const clause = availableGrant(name, source);
     rules.set(key, clause);
     return clause;
   };
@@ -511,15 +516,33 @@ export function compilePolicy(
       );
     open.push(key);
     const declared = actions.get(name)!;
-    const granted =
+    const inherited =
       declared.rules.get(action)?.rule === false
-        ? false
-        : or(
-            [...declared.closure].flatMap(([from, reaches]) =>
-              reaches.includes(action) ? [ruleAt(name, from)] : []
-            )
+        ? []
+        : [...declared.closure].flatMap(([from, reaches]) =>
+            reaches.includes(action) ? [from] : []
           );
+    const branches = inherited.map((from) => ruleAt(name, from));
+    const granted = or(branches);
     const clause = and([restriction(name), absorb(name, granted)]);
+    // A named rule used under NOT/none must retain its authored dependencies:
+    // a generated absence guard is not evidence that the negative rule holds.
+    if (clause !== false) {
+      const summaries = inherited.map((from) =>
+        summarizeReads(
+          name,
+          authoredRules.get(`${name}.${from}`)!,
+          "source",
+          true
+        )
+      );
+      const mandatory = summarizeReads(name, restriction(name), "source", true);
+      if (mandatory !== null && summaries.every((part) => part !== null))
+        authoredPredicates.set(
+          clause,
+          combineReads(true, [mandatory, combineReads(false, summaries)])
+        );
+    }
     open.pop();
     predicates.set(key, clause);
     return clause;
@@ -569,7 +592,7 @@ export function compilePolicy(
 
   /** A path the actor schema declares, or the refusal naming where it is read. */
   const path = (at: string, read: unknown) => {
-    if (typeof read === "string" && !hasPath(read))
+    if (typeof read === "string" && !actor.hasPath(read))
       refuse(
         `${at} reads actor path "${read}", which the actor schema does not declare`
       );
@@ -859,6 +882,24 @@ export function compilePolicy(
       new WeakMap<object, ReadSummary | null>(),
     ])
   );
+  const sourceSummaries = new Map(
+    Object.keys(schema).map((name) => [
+      name,
+      new WeakMap<object, ReadSummary | null>(),
+    ])
+  );
+  const negativeSummaries = new Map(
+    Object.keys(schema).map((name) => [
+      name,
+      new WeakMap<object, ReadSummary | null>(),
+    ])
+  );
+  const compiledSummaries = new Map(
+    Object.keys(schema).map((name) => [
+      name,
+      new WeakMap<object, ReadSummary | null>(),
+    ])
+  );
   const parameterKey = (
     operand: unknown,
     spread: boolean
@@ -930,11 +971,26 @@ export function compilePolicy(
   };
   const summarizeReads = (
     name: string,
-    clause: unknown
+    clause: unknown,
+    source: "source" | "compiled" | undefined = undefined,
+    negative = false
   ): ReadSummary | null => {
     if (clause === false) return falseSummary;
     if (!isRecord(clause)) return null;
-    const cache = summaries.get(name)!;
+    if (source === "source") {
+      const original = authoredPredicates.get(clause);
+      if (original !== undefined)
+        return negative ? original : summarizeReads(name, clause, "compiled");
+    }
+    const cache = (
+      source === "compiled"
+        ? compiledSummaries
+        : source
+          ? negative
+            ? negativeSummaries
+            : sourceSummaries
+          : summaries
+    ).get(name)!;
     const known = cache.get(clause);
     if (known !== undefined) return known;
     const parts: ReadSummary[] = [];
@@ -947,7 +1003,12 @@ export function compilePolicy(
         const bodies = Array.isArray(value) ? value : [value];
         const nested: ReadSummary[] = [];
         for (const body of bodies) {
-          const summary = summarizeReads(name, body);
+          const summary = summarizeReads(
+            name,
+            body,
+            source,
+            negative || key === "NOT"
+          );
           if (summary === null) return unsupported();
           nested.push(
             key === "NOT"
@@ -961,9 +1022,26 @@ export function compilePolicy(
         const guard = { $if: value };
         parts.push({ yes: guard, no: negate(guard), reads: new Map() });
       } else if (Object.hasOwn(stateOf(name).scalars, key)) {
-        const summary = scalarReads(value);
-        if (summary === null) return unsupported();
-        parts.push(summary);
+        if (source && stateOf(name).scalars[key]!["~"].state.type === "json") {
+          // Only complete JSON equality operands are value-node positions.
+          // Nested JSON records that resemble markers remain literal data.
+          const reads = new Map<string, Clause>();
+          const collect = (value: unknown): void => {
+            const direct = parameterKey(value, false);
+            if (direct !== undefined) reads.set(direct, {});
+            else if (isRecord(value)) {
+              const equals = parameterKey(value.equals, false);
+              if (equals !== undefined) reads.set(equals, {});
+              if (isRecord(value.not)) collect(value.not);
+            }
+          };
+          collect(value);
+          parts.push(atomic(reads));
+        } else {
+          const summary = scalarReads(value);
+          if (summary === null && !source) return unsupported();
+          parts.push(summary ?? atomic());
+        }
       } else {
         const target = targetOf(name, key);
         if (target === undefined) return unsupported();
@@ -971,23 +1049,28 @@ export function compilePolicy(
           parts.push(atomic());
           continue;
         }
-        const bodies: unknown[] = [];
+        const bodies: { body: unknown; negative: boolean }[] = [];
         if (
           isRecord(value) &&
           Object.keys(value).some((op) => QUANTIFIERS.has(op))
         ) {
           for (const [op, body] of Object.entries(value)) {
-            if (QUANTIFIERS.has(op)) bodies.push(body);
+            if (QUANTIFIERS.has(op))
+              bodies.push({
+                body,
+                negative:
+                  negative || op === "every" || op === "none" || op === "isNot",
+              });
             else if (op !== "recurse" && op !== "self") return unsupported();
           }
-        } else bodies.push(value);
+        } else bodies.push({ body: value, negative });
         const relations: ReadSummary[] = [];
-        for (const body of bodies) {
+        for (const { body, negative: bodyNegative } of bodies) {
           if (body === null) {
             relations.push(atomic());
             continue;
           }
-          const summary = summarizeReads(target, body);
+          const summary = summarizeReads(target, body, source, bodyNegative);
           if (summary === null) return unsupported();
           // A relation keeps its quantifier even when its body folds constant.
           relations.push(atomic(summary.reads));
@@ -1001,8 +1084,60 @@ export function compilePolicy(
   };
   const provesGuard = (name: string, a: Clause, b: Clause): boolean =>
     a === false || (b !== false && (isTrue(b) || implies(name, a, b)));
+  /**
+   * Each declared grant owns absence. Fold it false before generic R6 reads
+   * its operands, keeping other grants available. Read guards come from the
+   * same summary that simplification uses, so authored $if short circuits
+   * still suppress unused dependencies. The guard surrounds the complete
+   * rule, never a comparison that NOT/none/every could turn into a grant.
+   */
+  const provesPresence = (guard: Clause, path: string): boolean => {
+    if (guard === false) return true;
+    if (Array.isArray(guard.AND))
+      return guard.AND.some((part: Where) => provesPresence(part, path));
+    if (Array.isArray(guard.OR))
+      return guard.OR.every((part: Where) => provesPresence(part, path));
+    const condition = isRecord(guard.$if) ? guard.$if : undefined;
+    const absent =
+      isRecord(guard.NOT) && isRecord(guard.NOT.$if)
+        ? guard.NOT.$if
+        : undefined;
+    const test = condition ?? (absent?.exists === false ? absent : undefined);
+    return (
+      test?.control === "actor" &&
+      typeof test.path === "string" &&
+      (test.path === path || test.path.startsWith(`${path}.`)) &&
+      (condition === undefined || condition.exists !== false)
+    );
+  };
+  const availableGrant = (name: string, clause: Clause): Clause => {
+    if (clause === false) return clause;
+    const summary = summarizeReads(name, clause, "source");
+    if (summary === null) return clause;
+    const guards: Clause[] = [];
+    for (const [key, live] of summary.reads) {
+      const [control, path] = JSON.parse(key) as [
+        string,
+        string | null,
+        boolean,
+      ];
+      if (control !== "actor") continue;
+      const uncertain = actor.availabilityPath(path ?? undefined);
+      if (uncertain === undefined) continue;
+      const present = {
+        $if: { control: "actor", path: uncertain, exists: true },
+      };
+      if (provesPresence(live, uncertain) || provesGuard(name, live, present))
+        continue;
+      guards.push(or([negate(live), present]));
+    }
+    if (guards.length === 0) return clause;
+    const guarded = and([guardAnd(guards), clause]);
+    return guarded;
+  };
+
   /** Equal conditional reads preserve missing/null AND non-list spread
-   * refusals. No guard is injected into the public predicate. An unsupported
+   * refusals. This simplifier injects no guards. An unsupported
    * shape or unproved equivalence simply retains the original expression. */
   const preservesReads = (
     name: string,

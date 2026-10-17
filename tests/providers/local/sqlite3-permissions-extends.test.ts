@@ -13,7 +13,7 @@ test.each([
   "absent",
   "false guard",
   "true alternative",
-])("absorbing an inherited rule preserves missing-actor refusals (%s)", async (shape) => {
+])("absorbing an inherited rule preserves independent grants (%s)", async (shape) => {
   const post = s.model({
     id: s.string().id(),
     authorId: s.string(),
@@ -58,18 +58,20 @@ test.each([
         },
       })
     );
-    // A missing referenced fact makes the complete predicate false (R6),
-    // even when the retained OR branch reads it behind a folded-away guard.
+    // Each declared grant owns its actor dependencies. Missing optional
+    // update facts never close the independent public read grant.
     for (const actor of [
       { admin: false },
       { admin: false, userId: undefined },
     ]) {
-      // @ts-expect-error Untyped callers can omit an actor fact; runtime must deny.
-      expect(await db.$as(actor).post.findMany()).toEqual([]);
+      // @ts-expect-error Contextual scalar options widen; exercise runtime omission.
+      expect(await db.$as(actor).post.findMany()).toEqual([
+        { id: "p", authorId: "alice", title: "public" },
+      ]);
     }
     expect(
       await db.$as({ userId: null, admin: false }).post.findMany()
-    ).toEqual([]);
+    ).toEqual([{ id: "p", authorId: "alice", title: "public" }]);
     expect(
       await db.$as({ userId: "bob", admin: false }).post.findMany()
     ).toEqual([{ id: "p", authorId: "alice", title: "public" }]);
@@ -113,11 +115,10 @@ test("absorption preserves conditional actor reads and whole-list validation", a
     expect(
       await db.$as({ network: "office", ids: undefined }).post.findMany()
     ).toEqual([row]);
-    for (const ids of [undefined, "alice"]) {
-      expect(await db.$as({ network: "home", ids }).post.findMany()).toEqual(
-        []
-      );
-    }
+    expect(await db.$as({ network: "home" }).post.findMany()).toEqual([row]);
+    expect(
+      await db.$as({ network: "home", ids: "alice" }).post.findMany()
+    ).toEqual([]);
     expect(await db.$as({ network: "home", ids: [] }).post.findMany()).toEqual([
       row,
     ]);

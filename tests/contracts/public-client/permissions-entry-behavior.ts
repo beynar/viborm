@@ -632,7 +632,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
     );
 
     test(
-      "W-F5, W-EV2 in a variant arm (U7 Q3): a read-gated field inside a bookmark's page arm is omitted exactly where the oracle does not hold its action; $access and an explicit select there are K5's open gaps",
+      "W-F5, W-EV2 in a variant arm (U7 Q3): variant evidence follows the target permissions; default fields are omitted and forbidden explicit fields refuse",
       async () => {
         const { models } = policy.config;
         const gated = permissions({
@@ -671,17 +671,35 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
         }
         expect(present).toBeGreaterThan(0);
         expect(absent).toBeGreaterThan(0);
-        // Open (needsOutside, K5): the arm is not walked for the key, and a
-        // field the caller names there reads as defaulted. Both are pinned
-        // as they stand so the owner's fix turns them red.
         const actor = actors.u06!;
-        expect(
-          await outcomeOf(() =>
-            call(actor).bookmark!.findMany({
-              include: { subject: { page: { include: { $access: true } } } },
-            })
-          )
-        ).toBe(ValidationError.name);
+        const reported = (await call(actor).bookmark!.findMany({
+          include: {
+            subject: {
+              page: { select: { id: true, $access: ["read", "full"] } },
+              document: { select: { id: true, $access: ["read", "update"] } },
+            },
+          },
+        })) as unknown as {
+          subject: { type: "page" | "document"; data: Row } | null;
+        }[];
+        let checked = 0;
+        for (const { subject } of reported) {
+          if (!subject) continue;
+          const names =
+            subject.type === "page" ? ["read", "full"] : ["read", "update"];
+          expect(subject.data.$access).toEqual(
+            Object.fromEntries(
+              names.map((action) => [
+                action,
+                at(actor, subject.type, action).includes(
+                  String(subject.data.id)
+                ),
+              ])
+            )
+          );
+          checked += 1;
+        }
+        expect(checked).toBeGreaterThan(0);
         expect(
           await outcomeOf(() =>
             call(actor).bookmark!.findMany({
@@ -690,7 +708,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
               },
             })
           )
-        ).toBe("ok");
+        ).toBe(ValidationError.name);
       },
       timeout
     );
@@ -1291,7 +1309,21 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
       );
     });
 
-    test("R6 closes the whole permission: an unguarded optional actor read in an implied rule closes read (guide: Optional actor values; review 2, ENG-2)", async () => {
+    test("missing required actor fields are rejected when binding, before a query", () => {
+      const required = loose(
+        permissions({
+          actor: v.object({ userId: v.string() }),
+          models: { page: { read: true } },
+        })(base)
+      );
+      expect(() => required.$as({})).toThrow(ValidationError);
+      expect(() => required.$as({ userId: undefined })).toThrow(
+        ValidationError
+      );
+      expect(() => required.$as({ userId: "user-03" })).not.toThrow();
+    });
+
+    test("a missing optional actor value denies its declared grant without closing independent grants", async () => {
       const optional = v.object({ userId: v.optional(v.string()) });
       const over = (rules: object) =>
         loose(
@@ -1305,8 +1337,11 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
         read: { personal: false },
         update: { ownerId: { actor: "userId" } },
       });
-      // `update` implies `read`: its unguarded read of `userId` closes both.
-      expect(await implied.$as({}).page!.count()).toBe(0);
+      // The update grant is unavailable, but the independent read grant holds.
+      expect(await implied.$as({}).page!.count()).toBe(shared.length);
+      expect(
+        await implied.$as({}).page!.can("update", { id: shared[0]!.id })
+      ).toBe(false);
       const guarded = over({
         read: { personal: false },
         update: {
@@ -1318,11 +1353,20 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
       expect(await guarded.$as({ userId: "user-03" }).page!.count()).toBe(
         seed.page.filter((p) => !p.personal || p.ownerId === "user-03").length
       );
-      // One rule: the unguarded arm closes its sibling arm too.
+      // The declared rule is the boundary, including an OR or NOT inside it.
       const single = over({
         read: { OR: [{ personal: false }, { ownerId: { actor: "userId" } }] },
       });
       expect(await single.$as({}).page!.count()).toBe(0);
+      const negated = over({
+        read: { NOT: { ownerId: { actor: "userId" } } },
+      });
+      expect(await negated.$as({}).page!.count()).toBe(0);
+      const mandatory = over({
+        mandatory: { ownerId: { actor: "userId" } },
+        read: true,
+      });
+      expect(await mandatory.$as({}).page!.count()).toBe(0);
     });
 
     test("W-D12: a create without an actor is refused on every model, before any statement", async () => {

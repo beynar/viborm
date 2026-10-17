@@ -252,7 +252,7 @@ Each written once; the features cite them.
 - **R3, the old row of a write (T2).** An occurrence is judged at `⋀_{f ∈ W} P(M, write(f))` on the row it takes. W is the fields the call's data writes, as the chain's request transforms leave it, relation fields included (a `connect`, `disconnect` or `set` writes its relation field; a join row writes the relation field on both endpoints). `write(f)` is the declared write action, else `operations.update`. Stamps (`data`) and schema-generated values (`updatedAt`, `now()`) are not in W: their values are declared, not chosen by the caller, and R4 judges the row they produce. An occurrence that writes nothing of its own (a parent addressed by a nested write) is only read to reach its children: it is judged at `view`, and its children by their own verb or placement, so a root create and the equivalent nested create get one answer.
 - **R4, the new row of a write (T1, T2).** The row a write produces must satisfy, against the database **before** the operation's writes and before any constraint is checked: for an update, the predicates that judged its old row (PostgreSQL's WITH CHECK defaulting to USING); for a create, `place(M) = within(M)(c) ∧ limit(M, c) ∧ create(M)` with `c = operations.create`; for an update that writes a field `create(M)` reads, `place(M)` as well (the move); for each written foreign key, its target satisfies `P(T, view)` (the visibility a `connect` already obeys, relation-body.ts:83-92: one rule for two spellings of one effect, ELEGANCE 9); for a written self-referential key a policy recurses over (`up("parent")`), the new parent outside the row's own closure (a cycle would make every recursive read of that tree throw, query.ts:6201-6204). No row the operation itself writes is visible to this judgement, except that a row created earlier in the same operation is visible to its own children as the values written to it. So a grant cannot justify itself, and a missing target and a hidden one give the same `ForbiddenError`.
 - **R5, layering (T5, T2, R8).** A policy's traversals read every other layer of the chain at that layer's **default** mode, whatever mode controls the call passes, and never the layer being lowered. A per-call mode is a choice about the rows the caller asked for (root and related), not about the facts a permission reads; if `deleted: "with"` or tenancy's `scope: "all"` reached the traversals, a per-call choice would widen a permission (R8). This is the rule tombstones already use (commands.ts:514-530). Excluding the layer being lowered terminates C2 with no depth number.
-- **R6, absence (T2).** Order per call: conditions on actor values (`{ actor: { network: "office" } }`, "the actor carries a key") fold first, and a false condition removes its arm with every reference inside it; constants simplify; then any remaining reference whose value is absent resolves by its control's `required`. The actor is required, so the whole predicate is false (`MATCH_NOTHING`, today's rule, rows.ts:203-230); an optional control of another extension keeps today's drop. A `null` value is absent: a parameter never lowers to an `IS NULL` test (an actor with `userId: null` would otherwise own every orphaned row; `ownerId` is set null on user delete, content.ts:24-27). Optional facts are therefore guarded by conditions in the helpers: `session()` is `OR[$if session ⇒ a live session, $if key ⇒ a live key]`. A path the actor schema does not declare is refused at `rbac()` (K2(e)), so no typo can fold a guard false.
+- **R6, absence (T2).** This is the generic row-domain rule; §11.7 adds declared-grant availability checks in Permissions before it applies. Order per call: conditions on actor values (`{ actor: { network: "office" } }`, "the actor carries a key") fold first, and a false condition removes its arm with every reference inside it; constants simplify; then any remaining reference whose value is absent resolves by its control's `required`. The actor is required, so the whole predicate is false (`MATCH_NOTHING`, today's rule, rows.ts:203-230); an optional control of another extension keeps today's drop. A `null` value is absent: a parameter never lowers to an `IS NULL` test (an actor with `userId: null` would otherwise own every orphaned row; `ownerId` is set null on user delete, content.ts:24-27). Optional facts are therefore guarded by conditions in the helpers: `session()` is `OR[$if session ⇒ a live session, $if key ⇒ a live key]`. A path the actor schema does not declare is refused at `rbac()` (K2(e)), so no typo can fold a guard false.
 - **R7, the instant (T1, T3).** "Now" in a predicate (a session's or a key's expiry) is the call's one instant, the one tombstones already use (`CallScope.instant()`, row-scope.ts:92-96): re-observed per call, never frozen at `$as`.
 - **R8, nothing per call widens (T2, T3).** A mode only narrows a verb and never replaces it: `domain(m, v) = verb(v) ∧ P(view) ∧ N(m)`, where `verb(v)` is the operation's predicate and `N(m)` the mode's narrowing (an action mode is `P(a)`, a named domain its `where`). So `delete({ as: "edit" })` is still judged at `delete`'s action, and `update({ as: "view" })` at `edit`. Limits are conjunctions. Anything that widens (an operator's view of every row) is decided where the actor is bound or by using the client below `rbac`.
 - **R9, reach (T2, T3).** `rbac()` names every model of the receiving schema. A model the policy does not list is `false` at every verb; an action a model does not declare is `false`. A root call whose domain is false **at definition time** (an unlisted model, an action or mode the model does not declare) is refused before any statement; one that folds false **per call** (an actor condition, an absent value) returns the ordinary outcome (`[]`, `null`, `NotFoundError`, count 0), with no statement issued as an optimization only, so the result never depends on where the predicate turned false (ELEGANCE 7). The actor control is bound-only and required on every operation of every model, creates included.
@@ -696,7 +696,7 @@ The independent review of §6.2 ran on frozen source (2999badd6) with five lense
 
 **Entry name:** `permissions` from `viborm/permissions` (renamed before release; no `rbac` alias). Earlier sections and review records retain the historical name. The current guide is `docs/content/docs/extensions/permissions.mdx`.
 
-After the independent review the owner reworked the entry on the same capabilities (K1-K7 unchanged). What the plan's §1.1, R1 and D10 describe is superseded as follows; the truths, R2-R10 and the derivations hold as written.
+After the independent review the owner reworked the entry on the same capabilities (K1-K7 unchanged). What the plan's §1.1, R1 and D10 describe is superseded as follows; the truths, R2-R10 and the derivations hold as written, with the later actor-admission and polymorphic-projection amendment in §11.7.
 
 - **No rule helpers.** `owner`, `member`, `grant.to`, `grant.administer`, `team`, `role`, `everyone`, `up`, `session`, `notBanned`, `keyLimit` are deleted. A policy is explicit predicates in the model's `where` vocabulary, plus `Rule` functions `(action, model) => Rule` that receive their **declared** action (a rule under `update` is evaluated once at `update` and reused unchanged where `update` implies the asked action) and a readonly `PolicyModel { name, actions }`. `{ group: "update" }` still inlines the target's predicate (D7). `src/permissions/rules.ts` owns the language; nothing in it names an application convention.
 - **`within` → `mandatory`** (a `Where`, action-independent, callback-free; global and per model), **`arms` removed** (rules go under the action they grant; a comma-separated key, `"read, update"`, assigns one rule to several), **`limit`/`keyLimit` removed**: the credential's scopes are `$as(actor, scopes?)`, exact `model.action` strings closed under the model's implications; omitted = unrestricted, `[]` = nothing; conjoined on every named predicate of the model (D10 as shipped). An application may still narrow by actor facts in its own predicates (the acceptance policy's `tokenRestrictions`).
@@ -722,6 +722,51 @@ The two lenses that §11.4 left out ran on `9c50a3191` (PR #101, CI green). Each
 - **Policy constants are bound values (COST-5).** On D1 they share the 100 values with the actor's and the call's values. This is documented, not changed.
 - **§8's unextended-client row is breached on `create`, +1.9% (COST-9).** It is recorded, not yet fixed.
 - **Rulings (Arnaud, 2026-10-17).** R6 stays per predicate (fail closed). `NoInfer<PolicyClient>` stays: a third-party step is a definition or an `$extends` factory, or names its result with `typeof`. D1's four refused `$access` reads are documented and pinned; splitting per depth or sharing recursive walks is post-merge work.
+
+### 11.7 Pre-release actor admission and polymorphic projection consistency (2026-10-18)
+
+The owner requested both changes after reviewing the remaining limitations.
+This supersedes the Permissions-specific whole-predicate missing-value ruling
+in §11.6; generic extension `rows` R6 remains unchanged.
+
+- `$as` rejects missing required actor fields with `ValidationError`, before
+  any operation. Optional actor fields remain explicitly optional. Nested
+  actor validation uses the schema's own validation semantics.
+- A declared grant with a missing optional actor dependency grants nothing;
+  independent declared and inherited grants remain available. The declared
+  rule is the boundary, including an OR inside it. An authored `$if` may make
+  an optional dependency unnecessary for that call. Missing dependencies in
+  global or model `mandatory` deny the complete permission.
+- Negation and relation quantifiers must not convert an unavailable dependency
+  into a grant, including through named target rules. Positive relation rules
+  retain the target's independent grants. Predicate simplification preserves
+  these availability checks as well as row truth.
+- Evidence keys such as `$access` are admitted inside singular and collection
+  polymorphic variants using each target model's own action names. Explicitly
+  selected unreadable fields refuse the operation, while default projection
+  omits them, exactly as for ordinary relations. A failed write projection
+  follows the existing rollback contract.
+
+The live guide's "Optional actor values" section defines the author-facing
+contract. Regression coverage lives beside the compiler, actor admission,
+projection type tests and the shared permissions/evidence behavior runners.
+
+Verification on 2026-10-18: 133 focused compiler, actor, projection and SQLite
+regressions; the shared SQLite entry's 84 tests; the isolated PGlite entry's
+83 tests (1,631 MiB peak); the entire local D1 project, 250 passed and 2
+skipped, including the unchanged four documented statement refusals; and eight
+fresh packed-package checks covering completions, exports, the public surface,
+the acceptance/blog examples and TypeScript 5/6/7 composition. The complete
+native typecheck passed in 69 s at 6,291 MiB. Actor normalization also preserves
+sparse output, native callback identity and opt-in cache behavior.
+
+Documentation links and the isolated production build passed (35.65 s,
+1,467 MiB), and the updated page was inspected in the browser. The additional
+whole-site `blume check` did not complete locally: a 512 MiB heap run exceeded
+the 1,536 MiB process-group limit; a 384 MiB heap run exhausted that heap.
+Neither resource limit was raised. Bundle growth is measured and recorded in
+`package.json` under OD-17; all size checks pass. Full extension coverage and
+hosted Neki were not rerun for this amendment.
 
 ## Appendix A. Review dispositions
 

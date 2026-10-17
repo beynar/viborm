@@ -1139,8 +1139,9 @@ by `$as` once per request and never read from the database.
   dynamically.
 - **An absent or `null` actor value never matches.** `userId: null` owns no
   row whose `ownerId` is null.
-- **One unguarded read of an absent value closes the whole permission**, not
-  only the rule or the `OR` arm that reads it. See
+- **A missing optional actor value disables the declared grant that reads it.**
+  Independent grants still apply; a missing value in `mandatory` denies access.
+  Required actor fields are checked at `$as`. See
   [Optional actor values](#optional-actor-values).
 - **Bind ids, never bearer secrets.** Bind a session's id, not its token: the
   actor travels in error metadata and in cache keys.
@@ -1149,16 +1150,13 @@ by `$as` once per request and never read from the database.
 
 ### Optional actor values
 
-Each permission `P(M, a)` is one predicate: the [formula](#the-formula)'s
-`mandatory`, the rule of `a`, the rule of every action that implies `a`, and
-every target rule that `{ group: "update" }` inlines. If any part of that
-predicate reads an actor value that is absent or `null` for the call, the whole
-permission is false for that call. A `$if` testing that value guards the read.
-The read is checked after the compiler drops inherited branches that another
-branch contains, and a dropped branch reads nothing.
+Declare a field optional when a valid actor may lack it. Missing required actor
+fields raise `ValidationError` at `$as`, before any query.
 
-So a rule closes its own action and every action it implies. An `update` rule
-that reads `userId` closes `read` too, because `update` implies `read`:
+A declared grant that reads an absent or `null` actor value grants nothing.
+Other grants still apply, including grants inherited from other actions.
+For example, an anonymous actor can read public documents without receiving
+the owner's update grant:
 
 ```ts
 const Actor = v.object({ userId: v.optional(v.string()) });
@@ -1173,28 +1171,38 @@ const db = base.$extends(permissions({
   },
 }));
 
-await db.$as({}).doc.findMany(); // [] (WHERE 0): read is "public OR ownerId = userId"
+await db.$as({}).doc.findMany(); // Public documents only.
+await db.$as({ userId: "u1" }).doc.findMany(); // Public documents plus u1's own.
 ```
 
-Guard each optional read with `$if: { control: "actor", path, exists: true }`.
-The [live-credential recipe](#live-credentials-and-bans) uses the same guard.
-A false `$if` removes its own arm, so the other arms still grant:
-
-```ts
-update: {
-  $if: { control: "actor", path: "userId", exists: true },
-  ownerId: { actor: "userId" },
-},
-```
-
-Now `db.$as({}).doc.findMany()` returns the public documents, and
-`db.$as({ userId: "u1" })` returns those plus the documents `u1` owns. A single
-rule needs the guard as well. This rule reads nothing for `$as({})` until its
-second arm carries the `$if`:
+The boundary is one declared rule, not each comparison inside it. This single
+rule reads `userId`, so it grants nothing when that value is absent:
 
 ```ts
 read: { OR: [{ status: "public" }, { ownerId: { actor: "userId" } }] },
 ```
+
+To make alternatives within one rule independent, guard the optional arm.
+The guard folds before the rule's remaining actor dependencies are checked:
+
+```ts
+read: {
+  OR: [
+    { status: "public" },
+    {
+      $if: { control: "actor", path: "userId", exists: true },
+      ownerId: { actor: "userId" },
+    },
+  ],
+},
+```
+
+Now the public arm works for an anonymous actor too. The
+[live-credential recipe](#live-credentials-and-bans) uses the same guard.
+Missing dependencies under `NOT` or a negative relation filter disable the
+dependent grant; negation never turns missing identity data into permission.
+Global and model `mandatory` remain restrictions on every grant: if they read
+a missing value, the operation is denied regardless of independent grants.
 
 ### `$as`
 
@@ -1341,6 +1349,9 @@ reads and polymorphic arms.
 - A recursive read walks visible nodes; a hidden node cuts its branch.
 - A to-one relation, or a polymorphic arm, whose target is hidden reads
   `null`.
+- `$access` works inside each polymorphic variant. Field permissions behave
+  as on ordinary relations: default selection omits an unreadable field,
+  while an explicit `select` of that field refuses the operation.
 
 ### Errors
 
@@ -1348,6 +1359,7 @@ reads and polymorphic arms.
 |---|---|---|
 | no actor, or `actor` passed as an argument | `ValidationError` | before any statement |
 | an actor value of the wrong type, malformed scopes, or an unknown permission scope | `ValidationError` | at `$as` |
+| a missing required actor field | `ValidationError` | at `$as`, before a query |
 | an unknown model, field, action or actor path; an unknown key of the policy, of a model or of a `fields` entry; a misspelled reserved key or level; a rule that reads itself; `recurse: true`; a read-protected key or unique field | `ClientInitializationError` | when the policy is applied |
 | `can`/`assert` with a `where` that is not a unique key | `ValidationError` | before any statement |
 | an unlisted model; an operation or `as` the model does not declare | `ForbiddenError` | before any statement |

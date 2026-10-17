@@ -89,3 +89,129 @@ export async function linkedEvidenceNames() {
   // @ts-expect-error - nested beta cannot project alpha's action
   db.parent.findMany({ include: betaWithAlphaAction });
 }
+
+function variantClient() {
+  const alpha = s.model({ id: s.string().id(), secret: s.string() });
+  const beta = s.model({ id: s.string().id(), seconds: s.int() });
+  const holder = s.model({
+    id: s.string().id(),
+    subject: s.toOne({ alpha: () => alpha, beta: () => beta }),
+    items: s.toMany({ alpha: () => alpha, beta: () => beta }),
+  });
+  return createClient({
+    schema: { holder, alpha, beta },
+    dataDir: ":memory:",
+  }).$extends(
+    permissions({
+      actor,
+      models: {
+        holder: { read: true },
+        alpha: {
+          actions: { read: [], archive: [] },
+          read: true,
+          archive: true,
+          fields: { secret: { read: "archive" } },
+        },
+        beta: { actions: { read: [], publish: [] }, read: true, publish: true },
+      },
+    })
+  );
+}
+
+export async function variantEvidenceNames() {
+  const db = variantClient().$as({ userId: "reader" });
+  const rows = await db.holder.findMany({
+    include: {
+      subject: {
+        alpha: { select: { $access: ["archive"] } },
+        beta: { include: { $access: true } },
+      },
+      items: {
+        variants: {
+          alpha: { select: { id: true, $access: ["read", "archive"] } },
+          beta: { include: { $access: ["publish"] } },
+        },
+      },
+    },
+  });
+  const subject = rows[0]!.subject;
+  if (subject?.type === "alpha")
+    expectTypeOf(subject.data).toEqualTypeOf<{
+      readonly $access: { readonly archive: boolean };
+    }>();
+  if (subject?.type === "beta")
+    expectTypeOf(subject.data.$access).toEqualTypeOf<{
+      readonly read: boolean;
+      readonly publish: boolean;
+    }>();
+  const item = rows[0]!.items[0]!;
+  if (item.type === "alpha")
+    expectTypeOf(item.data.$access).toEqualTypeOf<{
+      readonly read: boolean;
+      readonly archive: boolean;
+    }>();
+  if (item.type === "beta")
+    expectTypeOf(item.data.$access).toEqualTypeOf<{
+      readonly publish: boolean;
+    }>();
+  db.holder.findMany({
+    // @ts-expect-error - a singular variant keeps its target's permission names
+    include: { subject: { alpha: { select: { $access: ["publish"] } } } },
+  });
+  db.holder.findMany({
+    include: {
+      // @ts-expect-error - a collection variant keeps its target's permission names
+      items: { variants: { beta: { include: { $access: ["archive"] } } } },
+    },
+  });
+}
+
+// Structurally identical targets have ambiguous schema links. A fixed relation
+// must admit only their common permission names, never a union of grants.
+function ambiguousLinkedClient() {
+  const alpha = s.model({ id: s.string().id(), name: s.string() });
+  const beta = s.model({ id: s.string().id(), name: s.string() });
+  const parent = s.model({
+    id: s.string().id(),
+    alphaId: s.string(),
+    alpha: s
+      .toOne(() => alpha)
+      .fields("alphaId")
+      .references("id"),
+  });
+  return createClient({
+    schema: { parent, alpha, beta },
+    dataDir: ":memory:",
+  }).$extends(
+    permissions({
+      actor,
+      models: {
+        parent: { read: true },
+        alpha: {
+          actions: { read: [], archive: [] },
+          read: true,
+          archive: true,
+        },
+        beta: { actions: { read: [], publish: [] }, read: true, publish: true },
+      },
+    })
+  );
+}
+
+export async function ambiguousLinkedEvidenceNames() {
+  const db = ambiguousLinkedClient().$as({ userId: "reader" });
+  const rows = await db.parent.findMany({
+    include: { alpha: { select: { $access: ["read"] } } },
+  });
+  expectTypeOf(rows[0]!.alpha!.$access).toEqualTypeOf<{
+    readonly read: boolean;
+  }>();
+  db.parent.findMany({
+    // @ts-expect-error - ambiguous same-shaped targets admit only shared names
+    include: { alpha: { select: { $access: ["publish"] } } },
+  });
+  db.parent.findMany({
+    // @ts-expect-error - neither target-specific action is statically safe
+    include: { alpha: { select: { $access: ["archive"] } } },
+  });
+}

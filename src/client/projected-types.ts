@@ -19,6 +19,7 @@
 
 import type { PendingOperation } from "@query-engine/pending-operation";
 import type { Model } from "@schema/model";
+import type { Cardinality } from "@schema/relation/static-membership";
 import type { Prettify } from "@validation";
 import type { VibORMConfig } from "./client";
 import type { NodeInclude, NodeSelect } from "./result-types";
@@ -126,13 +127,28 @@ type RelationsOf<
   Name extends keyof Models,
 > = Models[Name]["model"]["~"]["state"]["relations"];
 
-type TargetName<
+/** A variant's link keeps its target's own evidence names. */
+type VariantName<
   Models extends ProjectionModelsConstraint,
-  Name extends keyof Models,
-  Field,
-> = Field extends keyof Models[Name]["relations"]
-  ? Extract<Models[Name]["relations"][Field], keyof Models>
-  : never;
+  Links,
+  Variant,
+> = Variant extends keyof Links ? Extract<Links[Variant], keyof Models> : never;
+
+type ProjectedArms<
+  Arms,
+  Models extends ProjectionModelsConstraint,
+  Links,
+  Key extends string,
+> = Arms extends object
+  ? {
+      [Variant in keyof Arms]: ProjectedArgs<
+        Arms[Variant],
+        Models,
+        VariantName<Models, Links, Variant>,
+        Key
+      >;
+    }
+  : Arms;
 
 /** A node's relation entry, admitting the key below it at the target's own. */
 type ProjectedRelation<
@@ -143,7 +159,19 @@ type ProjectedRelation<
   Key extends string,
 > = Field extends keyof RelationsOf<Models, Name>
   ? Value extends object
-    ? ProjectedArgs<Value, Models, TargetName<Models, Name, Field>, Key>
+    ? Field extends keyof Models[Name]["relations"]
+      ? Models[Name]["relations"][Field] extends infer Links
+        ? [Links] extends [PropertyKey]
+          ? ProjectedArgs<Value, Models, Extract<Links, keyof Models>, Key>
+          : Cardinality<RelationsOf<Models, Name>[Field]> extends "many"
+            ? {
+                [P in keyof Value]: P extends "variants"
+                  ? ProjectedArms<Value[P], Models, Links, Key>
+                  : Value[P];
+              }
+            : ProjectedArms<Value, Models, Links, Key>
+        : never
+      : Value
     : Value
   : Value;
 
@@ -237,6 +265,54 @@ type SpelledRelations<
   Name extends keyof Models,
 > = Extract<keyof Spelled<Node>, keyof RelationsOf<Models, Name>>;
 
+/** Preserve a variant carrier and overlay its selected target document. */
+type OverlayVariant<
+  Result,
+  Node,
+  Models extends ProjectionModelsConstraint,
+  Links,
+  Key extends string,
+> = Result extends readonly unknown[]
+  ? {
+      [Index in keyof Result]: OverlayVariant<
+        Result[Index],
+        Node extends { readonly variants?: infer Arms } ? Arms : undefined,
+        Models,
+        Links,
+        Key
+      >;
+    }
+  : Result extends { readonly type: infer Variant; readonly data: unknown }
+    ? {
+        [P in keyof Result]: P extends "data"
+          ? Variant extends keyof Node
+            ? Overlay<
+                Result[P],
+                Node[Variant],
+                Models,
+                VariantName<Models, Links, Variant>,
+                Key
+              >
+            : Result[P]
+          : Result[P];
+      }
+    : Result;
+
+type OverlayRelation<
+  Result,
+  Node,
+  Models extends ProjectionModelsConstraint,
+  Name extends keyof Models,
+  Field,
+  Key extends string,
+> = Field extends keyof Models[Name]["relations"]
+  ? Models[Name]["relations"][Field] extends infer Links
+    ? [Links] extends [PropertyKey]
+      ? Overlay<Result, Node, Models, Extract<Links, keyof Models>, Key>
+      : OverlayVariant<Result, Node, Models, Links, Key>
+    : never
+  : Result;
+
 type OverlayRow<
   Row,
   Node,
@@ -247,11 +323,12 @@ type OverlayRow<
   {
     [Field in keyof Row]: Field extends SpelledRelations<Node, Models, Name>
       ? Spelled<Node>[Field] extends object
-        ? Overlay<
+        ? OverlayRelation<
             Row[Field],
             Spelled<Node>[Field],
             Models,
-            TargetName<Models, Name, Field>,
+            Name,
+            Field,
             Key
           >
         : Row[Field]

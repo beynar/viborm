@@ -46,7 +46,11 @@ interface Plan {
   readonly bare: boolean;
   /** Its read-gated fields the caller named. */
   readonly named: ReadonlySet<string>;
-  readonly children: ReadonlyMap<string, readonly [Container, Plan]>;
+  readonly children: readonly {
+    readonly path: readonly string[];
+    readonly model: AnyModel;
+    readonly plan: Plan;
+  }[];
 }
 
 /**
@@ -69,7 +73,8 @@ function strip(
   };
   const omit = isPlainRecord(node.omit) ? node.omit : undefined;
   const copies: Partial<Record<Container, Record<string, unknown>>> = {};
-  const children = new Map<string, readonly [Container, Plan]>();
+  const children: { path: readonly string[]; model: AnyModel; plan: Plan }[] =
+    [];
   let key: Plan["key"];
   for (const container of ["select", "include"] as const) {
     const given = read[container];
@@ -86,23 +91,44 @@ function strip(
       const resolved = model["~"].state.relations[name]
         ? schema.index.get(model)?.get(name)
         : undefined;
-      // A variant slot's arms are read as their defaults say.
-      if (
-        resolved === undefined ||
-        (!resolved.member &&
-          (resolved.edge.kind === "variantRowCarrier" ||
-            resolved.edge.kind === "variantJunctionCarrier"))
-      )
+      if (resolved === undefined) continue;
+      const variant =
+        !resolved.member &&
+        (resolved.edge.kind === "variantRowCarrier" ||
+          resolved.edge.kind === "variantJunctionCarrier");
+      if (variant) {
+        if (!isPlainRecord(value)) continue;
+        const many = resolved.edge.kind === "variantJunctionCarrier";
+        const arms = many ? value.variants : value;
+        if (!isPlainRecord(arms)) continue;
+        let nextArms: Record<string, unknown> | undefined;
+        for (const member of resolved.edge.members) {
+          const target = schema.membership(model, name, member.variant).target;
+          const child = strip(domain, schema, target, arms[member.variant]);
+          if (child === undefined) continue;
+          (nextArms ??= { ...arms })[member.variant] = child[0];
+          children.push({
+            path: [
+              container,
+              name,
+              ...(many ? ["variants"] : []),
+              member.variant,
+            ],
+            model: target,
+            plan: child[1],
+          });
+        }
+        if (nextArms)
+          (copy ??= { ...given })[name] = many
+            ? { ...value, variants: nextArms }
+            : nextArms;
         continue;
-      const child = strip(
-        domain,
-        schema,
-        schema.membership(model, name).target,
-        value
-      );
+      }
+      const target = schema.membership(model, name).target;
+      const child = strip(domain, schema, target, value);
       if (child === undefined) continue;
       (copy ??= { ...given })[name] = child[0];
-      children.set(name, [container, child[1]]);
+      children.push({ path: [container, name], model: target, plan: child[1] });
     }
     if (copy) copies[container] = copy;
   }
@@ -114,7 +140,7 @@ function strip(
       : omit?.[field] === false;
     if (given) named.add(field);
   }
-  if (key === undefined && children.size === 0 && named.size === 0)
+  if (key === undefined && children.length === 0 && named.size === 0)
     return undefined;
   // An `include` that named the key alone is no `include`.
   const emptied =
@@ -174,21 +200,26 @@ function attach(
   operation: Operation
 ): Input {
   const next: Input = { ...admitted };
-  for (const [name, [container, child]] of plan.children) {
-    const holder = next[container];
-    if (!(isPlainRecord(holder) && isPlainRecord(holder[name]))) continue;
-    next[container] = {
-      ...holder,
-      [name]: attach(
-        domain,
-        schema,
-        schema.membership(model, name).target,
-        holder[name],
-        child,
-        `${path}${container}.${name}.`,
-        operation
-      ),
-    };
+  for (const child of plan.children) {
+    let holder = next;
+    for (const [index, name] of child.path.entries()) {
+      const value = holder[name];
+      if (!isPlainRecord(value)) break;
+      const nextValue =
+        index === child.path.length - 1
+          ? attach(
+              domain,
+              schema,
+              child.model,
+              value,
+              child.plan,
+              `${path}${child.path.join(".")}.`,
+              operation
+            )
+          : { ...value };
+      holder[name] = nextValue;
+      holder = nextValue;
+    }
   }
   if (plan.key) {
     const value = admitKey(domain, model, plan.key, path, operation);

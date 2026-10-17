@@ -21,7 +21,7 @@ import type {
   VibORMConfig,
 } from "../index";
 import type { InferOutput } from "../validation";
-import { type ActorFacts, type ActorPaths, actorPaths } from "./actor";
+import { type ActorFacts, type ActorPaths, actorContract } from "./actor";
 import {
   type CompiledModel,
   type CompiledPolicy,
@@ -813,15 +813,15 @@ export function permissions<
 export function permissions<const Config extends PermissionsConfig>(
   config: Config & DeclarationCheck<Config>
 ): Policy<Config> {
-  const hasPath = actorPaths(config.actor);
-  const compile = (schema: Schema) => compilePolicy(config, schema, hasPath);
+  const actor = actorContract(config.actor);
+  const compile = (schema: Schema) => compilePolicy(config, schema, actor);
   const rows = (base: VibORMClient<VibORMConfig, ExtensionState>) => {
     const compiled = compile(base.$schema as Schema);
     const definition = {
       name: NAME,
       controls: {
         actor: {
-          schema: config.actor,
+          schema: actor.schema,
           bound: true,
           required: true,
           uncacheable: config.cache !== "allow",

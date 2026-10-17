@@ -9,6 +9,13 @@ The authorization extension is named `permissions`, imported from
 `viborm/permissions`. This replaces the pre-release `rbac` name; no alias is
 shipped. Its rules and authorization behavior are unchanged by the rename.
 
+Before release, actor admission and optional actor rules were made explicit:
+`$as` rejects missing required actor fields; a missing optional dependency
+disables its declared grant while independent grants remain available.
+`mandatory` still denies access when its dependencies are absent, and negation
+cannot turn a missing dependency into a grant. Polymorphic variants now support
+`$access` and enforce explicit field selections like ordinary relations.
+
 The extension capabilities the Permissions extension is built on (`rows`
 predicates that traverse relations, values a call supplies as plan
 parameters, verbs that judge the rows a write takes and the rows it

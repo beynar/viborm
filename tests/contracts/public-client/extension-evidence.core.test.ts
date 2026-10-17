@@ -9,6 +9,7 @@
  */
 
 import { ClientInitializationError, ValidationError } from "@errors";
+import { createClient, s } from "@src/index";
 import {
   createPermissionsAppClient,
   loadPermissionsSeed,
@@ -320,6 +321,190 @@ describe("K5: declared projection keys and read-gated fields", () => {
     );
     expect(await capture(keyed, "organization", {})).toEqual(
       await capture(plain, "organization", {})
+    );
+  });
+});
+
+describe("K5: variant projection admission", () => {
+  const alpha = s.model({ id: s.string().id(), secret: s.string() });
+  const beta = s.model({ id: s.string().id(), label: s.string() });
+  const holder = s.model({
+    id: s.string().id(),
+    label: s.string(),
+    subject: s.toOne({ alpha: () => alpha, beta: () => beta }),
+    items: s.toMany({ alpha: () => alpha, beta: () => beta }),
+  });
+  const base = createClient({
+    schema: { holder, alpha, beta },
+    driver: createInMemorySQLite3Driver(),
+  });
+  const db = base.$extends({
+    name: "variant evidence",
+    rows: {
+      control: "visibility",
+      default: "all",
+      models: {},
+      verbs: {
+        holder: {
+          predicates: { read: {} },
+          read: "read",
+          update: "read",
+          evidence: { as: "$access", names: ["read"] },
+        },
+        alpha: {
+          predicates: { read: {}, secret: { id: "allowed" } },
+          read: "read",
+          evidence: { as: "$access", names: ["read", "secret"] },
+          reads: { secret: "secret" },
+        },
+        beta: {
+          predicates: { read: {}, edit: {} },
+          read: "read",
+          evidence: { as: "$access", names: ["read", "edit"] },
+        },
+      },
+    },
+  });
+  beforeAll(async () => {
+    await syncLiveSchema(base);
+    await base.alpha.createMany({
+      data: [
+        { id: "allowed", secret: "yes" },
+        { id: "denied", secret: "no" },
+      ],
+    });
+    await base.beta.create({ data: { id: "beta", label: "B" } });
+    await base.holder.create({
+      data: {
+        id: "holder",
+        label: "before",
+        subject: { connect: { type: "alpha", where: { id: "denied" } } },
+        items: {
+          connect: [
+            { type: "alpha", where: { id: "allowed" } },
+            { type: "alpha", where: { id: "denied" } },
+            { type: "beta", where: { id: "beta" } },
+          ],
+        },
+      },
+    });
+  });
+  afterAll(() => base.$disconnect());
+
+  test("reports the selected evidence in singular and collection variants, including a bare evidence selection", async () => {
+    const row = await db.holder.findUnique({
+      where: { id: "holder" },
+      include: {
+        subject: { alpha: { select: { $access: ["secret"] } } },
+        items: {
+          variants: {
+            alpha: { select: { id: true, $access: true } },
+            beta: { include: { $access: ["edit"] } },
+          },
+        },
+      },
+    });
+    expect(row!.subject).toEqual({
+      type: "alpha",
+      data: { $access: { secret: false } },
+    });
+    expect(row!.items).toEqual(
+      expect.arrayContaining([
+        {
+          type: "alpha",
+          data: { id: "allowed", $access: { read: true, secret: true } },
+        },
+        {
+          type: "alpha",
+          data: { id: "denied", $access: { read: true, secret: false } },
+        },
+        {
+          type: "beta",
+          data: { id: "beta", label: "B", $access: { edit: true } },
+        },
+      ])
+    );
+    expect(row!.items).toHaveLength(3);
+  });
+
+  test("default fields omit; explicit variant fields refuse with the complete projection path", async () => {
+    const row = await db.holder.findUnique({
+      where: { id: "holder" },
+      include: { subject: true, items: true },
+    });
+    expect(row!.subject).toEqual({ type: "alpha", data: { id: "denied" } });
+    expect(row!.items).toContainEqual({
+      type: "alpha",
+      data: { id: "allowed", secret: "yes" },
+    });
+    expect(row!.items).toContainEqual({
+      type: "alpha",
+      data: { id: "denied" },
+    });
+    const singular = await failure(
+      db.holder.findMany({
+        include: { subject: { alpha: { select: { secret: true } } } },
+      })
+    );
+    expect(singular).toBeInstanceOf(ValidationError);
+    expect((singular as Error).message).toContain(
+      "include.subject.alpha.select.secret"
+    );
+    const collection = await failure(
+      db.holder.findMany({
+        include: {
+          items: { variants: { alpha: { select: { secret: true } } } },
+        },
+      })
+    );
+    expect(collection).toBeInstanceOf(ValidationError);
+    expect((collection as Error).message).toContain(
+      "include.items.variants.alpha.select.secret"
+    );
+    const allowed = await db.holder.findMany({
+      include: {
+        items: {
+          only: ["alpha"],
+          variants: {
+            alpha: {
+              where: { id: "allowed" },
+              select: { secret: true, $access: false },
+            },
+          },
+        },
+      },
+    });
+    expect(allowed[0]!.items).toEqual([
+      { type: "alpha", data: { secret: "yes" } },
+    ]);
+  });
+
+  test("a refused mutation projection rolls the mutation back", async () => {
+    await expect(
+      db.holder.update({
+        where: { id: "holder" },
+        data: { label: "after" },
+        include: { subject: { alpha: { select: { secret: true } } } },
+      })
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(
+      await base.holder.findUnique({
+        where: { id: "holder" },
+        select: { label: true },
+      })
+    ).toEqual({ label: "before" });
+  });
+
+  test("variant evidence validates against that target and reports its full path", async () => {
+    const invalid = db.holder.findMany({
+      include: {
+        items: { variants: { alpha: { select: { $access: ["edit"] } } } },
+      },
+    } as never);
+    const error = await failure(invalid);
+    expect(error).toBeInstanceOf(ValidationError);
+    expect((error as Error).message).toContain(
+      "include.items.variants.alpha.select.$access"
     );
   });
 });

@@ -6059,7 +6059,8 @@ export class Queries {
     resolved: ResolvedSlot,
     selection: unknown,
     fields: Record<string, Shape | Leaf>,
-    prepared: PreparedProjectionField[]
+    prepared: PreparedProjectionField[],
+    path: string
   ): void {
     // The caller dispatched on a variant carrier; the closure below loses that.
     const edge = resolved.edge as ResolvedVariantEdge;
@@ -6094,7 +6095,8 @@ export class Queries {
       if (arm === undefined) continue;
       const nested = this.#prepareRelationProjection(
         bindMembership(this.schema, model, name, member.variant),
-        arm
+        arm,
+        `${path}${many ? "variants." : ""}${member.variant}.`
       );
       if (many) collections[member.variant] = this.#collectionShape(nested);
       else documents[member.variant] = this.#relationShape(nested);
@@ -6227,7 +6229,8 @@ export class Queries {
           resolved,
           selection,
           fields,
-          prepared
+          prepared,
+          `${path}${args.include?.[name] === undefined ? "select" : "include"}.${name}.`
         );
         continue;
       }

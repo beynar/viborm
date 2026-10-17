@@ -223,7 +223,10 @@ shared `select` schema: taken out of every node of the call's projection
 before admission, put back by path after, its value checked there; and it
 marks, on the `select` admission returned (`namedGatedFields`, by identity),
 the gated fields the caller named, since an `include` or an `omit` desugars
-into a `select` naming every scalar. `prepareProjection` lowers a key as the
+into a `select` naming every scalar. The walk includes singular variant arms
+and collection `variants`, resolving each target from the shared membership
+index and retaining its exact projection path; variant tags never name a
+second evidence or field-gating contract. `prepareProjection` lowers a key as the
 `evidence` field (a document of booleans, or `ordered`, the last name that
 holds) and a gated field beside one `gate` member per distinct gate
 (`0viborm_gate:<n>`, never published); a projection the engine reads for

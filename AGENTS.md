@@ -328,18 +328,26 @@ restriction; an empty list denies all; supplied scopes follow the same action
 graph and intersect model grants, mandatory restrictions and field protections.
 Scopes never override `false`. Service identities use the application's actor
 schema and need explicit model grants; the server authenticates their keys.
-`$access` always returns an action-keyed boolean map. The retired `arms`
+`$access` always returns an action-keyed boolean map, including inside each
+polymorphic variant. Variant projection admission preserves both evidence keys
+and explicitly selected gated fields, with the same refusal as an ordinary
+relation; default selection omits unreadable fields. The retired `arms`
 and `within` keys are refused rather than admitted as implicit actions.
 Comma-separated rule keys assign one rule to individual actions, with surrounding
 ASCII whitespace ignored. `compile.ts` resolves the graph, rule bindings and
 evidence together; overlapping assignments, empty members and grouped reserved
 keys are refused. Levels, graph edges and call sites still name single actions.
-Predicate simplification preserves both row truth and missing actor facts:
-structural containment alone cannot remove a branch whose actor reads can deny
-the complete predicate. Conditional read summaries include AND-false and
-OR-true folding, distinguish scalar from whole-list parameters, and compare the
-complete predicate before
-and after simplification. Unproved or unsupported shapes remain unchanged.
+`$as` rejects missing required actor fields at binding. A missing optional
+actor dependency disables its declared grant, not independent grants or other
+inherited grants. The whole declared rule is the boundary, including its NOT,
+OR and relation filters; explicit `$if` guards fold before dependency checks.
+Missing dependencies in global or model `mandatory` still deny the complete
+permission. Generic `rows` R6 semantics are unchanged: Permissions expresses
+grant availability through the existing public conditions.
+Predicate simplification preserves row truth and conditional actor dependency
+checks. Conditional read summaries include AND-false and OR-true folding and
+distinguish scalar from whole-list parameters. Unproved or unsupported shapes
+remain unchanged.
 `tests/package/permissions-consumer-smoke.mjs` runs §1.1 and the blog from the
 packed package.
 
