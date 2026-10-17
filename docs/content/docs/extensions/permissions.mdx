@@ -1139,8 +1139,8 @@ by `$as` once per request and never read from the database.
   dynamically.
 - **An absent or `null` actor value never matches.** `userId: null` owns no
   row whose `ownerId` is null.
-- **A missing optional actor value disables the declared grant that reads it.**
-  Independent grants still apply; a missing value in `mandatory` denies access.
+- **A missing optional actor value disables the grant or `OR` alternative that reads it.**
+  Independent alternatives still apply; a missing value in `mandatory` denies access.
   Required actor fields are checked at `$as`. See
   [Optional actor values](#optional-actor-values).
 - **Bind ids, never bearer secrets.** Bind a session's id, not its token: the
@@ -1153,7 +1153,7 @@ by `$as` once per request and never read from the database.
 Declare a field optional when a valid actor may lack it. Missing required actor
 fields raise `ValidationError` at `$as`, before any query.
 
-A declared grant that reads an absent or `null` actor value grants nothing.
+A grant that needs an absent or `null` actor value grants nothing.
 Other grants still apply, including grants inherited from other actions.
 For example, an anonymous actor can read public documents without receiving
 the owner's update grant:
@@ -1175,34 +1175,34 @@ await db.$as({}).doc.findMany(); // Public documents only.
 await db.$as({ userId: "u1" }).doc.findMany(); // Public documents plus u1's own.
 ```
 
-The boundary is one declared rule, not each comparison inside it. This single
-rule reads `userId`, so it grants nothing when that value is absent:
-
-```ts
-read: { OR: [{ status: "public" }, { ownerId: { actor: "userId" } }] },
-```
-
-To make alternatives within one rule independent, guard the optional arm.
-The guard folds before the rule's remaining actor dependencies are checked:
+Alternatives inside `OR` are independent too. Permissions detects optional
+actor dependencies and inserts the availability checks automatically:
 
 ```ts
 read: {
   OR: [
     { status: "public" },
-    {
-      $if: { control: "actor", path: "userId", exists: true },
-      ownerId: { actor: "userId" },
-    },
+    { ownerId: { actor: "userId" } },
   ],
 },
 ```
 
-Now the public arm works for an anonymous actor too. The
-[live-credential recipe](#live-credentials-and-bans) uses the same guard.
-Missing dependencies under `NOT` or a negative relation filter disable the
-dependent grant; negation never turns missing identity data into permission.
-Global and model `mandatory` remain restrictions on every grant: if they read
-a missing value, the operation is denied regardless of independent grants.
+With no `userId`, this grants public documents. With `userId: "u1"`, it grants
+public documents plus u1's own. No `$if` is needed. This also works for positive
+`OR` alternatives nested inside `AND`, `some`, or `is` relation predicates.
+A shared requirement outside the `OR` still applies to every alternative.
+
+Missing dependencies under `NOT`, `none`, `isNot`, or `every` disable the
+containing alternative (or the whole grant when there is no enclosing positive
+`OR`). Permissions does not insert guards inside these operators: negation or
+an empty relation must never turn missing identity data into permission.
+
+Global and model `mandatory` remain restrictions on every grant. They do not
+receive automatic alternative guards: if a remaining condition reads a missing
+value, the operation is denied. Use an explicit `$if` when a mandatory condition
+should apply only if an actor value exists, as in the
+[live-credential recipe](#live-credentials-and-bans). Explicit `$if` conditions
+still fold before dependencies are checked.
 
 ### `$as`
 

@@ -1664,11 +1664,17 @@ describe("explicit application rules", () => {
               OR: [
                 { $if: { ...ids, equals: "all" } },
                 {
-                  parent: {
-                    recurse: { depth: false },
-                    self: true,
-                    some: { id: { in: ids } },
-                  },
+                  AND: [
+                    // The positive OR alternative owns its optional key read.
+                    { $if: { control: "actor", path: "key", exists: true } },
+                    {
+                      parent: {
+                        recurse: { depth: false },
+                        self: true,
+                        some: { id: { in: ids } },
+                      },
+                    },
+                  ],
                 },
               ],
             },

@@ -1085,11 +1085,11 @@ export function compilePolicy(
   const provesGuard = (name: string, a: Clause, b: Clause): boolean =>
     a === false || (b !== false && (isTrue(b) || implies(name, a, b)));
   /**
-   * Each declared grant owns absence. Fold it false before generic R6 reads
-   * its operands, keeping other grants available. Read guards come from the
-   * same summary that simplification uses, so authored $if short circuits
-   * still suppress unused dependencies. The guard surrounds the complete
-   * rule, never a comparison that NOT/none/every could turn into a grant.
+   * Each positive OR alternative owns absence, as does the enclosing grant.
+   * Fold unavailable alternatives false before generic R6 reads their operands.
+   * Read guards use the same summary as simplification, preserving authored
+   * $if short circuits. Negative and vacuous contexts remain indivisible:
+   * absence must never become evidence for NOT/none/isNot/every.
    */
   const provesPresence = (guard: Clause, path: string): boolean => {
     if (guard === false) return true;
@@ -1110,8 +1110,47 @@ export function compilePolicy(
       (condition === undefined || condition.exists !== false)
     );
   };
-  const availableGrant = (name: string, clause: Clause): Clause => {
-    if (clause === false) return clause;
+  const guardAlternatives = (name: string, clause: Where): Where => {
+    // Named predicates already own their alternatives and mandatory restriction.
+    // Retain identity so negative references can still recover authored reads.
+    if (authoredPredicates.has(clause)) return clause;
+    const replace = (
+      record: Where,
+      rewrite: (key: string, value: unknown) => unknown
+    ): Where => {
+      let changed = false;
+      const entries = Object.entries(record).map(([key, value]) => {
+        const next = rewrite(key, value);
+        changed ||= next !== value;
+        return [key, next];
+      });
+      return changed ? Object.fromEntries(entries) : record;
+    };
+    return replace(clause, (key, value) => {
+      if ((key === "OR" || key === "AND") && Array.isArray(value)) {
+        const next = value.map((body) =>
+          isRecord(body)
+            ? key === "OR"
+              ? availableGrant(name, body)
+              : guardAlternatives(name, body)
+            : body
+        );
+        return next.some((body, index) => body !== value[index]) ? next : value;
+      }
+      const target = targetOf(name, key);
+      if (target === undefined || !isRecord(value)) return value;
+      if (!Object.keys(value).some((op) => QUANTIFIERS.has(op)))
+        return guardAlternatives(target, value);
+      return replace(value, (op, body) =>
+        (op === "is" || op === "some") && isRecord(body)
+          ? guardAlternatives(target, body)
+          : body
+      );
+    });
+  };
+  const availableGrant = (name: string, input: Clause): Clause => {
+    if (input === false) return input;
+    const clause = guardAlternatives(name, input);
     const summary = summarizeReads(name, clause, "source");
     if (summary === null) return clause;
     const guards: Clause[] = [];

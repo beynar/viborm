@@ -11,7 +11,9 @@ shipped. Its rules and authorization behavior are unchanged by the rename.
 
 Before release, actor admission and optional actor rules were made explicit:
 `$as` rejects missing required actor fields; a missing optional dependency
-disables its declared grant while independent grants remain available.
+disables its positive `OR` alternative (or its declared grant outside `OR`)
+while independent alternatives and grants remain available. Optional actor
+guards are inferred automatically; ordinary `OR` rules need no explicit `$if`.
 `mandatory` still denies access when its dependencies are absent, and negation
 cannot turn a missing dependency into a grant. Polymorphic variants now support
 `$access` and enforce explicit field selections like ordinary relations.

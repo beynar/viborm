@@ -90,7 +90,9 @@ test("optional facts preserve positive related grants without allowing negated u
     });
     const actor = v.object({ userId: v.optional(v.string()) });
     const organizationRules = {
-      read: { public: true },
+      read: {
+        OR: [{ public: true }, { ownerId: { actor: "userId" as const } }],
+      },
       update: { ownerId: { actor: "userId" as const } },
     };
     const positive = base.$extends(
@@ -264,6 +266,175 @@ test("optional scalar, list and mandatory dependencies retain their declared bou
       })
     );
     expect(await literal.$as({ active: true }).post.count()).toBe(1);
+  } finally {
+    await base.$disconnect();
+  }
+});
+
+test("positive OR alternatives isolate missing facts through nested relations", async () => {
+  const folder = s.model({
+    id: s.string().id(),
+    documents: s.toMany(() => document),
+  });
+  const document = s.model({
+    id: s.string().id(),
+    folderId: s.string(),
+    public: s.boolean(),
+    ownerId: s.string(),
+    folder: s
+      .toOne(() => folder)
+      .fields("folderId")
+      .references("id"),
+  });
+  const base = createClient({
+    schema: { folder, document },
+    dataDir: ":memory:",
+  });
+  try {
+    await syncLiveSchema(base);
+    await base.folder.createMany({
+      data: [{ id: "public" }, { id: "private" }, { id: "empty" }],
+    });
+    await base.document.createMany({
+      data: [
+        { id: "public", folderId: "public", public: true, ownerId: "alice" },
+        { id: "private", folderId: "private", public: false, ownerId: "alice" },
+      ],
+    });
+    const actor = v.object({
+      userId: v.optional(v.string({ nullable: true })),
+      ids: v.optional(v.array(v.string())),
+    });
+    const alternatives = {
+      OR: [
+        { public: true },
+        { ownerId: { actor: "userId" as const } },
+        { id: { in: { actor: "ids" as const } } },
+      ],
+    };
+    const db = base.$extends(
+      permissions({
+        actor,
+        models: {
+          document: {
+            read: { AND: [{ id: { not: "excluded" } }, alternatives] },
+          },
+          folder: { read: { documents: { some: alternatives } } },
+        },
+      })
+    );
+    for (const facts of [{}, { userId: null }]) {
+      const view = db.$as(facts);
+      expect(await view.document.findMany({ select: { id: true } })).toEqual([
+        { id: "public" },
+      ]);
+      expect(await view.folder.findMany({ select: { id: true } })).toEqual([
+        { id: "public" },
+      ]);
+      expect(await view.document.can("read", { id: "private" })).toBe(false);
+    }
+    expect(await db.$as({ userId: "alice" }).document.count()).toBe(2);
+    expect(await db.$as({ ids: ["private"] }).document.count()).toBe(2);
+    expect(await db.$as({ ids: [] }).document.count()).toBe(1);
+
+    const alternativeNot = base.$extends(
+      permissions({
+        actor,
+        models: {
+          document: {
+            read: {
+              OR: [{ public: true }, { NOT: { ownerId: { actor: "userId" } } }],
+            },
+          },
+        },
+      })
+    );
+    expect(
+      await alternativeNot.$as({}).document.findMany({ select: { id: true } })
+    ).toEqual([{ id: "public" }]);
+    expect(await alternativeNot.$as({ userId: "bob" }).document.count()).toBe(
+      2
+    );
+
+    const mandatoryTarget = base.$extends(
+      permissions({
+        actor,
+        models: {
+          folder: {
+            mandatory: { OR: [{ id: "public" }, { id: { actor: "userId" } }] },
+            read: true,
+          },
+          document: { read: { folder: "read" } },
+        },
+      })
+    );
+    expect(await mandatoryTarget.$as({}).document.findMany()).toEqual([]);
+    expect(
+      await mandatoryTarget
+        .$as({ userId: "bob" })
+        .document.findMany({ select: { id: true } })
+    ).toEqual([{ id: "public" }]);
+
+    // Keeping the complete negative/vacuous body unavailable also protects an
+    // empty relation: none/every must not manufacture a grant from missing facts.
+    for (const quantifier of ["none", "every"] as const) {
+      const negative = base.$extends(
+        permissions({
+          actor,
+          models: {
+            folder: { read: { documents: { [quantifier]: alternatives } } },
+          },
+        })
+      );
+      expect(await negative.$as({}).folder.findMany()).toEqual([]);
+    }
+    const not = base.$extends(
+      permissions({
+        actor,
+        models: {
+          document: { read: { NOT: alternatives } },
+        },
+      })
+    );
+    expect(await not.$as({}).document.findMany()).toEqual([]);
+    expect(
+      await not
+        .$as({ userId: "bob", ids: [] })
+        .document.findMany({ select: { id: true } })
+    ).toEqual([{ id: "private" }]);
+
+    const related = base.$extends(
+      permissions({
+        actor,
+        models: {
+          document: {
+            read: {
+              folder: {
+                is: { OR: [{ id: "public" }, { id: { actor: "userId" } }] },
+              },
+            },
+          },
+        },
+      })
+    );
+    expect(
+      await related.$as({}).document.findMany({ select: { id: true } })
+    ).toEqual([{ id: "public" }]);
+    const isNot = base.$extends(
+      permissions({
+        actor,
+        models: {
+          document: {
+            read: {
+              folder: {
+                isNot: { OR: [{ id: "public" }, { id: { actor: "userId" } }] },
+              },
+            },
+          },
+        },
+      })
+    );
+    expect(await isNot.$as({}).document.findMany()).toEqual([]);
   } finally {
     await base.$disconnect();
   }

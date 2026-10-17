@@ -338,9 +338,11 @@ ASCII whitespace ignored. `compile.ts` resolves the graph, rule bindings and
 evidence together; overlapping assignments, empty members and grouped reserved
 keys are refused. Levels, graph edges and call sites still name single actions.
 `$as` rejects missing required actor fields at binding. A missing optional
-actor dependency disables its declared grant, not independent grants or other
-inherited grants. The whole declared rule is the boundary, including its NOT,
-OR and relation filters; explicit `$if` guards fold before dependency checks.
+actor dependency disables its positive OR alternative, or its declared grant
+when there is no enclosing positive OR. Other alternatives and inherited grants
+remain available. Automatic guards traverse AND and positive relation bodies,
+never NOT/none/isNot/every or named predicate boundaries; authored dependencies
+remain authoritative under negation. Explicit `$if` guards fold first.
 Missing dependencies in global or model `mandatory` still deny the complete
 permission. Generic `rows` R6 semantics are unchanged: Permissions expresses
 grant availability through the existing public conditions.

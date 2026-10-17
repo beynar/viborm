@@ -734,8 +734,8 @@ in §11.6; generic extension `rows` R6 remains unchanged.
   actor validation uses the schema's own validation semantics.
 - A declared grant with a missing optional actor dependency grants nothing;
   independent declared and inherited grants remain available. The declared
-  rule is the boundary, including an OR inside it. An authored `$if` may make
-  an optional dependency unnecessary for that call. Missing dependencies in
+  rule was the boundary, including an OR inside it (amended by §11.8). An
+  authored `$if` may make an optional dependency unnecessary for that call. Missing dependencies in
   global or model `mandatory` deny the complete permission.
 - Negation and relation quantifiers must not convert an unavailable dependency
   into a grant, including through named target rules. Positive relation rules
@@ -767,6 +767,47 @@ the 1,536 MiB process-group limit; a 384 MiB heap run exhausted that heap.
 Neither resource limit was raised. Bundle growth is measured and recorded in
 `package.json` under OD-17; all size checks pass. Full extension coverage and
 hosted Neki were not rerun for this amendment.
+
+### 11.8 Automatic availability for positive alternatives (2026-10-18)
+
+The owner requested automatic optional-actor guards inside `OR`, superseding
+§11.7's whole-declared-rule boundary for positive alternatives. For example,
+`read: { OR: [{ published: true }, { ownerId: { actor: "userId" } }] }`
+grants public rows to an actor without optional `userId`, and public plus owned
+rows when it is present. Required actor fields still fail validation at `$as`.
+
+The compiler reuses its conditional-read summaries and existing public `$if`
+conditions. It guards positive `OR` alternatives inside logical conjunctions
+and positive relation predicates, without distributing the predicate. A shared
+requirement outside the alternative still closes the enclosing grant when
+missing. Explicit conditions continue to short-circuit their dependencies.
+
+Automatic insertion stops at `NOT`, `none`, `isNot`, and `every`: a missing
+dependency disables the enclosing positive alternative or declared grant,
+never granting through negation or vacuous truth. Authored dependency summaries
+remain authoritative across named references under these operators. Named
+target predicates retain their own availability and mandatory restrictions.
+Global and model `mandatory` are not rewritten; an application still uses an
+explicit conditional when a mandatory branch should depend on value presence.
+Generic extension `rows` R6, action inheritance and declared-action callback
+semantics are unchanged.
+
+Verification: the compiler, actor, SQLite extension/quantifier tests and shared
+SQLite entry pass 206/206. The complete native typecheck passes (161.12 s,
+6,315 MiB peak). An independent read-only review found no authorization leak;
+its named-target mandatory and negative-alternative witnesses are included.
+The D1 statement-budget suite passes all three cases (795 acceptance statements,
+66 every-relation statements, and the same four documented `$access` refusals).
+The fresh package build and packed acceptance/blog smoke pass. All existing
+bundle limits pass unchanged: pg plus permissions is 189.96 kB gzip, the
+standalone entry 29.40 kB, and all entries 409.71 kB. Documentation links pass.
+The full local docs build did not complete: the standard 384 MiB heap exceeded
+1,536 MiB process-group RSS; 320/352 MiB heaps exhausted V8, and lower nursery
+allocation or a consistent Node patch version still exceeded RSS. Calling Astro
+directly was not a valid substitute because Blume publishes required runtime
+data. The dev-preview fallback also exceeded RSS during dependency optimization.
+No ceiling was raised, and no successful full docs build or rendered-page check
+is claimed for this amendment. The earlier port-3001 preview was left untouched.
 
 ## Appendix A. Review dispositions
 

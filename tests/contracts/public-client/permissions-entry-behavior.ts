@@ -1353,11 +1353,23 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
       expect(await guarded.$as({ userId: "user-03" }).page!.count()).toBe(
         seed.page.filter((p) => !p.personal || p.ownerId === "user-03").length
       );
-      // The declared rule is the boundary, including an OR or NOT inside it.
+      // Positive OR alternatives infer availability; negative rules stay closed.
       const single = over({
         read: { OR: [{ personal: false }, { ownerId: { actor: "userId" } }] },
       });
-      expect(await single.$as({}).page!.count()).toBe(0);
+      expect(await single.$as({}).page!.count()).toBe(shared.length);
+      expect(await single.$as({ userId: "user-03" }).page!.count()).toBe(
+        seed.page.filter((p) => !p.personal || p.ownerId === "user-03").length
+      );
+      const conjunction = over({
+        read: {
+          AND: [
+            { ownerId: { actor: "userId" } },
+            { OR: [{ personal: false }, { personal: true }] },
+          ],
+        },
+      });
+      expect(await conjunction.$as({}).page!.count()).toBe(0);
       const negated = over({
         read: { NOT: { ownerId: { actor: "userId" } } },
       });
@@ -1367,6 +1379,13 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
         read: true,
       });
       expect(await mandatory.$as({}).page!.count()).toBe(0);
+      const mandatoryAlternatives = over({
+        mandatory: {
+          OR: [{ personal: false }, { ownerId: { actor: "userId" } }],
+        },
+        read: true,
+      });
+      expect(await mandatoryAlternatives.$as({}).page!.count()).toBe(0);
     });
 
     test("W-D12: a create without an actor is refused on every model, before any statement", async () => {
