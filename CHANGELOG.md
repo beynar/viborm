@@ -3,7 +3,17 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
-## Unreleased
+## 1.3.0 — 2026-10-18
+
+Adds database-enforced authorization through `viborm/permissions`, applied with
+`db.$extends(permissions(config))`. Policies combine CRUD permissions, actor
+attributes, related-row rules and credential scopes in the statement that
+reads or writes. Missing permissions deny access; optional actor values keep
+independent positive `OR` alternatives available automatically.
+
+For adopters, the [Permissions guide](docs/content/docs/extensions/permissions.mdx)
+covers actor binding, action inheritance, mandatory restrictions, service keys,
+field permissions and the four documented wide/deep D1 query limits.
 
 The authorization extension is named `permissions`, imported from
 `viborm/permissions`. This replaces the pre-release `rbac` name; no alias is
@@ -145,8 +155,8 @@ names no role, grant or action.
   judges a proposed row and implies nothing (declare `actions: { create:
   ["read"] }` to say otherwise). An inherited branch another branch provably
   contains is dropped from a predicate: the same rows, a smaller statement.
-- **`viborm/permissions`, authorization judged in the statement** (not yet
-  published, OD-11; [guide](docs/content/docs/extensions/permissions.mdx)).
+- **`viborm/permissions`, authorization judged in the statement**
+  ([guide](docs/content/docs/extensions/permissions.mdx)).
   `permissions({ actor, levels, mandatory, models, cache })` declares, per model, a
   rule under each action it grants (`"read, update"` gives several actions
   one rule), a `mandatory` predicate every action conjoins (also global),
@@ -198,6 +208,11 @@ names no role, grant or action.
 
 ### Changed
 
+- **Custom adapter subclasses:** stock adapters supply the new
+  `subqueries.isolated`, `assertions.holds`, and `setOperations.typedRows`
+  operations. **Upgrade:** if a subclass replaces an entire operation group
+  with an object literal, preserve the stock group members or implement the
+  new operations. Subclasses inheriting those groups need no changes.
 - **A `rows` predicate is admitted at `$extends`.** A misspelt key anywhere
   inside it is a `ClientInitializationError` naming the extension, the
   model, the mode, the purpose and the path. **Upgrade:** a definition that
