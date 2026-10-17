@@ -170,6 +170,23 @@ const scripts = [
   ),
 ] as const;
 
+/**
+ * The suite runs as two parts, each its own bounded run with its own wall
+ * (`pnpm test:package`): the type-checking smokes (`type-checks …`,
+ * `retains …`), which are most of the time on a slow runner, and the rest.
+ * `VIBORM_PACKAGE_PART` picks one; unset, both run, as locally.
+ */
+const isTypePart = (name: string) =>
+  name.startsWith("type-checks") || name.startsWith("retains");
+const part = process.env.VIBORM_PACKAGE_PART;
+if (part !== undefined && part !== "types" && part !== "runtime")
+  throw new Error(
+    `VIBORM_PACKAGE_PART must be "types" or "runtime", not ${part}`
+  );
+const selected = scripts.filter(
+  ([name]) => part === undefined || isTypePart(name) === (part === "types")
+);
+
 describe("built package", () => {
   let archive: string;
   let archiveRoot: string | undefined;
@@ -183,7 +200,7 @@ describe("built package", () => {
   afterAll(() => {
     if (archiveRoot) rmSync(archiveRoot, { recursive: true, force: true });
   });
-  for (const [name, relativeScript, scriptEnv] of scripts) {
+  for (const [name, relativeScript, scriptEnv] of selected) {
     it(name, async () => {
       const script = fileURLToPath(new URL(relativeScript, import.meta.url));
       // Keep descendants in the launcher's monitored group. Package bail:1
