@@ -42,7 +42,13 @@ names no role, grant or action.
   `data` stamp may name a control an extension applied before it declares
   (an audit stamp can take another extension's actor).
 - **`softDelete(config).rows` and `.methods`**, its two steps apart, so a
-  chain can apply every `rows` step before any methods step.
+  chain can apply every `rows` step before any methods step. The type of the
+  whole factory (`softDelete(config)(base)`, `base.$extends(tombstones)`) is
+  the type of its two steps applied in turn, and the guide's chain
+  `base.$extends(tombstones.rows).$extends(policy).$extends(tombstones.methods)`
+  type-checks at 60 models, as soft delete alone does. Both are budgeted
+  at 30 and 60 models on TypeScript 5.9, 6 and 7
+  (`tests/package/type-composition-budgets.json`).
 - **Equal values bind once over a driver's bind budget.** A statement over
   its driver's budget is sent with numbered placeholders (`?NNN`, `$n`), each
   distinct value bound once, so D1 runs statements of up to 100 distinct
@@ -88,6 +94,12 @@ names no role, grant or action.
   not judged on create; a row of database defaults only, on a model with a
   `place`, is refused before any statement, as is a list `push`/`unshift` or
   an exact decimal's `multiply`/`divide` on a field the judgement reads.
+  A judged `createMany` is split by its driver's bind budget alone, as the
+  same call without a judgement: the rows it produces are one `VALUES` list
+  on SQLite and PostgreSQL (MySQL reads one `UNION ALL SELECT` per row), so
+  neither SQLite's 500-term compound limit nor PostgreSQL's parser depth
+  bounds it. On D1 a refused row in a call of several statements is a
+  `ForbiddenError`. Adapters: `setOperations.typedRows`.
 - **Adapters: `assertions.holds(condition, from?)`**, the expression a
   judged statement carries: 1, or the statement fails on its own sentinel
   before it writes. Only that sentinel is a refusal: a caller's division by
@@ -100,7 +112,11 @@ names no role, grant or action.
   false` keeps the bodies inline, as 1.2.4 spelled them (a server that bounds
   the relations of one statement, Neki's 256, needs the shared form). The
   answers are the same; SQLite3, libSQL, Bun SQLite and MySQL SQL is
-  unchanged.
+  unchanged. `createClient` on each PostgreSQL driver takes
+  `sharedRelationBodies` as its driver does. Two bodies share a key set only
+  when they are the same body: the aliases the engine minted are renumbered
+  when bodies are compared, and alias-shaped text in a caller's `sql` operand
+  (`'_q1_'`) is not.
 - **`uncacheable` controls.** A control declared `uncacheable: true` keeps
   every read holding its value out of the cache: `$withCache` on such a read
   is a `ValidationError` at the control, before any statement.
@@ -122,17 +138,23 @@ names no role, grant or action.
   contains is dropped from a predicate: the same rows, a smaller statement.
 - **`viborm/permissions`, authorization judged in the statement** (not yet
   published, OD-11; [guide](docs/content/docs/extensions/permissions.mdx)).
-  `permissions({ actor, levels, limit, models })` declares one rule per model and
-  action (`within`, `arms`, `actions` with what each implies, `operations`,
-  `create`, `fields`, `domains`), with the helpers `owner`, `member`,
-  `grant.to`, `grant.administer`, `team`, `role`, `everyone`, `up`,
-  `session`, `notBanned` and `keyLimit`. `permissions(config)(base)` compiles it
+  `permissions({ actor, levels, mandatory, models, cache })` declares, per model, a
+  rule under each action it grants (`"read, update"` gives several actions
+  one rule), a `mandatory` predicate every action conjoins (also global),
+  `actions` with what each implies, `operations`, `fields` and `domains`.
+  Actions are `create`, `read`, `update`, `delete` and any custom name. A
+  rule is a `where` of its model, `{ group: "update" }` (that action's
+  predicate inlined), a literal `false` (an explicit deny, even where another
+  action implies it), or a `Rule` function `(action, model)` evaluated once
+  at its declared action; there are no rule helpers.
+  `base.$extends(permissions(config))` (or `permissions(config)(base)`) compiles it
   against `base`'s schema into one predicate per model and action and
   applies it to every model, as a rows step then a methods step, also
   offered apart as `.rows` and `.methods` so other `rows` steps (soft
-  delete, tenancy) go first. `db.$as(actor)` returns a view with the actor
-  bound: validated once against the `viborm/validation` actor schema, no
-  chain rebuilt, kept by transactions and by clients `$extends` derives.
+  delete, tenancy) go first. `db.$as(actor, scopes?)` returns a view with
+  the actor bound: validated once against the `viborm/validation` actor
+  schema, no chain rebuilt, kept by transactions and by clients `$extends`
+  derives.
   Every read takes only the rows the actor views, at every depth; an update
   or delete is judged at the actions of the fields it writes; a created or
   updated row is judged inside the statement that writes it (placement,
@@ -142,18 +164,19 @@ names no role, grant or action.
   returns a record, one statement, one per asked level on a model whose
   actions are the `levels`; `assert`'s `ForbiddenError` never tells a hidden
   row from a missing action),
-  `include: { $access: true }` reports the actions held per row at any
-  depth, a field with a `read` action is omitted where the actor lacks it,
-  `limit` narrows API keys by intersection and `as` narrows a call to an
-  action or a named domain, never wider. Refused before any statement: a
+  `include: { $access: true }` reads one boolean per declared action per
+  row at any depth, a field with a `read` action is omitted where the actor
+  lacks it, `scopes` (exact `model.action` strings, closed under the model's
+  implications; `[]` grants nothing) narrow an API key on every predicate of
+  the model, and `as` narrows a call to an action or a named domain, never
+  wider. Refused before any statement: a
   call without an actor or passing `actor` in its arguments
   (`ValidationError`), a model the policy does not list, a verb or an `as`
   mode the model does not declare (`ForbiddenError`, OD-7). Refused when
   applied, with `ClientInitializationError`: unknown models, fields, actions
   and actor paths, unknown keys of the policy, of a model that lists its
   `actions` and of a `fields` entry, a key spelled like a declaration key or
-  a level, a `keyLimit` model the schema lacks, a declared ceiling the model
-  does not declare, rules that read themselves, a read-gated key or unique
+  a level, a declared ceiling the model does not declare, rules that read themselves, a read-gated key or unique
   field, an actor schema that is not a finite strict object, an action or
   domain named `default`. A stored ceiling row allows its action and every
   action it implies. An update that writes a tombstone's marker by hand, or a
@@ -176,8 +199,10 @@ names no role, grant or action.
   other tenant's rows); read a field of it with `path`.
 - **A `null` control value is a missing value in a `rows` predicate:** it
   never compares as `IS NULL` (an actor with `userId: null` matched every
-  orphaned row). A required control's missing value matches nothing; an
-  optional one drops its filter, as before. **Upgrade:** to filter on
+  orphaned row). A required control's missing value makes the
+  extension's whole predicate for that model match nothing (`WHERE 0`),
+  not only the arm that reads it; a `$if` testing the value guards the
+  read. An optional control's missing value drops its filter, as before. **Upgrade:** to filter on
   `IS NULL`, write the literal `null` in the predicate.
 - **Each `rows` predicate is prepared once for every call.** The 256-entry
   memo of prepared modes and values is gone: no tenant, version or actor
@@ -198,7 +223,9 @@ names no role, grant or action.
 - **A read allocates no more per call than in 1.2.4**, with or without a
   `rows` extension (Node 24, a 50-model schema: `findUnique` 54,760 →
   54,352 B, `findMany` with two includes 106,744 → 106,616 B, a relation
-  filter 62,184 → 61,824 B); a client retains about 300 B more.
+  filter 62,184 → 61,824 B); a client retains about 300 B more. A `create`
+  without extensions allocates about 1.9% more than in 1.2.4 (two models on
+  SQLite3: 60,312 → 61,440 B).
 
 ### Fixed
 
@@ -226,6 +253,11 @@ names no role, grant or action.
   relation filter now reads its rows from a derived table, which SQLite
   flattens back to the same plan, and a long conjunction nests as a balanced
   tree; every other driver's SQL is unchanged.
+  Under a `rows` predicate, a level whose filter goes on below it tests the
+  predicate on its related rows in a derived table of its own, so its depth is
+  paid once and not at every level: on D1 a `parent` chain at the 15 levels
+  a filter admits runs under a three-arm read rule (depth about 5 per level
+  plus the rule's own height). Adapters: `subqueries.isolated`.
 - **`deleted: "with"` and `scope: "all"` no longer widen a `rows`
   predicate's relation reads.** A predicate that reached its rows through a
   relation counted a tombstoned row, or another tenant's, when the call

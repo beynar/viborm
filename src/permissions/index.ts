@@ -413,9 +413,6 @@ type MethodsDefinition<
   };
 };
 
-type Governing<Config extends PermissionsConfig> = VibORMConfig & {
-  readonly schema: Record<Listed<Config>, AnyModel>;
-};
 /** The rows step is typed by the client's one extension reducer. */
 type RowsClient<
   C extends VibORMConfig,
@@ -430,14 +427,28 @@ type MethodsClient<
     ? VibORMClient<C, MergeExtensionState<X, MethodsDefinition<C, Config>>>
     : never
   : never;
-type PolicyClient<
+// A step takes its receiver whole and reads its C and X once from
+// ClientTypeState: `$extends(policy.rows)` never infers them against a
+// generic client (whose comparison expands every delegate: TS2589).
+type Receiver<Config extends PermissionsConfig> = ClientTypeState<
+  VibORMConfig,
+  ExtensionState
+> & {
+  readonly $schema: Record<Listed<Config>, AnyModel>;
+  readonly $extends: (...args: never[]) => unknown;
+};
+type RowsStepClient<
   Base,
   Config extends PermissionsConfig,
 > = Base extends ClientTypeState<infer C, infer X>
   ? Base extends VibORMClient<C, X>
-    ? MethodsClient<RowsClient<C, X, Config>, Config>
+    ? RowsClient<C, X, Config>
     : never
   : never;
+type PolicyClient<Base, Config extends PermissionsConfig> = MethodsClient<
+  RowsStepClient<Base, Config>,
+  Config
+>;
 
 export interface Policy<Config extends PermissionsConfig> {
   /**
@@ -446,12 +457,7 @@ export interface Policy<Config extends PermissionsConfig> {
    */
   // Infer the receiver from the argument only. Contextual factory comparison
   // must not expand a complete client over the generic governing schema.
-  <
-    Base extends ClientTypeState<VibORMConfig, ExtensionState> & {
-      readonly $schema: Record<Listed<Config>, AnyModel>;
-      readonly $extends: (...args: never[]) => unknown;
-    },
-  >(
+  <Base extends Receiver<Config>>(
     base: Base
   ): NoInfer<PolicyClient<Base, Config>>;
   readonly config: Config;
@@ -473,13 +479,11 @@ export interface Policy<Config extends PermissionsConfig> {
    * actor is declared (K6(a)); that makes this a client consumer, so it is
    * the last `rows` step of a chain (the order guard).
    */
-  rows<C extends Governing<Config>, X extends ExtensionState>(
-    base: ClientTypeState<C, X> & NoInfer<VibORMClient<C, X>>
-  ): RowsClient<C, X, Config>;
+  rows<Base extends Receiver<Config>>(base: Base): RowsStepClient<Base, Config>;
   /** Step two: `can` and `assert` on every listed model, through `$access` (D8). */
-  methods<C extends Governing<Config>, X extends ExtensionState>(
-    client: ClientTypeState<C, X> & NoInfer<VibORMClient<C, X>>
-  ): MethodsClient<VibORMClient<C, X>, Config>;
+  methods<Base extends Receiver<Config>>(
+    client: Base
+  ): MethodsClient<Base, Config>;
 }
 
 /** The verb each root operation is judged at; a create is judged by its placement (K4). */

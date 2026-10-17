@@ -1291,6 +1291,40 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
       );
     });
 
+    test("R6 closes the whole permission: an unguarded optional actor read in an implied rule closes read (guide: Optional actor values; review 2, ENG-2)", async () => {
+      const optional = v.object({ userId: v.optional(v.string()) });
+      const over = (rules: object) =>
+        loose(
+          permissions({ actor: optional, models: { page: rules } } as never)(
+            base
+          )
+        );
+      const shared = seed.page.filter((p) => !p.personal);
+      expect(shared.length).toBeGreaterThan(0);
+      const implied = over({
+        read: { personal: false },
+        update: { ownerId: { actor: "userId" } },
+      });
+      // `update` implies `read`: its unguarded read of `userId` closes both.
+      expect(await implied.$as({}).page!.count()).toBe(0);
+      const guarded = over({
+        read: { personal: false },
+        update: {
+          $if: { control: "actor", path: "userId", exists: true },
+          ownerId: { actor: "userId" },
+        },
+      });
+      expect(await guarded.$as({}).page!.count()).toBe(shared.length);
+      expect(await guarded.$as({ userId: "user-03" }).page!.count()).toBe(
+        seed.page.filter((p) => !p.personal || p.ownerId === "user-03").length
+      );
+      // One rule: the unguarded arm closes its sibling arm too.
+      const single = over({
+        read: { OR: [{ personal: false }, { ownerId: { actor: "userId" } }] },
+      });
+      expect(await single.$as({}).page!.count()).toBe(0);
+    });
+
     test("W-D12: a create without an actor is refused on every model, before any statement", async () => {
       for (const model of Object.keys(schema)) {
         const create = () => metered[model]!.create({ data: freshRow(model) });

@@ -1,6 +1,9 @@
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { s } from "@schema";
+import { sql } from "@sql";
+import { permissions } from "@src/permissions";
+import { v } from "@src/validation";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, test } from "vitest";
 
@@ -77,6 +80,61 @@ export function runSharedBodiesBehavior({
           });
           expect(await governed.container.findMany()).toEqual([]);
         }
+      });
+
+      // ENG-4 (review 2): a caller's `sql` text is not the engine's. Two
+      // bodies that differ only in alias-shaped caller text ('_q1_' against
+      // '_q2_') were one key set, and both arms read the first's rows.
+      test(`${provider}: sharing=${shared} keeps alias-shaped text in a caller's SQL operand`, async () => {
+        const doc = s.model({
+          id: s.string().id(),
+          grants: s.toMany(() => grant),
+        });
+        const grant = s.model({
+          id: s.string().id(),
+          docId: s.string(),
+          doc: s
+            .toOne(() => doc)
+            .fields("docId")
+            .references("id"),
+          level: s.string(),
+        });
+        const driver = createDriver();
+        driver.adapter.capabilities.sharesRelationBodies = shared;
+        const base = createClient({ schema: { doc, grant }, driver });
+        clients.push(base);
+        await syncLiveSchema(base);
+        await base.doc.createMany({
+          data: [{ id: "d1" }, { id: "d2" }, { id: "d3" }],
+        });
+        await base.grant.createMany({
+          data: [
+            { id: "g1", docId: "d1", level: "_q1_" },
+            { id: "g2", docId: "d2", level: "_q2_" },
+          ],
+        });
+        const governed = base
+          .$extends(
+            permissions({
+              actor: v.object({ userId: v.string() }),
+              models: { doc: { read: true }, grant: { read: true } },
+            })
+          )
+          .$as({ userId: "u1" });
+        const where = {
+          OR: [
+            { grants: { some: { level: { equals: sql`'_q1_'` } } } },
+            { grants: { some: { level: { equals: sql`'_q2_'` } } } },
+          ],
+        };
+        for (const client of [base, governed])
+          expect(
+            await client.doc.findMany({
+              where,
+              select: { id: true },
+              orderBy: { id: "asc" },
+            })
+          ).toEqual([{ id: "d1" }, { id: "d2" }]);
       });
 
       test(`${provider}: sharing=${shared} preserves distinct policy parameter tuples and array members`, async () => {

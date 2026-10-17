@@ -799,8 +799,9 @@ permission and the new-row checks in [Writes, in detail](#writes-in-detail).
 
 To investigate a concrete row in a development fixture:
 
-1. Bind the same actor and scopes. Check that actor paths contain the intended values;
-   absent or `null` values do not grant access. Account separately for a call's
+1. Bind the same actor and scopes. Check that actor paths contain the intended values:
+   an absent or `null` value read outside a `$if` that tests it closes the whole
+   permission ([Optional actor values](#optional-actor-values)). Account separately for a call's
    `as` domain and other extension controls: they can narrow the operation beyond
    the named permission that `can` asks about.
 2. Ask `can` for the action named by `operations`, plus any higher permissions
@@ -1129,14 +1130,64 @@ by `$as` once per request and never read from the database.
   actor schema when the policy is applied. Inline declarations also receive
   TypeScript checks and suggestions; a `Rule` function may construct paths
   dynamically.
-- **An absent or `null` actor value matches nothing.** `userId: null` owns no
-  row whose `ownerId` is null. A missing value read by a permission makes its
-  complete predicate false, including inherited `OR` alternatives. An actor
-  condition can guard an optional branch before its values are read.
+- **An absent or `null` actor value never matches.** `userId: null` owns no
+  row whose `ownerId` is null.
+- **One unguarded read of an absent value closes the whole permission**, not
+  only the rule or the `OR` arm that reads it. See
+  [Optional actor values](#optional-actor-values).
 - **Bind ids, never bearer secrets.** Bind a session's id, not its token: the
   actor travels in error metadata and in cache keys.
 - A fact of a row stays a row fact: an organization's `plan` is read from the
   row, so a downgrade is seen by the next statement.
+
+### Optional actor values
+
+Each permission `P(M, a)` is one predicate: the [formula](#the-formula)'s
+`mandatory`, the rule of `a`, the rule of every action that implies `a`, and
+every target rule that `{ group: "update" }` inlines. If any part of that
+predicate reads an actor value that is absent or `null` for the call, the whole
+permission is false for that call. A `$if` testing that value guards the read.
+The read is checked after the compiler drops inherited branches that another
+branch contains, and a dropped branch reads nothing.
+
+So a rule closes its own action and every action it implies. An `update` rule
+that reads `userId` closes `read` too, because `update` implies `read`:
+
+```ts
+const Actor = v.object({ userId: v.optional(v.string()) });
+
+const db = base.$extends(permissions({
+  actor: Actor,
+  models: {
+    doc: {
+      read: { status: "public" },
+      update: { ownerId: { actor: "userId" } },
+    },
+  },
+}));
+
+await db.$as({}).doc.findMany(); // [] (WHERE 0): read is "public OR ownerId = userId"
+```
+
+Guard each optional read with `$if: { control: "actor", path, exists: true }`.
+The [live-credential recipe](#live-credentials-and-bans) uses the same guard.
+A false `$if` removes its own arm, so the other arms still grant:
+
+```ts
+update: {
+  $if: { control: "actor", path: "userId", exists: true },
+  ownerId: { actor: "userId" },
+},
+```
+
+Now `db.$as({}).doc.findMany()` returns the public documents, and
+`db.$as({ userId: "u1" })` returns those plus the documents `u1` owns. A single
+rule needs the guard as well. This rule reads nothing for `$as({})` until its
+second arm carries the `$if`:
+
+```ts
+read: { OR: [{ status: "public" }, { ownerId: { actor: "userId" } }] },
+```
 
 ### `$as`
 
@@ -1338,19 +1389,64 @@ ALTER ROLE app SET jit = off;
 or per connection with `viborm/pg`: `postgresql://…/app?options=-c%20jit%3Doff`.
 Neki runs with `jit = off`.
 
-**Cloudflare D1** limits each statement to 100 bound values, 100 KB of SQL
-text and an expression depth of 100. The driver deduplicates bound values,
-shares repeated relation bodies and balances conjunctions, but these measures
-do not guarantee that every policy and query fits.
+**Cloudflare D1** bounds each statement in four ways:
 
-On 17 October 2026, the §1.1 acceptance run measured 795 statements: at most
-98 bound values and 43,168 bytes of SQL. A separate 66-statement diagnostic
-including every relation measured at most 96 values and 38,731 bytes. Every
-measured statement stayed within both limits. The acceptance run had 49
-expected hidden-row or permission refusals; unexpected SQL errors fail the test.
-These are local workerd measurements for this fixture, not a guarantee for
-other policies or hosted D1. Local workerd does not enforce the SQL-text cap,
-so the tests also measure it explicitly.
+- 100 bound values. The driver refuses a statement over this before sending it.
+- 100,000 bytes of SQL text (`SQLITE_TOOBIG`).
+- An expression depth of 100 ("Expression tree is too large").
+- The memory SQLite needs to compile the statement (`SQLITE_NOMEM`). A
+  statement under the other three bounds can still fail here, even on empty
+  tables.
+
+The driver deduplicates bound values, shares repeated relation bodies,
+balances conjunctions and isolates each nesting level of a relation filter.
+None of this makes every policy and query fit. Local workerd enforces the text
+limit as well, and refuses a 100,010-byte statement with `SQLITE_TOOBIG`.
+D1 does not publish the `SQLITE_NOMEM` bound. It is SQLite's limit on the
+compiled program, and an opcode count does not predict it: on local workerd a
+measured boundary fell near 21,850 opcodes, yet `accessGrant.findMany` with
+`$access` compiles to 23,333 and runs.
+
+These figures were measured on 17 October 2026 with the §1.1 acceptance
+policy, soft delete and actor `u02`, on local workerd. They are pinned by
+`tests/providers/workers/d1-permissions-statement-budget.test.ts`, which turns red
+when a refused read starts to run:
+
+- D1 runs `findMany` with `$access` on `accessGrant` (45,287 bytes, 26
+  values), `page` (13,833 bytes), `page` including its group with `$access`
+  (16,140 bytes) and `document` (27,527 bytes). It also runs the root
+  documents with `$access` at three levels, the roots, their children and
+  theirs (61,659 bytes, 39 values).
+- D1 refuses two reads with `SQLITE_TOOBIG`: the same three levels including
+  each level's grants with `$access` (106,197 bytes, 57 values), and
+  `document.findMany` including every relation with `$access` (100,850 bytes,
+  79 values).
+- D1 refuses two reads with `SQLITE_NOMEM`, both inside the published limits:
+  `page.findMany` with `$access` at every level of an include through the
+  group, its grants and pages, and the page's grants (83,620 bytes, 64
+  values), and `accessGrant.findMany` including every relation with `$access`
+  (76,878 bytes, 74 values).
+- A caller's relation filter nested 15 levels deep (`parent: { parent: … }`,
+  the most the filter admits) runs under a read rule of three `OR` arms. Each
+  level adds about 5 to the expression depth, and the rule's own height is
+  paid once, so the depth is about `5 × levels + the rule's height`: 94 for
+  that rule at 15 levels. A rule whose own height passes about 25 can still
+  exceed depth 100 at 15 levels. Isolating the levels costs these reads about
+  7% more compiled opcodes.
+- Measured before this round's fixes (`9c50a3191`): the plain acceptance lines
+  peak at 98 bound values, 44 KB and an expression depth of 67 (962 statements
+  built as for D1 and measured in SQLite), and the grant move of a document is
+  34,396 bytes.
+
+**Each distinct constant of a policy is a bound value on D1.** Constants share
+the 100 values with the actor's values, the call's values and the field names
+that an `include` binds. A few dozen distinct constants in one statement can
+pass the limit. In one measurement, a policy had 20 `OR` arms on `page` and 40
+on `pageGroup`, each with its own constant. `page.findMany` including every
+relation needed 104 values, and the driver refused it before sending it.
+A `pageGroup` read rule of 98 arms needed 108 values. With 60 arms it needed 70
+after deduplication and ran. When a policy needs many constants, store them in
+rows that the policy reads. A value stored in a row is not bound.
 
 **Select and include only the fields and relations the request needs.** If a
 broad read remains too large, split it into smaller queries through the same
@@ -1363,14 +1459,17 @@ a policy repeats the same bodies at every arm and every key check, and the
 shared form keeps the statement small with the same answers. A member's
 `accessGrant` read of the acceptance fixture is 415 KB inline and 2,711 bound
 values; shared, it fits D1's 100 KB. **Neki** refuses a statement that
-references more than 256 relations; the shared form keeps it under (the same
-read went from 241 references to 41; not a bound for every policy).
-`sharedRelationBodies: false` keeps every body inline, as 1.2.4 spelled it:
+references more than 256 relations. The shared form keeps that read under the
+limit: it went from 241 table references to 41, not counting the names of the
+shared bodies, and it runs on Neki. This is not a bound for every policy.
+`sharedRelationBodies: false` keeps every body inline, as 1.2.4 spelled it. A
+driver and `createClient` both take it:
 
 ```ts
-import { PgDriver } from "viborm/pg";
+import { createClient, PgDriver } from "viborm/pg";
 
 const driver = new PgDriver({ databaseUrl, sharedRelationBodies: false }); // inline bodies
+const db = createClient({ schema, databaseUrl, sharedRelationBodies: false }); // the same
 ```
 
 ### Size

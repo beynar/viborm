@@ -1265,6 +1265,15 @@ interface SharedBodies {
 }
 /** An alias the per-statement counter minted, inside an identifier. */
 const ALIAS_TOKEN = /(?<=["_])q(\d+)(?=["_])/g;
+/**
+ * A caller's `Sql` operand as lowered, parenthesized ({@link Queries.value}):
+ * text the engine did not write, so nothing in it is an alias of the
+ * engine's, whatever it spells ({@link sharedKey}).
+ */
+class CallerText extends Sql {}
+const isCallerText = (fragment: Sql): boolean => fragment instanceof CallerText;
+const callerText = (fragment: Sql): Sql =>
+  new CallerText(["(", ")"], [fragment]);
 const valueIds = new WeakMap<object, number>();
 let nextValueId = 0;
 /** A bound value as a key: a primitive by value, a `Date` by its instant, a list by its members, anything else by identity. */
@@ -1283,19 +1292,25 @@ function valueKey(value: unknown): string {
  * renumbered in order of appearance, and their values are equal: the same
  * rows of the same table under the same conditions. A body holding another
  * reads it provisionally, by its key set's name, which equal bodies share.
+ * Only the engine's own text holds its aliases: a caller's `Sql` operand
+ * ({@link CallerText}) is compared as written, so `'_q1_'` and `'_q2_'` stay
+ * two bodies (ENG-4, review 2). Its runs are found on the fragment tree,
+ * which no lowering flattens before its statement settles ({@link SqlSlot}).
  */
 function sharedKey(query: Sql): string {
-  const { strings, values } = Sql.peek(query);
+  const { runs, values } = Sql.peekRuns(query, isCallerText);
   const renumbered = new Map<string, number>();
-  const normalized = strings.map((text) =>
-    text.replace(ALIAS_TOKEN, (_, n: string) => {
-      let local = renumbered.get(n);
-      if (local === undefined) {
-        local = renumbered.size;
-        renumbered.set(n, local);
-      }
-      return `q${local}`;
-    })
+  const normalized = runs.map(({ text, opaque }) =>
+    opaque
+      ? [text]
+      : text.replace(ALIAS_TOKEN, (_, n: string) => {
+          let local = renumbered.get(n);
+          if (local === undefined) {
+            local = renumbered.size;
+            renumbered.set(n, local);
+          }
+          return `q${local}`;
+        })
   );
   // SQL text and bound strings may contain any delimiter. Preserve the
   // tuple boundaries, including array members, before sharing a predicate.
@@ -2049,7 +2064,7 @@ export class Queries {
    */
   value(value: unknown): Sql {
     return value instanceof Sql
-      ? sql`(${value})`
+      ? callerText(value)
       : this.adapter.literals.value(value);
   }
   /**
@@ -2081,7 +2096,7 @@ export class Queries {
     const a = this.adapter;
     const state = scalar["~"].state;
     if (value instanceof Sql) {
-      const fragment = sql`(${value})`;
+      const fragment = callerText(value);
       return state.type === "decimal" && state.array !== true
         ? a.expressions.decimalCast(fragment, state.decimal)
         : fragment;
@@ -2862,11 +2877,13 @@ export class Queries {
     });
   }
   /**
-   * The rows of `model` a write produces, as ONE derived table read under
+   * The rows of `model` a write produces, as ONE FROM item read under
    * `alias`: every stored field, each row's value as `row` lowers it (NULL
-   * where it says nothing). The model's own columns type them: an empty read
-   * of the table leads the union, so a bound value takes its column's type
-   * where PostgreSQL would resolve a bare parameter as text.
+   * where it says nothing). The model's own columns type them, through an
+   * empty read of the table, so a bound value takes its column's type where
+   * PostgreSQL would resolve a bare parameter as text; how the rows follow
+   * it is the dialect's (`setOperations.typedRows`), so a chunk is bounded
+   * by its binds alone.
    */
   #producedRows(
     model: AnyModel,
@@ -2876,26 +2893,23 @@ export class Queries {
     const a = this.adapter;
     const fields = this.schema.storedFields(model);
     const typed = this.alias();
+    const from = this.table(model, typed);
     const head = assembleAdapterSelect(a, {
       columns: sql.join(
         fields.map((field) => this.column(model, field, typed)),
         ", "
       ),
-      from: this.table(model, typed),
+      from,
       where: a.literals.false(),
     });
-    return a.subqueries.correlate(
-      a.setOperations.unionAll(
+    return a.setOperations.typedRows(
+      {
         head,
-        ...rows.map((row) =>
-          a.clauses.select(
-            sql.join(
-              fields.map((field) => row(field) ?? a.literals.null()),
-              ", "
-            )
-          )
-        )
-      ),
+        from,
+        alias: typed,
+        columns: fields.map((field) => this.columnName(model, field)),
+      },
+      rows.map((row) => fields.map((field) => row(field) ?? a.literals.null())),
       alias
     );
   }
@@ -4745,7 +4759,8 @@ export class Queries {
         parentAlias ?? "",
         childAlias,
         predicate.unscoped === undefined,
-        stated
+        stated,
+        predicate.predicate !== undefined && readsRelation(predicate.predicate)
       );
     switch (predicate.quantifier) {
       case "some":
@@ -4783,13 +4798,20 @@ export class Queries {
     parent: string,
     child: string,
     scoped: boolean,
-    stated: readonly Sql[]
+    stated: readonly Sql[],
+    deeper = false
   ): Sql {
     const a = this.adapter;
     const member = this.#membershipWhere(edge, child, parent);
     // `correlation`'s two parts, lowered in its order.
     const domain = scoped ? this.domainOf(edge.target, "related") : undefined;
-    const related = domain && this.lowerSelector(domain, child)!;
+    const lowered = domain && this.lowerSelector(domain, child)!;
+    // Where the filter goes on below (`deeper`), a dialect that sums nested
+    // heights adds this level's `WHERE` height to every level under it: the
+    // domain, isolated, pays its own height once, at the end of its branch
+    // (`subqueries.isolated`; ENG-6, review 2).
+    const related =
+      lowered && deeper ? a.subqueries.isolated(lowered) : lowered;
     const inline = a.subqueries.existsCheck(
       this.table(edge.target, child),
       a.operators.and(

@@ -88,6 +88,48 @@ export class Sql {
     return { strings, values };
   }
 
+  /**
+   * {@link peek}'s text, also cut where a fragment `opaque` accepts begins
+   * and ends, each run saying whether it lies inside one: a reader rewriting
+   * the text its owner wrote can leave the text another party wrote alone.
+   * Without an opaque fragment the runs are {@link peek}'s strings.
+   */
+  static peekRuns(
+    fragment: Sql,
+    opaque: (fragment: Sql) => boolean
+  ): { runs: { text: string; opaque: boolean }[]; values: Value[] } {
+    const runs: { text: string; opaque: boolean }[] = [];
+    const values: Value[] = [];
+    let current = "";
+    let inside = false;
+    const cut = (next: boolean): void => {
+      if (next === inside) return;
+      runs.push({ text: current, opaque: inside });
+      current = "";
+      inside = next;
+    };
+    const walk = (node: Sql, within: boolean): void => {
+      const here = within || opaque(node);
+      cut(here);
+      current += node.rawStrings[0]!;
+      for (let i = 0; i < node.rawValues.length; i++) {
+        const child = node.rawValues[i]!;
+        if (child instanceof Sql) {
+          walk(child, here);
+          cut(here);
+        } else {
+          values.push(child);
+          runs.push({ text: current, opaque: inside });
+          current = "";
+        }
+        current += node.rawStrings[i + 1]!;
+      }
+    };
+    walk(fragment, false);
+    runs.push({ text: current, opaque: inside });
+    return { runs, values };
+  }
+
   /** `slot`'s text replaced by `content`'s (see {@link SqlSlot.settle}). */
   protected static fill(slot: Sql, content: Sql): void {
     slot.rawStrings = ["", ""];

@@ -75,6 +75,7 @@ import {
   createStandardLiterals,
   createSubqueries,
   escapeLikeLiteral,
+  rowValues,
 } from "../../shared/standard-sql";
 import { arrayLiteralText } from "./array-literal";
 
@@ -611,7 +612,27 @@ export class PostgresAdapter implements DatabaseAdapter {
     ...createLateralJoins(quoteIdent),
   };
 
-  setOperations = createSetOperations();
+  /**
+   * The produced rows as a `VALUES` list: PostgreSQL parses each `UNION ALL`
+   * arm one recursion deeper (`54001`, stack depth, at 8,000 rows on 16.14),
+   * and a list is no deeper for its length. A `VALUES` column is typed by its
+   * own rows, an unknown parameter as `text`, so the first row takes each
+   * column's type from a NULL of the table's row type (`COALESCE`, the rule
+   * a `UNION` arm met), read once, beside the list, as a one-row FROM item.
+   */
+  setOperations = createSetOperations(quoteIdent, (typed, rows, alias) => {
+    const name = sql.raw(quoteIdent(typed.alias));
+    const column = (field: string) => sql.raw(quoteIdent(field));
+    const [first, ...rest] = rows;
+    const typedFirst = first!.map(
+      (value, index) =>
+        sql`COALESCE(${value}, (${name}."row").${column(typed.columns[index]!)})`
+    );
+    return sql`(SELECT (SELECT ${name} FROM ${typed.from} WHERE FALSE) AS "row") AS ${name} CROSS JOIN LATERAL (VALUES ${sql.join(
+      [typedFirst, ...rest].map(rowValues),
+      ", "
+    )}) AS ${sql.raw(quoteIdent(alias))}(${sql.join(typed.columns.map(column), ", ")})`;
+  });
 
   capabilities: DatabaseAdapter["capabilities"] = {
     supportsReturning: true,

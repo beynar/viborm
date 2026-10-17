@@ -1,7 +1,12 @@
 import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
 import { createClient } from "@src/drivers/sqlite3";
-import type { ClientTypeState, VibORMClient, VibORMConfig } from "@src/index";
+import type {
+  ClientTypeState,
+  ExtensionState,
+  VibORMClient,
+  VibORMConfig,
+} from "@src/index";
 import {
   type ExtendedClient,
   type ExtendedOperationResult,
@@ -422,4 +427,40 @@ export function rowDefinitionOrdering() {
     name: "control",
     controls: { tag: { schema: v.string() } },
   });
+}
+
+export function thirdPartyStepsOverFactories() {
+  const user = s.model({ id: s.string().id(), name: s.string() });
+  const page = s.model({
+    id: s.string().id(),
+    ownerId: s.string(),
+    deletedAt: s.dateTime().nullable(),
+    owner: s
+      .toOne(() => user)
+      .fields("ownerId")
+      .references("id"),
+  });
+  const base = createClient({ schema: { user, page }, dataDir: ":memory:" });
+  const held = permissions({
+    actor: v.object({ userId: v.string() }),
+    models: {
+      user: { read: {} },
+      page: { read: { ownerId: { actor: "userId" } } },
+    },
+  });
+  const tombstones = softDelete({
+    models: { page: { deletedAt: "deletedAt" } },
+  });
+  // A step generic over a whole client, as 1.2.4 documented it, infers C and
+  // X from a step's result: each step returns the client type itself.
+  const step = <C extends VibORMConfig, X extends ExtensionState>(
+    client: VibORMClient<C, X>
+  ) => client;
+  step(held.methods(held.rows(base))).page.can("read", { id: "p" });
+  step(tombstones(base)).page.restore({ where: { id: "p" } });
+  step(
+    held.methods(tombstones.methods(held.rows(tombstones.rows(base))))
+  ).page.restore({ where: { id: "p" } });
+  // @ts-expect-error - the step keeps the policy's action vocabulary
+  step(held.methods(held.rows(base))).page.can("publish", { id: "p" });
 }

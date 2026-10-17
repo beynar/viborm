@@ -2071,6 +2071,8 @@ export class OperationContext {
     statements: readonly {
       readonly sql: Sql;
       readonly context: QueryExecutionContext;
+      /** A judged statement's own judgement, asked again after a rollback ({@link submit}). */
+      readonly probe?: Sql | undefined;
     }[],
     parse: (results: readonly QueryResult<unknown>[]) => unknown,
     judged?: JudgedWrite
@@ -2130,7 +2132,8 @@ export class OperationContext {
           statement.sql,
           statement.context,
           windowMember,
-          judged
+          judged,
+          statement.probe
         );
       const results = await this.submit(true, windowMember);
       return this.settleSubmitted(() => {
@@ -2486,7 +2489,11 @@ export class OperationContext {
     const limit = normalizedBindParameterLimit(
       this.driver.maxBindParametersPerStatement
     );
-    const statements: { sql: Sql; context: QueryExecutionContext }[] = [];
+    const statements: {
+      sql: Sql;
+      context: QueryExecutionContext;
+      probe?: Sql | undefined;
+    }[] = [];
     for (const group of groups) {
       if (group.columns.length === 0) {
         for (const _row of group.rows) {
@@ -2519,10 +2526,21 @@ export class OperationContext {
           return returning ? sql`${mutation} ${returning}` : mutation;
         }
       );
+      // A batch that rolls back on one chunk's refusal names that chunk by
+      // asking each its SELECT again, as a lone create does ({@link submit}).
       for (const chunk of chunks)
         statements.push({
           sql: chunk.statement,
           context: this.statementContext(model, this.operation),
+          probe:
+            placed && this.usesBatch
+              ? q.producedSource(
+                  model,
+                  group.columns,
+                  group.rows.slice(chunk.start, chunk.end),
+                  placed
+                )
+              : undefined,
         });
     }
     return this.setMutations(

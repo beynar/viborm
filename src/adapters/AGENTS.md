@@ -63,7 +63,8 @@ Without adapters, we'd have `if (postgres) ... else if (mysql) ...` scattered ev
 | `aggregates` | count, sum, avg, min, max | Aggregate queries |
 | `orderBy` | asc, desc, nullsFirst, nullsLast | Sorting |
 | `clauses` | select, where, orderBy, limit | Query structure |
-| `subqueries` | scalar, correlate, existsCheck | Relation filters (SQLite: a derived table where the driver declares `deepExpressions: false`, which also nests a conjunction of many members as a balanced tree) |
+| `subqueries` | scalar, correlate, existsCheck, isolated | Relation filters (SQLite: a derived table where the driver declares `deepExpressions: false`, which also nests a conjunction of many members as a balanced tree and isolates a nesting level's row domain; `isolated` is the identity elsewhere) |
+| `setOperations` | union, unionAll, intersect, except, typedRows | `typedRows`: the rows a judged write produces, typed by the table. One `UNION ALL SELECT` arm per row by default (MySQL); a `VALUES` list after the typed head on SQLite (`SQLITE_MAX_COMPOUND_SELECT`, 500, does not count it); a `VALUES` list typed by its first row on PostgreSQL (each `UNION ALL` arm is one parser recursion: `54001` at 8,000 rows). The bind budget is a chunk's only bound |
 | `mutations` | insert, update, delete, returning | Write operations |
 
 ---

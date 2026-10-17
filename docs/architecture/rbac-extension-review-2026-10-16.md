@@ -6,7 +6,7 @@ Perimeter: branch `rbac` at `2999badd6`, the diff from 1.2.4 (`2fcaa26a8`): 203 
 
 Five independent lenses were briefed on the frozen source: security, as an attacker holding every call argument; engine SQL correctness; first principles and ELEGANCE.md; docs and public API, every example run from the packed build; cost and provider limits. Each finding above `low` went to two skeptics, one refuting by reading and one by reproducing. A finding survives when at least one confirms it with a run or an exact code path.
 
-**Coverage gap: two lenses did not run.** The engine-SQL and cost lenses, and the synthesis, stopped on the agent budget (it resets 2026-10-20). Their scope (shared relation bodies, produced-row lowering, refusal sentinels, parameter exactness, D1 and Neki limits under pathological policies) has the wave-4 and wave-5 witnesses but no independent review yet. They run before the PR is merged.
+**Coverage gap: two lenses did not run.** The engine-SQL and cost lenses, and the synthesis, stopped on the agent budget (it resets 2026-10-20). Their scope (shared relation bodies, produced-row lowering, refusal sentinels, parameter exactness, D1 and Neki limits under pathological policies) has the wave-4 and wave-5 witnesses but no independent review yet. They run before the PR is merged. (They ran on 2026-10-17: see [Second pass](#second-pass-2026-10-17-engine-sql-and-cost-lenses).)
 
 ## Verdict
 
@@ -414,3 +414,219 @@ The code path: soft delete's `restore` (src/soft-delete/index.ts:127-137) is a p
 - Actor object: __proto__ and extra keys, wrong types, arrays, null optional, mutation after $as (top-level and nested key), getter re-read, scopes with __proto__/constructor: refused or snapshotted (actor.probe.ts)
 - Concurrency: 30 actors under Promise.all, array transaction across 30 views, $extends from a bound view, unbound client and its transaction refused: all match the oracle (can.probe.ts)
 - $access with unknown or prototype names, can with an undeclared action or 'default': refused (can.probe.ts)
+
+## Second pass, 2026-10-17: engine-SQL and cost lenses
+
+Perimeter: branch `rbac` at `9c50a3191` (PR #101, CI green), the same diff from 1.2.4 (`2fcaa26a8`) after the fixes above and the shipped language of plan §11.5. These are the two lenses that the first pass left out: engine SQL correctness, and cost and provider limits.
+
+### Method
+
+The method was the same as in the first pass. Each lens had the frozen source and wrote probes, and each finding went to two skeptics, one reading the code and one reproducing it. Engine probes ran on SQLite3, PGlite, Docker PostgreSQL 16.14 (5434, `jit = off` unless noted), Docker MySQL 8.4 (3307) and local D1 (miniflare 4.20260310, workerd 1.20260310). Cost probes compiled generated programs with `tsc --extendedDiagnostics` (5.9.3, and 7.0.2 where noted) against the built `.d.mts`. They also measured statements on the same engines and per-call allocation with Node 24.22. Raw outputs are in the program's scratchpad under `rbac/review2/` (`engine/`, `cost/`, `verify/<id>-<n>/`). The probe files were `zz-probe-*` files in the clone. They are removed after the review, and a copy stays in `rbac/review2/probes/`.
+
+### Verdict
+
+None of the findings was shown to widen what a policy written as intended grants. Two of the high findings return wrong answers. ENG-4 returns too few rows on any client that shares bodies. ENG-3 refuses a legal `createMany` above a dialect's compound limit. Two type regressions, COST-1 and COST-2, stop the guide's own composition from compiling at 10 models and soft delete alone from compiling at 25. One high finding, ENG-2, is a guide sentence that the engine contradicts. The guide now says what the engine does. Whether the engine should change is an owner question, below.
+
+### Findings and dispositions
+
+The "after skeptics" column gives each skeptic's severity. Every fix landed in the round on top of `9c50a3191` (one commit, the owner's), each with a witness that failed before it and passes after; the fail-before logs are under `rbac/review2/fix-<unit>/` and `rbac/review2/integ-*`.
+
+| Id | Lens | Reported | After skeptics | Finding | Disposition |
+|---|---|---|---|---|---|
+| ENG-2 | engine | high | confirmed medium/high | The guide says a missing actor value fails only the rules that read it; the engine denies the whole permission and every permission that inherits it | Documented. The guide's "Optional actor values" section states R6 per predicate, with the `$if … exists: true` remedy and a two-rule example (plan §11.6). The semantics are unchanged pending the owner question. Witness: `rbac-entry-behavior.ts`, "R6 closes the whole permission" (every entry substrate); written as the old guide predicted, it fails (`expected +0 to be 164`). |
+| ENG-3 | engine | high | confirmed high/high | A governed `createMany` fails above 499 rows on SQLite-family drivers and around 8,000 rows on PostgreSQL; the same call without RBAC succeeds | Fixed: the bind budget is a chunk's only bound. The produced rows are the dialect's (`setOperations.typedRows`): a multi-row `VALUES` after the typed head on SQLite, a `VALUES` list typed by its first row on PostgreSQL, `UNION ALL` arms on MySQL (unchanged). On D1 each chunk carries its own probe, so a refusal in a call of two or more chunks is `ForbiddenError`, not `NestedWriteError`. Witness: `produced-row-behavior.ts`, 500, 2,000 and 12,000 rows (before: `QueryError` on SQLite3, PGlite, Docker PostgreSQL; `NestedWriteError` on D1). |
+| ENG-4 | engine | high | confirmed high/high | `sharedKey` renumbers alias-shaped text inside a caller's raw SQL operand, so two different relation bodies share one key set (wrong rows, even on the base client) | Fixed: only aliases the engine minted are renumbered. A caller's `Sql` operand is lowered as `CallerText` and `sharedKey` leaves its runs as written (`Sql.peekRuns`). Witness: `shared-bodies-behavior.ts`, "keeps alias-shaped text in a caller's SQL operand", base and governed client (before: `[d1]`, after: `[d1, d2]`). |
+| ENG-5 | engine | medium | confirmed medium/medium | `createClient({ sharedRelationBodies: false })` is accepted and silently ignored on every PostgreSQL driver | Fixed: all five `createClient`s forward the option. The guide shows the `createClient` spelling. Witness: `sqlite-temporary-objects.core.test.ts`, the five wrappers with the option absent, `true` and `false` (before: 5 failures, `expected true to be false`). |
+| ENG-6 | engine | medium | confirmed medium/medium | On D1, a governed relation filter nested 10 deep fails with "Expression tree is too large" while the same filter without RBAC runs | Fixed: depth paid once. Where the driver declares `deepExpressions: false`, a level whose filter goes on below it isolates its related-row domain (`subqueries.isolated`). A three-arm rule: 10 per level, refused at 9, became 5 per level, 94 at the 15 levels admission takes. The guide records the depth formula. Witness: `d1-rbac-nesting-depth.test.ts`, depths 1-15 (before: the three-arm policies fail at 9-15). |
+| COST-1 | cost | high | confirmed high/high | The guide's soft-delete composition fails to type-check (TS2589) from about 10 models | Fixed. The guide's chain is added to the type budgets at 30 and 60 models. The re-check against `VibORMClient<C, X>` was not the cost (removing it saved 82 instantiations of 9.02 M): the cost was the declaration inlining each step's return type and a generic step falling back to its constraint inside `$extends`; the steps are module-level and take the whole receiver. Witness: the `type-composition` package smoke (chain-30 7.42 M with TS2589 → 1.12 M; chain-60 8.72 M → 1.78 M; tsc 5, 6 and 7), budgets in `tests/package/type-composition-budgets.json`. |
+| COST-2 | cost | high | confirmed high/high | Soft delete without rbac regressed from 0.8 M to 6-12 M instantiations and TS2589 from 25 models | Fixed with COST-1: the factory's declared type names the two step types instead of inlining the definition, as 1.2.4 did. A soft-delete program at 30 and 60 models is budgeted. Witness: the same smoke, soft-30 11.09 M with TS2589 → 221 k, soft-60 12.54 M → 554 k (`dist/soft-delete.d.mts` 10,976 → 4,891 B). |
+| COST-3 | cost | medium | confirmed medium/medium | Legal acceptance reads with `$access` and includes fail on D1 with `SQLITE_NOMEM` or `SQLITE_TOOBIG` | Documented: the guide names `SQLITE_NOMEM` as D1's fourth limit, with the accepted and refused statements (plan §8). The W-K2f test pins nine `$access` lines: the five D1 runs are asserted within 100 values and 100 KB, the four it refuses are pinned with the limit D1 names (`SQLITE_TOOBIG` ×2, `SQLITE_NOMEM` ×2). No engine split landed: the two measured options cost more compiled opcodes (plan §11.6). |
+| COST-5 | cost | medium | confirmed low | Policies with more than about 30 distinct constants are refused on D1 for over 100 bound values | Documented: the guide says each distinct constant is a bound value on D1, with the measured examples. The skeptic places the ceiling at about 90 distinct values per statement, field-name keys included, not at about 30 constants. |
+| COST-7 | cost | low | confirmed low | The guide says local workerd does not enforce D1's 100 KB text limit; it does | Fixed in the guide and in plan §8: local workerd refuses 100,010 B with `SQLITE_TOOBIG`. The W-K2f every-relation test is renamed "local D1 enforces the text limit: SQLITE_TOOBIG" and asserts the 100,000-byte bound. |
+| COST-9 | cost | low | confirmed low | An unextended client allocates more per create than 1.2.4 (+1,128 B, +1.9%), against §8's "allocates nothing new" | Recorded in plan §8 as breached on `create`. The allocation is not yet found. `benchmarks/relation-read-memory.mjs` imported a `push` that `dist/migrations.mjs` no longer exports; it now pushes through `createMigrationClient`. |
+| ENG-1 | engine | high | refuted | Absorption drops an OR branch without conjoin's R6 safeguard: a stricter rule gives wider reads | Refuted by both skeptics (below). The non-monotone case is ENG-2's rule, and it is part of the owner question. |
+| COST-4 | cost | high | refuted | On PostgreSQL with shared bodies, accessGrant `can`/`$access`, `findMany as create` and the grant move reference 261-314 relations, over Neki's 256 | Refuted as stated (below). The guide's "241 → 41" now says that it counts table references and not the shared bodies' names. |
+| COST-6 | cost | medium | refuted | With PostgreSQL's default JIT, governed reads take 0.3-24 s against 10-100 ms with JIT off; the guide's numbers are stale | Refuted (below). The guide unchanged. |
+| COST-8 | cost | medium | refuted | The core carries code that only rbac reaches; 10.7 kB gzip per application, measured from both builds | Refuted (below). The cost stays FDOCS-7's owner question. |
+
+### Owner question: R6 per rule or per predicate
+
+Today R6 applies per predicate (`#resolve`, `src/query-engine/raptor3/shared/query.ts`). The engine folds `$if` conditions first. If the folded layer predicate still reads an actor value that the call lacks, the whole `P(M, a)` lowers to `WHERE 0`. So one unguarded read of an optional path closes its action, and every action it implies, `read` included. That holds inside one rule's `OR` too, and in a target rule that `{ group: "update" }` inlines. The rule fails closed, and the guide now states it with its remedy.
+
+The alternative is R6 per rule, or per arm: an absent value folds only the arm that reads it, as a false `$if` does. That is more permissive and closer to what the guide used to say. It would also make ENG-1's case monotone, since adding a conjunct to an `update` rule could no longer reopen `read`. Either choice is consistent. The question is which one an application author should expect.
+
+### Owner question: `NoInfer` on the policy's call signature
+
+Found while fixing COST-1, already so at `9c50a3191`: a third-party step written `<C, X>(client: VibORMClient<C, X>)` and applied to `held(base)` loses the methods step (`step(held(base)).page.can` is TS2339). `NoInfer<PolicyClient>` keeps its wrapper on the object, so C and X are inferred wrongly from it. Removing it fixes the inference and costs `base.$extends(policy)` a one-time variance measurement of about 650 k (30 models: 108,074 → 805,788). It is left in place for the owner. Soft delete's whole-factory `NoInfer` does not show the problem.
+
+### Detail
+
+#### ENG-2: one unguarded optional read closes every implied action
+
+- **Where:** `docs/content/docs/extensions/rbac.mdx` (The actor), `src/query-engine/raptor3/shared/query.ts` `#resolve` (returns `VACUOUS_FALSE` for the whole layer).
+- **Evidence:** `doc{id, status, ownerId?}`, actor `v.object({ userId: v.optional(v.string()) })`, rows `pub(public, u1)` and `priv(private, u1)`, `db.$as({}).doc.findMany()` on SQLite3:
+  - `read: { status: "public" }` gives `["pub"]`.
+  - Adding `update: { ownerId: { actor: "userId" } }` gives `[]`, with `WHERE 0`.
+  - The same `update` rule guarded with `$if: { control: "actor", path: "userId", exists: true }` gives `["pub"]`.
+  - `read: { OR: [{ status: "public" }, { ownerId: { actor: "userId" } }] }` gives `[]`.
+  - With `$as({ userId: "u1" })`, every policy but the first gives `["priv", "pub"]`.
+- **Probes:** `zz-probe-engine-r6.core.test.ts` and `zz-probe-eng2-skeptic2.core.test.ts`, both in `layer-rbac`. Logs are in `verify/ENG-2-1/` and `verify/ENG-2-2/`.
+
+#### ENG-3: judged `createMany` passes the dialect's compound limits
+
+- **Where:** `src/query-engine/raptor3/shared/query.ts` `#producedRows` builds one `UNION ALL` arm per row. `src/query-engine/raptor3/shared/operation-context.ts` chunks by bind budget only.
+- **Evidence:** Model `post{id, title, orgId}`, policy `create: { orgId: { actor: "org" } }`, every row allowed.
+  - SQLite3: 499 rows succeed. 500 rows give `QueryError` "too many terms in compound SELECT", and no rows are stored.
+  - PGlite: 2,000 rows succeed and 12,000 fail.
+  - Docker PostgreSQL: 4,000 rows succeed. 8,000 rows fail with SQLSTATE 54001.
+  - MySQL: 12,000 rows succeed.
+  - The base client succeeds at every size.
+- **Probes:** `zz-probe-engine-chunk`, `-dockerbulk`, `zz-probe-verify-eng3` and `zz-probe-eng3-skeptic2`, all `.core.test.ts` in `layer-rbac`.
+
+#### ENG-4: `sharedKey` matches alias shapes inside caller SQL
+
+- **Where:** `src/query-engine/raptor3/shared/query.ts`, where `ALIAS_TOKEN` and `sharedKey` renumber, and the guard checks schema names only.
+- **Evidence:** Docs `d1`, `d2` and `d3`. Grants `g1(d1, level '_q1_')` and `g2(d2, level '_q2_')`. The base client on default PGlite runs `doc.findMany({ where: { OR: [{ grants: { some: { level: { equals: sql`'_q1_'` } } } }, { grants: { some: { level: { equals: sql`'_q2_'` } } } }] } })`.
+  - It returns `["d1"]` where `["d1", "d2"]` is right. Both arms read one `__shared_0` key set.
+  - With `sharedRelationBodies: false`, it returns `["d1", "d2"]`.
+  - With `'_x1_'` and `'_x2_'`, the bodies are not shared and the answer is right.
+- **Probes:** `zz-probe-engine-alias` and `zz-probe-eng4-verify2`, in `layer-rbac`.
+
+#### ENG-5: `createClient` drops `sharedRelationBodies`
+
+- **Where:** `createClient` in `src/drivers/{pg,pglite,postgres,neon-http,bun-sql}/index.ts`.
+- **Evidence:** `createClient({ schema, sharedRelationBodies: false })` still declares `sharesRelationBodies: true` on pglite, on pg and on postgres (Docker 5434), and the statement contains `"__shared_"`. `new PGliteDriver({ sharedRelationBodies: false })` leaves the fact off.
+- **Probes:** `zz-probe-engine-shared`, `zz-probe-eng5-skeptic1` and `zz-probe-eng5-verify`.
+
+#### ENG-6: D1 depth under a governed relation chain
+
+- **Where:** `src/adapters/databases/sqlite/sqlite-adapter.ts` (the `deepExpressions: false` derived-table wrap) and `src/drivers/d1/index.ts`.
+- **Evidence:** The policy is `org`/`member`/`doc` with `doc.read` as three `OR` arms of in-organization bodies. The call is `doc.findMany({ where: { parent: { parent: … { id: "d0" } } } })`.
+  - With the reviewer's policy, the governed call runs nine levels deep. At ten levels it fails with "Expression tree is too large (maximum depth 100)" (10,191 B, 29 binds).
+  - With the first skeptic's three-arm policy, the call runs eight levels deep and fails from nine.
+  - The base client runs at 15 levels, and one-arm policies run at 15 too.
+  - A second skeptic's policy with a `NOT` arm fails from 10 or from 12 levels, depending on its shape.
+- **Probes:** `zz-probe-engine-d1`, `zz-probe-eng6-verify-d1` and `zz-probe-eng6-skeptic2`, in `provider-d1`.
+
+#### COST-1: the guide's chain raises TS2589 from 10 models
+
+- **Where:** `src/soft-delete/index.ts` (the whole-factory and step types) and `src/rbac/index.ts` (`PolicyClient`).
+- **Evidence:** On tsc 5.9.3, `base.$extends(tombstones.rows).$extends(policy).$extends(tombstones.methods)` compiles at 5 models in 6.67 M instantiations and 1,433 MiB. It raises TS2589 at 10, 15 and 60 models (7.43 M, 7.10 M and 10.27 M). tsc 7.0.2 raises TS2589 at 10 and 15.
+  - The function-call spelling `policy.methods(tombstones.methods(policy.rows(tombstones.rows(base))))` costs 474 k at 10 models.
+  - On the acceptance app: the floor is 2,269,624, the function-call spelling 2,352,482, and the chain 9,982,461 with 2,813 MiB RSS.
+  - Each composed chain with a `.methods` step adds about 1.5 M per distinct receiving client.
+- **Repro:** `verify/COST-1-1/` and `verify/COST-1-2/` (`gen.cjs <N> chain|call|rbaconly|softchain`).
+
+#### COST-2: soft delete alone raises TS2589 from 25 models
+
+- **Where:** `src/soft-delete/index.ts`: `Complete<Base>`, the `extend` overloads, and the factory type added by `69f820c11`.
+- **Evidence:** `const db = tombstones(base); db.m0.findMany({ include: { owner: true } })`, measured on `9c50` against 1.2.4:
+
+  | Models | `9c50` | 1.2.4 |
+  |---|---|---|
+  | 15 | 5,996,709 | 834,907 |
+  | 25 | TS2589 (8.44 M) | |
+  | 30 | TS2589 (9.04 M) | 1,175,246 |
+  | 60 | TS2589 (12.60 M) | 1,895,666 |
+
+  At 30 models, applying the steps (`tombstones.methods(base.$extends(tombstones.rows))`) costs 983,592 with no error. So the cost is the whole-factory return type.
+- **Repro:** `verify/COST-2-1/` and `verify/COST-2-2/` (`run.sh <N> call|whole|steps new|old`).
+
+#### COST-3 and COST-7: D1's fourth limit, and local workerd enforces the text limit
+
+- **Where:** `tests/providers/workers/d1-rbac-statement-budget.test.ts` (W-K2f) and the guide's Providers section.
+- **Evidence:** These ran on local D1 with the acceptance policy, the guide's soft-delete chain and actor `u02`. Each refused statement was re-run on `env.DB` to read D1's own message.
+  - Refused with `SQLITE_TOOBIG`: `document` `$access` three levels deep (105,357 B, 57 values), and `document` with every relation and `$access` (100,010 B, 79 values).
+  - Refused with `SQLITE_NOMEM`: `page` `$access` three levels deep through its group and grants (82,780 B, 64 values), and `accessGrant` with every relation and `$access` (76,038 B, 74 values). The second still fails once the tables are emptied.
+  - Accepted: `document` `$access` two levels deep (61,299 B), `accessGrant` `$access` (44,447 B), and the grant move of a document (34,396 B).
+  - A synthetic view of k scalar subqueries ran at 19,125 VDBE opcodes and failed with `SQLITE_NOMEM` at 22,145.
+  - All four refused statements run in node:sqlite 3.53.4.
+- **Probes:** `zz-probe-cost-d1`, `zz-probe-cost3-skeptic1` and `zz-probe-cost3-skeptic2`, in `provider-d1`. Statement dumps are in `verify/COST-3-2/`.
+
+#### COST-5: distinct policy constants are bound values
+
+- **Where:** `src/drivers/driver-instrumentation.ts`, where `NumberedSql` dedupe is the only fallback.
+- **Evidence:**
+  - A policy with 20 arms on `page` and 40 on `pageGroup`, each with a distinct constant: `page.findMany` including every relation is refused before I/O with "one indivisible statement needs 104 bound values, above the verified limit of 100".
+  - The skeptic's policy with 98 arms on `pageGroup`: `page.findMany({ include: { group: true } })` needs 108 values and is refused.
+  - With 60 arms the same read needs 70 values after dedupe and runs.
+- **Probes:** `zz-probe-cost-d1` and `zz-probe-cost5-skeptic2`.
+
+#### COST-9: an unextended `create` allocates +1.9%
+
+- **Evidence:** The harness is `cost/alloc/alloc.mjs`: two models on SQLite3, Node 24.22 `--expose-gc --max-semi-space-size=256`, `gc()` before each of 400 samples, median, three runs, stable to ±40 B.
+
+  | Call | 1.2.4 (B) | `9c50` (B) |
+  |---|---|---|
+  | `create` | 60,312 | 61,440 |
+  | `findMany` with an include | 77,488 | 77,944 |
+  | `findUnique` | 51,696 | 51,296 |
+  | relation filter | 60,600 | 60,192 |
+  | `createClient` | 42,568 | 42,704 |
+
+  `benchmarks/relation-read-memory.mjs` fails at both commits.
+
+### Refuted, with the skeptics' reasons
+
+- **ENG-1.** Both skeptics reproduced the facts and rejected the conclusion.
+  - Policy A, `update: { status: "public", ownerId: me }`, compiles `read` to `status = 'public'` and gives `["pub"]` to an actor without `userId`. Policy B, `update: { ownerId: me }`, keeps the disjunction, which R6 closes to `WHERE 0`.
+  - Absorption shows nothing beyond what a rule grants: under A, the actor sees exactly the rows that `read: { status: "public" }` grants.
+  - The non-monotonicity comes from R6 applying per predicate (ENG-2), not from absorption. Adding the safeguard to absorption, the first proposed fix, would close `read` under A too, which is stricter and worse.
+- **COST-4.** The counts reproduce: 314 for `accessGrant` `$access` and `can`, 310 for `can("create")` and `findMany({ as: "create" })`, 261 and 256 for the grant moves. But they count each `__shared_N` reference as a relation.
+  - The plan's "241 → 41" counts base tables only.
+  - Whether Neki counts CTE references against its 256 is not established, and nothing here could run Neki. Plan §8 records W-R1 green on Neki with shared bodies.
+  - Disposition: the guide says what it counts. Running these four statements on Neki is left to a run with Neki credentials.
+- **COST-6.** The guide already opens its PostgreSQL section with "turn JIT off", explains why, and labels its table as earlier measurements.
+  - Skeptic 2 measured server-default JIT against `jit = off` on Docker PostgreSQL 16.14, with three runs after a warmup, each checked with `EXPLAIN ANALYZE`. For example, `page.findMany` took 83 ms against 5 ms.
+  - The magnitude the finding claims (0.3-24 s) and the claim that the guide is stale did not reproduce.
+- **COST-8.** The byte counts are right: d1-worker +10,811 B, pg-representative +10,674 B and pg + soft delete +10,745 B gzip from 1.2.4.
+  - The premise that only `viborm/rbac` declares `place`, `moves` or `evidence` is false. `rows.verbs` is public extension language: it is typed in `src/extensions/controls.ts` and admitted for every extension in `src/extensions/rows.ts`.
+  - The cost is the one FDOCS-7 already documents. Whether core should shed it is an owner question.
+
+### Attacks that did not land
+
+#### engine
+
+- Shared and inline bodies gave the same answers on a hand-built policy on SQLite3 (capability toggled), PGlite, Docker PostgreSQL (true and false), MySQL (inline) and D1, with SQLite3 inline as the reference: 0 differences. The policy covered:
+  - `NOT` around relation bodies, `every`, `none`, and `OR` with a null-`userId` body
+  - includes, `_count`, `groupBy`, `$access`, and `can` over three actions
+  - creates, and `createMany` both mixed and allowed
+  - update moves, `updateMany`, `deleteMany`, `upsert` in both branches, and nested create
+- The acceptance fixture, shared against inline on SQLite3: 168 answers, 0 differences, 120 shared statements. It covers the polymorphic `bookmark.subject`, the junction team parents and children, the document tree, `$access` on all 11 governed models, and 12 actors including keyed ones.
+- `sharedKey` collisions from different parameter values or types: `valueKey` separates by `typeof`, Dates by instant and objects by identity. Distinct actor parameters never merge. `-0` and `0` merge but compare equal in SQL.
+- `sharedKey` collisions from layer exclusions, masked gates or known-null folds: each changes the body text, so equal text means equal meaning.
+- The alias guard against engine-minted names:
+  - Walk CTE and column names (`__q<n>_recursive`, `__q<n>_child_<i>`) renumber consistently.
+  - `k<i>`, `__shared_<n>`, `0viborm_row` and `__viborm_*` never match.
+  - `seq1`, `xq1`, `q1x` and `Q1` are neither flagged nor rewritten.
+- An unsettled `SqlSlot` frozen by an early flatten: `Sql.peek` keeps slots open, and the only lowering-time `.values` reads build throwaway statements outside a sharing scope.
+- Nested `WITH` scopes defining the same `__shared_` name: `#sharingBodies` joins the outer scope, and upsert's two branches ran equal on PostgreSQL, shared and inline.
+- Absorption with `$if` arms, the `every`/`some`/`is`/`none`/`isNot` quantifiers, contrapositive `NOT`, and `in`/`hasSome` subsets is sound in three-valued logic. The only counter-example is the R6 one (ENG-1).
+- Rule functions read non-monotonically are evaluated once at the declared action, so absorption compares only the evaluated outcomes.
+- The produced row against the stored row on SQLite3, PGlite, PostgreSQL and MySQL: the judgement and the stored row agree on every engine, MySQL `UNION` typing and collation included. The cases were JSON whole-document and path equality under `NOT`, case-sensitive and insensitive strings under `NOT`, millisecond datetimes, and doubles.
+- ORM-side static defaults reach the produced row. Only database-generated autoincrement ids are `NULL` in the judgement.
+- The judgement is read once, before the write. These cases were identical on SQLite3, PGlite, PostgreSQL, MySQL and D1:
+  - demoting all admins, and moving all members
+  - re-ranking or re-parenting siblings, and self-loop re-parenting
+  - a `createMany` where one row's placement depends on another's
+  - a `deleteMany` under a rule reading the deleted table
+- Generated keys in a D1 batch: a nested tree with autoincrement ids, whose child placement reads the new parent through `{ parent: "update" }`, is admitted and refused as expected.
+- MySQL multi-row generated ids: a governed create with a projection inserts one row per statement and reads `insertId` per row.
+- Refusal sentinels:
+  - PostgreSQL's `CAST((SELECT '__viborm_refused__') AS integer)` runs as an InitPlan at execution and is not folded at plan time.
+  - SQLite's and MySQL's `json_extract` sentinel is not raised when its branch is not taken.
+  - A caller can force a misattributed `ForbiddenError` only by putting the sentinel in its own raw SQL. That is no bypass.
+- D1's balanced conjunctions: a 300-member `AND` and a 301-member `OR` run on D1 with deduplicated binds.
+
+#### cost
+
+- D1 expression depth for the acceptance policy: the deepest D1-form statement is 78 (`document` `$access` three levels deep) and the plain corpus peaks at 67. The CLI's "parser stack overflow" on some statements is an artifact of the Apple CLI build: local D1 ran them.
+- The D1 bind limit for the acceptance policy: the plain lines peak at 98 values (`page` owner), and none exceeds 100.
+- Non-monotone per-level callbacks (six levels, each with a distinct body) and a deep recursive tree stay small. On D1 they ran at 3.5-34 KB, and absorption does not expand them.
+- The SQLite3 default form, with no sharing, reaches 500 KB and 3,485 table references (`document` `$access` three levels deep). better-sqlite3 runs it all, in 38-581 ms.
+- PostgreSQL bytes: the largest acceptance statement is 101,766 B. PostgreSQL has no text limit, and planning stays at 2-33 ms with JIT off.
+- Per-call preparation on PostgreSQL: the heaviest call's wall time (101 ms) is below its `EXPLAIN` execution time (118 ms). Lowering is not the bottleneck.
+- The compiled acceptance policy is 452,449 B of JSON (plan: about 444 KB).
+- The inline `base.$extends(rbac({...}))` contextual typing costs about 130 k instantiations per call. At 60 models it costs 1.23 M and 668 MiB, which fits an editor.
+- Every size-limit row passes at `9c50` (the D1 row with 30 B to spare).
+- An unextended client's `findUnique`, relation filter and `createClient` allocate no more than 1.2.4.

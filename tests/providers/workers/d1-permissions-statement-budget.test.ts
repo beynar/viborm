@@ -7,8 +7,15 @@
  * every governed model, with every relation included, at every action as a
  * mode and through `can`, and the heaviest writes (a grant `updateMany`,
  * edits and archives, a nested create under a document). D1 itself refuses a
- * statement over its limits; this pins the margin and reports it. `$access`
- * is M2's and is not in this corpus.
+ * statement over its limits; this pins the margin and reports it.
+ *
+ * `$access` (review 2, COST-3) is measured apart: the reads the review used,
+ * each run on D1, and each refusal replayed on the binding to read the limit
+ * D1 names. Two more limits than the published two apply: a statement whose
+ * compiled program D1 cannot hold fails `SQLITE_NOMEM` (SQLite's
+ * `SQLITE_LIMIT_VDBE_OP`, a value D1 does not publish), and text over
+ * 100 KB fails `SQLITE_TOOBIG`. The refused lines are pinned as measured,
+ * not hidden: one that starts to run turns this red, to be moved.
  */
 
 import { env } from "cloudflare:test";
@@ -43,6 +50,8 @@ declare module "cloudflare:test" {
 /** D1's published limits per statement (plan §2 Y4): provider facts. */
 const D1_BOUND_VALUES = 100;
 const D1_STATEMENT_BYTES = 100_000;
+/** The result code D1 names a refusal by. */
+const SQLITE_CODE = /SQLITE_[A-Z]+/;
 
 type Delegate = Record<string, (args?: object) => Promise<unknown>> & {
   can(action: string, where: object): Promise<boolean>;
@@ -316,7 +325,7 @@ describe("D1: W-K2f, every governed statement inside D1's budget", () => {
     expect(over(measured)).toEqual([]);
   }, 900_000);
 
-  test("beyond §1.1, measured: every relation of every model included at once (local D1 does not enforce the text limit)", async () => {
+  test("beyond §1.1, measured: every relation of every model included at once (local D1 enforces the text limit: SQLITE_TOOBIG)", async () => {
     const { measured, most } = await measure(async (attempt) => {
       for (const name of SAMPLED_ACTORS) {
         const call = db.$as(actors[name]!);
@@ -333,5 +342,180 @@ describe("D1: W-K2f, every governed statement inside D1's budget", () => {
       `W-K2f on D1, every relation: ${JSON.stringify({ ...most, breaches })}`
     );
     expect(most["values"]).toBeLessThanOrEqual(D1_BOUND_VALUES);
+    // Local workerd refuses text over 100 KB as D1 does (review 2, COST-7).
+    expect(most["bytes"]).toBeLessThanOrEqual(D1_STATEMENT_BYTES);
+  }, 900_000);
+
+  test("$access, measured (review 2, COST-3): the reads D1 runs stay inside 100 bound values and 100 KB; the ones it refuses are named by their limit", async () => {
+    const call = db.$as(actors.u02!);
+    const withEvidence = (model: string) =>
+      Object.fromEntries(
+        Object.keys(everyRelation(model)).map((relation) => [
+          relation,
+          { include: { $access: true } },
+        ])
+      );
+    const lines: [string, () => Promise<unknown>][] = [
+      [
+        "accessGrant $access",
+        () => call.accessGrant!.findMany!({ include: { $access: true } }),
+      ],
+      [
+        "page $access",
+        () => call.page!.findMany!({ include: { $access: true } }),
+      ],
+      [
+        "page $access, group $access",
+        () =>
+          call.page!.findMany!({
+            include: { $access: true, group: { include: { $access: true } } },
+          }),
+      ],
+      [
+        "document $access",
+        () => call.document!.findMany!({ include: { $access: true } }),
+      ],
+      [
+        "document roots $access at three depths",
+        () =>
+          call.document!.findMany!({
+            where: { parentId: null },
+            include: {
+              $access: true,
+              children: {
+                include: {
+                  $access: true,
+                  children: { include: { $access: true } },
+                },
+              },
+            },
+          }),
+      ],
+      [
+        "document roots $access at three depths, with grants",
+        () =>
+          call.document!.findMany!({
+            where: { parentId: null },
+            include: {
+              $access: true,
+              grants: { include: { $access: true } },
+              children: {
+                include: {
+                  $access: true,
+                  children: {
+                    include: {
+                      $access: true,
+                      grants: { include: { $access: true } },
+                    },
+                  },
+                },
+              },
+            },
+          }),
+      ],
+      [
+        "document every relation + $access",
+        () =>
+          call.document!.findMany!({
+            include: { $access: true, ...withEvidence("document") },
+          }),
+      ],
+      [
+        "page $access at three depths through group and grants",
+        () =>
+          call.page!.findMany!({
+            include: {
+              $access: true,
+              group: {
+                include: {
+                  $access: true,
+                  grants: {
+                    include: {
+                      $access: true,
+                      document: { include: { $access: true } },
+                    },
+                  },
+                  pages: { include: { $access: true } },
+                },
+              },
+              grants: {
+                include: {
+                  $access: true,
+                  page: { include: { $access: true } },
+                },
+              },
+            },
+          }),
+      ],
+      [
+        "accessGrant every relation + $access",
+        () =>
+          call.accessGrant!.findMany!({
+            include: { $access: true, ...withEvidence("accessGrant") },
+          }),
+      ],
+    ];
+    const encoder = new TextEncoder();
+    const outcomes: Record<string, string> = {};
+    const sizes: Record<string, { bytes: number; values: number }> = {};
+    for (const [line, run] of lines) {
+      recorder.statements.length = 0;
+      let refused = false;
+      try {
+        await run();
+      } catch {
+        refused = true;
+      }
+      const widestStatement = recorder.statements.reduce((a, b) =>
+        encoder.encode(b.sql).length > encoder.encode(a.sql).length ? b : a
+      );
+      sizes[line] = {
+        bytes: encoder.encode(widestStatement.sql).length,
+        values: widestStatement.values.length,
+      };
+      if (!refused) {
+        outcomes[line] = "runs";
+        expect(
+          over(
+            recorder.statements.map((statement) => ({
+              values: statement.values.length,
+              bytes: encoder.encode(statement.sql).length,
+            }))
+          )
+        ).toEqual([]);
+        continue;
+      }
+      // The driver redacts D1's reason: the binding names it.
+      const last = recorder.statements.at(-1)!;
+      try {
+        await env.DB.prepare(last.sql)
+          .bind(...last.values)
+          .all();
+        outcomes[line] = "refused, and runs alone";
+      } catch (error) {
+        const limit = SQLITE_CODE.exec((error as Error).message);
+        outcomes[line] = `refused: ${limit?.[0] ?? (error as Error).message}`;
+      }
+    }
+    console.info(
+      `W-K2f on D1, $access (u02): ${JSON.stringify({ outcomes, sizes })}`
+    );
+    expect(outcomes).toEqual({
+      "accessGrant $access": "runs",
+      "page $access": "runs",
+      "page $access, group $access": "runs",
+      "document $access": "runs",
+      "document roots $access at three depths": "runs",
+      // Measured (u02): 106,197 B and 100,850 B (105,357 and 100,010 at
+      // 9c50a3191, before nesting levels isolated their domains).
+      "document roots $access at three depths, with grants":
+        "refused: SQLITE_TOOBIG",
+      "document every relation + $access": "refused: SQLITE_TOOBIG",
+      // 83,620 B and 76,878 B (82,780 and 76,038 at 9c50a3191): inside the
+      // published limits, refused for the program D1 compiles.
+      "page $access at three depths through group and grants":
+        "refused: SQLITE_NOMEM",
+      "accessGrant every relation + $access": "refused: SQLITE_NOMEM",
+    });
   }, 900_000);
 });

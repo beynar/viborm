@@ -152,8 +152,12 @@ export const policy = {
 const WRITES = /^(INSERT|UPDATE)/m;
 /** A statement carrying a judgement or a premise. */
 const GUARDED = /__viborm_judged__|__viborm_assert__/;
-/** An INSERT reading its rows from their typed values, kept where judged. */
-const JUDGED_INSERT = /^INSERT INTO .* SELECT .* UNION ALL SELECT /;
+/**
+ * An INSERT reading its rows from their typed values, kept where judged: a
+ * `UNION ALL SELECT` arm per row, or one `VALUES` list (SQLite, PostgreSQL).
+ */
+const JUDGED_INSERT =
+  /^INSERT INTO .* SELECT .*(?: UNION ALL SELECT |VALUES \()/;
 /** An UPDATE whose candidates are kept, by key, where their new rows hold. */
 const JUDGED_UPDATE = / GROUP BY .* HAVING MIN\(/;
 
@@ -184,6 +188,7 @@ interface Delegate {
   updateMany(args: object): Promise<{ count: number }>;
   upsert(args: object): Promise<Row>;
   findMany(args?: object): Promise<Row[]>;
+  count(args?: object): Promise<number>;
   deleteMany(args?: object): Promise<{ count: number }>;
 }
 type Loose = Record<string, Delegate>;
@@ -400,6 +405,42 @@ export function runProducedRowBehavior(substrate: ProducedRowSubstrate): void {
         })
       ).toEqual({ count: 2 });
     });
+
+    // ENG-3 (review 2): the produced rows were one `UNION ALL SELECT` arm
+    // each, so a judged createMany the base client takes failed at 500 rows
+    // on SQLite (too many terms in a compound SELECT), 8,000 on PostgreSQL
+    // (54001) and 12,000 on PGlite. Its bind budget is a chunk's only bound.
+    test(
+      "a judged createMany of any size the bind budget chunks is stored and judged: 500, 2,000 and 12,000 rows",
+      {
+        timeout: 600_000,
+      },
+      async () => {
+        let stored = SEEDED.length;
+        for (const size of [500, 2000, 12_000]) {
+          const rows = Array.from({ length: size }, (_, index) => ({
+            id: key(),
+            folderId: index % 2 === 0 ? 1 : 2,
+            title: `bulk-${size}-${index}`,
+          }));
+          // The last row is in carl's folder: the whole call is refused.
+          expect(
+            await failure(
+              db.item!.createMany({
+                data: [...rows.slice(1), { ...rows[0]!, folderId: 4 }],
+                ...as("ann"),
+              })
+            )
+          ).toBeInstanceOf(ForbiddenError);
+          expect(await plain().item!.count()).toBe(stored);
+          expect(
+            await db.item!.createMany({ data: rows, ...as("ann") })
+          ).toEqual({ count: size });
+          stored += size;
+          expect(await plain().item!.count()).toBe(stored);
+        }
+      }
+    );
 
     test("W-P4, W-P9: a nested create under a parent created by the same call is judged against that parent's values; a refused child rolls the call back", async () => {
       const created = await db.folder!.create({

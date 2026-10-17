@@ -137,11 +137,19 @@ statement that writes it, and a refused row raises the adapter's
 `assertions.holds` there, before any row is written and before any
 constraint. An INSERT (`OperationContext.#insertStatement`, every create
 site: root, `createMany` chunks, nested, `connectOrCreate`, upsert arms)
-reads its rows from `Queries.producedSource`: a derived table of the values,
-typed by the model's own columns (an empty read of the table leads the
-`UNION ALL`, so a bound value is never PostgreSQL's untyped text), each row
-kept where its `holds` is 1; one statement's rows never see each other
-(`INSERT … SELECT` materializes its source). An UPDATE (`update`,
+reads its rows from `Queries.producedSource`: one FROM item of the values,
+typed by the model's own columns (an empty read of the table, so a bound
+value is never PostgreSQL's untyped text), each row kept where its `holds`
+is 1; one statement's rows never see each other (`INSERT … SELECT`
+materializes its source). How the rows follow the typed read is the
+adapter's (`setOperations.typedRows`, ENG-3, review 2): one `UNION ALL
+SELECT` arm per row on MySQL, one `VALUES` list after the head on SQLite
+(the compound limit, 500 terms, does not count it), one `VALUES` list typed
+by its first row (`COALESCE` with a NULL of the table's row type) on
+PostgreSQL (each `UNION ALL` arm is one parser recursion, `54001` at 8,000
+rows). So the bind budget is a judged chunk's only bound, as an unjudged
+one's. In a batch, each `createMany` chunk carries its own `SELECT` as its
+probe, so a refusal in any chunk is reported as the write's. An UPDATE (`update`,
 `updateMany`, `mutateMembers`, `remove`'s unlink, the captured series)
 takes `Queries.producedWhere`: its candidates' keys, read once before the
 write, grouped by key and kept where `MIN(holds)` over the row with its
@@ -182,7 +190,12 @@ inside a scope, as an open `SqlSlot` keyed by the body's text with its
 aliases renumbered and its values (`sharedKey`): the body is the key set
 `SELECT target.k… FROM target WHERE related AND stated`, under the layers and
 values the place lowers with, and every repeat tests it, `EXISTS (SELECT 1 FROM
-set WHERE set.k = parent.fk)`, a semijoin on the correlated columns. When the
+set WHERE set.k = parent.fk)`, a semijoin on the correlated columns. Only the
+engine's text is renumbered: a caller's `Sql` operand is lowered as
+`CallerText` and keyed as written (`Sql.peekRuns`), so alias-shaped caller
+text (`'_q1_'`) never merges two bodies (ENG-4, review 2); physical names
+shaped like an alias still turn sharing off for the schema
+(`hasAliasLikeNames`). When the
 statement is whole, a body placed once settles to its `EXISTS` (so a statement
 repeating none is byte-identical) and a repeated one to its test; a nested
 repeated body is defined before the body holding it. A junction or variant
@@ -190,7 +203,15 @@ membership and a recursive walk keep their place (a walk inside a shared body
 is shared with it). Measured on §1.1's heaviest write (D1 form): 261 KB, 1,675
 binds, SQLite depth 144 before; 44.6 KB, 190 binds, depth 80 with the shared
 bodies and D1's balanced conjunctions; PostgreSQL 340 ms (JIT off) and 7.9 s
-(JIT on) before, 10 ms and 0.4 s after, the same answers.
+(JIT on) before, 10 ms and 0.4 s after, the same answers. Where a relation
+filter goes on below a level (`readsRelation` of its stated predicate), the
+level's `related` domain goes through `subqueries.isolated`: the identity,
+except on SQLite with `deepExpressions: false` (D1), where SQLite would add
+the domain's height to every level below. Isolated, it is paid once, at the
+end of its own branch (ENG-6, review 2; D1, three-arm read policy: 10 per
+level and refused at 9 before, 5 per level and 94 at admission's 15 after).
+It costs D1's acceptance `$access` reads about 7% more VDBE instructions
+(`accessGrant` `$access` 21,737 → 23,333); every one D1 ran still runs.
 
 *Evidence and read-gated fields (permissions plan K5).* A layer's `ModelVerbs` may
 carry `evidence` (a projection key and the predicates it reports) and `reads`

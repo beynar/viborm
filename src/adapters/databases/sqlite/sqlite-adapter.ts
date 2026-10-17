@@ -67,6 +67,7 @@ import {
   createSubqueries,
   decimalCoefficientPrecision,
   escapeGlobLiteral,
+  rowValues,
   stringifyJson,
 } from "../../shared/standard-sql";
 import { SQLITE_BINARY64_FORMAT } from "./storage/json-number";
@@ -308,7 +309,11 @@ export interface SQLiteAdapterOptions {
    * about four per level, the same plan (SQLite flattens it), one statement.
    * A conjunction of many members nests as a balanced tree where it does not,
    * as the engine already nests a disjunction: SQLite parses `a AND b AND …`
-   * one level per member.
+   * one level per member. A level's row domain, where the filter goes on
+   * below it, is isolated the same way (`subqueries.isolated`), so a policy
+   * costs its height once and not at every level (measured on D1: a
+   * three-arm read policy 10 per level, failing at 9 levels; isolated, 5 per
+   * level, 94 at the 15 levels admission takes).
    * Defaults to `true`.
    */
   readonly deepExpressions?: boolean;
@@ -850,7 +855,18 @@ const SQLITE_SUBQUERIES = createSubqueries(quoteIdent);
 
 const SQLITE_CTE = createCteBuilders(quoteIdent);
 
-const SQLITE_SET_OPERATIONS = createSetOperations();
+/**
+ * A multi-row `VALUES` is the one compound SQLite does not count against
+ * `SQLITE_MAX_COMPOUND_SELECT` (500 terms; measured on 3.53.2: 500 `UNION
+ * ALL SELECT` arms refused, 10,922 `VALUES` rows read), so the produced rows
+ * follow their typed head as one: the head's columns still type every row,
+ * as an arm's did (affinity and collation measured equal).
+ */
+const SQLITE_SET_OPERATIONS = createSetOperations(
+  quoteIdent,
+  (typed, rows, alias) =>
+    sql`(${typed.head} UNION ALL VALUES ${sql.join(rows.map(rowValues), ", ")}) AS ${sql.raw(quoteIdent(alias))}`
+);
 
 const SQLITE_RAW = createRawSql();
 
@@ -882,6 +898,10 @@ export class SQLiteAdapter implements DatabaseAdapter {
     if (!deepExpressions) {
       this.subqueries.existsCheck = (from, where) =>
         sql`SELECT 1 FROM (${SQLITE_SUBQUERIES.existsCheck(from, where)})`;
+      // A derived table's `WHERE` is resolved on its own branch: a level's
+      // row domain costs its height there, once, not at every level below.
+      this.subqueries.isolated = (condition) =>
+        sql`EXISTS (SELECT 1 FROM (SELECT 1 WHERE ${condition}))`;
       this.operators.and = balancedConjunction(SQLITE_OPERATORS.and);
     }
     if (sharedRelationBodies) this.capabilities.sharesRelationBodies = true;

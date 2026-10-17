@@ -855,7 +855,7 @@ export class MySQLAdapter implements DatabaseAdapter {
     ...createLateralJoins(quoteIdent),
   };
 
-  setOperations = createSetOperations();
+  setOperations = createSetOperations(quoteIdent);
 
   capabilities = {
     supportsReturning: false,
