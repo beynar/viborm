@@ -60,10 +60,14 @@ export const extensionCoverageTests = Object.freeze([
   "tests/unit/instrumentation/official-observer.core.test.ts",
   "tests/unit/permissions/actor.core.test.ts",
   "tests/unit/permissions/compile.core.test.ts",
+  "tests/unit/permissions/reuse.core.test.ts",
+  "tests/unit/permissions/availability-boundaries.core.test.ts",
   "tests/providers/local/sqlite3-permissions-compiled-policy.test.ts",
   "tests/providers/local/sqlite3-permissions-entry.test.ts",
   "tests/providers/local/sqlite3-permissions-extends.test.ts",
   "tests/providers/local/sqlite3-permissions-quantifiers.test.ts",
+  "tests/providers/local/sqlite3-permissions-reuse.test.ts",
+  "tests/contracts/public-client/extension-admission-reuse.core.test.ts",
   "tests/contracts/public-client/extension-produced.core.test.ts",
 ]);
 const definitions = [

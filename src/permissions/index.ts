@@ -33,6 +33,7 @@ import {
   type PermissionsConfig,
   verbsOf,
 } from "./compile";
+import { declarationRevision, immutablePlainCopy } from "./reuse";
 import { FALSE, type PolicyModel, type Where } from "./rules";
 
 export type { ActorFacts, ActorPaths } from "./actor";
@@ -815,8 +816,22 @@ export function permissions<const Config extends PermissionsConfig>(
 ): Policy<Config> {
   const actor = actorContract(config.actor);
   const compile = (schema: Schema) => compilePolicy(config, schema, actor);
+  // Public compile() remains an independent inspection result. Application
+  // caches only owned immutable data, never a client, actor, or driver.
+  const prepared = new WeakMap<
+    Schema,
+    { current: () => boolean; definition: object }
+  >();
   const rows = (base: VibORMClient<VibORMConfig, ExtensionState>) => {
-    const compiled = compile(base.$schema as Schema);
+    const schema = base.$schema as Schema;
+    const prior = prepared.get(schema);
+    if (prior?.current()) return extend(base, prior.definition);
+    prepared.delete(schema);
+    const current = declarationRevision(
+      [config, schema],
+      new Set([config.actor, ...Object.values(schema)])
+    );
+    const compiled = compile(schema);
     const definition = {
       name: NAME,
       controls: {
@@ -849,6 +864,11 @@ export function permissions<const Config extends PermissionsConfig>(
         return methods;
       },
     };
+    const owned = current && immutablePlainCopy(definition.rows);
+    if (current && owned && current()) {
+      definition.rows = owned;
+      prepared.set(schema, { current, definition });
+    }
     return extend(base, definition);
   };
   const methods = (client: VibORMClient<VibORMConfig, ExtensionState>) => {

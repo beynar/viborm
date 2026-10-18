@@ -31,6 +31,16 @@ const conditions = new WeakSet<object>();
 let admitting: DomainMarkers | undefined;
 
 /**
+ * One admission's parsed filters, per `where` schema and input object. A
+ * predicate shares sub-filters freely (a relation's target predicate is
+ * inlined wherever it is read), so each shared object is parsed once per
+ * schema and its admitted value shared alike. Only successes are kept: a
+ * refusal is always reported from the place that reached it.
+ */
+export type AdmittedFilters = WeakMap<object, WeakMap<object, unknown>>;
+let parsed: AdmittedFilters | undefined;
+
+/**
  * The node `value` is, or, while a domain predicate is admitted, the node it
  * stands for; `undefined` for any other value.
  */
@@ -65,19 +75,30 @@ export function valueNodeOr<S extends VibSchema<any, any>>(wrapped: S): S {
 export function conditionNodeOr<S extends VibSchema<any, any>>(where: S): S {
   const standard = where["~standard"];
   const validate = standard.validate;
+  const admit = (value: unknown) => {
+    if (!(admitting && isRecord(value) && Object.hasOwn(value, CONDITION)))
+      return validate(value);
+    const { [CONDITION]: spec, ...filter } = value;
+    const node = admitting.condition(spec);
+    if (typeof node === "string") return fail(node, [CONDITION]);
+    conditions.add(node);
+    return Object.keys(filter).length === 0
+      ? ok(node)
+      : validate({ AND: [filter, node] });
+  };
   Object.defineProperty(standard, "validate", {
     value: (value: unknown) => {
-      if (typeof value === "object" && value !== null && conditions.has(value))
-        return ok(value);
-      if (!(admitting && isRecord(value) && Object.hasOwn(value, CONDITION)))
-        return validate(value);
-      const { [CONDITION]: spec, ...filter } = value;
-      const node = admitting.condition(spec);
-      if (typeof node === "string") return fail(node, [CONDITION]);
-      conditions.add(node);
-      return Object.keys(filter).length === 0
-        ? ok(node)
-        : validate({ AND: [filter, node] });
+      if (typeof value !== "object" || value === null) return validate(value);
+      if (conditions.has(value)) return ok(value);
+      const seen = admitting && parsed;
+      if (!seen) return admit(value);
+      let byValue = seen.get(standard);
+      if (byValue === undefined) seen.set(standard, (byValue = new WeakMap()));
+      const known = byValue.get(value);
+      if (known !== undefined) return known;
+      const result = admit(value) as { issues?: unknown };
+      if (result.issues === undefined) byValue.set(value, result);
+      return result;
     },
   });
   return where;
@@ -90,14 +111,18 @@ export function conditionNodeOr<S extends VibSchema<any, any>>(where: S): S {
  */
 export function admittingDomainPredicate<T>(
   markers: DomainMarkers,
-  admit: () => T
+  admit: () => T,
+  filters: AdmittedFilters = new WeakMap()
 ): T {
   const previous = admitting;
+  const previousFilters = parsed;
   admitting = markers;
+  parsed = filters;
   try {
     return withoutFilterDepthBound(admit);
   } finally {
     admitting = previous;
+    parsed = previousFilters;
   }
 }
 

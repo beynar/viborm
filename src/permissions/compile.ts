@@ -200,42 +200,78 @@ function and(clauses: readonly Clause[]): Clause {
   return { AND: kept };
 }
 /**
- * Whether two values of a clause are the same value: numbers by
- * `Object.is` (NaN and ±Infinity are no `null`), bigints, dates by their
- * instant, arrays and records member by member; anything else by identity.
+ * One compilation's structural keys: two values share a key exactly when they
+ * are the same value, numbers by `Object.is` (NaN and ±Infinity are no
+ * `null`), bigints, valid dates by their instant, arrays and records member by
+ * member; anything else by identity. A record or an array is keyed once, so
+ * equality, duplicate removal and the implication cache cost one lookup
+ * however often a shared clause is met. Keys hold only for one compilation,
+ * which never mutates what it reads.
  */
-function same(x: unknown, y: unknown): boolean {
-  if (typeof x === "number" || typeof y === "number") return Object.is(x, y);
-  if (x === y) return true;
-  if (x instanceof Date || y instanceof Date)
-    return (
-      x instanceof Date && y instanceof Date && x.getTime() === y.getTime()
-    );
-  if (Array.isArray(x) || Array.isArray(y))
-    return (
-      Array.isArray(x) &&
-      Array.isArray(y) &&
-      x.length === y.length &&
-      x.every((item, index) => same(item, y[index]))
-    );
-  if (!(isRecord(x) && isRecord(y))) return false;
-  const keys = Object.keys(x);
-  return (
-    keys.length === Object.keys(y).length &&
-    keys.every((key) => Object.hasOwn(y, key) && same(x[key], y[key]))
-  );
-}
-
-function or(clauses: readonly Clause[]): Clause {
-  const kept = clauses.filter((clause): clause is Where => clause !== false);
-  if (kept.length === 0) return false;
-  if (kept.some(isTrue)) return {};
-  // Rules have already been evaluated at their declaring actions. Equal
-  // resulting branches contribute once without suppressing callback evaluation.
-  const flat: Where[] = [];
-  for (const clause of kept.flatMap((member) => membersOf(member, "OR")))
-    if (!flat.some((held) => same(held, clause))) flat.push(clause);
-  return flat.length === 1 ? flat[0]! : { OR: flat };
+function structuralKeys() {
+  const shapes = new Map<string, string>();
+  const known = new WeakMap<object, string>();
+  // Opaque values (a Decimal, bytes, a symbol) are equal only to themselves.
+  const opaque = new Map<unknown, string>();
+  let next = 0;
+  const keyOf = (value: unknown): string => {
+    switch (typeof value) {
+      case "number":
+        return Object.is(value, -0) ? "n-0" : `n${value}`;
+      case "string":
+        return `s${JSON.stringify(value)}`;
+      case "bigint":
+        return `b${value}`;
+      case "boolean":
+      case "undefined":
+        return `p${value}`;
+      default:
+        break;
+    }
+    if (value === null) return "pnull";
+    // A date is read at each comparison; an invalid one equals only itself.
+    if (value instanceof Date && !Number.isNaN(value.getTime()))
+      return `d${value.getTime()}`;
+    if (!(Array.isArray(value) || isRecord(value))) {
+      let key = opaque.get(value);
+      if (key === undefined) opaque.set(value, (key = `o${next++}`));
+      return key;
+    }
+    let key = known.get(value);
+    if (key !== undefined) return key;
+    const shape = Array.isArray(value)
+      ? `[${value.map(keyOf).join(",")}]`
+      : `{${Object.keys(value)
+          .sort()
+          .map((field) => `${JSON.stringify(field)}:${keyOf(value[field])}`)
+          .join(",")}}`;
+    key = shapes.get(shape);
+    if (key === undefined) shapes.set(shape, (key = `#${next++}`));
+    known.set(value, key);
+    return key;
+  };
+  const same = (x: unknown, y: unknown): boolean =>
+    (x === y && typeof x !== "number") || keyOf(x) === keyOf(y);
+  /** `members` without a repeated value, in order. */
+  const distinct = <T>(members: readonly T[]): T[] => {
+    const seen = new Set<string>();
+    return members.filter((member) => {
+      const key = keyOf(member);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+  const or = (clauses: readonly Clause[]): Clause => {
+    const kept = clauses.filter((clause): clause is Where => clause !== false);
+    if (kept.length === 0) return false;
+    if (kept.some(isTrue)) return {};
+    // Rules have already been evaluated at their declaring actions. Equal
+    // resulting branches contribute once without suppressing callback evaluation.
+    const flat = distinct(kept.flatMap((member) => membersOf(member, "OR")));
+    return flat.length === 1 ? flat[0]! : { OR: flat };
+  };
+  return { keyOf, same, distinct, or };
 }
 
 /** A model's admitted action graph, rule assignments and projection meaning. */
@@ -409,6 +445,7 @@ export function compilePolicy(
   schema: Schema,
   actor: ActorContract = actorContract(config.actor)
 ): CompiledPolicy {
+  const { keyOf, same, distinct, or } = structuralKeys();
   const noActions: readonly string[] = Object.freeze([]);
   const levels = config.levels ?? noActions;
   if (new Set(levels).size !== levels.length)
@@ -562,6 +599,7 @@ export function compilePolicy(
     // lower/or normalize siblings into AND, so OR is the only root key here.
     const members = clause.OR as Where[];
     const dropped = new Set<number>();
+    let judgement = and([restriction(name), clause]);
     for (let at = 0; at < members.length; at++) {
       const member = members[at]!;
       for (let other = 0; other < members.length; other++) {
@@ -570,18 +608,12 @@ export function compilePolicy(
         if (!implies(name, member, wider)) continue;
         // Equivalent members keep the earlier one.
         if (other > at && implies(name, wider, member)) continue;
-        const before = members.filter((_, index) => !dropped.has(index));
         const after = members.filter(
           (_, index) => index !== at && !dropped.has(index)
         );
-        if (
-          !preservesReads(
-            name,
-            and([restriction(name), or(before)]),
-            and([restriction(name), or(after)])
-          )
-        )
-          continue;
+        const reduced = and([restriction(name), or(after)]);
+        if (!preservesReads(name, judgement, reduced)) continue;
+        judgement = reduced;
         dropped.add(at);
         break;
       }
@@ -738,16 +770,19 @@ export function compilePolicy(
   const implied = new Map(
     Object.keys(schema).map((name) => [
       name,
-      new WeakMap<object, WeakMap<object, boolean>>(),
+      new Map<string, Map<string, boolean>>(),
     ])
   );
   const implies = (name: string, a: Where, b: Where): boolean => {
     if (a === b) return true;
+    // Keyed by structure: simplification rebuilds equal guards many times.
     const byModel = implied.get(name)!;
-    let row = byModel.get(a);
-    if (row === undefined) byModel.set(a, (row = new WeakMap()));
-    let answer = row.get(b);
-    if (answer === undefined) row.set(b, (answer = provable(name, a, b)));
+    const left = keyOf(a);
+    let row = byModel.get(left);
+    if (row === undefined) byModel.set(left, (row = new Map()));
+    const right = keyOf(b);
+    let answer = row.get(right);
+    if (answer === undefined) row.set(right, (answer = provable(name, a, b)));
     return answer;
   };
   const provable = (name: string, a: Where, b: Where): boolean => {
@@ -792,16 +827,23 @@ export function compilePolicy(
           : implies(target, given[op], value[op]))
     );
   };
-  /** A clause as a conjunction of single-key members. */
-  const conjuncts = (clause: Where): Where[] =>
-    Object.keys(clause).length === 1 && !Object.hasOwn(clause, "AND")
-      ? [clause]
-      : Object.entries(clause).flatMap(([key, member]) =>
-          // `and` writes every conjunction as a list.
-          key === "AND"
-            ? (member as Where[]).flatMap(conjuncts)
-            : [{ [key]: member }]
-        );
+  /** Stable decomposition lets the implication cache reuse each owned member. */
+  const conjunctions = new WeakMap<Where, readonly Where[]>();
+  const conjuncts = (clause: Where): readonly Where[] => {
+    const known = conjunctions.get(clause);
+    if (known !== undefined) return known;
+    const members =
+      Object.keys(clause).length === 1 && !Object.hasOwn(clause, "AND")
+        ? [clause]
+        : Object.entries(clause).flatMap(([key, member]) =>
+            // `and` writes every conjunction as a list.
+            key === "AND"
+              ? (member as Where[]).flatMap(conjuncts)
+              : [{ [key]: member }]
+          );
+    conjunctions.set(clause, members);
+    return members;
+  };
   const without = (record: Where, key: string) => {
     const { [key]: _dropped, ...rest } = record;
     return rest;
@@ -825,28 +867,63 @@ export function compilePolicy(
     readonly no: Clause;
     readonly reads: ReadonlyMap<string, Clause>;
   }
+  /**
+   * Guards are rebuilt for every candidate a simplification tries, so each
+   * one is shared: an equal guard is the first one built, and its negation
+   * is derived once. Guards are never named predicates, so sharing them
+   * cannot reach a predicate's authored reads.
+   */
+  const builtGuards = new Map<string, Where>();
+  const shared = (guard: Clause): Clause => {
+    if (guard === false) return guard;
+    const key = keyOf(guard);
+    const held = builtGuards.get(key);
+    if (held !== undefined) return held;
+    builtGuards.set(key, guard);
+    return guard;
+  };
+  const negations = new WeakMap<Where, Clause>();
   const negate = (guard: Clause): Clause => {
     if (guard === false) return {};
     if (isTrue(guard)) return false;
     if (Object.keys(guard).length === 1 && isRecord(guard.NOT))
       return guard.NOT;
-    if (Array.isArray(guard.AND))
-      return or(guard.AND.map((member: Where) => negate(member)));
-    if (Array.isArray(guard.OR))
-      return guardAnd(guard.OR.map((member: Where) => negate(member)));
-    return { NOT: guard };
+    const held = negations.get(guard);
+    if (held !== undefined) return held;
+    const negation = Array.isArray(guard.AND)
+      ? guardOr(guard.AND.map((member: Where) => negate(member)))
+      : Array.isArray(guard.OR)
+        ? guardAnd(guard.OR.map((member: Where) => negate(member)))
+        : shared({ NOT: guard });
+    negations.set(guard, negation);
+    return negation;
   };
+  /** One combination of shared guards, built once per distinct operands. */
+  const combinations = new Map<string, Clause>();
+  const combined = (
+    operator: string,
+    operands: readonly Clause[],
+    build: () => Clause
+  ): Clause => {
+    let key = operator;
+    for (const operand of operands)
+      key += operand === false ? " F" : ` ${keyOf(operand)}`;
+    if (combinations.has(key)) return combinations.get(key)!;
+    const guard = shared(build());
+    combinations.set(key, guard);
+    return guard;
+  };
+  const guardOr = (guards: readonly Clause[]): Clause =>
+    combined("OR", guards, () => or(guards));
   /** Boolean guards, unlike row predicates, have two-valued logic. Push
    * negation to conditions and remove repeated factors without distributing
    * conjunctions over disjunctions or expanding a truth table. */
-  const guardAnd = (guards: readonly Clause[]): Clause => {
-    const combined = and(guards);
-    if (combined === false || !Array.isArray(combined.AND)) return combined;
-    const kept: Where[] = [];
-    for (const member of combined.AND)
-      if (!kept.some((prior) => same(prior, member))) kept.push(member);
-    return and(kept);
-  };
+  const guardAnd = (guards: readonly Clause[]): Clause =>
+    combined("AND", guards, () => {
+      const all = and(guards);
+      if (all === false || !Array.isArray(all.AND)) return all;
+      return and(distinct(all.AND as Where[]));
+    });
   const falseSummary: ReadSummary = {
     yes: false,
     no: {},
@@ -863,16 +940,18 @@ export function compilePolicy(
     conjunction: boolean,
     summaries: readonly ReadSummary[]
   ): ReadSummary => {
-    const yes = (conjunction ? guardAnd : or)(
+    const yes = (conjunction ? guardAnd : guardOr)(
       summaries.map((part) => part.yes)
     );
-    const no = (conjunction ? or : guardAnd)(summaries.map((part) => part.no));
+    const no = (conjunction ? guardOr : guardAnd)(
+      summaries.map((part) => part.no)
+    );
     const live = negate(conjunction ? no : yes);
     const reads = new Map<string, Clause>();
     for (const part of summaries)
       for (const [key, guard] of part.reads) {
         const held = guardAnd([live, guard]);
-        reads.set(key, or([reads.get(key) ?? false, held]));
+        reads.set(key, guardOr([reads.get(key) ?? false, held]));
       }
     return { yes, no, reads };
   };
@@ -1083,7 +1162,8 @@ export function compilePolicy(
     return result;
   };
   const provesGuard = (name: string, a: Clause, b: Clause): boolean =>
-    a === false || (b !== false && (isTrue(b) || implies(name, a, b)));
+    a === false ||
+    (b !== false && (isTrue(b) || same(a, b) || implies(name, a, b)));
   /**
    * Each positive OR alternative owns absence, as does the enclosing grant.
    * Fold unavailable alternatives false before generic R6 reads their operands.
@@ -1128,12 +1208,11 @@ export function compilePolicy(
     };
     return replace(clause, (key, value) => {
       if ((key === "OR" || key === "AND") && Array.isArray(value)) {
-        const next = value.map((body) =>
-          isRecord(body)
-            ? key === "OR"
-              ? availableGrant(name, body)
-              : guardAlternatives(name, body)
-            : body
+        // lower() has folded booleans and refused non-record rule bodies.
+        const next = value.map((body: Where) =>
+          key === "OR"
+            ? availableGrant(name, body)
+            : guardAlternatives(name, body)
         );
         return next.some((body, index) => body !== value[index]) ? next : value;
       }
@@ -1208,7 +1287,8 @@ export function compilePolicy(
   ): Clause => {
     const all = and(clauses);
     if (all === false) return false;
-    const kept = conjuncts(all);
+    const kept = [...conjuncts(all)];
+    let judgement = and([...given, ...kept]);
     for (let index = kept.length - 1; index >= 0; index--) {
       const member = kept[index]!;
       const covers = (other: Where) => implies(name, other, member);
@@ -1220,14 +1300,11 @@ export function compilePolicy(
       )
         continue;
       const remaining = kept.filter((_, at) => at !== index);
-      if (
-        preservesReads(
-          name,
-          and([...given, ...kept]),
-          and([...given, ...remaining])
-        )
-      )
+      const reduced = and([...given, ...remaining]);
+      if (preservesReads(name, judgement, reduced)) {
+        judgement = reduced;
         kept.splice(index, 1);
+      }
     }
     return and(kept);
   };

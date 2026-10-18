@@ -10,7 +10,7 @@ import {
 } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import { isPlainRecord } from "@schema/relation/terminal";
-import { isInstant, isReference } from "./admission";
+import { isImmutableRowData, isInstant, isReference } from "./admission";
 import type { ResolvedControls, ResolvedDeletion } from "./chain";
 import {
   type AdmittedControls,
@@ -75,14 +75,42 @@ const ABSENT = Symbol("absent");
  * Every control a definition's values name, at any depth: an admitted
  * predicate's parameters and conditions, and a stamp's references.
  */
-function collectReferences(value: unknown, names: Set<string>): void {
+function collectReferences(
+  value: unknown,
+  names: Set<string>,
+  // Predicates share sub-predicates freely: each is read once.
+  seen = new Set<object>()
+): void {
   const parameter = value instanceof Condition ? value.parameter : value;
   if (parameter instanceof Parameter) {
     if (parameter.control !== undefined) names.add(parameter.control);
   } else if (isReference(value)) names.add(value.control);
   else if (Array.isArray(value) || isPlainRecord(value)) {
-    for (const item of Object.values(value)) collectReferences(item, names);
+    if (seen.has(value)) return;
+    seen.add(value);
+    for (const item of Object.values(value))
+      collectReferences(item, names, seen);
   }
+}
+
+// Admission-owned immutable predicates have the same references in every chain.
+// Declarations and the receiving chain's controls are still checked each time.
+const rowReferences = new WeakMap<RowsContribution, readonly string[]>();
+function referencesOfRows(rows: RowsContribution): readonly string[] {
+  const cached = rowReferences.get(rows);
+  if (cached) return cached;
+  const references = new Set<string>();
+  const seen = new Set<object>();
+  for (const modes of Object.values(rows.models))
+    for (const mode of Object.values(modes)) {
+      collectReferences(mode.root, references, seen);
+      collectReferences(mode.related, references, seen);
+    }
+  for (const entry of Object.values(rows.verbs ?? {}))
+    collectReferences(entry.predicates, references, seen);
+  const names = [...references];
+  if (isImmutableRowData(rows)) rowReferences.set(rows, names);
+  return names;
 }
 
 /** The controls a stamp's fields name: its own keys are fields, never values. */
@@ -103,14 +131,9 @@ export function undeclaredControlReferencesOf(
 ): readonly string[] {
   const declared = new Set(Object.keys(definition.controls ?? {}));
   if (definition.rows) declared.add(definition.rows.control);
-  const references = new Set<string>();
-  for (const modes of Object.values(definition.rows?.models ?? {}))
-    for (const mode of Object.values(modes)) {
-      collectReferences(mode.root, references);
-      collectReferences(mode.related, references);
-    }
-  for (const entry of Object.values(definition.rows?.verbs ?? {}))
-    collectReferences(entry.predicates, references);
+  const references = new Set(
+    definition.rows ? referencesOfRows(definition.rows) : []
+  );
   for (const entry of Object.values(definition.data?.models ?? {})) {
     collectStampReferences(entry.create, references);
     collectStampReferences(entry.update, references);
