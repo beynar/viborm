@@ -1,0 +1,842 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Shared relation bodies measurements</title>
+  <style>
+  body {
+    font-family: var(--font-sans, system-ui);
+    color: var(--foreground, #222);
+    margin: 0;
+    line-height: 1.5;
+  }
+  p {
+    margin: 0 0 12px;
+  }
+  label {
+    font-weight: 600;
+  }
+  select {
+    font: inherit;
+    background: var(--card, #fff);
+    color: inherit;
+    border: 1px solid var(--border, #ccc);
+    border-radius: 6px;
+    padding: 6px;
+    max-width: 100%;
+    margin: 4px 0 12px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  th,
+  td {
+    padding: 9px 5px;
+    border-bottom: 1px solid var(--border, #ddd);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  th:first-child,
+  td:first-child {
+    text-align: left;
+    padding-left: 0;
+  }
+  th:last-child,
+  td:last-child {
+    padding-right: 0;
+  }
+  small,
+  .note {
+    color: var(--muted-foreground, #666);
+    font-size: 12px;
+  }
+  .note {
+    margin-top: 12px;
+  }
+  .slower {
+    color: var(--destructive, #ba3333);
+  }
+  .faster {
+    color: var(--success, #167347);
+  }
+  details {
+    margin-top: 12px;
+    font-size: 13px;
+  }
+  summary {
+    cursor: pointer;
+    font-weight: 600;
+  }
+  td:first-child {
+    width: 43%;
+  }
+  @media (max-width: 420px) {
+    table {
+      font-size: 12px;
+    }
+    th,
+    td {
+      padding: 8px 3px;
+    }
+    td:first-child {
+      width: 38%;
+    }
+  }
+  </style>
+  <body>
+    <p>
+      <strong>Sharing helps lists, but slows single-invoice lookups.</strong>
+      <br>
+      <small
+        >Actual VibORM + RBAC operations · PostgreSQL 16.14 · JIT off</small
+      >
+    </p>
+    <label for="profile">Actor’s organization memberships</label>
+    <br>
+    <select id="profile">
+      <option value="narrow">100 organizations</option>
+      <option value="medium" selected>1,000 organizations</option>
+      <option value="broad">90,000 organizations (stress case)</option>
+    </select>
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Operation</th>
+          <th scope="col">Off · ms</th>
+          <th scope="col">On · ms</th>
+          <th scope="col">On / off</th>
+        </tr>
+      </thead>
+      <tbody id="results"></tbody>
+    </table>
+    <p class="note">
+      Median of five process medians. Each process measured 30 alternating pairs
+      per case. 200,000 invoices; every answer checked. Host contention affected
+      some runs; small differences are inconclusive.
+    </p>
+    <details>
+      <summary>Why the results differ</summary>
+      <p>
+        A keyed invoice lookup can use direct index probes with sharing off.
+        With sharing on, the measured late-match lookup scans 80,001
+        organizations to produce the shared set up to the matching key. Lists
+        benefit because the same organization filter is built once instead of
+        twice.
+      </p>
+      <p>
+        The bulk-update and single-relation controls emit identical SQL with
+        either setting. Their timing differences are noise, not a sharing
+        benefit.
+      </p>
+      <p>
+        Warm synthetic data, analyzed but not vacuumed; one PostgreSQL version.
+      </p>
+    </details>
+    <script>
+    "use strict";
+    const data = {
+      runtime: {
+        node: "v24.22.0",
+        cpu: "Apple M4 Pro",
+        arch: "arm64",
+        os: "25.5.0",
+        postgres: "16.14 (Debian 16.14-1.pgdg13+1)",
+        settings: [
+          { name: "jit", setting: "off" },
+          { name: "jit_above_cost", setting: "100000" },
+          { name: "max_parallel_workers_per_gather", setting: "2" },
+          { name: "random_page_cost", setting: "4" },
+          { name: "shared_buffers", setting: "16384" },
+          { name: "work_mem", setting: "4096" },
+        ],
+      },
+      identity: {
+        commit: "bb2d8f78bf9135b189a3b384b21ab06946589949",
+        status: "?? benchmarks/shared-relation-bodies.mjs",
+        buildSha256:
+          "26c0434a72ddd49e6858466a228292483aa973bbfd1dfd7b4a65a5a5ad3e5cc5",
+        harnessSha256:
+          "f04f00245ebdf45fb9db6c186b26fd068088fe910b9545e9a4eb84d1cd05fb5c",
+      },
+      configuration: {
+        organizations: 100_000,
+        invoices: 200_000,
+        samples: 30,
+        warmups: 5,
+        rotation: 0,
+        jit: "off",
+      },
+      processes: 5,
+      measuredOperations: 6300,
+      rows: [
+        {
+          profile: "narrow",
+          workload: "unique-hit",
+          memberships: 100,
+          eligibleInvoices: 400,
+          sharingApplied: true,
+          offMs: 0.738_833_999_999_769_7,
+          onMs: 0.903_249_999_999_388_8,
+          offRunMediansMs: [
+            0.587_457_999_999_969_6, 0.465_707_999_999_722_23,
+            2.321_667_000_000_161_4, 2.116_125_000_000_465_7,
+            0.738_833_999_999_769_7,
+          ],
+          onRunMediansMs: [
+            0.749_416_999_999_994, 0.589_458_000_000_377_1,
+            2.861_417_000_000_074, 2.503_833_999_999_187_7,
+            0.903_249_999_999_388_8,
+          ],
+          pairedRatios: [
+            1.275_694_602_848_259_4, 1.265_724_445_362_176_8,
+            1.232_483_814_431_559_3, 1.183_216_492_408_830_6,
+            1.222_534_425_865_174_5,
+          ],
+          ratio: 1.232_483_814_431_559_3,
+          ratioRange: [1.183_216_492_408_830_6, 1.275_694_602_848_259_4],
+          offBytes: 731,
+          onBytes: 662,
+          offParameters: 3,
+          onParameters: 2,
+        },
+        {
+          profile: "narrow",
+          workload: "unique-denied",
+          memberships: 100,
+          eligibleInvoices: 400,
+          sharingApplied: true,
+          offMs: 0.633_749_999_999_963_6,
+          onMs: 0.735_792_000_000_401_5,
+          offRunMediansMs: [
+            0.568_874_999_999_934_5, 0.557_207_999_999_718_6,
+            2.745_792_000_000_619_7, 2.031_666_999_999_288_2,
+            0.633_749_999_999_963_6,
+          ],
+          onRunMediansMs: [
+            0.623_583_000_000_053_3, 0.666_917_000_000_012_2,
+            2.874_375_000_000_327_4, 2.263_290_999_999_299,
+            0.735_792_000_000_401_5,
+          ],
+          pairedRatios: [
+            1.096_168_754_120_193_4, 1.196_890_568_693_107_5,
+            1.046_829_111_600_470_4, 1.114_006_872_189_237_6,
+            1.161_013_017_752_179_4,
+          ],
+          ratio: 1.114_006_872_189_237_6,
+          ratioRange: [1.046_829_111_600_470_4, 1.196_890_568_693_107_5],
+          offBytes: 731,
+          onBytes: 662,
+          offParameters: 3,
+          onParameters: 2,
+        },
+        {
+          profile: "narrow",
+          workload: "page-first",
+          memberships: 100,
+          eligibleInvoices: 400,
+          sharingApplied: true,
+          offMs: 4.220_374_999_999_876,
+          onMs: 4.153_290_999_999_626,
+          offRunMediansMs: [
+            3.874_458_000_000_231_6, 4.077_708_000_000_257,
+            4.220_374_999_999_876, 5.977_708_000_000_348, 4.313_541_999_999_87,
+          ],
+          onRunMediansMs: [
+            3.851_541_999_999_881_2, 3.902_583_000_000_049_7,
+            4.153_290_999_999_626, 6.311_499_999_999_796,
+            4.162_041_999_999_928_5,
+          ],
+          pairedRatios: [
+            0.994_085_366_262_752_3, 0.957_053_079_818_320_4,
+            0.984_104_730_029_854_8, 1.055_839_462_215_188_3,
+            0.964_878_051_494_584_6,
+          ],
+          ratio: 0.984_104_730_029_854_8,
+          ratioRange: [0.957_053_079_818_320_4, 1.055_839_462_215_188_3],
+          offBytes: 719,
+          onBytes: 650,
+          offParameters: 3,
+          onParameters: 2,
+        },
+        {
+          profile: "narrow",
+          workload: "page-offset",
+          memberships: 100,
+          eligibleInvoices: 400,
+          sharingApplied: true,
+          offMs: 15.834_708_000_000_319,
+          onMs: 15.663_540_999_999_896,
+          offRunMediansMs: [
+            15.636_082_999_999_871, 15.834_708_000_000_319,
+            15.971_292_000_000_176, 20.391_209_000_000_345,
+            15.722_958_000_000_29,
+          ],
+          onRunMediansMs: [
+            15.514_291_999_999_841, 15.644_499_999_999_425,
+            15.894_957_999_999_86, 20.041_666_999_999_507,
+            15.663_540_999_999_896,
+          ],
+          pairedRatios: [
+            0.992_210_900_901_457_8, 0.987_987_906_060_478_7,
+            0.995_220_549_470_868_5, 0.982_858_201_296_41,
+            0.996_221_003_706_783_9,
+          ],
+          ratio: 0.992_210_900_901_457_8,
+          ratioRange: [0.982_858_201_296_41, 0.996_221_003_706_783_9],
+          offBytes: 729,
+          onBytes: 660,
+          offParameters: 4,
+          onParameters: 3,
+        },
+        {
+          profile: "narrow",
+          workload: "count-all",
+          memberships: 100,
+          eligibleInvoices: 400,
+          sharingApplied: true,
+          offMs: 20.755_541_000_000_45,
+          onMs: 21.257_583_000_000_523,
+          offRunMediansMs: [
+            20.755_541_000_000_45, 20.548_875_000_000_407,
+            23.284_332_999_999_606, 27.889_540_999_999_554,
+            20.716_708_999_999_81,
+          ],
+          onRunMediansMs: [
+            21.257_583_000_000_523, 20.455_582_999_999_933,
+            23.188_959_000_000_068, 27.751_292_000_000_83,
+            20.501_999_999_999_953,
+          ],
+          pairedRatios: [
+            1.024_188_336_020_731_1, 0.995_459_994_768_547_1,
+            0.995_903_941_074_904_8, 0.995_042_980_449_239_9,
+            0.989_635_950_381_894_2,
+          ],
+          ratio: 0.995_459_994_768_547_1,
+          ratioRange: [0.989_635_950_381_894_2, 1.024_188_336_020_731_1],
+          offBytes: 690,
+          onBytes: 621,
+          offParameters: 2,
+          onParameters: 1,
+        },
+        {
+          profile: "narrow",
+          workload: "update-1000-candidates",
+          memberships: 100,
+          eligibleInvoices: 400,
+          sharingApplied: false,
+          offMs: 1.623_833_999_999_988,
+          onMs: 1.788_792_000_000_285,
+          offRunMediansMs: [
+            1.246_584_000_000_439_1, 1.162_707_999_999_838_6,
+            3.333_958_000_000_166, 3.711_957_999_999_867_8,
+            1.623_833_999_999_988,
+          ],
+          onRunMediansMs: [
+            1.239_915_999_999_539, 1.174_165_999_999_786_4,
+            3.413_042_000_000_132_2, 3.732_500_000_000_072_8,
+            1.788_792_000_000_285,
+          ],
+          pairedRatios: [
+            0.994_650_982_203_447_4, 1.009_854_580_857_747,
+            1.023_720_754_730_552_2, 1.005_534_006_580_948_8,
+            1.101_585_506_893_129_7,
+          ],
+          ratio: 1.009_854_580_857_747,
+          ratioRange: [0.994_650_982_203_447_4, 1.101_585_506_893_129_7],
+          offBytes: 1312,
+          onBytes: 1312,
+          offParameters: 6,
+          onParameters: 6,
+        },
+        {
+          profile: "narrow",
+          workload: "single-body-control",
+          memberships: 100,
+          eligibleInvoices: 400,
+          sharingApplied: false,
+          offMs: 1.178_750_000_000_036_4,
+          onMs: 1.212_917_000_000_743_4,
+          offRunMediansMs: [
+            0.772_125_000_000_414_7, 0.784_665_999_999_560_9,
+            2.956_249_999_999_272_4, 3.033_042_000_000_932_6,
+            1.178_750_000_000_036_4,
+          ],
+          onRunMediansMs: [
+            0.776_332_999_999_795, 0.806_790_999_999_975_6,
+            2.831_291_999_999_848_5, 3.253_249_999_999_752_6,
+            1.212_917_000_000_743_4,
+          ],
+          pairedRatios: [
+            1.005_449_894_770_119, 1.028_196_710_448_046_7,
+            0.957_730_909_091_093_6, 1.072_603_017_036_609_7,
+            1.028_985_790_032_412_2,
+          ],
+          ratio: 1.028_196_710_448_046_7,
+          ratioRange: [0.957_730_909_091_093_6, 1.072_603_017_036_609_7],
+          offBytes: 424,
+          onBytes: 424,
+          offParameters: 2,
+          onParameters: 2,
+        },
+        {
+          profile: "medium",
+          workload: "unique-hit",
+          memberships: 1000,
+          eligibleInvoices: 4000,
+          sharingApplied: true,
+          offMs: 0.748_417_000_000_699_8,
+          onMs: 4.137_416_999_999_914,
+          offRunMediansMs: [
+            0.748_417_000_000_699_8, 0.671_916_999_999_666_6,
+            2.825_708_000_000_304_3, 4.047_333_999_998_955,
+            0.744_957_999_999_314_8,
+          ],
+          onRunMediansMs: [
+            4.137_416_999_999_914, 3.760_416_999_999_506_5,
+            8.291_874_999_998_981, 9.057_292_000_001_326, 3.877_875_000_000_131,
+          ],
+          pairedRatios: [
+            5.528_224_238_621_044, 5.596_549_871_489_146,
+            2.934_441_562_963_366_7, 2.237_841_502_580_134,
+            5.205_494_806_423_581,
+          ],
+          ratio: 5.205_494_806_423_581,
+          ratioRange: [2.237_841_502_580_134, 5.596_549_871_489_146],
+          offBytes: 731,
+          onBytes: 662,
+          offParameters: 3,
+          onParameters: 2,
+        },
+        {
+          profile: "medium",
+          workload: "unique-denied",
+          memberships: 1000,
+          eligibleInvoices: 4000,
+          sharingApplied: true,
+          offMs: 0.768_083_999_999_362_3,
+          onMs: 4.708_834_000_000_024,
+          offRunMediansMs: [
+            0.587_542_000_000_212_3, 0.737_874_999_999_803_5,
+            2.613_000_000_001_193_3, 2.280_875_000_000_378_3,
+            0.768_083_999_999_362_3,
+          ],
+          onRunMediansMs: [
+            4.708_834_000_000_024, 4.678_458_000_000_319, 8.825_166_000_002_355,
+            7.369_458_000_001_032, 4.630_499_999_999_301_5,
+          ],
+          pairedRatios: [
+            8.014_463_646_851_327, 6.340_447_907_845_59,
+            3.377_407_577_496_488_7, 3.230_978_462_212_883,
+            6.028_637_492_778_324,
+          ],
+          ratio: 6.028_637_492_778_324,
+          ratioRange: [3.230_978_462_212_883, 8.014_463_646_851_327],
+          offBytes: 731,
+          onBytes: 662,
+          offParameters: 3,
+          onParameters: 2,
+        },
+        {
+          profile: "medium",
+          workload: "page-first",
+          memberships: 1000,
+          eligibleInvoices: 4000,
+          sharingApplied: true,
+          offMs: 9.704_083_999_999_966,
+          onMs: 5.697_500_000_000_218,
+          offRunMediansMs: [
+            9.704_083_999_999_966, 8.814_416_000_000_165,
+            16.353_542_000_000_743, 14.496_500_000_001_106,
+            9.078_665_999_999_43,
+          ],
+          onRunMediansMs: [
+            5.697_500_000_000_218, 5.206_167_000_000_278,
+            10.725_916_999_999_754, 10.470_000_000_001_164,
+            5.337_000_000_001_353,
+          ],
+          pairedRatios: [
+            0.587_123_936_684_826_5, 0.590_642_306_875_484_5,
+            0.655_877_301_687_870_8, 0.722_243_300_106_947_6,
+            0.587_861_696_861_817_4,
+          ],
+          ratio: 0.590_642_306_875_484_5,
+          ratioRange: [0.587_123_936_684_826_5, 0.722_243_300_106_947_6],
+          offBytes: 719,
+          onBytes: 650,
+          offParameters: 3,
+          onParameters: 2,
+        },
+        {
+          profile: "medium",
+          workload: "page-offset",
+          memberships: 1000,
+          eligibleInvoices: 4000,
+          sharingApplied: true,
+          offMs: 15.054_541_999_999_856,
+          onMs: 11.115_958_000_000_319,
+          offRunMediansMs: [
+            15.054_541_999_999_856, 14.690_625_000_000_182,
+            23.913_958_000_001_003, 22.958_208_000_000_013,
+            14.964_958_000_000_479,
+          ],
+          onRunMediansMs: [
+            11.008_792_000_000_54, 10.769_583_000_000_239,
+            17.094_708_999_999_057, 16.706_792_000_000_86,
+            11.115_958_000_000_319,
+          ],
+          pairedRatios: [
+            0.731_260_505_965_617_9, 0.733_092_227_185_712_3,
+            0.714_842_310_921_443_5, 0.727_704_531_642_924_8,
+            0.742_799_144_508_121_1,
+          ],
+          ratio: 0.731_260_505_965_617_9,
+          ratioRange: [0.714_842_310_921_443_5, 0.742_799_144_508_121_1],
+          offBytes: 729,
+          onBytes: 660,
+          offParameters: 4,
+          onParameters: 3,
+        },
+        {
+          profile: "medium",
+          workload: "count-all",
+          memberships: 1000,
+          eligibleInvoices: 4000,
+          sharingApplied: true,
+          offMs: 27.632_666_999_999_856,
+          onMs: 23.600_415_999_999_313,
+          offRunMediansMs: [
+            27.632_666_999_999_856, 27.021_374_999_998_443,
+            37.567_415_999_999_87, 32.970_750_000_000_41,
+            26.854_291_999_999_987,
+          ],
+          onRunMediansMs: [
+            23.600_415_999_999_313, 23.120_666_000_000_71,
+            30.378_875_000_000_335, 28.919_750_000_000_93,
+            23.010_374_999_999_84,
+          ],
+          pairedRatios: [
+            0.854_076_662_234_573_2, 0.855_643_578_463_421_8,
+            0.808_649_575_472_543_6, 0.877_133_519_862_319_6,
+            0.856_860_236_717_462_1,
+          ],
+          ratio: 0.855_643_578_463_421_8,
+          ratioRange: [0.808_649_575_472_543_6, 0.877_133_519_862_319_6],
+          offBytes: 690,
+          onBytes: 621,
+          offParameters: 2,
+          onParameters: 1,
+        },
+        {
+          profile: "medium",
+          workload: "update-1000-candidates",
+          memberships: 1000,
+          eligibleInvoices: 4000,
+          sharingApplied: false,
+          offMs: 17.473_917_000_001_165,
+          onMs: 17.639_207_999_998_69,
+          offRunMediansMs: [
+            17.473_917_000_001_165, 16.687_959_000_000_774,
+            27.098_583_000_000_872, 23.967_291_999_999_36,
+            16.991_250_000_000_946,
+          ],
+          onRunMediansMs: [
+            17.639_207_999_998_69, 16.661_290_999_998_528,
+            29.637_749_999_999_87, 23.371_250_000_000_146,
+            16.935_417_000_000_598,
+          ],
+          pairedRatios: [
+            1.009_459_298_679_140_6, 0.998_401_961_557_896_6,
+            1.093_701_098_688_404_4, 0.975_131_024_397_782_1,
+            0.996_714_014_566_300_6,
+          ],
+          ratio: 0.998_401_961_557_896_6,
+          ratioRange: [0.975_131_024_397_782_1, 1.093_701_098_688_404_4],
+          offBytes: 1312,
+          onBytes: 1312,
+          offParameters: 6,
+          onParameters: 6,
+        },
+        {
+          profile: "medium",
+          workload: "single-body-control",
+          memberships: 1000,
+          eligibleInvoices: 4000,
+          sharingApplied: false,
+          offMs: 9.187_834_000_000_294,
+          onMs: 9.474_458_000_000_595,
+          offRunMediansMs: [
+            7.222_333_000_001_527, 9.187_834_000_000_294,
+            17.644_000_000_000_233, 10.860_749_999_999_825,
+            8.687_374_999_999_52,
+          ],
+          onRunMediansMs: [
+            7.262_790_999_999_197, 9.474_458_000_000_595,
+            16.752_333_000_000_363, 11.453_792_000_000_249,
+            8.703_416_000_000_288,
+          ],
+          pairedRatios: [
+            1.005_601_790_999_897_3, 1.031_196_035_975_431_5,
+            0.949_463_443_663_576_4, 1.054_604_147_964_038_7,
+            1.001_846_472_611_205_3,
+          ],
+          ratio: 1.005_601_790_999_897_3,
+          ratioRange: [0.949_463_443_663_576_4, 1.054_604_147_964_038_7],
+          offBytes: 424,
+          onBytes: 424,
+          offParameters: 2,
+          onParameters: 2,
+        },
+        {
+          profile: "broad",
+          workload: "unique-hit",
+          memberships: 90_000,
+          eligibleInvoices: 180_000,
+          sharingApplied: true,
+          offMs: 1.194_542_000_001_092_7,
+          onMs: 24.726_374_999_998_37,
+          offRunMediansMs: [
+            1.194_542_000_001_092_7, 0.964_832_999_998_179_7,
+            3.946_415_999_998_862_4, 1.297_709_000_005_852_4,
+            0.997_416_000_001_976_5,
+          ],
+          onRunMediansMs: [
+            25.128_124_999_999_272, 20.809_290_999_997_756,
+            42.956_790_999_996_88, 24.726_374_999_998_37,
+            20.573_958_000_000_857,
+          ],
+          pairedRatios: [
+            21.035_781_914_722_367, 21.567_764_576_913_326,
+            10.885_013_389_366_268, 19.053_867_238_253_613,
+            20.627_258_836_794_365,
+          ],
+          ratio: 20.627_258_836_794_365,
+          ratioRange: [10.885_013_389_366_268, 21.567_764_576_913_326],
+          offBytes: 731,
+          onBytes: 662,
+          offParameters: 3,
+          onParameters: 2,
+        },
+        {
+          profile: "broad",
+          workload: "unique-denied",
+          memberships: 90_000,
+          eligibleInvoices: 180_000,
+          sharingApplied: true,
+          offMs: 1.152_834_000_000_439_1,
+          onMs: 30.305_541_000_001_54,
+          offRunMediansMs: [
+            1.023_124_999_999_709, 1.152_834_000_000_439_1,
+            3.799_875_000_004_249, 1.159_791_999_998_560_6,
+            0.968_791_999_999_666_6,
+          ],
+          onRunMediansMs: [
+            31.829_208_999_999_537, 28.435_207_999_998_966,
+            44.016_416_999_998_91, 30.305_541_000_001_54,
+            27.249_416_999_999_085,
+          ],
+          pairedRatios: [
+            31.109_794_990_845_295, 24.665_483_495_445_255,
+            11.583_648_672_640_466, 26.130_151_785_871_217,
+            28.127_211_000_925_34,
+          ],
+          ratio: 26.130_151_785_871_217,
+          ratioRange: [11.583_648_672_640_466, 31.109_794_990_845_295],
+          offBytes: 731,
+          onBytes: 662,
+          offParameters: 3,
+          onParameters: 2,
+        },
+        {
+          profile: "broad",
+          workload: "page-first",
+          memberships: 90_000,
+          eligibleInvoices: 180_000,
+          sharingApplied: true,
+          offMs: 60.883_458_000_000_246,
+          onMs: 47.848_374_999_999_58,
+          offRunMediansMs: [
+            60.883_458_000_000_246, 58.109_915_999_999_43,
+            94.811_084_000_000_85, 60.918_707_999_997_42, 55.686_166_999_999_84,
+          ],
+          onRunMediansMs: [
+            49.263_749_999_998_254, 47.848_374_999_999_58,
+            70.721_999_999_997_93, 47.196_582_999_997_19, 44.747_250_000_000_35,
+          ],
+          pairedRatios: [
+            0.809_148_356_849_212_7, 0.823_411_532_723_606_9,
+            0.745_925_444_750_714, 0.774_746_946_373_176_3,
+            0.803_561_322_509_421,
+          ],
+          ratio: 0.803_561_322_509_421,
+          ratioRange: [0.745_925_444_750_714, 0.823_411_532_723_606_9],
+          offBytes: 719,
+          onBytes: 650,
+          offParameters: 3,
+          onParameters: 2,
+        },
+        {
+          profile: "broad",
+          workload: "page-offset",
+          memberships: 90_000,
+          eligibleInvoices: 180_000,
+          sharingApplied: true,
+          offMs: 63.042_708_000_000_86,
+          onMs: 50.615_999_999_998_17,
+          offRunMediansMs: [
+            61.317_625_000_003_32, 63.042_708_000_000_86,
+            101.141_583_000_000_54, 120.075_916_999_998_3,
+            58.366_750_000_001_05,
+          ],
+          onRunMediansMs: [
+            50.615_999_999_998_17, 50.304_333_000_000_04, 76.513_915_999_999_88,
+            84.200_874_999_998_63, 44.961_000_000_002_97,
+          ],
+          pairedRatios: [
+            0.825_472_284_681_532_1, 0.797_940_548_492_925_7,
+            0.756_503_049_789_120_6, 0.701_230_330_808_132_2,
+            0.770_318_717_420_486_2,
+          ],
+          ratio: 0.770_318_717_420_486_2,
+          ratioRange: [0.701_230_330_808_132_2, 0.825_472_284_681_532_1],
+          offBytes: 729,
+          onBytes: 660,
+          offParameters: 4,
+          onParameters: 3,
+        },
+        {
+          profile: "broad",
+          workload: "count-all",
+          memberships: 90_000,
+          eligibleInvoices: 180_000,
+          sharingApplied: true,
+          offMs: 82.880_417_000_000_3,
+          onMs: 74.063_750_000_001_16,
+          offRunMediansMs: [
+            82.880_417_000_000_3, 81.616_624_999_998_75, 143.017_375_000_003_09,
+            116.355_875_000_001_1, 81.148_917_000_002_26,
+          ],
+          onRunMediansMs: [
+            74.063_750_000_001_16, 68.043_207_999_999_14,
+            118.668_333_000_001_44, 92.977_749_999_998_2, 70.163_333_000_000_42,
+          ],
+          pairedRatios: [
+            0.893_621_831_077_429_2, 0.833_692_988_407_694_9,
+            0.829_747_665_274_928_2, 0.799_080_837_130_031_5,
+            0.864_624_391_721_684_6,
+          ],
+          ratio: 0.833_692_988_407_694_9,
+          ratioRange: [0.799_080_837_130_031_5, 0.893_621_831_077_429_2],
+          offBytes: 690,
+          onBytes: 621,
+          offParameters: 2,
+          onParameters: 1,
+        },
+        {
+          profile: "broad",
+          workload: "update-1000-candidates",
+          memberships: 90_000,
+          eligibleInvoices: 180_000,
+          sharingApplied: false,
+          offMs: 98.000_542_000_001_59,
+          onMs: 98.276_749_999_997_26,
+          offRunMediansMs: [
+            98.000_542_000_001_59, 96.666_167_000_003_04,
+            175.580_792_000_000_66, 116.096_457_999_999_98,
+            93.665_208_999_998_87,
+          ],
+          onRunMediansMs: [
+            98.276_749_999_997_26, 96.857_832_999_994_57,
+            167.396_166_999_998_97, 112.548_957_999_999_4,
+            93.793_165_999_999_47,
+          ],
+          pairedRatios: [
+            1.002_818_433_391_885_5, 1.001_982_761_972_878_5,
+            0.953_385_419_288_906_9, 0.969_443_512_221_530_6,
+            1.001_366_110_227_764_7,
+          ],
+          ratio: 1.001_366_110_227_764_7,
+          ratioRange: [0.953_385_419_288_906_9, 1.002_818_433_391_885_5],
+          offBytes: 1312,
+          onBytes: 1312,
+          offParameters: 6,
+          onParameters: 6,
+        },
+        {
+          profile: "broad",
+          workload: "single-body-control",
+          memberships: 90_000,
+          eligibleInvoices: 180_000,
+          sharingApplied: false,
+          offMs: 0.504_207_999_998_470_8,
+          onMs: 0.531_625_000_003_259_6,
+          offRunMediansMs: [
+            0.497_833_000_001_264_74, 0.504_207_999_998_470_8,
+            1.884_791_999_997_105_4, 0.729_374_999_995_343_4,
+            0.478_333_999_999_449_6,
+          ],
+          onRunMediansMs: [
+            0.508_957_999_998_529, 0.531_625_000_003_259_6,
+            1.565_290_999_998_978_8, 0.885_999_999_998_603,
+            0.476_624_999_999_330_6,
+          ],
+          pairedRatios: [
+            1.022_346_851_247_779_8, 1.054_376_368_492_511_2,
+            0.830_484_743_144_804_7, 1.214_738_646_106_954,
+            0.996_427_182_679_631_9,
+          ],
+          ratio: 1.022_346_851_247_779_8,
+          ratioRange: [0.830_484_743_144_804_7, 1.214_738_646_106_954],
+          offBytes: 424,
+          onBytes: 424,
+          offParameters: 2,
+          onParameters: 2,
+        },
+      ],
+      limitations: [
+        "Synthetic invoice workload, not a production benchmark.",
+        "Warm freshly seeded tables, ANALYZE but no VACUUM inside the rolled-back transaction.",
+        "Host contention appeared during run 3 and part of run 4; all runs retained.",
+        "p50 means median of five process medians; ratio means median of five paired process ratios.",
+        "JIT disabled to isolate the SQL strategy. No claim about PostgreSQL versions other than 16.14.",
+      ],
+    };
+    const labels = {
+      "unique-hit": "One invoice \u00b7 late match",
+      "unique-denied": "One invoice \u00b7 denied",
+      "page-first": "First 50 invoices",
+      "page-offset": "50 after offset",
+      "count-all": "Count permitted invoices",
+      "update-1000-candidates": "Bulk update",
+      "single-body-control": "Single relation",
+    };
+    const profile = document.getElementById("profile");
+    function render() {
+      const tbody = document.getElementById("results");
+      tbody.replaceChildren();
+      for (const r of data.rows.filter((r) => r.profile === profile.value)) {
+        const tr = document.createElement("tr");
+        const factor = r.onMs / r.offMs;
+        const cells = [
+          labels[r.workload],
+          r.offMs.toFixed(2),
+          r.onMs.toFixed(2),
+          r.sharingApplied ? `${factor.toFixed(2)}×` : "Same SQL",
+        ];
+        for (let i = 0; i < cells.length; i++) {
+          const td = document.createElement("td");
+          td.textContent = cells[i];
+          if (i === 3 && r.sharingApplied && Math.abs(factor - 1) > 0.1)
+            td.className = factor > 1 ? "slower" : "faster";
+          tr.append(td);
+        }
+        tbody.append(tr);
+      }
+    }
+    profile.addEventListener("change", render);
+    render();
+    console.log("Rows rendered", document.querySelectorAll("tbody tr").length);
+    </script>
+  </body>
+</html>

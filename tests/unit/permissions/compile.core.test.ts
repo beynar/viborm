@@ -1881,6 +1881,38 @@ describe("definitions refused before they widen (review 2026-10-16)", () => {
       dated(other).AND.filter((member) => "createdAt" in member).length;
     expect(kept(new Date(0))).toBe(1);
     expect(kept(new Date(1))).toBe(2);
+    // The same comparison of two values is said once exactly when they are the
+    // same value: -0 is not 0, an invalid date and an opaque value only
+    // themselves.
+    const said = (first: unknown, second: unknown) =>
+      (
+        compile({
+          levels: LEVELS,
+          models: {
+            page: {
+              read: {},
+              create: {
+                AND: [
+                  { position: { equals: first } },
+                  { position: { equals: second } },
+                ],
+              },
+            },
+            organization: { read: {} },
+            user: { read: {} },
+            pageGroup: { read: {} },
+          },
+        }).models.page!.predicates["$create"] as { AND: object[] }
+      ).AND.filter((member) => "position" in member).length;
+    expect(said(0, 0)).toBe(1);
+    expect(said(0, -0)).toBe(2);
+    const invalid = new Date(Number.NaN);
+    expect(said(invalid, invalid)).toBe(1);
+    expect(said(invalid, new Date(Number.NaN))).toBe(2);
+    class Opaque {}
+    const opaque = new Opaque();
+    expect(said(opaque, opaque)).toBe(1);
+    expect(said(opaque, new Opaque())).toBe(2);
     // A value is never walked as a clause: the date reaches the predicate.
     expect(
       (dated(new Date(1)).AND[0] as { createdAt: { gt: unknown } }).createdAt.gt

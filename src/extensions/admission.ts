@@ -10,6 +10,7 @@ import { isPlainRecord } from "@schema/relation/terminal";
 import { createSchemaRegistry } from "@validation/builder";
 import { validateSchema } from "@validation/primitives/helpers";
 import {
+  type AdmittedFilters,
   admittingDomainPredicate,
   type DomainMarkers,
 } from "@validation/primitives/parameter";
@@ -35,6 +36,66 @@ function standaloneRegistry(schema: Schema): SchemaRegistryLookup<Schema> {
     registries.set(schema, registry);
   }
   return registry;
+}
+
+/** Successful admission can be reused only for immutable data and native schemas.
+ * Registry identity carries the resolved relation topology; model entries also
+ * guard schema maps edited between applications. No call/driver facts live here.
+ */
+const admittedRows = new WeakMap<
+  SchemaRegistryLookup<Schema>,
+  WeakMap<
+    RowsContribution,
+    {
+      schema: Schema;
+      entries: [string, Schema[string]][];
+      admitted: RowsContribution;
+    }
+  >
+>();
+const immutableData = new WeakSet<object>();
+export function isImmutableRowData(
+  value: unknown,
+  open = new Set<object>()
+): boolean {
+  if (value === null || typeof value !== "object")
+    return typeof value !== "function" && typeof value !== "symbol";
+  if (immutableData.has(value)) return true;
+  if (!Object.isFrozen(value) || open.has(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  if (
+    Array.isArray(value)
+      ? prototype !== Array.prototype ||
+        !Array.from({ length: value.length }, (_, index) =>
+          Object.hasOwn(value, index)
+        ).every(Boolean)
+      : prototype !== Object.prototype &&
+        prototype !== null &&
+        prototype !== Parameter.prototype &&
+        prototype !== Condition.prototype
+  )
+    return false;
+  open.add(value);
+  const safe = Reflect.ownKeys(value).every((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return (
+      typeof key === "string" &&
+      descriptor &&
+      "value" in descriptor &&
+      isImmutableRowData(descriptor.value, open)
+    );
+  });
+  open.delete(value);
+  if (safe) immutableData.add(value);
+  return safe;
+}
+
+/** Native admission of immutable input owns every newly produced container. */
+function freezeAdmitted(value: unknown, seen = new Set<object>()): void {
+  if (value === null || typeof value !== "object" || seen.has(value)) return;
+  seen.add(value);
+  for (const child of Object.values(value)) freezeAdmitted(child, seen);
+  Object.freeze(value);
 }
 
 /** A model's `rows.verbs` entry, key by key. */
@@ -139,20 +200,24 @@ const MARKERS: DomainMarkers = {
  */
 function cyclePath(
   value: unknown,
+  acyclic: WeakSet<object>,
   ancestors = new Set<object>(),
   path: string[] = []
 ): string | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
+  if (typeof value !== "object" || value === null || acyclic.has(value))
+    return undefined;
   // The root has no ancestor: a path is never empty here.
   if (ancestors.has(value)) return path.join(".");
   ancestors.add(value);
   for (const [key, item] of Object.entries(value)) {
     path.push(key);
-    const found = cyclePath(item, ancestors, path);
+    const found = cyclePath(item, acyclic, ancestors, path);
     if (found !== undefined) return found;
     path.pop();
   }
   ancestors.delete(value);
+  // Every descendant was walked: no cycle passes through this object.
+  acyclic.add(value);
   return undefined;
 }
 
@@ -168,6 +233,27 @@ export function admitRows(
   extension: string,
   registry: SchemaRegistryLookup<Schema> = standaloneRegistry(schema)
 ): RowsContribution {
+  const reusable =
+    isImmutableRowData(rows) &&
+    Object.values(schema).every((model) => {
+      const state: ModelState = model["~"].state;
+      return Object.values(state.scalars).every(
+        (scalar) => scalar["~"].state.schema === undefined
+      );
+    });
+  const entries = reusable ? Object.entries(schema) : undefined;
+  const previous = reusable ? admittedRows.get(registry)?.get(rows) : undefined;
+  if (
+    previous &&
+    previous.schema === schema &&
+    entries?.length === previous.entries.length &&
+    entries.every(
+      ([name, model], index) =>
+        name === previous.entries[index]![0] &&
+        model === previous.entries[index]![1]
+    )
+  )
+    return previous.admitted;
   const refuse = (
     name: string,
     place: string,
@@ -179,16 +265,21 @@ export function admitRows(
       { meta: { extension, model: name } }
     );
   };
+  // Shared sub-predicates are walked and parsed once per admission.
+  const acyclic = new WeakSet<object>();
+  const filters: AdmittedFilters = new WeakMap();
   const admit = (
     name: string,
     place: string,
     predicate: unknown
   ): Record<string, unknown> => {
-    const cycle = cyclePath(predicate);
+    const cycle = cyclePath(predicate, acyclic);
     if (cycle !== undefined) refuse(name, place, cycle, "contains itself");
     const where = registry.getModelSchemas(schema[name]!).core.where;
-    const result = admittingDomainPredicate(MARKERS, () =>
-      validateSchema(where, predicate)
+    const result = admittingDomainPredicate(
+      MARKERS,
+      () => validateSchema(where, predicate),
+      filters
     );
     if (!result.issues) return result.value as Record<string, unknown>;
     const [issue] = result.issues;
@@ -302,9 +393,19 @@ export function admitRows(
     }
     models[name] = Object.freeze(Object.fromEntries(admitted));
   }
-  return Object.freeze({
+  const admitted = Object.freeze({
     ...rows,
     models: Object.freeze(models),
     ...(rows.verbs && { verbs: Object.freeze(verbs) }),
   });
+  if (entries) freezeAdmitted(admitted);
+  if (entries && isImmutableRowData(admitted)) {
+    let cache = admittedRows.get(registry);
+    if (!cache) {
+      cache = new WeakMap();
+      admittedRows.set(registry, cache);
+    }
+    cache.set(rows, { schema, entries, admitted });
+  }
+  return admitted;
 }

@@ -3,6 +3,49 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## 1.3.1 — 2026-10-19
+
+Applying a permissions policy is much cheaper. On the large acceptance policy,
+`permissions(config)` plus the first `$extends` drops from about 548 ms to
+about 68 ms in a fresh process, and reapplying the same policy to the same
+schema takes about 0.3 ms. The compiled predicates are byte-for-byte
+identical, compilation stays eager, and an invalid policy still fails at
+`$extends`, before the first query. No API changes.
+
+### Changed
+
+- **Reapplying a permissions policy reuses its compiled predicates.** One
+  `permissions(config)` instance keeps a private rows definition for each
+  unchanged schema object, so `base.$extends(policy)` on a fresh client (for
+  drivers that need one per request) skips compilation and admission. The
+  declaration and schema are checked before reuse; any change rebuilds the
+  definition. Only ordinary data is cached: accessors, opaque values such as
+  `Date`, nonstandard arrays and uncloneable compiled values take the
+  uncached path. No client, driver, actor, scope binding, transaction,
+  authorization result or query result is cached. `policy.compile(schema)`
+  stays a fresh, independent inspection. Rule functions must stay pure, as
+  already documented.
+- **Core admission reuses deeply immutable rows predicates** within the same
+  schema registry. Custom scalar validators still run normal admission, and
+  each chain still validates its own controls.
+- **Cold policy compilation is faster.** Each compilation keys values
+  structurally once and builds each read guard once. Admission parses and
+  walks each shared sub-predicate (a relation's target predicate inlined
+  wherever it is read) once per `where` schema. All of it is local to one
+  compilation or admission, and nothing persists over caller-owned values.
+  Measurements and reproduction steps:
+  [benchmarks/permissions-application.md](benchmarks/permissions-application.md).
+- The Permissions guide now explains where to create the policy (once per
+  isolate) and what reuse covers.
+
+### Contributors
+
+- `pnpm test:dst` runs an opt-in deterministic simulation campaign over the
+  extension stack (permissions, soft delete, default omit, cache) and the
+  public migration APIs, with an independent permission model, exact replay
+  and per-seed reproduction (`tests/manual-dst/README.md`). It is not part of
+  CI.
+
 ## 1.3.0 — 2026-10-18
 
 Adds database-enforced authorization through `viborm/permissions`, applied with

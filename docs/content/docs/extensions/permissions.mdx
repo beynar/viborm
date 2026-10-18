@@ -1288,11 +1288,25 @@ is inherited by a lower permission. A function declared under `update` receives
 `"update"` when its predicate contributes to a read. This also applies to
 callbacks nested inside `AND`, `OR` or relation predicates.
 
-Functions run while applying the policy. They build predicates; they do not
-receive the request actor or run queries. Actor references remain values supplied
-at call time. Keep rule functions pure. A grouped declaration such as
+Functions build predicates when the policy is first applied to a schema; they do
+not receive the request actor or run queries. Reapplying the same policy to the
+same unchanged schema reuses its compiled predicates when the declaration and
+result contain ordinary data. Changes to the declaration or schema invalidate
+that reuse. Opaque values and accessors use the uncached path. Keep rule functions
+pure: do not depend on changing closure state. Actor references remain values
+supplied at call time. A grouped declaration such as
 `"read, update": shared` builds `shared("read", model)` and
 `shared("update", model)` separately. Inheritance then reuses those predicates.
+
+Create `permissions(config)` once per isolate, outside the request handler. If the
+base client also lives for the isolate, apply it once and use `$as(actor, scopes)`
+per request. When a driver requires a fresh client per request, reuse the same
+policy and schema objects in `base.$extends(policy)`; compilation and immutable
+row admission can be reused, while clients, factories, actors, scopes and
+transactions remain separate. `policy.compile(schema)` is an explicit fresh
+inspection; mutating its result never changes the private application cache.
+The first application still compiles and validates the complete policy
+synchronously: invalid rules fail at `$extends`, before the first query.
 
 The public `PolicyModel` type contains only metadata about the model where the
 function is evaluated. Inside a relation predicate, this is the relation's target

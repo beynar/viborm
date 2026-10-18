@@ -2,6 +2,7 @@ import { s } from "@schema";
 import { createSchemaRegistry } from "@validation";
 import { validateSchema } from "@validation/primitives/helpers";
 import {
+  type AdmittedFilters,
   admittingDomainPredicate,
   type DomainMarkers,
   valueNodeOr,
@@ -121,5 +122,40 @@ describe("domain predicate nodes in the where schemas", () => {
     expect(
       parse({ parent: { recurse: true, self: true, some: { rank: 1 } } }).issues
     ).toBeUndefined();
+  });
+
+  it("parses a filter shared within one admission once and shares its admitted value, never a refusal", () => {
+    let asked = 0;
+    const counting: DomainMarkers = {
+      ...markers,
+      value: (value) => {
+        const held = markers.value(value);
+        if (held !== undefined) asked++;
+        return held;
+      },
+    };
+    const shared = { rank: { gt: { control: "actor" } } };
+    const filters: AdmittedFilters = new WeakMap();
+    const once = (value: unknown) =>
+      admittingDomainPredicate(counting, () => parse(value), filters);
+    const result = once({ OR: [shared, { parent: { is: shared } }] }).value as {
+      OR: [unknown, { parent: { is: unknown } }];
+    };
+    expect(asked).toBe(1);
+    expect(result.OR[1].parent.is).toBe(result.OR[0]);
+    // The same admission's later predicate reuses it; another starts afresh.
+    expect(once(shared).value).toBe(result.OR[0]);
+    expect(asked).toBe(1);
+    const fresh = admittingDomainPredicate(counting, () => parse(shared));
+    expect(fresh.value).toEqual(result.OR[0]);
+    expect(fresh.value).not.toBe(result.OR[0]);
+    expect(asked).toBe(2);
+
+    const refused = { $if: "no" };
+    const filter = { OR: [{ rank: 1 }, { parent: { is: refused } }] };
+    expect(once(filter).issues).toEqual(admit(filter).issues);
+    expect(once({ AND: [refused] }).issues).toEqual(
+      admit({ AND: [refused] }).issues
+    );
   });
 });

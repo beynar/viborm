@@ -62,19 +62,13 @@ function mayBeNull(input: unknown, synthetic: WeakSet<object>): boolean {
   return type === "transform" || type === "pipe";
 }
 
-function walk(
-  input: unknown,
-  at: string,
-  open: Set<unknown>,
-  synthetic: WeakSet<object>
-): Paths {
+/** bindingSchema already resolved thunks and refused cycles. */
+function walk(input: unknown, at: string, synthetic: WeakSet<object>): Paths {
   let schema = input;
   let optional = false;
   let nullable = false;
   let uncertain = false;
   for (;;) {
-    // An entry may be a thunk, a circular reference's spelling.
-    if (typeof schema === "function") schema = schema();
     const { type, wrapped, options, acceptsUndefined } = schema as Walked;
     optional ||= acceptsUndefined === true || options?.optional === true;
     nullable ||= mayBeNull(schema, synthetic);
@@ -89,25 +83,20 @@ function walk(
   const { type, entries, options, value, item } = schema as Walked;
   if (type !== "object" && type !== "record" && type !== "array")
     return { optional, nullable, uncertain };
-  if (open.has(schema))
-    refuse(
-      `the actor schema is recursive at "${at}": its paths are not finite`
-    );
-  open.add(schema);
   let paths: Paths;
   if (type === "array")
     paths = {
       optional,
       nullable,
       uncertain,
-      item: walk(item, `${at}[]`, open, synthetic),
+      item: walk(item, `${at}[]`, synthetic),
     };
   else if (type === "record")
     paths = {
       optional,
       nullable,
       uncertain,
-      any: walk(value, `${at}.*`, open, synthetic),
+      any: walk(value, `${at}.*`, synthetic),
     };
   else {
     if (options?.strict === false)
@@ -123,12 +112,11 @@ function walk(
           .filter(([key]) => !options?.omit?.includes(key))
           .map(([key, entry]) => [
             key,
-            walk(entry, at === "actor" ? key : `${at}.${key}`, open, synthetic),
+            walk(entry, at === "actor" ? key : `${at}.${key}`, synthetic),
           ])
       ),
     };
   }
-  open.delete(schema);
   return options?.array
     ? { optional, nullable, uncertain, item: paths }
     : paths;
@@ -261,7 +249,7 @@ export function actorContract(schema: unknown): ActorContract {
     "actor",
     synthetic
   );
-  const root = walk(normalized, "actor", new Set(), synthetic);
+  const root = walk(normalized, "actor", synthetic);
   return {
     hasPath(path) {
       let at: Paths | undefined = root;

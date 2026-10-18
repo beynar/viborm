@@ -1,0 +1,27 @@
+[
+  {
+    "file": "run-1.json.gz",
+    "jsonSha256": "d75ce90764badfedb1dc0dcd366b61140d52a076de9d01a5c74a3ea1382d045a",
+    "gzipSha256": "d6f2a8d69c130d53649082606ca4a4c18c1b055aae211fd3cab5f77d1f8b481c"
+  },
+  {
+    "file": "run-2.json.gz",
+    "jsonSha256": "fcdccbbcc302a63eb4718b1e1372ef8090c031e9e51d433c9c7fa11c02e08630",
+    "gzipSha256": "e4354843edc1f1dc8d4080822b09637d01e59dd4532ad3a84dc0a6349c7f2c5d"
+  },
+  {
+    "file": "run-3.json.gz",
+    "jsonSha256": "a01a275f234be6f5a280f9a8dabc40add7f9e65c6121f47f03d113986ca6d94e",
+    "gzipSha256": "b22f4e0fe2649ccb6108e3790573f0cbe0eb7b39cdf1447c2e419e1596d814c9"
+  },
+  {
+    "file": "run-4.json.gz",
+    "jsonSha256": "936af054f9ab8643417557b8217ae4d99314dd369ad2e872c0e0037d85b1a364",
+    "gzipSha256": "966e7a21664f1a04b1d5f8c386a9d3507ff9593cafa35353f6a93319187d98de"
+  },
+  {
+    "file": "run-5.json.gz",
+    "jsonSha256": "7329c91059c86ed14b55a7cf9eddb9a6d83ca9d44528ee0227ba282ec68c542e",
+    "gzipSha256": "5873192ab1e4c9d06cb31331ec1caf4d05d743c9702791d5eb84e0b4772ed94b"
+  }
+]
