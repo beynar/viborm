@@ -5,6 +5,7 @@
  * on a database are `tests/contracts/public-client/permissions-compiled-policy-behavior.ts`'s.
  */
 
+import { createHash } from "node:crypto";
 import { ClientInitializationError } from "@errors";
 import {
   type CompiledModel,
@@ -102,6 +103,14 @@ const LEVELS = ["read", "update", "full"] as const;
 
 describe("the acceptance policy (§1.1)", () => {
   const compiled = policy.compile(schema);
+
+  test("compiles to the bytes 1.3.1 compiled (no simplification or lazy path changes them)", () => {
+    const bytes = JSON.stringify(compiled);
+    expect(bytes.length).toBe(430_140);
+    expect(createHash("sha256").update(bytes).digest("hex")).toBe(
+      "7a3d8cbf3ab1e2ce80a15eeba723bd37df749f82d5a1b79e1e512d469c609763"
+    );
+  });
 
   test("compiles to the same plain data every time", () => {
     expect(JSON.stringify(policy.compile(schema))).toBe(

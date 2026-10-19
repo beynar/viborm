@@ -41,6 +41,7 @@ import {
 } from "./observation";
 import {
   bindRows,
+  checkingLazyReferences,
   type RowsBinding,
   undeclaredControlReferencesOf,
 } from "./rows";
@@ -587,10 +588,29 @@ export function appendResolvedExtension(
     declaredControls === undefined
       ? chain?.controls
       : appendControls(chain?.controls, declaredControls);
+  // A lazy `verbs` entry's references are checked when it is resolved,
+  // against what this chain declared here, as the loop above checks the rest.
+  const ownControls = new Set([
+    ...Object.keys(effectiveDefinition.controls ?? {}),
+    ...(effectiveDefinition.rows ? [effectiveDefinition.rows.control] : []),
+  ]);
+  const declaredHere = chain?.controls?.names;
   const rows =
     effectiveDefinition.rows === undefined
       ? chain?.rows
-      : Object.freeze([...(chain?.rows ?? []), effectiveDefinition.rows]);
+      : Object.freeze([
+          ...(chain?.rows ?? []),
+          checkingLazyReferences(
+            effectiveDefinition.rows,
+            (control) =>
+              ownControls.has(control) || declaredHere?.has(control) === true,
+            (control) =>
+              extensionError(
+                `Extension "${definition.name}" references undeclared control "${control}".`,
+                definition.name
+              )
+          ),
+        ]);
   const deletion =
     effectiveDefinition.deletion === undefined
       ? chain?.deletion

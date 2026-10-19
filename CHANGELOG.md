@@ -3,6 +3,80 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## 1.3.2 — 2026-10-19
+
+A permissions policy now compiles each model the first time a call needs
+it, and rules can state checks that do not depend on the row. This release
+also fixes a rule spelling that granted every row.
+
+### Security
+
+- **A field reference or an empty object in an actor condition no longer
+  reads as true.** `{ actor: { userId: <field reference> } }` and
+  `{ actor: { path: {} } }` lowered to no condition, so the rule granted
+  every row its `mandatory` allowed. Both are refused now, as is a field
+  reference used as a whole rule or as a relation filter. A field reference
+  in a value position compares two columns of the row, as in a caller's
+  `where` (it was refused before).
+- **`undefined` in a rule no longer reads as "no filter".** `{ ownerId:
+  undefined }` (often a rule function's value that was not there) and
+  `{ relation: undefined }` held for every row; both are refused now. A rule
+  function that throws refuses its own model, with what it threw as the
+  cause.
+
+### Changed
+
+- **Per-model compilation.** `$extends` checks what the declaration names
+  (keys, levels, models, actions, operations, fields, domains, the `as`
+  names) and compiles nothing else. A model's rules compile, and core admits
+  them, the first time a call needs the model or a model its predicates read
+  through a relation; every client of the schema shares the result. On a
+  40-model production policy, a cold isolate whose first query reads a small
+  model is 2–5× faster to its first answer; one whose first query reads the
+  model at the centre of the policy is unchanged. Warm requests are unchanged.
+- **A rule's own mistakes surface at its model's first call**, every time,
+  while other models keep working: an unknown actor path, a relation read at
+  an undeclared action, a rule that reads itself (also refused by
+  `policy.compile(schema)`), and what core refuses when it admits the compiled
+  model (an unknown field, `recurse: true`, a read-protected key). Run
+  `policy.compile(schema)` in a test, and call each governed model once, to
+  catch them before deploying. Rule functions now run at that first call;
+  keep them pure.
+- The rules compile from a copy of the declaration taken at `$extends`:
+  editing the declaration afterwards changes only later `$extends`.
+- **Writes share repeated bodies too.** On drivers that share them
+  (PostgreSQL drivers, D1), an `UPDATE` or `DELETE` now states each repeated
+  relation body and `$exists` once, in a `WITH` ahead of the statement, as a
+  read does. A production policy's governed `accessGrant.deleteMany` went
+  from 97.4 KB and 776 table references to 29.9 KB and 252 (25.1 KB and 238
+  with its membership checks as `$exists`).
+- A cached governed read (`cache: "allow"`) keys on a SHA-256 digest of the
+  policy, computed once per isolate, instead of serialising every predicate
+  on each read. The first cached read compiles the whole policy; when a model
+  it does not need is refused, the read runs uncached.
+
+### Added
+
+- **`$exists` in row predicates and permission rules:**
+  `{ $exists: { member: { userId: { actor: "userId" } } } }` holds where some
+  row of the named model matches. It reads no row of the statement, so a
+  driver sharing repeated bodies (PostgreSQL drivers, D1) writes it once per
+  statement, reads and writes alike. A tenant boundary written as `organizationId` plus one `$exists`
+  membership check, instead of a walk through each row's organization, made
+  that production policy's governed reads 15–28 % shorter and 25–35 % faster
+  (permissions guide, "Keeping policies small").
+- **`{ $row: "<field>", up: <n> }`**: the column of the row `n` relation
+  bodies above, in row predicates and permission rules (`up: 0`, the same
+  row). A write changing a column read this way is judged on its new row.
+- **Lazy `rows.verbs` entries** for extension authors: a model's entry, and
+  its `acyclic` list, may be a function, resolved when first needed (Create an
+  extension).
+
+### Fixed
+
+- An enum compared with a string column through a reference is compared as
+  text on PostgreSQL.
+
 ## 1.3.1 — 2026-10-19
 
 Applying a permissions policy is much cheaper. On the large acceptance policy,

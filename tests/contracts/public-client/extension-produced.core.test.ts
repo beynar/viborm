@@ -26,6 +26,11 @@ runProducedRowBehavior({
   createDriver: createInMemorySQLite3Driver,
 });
 runProducedRowBehavior({
+  name: "SQLite3, verbs declared lazily",
+  createDriver: createInMemorySQLite3Driver,
+  lazy: true,
+});
+runProducedRowBehavior({
   name: "SQLite3 batch-only",
   createDriver: createBatchOnlySQLite3Driver,
 });

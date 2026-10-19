@@ -208,8 +208,11 @@ await client.user.findMany({
 // Unknown scalar field "nickname" on model 'post'. Known fields: id, title, …
 ```
 
-There is deliberately no way to reach an *enclosing* scope's columns: a field reference
-compares two columns of the same row, and correlated references are a separate feature.
+A caller's `where` has no way to reach an *enclosing* scope's columns: a field reference
+compares two columns of the same row. An extension's row predicates (and a
+`viborm/permissions` rule) can, with `{ $row: "<field>", up: <n> }`
+([Create an extension](/docs/extensions/create)). A field reference held in a permissions
+rule compares two columns of the row it filters, as it does in a caller's `where`.
 A token from another model, held directly, is refused when the query is built — before
 any statement reaches the database:
 

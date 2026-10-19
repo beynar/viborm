@@ -201,6 +201,32 @@ export interface ProducedRowSubstrate {
    * driver reports no insert id).
    */
   readonly generatedKeys?: boolean;
+  /** Declare every `verbs` entry, and `acyclic`, as a function (resolved on first use). */
+  readonly lazy?: boolean;
+}
+
+/**
+ * `definition` with every `verbs` entry a function returning it, and each
+ * `acyclic` list a function too: core resolves them when a call first needs
+ * the model, and an update first writes a self key.
+ */
+export function lazyVerbs<D extends { rows: { verbs: object } }>(
+  definition: D
+): D {
+  return {
+    ...definition,
+    rows: {
+      ...definition.rows,
+      verbs: Object.fromEntries(
+        Object.entries(definition.rows.verbs).map(([model, entry]) => {
+          const { acyclic, ...rest } = entry as { acyclic?: string[] };
+          const resolved =
+            acyclic === undefined ? rest : { ...rest, acyclic: () => acyclic };
+          return [model, () => resolved];
+        })
+      ),
+    },
+  };
 }
 
 export function createProducedRowClient(driver: AnyDriver) {
@@ -289,13 +315,15 @@ export function runProducedRowBehavior(substrate: ProducedRowSubstrate): void {
       statements = [];
       // The policy is plain data, typed loosely: its shape is the witness.
       const extensible = base as unknown as Extensible;
-      db = extensible.$extends(policy).$extends({
-        name: "statements",
-        statement(context: { statement: { toStatement(): string } }) {
-          statements.push(context.statement.toStatement());
-          return context.statement;
-        },
-      }) as unknown as Loose;
+      db = extensible
+        .$extends(substrate.lazy ? lazyVerbs(policy) : policy)
+        .$extends({
+          name: "statements",
+          statement(context: { statement: { toStatement(): string } }) {
+            statements.push(context.statement.toStatement());
+            return context.statement;
+          },
+        }) as unknown as Loose;
     });
     afterEach(async () => {
       await base?.$disconnect();

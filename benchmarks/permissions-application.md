@@ -112,6 +112,26 @@ remains. Getting well below 50 ms would require compiling each model on first
 use, which was considered and not adopted: it moves policy errors or
 compilation cost to the first query of each model.
 
+## Per-model compilation (1.3.2)
+
+1.3.2 compiles a model the first time a call needs it (the earlier stages
+above kept compilation eager). The compiled output is unchanged: the
+acceptance policy still compiles to 430,140 bytes, SHA-256 `7a3d8cbf…`,
+now pinned by `tests/unit/permissions/compile.core.test.ts`, and compiling
+models one at a time in any order gives the same bytes.
+
+What a cold isolate pays depends on its first query. A query on a model at
+the centre of the policy reaches most models through its relations (the
+related rows' rules are part of its statement), so it pays about what the
+eager application did; one on a peripheral model pays for that model and the
+few it reads. Five interleaved fresh-process samples of this file's cold
+benchmark (first read on `page`, the acceptance policy's centre) measured
+main ≈ 134 ms against ≈ 122 ms, within the noise. On a 40-model production
+policy, from source on a loaded machine: a first query on
+`memberNotifications` ≈ 5× faster than 1.3.1, `organizationBilling` 2–4×,
+`document` ≈ 40 %, `page` unchanged. Warm fresh clients: ≈ 1.4 ms to apply
+(1.3 ms with the 1.3.1 build). Details: `docs/architecture/permissions-1-3-2-plan.md` §9.
+
 ## What is reused
 
 One `permissions(config)` instance keeps a private rows definition for each

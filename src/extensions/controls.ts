@@ -76,7 +76,11 @@ type ScalarFields = { readonly [field: string]: unknown };
  * its filter where it is not.
  *
  * `verbs` judges, per model, what a call may do to the rows it sees: a mode
- * only narrows them (R8).
+ * only narrows them (R8). A model's entry may be a function returning it:
+ * it is called when a call of the chain first needs that model, and its
+ * entry admitted then, so a refusal of it fails that call instead of
+ * `$extends`. A function returning deeply frozen plain data is called once
+ * per schema; one returning anything else, once per client.
  */
 export type RowsContribution = {
   readonly control: string;
@@ -89,7 +93,9 @@ export type RowsContribution = {
       };
     };
   };
-  readonly verbs?: { readonly [model: string]: RowsVerbs };
+  readonly verbs?: {
+    readonly [model: string]: RowsVerbs | (() => RowsVerbs);
+  };
 };
 
 /**
@@ -107,7 +113,9 @@ export type RowsContribution = {
  * updated row at the predicates that judged its old row, and, for each field
  * its data writes, at that field's `moves` entry, and where it writes the
  * key of an `acyclic` relation (a to-one relation of the model to itself),
- * outside its own subtree. A refused row is written by no statement.
+ * outside its own subtree. `acyclic` may be a function returning that list:
+ * it is called the first time an update writes the key of one of the
+ * model's self relations. A refused row is written by no statement.
  *
  * `evidence` declares a projection key (`evidence.as`) a `select` or
  * `include` may name at every depth, on reads and on the rows a write
@@ -127,7 +135,7 @@ export type RowsVerbs = {
   readonly writes?: { readonly [field: string]: string };
   readonly place?: string;
   readonly moves?: { readonly [field: string]: string };
-  readonly acyclic?: readonly string[];
+  readonly acyclic?: readonly string[] | (() => readonly string[]);
   readonly evidence?: {
     readonly as: string;
     readonly names: readonly string[];

@@ -3,6 +3,7 @@ import { cache } from "@cache/extension";
 import { createClient } from "@drivers/sqlite3";
 import { ClientInitializationError, ForbiddenError } from "@errors";
 import { s } from "@schema";
+import { createModelFieldRefs } from "@schema/field-ref";
 import { permissions, type Rule } from "@src/permissions";
 import { softDelete } from "@src/soft-delete";
 import { v } from "@src/validation";
@@ -652,7 +653,8 @@ test("grouped callbacks retain declaring actions through inheritance and evidenc
         })
       )
       .$as({});
-    expect(calls).toEqual(["update", "delete"]);
+    // Rules are evaluated when their model first compiles: at its first call.
+    expect(calls).toEqual([]);
     const rows = await call.post.findMany({
       orderBy: { id: "asc" },
       include: { $access: true },
@@ -822,6 +824,76 @@ test("cached evidence and rows are isolated between scopes for the same actor", 
     expect((await base.post.findUnique({ where: { id: "p" } }))?.title).toBe(
       "newest"
     );
+  } finally {
+    await base.$disconnect();
+  }
+});
+
+test("a cached read is keyed on the policy's content once, and goes uncached when another model's rules are refused", async () => {
+  const post = s.model({ id: s.string().id(), ownerId: s.string() });
+  const note = s.model({ id: s.string().id(), ownerId: s.string() });
+  const base = createClient({ schema: { post, note }, dataDir: ":memory:" });
+  try {
+    await syncLiveSchema(base);
+    await base.post.create({ data: { id: "p", ownerId: "alice" } });
+    const owned = { ownerId: { actor: "userId" } } as const;
+    const cached = (models: object) =>
+      base.$extends(cache({ driver: new MemoryCache() })).$extends(
+        permissions({
+          actor: v.object({ userId: v.string() }),
+          cache: "allow",
+          models,
+        } as never)
+      ) as unknown as {
+        $as(actor: object): {
+          $withCache(options: object): {
+            post: { findMany(): Promise<unknown[]> };
+          };
+        };
+      };
+    const healthy = cached({ post: { read: owned }, note: { read: owned } });
+    const reader = healthy.$as({ userId: "alice" }).$withCache({ ttl: 60_000 });
+    expect(await reader.post.findMany()).toHaveLength(1);
+    await base.post.create({ data: { id: "q", ownerId: "alice" } });
+    // A hit: the base write bypassed this cache's invalidation.
+    expect(await reader.post.findMany()).toHaveLength(1);
+
+    // `note`'s rule names an actor path the actor schema lacks: a cached
+    // read of `post` still answers, uncached, and never reads `note`.
+    const broken = cached({
+      post: { read: owned },
+      note: { read: { ownerId: { actor: "usrId" } } },
+    });
+    const fresh = broken.$as({ userId: "alice" }).$withCache({ ttl: 60_000 });
+    expect(await fresh.post.findMany()).toHaveLength(2);
+    await base.post.create({ data: { id: "r", ownerId: "alice" } });
+    expect(await fresh.post.findMany()).toHaveLength(3);
+  } finally {
+    await base.$disconnect();
+  }
+});
+
+test("a same-row field reference in a rule compares two columns of the row", async () => {
+  const post = s.model({ id: s.string().id(), views: s.int(), likes: s.int() });
+  const base = createClient({ schema: { post }, dataDir: ":memory:" });
+  try {
+    await syncLiveSchema(base);
+    await base.post.createMany({
+      data: [
+        { id: "a", views: 1, likes: 1 },
+        { id: "b", views: 5, likes: 1 },
+      ],
+    });
+    const refs = createModelFieldRefs("post", post);
+    const db = base.$extends(
+      permissions({
+        actor: v.object({}),
+        models: { post: { read: { views: { gt: refs.likes } } } },
+      })
+    );
+    expect(await db.$as({}).post.findMany({ select: { id: true } })).toEqual([
+      { id: "b" },
+    ]);
   } finally {
     await base.$disconnect();
   }

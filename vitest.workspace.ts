@@ -203,6 +203,8 @@ export default defineWorkspace([
         "tests/providers/local/sqlite3-permissions-quantifiers.test.ts",
         "tests/providers/local/sqlite3-permissions-reuse.test.ts",
         "tests/contracts/public-client/extension-admission-reuse.core.test.ts",
+        "tests/contracts/public-client/extension-lazy-verbs.core.test.ts",
+        "tests/contracts/public-client/extension-row-checks.core.test.ts",
         "tests/contracts/public-client/extension-produced.core.test.ts",
       ],
     },

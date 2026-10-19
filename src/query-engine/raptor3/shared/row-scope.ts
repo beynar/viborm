@@ -11,6 +11,12 @@ import type { Input } from "./schema";
  */
 export type ModelDomain = ReadonlyMap<string, readonly Input[]>;
 
+/** Relations named on demand, among the ones that could be named. */
+export interface LazyRelations {
+  readonly candidates: readonly string[];
+  resolve(): readonly string[];
+}
+
 /**
  * The rows an operation may take, by purpose: its own candidates (`root`) and
  * rows it reaches through a relation (`related`).
@@ -24,6 +30,12 @@ export interface RowDomain {
    * its purpose's predicates alone.
    */
   readonly verbs?: ReadonlyMap<string, readonly (ModelVerbs | undefined)[]>;
+  /**
+   * Whether some model's verbs may declare a projection key or a read-gated
+   * field: when not, no model is asked for them. The maps may be resolved a
+   * model at a time, so they are never walked to find out.
+   */
+  readonly projects?: boolean;
 }
 
 /**
@@ -45,9 +57,10 @@ export interface ModelVerbs {
   /**
    * Self relations, each held by this model's key, whose links stay
    * acyclic: an update writing one is refused where its new target is the
-   * row itself or a row below it.
+   * row itself or a row below it. Lazy: the list is resolved only for an
+   * update writing the key of one of `candidates`.
    */
-  readonly acyclic: readonly string[];
+  readonly acyclic: readonly string[] | LazyRelations;
   /** The projection key the layer declares on the model (K5). */
   readonly evidence?: ModelEvidence;
   /**
@@ -219,6 +232,51 @@ export class Condition {
     if (!Array.isArray(value)) return false;
     if ("has" in test) return value.includes(test.has);
     return test.hasSome.some((member) => value.includes(member));
+  }
+}
+
+/**
+ * `{ $row: "<field>", up: <n> }` in a domain predicate's value position: that
+ * column of the row `up` relation bodies above the one the value is compared
+ * in (`0`, the same row; an `$exists` body counts as one). Never past the
+ * predicate it is written in, nor across a recursive or polymorphic
+ * relation. Its own fields are its spelling, so a cache key reads it as
+ * plain data.
+ */
+export class OuterColumn {
+  readonly $row: string;
+  readonly up: number;
+  constructor(field: string, up: number) {
+    this.$row = field;
+    this.up = up;
+    Object.freeze(this);
+  }
+}
+
+/**
+ * `{ $exists: { <model>: <where> } }` in a domain predicate: whether some row
+ * of `model` the call may see matches `where`. It reads no column of the row
+ * it judges (an uncorrelated `EXISTS`), so a statement can evaluate it once.
+ * Its own field is its spelling, with the model by name, so a cache key over
+ * declarations reads it as plain data.
+ */
+export class Existence {
+  readonly $exists: Readonly<Record<string, Input>>;
+  readonly #model: string;
+  readonly #where: Input;
+  constructor(model: string, where: Input) {
+    this.#model = model;
+    this.#where = where;
+    this.$exists = Object.freeze({ [model]: where });
+    Object.freeze(this);
+  }
+  /** The model whose rows it looks for (its TS name). */
+  get model(): string {
+    return this.#model;
+  }
+  /** What one of them must match, admitted with that model's `where`. */
+  get where(): Input {
+    return this.#where;
   }
 }
 

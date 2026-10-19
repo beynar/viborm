@@ -5,6 +5,7 @@ import {
   invalidateOfficialCache,
   type WaitUntilFn,
 } from "@cache/driver";
+import { stableStringify } from "@cache/key";
 import {
   type CacheInvalidationOptions,
   cacheInvalidationSchema,
@@ -17,14 +18,20 @@ import {
   CacheConfigurationError,
   CacheOperationNotCacheableError,
 } from "@errors";
+import { isAdmittedRows, isImmutableRowData } from "@extensions/admission";
 import type { ResolvedExtensionChain } from "@extensions/chain";
+import type { RowsContribution } from "@extensions/controls";
 import {
   type AdmittedControls,
   isStableControlValue,
 } from "@extensions/controls";
 import type { WriteOutcomeRegistration } from "@extensions/query";
+import { admittedRowsOf, isLazy } from "@extensions/rows";
+import type { LazyRelations } from "@query-engine/raptor3/shared/row-scope";
+import type { Input } from "@query-engine/raptor3/shared/schema";
 import { parse } from "@validation";
 import { readValidationFailureCause } from "@validation/parse-failure";
+import { sha256 } from "@validation/primitives/sha256";
 import { isRecord } from "@validation/value-guards";
 import { errorCause } from "../errors/diagnostic-safety";
 import { isWriteOperation } from "./routed-operations";
@@ -100,7 +107,15 @@ export function cacheKeyOf(
   // Only values admission fixed key a cache entry: the rows the read's SQL
   // binds were bound from those same values (`snapshotControlValue` in controls.ts).
   if (!Object.values(controls).every(isStableControlValue)) return undefined;
-  return rows === undefined ? [args, controls] : [args, controls, rows];
+  if (rows === undefined) return [args, controls];
+  try {
+    return [args, controls, rows.map(rowsIdentity)];
+  } catch {
+    // A rows member compiled on first use could not settle (a model it
+    // refuses): the read goes uncached, and fails only if it needs that
+    // model itself.
+    return undefined;
+  }
 }
 
 export { isCacheManagedExecution } from "@cache/capability";
@@ -239,4 +254,93 @@ function resolveSwr(
     return ttlMs * 2;
   }
   return ttlMs + swr;
+}
+
+/** What admission leaves in place of a lazy entry's predicate: its resolver. */
+type Lazy<T> = () => T;
+
+/**
+ * `rows` with every lazy entry resolved, for what reads the definition as a
+ * whole (a cache key): the same object when it names none. Resolving one
+ * compiles it, so this is never on a call's own path.
+ */
+const settled = new WeakMap<RowsContribution, RowsContribution>();
+function settledRows(rows: RowsContribution): RowsContribution {
+  const lazyCycles = Object.values(rows.verbs ?? {}).some(
+    (entry) =>
+      typeof entry !== "function" &&
+      typeof entry.acyclic === "object" &&
+      !Array.isArray(entry.acyclic)
+  );
+  if (!(isLazy(rows) || lazyCycles)) return rows;
+  const known = settled.get(rows);
+  if (known) return known;
+  const verbs = Object.fromEntries(
+    Object.entries(rows.verbs!).map(([model, entry]) => {
+      const resolved = typeof entry === "function" ? entry() : entry;
+      const acyclic = resolved.acyclic as
+        | readonly string[]
+        | LazyRelations
+        | undefined;
+      return [
+        model,
+        acyclic === undefined || Array.isArray(acyclic)
+          ? resolved
+          : Object.freeze({
+              ...resolved,
+              acyclic: (acyclic as LazyRelations).resolve(),
+            }),
+      ];
+    })
+  );
+  const models = Object.fromEntries(
+    Object.entries(rows.models).map(([model, modes]) => [
+      model,
+      Object.fromEntries(
+        Object.entries(modes).map(([mode, purposes]) => [
+          mode,
+          Object.fromEntries(
+            Object.entries(purposes).map(([purpose, where]) => [
+              purpose,
+              typeof where === "function" ? (where as Lazy<Input>)() : where,
+            ])
+          ),
+        ])
+      ),
+    ])
+  );
+  const result = Object.freeze({ ...rows, models, verbs });
+  settled.set(rows, result);
+  return result;
+}
+
+/**
+ * A `rows` member as a cache key holds it: everything it says, every lazy
+ * entry resolved (a cache shared across isolates must tell two policies apart
+ * by content). For rows admission owns and nobody can change, a SHA-256
+ * digest computed once; other rows are keyed by their content, read afresh.
+ */
+const identities = new WeakMap<RowsContribution, string>();
+function rowsIdentity(chained: RowsContribution): unknown {
+  const rows = admittedRowsOf(chained);
+  const known = identities.get(rows);
+  if (known !== undefined) return known;
+  const settled = settledRows(rows);
+  // Memoised only where nothing it says can change: rows admission owns, and
+  // every entry they resolved to deeply frozen.
+  if (
+    !(
+      isAdmittedRows(rows) &&
+      Object.values(settled.verbs ?? {}).every((entry) =>
+        isImmutableRowData(entry)
+      )
+    )
+  )
+    return settled;
+  const digest = sha256(new TextEncoder().encode(stableStringify(settled)));
+  const identity = Array.from(digest, (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("");
+  identities.set(rows, identity);
+  return identity;
 }

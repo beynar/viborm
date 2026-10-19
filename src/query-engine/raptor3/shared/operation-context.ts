@@ -2695,18 +2695,19 @@ export class OperationContext {
       );
     }
     this.#packagedPresence(model, selector, single);
-    const where = produced(selector, limit);
-    const limited = where
-      ? { where }
-      : q.lowerMutationLimit(model, selector, limit);
-    const mutation = adapter.mutations.update(
-      q.table(model),
-      sql.join(assignments, ", "),
-      limited.where
-    );
-    const statement = limited.suffix
-      ? sql`${mutation} ${limited.suffix}`
-      : mutation;
+    let where: Sql | undefined;
+    const statement = q.sharing(() => {
+      where = produced(selector, limit);
+      const limited = where
+        ? { where }
+        : q.lowerMutationLimit(model, selector, limit);
+      const mutation = adapter.mutations.update(
+        q.table(model),
+        sql.join(assignments, ", "),
+        limited.where
+      );
+      return limited.suffix ? sql`${mutation} ${limited.suffix}` : mutation;
+    });
     return this.#completeSetMutation(
       model,
       statement,
@@ -2754,11 +2755,11 @@ export class OperationContext {
       return this.published(rows, single);
     }
     this.#packagedPresence(model, selector, single);
-    const limited = q.lowerMutationLimit(model, selector, limit);
-    const mutation = adapter.mutations.delete(q.table(model), limited.where);
-    const statement = limited.suffix
-      ? sql`${mutation} ${limited.suffix}`
-      : mutation;
+    const statement = q.sharing(() => {
+      const limited = q.lowerMutationLimit(model, selector, limit);
+      const mutation = adapter.mutations.delete(q.table(model), limited.where);
+      return limited.suffix ? sql`${mutation} ${limited.suffix}` : mutation;
+    });
     return this.#completeSetMutation(model, statement, projection, single);
   }
   private async captureMutationIdentities(
@@ -2896,8 +2897,8 @@ export class OperationContext {
         { meta: this.#errorMeta }
       );
     await this.requireCapturedSet(model, selector, identities, limit, changed);
-    const statement = mutation(
-      this.capturedTarget(model, selector, identities)
+    const statement = this.queries.sharing(() =>
+      mutation(this.capturedTarget(model, selector, identities))
     );
     const context = this.statementContext(model, this.operation);
     const answered = (response: QueryResult<unknown>) => {
@@ -3414,22 +3415,25 @@ export class OperationContext {
     // the row it located (R4).
     // Its candidate is the identity alone: what judged the row it located
     // is stated again over the row it produces, in this statement.
-    const produced = this.#produce(
-      model,
-      written,
-      judgement,
-      (alias) => q.lowerIdentity(model, identity, alias),
-      undefined,
-      false
-    );
+    let produced: Sql | undefined;
+    const statement = q.sharing(() => {
+      produced = this.#produce(
+        model,
+        written,
+        judgement,
+        (alias) => q.lowerIdentity(model, identity, alias),
+        undefined,
+        false
+      );
+      return adapter.mutations.update(
+        q.table(model),
+        sql.join(this.#updateAssignments(model, written), ", "),
+        produced ?? q.lowerIdentity(model, identity)
+      );
+    });
     const judged = produced
       ? { model, refusal: refusal ?? this.#forbidden }
       : undefined;
-    const statement = adapter.mutations.update(
-      q.table(model),
-      sql.join(this.#updateAssignments(model, written), ", "),
-      produced ?? q.lowerIdentity(model, identity)
-    );
     const context = this.statementContext(model, operation);
     if (!this.usesBatch && demanded.size) {
       const fields = [...demanded];
@@ -3735,52 +3739,55 @@ export class OperationContext {
         )
       );
     if (edge.kind === "junction") {
-      const conditions: Sql[] = [];
-      for (const [side, values] of [
-        [edge.sourceSide, source],
-        [edge.targetSide, target],
-      ] as const) {
-        if (!values) continue;
-        conditions.push(...q.junctionSideConditions(side, undefined, values));
-      }
-      if (domain) {
-        // The join row is the DELETE's own table: its columns are qualified
-        // by that table's name, never left to resolve inside the subquery.
-        const member = q.alias();
-        conditions.push(
-          a.operators.exists(
-            a.subqueries.existsCheck(
-              q.table(edge.target, member),
-              a.operators.and(
-                ...edge.targetSide.members.map((pair) =>
-                  a.operators.eq(
-                    a.identifiers.column(edge.table, pair.junctionField),
-                    q.column(edge.target, pair.referencedField, member)
-                  )
-                ),
-                q.lowerSelector(domain, member)!
-              )
-            )
-          )
-        );
-      }
-      if (keep.length)
-        conditions.push(
-          a.operators.not(
-            a.operators.or(
-              ...keep.map((row) =>
+      const statement = q.sharing(() => {
+        const conditions: Sql[] = [];
+        for (const [side, values] of [
+          [edge.sourceSide, source],
+          [edge.targetSide, target],
+        ] as const) {
+          if (!values) continue;
+          conditions.push(...q.junctionSideConditions(side, undefined, values));
+        }
+        if (domain) {
+          // The join row is the DELETE's own table: its columns are qualified
+          // by that table's name, never left to resolve inside the subquery.
+          const member = q.alias();
+          conditions.push(
+            a.operators.exists(
+              a.subqueries.existsCheck(
+                q.table(edge.target, member),
                 a.operators.and(
-                  ...q.junctionSideConditions(edge.targetSide, undefined, row)
+                  ...edge.targetSide.members.map((pair) =>
+                    a.operators.eq(
+                      a.identifiers.column(edge.table, pair.junctionField),
+                      q.column(edge.target, pair.referencedField, member)
+                    )
+                  ),
+                  q.lowerSelector(domain, member)!
                 )
               )
             )
-          )
-        );
-      await this.#effect(
-        a.mutations.delete(
+          );
+        }
+        if (keep.length)
+          conditions.push(
+            a.operators.not(
+              a.operators.or(
+                ...keep.map((row) =>
+                  a.operators.and(
+                    ...q.junctionSideConditions(edge.targetSide, undefined, row)
+                  )
+                )
+              )
+            )
+          );
+        return a.mutations.delete(
           a.identifiers.table(edge.table),
           a.operators.and(...conditions)
-        ),
+        );
+      });
+      await this.#effect(
+        statement,
         this.statementContext(edge.source, "update"),
         member
       );
@@ -3827,18 +3834,22 @@ export class OperationContext {
     );
     // Each row it unlinks produces a row without the link, judged at what
     // judged its link (R4).
-    const produced = this.#produce(
-      edge.target,
-      cleared,
-      linkJudgement(edge),
-      unlinked
-    );
-    await this.#effect(
-      a.mutations.update(
+    let produced: Sql | undefined;
+    const statement = q.sharing(() => {
+      produced = this.#produce(
+        edge.target,
+        cleared,
+        linkJudgement(edge),
+        unlinked
+      );
+      return a.mutations.update(
         q.table(edge.target),
         sql.join(this.#updateAssignments(edge.target, cleared), ", "),
         produced ?? unlinked()
-      ),
+      );
+    });
+    await this.#effect(
+      statement,
       this.statementContext(edge.target, "update"),
       member,
       produced
@@ -3981,30 +3992,34 @@ export class OperationContext {
     const q = this.queries;
     const a = this.driver.adapter;
     const model = edge.target;
-    const filter = q.lowerMutationLimit(model, selector, undefined).where;
-    // The rows it produces, judged at what judged them (R4).
-    const produced =
-      values &&
-      this.#produce(model, values, selector.judgement, (alias) =>
-        a.operators.and(
-          q.memberWhere(edge, parent, alias),
-          ...(selector.predicate ? [q.lowerSelector(selector, alias)!] : [])
-        )
+    let produced: Sql | undefined;
+    const statement = q.sharing(() => {
+      const filter = q.lowerMutationLimit(model, selector, undefined).where;
+      // The rows it produces, judged at what judged them (R4).
+      produced =
+        values &&
+        this.#produce(model, values, selector.judgement, (alias) =>
+          a.operators.and(
+            q.memberWhere(edge, parent, alias),
+            ...(selector.predicate ? [q.lowerSelector(selector, alias)!] : [])
+          )
+        );
+      const where = a.operators.and(
+        // The target's own table name is the correlation alias, exactly as the
+        // shipped builders passed `getTableName(childScope.model)`.
+        q.memberWhere(edge, parent, model["~"].names.sql!),
+        ...(filter ? [filter] : [])
       );
-    const where = a.operators.and(
-      // The target's own table name is the correlation alias, exactly as the
-      // shipped builders passed `getTableName(childScope.model)`.
-      q.memberWhere(edge, parent, model["~"].names.sql!),
-      ...(filter ? [filter] : [])
-    );
-    await this.#effect(
-      values
+      return values
         ? a.mutations.update(
             q.table(model),
             sql.join(this.#updateAssignments(model, values), ", "),
             produced ?? where
           )
-        : a.mutations.delete(q.table(model), where),
+        : a.mutations.delete(q.table(model), where);
+    });
+    await this.#effect(
+      statement,
       this.statementContext(model, values ? "updateMany" : "deleteMany"),
       member,
       produced

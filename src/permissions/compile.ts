@@ -14,6 +14,7 @@
 // judgement the same statement makes, provably implies (plan §11.4). It
 // names no engine structure; the entry hands it to the chain.
 
+import { ClientInitializationError } from "../errors";
 import type { RowsVerbs } from "../extensions/controls";
 import type { VibORMConfig } from "../index";
 import { type ActorContract, actorContract, refuse } from "./actor";
@@ -171,12 +172,41 @@ function distance(a: string, b: string): number {
   return rows[a.length]![b.length]!;
 }
 const LOGICAL = new Set(["AND", "OR", "NOT"]);
+/** A check of another model's rows that reads no column of the row judged. */
+const EXISTS = "$exists";
+/** A row a rule reads: its model, and why a `{ $row, up }` may not cross it. */
+interface Scope {
+  readonly model: string;
+  readonly sealed?: string;
+}
+/** `{ $row, up }`: a column of a row the rule reads, `up` bodies above. */
+const isEnclosingRow = (
+  value: unknown
+): value is { readonly $row: string; readonly up: number } =>
+  isRecord(value) &&
+  Object.keys(value).length === 2 &&
+  typeof value.$row === "string" &&
+  Number.isSafeInteger(value.up) &&
+  (value.up as number) >= 0;
+/** The one model an `$exists` names, and the `where` its rows must match. */
+const existsOf = (value: unknown): [string, Where] => {
+  const [model, body] = Object.entries(value as Where)[0]!;
+  return [model, body as Where];
+};
 const QUANTIFIERS = new Set(["is", "isNot", "some", "every", "none"]);
-/** A plain object: a clause or an operator's record, never a value (a Date, a Decimal, bytes). */
+/**
+ * A plain object: a clause or an operator's record, never a value (a Date, a
+ * Decimal, bytes). A field reference is a plain object whose only key is a
+ * symbol: read as a record it would be `{}`, true everywhere, so an object
+ * with a symbol key is a value.
+ */
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   if (typeof value !== "object" || value === null) return false;
   const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
+  return (
+    (prototype === Object.prototype || prototype === null) &&
+    Object.getOwnPropertySymbols(value).length === 0
+  );
 };
 const isActorField = (value: unknown): value is { actor: string } =>
   isRecord(value) &&
@@ -428,7 +458,9 @@ export function evidenceOf(
  * acyclic relations (K4), and its projection key and read-gated fields (K5).
  * Modes are the entry's own (`rows.models`), never part of it.
  */
-export function verbsOf(compiled: CompiledPolicy): Record<string, RowsVerbs> {
+export function verbsOf(
+  compiled: Pick<CompiledPolicy, "models">
+): Record<string, RowsVerbs> {
   return Object.fromEntries(
     Object.entries(compiled.models).map(
       ([name, { modes, reads, ...verbs }]) => [
@@ -439,12 +471,77 @@ export function verbsOf(compiled: CompiledPolicy): Record<string, RowsVerbs> {
   );
 }
 
-/** Compiles a policy against the schema it governs. */
+/** Compiles a policy against the schema it governs, every model at once. */
 export function compilePolicy(
   config: PermissionsConfig,
   schema: Schema,
   actor: ActorContract = actorContract(config.actor)
 ): CompiledPolicy {
+  return policyCompiler(config, schema, actor).policy();
+}
+
+/** What a listed model declares, read without lowering a rule. */
+interface Declared {
+  readonly read?: string;
+  readonly update?: string;
+  readonly delete?: string;
+  readonly modes: { readonly [mode: string]: string };
+  /** Field → the predicate an update writing it takes (by name). */
+  readonly writes: { readonly [field: string]: string };
+  /** The fields whose write action is not the update verb's: `$write:<field>`. */
+  readonly protectedWrites: readonly (readonly [
+    field: string,
+    write: string,
+  ])[];
+  readonly reads: { readonly [field: string]: string };
+}
+
+/** A model's verbs and `as` modes: what applying a policy needs before any query. */
+export interface DeclaredModel {
+  readonly read?: string;
+  readonly update?: string;
+  readonly delete?: string;
+  readonly modes: { readonly [mode: string]: string };
+}
+
+/**
+ * One policy against one schema, compiled a model at a time. Building it
+ * checks everything the declaration says without lowering a rule (its keys,
+ * levels, models, action graphs, operations, fields and `as` names), so those
+ * refusals come when the policy is applied; a rule's own refusals (a field,
+ * an actor path, a relation's action, a rule that reads itself) come when
+ * its model is first compiled. Models compile into one shared state, so each
+ * predicate is lowered once whatever order they are asked in, and the output
+ * is the same as compiling every model at once.
+ */
+export interface PolicyCompiler {
+  readonly scopes: CompiledPolicy["scopes"];
+  /** Every model of the schema: its verbs and modes. */
+  readonly declared: { readonly [model: string]: DeclaredModel };
+  /** One model compiled, without `acyclic` (which needs every model). */
+  model(name: string): CompiledModel;
+  /** The self relations of `name` some predicate of the policy recurses over. */
+  acyclic(name: string): readonly string[];
+  /** Every model compiled, as {@link compilePolicy} returns it. */
+  policy(): CompiledPolicy;
+}
+
+/** R9: nothing is read, written or created on a model the policy does not list. */
+const UNLISTED: CompiledModel = Object.freeze({
+  predicates: Object.freeze({ [PLACE]: FALSE }),
+  writes: Object.freeze({}),
+  reads: Object.freeze({}),
+  modes: Object.freeze({}),
+  place: PLACE,
+  moves: Object.freeze({}),
+});
+const NO_RELATIONS: readonly string[] = Object.freeze([]);
+
+export function policyCompiler(
+  config: PermissionsConfig,
+  schema: Schema,
+  actor: ActorContract = actorContract(config.actor)
+): PolicyCompiler {
   const { keyOf, same, distinct, or } = structuralKeys();
   const noActions: readonly string[] = Object.freeze([]);
   const levels = config.levels ?? noActions;
@@ -497,6 +594,8 @@ export function compilePolicy(
   const authoredPredicates = new WeakMap<Where, ReadSummary>();
   const rules = new Map<string, Clause>();
   const predicates = new Map<string, Clause>();
+  /** Every `P(M, a)`: inlined anywhere, its `{ $row, up }` never leaves it. */
+  const inlined = new WeakSet<Where>();
   const open: string[] = [];
   const scope = (name: string, action: string): Where => ({
     OR: [
@@ -552,37 +651,48 @@ export function compilePolicy(
         name
       );
     open.push(key);
-    const declared = actions.get(name)!;
-    const inherited =
-      declared.rules.get(action)?.rule === false
-        ? []
-        : [...declared.closure].flatMap(([from, reaches]) =>
-            reaches.includes(action) ? [from] : []
-          );
-    const branches = inherited.map((from) => ruleAt(name, from));
-    const granted = or(branches);
-    const clause = and([restriction(name), absorb(name, granted)]);
-    // A named rule used under NOT/none must retain its authored dependencies:
-    // a generated absence guard is not evidence that the negative rule holds.
-    if (clause !== false) {
-      const summaries = inherited.map((from) =>
-        summarizeReads(
+    // A compiler outlives a refusal (a model compiles at its first call, and
+    // the next call asks again): the walk is unwound whatever happens.
+    try {
+      const declared = actions.get(name)!;
+      const inherited =
+        declared.rules.get(action)?.rule === false
+          ? []
+          : [...declared.closure].flatMap(([from, reaches]) =>
+              reaches.includes(action) ? [from] : []
+            );
+      const branches = inherited.map((from) => ruleAt(name, from));
+      const granted = or(branches);
+      const clause = and([restriction(name), absorb(name, granted)]);
+      // A named rule used under NOT/none must retain its authored dependencies:
+      // a generated absence guard is not evidence that the negative rule holds.
+      if (clause !== false) {
+        const summaries = inherited.map((from) =>
+          summarizeReads(
+            name,
+            authoredRules.get(`${name}.${from}`)!,
+            "source",
+            true
+          )
+        );
+        const mandatory = summarizeReads(
           name,
-          authoredRules.get(`${name}.${from}`)!,
+          restriction(name),
           "source",
           true
-        )
-      );
-      const mandatory = summarizeReads(name, restriction(name), "source", true);
-      if (mandatory !== null && summaries.every((part) => part !== null))
-        authoredPredicates.set(
-          clause,
-          combineReads(true, [mandatory, combineReads(false, summaries)])
         );
+        if (mandatory !== null && summaries.every((part) => part !== null))
+          authoredPredicates.set(
+            clause,
+            combineReads(true, [mandatory, combineReads(false, summaries)])
+          );
+      }
+      predicates.set(key, clause);
+      if (clause !== false) inlined.add(clause);
+      return clause;
+    } finally {
+      open.pop();
     }
-    open.pop();
-    predicates.set(key, clause);
-    return clause;
   };
   /**
    * A disjunction without a member another member provably contains: where
@@ -647,12 +757,19 @@ export function compilePolicy(
       refuse(
         `${at} tests the actor with a value that is not an object of its facts`
       );
+    // An empty object tests nothing: it would hold for every actor.
+    if (Object.keys(facts).length === 0)
+      refuse(
+        `${at} tests the actor${prefix ? ` at "${prefix.slice(0, -1)}"` : ""} with an empty object`
+      );
     return Object.entries(facts).flatMap(([key, fact]) => {
       const read = `${prefix}${key}`;
       if (isRecord(fact)) return conditions(at, fact, `${read}.`);
       path(at, read);
       if (fact !== null && typeof fact === "object")
-        refuse(`${at} tests actor path "${read}" against a list`);
+        refuse(
+          `${at} tests actor path "${read}" against ${Array.isArray(fact) ? "a list" : "a value that is not a literal"}`
+        );
       return [
         {
           $if:
@@ -664,16 +781,49 @@ export function compilePolicy(
     });
   };
 
+  /**
+   * A rule function's predicate. Whatever it throws is its model's refusal,
+   * like any other mistake in a rule: it fails that model, never another.
+   */
+  const evaluated = (
+    rule: Extract<Rule, (...args: never[]) => unknown>,
+    action: string,
+    name: string,
+    at: string
+  ): unknown => {
+    try {
+      return rule(action, modelOf(name));
+    } catch (error) {
+      if (error instanceof ClientInitializationError) throw error;
+      return refuse(
+        `${at}: the rule function threw at "${action}"`,
+        name,
+        error
+      );
+    }
+  };
   /** A rule of `name` read at `action` (written at `at`), lowered to the `where` vocabulary. */
   const lower = (
     name: string,
     action: string,
     rule: unknown,
-    at: string
+    at: string,
+    scopes: readonly Scope[] = [{ model: name }]
   ): Clause => {
     if (typeof rule === "boolean") return rule ? {} : false;
     if (typeof rule === "function")
-      return lower(name, action, rule(action, modelOf(name)), at);
+      return lower(
+        name,
+        action,
+        evaluated(
+          rule as Extract<Rule, (...args: never[]) => unknown>,
+          action,
+          name,
+          at
+        ),
+        at,
+        scopes
+      );
     if (!isRecord(rule))
       refuse(
         `${at}: a rule is a boolean, a where object or a function of the action`,
@@ -685,7 +835,7 @@ export function compilePolicy(
     for (const [key, member] of Object.entries(rule)) {
       if (LOGICAL.has(key)) {
         const list = (Array.isArray(member) ? member : [member]).map((item) =>
-          lower(name, action, item, at)
+          lower(name, action, item, at, scopes)
         );
         const folded =
           key === "OR"
@@ -711,22 +861,90 @@ export function compilePolicy(
         if (isRecord(member) && member.control === "actor")
           path(at, member.path);
         out[key] = member;
+      } else if (key === EXISTS) {
+        // Another model's rows, read at their own model: action names are
+        // that model's predicates (D7), as in a relation's body.
+        const models = isRecord(member) ? Object.keys(member) : [];
+        const [model] = models;
+        if (models.length !== 1 || !Object.hasOwn(schema, model!))
+          refuse(
+            `${at}: $exists names exactly one model of the schema and the where its rows must match`,
+            name
+          );
+        // One body below this row, joined to nothing.
+        const body = lower(model!, action, (member as Where)[model!], at, [
+          ...scopes,
+          { model: model! },
+        ]);
+        if (body === false) return false;
+        out[key] = { [model!]: body };
       } else if (targetOf(name, key) !== undefined) {
-        const lowered = relation(name, action, key, member, at);
+        const lowered = relation(name, action, key, member, at, scopes);
         if (lowered === false) return false;
         if (lowered !== undefined) out[key] = lowered;
-      } else out[key] = value(at, member);
+      } else {
+        // A filter's `undefined` filters nothing: in a rule it would grant
+        // every row, as an absent value never should.
+        if (member === undefined)
+          refuse(
+            `${at}: ${key} is compared with undefined, which holds for every row; compare with null, a literal or an actor value`,
+            name
+          );
+        enclosingRows(name, key, member, at, scopes);
+        out[key] = value(at, member);
+      }
     }
     return and([out, ...also]);
   };
 
+  /**
+   * Every `{ $row, up }` in a scalar's operand names a column of a row the
+   * rule reads (its own at `up: 0`), never past the rule's root, an
+   * `$exists` body's, or a recursive relation's body.
+   */
+  const enclosingRows = (
+    name: string,
+    key: string,
+    operand: unknown,
+    at: string,
+    scopes: readonly Scope[]
+  ): void => {
+    if (isEnclosingRow(operand)) {
+      const spelled = `{ $row: ${JSON.stringify(operand.$row)}, up: ${operand.up} }`;
+      const index = scopes.length - 1 - operand.up;
+      if (index < 0)
+        refuse(
+          `${at}: ${key} compares ${spelled}, which reaches past the rule (${scopes.length - 1} relation bodies deep here)`,
+          name
+        );
+      const crossed = scopes.slice(index + 1).find((scope) => scope.sealed);
+      if (crossed)
+        refuse(
+          `${at}: ${key} compares ${spelled} across a recursive relation to ${crossed.model}`,
+          name
+        );
+      const owner = scopes[index]!.model;
+      if (!Object.hasOwn(stateOf(owner).scalars, operand.$row))
+        refuse(
+          `${at}: ${key} compares ${spelled}, and ${owner} has no scalar field "${operand.$row}"`,
+          name
+        );
+      return;
+    }
+    if (Array.isArray(operand))
+      for (const item of operand) enclosingRows(name, key, item, at, scopes);
+    else if (isRecord(operand))
+      for (const item of Object.values(operand))
+        enclosingRows(name, key, item, at, scopes);
+  };
   /** A relation filter: an action name is the target's predicate (D7). */
   const relation = (
     name: string,
     action: string,
     key: string,
     member: unknown,
-    at: string
+    at: string,
+    scopes: readonly Scope[]
   ): unknown => {
     const target = targetOf(name, key)!;
     if (typeof member === "string") {
@@ -738,17 +956,32 @@ export function compilePolicy(
       const held = P(target, member);
       return held === false ? false : { is: held };
     }
+    if (member === undefined)
+      refuse(
+        `${at}: ${key} is filtered with undefined, which holds for every row`,
+        name
+      );
+    // A field reference, a Date or any other value is not a relation filter.
+    if (typeof member === "object" && member !== null && !isRecord(member))
+      refuse(
+        `${at} filters ${key} with a value that is not a filter object, an action name or null`,
+        name
+      );
     if (!isRecord(member)) return member;
     if (!Object.keys(member).some((op) => QUANTIFIERS.has(op)))
-      return lower(target, action, member, at);
+      return lower(target, action, member, at, [...scopes, { model: target }]);
     const out: Record<string, unknown> = {};
     let requiresEmpty = false;
+    const scope = {
+      model: target,
+      ...(member.recurse !== undefined && { sealed: "recursive" }),
+    };
     for (const [op, body] of Object.entries(member)) {
       if (!(QUANTIFIERS.has(op) && body !== null)) {
         out[op] = body;
         continue;
       }
-      const lowered = lower(target, action, body, at);
+      const lowered = lower(target, action, body, at, [...scopes, scope]);
       // A false body: `is`/`some` hold nowhere, `isNot`/`none` everywhere,
       // `every` only where nothing is related.
       if (lowered !== false) out[op] = lowered;
@@ -806,6 +1039,12 @@ export function compilePolicy(
     if (key === "NOT") return implies(name, value, given);
     if (key === "$if")
       return same(given, value) || narrower(given, value, "hasSome");
+    if (key === EXISTS) {
+      // EXISTS is monotone: a narrower body finds a row only where a wider one does.
+      const [left, narrow] = existsOf(given);
+      const [right, wide] = existsOf(value);
+      return left === right && implies(left, narrow, wide);
+    }
     const target = targetOf(name, key);
     if (target === undefined)
       return (
@@ -1100,6 +1339,12 @@ export function compilePolicy(
         if (!isRecord(value)) return unsupported();
         const guard = { $if: value };
         parts.push({ yes: guard, no: negate(guard), reads: new Map() });
+      } else if (key === EXISTS) {
+        // Like a positive relation's body: read wherever the clause is.
+        const [model, body] = existsOf(value);
+        const summary = summarizeReads(model, body, source, negative);
+        if (summary === null) return unsupported();
+        parts.push(atomic(summary.reads));
       } else if (Object.hasOwn(stateOf(name).scalars, key)) {
         if (source && stateOf(name).scalars[key]!["~"].state.type === "json") {
           // Only complete JSON equality operands are value-node positions.
@@ -1215,6 +1460,11 @@ export function compilePolicy(
             : guardAlternatives(name, body)
         );
         return next.some((body, index) => body !== value[index]) ? next : value;
+      }
+      if (key === EXISTS) {
+        const [model, body] = existsOf(value);
+        const next = guardAlternatives(model, body);
+        return next === body ? value : { [model]: next };
       }
       const target = targetOf(name, key);
       if (target === undefined || !isRecord(value)) return value;
@@ -1359,18 +1609,76 @@ export function compilePolicy(
    * key behind a relation it holds, the fields a relation it does not hold
    * joins on, and a self relation's body where `self` reads the row itself.
    */
+  /**
+   * The fields of the rule's own row its bodies compare (`{ $row, up:
+   * depth }`). An inlined predicate is relative to its own root and never
+   * reaches past it, so it is not walked; a shared clause is walked once per
+   * depth.
+   */
+  const rootReads = (
+    name: string,
+    clause: unknown,
+    depth: number,
+    into: Set<string>,
+    seen = new Map<object, Set<number>>()
+  ): void => {
+    if (isEnclosingRow(clause)) {
+      if (clause.up === depth) into.add(clause.$row);
+      return;
+    }
+    if (typeof clause !== "object" || clause === null) return;
+    // Below the root, an inlined predicate's references stay inside it; at
+    // depth 0 it may be a branch of the rule itself (a `P` an action shares).
+    if (depth > 0 && inlined.has(clause as Where)) return;
+    const depths = seen.get(clause) ?? new Set<number>();
+    if (depths.has(depth)) return;
+    seen.set(clause, depths.add(depth));
+    if (Array.isArray(clause)) {
+      for (const item of clause) rootReads(name, item, depth, into, seen);
+      return;
+    }
+    if (!isRecord(clause)) return;
+    for (const [key, member] of Object.entries(clause)) {
+      if (key === "$if") continue;
+      if (key === EXISTS) {
+        const [model, body] = existsOf(member);
+        rootReads(model, body, depth + 1, into, seen);
+        continue;
+      }
+      const target = LOGICAL.has(key) ? undefined : targetOf(name, key);
+      if (target === undefined || !isRecord(member)) {
+        rootReads(name, member, depth, into, seen);
+        continue;
+      }
+      const quantified = Object.keys(member).some((op) => QUANTIFIERS.has(op));
+      if (!quantified) {
+        // The to-one shorthand: the body is the related row's own filter.
+        rootReads(target, member, depth + 1, into, seen);
+        continue;
+      }
+      for (const op of QUANTIFIERS) {
+        const body = member[op];
+        if (isRecord(body)) rootReads(target, body, depth + 1, into, seen);
+      }
+    }
+  };
   const fieldsRead = (name: string, clause: Where, into: Set<string>) => {
+    rootReads(name, clause, 0, into);
+    return ownFields(name, clause, into);
+  };
+  const ownFields = (name: string, clause: Where, into: Set<string>) => {
     for (const [key, member] of Object.entries(clause)) {
       if (LOGICAL.has(key))
         for (const item of Array.isArray(member) ? member : [member])
-          fieldsRead(name, item as Where, into);
-      else if (key === "$if") continue;
+          ownFields(name, item as Where, into);
+      // Neither reads a field of the row.
+      else if (key === "$if" || key === EXISTS) continue;
       else if (targetOf(name, key) === undefined) into.add(key);
       else {
         for (const field of joinedOn(name, key)) into.add(field);
         if (isRecord(member) && member.self === true)
           for (const op of QUANTIFIERS)
-            if (isRecord(member[op])) fieldsRead(name, member[op], into);
+            if (isRecord(member[op])) ownFields(name, member[op], into);
       }
     }
     return into;
@@ -1400,21 +1708,12 @@ export function compilePolicy(
     return [...referenced];
   };
 
-  const compiled: Record<string, CompiledModel> = {};
-  for (const name of Object.keys(schema)) {
-    const policy = config.models[name];
-    if (policy === undefined) {
-      // R9: nothing is read, written or created on a model the policy does not list.
-      compiled[name] = Object.freeze({
-        predicates: Object.freeze({ [PLACE]: FALSE }),
-        writes: {},
-        reads: {},
-        modes: {},
-        place: PLACE,
-        moves: {},
-      });
-      continue;
-    }
+  // Every check that lowers no rule runs before any model is compiled: the
+  // declaration's names (operations, fields, domains, the `as` names), so a
+  // misspelt one is refused when the policy is applied, wherever it is.
+  const declarations = new Map<string, Declared>();
+  for (const name of Object.keys(config.models)) {
+    const policy = config.models[name]!;
     const model = modelOf(name);
     const declared = (role: string, action: string | undefined) => {
       if (action !== undefined && !model.actions.includes(action))
@@ -1424,19 +1723,17 @@ export function compilePolicy(
         );
       return action;
     };
-    const named = new Map<string, Where>();
-    /** One name space per model: actions, domains, placement and moves. */
-    const claim = (key: string, at: string, clause: Where) => {
-      if (named.has(key))
+    // The names `claim` gives out below, but for the moves, which need the
+    // placement lowered: the same refusals, at the same places.
+    const claimed = new Set<string>(model.actions);
+    const claimName = (key: string, at: string) => {
+      if (claimed.has(key))
         refuse(
           `${at}: an action, a domain, the placement or a move already has the name "${key}"`,
           name
         );
-      named.set(key, clause);
+      claimed.add(key);
     };
-    for (const action of model.actions)
-      named.set(action, and([P(name, action), scope(name, action)]) || FALSE);
-
     const operations = policy.operations ?? {};
     for (const operation of Object.keys(operations))
       if (!OPERATIONS.has(operation))
@@ -1447,9 +1744,8 @@ export function compilePolicy(
     for (const verb of ["read", "update", "delete"] as const)
       declared(`operations.${verb}`, operations[verb]);
     const verbs = verbsFor(name);
-    const evidence = actions.get(name)!.evidence;
-
     const writes: Record<string, string> = {};
+    const protectedWrites: [field: string, write: string][] = [];
     const reads: Record<string, string> = {};
     const state = stateOf(name);
     for (const [field, entry] of Object.entries(policy.fields ?? {})) {
@@ -1476,25 +1772,71 @@ export function compilePolicy(
         declared(`fields.${field}.write`, write);
         if (write === verbs.update) writes[field] = write;
         else {
-          // Field protection narrows the operation's grant. Core chooses one
-          // write predicate per field, so compose both permissions here rather
-          // than letting a field grant replace a denied or absent update grant.
           const protectedWrite = `$write:${field}`;
-          claim(
-            protectedWrite,
-            `models.${name}.fields.${field}.write`,
-            and([
-              verbs.update === undefined ? false : named.get(verbs.update)!,
-              named.get(write)!,
-            ]) || FALSE
-          );
+          claimName(protectedWrite, `models.${name}.fields.${field}.write`);
           writes[field] = protectedWrite;
+          protectedWrites.push([field, write]);
         }
       }
       // A key, a foreign key or a relation is refused by K5's admission.
       if (read === undefined) continue;
       reads[field] = declared(`fields.${field}.read`, read)!;
     }
+    claimName(PLACE, `models.${name}.create`);
+    const modes = new Map<string, string>(
+      model.actions.map((action) => [action, action])
+    );
+    for (const domain of Object.keys(policy.domains ?? {})) {
+      claimName(domain, `models.${name}.domains.${domain}`);
+      modes.set(domain, domain);
+    }
+    // One `as` name space for every model: the default is no action's.
+    if (modes.has(DEFAULT_MODE))
+      refuse(
+        `models.${name}: "${DEFAULT_MODE}" is the mode a call takes by default, not an action or a domain`,
+        name
+      );
+    declarations.set(name, {
+      ...verbs,
+      modes: Object.freeze(Object.fromEntries(modes)),
+      writes,
+      protectedWrites,
+      reads,
+    });
+  }
+
+  /** One listed model's predicates and the uses that name them, without `acyclic`. */
+  const compileModel = (name: string): CompiledModel => {
+    const policy = config.models[name]!;
+    const model = modelOf(name);
+    const { writes, protectedWrites, reads, ...declared } =
+      declarations.get(name)!;
+    const verbs = verbsFor(name);
+    const named = new Map<string, Where>();
+    /** One name space per model: actions, domains, placement and moves. */
+    const claim = (key: string, at: string, clause: Where) => {
+      if (named.has(key))
+        refuse(
+          `${at}: an action, a domain, the placement or a move already has the name "${key}"`,
+          name
+        );
+      named.set(key, clause);
+    };
+    for (const action of model.actions)
+      named.set(action, and([P(name, action), scope(name, action)]) || FALSE);
+    const evidence = actions.get(name)!.evidence;
+    // Field protection narrows the operation's grant. Core chooses one
+    // write predicate per field, so compose both permissions here rather
+    // than letting a field grant replace a denied or absent update grant.
+    for (const [field, write] of protectedWrites)
+      claim(
+        `$write:${field}`,
+        `models.${name}.fields.${field}.write`,
+        and([
+          verbs.update === undefined ? false : named.get(verbs.update)!,
+          named.get(write)!,
+        ]) || FALSE
+      );
     // Creation is a named action evaluated on the proposed row. Its placement
     // adds target visibility; moves reuse the row rule without requiring a
     // create credential scope for an update.
@@ -1549,28 +1891,16 @@ export function compilePolicy(
       );
       moves[field] = move;
     }
-
-    const modes = new Map<string, string>(
-      model.actions.map((action) => [action, action])
-    );
     for (const [domain, rule] of Object.entries(policy.domains ?? {})) {
       const at = `models.${name}.domains.${domain}`;
       claim(domain, at, lower(name, "read", rule, at) || FALSE);
-      modes.set(domain, domain);
     }
-    // One `as` name space for every model: the default is no action's.
-    if (modes.has(DEFAULT_MODE))
-      refuse(
-        `models.${name}: "${DEFAULT_MODE}" is the mode a call takes by default, not an action or a domain`,
-        name
-      );
-
-    compiled[name] = Object.freeze({
+    return Object.freeze({
       predicates: Object.freeze(Object.fromEntries(named)),
       ...verbs,
       writes: Object.freeze(writes),
       reads: Object.freeze(reads),
-      modes: Object.freeze(Object.fromEntries(modes)),
+      modes: declared.modes,
       place: PLACE,
       moves: Object.freeze(moves),
       // Per row, always one boolean for each admitted action.
@@ -1581,37 +1911,107 @@ export function compilePolicy(
         }),
       }),
     });
-  }
+  };
+
+  // A Map: a model may be named `constructor`.
+  const compiled = new Map<string, CompiledModel>();
+  /** `name` compiled, once: an unlisted model holds nothing (R9). */
+  const modelAt = (name: string): CompiledModel => {
+    const known = compiled.get(name);
+    if (known !== undefined) return known;
+    const entry = Object.hasOwn(config.models, name)
+      ? compileModel(name)
+      : UNLISTED;
+    compiled.set(name, entry);
+    return entry;
+  };
   // R4: a self key a predicate recurses over never takes a parent inside
-  // the row's own subtree.
-  for (const [name, recursed] of recursion(compiled))
-    compiled[name] = Object.freeze({
-      ...compiled[name]!,
-      acyclic: Object.freeze(recursed),
-    });
-  const scopes = Object.fromEntries(
-    [...actions].flatMap(([name, declared]) =>
-      [...declared.closure].map(([action, implied]) => [
-        `${name}.${action}`,
-        Object.freeze(implied.map((next) => `${name}.${next}`)),
-      ])
+  // the row's own subtree. Any model's predicate may recurse over another's
+  // relation, so this is the one fact that needs the whole policy compiled.
+  let recursed: ReadonlyMap<string, readonly string[]> | undefined;
+  const acyclicAt = (name: string): readonly string[] => {
+    if (recursed === undefined) {
+      // A model whose rules are refused judges nothing, and every model
+      // that inlines one of its predicates is refused with it: what the
+      // others recurse over is complete without it.
+      for (const each of Object.keys(schema))
+        try {
+          modelAt(each);
+        } catch (error) {
+          if (!(error instanceof ClientInitializationError)) throw error;
+        }
+      recursed = new Map(
+        [...recursion(compiled)].map(([model, relations]) => [
+          model,
+          Object.freeze(relations),
+        ])
+      );
+    }
+    return recursed.get(name) ?? NO_RELATIONS;
+  };
+  const scopes = Object.freeze(
+    Object.fromEntries(
+      [...actions].flatMap(([name, declared]) =>
+        [...declared.closure].map(([action, implied]) => [
+          `${name}.${action}`,
+          Object.freeze(implied.map((next) => `${name}.${next}`)),
+        ])
+      )
     )
   );
+  const declared = Object.freeze(
+    Object.fromEntries(
+      Object.keys(schema).map((name) => {
+        const known = declarations.get(name);
+        if (known === undefined) return [name, UNLISTED];
+        const { read, update, delete: remove, modes } = known;
+        return [
+          name,
+          Object.freeze({
+            ...(read !== undefined && { read }),
+            ...(update !== undefined && { update }),
+            ...(remove !== undefined && { delete: remove }),
+            modes,
+          }),
+        ];
+      })
+    )
+  );
+  let whole: CompiledPolicy | undefined;
   return Object.freeze({
-    control: "actor",
-    scopes: Object.freeze(scopes),
-    models: Object.freeze(compiled),
+    scopes,
+    declared,
+    model: modelAt,
+    acyclic: acyclicAt,
+    policy: () => {
+      if (whole !== undefined) return whole;
+      const models: Record<string, CompiledModel> = {};
+      for (const name of Object.keys(schema)) {
+        const entry = modelAt(name);
+        const relations = acyclicAt(name);
+        models[name] =
+          relations.length === 0
+            ? entry
+            : Object.freeze({ ...entry, acyclic: relations });
+      }
+      whole = Object.freeze({
+        control: "actor",
+        scopes,
+        models: Object.freeze(models),
+      });
+      return whole;
+    },
   });
 
   /**
    * Per model, the self relations holding a key that some compiled
    * predicate recurses over, wherever it is read.
    */
-  function recursion(models: Record<string, CompiledModel>) {
+  function recursion(models: ReadonlyMap<string, CompiledModel>) {
     const found = new Map<string, string[]>();
     // Per model, the clauses already walked there (P is shared, D7).
     const seen = new Map(
-      Object.keys(models).map((name) => [name, new WeakSet<object>()])
+      Object.keys(schema).map((name) => [name, new WeakSet<object>()])
     );
     const walk = (name: string, clause: unknown): void => {
       if (!isRecord(clause) || seen.get(name)!.has(clause)) return;
@@ -1620,6 +2020,10 @@ export function compilePolicy(
         if (LOGICAL.has(key)) {
           for (const item of Array.isArray(member) ? member : [member])
             walk(name, item);
+          continue;
+        }
+        if (key === EXISTS) {
+          walk(...existsOf(member));
           continue;
         }
         const target = targetOf(name, key);
@@ -1640,7 +2044,7 @@ export function compilePolicy(
         for (const op of bodies) walk(target, member[op]);
       }
     };
-    for (const [name, model] of Object.entries(models))
+    for (const [name, model] of models)
       for (const clause of Object.values(model.predicates)) walk(name, clause);
     return found;
   }
