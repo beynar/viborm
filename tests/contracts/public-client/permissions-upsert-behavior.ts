@@ -82,6 +82,15 @@ export function runPermissionsUpsertBehavior(substrate: {
           create: { id: "t1", slug: "one", body: "z" },
         })
       ).toEqual({ id: "t1", slug: "one", body: "x" });
+      // A `where` that misses, its create proposing another row's key: the
+      // same constraint, but the create's own violation, not the update's.
+      await expect(
+        db.tag.upsert({
+          where: { id: "t4" },
+          update: { body: "y" },
+          create: { id: "t1", slug: "four", body: "z" },
+        })
+      ).rejects.toBeInstanceOf(UniqueConstraintError);
       // Another key the create collides on is the create's own violation.
       await expect(
         db.tag.upsert({

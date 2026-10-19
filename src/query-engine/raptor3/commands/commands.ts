@@ -6,7 +6,7 @@ import {
   UniqueConstraintError,
   UnsupportedOperationError,
 } from "@errors";
-import type { AnyModel, OrderedModelKey } from "@schema/model";
+import type { AnyModel } from "@schema/model";
 import { createFailureError } from "../../batch-error-attribution";
 import type { PreparedGuardFailure } from "../../types";
 import type { OperationContext } from "../shared/operation-context";
@@ -30,7 +30,7 @@ import {
   type MembershipContribution,
   type Origin,
 } from "./assignments";
-import { CommandExecution } from "./execution";
+import { CommandExecution, namesKeyConstraint } from "./execution";
 import { RelationBody } from "./relation-body";
 import {
   type BoundMembership,
@@ -1929,8 +1929,9 @@ export class Commands {
    * that exists sends it to the create arm, and the database refuses the
    * key. That refusal is the update's, so it is reported as a
    * `ForbiddenError` with the unique violation as its cause, where the
-   * violated constraint is the key `where` located by, as far as the
-   * provider names it; any other unique violation is the create's own.
+   * create proposes for that key exactly the values `where` named and the
+   * violated constraint is that key (the adapter's constraint identity); any
+   * other unique violation is the create's own.
    */
   #foundUnwritable(
     model: AnyModel,
@@ -1943,12 +1944,17 @@ export class Commands {
       (layer) => layer !== undefined && matchesNothing(layer.update)
     );
     if (!unwritable) return plan;
-    const key = this.context.queries.prepareSelector(
-      model,
-      args.where,
-      true
-    ).uniqueKey;
-    if (key === undefined) return plan;
+    const { uniqueKey: key, uniqueValues } =
+      this.context.queries.prepareSelector(model, args.where, true);
+    if (key === undefined || uniqueValues === undefined) return plan;
+    const create = record(args.create);
+    // The create arm inserting another key's row is not the located row.
+    if (
+      !key.fields.every((field) =>
+        sameKeyValue(create[field], uniqueValues.get(field))
+      )
+    )
+      return plan;
     return {
       single: plan.single,
       run: () =>
@@ -1956,7 +1962,7 @@ export class Commands {
           if (
             !(
               error instanceof UniqueConstraintError &&
-              violates(model, key, error)
+              namesKeyConstraint(this.context, model, key, error)
             )
           )
             throw error;
@@ -2441,27 +2447,9 @@ function matchesNothing(predicate: Input): boolean {
   );
 }
 
-/**
- * Whether a unique violation names `key`'s constraint: by its columns where
- * the provider reports them (SQLite), else by the name the migrations give
- * it (PostgreSQL). `false` where neither is reported.
- */
-function violates(
-  model: AnyModel,
-  key: OrderedModelKey,
-  error: UniqueConstraintError
-): boolean {
-  const columns = key.fields.map((field) => model["~"].getFieldName(field).sql);
-  const reported = error.meta.columns;
-  if (Array.isArray(reported))
-    return (
-      reported.length === columns.length &&
-      columns.every((column) => reported.includes(column))
-    );
-  const table = model["~"].names.sql;
-  const constraint =
-    key.kind === "primary"
-      ? `${table}_pkey`
-      : `${table}_${key.name ?? columns[0]}_key`;
-  return error.meta.constraint === constraint;
+/** A literal key value as `where` names it: dates by their instant. */
+function sameKeyValue(proposed: unknown, selected: unknown): boolean {
+  if (proposed instanceof Date && selected instanceof Date)
+    return proposed.getTime() === selected.getTime();
+  return Object.is(proposed, selected);
 }

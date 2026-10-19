@@ -1499,20 +1499,22 @@ policy, soft delete and actor `u02`, on local workerd. They are pinned by
 `tests/providers/workers/d1-permissions-statement-budget.test.ts`, which turns red
 when a refused read starts to run:
 
-- D1 runs `findMany` with `$access` on `accessGrant` (45,287 bytes, 26
-  values), `page` (13,833 bytes), `page` including its group with `$access`
-  (16,140 bytes) and `document` (27,527 bytes). It also runs the root
+- D1 runs `findMany` with `$access` on `accessGrant` (41,283 bytes, 26
+  values), `page` (13,825 bytes), `page` including its group with `$access`
+  (16,132 bytes) and `document` (22,978 bytes). It also runs the root
   documents with `$access` at three levels, the roots, their children and
-  theirs (61,659 bytes, 39 values).
-- D1 refuses two reads with `SQLITE_TOOBIG`: the same three levels including
-  each level's grants with `$access` (106,197 bytes, 57 values), and
-  `document.findMany` including every relation with `$access` (100,850 bytes,
-  79 values).
-- D1 refuses two reads with `SQLITE_NOMEM`, both inside the published limits:
-  `page.findMany` with `$access` at every level of an include through the
-  group, its grants and pages, and the page's grants (83,620 bytes, 64
-  values), and `accessGrant.findMany` including every relation with `$access`
-  (76,878 bytes, 74 values).
+  theirs (48,946 bytes, 39 values).
+- D1 refuses four reads with `SQLITE_NOMEM`, all inside the published
+  limits:
+  - the same three levels including each level's grants with `$access`
+    (89,678 bytes, 57 values);
+  - `document.findMany` including every relation with `$access` (84,796
+    bytes, 79 values);
+  - `page.findMany` with `$access` at every level of an include through the
+    group, its grants and pages, and the page's grants (75,514 bytes, 64
+    values);
+  - `accessGrant.findMany` including every relation with `$access` (68,874
+    bytes, 74 values).
 - A caller's relation filter nested 15 levels deep (`parent: { parent: … }`,
   the most the filter admits) runs under a read rule of three `OR` arms. Each
   level adds about 5 to the expression depth, and the rule's own height is
