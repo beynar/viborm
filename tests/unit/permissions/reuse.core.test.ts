@@ -166,3 +166,30 @@ test("a compiler checks the declaration's names when built, and a rule when its 
     modes: { read: "read" },
   });
 });
+
+test("a snapshot keeps instances and opaque values by reference and copies cycles once", () => {
+  class Opaque {
+    readonly value = 1;
+  }
+  const opaque = new Opaque();
+  const cyclic: Record<string, unknown> = { opaque };
+  cyclic.self = cyclic;
+  const snapshot = declarationSnapshot(cyclic, new Set());
+  expect(snapshot).not.toBe(cyclic);
+  expect(snapshot.self).toBe(snapshot);
+  expect(snapshot.opaque).toBe(opaque);
+});
+
+test("the freezer declines what is not plain data", () => {
+  const freeze = plainFreezer();
+  const cyclic: Record<string, unknown> = {};
+  cyclic.self = cyclic;
+  for (const value of [
+    { rule: () => true },
+    { tag: Symbol("tag") },
+    { [Symbol("key")]: 1 },
+    cyclic,
+    Object.defineProperty({}, "hidden", { value: 1, enumerable: false }),
+  ])
+    expect(freeze(value)).toBeUndefined();
+});

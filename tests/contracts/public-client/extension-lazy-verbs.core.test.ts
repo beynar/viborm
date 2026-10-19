@@ -10,6 +10,7 @@
 
 import { createClient } from "@drivers/sqlite3";
 import { ClientInitializationError } from "@errors";
+import { bindRows } from "@extensions/rows";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { v } from "@validation";
@@ -278,4 +279,96 @@ test("a lazy acyclic list is resolved only for an update writing a self key, and
     user: "alice",
   } as object);
   expect(resolved).toBe(1);
+});
+
+test("an entry that resolves to anything but an object is refused on first use", async () => {
+  const db = base.$extends(governed({ note: () => null as never }));
+  await expect(db.note!.findMany({ user: "alice" } as object)).rejects.toThrow(
+    'Extension "lazy" rows.verbs.note at "root": is not an object or a function.'
+  );
+});
+
+test("walking a bound domain resolves every lazy entry; reading one resolves only it", () => {
+  const resolved: string[] = [];
+  const entry = (model: string) => () => {
+    resolved.push(model);
+    return { predicates: { all: {} }, read: "all" };
+  };
+  const binding = bindRows([
+    {
+      control: "as",
+      default: "all",
+      models: {
+        node: { all: { root: () => ({ id: "a" }) } },
+        note: { all: {} },
+      },
+      verbs: { node: entry("node"), note: entry("note") },
+    } as never,
+  ]);
+  const { domain } = binding.physical[0]!;
+  const verbs = domain.verbs!;
+  expect(verbs.has("node")).toBe(true);
+  expect(verbs.has("missing")).toBe(false);
+  expect(resolved).toEqual([]);
+  expect(verbs.get("note")?.[0]?.read).toEqual({});
+  expect(resolved).toEqual(["note"]);
+  expect(domain.projects).toBe(true);
+  // Every way of walking a map settles what is still pending.
+  const walks: ((map: ReadonlyMap<string, unknown>) => unknown)[] = [
+    (map) => map.size,
+    (map) => [...map.keys()],
+    (map) => [...map.values()],
+    (map) => [...map.entries()],
+    (map) => [...map],
+    (map) => {
+      // biome-ignore lint/complexity/noForEach: forEach is one of the walks under test
+      map.forEach(() => {
+        // Visiting is enough.
+      });
+    },
+  ];
+  for (const walk of walks) {
+    const fresh = bindRows([
+      {
+        control: "as",
+        default: "all",
+        models: { node: { all: { root: () => ({ id: "a" }) } } },
+        verbs: { node: entry("node") },
+      } as never,
+    ]).physical[0]!.domain;
+    resolved.length = 0;
+    walk(fresh.verbs!);
+    walk(fresh.root);
+    expect(resolved).toEqual(["node"]);
+    expect(fresh.root.get("node")).toEqual([{ id: "a" }]);
+  }
+});
+
+test("with a custom scalar validator in the schema, a frozen entry is admitted at each application", async () => {
+  const custom = s.model({
+    id: s.string().id(),
+    ownerId: s.string().schema(v.string()),
+  });
+  const client = createClient({
+    schema: { custom },
+    dataDir: ":memory:",
+  }) as unknown as Loose;
+  try {
+    await syncLiveSchema(client as never);
+    let calls = 0;
+    const once = frozen(own());
+    const verbs = {
+      custom: () => {
+        calls++;
+        return once;
+      },
+    };
+    for (let application = 0; application < 2; application++)
+      await client
+        .$extends(governed(verbs))
+        .custom!.findMany({ user: "alice" } as object);
+    expect(calls).toBe(2);
+  } finally {
+    await client.$disconnect();
+  }
 });

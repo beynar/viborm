@@ -67,53 +67,23 @@ const admittedLazily = new WeakMap<
   >
 >();
 const immutableData = new WeakSet<object>();
+const immutableRows = new WeakSet<object>();
+/**
+ * Deeply frozen plain data: records, arrays and admitted nodes. With
+ * `functions`, a function is a leaf known by identity (a lazy `verbs` entry,
+ * or the resolver admission puts in its place): what it returns is checked
+ * when it is called.
+ */
 export function isImmutableRowData(
   value: unknown,
-  open = new Set<object>()
+  open = new Set<object>(),
+  functions = false
 ): boolean {
-  if (value === null || typeof value !== "object")
-    return typeof value !== "function" && typeof value !== "symbol";
-  if (immutableData.has(value)) return true;
-  if (!Object.isFrozen(value) || open.has(value)) return false;
-  const prototype = Object.getPrototypeOf(value);
-  if (
-    Array.isArray(value)
-      ? prototype !== Array.prototype ||
-        !Array.from({ length: value.length }, (_, index) =>
-          Object.hasOwn(value, index)
-        ).every(Boolean)
-      : prototype !== Object.prototype &&
-        prototype !== null &&
-        prototype !== Parameter.prototype &&
-        prototype !== Condition.prototype
-  )
-    return false;
-  open.add(value);
-  const safe = Reflect.ownKeys(value).every((key) => {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    return (
-      typeof key === "string" &&
-      descriptor &&
-      "value" in descriptor &&
-      isImmutableRowData(descriptor.value, open)
-    );
-  });
-  open.delete(value);
-  if (safe) immutableData.add(value);
-  return safe;
-}
-
-/**
- * Immutable `rows` whose functions (lazy `verbs` entries, and the resolvers
- * admission puts in their place) are leaves known by identity: what one
- * returns is checked when it is called.
- */
-const immutableRows = new WeakSet<object>();
-function isImmutableRows(value: unknown, open = new Set<object>()): boolean {
-  if (typeof value === "function") return true;
+  if (typeof value === "function") return functions;
   if (value === null || typeof value !== "object")
     return typeof value !== "symbol";
-  if (immutableRows.has(value) || immutableData.has(value)) return true;
+  const known = functions ? immutableRows : immutableData;
+  if (known.has(value) || immutableData.has(value)) return true;
   if (!Object.isFrozen(value) || open.has(value)) return false;
   const prototype = Object.getPrototypeOf(value);
   if (
@@ -135,30 +105,16 @@ function isImmutableRows(value: unknown, open = new Set<object>()): boolean {
       typeof key === "string" &&
       descriptor &&
       "value" in descriptor &&
-      isImmutableRows(descriptor.value, open)
+      isImmutableRowData(descriptor.value, open, functions)
     );
   });
   open.delete(value);
-  if (safe) immutableRows.add(value);
+  if (safe) known.add(value);
   return safe;
 }
 
-/** An entry's data immutable, a lazy `acyclic` known by identity. */
-function isImmutableVerbs(entry: RowsVerbs): boolean {
-  return (
-    Object.isFrozen(entry) &&
-    Reflect.ownKeys(entry).every((key) => {
-      const descriptor = Object.getOwnPropertyDescriptor(entry, key);
-      return (
-        typeof key === "string" &&
-        descriptor !== undefined &&
-        "value" in descriptor &&
-        ((key === "acyclic" && typeof descriptor.value === "function") ||
-          isImmutableRowData(descriptor.value))
-      );
-    })
-  );
-}
+const isImmutableRows = (rows: object) =>
+  isImmutableRowData(rows, new Set(), true);
 
 /** Native admission of immutable input owns every newly produced container. */
 function freezeAdmitted(value: unknown, seen = new Set<object>()): void {
@@ -491,7 +447,7 @@ export function admitRows(
       if (cached && holds(cached)) return (admitted = cached.admitted);
       const declared = entry();
       const result = admitVerbs(name, declared);
-      if (native && isPlainRecord(declared) && isImmutableVerbs(declared)) {
+      if (native && isPlainRecord(declared) && isImmutableRows(declared)) {
         freezeAdmitted(result);
         let cache = admittedLazily.get(registry);
         if (!cache) {
