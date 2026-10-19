@@ -502,6 +502,19 @@ version: every model you name, and `tenantId` supplied on creates that omit it.
   without a column, wherever a filter goes. The test is one of `exists`,
   `equals`, `in`, `has` and `hasSome`. A false test removes its arm, the
   references inside it included, before anything below applies.
+- `{ $exists: { member: { userId: { control: "user" } } } }` holds where some
+  row of the named model matches its `where`, read under every other
+  extension's `related` rows and never this one's. It reads no row of the
+  statement, so a driver that shares repeated bodies (PostgreSQL, D1) writes
+  it once per statement.
+- `{ $row: "orgId", up: 1 }`, in a value position, is the column of the row
+  one relation body above (an `$exists` body counts as one; `up: 0` is the
+  same row): `{ $exists: { member: { orgId: { $row: "orgId", up: 1 } } } }`
+  asks for a member of this row's organization. It never reaches past the
+  predicate, across a `recurse` relation or a polymorphic one, and compares
+  columns of the same type (a string with an enum). An `$exists` that reads
+  an enclosing row this way is written where it is. A write changing a
+  column a body reads this way is judged on its new row.
 - A call that does not pass the control drops every filter that names it:
   that filter hides nothing. Mark the control `required` when a missing value
   must be refused instead, as tenancy does. A model the control is required

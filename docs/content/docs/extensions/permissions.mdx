@@ -1120,12 +1120,25 @@ Start with these three policy spellings, alongside the model's ordinary
 | `{ ownerId: { actor: "userId" } }` | the column equals a value of the actor |
 | `{ actor: { network: "office" } }` | a condition on the actor alone: true on every row or on none |
 | `{ group: "update" }` | the related row passes the target model's own `update` rule |
+| `{ $exists: { member: { userId: { actor: "userId" } } } }` | some `member` row matches: a check that does not depend on the row (see [Keeping policies small](#keeping-policies-small)) |
+| `{ role: { $row: "granteeRole", up: 1 } }` | the column of the row one relation body above (`up: 0`: the same row) |
 
 Advanced predicates can use `$if` conditions on bound actor values and
 `{ now: true }` for the call's instant, as in the [API key recipes](#10-api-keys-and-service-principals).
 
 A rule that reads itself through these references (a model's `read` that
 needs its own `read`) is refused when its model compiles, naming the cycle.
+
+An `$exists` body is a `where` of the model it names. Action names inside it
+are rules, as in a relation body: in
+`{ $exists: { project: { ownerId: { actor: "userId" }, team: "read" } } }`,
+the project's team must pass the team model's `read` rule. The body reads
+the model's rows under the other extensions only, never under this policy:
+it asks whether such a row exists, not whether the actor may see it. `{ $row, up }`
+counts relation bodies, and an `$exists` body, up from where it is written,
+never past the rule itself nor across a `recurse` relation. A `null` column
+never matches it: under `none` or `every`, that makes the quantifier hold, as
+for any comparison with `null`.
 
 ### The actor
 
@@ -1390,7 +1403,7 @@ reads and polymorphic arms.
 | an actor value of the wrong type, malformed scopes, or an unknown permission scope | `ValidationError` | at `$as` |
 | a missing required actor field | `ValidationError` | at `$as`, before a query |
 | an unknown model or action; an unknown key of the policy, of a model or of a `fields` entry; a `fields` entry naming no field; a misspelled reserved key or level | `ClientInitializationError` | when the policy is applied |
-| an unknown actor path inside a rule; a relation read at an action its target does not declare; a rule that reads itself | `ClientInitializationError` | at the first call that needs the model, and by `policy.compile(schema)` |
+| an unknown actor path inside a rule; a relation read at an action its target does not declare; a rule that reads itself; an empty or non-literal actor condition, or a field reference where a rule or a relation filter is expected; an `$exists` that names no single model; a `{ $row, up }` past the rule, across a `recurse`, or naming no scalar field | `ClientInitializationError` | at the first call that needs the model, and by `policy.compile(schema)` |
 | an unknown field inside a rule; `recurse: true`; a read-protected key or unique field | `ClientInitializationError` | at the first call that needs the model |
 | `can`/`assert` with a `where` that is not a unique key | `ValidationError` | before any statement |
 | an unlisted model; an operation or `as` the model does not declare | `ForbiddenError` | before any statement |
@@ -1521,6 +1534,61 @@ import { createClient, PgDriver } from "viborm/pg";
 const driver = new PgDriver({ databaseUrl, sharedRelationBodies: false }); // inline bodies
 const db = createClient({ schema, databaseUrl, sharedRelationBodies: false }); // the same
 ```
+
+### Keeping policies small
+
+A relation reference inlines the target's whole rule, its `mandatory`
+included, at every place it is read. A check written through the row (the
+organization's members, from each row's `organizationId`) is a different
+check for every row it starts from: neither the compiler nor the database
+can tell the copies apart. A policy whose every model's `mandatory` reads
+the actor's membership that way repeats it at every hop.
+
+When a check is about the actor, not the row, say so with `$exists`:
+
+```ts
+// Before: correlated to each row, repeated at every relation hop.
+const TENANT = {
+  organizationId: { actor: "organizationId" },
+  organization: { is: { members: { some: liveMembership } } },
+};
+
+// After: the row is in the actor's organization, and the actor is a live
+// member of that organization: the same check wherever it appears.
+const TENANT = {
+  organizationId: { actor: "organizationId" },
+  $exists: {
+    member: { organizationId: { actor: "organizationId" }, ...liveMembership },
+  },
+};
+```
+
+Role checks follow the same rule. A grant to a role,
+`{ granteeRole: "manager", ...memberWithRole("manager") }`, can test the
+actor's membership with `$exists` per role, or compare with the grant's own
+columns in one check:
+
+```ts
+{
+  granteeRole: { not: null },
+  $exists: {
+    member: {
+      organizationId: { $row: "organizationId", up: 1 },
+      userId: { actor: "userId" },
+      role: { $row: "granteeRole", up: 1 },
+    },
+  },
+}
+```
+
+On PostgreSQL drivers and D1, which share repeated bodies, each `$exists`
+that reads no row of the statement is written once per statement. The one
+check reading the grant's columns is correlated: it is written at every place
+it appears, smaller than four branches on SQLite3 and MySQL, larger than four
+shared ones where bodies are shared. Measured on a 40-model production policy
+(PGlite, empty tables), the membership checks rewritten with `$exists` made
+governed reads 15–28 % shorter and 25–35 % faster (an `accessGrant` read:
+26.3 KB, 14.0 ms → 21.5 KB, 10.6 ms).
 
 ### Size
 

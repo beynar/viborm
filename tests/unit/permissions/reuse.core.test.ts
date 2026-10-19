@@ -276,3 +276,91 @@ test("a field reference or an empty object never stands for a condition (1.3.1 r
   walk(compiled.predicates.read);
   expect(tokens).toEqual([refs.views]);
 });
+
+test("a rule's { $row, up } and $exists are checked where the rule is compiled", () => {
+  const folder = s.model({
+    id: s.string().id(),
+    ownerId: s.string(),
+    parentId: s.string().nullable(),
+    parent: s
+      .toOne(() => folder)
+      .fields("parentId")
+      .references("id")
+      .name("tree"),
+    children: s.toMany(() => folder).name("tree"),
+  });
+  const note = s.model({ id: s.string().id(), ownerId: s.string() });
+  const compile = (read: unknown) => () =>
+    policyCompiler(
+      {
+        actor: v.object({ userId: v.string() }),
+        models: { folder: { read }, note: { read: true } },
+      } as never,
+      { folder, note }
+    ).model("folder");
+  expect(compile({ ownerId: { $row: "ownerId", up: 1 } })).toThrow(
+    "reaches past the rule (0 relation bodies deep here)"
+  );
+  expect(
+    compile({
+      parent: {
+        recurse: { depth: false },
+        some: { ownerId: { $row: "ownerId", up: 1 } },
+      },
+    })
+  ).toThrow("across a recursive relation to folder");
+  expect(
+    compile({ parent: { is: { ownerId: { $row: "owner", up: 1 } } } })
+  ).toThrow('folder has no scalar field "owner"');
+  expect(compile({ $exists: { note: {}, folder: {} } })).toThrow(
+    "$exists names exactly one model"
+  );
+  // Inside an $exists body, up: 1 is the row that holds it.
+  const held = compile({
+    $exists: { note: { ownerId: { $row: "ownerId", up: 1 } } },
+  })();
+  expect(JSON.stringify(held.predicates.read)).toContain(
+    '"$exists":{"note":{"ownerId":{"$row":"ownerId","up":1}}}'
+  );
+});
+
+test("a write of a field a placement compares through { $row, up } is placed again", () => {
+  const org = s.model({ id: s.string().id(), members: s.toMany(() => member) });
+  const member = s.model({
+    id: s.string().id(),
+    orgId: s.string(),
+    userId: s.string(),
+    role: s.string(),
+    org: s
+      .toOne(() => org)
+      .fields("orgId")
+      .references("id"),
+  });
+  const grant = s.model({
+    id: s.string().id(),
+    orgId: s.string(),
+    role: s.string(),
+  });
+  const compiled = policyCompiler(
+    {
+      actor: v.object({ userId: v.string() }),
+      models: {
+        grant: {
+          read: true,
+          update: true,
+          create: {
+            $exists: {
+              member: {
+                userId: { actor: "userId" },
+                orgId: { $row: "orgId", up: 1 },
+                role: { $row: "role", up: 1 },
+              },
+            },
+          },
+        },
+      },
+    },
+    { org, member, grant }
+  ).model("grant");
+  expect(Object.keys(compiled.moves).sort()).toEqual(["orgId", "role"]);
+});
