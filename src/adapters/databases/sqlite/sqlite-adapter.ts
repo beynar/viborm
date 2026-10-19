@@ -575,10 +575,10 @@ const SQLITE_JSON = {
 
   emptyArray: (): Sql => sql.raw("json_array()"),
 
-  // Use json() to ensure the aggregated value is treated as JSON, not string
-  // Without json(), json_group_array produces ["{...}"] instead of [{...}]
-  agg: (expr: Sql): Sql =>
-    sql`COALESCE(json_group_array(json(${expr})), json_array())`,
+  // `expr` carries the JSON subtype (a json_object call, or a subquery
+  // column restored through `document`), so it is aggregated as JSON, not
+  // quoted as a string. Over no rows json_group_array is `[]`, never NULL.
+  agg: (expr: Sql): Sql => sql`json_group_array(${expr})`,
 
   objectFromColumns: sqliteJsonObject,
 

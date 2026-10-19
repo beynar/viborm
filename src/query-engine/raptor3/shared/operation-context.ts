@@ -2644,7 +2644,10 @@ export class OperationContext {
         (alias) => q.lowerSelector(target, alias),
         limited
       );
-    const judged = { model, refusal: this.#forbidden };
+    const judged = {
+      model,
+      refusal: this.#updateRefusal(model, selector.judgement),
+    };
     // A relation carrier reads other rows, which no RETURNING can carry: the
     // post-image is re-read by identity, as without RETURNING.
     if (
@@ -3432,7 +3435,7 @@ export class OperationContext {
       );
     });
     const judged = produced
-      ? { model, refusal: refusal ?? this.#forbidden }
+      ? { model, refusal: refusal ?? this.#updateRefusal(model, judgement) }
       : undefined;
     const context = this.statementContext(model, operation);
     if (!this.usesBatch && demanded.size) {
@@ -3917,6 +3920,37 @@ export class OperationContext {
       kind: "forbidden",
       message: `${this.operation} produced a row that is not permitted.`,
       raceable: false,
+    };
+  }
+  /**
+   * A root update's refusal of the row it produces, naming the fields it
+   * writes that a layer's `moves` judges again: the cause the operation does
+   * not show where a nested write wrote them (a to-one `delete: true` clears
+   * the key it holds). The plain refusal where it writes none.
+   */
+  #updateRefusal(
+    model: AnyModel,
+    judgement: RowJudgement | undefined
+  ): PreparedGuardFailure {
+    const layers =
+      judgement && this.scope?.rows.domain.verbs?.get(model["~"].names.ts!);
+    if (!(judgement && layers)) return this.#forbidden;
+    const moved = judgement.writes.filter((field) =>
+      layers.some((layer) => layer?.moves.has(field) === true)
+    );
+    if (moved.length === 0) return this.#forbidden;
+    // The relations, among the fields written, whose key holds a moved one.
+    const relations = model["~"].state.relations;
+    const through = judgement.writes.filter(
+      (field) =>
+        Object.hasOwn(relations, field) &&
+        relations[field]!["~"].state.foreignKey?.fields.some((key) =>
+          moved.includes(key)
+        ) === true
+    );
+    return {
+      ...this.#forbidden,
+      reason: `the row it would leave, judged again because it writes ${moved.join(", ")}${through.length > 0 ? ` (through ${through.join(", ")})` : ""}, is refused`,
     };
   }
   /**

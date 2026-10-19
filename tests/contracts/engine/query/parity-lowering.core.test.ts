@@ -460,3 +460,79 @@ describe("JSON mode precedence (D-22)", () => {
     expect(folds(reset)).toBe(folds(inherited));
   });
 });
+
+describe("quantifiers over one relation", () => {
+  const statement = (where: Record<string, unknown>) =>
+    build(new PostgresAdapter("public", true), "postgresql", "findMany", {
+      where,
+      select: { id: true },
+    });
+  const T = '"public"."parity_lowering_employees"';
+  const reports = (body: string) =>
+    `(SELECT 1 FROM ${T} AS "q1" WHERE ("q0"."id" = "q1"."managerId" AND ${body}))`;
+  const read = (where: string) =>
+    `SELECT "q0"."id" FROM ${T} AS "q0" WHERE ${where} ORDER BY "q0"."id" ASC`;
+
+  // EXISTS is two-valued: `EXISTS (… A) OR EXISTS (… B)` holds exactly where
+  // one member makes A or B TRUE, NULLs and an empty set included.
+  test("some A OR some B is some (A OR B), through nested ORs, and is likewise", () => {
+    expect(
+      statement({
+        OR: [
+          { OR: [{ reports: { some: { name: "a" } } }, { views: 1 }] },
+          { reports: { some: { views: { gt: 3 } } } },
+        ],
+      })
+    ).toBe(
+      read(
+        `(EXISTS ${reports('("q1"."name" = ? OR "q1"."views" > ?)')} OR "q0"."views" = ?)`
+      )
+    );
+    expect(
+      statement({
+        OR: [
+          { manager: { is: { name: "a" } } },
+          { manager: { is: { views: 2 } } },
+        ],
+      })
+    ).toBe(
+      read(
+        `EXISTS (SELECT 1 FROM ${T} AS "q1" WHERE ("q0"."managerId" = "q1"."id" AND ("q1"."name" = ? OR "q1"."views" = ?)))`
+      )
+    );
+  });
+
+  test("none A AND none B is none (A OR B); merged bodies merge again", () => {
+    expect(
+      statement({
+        AND: [
+          { reports: { none: { name: "a" } } },
+          { reports: { none: { views: 2 } } },
+        ],
+      })
+    ).toBe(
+      read(`NOT EXISTS ${reports('("q1"."name" = ? OR "q1"."views" = ?)')}`)
+    );
+    // The merged body is an OR like any other: one column's equalities are its `in`.
+    expect(
+      statement({
+        OR: [
+          { reports: { some: { name: "a" } } },
+          { reports: { some: { name: "b" } } },
+        ],
+      })
+    ).toBe(read(`EXISTS ${reports('"q1"."name" = ANY(?)')}`));
+  });
+
+  test("every, a presence test and an anti-join keep their own subquery", () => {
+    const kept = statement({
+      OR: [
+        { reports: { some: { name: "a" } } },
+        { reports: { every: { views: 2 } } },
+        { manager: { is: null } },
+        { manager: { isNot: { name: "b" } } },
+      ],
+    });
+    expect(kept.match(/EXISTS/g)).toHaveLength(4);
+  });
+});

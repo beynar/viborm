@@ -1,6 +1,7 @@
 // viborm/permissions: one predicate per (model, action), judged in the statement
-// (docs/architecture/rbac-extension-plan.md). An ordinary definition built
-// from public capabilities only.
+// (docs/architecture/rbac-extension-plan.md). An ordinary definition applied
+// through public capabilities; compiling it reads the schema's declarations
+// through the internal `["~"]` accessors.
 //
 // This file is the entry: `permissions(config)` checks the actor schema at once and
 // compiles the policy against the schema it governs. The policy's types are
@@ -853,10 +854,7 @@ export function permissions<const Config extends PermissionsConfig>(
   const compile = (schema: Schema) => compilePolicy(config, schema, actor);
   // Public compile() remains an independent inspection result. Application
   // caches only owned immutable data, never a client, actor, or driver.
-  const prepared = new WeakMap<
-    Schema,
-    { current: () => boolean; definition: object }
-  >();
+  const prepared = new WeakMap<Schema, Prepared>();
   /** The `rows` definition over one compiled policy: everything but its verbs. */
   const definitionOf = (
     scopes: CompiledPolicy["scopes"],
@@ -946,23 +944,48 @@ export function permissions<const Config extends PermissionsConfig>(
     const compiled = compile(schema);
     return definitionOf(compiled.scopes, compiled.models, verbsOf(compiled));
   };
-  const rows = (base: VibORMClient<VibORMConfig, ExtensionState>) => {
-    const schema = base.$schema as Schema;
+  /**
+   * The application of the policy to `schema`: kept while the declaration
+   * and the schema are unchanged (the revision), rebuilt once either is not.
+   */
+  const preparedFor = (schema: Schema): Prepared => {
     const prior = prepared.get(schema);
-    if (prior?.current()) return extend(base, prior.definition);
+    if (prior?.current()) return prior;
     prepared.delete(schema);
     const current = declarationRevision(
       [config, schema],
       new Set([config.actor, ...Object.values(schema)])
     );
-    if (current === undefined) return extend(base, eagerDefinition(schema));
-    const definition = lazyDefinition(schema);
-    if (current()) prepared.set(schema, { current, definition });
-    return extend(base, definition);
+    if (current === undefined)
+      return { current: () => false, definition: eagerDefinition(schema) };
+    const entry: Prepared = { current, definition: lazyDefinition(schema) };
+    if (current()) prepared.set(schema, entry);
+    return entry;
   };
-  const methods = (client: VibORMClient<VibORMConfig, ExtensionState>) => {
+  /**
+   * Every listed model's actions, checked (a misspelled action is refused
+   * here): once per application while it is current, since the check
+   * measures edit distances against every reserved key and level.
+   */
+  const declaredActions = (entry: Prepared | undefined) => {
+    if (entry?.actions) return entry.actions;
+    const actions = new Map(
+      Object.keys(config.models).map((model) => [
+        model,
+        evidenceOf(config, model).names,
+      ])
+    );
+    if (entry) entry.actions = actions;
+    return actions;
+  };
+  const rows = (base: VibORMClient<VibORMConfig, ExtensionState>) =>
+    extend(base, preparedFor(base.$schema as Schema).definition);
+  const withMethods = (
+    client: VibORMClient<VibORMConfig, ExtensionState>,
+    actions: ReadonlyMap<string, readonly string[]>
+  ) => {
     const answers = (model: string) => {
-      const { names } = evidenceOf(config, model);
+      const names = actions.get(model)!;
       return (delegate: never) => {
         const read = delegate as {
           findUnique(args: object): PromiseLike<Row | null>;
@@ -1007,17 +1030,38 @@ export function permissions<const Config extends PermissionsConfig>(
     return extend(client, {
       name: `${NAME}.methods`,
       model: Object.fromEntries(
-        Object.keys(config.models).map((model) => [model, answers(model)])
+        [...actions.keys()].map((model) => [model, answers(model)])
       ),
     });
   };
-  const apply = (base: VibORMClient<VibORMConfig, ExtensionState>) =>
-    methods(rows(base));
+  const methods = (client: VibORMClient<VibORMConfig, ExtensionState>) => {
+    const entry = prepared.get(client.$schema as Schema);
+    return withMethods(
+      client,
+      declaredActions(entry?.current() ? entry : undefined)
+    );
+  };
+  // One revision check serves both steps of an application.
+  const apply = (base: VibORMClient<VibORMConfig, ExtensionState>) => {
+    const entry = preparedFor(base.$schema as Schema);
+    return withMethods(extend(base, entry.definition), declaredActions(entry));
+  };
   // The steps are typed by `Policy`: for a client generic over its state,
   // the client-method guard stays deferred and refuses every client method.
   return Object.freeze(
     Object.assign(apply, { config, compile, rows, methods })
   ) as unknown as Policy<Config>;
+}
+
+/**
+ * A policy applied to one schema: its `rows` definition and, once the
+ * methods step has checked them, every listed model's action names. Both
+ * hold while `current()` does.
+ */
+interface Prepared {
+  readonly current: () => boolean;
+  readonly definition: object;
+  actions?: ReadonlyMap<string, readonly string[]>;
 }
 
 /** Freeze `value` and everything it holds; functions stay as they are. */

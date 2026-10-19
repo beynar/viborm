@@ -1036,6 +1036,133 @@ export function runDomainPredicateBehavior(
         ).toContain('rows.doc.on.root at "$if"');
     });
 
+    test("relation chains and repeated quantifiers answer as their oracle: a chain read through its outer row, merged some, is, none and isNot", async () => {
+      const base = await seeded();
+      type Lead = (typeof LEADS)[number];
+      const hidden = base.$extends(
+        rows("hide", { member: { related: { id: { not: "m1" } } } })
+      );
+      const read = async (db: Loose, root: object) =>
+        shape(
+          await db
+            .$extends(rows("chain", { lead: { root } }))
+            .lead.findMany({ select: { id: true } })
+        );
+      const oracle = (holds: (lead: Lead) => boolean) =>
+        shape(idsOf(LEADS.filter(holds)));
+      const orgOf = (lead: Lead) => byId(TEAMS, lead.teamId)!.orgId;
+      const teamHas = (
+        teamId: string,
+        member: (row: (typeof MEMBERS)[number]) => boolean
+      ) => MEMBERS.some((row) => row.teamId === teamId && member(row));
+      const own = (lead: Lead) =>
+        teamHas(lead.teamId, (row) => row.userId === lead.userId);
+      const sameUser = (up: number) => ({ userId: { $row: "userId", up } });
+      // Two bodies down, and four: each relation body below the first is
+      // a conjunct reading the lead itself.
+      const twoDown = { team: { is: { members: { some: sameUser(2) } } } };
+      expect(await read(base, twoDown)).toEqual(oracle(own));
+      expect(
+        await read(hidden, twoDown),
+        "each hop keeps its related rows"
+      ).toEqual(
+        oracle((lead) =>
+          teamHas(
+            lead.teamId,
+            (row) => row.id !== "m1" && row.userId === lead.userId
+          )
+        )
+      );
+      expect(
+        await read(base, {
+          team: {
+            is: {
+              org: {
+                is: { teams: { some: { members: { some: sameUser(4) } } } },
+              },
+            },
+          },
+        })
+      ).toEqual(
+        oracle((lead) =>
+          TEAMS.some(
+            (team) =>
+              team.orgId === orgOf(lead) &&
+              teamHas(team.id, (row) => row.userId === lead.userId)
+          )
+        )
+      );
+      expect(
+        await read(base, { team: { is: { members: { none: sameUser(2) } } } })
+      ).toEqual(oracle((lead) => !own(lead)));
+      // Quantifiers over one relation, OR-ed or (negated) AND-ed.
+      expect(
+        await read(base, {
+          OR: [
+            { team: { is: { members: { some: { userId: "u2" } } } } },
+            { team: { is: { members: { some: { id: "m3" } } } } },
+          ],
+        })
+      ).toEqual(
+        oracle((lead) =>
+          teamHas(lead.teamId, (row) => row.userId === "u2" || row.id === "m3")
+        )
+      );
+      expect(
+        await read(base, {
+          AND: [
+            { team: { is: { members: { none: { userId: "u2" } } } } },
+            { team: { is: { members: { none: { id: "m3" } } } } },
+          ],
+        })
+      ).toEqual(
+        oracle(
+          (lead) =>
+            !teamHas(
+              lead.teamId,
+              (row) => row.userId === "u2" || row.id === "m3"
+            )
+        )
+      );
+      expect(
+        await read(base, {
+          AND: [
+            { team: { isNot: { name: "aux" } } },
+            { team: { isNot: { orgId: "o3" } } },
+          ],
+        })
+      ).toEqual(
+        oracle((lead) => {
+          const team = byId(TEAMS, lead.teamId)!;
+          return team.name !== "aux" && team.orgId !== "o3";
+        })
+      );
+      // Merged, the chain sits under the body's OR: no longer a conjunct.
+      expect(
+        await read(base, {
+          OR: [
+            { team: { is: { orgId: "o5" } } },
+            {
+              team: {
+                is: {
+                  members: { some: { ...sameUser(2), id: { not: "m1" } } },
+                },
+              },
+            },
+          ],
+        })
+      ).toEqual(
+        oracle(
+          (lead) =>
+            orgOf(lead) === "o5" ||
+            teamHas(
+              lead.teamId,
+              (row) => row.id !== "m1" && row.userId === lead.userId
+            )
+        )
+      );
+    });
+
     test("{ now: true } is the call's one instant (R7), never one frozen at $extends", async () => {
       const base = await seeded();
       const db = base.$extends(

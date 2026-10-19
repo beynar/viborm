@@ -484,7 +484,10 @@ export interface DatabaseAdapter {
     emptyArray: () => Sql;
     /**
      * Aggregate rows into a JSON array. An empty aggregate is the empty array,
-     * never SQL NULL, so no caller wraps it in its own COALESCE.
+     * never SQL NULL, so no caller wraps it in its own COALESCE. `expr` is a
+     * JSON value as built here (`object`, `array`): one read back through a
+     * subquery column goes through `document` first, which SQLite needs to
+     * keep it a JSON value rather than a quoted string.
      */
     agg: (expr: Sql) => Sql;
     /** Build JSON object from explicit column list (works on all databases) */
@@ -729,8 +732,15 @@ export interface DatabaseAdapter {
    * Common Table Expressions
    */
   cte: {
-    /** Build WITH clause: WITH name AS (query), ... */
-    with: (definitions: { name: string; query: Sql }[]) => Sql;
+    /**
+     * Build WITH clause: WITH name AS (query), ... A member `inlined` is read
+     * correlated to each outer row through its own columns: PostgreSQL would
+     * materialize a member read twice and scan it, without an index, once
+     * per row, so it is written `NOT MATERIALIZED` there.
+     */
+    with: (
+      definitions: { name: string; query: Sql; inlined?: boolean }[]
+    ) => Sql;
     /**
      * Build recursive CTE: WITH RECURSIVE name AS (anchor UNION ALL recursive).
      * The query engine calls only the `"distinct"` mode (`UNION`); the default

@@ -76,7 +76,7 @@ describe("fixed-decimal foreign-key domains", () => {
     let refusal: unknown;
 
     try {
-      publication = validateResolvedSchemaOrThrow(schema, allRules);
+      publication = validateResolvedSchemaOrThrow(schema, allRules());
     } catch (error) {
       refusal = error;
     }

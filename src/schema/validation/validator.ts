@@ -98,7 +98,7 @@ export class SchemaValidator {
   }
 
   /** Validate all registered models */
-  validate(rules: ValidationRule[] = allRules): ValidationResult {
+  validate(rules: ValidationRule[] = allRules()): ValidationResult {
     const errors: SchemaValidationIssue[] = [];
     const warnings: SchemaValidationIssue[] = [];
     for (const issue of schemaIssues(
@@ -121,7 +121,7 @@ export class SchemaValidator {
    * topology. `validate` already reports every resolution issue by severity,
    * so validity and a successful resolution are one fact stated here once.
    */
-  validateOrThrow(rules: ValidationRule[] = allRules): ResolvedRelationIndex {
+  validateOrThrow(rules: ValidationRule[] = allRules()): ResolvedRelationIndex {
     const result = this.validate(rules);
     const resolution = this.resolve();
     if (result.valid && resolution.ok) return resolution.index;
@@ -189,7 +189,7 @@ export function validateSchema(
 export function validateSchemaOrThrow(
   models: Record<string, Model<any>>
 ): void {
-  validateResolvedSchemaOrThrow(models, allRules);
+  validateResolvedSchemaOrThrow(models, allRules());
 }
 
 /** Internal validation boundary that also publishes the trusted topology. */

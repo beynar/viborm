@@ -11,4 +11,11 @@ import type { ValidationRule } from "../types";
 import { modelRules } from "./model";
 import { relationRules } from "./relation";
 
-export const allRules: ValidationRule[] = [...modelRules, ...relationRules];
+/**
+ * Every advisory rule, model rules first. A function, not a module constant:
+ * the spread would run at import, so a bundle that never validates advice
+ * would still keep every rule.
+ */
+export function allRules(): ValidationRule[] {
+  return [...modelRules, ...relationRules];
+}

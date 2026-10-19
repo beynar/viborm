@@ -498,7 +498,7 @@ describe("projecting an identifier column", () => {
       select: { id: true, slug: true },
     }).toStatement("$n");
     expect(select).toBe(
-      `SELECT "q0"."id" AS "id", "q0"."slug" AS "slug" FROM "public"."user" AS "q0" ORDER BY "q0"."id" ASC`
+      `SELECT "q0"."id", "q0"."slug" FROM "public"."user" AS "q0" ORDER BY "q0"."id" ASC`
     );
   });
 
@@ -643,7 +643,7 @@ describe("filtering an identifier column", () => {
     });
     expect(where.values).toEqual([bytesOf(UUID_HEX)]);
     expect(where.toStatement("$n")).toBe(
-      "SELECT `q0`.`slug` AS `slug` FROM `user` AS `q0` WHERE `q0`.`id` = $1 ORDER BY `q0`.`id` ASC"
+      "SELECT `q0`.`slug` FROM `user` AS `q0` WHERE `q0`.`id` = $1 ORDER BY `q0`.`id` ASC"
     );
     // The same column under `notIn` is not wrapped for exact text either.
     expect(

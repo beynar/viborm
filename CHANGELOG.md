@@ -3,6 +3,68 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## 1.3.3 — unreleased
+
+Faster SQL plans on PostgreSQL and SQLite, shorter SQL, faster result
+decoding and a cheaper permissions client per request. Measurements are in
+`benchmarks/perf-1.3.3.md`.
+
+### Fixed
+
+- **Shared relation bodies are no longer slow on large PostgreSQL tables.**
+  PostgreSQL 12+ materializes a `WITH` member read twice and scans it,
+  without an index, once per outer row. A relation body, read per row
+  through its key, is now written `NOT MATERIALIZED` where it reads no other
+  shared body; a body that reads another one, and every `$exists` body, keep
+  the materialized form, which a large policy needs. A nested include under
+  a `posts some` policy went from 19.7 ms to 1.5 ms at 100k posts (4.8 ms to
+  1.2 ms at 20k); a 40-model policy's `can` over every row is unchanged
+  (inlining every body made it 11× slower).
+- **An `upsert` that finds a row its policy may not update** now fails with
+  `ForbiddenError` (the update is not permitted), with the unique-constraint
+  error as its cause, instead of a bare `UniqueConstraintError`. A missing
+  row is still created, and `update: {}` still returns the existing row.
+- **A refused nested to-one `delete`** names its real cause: the row it
+  would leave, judged again because it writes the foreign key.
+- **The permissions guide** says what `distinct` and `groupBy` do on a field
+  the actor cannot read (it reads as `NULL`, so rows merge), lists updates
+  over a unique key among the existence leaks, and no longer claims the
+  extension uses only public capabilities.
+
+### Changed
+
+- **Ordering by a to-one relation field** joins the relation once (`LEFT
+  JOIN`, its domain filters in `ON`) instead of a subquery per row: 414 ms to
+  79 ms on PGlite and 38 ms to 11 ms on SQLite at 100k posts; two hops
+  941 ms to 221 ms.
+- **Cursor pagination with mixed directions** adds a range bound on a
+  non-nullable leading key, so an index serves deep pages: 143 ms to 1.1 ms
+  (PGlite) and 90 ms to 0.24 ms (SQLite) at row 75k.
+- **A nested `some`/`is` filter that reads an enclosing row (`{ $row, up }`)**
+  joins into its parent's `EXISTS`: a policy count on 200k documents went
+  from 864 ms to 87 ms on PGlite.
+- **`some A OR some B` on one relation is `some (A OR B)`** (and `is`;
+  `none`/`isNot` under `AND`): the permissions acceptance policy's SQL is
+  8–12% shorter, with a third fewer recursive walks.
+- **Shared bodies in row-locating lookups.** The `SELECT … FOR UPDATE` an
+  `upsert` or nested `update` runs under a policy shares its repeated bodies
+  as reads and writes do: 45.3 KB to 35.3 KB and 230 to 122 bound values.
+- **Shorter projections.** SQLite builds relation JSON with one
+  `json_group_array(json_object(…))` (a 9.4 MB nested include: 181 ms to
+  109 ms); PostgreSQL and MySQL leave out `AS "c"` after `"t"."c"`; no
+  doubled `COALESCE` around relation JSON, none around relation counts, and
+  no `WHERE TRUE` in recursive walks. Plain reads are about 11% shorter on
+  PostgreSQL and MySQL.
+- **Faster decoding.** JSON values are no longer copied key by key after
+  parsing, and canonical stored timestamps skip the regex: a 100-row read
+  allocates 28% less.
+- **Cheaper permissions client per request.** `$extends` checks a policy's
+  action names once per declaration revision: `$extends(policy).$as(actor)`
+  plus `findUnique` went from 358 µs to 121 µs. A query interceptor's
+  `input` is copied when it is first read, not on every call.
+- **Smaller bundles.** Schema validation rules are no longer kept in client
+  bundles: about 1.65 kB gzip less on every application bundle.
+
 ## 1.3.2 — 2026-10-19
 
 A permissions policy now compiles each model the first time a call needs

@@ -153,6 +153,43 @@ describe("relation bodies a statement repeats, stated once", () => {
     expect(shared.statements[1]).not.toBe(plain.statements[1]);
   });
 
+  // A write's row lookups are statements of their own (`Queries.select`):
+  // an upsert's probe and its located row state the repeated body once.
+  test("an upsert's located lookups state the repeated body once, read twice", async () => {
+    const shared = await open(true);
+    const plain = await open(false);
+    const answers: unknown[] = [];
+    for (const { db } of [shared, plain])
+      answers.push(
+        await db.doc.upsert({
+          user: "ann",
+          where: { id: "d1" },
+          create: { id: "d9", title: "n", orgId: "o1" },
+          update: { title: "z" },
+          select: { id: true, title: true },
+        })
+      );
+    expect(answers).toEqual([
+      { id: "d1", title: "z" },
+      { id: "d1", title: "z" },
+    ]);
+    // The probe and the located row: `take: 1` lookups of the governed doc.
+    const lookups = shared.statements.filter((statement) =>
+      statement.endsWith("LIMIT ?")
+    );
+    expect(lookups).toHaveLength(2);
+    for (const lookup of lookups) {
+      expect(
+        lookup.startsWith(
+          `WITH "__shared_0" AS (${MEMBERS}), "__shared_1" AS (SELECT "q1"."id" AS "k0" FROM "org" AS "q1" `
+        )
+      ).toBe(true);
+      expect(lookup.split('FROM "__shared_1" WHERE').length - 1).toBe(2);
+    }
+    for (const statement of plain.statements)
+      expect(statement).not.toContain("WITH");
+  });
+
   test("both spellings read, count and write the same rows", async () => {
     const shared = await open(true);
     const plain = await open(false);

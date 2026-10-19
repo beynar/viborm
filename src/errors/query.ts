@@ -135,16 +135,22 @@ export class ForbiddenError extends VibORMError {
   /** Literal discriminant: this class always carries `FORBIDDEN`. */
   declare readonly code: typeof VibORMErrorCode.FORBIDDEN;
 
+  /**
+   * `reason` names what refused the operation where the operation alone does
+   * not say it, e.g. a field an update writes through a nested write;
+   * `cause`, the failure it explains (an upsert's unique violation).
+   */
   constructor(
     model: string,
     operation: string,
-    options?: { meta?: VibORMErrorMeta }
+    options?: { meta?: VibORMErrorMeta; reason?: string; cause?: Error }
   ) {
     super(
-      `The ${operation} on ${model} is not permitted`,
+      `The ${operation} on ${model} is not permitted${options?.reason ? `: ${options.reason}` : ""}`,
       VibORMErrorCode.FORBIDDEN,
       {
         meta: { ...options?.meta, model, operation },
+        cause: options?.cause,
       }
     );
   }

@@ -1,7 +1,9 @@
 import {
+  ForbiddenError,
   NestedWriteError,
   NotFoundError,
   TransactionError,
+  UniqueConstraintError,
   UnsupportedOperationError,
 } from "@errors";
 import type { AnyModel } from "@schema/model";
@@ -28,7 +30,7 @@ import {
   type MembershipContribution,
   type Origin,
 } from "./assignments";
-import { CommandExecution } from "./execution";
+import { CommandExecution, namesKeyConstraint } from "./execution";
 import { RelationBody } from "./relation-body";
 import {
   type BoundMembership,
@@ -1922,6 +1924,56 @@ export class Commands {
    * no RETURNING spelling, and a provider without RETURNING must re-read.
    */
   /**
+   * An upsert on a model whose rows layers grant no update (its `update`
+   * predicate matches nothing): its update arm never finds the row, so a row
+   * that exists sends it to the create arm, and the database refuses the
+   * key. That refusal is the update's, so it is reported as a
+   * `ForbiddenError` with the unique violation as its cause, where the
+   * create proposes for that key exactly the values `where` named and the
+   * violated constraint is that key (the adapter's constraint identity); any
+   * other unique violation is the create's own.
+   */
+  #foundUnwritable(
+    model: AnyModel,
+    args: Arguments,
+    plan: PhysicalPlan
+  ): PhysicalPlan {
+    const name = model["~"].names.ts!;
+    const layers = this.context.scope?.rows.domain.verbs?.get(name);
+    const unwritable = layers?.some(
+      (layer) => layer !== undefined && matchesNothing(layer.update)
+    );
+    if (!unwritable) return plan;
+    const { uniqueKey: key, uniqueValues } =
+      this.context.queries.prepareSelector(model, args.where, true);
+    if (key === undefined || uniqueValues === undefined) return plan;
+    const create = record(args.create);
+    // The create arm inserting another key's row is not the located row.
+    if (
+      !key.fields.every((field) =>
+        sameKeyValue(create[field], uniqueValues.get(field))
+      )
+    )
+      return plan;
+    return {
+      single: plan.single,
+      run: () =>
+        plan.run().catch((error: unknown) => {
+          if (
+            !(
+              error instanceof UniqueConstraintError &&
+              namesKeyConstraint(this.context, model, key, error)
+            )
+          )
+            throw error;
+          throw new ForbiddenError(name, "update", {
+            reason: "the row this upsert locates exists",
+            cause: error,
+          });
+        }),
+    };
+  }
+  /**
    * The array route's upsert. That route prepares a package and issues no
    * read of its own, so the conditional form (a locate, two arms and their
    * premises, then a terminal read) cannot be built there at all. The shipped
@@ -2193,7 +2245,7 @@ export class Commands {
     }
     if (ctx.operation === "upsert") {
       const folded = this.#rootUpsert(model, args, raw);
-      if (folded) return folded;
+      if (folded) return this.#foundUnwritable(model, args, folded);
       const missing = this.create(model, args.create!, raw.create!);
       missing.operation = "upsert";
       const lookup = this.lookup(model, {
@@ -2298,10 +2350,10 @@ export class Commands {
         foundArm.refusal =
           ctx.schema.keyPortabilityRefusal(model, args.update) ??
           foundArm.refusal;
-      return {
+      return this.#foundUnwritable(model, args, {
         single: false,
         run: () => this.execution.complete(occurrence, args),
-      };
+      });
     }
     if (ctx.operation === "create" || ctx.operation === "update") {
       const folded =
@@ -2383,4 +2435,21 @@ export class Commands {
       },
     };
   }
+}
+
+/** `{ OR: [] }`: the predicate a verb a rows layer leaves out takes. */
+function matchesNothing(predicate: Input): boolean {
+  const members = predicate.OR;
+  return (
+    Array.isArray(members) &&
+    members.length === 0 &&
+    Object.keys(predicate).length === 1
+  );
+}
+
+/** A literal key value as `where` names it: dates by their instant. */
+function sameKeyValue(proposed: unknown, selected: unknown): boolean {
+  if (proposed instanceof Date && selected instanceof Date)
+    return proposed.getTime() === selected.getTime();
+  return Object.is(proposed, selected);
 }

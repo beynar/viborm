@@ -199,7 +199,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     installAdapterNamespace(this, namespace, "postgresql");
     // Reads the installed value, so it cannot be a field initializer: those run
     // before the constructor body.
-    this.identifiers = createIdentifiers(quoteIdent, this.namespace);
+    this.identifiers = createIdentifiers(quoteIdent, this.namespace, true);
     installGeoPointSql(this, postgis ? this.#createGeoPointSql() : undefined);
     installAdapterInternals(this, {
       batchRefs: this.#batchRefs,
@@ -575,7 +575,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     },
   };
 
-  cte = createCteBuilders(quoteIdent);
+  cte = createCteBuilders(quoteIdent, sql.raw("NOT MATERIALIZED"));
 
   mutations = {
     skipDuplicatesStrategy: "sql" as const,

@@ -111,6 +111,12 @@ The selected permission is added to the statement:
 
 `create` checks the proposed new row; `read`, `update` and `delete` check stored
 rows. A creation grant needs no update grant. See [creation](#3-who-may-create-what).
+An `upsert` on a model without the update action still creates a missing row.
+When the row it locates exists, the update is not permitted: a `ForbiddenError`
+for the update, with the database's unique violation as its `cause` (where the
+provider names the violated key; otherwise the `UniqueConstraintError` itself).
+`update: {}` writes nothing, so a find-or-create `upsert` needs only `create`
+(and `read` to return a row that exists).
 
 What follows from it:
 
@@ -393,8 +399,16 @@ project: {
   never overrides `update: false`. The extra check comes from the written field,
   never from a permission chosen by the caller.
 - **`read`:** where the caller lacks `full`, `budget` is left out of the
-  row, and every `where`, `orderBy` or cursor over it reads it as absent.
-  Rows are never dropped because of it. Explicitly selecting it
+  row, and everything that reads it in the statement reads `NULL` on that
+  row: `where`, `orderBy`, cursors, `distinct`, `groupBy` and aggregates.
+  The withheld field alone never hides a row from `findMany` or `count`,
+  but whatever compares or groups by it sees those rows as `NULL`:
+  `where: { budget: { gt: 5 } }` excludes them and `where: { budget: null }`
+  matches them all, `distinct: ["budget"]` keeps one of them, `groupBy({ by:
+  ["budget"] })` merges them into one `null` group, and `_sum`/`_count` of
+  `budget` skip them. To return or count every row, do not filter,
+  deduplicate or group on a read-gated field; use a field the caller reads,
+  or call as an actor who holds `full`. Explicitly selecting it
   (`select: { budget: true }`) on such a row is a `ValidationError`.
 - A key, a unique field or a foreign key cannot be read-protected: the
   model's first call is refused.
@@ -1136,7 +1150,9 @@ the project's team must pass the team model's `read` rule. The body reads
 the model's rows under the other extensions only, never under this policy:
 it asks whether such a row exists, not whether the actor may see it. `{ $row, up }`
 counts relation bodies, and an `$exists` body, up from where it is written,
-never past the rule itself nor across a `recurse` relation. A `null` column
+never past the rule itself nor across a `recurse` or polymorphic relation (a
+polymorphic one is refused at the first call that reads the rule, not when its
+model compiles). A `null` column
 never matches it: under `none` or `every`, that makes the quantifier hold, as
 for any comparison with `null`.
 
@@ -1378,6 +1394,12 @@ actor-path mistakes are still rejected when its model compiles.
 - `set: []` and `disconnect` refuse a visible link the caller may not write;
   a to-one `delete: true` on a target the caller may not delete is a
   `NestedWriteError`.
+- A refused new row names the fields that judged it again when the update
+  writes them through a relation. With `create: { authorId: { not: null } }`,
+  `post.update({ data: { author: { delete: true } } })` clears `authorId`, and
+  fails with `The update on post is not permitted: the row it would leave,
+  judged again because it writes authorId (through author), is refused`: the
+  `create` rule reads `authorId`, so the row the update leaves must pass it.
 
 ### Reads, in detail
 
@@ -1404,16 +1426,18 @@ reads and polymorphic arms.
 | a missing required actor field | `ValidationError` | at `$as`, before a query |
 | an unknown model or action; an unknown key of the policy, of a model or of a `fields` entry; a `fields` entry naming no field; a misspelled reserved key or level | `ClientInitializationError` | when the policy is applied |
 | an unknown actor path inside a rule; a relation read at an action its target does not declare; a rule that reads itself; an empty or non-literal actor condition, or a field reference where a rule or a relation filter is expected; an `$exists` that names no single model; a `{ $row, up }` past the rule, across a `recurse`, or naming no scalar field | `ClientInitializationError` | at the first call that needs the model, and by `policy.compile(schema)` |
+| a `{ $row, up }` across a polymorphic relation, or naming a column its field cannot be compared with (another type, a decimal of another scale) | `UnsupportedOperationError` | at the first call whose statement reads the rule; `policy.compile(schema)` does not check it |
 | an unknown field inside a rule; `recurse: true`; a read-protected key or unique field | `ClientInitializationError` | at the first call that needs the model |
 | `can`/`assert` with a `where` that is not a unique key | `ValidationError` | before any statement |
 | an unlisted model; an operation or `as` the model does not declare | `ForbiddenError` | before any statement |
+| an `upsert` onto an existing row of a model without the update action | `ForbiddenError` for the update, the unique violation as `cause` | after the statement |
 | a hidden root row in `findUnique` or `findFirst` | `null` (or `NotFoundError` for the `OrThrow` variants) | after the statement |
 | a hidden or non-writable root row in a singular update/delete | `NotFoundError` | after the statement |
 | a new row refused at the root (create, move, written key, cycle); `assert` | `ForbiddenError` (`V13001`) | in the statement, before the write |
 | a hidden nested target, or a nested create refused | `NestedWriteError` | in the operation |
 | an explicit `select` of a field the row withholds | `ValidationError` at `select.<field>` | after the read |
 | `$withCache` on a governed view, unless `cache: "allow"` | `ValidationError` at `actor` | before any statement |
-| a create or upsert over a unique key a hidden row holds | `UniqueConstraintError` | the database's |
+| a create, upsert or update writing a unique value a hidden row holds | `UniqueConstraintError` | the database's |
 
 Authorization refusals do not distinguish a hidden target from a missing one,
 or a row the caller cannot see from one it cannot write. Database constraint
@@ -1475,20 +1499,22 @@ policy, soft delete and actor `u02`, on local workerd. They are pinned by
 `tests/providers/workers/d1-permissions-statement-budget.test.ts`, which turns red
 when a refused read starts to run:
 
-- D1 runs `findMany` with `$access` on `accessGrant` (45,287 bytes, 26
-  values), `page` (13,833 bytes), `page` including its group with `$access`
-  (16,140 bytes) and `document` (27,527 bytes). It also runs the root
+- D1 runs `findMany` with `$access` on `accessGrant` (41,283 bytes, 26
+  values), `page` (13,825 bytes), `page` including its group with `$access`
+  (16,132 bytes) and `document` (22,978 bytes). It also runs the root
   documents with `$access` at three levels, the roots, their children and
-  theirs (61,659 bytes, 39 values).
-- D1 refuses two reads with `SQLITE_TOOBIG`: the same three levels including
-  each level's grants with `$access` (106,197 bytes, 57 values), and
-  `document.findMany` including every relation with `$access` (100,850 bytes,
-  79 values).
-- D1 refuses two reads with `SQLITE_NOMEM`, both inside the published limits:
-  `page.findMany` with `$access` at every level of an include through the
-  group, its grants and pages, and the page's grants (83,620 bytes, 64
-  values), and `accessGrant.findMany` including every relation with `$access`
-  (76,878 bytes, 74 values).
+  theirs (48,946 bytes, 39 values).
+- D1 refuses four reads with `SQLITE_NOMEM`, all inside the published
+  limits:
+  - the same three levels including each level's grants with `$access`
+    (89,678 bytes, 57 values);
+  - `document.findMany` including every relation with `$access` (84,796
+    bytes, 79 values);
+  - `page.findMany` with `$access` at every level of an include through the
+    group, its grants and pages, and the page's grants (75,514 bytes, 64
+    values);
+  - `accessGrant.findMany` including every relation with `$access` (68,874
+    bytes, 74 values).
 - A caller's relation filter nested 15 levels deep (`parent: { parent: … }`,
   the most the filter admits) runs under a read rule of three `OR` arms. Each
   level adds about 5 to the expression depth, and the rule's own height is
@@ -1518,7 +1544,9 @@ switch to the base client to avoid the limit.
 
 **PostgreSQL drivers state each repeated relation body once** (`viborm/pg`,
 `viborm/pglite`, `viborm/postgres`, `viborm/neon-http`, `viborm/bun-sql`),
-in reads and, since 1.3.2, in `UPDATE` and `DELETE` statements:
+in reads, since 1.3.2 in `UPDATE` and `DELETE` statements, and since 1.3.3
+in the `SELECT … FOR UPDATE` that finds the row an upsert or a nested update
+writes:
 a policy repeats the same bodies at every arm and every key check, and the
 shared form keeps the statement small with the same answers. A member's
 `accessGrant` read of the acceptance fixture is 415 KB inline and 2,711 bound
@@ -1596,8 +1624,10 @@ governed reads 15–28 % shorter and 25–35 % faster (an `accessGrant` read:
 
 `viborm/permissions` is a separate entry point, carried only by an application
 that imports it. Its supporting query-engine capabilities are part of the core.
-The extension is built only from public extension capabilities
-(see [Create an extension](/docs/extensions/create)).
+The extension applies its policy through the public extension capabilities
+(see [Create an extension](/docs/extensions/create)). To compile a policy it
+also reads the schema's model and relation declarations through VibORM's
+internal accessors, so it is versioned with the core it ships in.
 
 ### Boundaries
 
@@ -1615,7 +1645,8 @@ The extension is built only from public extension capabilities
   `cascade`.
 - **Soft delete's `mode: "hard"`** is open to every caller holding the delete
   action.
-- **Existence.** A unique constraint on a create or upsert over a hidden key,
+- **Existence.** A unique constraint on a create, an upsert or an update
+  writing a value a hidden row holds in a unique field,
   `createMany({ skipDuplicates })` counts, `connectOrCreate` choosing its arm,
   a visible foreign key whose include reads `null`, and a polymorphic arm
   each reveal that a row exists, never its content. **Include the tenant

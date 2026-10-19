@@ -317,6 +317,24 @@ describe("shared adapter SQL vocabulary", () => {
 });
 
 describe("dialect physical SQL vocabulary", () => {
+  // A member read once per outer row through its own columns: PostgreSQL
+  // would materialize it (read twice) and scan it once per row unindexed.
+  test("an inlined CTE member is NOT MATERIALIZED on PostgreSQL only", () => {
+    const definitions = [
+      { name: "kept", query: sql`SELECT ${1}` },
+      { name: "inlined", query: sql`SELECT ${2}`, inlined: true },
+    ];
+    expect(new PostgresAdapter().cte.with(definitions).toStatement()).toBe(
+      'WITH "kept" AS (SELECT ?), "inlined" AS NOT MATERIALIZED (SELECT ?)'
+    );
+    expect(new SQLiteAdapter().cte.with(definitions).toStatement()).toBe(
+      'WITH "kept" AS (SELECT ?), "inlined" AS (SELECT ?)'
+    );
+    expect(new MySQLAdapter().cte.with(definitions).toStatement()).toBe(
+      "WITH `kept` AS (SELECT ?), `inlined` AS (SELECT ?)"
+    );
+  });
+
   const postgres = new PostgresAdapter();
   const mysql = new MySQLAdapter();
   const sqlite = new SQLiteAdapter();
@@ -584,6 +602,21 @@ describe("dialect physical SQL vocabulary", () => {
       "{}",
     ]);
     expectSql(mysql.json.number(sql.raw`amount`), "amount");
+    // An aggregate over no rows is the empty array on every dialect, so no
+    // caller adds its own COALESCE; SQLite's json_group_array already is one
+    // and aggregates a JSON-subtyped value without re-parsing it.
+    expectSql(
+      postgres.json.agg(sql.raw`row_value`),
+      "COALESCE(json_agg(row_value), '[]'::json)"
+    );
+    expectSql(
+      mysql.json.agg(sql.raw`row_value`),
+      "COALESCE(JSON_ARRAYAGG(row_value), JSON_ARRAY())"
+    );
+    expectSql(
+      sqlite.json.agg(sql.raw`row_value`),
+      "json_group_array(row_value)"
+    );
     for (const adapter of [postgres, mysql, sqlite]) {
       expectComposable([
         adapter.json.boolean(sql`active = ${true}`),

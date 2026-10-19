@@ -89,6 +89,14 @@ export class Sql {
   }
 
   /**
+   * The text of a fragment that holds no value and no fragment (a
+   * `sql.raw`), read without composing anything; `undefined` for any other.
+   */
+  static leafText(fragment: Sql): string | undefined {
+    return fragment.rawValues.length === 0 ? fragment.rawStrings[0] : undefined;
+  }
+
+  /**
    * {@link peek}'s text, also cut where a fragment `opaque` accepts begins
    * and ends, each run saying whether it lies inside one: a reader rewriting
    * the text its owner wrote can leave the text another party wrote alone.

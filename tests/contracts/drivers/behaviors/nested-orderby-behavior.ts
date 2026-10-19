@@ -399,6 +399,47 @@ export function runNestedOrderByBehavior({
       ]);
     });
 
+    test("terms on one path share its row and two paths to one model keep their own", async () => {
+      // `reviewer` is read twice (its team's name, then its own name) and
+      // `author` reaches the same model by another path: an author term that
+      // read the reviewer's row would tie post-beta with post-no-author.
+      const posts = await client.post.findMany({
+        orderBy: [
+          { reviewer: { team: { name: { sort: "desc", nulls: "last" } } } },
+          { reviewer: { name: "asc" } },
+          { author: { name: "desc" } },
+          { id: "asc" },
+        ],
+        select: { id: true },
+      });
+
+      expect(ids(posts)).toEqual([
+        "post-no-company",
+        "post-no-author",
+        "post-beta",
+        "post-alpha-a",
+        "post-alpha-b",
+        "post-no-team",
+        "post-no-reviewer",
+      ]);
+    });
+
+    test("distinct keeps the first row of each group in a relation order", async () => {
+      const posts = await client.post.findMany({
+        distinct: ["reviewerId"],
+        orderBy: [{ reviewer: { name: "desc" } }, { id: "asc" }],
+        select: { id: true },
+      });
+
+      expect(ids(posts)).toEqual([
+        "post-no-reviewer",
+        "post-no-team",
+        "post-no-company",
+        "post-beta",
+        "post-alpha-a",
+      ]);
+    });
+
     test("orders included to-many rows by a nested relation chain", async () => {
       const author = await client.user.findUnique({
         where: { id: "user-author" },

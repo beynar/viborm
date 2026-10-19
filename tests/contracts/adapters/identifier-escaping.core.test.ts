@@ -3,7 +3,7 @@
  * break out of the quoted identifier (SQL injection).
  */
 
-import { sql } from "@sql";
+import { type Sql, sql } from "@sql";
 import { mysqlAdapter, postgresAdapter, sqliteAdapter } from "@src/adapters";
 
 describe("identifier escaping", () => {
@@ -52,6 +52,38 @@ describe("identifier escaping", () => {
           `COALESCE($1, $2) AS ${quotedAlias}`
         );
         expect(fragment.values).toEqual([1, 2]);
+      });
+
+      test("a qualified column aliased as its own name drops the alias where the dialect names the column", () => {
+        const q = (identifier: string) =>
+          `${quote}${identifier.replaceAll(quote, quote + quote)}${quote}`;
+        const own = `q${quote}0`;
+        const field = `i${quote}d`;
+        const same = adapter.identifiers.aliased(
+          adapter.identifiers.column(own, field),
+          field
+        );
+        // SQLite promises no name for an unaliased result column.
+        expect(same.toStatement()).toBe(
+          name === "sqlite"
+            ? `${q(own)}.${q(field)} AS ${q(field)}`
+            : `${q(own)}.${q(field)}`
+        );
+        const column = adapter.identifiers.column("q0", "id");
+        const kept: [Sql, string][] = [
+          [column, "userId"],
+          [adapter.identifiers.escape("id"), "id"],
+          [sql`${column}`, "id"],
+          [adapter.raw(`${q("s")}.${q("t")}.${q("id")}`), "id"],
+          [adapter.raw(`x.${q("id")}`), "id"],
+          [adapter.raw(`${q("x")}y.${q("id")}`), "id"],
+          [adapter.raw(`.${q("id")}`), "id"],
+          [adapter.raw(`${q("x")} + ${q("id")}`), "id"],
+        ];
+        for (const [expression, alias] of kept)
+          expect(
+            adapter.identifiers.aliased(expression, alias).toStatement()
+          ).toBe(`${expression.toStatement()} AS ${q(alias)}`);
       });
 
       test("quote-containing CTE names preserve composition and parameters", () => {

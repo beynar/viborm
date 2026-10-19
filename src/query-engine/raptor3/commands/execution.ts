@@ -5,13 +5,18 @@ import {
   UniqueConstraintError,
   UnsupportedOperationError,
 } from "@errors";
-import { type AnyModel, getModelKeyCatalog } from "@schema/model";
+import {
+  type AnyModel,
+  getModelKeyCatalog,
+  type OrderedModelKey,
+} from "@schema/model";
 import type { PreparedGuardFailure } from "../../types";
 import {
   type Member,
   type MembershipParent,
   nestedRefusal,
   type ObservationPremise,
+  type OperationContext,
 } from "../shared/operation-context";
 import type {
   PreparedProjection,
@@ -430,29 +435,7 @@ export class CommandExecution {
       })
     )
       return false;
-    const table = choice.model["~"].names.sql!;
-    const columns = key.fields.map((field) =>
-      this.context.queries.columnName(choice.model, field)
-    );
-    const constraints = getAdapterInternals(
-      this.context.driver.adapter
-    ).constraints;
-    const expected = (
-      key.kind === "primary"
-        ? constraints.primaryKey(table, columns)
-        : constraints.unique(table, key.name ?? columns[0]!, columns)
-    ).normalizedError;
-    const meta = error.meta;
-    if (meta.table !== expected.table) return false;
-    if (meta.constraint !== expected.constraint) return false;
-    const expectedColumns = expected.columns;
-    if (meta.columns === undefined || expectedColumns === undefined) {
-      return meta.columns === expectedColumns;
-    }
-    return (
-      meta.columns.length === expectedColumns.length &&
-      meta.columns.every((column, index) => column === expectedColumns[index])
-    );
+    return namesKeyConstraint(this.context, choice.model, key, error);
   }
   async #recover(error: unknown): Promise<boolean> {
     // In place, or not at all: where this operation opened a region, the
@@ -1838,4 +1821,38 @@ export class CommandExecution {
     }
     return members.length;
   }
+}
+
+/**
+ * Whether a unique violation is the one `key` declares on `model`, by the
+ * adapter's own constraint identity (table, constraint, columns as the
+ * provider reports them).
+ */
+export function namesKeyConstraint(
+  context: OperationContext,
+  model: AnyModel,
+  key: OrderedModelKey,
+  error: UniqueConstraintError
+): boolean {
+  const table = model["~"].names.sql!;
+  const columns = key.fields.map((field) =>
+    context.queries.columnName(model, field)
+  );
+  const constraints = getAdapterInternals(context.driver.adapter).constraints;
+  const expected = (
+    key.kind === "primary"
+      ? constraints.primaryKey(table, columns)
+      : constraints.unique(table, key.name ?? columns[0]!, columns)
+  ).normalizedError;
+  const meta = error.meta;
+  if (meta.table !== expected.table) return false;
+  if (meta.constraint !== expected.constraint) return false;
+  const expectedColumns = expected.columns;
+  if (meta.columns === undefined || expectedColumns === undefined) {
+    return meta.columns === expectedColumns;
+  }
+  return (
+    meta.columns.length === expectedColumns.length &&
+    meta.columns.every((column, index) => column === expectedColumns[index])
+  );
 }

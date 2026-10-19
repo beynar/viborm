@@ -267,6 +267,69 @@ describe("{ $row, up }", () => {
     ]);
   });
 
+  test("a semijoin chain reading a row above its parent is one EXISTS over a join, each hop under its domain", async () => {
+    const live = defineExtension({
+      name: "live",
+      rows: {
+        control: "archive",
+        default: "live",
+        models: { member: { live: { related: { archived: false } } } },
+      },
+    } as never);
+    const { db, base, statements } = await open(
+      holdsRoleThroughOrg,
+      false,
+      live
+    );
+    const read = { user: "ann", select: { id: true } };
+    expect(ids(await db.grant!.findMany(read))).toEqual(["g1", "g3"]);
+    // Nested, the member EXISTS reads the grant two bodies up: PostgreSQL
+    // re-runs it per grant and organization (loops = rows).
+    expect(statements[0]).toBe(
+      'SELECT "q0"."id" AS "id" FROM "grant" AS "q0" WHERE (EXISTS (SELECT 1 FROM "org" AS "q1" INNER JOIN "member" AS "q2" ON ("q1"."id" = "q2"."orgId" AND "q2"."archived" = ?) WHERE ("q0"."orgId" = "q1"."id" AND ("q2"."userId" COLLATE BINARY = ? AND "q2"."role" COLLATE BINARY = "q0"."role" COLLATE BINARY))) AND EXISTS (SELECT 1 FROM "org" AS "q3" INNER JOIN "member" AS "q4" ON ("q3"."id" = "q4"."orgId" AND "q4"."archived" = ?) WHERE ("q0"."orgId" = "q3"."id" AND ("q4"."userId" COLLATE BINARY = ? AND "q4"."role" COLLATE BINARY = "q0"."role" COLLATE BINARY)))) ORDER BY "q0"."id" ASC'
+    );
+    await base.member!.updateMany({
+      where: { id: "m1" },
+      data: { archived: true },
+    });
+    expect(ids(await db.grant!.findMany(read))).toEqual(["g3"]);
+    // An anti-join is not a semijoin: `none` keeps its nested EXISTS.
+    const none = await open({
+      org: {
+        is: {
+          members: { none: { userId: user, role: { $row: "role", up: 2 } } },
+        },
+      },
+    });
+    expect(ids(await none.db.grant!.findMany({ user: "ann" }))).toEqual([
+      "g2",
+      "g4",
+    ]);
+    expect(none.statements[0]).not.toContain("JOIN");
+    // Under an OR the member EXISTS is no conjunct of the org's body: an org
+    // with no member at all must still answer the other arm.
+    const either = await open({
+      org: {
+        is: {
+          OR: [
+            { id: "o2" },
+            {
+              members: {
+                some: { userId: user, role: { $row: "role", up: 2 } },
+              },
+            },
+          ],
+        },
+      },
+    });
+    expect(ids(await either.db.grant!.findMany({ user: "ann" }))).toEqual([
+      "g1",
+      "g3",
+      "g4",
+    ]);
+    expect(either.statements[0]).not.toContain("JOIN");
+  });
+
   test("up: 0 compares two columns of the same row", async () => {
     const { db } = await open({
       id: { not: { $row: "orgId", up: 0 } },

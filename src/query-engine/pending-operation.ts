@@ -572,18 +572,28 @@ export class PendingOperation<T>
     return this.#resolveRouted().preparedArgs;
   }
 
-  /** The prepared facts one query handler chain inspects. */
+  /**
+   * The prepared facts one query handler chain inspects. Its `input` is
+   * snapshotted at the first read, once for the whole chain: the prepared
+   * payload is the admission's own and nothing writes it after admission, so
+   * a later snapshot says what an eager one would, and a chain that never
+   * reads it never copies it.
+   */
   #queryContext(
     mode: QueryInterceptionMode,
     preparedInput: Record<string, unknown>
   ): PreparedModelQueryContext<Record<string, unknown>> {
     const controls = this.#inputPreparation?.controls;
+    let input: Readonly<Record<string, unknown>> | undefined;
     return Object.freeze({
       mode,
-      kind: "model",
+      kind: "model" as const,
       model: this.#modelName,
       operation: String(this.#options.originalOperation),
-      input: snapshotQueryInput(preparedInput),
+      get input() {
+        input ??= snapshotQueryInput(preparedInput);
+        return input;
+      },
       ...(controls === undefined ? {} : { controls }),
     });
   }

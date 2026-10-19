@@ -88,6 +88,69 @@ describe("orderBy relation-depth deterministic contracts", () => {
     expect(failure.name).toBe("ValidationError");
   });
 
+  test("a to-one path is one LEFT JOIN that every term on it reads", () => {
+    // The target's key is unique, so the join keeps one row per parent and a
+    // parent without one keeps NULL: the subquery's meaning, joined once.
+    const statement = engine.build(node, "findMany", {
+      orderBy: [
+        { parent: { label: "asc" } },
+        { parent: { depth: "desc" } },
+        { id: "asc" },
+      ],
+      select: { id: true },
+    });
+    expect(statement.toStatement("$n")).toBe(
+      'SELECT "q0"."id" FROM "public"."node" AS "q0" LEFT JOIN "public"."node" AS "q1" ON "q0"."parentId" = "q1"."id" ORDER BY "q1"."label" ASC NULLS LAST, "q1"."depth" DESC NULLS FIRST, "q0"."id" ASC'
+    );
+    expect(statement.values).toEqual([]);
+  });
+
+  test("a chain joins hop by hop, and a nested page joins inside its own scope", () => {
+    expect(
+      engine
+        .build(node, "findMany", {
+          orderBy: { parent: { parent: { label: "asc" } } },
+          take: 2,
+          select: { id: true },
+        })
+        .toStatement("$n")
+    ).toBe(
+      'SELECT "q0"."id" FROM "public"."node" AS "q0" LEFT JOIN "public"."node" AS "q1" ON "q0"."parentId" = "q1"."id" LEFT JOIN "public"."node" AS "q2" ON "q1"."parentId" = "q2"."id" ORDER BY "q2"."label" ASC NULLS LAST, "q0"."id" ASC LIMIT $1'
+    );
+    expect(
+      engine
+        .build(node, "findMany", {
+          orderBy: { parent: { label: "desc" } },
+          select: {
+            id: true,
+            children: {
+              orderBy: { parent: { label: "asc" } },
+              take: 2,
+              select: { id: true },
+            },
+          },
+        })
+        .toStatement("$n")
+    ).toBe(
+      'SELECT "q0"."id", (SELECT COALESCE(json_agg(json_build_object($1::text, "q4"."id")), \'[]\'::json) FROM (SELECT "q2"."id" FROM "public"."node" AS "q2" LEFT JOIN "public"."node" AS "q3" ON "q2"."parentId" = "q3"."id" WHERE "q0"."id" = "q2"."parentId" ORDER BY "q3"."label" ASC NULLS LAST, "q2"."id" ASC LIMIT $2) AS "q4") AS "children" FROM "public"."node" AS "q0" LEFT JOIN "public"."node" AS "q1" ON "q0"."parentId" = "q1"."id" ORDER BY "q1"."label" DESC NULLS FIRST, "q0"."id" ASC'
+    );
+    const mysql = new TestQueryEngine(
+      new PlanningDriver("mysql"),
+      createModelRegistry(schema, createSchemaRegistry(schema))
+    );
+    expect(
+      mysql
+        .build(node, "findMany", {
+          orderBy: { parent: { parent: { label: "asc" } } },
+          take: 2,
+          select: { id: true },
+        })
+        .toStatement("?")
+    ).toBe(
+      "SELECT `q0`.`id` FROM `node` AS `q0` LEFT JOIN `node` AS `q1` ON `q0`.`parentId` = `q1`.`id` LEFT JOIN `node` AS `q2` ON `q1`.`parentId` = `q2`.`id` ORDER BY (`q2`.`label` IS NULL) ASC, `q2`.`label` ASC, `q0`.`id` ASC LIMIT 2"
+    );
+  });
+
   test("a to-many relation inside a to-one chain is rejected", async () => {
     await expect(
       engine.prepare(node, "findMany", {

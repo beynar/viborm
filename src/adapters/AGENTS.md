@@ -215,7 +215,11 @@ one: declared by D1 (`SQLiteAdapter({ sharedRelationBodies: true })`) and by
 every PostgreSQL driver by default (`installPostgresAdapter`;
 `sharedRelationBodies: false` keeps the bodies inline), absent on SQLite3,
 libSQL, Bun SQLite and MySQL. The engine then states each relation body a
-statement repeats once, through `cte.with`.
+statement repeats once, through `cte.with`. An in-process SQLite pays for
+sharing and gains nothing a transport charges: measured on better-sqlite3
+(2026-10-19, acceptance policy with soft delete), SQLite runs both spellings
+in about the same time, and finding the repeats costs the engine about
+230 µs per governed statement (`can` 0.30 → 0.53 ms).
 
 `assertions.holds` (a write's judgement of the row it produces) fails with its
 own sentinel, under the `__viborm_judged__` alias: PostgreSQL a text sublink
@@ -287,9 +291,15 @@ COALESCE(json_agg("t1".*), '[]'::json)
 -- MySQL  
 COALESCE(JSON_ARRAYAGG(JSON_OBJECT('id', t1.id, ...)), JSON_ARRAY())
 
--- SQLite
-COALESCE(json_group_array(json_object('id', t1.id, ...)), json_array())
+-- SQLite: an aggregate over no rows is already '[]'
+json_group_array(json_object('id', t1.id, ...))
 ```
+
+`json.agg` is the one owner of the empty-array answer: no caller wraps it in
+its own COALESCE. On SQLite its argument must carry the JSON subtype — a
+`json_object` call does; a value read back through a subquery column has lost
+it and goes through `json.document` (`json(...)`) first, or it is aggregated
+as a quoted string.
 
 ### Identifier Quoting
 

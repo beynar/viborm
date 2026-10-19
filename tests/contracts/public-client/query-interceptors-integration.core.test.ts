@@ -272,6 +272,72 @@ describe("public query-interceptor integration", () => {
     expect(order).toHaveLength(handlerCalls);
   });
 
+  test("snapshots input once for the chain, at its first read, the same before and after proceed", async () => {
+    const seen: unknown[] = [];
+    const keys: unknown[] = [];
+    const { client: base } = integrationClient();
+    const client = base
+      .$extends({
+        name: "reads-after",
+        query: {
+          record: {
+            async create(context) {
+              const row = await context.proceed();
+              seen.push(context.input, context.input);
+              return row;
+            },
+          },
+        },
+      })
+      .$extends({
+        name: "reads-before",
+        query: {
+          record: {
+            create(context) {
+              keys.push(Object.keys(context));
+              seen.push(context.input);
+              return context.proceed();
+            },
+          },
+        },
+      })
+      .$extends({
+        name: "never-reads",
+        query: { record: { create: ({ proceed }) => proceed() } },
+      });
+
+    await client.record.create({
+      data: {
+        id: "r1",
+        name: "Ada",
+        notes: { create: { id: "n1", body: "x" } },
+      },
+    });
+
+    expect(seen).toHaveLength(3);
+    expect(seen[1]).toBe(seen[0]);
+    expect(seen[2]).toBe(seen[0]);
+    expect(Object.isFrozen(seen[0])).toBe(true);
+    expect(seen[0]).toEqual({
+      data: {
+        id: "r1",
+        name: "Ada",
+        notes: { create: [{ id: "n1", body: "x" }] },
+      },
+    });
+    expect(keys).toEqual([
+      [
+        "mode",
+        "kind",
+        "model",
+        "operation",
+        "input",
+        "proceed",
+        "onWriteOutcome",
+      ],
+    ]);
+  });
+
   test("permits direct and callback reads to short-circuit after preparation", async () => {
     const modes: string[] = [];
     const { client: base, driver } = integrationClient();

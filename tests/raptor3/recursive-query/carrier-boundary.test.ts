@@ -467,6 +467,50 @@ describe("recursive carrier boundary", () => {
         ),
       INVALID_PROVIDER_JSON_PATTERN
     );
+
+    // A container reached again from deeper inside itself, through a list.
+    const outer: Record<string, unknown> = { list: [] };
+    (outer.list as unknown[]).push({ back: outer });
+    assert.throws(
+      () =>
+        decode(
+          carrier(["root"], [node("child", outer)], [edge("root", "child", 1)])
+        ),
+      INVALID_PROVIDER_JSON_PATTERN
+    );
+  });
+
+  it("copies JSON documents key by key, prototype names included, and repeats a shared container", () => {
+    const decode = treeDecoder({ depth: 1, cycles: "reject" });
+    const document = JSON.parse(
+      '{"__proto__":{"polluted":true},"constructor":"c","toString":"s","hasOwnProperty":1,"plain":2}'
+    );
+    const shared = { value: 1 };
+    const decoded = decode(
+      carrier(
+        ["root"],
+        [node("keys", document), node("shared", [shared, [shared, shared]])],
+        [edge("root", "keys", 1), edge("root", "shared", 1)]
+      )
+    );
+    assert(Array.isArray(decoded));
+    const keys = Reflect.get(decoded[0] as object, "mutable") as object;
+    assert.equal(Object.getPrototypeOf(keys), Object.prototype);
+    assert.deepEqual(Object.keys(keys), [
+      "__proto__",
+      "constructor",
+      "toString",
+      "hasOwnProperty",
+      "plain",
+    ]);
+    assert.deepEqual(Reflect.get(keys, "__proto__"), { polluted: true });
+    assert.equal(Reflect.get(keys, "toString"), "s");
+    assert.equal(Reflect.get(keys, "hasOwnProperty"), 1);
+    assert.equal(Reflect.get({}, "polluted"), undefined);
+    assert.deepEqual(Reflect.get(decoded[1] as object, "mutable"), [
+      { value: 1 },
+      [{ value: 1 }, { value: 1 }],
+    ]);
   });
 
   it("answers an empty singular carrier with null and rejects multiple successors", () => {

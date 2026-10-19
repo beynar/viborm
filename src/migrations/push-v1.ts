@@ -415,7 +415,7 @@ export function prepareSchema(
   hydrateSchemaNames(client.$schema);
   const relations = skipValidation
     ? resolveSchemaOrThrow(client.$schema)
-    : validateResolvedSchemaOrThrow(client.$schema, allRules);
+    : validateResolvedSchemaOrThrow(client.$schema, allRules());
   const driver = getPushMigrationDriver(client);
   assertMigrationDecimalDomainsFitProvider(client.$schema, driver.dialect);
   return { relations, driver };

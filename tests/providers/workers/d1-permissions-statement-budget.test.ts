@@ -506,13 +506,16 @@ describe("D1: W-K2f, every governed statement inside D1's budget", () => {
       "page $access, group $access": "runs",
       "document $access": "runs",
       "document roots $access at three depths": "runs",
-      // Measured (u02): 106,197 B and 100,850 B (105,357 and 100,010 at
-      // 9c50a3191, before nesting levels isolated their domains).
+      // Measured (u02) at 1.3.3: 89,678 B and 84,796 B, under the text
+      // limit since the 1.3.3 merged quantifiers and projection trims (they
+      // were 106,197 B and 100,850 B, refused SQLITE_TOOBIG), so the program
+      // D1 compiles is what refuses them now.
       "document roots $access at three depths, with grants":
-        "refused: SQLITE_TOOBIG",
-      "document every relation + $access": "refused: SQLITE_TOOBIG",
-      // 83,620 B and 76,878 B (82,780 and 76,038 at 9c50a3191): inside the
-      // published limits, refused for the program D1 compiles.
+        "refused: SQLITE_NOMEM",
+      "document every relation + $access": "refused: SQLITE_NOMEM",
+      // 75,514 B and 68,874 B at 1.3.3 (83,620 and 76,878 before; 82,780 and
+      // 76,038 at 9c50a3191): inside the published limits, refused for the
+      // program D1 compiles.
       "page $access at three depths through group and grants":
         "refused: SQLITE_NOMEM",
       "accessGrant every relation + $access": "refused: SQLITE_NOMEM",

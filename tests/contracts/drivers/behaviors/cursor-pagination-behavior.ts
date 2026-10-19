@@ -390,6 +390,25 @@ export function runCursorPaginationBehavior({
       expect(new Set(visited).size).toBe(rows.length);
     });
 
+    test("a NOT NULL leading key under mixed directions bounds the window without changing it", async () => {
+      // The leading key's bound beside the lexicographic window: forward and
+      // backward pages meet at the anchor, and a missing anchor bounds nothing.
+      const c = requireClient(client);
+      const page = async (cursorId: string, take: number) => {
+        const found = await c.cursorItem.findMany({
+          cursor: { id: cursorId },
+          orderBy: [{ bucket: "desc" }, { id: "asc" }],
+          take,
+        });
+        return found.map(({ id }) => id);
+      };
+
+      expect(await page("f", 3)).toEqual(["f", "a", "b"]);
+      expect(await page("b", -3)).toEqual(["f", "a", "b"]);
+      expect(await page("c", 5)).toEqual(["c", "d"]);
+      expect(await page("missing", 3)).toEqual([]);
+    });
+
     test("missing cursor consistently returns an empty window", async () => {
       const result = await requireClient(client).cursorItem.findMany({
         cursor: { id: "missing" },
