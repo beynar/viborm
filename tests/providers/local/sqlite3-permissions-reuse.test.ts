@@ -7,59 +7,86 @@ import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { v } from "@validation";
 import { expect, test } from "vitest";
 
-test("reusing one policy on one base avoids recompiling its rules", () => {
+test("reusing one policy on one base avoids recompiling its rules", async () => {
   let evaluations = 0;
   const base = createClient({
     schema: { post: s.model({ id: s.string().id() }) },
     dataDir: ":memory:",
   });
-  const policy = permissions({
-    actor: v.object({ userId: v.string() }),
-    models: {
-      post: {
-        read: () => {
-          evaluations++;
-          return true;
+  try {
+    await syncLiveSchema(base);
+    const policy = permissions({
+      actor: v.object({ userId: v.string() }),
+      models: {
+        post: {
+          read: () => {
+            evaluations++;
+            return true;
+          },
         },
       },
-    },
-  });
-  base.$extends(policy);
-  const first = evaluations;
-  base.$extends(policy);
-  expect(evaluations).toBe(first);
+    });
+    // A model compiles at its first call, not when the policy is applied.
+    const first = base.$extends(policy).$as({ userId: "alice" });
+    expect(evaluations).toBe(0);
+    await first.post.findMany();
+    const compiled = evaluations;
+    expect(compiled).toBeGreaterThan(0);
+    await base.$extends(policy).$as({ userId: "bob" }).post.findMany();
+    expect(evaluations).toBe(compiled);
+  } finally {
+    await base.$disconnect();
+  }
 });
 
-test("policy reuse preserves declaration edits and schema replacement", () => {
+test("policy reuse preserves declaration edits and schema replacement", async () => {
   let evaluations = 0;
   const schema = { post: s.model({ id: s.string().id() }) };
   const base = createClient({ schema, dataDir: ":memory:" });
-  const config = {
-    actor: v.object({ userId: v.string() }),
-    models: {
-      post: {
-        read: () => {
-          evaluations++;
-          return { id: "one" };
+  try {
+    await syncLiveSchema(base);
+    await base.post.createMany({ data: [{ id: "one" }, { id: "two" }] });
+    const config = {
+      actor: v.object({ userId: v.string() }),
+      models: {
+        post: {
+          read: () => {
+            evaluations++;
+            return { id: "one" };
+          },
         },
       },
-    },
-  };
-  const policy = permissions(config);
-  base.$extends(policy);
-  const first = evaluations;
-  base.$extends(policy);
-  expect(evaluations).toBe(first);
-  config.models.post.read = () => {
-    evaluations++;
-    return { id: "two" };
-  };
-  base.$extends(policy);
-  expect(evaluations).toBeGreaterThan(first);
-  const second = evaluations;
-  schema.post = s.model({ id: s.string().id() });
-  createClient({ schema, dataDir: ":memory:" }).$extends(policy);
-  expect(evaluations).toBeGreaterThan(second);
+    };
+    const policy = permissions(config);
+    const actor = { userId: "alice" };
+    const before = base.$extends(policy).$as(actor);
+    expect(await before.post.findMany()).toEqual([{ id: "one" }]);
+    const first = evaluations;
+    await base.$extends(policy).$as(actor).post.findMany();
+    expect(evaluations).toBe(first);
+    config.models.post.read = () => {
+      evaluations++;
+      return { id: "two" };
+    };
+    const after = base.$extends(policy).$as(actor);
+    expect(await after.post.findMany()).toEqual([{ id: "two" }]);
+    expect(evaluations).toBeGreaterThan(first);
+    // A client keeps the declaration as it was applied, even for a model it
+    // compiles after the edit.
+    expect(await before.post.findMany()).toEqual([{ id: "one" }]);
+    const second = evaluations;
+    schema.post = s.model({ id: s.string().id() });
+    const replaced = createClient({ schema, dataDir: ":memory:" });
+    try {
+      await syncLiveSchema(replaced);
+      await replaced.$extends(policy).$as(actor).post.findMany();
+      expect(evaluations).toBeGreaterThan(second);
+    } finally {
+      await replaced.$disconnect();
+    }
+  } finally {
+    await base.$disconnect();
+  }
 });
 
 test("reused policy keeps clients, factories, actors, scopes and transactions separate", async () => {

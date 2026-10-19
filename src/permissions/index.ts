@@ -23,17 +23,22 @@ import type {
 import type { InferOutput } from "../validation";
 import { type ActorFacts, type ActorPaths, actorContract } from "./actor";
 import {
-  type CompiledModel,
   type CompiledPolicy,
   compilePolicy,
   DEFAULT_MODE,
+  type DeclaredModel,
   EVIDENCE_KEY,
   evidenceOf,
   type ModelPolicy,
   type PermissionsConfig,
+  policyCompiler,
   verbsOf,
 } from "./compile";
-import { declarationRevision, immutablePlainCopy } from "./reuse";
+import {
+  declarationRevision,
+  declarationSnapshot,
+  plainFreezer,
+} from "./reuse";
 import { FALSE, type PolicyModel, type Where } from "./rules";
 
 export type { ActorFacts, ActorPaths } from "./actor";
@@ -605,32 +610,55 @@ function scopeSchema(
   };
 }
 
-function modesOf(compiled: CompiledPolicy) {
+function modesOf(models: { readonly [model: string]: DeclaredModel }) {
   const names = [
     DEFAULT_MODE,
     ...new Set(
-      Object.values(compiled.models).flatMap((model) =>
-        Object.keys(model.modes)
-      )
+      Object.values(models).flatMap((model) => Object.keys(model.modes))
     ),
   ];
-  const narrowing = (model: CompiledModel, mode: string) => {
+  const narrowing = (model: DeclaredModel, mode: string) => {
     if (mode === DEFAULT_MODE || mode === model.read) return {};
     return {
       root: Object.hasOwn(model.modes, mode) ? model.modes[mode]! : FALSE,
     };
   };
   return Object.fromEntries(
-    Object.entries(compiled.models).map(([name, model]) => [
+    Object.entries(models).map(([name, model]) => [
       name,
       Object.fromEntries(names.map((mode) => [mode, narrowing(model, mode)])),
     ])
   );
 }
 
-function reachOf(config: PermissionsConfig, compiled: CompiledPolicy) {
+/** Whether `name` has a self relation holding its key: what `acyclic` may name. */
+function selfKeyed(schema: Schema, name: string): boolean {
+  const relations = (
+    schema[name]!["~"].state as unknown as {
+      relations: Record<
+        string,
+        {
+          "~": {
+            state: { foreignKey?: unknown };
+            settleTarget(): unknown;
+          };
+        }
+      >;
+    }
+  ).relations;
+  return Object.values(relations).some(
+    (relation) =>
+      relation["~"].state.foreignKey !== undefined &&
+      relation["~"].settleTarget() === schema[name]
+  );
+}
+
+function reachOf(
+  config: PermissionsConfig,
+  models: { readonly [model: string]: DeclaredModel }
+) {
   return new Map(
-    Object.entries(compiled.models).map(([name, model]) => [
+    Object.entries(models).map(([name, model]) => [
       name,
       {
         listed: Object.hasOwn(config.models, name),
@@ -822,6 +850,91 @@ export function permissions<const Config extends PermissionsConfig>(
     Schema,
     { current: () => boolean; definition: object }
   >();
+  /** The `rows` definition over one compiled policy: everything but its verbs. */
+  const definitionOf = (
+    scopes: CompiledPolicy["scopes"],
+    declared: { readonly [model: string]: DeclaredModel },
+    verbs: object
+  ) => ({
+    name: NAME,
+    controls: {
+      actor: {
+        schema: actor.schema,
+        bound: true,
+        required: true,
+        uncacheable: config.cache !== "allow",
+      },
+      scopes: {
+        schema: scopeSchema(scopes),
+        bound: true,
+        required: true,
+        uncacheable: config.cache !== "allow",
+      },
+    },
+    rows: {
+      control: MODE,
+      default: DEFAULT_MODE,
+      models: modesOf(declared),
+      verbs,
+    },
+    query: refuseUnreachable(reachOf(config, declared)),
+    client: (scope: {
+      $bind(values: Readonly<Record<string, unknown>>): unknown;
+    }) => {
+      const methods: AsMethod<unknown> = {
+        $as: (actor, scopes) => scope.$bind({ actor, scopes }) as never,
+      };
+      return methods;
+    },
+  });
+  /**
+   * A plain declaration compiles a model at a time, the first time a call
+   * needs it: applying the policy checks what the declaration names, and a
+   * rule's own refusal comes at its model's first call. The models compile
+   * from a copy of the declaration taken here, into one state every client of
+   * the schema shares, each entry frozen so core admits it once per schema.
+   */
+  const lazyDefinition = (schema: Schema) => {
+    const opaque = new Set<object>([config.actor, ...Object.values(schema)]);
+    const declaration = declarationSnapshot(config, opaque);
+    const compiler = policyCompiler(
+      declaration,
+      Object.freeze({ ...schema }),
+      actor
+    );
+    const freeze = plainFreezer();
+    const verbs = Object.fromEntries(
+      Object.keys(schema).map((name) => {
+        if (!Object.hasOwn(declaration.models, name))
+          return [
+            name,
+            verbsOf({ models: { [name]: compiler.model(name) } })[name],
+          ];
+        // Only a self relation holding the model's key can be kept acyclic,
+        // and knowing whether one is takes every model compiled.
+        const acyclic = selfKeyed(schema, name)
+          ? () => compiler.acyclic(name)
+          : undefined;
+        let entry: object | undefined;
+        const resolve = () => {
+          if (entry !== undefined) return entry;
+          const own = verbsOf({ models: { [name]: compiler.model(name) } })[
+            name
+          ]!;
+          const data = freeze(own) ?? own;
+          entry = Object.freeze(acyclic ? { ...data, acyclic } : { ...data });
+          return entry;
+        };
+        return [name, resolve];
+      })
+    );
+    return definitionOf(compiler.scopes, compiler.declared, verbs);
+  };
+  /** Every model compiled when the policy is applied: a declaration we cannot copy. */
+  const eagerDefinition = (schema: Schema) => {
+    const compiled = compile(schema);
+    return definitionOf(compiled.scopes, compiled.models, verbsOf(compiled));
+  };
   const rows = (base: VibORMClient<VibORMConfig, ExtensionState>) => {
     const schema = base.$schema as Schema;
     const prior = prepared.get(schema);
@@ -831,44 +944,9 @@ export function permissions<const Config extends PermissionsConfig>(
       [config, schema],
       new Set([config.actor, ...Object.values(schema)])
     );
-    const compiled = compile(schema);
-    const definition = {
-      name: NAME,
-      controls: {
-        actor: {
-          schema: actor.schema,
-          bound: true,
-          required: true,
-          uncacheable: config.cache !== "allow",
-        },
-        scopes: {
-          schema: scopeSchema(compiled.scopes),
-          bound: true,
-          required: true,
-          uncacheable: config.cache !== "allow",
-        },
-      },
-      rows: {
-        control: MODE,
-        default: DEFAULT_MODE,
-        models: modesOf(compiled),
-        verbs: verbsOf(compiled),
-      },
-      query: refuseUnreachable(reachOf(config, compiled)),
-      client: (scope: {
-        $bind(values: Readonly<Record<string, unknown>>): unknown;
-      }) => {
-        const methods: AsMethod<unknown> = {
-          $as: (actor, scopes) => scope.$bind({ actor, scopes }) as never,
-        };
-        return methods;
-      },
-    };
-    const owned = current && immutablePlainCopy(definition.rows);
-    if (current && owned && current()) {
-      definition.rows = owned;
-      prepared.set(schema, { current, definition });
-    }
+    if (current === undefined) return extend(base, eagerDefinition(schema));
+    const definition = lazyDefinition(schema);
+    if (current()) prepared.set(schema, { current, definition });
     return extend(base, definition);
   };
   const methods = (client: VibORMClient<VibORMConfig, ExtensionState>) => {

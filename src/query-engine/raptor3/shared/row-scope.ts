@@ -11,6 +11,12 @@ import type { Input } from "./schema";
  */
 export type ModelDomain = ReadonlyMap<string, readonly Input[]>;
 
+/** Relations named on demand, among the ones that could be named. */
+export interface LazyRelations {
+  readonly candidates: readonly string[];
+  resolve(): readonly string[];
+}
+
 /**
  * The rows an operation may take, by purpose: its own candidates (`root`) and
  * rows it reaches through a relation (`related`).
@@ -24,6 +30,12 @@ export interface RowDomain {
    * its purpose's predicates alone.
    */
   readonly verbs?: ReadonlyMap<string, readonly (ModelVerbs | undefined)[]>;
+  /**
+   * Whether some model's verbs may declare a projection key or a read-gated
+   * field: when not, no model is asked for them. The maps may be resolved a
+   * model at a time, so they are never walked to find out.
+   */
+  readonly projects?: boolean;
 }
 
 /**
@@ -45,9 +57,10 @@ export interface ModelVerbs {
   /**
    * Self relations, each held by this model's key, whose links stay
    * acyclic: an update writing one is refused where its new target is the
-   * row itself or a row below it.
+   * row itself or a row below it. Lazy: the list is resolved only for an
+   * update writing the key of one of `candidates`.
    */
-  readonly acyclic: readonly string[];
+  readonly acyclic: readonly string[] | LazyRelations;
   /** The projection key the layer declares on the model (K5). */
   readonly evidence?: ModelEvidence;
   /**

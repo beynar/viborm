@@ -91,6 +91,7 @@ import {
   type CallScope,
   type CallValues,
   Condition,
+  type LazyRelations,
   type ModelVerbs,
   Parameter,
   type RowDomain,
@@ -1440,9 +1441,11 @@ export class PreparedDomain {
     this.rows = rows;
     this.#queries = queries;
     this.defaults = defaults ?? this;
-    this.projects = [...(rows.verbs?.values() ?? [])].some((layers) =>
-      layers.some((verbs) => verbs?.evidence || verbs?.reads.size)
-    );
+    this.projects =
+      rows.projects ??
+      [...(rows.verbs?.values() ?? [])].some((layers) =>
+        layers.some((verbs) => verbs?.evidence || verbs?.reads.size)
+      );
   }
   /** `input`, one of `model`'s predicates in `layer`, as that layer's node. */
   layered(model: AnyModel, layer: number, input: Input): PreparedSelector {
@@ -1668,16 +1671,25 @@ export class PreparedDomain {
     const verbs = this.rows.verbs?.get(model["~"].names.ts!);
     if (verbs === undefined) return NO_RELATIONS;
     const relations = new Set<string>();
-    for (const own of verbs)
-      for (const relation of own?.acyclic ?? []) {
-        const edge = this.#queries.schema.membership(model, relation);
-        if (
-          judgement.writes.includes(relation) ||
-          (edge.kind === "reference" &&
-            edge.pairs.some((pair) => judgement.writes.includes(pair.source)))
-        )
-          relations.add(relation);
-      }
+    const written = (relation: string) => {
+      const edge = this.#queries.schema.membership(model, relation);
+      return (
+        judgement.writes.includes(relation) ||
+        (edge.kind === "reference" &&
+          edge.pairs.some((pair) => judgement.writes.includes(pair.source)))
+      );
+    };
+    for (const own of verbs) {
+      const acyclic = own?.acyclic;
+      if (acyclic === undefined) continue;
+      const named = Array.isArray(acyclic)
+        ? acyclic
+        : (acyclic as LazyRelations).candidates.some(written)
+          ? (acyclic as LazyRelations).resolve()
+          : NO_RELATIONS;
+      for (const relation of named)
+        if (written(relation)) relations.add(relation);
+    }
     return relations.size === 0 ? NO_RELATIONS : [...relations];
   }
 }

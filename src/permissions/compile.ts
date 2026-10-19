@@ -428,7 +428,9 @@ export function evidenceOf(
  * acyclic relations (K4), and its projection key and read-gated fields (K5).
  * Modes are the entry's own (`rows.models`), never part of it.
  */
-export function verbsOf(compiled: CompiledPolicy): Record<string, RowsVerbs> {
+export function verbsOf(
+  compiled: Pick<CompiledPolicy, "models">
+): Record<string, RowsVerbs> {
   return Object.fromEntries(
     Object.entries(compiled.models).map(
       ([name, { modes, reads, ...verbs }]) => [
@@ -439,12 +441,77 @@ export function verbsOf(compiled: CompiledPolicy): Record<string, RowsVerbs> {
   );
 }
 
-/** Compiles a policy against the schema it governs. */
+/** Compiles a policy against the schema it governs, every model at once. */
 export function compilePolicy(
   config: PermissionsConfig,
   schema: Schema,
   actor: ActorContract = actorContract(config.actor)
 ): CompiledPolicy {
+  return policyCompiler(config, schema, actor).policy();
+}
+
+/** What a listed model declares, read without lowering a rule. */
+interface Declared {
+  readonly read?: string;
+  readonly update?: string;
+  readonly delete?: string;
+  readonly modes: { readonly [mode: string]: string };
+  /** Field → the predicate an update writing it takes (by name). */
+  readonly writes: { readonly [field: string]: string };
+  /** The fields whose write action is not the update verb's: `$write:<field>`. */
+  readonly protectedWrites: readonly (readonly [
+    field: string,
+    write: string,
+  ])[];
+  readonly reads: { readonly [field: string]: string };
+}
+
+/** A model's verbs and `as` modes: what applying a policy needs before any query. */
+export interface DeclaredModel {
+  readonly read?: string;
+  readonly update?: string;
+  readonly delete?: string;
+  readonly modes: { readonly [mode: string]: string };
+}
+
+/**
+ * One policy against one schema, compiled a model at a time. Building it
+ * checks everything the declaration says without lowering a rule (its keys,
+ * levels, models, action graphs, operations, fields and `as` names), so those
+ * refusals come when the policy is applied; a rule's own refusals (a field,
+ * an actor path, a relation's action, a rule that reads itself) come when
+ * its model is first compiled. Models compile into one shared state, so each
+ * predicate is lowered once whatever order they are asked in, and the output
+ * is the same as compiling every model at once.
+ */
+export interface PolicyCompiler {
+  readonly scopes: CompiledPolicy["scopes"];
+  /** Every model of the schema: its verbs and modes. */
+  readonly declared: { readonly [model: string]: DeclaredModel };
+  /** One model compiled, without `acyclic` (which needs every model). */
+  model(name: string): CompiledModel;
+  /** The self relations of `name` some predicate of the policy recurses over. */
+  acyclic(name: string): readonly string[];
+  /** Every model compiled, as {@link compilePolicy} returns it. */
+  policy(): CompiledPolicy;
+}
+
+/** R9: nothing is read, written or created on a model the policy does not list. */
+const UNLISTED: CompiledModel = Object.freeze({
+  predicates: Object.freeze({ [PLACE]: FALSE }),
+  writes: Object.freeze({}),
+  reads: Object.freeze({}),
+  modes: Object.freeze({}),
+  place: PLACE,
+  moves: Object.freeze({}),
+});
+const NO_RELATIONS: readonly string[] = Object.freeze([]);
+
+export function policyCompiler(
+  config: PermissionsConfig,
+  schema: Schema,
+  actor: ActorContract = actorContract(config.actor)
+): PolicyCompiler {
   const { keyOf, same, distinct, or } = structuralKeys();
   const noActions: readonly string[] = Object.freeze([]);
   const levels = config.levels ?? noActions;
@@ -552,37 +619,47 @@ export function compilePolicy(
         name
       );
     open.push(key);
-    const declared = actions.get(name)!;
-    const inherited =
-      declared.rules.get(action)?.rule === false
-        ? []
-        : [...declared.closure].flatMap(([from, reaches]) =>
-            reaches.includes(action) ? [from] : []
-          );
-    const branches = inherited.map((from) => ruleAt(name, from));
-    const granted = or(branches);
-    const clause = and([restriction(name), absorb(name, granted)]);
-    // A named rule used under NOT/none must retain its authored dependencies:
-    // a generated absence guard is not evidence that the negative rule holds.
-    if (clause !== false) {
-      const summaries = inherited.map((from) =>
-        summarizeReads(
+    // A compiler outlives a refusal (a model compiles at its first call, and
+    // the next call asks again): the walk is unwound whatever happens.
+    try {
+      const declared = actions.get(name)!;
+      const inherited =
+        declared.rules.get(action)?.rule === false
+          ? []
+          : [...declared.closure].flatMap(([from, reaches]) =>
+              reaches.includes(action) ? [from] : []
+            );
+      const branches = inherited.map((from) => ruleAt(name, from));
+      const granted = or(branches);
+      const clause = and([restriction(name), absorb(name, granted)]);
+      // A named rule used under NOT/none must retain its authored dependencies:
+      // a generated absence guard is not evidence that the negative rule holds.
+      if (clause !== false) {
+        const summaries = inherited.map((from) =>
+          summarizeReads(
+            name,
+            authoredRules.get(`${name}.${from}`)!,
+            "source",
+            true
+          )
+        );
+        const mandatory = summarizeReads(
           name,
-          authoredRules.get(`${name}.${from}`)!,
+          restriction(name),
           "source",
           true
-        )
-      );
-      const mandatory = summarizeReads(name, restriction(name), "source", true);
-      if (mandatory !== null && summaries.every((part) => part !== null))
-        authoredPredicates.set(
-          clause,
-          combineReads(true, [mandatory, combineReads(false, summaries)])
         );
+        if (mandatory !== null && summaries.every((part) => part !== null))
+          authoredPredicates.set(
+            clause,
+            combineReads(true, [mandatory, combineReads(false, summaries)])
+          );
+      }
+      predicates.set(key, clause);
+      return clause;
+    } finally {
+      open.pop();
     }
-    open.pop();
-    predicates.set(key, clause);
-    return clause;
   };
   /**
    * A disjunction without a member another member provably contains: where
@@ -1400,21 +1477,12 @@ export function compilePolicy(
     return [...referenced];
   };
 
-  const compiled: Record<string, CompiledModel> = {};
-  for (const name of Object.keys(schema)) {
-    const policy = config.models[name];
-    if (policy === undefined) {
-      // R9: nothing is read, written or created on a model the policy does not list.
-      compiled[name] = Object.freeze({
-        predicates: Object.freeze({ [PLACE]: FALSE }),
-        writes: {},
-        reads: {},
-        modes: {},
-        place: PLACE,
-        moves: {},
-      });
-      continue;
-    }
+  // Every check that lowers no rule runs before any model is compiled: the
+  // declaration's names (operations, fields, domains, the `as` names), so a
+  // misspelt one is refused when the policy is applied, wherever it is.
+  const declarations = new Map<string, Declared>();
+  for (const name of Object.keys(config.models)) {
+    const policy = config.models[name]!;
     const model = modelOf(name);
     const declared = (role: string, action: string | undefined) => {
       if (action !== undefined && !model.actions.includes(action))
@@ -1424,19 +1492,17 @@ export function compilePolicy(
         );
       return action;
     };
-    const named = new Map<string, Where>();
-    /** One name space per model: actions, domains, placement and moves. */
-    const claim = (key: string, at: string, clause: Where) => {
-      if (named.has(key))
+    // The names `claim` gives out below, but for the moves, which need the
+    // placement lowered: the same refusals, at the same places.
+    const claimed = new Set<string>(model.actions);
+    const claimName = (key: string, at: string) => {
+      if (claimed.has(key))
         refuse(
           `${at}: an action, a domain, the placement or a move already has the name "${key}"`,
           name
         );
-      named.set(key, clause);
+      claimed.add(key);
     };
-    for (const action of model.actions)
-      named.set(action, and([P(name, action), scope(name, action)]) || FALSE);
-
     const operations = policy.operations ?? {};
     for (const operation of Object.keys(operations))
       if (!OPERATIONS.has(operation))
@@ -1447,9 +1513,8 @@ export function compilePolicy(
     for (const verb of ["read", "update", "delete"] as const)
       declared(`operations.${verb}`, operations[verb]);
     const verbs = verbsFor(name);
-    const evidence = actions.get(name)!.evidence;
-
     const writes: Record<string, string> = {};
+    const protectedWrites: [field: string, write: string][] = [];
     const reads: Record<string, string> = {};
     const state = stateOf(name);
     for (const [field, entry] of Object.entries(policy.fields ?? {})) {
@@ -1476,25 +1541,71 @@ export function compilePolicy(
         declared(`fields.${field}.write`, write);
         if (write === verbs.update) writes[field] = write;
         else {
-          // Field protection narrows the operation's grant. Core chooses one
-          // write predicate per field, so compose both permissions here rather
-          // than letting a field grant replace a denied or absent update grant.
           const protectedWrite = `$write:${field}`;
-          claim(
-            protectedWrite,
-            `models.${name}.fields.${field}.write`,
-            and([
-              verbs.update === undefined ? false : named.get(verbs.update)!,
-              named.get(write)!,
-            ]) || FALSE
-          );
+          claimName(protectedWrite, `models.${name}.fields.${field}.write`);
           writes[field] = protectedWrite;
+          protectedWrites.push([field, write]);
         }
       }
       // A key, a foreign key or a relation is refused by K5's admission.
       if (read === undefined) continue;
       reads[field] = declared(`fields.${field}.read`, read)!;
     }
+    claimName(PLACE, `models.${name}.create`);
+    const modes = new Map<string, string>(
+      model.actions.map((action) => [action, action])
+    );
+    for (const domain of Object.keys(policy.domains ?? {})) {
+      claimName(domain, `models.${name}.domains.${domain}`);
+      modes.set(domain, domain);
+    }
+    // One `as` name space for every model: the default is no action's.
+    if (modes.has(DEFAULT_MODE))
+      refuse(
+        `models.${name}: "${DEFAULT_MODE}" is the mode a call takes by default, not an action or a domain`,
+        name
+      );
+    declarations.set(name, {
+      ...verbs,
+      modes: Object.freeze(Object.fromEntries(modes)),
+      writes,
+      protectedWrites,
+      reads,
+    });
+  }
+
+  /** One listed model's predicates and the uses that name them, without `acyclic`. */
+  const compileModel = (name: string): CompiledModel => {
+    const policy = config.models[name]!;
+    const model = modelOf(name);
+    const { writes, protectedWrites, reads, ...declared } =
+      declarations.get(name)!;
+    const verbs = verbsFor(name);
+    const named = new Map<string, Where>();
+    /** One name space per model: actions, domains, placement and moves. */
+    const claim = (key: string, at: string, clause: Where) => {
+      if (named.has(key))
+        refuse(
+          `${at}: an action, a domain, the placement or a move already has the name "${key}"`,
+          name
+        );
+      named.set(key, clause);
+    };
+    for (const action of model.actions)
+      named.set(action, and([P(name, action), scope(name, action)]) || FALSE);
+    const evidence = actions.get(name)!.evidence;
+    // Field protection narrows the operation's grant. Core chooses one
+    // write predicate per field, so compose both permissions here rather
+    // than letting a field grant replace a denied or absent update grant.
+    for (const [field, write] of protectedWrites)
+      claim(
+        `$write:${field}`,
+        `models.${name}.fields.${field}.write`,
+        and([
+          verbs.update === undefined ? false : named.get(verbs.update)!,
+          named.get(write)!,
+        ]) || FALSE
+      );
     // Creation is a named action evaluated on the proposed row. Its placement
     // adds target visibility; moves reuse the row rule without requiring a
     // create credential scope for an update.
@@ -1549,28 +1660,16 @@ export function compilePolicy(
       );
       moves[field] = move;
     }
-
-    const modes = new Map<string, string>(
-      model.actions.map((action) => [action, action])
-    );
     for (const [domain, rule] of Object.entries(policy.domains ?? {})) {
       const at = `models.${name}.domains.${domain}`;
       claim(domain, at, lower(name, "read", rule, at) || FALSE);
-      modes.set(domain, domain);
     }
-    // One `as` name space for every model: the default is no action's.
-    if (modes.has(DEFAULT_MODE))
-      refuse(
-        `models.${name}: "${DEFAULT_MODE}" is the mode a call takes by default, not an action or a domain`,
-        name
-      );
-
-    compiled[name] = Object.freeze({
+    return Object.freeze({
       predicates: Object.freeze(Object.fromEntries(named)),
       ...verbs,
       writes: Object.freeze(writes),
       reads: Object.freeze(reads),
-      modes: Object.freeze(Object.fromEntries(modes)),
+      modes: declared.modes,
       place: PLACE,
       moves: Object.freeze(moves),
       // Per row, always one boolean for each admitted action.
@@ -1581,26 +1680,87 @@ export function compilePolicy(
         }),
       }),
     });
-  }
+  };
+
+  const compiled: Record<string, CompiledModel> = {};
+  /** `name` compiled, once: an unlisted model holds nothing (R9). */
+  const modelAt = (name: string): CompiledModel => {
+    const known = compiled[name];
+    if (known !== undefined) return known;
+    const entry = Object.hasOwn(config.models, name)
+      ? compileModel(name)
+      : UNLISTED;
+    compiled[name] = entry;
+    return entry;
+  };
   // R4: a self key a predicate recurses over never takes a parent inside
-  // the row's own subtree.
-  for (const [name, recursed] of recursion(compiled))
-    compiled[name] = Object.freeze({
-      ...compiled[name]!,
-      acyclic: Object.freeze(recursed),
-    });
-  const scopes = Object.fromEntries(
-    [...actions].flatMap(([name, declared]) =>
-      [...declared.closure].map(([action, implied]) => [
-        `${name}.${action}`,
-        Object.freeze(implied.map((next) => `${name}.${next}`)),
-      ])
+  // the row's own subtree. Any model's predicate may recurse over another's
+  // relation, so this is the one fact that needs the whole policy compiled.
+  let recursed: ReadonlyMap<string, readonly string[]> | undefined;
+  const acyclicAt = (name: string): readonly string[] => {
+    if (recursed === undefined) {
+      for (const each of Object.keys(schema)) modelAt(each);
+      recursed = new Map(
+        [...recursion(compiled)].map(([model, relations]) => [
+          model,
+          Object.freeze(relations),
+        ])
+      );
+    }
+    return recursed.get(name) ?? NO_RELATIONS;
+  };
+  const scopes = Object.freeze(
+    Object.fromEntries(
+      [...actions].flatMap(([name, declared]) =>
+        [...declared.closure].map(([action, implied]) => [
+          `${name}.${action}`,
+          Object.freeze(implied.map((next) => `${name}.${next}`)),
+        ])
+      )
     )
   );
+  const declared = Object.freeze(
+    Object.fromEntries(
+      Object.keys(schema).map((name) => {
+        const known = declarations.get(name);
+        if (known === undefined) return [name, UNLISTED];
+        const { read, update, delete: remove, modes } = known;
+        return [
+          name,
+          Object.freeze({
+            ...(read !== undefined && { read }),
+            ...(update !== undefined && { update }),
+            ...(remove !== undefined && { delete: remove }),
+            modes,
+          }),
+        ];
+      })
+    )
+  );
+  let whole: CompiledPolicy | undefined;
   return Object.freeze({
-    control: "actor",
-    scopes: Object.freeze(scopes),
-    models: Object.freeze(compiled),
+    scopes,
+    declared,
+    model: modelAt,
+    acyclic: acyclicAt,
+    policy: () => {
+      if (whole !== undefined) return whole;
+      const models: Record<string, CompiledModel> = {};
+      for (const name of Object.keys(schema)) {
+        const entry = modelAt(name);
+        const relations = acyclicAt(name);
+        models[name] =
+          relations.length === 0
+            ? entry
+            : Object.freeze({ ...entry, acyclic: relations });
+      }
+      whole = Object.freeze({
+        control: "actor",
+        scopes,
+        models: Object.freeze(models),
+      });
+      return whole;
+    },
   });
 
   /**

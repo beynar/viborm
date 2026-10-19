@@ -1261,23 +1261,35 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
       timeout
     );
 
-    test("W-D10: an actor path the actor schema does not declare is refused when the policy is applied", () => {
+    test("W-D10: an actor path the actor schema does not declare is refused by compile, and by its model's first call", async () => {
       const misspelt = permissions({
         actor: ActorSchema,
         models: { page: { read: { ownerId: { actor: "usrId" } } } },
       } as never);
-      expect(() => misspelt(base as never)).toThrow(ClientInitializationError);
-      expect(() => misspelt(base as never)).toThrow('actor path "usrId"');
+      expect(() => misspelt.compile(schema as never)).toThrow(
+        'actor path "usrId"'
+      );
+      // Rules compile a model at a time: a call on the model is refused
+      // before any statement, every time; another model is unaffected.
+      const call = loose(misspelt(base as never)).$as(actors.u01!);
+      for (let attempt = 0; attempt < 2; attempt++)
+        await expect(call.page!.findMany({})).rejects.toThrow(
+          ClientInitializationError
+        );
+      await expect(call.page!.findMany({})).rejects.toThrow(
+        'actor path "usrId"'
+      );
     });
 
-    test("a read-gated key or foreign key is refused when the policy is applied (K5's admission)", () => {
+    test("a read-gated key or foreign key is refused by its model's first call (K5's admission)", async () => {
       const gated = permissions({
         actor: ActorSchema,
         levels: ["read", "update", "full"],
         models: { page: { fields: { groupId: { read: "full" } } } },
       } as never);
-      expect(() => gated(base as never)).toThrow(ClientInitializationError);
-      expect(() => gated(base as never)).toThrow(
+      await expect(
+        loose(gated(base as never)).$as(actors.u01!).page!.findMany({})
+      ).rejects.toThrow(
         'rows.verbs.page at "reads.groupId": names a key, a unique or a foreign key field'
       );
       // A unique field: a write of a guessed value would be refused by its
@@ -1287,7 +1299,9 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
         levels: ["read", "update", "full"],
         models: { user: { read: {}, fields: { email: { read: "full" } } } },
       } as never);
-      expect(() => unique(base as never)).toThrow(
+      await expect(
+        loose(unique(base as never)).$as(actors.u01!).user!.findMany({})
+      ).rejects.toThrow(
         'rows.verbs.user at "reads.email": names a key, a unique or a foreign key field'
       );
     });

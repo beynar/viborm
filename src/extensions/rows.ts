@@ -2,6 +2,7 @@ import { ClientInitializationError } from "@errors";
 import {
   type CallRows,
   Condition,
+  type LazyRelations,
   type ModelDomain,
   type ModelStamps,
   type ModelVerbs,
@@ -15,6 +16,7 @@ import type { ResolvedControls, ResolvedDeletion } from "./chain";
 import {
   type AdmittedControls,
   type RowsContribution,
+  type RowsVerbs,
   rowsModes,
 } from "./controls";
 import type { RuntimeExtensionDefinition } from "./definition";
@@ -106,8 +108,10 @@ function referencesOfRows(rows: RowsContribution): readonly string[] {
       collectReferences(mode.root, references, seen);
       collectReferences(mode.related, references, seen);
     }
+  // A lazy entry's references are checked when it is resolved.
   for (const entry of Object.values(rows.verbs ?? {}))
-    collectReferences(entry.predicates, references, seen);
+    if (typeof entry !== "function")
+      collectReferences(entry.predicates, references, seen);
   const names = [...references];
   if (isImmutableRowData(rows)) rowReferences.set(rows, names);
   return names;
@@ -245,26 +249,110 @@ function requiredOn(controls: ResolvedControls | undefined): RequiredOn {
 }
 
 /**
+ * A map whose entries are built the first time they are read: a `rows`
+ * member's lazy `verbs` entry is resolved only for a model a call reaches.
+ * `has` answers without building; walking the map builds every entry. A
+ * build that throws is kept, so the next read throws again: an entry is
+ * never read as absent because its build failed.
+ */
+class LazyMap<K, V> extends Map<K, V> {
+  readonly #pending: Map<K, () => V>;
+  constructor(built: Iterable<readonly [K, V]>, pending: Map<K, () => V>) {
+    super(built);
+    this.#pending = pending;
+  }
+  #settle(key: K): void {
+    const build = this.#pending.get(key);
+    if (build === undefined) return;
+    const value = build();
+    this.#pending.delete(key);
+    super.set(key, value);
+  }
+  #settleAll(): void {
+    for (const key of [...this.#pending.keys()]) this.#settle(key);
+  }
+  override get(key: K): V | undefined {
+    this.#settle(key);
+    return super.get(key);
+  }
+  override has(key: K): boolean {
+    return this.#pending.has(key) || super.has(key);
+  }
+  override get size(): number {
+    this.#settleAll();
+    return super.size;
+  }
+  override keys(): MapIterator<K> {
+    this.#settleAll();
+    return super.keys();
+  }
+  override values(): MapIterator<V> {
+    this.#settleAll();
+    return super.values();
+  }
+  override entries(): MapIterator<[K, V]> {
+    this.#settleAll();
+    return super.entries();
+  }
+  override [Symbol.iterator](): MapIterator<[K, V]> {
+    return this.entries();
+  }
+  override forEach(
+    callback: (value: V, key: K, map: Map<K, V>) => void,
+    thisArg?: unknown
+  ): void {
+    this.#settleAll();
+    super.forEach(callback, thisArg);
+  }
+}
+
+/** A map of `built` entries, and of `pending` ones built when first read. */
+function lazyMap<K, V>(
+  built: Map<K, V>,
+  pending: Map<K, () => V>
+): ReadonlyMap<K, V> {
+  return pending.size === 0 ? built : new LazyMap(built, pending);
+}
+
+/** What admission leaves in place of a lazy entry's predicate: its resolver. */
+type Lazy<T> = () => T;
+
+/**
  * One purpose's predicates per model, for one mode of every member, each at
  * its member's place in the chain: the layer the engine reads it as. A mode
- * that named a predicate holds its admitted object.
+ * that named a predicate holds its admitted object; one that named a lazy
+ * entry's predicate, its resolver, called when the model is first read.
  */
 function modelDomain(
   rows: readonly RowsContribution[],
   modes: readonly string[],
   purpose: keyof Predicates
 ): ModelDomain {
-  const domain = new Map<string, Input[]>();
+  const declared = new Map<string, (Input | Lazy<Input>)[]>();
   for (const [layer, member] of rows.entries()) {
     for (const [model, entry] of Object.entries(member.models)) {
       const where = entry[modes[layer]!]?.[purpose];
       if (where === undefined) continue;
-      const list = domain.get(model) ?? [];
-      list[layer] = where as Input;
-      domain.set(model, list);
+      const list = declared.get(model) ?? [];
+      list[layer] = where as Input | Lazy<Input>;
+      declared.set(model, list);
     }
   }
-  return domain;
+  const built = new Map<string, Input[]>();
+  const pending = new Map<string, () => Input[]>();
+  for (const [model, list] of declared) {
+    if (list.some((where) => typeof where === "function"))
+      pending.set(model, () => {
+        const resolved: Input[] = [];
+        for (const [layer, where] of list.entries())
+          if (where !== undefined)
+            resolved[layer] =
+              typeof where === "function" ? (where as Lazy<Input>)() : where;
+        return resolved;
+      });
+    else built.set(model, list as Input[]);
+  }
+  return lazyMap(built, pending);
 }
 
 /** `{ OR: [] }`, false: what a verb a model's `verbs` leaves out takes. */
@@ -279,53 +367,165 @@ const fieldsOf = (
     Object.entries(entry ?? {}).map(([field, name]) => [field, named(name)])
   );
 
+/** One layer's admitted entry as the engine reads it. */
+function layerVerbs(entry: RowsVerbs): ModelVerbs {
+  const named = (name: string | undefined): Input =>
+    name === undefined ? NOTHING : entry.predicates[name]!;
+  // Admission leaves a lazy `acyclic` as its candidates and resolver.
+  const acyclic = entry.acyclic as
+    | readonly string[]
+    | LazyRelations
+    | undefined;
+  return Object.freeze({
+    read: named(entry.read),
+    update: named(entry.update),
+    delete: named(entry.delete),
+    writes: fieldsOf(entry.writes, named),
+    ...(entry.place !== undefined && { place: named(entry.place) }),
+    moves: fieldsOf(entry.moves, named),
+    acyclic: Array.isArray(acyclic)
+      ? Object.freeze([...acyclic])
+      : ((acyclic as LazyRelations | undefined) ?? NO_RELATIONS),
+    ...(entry.evidence && {
+      evidence: Object.freeze({
+        as: entry.evidence.as,
+        names: Object.freeze(
+          entry.evidence.names.map((name) =>
+            Object.freeze([name, named(name)] as const)
+          )
+        ),
+        ordered: entry.evidence.ordered === true,
+      }),
+    }),
+    reads: fieldsOf(entry.reads, named),
+  });
+}
+const NO_RELATIONS: readonly string[] = Object.freeze([]);
+
 /**
  * Every member's verbs per model, each at its member's layer, their names
  * resolved to the admitted predicates: the same for every mode combination.
+ * A model one member declares lazily is resolved when it is first read.
  */
 function modelVerbs(
   rows: readonly RowsContribution[]
 ): ReadonlyMap<string, readonly (ModelVerbs | undefined)[]> | undefined {
-  const verbs = new Map<string, (ModelVerbs | undefined)[]>();
-  const keys = new Set<string>();
-  for (const [layer, member] of rows.entries()) {
+  const declared = new Map<string, (RowsVerbs | Lazy<RowsVerbs>)[]>();
+  for (const [layer, member] of rows.entries())
     for (const [model, entry] of Object.entries(member.verbs ?? {})) {
+      const list = declared.get(model) ?? [];
+      list[layer] = entry;
+      declared.set(model, list);
+    }
+  const layers = (model: string, list: readonly (RowsVerbs | undefined)[]) => {
+    const keys = new Set<string>();
+    const verbs: (ModelVerbs | undefined)[] = [];
+    for (const [layer, entry] of list.entries()) {
+      if (entry === undefined) continue;
       // One projection key, one layer: a second would hide the first.
-      const key = entry.evidence && `${model}.${entry.evidence.as}`;
+      const key = entry.evidence?.as;
       if (key !== undefined && keys.has(key))
         throw new ClientInitializationError(
-          `rows.verbs.${model}.evidence.as "${entry.evidence!.as}" is declared by two extensions of the chain.`,
+          `rows.verbs.${model}.evidence.as "${key}" is declared by two extensions of the chain.`,
           { meta: { model } }
         );
       if (key !== undefined) keys.add(key);
-      const named = (name: string | undefined): Input =>
-        name === undefined ? NOTHING : entry.predicates[name]!;
-      const list = verbs.get(model) ?? [];
-      list[layer] = Object.freeze({
-        read: named(entry.read),
-        update: named(entry.update),
-        delete: named(entry.delete),
-        writes: fieldsOf(entry.writes, named),
-        ...(entry.place !== undefined && { place: named(entry.place) }),
-        moves: fieldsOf(entry.moves, named),
-        acyclic: Object.freeze([...(entry.acyclic ?? [])]),
-        ...(entry.evidence && {
-          evidence: Object.freeze({
-            as: entry.evidence.as,
-            names: Object.freeze(
-              entry.evidence.names.map((name) =>
-                Object.freeze([name, named(name)] as const)
-              )
-            ),
-            ordered: entry.evidence.ordered === true,
-          }),
-        }),
-        reads: fieldsOf(entry.reads, named),
-      });
-      verbs.set(model, list);
+      verbs[layer] = layerVerbs(entry);
     }
+    return verbs;
+  };
+  const built = new Map<string, readonly (ModelVerbs | undefined)[]>();
+  const pending = new Map<string, () => readonly (ModelVerbs | undefined)[]>();
+  for (const [model, list] of declared) {
+    if (list.some((entry) => typeof entry === "function"))
+      pending.set(model, () =>
+        layers(
+          model,
+          Array.from(list, (entry) =>
+            typeof entry === "function" ? entry() : entry
+          )
+        )
+      );
+    else built.set(model, layers(model, list as RowsVerbs[]));
   }
-  return verbs.size === 0 ? undefined : verbs;
+  if (declared.size === 0) return undefined;
+  return lazyMap(built, pending);
+}
+
+/** Whether a member names a lazy entry: its contents are not known yet. */
+const isLazy = (member: RowsContribution) =>
+  Object.values(member.verbs ?? {}).some(
+    (entry) => typeof entry === "function"
+  );
+
+/**
+ * `rows` whose lazy entries check, when resolved, that every control their
+ * predicates name is one the chain declared where the extension was
+ * applied (`declared`), as an eager entry is checked by `$extends`. The same
+ * object when it names no lazy entry.
+ */
+export function checkingLazyReferences(
+  rows: RowsContribution,
+  declared: (control: string) => boolean,
+  refuse: (control: string) => never
+): RowsContribution {
+  if (!isLazy(rows)) return rows;
+  const checked = new Map<string, Lazy<RowsVerbs>>();
+  const verbs = Object.fromEntries(
+    Object.entries(rows.verbs!).map(([model, entry]) => {
+      if (typeof entry !== "function") return [model, entry];
+      let resolved: RowsVerbs | undefined;
+      const check = () => {
+        if (resolved !== undefined) return resolved;
+        const admitted = entry();
+        for (const control of verbsReferences(admitted))
+          if (!declared(control)) refuse(control);
+        resolved = admitted;
+        return admitted;
+      };
+      checked.set(model, check);
+      return [model, check];
+    })
+  );
+  // A mode naming a lazy predicate reaches it through the checked entry.
+  const models = Object.fromEntries(
+    Object.entries(rows.models).map(([model, modes]) => {
+      const check = checked.get(model);
+      if (check === undefined) return [model, modes];
+      return [
+        model,
+        Object.fromEntries(
+          Object.entries(modes).map(([mode, purposes]) => [
+            mode,
+            Object.fromEntries(
+              Object.entries(purposes).map(([purpose, where]) => [
+                purpose,
+                typeof where === "function"
+                  ? () => {
+                      check();
+                      return (where as Lazy<Input>)();
+                    }
+                  : where,
+              ])
+            ),
+          ])
+        ),
+      ];
+    })
+  );
+  return Object.freeze({ ...rows, models, verbs: Object.freeze(verbs) });
+}
+
+// An admitted entry's references, read once: it is immutable once admitted.
+const entryReferences = new WeakMap<RowsVerbs, readonly string[]>();
+function verbsReferences(entry: RowsVerbs): readonly string[] {
+  const known = entryReferences.get(entry);
+  if (known) return known;
+  const names = new Set<string>();
+  collectReferences(entry.predicates, names);
+  const list = [...names];
+  if (Object.isFrozen(entry)) entryReferences.set(entry, list);
+  return list;
 }
 
 export function bindRows(
@@ -352,6 +552,15 @@ export function bindRows(
   });
   const domains: RowDomain[] = [];
   const verbs = modelVerbs(declared);
+  // Whether a model may project: a lazy entry may, until it is read.
+  const projects = declared.some((member) =>
+    Object.values(member.verbs ?? {}).some(
+      (entry) =>
+        typeof entry === "function" ||
+        entry.evidence !== undefined ||
+        Object.keys(entry.reads ?? {}).length > 0
+    )
+  );
   for (let combination = 0; combination < stride; combination++) {
     const modes = members.map(
       (member) =>
@@ -363,7 +572,7 @@ export function bindRows(
       Object.freeze({
         root: modelDomain(declared, modes, "root"),
         related: modelDomain(declared, modes, "related"),
-        ...(verbs && { verbs }),
+        ...(verbs && { verbs, projects }),
       })
     );
   }
@@ -399,11 +608,15 @@ export function bindRows(
   const physical = domains.map((domain) =>
     Object.freeze({ domain, defaults, ...(stamps && { stamps }) })
   );
-  const verbsRead = declared.some((member) =>
-    Object.values(member.verbs ?? {}).some((entry) =>
-      readsCall(entry.predicates)
-    )
-  );
+  // A lazy entry's predicates are not known yet: its calls carry their values.
+  const lazy = declared.some(isLazy);
+  const verbsRead =
+    lazy ||
+    declared.some((member) =>
+      Object.values(member.verbs ?? {}).some(
+        (entry) => typeof entry !== "function" && readsCall(entry.predicates)
+      )
+    );
   const reads = (domain: RowDomain) =>
     verbsRead ||
     [domain.root, domain.related].some((models) =>
@@ -466,4 +679,50 @@ export function callRows(
       stamps: boundStamps(facts.stamps!, controls),
     }),
   });
+}
+
+/**
+ * `rows` with every lazy entry resolved, for what reads the definition as a
+ * whole (a cache key): the same object when it names none. Resolving one
+ * compiles it, so this is never on a call's own path.
+ */
+const settled = new WeakMap<RowsContribution, RowsContribution>();
+export function settledRows(rows: RowsContribution): RowsContribution {
+  if (!isLazy(rows)) return rows;
+  const known = settled.get(rows);
+  if (known) return known;
+  const verbs = Object.fromEntries(
+    Object.entries(rows.verbs!).map(([model, entry]) => {
+      const resolved = typeof entry === "function" ? entry() : entry;
+      const acyclic = resolved.acyclic as
+        | readonly string[]
+        | LazyRelations
+        | undefined;
+      return [
+        model,
+        acyclic === undefined || Array.isArray(acyclic)
+          ? resolved
+          : { ...resolved, acyclic: (acyclic as LazyRelations).resolve() },
+      ];
+    })
+  );
+  const models = Object.fromEntries(
+    Object.entries(rows.models).map(([model, modes]) => [
+      model,
+      Object.fromEntries(
+        Object.entries(modes).map(([mode, purposes]) => [
+          mode,
+          Object.fromEntries(
+            Object.entries(purposes).map(([purpose, where]) => [
+              purpose,
+              typeof where === "function" ? (where as Lazy<Input>)() : where,
+            ])
+          ),
+        ])
+      ),
+    ])
+  );
+  const result = Object.freeze({ ...rows, models, verbs });
+  settled.set(rows, result);
+  return result;
 }

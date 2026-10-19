@@ -3,6 +3,7 @@ import { ClientInitializationError } from "@errors";
 import {
   Condition,
   type ConditionTest,
+  type LazyRelations,
   Parameter,
 } from "@query-engine/raptor3/shared/row-scope";
 import type { ModelState } from "@schema/model";
@@ -53,6 +54,18 @@ const admittedRows = new WeakMap<
     }
   >
 >();
+/** A lazy `verbs` entry's admission, per registry, for one that returned immutable data. */
+const admittedLazily = new WeakMap<
+  SchemaRegistryLookup<Schema>,
+  WeakMap<
+    () => RowsVerbs,
+    {
+      schema: Schema;
+      entries: [string, Schema[string]][];
+      admitted: RowsVerbs;
+    }
+  >
+>();
 const immutableData = new WeakSet<object>();
 export function isImmutableRowData(
   value: unknown,
@@ -88,6 +101,63 @@ export function isImmutableRowData(
   open.delete(value);
   if (safe) immutableData.add(value);
   return safe;
+}
+
+/**
+ * Immutable `rows` whose functions (lazy `verbs` entries, and the resolvers
+ * admission puts in their place) are leaves known by identity: what one
+ * returns is checked when it is called.
+ */
+const immutableRows = new WeakSet<object>();
+function isImmutableRows(value: unknown, open = new Set<object>()): boolean {
+  if (typeof value === "function") return true;
+  if (value === null || typeof value !== "object")
+    return typeof value !== "symbol";
+  if (immutableRows.has(value) || immutableData.has(value)) return true;
+  if (!Object.isFrozen(value) || open.has(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  if (
+    Array.isArray(value)
+      ? prototype !== Array.prototype ||
+        !Array.from({ length: value.length }, (_, index) =>
+          Object.hasOwn(value, index)
+        ).every(Boolean)
+      : prototype !== Object.prototype &&
+        prototype !== null &&
+        prototype !== Parameter.prototype &&
+        prototype !== Condition.prototype
+  )
+    return false;
+  open.add(value);
+  const safe = Reflect.ownKeys(value).every((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return (
+      typeof key === "string" &&
+      descriptor &&
+      "value" in descriptor &&
+      isImmutableRows(descriptor.value, open)
+    );
+  });
+  open.delete(value);
+  if (safe) immutableRows.add(value);
+  return safe;
+}
+
+/** An entry's data immutable, a lazy `acyclic` known by identity. */
+function isImmutableVerbs(entry: RowsVerbs): boolean {
+  return (
+    Object.isFrozen(entry) &&
+    Reflect.ownKeys(entry).every((key) => {
+      const descriptor = Object.getOwnPropertyDescriptor(entry, key);
+      return (
+        typeof key === "string" &&
+        descriptor !== undefined &&
+        "value" in descriptor &&
+        ((key === "acyclic" && typeof descriptor.value === "function") ||
+          isImmutableRowData(descriptor.value))
+      );
+    })
+  );
 }
 
 /** Native admission of immutable input owns every newly produced container. */
@@ -233,27 +303,32 @@ export function admitRows(
   extension: string,
   registry: SchemaRegistryLookup<Schema> = standaloneRegistry(schema)
 ): RowsContribution {
-  const reusable =
-    isImmutableRowData(rows) &&
-    Object.values(schema).every((model) => {
-      const state: ModelState = model["~"].state;
-      return Object.values(state.scalars).every(
-        (scalar) => scalar["~"].state.schema === undefined
-      );
-    });
+  const native = Object.values(schema).every((model) => {
+    const state: ModelState = model["~"].state;
+    return Object.values(state.scalars).every(
+      (scalar) => scalar["~"].state.schema === undefined
+    );
+  });
+  const reusable = native && isImmutableRows(rows);
   const entries = reusable ? Object.entries(schema) : undefined;
+  /** A cached admission still holds where the schema map is the one it read. */
+  const holds = (previous: {
+    schema: Schema;
+    entries: [string, Schema[string]][];
+  }) => {
+    const current = Object.entries(schema);
+    return (
+      previous.schema === schema &&
+      current.length === previous.entries.length &&
+      current.every(
+        ([name, model], index) =>
+          name === previous.entries[index]![0] &&
+          model === previous.entries[index]![1]
+      )
+    );
+  };
   const previous = reusable ? admittedRows.get(registry)?.get(rows) : undefined;
-  if (
-    previous &&
-    previous.schema === schema &&
-    entries?.length === previous.entries.length &&
-    entries.every(
-      ([name, model], index) =>
-        name === previous.entries[index]![0] &&
-        model === previous.entries[index]![1]
-    )
-  )
-    return previous.admitted;
+  if (previous && holds(previous)) return previous.admitted;
   const refuse = (
     name: string,
     place: string,
@@ -265,7 +340,8 @@ export function admitRows(
       { meta: { extension, model: name } }
     );
   };
-  // Shared sub-predicates are walked and parsed once per admission.
+  // Shared sub-predicates are walked and parsed once per admission, a lazy
+  // entry's included.
   const acyclic = new WeakSet<object>();
   const filters: AdmittedFilters = new WeakMap();
   const admit = (
@@ -290,11 +366,38 @@ export function admitRows(
       issue!.message
     );
   };
-  const verbs: Record<string, RowsVerbs> = {};
-  for (const [name, entry] of Object.entries(rows.verbs ?? {})) {
+  /** The self relations of `name` holding its key: what `acyclic` may name. */
+  const selfKeys = (name: string): readonly string[] => {
+    const { state } = schema[name]!["~"];
+    return Object.keys(state.relations).filter((relation) => {
+      const held = state.relations[relation]!["~"];
+      return (
+        held.state.foreignKey !== undefined &&
+        held.settleTarget() === schema[name]
+      );
+    });
+  };
+  const admitAcyclic = (
+    name: string,
+    place: string,
+    relations: readonly string[]
+  ): readonly string[] => {
+    const allowed = selfKeys(name);
+    for (const relation of relations)
+      if (!allowed.includes(relation))
+        refuse(
+          name,
+          place,
+          `acyclic.${relation}`,
+          "names no to-one relation of the model to itself holding its key"
+        );
+    return relations;
+  };
+  /** One model's `verbs` entry, every predicate admitted and every name checked. */
+  const admitVerbs = (name: string, entry: RowsVerbs): RowsVerbs => {
     const place = `verbs.${name}`;
-    if (!Object.hasOwn(schema, name))
-      refuse(name, place, "root", "names an unknown model");
+    if (!isPlainRecord(entry))
+      refuse(name, place, "root", "is not an object or a function");
     // Policies may be data built at runtime: a misspelt `writes` would leave
     // its field judged at `update`, which widens the write.
     for (const key of Object.keys(entry))
@@ -331,21 +434,19 @@ export function admitRows(
           refuse(name, place, `${key}.${field}`, "names an unknown field");
         known(`${key}.${field}`, predicate);
       }
-    for (const relation of entry.acyclic ?? []) {
-      const held = Object.hasOwn(state.relations, relation)
-        ? state.relations[relation]!["~"]
-        : undefined;
-      if (
-        held?.state.foreignKey === undefined ||
-        held.settleTarget() !== schema[name]
-      )
-        refuse(
-          name,
-          place,
-          `acyclic.${relation}`,
-          "names no to-one relation of the model to itself holding its key"
-        );
-    }
+    let cycles: readonly string[] | LazyRelations | undefined;
+    const declared = entry.acyclic;
+    if (typeof declared === "function") {
+      let resolved: readonly string[] | undefined;
+      cycles = Object.freeze({
+        candidates: Object.freeze(selfKeys(name)),
+        resolve: () =>
+          (resolved ??= Object.freeze([
+            ...admitAcyclic(name, place, declared()),
+          ])),
+      });
+    } else if (declared !== undefined)
+      cycles = admitAcyclic(name, place, declared);
     const { evidence } = entry;
     if (evidence !== undefined) {
       if (!PROJECTION_KEY.test(evidence.as))
@@ -368,14 +469,58 @@ export function admitRows(
         );
       known(`reads.${field}`, predicate);
     }
-    verbs[name] = Object.freeze({
+    return Object.freeze({
       ...entry,
       predicates: Object.freeze(predicates),
+      ...(cycles !== undefined && {
+        acyclic: cycles as RowsVerbs["acyclic"],
+      }),
     });
+  };
+  /**
+   * A lazy entry, admitted the first time it is resolved: once per schema
+   * registry when it returns immutable data, else once per admission.
+   */
+  const lazily = (name: string, entry: () => RowsVerbs): (() => RowsVerbs) => {
+    let admitted: RowsVerbs | undefined;
+    return () => {
+      if (admitted !== undefined) return admitted;
+      const cached = native
+        ? admittedLazily.get(registry)?.get(entry)
+        : undefined;
+      if (cached && holds(cached)) return (admitted = cached.admitted);
+      const declared = entry();
+      const result = admitVerbs(name, declared);
+      if (native && isPlainRecord(declared) && isImmutableVerbs(declared)) {
+        freezeAdmitted(result);
+        let cache = admittedLazily.get(registry);
+        if (!cache) {
+          cache = new WeakMap();
+          admittedLazily.set(registry, cache);
+        }
+        cache.set(entry, {
+          schema,
+          entries: Object.entries(schema),
+          admitted: result,
+        });
+      }
+      admitted = result;
+      return result;
+    };
+  };
+  const verbs: Record<string, RowsVerbs | (() => RowsVerbs)> = {};
+  for (const [name, entry] of Object.entries(rows.verbs ?? {})) {
+    if (!Object.hasOwn(schema, name))
+      refuse(name, `verbs.${name}`, "root", "names an unknown model");
+    verbs[name] =
+      typeof entry === "function"
+        ? lazily(name, entry)
+        : admitVerbs(name, entry);
   }
   const models: Record<string, Record<string, object>> = {};
   for (const [name, modes] of Object.entries(rows.models)) {
     const admitted = new Map<string, object>();
+    const own = verbs[name];
     for (const [mode, purposes] of Object.entries(modes)) {
       const out: Record<string, unknown> = {};
       for (const purpose of ["root", "related"] as const) {
@@ -384,8 +529,19 @@ export function admitRows(
         const place = `${name}.${mode}.${purpose}`;
         if (typeof predicate !== "string")
           out[purpose] = admit(name, place, predicate);
-        else if (Object.hasOwn(verbs[name]?.predicates ?? {}, predicate))
-          out[purpose] = verbs[name]!.predicates[predicate];
+        else if (typeof own === "function")
+          // A lazy entry's predicate, named when its model is first needed.
+          out[purpose] = () =>
+            Object.hasOwn(own().predicates, predicate)
+              ? own().predicates[predicate]
+              : refuse(
+                  name,
+                  place,
+                  "root",
+                  `names unknown predicate "${predicate}"`
+                );
+        else if (Object.hasOwn(own?.predicates ?? {}, predicate))
+          out[purpose] = own!.predicates[predicate];
         else
           refuse(name, place, "root", `names unknown predicate "${predicate}"`);
       }
@@ -397,9 +553,9 @@ export function admitRows(
     ...rows,
     models: Object.freeze(models),
     ...(rows.verbs && { verbs: Object.freeze(verbs) }),
-  });
+  }) as RowsContribution;
   if (entries) freezeAdmitted(admitted);
-  if (entries && isImmutableRowData(admitted)) {
+  if (entries && isImmutableRows(admitted)) {
     let cache = admittedRows.get(registry);
     if (!cache) {
       cache = new WeakMap();

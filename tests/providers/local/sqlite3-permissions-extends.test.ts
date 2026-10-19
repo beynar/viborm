@@ -652,7 +652,8 @@ test("grouped callbacks retain declaring actions through inheritance and evidenc
         })
       )
       .$as({});
-    expect(calls).toEqual(["update", "delete"]);
+    // Rules are evaluated when their model first compiles: at its first call.
+    expect(calls).toEqual([]);
     const rows = await call.post.findMany({
       orderBy: { id: "asc" },
       include: { $access: true },

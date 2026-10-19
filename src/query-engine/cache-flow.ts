@@ -23,6 +23,7 @@ import {
   isStableControlValue,
 } from "@extensions/controls";
 import type { WriteOutcomeRegistration } from "@extensions/query";
+import { settledRows } from "@extensions/rows";
 import { parse } from "@validation";
 import { readValidationFailureCause } from "@validation/parse-failure";
 import { isRecord } from "@validation/value-guards";
@@ -100,7 +101,9 @@ export function cacheKeyOf(
   // Only values admission fixed key a cache entry: the rows the read's SQL
   // binds were bound from those same values (`snapshotControlValue` in controls.ts).
   if (!Object.values(controls).every(isStableControlValue)) return undefined;
-  return rows === undefined ? [args, controls] : [args, controls, rows];
+  return rows === undefined
+    ? [args, controls]
+    : [args, controls, rows.map(settledRows)];
 }
 
 export { isCacheManagedExecution } from "@cache/capability";
