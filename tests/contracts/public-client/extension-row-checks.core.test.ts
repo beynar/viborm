@@ -25,6 +25,13 @@ import { afterEach, describe, expect, test } from "vitest";
 
 const org = s.model({
   id: s.string().id(),
+  parentId: s.string().nullable(),
+  parent: s
+    .toOne(() => org)
+    .fields("parentId")
+    .references("id")
+    .name("tree"),
+  children: s.toMany(() => org).name("tree"),
   members: s.toMany(() => member),
   grants: s.toMany(() => grant),
 });
@@ -33,6 +40,8 @@ const member = s.model({
   userId: s.string(),
   role: s.string(),
   orgId: s.string(),
+  budget: s.decimal({ precision: 10, scale: 2 }).nullable(),
+  archived: s.boolean().default(false),
   org: s
     .toOne(() => org)
     .fields("orgId")
@@ -42,6 +51,7 @@ const grant = s.model({
   id: s.string().id(),
   role: s.string(),
   rank: s.int(),
+  budget: s.decimal({ precision: 12, scale: 4 }).nullable(),
   orgId: s.string(),
   org: s
     .toOne(() => org)
@@ -88,7 +98,7 @@ afterEach(async () => {
   for (const client of clients.splice(0)) await client.$disconnect();
 });
 
-async function open(root: object, shared = false) {
+async function open(root: object, shared = false, extra?: object) {
   const driver = createInMemorySQLite3Driver();
   if (shared) driver.adapter.capabilities.sharesRelationBodies = true;
   const base = createClient({ schema, driver });
@@ -111,7 +121,11 @@ async function open(root: object, shared = false) {
     ],
   });
   const statements: string[] = [];
-  const db = (base as unknown as Loose)
+  const db = (
+    extra
+      ? (base as unknown as Loose).$extends(extra)
+      : (base as unknown as Loose)
+  )
     .$extends(
       defineExtension({
         name: "policy",
@@ -321,5 +335,106 @@ describe("{ $row, up }", () => {
     await expect(
       base.grant!.findMany({ where: { role: { $row: "role", up: 0 } } })
     ).rejects.toThrow();
+  });
+});
+
+describe("folding, judging and sharing", () => {
+  test("a layer's conditions fold inside an $exists body, and around one without a body", async () => {
+    const asked = { $if: { control: "user", exists: true } };
+    const { db } = await open({ AND: [asked, { $exists: { member: {} } }] });
+    expect(ids(await db.grant!.findMany({ user: "ann" }))).toHaveLength(4);
+    const unchanged = await open({ AND: [asked, isMember] });
+    expect(ids(await unchanged.db.grant!.findMany({ user: "carl" }))).toEqual(
+      []
+    );
+  });
+
+  test("a body's conditions are walked when a write is judged", async () => {
+    const { db } = await open({
+      org: {
+        is: {
+          members: {
+            some: {
+              $if: { control: "user", exists: true },
+              userId: user,
+              role: { $row: "role", up: 2 },
+            },
+          },
+        },
+      },
+    });
+    await expect(
+      db.grant!.update({
+        where: { id: "g1" },
+        data: { role: "reader" },
+        user: "ann",
+      })
+    ).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  test("a relation body reading a row above its parent is never shared", async () => {
+    const twice = {
+      OR: [
+        { AND: [holdsRoleThroughOrg, { rank: 1 }] },
+        { AND: [holdsRoleThroughOrg, { rank: 3 }] },
+      ],
+    };
+    const { db, statements } = await open(twice, true);
+    expect(ids(await db.grant!.findMany({ user: "ann" }))).toEqual([
+      "g1",
+      "g3",
+    ]);
+    expect(statements[0]).not.toContain("__shared_");
+  });
+
+  test("its rows are read under every other extension's related rows (R5)", async () => {
+    const live = defineExtension({
+      name: "live",
+      rows: {
+        control: "archive",
+        default: "live",
+        models: {
+          member: { live: { related: { archived: false, org: { is: {} } } } },
+        },
+      },
+    } as never);
+    const { db, base } = await open(isMember, false, live);
+    expect(ids(await db.grant!.findMany({ user: "bob" }))).toHaveLength(4);
+    await (
+      base as unknown as Record<
+        string,
+        { updateMany(a: object): Promise<unknown> }
+      >
+    ).member!.updateMany({
+      where: { userId: "bob" },
+      data: { archived: true },
+    });
+    expect(await db.grant!.findMany({ user: "bob" })).toEqual([]);
+  });
+
+  test("never across a recursive relation, nor between decimals of different scales", async () => {
+    const refused = async (root: object, message: string) => {
+      const { db } = await open(root);
+      await expect(db.grant!.findMany({ user: "ann" })).rejects.toThrow(
+        message
+      );
+    };
+    await refused(
+      {
+        org: {
+          is: {
+            parent: {
+              recurse: { depth: false },
+              some: { id: { $row: "orgId", up: 2 } },
+            },
+          },
+        },
+      },
+      "crosses a recursive relation"
+    );
+    await refused(
+      { $exists: { member: { budget: { $row: "budget", up: 1 } } } },
+      "two decimals compare exactly only when they declare the same precision and scale"
+    );
   });
 });
