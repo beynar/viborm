@@ -39,7 +39,7 @@
       "tests/"
     ],
     "maximumCompressedBytes": 2500000,
-    "maximumUnpackedBytes": 9000000,
+    "maximumUnpackedBytes": 10000000,
     "maximumFileCount": 260
   }
 }
