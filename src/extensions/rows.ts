@@ -1,4 +1,3 @@
-import { stableStringify } from "@cache/key";
 import { ClientInitializationError } from "@errors";
 import {
   type CallRows,
@@ -13,13 +12,7 @@ import {
 } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import { isPlainRecord } from "@schema/relation/terminal";
-import { sha256 } from "@validation/primitives/sha256";
-import {
-  isAdmittedRows,
-  isImmutableRowData,
-  isInstant,
-  isReference,
-} from "./admission";
+import { isImmutableRowData, isInstant, isReference } from "./admission";
 import type { ResolvedControls, ResolvedDeletion } from "./chain";
 import {
   type AdmittedControls,
@@ -466,7 +459,7 @@ function modelVerbs(
 }
 
 /** Whether a member names a lazy entry: its contents are not known yet. */
-const isLazy = (member: RowsContribution) =>
+export const isLazy = (member: RowsContribution) =>
   Object.values(member.verbs ?? {}).some(
     (entry) => typeof entry === "function"
   );
@@ -536,6 +529,8 @@ export function checkingLazyReferences(
 }
 /** The admitted rows a chain's checking copy stands for: the same content. */
 const origins = new WeakMap<RowsContribution, RowsContribution>();
+export const admittedRowsOf = (rows: RowsContribution) =>
+  origins.get(rows) ?? rows;
 
 // An admitted entry's references, read once: it is immutable once admitted.
 const entryReferences = new WeakMap<RowsVerbs, readonly string[]>();
@@ -700,77 +695,4 @@ export function callRows(
       stamps: boundStamps(facts.stamps!, controls),
     }),
   });
-}
-
-/**
- * `rows` with every lazy entry resolved, for what reads the definition as a
- * whole (a cache key): the same object when it names none. Resolving one
- * compiles it, so this is never on a call's own path.
- */
-const settled = new WeakMap<RowsContribution, RowsContribution>();
-export function settledRows(rows: RowsContribution): RowsContribution {
-  const lazyCycles = Object.values(rows.verbs ?? {}).some(
-    (entry) =>
-      typeof entry !== "function" &&
-      typeof entry.acyclic === "object" &&
-      !Array.isArray(entry.acyclic)
-  );
-  if (!(isLazy(rows) || lazyCycles)) return rows;
-  const known = settled.get(rows);
-  if (known) return known;
-  const verbs = Object.fromEntries(
-    Object.entries(rows.verbs!).map(([model, entry]) => {
-      const resolved = typeof entry === "function" ? entry() : entry;
-      const acyclic = resolved.acyclic as
-        | readonly string[]
-        | LazyRelations
-        | undefined;
-      return [
-        model,
-        acyclic === undefined || Array.isArray(acyclic)
-          ? resolved
-          : { ...resolved, acyclic: (acyclic as LazyRelations).resolve() },
-      ];
-    })
-  );
-  const models = Object.fromEntries(
-    Object.entries(rows.models).map(([model, modes]) => [
-      model,
-      Object.fromEntries(
-        Object.entries(modes).map(([mode, purposes]) => [
-          mode,
-          Object.fromEntries(
-            Object.entries(purposes).map(([purpose, where]) => [
-              purpose,
-              typeof where === "function" ? (where as Lazy<Input>)() : where,
-            ])
-          ),
-        ])
-      ),
-    ])
-  );
-  const result = Object.freeze({ ...rows, models, verbs });
-  settled.set(rows, result);
-  return result;
-}
-
-/**
- * A `rows` member as a cache key holds it: everything it says, every lazy
- * entry resolved (a cache shared across isolates must tell two policies apart
- * by content). For rows admission owns and nobody can change, a SHA-256
- * digest computed once; other rows are keyed by their content, read afresh.
- */
-const identities = new WeakMap<RowsContribution, string>();
-export function rowsIdentity(chained: RowsContribution): unknown {
-  const rows = origins.get(chained) ?? chained;
-  const known = identities.get(rows);
-  if (known !== undefined) return known;
-  const settled = settledRows(rows);
-  if (!isAdmittedRows(rows)) return settled;
-  const digest = sha256(new TextEncoder().encode(stableStringify(settled)));
-  const identity = Array.from(digest, (byte) =>
-    byte.toString(16).padStart(2, "0")
-  ).join("");
-  identities.set(rows, identity);
-  return identity;
 }
