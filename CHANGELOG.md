@@ -44,6 +44,12 @@ also fixes a rule spelling that granted every row.
   keep them pure.
 - The rules compile from a copy of the declaration taken at `$extends`:
   editing the declaration afterwards changes only later `$extends`.
+- **Writes share repeated bodies too.** On drivers that share them
+  (PostgreSQL drivers, D1), an `UPDATE` or `DELETE` now states each repeated
+  relation body and `$exists` once, in a `WITH` ahead of the statement, as a
+  read does. A production policy's governed `accessGrant.deleteMany` went
+  from 97.4 KB and 776 table references to 29.9 KB and 252 (25.1 KB and 238
+  with its membership checks as `$exists`).
 - A cached governed read (`cache: "allow"`) keys on a SHA-256 digest of the
   policy, computed once per isolate, instead of serialising every predicate
   on each read. The first cached read compiles the whole policy; when a model
@@ -55,7 +61,7 @@ also fixes a rule spelling that granted every row.
   `{ $exists: { member: { userId: { actor: "userId" } } } }` holds where some
   row of the named model matches. It reads no row of the statement, so a
   driver sharing repeated bodies (PostgreSQL drivers, D1) writes it once per
-  statement. A tenant boundary written as `organizationId` plus one `$exists`
+  statement, reads and writes alike. A tenant boundary written as `organizationId` plus one `$exists`
   membership check, instead of a walk through each row's organization, made
   that production policy's governed reads 15–28 % shorter and 25–35 % faster
   (permissions guide, "Keeping policies small").

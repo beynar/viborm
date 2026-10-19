@@ -357,3 +357,19 @@ disconnect that judges no produced row lowers the target's domain without a
 root alias, so a `{ $row, up ≥ 1 }` reaching that root fails closed ("has no
 row to read here"); the compiler does not refuse references across a
 polymorphic relation, the engine does at the model's first call.
+
+### Write sharing (owner ruling, 2026-10-19)
+
+Pyxel's agent asked whether "once per statement" covers writes: it did not
+(`#sharingBodies` was entered by reads and produced-row judgements only), and
+its grant `DELETE` costs 139 relations on Neki. Owner: add it to 1.3.2.
+`Queries.sharing` opens one scope around each `UPDATE`/`DELETE` an operation
+context builds (set and captured mutations, a located update, nested set
+mutations, a junction delete, a disconnect); a produced row's judged set
+inside it shares the write's scope, so its `WITH` moves ahead of the
+statement. PostgreSQL, SQLite (D1) accept `WITH … UPDATE/DELETE`; MySQL
+shares nothing, as before. Pyxel `accessGrant.deleteMany`: 97.4 KB / 776 FROM
+or JOIN → 29.9 KB / 252 (25.1 KB / 238 with `$exists`); `updateMany`
+unchanged in size (its repeats were already in the shared judged set).
+Contract test: an `UPDATE` and a `DELETE` repeating an `$exists` state one
+`WITH` member and take the same rows with sharing on and off.

@@ -1936,6 +1936,14 @@ export class Queries {
       ? statement
       : sql`${this.adapter.cte.with(definitions)} ${statement}`;
   }
+  /**
+   * A write's statement, sharing its bodies where the adapter does: every
+   * repeated body its WHERE (and its produced row's judgement) lowers is one
+   * `WITH` member ahead of the `UPDATE` or `DELETE`, as a read's is.
+   */
+  sharing(build: () => Sql): Sql {
+    return this.#sharing(build)!;
+  }
   /** `build`'s statement, sharing its bodies where the adapter does. */
   #sharing(build: () => Sql | undefined): Sql | undefined {
     if (!this.#sharesBodies) return build();

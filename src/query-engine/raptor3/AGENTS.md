@@ -184,7 +184,14 @@ on a model with a `place`.
 bounded to 100 KB, and every PostgreSQL driver by default, where Neki bounds
 one statement to 256 relations), a statement states each relation filter body it lowers more
 than once ONCE, in a `WITH` before it (`#sharingBodies`, one scope per
-statement: a read's `read()`, `producedWhere`'s judged set, `producedSource`).
+statement: a read's `read()`, `producedWhere`'s judged set, `producedSource`,
+and, since 1.3.2, every `UPDATE` and `DELETE` an operation context builds
+through `Queries.sharing`: set mutations, captured mutations, a located
+update, nested set mutations, a junction delete and a disconnect; a produced
+row's judged set inside one shares the write's scope). An `$exists` that
+reads no enclosing row is a body of its own, `SELECT 1 FROM target WHERE …
+LIMIT 1`, tested as `EXISTS (SELECT 1 FROM <member>)`; a body any
+`{ $row, up }` reaches out of stays in place (`correlatedAbove`).
 `#relationExists` lowers a reference edge's filter as today's `EXISTS` and,
 inside a scope, as an open `SqlSlot` keyed by the body's text with its
 aliases renumbered and its values (`sharedKey`): the body is the key set

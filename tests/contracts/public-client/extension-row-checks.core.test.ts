@@ -139,6 +139,7 @@ async function open(root: object, shared = false, extra?: object) {
               predicates: { held: root },
               read: "held",
               update: "held",
+              delete: "held",
             },
           },
         },
@@ -436,5 +437,48 @@ describe("folding, judging and sharing", () => {
       { $exists: { member: { budget: { $row: "budget", up: 1 } } } },
       "two decimals compare exactly only when they declare the same precision and scale"
     );
+  });
+});
+
+const UPDATE = /UPDATE/;
+const DELETE = /DELETE/;
+const MEMBER_READS = /FROM "member"/g;
+
+describe("writes share repeated bodies too", () => {
+  const twice = {
+    OR: [{ AND: [isMember, { rank: 1 }] }, { AND: [isMember, { rank: 3 }] }],
+  };
+  test("an UPDATE or a DELETE states a repeated body once, ahead of the statement, and takes the same rows", async () => {
+    for (const shared of [true, false]) {
+      const { db, base, statements } = await open(twice, shared);
+      expect(
+        (
+          await db.grant!.updateMany({
+            where: {},
+            data: { role: "auditor" },
+            user: "ann",
+          })
+        ).count
+      ).toBe(2);
+      const updated = statements.find((sql) => UPDATE.test(sql))!;
+      expect(
+        updated.startsWith('WITH "__shared_0" AS (SELECT 1 FROM "member"')
+      ).toBe(shared);
+      // The mode's root, the read verb and the update verb each hold it twice.
+      expect(updated.match(MEMBER_READS)).toHaveLength(shared ? 1 : 6);
+      statements.length = 0;
+      expect(
+        (
+          await (
+            db.grant as unknown as {
+              deleteMany(args: object): Promise<{ count: number }>;
+            }
+          ).deleteMany({ where: {}, user: "ann" })
+        ).count
+      ).toBe(2);
+      const deleted = statements.find((sql) => DELETE.test(sql))!;
+      expect(deleted.startsWith("WITH ")).toBe(shared);
+      expect(ids(await base.grant!.findMany())).toEqual(["g2", "g4"]);
+    }
   });
 });

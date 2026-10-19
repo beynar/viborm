@@ -1517,7 +1517,8 @@ broad read remains too large, split it into smaller queries through the same
 switch to the base client to avoid the limit.
 
 **PostgreSQL drivers state each repeated relation body once** (`viborm/pg`,
-`viborm/pglite`, `viborm/postgres`, `viborm/neon-http`, `viborm/bun-sql`):
+`viborm/pglite`, `viborm/postgres`, `viborm/neon-http`, `viborm/bun-sql`),
+in reads and, since 1.3.2, in `UPDATE` and `DELETE` statements:
 a policy repeats the same bodies at every arm and every key check, and the
 shared form keeps the statement small with the same answers. A member's
 `accessGrant` read of the acceptance fixture is 415 KB inline and 2,711 bound
@@ -1582,7 +1583,8 @@ columns in one check:
 ```
 
 On PostgreSQL drivers and D1, which share repeated bodies, each `$exists`
-that reads no row of the statement is written once per statement. The one
+that reads no row of the statement is written once per statement, reads and
+writes alike. The one
 check reading the grant's columns is correlated: it is written at every place
 it appears, smaller than four branches on SQLite3 and MySQL, larger than four
 shared ones where bodies are shared. Measured on a 40-model production policy
