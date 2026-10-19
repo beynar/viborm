@@ -713,8 +713,12 @@ function readsAny(
       return readsAny(predicate.predicate, fields, keys);
     case "always":
     case "condition":
-    case "exists":
       return false;
+    case "exists":
+      return (
+        predicate.predicate !== undefined &&
+        readsAbove(predicate.predicate, fields, 1)
+      );
     case "operation": {
       if (predicate.target.kind !== "column") return true;
       const operands = [predicate.operand, ...(predicate.operands ?? [])];
@@ -773,6 +777,7 @@ function readsAbove(
     case "layer":
       return readsAbove(predicate.predicate, fields, depth);
     case "relation":
+    case "exists":
       return (
         predicate.predicate !== undefined &&
         readsAbove(predicate.predicate, fields, depth + 1)
@@ -786,7 +791,6 @@ function readsAbove(
       );
     case "always":
     case "condition":
-    case "exists":
       return false;
     default:
       return true;
@@ -3682,10 +3686,17 @@ export class Queries {
   ): PreparedPredicate {
     const model = this.schema.schema[existence.model]!;
     const nestedFacts = facts && newSelectorFacts(false);
-    // A new root: what it reads is the same wherever the statement holds it.
-    const predicate = this.#rooted(model, nestedFacts, () =>
-      this.#prepareWhere(model, existence.where, nestedFacts, [])
-    );
+    // One body below the row that holds it, joined to nothing: a
+    // `{ $row, up }` inside it may read that row (or one above), and then it
+    // is correlated; else it is the same wherever the statement holds it.
+    const scopes = this.#scopes;
+    this.#scopes = [...scopes, { model, facts: nestedFacts }];
+    let predicate: PreparedPredicate;
+    try {
+      predicate = this.#prepareWhere(model, existence.where, nestedFacts, []);
+    } finally {
+      this.#scopes = scopes;
+    }
     if (facts && nestedFacts) {
       facts.exact = false;
       const domain = this.domain?.selector(model, "related");
@@ -4538,7 +4549,9 @@ export class Queries {
      * that negates it — is the whole reach of this fact.
      */
     const spelledAsText = (member: BoundOperand): boolean =>
-      state?.type === "enum" && member.kind === "field";
+      member.kind === "field" &&
+      (state?.type === "enum" ||
+        member.scalar.physical.scalar["~"].state.type === "enum");
     const comparableColumn = (member: BoundOperand): Sql =>
       exact(
         spelledAsText(member) ? a.expressions.cast(column, "text") : column
@@ -5148,16 +5161,15 @@ export class Queries {
     const a = this.adapter;
     const { model } = predicate;
     const child = this.alias();
-    // A new root: nothing inside it reads a row outside it.
-    const frames = this.#frames;
-    this.#frames = [{ alias: child, escaped: false }];
+    const frame = { alias: child, escaped: false };
+    this.#frames.push(frame);
     let stated: Sql[];
     try {
       stated = predicate.predicate
         ? [this.#lowerPredicate(predicate.predicate, child)]
         : [];
     } finally {
-      this.#frames = frames;
+      this.#frames.pop();
     }
     const domain = this.domainOf(model, "related");
     const lowered = domain && this.lowerSelector(domain, child);
@@ -5172,7 +5184,8 @@ export class Queries {
         : a.operators.and(...conditions);
     const inline = a.subqueries.existsCheck(this.table(model, child), where);
     const shared = this.#shared;
-    if (shared === undefined) return a.filters.some(inline);
+    // Correlated to a row above it: written where it is.
+    if (shared === undefined || frame.escaped) return a.filters.some(inline);
     const query = assembleAdapterSelect(a, {
       columns: sql`1`,
       from: this.table(model, child),

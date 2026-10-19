@@ -594,6 +594,8 @@ export function policyCompiler(
   const authoredPredicates = new WeakMap<Where, ReadSummary>();
   const rules = new Map<string, Clause>();
   const predicates = new Map<string, Clause>();
+  /** Every `P(M, a)`: inlined anywhere, its `{ $row, up }` never leaves it. */
+  const inlined = new WeakSet<Where>();
   const open: string[] = [];
   const scope = (name: string, action: string): Where => ({
     OR: [
@@ -686,6 +688,7 @@ export function policyCompiler(
           );
       }
       predicates.set(key, clause);
+      if (clause !== false) inlined.add(clause);
       return clause;
     } finally {
       open.pop();
@@ -836,8 +839,9 @@ export function policyCompiler(
             `${at}: $exists names exactly one model of the schema and the where its rows must match`,
             name
           );
-        // A root of its own: nothing in it reads a row outside it.
+        // One body below this row, joined to nothing.
         const body = lower(model!, action, (member as Where)[model!], at, [
+          ...scopes,
           { model: model! },
         ]);
         if (body === false) return false;
@@ -1561,39 +1565,56 @@ export function policyCompiler(
    * key behind a relation it holds, the fields a relation it does not hold
    * joins on, and a self relation's body where `self` reads the row itself.
    */
-  /** The fields of the rule's own row its bodies compare (`{ $row, up: depth }`). */
+  /**
+   * The fields of the rule's own row its bodies compare (`{ $row, up:
+   * depth }`). An inlined predicate is relative to its own root and never
+   * reaches past it, so it is not walked; a shared clause is walked once per
+   * depth.
+   */
   const rootReads = (
+    root: Where,
     name: string,
     clause: unknown,
     depth: number,
-    into: Set<string>
+    into: Set<string>,
+    seen = new Map<object, Set<number>>()
   ): void => {
     if (isEnclosingRow(clause)) {
       if (clause.up === depth) into.add(clause.$row);
       return;
     }
+    if (typeof clause !== "object" || clause === null) return;
+    if (clause !== root && inlined.has(clause as Where)) return;
+    const depths = seen.get(clause) ?? new Set<number>();
+    if (depths.has(depth)) return;
+    seen.set(clause, depths.add(depth));
     if (Array.isArray(clause)) {
-      for (const item of clause) rootReads(name, item, depth, into);
+      for (const item of clause) rootReads(root, name, item, depth, into, seen);
       return;
     }
     if (!isRecord(clause)) return;
     for (const [key, member] of Object.entries(clause)) {
-      if (key === EXISTS || key === "$if") continue;
+      if (key === "$if") continue;
+      if (key === EXISTS) {
+        const [model, body] = existsOf(member);
+        rootReads(root, model, body, depth + 1, into, seen);
+        continue;
+      }
       const target = LOGICAL.has(key) ? undefined : targetOf(name, key);
       if (target === undefined || !isRecord(member)) {
-        rootReads(name, member, depth, into);
+        rootReads(root, name, member, depth, into, seen);
         continue;
       }
       const quantified = Object.keys(member).some((op) => QUANTIFIERS.has(op));
       if (quantified)
         for (const op of QUANTIFIERS)
           if (isRecord(member[op]))
-            rootReads(target, member[op], depth + 1, into);
-          else rootReads(target, member, depth + 1, into);
+            rootReads(root, target, member[op], depth + 1, into, seen);
+          else rootReads(root, target, member, depth + 1, into, seen);
     }
   };
   const fieldsRead = (name: string, clause: Where, into: Set<string>) => {
-    rootReads(name, clause, 0, into);
+    rootReads(clause, name, clause, 0, into);
     return ownFields(name, clause, into);
   };
   const ownFields = (name: string, clause: Where, into: Set<string>) => {
