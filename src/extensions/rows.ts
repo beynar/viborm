@@ -1,3 +1,4 @@
+import { stableStringify } from "@cache/key";
 import { ClientInitializationError } from "@errors";
 import {
   type CallRows,
@@ -11,7 +12,13 @@ import {
 } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import { isPlainRecord } from "@schema/relation/terminal";
-import { isImmutableRowData, isInstant, isReference } from "./admission";
+import { sha256 } from "@validation/primitives/sha256";
+import {
+  isAdmittedRows,
+  isImmutableRowData,
+  isInstant,
+  isReference,
+} from "./admission";
 import type { ResolvedControls, ResolvedDeletion } from "./chain";
 import {
   type AdmittedControls,
@@ -688,7 +695,13 @@ export function callRows(
  */
 const settled = new WeakMap<RowsContribution, RowsContribution>();
 export function settledRows(rows: RowsContribution): RowsContribution {
-  if (!isLazy(rows)) return rows;
+  const lazyCycles = Object.values(rows.verbs ?? {}).some(
+    (entry) =>
+      typeof entry !== "function" &&
+      typeof entry.acyclic === "object" &&
+      !Array.isArray(entry.acyclic)
+  );
+  if (!(isLazy(rows) || lazyCycles)) return rows;
   const known = settled.get(rows);
   if (known) return known;
   const verbs = Object.fromEntries(
@@ -725,4 +738,24 @@ export function settledRows(rows: RowsContribution): RowsContribution {
   const result = Object.freeze({ ...rows, models, verbs });
   settled.set(rows, result);
   return result;
+}
+
+/**
+ * A `rows` member as a cache key holds it: everything it says, every lazy
+ * entry resolved (a cache shared across isolates must tell two policies apart
+ * by content). For rows admission owns and nobody can change, a SHA-256
+ * digest computed once; other rows are keyed by their content, read afresh.
+ */
+const identities = new WeakMap<RowsContribution, string>();
+export function rowsIdentity(rows: RowsContribution): unknown {
+  const known = identities.get(rows);
+  if (known !== undefined) return known;
+  const settled = settledRows(rows);
+  if (!isAdmittedRows(rows)) return settled;
+  const digest = sha256(new TextEncoder().encode(stableStringify(settled)));
+  const identity = Array.from(digest, (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("");
+  identities.set(rows, identity);
+  return identity;
 }

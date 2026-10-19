@@ -14,6 +14,7 @@
 // judgement the same statement makes, provably implies (plan §11.4). It
 // names no engine structure; the entry hands it to the chain.
 
+import { ClientInitializationError } from "../errors";
 import type { RowsVerbs } from "../extensions/controls";
 import type { VibORMConfig } from "../index";
 import { type ActorContract, actorContract, refuse } from "./actor";
@@ -1682,15 +1683,16 @@ export function policyCompiler(
     });
   };
 
-  const compiled: Record<string, CompiledModel> = {};
+  // A Map: a model may be named `constructor`.
+  const compiled = new Map<string, CompiledModel>();
   /** `name` compiled, once: an unlisted model holds nothing (R9). */
   const modelAt = (name: string): CompiledModel => {
-    const known = compiled[name];
+    const known = compiled.get(name);
     if (known !== undefined) return known;
     const entry = Object.hasOwn(config.models, name)
       ? compileModel(name)
       : UNLISTED;
-    compiled[name] = entry;
+    compiled.set(name, entry);
     return entry;
   };
   // R4: a self key a predicate recurses over never takes a parent inside
@@ -1699,7 +1701,15 @@ export function policyCompiler(
   let recursed: ReadonlyMap<string, readonly string[]> | undefined;
   const acyclicAt = (name: string): readonly string[] => {
     if (recursed === undefined) {
-      for (const each of Object.keys(schema)) modelAt(each);
+      // A model whose rules are refused judges nothing, and every model
+      // that inlines one of its predicates is refused with it: what the
+      // others recurse over is complete without it.
+      for (const each of Object.keys(schema))
+        try {
+          modelAt(each);
+        } catch (error) {
+          if (!(error instanceof ClientInitializationError)) throw error;
+        }
       recursed = new Map(
         [...recursion(compiled)].map(([model, relations]) => [
           model,
@@ -1767,11 +1777,11 @@ export function policyCompiler(
    * Per model, the self relations holding a key that some compiled
    * predicate recurses over, wherever it is read.
    */
-  function recursion(models: Record<string, CompiledModel>) {
+  function recursion(models: ReadonlyMap<string, CompiledModel>) {
     const found = new Map<string, string[]>();
     // Per model, the clauses already walked there (P is shared, D7).
     const seen = new Map(
-      Object.keys(models).map((name) => [name, new WeakSet<object>()])
+      Object.keys(schema).map((name) => [name, new WeakSet<object>()])
     );
     const walk = (name: string, clause: unknown): void => {
       if (!isRecord(clause) || seen.get(name)!.has(clause)) return;
@@ -1800,7 +1810,7 @@ export function policyCompiler(
         for (const op of bodies) walk(target, member[op]);
       }
     };
-    for (const [name, model] of Object.entries(models))
+    for (const [name, model] of models)
       for (const clause of Object.values(model.predicates)) walk(name, clause);
     return found;
   }

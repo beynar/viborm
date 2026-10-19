@@ -827,3 +827,47 @@ test("cached evidence and rows are isolated between scopes for the same actor", 
     await base.$disconnect();
   }
 });
+
+test("a cached read is keyed on the policy's content once, and goes uncached when another model's rules are refused", async () => {
+  const post = s.model({ id: s.string().id(), ownerId: s.string() });
+  const note = s.model({ id: s.string().id(), ownerId: s.string() });
+  const base = createClient({ schema: { post, note }, dataDir: ":memory:" });
+  try {
+    await syncLiveSchema(base);
+    await base.post.create({ data: { id: "p", ownerId: "alice" } });
+    const owned = { ownerId: { actor: "userId" } } as const;
+    const cached = (models: object) =>
+      base.$extends(cache({ driver: new MemoryCache() })).$extends(
+        permissions({
+          actor: v.object({ userId: v.string() }),
+          cache: "allow",
+          models,
+        } as never)
+      ) as unknown as {
+        $as(actor: object): {
+          $withCache(options: object): {
+            post: { findMany(): Promise<unknown[]> };
+          };
+        };
+      };
+    const healthy = cached({ post: { read: owned }, note: { read: owned } });
+    const reader = healthy.$as({ userId: "alice" }).$withCache({ ttl: 60_000 });
+    expect(await reader.post.findMany()).toHaveLength(1);
+    await base.post.create({ data: { id: "q", ownerId: "alice" } });
+    // A hit: the base write bypassed this cache's invalidation.
+    expect(await reader.post.findMany()).toHaveLength(1);
+
+    // `note`'s rule names an actor path the actor schema lacks: a cached
+    // read of `post` still answers, uncached, and never reads `note`.
+    const broken = cached({
+      post: { read: owned },
+      note: { read: { ownerId: { actor: "usrId" } } },
+    });
+    const fresh = broken.$as({ userId: "alice" }).$withCache({ ttl: 60_000 });
+    expect(await fresh.post.findMany()).toHaveLength(2);
+    await base.post.create({ data: { id: "r", ownerId: "alice" } });
+    expect(await fresh.post.findMany()).toHaveLength(3);
+  } finally {
+    await base.$disconnect();
+  }
+});

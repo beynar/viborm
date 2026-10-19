@@ -54,35 +54,46 @@ const admittedRows = new WeakMap<
     }
   >
 >();
-/** A lazy `verbs` entry's admission, per registry, for one that returned immutable data. */
+/**
+ * A lazy `verbs` entry's admission, per registry, entry and model, for one
+ * that returned immutable data: one function may serve several models.
+ */
 const admittedLazily = new WeakMap<
   SchemaRegistryLookup<Schema>,
   WeakMap<
     () => RowsVerbs,
-    {
-      schema: Schema;
-      entries: [string, Schema[string]][];
-      admitted: RowsVerbs;
-    }
+    Map<
+      string,
+      {
+        schema: Schema;
+        entries: [string, Schema[string]][];
+        admitted: RowsVerbs;
+      }
+    >
   >
 >();
 const immutableData = new WeakSet<object>();
-const immutableRows = new WeakSet<object>();
+const immutableAdmitted = new WeakSet<object>();
+/** The functions admission puts in place of a lazy entry and its names. */
+const resolvers = new WeakSet<object>();
+const isResolver = (value: object) => resolvers.has(value);
+const resolver = <T>(resolve: () => T): (() => T) => {
+  resolvers.add(resolve);
+  return resolve;
+};
 /**
  * Deeply frozen plain data: records, arrays and admitted nodes. With
- * `functions`, a function is a leaf known by identity (a lazy `verbs` entry,
- * or the resolver admission puts in its place): what it returns is checked
- * when it is called.
+ * `functions`, a function it accepts is a leaf known by identity.
  */
 export function isImmutableRowData(
   value: unknown,
   open = new Set<object>(),
-  functions = false
+  functions?: (value: object) => boolean
 ): boolean {
-  if (typeof value === "function") return functions;
+  if (typeof value === "function") return functions?.(value) === true;
   if (value === null || typeof value !== "object")
     return typeof value !== "symbol";
-  const known = functions ? immutableRows : immutableData;
+  const known = functions ? immutableAdmitted : immutableData;
   if (known.has(value) || immutableData.has(value)) return true;
   if (!Object.isFrozen(value) || open.has(value)) return false;
   const prototype = Object.getPrototypeOf(value);
@@ -113,8 +124,49 @@ export function isImmutableRowData(
   return safe;
 }
 
-const isImmutableRows = (rows: object) =>
-  isImmutableRowData(rows, new Set(), true);
+/** Rows admission produced and nobody can change: their facts may be memoised. */
+export const isAdmittedRows = (rows: object) =>
+  isImmutableRowData(rows, new Set(), isResolver);
+
+/** Frozen own data properties of a record, each passing `item`. */
+const frozenRecord = (
+  value: unknown,
+  item: (key: string, value: unknown) => boolean
+): boolean =>
+  isPlainRecord(value) &&
+  Object.isFrozen(value) &&
+  Reflect.ownKeys(value).every((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return (
+      typeof key === "string" &&
+      descriptor !== undefined &&
+      "value" in descriptor &&
+      item(key, descriptor.value)
+    );
+  });
+
+/** A `verbs` entry's data immutable; its `acyclic` may be a function. */
+const isImmutableEntry = (entry: unknown) =>
+  frozenRecord(
+    entry,
+    (key, value) =>
+      (key === "acyclic" && typeof value === "function") ||
+      isImmutableRowData(value)
+  );
+
+/**
+ * Immutable `rows` as declared: plain data, but for a `verbs` entry that is
+ * a function (and an entry's function `acyclic`), known by identity.
+ */
+const isImmutableRows = (rows: unknown) =>
+  frozenRecord(rows, (key, value) =>
+    key === "verbs"
+      ? frozenRecord(
+          value,
+          (_, entry) => typeof entry === "function" || isImmutableEntry(entry)
+        )
+      : isImmutableRowData(value)
+  );
 
 /** Native admission of immutable input owns every newly produced container. */
 function freezeAdmitted(value: unknown, seen = new Set<object>()): void {
@@ -439,22 +491,27 @@ export function admitRows(
    */
   const lazily = (name: string, entry: () => RowsVerbs): (() => RowsVerbs) => {
     let admitted: RowsVerbs | undefined;
-    return () => {
+    return resolver(() => {
       if (admitted !== undefined) return admitted;
       const cached = native
-        ? admittedLazily.get(registry)?.get(entry)
+        ? admittedLazily.get(registry)?.get(entry)?.get(name)
         : undefined;
       if (cached && holds(cached)) return (admitted = cached.admitted);
       const declared = entry();
       const result = admitVerbs(name, declared);
-      if (native && isPlainRecord(declared) && isImmutableRows(declared)) {
+      if (native && isImmutableEntry(declared)) {
         freezeAdmitted(result);
         let cache = admittedLazily.get(registry);
         if (!cache) {
           cache = new WeakMap();
           admittedLazily.set(registry, cache);
         }
-        cache.set(entry, {
+        let models = cache.get(entry);
+        if (!models) {
+          models = new Map();
+          cache.set(entry, models);
+        }
+        models.set(name, {
           schema,
           entries: Object.entries(schema),
           admitted: result,
@@ -462,7 +519,7 @@ export function admitRows(
       }
       admitted = result;
       return result;
-    };
+    });
   };
   const verbs: Record<string, RowsVerbs | (() => RowsVerbs)> = {};
   for (const [name, entry] of Object.entries(rows.verbs ?? {})) {
@@ -487,7 +544,7 @@ export function admitRows(
           out[purpose] = admit(name, place, predicate);
         else if (typeof own === "function")
           // A lazy entry's predicate, named when its model is first needed.
-          out[purpose] = () =>
+          out[purpose] = resolver(() =>
             Object.hasOwn(own().predicates, predicate)
               ? own().predicates[predicate]
               : refuse(
@@ -495,7 +552,8 @@ export function admitRows(
                   place,
                   "root",
                   `names unknown predicate "${predicate}"`
-                );
+                )
+          );
         else if (Object.hasOwn(own?.predicates ?? {}, predicate))
           out[purpose] = own!.predicates[predicate];
         else
@@ -511,7 +569,7 @@ export function admitRows(
     ...(rows.verbs && { verbs: Object.freeze(verbs) }),
   }) as RowsContribution;
   if (entries) freezeAdmitted(admitted);
-  if (entries && isImmutableRows(admitted)) {
+  if (entries && isAdmittedRows(admitted)) {
     let cache = admittedRows.get(registry);
     if (!cache) {
       cache = new WeakMap();

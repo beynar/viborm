@@ -193,3 +193,44 @@ test("the freezer declines what is not plain data", () => {
   ])
     expect(freeze(value)).toBeUndefined();
 });
+
+test("acyclic relations are found across the models that compile, past a refused one", () => {
+  const folder = s.model({
+    id: s.string().id(),
+    ownerId: s.string(),
+    parentId: s.string().nullable(),
+    parent: s
+      .toOne(() => folder)
+      .fields("parentId")
+      .references("id")
+      .name("tree"),
+    children: s.toMany(() => folder).name("tree"),
+  });
+  const note = s.model({ id: s.string().id(), ownerId: s.string() });
+  const prototypeNamed = s.model({ id: s.string().id() });
+  const actor = v.object({ userId: v.string() });
+  const compiler = policyCompiler(
+    {
+      actor,
+      models: {
+        folder: {
+          read: {
+            parent: {
+              recurse: { depth: false },
+              self: true,
+              some: { ownerId: { actor: "userId" } },
+            },
+          },
+        },
+        note: { read: { ownerId: { actor: "usrId" } } },
+        constructor: { read: true },
+      },
+    },
+    { folder, note, constructor: prototypeNamed }
+  );
+  expect(compiler.acyclic("folder")).toEqual(["parent"]);
+  expect(() => compiler.model("note")).toThrow('actor path "usrId"');
+  // A model may be named like an Object.prototype member.
+  expect(compiler.model("constructor").read).toBe("read");
+  expect(() => compiler.policy()).toThrow('actor path "usrId"');
+});

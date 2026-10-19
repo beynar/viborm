@@ -372,3 +372,20 @@ test("with a custom scalar validator in the schema, a frozen entry is admitted a
     await client.$disconnect();
   }
 });
+
+test("one function serving two models is admitted for each against its own model", async () => {
+  const roots = frozen({
+    predicates: { roots: { parentId: null } },
+    read: "roots",
+  });
+  const shared = () => roots;
+  const db = base.$extends(frozen(governed({ node: shared, note: shared })));
+  expect(ids(await db.node!.findMany({ user: "alice" } as object))).toEqual([
+    "a",
+    "x",
+  ]);
+  // `note` has no `parentId`: its admission refuses what `node`'s accepted.
+  await expect(db.note!.findMany({ user: "alice" } as object)).rejects.toThrow(
+    'rows.verbs.note.predicates.roots at "parentId"'
+  );
+});
