@@ -24,13 +24,17 @@ Each seed starts with fresh in-memory SQLite databases. The extension world
 combines permissions, soft delete, default omit, and cache. Generated actors
 span two tenants, owners, administrators, missing optional actor values, and
 credential scopes (omitted, empty, read, create, update, delete, combined).
-The first 18 steps guarantee every operation family is visited, followed by
+The first 19 steps guarantee every operation family is visited, followed by
 a generated suffix:
 
 - Reads, unique lookups, counts, grouped aggregates, and nested relation includes.
 - Single and two-row bulk creates, updates and bulk updates, soft deletes and
   bulk deletes, restoration, and permission checks.
 - Refused tenant moves and mixed-authority bulk creates, with no partial effects.
+- Row checks: viewers of a tenant read through an `$exists` about the actor,
+  and a member whose role is the post's `editorRole` updates it through an
+  `$exists` comparing `{ $row, up: 1 }`. `retarget` writes `editorRole`, so
+  the new row must be judged again (100 seeds catch a missing re-check).
 - Cache binding isolation, measured cache hits, and invalidation after writes.
 - Both upsert legs; array transaction commit and rollback on a forbidden member.
 - Callback rollback and injected statement failure after a verified transaction
