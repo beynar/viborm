@@ -569,12 +569,16 @@ function exposeHandlerContext<Result, Input extends object>(
 ): QueryInterceptorContext<Result, Input> {
   // `kind`, `model` and `operation` are copied from one prepared context, so
   // they stay one of its arms; TypeScript cannot correlate the copies.
+  // `input` is read through: the prepared context snapshots it at the first
+  // read, which a handler that never inspects it does not pay for.
   return Object.freeze({
     mode: context.mode,
     kind: context.kind,
     model: context.model,
     operation: context.operation,
-    input: context.input,
+    get input() {
+      return context.input;
+    },
     ...(context.kind === "model" && ownControls !== undefined
       ? { controls: controlsOwnedBy(context.controls, ownControls) }
       : {}),

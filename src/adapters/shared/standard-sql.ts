@@ -274,16 +274,46 @@ export const createSetOperations = (
 // ============================================================
 
 /**
+ * Whether `text` is exactly `<one quoted identifier>.<quotedName>`: a column
+ * reference through a table alias whose column is the name itself.
+ */
+const isQualifiedColumnNamed = (
+  text: string | undefined,
+  quotedName: string,
+  quote: string
+): boolean => {
+  if (text === undefined || !text.endsWith(quotedName)) return false;
+  const qualifier = text.slice(0, -quotedName.length - 1);
+  return (
+    text[qualifier.length] === "." &&
+    qualifier.length >= 2 &&
+    qualifier[0] === quote &&
+    qualifier.at(-1) === quote &&
+    !qualifier
+      .slice(1, -1)
+      .replaceAll(quote + quote, "")
+      .includes(quote)
+  );
+};
+
+/**
  * `namespace` is the adapter's prevalidated database namespace, or `undefined`
  * for the unqualified dialects. It is quoted once here, at adapter
  * construction — `table()` runs once per persistent table per compiled
  * statement and must not re-quote it.
+ *
+ * `namesQualifiedColumns`: the dialect names an unaliased `"t"."c"` result
+ * column `c` (PostgreSQL, MySQL), so `aliased` leaves out an alias that only
+ * repeats the column's own name. SQLite promises no name for an unaliased
+ * column, so it always states the alias.
  */
 export const createIdentifiers = (
   quoteIdent: IdentifierQuoter,
-  namespace?: string
+  namespace?: string,
+  namesQualifiedColumns = false
 ): DatabaseAdapter["identifiers"] => {
   const qualify = createQualifiedIdentifierRenderer(quoteIdent, namespace);
+  const quote = quoteIdent("")[0]!;
   return {
     escape: (name: string): Sql => sql.raw(quoteIdent(name)),
 
@@ -301,8 +331,13 @@ export const createIdentifiers = (
       );
     },
 
-    aliased: (expression: Sql, alias: string): Sql =>
-      new Sql(["", ` AS ${quoteIdent(alias)}`], [expression]),
+    aliased: (expression: Sql, alias: string): Sql => {
+      const quoted = quoteIdent(alias);
+      return namesQualifiedColumns &&
+        isQualifiedColumnNamed(Sql.leafText(expression), quoted, quote)
+        ? expression
+        : new Sql(["", ` AS ${quoted}`], [expression]);
+    },
   };
 };
 
@@ -320,12 +355,21 @@ export const createSubqueries = (
   isolated: (condition: Sql): Sql => condition,
 });
 
+/**
+ * `inlining` is the dialect's `NOT MATERIALIZED` (PostgreSQL 12+), or nothing
+ * where the database never materializes a member on its own account.
+ */
 export const createCteBuilders = (
-  quoteIdent: IdentifierQuoter
+  quoteIdent: IdentifierQuoter,
+  inlining?: Sql
 ): DatabaseAdapter["cte"] => ({
-  with: (definitions: { name: string; query: Sql }[]): Sql => {
-    const defs = definitions.map(
-      ({ name, query }) => sql`${sql.raw(quoteIdent(name))} AS (${query})`
+  with: (
+    definitions: { name: string; query: Sql; inlined?: boolean }[]
+  ): Sql => {
+    const defs = definitions.map(({ name, query, inlined }) =>
+      inlined && inlining
+        ? sql`${sql.raw(quoteIdent(name))} AS ${inlining} (${query})`
+        : sql`${sql.raw(quoteIdent(name))} AS (${query})`
     );
     return sql`WITH ${sql.join(defs, ", ")}`;
   },

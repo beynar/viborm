@@ -1,10 +1,12 @@
 import {
+  ForbiddenError,
   NestedWriteError,
   NotFoundError,
   TransactionError,
+  UniqueConstraintError,
   UnsupportedOperationError,
 } from "@errors";
-import type { AnyModel } from "@schema/model";
+import type { AnyModel, OrderedModelKey } from "@schema/model";
 import { createFailureError } from "../../batch-error-attribution";
 import type { PreparedGuardFailure } from "../../types";
 import type { OperationContext } from "../shared/operation-context";
@@ -1922,6 +1924,50 @@ export class Commands {
    * no RETURNING spelling, and a provider without RETURNING must re-read.
    */
   /**
+   * An upsert on a model whose rows layers grant no update (its `update`
+   * predicate matches nothing): its update arm never finds the row, so a row
+   * that exists sends it to the create arm, and the database refuses the
+   * key. That refusal is the update's, so it is reported as a
+   * `ForbiddenError` with the unique violation as its cause, where the
+   * violated constraint is the key `where` located by, as far as the
+   * provider names it; any other unique violation is the create's own.
+   */
+  #foundUnwritable(
+    model: AnyModel,
+    args: Arguments,
+    plan: PhysicalPlan
+  ): PhysicalPlan {
+    const name = model["~"].names.ts!;
+    const layers = this.context.scope?.rows.domain.verbs?.get(name);
+    const unwritable = layers?.some(
+      (layer) => layer !== undefined && matchesNothing(layer.update)
+    );
+    if (!unwritable) return plan;
+    const key = this.context.queries.prepareSelector(
+      model,
+      args.where,
+      true
+    ).uniqueKey;
+    if (key === undefined) return plan;
+    return {
+      single: plan.single,
+      run: () =>
+        plan.run().catch((error: unknown) => {
+          if (
+            !(
+              error instanceof UniqueConstraintError &&
+              violates(model, key, error)
+            )
+          )
+            throw error;
+          throw new ForbiddenError(name, "update", {
+            reason: "the row this upsert locates exists",
+            cause: error,
+          });
+        }),
+    };
+  }
+  /**
    * The array route's upsert. That route prepares a package and issues no
    * read of its own, so the conditional form (a locate, two arms and their
    * premises, then a terminal read) cannot be built there at all. The shipped
@@ -2193,7 +2239,7 @@ export class Commands {
     }
     if (ctx.operation === "upsert") {
       const folded = this.#rootUpsert(model, args, raw);
-      if (folded) return folded;
+      if (folded) return this.#foundUnwritable(model, args, folded);
       const missing = this.create(model, args.create!, raw.create!);
       missing.operation = "upsert";
       const lookup = this.lookup(model, {
@@ -2298,10 +2344,10 @@ export class Commands {
         foundArm.refusal =
           ctx.schema.keyPortabilityRefusal(model, args.update) ??
           foundArm.refusal;
-      return {
+      return this.#foundUnwritable(model, args, {
         single: false,
         run: () => this.execution.complete(occurrence, args),
-      };
+      });
     }
     if (ctx.operation === "create" || ctx.operation === "update") {
       const folded =
@@ -2383,4 +2429,39 @@ export class Commands {
       },
     };
   }
+}
+
+/** `{ OR: [] }`: the predicate a verb a rows layer leaves out takes. */
+function matchesNothing(predicate: Input): boolean {
+  const members = predicate.OR;
+  return (
+    Array.isArray(members) &&
+    members.length === 0 &&
+    Object.keys(predicate).length === 1
+  );
+}
+
+/**
+ * Whether a unique violation names `key`'s constraint: by its columns where
+ * the provider reports them (SQLite), else by the name the migrations give
+ * it (PostgreSQL). `false` where neither is reported.
+ */
+function violates(
+  model: AnyModel,
+  key: OrderedModelKey,
+  error: UniqueConstraintError
+): boolean {
+  const columns = key.fields.map((field) => model["~"].getFieldName(field).sql);
+  const reported = error.meta.columns;
+  if (Array.isArray(reported))
+    return (
+      reported.length === columns.length &&
+      columns.every((column) => reported.includes(column))
+    );
+  const table = model["~"].names.sql;
+  const constraint =
+    key.kind === "primary"
+      ? `${table}_pkey`
+      : `${table}_${key.name ?? columns[0]}_key`;
+  return error.meta.constraint === constraint;
 }

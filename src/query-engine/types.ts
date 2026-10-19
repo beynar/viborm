@@ -76,6 +76,8 @@ export interface PreparedGuardFailure {
     | "query";
   readonly message: string;
   readonly relation?: string;
+  /** A `forbidden` refusal's cause, where the operation alone does not say it. */
+  readonly reason?: string;
   readonly raceable: boolean;
 }
 

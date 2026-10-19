@@ -4,7 +4,9 @@
  * through the same composed chain, recorded on the D1 binding with the values
  * each statement binds. Its golden, `__golden__/d1-composed-rows-sql.json`,
  * was recorded with this module on D1 at 2fcaa26a8 (VibORM 1.2.4, before
- * K1/K2), where relation filters were plain `EXISTS`; the driver now reads
+ * K1/K2), where relation filters were plain `EXISTS` ("findMany include" and
+ * "relation count order" re-recorded at 1.3.3: relation JSON built with one
+ * `json_group_array`, relation counts without `COALESCE`); the driver now reads
  * them from a derived table (`deepExpressions: false`, the expression-depth
  * fact), which {@link unwrapDerivedExists} undoes textually, so any other
  * difference is a change of the statements themselves. Each statement a

@@ -51,6 +51,50 @@ describe("datetime physical codec", () => {
     expect(decodeProviderTimestamp(input)).toBeUndefined();
   });
 
+  // The canonical `YYYY-MM-DDTHH:MM:SS.sssZ` spelling has its own reader; the
+  // same instant spelled with a space separator takes the general grammar.
+  // Both must agree on every value, admitted or refused.
+  test.each([
+    ["2024-01-15T10:30:00.123Z", "2024-01-15T10:30:00.123Z"],
+    ["2024-02-29T23:59:59.999Z", "2024-02-29T23:59:59.999Z"],
+    ["2000-02-29T00:00:00.000Z", "2000-02-29T00:00:00.000Z"],
+    ["2023-02-29T00:00:00.000Z", undefined],
+    ["1900-02-29T00:00:00.000Z", undefined],
+    ["2024-02-30T00:00:00.000Z", undefined],
+    ["2024-04-31T00:00:00.000Z", undefined],
+    ["2024-13-01T00:00:00.000Z", undefined],
+    ["2024-00-01T00:00:00.000Z", undefined],
+    ["2024-01-00T00:00:00.000Z", undefined],
+    ["2024-01-15T24:00:00.000Z", undefined],
+    ["2024-01-15T23:60:00.000Z", undefined],
+    ["2024-01-15T23:59:60.000Z", undefined],
+    ["0099-12-31T23:59:59.999Z", "0099-12-31T23:59:59.999Z"],
+    ["0100-01-01T00:00:00.000Z", "0100-01-01T00:00:00.000Z"],
+    ["0000-01-01T00:00:00.000Z", "0000-01-01T00:00:00.000Z"],
+    ["0004-02-29T12:00:00.000Z", "0004-02-29T12:00:00.000Z"],
+    ["9999-12-31T23:59:59.999Z", "9999-12-31T23:59:59.999Z"],
+    ["2024-0a-15T10:30:00.123Z", undefined],
+    ["2024-01-15T10:30:00.12aZ", undefined],
+    ["+024-01-15T10:30:00.123Z", undefined],
+  ])("reads the canonical spelling %s as the general grammar does", (input, expected) => {
+    expect(decodeProviderTimestamp(input)?.toISOString()).toBe(expected);
+    expect(
+      decodeProviderTimestamp(input.replace("T", " "))?.toISOString()
+    ).toBe(expected);
+  });
+
+  test.each([
+    ["2024-01-15T10:30:00Z", "2024-01-15T10:30:00.000Z"],
+    ["2024-01-15T10:30:00.1Z", "2024-01-15T10:30:00.100Z"],
+    ["2024-01-15T10:30:00.123456Z", "2024-01-15T10:30:00.123Z"],
+    ["2024-01-15T10:30:00.123+01:00", "2024-01-15T09:30:00.123Z"],
+    ["2024-01-15T10:30:00.123-0130", "2024-01-15T12:00:00.123Z"],
+    ["2024-01-15T10:30:00.123", "2024-01-15T10:30:00.123Z"],
+    ["0050-06-01T00:00:00.000+00", "0050-06-01T00:00:00.000Z"],
+  ])("a near-canonical spelling %s still takes the general grammar", (input, expected) => {
+    expect(decodeProviderTimestamp(input)?.toISOString()).toBe(expected);
+  });
+
   describe("encodePhysicalDateTime", () => {
     test("text is the identity — the ISO string IS the physical value", () => {
       expect(encodePhysicalDateTime(INSTANT_ISO, "text")).toBe(INSTANT_ISO);

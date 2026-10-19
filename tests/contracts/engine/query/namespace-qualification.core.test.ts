@@ -413,6 +413,27 @@ describe("both cursor spellings keep the derived cursor row bare", () => {
     // The derived cursor row is statement-local and stays bare.
     expect(lexicographic).not.toContain('"billing"."__viborm_cursor_0"');
   });
+
+  test("a NOT NULL leading key under mixed directions states its bound", () => {
+    // The general window beside the bound a planner can seek: the leading
+    // key against the anchor's, read from the qualified table, in the leading
+    // direction. A nullable leading key (`age` above) states none.
+    const mixed = pg(post, "findMany", {
+      cursor: { id: "p1" },
+      orderBy: [{ views: "desc" }, { id: "asc" }],
+      take: 5,
+    });
+    expect(mixed.text).toContain(
+      'WHERE ("q0"."views" <= (SELECT "q1"."views" FROM "billing"."ns_posts" AS "q1" WHERE "q1"."id" = $1 LIMIT $2) AND EXISTS (SELECT TRUE FROM (SELECT "q1"."views" AS "0viborm_cursor_0"'
+    );
+    expect(mixed.binds).toBe(5);
+    const nullableLead = pg(user, "findMany", {
+      cursor: { id: "u1" },
+      orderBy: { age: "desc" },
+      take: 3,
+    }).text;
+    expect(nullableLead).toContain('"q0" WHERE EXISTS (SELECT TRUE FROM (');
+  });
 });
 
 describe("qualification is free", () => {

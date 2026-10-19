@@ -273,6 +273,53 @@ test("action enumeration changes invalidate reuse", async () => {
   ).rejects.toBeInstanceOf(ForbiddenError);
 });
 
+test("can and assert answer the actions of the declaration as each application found it", async () => {
+  const base = createClient({
+    schema: { post: s.model({ id: s.string().id() }) },
+    dataDir: ":memory:",
+  });
+  try {
+    await syncLiveSchema(base);
+    await base.post.create({ data: { id: "one" } });
+    const model: { read: boolean; publish?: boolean } = { read: true };
+    const policy = permissions({
+      actor: v.object({ userId: v.string() }),
+      models: { post: model },
+    });
+    const actor = { userId: "alice" };
+    const before = base.$extends(policy).$as(actor);
+    const again = base.$extends(policy).$as(actor);
+    expect(await again.post.can("read", { id: "one" })).toBe(true);
+    await expect(again.post.can("publish", { id: "one" })).rejects.toThrow(
+      ForbiddenError
+    );
+    // An action added after an application is answered by the next one only.
+    model.publish = true;
+    const after = base.$extends(policy).$as(actor);
+    expect(await after.post.can("publish", { id: "one" })).toBe(true);
+    await expect(before.post.can("publish", { id: "one" })).rejects.toThrow(
+      ForbiddenError
+    );
+    // A misspelling introduced later is refused when the policy is applied
+    // again, every time, and an unchanged declaration is answered as before.
+    Reflect.set(model, "mandatroy", {});
+    for (let attempt = 0; attempt < 2; attempt++)
+      expect(() => base.$extends(policy)).toThrow('spelled like "mandatory"');
+    expect(() => policy.methods(base)).toThrow('spelled like "mandatory"');
+    Reflect.deleteProperty(model, "mandatroy");
+    const fixed = base.$extends(policy).$as(actor);
+    expect(await fixed.post.can(["read", "publish"], { id: "one" })).toEqual({
+      read: true,
+      publish: true,
+    });
+    expect(
+      await base.$extends(policy).$as(actor).post.can("publish", { id: "one" })
+    ).toBe(true);
+  } finally {
+    await base.$disconnect();
+  }
+});
+
 test("policy copying preserves non-enumerable array items and proxy operands", () => {
   const base = createClient({
     schema: { post: s.model({ id: s.string().id() }) },

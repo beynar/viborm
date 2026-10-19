@@ -6,6 +6,7 @@
 
 import { runPermissionsAppVerbs } from "@tests/contracts/public-client/permissions-app-verbs";
 import { runPermissionsEntryBehavior } from "@tests/contracts/public-client/permissions-entry-behavior";
+import { runPermissionsUpsertBehavior } from "@tests/contracts/public-client/permissions-upsert-behavior";
 import { createInMemoryPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
@@ -20,3 +21,4 @@ const substrate = {
 // W-CAN6 asks every seeded row at every action: up to a minute a model here.
 runPermissionsEntryBehavior({ ...substrate, timeout: 300_000 });
 runPermissionsAppVerbs(substrate, { through: "entry" });
+runPermissionsUpsertBehavior(substrate);

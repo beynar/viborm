@@ -121,8 +121,75 @@ export function decodePhysicalDateTime(
 const TIMESTAMP_TEXT =
   /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(?:(Z)|([+-])(\d{2})(?::?(\d{2}))?(?::?(\d{2}))?)?(?: (BC))?$/;
 
+/** The digits `value` holds at `[at, at + count)`, or -1 where one is not a digit. */
+function digitsAt(value: string, at: number, count: number): number {
+  let parsed = 0;
+  for (let index = at; index < at + count; index += 1) {
+    const digit = value.charCodeAt(index) - 48;
+    if (digit < 0 || digit > 9) return -1;
+    parsed = parsed * 10 + digit;
+  }
+  return parsed;
+}
+
+/**
+ * The canonical stored spelling `YYYY-MM-DDTHH:MM:SS.sssZ` (what the
+ * DateTime boundary writes), read by character: `false` for any other
+ * spelling, and for a year below 100, which `Date.UTC` would read as 19xx.
+ * The general grammar reads both; the domain rules are the same.
+ */
+function decodeCanonicalTimestamp(value: string): Date | undefined | false {
+  if (
+    value.length !== 24 ||
+    value.charCodeAt(4) !== 45 || // -
+    value.charCodeAt(7) !== 45 || // -
+    value.charCodeAt(10) !== 84 || // T
+    value.charCodeAt(13) !== 58 || // :
+    value.charCodeAt(16) !== 58 || // :
+    value.charCodeAt(19) !== 46 || // .
+    value.charCodeAt(23) !== 90 // Z
+  )
+    return false;
+  const year = digitsAt(value, 0, 4);
+  const month = digitsAt(value, 5, 2);
+  const day = digitsAt(value, 8, 2);
+  const hour = digitsAt(value, 11, 2);
+  const minute = digitsAt(value, 14, 2);
+  const second = digitsAt(value, 17, 2);
+  const millisecond = digitsAt(value, 20, 3);
+  if (
+    year < 100 ||
+    month < 0 ||
+    day < 0 ||
+    hour < 0 ||
+    minute < 0 ||
+    second < 0 ||
+    millisecond < 0
+  )
+    return false;
+  if (
+    !(
+      isGregorianCalendarDate(year, month, day) &&
+      isDateTimeClock(hour, minute, second)
+    )
+  )
+    return undefined;
+  const epoch = Date.UTC(
+    year,
+    month - 1,
+    day,
+    hour,
+    minute,
+    second,
+    millisecond
+  );
+  return isDateTimeInstant(epoch) ? new Date(epoch) : undefined;
+}
+
 /** The provider timestamp grammar; the domain rules are the codec's. */
 export function decodeProviderTimestamp(value: string): Date | undefined {
+  const canonical = decodeCanonicalTimestamp(value);
+  if (canonical !== false) return canonical;
   const match = TIMESTAMP_TEXT.exec(value);
   if (!match) return undefined;
   const year = match[13] ? 1 - Number(match[1]) : Number(match[1]);

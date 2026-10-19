@@ -7,6 +7,8 @@ import { createModelFieldRefs } from "@schema/field-ref";
 import { permissions, type Rule } from "@src/permissions";
 import { softDelete } from "@src/soft-delete";
 import { v } from "@src/validation";
+import { runPermissionsUpsertBehavior } from "@tests/contracts/public-client/permissions-upsert-behavior";
+import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { expect, test } from "vitest";
 
@@ -894,6 +896,109 @@ test("a same-row field reference in a rule compares two columns of the row", asy
     expect(await db.$as({}).post.findMany({ select: { id: true } })).toEqual([
       { id: "b" },
     ]);
+  } finally {
+    await base.$disconnect();
+  }
+});
+
+test("a read-gated field reads NULL where withheld: distinct and groupBy over it merge rows", async () => {
+  const project = s.model({ id: s.string().id(), budget: s.int() });
+  const base = createClient({ schema: { project }, dataDir: ":memory:" });
+  try {
+    await syncLiveSchema(base);
+    await base.project.createMany({
+      data: [
+        { id: "a", budget: 10 },
+        { id: "b", budget: 20 },
+      ],
+    });
+    const db = base.$extends(
+      permissions({
+        actor: v.object({ admin: v.boolean() }),
+        models: {
+          project: {
+            read: true,
+            full: { actor: { admin: true } },
+            fields: { budget: { read: "full" } },
+          },
+        },
+      })
+    );
+    const user = db.$as({ admin: false });
+    expect(await user.project.count()).toBe(2);
+    expect(
+      await user.project.findMany({
+        distinct: ["budget"],
+        select: { id: true },
+      })
+    ).toHaveLength(1);
+    expect(
+      await user.project.groupBy({ by: ["budget"], _count: true })
+    ).toEqual([{ budget: null, _count: 2 }]);
+    expect(
+      await user.project.findMany({ where: { budget: { gt: 5 } } })
+    ).toEqual([]);
+    expect(
+      await db
+        .$as({ admin: true })
+        .project.findMany({ distinct: ["budget"], select: { id: true } })
+    ).toHaveLength(2);
+  } finally {
+    await base.$disconnect();
+  }
+});
+
+runPermissionsUpsertBehavior({
+  name: "SQLite3",
+  createDriver: createInMemorySQLite3Driver,
+});
+
+test("a refused new row names the key an update writes through a nested to-one delete", async () => {
+  const author = s.model({
+    id: s.string().id(),
+    posts: s.toMany(() => post),
+  });
+  const post = s.model({
+    id: s.string().id(),
+    authorId: s.string().nullable(),
+    author: s
+      .toOne(() => author)
+      .fields("authorId")
+      .references("id")
+      .onDelete("setNull"),
+  });
+  const base = createClient({ schema: { author, post }, dataDir: ":memory:" });
+  try {
+    await syncLiveSchema(base);
+    await base.author.create({ data: { id: "a1" } });
+    await base.post.create({ data: { id: "p1", authorId: "a1" } });
+    const db = base
+      .$extends(
+        permissions({
+          actor: v.object({ userId: v.string() }),
+          models: {
+            author: { read: true, delete: true },
+            post: {
+              read: true,
+              update: true,
+              create: { authorId: { not: null } },
+            },
+          },
+        })
+      )
+      .$as({ userId: "u1" });
+    await expect(
+      db.post.update({
+        where: { id: "p1" },
+        data: { author: { delete: true } },
+      })
+    ).rejects.toThrow(
+      "The update on post is not permitted: the row it would leave, judged again because it writes authorId (through author), is refused"
+    );
+    await expect(
+      db.post.update({ where: { id: "p1" }, data: { authorId: null } })
+    ).rejects.toThrow("because it writes authorId, is refused");
+    expect(await base.author.count()).toBe(1);
   } finally {
     await base.$disconnect();
   }

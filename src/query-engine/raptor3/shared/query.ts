@@ -351,6 +351,18 @@ export interface Query {
     readonly missing: Error;
   };
 }
+/** What a {@link Queries.select} takes beyond its arguments. */
+interface SelectControls {
+  condition?: Sql;
+  forUpdate?: boolean;
+  identity?: Input;
+  projection?: PreparedProjection;
+  selector?: Pick<PreparedSelector, "model" | "predicate">;
+  /** Rows this selector does not take, NULL read as not taken. */
+  unless?: Pick<PreparedSelector, "model" | "predicate">;
+  /** The rows the read takes: its selector and cursor anchor under it. */
+  purpose?: RowPurpose;
+}
 /** One statement plus the operation's own cardinality and public shape. */
 export interface Read {
   readonly query: Query;
@@ -597,10 +609,16 @@ function foldConditions(
         else if (folded.value !== conjunction) return folded;
       }
       if (kept.length === 0) return conjunction ? ALWAYS_TRUE : VACUOUS_FALSE;
-      return kept.length === predicate.predicates.length &&
+      if (
+        kept.length === predicate.predicates.length &&
         kept.every((member, index) => member === predicate.predicates[index])
-        ? predicate
-        : freeze({ kind: predicate.kind, predicates: freeze(kept) });
+      )
+        return predicate;
+      // A dropped arm may have held two quantifiers over one relation apart.
+      const merged = mergeQuantifiers(predicate.kind, kept);
+      return merged?.length === 1 && !conjunction
+        ? merged[0]!
+        : freeze({ kind: predicate.kind, predicates: freeze(merged ?? kept) });
     }
     case "not": {
       const folded = foldConditions(predicate.predicate, holds);
@@ -884,6 +902,131 @@ function sameColumnIn(
     insensitive: false,
   });
 }
+type RelationPredicate = Extract<PreparedPredicate, { kind: "relation" }>;
+/** One row a predicate being lowered reads ({@link Queries}' `#frames`). */
+interface LoweringFrame {
+  readonly alias: string | undefined;
+  escaped: boolean;
+  joins?: Sql[] | undefined;
+}
+/**
+ * The quantifiers one connective merges over the same relation: `EXISTS` is
+ * two-valued and `EXISTS (… WHERE A) OR EXISTS (… WHERE B)` holds exactly
+ * where some member makes `A` or `B` TRUE, which is `EXISTS (… WHERE (A OR
+ * B))`, whatever `A` and `B` answer for a member (NULL included), for an
+ * empty set (both false) and for a NULL key (no member). So `some A OR some
+ * B` is `some (A OR B)`, `is` likewise, and, negated, `none A AND none B` is
+ * `none (A OR B)`, `isNot` likewise. `every` and a body-less `is`/`isNot`
+ * (the presence test) are not here.
+ */
+const MERGED_QUANTIFIERS = {
+  or: new Set(["some", "is"]),
+  and: new Set(["none", "isNot"]),
+} as const;
+/** The arms of a `kind` connective, through nested ones and one-member `and`s. */
+function connectiveArms(
+  kind: "and" | "or",
+  arms: readonly PreparedPredicate[],
+  into: PreparedPredicate[]
+): PreparedPredicate[] {
+  for (let arm of arms) {
+    while (arm.kind === "and" && arm.predicates.length === 1)
+      arm = arm.predicates[0]!;
+    if (arm.kind === kind) connectiveArms(kind, arm.predicates, into);
+    else into.push(arm);
+  }
+  return into;
+}
+/** Do two quantifiers range over the same rows: edge, quantifier, scope, walk? */
+function sameRange(left: RelationPredicate, right: RelationPredicate): boolean {
+  return (
+    left.edge === right.edge &&
+    left.quantifier === right.quantifier &&
+    left.unscoped === right.unscoped &&
+    (left.closure === undefined
+      ? right.closure === undefined
+      : right.closure !== undefined &&
+        left.closure.depth === right.closure.depth &&
+        left.closure.self === right.closure.self)
+  );
+}
+/**
+ * The arms of a `kind` connective with every group of quantifiers over the
+ * same range ({@link MERGED_QUANTIFIERS}) merged into the first of them, its
+ * body the disjunction of theirs in their order; `undefined` where no two
+ * merge, so a connective with nothing to merge keeps its own structure. The
+ * merged relation states one subquery (and one recursive walk) where each
+ * arm stated its own: the acceptance policy's three ancestor walks per
+ * document level become two.
+ */
+function mergeQuantifiers(
+  kind: "and" | "or",
+  arms: readonly PreparedPredicate[]
+): PreparedPredicate[] | undefined {
+  const quantifiers: ReadonlySet<string> = MERGED_QUANTIFIERS[kind];
+  let candidates = 0;
+  for (const arm of arms) candidates += quantifiedArms(arm, kind, quantifiers);
+  if (candidates < 2) return;
+  const merged: PreparedPredicate[] = [];
+  const groups: {
+    readonly at: number;
+    readonly head: RelationPredicate;
+    readonly bodies: PreparedPredicate[];
+  }[] = [];
+  for (const arm of connectiveArms(kind, arms, [])) {
+    if (
+      arm.kind === "relation" &&
+      arm.predicate !== undefined &&
+      quantifiers.has(arm.quantifier)
+    ) {
+      const group = groups.find(({ head }) => sameRange(head, arm));
+      if (group) {
+        group.bodies.push(arm.predicate);
+        continue;
+      }
+      groups.push({ at: merged.length, head: arm, bodies: [arm.predicate] });
+    }
+    merged.push(arm);
+  }
+  let changed = false;
+  for (const { at, head, bodies } of groups) {
+    if (bodies.length === 1) continue;
+    changed = true;
+    merged[at] = freeze({ ...head, predicate: disjunction(bodies) });
+  }
+  return changed ? merged : undefined;
+}
+/** How many arms of a `kind` connective `arm` holds that may merge. */
+function quantifiedArms(
+  arm: PreparedPredicate,
+  kind: "and" | "or",
+  quantifiers: ReadonlySet<string>
+): number {
+  if (arm.kind === "relation")
+    return arm.predicate !== undefined && quantifiers.has(arm.quantifier)
+      ? 1
+      : 0;
+  if (arm.kind !== kind && !(arm.kind === "and" && arm.predicates.length === 1))
+    return 0;
+  let count = 0;
+  for (const member of arm.predicates)
+    count += quantifiedArms(member, kind, quantifiers);
+  return count;
+}
+/**
+ * `arms` OR-ed: one column's `in` ({@link sameColumnIn}), the quantifiers
+ * over one relation merged ({@link mergeQuantifiers}), or the `or` itself.
+ */
+function disjunction(arms: readonly PreparedPredicate[]): PreparedPredicate {
+  const sameColumn = sameColumnIn(arms);
+  if (sameColumn) return sameColumn;
+  const merged = mergeQuantifiers("or", arms);
+  if (merged === undefined)
+    return freeze({ kind: "or", predicates: freeze(arms) });
+  return merged.length === 1
+    ? merged[0]!
+    : freeze({ kind: "or", predicates: freeze(merged) });
+}
 /** Does the predicate read another row: a relation subquery anywhere in it? */
 function readsRelation(predicate: PreparedPredicate): boolean {
   switch (predicate.kind) {
@@ -997,6 +1140,15 @@ interface OrderTerm {
   readonly expressionNulls?: true;
   readonly nullable: boolean;
   readonly field?: string;
+}
+/**
+ * One page's to-one order joins: the LEFT JOIN each relation path takes, in
+ * the order their ON clauses need, keyed by the parent alias and the field so
+ * every term on one path reads one joined row.
+ */
+interface OrderJoins {
+  readonly aliases: Map<string, string>;
+  readonly joins: Sql[];
 }
 export interface PreparedSelector {
   readonly model: AnyModel;
@@ -1333,6 +1485,12 @@ const ROOT_CANDIDATES = Object.freeze({ purpose: "root" as const });
 interface SharedBody {
   readonly name: string;
   readonly query: Sql;
+  /**
+   * Read once per outer row through its key columns (a relation body), not
+   * once per statement (an `$exists` body): the adapter keeps such a member
+   * inlined where a repeated member would otherwise be materialized.
+   */
+  readonly correlated: boolean;
   readonly slots: {
     readonly slot: SqlSlot;
     readonly inline: Sql;
@@ -1925,12 +2083,17 @@ export class Queries {
     } finally {
       this.#shared = undefined;
     }
-    const definitions: { name: string; query: Sql }[] = [];
+    const definitions: { name: string; query: Sql; inlined: boolean }[] = [];
     for (const body of shared.order) {
       const repeated = body.slots.length > 1;
       for (const placed of body.slots)
         placed.slot.settle(repeated ? placed.use : placed.inline);
-      if (repeated) definitions.push({ name: body.name, query: body.query });
+      if (repeated)
+        definitions.push({
+          name: body.name,
+          query: body.query,
+          inlined: body.correlated,
+        });
     }
     return definitions.length === 0
       ? statement
@@ -3296,9 +3459,11 @@ export class Queries {
    * The aliases of the rows a predicate being lowered reads, from its root
    * to the relation body it is in, each marked once a `{ $row, up }` inside
    * it names a row above it: such a body is correlated past its parent, so
-   * it is never shared.
+   * it is never shared. A semijoin body's `joins` are the relations joined
+   * into its `FROM` ({@link lowerRelationPredicate}); `undefined` where the
+   * body takes none, and while what is lowered is not one of its conjuncts.
    */
-  #frames: { readonly alias: string | undefined; escaped: boolean }[] = [];
+  #frames: LoweringFrame[] = [];
   /** The alias of the row `up` bodies above the current one. */
   #outerAlias(up: number | undefined, alias: string | undefined): string {
     const frames = this.#frames;
@@ -3593,13 +3758,10 @@ export class Queries {
   ): PreparedPredicate {
     const stated = arms.filter(states);
     if (key === "OR")
-      return stated.length === 0
-        ? VACUOUS_FALSE
-        : (sameColumnIn(stated) ??
-            freeze({ kind: "or", predicates: freeze(stated) }));
+      return stated.length === 0 ? VACUOUS_FALSE : disjunction(stated);
     const predicates: readonly PreparedPredicate[] =
       key === "AND"
-        ? stated
+        ? (mergeQuantifiers("and", stated) ?? stated)
         : stated.map((predicate) =>
             freeze({ kind: "not" as const, predicate })
           );
@@ -4353,6 +4515,21 @@ export class Queries {
     });
     facts.reads.push(...nestedFacts.reads);
   }
+  /**
+   * `predicate` lowered under an `OR` or a `NOT`: not a conjunct of the body
+   * it is in, so no relation in it joins that body.
+   */
+  #apart(predicate: PreparedPredicate, alias?: string): Sql {
+    const frame = this.#frames.at(-1);
+    const joins = frame?.joins;
+    if (joins === undefined) return this.#lowerPredicate(predicate, alias);
+    frame!.joins = undefined;
+    try {
+      return this.#lowerPredicate(predicate, alias);
+    } finally {
+      frame!.joins = joins;
+    }
+  }
   #lowerPredicate(predicate: PreparedPredicate, alias?: string): Sql {
     const a = this.adapter;
     // biome-ignore lint/style/useDefaultSwitchClause: the prepared predicate union is exhaustive; a default would be dead code.
@@ -4364,15 +4541,11 @@ export class Queries {
         // A balanced tree, not a chain: SQLite parses `a OR b OR …` one
         // expression level deep per arm and refuses depth 1000 (platform-15).
         return balancedOr(
-          predicate.predicates.map((member) =>
-            this.#lowerPredicate(member, alias)
-          ),
+          predicate.predicates.map((member) => this.#apart(member, alias)),
           (arms) => a.operators.or(...arms)
         );
       case "not":
-        return a.operators.not(
-          this.#lowerPredicate(predicate.predicate, alias)
-        );
+        return a.operators.not(this.#apart(predicate.predicate, alias));
       case "always":
         return predicate.value ? a.literals.true() : a.literals.false();
       case "condition":
@@ -5014,7 +5187,27 @@ export class Queries {
       return a.literals.true();
     const { edge, closure } = predicate;
     const childAlias = this.alias();
-    const frame = { alias: childAlias, escaped: false };
+    // A semijoin over a plain reference: `some`/`is` with a body, neither a
+    // walk nor a variant arm. Its `FROM` takes the semijoins among its
+    // conjuncts that read a row above it (`joins`), and it is one of those
+    // where it is a conjunct of a semijoin body and reads above that body.
+    const semijoin =
+      closure === undefined &&
+      predicate.predicate !== undefined &&
+      (predicate.quantifier === "some" || predicate.quantifier === "is") &&
+      edge.kind === "reference" &&
+      edge.discriminator === undefined;
+    const frame: LoweringFrame = {
+      alias: childAlias,
+      escaped: false,
+      ...(semijoin && { joins: [] }),
+    };
+    const parent = semijoin ? this.#frames.at(-1) : undefined;
+    const joinable = parent?.joins !== undefined;
+    // The body reads above its parent where lowering it marks the parent, so
+    // the parent's own mark waits aside meanwhile.
+    const marked = parent?.escaped === true;
+    if (joinable) parent!.escaped = false;
     this.#frames.push(frame);
     let nested: Sql | undefined;
     try {
@@ -5023,6 +5216,32 @@ export class Queries {
         : undefined;
     } finally {
       this.#frames.pop();
+    }
+    if (joinable) {
+      const above = parent!.escaped;
+      parent!.escaped ||= marked;
+      if (above) {
+        // `EXISTS (… WHERE p AND EXISTS (… WHERE q))` is `EXISTS (… JOIN …
+        // WHERE p AND q)`: the inner EXISTS is two-valued, so a conjunct
+        // that holds for one joined row holds for the outer row. Correlated
+        // past its parent, the nested EXISTS is a subplan PostgreSQL runs per
+        // outer row and parent row; joined, the outer one is one semijoin
+        // (PGlite, 200k rows: a count 864 ms to 87 ms).
+        parent!.joins!.push(
+          a.joins.inner(
+            this.table(edge.target, childAlias),
+            this.#correlated(
+              edge,
+              parentAlias ?? "",
+              childAlias,
+              predicate.unscoped === undefined,
+              readsRelation(predicate.predicate!)
+            )
+          ),
+          ...frame.joins!
+        );
+        return nested!;
+      }
     }
     const stated = nested
       ? [predicate.quantifier === "every" ? a.operators.not(nested) : nested]
@@ -5057,7 +5276,8 @@ export class Queries {
         predicate.unscoped === undefined,
         stated,
         predicate.predicate !== undefined && readsRelation(predicate.predicate),
-        frame.escaped
+        frame.escaped,
+        frame.joins
       );
     switch (predicate.quantifier) {
       case "some":
@@ -5081,6 +5301,37 @@ export class Queries {
     }
   }
   /**
+   * The related domain of a relation's rows, where `scoped`. Where the filter
+   * goes on below (`deeper`), a dialect that sums nested heights adds this
+   * level's `WHERE` height to every level under it: the domain, isolated,
+   * pays its own height once, at the end of its branch
+   * (`subqueries.isolated`; ENG-6, review 2).
+   */
+  #relatedWhere(
+    edge: Membership,
+    child: string,
+    scoped: boolean,
+    deeper: boolean
+  ): Sql | undefined {
+    const domain = scoped ? this.domainOf(edge.target, "related") : undefined;
+    const lowered = domain && this.lowerSelector(domain, child)!;
+    return lowered && deeper
+      ? this.adapter.subqueries.isolated(lowered)
+      : lowered;
+  }
+  /** A joined relation's `ON`: its membership, then its related domain. */
+  #correlated(
+    edge: Membership,
+    parent: string,
+    child: string,
+    scoped: boolean,
+    deeper: boolean
+  ): Sql {
+    const member = this.#membershipWhere(edge, child, parent);
+    const related = this.#relatedWhere(edge, child, scoped, deeper);
+    return related ? this.adapter.operators.and(member, related) : member;
+  }
+  /**
    * `EXISTS (SELECT 1 FROM target WHERE correlation AND stated)`: inside a
    * statement sharing its bodies ({@link sharingBodies}), a slot the
    * statement settles to that where the body is lowered once, and else to a
@@ -5097,21 +5348,15 @@ export class Queries {
     scoped: boolean,
     stated: readonly Sql[],
     deeper = false,
-    correlatedAbove = false
+    correlatedAbove = false,
+    joins: readonly Sql[] = []
   ): Sql {
     const a = this.adapter;
     const member = this.#membershipWhere(edge, child, parent);
-    // `correlation`'s two parts, lowered in its order.
-    const domain = scoped ? this.domainOf(edge.target, "related") : undefined;
-    const lowered = domain && this.lowerSelector(domain, child)!;
-    // Where the filter goes on below (`deeper`), a dialect that sums nested
-    // heights adds this level's `WHERE` height to every level under it: the
-    // domain, isolated, pays its own height once, at the end of its branch
-    // (`subqueries.isolated`; ENG-6, review 2).
-    const related =
-      lowered && deeper ? a.subqueries.isolated(lowered) : lowered;
+    const related = this.#relatedWhere(edge, child, scoped, deeper);
+    const table = this.table(edge.target, child);
     const inline = a.subqueries.existsCheck(
-      this.table(edge.target, child),
+      joins.length === 0 ? table : sql`${table} ${sql.join(joins, " ")}`,
       a.operators.and(
         related ? a.operators.and(member, related) : member,
         ...stated
@@ -5122,6 +5367,7 @@ export class Queries {
     if (
       shared === undefined ||
       correlatedAbove ||
+      joins.length > 0 ||
       edge.kind !== "reference" ||
       edge.discriminator !== undefined ||
       conditions.length === 0
@@ -5143,7 +5389,12 @@ export class Queries {
     const key = sharedKey(query);
     let body = shared.byKey.get(key);
     if (body === undefined) {
-      body = { name: `__shared_${shared.order.length}`, query, slots: [] };
+      body = {
+        name: `__shared_${shared.order.length}`,
+        query,
+        correlated: true,
+        slots: [],
+      };
       shared.byKey.set(key, body);
       shared.order.push(body);
     }
@@ -5207,7 +5458,12 @@ export class Queries {
     const key = sharedKey(query);
     let body = shared.byKey.get(key);
     if (body === undefined) {
-      body = { name: `__shared_${shared.order.length}`, query, slots: [] };
+      body = {
+        name: `__shared_${shared.order.length}`,
+        query,
+        correlated: false,
+        slots: [],
+      };
       shared.byKey.set(key, body);
       shared.order.push(body);
     }
@@ -5422,7 +5678,8 @@ export class Queries {
     model: AnyModel,
     input: Arguments["orderBy"],
     alias: string,
-    cursored = false
+    cursored = false,
+    joins?: OrderJoins
   ): OrderTerm[] {
     if (!input) return [];
     const terms: OrderTerm[] = [];
@@ -5430,7 +5687,9 @@ export class Queries {
       for (const field of Object.keys(order)) {
         const direction = order[field];
         if (direction !== undefined)
-          terms.push(this.#orderTerm(model, field, direction, alias, cursored));
+          terms.push(
+            this.#orderTerm(model, field, direction, alias, cursored, joins)
+          );
       }
     }
     return terms;
@@ -5440,10 +5699,17 @@ export class Queries {
     field: string,
     direction: unknown,
     alias: string,
-    cursored = false
+    cursored = false,
+    joins?: OrderJoins
   ): OrderTerm {
     if (model["~"].state.relations[field])
-      return this.#relationOrderTerm(model, field, record(direction), alias);
+      return this.#relationOrderTerm(
+        model,
+        field,
+        record(direction),
+        alias,
+        joins
+      );
     const physical = physicalField(this.schema, model, field);
     const state = physical.scalar["~"].state;
     const column = this.#operand(model, field, alias);
@@ -5484,12 +5750,20 @@ export class Queries {
       field
     );
   }
-  /** A to-one path is one correlated value; a collection orders by `_count`. */
+  /**
+   * A to-one path is one value of the related row; a collection orders by
+   * `_count`. Where the page takes joins and the edge reaches at most one row
+   * by a key ({@link #joinsOnce}), the row is LEFT JOINed once per path, its
+   * related domain in the ON clause so a parent whose row is hidden or absent
+   * stays with NULL, and a deeper hop chains off the joined alias. Otherwise
+   * it is a correlated scalar subquery, whose inner hops stay inside it.
+   */
   #relationOrderTerm(
     model: AnyModel,
     field: string,
     specification: Input,
-    alias: string
+    alias: string,
+    joins?: OrderJoins
   ): OrderTerm {
     const a = this.adapter;
     // A collection orders by `_count`, and that count is the projection's own
@@ -5507,9 +5781,32 @@ export class Queries {
         false
       );
     const edge = counted[0]!;
+    const [nested] = Object.entries(specification);
+    if (joins && this.#joinsOnce(edge)) {
+      const path = `${alias}.${field}`;
+      let joined = joins.aliases.get(path);
+      if (joined === undefined) {
+        joined = this.alias();
+        joins.aliases.set(path, joined);
+        joins.joins.push(
+          a.joins.left(
+            this.table(edge.target, joined),
+            this.correlation(edge, alias, joined)
+          )
+        );
+      }
+      const term = this.#orderTerm(
+        edge.target,
+        nested![0],
+        nested![1],
+        joined,
+        false,
+        joins
+      );
+      return this.#sortKey(term.expression, term.descending, term.nulls, true);
+    }
     const childAlias = this.alias();
     const correlation = this.correlation(edge, alias, childAlias);
-    const [nested] = Object.entries(specification);
     const inner = this.#orderTerm(
       edge.target,
       nested![0],
@@ -5527,6 +5824,20 @@ export class Queries {
       inner.descending,
       inner.nulls,
       true
+    );
+  }
+  /**
+   * A join keeps one row per parent only where the resolver proves the
+   * correlated key unique on the target: the parent holds the key, which
+   * references a target key, or the target holds it under a unique key. A
+   * junction or a variant carrier has no such proof.
+   */
+  #joinsOnce(edge: Membership): boolean {
+    const resolved = edge.scope.edge;
+    return (
+      edge.kind === "reference" &&
+      resolved.kind === "foreignKey" &&
+      (edge.owner === "source" || resolved.unique)
     );
   }
   #sortKey(
@@ -5571,9 +5882,12 @@ export class Queries {
       "orderBy" | "take" | "skip" | "cursor" | "distinct"
     >,
     alias: string,
-    purpose?: RowPurpose
+    purpose?: RowPurpose,
+    joined = true
   ): {
     readonly orderBy?: Sql;
+    /** The to-one order joins the page's FROM takes after its own. */
+    readonly joins?: Sql[];
     readonly limit?: Sql;
     readonly offset?: Sql;
     readonly cursor?: Sql;
@@ -5582,7 +5896,16 @@ export class Queries {
   } {
     const backward = args.take !== undefined && args.take < 0;
     const cursored = args.cursor !== undefined;
-    const requested = this.#orderTerms(model, args.orderBy, alias, cursored);
+    const joins: OrderJoins | undefined = joined
+      ? { aliases: new Map(), joins: [] }
+      : undefined;
+    const requested = this.#orderTerms(
+      model,
+      args.orderBy,
+      alias,
+      cursored,
+      joins
+    );
     const total = this.#totalOrder(model, requested, args.cursor, alias);
     // The single raise point for every other non-scalar key: a relation term
     // builds with `field: undefined` and is classified here.
@@ -5591,6 +5914,7 @@ export class Queries {
     const terms = total ?? requested;
     return {
       orderBy: this.#lowerOrder(backward ? this.#reverseOrder(terms) : terms),
+      joins: joins?.joins.length ? joins.joins : undefined,
       distinctOrderBy:
         backward && args.distinct?.length ? this.#lowerOrder(terms) : undefined,
       limit:
@@ -5715,7 +6039,9 @@ export class Queries {
   /**
    * One null-aware lexicographic window against the cursor row. Where every
    * key is NOT NULL and shares a direction the same meaning is spelled as a
-   * row-value comparison, which a planner can turn into a range seek.
+   * row-value comparison, which a planner can turn into a range seek; any
+   * other window with a NOT NULL leading key states that key's bound beside
+   * it, so the seek survives mixed directions and nullable later keys.
    */
   #cursorCondition(
     model: AnyModel,
@@ -5809,29 +6135,54 @@ export class Queries {
       );
     }
     afterTerms.push(a.operators.and(...equalities));
-    return a.operators.exists(
+    const window = a.operators.exists(
       assembleAdapterSelect(a, {
         columns: a.literals.true(),
         from: a.subqueries.correlate(derived, cursorAlias),
         where: a.operators.or(...afterTerms),
       })
     );
+    // Every row after the anchor sorts at or past its NOT NULL leading key:
+    // that bound, implied by the window, is the range a planner can seek.
+    const [lead] = order;
+    if (lead!.nullable) return window;
+    return a.operators.and(
+      (lead!.descending ? a.operators.lte : a.operators.gte)(
+        lead!.expression,
+        a.subqueries.scalar(cursorRow([keyColumns[0]!]))
+      ),
+      window
+    );
   }
+  /**
+   * One `SELECT`, its statement sharing its relation bodies where the adapter
+   * does ({@link sharingBodies}): a row a write locates or captures
+   * (`FOR UPDATE`, after the `WITH`) or re-reads, and a premise's probe, as
+   * a read's. Inside a statement already sharing (a read's), it joins that
+   * statement's scope.
+   */
   select(
     model: AnyModel,
     args: Partial<Arguments>,
     membership?: { edge: Membership; parent: Input; outside?: boolean },
-    controls: {
-      condition?: Sql;
-      forUpdate?: boolean;
-      identity?: Input;
-      projection?: PreparedProjection;
-      selector?: Pick<PreparedSelector, "model" | "predicate">;
-      /** Rows this selector does not take, NULL read as not taken. */
-      unless?: Pick<PreparedSelector, "model" | "predicate">;
-      /** The rows the read takes: its selector and cursor anchor under it. */
-      purpose?: RowPurpose;
-    } = {}
+    controls: SelectControls = {}
+  ): Query {
+    if (!this.#sharesBodies)
+      return this.#select(model, args, membership, controls);
+    let query: Query | undefined;
+    const statement = this.#sharingBodies(() => {
+      query = this.#select(model, args, membership, controls);
+      return query.sql;
+    });
+    return statement === query!.sql ? query! : { ...query!, sql: statement };
+  }
+  #select(
+    model: AnyModel,
+    args: Partial<Arguments>,
+    membership:
+      | { edge: Membership; parent: Input; outside?: boolean }
+      | undefined,
+    controls: SelectControls
   ): Query {
     const alias = this.#rootAlias();
     // The shipped owner sequence, and the reason it is stated here: when one
@@ -5841,7 +6192,15 @@ export class Queries {
     // cursor refusal outranks a projection refusal and both outrank a `where`
     // refusal. Nothing below reads the projection or the selector, so this is
     // an ORDER, not a dependency (`g4/unit01-review-followup-3.md` finding K).
-    const page = this.#page(model, args, alias, controls.purpose);
+    // A locking read keeps its order terms correlated: PostgreSQL refuses
+    // FOR UPDATE on the nullable side of an outer join.
+    const page = this.#page(
+      model,
+      args,
+      alias,
+      controls.purpose,
+      !controls.forUpdate
+    );
     const prepared = controls.projection ?? this.prepareProjection(model, args);
     const projection = this.lowerProjection(
       prepared,
@@ -5871,6 +6230,7 @@ export class Queries {
       sql: assembleAdapterSelect(this.adapter, {
         columns: sql.join(projection, ", "),
         from: this.table(model, alias),
+        joins: page.joins,
         where: this.#selectWhere(
           model,
           alias,
@@ -6152,6 +6512,7 @@ export class Queries {
           )
         : a.identifiers.aliased(this.value(1), "0viborm_row"),
       from: this.table(model, inner),
+      joins: page.joins,
       where: a.operators.and(
         ...(filter ? [filter] : []),
         ...(page.cursor ? [page.cursor] : [])
@@ -7228,23 +7589,22 @@ export class Queries {
     negated = false
   ): Sql {
     const a = this.adapter;
+    // An ungrouped, unlimited COUNT(*) answers exactly one row, so the
+    // scalar subquery is never NULL and needs no COALESCE.
     const counted = edges.map((edge) => {
       const childAlias = this.alias();
       const filter = selector
         ? this.lowerSelector(selector, childAlias)!
         : undefined;
-      return a.expressions.coalesce(
-        a.subqueries.scalar(
-          assembleAdapterSelect(a, {
-            columns: a.aggregates.count(),
-            from: this.table(edge.target, childAlias),
-            where: a.operators.and(
-              this.correlation(edge, parentAlias, childAlias),
-              ...(filter ? [negated ? a.operators.not(filter) : filter] : [])
-            ),
-          })
-        ),
-        this.value(0)
+      return a.subqueries.scalar(
+        assembleAdapterSelect(a, {
+          columns: a.aggregates.count(),
+          from: this.table(edge.target, childAlias),
+          where: a.operators.and(
+            this.correlation(edge, parentAlias, childAlias),
+            ...(filter ? [negated ? a.operators.not(filter) : filter] : [])
+          ),
+        })
       );
     });
     return counted.reduce((total, arm) => a.expressions.add(total, arm));
@@ -7296,7 +7656,10 @@ export class Queries {
     const page = assembleAdapterSelect(a, {
       columns: sql.join(child, ", "),
       from: source.from,
-      joins: source.joins,
+      joins:
+        source.joins && window.joins
+          ? [...source.joins, ...window.joins]
+          : (source.joins ?? window.joins),
       where: a.operators.and(
         source.where,
         ...(nested.selector
@@ -7343,9 +7706,7 @@ export class Queries {
     const object = a.json.object(members);
     const expression = a.subqueries.scalar(
       assembleAdapterSelect(a, {
-        columns: edge.many
-          ? a.expressions.coalesce(a.json.agg(object), a.json.emptyArray())
-          : object,
+        columns: edge.many ? a.json.agg(object) : object,
         from: a.subqueries.correlate(page, pageAlias),
       })
     );
@@ -7563,6 +7924,9 @@ export class Queries {
     const current = this.alias();
     const next = this.alias();
     const carried = (column: string) => a.identifiers.column(walk, column);
+    // An unbounded, unfiltered walk states no WHERE rather than `WHERE TRUE`.
+    const all = (bounds: Sql[]) =>
+      bounds.length === 0 ? undefined : a.operators.and(...bounds);
     const recursive = assembleAdapterSelect(a, {
       columns: sql.join(
         [
@@ -7576,12 +7940,12 @@ export class Queries {
         this.table(model, current),
         this.#sameRow(model, current, childColumns.map(carried))
       )} ${this.#step(edge, current, next, scoped)}`,
-      where: a.operators.and(
+      where: all([
         ...(depth === false
           ? []
           : [a.operators.lt(carried(depthColumn), this.value(depth))]),
-        ...reached(next)
-      ),
+        ...reached(next),
+      ]),
     });
     return {
       cte: a.cte.recursive(cteName, anchor, recursive, "distinct"),
@@ -8844,7 +9208,7 @@ export class Queries {
    * them, so a document that merely REPEATS one object still normalizes it
    * twice and only a container reached from within itself is refused.
    */
-  private jsonValue(value: unknown, enclosing?: Set<object>): unknown {
+  private jsonValue(value: unknown, enclosing?: object[]): unknown {
     if (
       value === null ||
       typeof value === "string" ||
@@ -8871,20 +9235,27 @@ export class Queries {
           throw new InvalidScalarResult("json", "a JSON array is sparse");
         members[index] = this.jsonValue(value[index], path);
       }
-      path.delete(value);
+      path.pop();
       return members;
     }
     if (isPlainJsonRecord(value)) {
       const path = this.#enterJsonContainer(value, enclosing);
       const members: Record<string, unknown> = {};
-      for (const [key, member] of Object.entries(value))
-        Object.defineProperty(members, key, {
-          configurable: true,
-          enumerable: true,
-          value: this.jsonValue(member, path),
-          writable: true,
-        });
-      path.delete(value);
+      for (const key of Object.keys(value)) {
+        const member = this.jsonValue(value[key], path);
+        // Defined where `Object.prototype` holds the key: assigning
+        // `__proto__` would set the prototype, and an inherited property
+        // a hardened (frozen) prototype holds would refuse the assignment.
+        if (key in Object.prototype)
+          Object.defineProperty(members, key, {
+            configurable: true,
+            enumerable: true,
+            value: member,
+            writable: true,
+          });
+        else members[key] = member;
+      }
+      path.pop();
       return members;
     }
     throw new InvalidScalarResult(
@@ -8895,16 +9266,17 @@ export class Queries {
   /**
    * The one entry into a JSON container: the containers already being
    * normalized around it, plus this one. A container that is already open is
-   * inside itself, which no JSON document is.
+   * inside itself, which no JSON document is. The path is a stack, as deep
+   * as the document's nesting, so a scan of it is cheaper than a set.
    */
   #enterJsonContainer(
     container: object,
-    enclosing: Set<object> | undefined
-  ): Set<object> {
-    const path = enclosing ?? new Set<object>();
-    if (path.has(container))
+    enclosing: object[] | undefined
+  ): object[] {
+    const path = enclosing ?? [];
+    if (path.includes(container))
       throw new InvalidScalarResult("json", "a JSON value contains itself");
-    path.add(container);
+    path.push(container);
     return path;
   }
 }

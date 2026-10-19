@@ -203,8 +203,13 @@ describe("D-15 type anchor: the relocated shape is the base's shape", () => {
     expectTypeOf<
       Exclude<PreparedBatchGuard["failure"]["kind"], BaseFailure["kind"]>
     >().toEqualTypeOf<"foreignKey" | "forbidden">();
-    expectTypeOf<Omit<PreparedBatchGuard["failure"], "kind">>().toEqualTypeOf<
-      Omit<BaseFailure, "kind">
+    // Permissions 1.3.3: a `forbidden` failure may name its cause (`reason`),
+    // the only field added beside the base's.
+    expectTypeOf<
+      Omit<PreparedBatchGuard["failure"], "kind" | "reason">
+    >().toEqualTypeOf<Omit<BaseFailure, "kind">>();
+    expectTypeOf<PreparedBatchGuard["failure"]["reason"]>().toEqualTypeOf<
+      string | undefined
     >();
   });
 });

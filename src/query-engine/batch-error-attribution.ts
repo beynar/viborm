@@ -40,7 +40,11 @@ export function createFailureError(
     return new NotFoundError(model, operation);
   }
   if (failure.kind === "forbidden") {
-    return new ForbiddenError(model, operation);
+    return new ForbiddenError(
+      model,
+      operation,
+      failure.reason === undefined ? undefined : { reason: failure.reason }
+    );
   }
   const error = new TransactionError(failure.message, {
     meta: { model, operation },
@@ -154,6 +158,7 @@ function sameAttribution(
     guard.failure.kind === other.failure.kind &&
     guard.failure.message === other.failure.message &&
     guard.failure.relation === other.failure.relation &&
+    guard.failure.reason === other.failure.reason &&
     guard.failure.raceable === other.failure.raceable
   );
 }

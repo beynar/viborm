@@ -406,7 +406,7 @@ export class MySQLAdapter implements DatabaseAdapter {
     installAdapterNamespace(this, namespace, "mysql");
     // Reads the installed value, so it cannot be a field initializer: those run
     // before the constructor body.
-    this.identifiers = createIdentifiers(quoteIdent, this.namespace);
+    this.identifiers = createIdentifiers(quoteIdent, this.namespace, true);
     installGeoPointSql(this, this.geoPoint);
     installAdapterInternals(this, {
       batchRefs: this.#batchRefs,

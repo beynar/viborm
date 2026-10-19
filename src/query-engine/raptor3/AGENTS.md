@@ -188,7 +188,10 @@ statement: a read's `read()`, `producedWhere`'s judged set, `producedSource`,
 and, since 1.3.2, every `UPDATE` and `DELETE` an operation context builds
 through `Queries.sharing`: set mutations, captured mutations, a located
 update, nested set mutations, a junction delete and a disconnect; a produced
-row's judged set inside one shares the write's scope). An `$exists` that
+row's judged set inside one shares the write's scope; since 1.3.3, every
+`Queries.select` statement: a write's located or captured row, `WITH` before
+its `SELECT … FOR UPDATE`, a probe, a premise's query and a re-read — a
+`select` inside a read joins the read's scope). An `$exists` that
 reads no enclosing row is a body of its own, `SELECT 1 FROM target WHERE …
 LIMIT 1`, tested as `EXISTS (SELECT 1 FROM <member>)`; a body any
 `{ $row, up }` reaches out of stays in place (`correlatedAbove`).
