@@ -293,3 +293,50 @@ unwinds; memos hold only completed results; `cycles()` pre-check; lazy entries
 force `verbsRead`; per-chain reference checks; shared-body keys include values
 and layer context; enum outer comparisons cast to text; `readsRelation → true`
 for `$exists`; folding a false body; order independence tested.
+
+## 9. As implemented (2026-10-19)
+
+Departures from the plan, each decided with a measurement:
+
+- **`$exists` bodies may read enclosing rows** (supersedes #16). Pyxel's role
+  check written as `$exists: { member: { organizationId: { $row:
+  "organizationId", up: 1 }, role: { $row: "granteeRole", up: 1 }, … } }` is
+  one small subquery, where an outer reference through `organization.members`
+  was a correlated relation body at every grant. An `$exists` body is one
+  level below the row holding it, joined to nothing: without a `{ $row, up }`
+  reaching out it is uncorrelated and shared; with one it is correlated and
+  written in place (`frame.escaped`).
+- **The outer-reference spelling is `{ $row, up }`** (#15).
+- Field references in permission rules: the compiler's `isRecord` treats an
+  object with a symbol key as a value, which both closes #1 and makes a
+  same-row reference in a value position work (A6) without a conversion.
+- A relation body containing a reference that escapes it is never shared
+  (`correlatedAbove`), by the same lowering frames.
+- The moves walk (`rootReads`) skips inlined `P(M, a)` objects (their
+  references never leave them) and walks a shared clause once per depth: the
+  first version walked inlined predicates as a tree and compiled Pyxel's
+  policy in 472 ms instead of 40.
+- An enum compared with a string through a reference is cast to text on both
+  sides (PostgreSQL 42883 otherwise).
+- Lazy rows are deep-frozen by the entry, so core reuses their admission per
+  schema and a cache key digests them once (both were lost in the first lazy
+  version; fresh-client apply back to ≈ 1.4 ms on Pyxel from source).
+
+Measured on Pyxel's policy (PGlite, empty tables, from source):
+
+| Policy variant | `page.findMany` | `page` + `$access` | `document.findMany` | `accessGrant.findMany` |
+|---|---|---|---|---|
+| as written | 5.0 KB, 2.4 ms | 9.4 KB, 4.0 ms | 4.8 KB, 3.4 ms | 26.3 KB, 14.1 ms |
+| membership checks as `$exists` | 3.8 KB, 1.7 ms | 7.2 KB, 2.9 ms | 4.0 KB, 2.7 ms | 21.5 KB, 10.9 ms |
+| + role check as one correlated `$exists` | 5.9 KB, 2.7 ms | 8.0 KB, 3.3 ms | 7.8 KB, 3.0 ms | 29.5 KB, 15.4 ms |
+
+On PostgreSQL drivers and D1 the per-role uncorrelated checks win: each is
+shared, while the correlated one is written at every grant. The guide says
+so. Cold start (apply + first query, from source, loaded machine):
+`memberNotifications` ≈ 5× faster than 1.3.1, `organizationBilling` 2–4×,
+`document` ≈ 40 %, `page` unchanged.
+
+Falsified: removing the `readsAny` descent lets a grant's role be rewritten
+unjudged (contract test and the DST campaign at 100 seeds both fail);
+keying lazy admission by function alone admits one model's entry for
+another (contract test fails).

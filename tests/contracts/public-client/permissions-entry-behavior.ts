@@ -1288,7 +1288,9 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
         models: { page: { fields: { groupId: { read: "full" } } } },
       } as never);
       await expect(
-        loose(gated(base as never)).$as(actors.u01!).page!.findMany({})
+        loose(gated(base as never))
+          .$as(actors.u01!)
+          .page!.findMany({})
       ).rejects.toThrow(
         'rows.verbs.page at "reads.groupId": names a key, a unique or a foreign key field'
       );
@@ -1300,7 +1302,9 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
         models: { user: { read: {}, fields: { email: { read: "full" } } } },
       } as never);
       await expect(
-        loose(unique(base as never)).$as(actors.u01!).user!.findMany({})
+        loose(unique(base as never))
+          .$as(actors.u01!)
+          .user!.findMany({})
       ).rejects.toThrow(
         'rows.verbs.user at "reads.email": names a key, a unique or a foreign key field'
       );
