@@ -56,6 +56,8 @@ interface Row {
   published: boolean;
   score: number;
   secret: string;
+  /** The member role that may update it (an outer reference in the policy). */
+  editorRole: string;
   deleted: boolean;
 }
 interface Actor {
@@ -90,6 +92,23 @@ const actors: Actor[] = [
   { tenantId: "a", admin: true },
 ];
 
+const ROLES = ["editor", "viewer", "none"] as const;
+/** Fixed memberships: who holds which role in which tenant. */
+const MEMBERS = [
+  { id: "m1", tenantId: "a", userId: "alice", role: "editor" },
+  { id: "m2", tenantId: "a", userId: "bob", role: "viewer" },
+  { id: "m3", tenantId: "b", userId: "alice", role: "viewer" },
+  { id: "m4", tenantId: "b", userId: "bob", role: "editor" },
+];
+const memberOf = (actor: Actor, tenantId: string, role: string) =>
+  actor.userId !== undefined &&
+  MEMBERS.some(
+    (member) =>
+      member.tenantId === tenantId &&
+      member.userId === actor.userId &&
+      member.role === role
+  );
+
 // Independent application oracle. It never reads compiled policies or ORM SQL.
 function allows(
   row: Row,
@@ -103,12 +122,20 @@ function allows(
     (action === "read" &&
       (scopes.includes("post.update") || scopes.includes("post.delete")));
   const owned = actor.userId !== undefined && row.ownerId === actor.userId;
+  // A member of the post's tenant holding its editor role updates it.
+  const edits = owned || memberOf(actor, row.tenantId, row.editorRole);
   const grant =
-    action === "create" || action === "update"
+    action === "create"
       ? owned
-      : action === "delete"
-        ? actor.admin
-        : row.published || owned || actor.admin;
+      : action === "update"
+        ? edits
+        : action === "delete"
+          ? actor.admin
+          : // Viewers of the tenant read it all; update and delete imply read.
+            row.published ||
+            edits ||
+            actor.admin ||
+            memberOf(actor, actor.tenantId, "viewer");
   return row.tenantId === actor.tenantId && scoped && grant;
 }
 const ids = (rows: readonly { id: string }[]) =>
@@ -149,9 +176,16 @@ export async function runExtensionSeed(
       published: s.boolean(),
       score: s.int(),
       secret: s.string(),
+      editorRole: s.string(),
       deletedAt: s.dateTime().nullable(),
     });
-    const schema = { organization, post };
+    const member = s.model({
+      id: s.string().id(),
+      tenantId: s.string(),
+      userId: s.string(),
+      role: s.string(),
+    });
+    const schema = { organization, post, member };
     const driver = new RecordedDriver(database, recorder);
     const base = createClient({ schema, driver });
     const model = new Map<string, Row>();
@@ -176,10 +210,12 @@ export async function runExtensionSeed(
       "fault",
       "upsert",
       "arrayTransaction",
+      "retarget",
     ];
     try {
       await syncLiveSchema(base);
       await base.organization.createMany({ data: [{ id: "a" }, { id: "b" }] });
+      await base.member.createMany({ data: MEMBERS });
       for (let i = 0; i < 12; i++) {
         const row: Row = {
           id: `p${nextId++}`,
@@ -188,6 +224,7 @@ export async function runExtensionSeed(
           published: i % 3 === 0,
           score: i,
           secret: `secret-${i}`,
+          editorRole: ROLES[i % ROLES.length]!,
           deleted: i % 5 === 0,
         };
         model.set(row.id, row);
@@ -199,6 +236,7 @@ export async function runExtensionSeed(
             published: row.published,
             score: row.score,
             secret: row.secret,
+            editorRole: row.editorRole,
             deletedAt: row.deleted ? new Date("2025-01-01T00:00:00Z") : null,
           },
         });
@@ -221,9 +259,36 @@ export async function runExtensionSeed(
           post: {
             mandatory: { tenantId: { actor: "tenantId" } },
             read: {
-              OR: [{ published: true }, { ownerId: { actor: "userId" } }],
+              OR: [
+                { published: true },
+                { ownerId: { actor: "userId" } },
+                // About the actor alone: the same check for every row.
+                {
+                  $exists: {
+                    member: {
+                      tenantId: { actor: "tenantId" },
+                      userId: { actor: "userId" },
+                      role: "viewer",
+                    },
+                  },
+                },
+              ],
             },
-            update: { ownerId: { actor: "userId" } },
+            update: {
+              OR: [
+                { ownerId: { actor: "userId" } },
+                // About this post: its tenant and its editor role.
+                {
+                  $exists: {
+                    member: {
+                      tenantId: { $row: "tenantId", up: 1 },
+                      userId: { actor: "userId" },
+                      role: { $row: "editorRole", up: 1 },
+                    },
+                  },
+                },
+              ],
+            },
             delete: { actor: { admin: true } },
             create: { ownerId: { actor: "userId" } },
           },
@@ -259,7 +324,7 @@ export async function runExtensionSeed(
       const rawState = () =>
         database
           .prepare(
-            "SELECT id, tenantId, ownerId, published, score, secret, deletedAt IS NOT NULL AS deleted FROM post ORDER BY id"
+            "SELECT id, tenantId, ownerId, published, score, secret, editorRole, deletedAt IS NOT NULL AS deleted FROM post ORDER BY id"
           )
           .all();
       const assertState = () =>
@@ -360,6 +425,7 @@ export async function runExtensionSeed(
             published: !!pick(2),
             score: pick(50),
             secret: "new",
+            editorRole: ROLES[pick(ROLES.length)]!,
             deleted: false,
           };
           const data = {
@@ -369,6 +435,7 @@ export async function runExtensionSeed(
             published: proposed.published,
             score: proposed.score,
             secret: proposed.secret,
+            editorRole: proposed.editorRole,
           };
           const proposals =
             operation === "create"
@@ -515,6 +582,7 @@ export async function runExtensionSeed(
             published: false,
             score: pick(50),
             secret: "batch",
+            editorRole: "editor",
             deleted: false,
           };
           const { deleted, ...data } = row;
@@ -555,6 +623,25 @@ export async function runExtensionSeed(
               ForbiddenError
             );
           }
+        } else if (operation === "retarget") {
+          // A write of a column the update rule reads through { $row, up }:
+          // the new row is judged too, at read and update.
+          const editorRole = ROLES[pick(ROLES.length)]!;
+          const moved = { ...target, editorRole };
+          const run = () =>
+            view.post.update({
+              where: { id: target.id },
+              data: { editorRole },
+            });
+          if (target.deleted || !allows(target, actor, scopes, "update"))
+            await refused(run, NotFoundError);
+          else if (
+            allows(moved, actor, scopes, "update") &&
+            allows(moved, actor, scopes, "read")
+          ) {
+            await run();
+            target.editorRole = editorRole;
+          } else await refused(run, ForbiddenError);
         } else if (operation === "rollback" || operation === "fault") {
           const admin = db.$as({ tenantId: "b", userId: "bob", admin: true });
           // A fresh witness prevents generated deletions from skipping rollback.
@@ -565,6 +652,7 @@ export async function runExtensionSeed(
             published: false,
             score: 0,
             secret: "rollback",
+            editorRole: "editor",
             deleted: false,
           };
           const { deleted, ...data } = row;
