@@ -13,11 +13,13 @@ decoding and a cheaper permissions client per request. Measurements are in
 
 - **Shared relation bodies are no longer slow on large PostgreSQL tables.**
   PostgreSQL 12+ materializes a `WITH` member read twice and scans it,
-  without an index, once per outer row. Relation bodies, which are read per
-  row through their key, are now written `NOT MATERIALIZED`; `$exists`
-  bodies, read once per statement, keep the materialized form. A nested
-  include under a `posts some` policy went from 19.7 ms to 1.5 ms at 100k
-  posts (4.8 ms to 1.2 ms at 20k).
+  without an index, once per outer row. A relation body, read per row
+  through its key, is now written `NOT MATERIALIZED` where it reads no other
+  shared body; a body that reads another one, and every `$exists` body, keep
+  the materialized form, which a large policy needs. A nested include under
+  a `posts some` policy went from 19.7 ms to 1.5 ms at 100k posts (4.8 ms to
+  1.2 ms at 20k); a 40-model policy's `can` over every row is unchanged
+  (inlining every body made it 11× slower).
 - **An `upsert` that finds a row its policy may not update** now fails with
   `ForbiddenError` (the update is not permitted), with the unique-constraint
   error as its cause, instead of a bare `UniqueConstraintError`. A missing

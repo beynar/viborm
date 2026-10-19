@@ -1487,8 +1487,9 @@ interface SharedBody {
   readonly query: Sql;
   /**
    * Read once per outer row through its key columns (a relation body), not
-   * once per statement (an `$exists` body): the adapter keeps such a member
-   * inlined where a repeated member would otherwise be materialized.
+   * once per statement (an `$exists` body): where it reads no other shared
+   * body, the adapter keeps such a member inlined where a repeated member
+   * would otherwise be materialized.
    */
   readonly correlated: boolean;
   readonly slots: {
@@ -2083,18 +2084,27 @@ export class Queries {
     } finally {
       this.#shared = undefined;
     }
-    const definitions: { name: string; query: Sql; inlined: boolean }[] = [];
-    for (const body of shared.order) {
-      const repeated = body.slots.length > 1;
+    const repeated = shared.order.filter((body) => {
+      const many = body.slots.length > 1;
       for (const placed of body.slots)
-        placed.slot.settle(repeated ? placed.use : placed.inline);
-      if (repeated)
-        definitions.push({
-          name: body.name,
-          query: body.query,
-          inlined: body.correlated,
-        });
-    }
+        placed.slot.settle(many ? placed.use : placed.inline);
+      return many;
+    });
+    // A relation body is inlined where it reads no other shared body: a
+    // nested one, inlined into every use of every body that reads it,
+    // multiplies the plan (a 40-model policy's `can`: 9.8 s materialized,
+    // 113 s inlined, 11 s inlining the leaves only).
+    const names = repeated.map((body) =>
+      this.adapter.identifiers.escape(body.name).toStatement()
+    );
+    const definitions = repeated.map((body) => {
+      const text = body.correlated ? body.query.toStatement() : "";
+      return {
+        name: body.name,
+        query: body.query,
+        inlined: body.correlated && !names.some((name) => text.includes(name)),
+      };
+    });
     return definitions.length === 0
       ? statement
       : sql`${this.adapter.cte.with(definitions)} ${statement}`;

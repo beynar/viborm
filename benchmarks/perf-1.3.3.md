@@ -51,6 +51,28 @@ Test: `tests/providers/local/pglite-shared-bodies.test.ts` checks:
 
 Ran 7/7. Falsified: reverting the adapter line makes the new test fail.
 
+### Leaves only: what CI found
+
+The first version inlined every correlated body. CI's `pglite-permissions-entry.test.ts` then ran past its 1,200 s
+limit (main: 211 s). W-CAN6 asks `can` for every seeded row at every action under the 40-model acceptance policy.
+For `accessGrant`, actor u01, on PGlite:
+
+| form | time |
+|---|---|
+| materialized (1.3.2) | 9.8 s |
+| every correlated body `NOT MATERIALIZED` | 113 s |
+| no sharing at all | 106 s |
+| `NOT MATERIALIZED` only for a body that reads no other shared body (shipped) | 11.2 s |
+
+A nested body inlined into every use of every body that reads it multiplies the plan. On that policy, computing
+each body once is what makes 1.3.1 fast.
+
+A hashed `fk IN (SELECT k0 FROM "__shared_N")` over the materialized body was tried and rejected: it does not help
+the single-body case (19.5 ms against 19.9 ms at 100k posts), where the cost is computing the whole set.
+
+The shipped rule keeps the single-body win (that body is a leaf). With it, the seven PGlite permissions files run
+530/530 in 5 min locally, each at or under main's CI time. The entry file took 124 s locally, against 211 s on main's CI.
+
 ## Group A — SQL sharing (perf 1.3.3)
 
 Machine note: load average 29–38 during every measurement (five agents running

@@ -12,6 +12,9 @@ import { afterEach, expect, test } from "vitest";
 /** A relation body, read per row through its key: inlined. */
 const SHARED_RELATION_BODY =
   /"__shared_\d" AS NOT MATERIALIZED \(SELECT "q\d+"\."orgId" AS "k0"/;
+/** A relation body that reads another shared body: materialized. */
+const NESTING_RELATION_BODY =
+  /"__shared_\d" AS \(SELECT "q\d+"\."id" AS "k0" FROM "public"\."org"/;
 /** An `$exists` body, read once per statement: materialized. */
 const SHARED_EXISTS_BODY =
   /"__shared_\d" AS \(SELECT 1 FROM "public"\."member"/;
@@ -82,7 +85,7 @@ afterEach(async () => {
 // an index, once per outer row: a relation body, read through its key
 // columns, stays inlined (NOT MATERIALIZED); an `$exists` body, read once
 // per statement, keeps the materialized form.
-test("PGlite: a shared relation body is NOT MATERIALIZED, a shared $exists body is not", async () => {
+test("PGlite: a shared relation body reading no other is NOT MATERIALIZED; one reading another, and a shared $exists body, are not", async () => {
   const rows: unknown[] = [];
   for (const shared of [true, false]) {
     const driver = createInMemoryPGliteDriver();
@@ -123,6 +126,7 @@ test("PGlite: a shared relation body is NOT MATERIALIZED, a shared $exists body 
     const [statement] = statements;
     if (shared) {
       expect(statement).toMatch(SHARED_RELATION_BODY);
+      expect(statement).toMatch(NESTING_RELATION_BODY);
       expect(statement).toMatch(SHARED_EXISTS_BODY);
     } else {
       expect(statement).not.toContain("WITH");
