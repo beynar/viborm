@@ -94,6 +94,7 @@ import {
   Existence,
   type LazyRelations,
   type ModelVerbs,
+  OuterColumn,
   Parameter,
   type RowDomain,
   type RowJudgement,
@@ -408,7 +409,12 @@ type PreparedScalar = {
 };
 type PreparedOperand =
   | { readonly kind: "value"; readonly value: unknown }
-  | { readonly kind: "field"; readonly scalar: PreparedScalar }
+  | {
+      readonly kind: "field";
+      readonly scalar: PreparedScalar;
+      /** An enclosing row's column: how many relation bodies above (`$row`). */
+      readonly up?: number;
+    }
   /**
    * A call value of a domain predicate, read at lowering; `spread` when it is
    * a whole `in`/`notIn` list, one value operand per member once read.
@@ -736,8 +742,52 @@ function readsAny(
                 : []),
             ]
           : keys;
-      return own.some((field) => fields.has(field));
+      return (
+        own.some((field) => fields.has(field)) ||
+        (predicate.predicate !== undefined &&
+          readsAbove(predicate.predicate, fields, 1))
+      );
     }
+    default:
+      return true;
+  }
+}
+/**
+ * Whether a relation body `depth` bodies below the judged row compares one of
+ * `fields` of that row (`{ $row, up: depth }`): the row's new value changes
+ * its answer as surely as a column of its own does. An `$exists` body is a
+ * root of its own and reads no row outside it.
+ */
+function readsAbove(
+  predicate: PreparedPredicate,
+  fields: ReadonlySet<string>,
+  depth: number
+): boolean {
+  switch (predicate.kind) {
+    case "and":
+    case "or":
+      return predicate.predicates.some((member) =>
+        readsAbove(member, fields, depth)
+      );
+    case "not":
+    case "layer":
+      return readsAbove(predicate.predicate, fields, depth);
+    case "relation":
+      return (
+        predicate.predicate !== undefined &&
+        readsAbove(predicate.predicate, fields, depth + 1)
+      );
+    case "operation":
+      return [predicate.operand, ...(predicate.operands ?? [])].some(
+        (operand) =>
+          operand?.kind === "field" &&
+          operand.up === depth &&
+          fields.has(operand.scalar.field)
+      );
+    case "always":
+    case "condition":
+    case "exists":
+      return false;
     default:
       return true;
   }
@@ -2675,7 +2725,9 @@ export class Queries {
       return freeze({
         model,
         predicate: where
-          ? this.#prepareWhere(model, where, undefined, [], unique)
+          ? this.#rooted(model, undefined, () =>
+              this.#prepareWhere(model, where, undefined, [], unique)
+            )
           : undefined,
       });
     const facts = newSelectorFacts();
@@ -2695,9 +2747,34 @@ export class Queries {
         ? new Map(uniqueKey!.fields.map((field) => [field, selected[field]]))
         : undefined,
       predicate: where
-        ? this.#prepareWhere(model, where, facts, [], unique)
+        ? this.#rooted(model, facts, () =>
+            this.#prepareWhere(model, where, facts, [], unique)
+          )
         : undefined,
     });
+  }
+  /**
+   * The rows a predicate being prepared reads, from its root to the relation
+   * body it is in: what a `{ $row, up }` names. `sealed` says why a reference
+   * may not cross that body.
+   */
+  #scopes: readonly {
+    readonly model: AnyModel;
+    readonly facts: SelectorFacts | undefined;
+    readonly sealed?: string;
+  }[] = [];
+  #rooted<T>(
+    model: AnyModel,
+    facts: SelectorFacts | undefined,
+    prepare: () => T
+  ): T {
+    const scopes = this.#scopes;
+    this.#scopes = [{ model, facts }];
+    try {
+      return prepare();
+    } finally {
+      this.#scopes = scopes;
+    }
   }
   selectorFacts(selector: PreparedSelector): SelectorFacts {
     return selector.facts;
@@ -3194,9 +3271,34 @@ export class Queries {
     selector: Pick<PreparedSelector, "model" | "predicate">,
     alias?: string
   ): Sql | undefined {
-    return selector.predicate
-      ? this.#lowerStated(selector.predicate, alias)
-      : undefined;
+    if (!selector.predicate) return undefined;
+    const frames = this.#frames;
+    this.#frames = [{ alias, escaped: false }];
+    try {
+      return this.#lowerStated(selector.predicate, alias);
+    } finally {
+      this.#frames = frames;
+    }
+  }
+  /**
+   * The aliases of the rows a predicate being lowered reads, from its root
+   * to the relation body it is in, each marked once a `{ $row, up }` inside
+   * it names a row above it: such a body is correlated past its parent, so
+   * it is never shared.
+   */
+  #frames: { readonly alias: string | undefined; escaped: boolean }[] = [];
+  /** The alias of the row `up` bodies above the current one. */
+  #outerAlias(up: number | undefined, alias: string | undefined): string {
+    const frames = this.#frames;
+    const at = frames.length - 1 - (up ?? 0);
+    const owner = up === undefined || up === 0 ? alias : frames[at]?.alias;
+    if (owner === undefined)
+      throw new UnsupportedOperationError(
+        "An enclosing row's column ({ $row, up }) has no row to read here."
+      );
+    for (let index = at + 1; index < frames.length; index++)
+      frames[index]!.escaped = true;
+    return owner;
   }
   /**
    * `predicate` lowered; `undefined` where it is made of layers the call
@@ -3580,11 +3682,9 @@ export class Queries {
   ): PreparedPredicate {
     const model = this.schema.schema[existence.model]!;
     const nestedFacts = facts && newSelectorFacts(false);
-    const predicate = this.#prepareWhere(
-      model,
-      existence.where,
-      nestedFacts,
-      []
+    // A new root: what it reads is the same wherever the statement holds it.
+    const predicate = this.#rooted(model, nestedFacts, () =>
+      this.#prepareWhere(model, existence.where, nestedFacts, [])
     );
     if (facts && nestedFacts) {
       facts.exact = false;
@@ -3831,6 +3931,8 @@ export class Queries {
   #prepareOperand(owner: PreparedScalar, value: unknown): PreparedOperand {
     if (value instanceof Parameter)
       return { kind: "parameter", parameter: value };
+    if (value instanceof OuterColumn)
+      return this.#prepareOuterOperand(owner, value);
     if (isFieldRef(value)) {
       if (owner.physical.scalar["~"].state.type === "json")
         throw new UnsupportedOperationError(
@@ -3904,6 +4006,72 @@ export class Queries {
     return {
       kind: "field",
       scalar: this.#scalar(model, payload.field),
+    };
+  }
+  /**
+   * `{ $row, up }`: the column of the row `up` relation bodies above, which
+   * that row's scope reads, compared like a field reference. Refused when it
+   * leaves the predicate (or an `$exists` body), crosses a recursive or
+   * polymorphic relation, or names what a comparison cannot read.
+   */
+  #prepareOuterOperand(
+    owner: PreparedScalar,
+    value: OuterColumn
+  ): Extract<PreparedOperand, { kind: "field" }> {
+    const spelled = `{ $row: ${JSON.stringify(value.$row)}, up: ${value.up} }`;
+    const scopes = this.#scopes;
+    const at = scopes.length - 1 - value.up;
+    if (at < 0)
+      throw new UnsupportedOperationError(
+        `${spelled} reaches past the predicate it is written in: it is ${Math.max(scopes.length - 1, 0)} relation bodies deep.`
+      );
+    for (let index = at + 1; index < scopes.length; index++)
+      if (scopes[index]!.sealed !== undefined)
+        throw new UnsupportedOperationError(
+          `${spelled} crosses a ${scopes[index]!.sealed} relation: an enclosing row is read only through plain relations.`
+        );
+    const { model, facts } = scopes[at]!;
+    const name = model["~"].names.ts ?? "unknown";
+    const referenced = model["~"].state.scalars[value.$row];
+    const own = owner.physical.scalar["~"].state;
+    if (!referenced)
+      throw new UnsupportedOperationError(
+        `${spelled} does not name a scalar field of '${name}'.`
+      );
+    const other = referenced["~"].state;
+    const kinds = new Set([own.type, other.type]);
+    if (
+      own.array === true ||
+      other.array === true ||
+      own.type === "json" ||
+      !(
+        own.type === other.type ||
+        (kinds.size === 2 && kinds.has("string") && kinds.has("enum"))
+      )
+    )
+      throw new UnsupportedOperationError(
+        `${spelled} names '${name}.${value.$row}' (${other.array === true ? `${other.type}[]` : other.type}), which cannot be compared with '${owner.field}' (${own.array === true ? `${own.type}[]` : own.type}).`
+      );
+    const ownDomain = exactDecimalDomain(own);
+    const otherDomain = exactDecimalDomain(other);
+    if (ownDomain && otherDomain && !sameDecimalDomain(ownDomain, otherDomain))
+      throw new UnsupportedOperationError(
+        `${spelled} names a decimal(${otherDomain.precision},${otherDomain.scale}) and '${owner.field}' is decimal(${ownDomain.precision},${ownDomain.scale}): two decimals compare exactly only when they declare the same precision and scale.`
+      );
+    const storage = incomparableIdentifiers(
+      this.scalarShape(owner.model, owner.field).id,
+      this.scalarShape(model, value.$row).id,
+      owner.field,
+      value.$row
+    );
+    if (storage !== undefined)
+      throw new UnsupportedOperationError(`${spelled}: ${storage}`);
+    // The row that holds the column reads it: a write to it reorders.
+    facts?.fields.add(value.$row);
+    return {
+      kind: "field",
+      scalar: this.#scalar(model, value.$row),
+      ...(value.up > 0 && { up: value.up }),
     };
   }
   /** One relation slot: ordinary quantifiers, to-one shorthand, or tagged arms. */
@@ -4005,7 +4173,9 @@ export class Queries {
             facts,
             path,
             inexact,
-            positive
+            positive,
+            undefined,
+            "polymorphic"
           );
           if (quantifier !== undefined) {
             const quantified = freeze({
@@ -4101,37 +4271,51 @@ export class Queries {
     path: readonly Membership[],
     inexact: boolean,
     positive = true,
-    closure?: Closure
+    closure?: Closure,
+    sealed: string | undefined = closure && "recursive"
   ): PreparedPredicate | undefined {
-    if (!facts)
-      return where
-        ? this.#prepareWhere(
-            edge.target,
-            where,
-            undefined,
-            path,
-            false,
-            positive && !inexact
-          )
-        : undefined;
+    if (!where) return this.#relationFacts(edge, facts, path, inexact, closure);
+    const scopes = this.#scopes;
+    const nestedFacts =
+      facts && newSelectorFacts(!inexact && closure === undefined);
+    this.#scopes = [
+      ...scopes,
+      { model: edge.target, facts: nestedFacts, ...(sealed && { sealed }) },
+    ];
+    try {
+      const predicate = this.#prepareWhere(
+        edge.target,
+        where,
+        nestedFacts,
+        facts ? [...path, edge] : path,
+        false,
+        positive && !inexact
+      );
+      this.#relationFacts(edge, facts, path, inexact, closure, nestedFacts);
+      return predicate;
+    } finally {
+      this.#scopes = scopes;
+    }
+  }
+  /** The reads a relation's scope adds to its parent's facts (§2.2). */
+  #relationFacts(
+    edge: Membership,
+    facts: SelectorFacts | undefined,
+    path: readonly Membership[],
+    inexact: boolean,
+    closure: Closure | undefined,
+    prepared?: SelectorFacts
+  ): undefined {
+    if (!facts) return;
     const scope = [...path, edge];
     // A closure's members are decided by every intermediate row's link, so no
     // `equals` it states proves a write to another row disjoint, and a write
     // to a link field changes who is a member.
-    const nestedFacts = newSelectorFacts(!inexact && closure === undefined);
+    const nestedFacts =
+      prepared ?? newSelectorFacts(!inexact && closure === undefined);
     if (closure && edge.kind === "reference")
       for (const pair of edge.pairs)
         nestedFacts.fields.add(pair.source).add(pair.target);
-    const predicate = where
-      ? this.#prepareWhere(
-          edge.target,
-          where,
-          nestedFacts,
-          scope,
-          false,
-          positive && !inexact
-        )
-      : undefined;
     // The related domain's fields are read by this scope too, so a lookup
     // that reads through it depends on a write to them (§2.2).
     const domain = this.domain?.selector(edge.target, "related");
@@ -4145,7 +4329,6 @@ export class Queries {
       exact: nestedFacts.exact,
     });
     facts.reads.push(...nestedFacts.reads);
-    return predicate;
   }
   #lowerPredicate(predicate: PreparedPredicate, alias?: string): Sql {
     const a = this.adapter;
@@ -4362,7 +4545,10 @@ export class Queries {
       );
     const bind = (member: BoundOperand, fold = false): Sql => {
       if (member.kind === "field") {
-        const reference = this.#preparedColumn(member.scalar, alias);
+        const reference = this.#preparedColumn(
+          member.scalar,
+          member.up === undefined ? alias : this.#outerAlias(member.up, alias)
+        );
         const comparable = spelledAsText(member)
           ? a.expressions.cast(reference, "text")
           : reference;
@@ -4803,9 +4989,16 @@ export class Queries {
       return a.literals.true();
     const { edge, closure } = predicate;
     const childAlias = this.alias();
-    const nested = predicate.predicate
-      ? this.#lowerPredicate(predicate.predicate, childAlias)
-      : undefined;
+    const frame = { alias: childAlias, escaped: false };
+    this.#frames.push(frame);
+    let nested: Sql | undefined;
+    try {
+      nested = predicate.predicate
+        ? this.#lowerPredicate(predicate.predicate, childAlias)
+        : undefined;
+    } finally {
+      this.#frames.pop();
+    }
     const stated = nested
       ? [predicate.quantifier === "every" ? a.operators.not(nested) : nested]
       : [];
@@ -4838,7 +5031,8 @@ export class Queries {
         childAlias,
         predicate.unscoped === undefined,
         stated,
-        predicate.predicate !== undefined && readsRelation(predicate.predicate)
+        predicate.predicate !== undefined && readsRelation(predicate.predicate),
+        frame.escaped
       );
     switch (predicate.quantifier) {
       case "some":
@@ -4877,7 +5071,8 @@ export class Queries {
     child: string,
     scoped: boolean,
     stated: readonly Sql[],
-    deeper = false
+    deeper = false,
+    correlatedAbove = false
   ): Sql {
     const a = this.adapter;
     const member = this.#membershipWhere(edge, child, parent);
@@ -4901,6 +5096,7 @@ export class Queries {
     const conditions = related ? [related, ...stated] : stated;
     if (
       shared === undefined ||
+      correlatedAbove ||
       edge.kind !== "reference" ||
       edge.discriminator !== undefined ||
       conditions.length === 0
@@ -4952,9 +5148,17 @@ export class Queries {
     const a = this.adapter;
     const { model } = predicate;
     const child = this.alias();
-    const stated = predicate.predicate
-      ? [this.#lowerPredicate(predicate.predicate, child)]
-      : [];
+    // A new root: nothing inside it reads a row outside it.
+    const frames = this.#frames;
+    this.#frames = [{ alias: child, escaped: false }];
+    let stated: Sql[];
+    try {
+      stated = predicate.predicate
+        ? [this.#lowerPredicate(predicate.predicate, child)]
+        : [];
+    } finally {
+      this.#frames = frames;
+    }
     const domain = this.domainOf(model, "related");
     const lowered = domain && this.lowerSelector(domain, child);
     const related =

@@ -5,6 +5,7 @@ import {
   type ConditionTest,
   Existence,
   type LazyRelations,
+  OuterColumn,
   Parameter,
 } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
@@ -109,7 +110,8 @@ export function isImmutableRowData(
         prototype !== null &&
         prototype !== Parameter.prototype &&
         prototype !== Condition.prototype &&
-        prototype !== Existence.prototype
+        prototype !== Existence.prototype &&
+        prototype !== OuterColumn.prototype
   )
     return false;
   open.add(value);
@@ -238,6 +240,16 @@ export function isReference(
   );
 }
 
+/** `{ $row, up }`: a column of an enclosing row (resolved where it is compared). */
+export const isOuterColumn = (
+  value: unknown
+): value is { readonly $row: string; readonly up: number } =>
+  isPlainRecord(value) &&
+  Object.keys(value).length === 2 &&
+  typeof value.$row === "string" &&
+  Number.isSafeInteger(value.up) &&
+  (value.up as number) >= 0;
+
 /** `{ now: true }`: the call's one instant. */
 export const isInstant = (value: unknown): boolean =>
   isPlainRecord(value) && value.now === true && Object.keys(value).length === 1;
@@ -269,6 +281,7 @@ function conditionOf(spec: unknown): Condition | string {
 const MARKERS: DomainMarkers = {
   value: (value) => {
     if (isReference(value)) return new Parameter(value.control, value.path);
+    if (isOuterColumn(value)) return new OuterColumn(value.$row, value.up);
     return isInstant(value) ? new Parameter() : undefined;
   },
   condition: conditionOf,

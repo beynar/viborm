@@ -236,6 +236,23 @@ export class Condition {
 }
 
 /**
+ * `{ $row: "<field>", up: <n> }` in a domain predicate's value position: that
+ * column of the row `up` relation bodies above the one the value is compared
+ * in (`0`, the same row). Never past the predicate it is written in, nor out
+ * of an `$exists` body, nor across a recursive or polymorphic relation. Its
+ * own fields are its spelling, so a cache key reads it as plain data.
+ */
+export class OuterColumn {
+  readonly $row: string;
+  readonly up: number;
+  constructor(field: string, up: number) {
+    this.$row = field;
+    this.up = up;
+    Object.freeze(this);
+  }
+}
+
+/**
  * `{ $exists: { <model>: <where> } }` in a domain predicate: whether some row
  * of `model` the call may see matches `where`. It reads no column of the row
  * it judges (an uncorrelated `EXISTS`), so a statement can evaluate it once.

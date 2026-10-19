@@ -174,6 +174,20 @@ function distance(a: string, b: string): number {
 const LOGICAL = new Set(["AND", "OR", "NOT"]);
 /** A check of another model's rows that reads no column of the row judged. */
 const EXISTS = "$exists";
+/** A row a rule reads: its model, and why a `{ $row, up }` may not cross it. */
+interface Scope {
+  readonly model: string;
+  readonly sealed?: string;
+}
+/** `{ $row, up }`: a column of a row the rule reads, `up` bodies above. */
+const isEnclosingRow = (
+  value: unknown
+): value is { readonly $row: string; readonly up: number } =>
+  isRecord(value) &&
+  Object.keys(value).length === 2 &&
+  typeof value.$row === "string" &&
+  Number.isSafeInteger(value.up) &&
+  (value.up as number) >= 0;
 /** The one model an `$exists` names, and the `where` its rows must match. */
 const existsOf = (value: unknown): [string, Where] => {
   const [model, body] = Object.entries(value as Where)[0]!;
@@ -769,11 +783,12 @@ export function policyCompiler(
     name: string,
     action: string,
     rule: unknown,
-    at: string
+    at: string,
+    scopes: readonly Scope[] = [{ model: name }]
   ): Clause => {
     if (typeof rule === "boolean") return rule ? {} : false;
     if (typeof rule === "function")
-      return lower(name, action, rule(action, modelOf(name)), at);
+      return lower(name, action, rule(action, modelOf(name)), at, scopes);
     if (!isRecord(rule))
       refuse(
         `${at}: a rule is a boolean, a where object or a function of the action`,
@@ -785,7 +800,7 @@ export function policyCompiler(
     for (const [key, member] of Object.entries(rule)) {
       if (LOGICAL.has(key)) {
         const list = (Array.isArray(member) ? member : [member]).map((item) =>
-          lower(name, action, item, at)
+          lower(name, action, item, at, scopes)
         );
         const folded =
           key === "OR"
@@ -821,25 +836,72 @@ export function policyCompiler(
             `${at}: $exists names exactly one model of the schema and the where its rows must match`,
             name
           );
-        const body = lower(model!, action, (member as Where)[model!], at);
+        // A root of its own: nothing in it reads a row outside it.
+        const body = lower(model!, action, (member as Where)[model!], at, [
+          { model: model! },
+        ]);
         if (body === false) return false;
         out[key] = { [model!]: body };
       } else if (targetOf(name, key) !== undefined) {
-        const lowered = relation(name, action, key, member, at);
+        const lowered = relation(name, action, key, member, at, scopes);
         if (lowered === false) return false;
         if (lowered !== undefined) out[key] = lowered;
-      } else out[key] = value(at, member);
+      } else {
+        enclosingRows(name, key, member, at, scopes);
+        out[key] = value(at, member);
+      }
     }
     return and([out, ...also]);
   };
 
+  /**
+   * Every `{ $row, up }` in a scalar's operand names a column of a row the
+   * rule reads (its own at `up: 0`), never past the rule's root, an
+   * `$exists` body's, or a recursive relation's body.
+   */
+  const enclosingRows = (
+    name: string,
+    key: string,
+    operand: unknown,
+    at: string,
+    scopes: readonly Scope[]
+  ): void => {
+    if (isEnclosingRow(operand)) {
+      const spelled = `{ $row: ${JSON.stringify(operand.$row)}, up: ${operand.up} }`;
+      const index = scopes.length - 1 - operand.up;
+      if (index < 0)
+        refuse(
+          `${at}: ${key} compares ${spelled}, which reaches past the rule (${scopes.length - 1} relation bodies deep here)`,
+          name
+        );
+      const crossed = scopes.slice(index + 1).find((scope) => scope.sealed);
+      if (crossed)
+        refuse(
+          `${at}: ${key} compares ${spelled} across a recursive relation to ${crossed.model}`,
+          name
+        );
+      const owner = scopes[index]!.model;
+      if (!Object.hasOwn(stateOf(owner).scalars, operand.$row))
+        refuse(
+          `${at}: ${key} compares ${spelled}, and ${owner} has no scalar field "${operand.$row}"`,
+          name
+        );
+      return;
+    }
+    if (Array.isArray(operand))
+      for (const item of operand) enclosingRows(name, key, item, at, scopes);
+    else if (isRecord(operand))
+      for (const item of Object.values(operand))
+        enclosingRows(name, key, item, at, scopes);
+  };
   /** A relation filter: an action name is the target's predicate (D7). */
   const relation = (
     name: string,
     action: string,
     key: string,
     member: unknown,
-    at: string
+    at: string,
+    scopes: readonly Scope[]
   ): unknown => {
     const target = targetOf(name, key)!;
     if (typeof member === "string") {
@@ -859,15 +921,19 @@ export function policyCompiler(
       );
     if (!isRecord(member)) return member;
     if (!Object.keys(member).some((op) => QUANTIFIERS.has(op)))
-      return lower(target, action, member, at);
+      return lower(target, action, member, at, [...scopes, { model: target }]);
     const out: Record<string, unknown> = {};
     let requiresEmpty = false;
+    const scope = {
+      model: target,
+      ...(member.recurse !== undefined && { sealed: "recursive" }),
+    };
     for (const [op, body] of Object.entries(member)) {
       if (!(QUANTIFIERS.has(op) && body !== null)) {
         out[op] = body;
         continue;
       }
-      const lowered = lower(target, action, body, at);
+      const lowered = lower(target, action, body, at, [...scopes, scope]);
       // A false body: `is`/`some` hold nowhere, `isNot`/`none` everywhere,
       // `every` only where nothing is related.
       if (lowered !== false) out[op] = lowered;
@@ -1495,11 +1561,46 @@ export function policyCompiler(
    * key behind a relation it holds, the fields a relation it does not hold
    * joins on, and a self relation's body where `self` reads the row itself.
    */
+  /** The fields of the rule's own row its bodies compare (`{ $row, up: depth }`). */
+  const rootReads = (
+    name: string,
+    clause: unknown,
+    depth: number,
+    into: Set<string>
+  ): void => {
+    if (isEnclosingRow(clause)) {
+      if (clause.up === depth) into.add(clause.$row);
+      return;
+    }
+    if (Array.isArray(clause)) {
+      for (const item of clause) rootReads(name, item, depth, into);
+      return;
+    }
+    if (!isRecord(clause)) return;
+    for (const [key, member] of Object.entries(clause)) {
+      if (key === EXISTS || key === "$if") continue;
+      const target = LOGICAL.has(key) ? undefined : targetOf(name, key);
+      if (target === undefined || !isRecord(member)) {
+        rootReads(name, member, depth, into);
+        continue;
+      }
+      const quantified = Object.keys(member).some((op) => QUANTIFIERS.has(op));
+      if (quantified)
+        for (const op of QUANTIFIERS)
+          if (isRecord(member[op]))
+            rootReads(target, member[op], depth + 1, into);
+          else rootReads(target, member, depth + 1, into);
+    }
+  };
   const fieldsRead = (name: string, clause: Where, into: Set<string>) => {
+    rootReads(name, clause, 0, into);
+    return ownFields(name, clause, into);
+  };
+  const ownFields = (name: string, clause: Where, into: Set<string>) => {
     for (const [key, member] of Object.entries(clause)) {
       if (LOGICAL.has(key))
         for (const item of Array.isArray(member) ? member : [member])
-          fieldsRead(name, item as Where, into);
+          ownFields(name, item as Where, into);
       // Neither reads a field of the row.
       else if (key === "$if" || key === EXISTS) continue;
       else if (targetOf(name, key) === undefined) into.add(key);
@@ -1507,7 +1608,7 @@ export function policyCompiler(
         for (const field of joinedOn(name, key)) into.add(field);
         if (isRecord(member) && member.self === true)
           for (const op of QUANTIFIERS)
-            if (isRecord(member[op])) fieldsRead(name, member[op], into);
+            if (isRecord(member[op])) ownFields(name, member[op], into);
       }
     }
     return into;
