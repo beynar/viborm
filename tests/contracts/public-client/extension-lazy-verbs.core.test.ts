@@ -8,6 +8,8 @@
  * extension-produced.core.test.ts's "verbs declared lazily" run.
  */
 
+import { MemoryCache } from "@cache/drivers/memory";
+import { cache } from "@cache/extension";
 import { createClient } from "@drivers/sqlite3";
 import { ClientInitializationError } from "@errors";
 import { bindRows } from "@extensions/rows";
@@ -388,4 +390,48 @@ test("one function serving two models is admitted for each against its own model
   await expect(db.note!.findMany({ user: "alice" } as object)).rejects.toThrow(
     'rows.verbs.note.predicates.roots at "parentId"'
   );
+});
+
+test("a cached read keys an eager entry's function acyclic, and lazy rows by their digest once", async () => {
+  let resolved = 0;
+  const cached = base.$extends(cache({ driver: new MemoryCache() })).$extends(
+    frozen(
+      governed({
+        note: () => {
+          resolved++;
+          return own();
+        },
+      })
+    )
+  ) as unknown as Loose & { $withCache(options: object): Loose };
+  const eager = base.$extends(cache({ driver: new MemoryCache() })).$extends(
+    frozen({
+      ...governed({}),
+      rows: {
+        control: "as",
+        default: "all",
+        models: {},
+        verbs: {
+          node: { ...own(), acyclic: () => ["parent"] },
+        },
+      },
+    })
+  ) as unknown as Loose & { $withCache(options: object): Loose };
+  for (let read = 0; read < 2; read++) {
+    expect(
+      ids(
+        await cached
+          .$withCache({ ttl: 60_000 })
+          .note!.findMany({ user: "alice" } as object)
+      )
+    ).toEqual(["n1"]);
+    expect(
+      ids(
+        await eager
+          .$withCache({ ttl: 60_000 })
+          .node!.findMany({ user: "alice" } as object)
+      )
+    ).toEqual(["a", "b"]);
+  }
+  expect(resolved).toBe(1);
 });

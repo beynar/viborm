@@ -526,8 +526,16 @@ export function checkingLazyReferences(
       ];
     })
   );
-  return Object.freeze({ ...rows, models, verbs: Object.freeze(verbs) });
+  const checking = Object.freeze({
+    ...rows,
+    models,
+    verbs: Object.freeze(verbs),
+  });
+  origins.set(checking, rows);
+  return checking;
 }
+/** The admitted rows a chain's checking copy stands for: the same content. */
+const origins = new WeakMap<RowsContribution, RowsContribution>();
 
 // An admitted entry's references, read once: it is immutable once admitted.
 const entryReferences = new WeakMap<RowsVerbs, readonly string[]>();
@@ -753,7 +761,8 @@ export function settledRows(rows: RowsContribution): RowsContribution {
  * digest computed once; other rows are keyed by their content, read afresh.
  */
 const identities = new WeakMap<RowsContribution, string>();
-export function rowsIdentity(rows: RowsContribution): unknown {
+export function rowsIdentity(chained: RowsContribution): unknown {
+  const rows = origins.get(chained) ?? chained;
   const known = identities.get(rows);
   if (known !== undefined) return known;
   const settled = settledRows(rows);

@@ -364,3 +364,79 @@ test("a write of a field a placement compares through { $row, up } is placed aga
   ).model("grant");
   expect(Object.keys(compiled.moves).sort()).toEqual(["orgId", "role"]);
 });
+
+test("$exists is lowered, summarised, guarded, proved and walked like a relation's body", () => {
+  const folder = s.model({
+    id: s.string().id(),
+    ownerId: s.string(),
+    parentId: s.string().nullable(),
+    parent: s
+      .toOne(() => folder)
+      .fields("parentId")
+      .references("id")
+      .name("tree"),
+    children: s.toMany(() => folder).name("tree"),
+  });
+  const note = s.model({
+    id: s.string().id(),
+    ownerId: s.string(),
+    teamId: s.string(),
+  });
+  const actor = v.object({
+    userId: v.string(),
+    teamId: v.optional(v.string()),
+  });
+  const compiler = (read: unknown) =>
+    policyCompiler(
+      { actor, models: { folder: { read }, note: { read: true } } } as never,
+      { folder, note }
+    );
+  const read = (rule: unknown) =>
+    JSON.stringify(compiler(rule).model("folder").predicates.read);
+  expect(() => compiler({ $exists: "note" }).model("folder")).toThrow(
+    "$exists names exactly one model"
+  );
+  // A body that holds nowhere: the rule holds nowhere.
+  expect(read({ $exists: { note: false } })).toBe(read(false));
+  // A narrower body is absorbed by a wider one of the same model, never by
+  // another model's.
+  expect(
+    read({
+      OR: [{ $exists: { note: { ownerId: "x" } } }, { $exists: { note: {} } }],
+    })
+  ).not.toContain('"ownerId":"x"');
+  expect(
+    read({
+      OR: [
+        { $exists: { note: { ownerId: "x" } } },
+        { $exists: { folder: {} } },
+      ],
+    })
+  ).toContain('"ownerId":"x"');
+  // An optional actor value inside a body disables only its alternative.
+  expect(
+    read({
+      $exists: {
+        note: { OR: [{ teamId: { actor: "teamId" } }, { ownerId: "x" }] },
+      },
+    })
+  ).toContain('"path":"teamId","exists":true');
+  // A body the summaries cannot read (an unknown field, refused by core when
+  // admitted) keeps its rule as written.
+  expect(read({ $exists: { note: { nope: 1 } } })).toContain('"nope":1');
+  // A recursion inside a body keeps that relation acyclic.
+  expect(
+    compiler({
+      $exists: {
+        folder: {
+          parent: { recurse: { depth: false }, some: { ownerId: "x" } },
+        },
+      },
+    }).acyclic("folder")
+  ).toEqual(["parent"]);
+  // A relation filtered with a value that is not a filter is refused.
+  const refs = createModelFieldRefs("folder", folder);
+  expect(() => compiler({ parent: refs.ownerId }).model("folder")).toThrow(
+    "filters parent with a value that is not a filter object"
+  );
+});

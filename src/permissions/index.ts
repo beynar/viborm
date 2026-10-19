@@ -935,7 +935,11 @@ export function permissions<const Config extends PermissionsConfig>(
         return [name, resolve];
       })
     );
-    return definitionOf(compiler.scopes, compiler.declared, verbs);
+    const definition = definitionOf(compiler.scopes, compiler.declared, verbs);
+    // Every object of these rows is this entry's own: frozen, core admits
+    // them once per schema and keys a cache on their digest once.
+    deepFreeze(definition.rows);
+    return definition;
   };
   /** Every model compiled when the policy is applied: a declaration we cannot copy. */
   const eagerDefinition = (schema: Schema) => {
@@ -1014,6 +1018,14 @@ export function permissions<const Config extends PermissionsConfig>(
   return Object.freeze(
     Object.assign(apply, { config, compile, rows, methods })
   ) as unknown as Policy<Config>;
+}
+
+/** Freeze `value` and everything it holds; functions stay as they are. */
+function deepFreeze(value: unknown): void {
+  if (value === null || typeof value !== "object" || Object.isFrozen(value))
+    return;
+  for (const member of Object.values(value)) deepFreeze(member);
+  Object.freeze(value);
 }
 
 function extend(
