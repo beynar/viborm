@@ -15,6 +15,9 @@ const SHARED_RELATION_BODY =
 /** A relation body that reads another shared body: materialized. */
 const NESTING_RELATION_BODY =
   /"__shared_\d" AS \(SELECT "q\d+"\."id" AS "k0" FROM "public"\."org"/;
+/** A relation body over a table mapped `__shared_0`: still a leaf. */
+const MAPPED_LIKE_A_BODY =
+  /^WITH "__shared_\d" AS NOT MATERIALIZED \(SELECT "q\d+"\."teamId" AS "k0" FROM "public"\."__shared_0"/;
 /** An `$exists` body, read once per statement: materialized. */
 const SHARED_EXISTS_BODY =
   /"__shared_\d" AS \(SELECT 1 FROM "public"\."member"/;
@@ -214,4 +217,94 @@ test("PGlite: an upsert's locked lookup states its repeated body once, ahead of 
     { id: "d2-new", title: "n" },
   ]);
   expect(answers.slice(2)).toEqual(answers.slice(0, 2));
+});
+
+// A table may be named like a body: whether a body reads another is told by
+// the bodies the statement stated, not by text (Devin review on #105).
+test("PGlite: a shared relation body over a table named like a body is still NOT MATERIALIZED", async () => {
+  const team = s.model({
+    id: s.string().id(),
+    seats: s.toMany(() => seat),
+    notes: s.toMany(() => note),
+  });
+  const seat = s
+    .model({
+      id: s.string().id(),
+      userId: s.string(),
+      teamId: s.string(),
+      team: s
+        .toOne(() => team)
+        .fields("teamId")
+        .references("id"),
+    })
+    .map("__shared_0");
+  const note = s.model({
+    id: s.string().id(),
+    title: s.string(),
+    teamId: s.string(),
+    team: s
+      .toOne(() => team)
+      .fields("teamId")
+      .references("id"),
+  });
+  const seated = { team: { seats: { some: { userId: user } } } };
+  const driver = createInMemoryPGliteDriver();
+  const base = createClient({ schema: { team, seat, note }, driver });
+  clients.push(base);
+  await syncLiveSchema(base);
+  await base.team.createMany({ data: [{ id: "t1" }, { id: "t2" }] });
+  await base.seat.createMany({
+    data: [
+      { id: "s1", userId: "ann", teamId: "t1" },
+      { id: "s2", userId: "bob", teamId: "t2" },
+    ],
+  });
+  await base.note.createMany({
+    data: [
+      { id: "n1", title: "a", teamId: "t1" },
+      { id: "n2", title: "b", teamId: "t1" },
+      { id: "n3", title: "a", teamId: "t2" },
+    ],
+  });
+  const statements: string[] = [];
+  const db = base
+    .$extends(
+      defineExtension({
+        name: "policy",
+        controls: { user: { schema: v.string(), required: true } },
+        rows: {
+          control: "scope",
+          default: "all",
+          models: {},
+          verbs: {
+            note: {
+              predicates: {
+                held: {
+                  OR: [
+                    { AND: [seated, { title: "a" }] },
+                    { AND: [seated, { title: "b" }] },
+                  ],
+                },
+              },
+              read: "held",
+            },
+          },
+        },
+      })
+    )
+    .$extends({
+      name: "statements",
+      statement(context) {
+        statements.push(context.statement.toStatement());
+        return context.statement;
+      },
+    });
+  expect(
+    await db.note.findMany({
+      user: "ann",
+      select: { id: true },
+      orderBy: { id: "asc" },
+    })
+  ).toEqual([{ id: "n1" }, { id: "n2" }]);
+  expect(statements[0]).toMatch(MAPPED_LIKE_A_BODY);
 });

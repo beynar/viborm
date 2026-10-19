@@ -2094,17 +2094,24 @@ export class Queries {
     // nested one, inlined into every use of every body that reads it,
     // multiplies the plan (a 40-model policy's `can`: 9.8 s materialized,
     // 113 s inlined, 11 s inlining the leaves only).
-    const names = repeated.map((body) =>
-      this.adapter.identifiers.escape(body.name).toStatement()
+    // By the slots a stated body settled to, not by text: a table may be
+    // named like a body.
+    const uses = new Set<Sql>(
+      repeated.flatMap((body) => body.slots.map((placed) => placed.slot))
     );
-    const definitions = repeated.map((body) => {
-      const text = body.correlated ? body.query.toStatement() : "";
-      return {
-        name: body.name,
-        query: body.query,
-        inlined: body.correlated && !names.some((name) => text.includes(name)),
-      };
-    });
+    const readsShared = (query: Sql): boolean => {
+      let found = false;
+      Sql.peekRuns(query, (node) => {
+        if (uses.has(node)) found = true;
+        return false;
+      });
+      return found;
+    };
+    const definitions = repeated.map((body) => ({
+      name: body.name,
+      query: body.query,
+      inlined: body.correlated && !readsShared(body.query),
+    }));
     return definitions.length === 0
       ? statement
       : sql`${this.adapter.cte.with(definitions)} ${statement}`;
