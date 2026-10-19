@@ -172,6 +172,13 @@ function distance(a: string, b: string): number {
   return rows[a.length]![b.length]!;
 }
 const LOGICAL = new Set(["AND", "OR", "NOT"]);
+/** A check of another model's rows that reads no column of the row judged. */
+const EXISTS = "$exists";
+/** The one model an `$exists` names, and the `where` its rows must match. */
+const existsOf = (value: unknown): [string, Where] => {
+  const [model, body] = Object.entries(value as Where)[0]!;
+  return [model, body as Where];
+};
 const QUANTIFIERS = new Set(["is", "isNot", "some", "every", "none"]);
 /**
  * A plain object: a clause or an operator's record, never a value (a Date, a
@@ -804,6 +811,19 @@ export function policyCompiler(
         if (isRecord(member) && member.control === "actor")
           path(at, member.path);
         out[key] = member;
+      } else if (key === EXISTS) {
+        // Another model's rows, read at their own model: action names are
+        // that model's predicates (D7), as in a relation's body.
+        const models = isRecord(member) ? Object.keys(member) : [];
+        const [model] = models;
+        if (models.length !== 1 || !Object.hasOwn(schema, model!))
+          refuse(
+            `${at}: $exists names exactly one model of the schema and the where its rows must match`,
+            name
+          );
+        const body = lower(model!, action, (member as Where)[model!], at);
+        if (body === false) return false;
+        out[key] = { [model!]: body };
       } else if (targetOf(name, key) !== undefined) {
         const lowered = relation(name, action, key, member, at);
         if (lowered === false) return false;
@@ -905,6 +925,12 @@ export function policyCompiler(
     if (key === "NOT") return implies(name, value, given);
     if (key === "$if")
       return same(given, value) || narrower(given, value, "hasSome");
+    if (key === EXISTS) {
+      // EXISTS is monotone: a narrower body finds a row only where a wider one does.
+      const [left, narrow] = existsOf(given);
+      const [right, wide] = existsOf(value);
+      return left === right && implies(left, narrow, wide);
+    }
     const target = targetOf(name, key);
     if (target === undefined)
       return (
@@ -1199,6 +1225,12 @@ export function policyCompiler(
         if (!isRecord(value)) return unsupported();
         const guard = { $if: value };
         parts.push({ yes: guard, no: negate(guard), reads: new Map() });
+      } else if (key === EXISTS) {
+        // Like a positive relation's body: read wherever the clause is.
+        const [model, body] = existsOf(value);
+        const summary = summarizeReads(model, body, source, negative);
+        if (summary === null) return unsupported();
+        parts.push(atomic(summary.reads));
       } else if (Object.hasOwn(stateOf(name).scalars, key)) {
         if (source && stateOf(name).scalars[key]!["~"].state.type === "json") {
           // Only complete JSON equality operands are value-node positions.
@@ -1314,6 +1346,11 @@ export function policyCompiler(
             : guardAlternatives(name, body)
         );
         return next.some((body, index) => body !== value[index]) ? next : value;
+      }
+      if (key === EXISTS) {
+        const [model, body] = existsOf(value);
+        const next = guardAlternatives(model, body);
+        return next === body ? value : { [model]: next };
       }
       const target = targetOf(name, key);
       if (target === undefined || !isRecord(value)) return value;
@@ -1463,7 +1500,8 @@ export function policyCompiler(
       if (LOGICAL.has(key))
         for (const item of Array.isArray(member) ? member : [member])
           fieldsRead(name, item as Where, into);
-      else if (key === "$if") continue;
+      // Neither reads a field of the row.
+      else if (key === "$if" || key === EXISTS) continue;
       else if (targetOf(name, key) === undefined) into.add(key);
       else {
         for (const field of joinedOn(name, key)) into.add(field);
@@ -1811,6 +1849,10 @@ export function policyCompiler(
         if (LOGICAL.has(key)) {
           for (const item of Array.isArray(member) ? member : [member])
             walk(name, item);
+          continue;
+        }
+        if (key === EXISTS) {
+          walk(...existsOf(member));
           continue;
         }
         const target = targetOf(name, key);

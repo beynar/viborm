@@ -19,10 +19,21 @@ export interface DomainMarkers {
   value(value: unknown): object | undefined;
   /** The node a `$if` stands for, or why it is refused. */
   condition(spec: unknown): object | string;
+  /**
+   * The node an `$exists` stands for, or why it is refused, at a path
+   * inside it. Absent: the key is not a marker (an unknown key).
+   */
+  exists?(
+    spec: unknown
+  ):
+    | object
+    | { readonly message: string; readonly path: readonly PropertyKey[] };
 }
 
 /** The key that holds a condition in a filter: no field name starts with `$`. */
 const CONDITION = "$if";
+/** The key that holds an existence check of another model's rows. */
+const EXISTS = "$exists";
 
 const values = new WeakSet<object>();
 const conditions = new WeakSet<object>();
@@ -76,15 +87,41 @@ export function conditionNodeOr<S extends VibSchema<any, any>>(where: S): S {
   const standard = where["~standard"];
   const validate = standard.validate;
   const admit = (value: unknown) => {
-    if (!(admitting && isRecord(value) && Object.hasOwn(value, CONDITION)))
-      return validate(value);
-    const { [CONDITION]: spec, ...filter } = value;
-    const node = admitting.condition(spec);
-    if (typeof node === "string") return fail(node, [CONDITION]);
-    conditions.add(node);
-    return Object.keys(filter).length === 0
-      ? ok(node)
-      : validate({ AND: [filter, node] });
+    const markers = admitting;
+    const condition = isRecord(value) && Object.hasOwn(value, CONDITION);
+    const exists =
+      isRecord(value) &&
+      markers?.exists !== undefined &&
+      Object.hasOwn(value, EXISTS);
+    if (!(markers && (condition || exists))) return validate(value);
+    const {
+      [CONDITION]: spec,
+      [EXISTS]: existence,
+      ...filter
+    } = value as Record<string, unknown>;
+    if (!exists && Object.hasOwn(value as object, EXISTS))
+      filter[EXISTS] = existence;
+    const nodes: object[] = [];
+    if (condition) {
+      const node = markers.condition(spec);
+      if (typeof node === "string") return fail(node, [CONDITION]);
+      nodes.push(node);
+    }
+    if (exists) {
+      const node = markers.exists!(existence);
+      if ("message" in node && "path" in node)
+        return fail(node.message as string, [EXISTS, ...node.path]);
+      nodes.push(node);
+    }
+    for (const node of nodes) conditions.add(node);
+    return Object.keys(filter).length === 0 && nodes.length === 1
+      ? ok(nodes[0])
+      : validate({
+          AND: [
+            ...(Object.keys(filter).length === 0 ? [] : [filter]),
+            ...nodes,
+          ],
+        });
   };
   Object.defineProperty(standard, "validate", {
     value: (value: unknown) => {

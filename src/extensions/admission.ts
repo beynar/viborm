@@ -3,9 +3,11 @@ import { ClientInitializationError } from "@errors";
 import {
   Condition,
   type ConditionTest,
+  Existence,
   type LazyRelations,
   Parameter,
 } from "@query-engine/raptor3/shared/row-scope";
+import type { Input } from "@query-engine/raptor3/shared/schema";
 import type { ModelState } from "@schema/model";
 import { isPlainRecord } from "@schema/relation/terminal";
 import { createSchemaRegistry } from "@validation/builder";
@@ -106,7 +108,8 @@ export function isImmutableRowData(
       : prototype !== Object.prototype &&
         prototype !== null &&
         prototype !== Parameter.prototype &&
-        prototype !== Condition.prototype
+        prototype !== Condition.prototype &&
+        prototype !== Existence.prototype
   )
     return false;
   open.add(value);
@@ -352,6 +355,39 @@ export function admitRows(
   // entry's included.
   const acyclic = new WeakSet<object>();
   const filters: AdmittedFilters = new WeakMap();
+  /**
+   * `$exists`: one model of the schema and its `where`, admitted with that
+   * model's own schema (its markers and depth rules included).
+   */
+  const markers: DomainMarkers = {
+    ...MARKERS,
+    exists: (spec) => {
+      const models = isPlainRecord(spec) ? Object.keys(spec) : [];
+      const [model] = models;
+      if (
+        models.length !== 1 ||
+        !Object.hasOwn(schema, model!) ||
+        !isPlainRecord((spec as Record<string, unknown>)[model!])
+      )
+        return {
+          message:
+            "names exactly one model of the schema and the `where` its rows must match",
+          path: [],
+        };
+      const result = validateSchema(
+        registry.getModelSchemas(schema[model!]!).core.where,
+        (spec as Record<string, unknown>)[model!]
+      );
+      if (result.issues) {
+        const [issue] = result.issues;
+        return {
+          message: issue!.message,
+          path: [model!, ...(issue!.path ?? [])],
+        };
+      }
+      return new Existence(model!, result.value as Input);
+    },
+  };
   const admit = (
     name: string,
     place: string,
@@ -361,7 +397,7 @@ export function admitRows(
     if (cycle !== undefined) refuse(name, place, cycle, "contains itself");
     const where = registry.getModelSchemas(schema[name]!).core.where;
     const result = admittingDomainPredicate(
-      MARKERS,
+      markers,
       () => validateSchema(where, predicate),
       filters
     );

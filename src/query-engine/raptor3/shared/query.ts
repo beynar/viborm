@@ -91,6 +91,7 @@ import {
   type CallScope,
   type CallValues,
   Condition,
+  Existence,
   type LazyRelations,
   type ModelVerbs,
   Parameter,
@@ -472,6 +473,16 @@ type PreparedPredicate =
   | { readonly kind: "condition"; readonly condition: Condition }
   | {
       /**
+       * Whether some row of `model` the call may see holds `predicate` (any
+       * row without one): reads no column of the row it judges, so it is
+       * the same everywhere in a statement (`$exists`).
+       */
+      readonly kind: "exists";
+      readonly model: AnyModel;
+      readonly predicate?: PreparedPredicate;
+    }
+  | {
+      /**
        * One layer's domain predicate for `model`, the unit R6 judges: per
        * call, its conditions fold (kept per outcome in `folded`), then a value
        * it still reads that is absent makes it false where its control is
@@ -600,6 +611,18 @@ function foldConditions(
         ? predicate
         : freeze({ ...predicate, predicate: folded });
     }
+    case "exists": {
+      if (!predicate.predicate) return predicate;
+      const folded = foldConditions(predicate.predicate, holds);
+      // No row matches a false body; a true one still needs a row to exist.
+      if (folded.kind === "always" && !folded.value) return VACUOUS_FALSE;
+      if (folded === predicate.predicate) return predicate;
+      return freeze({
+        kind: "exists",
+        model: predicate.model,
+        ...(folded.kind !== "always" && { predicate: folded }),
+      });
+    }
     default:
       return predicate;
   }
@@ -684,6 +707,7 @@ function readsAny(
       return readsAny(predicate.predicate, fields, keys);
     case "always":
     case "condition":
+    case "exists":
       return false;
     case "operation": {
       if (predicate.target.kind !== "column") return true;
@@ -737,6 +761,7 @@ function callReads(
       callReads(predicate.predicate, parameters, conditions);
       return;
     case "relation":
+    case "exists":
       if (predicate.predicate)
         callReads(predicate.predicate, parameters, conditions);
       return;
@@ -809,6 +834,7 @@ function sameColumnIn(
 function readsRelation(predicate: PreparedPredicate): boolean {
   switch (predicate.kind) {
     case "relation":
+    case "exists":
       return true;
     case "and":
     case "or":
@@ -3480,6 +3506,7 @@ export class Queries {
       if (facts) facts.exact = false;
       return freeze({ kind: "condition", condition: where });
     }
+    if (where instanceof Existence) return this.#prepareExists(where, facts);
     return freeze({
       kind: "and",
       predicates: freeze(
@@ -3541,6 +3568,42 @@ export class Queries {
           );
         })
       ),
+    });
+  }
+  /**
+   * `$exists`: the target's rows, read by the statement wherever it sits, so
+   * a write to them orders before it (a read of the target with no path).
+   */
+  #prepareExists(
+    existence: Existence,
+    facts: SelectorFacts | undefined
+  ): PreparedPredicate {
+    const model = this.schema.schema[existence.model]!;
+    const nestedFacts = facts && newSelectorFacts(false);
+    const predicate = this.#prepareWhere(
+      model,
+      existence.where,
+      nestedFacts,
+      []
+    );
+    if (facts && nestedFacts) {
+      facts.exact = false;
+      const domain = this.domain?.selector(model, "related");
+      if (domain)
+        for (const field of domain.facts.fields) nestedFacts.fields.add(field);
+      facts.reads.push({
+        model,
+        path: [],
+        fields: nestedFacts.fields,
+        equals: nestedFacts.equals,
+        exact: false,
+      });
+      facts.reads.push(...nestedFacts.reads);
+    }
+    return freeze({
+      kind: "exists",
+      model,
+      ...(states(predicate) && { predicate }),
     });
   }
   /** One prepared scalar: the field and its memoised physical view. */
@@ -4114,6 +4177,8 @@ export class Queries {
         return this.lowerOperation(this.#bound(predicate), alias);
       case "relation":
         return this.#lowerRelationPredicate(predicate, alias);
+      case "exists":
+        return this.#lowerExists(predicate);
       case "window":
         return this.#capped(predicate.selector, predicate.limit, alias);
       case "through": {
@@ -4876,6 +4941,54 @@ export class Queries {
     const slot = new SqlSlot(use);
     body.slots.push({ slot, inline, use });
     return slot;
+  }
+  /**
+   * `EXISTS (SELECT 1 FROM target WHERE related AND stated)`, correlated to
+   * nothing: inside a statement sharing its bodies, every occurrence with the
+   * same text and values settles to one `WITH` member holding at most one row,
+   * and each reads it as `EXISTS (SELECT 1 FROM <member>)`.
+   */
+  #lowerExists(predicate: Extract<PreparedPredicate, { kind: "exists" }>): Sql {
+    const a = this.adapter;
+    const { model } = predicate;
+    const child = this.alias();
+    const stated = predicate.predicate
+      ? [this.#lowerPredicate(predicate.predicate, child)]
+      : [];
+    const domain = this.domainOf(model, "related");
+    const lowered = domain && this.lowerSelector(domain, child);
+    const related =
+      lowered && predicate.predicate && readsRelation(predicate.predicate)
+        ? a.subqueries.isolated(lowered)
+        : lowered;
+    const conditions = related ? [related, ...stated] : stated;
+    const where =
+      conditions.length === 0
+        ? a.literals.true()
+        : a.operators.and(...conditions);
+    const inline = a.subqueries.existsCheck(this.table(model, child), where);
+    const shared = this.#shared;
+    if (shared === undefined) return a.filters.some(inline);
+    const query = assembleAdapterSelect(a, {
+      columns: sql`1`,
+      from: this.table(model, child),
+      where,
+      limit: this.value(1),
+    });
+    const key = sharedKey(query);
+    let body = shared.byKey.get(key);
+    if (body === undefined) {
+      body = { name: `__shared_${shared.order.length}`, query, slots: [] };
+      shared.byKey.set(key, body);
+      shared.order.push(body);
+    }
+    const use = a.subqueries.existsCheck(
+      a.identifiers.escape(body.name),
+      a.literals.true()
+    );
+    const slot = new SqlSlot(use);
+    body.slots.push({ slot, inline, use });
+    return a.filters.some(slot);
   }
   /**
    * MySQL ERROR 1093: a subquery may not read the table its own statement is

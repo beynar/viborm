@@ -235,6 +235,33 @@ export class Condition {
   }
 }
 
+/**
+ * `{ $exists: { <model>: <where> } }` in a domain predicate: whether some row
+ * of `model` the call may see matches `where`. It reads no column of the row
+ * it judges (an uncorrelated `EXISTS`), so a statement can evaluate it once.
+ * Its own field is its spelling, with the model by name, so a cache key over
+ * declarations reads it as plain data.
+ */
+export class Existence {
+  readonly $exists: Readonly<Record<string, Input>>;
+  readonly #model: string;
+  readonly #where: Input;
+  constructor(model: string, where: Input) {
+    this.#model = model;
+    this.#where = where;
+    this.$exists = Object.freeze({ [model]: where });
+    Object.freeze(this);
+  }
+  /** The model whose rows it looks for (its TS name). */
+  get model(): string {
+    return this.#model;
+  }
+  /** What one of them must match, admitted with that model's `where`. */
+  get where(): Input {
+    return this.#where;
+  }
+}
+
 /** The row facts one prepared call carries, and its one instant. */
 export interface CallScope {
   readonly rows: CallRows;

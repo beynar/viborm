@@ -3,6 +3,7 @@ import { ClientInitializationError } from "@errors";
 import {
   type CallRows,
   Condition,
+  Existence,
   type LazyRelations,
   type ModelDomain,
   type ModelStamps,
@@ -90,6 +91,10 @@ function collectReferences(
   // Predicates share sub-predicates freely: each is read once.
   seen = new Set<object>()
 ): void {
+  if (value instanceof Existence) {
+    collectReferences(value.where, names, seen);
+    return;
+  }
   const parameter = value instanceof Condition ? value.parameter : value;
   if (parameter instanceof Parameter) {
     if (parameter.control !== undefined) names.add(parameter.control);
@@ -157,6 +162,7 @@ export function undeclaredControlReferencesOf(
 /** Whether a domain's predicates read a call value (admission's nodes). */
 function readsCall(value: unknown): boolean {
   if (value instanceof Parameter || value instanceof Condition) return true;
+  if (value instanceof Existence) return readsCall(value.where);
   if (Array.isArray(value)) return value.some(readsCall);
   return isPlainRecord(value) && Object.values(value).some(readsCall);
 }

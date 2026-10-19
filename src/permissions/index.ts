@@ -255,7 +255,14 @@ type UnknownFields<
   [K in keyof Models & keyof S & string]: Exclude<
     | (Models[K] extends { readonly fields: infer F } ? keyof F : never)
     | CreateKeys<Models[K]>,
-    ScalarsOf<S[K]> | RelationsOf<S[K]> | "AND" | "OR" | "NOT" | "actor" | "$if"
+    | ScalarsOf<S[K]>
+    | RelationsOf<S[K]>
+    | "AND"
+    | "OR"
+    | "NOT"
+    | "actor"
+    | "$if"
+    | "$exists"
   > extends infer Unknown extends string
     ? [Unknown] extends [never]
       ? never
