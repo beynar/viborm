@@ -139,7 +139,10 @@ test("a compiler checks the declaration's names when built, and a rule when its 
   const actor = v.object({ userId: v.string() });
   expect(() =>
     policyCompiler(
-      { actor, models: { post: { read: true, operations: { list: "read" } } } },
+      {
+        actor,
+        models: { post: { read: true, operations: { list: "read" } } },
+      } as never,
       { post, note }
     )
   ).toThrow("models.post.operations.list: not a configurable operation");

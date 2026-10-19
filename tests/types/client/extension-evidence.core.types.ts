@@ -226,3 +226,41 @@ test("cached views preserve two projection keys and exact nested results", () =>
   // @ts-expect-error - projection metadata does not add cached mutation methods
   cached.post.update({ where: { id: "p" }, data: { title: "changed" } });
 });
+
+describe("a lazy verbs entry (a function returning it)", () => {
+  const lazy = base.$extends({
+    name: "lazy-evidence",
+    rows: {
+      control: "as",
+      default: "all",
+      models: {},
+      verbs: {
+        // A function's return is not a const context: spell it `as const`.
+        post: () =>
+          ({
+            predicates: { view: {}, edit: { title: "x" } },
+            read: "view",
+            evidence: { as: "$access", names: ["view", "edit"] },
+            reads: { secret: "edit" },
+          }) as const,
+      },
+    },
+  });
+
+  test("declares its projection key and gates its read-gated fields as an entry would", async () => {
+    const posts = await lazy.post.findMany({
+      select: { id: true, $access: true },
+    });
+    expectTypeOf(posts).toEqualTypeOf<
+      {
+        id: string;
+        readonly $access: { readonly view: boolean; readonly edit: boolean };
+      }[]
+    >();
+    const rows = await lazy.post.findMany();
+    expectTypeOf(rows[0]!).toHaveProperty("secret");
+    expectTypeOf<(typeof rows)[number]["secret"]>().toEqualTypeOf<
+      string | undefined
+    >();
+  });
+});

@@ -621,6 +621,10 @@ await db.document.delete({ user: "ada", where: { id }, as: "mine" }); // a mode 
   verbs: { document: () => compileDocumentVerbs() },
   ```
 
+  A function's return is not a `const` context: write an inline entry with
+  `as const`, so its `evidence` names and `reads` fields keep their literal
+  types for the client's `select` and default omits.
+
 ### Judge the row a write produces
 
 `verbs` also judges the row a write leaves behind, as a value, against the

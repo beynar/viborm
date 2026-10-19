@@ -296,17 +296,20 @@ test("walking a bound domain resolves every lazy entry; reading one resolves onl
     resolved.push(model);
     return { predicates: { all: {} }, read: "all" };
   };
-  const binding = bindRows([
-    {
-      control: "as",
-      default: "all",
-      models: {
-        node: { all: { root: () => ({ id: "a" }) } },
-        note: { all: {} },
-      },
-      verbs: { node: entry("node"), note: entry("note") },
-    } as never,
-  ]);
+  const binding = bindRows(
+    [
+      {
+        control: "as",
+        default: "all",
+        models: {
+          node: { all: { root: () => ({ id: "a" }) } },
+          note: { all: {} },
+        },
+        verbs: { node: entry("node"), note: entry("note") },
+      } as never,
+    ],
+    undefined
+  );
   const { domain } = binding.physical[0]!;
   const verbs = domain.verbs!;
   expect(verbs.has("node")).toBe(true);
@@ -330,14 +333,17 @@ test("walking a bound domain resolves every lazy entry; reading one resolves onl
     },
   ];
   for (const walk of walks) {
-    const fresh = bindRows([
-      {
-        control: "as",
-        default: "all",
-        models: { node: { all: { root: () => ({ id: "a" }) } } },
-        verbs: { node: entry("node") },
-      } as never,
-    ]).physical[0]!.domain;
+    const fresh = bindRows(
+      [
+        {
+          control: "as",
+          default: "all",
+          models: { node: { all: { root: () => ({ id: "a" }) } } },
+          verbs: { node: entry("node") },
+        } as never,
+      ],
+      undefined
+    ).physical[0]!.domain;
     resolved.length = 0;
     walk(fresh.verbs!);
     walk(fresh.root);

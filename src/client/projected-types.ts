@@ -45,10 +45,17 @@ type ProjectedOperation =
   | "upsert"
   | "delete";
 
+/** Each model's entry, a lazy one's (a function's) as it resolves. */
+type ResolvedVerbs<Verbs> = {
+  [M in keyof Verbs]: Verbs[M] extends (...args: never[]) => infer Entry
+    ? Entry
+    : Verbs[M];
+};
+
 type VerbsOf<Definition> = Definition extends {
   readonly rows: { readonly verbs: infer Verbs };
 }
-  ? Verbs
+  ? ResolvedVerbs<Verbs>
   : never;
 
 type DeclaredEvidence<Entry> = Entry extends {
@@ -487,7 +494,7 @@ export type DeclaresEvidence<
 > = Definition extends {
   readonly rows: { readonly verbs: infer Verbs extends object };
 }
-  ? [EvidenceModels<C, Verbs>] extends [never]
+  ? [EvidenceModels<C, ResolvedVerbs<Verbs>>] extends [never]
     ? false
     : true
   : false;
@@ -523,9 +530,12 @@ export type GatedConfig<
 > = Definition extends {
   readonly rows: { readonly verbs: infer Verbs extends object };
 }
-  ? [keyof GatedOmit<Verbs>] extends [never]
+  ? [keyof GatedOmit<ResolvedVerbs<Verbs>>] extends [never]
     ? C
     : Omit<C, "omit"> & {
-        readonly omit: MergedOmit<ConfigOmit<C>, GatedOmit<Verbs>>;
+        readonly omit: MergedOmit<
+          ConfigOmit<C>,
+          GatedOmit<ResolvedVerbs<Verbs>>
+        >;
       }
   : C;
