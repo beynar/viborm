@@ -18,6 +18,11 @@ also fixes a rule spelling that granted every row.
   reference used as a whole rule or as a relation filter. A field reference
   in a value position compares two columns of the row, as in a caller's
   `where` (it was refused before).
+- **`undefined` in a rule no longer reads as "no filter".** `{ ownerId:
+  undefined }` (often a rule function's value that was not there) and
+  `{ relation: undefined }` held for every row; both are refused now. A rule
+  function that throws refuses its own model, with what it threw as the
+  cause.
 
 ### Changed
 

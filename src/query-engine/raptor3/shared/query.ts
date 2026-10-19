@@ -3963,6 +3963,10 @@ export class Queries {
           throw new UnsupportedOperationError(
             "An SQL filter field reference must be a direct interpolation, not nested inside a parameter object."
           );
+        if (nested instanceof OuterColumn)
+          throw new UnsupportedOperationError(
+            "An enclosing row's column ({ $row, up }) is compared directly, never inside an SQL filter."
+          );
         if (nested === null || typeof nested !== "object" || seen.has(nested))
           continue;
         seen.add(nested);

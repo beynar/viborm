@@ -1880,7 +1880,7 @@ export class Commands {
             exact !== undefined &&
             (budget === undefined ||
               (locked(this.blocked(exact)!, 1).sql.values.length <= budget &&
-                (queries.lowerSelector(exact)?.values.length ?? 0) +
+                (queries.lowerSelector(exact, "budget")?.values.length ?? 0) +
                   effectBinds(rows.length) <=
                   budget));
           if (exact && (fits || rows.length === 0)) taken = exact;

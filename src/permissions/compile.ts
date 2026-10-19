@@ -781,6 +781,27 @@ export function policyCompiler(
     });
   };
 
+  /**
+   * A rule function's predicate. Whatever it throws is its model's refusal,
+   * like any other mistake in a rule: it fails that model, never another.
+   */
+  const evaluated = (
+    rule: Extract<Rule, (...args: never[]) => unknown>,
+    action: string,
+    name: string,
+    at: string
+  ): unknown => {
+    try {
+      return rule(action, modelOf(name));
+    } catch (error) {
+      if (error instanceof ClientInitializationError) throw error;
+      return refuse(
+        `${at}: the rule function threw at "${action}"`,
+        name,
+        error
+      );
+    }
+  };
   /** A rule of `name` read at `action` (written at `at`), lowered to the `where` vocabulary. */
   const lower = (
     name: string,
@@ -791,7 +812,18 @@ export function policyCompiler(
   ): Clause => {
     if (typeof rule === "boolean") return rule ? {} : false;
     if (typeof rule === "function")
-      return lower(name, action, rule(action, modelOf(name)), at, scopes);
+      return lower(
+        name,
+        action,
+        evaluated(
+          rule as Extract<Rule, (...args: never[]) => unknown>,
+          action,
+          name,
+          at
+        ),
+        at,
+        scopes
+      );
     if (!isRecord(rule))
       refuse(
         `${at}: a rule is a boolean, a where object or a function of the action`,
@@ -851,6 +883,13 @@ export function policyCompiler(
         if (lowered === false) return false;
         if (lowered !== undefined) out[key] = lowered;
       } else {
+        // A filter's `undefined` filters nothing: in a rule it would grant
+        // every row, as an absent value never should.
+        if (member === undefined)
+          refuse(
+            `${at}: ${key} is compared with undefined, which holds for every row; compare with null, a literal or an actor value`,
+            name
+          );
         enclosingRows(name, key, member, at, scopes);
         out[key] = value(at, member);
       }
@@ -917,6 +956,11 @@ export function policyCompiler(
       const held = P(target, member);
       return held === false ? false : { is: held };
     }
+    if (member === undefined)
+      refuse(
+        `${at}: ${key} is filtered with undefined, which holds for every row`,
+        name
+      );
     // A field reference, a Date or any other value is not a relation filter.
     if (typeof member === "object" && member !== null && !isRecord(member))
       refuse(
@@ -1572,7 +1616,6 @@ export function policyCompiler(
    * depth.
    */
   const rootReads = (
-    root: Where,
     name: string,
     clause: unknown,
     depth: number,
@@ -1584,12 +1627,14 @@ export function policyCompiler(
       return;
     }
     if (typeof clause !== "object" || clause === null) return;
-    if (clause !== root && inlined.has(clause as Where)) return;
+    // Below the root, an inlined predicate's references stay inside it; at
+    // depth 0 it may be a branch of the rule itself (a `P` an action shares).
+    if (depth > 0 && inlined.has(clause as Where)) return;
     const depths = seen.get(clause) ?? new Set<number>();
     if (depths.has(depth)) return;
     seen.set(clause, depths.add(depth));
     if (Array.isArray(clause)) {
-      for (const item of clause) rootReads(root, name, item, depth, into, seen);
+      for (const item of clause) rootReads(name, item, depth, into, seen);
       return;
     }
     if (!isRecord(clause)) return;
@@ -1597,24 +1642,28 @@ export function policyCompiler(
       if (key === "$if") continue;
       if (key === EXISTS) {
         const [model, body] = existsOf(member);
-        rootReads(root, model, body, depth + 1, into, seen);
+        rootReads(model, body, depth + 1, into, seen);
         continue;
       }
       const target = LOGICAL.has(key) ? undefined : targetOf(name, key);
       if (target === undefined || !isRecord(member)) {
-        rootReads(root, name, member, depth, into, seen);
+        rootReads(name, member, depth, into, seen);
         continue;
       }
       const quantified = Object.keys(member).some((op) => QUANTIFIERS.has(op));
-      if (quantified)
-        for (const op of QUANTIFIERS)
-          if (isRecord(member[op]))
-            rootReads(root, target, member[op], depth + 1, into, seen);
-          else rootReads(root, target, member, depth + 1, into, seen);
+      if (!quantified) {
+        // The to-one shorthand: the body is the related row's own filter.
+        rootReads(target, member, depth + 1, into, seen);
+        continue;
+      }
+      for (const op of QUANTIFIERS) {
+        const body = member[op];
+        if (isRecord(body)) rootReads(target, body, depth + 1, into, seen);
+      }
     }
   };
   const fieldsRead = (name: string, clause: Where, into: Set<string>) => {
-    rootReads(clause, name, clause, 0, into);
+    rootReads(name, clause, 0, into);
     return ownFields(name, clause, into);
   };
   const ownFields = (name: string, clause: Where, into: Set<string>) => {

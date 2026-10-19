@@ -6,6 +6,7 @@
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { ClientInitializationError } from "../errors";
+import { errorCause } from "../errors/diagnostic-safety";
 import { type VibSchema, v } from "../validation";
 
 /** The paths below one actor value: named keys, or any key of a record. */
@@ -34,9 +35,14 @@ interface Walked {
 /** Schemas a path passes through without naming a key. */
 const WRAPPERS = new Set(["optional", "nullable", "lazyRef"]);
 
-export function refuse(message: string, model?: string): never {
+export function refuse(
+  message: string,
+  model?: string,
+  cause?: unknown
+): never {
   throw new ClientInitializationError(`viborm/permissions: ${message}`, {
     meta: { extension: "viborm.permissions", ...(model && { model }) },
+    ...(cause !== undefined && { cause: errorCause(cause) }),
   });
 }
 

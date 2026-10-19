@@ -238,9 +238,10 @@ export class Condition {
 /**
  * `{ $row: "<field>", up: <n> }` in a domain predicate's value position: that
  * column of the row `up` relation bodies above the one the value is compared
- * in (`0`, the same row). Never past the predicate it is written in, nor out
- * of an `$exists` body, nor across a recursive or polymorphic relation. Its
- * own fields are its spelling, so a cache key reads it as plain data.
+ * in (`0`, the same row; an `$exists` body counts as one). Never past the
+ * predicate it is written in, nor across a recursive or polymorphic
+ * relation. Its own fields are its spelling, so a cache key reads it as
+ * plain data.
  */
 export class OuterColumn {
   readonly $row: string;

@@ -1,3 +1,4 @@
+import { ClientInitializationError } from "@errors";
 import { s } from "@schema";
 import { createModelFieldRefs, isFieldRef } from "@schema/field-ref";
 import { permissions } from "@src/permissions";
@@ -442,4 +443,106 @@ test("$exists is lowered, summarised, guarded, proved and walked like a relation
   expect(() => compiler({ parent: refs.ownerId }).model("folder")).toThrow(
     "filters parent with a value that is not a filter object"
   );
+});
+
+test("a placement compares the row through a to-one shorthand, or through another action's predicate it shares: both are placed again", () => {
+  const user = s.model({ id: s.string().id(), orgId: s.string() });
+  const post = s.model({
+    id: s.string().id(),
+    title: s.string(),
+    orgId: s.string(),
+    authorId: s.string(),
+    author: s
+      .toOne(() => user)
+      .fields("authorId")
+      .references("id"),
+  });
+  const sameOrg = { author: { orgId: { $row: "orgId", up: 1 } } };
+  const moves = (declaration: object) =>
+    Object.keys(
+      policyCompiler(
+        {
+          actor: v.object({ userId: v.string() }),
+          models: { user: { read: true }, post: declaration },
+        } as never,
+        { user, post }
+      ).model("post").moves
+    ).sort();
+  expect(moves({ read: true, update: true, create: sameOrg })).toEqual([
+    "authorId",
+    "orgId",
+  ]);
+  // `manage` implies `create`: its predicate is a branch of the placement.
+  expect(
+    moves({
+      actions: { read: [], update: ["read"], create: [], manage: ["create"] },
+      read: true,
+      update: true,
+      create: { title: "draft" },
+      manage: sameOrg,
+    })
+  ).toEqual(["authorId", "orgId", "title"]);
+});
+
+test("an undefined operand or relation filter is refused: it would hold for every row (1.3.1 granted them)", () => {
+  const user = s.model({ id: s.string().id() });
+  const post = s.model({
+    id: s.string().id(),
+    ownerId: s.string(),
+    owner: s
+      .toOne(() => user)
+      .fields("ownerId")
+      .references("id"),
+  });
+  const compile = (read: unknown) => () =>
+    policyCompiler(
+      {
+        actor: v.object({ userId: v.string() }),
+        models: { user: { read: true }, post: { read } },
+      } as never,
+      { user, post }
+    ).model("post");
+  expect(compile({ ownerId: undefined })).toThrow(
+    "ownerId is compared with undefined, which holds for every row"
+  );
+  expect(compile(() => ({ ownerId: undefined }))).toThrow(
+    "ownerId is compared with undefined"
+  );
+  expect(compile({ owner: undefined })).toThrow(
+    "owner is filtered with undefined, which holds for every row"
+  );
+});
+
+test("a rule function that throws refuses its own model, with what it threw as the cause", () => {
+  const post = s.model({ id: s.string().id() });
+  const note = s.model({ id: s.string().id() });
+  const failure = new TypeError("no such key");
+  const compiler = policyCompiler(
+    {
+      actor: v.object({}),
+      models: {
+        post: {
+          read: () => {
+            throw failure;
+          },
+        },
+        note: { read: true },
+      },
+    },
+    { post, note }
+  );
+  let caught: unknown;
+  try {
+    compiler.model("post");
+  } catch (error) {
+    caught = error;
+  }
+  expect(caught).toBeInstanceOf(ClientInitializationError);
+  expect((caught as Error).message).toContain(
+    'models.post.read: the rule function threw at "read"'
+  );
+  // Kept as the cause, its details redacted like any underlying error.
+  expect((caught as Error).cause).toBeInstanceOf(Error);
+  expect(compiler.model("note").read).toBe("read");
+  expect(compiler.acyclic("note")).toEqual([]);
 });

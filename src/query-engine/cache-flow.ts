@@ -17,9 +17,8 @@ import type { QueryExecutionContext } from "@drivers/exports";
 import {
   CacheConfigurationError,
   CacheOperationNotCacheableError,
-  ClientInitializationError,
 } from "@errors";
-import { isAdmittedRows } from "@extensions/admission";
+import { isAdmittedRows, isImmutableRowData } from "@extensions/admission";
 import type { ResolvedExtensionChain } from "@extensions/chain";
 import type { RowsContribution } from "@extensions/controls";
 import {
@@ -111,11 +110,11 @@ export function cacheKeyOf(
   if (rows === undefined) return [args, controls];
   try {
     return [args, controls, rows.map(rowsIdentity)];
-  } catch (error) {
-    // A rows member compiled on first use refused one of its models: the
-    // read goes uncached, and fails only if it needs that model itself.
-    if (error instanceof ClientInitializationError) return undefined;
-    throw error;
+  } catch {
+    // A rows member compiled on first use could not settle (a model it
+    // refuses): the read goes uncached, and fails only if it needs that
+    // model itself.
+    return undefined;
   }
 }
 
@@ -287,7 +286,10 @@ function settledRows(rows: RowsContribution): RowsContribution {
         model,
         acyclic === undefined || Array.isArray(acyclic)
           ? resolved
-          : { ...resolved, acyclic: (acyclic as LazyRelations).resolve() },
+          : Object.freeze({
+              ...resolved,
+              acyclic: (acyclic as LazyRelations).resolve(),
+            }),
       ];
     })
   );
@@ -324,7 +326,17 @@ function rowsIdentity(chained: RowsContribution): unknown {
   const known = identities.get(rows);
   if (known !== undefined) return known;
   const settled = settledRows(rows);
-  if (!isAdmittedRows(rows)) return settled;
+  // Memoised only where nothing it says can change: rows admission owns, and
+  // every entry they resolved to deeply frozen.
+  if (
+    !(
+      isAdmittedRows(rows) &&
+      Object.values(settled.verbs ?? {}).every((entry) =>
+        isImmutableRowData(entry)
+      )
+    )
+  )
+    return settled;
   const digest = sha256(new TextEncoder().encode(stableStringify(settled)));
   const identity = Array.from(digest, (byte) =>
     byte.toString(16).padStart(2, "0")

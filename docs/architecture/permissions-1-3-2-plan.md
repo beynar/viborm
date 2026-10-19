@@ -340,3 +340,20 @@ Falsified: removing the `readsAny` descent lets a grant's role be rewritten
 unjudged (contract test and the DST campaign at 100 seeds both fail);
 keying lazy admission by function alone admits one model's entry for
 another (contract test fails).
+
+### Second review (implementation, 2026-10-19)
+
+An independent review of the implementation found, and this branch fixes:
+the moves walk missed `{ $row, up }` inside a to-one shorthand and inside an
+action's predicate shared at depth 0 (fail-open: a write of that column was
+not placed again; tests falsified); `{ field: undefined }` and `{ relation:
+undefined }` in a rule held for every row (fail-open since 1.3.0; refused
+now); a rule function that throws now refuses its own model only (wrapped,
+cause kept); any failure to settle a policy for a cache key makes the read
+uncached; the cache digest is memoised only when every resolved entry is
+deeply frozen; the bind-budget probe lowers with a root alias; an
+`OuterColumn` inside an SQL filter is refused. Kept as is: a nested
+disconnect that judges no produced row lowers the target's domain without a
+root alias, so a `{ $row, up ≥ 1 }` reaching that root fails closed ("has no
+row to read here"); the compiler does not refuse references across a
+polymorphic relation, the engine does at the model's first call.
