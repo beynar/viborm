@@ -258,3 +258,38 @@ references in the spellings table, a "Keeping policies small" section with
 the Pyxel recipe and numbers; extension guide (`create.mdx`): `$exists`, outer
 references, lazy entries (done); field-references page: policies may use
 `{ row, up }`; CHANGELOG 1.3.2 (Added / Changed / Fixed: A6).
+
+## 8. Adversarial review (2026-10-19) and dispositions
+
+An independent review checked the plan against the code at `89633e5d9` and
+reported 20 findings. Dispositions below supersede the sections above where
+they differ.
+
+| # | Sev. | Finding | Disposition |
+|---|---|---|---|
+| 1 | critical | A field-reference token, or an empty record, in an actor condition (`{ actor: { userId: token } }`, `{ actor: { p: {} } }`) lowers to no condition: the rule grants every row. **Reproduced on 1.3.1** (an actor named "nobody" read every post). A token in a value position lowers to `{}` (refused, except as a JSON `equals` literal). | **Fix (security).** The compiler refuses a token anywhere it is not a supported value (§4.4) and a condition record with no string key at any level. Tests for all spellings, under a JSON column, and at the type level. CHANGELOG "Security". |
+| 2 | high | Cached reads (`cache: "allow"`) key on the whole settled policy: the first cached read compiles every model, a broken rule elsewhere throws, and every cached read serialises ≈ 815 KB (already in 1.3.1). An eager entry with a function `acyclic` throws in the key. | **Fix.** The rows identity in a cache key is a hash computed once per rows object (memoised), not the serialised policy. Settling that throws makes the read uncached (fail safe, A3 kept: the read itself still fails only on its own models). `settledRows` settles a function `acyclic` in eager entries too. Documented: the first cached read compiles the whole policy once per isolate. |
+| 3 | high | Lazy `acyclic` compiles every model inside an update; an unrelated broken model makes every self-key write fail. | **Fix.** `acyclicAt` skips models whose compilation refuses (sound: a refused model judges nothing, and a model that inlines it refuses too). Documented as a one-time cost per isolate. |
+| 4 | high | `readsAny`/`unread` decide whether a write re-judges the new row; an outer reference missed there lets `granteeRole` change unjudged. | **Specified (§4.3):** `readsAny` descends relation bodies with a depth counter, stops at `$exists` (new root), and counts `{ $row, up }` at depth d with `up == d` as a read of the judged row. Falsification tests (branch removed → must fail) for `update`, `updateMany`, `upsert`, nested update on SQLite3, PGlite, D1, Docker PG/MySQL. |
+| 5 | medium | Lazy admission cache keyed by thunk only: one thunk under two models admits once. | **Fix:** key `(thunk, model)`. |
+| 6 | medium | `compiled` is a plain `{}`: a model named `constructor`/`toString` reads an inherited function. | **Fix:** a `Map`. |
+| 7 | medium | Three checkers for outer references would drift; an admission walk would duplicate the `where` schemas. | **Adopted:** no admission walk. The engine resolves and type-checks a reference in `#prepareOperand` against its model stack (refused when the statement is built, every time); the permissions compiler checks its own rules (unique coverage: `policy.compile`). |
+| 8 | medium | Mutation selectors are qualified by the table name, not an alias. | **Adopted:** the root frame's qualifier is whatever the root is lowered with (alias or table name); never bare. Tests on MySQL's derived-table path and PG upsert. |
+| 9 | medium | Refusing references in `recurse`/polymorphic bodies spreads through D7 inlining. | **Adopted:** only references that escape a `recurse` or polymorphic body are refused, by the permissions compiler (naming both models) and by the engine. |
+| 10 | medium | `$exists` sharing needs its own shared-body kind; a CTE needs `LIMIT 1`. | **Adopted:** shared kind `exists`: `WITH __exists_N AS (SELECT 1 FROM … WHERE … LIMIT 1)`, used as `EXISTS (SELECT 1 FROM __exists_N)`. Test: two grants with different `granteeRole` in one statement never merge. |
+| 11 | medium | Types: `$exists` missing from rule keys; lazy entries lose `$access` overloads and default-omit of gated fields; no types for `{ $row, up }`. | **Fix all three**, with type tests. |
+| 12 | medium | DST, acceptance policy and oracle exercise neither feature; nothing enforces byte identity; engine coverage is a ratchet. | **Adopted:** a committed digest test of the compiled acceptance policy; SQL goldens unchanged for statements using neither feature; the DST policy gains a `$exists` membership check and an outer-reference role check, the independent oracle implements both; the new engine branches covered 100 %. |
+| 13 | medium | Rule callbacks run at first use; the two-extension `evidence.as` collision moves to first use; compiler memos live as long as the schema. | **Documented**, not redesigned: a lazy entry's composition checks run when it resolves (eager entries unchanged). Retained heap measured on Pyxel; the compiler drops its memos once every model is compiled. |
+| 14 | low | CHANGELOG must say errors move to first use and recommend `policy.compile(schema)` in CI. | Adopted. |
+| 15 | low | `{ row, up }` collides with JSON literals and changes existing predicates' meaning. | **Adopted:** spelled `{ $row: "<field>", up: <n> }`; fields cannot start with `$`. |
+| 16 | low | §4.1 contradicts itself on `$exists` depth. | An `$exists` body is a new root at depth 0; `up` never crosses it. |
+| 17 | low | NULL outer columns under `every`/`none`. | Documented: same three-valued behaviour as same-row comparisons (a NULL never matches, so `none` holds). Not refused. |
+| 18 | low | Functions count as immutable anywhere. | **Fix:** only a top-level `verbs` entry and `acyclic` may be functions in reusable rows. |
+| 19 | low | `$exists` in nested writes. | Specified: it sees what its statement sees (earlier statements of the same write, never the row that statement writes, R4). |
+| 20 | low | Hoisting (H) loses guard identity. | **Dropped** from 1.3.2. Sharing (§3.2, #10) gives the text reduction on PG/D1. |
+
+Verified correct by the review: `LazyMap` keeps a failed build pending; `P`
+unwinds; memos hold only completed results; `cycles()` pre-check; lazy entries
+force `verbsRead`; per-chain reference checks; shared-body keys include values
+and layer context; enum outer comparisons cast to text; `readsRelation → true`
+for `$exists`; folding a false body; order independence tested.
