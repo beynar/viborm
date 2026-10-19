@@ -595,6 +595,18 @@ await db.document.delete({ user: "ada", where: { id }, as: "mine" }); // a mode 
 - Each predicate is admitted once when the extension is applied. A name that
   no predicate has, a model the schema lacks or a `writes` field the model
   lacks is refused there, as is a predicate object that contains itself.
+- A model's entry may be a function returning it, for entries that are
+  expensive to build (`viborm/permissions` compiles its policy this way). The
+  function is called the first time a call needs that model, which includes
+  every model the call's predicates read through a relation, and its entry is
+  admitted then: a refusal fails that call, and every later call on the
+  model, instead of `$extends`. An entry of deeply frozen plain data is
+  admitted once per schema; any other entry once per application. A cache key
+  over the extension's rows resolves every entry.
+
+  ```ts
+  verbs: { document: () => compileDocumentVerbs() },
+  ```
 
 ### Judge the row a write produces
 
@@ -612,6 +624,8 @@ document: {
 },
 ```
 
+- `acyclic` may be a function returning the list: it is called the first
+  time an update writes the key of one of the model's self relations.
 - A created row is judged at `place` (a model naming none is not judged on
   create). An updated row is judged at the predicates that judged its old
   row (`read` and its verb's), and at each written field's `moves` entry: an

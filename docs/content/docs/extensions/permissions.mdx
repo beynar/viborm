@@ -397,7 +397,7 @@ project: {
   Rows are never dropped because of it. Explicitly selecting it
   (`select: { budget: true }`) on such a row is a `ValidationError`.
 - A key, a unique field or a foreign key cannot be read-protected: the
-  policy is refused when applied.
+  model's first call is refused.
 
 ## 6. Sharing with grants
 
@@ -468,8 +468,8 @@ The project's effective `update` permission combines the owner's rule, the
 was inherited. A read-only share cannot grant updating; an update share cannot
 grant `full`. Here `read: true` already lets every organization member read.
 
-Rule functions build predicates when the policy is applied; the database reads
-the current grants when a statement runs. A grant deleted by another request
+Rule functions build predicates when their model is first needed; the database
+reads the current grants when a statement runs. A grant deleted by another request
 is no longer seen by the next statement.
 
 Who may *write* a grant row is a rule on the grant model like any other: for
@@ -1125,8 +1125,7 @@ Advanced predicates can use `$if` conditions on bound actor values and
 `{ now: true }` for the call's instant, as in the [API key recipes](#10-api-keys-and-service-principals).
 
 A rule that reads itself through these references (a model's `read` that
-needs its own `read`) is refused when the policy is applied, naming the
-cycle.
+needs its own `read`) is refused when its model compiles, naming the cycle.
 
 ### The actor
 
@@ -1134,7 +1133,7 @@ cycle.
 by `$as` once per request and never read from the database.
 
 - Every path a policy reads (`{ actor: "key.id" }`) is checked against the
-  actor schema when the policy is applied. Inline declarations also receive
+  actor schema when its model compiles. Inline declarations also receive
   TypeScript checks and suggestions; a `Rule` function may construct paths
   dynamically.
 - **An absent or `null` actor value never matches.** `userId: null` owns no
@@ -1288,11 +1287,12 @@ is inherited by a lower permission. A function declared under `update` receives
 `"update"` when its predicate contributes to a read. This also applies to
 callbacks nested inside `AND`, `OR` or relation predicates.
 
-Functions build predicates when the policy is first applied to a schema; they do
-not receive the request actor or run queries. Reapplying the same policy to the
-same unchanged schema reuses its compiled predicates when the declaration and
-result contain ordinary data. Changes to the declaration or schema invalidate
-that reuse. Opaque values and accessors use the uncached path. Keep rule functions
+Functions build predicates when their model is first compiled; they do not
+receive the request actor or run queries. Reapplying the same policy to the
+same unchanged schema reuses its compiled predicates when the declaration
+contains ordinary data. Changes to the declaration or schema invalidate that
+reuse. Opaque values (a `Date` constant) and accessors use the uncached path,
+which compiles every model when the policy is applied. Keep rule functions
 pure: do not depend on changing closure state. Actor references remain values
 supplied at call time. A grouped declaration such as
 `"read, update": shared` builds `shared("read", model)` and
@@ -1305,8 +1305,23 @@ policy and schema objects in `base.$extends(policy)`; compilation and immutable
 row admission can be reused, while clients, factories, actors, scopes and
 transactions remain separate. `policy.compile(schema)` is an explicit fresh
 inspection; mutating its result never changes the private application cache.
-The first application still compiles and validates the complete policy
-synchronously: invalid rules fail at `$extends`, before the first query.
+
+**A policy compiles a model at a time.** `$extends` checks what the declaration
+names (its keys, levels and models, each model's actions, operations, fields
+and domains) and refuses a mistake there. A model's rules are compiled the
+first time a call needs that model, which includes every model its predicates
+read through a relation; the compiled model is then shared by every client of
+the schema. A mistake inside a rule (a field, an actor path, a relation's
+action, a rule that reads itself) therefore fails the first call that needs its
+model, with the same `ClientInitializationError` every time, while other models
+keep working. The rules are compiled from the declaration as it was applied:
+editing it afterwards affects only a later `$extends`.
+
+`policy.compile(schema)` compiles every model and throws the compiler's first
+refusal (an actor path, a relation's action, a rule that reads itself). What
+the client checks when it admits a compiled model (field names, `recurse: true`,
+a read-protected key) comes at that model's first call: a test that calls each
+governed model once catches those too.
 
 The public `PolicyModel` type contains only metadata about the model where the
 function is evaluated. Inside a relation predicate, this is the relation's target
@@ -1321,7 +1336,7 @@ Prefer inline predicates for simple policies: their model, field and actor
 references receive contextual editor suggestions. Extract application-owned
 constants or `Rule` functions when a policy genuinely repeats or depends on the
 action. A separately typed `Rule` has a broad predicate shape; model, field and
-actor-path mistakes are still rejected when the policy is applied.
+actor-path mistakes are still rejected when its model compiles.
 
 ### Writes, in detail
 
@@ -1374,7 +1389,9 @@ reads and polymorphic arms.
 | no actor, or `actor` passed as an argument | `ValidationError` | before any statement |
 | an actor value of the wrong type, malformed scopes, or an unknown permission scope | `ValidationError` | at `$as` |
 | a missing required actor field | `ValidationError` | at `$as`, before a query |
-| an unknown model, field, action or actor path; an unknown key of the policy, of a model or of a `fields` entry; a misspelled reserved key or level; a rule that reads itself; `recurse: true`; a read-protected key or unique field | `ClientInitializationError` | when the policy is applied |
+| an unknown model or action; an unknown key of the policy, of a model or of a `fields` entry; a `fields` entry naming no field; a misspelled reserved key or level | `ClientInitializationError` | when the policy is applied |
+| an unknown actor path inside a rule; a relation read at an action its target does not declare; a rule that reads itself | `ClientInitializationError` | at the first call that needs the model, and by `policy.compile(schema)` |
+| an unknown field inside a rule; `recurse: true`; a read-protected key or unique field | `ClientInitializationError` | at the first call that needs the model |
 | `can`/`assert` with a `where` that is not a unique key | `ValidationError` | before any statement |
 | an unlisted model; an operation or `as` the model does not declare | `ForbiddenError` | before any statement |
 | a hidden root row in `findUnique` or `findFirst` | `null` (or `NotFoundError` for the `OrThrow` variants) | after the statement |
