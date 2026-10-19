@@ -1,4 +1,5 @@
 import { s } from "@schema";
+import { createModelFieldRefs, isFieldRef } from "@schema/field-ref";
 import { permissions } from "@src/permissions";
 import { compilePolicy, policyCompiler } from "@src/permissions/compile";
 import {
@@ -233,4 +234,45 @@ test("acyclic relations are found across the models that compile, past a refused
   // A model may be named like an Object.prototype member.
   expect(compiler.model("constructor").read).toBe("read");
   expect(() => compiler.policy()).toThrow('actor path "usrId"');
+});
+
+test("a field reference or an empty object never stands for a condition (1.3.1 read both as true)", () => {
+  const post = s.model({ id: s.string().id(), views: s.int() });
+  const refs = createModelFieldRefs("post", post);
+  const refused = (read: unknown) => () =>
+    policyCompiler(
+      {
+        actor: v.object({ userId: v.string() }),
+        models: { post: { read } },
+      } as never,
+      { post }
+    ).model("post");
+  expect(refused({ actor: { userId: refs.views } })).toThrow(
+    'tests actor path "userId" against a value that is not a literal'
+  );
+  expect(refused({ actor: { userId: {} } })).toThrow(
+    'tests the actor at "userId" with an empty object'
+  );
+  expect(refused({ actor: {} })).toThrow(
+    "tests the actor with an empty object"
+  );
+  expect(refused(refs.views)).toThrow(
+    "a rule is a boolean, a where object or a function of the action"
+  );
+  // A same-row reference in a value position stays a reference.
+  const compiled = policyCompiler(
+    {
+      actor: v.object({ userId: v.string() }),
+      models: { post: { read: { views: { gt: refs.views } } } },
+    },
+    { post }
+  ).model("post");
+  const tokens: unknown[] = [];
+  const walk = (node: unknown): void => {
+    if (isFieldRef(node)) tokens.push(node);
+    else if (node && typeof node === "object")
+      for (const member of Object.values(node)) walk(member);
+  };
+  walk(compiled.predicates.read);
+  expect(tokens).toEqual([refs.views]);
 });

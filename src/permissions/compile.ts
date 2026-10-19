@@ -173,11 +173,19 @@ function distance(a: string, b: string): number {
 }
 const LOGICAL = new Set(["AND", "OR", "NOT"]);
 const QUANTIFIERS = new Set(["is", "isNot", "some", "every", "none"]);
-/** A plain object: a clause or an operator's record, never a value (a Date, a Decimal, bytes). */
+/**
+ * A plain object: a clause or an operator's record, never a value (a Date, a
+ * Decimal, bytes). A field reference is a plain object whose only key is a
+ * symbol: read as a record it would be `{}`, true everywhere, so an object
+ * with a symbol key is a value.
+ */
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   if (typeof value !== "object" || value === null) return false;
   const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
+  return (
+    (prototype === Object.prototype || prototype === null) &&
+    Object.getOwnPropertySymbols(value).length === 0
+  );
 };
 const isActorField = (value: unknown): value is { actor: string } =>
   isRecord(value) &&
@@ -725,12 +733,19 @@ export function policyCompiler(
       refuse(
         `${at} tests the actor with a value that is not an object of its facts`
       );
+    // An empty object tests nothing: it would hold for every actor.
+    if (Object.keys(facts).length === 0)
+      refuse(
+        `${at} tests the actor${prefix ? ` at "${prefix.slice(0, -1)}"` : ""} with an empty object`
+      );
     return Object.entries(facts).flatMap(([key, fact]) => {
       const read = `${prefix}${key}`;
       if (isRecord(fact)) return conditions(at, fact, `${read}.`);
       path(at, read);
       if (fact !== null && typeof fact === "object")
-        refuse(`${at} tests actor path "${read}" against a list`);
+        refuse(
+          `${at} tests actor path "${read}" against ${Array.isArray(fact) ? "a list" : "a value that is not a literal"}`
+        );
       return [
         {
           $if:
@@ -816,6 +831,12 @@ export function policyCompiler(
       const held = P(target, member);
       return held === false ? false : { is: held };
     }
+    // A field reference, a Date or any other value is not a relation filter.
+    if (typeof member === "object" && member !== null && !isRecord(member))
+      refuse(
+        `${at} filters ${key} with a value that is not a filter object, an action name or null`,
+        name
+      );
     if (!isRecord(member)) return member;
     if (!Object.keys(member).some((op) => QUANTIFIERS.has(op)))
       return lower(target, action, member, at);

@@ -3,6 +3,7 @@ import { cache } from "@cache/extension";
 import { createClient } from "@drivers/sqlite3";
 import { ClientInitializationError, ForbiddenError } from "@errors";
 import { s } from "@schema";
+import { createModelFieldRefs } from "@schema/field-ref";
 import { permissions, type Rule } from "@src/permissions";
 import { softDelete } from "@src/soft-delete";
 import { v } from "@src/validation";
@@ -867,6 +868,32 @@ test("a cached read is keyed on the policy's content once, and goes uncached whe
     expect(await fresh.post.findMany()).toHaveLength(2);
     await base.post.create({ data: { id: "r", ownerId: "alice" } });
     expect(await fresh.post.findMany()).toHaveLength(3);
+  } finally {
+    await base.$disconnect();
+  }
+});
+
+test("a same-row field reference in a rule compares two columns of the row", async () => {
+  const post = s.model({ id: s.string().id(), views: s.int(), likes: s.int() });
+  const base = createClient({ schema: { post }, dataDir: ":memory:" });
+  try {
+    await syncLiveSchema(base);
+    await base.post.createMany({
+      data: [
+        { id: "a", views: 1, likes: 1 },
+        { id: "b", views: 5, likes: 1 },
+      ],
+    });
+    const refs = createModelFieldRefs("post", post);
+    const db = base.$extends(
+      permissions({
+        actor: v.object({}),
+        models: { post: { read: { views: { gt: refs.likes } } } },
+      })
+    );
+    expect(await db.$as({}).post.findMany({ select: { id: true } })).toEqual([
+      { id: "b" },
+    ]);
   } finally {
     await base.$disconnect();
   }
