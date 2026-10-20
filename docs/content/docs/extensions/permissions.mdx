@@ -1487,7 +1487,7 @@ Neki runs with `jit = off`.
 
 The driver deduplicates bound values, shares repeated relation bodies,
 computes each shared body that reads another one once (`MATERIALIZED`, since
-1.3.4), balances conjunctions and isolates each nesting level of a relation
+1.4.0), balances conjunctions and isolates each nesting level of a relation
 filter. None of this makes every policy and query fit. Local workerd enforces
 the text limit as well, and refuses a 100,010-byte statement with
 `SQLITE_TOOBIG`.
@@ -1496,7 +1496,7 @@ compiled program, and an opcode count does not predict it: on local workerd a
 measured boundary fell near 21,850 opcodes, yet `accessGrant.findMany` with
 `$access` compiles to 23,333 and runs.
 
-These figures were measured on 17 October 2026 (the 1.3.4 ones on 20
+These figures were measured on 17 October 2026 (the 1.4.0 ones on 20
 October) with the §1.1 acceptance policy, soft delete and actor `u02`, on
 local workerd. They are pinned by
 `tests/providers/workers/d1-permissions-statement-budget.test.ts`, which turns
@@ -1507,7 +1507,7 @@ red when a read D1 runs is refused, or a refused one starts to run:
   (16,132 bytes) and `document` (22,978 bytes). It also runs the root
   documents with `$access` at three levels, the roots, their children and
   theirs (48,946 bytes, 39 values).
-- Since 1.3.4 D1 also runs the four reads it refused with `SQLITE_NOMEM`
+- Since 1.4.0 D1 also runs the four reads it refused with `SQLITE_NOMEM`
   at 1.3.3, all inside the published limits:
   - the same three levels including each level's grants with `$access`
     (90,237 bytes, 57 values; 89,678 at 1.3.3);

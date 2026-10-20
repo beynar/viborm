@@ -212,7 +212,7 @@ repeated body is defined before the body holding it. A junction or variant
 membership and a recursive walk keep their place (a walk inside a shared body
 is shared with it). A member is `inlined` where it is correlated and reads no
 other member (a leaf): PostgreSQL writes it `NOT MATERIALIZED`, and since
-1.3.4 SQLite writes every other member `MATERIALIZED` (`cte.with`'s hints):
+1.4.0 SQLite writes every other member `MATERIALIZED` (`cte.with`'s hints):
 SQLite inlines a member at each use and compiles a nested one again inside
 each use of the body reading it, which is what D1 refused (`SQLITE_NOMEM`) on
 four acceptance `$access` reads (63,867 → 14,345 opcodes for the largest;
@@ -1007,7 +1007,7 @@ and bulk selection in `commands/commands.ts` all consult it; a physical owner
 does not classify a projection the projection owner already understands.
 
 `OperationContext.answersInStatement` is the one owner of "may this root
-single-row write answer its projection out of its OWN statement?" (perf 1.3.4).
+single-row write answer its projection out of its OWN statement?" (perf 1.4.0).
 A RETURNING-safe projection rides the `RETURNING`; a relation projection is
 lowered by the read owner over the written row — PostgreSQL reads it over the
 write's `RETURNING *` in a data-modifying `WITH "__viborm_mutation"`

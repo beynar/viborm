@@ -1,6 +1,6 @@
 /**
  * A root write answering a RELATION projection, in its own statement
- * (perf 1.3.4, `OperationContext.answersInStatement`).
+ * (perf 1.4.0, `OperationContext.answersInStatement`).
  *
  * 1.3.3 sent a locate, the write and a re-read, inside a transaction, for an
  * `update` with an `include`; on a remote driver each statement and each

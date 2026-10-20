@@ -173,7 +173,7 @@ describe("G4-02 physical envelope", () => {
     );
   });
 
-  // 1.3.4: a relation projection that reads no row the write can change is
+  // 1.4.0: a relation projection that reads no row the write can change is
   // answered in the write's own statement (`answersInStatement`, SQLite's
   // `RETURNING`): one statement, no envelope, the same answer.
   it("an update that names a relation projection answers in one statement with no envelope", async () => {

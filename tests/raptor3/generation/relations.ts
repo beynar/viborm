@@ -1,3 +1,5 @@
+// biome-ignore-all lint/suspicious/noBitwiseOperators: the seeded xorshift recipe generator.
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: these helpers assert generated outcomes and run only inside test cases.
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { s } from "@schema";
@@ -33,7 +35,7 @@ export type GeneratedRecipe = z.infer<typeof recipeSchema>;
 
 /** Handwritten world and public-operation choices are independent of either engine. */
 export function generateRecipe(seed: number): GeneratedRecipe {
-  let state = (seed ^ 0x243f6a88) >>> 0;
+  let state = (seed ^ 0x24_3f_6a_88) >>> 0;
   const pick = (limit: number) => {
     state ^= state << 13;
     state ^= state >>> 17;
@@ -228,7 +230,7 @@ export function generatedRelations(
       );
       requestedChildren.sort((left, right) => left.id - right.id);
       const primarySucceeded = recipe.fault === "none";
-      // A memberless create is its OWN only statement: since 1.3.4 the write
+      // A memberless create is its OWN only statement: since 1.4.0 the write
       // answers its relation `select` itself (`answersInStatement`), as it
       // always answered a scalar one, so no transaction holds it and the cut
       // after it falls after a committed row. The operation still fails.

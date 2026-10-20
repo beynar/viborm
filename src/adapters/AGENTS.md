@@ -219,7 +219,7 @@ statement repeats once, through `cte.with`. An in-process SQLite pays for
 sharing and gains nothing a transport charges: measured on better-sqlite3
 (2026-10-19, acceptance policy with soft delete), SQLite runs both spellings
 in about the same time, and finding the repeats costs the engine about
-230 µs per governed statement (`can` 0.30 → 0.53 ms). Re-measured for 1.3.4,
+230 µs per governed statement (`can` 0.30 → 0.53 ms). Re-measured for 1.4.0,
 with SQLite's nested members `MATERIALIZED` and the cheaper key (2026-10-20,
 end to end, default adapter): set reads are faster shared (`page` including
 its group 1.76 → 1.28 ms, `accessGrant.findMany` 3.18 → 1.71 ms) and point

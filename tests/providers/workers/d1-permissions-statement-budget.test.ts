@@ -509,7 +509,7 @@ describe("D1: W-K2f, every governed statement inside D1's budget", () => {
       // The four below were refused SQLITE_NOMEM at 1.3.3 (89,678 B,
       // 84,796 B, 75,514 B and 68,874 B, inside the published limits): every
       // use of a shared body inlined it, and a nested one again inside each
-      // use of the body reading it. Since 1.3.4 SQLite materializes a nested
+      // use of the body reading it. Since 1.4.0 SQLite materializes a nested
       // body: SQLite compiles about a quarter of the opcodes (63,867 to
       // 14,345 for the first, measured on better-sqlite3 3.53.2).
       "document roots $access at three depths, with grants": "runs",

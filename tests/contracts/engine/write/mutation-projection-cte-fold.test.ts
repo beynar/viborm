@@ -50,7 +50,7 @@ import { beforeAll, describe, expect, test } from "vitest";
  * read back through `findUnique`, on the same row, over seeded state, on both
  * substrates.
  *
- * 1.3.4 (perf lane RT1): THE FOLD IS BACK, at one owner.
+ * 1.4.0 (perf lane RT1): THE FOLD IS BACK, at one owner.
  * `OperationContext.answersInStatement` decides whether a root write answers a
  * relation projection out of its own statement, and on PostgreSQL the
  * statement is the Phase-8 shape again,
@@ -322,7 +322,7 @@ const TWO_INSERT_ROWS =
 /** No statement is a CTE fold: the machinery D-15 deleted emitted nothing else. */
 const noCteFold = (statements: string[]) =>
   statements.every((sql) => !sql.startsWith("WITH "));
-/** 1.3.4: the write and its relation projection, ONE statement. */
+/** 1.4.0: the write and its relation projection, ONE statement. */
 const cteFolded = (statements: string[]) =>
   statements.length === 1 &&
   statements[0]?.startsWith('WITH "__viborm_mutation" AS (') === true;
@@ -340,7 +340,7 @@ describe("Phase 8.1 — the fold's statement traffic", () => {
     const statements = drain(driver);
     driver.recording = false;
 
-    // THE measurement (1.3.4): `include` reads `p81_notes`, which the UPDATE
+    // THE measurement (1.4.0): `include` reads `p81_notes`, which the UPDATE
     // of `p81_accounts` cannot change, so the locate, the UPDATE and the
     // re-read the shipped 1.3.3 engine sent (3 statements in a transaction)
     // are the one statement Phase 8 measured.
@@ -395,7 +395,7 @@ describe("Phase 8.1 — the fold's statement traffic", () => {
     });
   });
 
-  // PIN RE-EXPRESSED (1.3.4). The Phase-8 fold left this shape at two
+  // PIN RE-EXPRESSED (1.4.0). The Phase-8 fold left this shape at two
   // statements — the in-unit presence guard and the CTE. 1.3.3 sent four: a
   // planning locate, then a batch of the presence guard, the UPDATE and the
   // terminal SELECT. Folded, the write is the operation's ONLY statement, so it
@@ -444,7 +444,7 @@ describe("Phase 8.1 — the fold answers what the read answers", () => {
    * (`delete-fold.test.ts`).
    *
    * Every projection in this table is a RELATION projection. D-15 sent them all
-   * down one route (locate, UPDATE, terminal read); 1.3.4 restores the `folds`
+   * down one route (locate, UPDATE, terminal read); 1.4.0 restores the `folds`
    * column, now decided by `OperationContext.answersInStatement`, and each
    * case's own note below says why. What the cases still do, and what they
    * were always strongest at, is the oracle: twelve distinct projections, each
@@ -585,7 +585,7 @@ describe("Phase 8.1 — the fold answers what the read answers", () => {
         driver.recording = false;
 
         expect(answer).toEqual(truth);
-        // …and by the route the gate chooses (1.3.4): ONE statement where the
+        // …and by the route the gate chooses (1.4.0): ONE statement where the
         // projection's statement names no `p81_accounts`, and otherwise the
         // located/mutated/re-read route, its mutation its own statement and
         // the projection shaped by the terminal read that follows it.
@@ -795,7 +795,7 @@ describe("Phase 8.1 — the two legality guards", () => {
     const statements = drain(driver);
     driver.recording = false;
 
-    // ANTI-VACUITY for guard 2 (restored in 1.3.4): it asks what the SET
+    // ANTI-VACUITY for guard 2 (restored in 1.4.0): it asks what the SET
     // rewrites, and this case witnesses that widening it to unique indexes did
     // not turn it into "never fold a model that has one". `label` is in no
     // referenceable key, so the relation projection folds…
@@ -947,7 +947,7 @@ describe("Phase 8.1 — what the fold must not change", () => {
 
     // Guard 2 asks what the SET rewrites, not whether the model has relations:
     // `color` is in no referenceable key, so no action can fire and the m2m
-    // `_count` folds here (1.3.4, as in Phase 8) while the cascading model's
+    // `_count` folds here (1.4.0, as in Phase 8) while the cascading model's
     // key rewrite declines.
     expect(cteFolded(statements)).toBe(true);
     expect(updated).toEqual(

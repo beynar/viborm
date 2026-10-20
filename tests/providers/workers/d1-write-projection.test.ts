@@ -1,6 +1,6 @@
 /**
  * D1 Driver Tests — a root write answering a relation projection in its own
- * statement (perf 1.3.4, `OperationContext.answersInStatement`): SQLite reads
+ * statement (perf 1.4.0, `OperationContext.answersInStatement`): SQLite reads
  * the projection inside the write's `RETURNING`, so D1 sends one statement
  * where 1.3.3 sent a planning locate and a batch (update, upsert) or a batch
  * of two (create). A delete keeps its capture-then-read route: SQLite's

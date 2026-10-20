@@ -1280,7 +1280,7 @@ export const relationTopologyCorpus: readonly RelationTopologyCase[] = [
   {
     id: "variant-member-mixed-inverses",
     title: "member junctions with mixed inverse cardinalities",
-    cell: "§6.5 independence rule, §11.3.4",
+    cell: "§6.5 independence rule, §11.4.0",
     asks: ["may member junctions mix inverse cardinalities"],
     disposition: "preserved",
     build: variantMemberMixedInverses,
