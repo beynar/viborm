@@ -272,6 +272,51 @@ export function runFindUniqueBatchingBehavior(provider: {
       ]);
     });
 
+    test("a key both selected and omitted is still read for dispatch, and still left out", async () => {
+      const keyed = [
+        ...[1, 2, 404].map(
+          (id) => () =>
+            db.member.findUnique({
+              where: { id },
+              select: { id: true, name: true },
+              omit: { id: true },
+            })
+        ),
+        ...["h3", "h4"].map(
+          (handle) => () =>
+            db.member.findUnique({
+              where: { handle },
+              select: { handle: true, name: true },
+              omit: { handle: true },
+            })
+        ),
+        ...[
+          { org: "even", slug: "s5" },
+          { org: "odd", slug: "s6" },
+        ].map(
+          (org_slug) => () =>
+            db.member.findUnique({
+              where: { org_slug },
+              select: { org: true, slug: true, name: true },
+              omit: { org: true, slug: true },
+            })
+        ),
+      ];
+      const batched = await inOneTick(keyed);
+      // One read per key shape; nothing answered from its own call.
+      expect(batched.statements).toBe(3);
+      expect(batched.results).toEqual(await alone(keyed));
+      expect(batched.results).toEqual([
+        { value: { name: "member 1" } },
+        { value: { name: "member 2" } },
+        { value: null },
+        { value: { name: "member 3" } },
+        { value: { name: "member 4" } },
+        { value: { name: "member 5" } },
+        { value: { name: "member 6" } },
+      ]);
+    });
+
     test("a compound unique key batches as one statement", async () => {
       const calls = [
         { org: "even", slug: "s1" },

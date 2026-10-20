@@ -471,7 +471,7 @@ export function runResultFieldsBehavior({
       });
     });
 
-    test(`${provider}: filtering or ordering by a computed field is refused, and a throwing compute fails the call`, async () => {
+    test(`${provider}: filtering or ordering by a computed field is refused, and a throwing compute throws where the field is read`, async () => {
       const { base, db } = await open();
       await expect(
         db.user.findMany({ where: { fullName: "Ada Lovelace" } })
@@ -492,7 +492,10 @@ export function runResultFieldsBehavior({
           },
         },
       } as never) as Loose;
-      await expect(failing.user.findMany()).rejects.toThrow("compute failed");
+      const [broken] = await failing.user.findMany({ orderBy: { id: "asc" } });
+      expect(Object.keys(broken)).toContain("broken");
+      expect(() => broken.broken).toThrow("compute failed");
+      expect(() => JSON.stringify(broken)).toThrow("compute failed");
       const constant = base.$extends({
         name: "constant",
         result: { user: { one: { needs: {}, compute: () => 1 } } },
@@ -509,6 +512,109 @@ export function runResultFieldsBehavior({
           orderBy: { id: "asc" },
         })
       ).toEqual([{ id: "u1" }, { id: "u2" }]);
+    });
+
+    test(`${provider}: a field is computed lazily, once, from the values the call read`, async () => {
+      const { base } = await open();
+      let calls = 0;
+      const db = base.$extends({
+        name: "counted",
+        result: {
+          user: {
+            fullName: {
+              needs: { firstName: true, lastName: true },
+              compute: (row: UserRow) => {
+                calls++;
+                return `${row.firstName} ${row.lastName}`;
+              },
+            },
+          },
+        },
+      } as never) as Loose;
+      const rows = await db.user.findMany({ orderBy: { id: "asc" } });
+      expect(calls).toBe(0);
+      rows[0].firstName = "Changed";
+      expect(rows[0].fullName).toBe("Ada Lovelace");
+      expect(rows[0].fullName).toBe("Ada Lovelace");
+      expect(calls).toBe(1);
+      expect({ ...rows[1] }.fullName).toBe("Alan Turing");
+      expect(JSON.parse(JSON.stringify(rows[1])).fullName).toBe("Alan Turing");
+      expect(structuredClone(rows[1]).fullName).toBe("Alan Turing");
+      expect(calls).toBe(2);
+      rows[1].fullName = "Assigned";
+      expect(rows[1].fullName).toBe("Assigned");
+    });
+
+    test(`${provider}: a throwing compute never undoes a committed write`, async () => {
+      const { base } = await open();
+      const failing = base.$extends({
+        name: "failing",
+        result: {
+          user: {
+            broken: {
+              needs: { id: true },
+              compute: () => {
+                throw new Error("compute failed");
+              },
+            },
+          },
+        },
+      } as never) as Loose;
+      const created = await failing.user.create({
+        data: {
+          id: "u3",
+          firstName: "G",
+          lastName: "H",
+          email: "g",
+          password: "p",
+        },
+      });
+      expect(() => created.broken).toThrow("compute failed");
+      const [made, all] = await failing.$transaction([
+        failing.user.create({
+          data: {
+            id: "u4",
+            firstName: "K",
+            lastName: "J",
+            email: "k",
+            password: "p",
+          },
+        }),
+        failing.user.findMany({ orderBy: { id: "asc" } }),
+      ]);
+      expect(made.id).toBe("u4");
+      expect(all).toHaveLength(4);
+      expect(await base.user.count()).toBe(4);
+    });
+
+    test(`${provider}: a query-level omit subtracts from a select that names computed fields, and never hides a need`, async () => {
+      const { db } = await open();
+      expect(
+        await db.user.findUnique({
+          where: { id: "u1" },
+          select: { fullName: true, firstName: true },
+          omit: { firstName: true },
+        })
+      ).toEqual({ fullName: "Ada Lovelace" });
+      expect(
+        await db.user.findUnique({
+          where: { id: "u1" },
+          select: { id: true, fullName: true },
+          omit: { fullName: true },
+        })
+      ).toEqual({ id: "u1" });
+      expect(
+        await db.post.findUnique({
+          where: { id: "p1" },
+          select: {
+            id: true,
+            author: {
+              select: { fullName: true, lastName: true },
+              omit: { lastName: true },
+            },
+          },
+        })
+      ).toEqual({ id: "p1", author: { fullName: "Ada Lovelace" } });
     });
 
     test(`${provider}: a recursive projection carries the field at every level`, async () => {

@@ -55,7 +55,8 @@ that refuse a `where` emptied by `undefined`. Measurements are in
 - **`$extends({ result })` computed fields**, Prisma-compatible: `needs`,
   `compute`, `select`/`omit` by name, composition across extensions,
   `$allModels`, on reads, returned writes, nested and recursive rows,
-  transactions and cached reads. `compute` is typed to its `needs`. Not yet:
+  transactions and cached reads. Fields are lazy getters computed on first read,
+  as in Prisma. `compute` is typed to its `needs`. Not yet:
   polymorphic variant rows, and types for a nested `select`/`omit` naming a
   computed field.
 

@@ -709,19 +709,44 @@ export type WithComputedResult<Value, M, Args, Context> =
 type ComputedFieldsFor<M, Context> =
   Context extends ComputedResultContext<infer Result, infer S, infer ModelName>
     ? [ModelName] extends [never]
-      ? M extends Model<any>
-        ? {
-            [K in keyof S]: S[K] extends Model<any>
-              ? true extends SameModelResultSurface<
-                  ModelResultSurface<M>,
-                  ModelResultSurface<S[K]>
-                >
-                ? ModelResultFields<Result, K>
-                : never
-              : never;
-          }[keyof S]
+      ? OnlyName<SurfaceNames<M, S>> extends infer Name
+        ? [Name] extends [never]
+          ? Record<never, never>
+          : ModelResultFields<Result, Name>
         : never
       : ModelResultFields<Result, ModelName>
+    : never;
+
+/**
+ * The schema's names whose model has `M`'s shallow surface. The public model
+ * types carry no identity, so two models with the same scalar and relation
+ * keys are indistinguishable here.
+ */
+type SurfaceNames<M, S> =
+  M extends Model<any>
+    ? {
+        [K in keyof S]: S[K] extends Model<any>
+          ? true extends SameModelResultSurface<
+              ModelResultSurface<M>,
+              ModelResultSurface<S[K]>
+            >
+            ? K
+            : never
+          : never;
+      }[keyof S]
+    : never;
+
+/**
+ * The one name, or `never` when none or several match: a nested row of a
+ * model that shares its surface is typed without computed fields rather
+ * than with another model's (it carries its own at runtime).
+ */
+type OnlyName<Names, All = Names> = [Names] extends [never]
+  ? never
+  : Names extends unknown
+    ? [All] extends [Names]
+      ? Names
+      : never
     : never;
 
 /** The context one relation level down: the model is found by its surface. */
@@ -730,24 +755,27 @@ type NestedComputedContext<Context> =
     ? ComputedResultContext<Result, S, never>
     : never;
 
-/** The computed fields one node's projection keeps. */
+/** The computed fields one node's projection keeps; `omit` subtracts from both. */
 type KeptComputedFields<Fields, Args, Selection = NodeSelect<Args>> = [
   Selection,
 ] extends [undefined]
   ? ApplyOmit<Fields, NodeOmit<Args>>
   : undefined extends Selection
     ? Partial<Fields>
-    : {
-        [K in keyof Selection & keyof Fields as Selection[K] extends true
-          ? K
-          : never]: Fields[K];
-      } & {
-        [K in keyof Selection & keyof Fields as Selection[K] extends true
-          ? never
-          : true extends Selection[K]
+    : ApplyOmit<
+        {
+          [K in keyof Selection & keyof Fields as Selection[K] extends true
             ? K
-            : never]?: Fields[K];
-      };
+            : never]: Fields[K];
+        } & {
+          [K in keyof Selection & keyof Fields as Selection[K] extends true
+            ? never
+            : true extends Selection[K]
+              ? K
+              : never]?: Fields[K];
+        },
+        NodeOmit<Args>
+      >;
 
 /** The relations one node projects, with the node each one states. */
 type ProjectedRelations<Args> = [NodeSelect<Args>] extends [undefined]

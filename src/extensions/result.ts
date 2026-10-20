@@ -167,7 +167,9 @@ export function appendResultFields(
  * finish follows the tree the projection repeats.
  */
 interface ResultNode {
-  readonly compute: readonly ResolvedComputedField[];
+  /** The model's computed fields; `outputs` indexes the ones returned. */
+  readonly fields: readonly ResolvedComputedField[];
+  readonly outputs: readonly number[];
   readonly strip: readonly string[];
   readonly relations: (readonly [string, ResultNode])[];
 }
@@ -250,7 +252,7 @@ function planNode(
   let named = false;
   for (const [name, index] of visible) {
     named ||= (select ?? omit)?.[name] !== undefined;
-    if (select ? select[name] === true : omit?.[name] !== true)
+    if ((!select || select[name] === true) && omit?.[name] !== true)
       wanted.push(index);
   }
   if (wanted.length === 0 && nested.length === 0 && !named) return undefined;
@@ -268,25 +270,37 @@ function planNode(
   };
   for (const index of wanted) close(index);
   const outputs = new Set(wanted.map((index) => declared![index]!.name));
+  // The columns read only for a field: removed from the rows again.
   const strip = new Set<string>();
-  for (const index of computing) {
-    const { name } = declared![index]!;
-    if (!outputs.has(name)) strip.add(name);
-  }
 
   let next = args;
   const rewrite = (key: string, value: Row) => {
     if (next === args) next = { ...args };
     next![key] = value;
   };
+  // `omit` subtracts from either projection: a computed name leaves it (a
+  // column it shadows stays omitted), and a column a field reads is read
+  // anyway, then removed again.
+  let nextOmit: Row | undefined;
+  for (const name of visible.keys()) {
+    if (omit?.[name] === undefined || readsColumn(model, name)) continue;
+    nextOmit ??= { ...omit };
+    delete nextOmit[name];
+  }
+  const kept = (field: string) =>
+    (select ? select[field] === true : true) && omit?.[field] !== true;
+  for (const field of reads) {
+    if (!(kept(field) || outputs.has(field))) strip.add(field);
+    if (omit?.[field] === true) {
+      nextOmit ??= { ...omit };
+      nextOmit[field] = false;
+    }
+  }
+  if (nextOmit !== undefined) rewrite("omit", nextOmit);
   if (select !== undefined) {
     const nextSelect: Row = { ...(nextProjection ?? select) };
     for (const name of visible.keys()) delete nextSelect[name];
-    for (const field of reads) {
-      if (nextSelect[field] === true) continue;
-      nextSelect[field] = true;
-      if (!outputs.has(field)) strip.add(field);
-    }
+    for (const field of reads) nextSelect[field] = true;
     if (!Object.values(nextSelect).some((value) => value !== false)) {
       const [first] = projectableScalarNames(model);
       if (first !== undefined) {
@@ -295,31 +309,15 @@ function planNode(
       }
     }
     rewrite("select", nextSelect);
-  } else {
-    if (nextProjection !== projection) rewrite("include", nextProjection!);
-    let nextOmit: Row | undefined;
-    const omitted = (field: string) => (nextOmit ?? omit)?.[field] === true;
-    for (const name of visible.keys()) {
-      // An omitted field that shadows a column keeps the column omitted.
-      if (omit?.[name] === undefined || readsColumn(model, name)) continue;
-      nextOmit ??= { ...omit };
-      delete nextOmit[name];
-    }
-    for (const field of reads) {
-      if (!omitted(field)) continue;
-      nextOmit ??= { ...omit };
-      nextOmit[field] = false;
-      if (!outputs.has(field)) strip.add(field);
-    }
-    if (nextOmit !== undefined) rewrite("omit", nextOmit);
+  } else if (nextProjection !== projection) {
+    rewrite("include", nextProjection!);
   }
 
   return {
     args: next,
     node: {
-      compute: [...computing]
-        .sort((a, b) => a - b)
-        .map((index) => declared![index]!),
+      fields: declared ?? [],
+      outputs: wanted,
       strip: [...strip],
       relations: nested,
     },
@@ -334,14 +332,53 @@ function finishValue(value: unknown, node: ResultNode): unknown {
   return finishRow(value, node);
 }
 
-/** A copy of one row, its relations finished, its fields computed. */
+/**
+ * A copy of one row, its relations finished, the columns read only for a
+ * field removed, and each field an enumerable getter, as Prisma's are: it is
+ * computed on first read, once, from the values the call read (the row as
+ * fetched, never the copy its caller may change), so a `compute` that throws
+ * throws where the field is read and never fails the operation, nor a write
+ * that already committed. A field assigned before it is read keeps the value
+ * assigned.
+ */
 function finishRow(value: unknown, node: ResultNode): unknown {
   if (!isRecord(value)) return value;
   const row: Row = { ...value };
   for (const [key, child] of node.relations) {
     if (row[key] !== undefined) row[key] = finishValue(row[key], child);
   }
-  for (const field of node.compute) row[field.name] = field.compute(row);
   for (const key of node.strip) delete row[key];
+  const values = new Map<number, unknown>();
+  const computed = (index: number): unknown => {
+    if (values.has(index)) return values.get(index);
+    const field = node.fields[index]!;
+    const input: Row = {};
+    for (const need of field.needs) {
+      if (typeof need === "number")
+        input[node.fields[need]!.name] = computed(need);
+      else input[need] = value[need];
+    }
+    const result = field.compute(input);
+    values.set(index, result);
+    return result;
+  };
+  for (const index of node.outputs) {
+    const name = node.fields[index]!.name;
+    const settle = (settled: unknown) => {
+      Object.defineProperty(row, name, {
+        value: settled,
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      });
+      return settled;
+    };
+    Object.defineProperty(row, name, {
+      get: () => settle(computed(index)),
+      set: settle,
+      enumerable: true,
+      configurable: true,
+    });
+  }
   return row;
 }

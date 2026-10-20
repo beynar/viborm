@@ -226,3 +226,85 @@ export const resultExtensionProbes = [
   _heldDefinitionsAreChecked,
   _nestedComputedSelectionIsNotTypedYet,
 ];
+
+async function _omitSubtractsFromSelect() {
+  const db = names();
+  expectTypeOf(
+    await db.user.findUnique({
+      where: { id: "u1" },
+      select: { fullName: true, firstName: true },
+      omit: { firstName: true },
+    })
+  ).toEqualTypeOf<{ fullName: string } | null>();
+  expectTypeOf(
+    await db.user.findUnique({
+      where: { id: "u1" },
+      select: { id: true, fullName: true },
+      omit: { fullName: true },
+    })
+  ).toEqualTypeOf<{ id: string } | null>();
+}
+
+/**
+ * Two models whose scalar and relation keys are the same cannot be told
+ * apart below the root (the public model types carry no identity), so a
+ * nested row of either is typed without computed fields rather than with
+ * the other model's.
+ */
+const writer = s.model({ id: s.string().id(), name: s.string() });
+const reviewer = s.model({ id: s.string().id(), name: s.string() });
+const article = s.model({
+  id: s.string().id(),
+  writerId: s.string(),
+  reviewerId: s.string(),
+  writer: s
+    .toOne(() => writer)
+    .fields("writerId")
+    .references("id"),
+  reviewer: s
+    .toOne(() => reviewer)
+    .fields("reviewerId")
+    .references("id"),
+});
+
+async function _sameSurfaceTargetsAreNotMerged() {
+  const db = createClient({
+    schema: { writer, reviewer, article },
+    driver: new PGliteDriver(),
+  }).$extends({
+    name: "display",
+    result: {
+      writer: {
+        displayName: {
+          needs: { name: true },
+          compute: (row) => row.name.toUpperCase(),
+        },
+      },
+      reviewer: {
+        displayName: { needs: { id: true }, compute: (row) => row.id.length },
+      },
+    },
+  });
+  const [row] = await db.article.findMany({
+    include: { writer: true, reviewer: true },
+  });
+  expectTypeOf(row!.reviewer).toEqualTypeOf<{
+    id: string;
+    name: string;
+  } | null>();
+  expectTypeOf(row!.writer).toEqualTypeOf<{
+    id: string;
+    name: string;
+  } | null>();
+  expectTypeOf(
+    (await db.writer.findFirstOrThrow()).displayName
+  ).toEqualTypeOf<string>();
+  expectTypeOf(
+    (await db.reviewer.findFirstOrThrow()).displayName
+  ).toEqualTypeOf<number>();
+}
+
+export const resultExtensionFollowUpProbes = [
+  _omitSubtractsFromSelect,
+  _sameSurfaceTargetsAreNotMerged,
+];

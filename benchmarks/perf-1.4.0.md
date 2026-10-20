@@ -241,7 +241,10 @@ Prisma-compatible computed fields (`src/extensions/result.ts`): on reads,
 row-returning writes, nested relation rows, recursive projections, both
 transaction forms and cached reads; selectable and omittable; `needs`
 fetched when not selected and stripped; composition across extensions;
-`$allModels`; filtering or ordering by a computed field refused. Types:
+`$allModels`; filtering or ordering by a computed field refused. Fields are
+lazy, memoized getters, as in Prisma: `compute` runs on first read, over the
+`needs` as fetched, so a throwing `compute` never fails a committed write;
+query-level `omit` subtracts from a `select` naming computed fields. Types:
 `compute` sees exactly its `needs`; root `select`/`omit` accept computed
 names; rows gain the fields; clients without `result` keep their types.
 

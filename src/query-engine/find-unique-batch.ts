@@ -275,10 +275,6 @@ function runBatch(batch: Batch): void {
       else bySignature.set(member.signature, [member]);
     }
     const plan = planBatch(batch, [...bySignature.values()]);
-    if (plan === undefined) {
-      runAlone(members);
-      return;
-    }
     const { engine, context } = batch.leader;
     for (const chunk of plan.chunks) {
       const callers = chunk.signatures.flatMap((key) => bySignature.get(key)!);
@@ -314,10 +310,9 @@ function runBatch(batch: Batch): void {
 function planBatch(
   batch: Batch,
   keys: readonly (readonly Member[])[]
-): { chunks: Chunk[]; injected: readonly string[] } | undefined {
+): { chunks: Chunk[]; injected: readonly string[] } {
   const { leader, fields } = batch;
   const projected = projectionWithKey(leader, fields);
-  if (projected === undefined) return undefined;
   const rows = leader.rows();
   const reads = new Map<string, RoutedCandidateOperation>();
   const read = (start: number, end: number): RoutedCandidateOperation => {
@@ -371,14 +366,15 @@ function mergedWhere(
 }
 
 /**
- * The leader's projection with every key member selected, so each row can be
- * dispatched; a member the caller did not select is removed again before the
- * row is handed over.
+ * The leader's projection with every key member read, so each row can be
+ * dispatched; a member the caller does not read is removed again before the
+ * row is handed over. A member can be missing because it is not selected or
+ * because it is omitted (an omit wins over a select), so both are lifted.
  */
 function projectionWithKey(
   leader: FindUniqueCall,
   fields: readonly string[]
-): { args: Record<string, unknown>; injected: string[] } | undefined {
+): { args: Record<string, unknown>; injected: string[] } {
   const { where: _where, ...args } = leader.args;
   const selected = leader.routed.preparedArgs.select;
   const injected: string[] = [];
@@ -386,8 +382,7 @@ function projectionWithKey(
   for (const field of fields) {
     if (selected[field] === true) continue;
     if (isRecord(args.select)) args.select = { ...args.select, [field]: true };
-    else if (isRecord(args.omit)) args.omit = { ...args.omit, [field]: false };
-    else return undefined;
+    if (isRecord(args.omit)) args.omit = { ...args.omit, [field]: false };
     injected.push(field);
   }
   return { args, injected };
