@@ -42,7 +42,15 @@ const category = s
     children: s.toMany(() => category).name("tree"),
   })
   .map("result_fields_categories");
-const schema = { user, post, category };
+const profile = s
+  .model({
+    id: s.string().id(),
+    settings: s.json(),
+    born: s.dateTime(),
+    tags: s.string().array(),
+  })
+  .map("result_fields_profiles");
+const schema = { user, post, category, profile };
 
 type UserRow = {
   id: string;
@@ -543,6 +551,50 @@ export function runResultFieldsBehavior({
       expect(calls).toBe(2);
       rows[1].fullName = "Assigned";
       expect(rows[1].fullName).toBe("Assigned");
+    });
+
+    test(`${provider}: a field reads the values the call fetched, even when the caller edits a JSON, date or list value first`, async () => {
+      const { base } = await open();
+      await base.profile.create({
+        data: {
+          id: "pr1",
+          settings: { theme: "light", sizes: [1] },
+          born: new Date("2020-01-01T00:00:00.000Z"),
+          tags: ["a"],
+        },
+      });
+      const db = base.$extends({
+        name: "profiles",
+        result: {
+          profile: {
+            theme: {
+              needs: { settings: true },
+              compute: (row: {
+                settings: { theme: string; sizes: number[] };
+              }) => `${row.settings.theme}:${row.settings.sizes.join()}`,
+            },
+            year: {
+              needs: { born: true },
+              compute: (row: { born: Date }) => row.born.getUTCFullYear(),
+            },
+            tagList: {
+              needs: { tags: true },
+              compute: (row: { tags: string[] }) => row.tags.join(),
+            },
+          },
+        },
+      } as never) as Loose;
+      const found = await db.profile.findUniqueOrThrow({
+        where: { id: "pr1" },
+      });
+      found.settings.theme = "dark";
+      found.settings.sizes.push(2);
+      found.born.setUTCFullYear(1999);
+      found.tags.push("b");
+      expect(found.theme).toBe("light:1");
+      expect(found.year).toBe(2020);
+      expect(found.tagList).toBe("a");
+      expect(found.settings.theme).toBe("dark");
     });
 
     test(`${provider}: a throwing compute never undoes a committed write`, async () => {

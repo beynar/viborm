@@ -16,7 +16,7 @@ import type {
   TargetKind,
   VariantEntries,
 } from "@schema/relation/static-membership";
-import type { ScalarState, ScalarType } from "@schema/scalars";
+import type { Scalar, ScalarState, ScalarType } from "@schema/scalars";
 import type { Prettify } from "@validation";
 import type {
   ModelArgsSchemas,
@@ -48,6 +48,7 @@ import type {
   CountResultType,
   GetTargetModel,
   GroupByResultType,
+  InferScalarOutput,
   InferSelectInclude,
   MergeClientOmit,
   ModelResultSurface,
@@ -709,13 +710,48 @@ export type WithComputedResult<Value, M, Args, Context> =
 type ComputedFieldsFor<M, Context> =
   Context extends ComputedResultContext<infer Result, infer S, infer ModelName>
     ? [ModelName] extends [never]
-      ? OnlyName<SurfaceNames<M, S>> extends infer Name
-        ? [Name] extends [never]
+      ? SurfaceNames<M, S> extends infer Names
+        ? [Names] extends [never]
           ? Record<never, never>
-          : ModelResultFields<Result, Name>
+          : OnlyName<Names> extends infer Name
+            ? [Name] extends [never]
+              ? AmbiguousReplacements<M, Result, Names>
+              : ModelResultFields<Result, Name>
+            : never
         : never
       : ModelResultFields<Result, ModelName>
     : never;
+
+/**
+ * The fields of a row whose model shares its surface with another: only the
+ * ones that replace a column, each typed as that column or any candidate's
+ * computed value. A field that adds a key is left out, as the row may be of
+ * a model without it.
+ */
+type AmbiguousReplacements<M, Result, Names> =
+  M extends Model<infer State>
+    ? {
+        [Key in ReplacedColumns<Result, Names, State>]:
+          | (State["scalars"][Key] extends Scalar
+              ? InferScalarOutput<State["scalars"][Key]>
+              : never)
+          | ComputedTypeAt<Result, Names, Key>;
+      }
+    : never;
+
+type ReplacedColumns<
+  Result,
+  Names,
+  State extends ModelState,
+> = Names extends unknown
+  ? Extract<keyof ModelResultFields<Result, Names>, keyof State["scalars"]>
+  : never;
+
+type ComputedTypeAt<Result, Names, Key> = Names extends unknown
+  ? Key extends keyof ModelResultFields<Result, Names>
+    ? ModelResultFields<Result, Names>[Key]
+    : never
+  : never;
 
 /**
  * The schema's names whose model has `M`'s shallow surface. The public model
@@ -738,8 +774,8 @@ type SurfaceNames<M, S> =
 
 /**
  * The one name, or `never` when none or several match: a nested row of a
- * model that shares its surface is typed without computed fields rather
- * than with another model's (it carries its own at runtime).
+ * model that shares its surface is typed with no added field rather than
+ * with another model's (it carries its own at runtime).
  */
 type OnlyName<Names, All = Names> = [Names] extends [never]
   ? never

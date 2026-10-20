@@ -308,3 +308,32 @@ export const resultExtensionFollowUpProbes = [
   _omitSubtractsFromSelect,
   _sameSurfaceTargetsAreNotMerged,
 ];
+
+/**
+ * On models that share a surface, a field that replaces a column is typed as
+ * the column's type or any candidate's computed type: which model the nested
+ * row belongs to is not known to the types.
+ */
+async function _sameSurfaceShadowsWiden() {
+  const db = createClient({
+    schema: { writer, reviewer, article },
+    driver: new PGliteDriver(),
+  }).$extends({
+    name: "lengths",
+    result: {
+      writer: {
+        name: { needs: { name: true }, compute: (row) => row.name.length },
+      },
+    },
+  });
+  const [row] = await db.article.findMany({
+    include: { writer: true, reviewer: true },
+  });
+  expectTypeOf(row!.writer!.name).toEqualTypeOf<string | number>();
+  expectTypeOf(row!.reviewer!.name).toEqualTypeOf<string | number>();
+  expectTypeOf(
+    (await db.writer.findFirstOrThrow()).name
+  ).toEqualTypeOf<number>();
+}
+
+export const resultExtensionShadowProbes = [_sameSurfaceShadowsWiden];

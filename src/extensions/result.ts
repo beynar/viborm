@@ -170,6 +170,8 @@ interface ResultNode {
   /** The model's computed fields; `outputs` indexes the ones returned. */
   readonly fields: readonly ResolvedComputedField[];
   readonly outputs: readonly number[];
+  /** The columns the returned fields read, through earlier fields too. */
+  readonly reads: readonly string[];
   readonly strip: readonly string[];
   readonly relations: (readonly [string, ResultNode])[];
 }
@@ -318,6 +320,7 @@ function planNode(
     node: {
       fields: declared ?? [],
       outputs: wanted,
+      reads: [...reads],
       strip: [...strip],
       relations: nested,
     },
@@ -336,7 +339,9 @@ function finishValue(value: unknown, node: ResultNode): unknown {
  * A copy of one row, its relations finished, the columns read only for a
  * field removed, and each field an enumerable getter, as Prisma's are: it is
  * computed on first read, once, from the values the call read (the row as
- * fetched, never the copy its caller may change), so a `compute` that throws
+ * fetched, never the copy its caller may change: a JSON, date, list or binary
+ * value a field reads is copied here, before the caller can edit it, and
+ * only then), so a `compute` that throws
  * throws where the field is read and never fails the operation, nor a write
  * that already committed. A field assigned before it is read keeps the value
  * assigned.
@@ -348,6 +353,13 @@ function finishRow(value: unknown, node: ResultNode): unknown {
     if (row[key] !== undefined) row[key] = finishValue(row[key], child);
   }
   for (const key of node.strip) delete row[key];
+  let fetched: Row = value;
+  for (const column of node.reads) {
+    const held = value[column];
+    if (held === null || typeof held !== "object") continue;
+    if (fetched === value) fetched = { ...value };
+    fetched[column] = detached(held);
+  }
   const values = new Map<number, unknown>();
   const computed = (index: number): unknown => {
     if (values.has(index)) return values.get(index);
@@ -356,7 +368,7 @@ function finishRow(value: unknown, node: ResultNode): unknown {
     for (const need of field.needs) {
       if (typeof need === "number")
         input[node.fields[need]!.name] = computed(need);
-      else input[need] = value[need];
+      else input[need] = fetched[need];
     }
     const result = field.compute(input);
     values.set(index, result);
@@ -381,4 +393,26 @@ function finishRow(value: unknown, node: ResultNode): unknown {
     });
   }
   return row;
+}
+
+const typedArraySlice = Object.getPrototypeOf(Uint8Array.prototype).slice as (
+  this: ArrayBufferView
+) => ArrayBufferView;
+
+/**
+ * A copy of a value the caller could edit: JSON objects and lists, dates and
+ * binary or numeric arrays. A class instance (a `Decimal`) is immutable and
+ * shared.
+ */
+function detached(held: unknown): unknown {
+  if (held === null || typeof held !== "object") return held;
+  if (Array.isArray(held)) return held.map(detached);
+  if (held instanceof Date) return new Date(held.getTime());
+  if (ArrayBuffer.isView(held))
+    return held instanceof DataView ? held : typedArraySlice.call(held);
+  const prototype = Object.getPrototypeOf(held);
+  if (prototype !== Object.prototype && prototype !== null) return held;
+  const copy: Row = {};
+  for (const key in held) copy[key] = detached((held as Row)[key]);
+  return copy;
 }
