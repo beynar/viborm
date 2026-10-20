@@ -736,7 +736,10 @@ export interface DatabaseAdapter {
      * Build WITH clause: WITH name AS (query), ... A member `inlined` is read
      * correlated to each outer row through its own columns: PostgreSQL would
      * materialize a member read twice and scan it, without an index, once
-     * per row, so it is written `NOT MATERIALIZED` there.
+     * per row, so it is written `NOT MATERIALIZED` there. A member
+     * `inlined: false` is computed once: SQLite would inline it at every
+     * use, so it is written `MATERIALIZED` there. Without `inlined`, the
+     * database decides.
      */
     with: (
       definitions: { name: string; query: Sql; inlined?: boolean }[]

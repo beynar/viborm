@@ -551,6 +551,11 @@ const user = await client.user.update({
 
 `deleteMany` applies to to-many relations only. For a to-one relation, use `delete: true`.
 
+`deleteMany: {}` removes every related row. A filter that would remove every
+related row only because its members are `undefined`
+(`deleteMany: { id: postId }` with `postId` undefined) is refused with a
+`ValidationError`, and so is the same `where` on a nested `updateMany`.
+
 ## Combining operations on one to-one relation
 
 A to-one slot holds exactly one row, so a payload for it is read as one

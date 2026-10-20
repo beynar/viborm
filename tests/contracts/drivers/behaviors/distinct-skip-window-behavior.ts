@@ -313,6 +313,202 @@ export function runDistinctSkipWindowBehavior({
         expect(posts.map((p) => p.id)).toEqual(["p2", "p1", "p3"]);
       });
     });
+
+    // One window picks each group's representative; the page is ordered by
+    // the order's own terms projected beside it (`_ordN`). The oracle is the
+    // definition: order every row (the caller's terms, then the id; a
+    // nullable term's NULLs last ascending and first descending unless
+    // placed), keep the first row of each distinct tuple (NULLs equal), then
+    // window the representatives — a negative take keeps the last ones.
+    describe("distinct answers as its oracle over NULLs and duplicates", () => {
+      interface Term {
+        key: "views" | "content" | "authorName" | "published" | "id";
+        dir: "asc" | "desc";
+        nulls?: "first" | "last";
+      }
+      type Row = Record<Term["key"] | "authorId", unknown>;
+      const names: Record<string, string | null> = {
+        u1: "Alice",
+        u2: "Bob",
+        u3: "Charlie",
+        u4: null,
+        u5: "Dora",
+      };
+      const views = [7, 3, 7, 3, 9, 1, 7, 9];
+      const rows: Row[] = [];
+
+      beforeEach(async () => {
+        const c = requireClient(client);
+        await c.user.createMany({
+          data: [
+            { id: "u4", email: "u4@test.com", name: null, age: null },
+            { id: "u5", email: "u5@test.com", name: "Dora", age: 40 },
+          ],
+        });
+        const data = Array.from({ length: 24 }, (_, index) => ({
+          id: `q${String(index).padStart(2, "0")}`,
+          title: `Q ${index}`,
+          content: index % 3 === 0 ? null : `c${index % 4}`,
+          published: index % 2 === 0,
+          views: views[index % views.length]!,
+          authorId: `u${1 + (index % 5)}`,
+        }));
+        await c.post.createMany({ data });
+        rows.length = 0;
+        for (const post of await c.post.findMany({})) {
+          rows.push({ ...post, authorName: names[post.authorId] ?? null });
+        }
+      });
+
+      const compare = (left: Row, right: Row, terms: readonly Term[]) => {
+        for (const { key, dir, nulls } of [
+          ...terms,
+          { key: "id", dir: "asc" } as const,
+        ]) {
+          const a = left[key];
+          const b = right[key];
+          if (a === b) continue;
+          const placed = nulls ?? (dir === "asc" ? "last" : "first");
+          if (a === null) return placed === "first" ? -1 : 1;
+          if (b === null) return placed === "first" ? 1 : -1;
+          const order = (a as never) < (b as never) ? -1 : 1;
+          return dir === "asc" ? order : -order;
+        }
+        return 0;
+      };
+      const oracle = (
+        source: readonly Row[],
+        distinct: readonly (Term["key"] | "authorId")[],
+        terms: readonly Term[],
+        take?: number,
+        skip = 0
+      ): unknown[] => {
+        const seen = new Set<string>();
+        const kept = [...source]
+          .sort((left, right) => compare(left, right, terms))
+          .filter((row) => {
+            const tuple = JSON.stringify(distinct.map((key) => row[key]));
+            if (seen.has(tuple)) return false;
+            seen.add(tuple);
+            return true;
+          })
+          .map((row) => row.id);
+        if (take !== undefined && take < 0)
+          return kept
+            .reverse()
+            .slice(skip, skip - take)
+            .reverse();
+        return kept.slice(skip, take === undefined ? undefined : skip + take);
+      };
+      const orderBy = (terms: readonly Term[]) =>
+        terms.map(({ key, dir, nulls }) => {
+          const sort = nulls ? { sort: dir, nulls } : dir;
+          return key === "authorName"
+            ? { author: { name: sort } }
+            : { [key]: sort };
+        });
+
+      const cases: [
+        string,
+        ("content" | "published" | "views" | "authorId")[],
+        Term[],
+        number | undefined,
+        number | undefined,
+      ][] = [
+        [
+          "a nullable distinct field",
+          ["content"],
+          [{ key: "views", dir: "desc" }],
+          undefined,
+          undefined,
+        ],
+        [
+          "several fields, a page",
+          ["authorId", "published"],
+          [{ key: "views", dir: "asc" }],
+          4,
+          1,
+        ],
+        [
+          "a negative take",
+          ["content"],
+          [{ key: "views", dir: "desc" }],
+          -3,
+          undefined,
+        ],
+        [
+          "a negative take and skip over two fields",
+          ["published", "views"],
+          [{ key: "content", dir: "asc", nulls: "first" }],
+          -2,
+          1,
+        ],
+        [
+          "a nullable order term",
+          ["views"],
+          [{ key: "content", dir: "desc" }],
+          undefined,
+          undefined,
+        ],
+        [
+          "a relation order",
+          ["published"],
+          [{ key: "authorName", dir: "asc" }],
+          undefined,
+          undefined,
+        ],
+        [
+          "a relation order, placed and backward",
+          ["content"],
+          [
+            { key: "authorName", dir: "desc", nulls: "last" },
+            { key: "views", dir: "asc" },
+          ],
+          -4,
+          undefined,
+        ],
+      ];
+
+      for (const [name, distinct, terms, take, skip] of cases) {
+        test(name, async () => {
+          const found = await requireClient(client).post.findMany({
+            distinct,
+            orderBy: orderBy(terms),
+            ...(take === undefined ? {} : { take }),
+            ...(skip === undefined ? {} : { skip }),
+            select: { id: true },
+          } as never);
+          expect(found.map((post) => post.id)).toEqual(
+            oracle(rows, distinct, terms, take, skip)
+          );
+        });
+      }
+
+      test("a nested page", async () => {
+        const users = await requireClient(client).user.findMany({
+          orderBy: { id: "asc" },
+          select: {
+            id: true,
+            posts: {
+              distinct: ["published"],
+              orderBy: { content: "asc" },
+              take: -1,
+              select: { id: true },
+            },
+          },
+        });
+        expect(users.map((user) => user.posts.map((post) => post.id))).toEqual(
+          users.map((user) =>
+            oracle(
+              rows.filter((row) => row.authorId === user.id),
+              ["published"],
+              [{ key: "content", dir: "asc" }],
+              -1
+            )
+          )
+        );
+      });
+    });
   });
 }
 

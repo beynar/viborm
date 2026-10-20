@@ -14,7 +14,7 @@ The common API has provider-specific storage, collation and transaction limits. 
 
 | Operation | Status | Notes |
 |-----------|--------|-------|
-| `findUnique` / `findUniqueOrThrow` | ✅ | Requires a unique selector, returns `T \| null` (or throws). The selector may also carry non-unique scalar and relation filters and `AND`/`OR`/`NOT` (Prisma ≥ 4.5) — see [Unique selectors](#unique-selectors). |
+| `findUnique` / `findUniqueOrThrow` | ✅ | Requires a unique selector, returns `T \| null` (or throws). The selector may also carry non-unique scalar and relation filters and `AND`/`OR`/`NOT` (Prisma ≥ 4.5) — see [Unique selectors](#unique-selectors). Calls issued in the same tick share one read, as Prisma's dataloader does; the rules differ in places — see [Batching concurrent calls](/docs/client/find-unique#batching-concurrent-calls). |
 | `findFirst` / `findFirstOrThrow` | ✅ | Filtering, ordering, pagination, `select`, `include`. |
 | `findMany` | ✅ | Filters, relation filters, ordering, cursor pagination, negative `take`, `distinct`, `select`, `include`. |
 | `create` | ✅ | Scalar data and nested writes. |
@@ -251,8 +251,21 @@ widening such a payload programmatically avoids that editor-only limit.
 ## Filter behavior on a port
 
 An `undefined` member is omitted. Empty `AND` and `NOT` are true; empty `OR`,
-including an `OR` whose children became empty objects, is false. Never construct
-an unrestricted mutation filter directly from optional request input.
+including an `OR` whose children became empty objects, is false.
+
+**Difference from Prisma:** a bulk write whose `where` matches every row only
+because `undefined` members were omitted is refused with a `ValidationError`
+(`V4001`) that names the operation and the keys. This applies to `updateMany`,
+`deleteMany`, and the nested `updateMany` / `deleteMany` of a relation write,
+where it would have changed every related row. Prisma runs such a call on every
+row unless `strictUndefinedChecks` is enabled. "Every row" follows the logical
+operators: `{ AND: [{ id: undefined }] }`, `{ NOT: { id: undefined } }` and
+`{ posts: { every: { title: undefined } } }` are refused, while
+`{ OR: [{ id: undefined }] }` (matches nothing) and
+`{ author: { is: { id: undefined } } }` (still asks that an author exists) are
+not. `where: {}`, `{ AND: [] }` and an absent `where` still mean every row. To
+migrate, drop the keys yourself or pass `where: {}` when every row is intended.
+Reads keep Prisma's rule, so validate required filters before using them.
 
 `every` uses SQL three-valued logic: a nullable child value that makes the child
 predicate unknown is not a counterexample. Use an explicit non-null condition

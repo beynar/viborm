@@ -45,6 +45,8 @@ export interface TransactionOperationOwner<Owner extends object = object> {
   ): Promise<unknown>;
   reserveWith(owner: Owner, driver: AnyDriver): void;
   executeWith(owner: Owner, driver: AnyDriver): Promise<unknown>;
+  /** The member's value as its caller receives it (its computed fields). */
+  finishResult?(owner: Owner, value: unknown): unknown;
   prepare(owner: Owner, driver?: AnyDriver): PreparedQuery | undefined;
   prepareBatch(
     owner: Owner

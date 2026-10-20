@@ -1,5 +1,6 @@
 import type { ArithmeticTarget } from "@adapters/adapter-core-types";
 import { assembleAdapterSelect } from "@adapters/adapter-internals";
+import type { QueryParts } from "@adapters/adapter-query-parts";
 import type { DatabaseAdapter, GeoPointSql } from "@adapters/database-adapter";
 import type { DriverResultParser } from "@drivers/exports";
 import {
@@ -343,6 +344,25 @@ export function returningSafeProjection(
     (field) => field.kind === "scalar" || field.kind === "sentinel"
   );
 }
+/**
+ * May decoding this projection REFUSE a row its statement already answered?
+ * A read-gated member (`GatedFieldRefusal`), a recursive relation (its output
+ * budget, a rejected cycle) and a variant slot (its integrity probe) each
+ * raise while decoding, after the statement. A write that answers its
+ * projection in its own statement (`OperationContext.answersInStatement`)
+ * could not roll back under such a refusal, so this owner says which do. A
+ * malformed provider result is not counted: it is no refusal of the row.
+ */
+export function refusesWhileDecoding(projection: PreparedProjection): boolean {
+  return projection.fields.some(
+    (field) =>
+      field.kind === "gate" ||
+      field.kind === "variants" ||
+      (field.kind === "relation" &&
+        (field.recurrence !== undefined ||
+          refusesWhileDecoding(field.projection)))
+  );
+}
 export interface Query {
   sql: Sql;
   shape: Shape;
@@ -362,6 +382,12 @@ interface SelectControls {
   unless?: Pick<PreparedSelector, "model" | "predicate">;
   /** The rows the read takes: its selector and cursor anchor under it. */
   purpose?: RowPurpose;
+  /**
+   * The relation the root row is read FROM in place of the model's table: a
+   * `WITH` member of the same statement carrying the table's columns (a
+   * write's `RETURNING *`, `OperationContext`'s projection over its own write).
+   */
+  source?: string;
 }
 /** One statement plus the operation's own cardinality and public shape. */
 export interface Read {
@@ -1503,8 +1529,45 @@ interface SharedBodies {
   readonly byKey: Map<string, SharedBody>;
   readonly order: SharedBody[];
 }
-/** An alias the per-statement counter minted, inside an identifier. */
-const ALIAS_TOKEN = /(?<=["_])q(\d+)(?=["_])/g;
+/** `"`, `_` or `` ` ``: a character an alias token sits between. */
+const aliasEdge = (code: number) => code === 34 || code === 95 || code === 96;
+/**
+ * `text` with each alias the per-statement counter minted renumbered in
+ * order of first appearance (`renumbered` carries the order across a body's
+ * runs). An alias token is `q<digits>` inside an identifier: quoted `"q1"`
+ * (PostgreSQL, SQLite) or `` `q1` `` (MySQL), or within a derived name
+ * (`__q1_recursive`), so between two of {@link aliasEdge}'s characters. A
+ * scan, not a regular expression: keying is most of what sharing costs.
+ */
+function renumberAliases(
+  text: string,
+  renumbered: Map<string, number>
+): string {
+  let out = "";
+  let from = 0;
+  let at = text.indexOf("q");
+  while (at !== -1) {
+    let next = at + 1;
+    if (aliasEdge(text.charCodeAt(at - 1))) {
+      let end = next;
+      let code = text.charCodeAt(end);
+      while (code >= 48 && code <= 57) code = text.charCodeAt(++end);
+      if (end > next && aliasEdge(code)) {
+        const minted = text.slice(next, end);
+        let local = renumbered.get(minted);
+        if (local === undefined) {
+          local = renumbered.size;
+          renumbered.set(minted, local);
+        }
+        out += `${text.slice(from, next)}${local}`;
+        from = end;
+      }
+      next = end;
+    }
+    at = text.indexOf("q", next);
+  }
+  return from === 0 ? text : out + text.slice(from);
+}
 /**
  * A caller's `Sql` operand as lowered, parenthesized ({@link Queries.value}):
  * text the engine did not write, so nothing in it is an alias of the
@@ -1540,30 +1603,29 @@ function valueKey(value: unknown): string {
 function sharedKey(query: Sql): string {
   const { runs, values } = Sql.peekRuns(query, isCallerText);
   const renumbered = new Map<string, number>();
-  const normalized = runs.map(({ text, opaque }) =>
-    opaque
-      ? [text]
-      : text.replace(ALIAS_TOKEN, (_, n: string) => {
-          let local = renumbered.get(n);
-          if (local === undefined) {
-            local = renumbered.size;
-            renumbered.set(n, local);
-          }
-          return `q${local}`;
-        })
-  );
-  // SQL text and bound strings may contain any delimiter. Preserve the
-  // tuple boundaries, including array members, before sharing a predicate.
-  return JSON.stringify([normalized, values.map(valueKey)]);
+  // SQL text and bound strings may contain any delimiter: each part is
+  // length-prefixed (a caller's run marked `!`), after the count of runs,
+  // so the tuple boundaries, array members included, survive in the key.
+  let key = `${runs.length}|`;
+  for (const { text, opaque } of runs) {
+    const part = opaque ? text : renumberAliases(text, renumbered);
+    key += `${opaque ? "!" : ""}${part.length}:${part}`;
+  }
+  for (const value of values) {
+    const part = valueKey(value);
+    key += `${part.length}:${part}`;
+  }
+  return key;
 }
 
 /**
  * Textual alias renumbering cannot distinguish a physical name from an
  * alias. Such schemas keep their relation bodies inline: an optimization
  * must never rename a column, table, junction or namespace in its identity.
- * An alias is `q<n>` between quotes or underscores ({@link ALIAS_TOKEN}), so
- * only a name that is one, or holds one at an end or between underscores,
- * resembles it; `seq1` or `freq2` do not.
+ * An alias is `q<n>` between quotes or underscores
+ * ({@link renumberAliases}), so only a name that is one, or holds one at an
+ * end or between underscores, resembles it; `seq1` or `freq2` do not. A name
+ * holds no quote (`isValidSchemaIdentifier`).
  */
 const aliasLikeSchemas = new WeakMap<EngineSchema, boolean>();
 const ALIAS_LIKE_NAME = /(?:^|_)q\d+(?:_|$)/;
@@ -5356,7 +5418,9 @@ export class Queries {
    * parent.fk)`: a semijoin on the correlated columns, read under the same
    * layers and values, so it takes exactly the rows the EXISTS takes. A
    * reference edge only (a junction's and a variant's membership stay
-   * where they are), and a body that states something.
+   * where they are), and a body that states something. A junction's
+   * membership is its join where the dialect plans that better
+   * ({@link junctionJoin}).
    */
   #relationExists(
     edge: Membership,
@@ -5369,9 +5433,14 @@ export class Queries {
     joins: readonly Sql[] = []
   ): Sql {
     const a = this.adapter;
-    const member = this.#membershipWhere(edge, child, parent);
+    const joined =
+      edge.kind === "junction" && a.capabilities.joinsJunctionFilters
+        ? this.#junctionJoin(edge, child, parent)
+        : undefined;
+    const member =
+      joined?.correlation ?? this.#membershipWhere(edge, child, parent);
     const related = this.#relatedWhere(edge, child, scoped, deeper);
-    const table = this.table(edge.target, child);
+    const table = joined?.from ?? this.table(edge.target, child);
     const inline = a.subqueries.existsCheck(
       joins.length === 0 ? table : sql`${table} ${sql.join(joins, " ")}`,
       a.operators.and(
@@ -5430,6 +5499,41 @@ export class Queries {
     const slot = new SqlSlot(use);
     body.slots.push({ slot, inline, use });
     return slot;
+  }
+  /**
+   * A relation filter's junction joined to its target, `junction INNER JOIN
+   * target ON target.key = junction.target`, and the junction's correlation to
+   * the parent row, `junction.source = parent.key`, for the EXISTS's own
+   * `WHERE`: the same rows as the target's membership in a correlated junction
+   * subquery ({@link membershipWhere}), a pair joined on equal keys being a
+   * pair the membership's `IN` admits (a NULL key matches in neither). SQLite
+   * walks it from the junction's key per parent row instead of rebuilding the
+   * membership's set for every target row (200k posts, 300k links: a
+   * tagged-post count 1,240 → 61 ms, an `every` count 2,910 → 65 ms).
+   */
+  #junctionJoin(
+    edge: Extract<Membership, { kind: "junction" }>,
+    child: string,
+    parent: string
+  ): { readonly from: Sql; readonly correlation: Sql } {
+    const a = this.adapter;
+    const link = this.alias();
+    return {
+      from: sql`${a.identifiers.table(edge.table, link)} ${a.joins.inner(
+        this.table(edge.target, child),
+        a.operators.and(
+          ...edge.targetSide.members.map((field) =>
+            a.operators.eq(
+              this.column(edge.target, field.referencedField, child),
+              a.identifiers.column(link, field.junctionField)
+            )
+          )
+        )
+      )}`,
+      correlation: a.operators.and(
+        ...this.junctionSideConditions(edge.sourceSide, link, parent)
+      ),
+    };
   }
   /**
    * `EXISTS (SELECT 1 FROM target WHERE related AND stated)`, correlated to
@@ -5910,6 +6014,7 @@ export class Queries {
     readonly cursor?: Sql;
     readonly distinct?: Sql;
     readonly distinctOrderBy?: Sql;
+    readonly distinctOrder?: QueryParts["distinctOrder"];
   } {
     const backward = args.take !== undefined && args.take < 0;
     const cursored = args.cursor !== undefined;
@@ -5929,11 +6034,17 @@ export class Queries {
     if (cursored && requested.some((term) => term.field === undefined))
       throw new UnsupportedOperationError(CURSOR_ORDER_REFUSAL);
     const terms = total ?? requested;
+    const presented = backward ? this.#reverseOrder(terms) : terms;
+    const distinct = (args.distinct?.length ?? 0) > 0;
     return {
-      orderBy: this.#lowerOrder(backward ? this.#reverseOrder(terms) : terms),
+      orderBy: this.#lowerOrder(presented),
       joins: joins?.joins.length ? joins.joins : undefined,
       distinctOrderBy:
-        backward && args.distinct?.length ? this.#lowerOrder(terms) : undefined,
+        backward && distinct ? this.#lowerOrder(terms) : undefined,
+      distinctOrder:
+        distinct && terms.length > 0
+          ? this.#distinctOrder(terms, presented)
+          : undefined,
       limit:
         args.take === undefined ? undefined : this.value(Math.abs(args.take)),
       offset: args.skip === undefined ? undefined : this.value(args.skip),
@@ -5952,6 +6063,34 @@ export class Queries {
             ", "
           )
         : undefined,
+    };
+  }
+  /**
+   * A distinct page's order read from its own rows: each term projected once
+   * as `_ordN` beside the window that picks each group's representative, and
+   * the presented order over those columns. The emulation's outer `ORDER BY`
+   * reads them, so one window (`_rn`) does the work a second one ranking every
+   * row (`_ord`) did: one sort fewer (200k rows: PGlite 273 → 127 ms, SQLite
+   * 253 → 121 ms). `presented` is `terms`, reversed where the page is.
+   */
+  #distinctOrder(
+    terms: readonly OrderTerm[],
+    presented: readonly OrderTerm[]
+  ): QueryParts["distinctOrder"] {
+    const a = this.adapter;
+    return {
+      keys: sql.join(
+        terms.map((term, index) =>
+          a.identifiers.aliased(term.expression, `_ord${index}`)
+        ),
+        ", "
+      ),
+      orderBy: this.#lowerOrder(
+        presented.map((term, index) => ({
+          ...term,
+          expression: a.identifiers.escape(`_ord${index}`),
+        }))
+      )!,
     };
   }
   /** A windowed read needs a deterministic total order, not just the caller's. */
@@ -6246,7 +6385,13 @@ export class Queries {
     return {
       sql: assembleAdapterSelect(this.adapter, {
         columns: sql.join(projection, ", "),
-        from: this.table(model, alias),
+        from:
+          controls.source === undefined
+            ? this.table(model, alias)
+            : a.identifiers.aliased(
+                a.identifiers.escape(controls.source),
+                alias
+              ),
         joins: page.joins,
         where: this.#selectWhere(
           model,
@@ -6265,6 +6410,7 @@ export class Queries {
           ? {
               distinct: page.distinct,
               distinctOrderBy: page.distinctOrderBy,
+              distinctOrder: page.distinctOrder,
               distinctColumnAliases: prepared.fields.map((field) => field.name),
             }
           : {}),
@@ -7706,6 +7852,7 @@ export class Queries {
         ? {
             distinct: window.distinct,
             distinctOrderBy: window.distinctOrderBy,
+            distinctOrder: window.distinctOrder,
             distinctColumnAliases: projection.fields.map((field) => field.name),
           }
         : {}),

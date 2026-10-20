@@ -18,11 +18,13 @@
  * (W-P10's grant move) and the Neki entry run (W-R1).
  */
 
+import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { createClient } from "@client/client";
 import { defineExtension } from "@extensions/definition";
 import { s } from "@schema";
 import { v } from "@src/validation";
 import { runSharedBodiesBehavior } from "@tests/contracts/public-client/shared-bodies-behavior";
+import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, test } from "vitest";
@@ -129,7 +131,7 @@ describe("relation bodies a statement repeats, stated once", () => {
     const { db, statements } = await open(true);
     await db.doc.findMany({ user: "ann", select: { id: true } });
     expect(statements).toEqual([
-      `WITH "__shared_0" AS (${MEMBERS}), "__shared_1" AS (SELECT "q1"."id" AS "k0" FROM "org" AS "q1" WHERE EXISTS (SELECT 1 FROM "__shared_0" WHERE "q1"."id" = "__shared_0"."k0")) SELECT "q0"."id" AS "id" FROM "doc" AS "q0" WHERE ((EXISTS (SELECT 1 FROM "__shared_1" WHERE "q0"."orgId" = "__shared_1"."k0") AND "q0"."title" COLLATE BINARY = ?) OR (EXISTS (SELECT 1 FROM "__shared_1" WHERE "q0"."orgId" = "__shared_1"."k0") AND EXISTS (SELECT 1 FROM "org" AS "q5" WHERE ("q0"."orgId" = "q5"."id" AND EXISTS (SELECT 1 FROM "member" AS "q6" WHERE ("q5"."id" = "q6"."orgId" AND ("q6"."userId" COLLATE BINARY = ? AND "q6"."role" COLLATE BINARY = ?))))))) ORDER BY "q0"."id" ASC`,
+      `WITH "__shared_0" AS (${MEMBERS}), "__shared_1" AS MATERIALIZED (SELECT "q1"."id" AS "k0" FROM "org" AS "q1" WHERE EXISTS (SELECT 1 FROM "__shared_0" WHERE "q1"."id" = "__shared_0"."k0")) SELECT "q0"."id" AS "id" FROM "doc" AS "q0" WHERE ((EXISTS (SELECT 1 FROM "__shared_1" WHERE "q0"."orgId" = "__shared_1"."k0") AND "q0"."title" COLLATE BINARY = ?) OR (EXISTS (SELECT 1 FROM "__shared_1" WHERE "q0"."orgId" = "__shared_1"."k0") AND EXISTS (SELECT 1 FROM "org" AS "q5" WHERE ("q0"."orgId" = "q5"."id" AND EXISTS (SELECT 1 FROM "member" AS "q6" WHERE ("q5"."id" = "q6"."orgId" AND ("q6"."userId" COLLATE BINARY = ? AND "q6"."role" COLLATE BINARY = ?))))))) ORDER BY "q0"."id" ASC`,
     ]);
   });
 
@@ -181,7 +183,7 @@ describe("relation bodies a statement repeats, stated once", () => {
     for (const lookup of lookups) {
       expect(
         lookup.startsWith(
-          `WITH "__shared_0" AS (${MEMBERS}), "__shared_1" AS (SELECT "q1"."id" AS "k0" FROM "org" AS "q1" `
+          `WITH "__shared_0" AS (${MEMBERS}), "__shared_1" AS MATERIALIZED (SELECT "q1"."id" AS "k0" FROM "org" AS "q1" `
         )
       ).toBe(true);
       expect(lookup.split('FROM "__shared_1" WHERE').length - 1).toBe(2);
@@ -236,6 +238,39 @@ describe("relation bodies a statement repeats, stated once", () => {
         { id: "d3", title: "seen" },
       ],
     ]);
+  });
+
+  // MySQL quotes with backticks: a body's aliases are renumbered there too,
+  // or no two bodies ever compare equal and nothing is shared.
+  test("MySQL states the same repeated bodies once, under its own quotes", async () => {
+    const statements: string[] = [];
+    for (const shared of [true, false]) {
+      const driver = new SqlOnlyDriver(new MySQLAdapter(), "mysql");
+      driver.adapter.capabilities.sharesRelationBodies = shared;
+      const base = createClient({ schema, driver });
+      clients.push(base);
+      await base
+        .$extends(policy)
+        .$extends({
+          name: "statements",
+          statement(context) {
+            statements.push(context.statement.toStatement());
+            return context.statement;
+          },
+        })
+        .doc.findMany({ user: "ann", select: { id: true } });
+    }
+    const [sharedRead, plainRead] = statements;
+    expect(
+      sharedRead!.startsWith(
+        "WITH `__shared_0` AS (SELECT `q2`.`orgId` AS `k0` FROM `member` AS `q2` WHERE "
+      )
+    ).toBe(true);
+    expect(sharedRead).toContain(
+      ", `__shared_1` AS (SELECT `q1`.`id` AS `k0` FROM `org` AS `q1` WHERE EXISTS (SELECT 1 FROM `__shared_0` WHERE `q1`.`id` = `__shared_0`.`k0`)) SELECT "
+    );
+    expect(sharedRead!.split("FROM `__shared_1` WHERE").length - 1).toBe(2);
+    expect(plainRead).not.toContain("WITH");
   });
 });
 

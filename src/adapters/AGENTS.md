@@ -219,7 +219,24 @@ statement repeats once, through `cte.with`. An in-process SQLite pays for
 sharing and gains nothing a transport charges: measured on better-sqlite3
 (2026-10-19, acceptance policy with soft delete), SQLite runs both spellings
 in about the same time, and finding the repeats costs the engine about
-230 µs per governed statement (`can` 0.30 → 0.53 ms).
+230 µs per governed statement (`can` 0.30 → 0.53 ms). Re-measured for 1.3.4,
+with SQLite's nested members `MATERIALIZED` and the cheaper key (2026-10-20,
+end to end, default adapter): set reads are faster shared (`page` including
+its group 1.76 → 1.28 ms, `accessGrant.findMany` 3.18 → 1.71 ms) and point
+reads slower (`can` 0.38 → 0.78 ms, `findMany` `take: 10` 0.76 → 1.02 ms),
+so the in-process default stays off.
+
+`cte.with` hints: `createCteBuilders(quoteIdent, { inlining, materializing })`.
+PostgreSQL passes `inlining` (`NOT MATERIALIZED` for a correlated leaf
+member: it would otherwise materialize a member read twice); SQLite passes
+`materializing` (`MATERIALIZED` for a member `inlined: false`, every other
+member the engine shares: it would otherwise inline each member at every
+use, compiling a nested one again inside each use of the body reading it,
+which D1 refuses as `SQLITE_NOMEM`); a member without `inlined` is left to
+the database. MySQL
+passes neither (it has no such syntax). MySQL sharing works when declared
+(its backtick aliases renumber like quoted ones) but no MySQL driver declares
+it: no transport bound asks for it, and no MySQL plan has been measured.
 
 `assertions.holds` (a write's judgement of the row it produces) fails with its
 own sentinel, under the `__viborm_judged__` alias: PostgreSQL a text sublink

@@ -35,10 +35,12 @@ import type {
   StampedFieldNames,
   StampedFields,
 } from "../extensions/controls";
+import type { ModelResultFields } from "../extensions/result-types";
 import type { VibORMConfig } from "./client";
 import type { CachedProjectedOperations } from "./projected-types";
 import type {
   AggregateResultType,
+  ApplyOmit,
   BatchPayload,
   ClientHiddenContext,
   ClientResultOmitContext,
@@ -49,6 +51,7 @@ import type {
   InferSelectInclude,
   MergeClientOmit,
   ModelResultSurface,
+  NodeInclude,
   NodeOmit,
   NodeSelect,
   SameModelResultSurface,
@@ -567,6 +570,229 @@ export type StampedOperations<
     >
   >;
 };
+
+// =============================================================================
+// `result`: FIELDS A CHAIN COMPUTES ON THE ROWS IT RETURNS
+// =============================================================================
+
+/**
+ * The operations whose rows a chain's computed fields reach, and whose
+ * `select` and `omit` name them.
+ */
+export type ComputedOperation =
+  | RowOperation
+  | "createMany"
+  | "updateMany"
+  | "deleteMany";
+
+/** What a computed result type reads: the chain's fields and the schema. */
+interface ComputedResultContext<Result, S, ModelName> {
+  readonly result: Result;
+  readonly schema: S;
+  readonly model: ModelName;
+}
+
+/**
+ * One model's projecting operations on a client whose chain declares
+ * `result`: `select` and `omit` also name the computed fields, and the rows
+ * returned carry them, nested relation rows included. Only a chain with
+ * `result` reaches this type, so every other client keeps its own
+ * operation types untouched.
+ */
+export type ComputedOperations<
+  C extends VibORMConfig,
+  ClientDefaults,
+  Controls,
+  Data,
+  K extends keyof ClientSchema<C>,
+  Result,
+> = {
+  [O in ComputedOperation]: ComputedOperationMethod<
+    O,
+    ClientSchema<C>[K],
+    ClientDefaultOmit<C, K>,
+    ClientDefaults,
+    PlacedOperationControls<Controls, K, O>,
+    WithComputedKeys<
+      O extends StampedOperation
+        ? [Data] extends [never]
+          ? OperationPayload<O, ClientSchema<C>[K]>
+          : StampedPayload<
+              O,
+              OperationPayload<O, ClientSchema<C>[K]>,
+              ClientSchema<C>[K],
+              StampedFieldNames<Data, K>,
+              Stamps<Data, ClientSchema<C>>
+            >
+        : OperationPayload<O, ClientSchema<C>[K]>,
+      Extract<keyof ModelResultFields<Result, K>, string>
+    >,
+    ComputedResultContext<Result, ClientSchema<C>, K>
+  >;
+};
+
+type ComputedOperationMethod<
+  O extends Operations,
+  M extends Model<any>,
+  DefaultOmit,
+  ClientDefaults,
+  Controls,
+  Payload,
+  Context,
+> = undefined extends Payload
+  ? <Arg extends Payload>(
+      args?: WithControlArgs<
+        NoExtraOperationKeys<
+          O,
+          Exclude<Arg, undefined>,
+          Exclude<Payload, undefined>,
+          M,
+          Controls
+        >,
+        Controls
+      >
+    ) => PendingOperation<
+      WithComputedResult<
+        OperationResultWithClientDefaults<
+          O,
+          M,
+          Arg,
+          DefaultOmit,
+          ClientDefaults
+        >,
+        M,
+        Arg,
+        Context
+      >
+    >
+  : <Arg extends Payload>(
+      args: WithControlArgs<
+        NoExtraOperationKeys<O, Arg, Payload, M, Controls>,
+        Controls
+      >
+    ) => PendingOperation<
+      WithComputedResult<
+        OperationResultWithClientDefaults<
+          O,
+          M,
+          Arg,
+          DefaultOmit,
+          ClientDefaults
+        >,
+        M,
+        Arg,
+        Context
+      >
+    >;
+
+/** A payload whose `select` and `omit` also name the computed fields. */
+type WithComputedKeys<Payload, Names extends string> = Payload extends object
+  ? Omit<Payload, "select" | "omit"> & {
+      [Key in Extract<keyof Payload, "select" | "omit">]?:
+        | (NonNullable<Payload[Key]> & { readonly [Name in Names]?: boolean })
+        | Extract<Payload[Key], undefined>;
+    }
+  : Payload;
+
+/**
+ * An operation's value with the computed fields added to each row: a list
+ * item by item, `null` and `{ count }` as they are.
+ */
+export type WithComputedResult<Value, M, Args, Context> =
+  Value extends readonly (infer Row)[]
+    ? ComputedRow<Row, M, Args, Context>[]
+    : Value extends null | BatchPayload
+      ? Value
+      : ComputedRow<Value, M, Args, Context>;
+
+/** The computed fields of one model: by name at the root, by surface below. */
+type ComputedFieldsFor<M, Context> =
+  Context extends ComputedResultContext<infer Result, infer S, infer ModelName>
+    ? [ModelName] extends [never]
+      ? M extends Model<any>
+        ? {
+            [K in keyof S]: S[K] extends Model<any>
+              ? true extends SameModelResultSurface<
+                  ModelResultSurface<M>,
+                  ModelResultSurface<S[K]>
+                >
+                ? ModelResultFields<Result, K>
+                : never
+              : never;
+          }[keyof S]
+        : never
+      : ModelResultFields<Result, ModelName>
+    : never;
+
+/** The context one relation level down: the model is found by its surface. */
+type NestedComputedContext<Context> =
+  Context extends ComputedResultContext<infer Result, infer S, unknown>
+    ? ComputedResultContext<Result, S, never>
+    : never;
+
+/** The computed fields one node's projection keeps. */
+type KeptComputedFields<Fields, Args, Selection = NodeSelect<Args>> = [
+  Selection,
+] extends [undefined]
+  ? ApplyOmit<Fields, NodeOmit<Args>>
+  : undefined extends Selection
+    ? Partial<Fields>
+    : {
+        [K in keyof Selection & keyof Fields as Selection[K] extends true
+          ? K
+          : never]: Fields[K];
+      } & {
+        [K in keyof Selection & keyof Fields as Selection[K] extends true
+          ? never
+          : true extends Selection[K]
+            ? K
+            : never]?: Fields[K];
+      };
+
+/** The relations one node projects, with the node each one states. */
+type ProjectedRelations<Args> = [NodeSelect<Args>] extends [undefined]
+  ? NodeInclude<Args>
+  : NodeSelect<Args>;
+
+/**
+ * One row of `M` with its computed fields, a field replacing a column it
+ * shadows, and its projected relation rows rebuilt for their own models.
+ * A recursive relation's deeper levels keep their columns' type only.
+ */
+type ComputedRow<
+  Row,
+  M,
+  Args,
+  Context,
+  Added = KeptComputedFields<ComputedFieldsFor<M, Context>, Args>,
+  Relations = ProjectedRelations<Args>,
+> = Row extends unknown
+  ? Prettify<
+      Omit<Row, keyof Added | RebuiltRelationKeys<M, Relations>> &
+        Added & {
+          [Key in RebuiltRelationKeys<M, Relations> &
+            keyof Row]: WithComputedResult<
+            Row[Key],
+            RelationTarget<M, Key>,
+            Relations[Key & keyof Relations] extends true
+              ? undefined
+              : Relations[Key & keyof Relations],
+            NestedComputedContext<Context>
+          >;
+        }
+    >
+  : never;
+
+/** The relation keys of a projection whose rows are rebuilt. */
+type RebuiltRelationKeys<M, Relations> = Relations extends object
+  ? {
+      [Key in keyof Relations]: [RelationTarget<M, Key>] extends [never]
+        ? never
+        : Relations[Key] extends true | object
+          ? Key
+          : never;
+    }[keyof Relations]
+  : never;
 
 /**
  * The call's own clauses, rebuilt: a create's rows, and an update's for the

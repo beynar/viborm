@@ -1486,35 +1486,47 @@ Neki runs with `jit = off`.
   tables.
 
 The driver deduplicates bound values, shares repeated relation bodies,
-balances conjunctions and isolates each nesting level of a relation filter.
-None of this makes every policy and query fit. Local workerd enforces the text
-limit as well, and refuses a 100,010-byte statement with `SQLITE_TOOBIG`.
+computes each shared body that reads another one once (`MATERIALIZED`, since
+1.3.4), balances conjunctions and isolates each nesting level of a relation
+filter. None of this makes every policy and query fit. Local workerd enforces
+the text limit as well, and refuses a 100,010-byte statement with
+`SQLITE_TOOBIG`.
 D1 does not publish the `SQLITE_NOMEM` bound. It is SQLite's limit on the
 compiled program, and an opcode count does not predict it: on local workerd a
 measured boundary fell near 21,850 opcodes, yet `accessGrant.findMany` with
 `$access` compiles to 23,333 and runs.
 
-These figures were measured on 17 October 2026 with the §1.1 acceptance
-policy, soft delete and actor `u02`, on local workerd. They are pinned by
-`tests/providers/workers/d1-permissions-statement-budget.test.ts`, which turns red
-when a refused read starts to run:
+These figures were measured on 17 October 2026 (the 1.3.4 ones on 20
+October) with the §1.1 acceptance policy, soft delete and actor `u02`, on
+local workerd. They are pinned by
+`tests/providers/workers/d1-permissions-statement-budget.test.ts`, which turns
+red when a read D1 runs is refused, or a refused one starts to run:
 
 - D1 runs `findMany` with `$access` on `accessGrant` (41,283 bytes, 26
   values), `page` (13,825 bytes), `page` including its group with `$access`
   (16,132 bytes) and `document` (22,978 bytes). It also runs the root
   documents with `$access` at three levels, the roots, their children and
   theirs (48,946 bytes, 39 values).
-- D1 refuses four reads with `SQLITE_NOMEM`, all inside the published
-  limits:
+- Since 1.3.4 D1 also runs the four reads it refused with `SQLITE_NOMEM`
+  at 1.3.3, all inside the published limits:
   - the same three levels including each level's grants with `$access`
-    (89,678 bytes, 57 values);
-  - `document.findMany` including every relation with `$access` (84,796
+    (90,237 bytes, 57 values; 89,678 at 1.3.3);
+  - `document.findMany` including every relation with `$access` (85,186
     bytes, 79 values);
   - `page.findMany` with `$access` at every level of an include through the
-    group, its grants and pages, and the page's grants (75,514 bytes, 64
+    group, its grants and pages, and the page's grants (76,073 bytes, 64
     values);
-  - `accessGrant.findMany` including every relation with `$access` (68,874
+  - `accessGrant.findMany` including every relation with `$access` (69,316
     bytes, 74 values).
+
+  SQLite inlined each shared body at every place that reads it, and a body
+  read by another one again inside each of that body's uses: the largest of
+  these compiled to 63,867 opcodes. Each body that reads another is now
+  computed once, and it compiles to 14,345 (measured with better-sqlite3).
+  Computing it once reads that body's whole table, once per statement: on
+  better-sqlite3 with 7,500 documents and 14,000 grants, a `can` on one
+  document went from 0.67 to 4.5 ms, while reads of many rows got faster
+  (`document.findMany` with `$access`, 3.0 s to 0.46 s).
 - A caller's relation filter nested 15 levels deep (`parent: { parent: … }`,
   the most the filter admits) runs under a read rule of three `OR` arms. Each
   level adds about 5 to the expression depth, and the rule's own height is

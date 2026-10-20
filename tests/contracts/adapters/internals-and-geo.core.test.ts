@@ -112,14 +112,20 @@ describe("adapter SELECT assembly", () => {
       distinct: sql.raw`name`,
       distinctColumnAliases: ["id", "name"],
       orderBy: sql.raw`id DESC`,
+      distinctOrder: {
+        keys: sql.raw`id AS "_ord0"`,
+        orderBy: sql.raw`"_ord0" DESC`,
+      },
     });
 
     expect(native.toStatement()).toBe(
       "SELECT DISTINCT ON (name) id, name FROM users"
     );
-    expect(emulated.toStatement()).toContain("ROW_NUMBER() OVER");
-    expect(emulated.toStatement()).toContain('SELECT "id", "name" FROM');
-    expect(emulated.toStatement()).toContain('ORDER BY "_ord"');
+    // One window picks the representative; the page is ordered by the
+    // order's own terms projected beside it.
+    expect(emulated.toStatement()).toBe(
+      'SELECT "id", "name" FROM (SELECT id, name, id AS "_ord0", ROW_NUMBER() OVER (PARTITION BY name ORDER BY id DESC) AS "_rn" FROM users) AS "_distinct_subquery" WHERE "_rn" = 1 ORDER BY "_ord0" DESC'
+    );
   });
 
   test("MySQL and SQLite emulate DISTINCT with explicit projections", () => {
@@ -133,6 +139,10 @@ describe("adapter SELECT assembly", () => {
       distinct: sql.raw`name`,
       distinctColumnAliases: ["id", "name"],
       orderBy: sql.raw`id DESC`,
+      distinctOrder: {
+        keys: sql.raw`id AS \`_ord0\``,
+        orderBy: sql.raw`\`_ord0\` DESC`,
+      },
       offset: sql`${2}`,
     });
     const sqlite = assembleAdapterSelect(new SQLiteAdapter(), {

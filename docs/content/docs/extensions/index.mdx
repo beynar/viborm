@@ -1,6 +1,6 @@
 ---
 title: Extensions
-description: Extend request, query, statement, observation, client, and model boundaries, and declare arguments, visible rows, what a delete does, and fields an extension writes
+description: Extend request, query, statement, observation, client, and model boundaries, and declare arguments, visible rows, what a delete does, fields an extension writes, and fields computed on the rows a call returns
 icon: puzzle
 ---
 
@@ -48,9 +48,9 @@ not create a second extension chain or bypass its admission rules.
   </Card>
 </CardGroup>
 
-## The ten capabilities
+## The eleven capabilities
 
-An extension has one name and any subset of ten capabilities:
+An extension has one name and any subset of eleven capabilities:
 
 | Capability | Boundary | Authority |
 |---|---|---|
@@ -64,6 +64,7 @@ An extension has one name and any subset of ten capabilities:
 | `rows` | Which rows an operation sees | Row filters per model, chosen per call by one argument, with the call's values |
 | `deletion` | What a delete does | Turn a delete of a model into an update with fixed data and the call's time |
 | `data` | Fields every create and update writes | Fixed values or the call's values, written where the caller left the field out |
+| `result` | The rows an operation returns | Fields computed from each row's `needs`, selectable and omittable by name |
 
 These are one extension language, not one universal hook. Request transforms
 are synchronous. Query interceptors are asynchronous and authoritative.
@@ -119,6 +120,7 @@ operation observer begins
   declared controls taken out of the arguments and checked
   request transforms
   default omit
+  computed fields planned (`result`: their needs read, their names removed)
   core validation and mandatory preparation
   query interceptors
     official cache around the prepared core read
@@ -129,6 +131,7 @@ operation observer begins
         render and provider execution
       core result parse
     query post-work
+  computed fields computed on the returned rows
 operation observer completes
 ```
 

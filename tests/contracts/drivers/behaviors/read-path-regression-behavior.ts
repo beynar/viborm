@@ -436,6 +436,62 @@ export function runReadPathRegressionBehavior({
         });
         expect(tagged.map((p) => p.id)).toEqual(["p1"]);
       });
+
+      // SQLite reads a junction filter as `junction JOIN target`, correlated
+      // in the filter's own WHERE; PostgreSQL and MySQL as the target's
+      // membership in a correlated junction subquery. Every quantifier, both
+      // directions, mapped key columns: the same rows either way.
+      test("every quantifier through the junction answers the same in both directions", async () => {
+        await client.post.create({ data: { id: "p3", title: "Both" } });
+        await client.post.create({ data: { id: "p4", title: "Mixed" } });
+        await client.tag.create({ data: { id: "t2", name: "sql" } });
+        await client.tag.create({ data: { id: "t3", name: "lonely" } });
+        const ident = client.$driver.adapter.identifiers.escape;
+        for (const [postId, tagId] of [
+          ["p3", "t2"],
+          ["p4", "t1"],
+          ["p4", "t2"],
+        ])
+          await client.$executeRaw(
+            sql`INSERT INTO ${ident("read_path_post_tags")} (${ident(
+              "postId"
+            )}, ${ident("tagId")}) VALUES (${postId}, ${tagId})`
+          );
+        const posts = async (where: object) =>
+          (await client.post.findMany({ where, orderBy: { id: "asc" } })).map(
+            (p) => p.id
+          );
+        expect(await posts({ tags: { some: { name: "orm" } } })).toEqual([
+          "p1",
+          "p4",
+        ]);
+        expect(await posts({ tags: { none: { name: "orm" } } })).toEqual([
+          "p2",
+          "p3",
+        ]);
+        expect(await posts({ tags: { every: { name: "orm" } } })).toEqual([
+          "p1",
+          "p2",
+        ]);
+        expect(await posts({ tags: { none: {} } })).toEqual(["p2"]);
+        expect(
+          await posts({
+            OR: [{ tags: { some: { name: "sql" } } }, { title: "Untagged" }],
+          })
+        ).toEqual(["p2", "p3", "p4"]);
+        expect(await client.post.count({ where: { tags: { some: {} } } })).toBe(
+          3
+        );
+        const tags = await client.tag.findMany({
+          where: { posts: { every: { title: { not: "Both" } } } },
+          orderBy: { id: "asc" },
+        });
+        expect(tags.map((t) => t.id)).toEqual(["t1", "t3"]);
+        const lonely = await client.tag.findMany({
+          where: { posts: { none: {} } },
+        });
+        expect(lonely.map((t) => t.id)).toEqual(["t3"]);
+      });
     });
   });
 }

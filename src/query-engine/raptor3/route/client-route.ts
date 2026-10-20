@@ -79,6 +79,11 @@ export interface RoutedCandidateOperation {
 
 /** The client-scoped route a query engine consults instead of its executor. */
 export interface ClientOperationRoute {
+  /**
+   * The root driver the route is factory-bound to: an engine whose driver is
+   * this one runs outside every transaction scope.
+   */
+  readonly driver: AnyDriver;
   operation(
     model: AnyModel,
     requestedOperation: string,
@@ -243,6 +248,7 @@ export function createCandidateRoute(
     resolved,
   });
   return {
+    driver: factoryDriver,
     operation(
       model: AnyModel,
       requestedOperation: string,

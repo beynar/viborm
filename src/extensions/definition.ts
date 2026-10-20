@@ -36,6 +36,8 @@ import type {
   RequestHandlerMap,
   RuntimeRequestContribution,
 } from "./request";
+import { type RuntimeResultContribution, snapshotResult } from "./result";
+import type { ResultDefinition, ResultInference } from "./result-types";
 import type { StatementHandler } from "./statement";
 
 type RuntimeExtensionFunction = (...args: never[]) => unknown;
@@ -58,6 +60,7 @@ export interface RuntimeExtensionDefinition {
   readonly rows?: RowsContribution;
   readonly deletion?: DeletionContribution;
   readonly data?: DataContribution;
+  readonly result?: RuntimeResultContribution;
 }
 
 export type ControlLiteral = string | number | boolean;
@@ -86,6 +89,7 @@ const DEFINITION_KEYS = new Set([
   "rows",
   "deletion",
   "data",
+  "result",
 ]);
 
 export function extensionError(message: string, extension?: string): never {
@@ -432,6 +436,13 @@ export function normalizeExtensionDefinition(
     rawModel === undefined
       ? undefined
       : snapshotModelFactories(rawModel, name, schema);
+  const rawResult = ownKeys.includes("result")
+    ? readOwn(value, "result", name)
+    : undefined;
+  const result =
+    rawResult === undefined
+      ? undefined
+      : snapshotResult(rawResult, name, schema);
   const { controls, deletion, data } = value;
   validateNamedPolicies({ rows: value.rows, deletion, data }, schema, name);
   const rows =
@@ -451,6 +462,7 @@ export function normalizeExtensionDefinition(
     ...(rows ? { rows } : {}),
     ...(deletion ? { deletion } : {}),
     ...(data ? { data } : {}),
+    ...(result ? { result } : {}),
   });
 }
 
@@ -500,6 +512,7 @@ export type ContextualExtensionDefinition<
   X extends ExtensionStateConstraint,
   Self = unknown,
 > = ExtensionMembers<C, X> & {
+  readonly result?: ResultDefinition<C>;
   readonly model?: unknown extends Self
     ? {
         readonly [ModelName in keyof ClientSchema<C>]?: ModelMethodFactory<
@@ -653,7 +666,10 @@ export type ExactExtensionDefinition<
 
 // The definition is inferred from its declaration, never from a receiving
 // `$extends` overload's return context (which may be a client factory).
-export type DefineExtensionBinder<S extends Schema> = <const Definition>(
+export type DefineExtensionBinder<S extends Schema> = <
+  const Definition,
+  Fields = unknown,
+>(
   definition: Definition &
     ContextualExtensionDefinition<
       ExtensionConfig<S>,
@@ -663,7 +679,8 @@ export type DefineExtensionBinder<S extends Schema> = <const Definition>(
       Definition,
       ExtensionConfig<S>,
       EmptyClientExtensionState
-    >
+    > &
+    ResultInference<ExtensionConfig<S>, Record<never, never>, Fields>
 ) => SchemaBoundExtension<NoInfer<Definition>>;
 
 export function defineExtension<

@@ -575,7 +575,9 @@ export class PostgresAdapter implements DatabaseAdapter {
     },
   };
 
-  cte = createCteBuilders(quoteIdent, sql.raw("NOT MATERIALIZED"));
+  cte = createCteBuilders(quoteIdent, {
+    inlining: sql.raw("NOT MATERIALIZED"),
+  });
 
   mutations = {
     skipDuplicatesStrategy: "sql" as const,

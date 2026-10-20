@@ -459,3 +459,44 @@ describe("both inverse collection arities take the ordinary write families", () 
     ).toBeUndefined();
   });
 });
+
+describe("a collection bulk verb whose where undefined emptied", () => {
+  const issues = (items: unknown) =>
+    parse(core().update, { items }).issues?.map((issue) => issue.message);
+
+  test("is refused, naming the verb and the undefined keys", () => {
+    expect(
+      issues({ deleteMany: [{ type: "photo", where: { caption: undefined } }] })
+    ).toEqual([
+      "This nested deleteMany would delete every related row: its where names only undefined values (caption), and an undefined value is no condition. Remove them, or pass where: {} to mean every related row.",
+    ]);
+    expect(
+      issues({
+        updateMany: {
+          type: "article",
+          where: { NOT: { views: undefined } },
+          data: { views: 1 },
+        },
+      })?.[0]
+    ).toContain(
+      "This nested updateMany would update every related row: its where names only undefined values (NOT.views)"
+    );
+  });
+
+  test("an explicit empty where, or one that still states a condition, is admitted", () => {
+    expect(
+      issues({ deleteMany: [{ type: "photo", where: {} }] })
+    ).toBeUndefined();
+    expect(
+      issues({
+        updateMany: [
+          {
+            type: "article",
+            where: { views: undefined, title: "t" },
+            data: { views: 1 },
+          },
+        ],
+      })
+    ).toBeUndefined();
+  });
+});

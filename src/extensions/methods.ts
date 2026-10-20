@@ -4,6 +4,8 @@ import type { ClientSchema } from "@client/schema-links";
 import type {
   Client,
   ClientRowsContext,
+  ComputedOperation,
+  ComputedOperations,
   Operations,
   StampedOperation,
   StampedOperations,
@@ -21,6 +23,7 @@ import type {
   RowsModels,
 } from "./controls";
 import { extensionError } from "./definition";
+import type { DefinitionResultFields, MergeResultFields } from "./result-types";
 
 type NoMethods = Record<never, never>;
 type ExtensionMethod = (this: void, ...args: never[]) => unknown;
@@ -52,6 +55,7 @@ export interface ClientExtensionState<
   Controls extends object = NoControls,
   RowModels extends string = never,
   Data = never,
+  Result extends object = Record<never, never>,
 > {
   readonly client: ClientMethods;
   readonly models: ModelMethods;
@@ -63,6 +67,8 @@ export interface ClientExtensionState<
   readonly rows: RowModels;
   /** The fields the chain's `data` writes, which a caller no longer writes. */
   readonly data: Data;
+  /** The fields the chain's `result` computes, per model key, and their types. */
+  readonly result: Result;
 }
 
 export type EmptyClientExtensionState = ClientExtensionState;
@@ -75,7 +81,8 @@ export type ExtensionStateConstraint = ClientExtensionState<
   ExtensionResultConsumerState | undefined,
   object,
   string,
-  unknown
+  unknown,
+  object
 >;
 
 /** Whether the current type-state includes the official cache capability. */
@@ -99,7 +106,8 @@ export type EnableExtensionCache<X extends ExtensionStateConstraint> =
     X["controls"] &
       DefinitionControls<{ readonly controls: OfficialCacheControls }>,
     X["rows"],
-    X["data"]
+    X["data"],
+    X["result"]
   >;
 
 /** Whether an earlier extension was typed against result-bearing delegates. */
@@ -141,22 +149,50 @@ export type ExtensionModelDelegate<
   MethodsForModel<X, ModelName>;
 
 /**
+ * One model's delegate on a chain that declares `result`: its projecting
+ * operations rebuilt so `select` and `omit` name the computed fields and the
+ * rows carry them. A chain without `result` never reaches this type.
+ */
+type ComputedModelDelegate<
+  C extends VibORMConfig,
+  X extends ExtensionStateConstraint,
+  ModelName extends keyof ClientSchema<C>,
+> = Omit<ExtensionModelDelegate<C, X, ModelName>, ComputedOperation> &
+  ComputedOperations<
+    C,
+    ClientRowsContext<C, X["rows"]>,
+    X["controls"],
+    X["data"],
+    ModelName,
+    X["result"]
+  >;
+
+/**
  * Model delegates after the methods contributed by the current chain. The
  * always-true test is deliberate: for a client generic over its config it
  * stays deferred, so the model map adds no index signature to that client and
- * its `$` members stay reachable inside a body generic over `C`.
+ * its `$` members stay reachable inside a body generic over `C`. A chain
+ * that declares `result` is told apart here, once per client.
  */
 export type ExtensionModelClient<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
 > = [keyof C["schema"]] extends [PropertyKey]
-  ? {
-      [ModelName in keyof ClientSchema<C>]: ExtensionModelDelegate<
-        C,
-        X,
-        ModelName
-      >;
-    }
+  ? [keyof X["result"]] extends [never]
+    ? {
+        [ModelName in keyof ClientSchema<C>]: ExtensionModelDelegate<
+          C,
+          X,
+          ModelName
+        >;
+      }
+    : {
+        [ModelName in keyof ClientSchema<C>]: ComputedModelDelegate<
+          C,
+          X,
+          ModelName
+        >;
+      }
   : unknown;
 
 /** The surface given to one client-method factory. */
@@ -320,6 +356,7 @@ export interface ExtensionContributionState<
   RowModels extends string,
   Data,
   ConsumerContext extends string,
+  Result extends object,
 > extends ExtensionStateConstraint {
   readonly client: ClientMethods;
   readonly models: ModelMethods;
@@ -330,6 +367,7 @@ export interface ExtensionContributionState<
   readonly controls: Controls;
   readonly rows: RowModels;
   readonly data: Data;
+  readonly result: Result;
 }
 
 /** Retain contribution facts, never the factory's contextual argument surface. */
@@ -342,7 +380,8 @@ export type ExtensionStateContributionOf<Definition> = [Definition] extends [
       DefinitionControls<Definition>,
       RowsModels<Definition>,
       DefinitionData<Definition>,
-      ResultConsumerContextOf<Definition>
+      ResultConsumerContextOf<Definition>,
+      DefinitionResultFields<Definition>
     >
   : never;
 
@@ -360,6 +399,7 @@ export interface AccumulatedExtensionState<
   readonly controls: X["controls"] & Contribution["controls"];
   readonly rows: X["rows"] | Contribution["rows"];
   readonly data: X["data"] | Contribution["data"];
+  readonly result: MergeResultFields<X["result"], Contribution["result"]>;
 }
 
 /** Public compatibility surface: the incoming argument remains a definition. */

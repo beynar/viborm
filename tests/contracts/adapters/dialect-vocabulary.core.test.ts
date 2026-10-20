@@ -857,6 +857,7 @@ describe("dialect physical SQL vocabulary", () => {
       supportsMutationTargetInSubquery: true,
       supportsMutationRowLimit: false,
       supportsRowLocks: false,
+      joinsJunctionFilters: true,
     });
   });
 });

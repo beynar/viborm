@@ -173,7 +173,10 @@ describe("G4-02 physical envelope", () => {
     );
   });
 
-  it("an update that names a relation projection keeps its qualified route", async () => {
+  // 1.3.4: a relation projection that reads no row the write can change is
+  // answered in the write's own statement (`answersInStatement`, SQLite's
+  // `RETURNING`): one statement, no envelope, the same answer.
+  it("an update that names a relation projection answers in one statement with no envelope", async () => {
     world = await createWorld();
     const engine = createTestCommandEngine({
       schema: worldSchema,
@@ -186,8 +189,8 @@ describe("G4-02 physical envelope", () => {
         select: { id: true, posts: { select: { id: true } } },
       })
     );
-    assert.equal(candidate.cost.transactions, 1);
-    assert.ok(candidate.cost.statements > 1);
+    assert.equal(candidate.cost.transactions, 0);
+    assert.equal(candidate.cost.statements, 1);
     assert.deepEqual(candidate.value, {
       id: 1,
       posts: [{ id: 10 }, { id: 11 }],

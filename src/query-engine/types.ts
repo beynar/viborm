@@ -104,6 +104,11 @@ export interface PrepareOptions {
    * and hands over its cache outcome list.
    */
   skipSpan?: boolean;
+  /**
+   * The client's last step on this operation's value (its chain's computed
+   * fields), applied once, after every extension and the cache have run.
+   */
+  finishResult?: (value: unknown) => unknown;
 }
 
 /**

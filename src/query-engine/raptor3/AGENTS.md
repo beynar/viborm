@@ -210,7 +210,18 @@ statement is whole, a body placed once settles to its `EXISTS` (so a statement
 repeating none is byte-identical) and a repeated one to its test; a nested
 repeated body is defined before the body holding it. A junction or variant
 membership and a recursive walk keep their place (a walk inside a shared body
-is shared with it). Measured on §1.1's heaviest write (D1 form): 261 KB, 1,675
+is shared with it). A member is `inlined` where it is correlated and reads no
+other member (a leaf): PostgreSQL writes it `NOT MATERIALIZED`, and since
+1.3.4 SQLite writes every other member `MATERIALIZED` (`cte.with`'s hints):
+SQLite inlines a member at each use and compiles a nested one again inside
+each use of the body reading it, which is what D1 refused (`SQLITE_NOMEM`) on
+four acceptance `$access` reads (63,867 → 14,345 opcodes for the largest;
+better-sqlite3, 10× the fixture's rows: 33 s → 0.26 s, while a single-row
+`can` pays one scan of each nested member's table, 0.67 → 4.5 ms at 7,500
+documents and 14,000 grants). The key is built by scanning the text
+(`renumberAliases`, quote-agnostic: MySQL's backtick aliases renumber too),
+length-prefixed, about 20% cheaper than the regular expression and JSON it
+replaced. Measured on §1.1's heaviest write (D1 form): 261 KB, 1,675
 binds, SQLite depth 144 before; 44.6 KB, 190 binds, depth 80 with the shared
 bodies and D1's balanced conjunctions; PostgreSQL 340 ms (JIT off) and 7.9 s
 (JIT on) before, 10 ms and 0.4 s after, the same answers. Where a relation
@@ -858,7 +869,9 @@ constructed again inside the region, so nothing has reached the provider at that
 point. `dispatch()` is the one site every provider round trip crosses, which is
 what lets the rule be stated in a single place and still be the operative
 decision. A root `create` or `update` that names no relation and whose prepared
-projection is RETURNING-safe folds onto the set-oriented owner
+projection its own statement can answer (`OperationContext.answersInStatement`:
+RETURNING-safe, or a relation projection under the guards stated below) folds
+onto the set-oriented owner
 (`Commands.rootCreate` / `rootUpdate` -> `OperationContext.createMany` /
 `updateMany`) plus one cardinality decision; that fold is why the frozen fast
 path costs 1 statement and 0 transactions for a root `create`, the shipped
@@ -992,6 +1005,23 @@ a `RETURNING`?" — `fields.every(kind === "scalar" || kind === "sentinel")` —
 owns the field kinds. The physical owner (`OperationContext`) and the root folds
 and bulk selection in `commands/commands.ts` all consult it; a physical owner
 does not classify a projection the projection owner already understands.
+
+`OperationContext.answersInStatement` is the one owner of "may this root
+single-row write answer its projection out of its OWN statement?" (perf 1.3.4).
+A RETURNING-safe projection rides the `RETURNING`; a relation projection is
+lowered by the read owner over the written row — PostgreSQL reads it over the
+write's `RETURNING *` in a data-modifying `WITH "__viborm_mutation"`
+(`Queries.select`'s `source`), SQLite inside the `RETURNING`, correlated by the
+table's name — under two guards that keep the answer the located/mutated/
+re-read route gave: the projection's statement does not name the written
+table in FROM position, and an UPDATE writes no member of a referenceable key
+(no referential action can change what it reads). A DELETE folds only into
+PostgreSQL's snapshot, which is what the capture-then-read route answered;
+SQLite's `RETURNING` reads after the cascade. `rootCreate`, `rootUpdate`,
+`#rootUpsert` and the root delete ask it, and so do `createMany`, `updateMany`
+and `deleteMany` before they choose a capture route. Pins:
+`tests/contracts/engine/write/write-projection-round-trips.test.ts` and
+`mutation-projection-cte-fold.test.ts`.
 
 Whether a nested write's unique target selector names its row through the
 CONSTRAINT is one predicate, `nestedTargetAddressesConstraint(edge, verb)` in

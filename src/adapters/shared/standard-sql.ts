@@ -356,21 +356,28 @@ export const createSubqueries = (
 });
 
 /**
- * `inlining` is the dialect's `NOT MATERIALIZED` (PostgreSQL 12+), or nothing
- * where the database never materializes a member on its own account.
+ * `hints` spell a member's form where the dialect would otherwise pick the
+ * other one: `inlining` is PostgreSQL 12+'s `NOT MATERIALIZED` (it
+ * materializes a member read twice), `materializing` SQLite 3.35+'s
+ * `MATERIALIZED` (it inlines every member, compiling its body again at each
+ * use). Neither, where the database decides alone.
  */
 export const createCteBuilders = (
   quoteIdent: IdentifierQuoter,
-  inlining?: Sql
+  hints: { readonly inlining?: Sql; readonly materializing?: Sql } = {}
 ): DatabaseAdapter["cte"] => ({
   with: (
     definitions: { name: string; query: Sql; inlined?: boolean }[]
   ): Sql => {
-    const defs = definitions.map(({ name, query, inlined }) =>
-      inlined && inlining
-        ? sql`${sql.raw(quoteIdent(name))} AS ${inlining} (${query})`
-        : sql`${sql.raw(quoteIdent(name))} AS (${query})`
-    );
+    const defs = definitions.map(({ name, query, inlined }) => {
+      // A member stating no form (`inlined` absent) is left to the database.
+      let hint: Sql | undefined;
+      if (inlined !== undefined)
+        hint = inlined ? hints.inlining : hints.materializing;
+      return hint
+        ? sql`${sql.raw(quoteIdent(name))} AS ${hint} (${query})`
+        : sql`${sql.raw(quoteIdent(name))} AS (${query})`;
+    });
     return sql`WITH ${sql.join(defs, ", ")}`;
   },
 

@@ -1,5 +1,6 @@
 import type { VariantRelationState } from "@schema/relation";
 import type { VariantEntries } from "@schema/relation/static-membership";
+import { refusingUndefinedOnlyWhere } from "@validation/model/args/bulk-write-where";
 import { refuseDefaultOnlySkipDuplicates } from "@validation/model/args/mutation";
 import v from "@validation/primitives/v";
 import type { VibSchema } from "@validation/types";
@@ -310,9 +311,14 @@ function collectionVerbs<
     delete: tagged((publicType) => ({
       where: () => schemaGetters[publicType]().core.whereUniqueExtended,
     })),
-    deleteMany: tagged((publicType) => ({
-      where: () => schemaGetters[publicType]().core.where,
-    })),
+    deleteMany: refusingUndefinedOnlyWhere(
+      tagged((publicType) => ({
+        where: () => schemaGetters[publicType]().core.where,
+      })),
+      "deleteMany",
+      true,
+      "where"
+    ),
     // `where` is MANDATORY and EXTENDED — exactly where the ordinary to-many
     // `update` addresses its member, and deliberately NOT the to-one polymorphic
     // reading where `where` merely filters the one connected record.
@@ -323,12 +329,17 @@ function collectionVerbs<
       }),
       { atLeast: ["type", "where", "data"] }
     ),
-    updateMany: tagged(
-      (publicType) => ({
-        where: () => schemaGetters[publicType]().core.where,
-        data: () => schemaGetters[publicType]().core.update,
-      }),
-      { atLeast: ["type", "data"] }
+    updateMany: refusingUndefinedOnlyWhere(
+      tagged(
+        (publicType) => ({
+          where: () => schemaGetters[publicType]().core.where,
+          data: () => schemaGetters[publicType]().core.update,
+        }),
+        { atLeast: ["type", "data"] }
+      ),
+      "updateMany",
+      true,
+      "where"
     ),
     upsert: tagged((publicType) => ({
       where: () => schemaGetters[publicType]().core.whereUniqueExtended,

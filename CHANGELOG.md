@@ -3,7 +3,63 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
-## 1.3.3 — unreleased
+## 1.4.0 — unreleased
+
+Fewer round trips, permission reads D1 can run, faster `distinct` and
+junction filters, `$extends({ result })` computed fields, and bulk writes
+that refuse a `where` emptied by `undefined`. Measurements are in
+`benchmarks/perf-1.4.0.md`.
+
+### Changed
+
+- **`updateMany` and `deleteMany` refuse a `where` that `undefined`
+  emptied.** `deleteMany({ where: { tenantId: undefined } })` deleted every
+  row, because an `undefined` member is an absent one. A bulk write, root or
+  nested in a relation write, whose `where` matches every row only because
+  members spelled `undefined` were dropped now throws `ValidationError`
+  (V4001) naming them. `where: {}`, `{ AND: [] }` and no `where` still mean
+  every row. Prisma runs these on every row unless `strictUndefinedChecks`
+  is on.
+- **A write that returns relations answers in one statement.** `create`,
+  `update`, `upsert` and `delete` with `include`, a relation `select` or
+  `_count` no longer locate the row, write it and read it again in a
+  transaction: PostgreSQL writes in a `WITH` and reads the projection over
+  it, SQLite, libSQL and D1 read it in the write's `RETURNING`. Update +
+  include goes from 5 round trips to 1 on PostgreSQL and SQLite, and from
+  2 to 1 on D1 and Neon HTTP. The old route is kept where the answer could
+  differ (a projection reading the written table, an update of a referenced
+  key, a decoding refusal, a SQLite delete). MySQL is unchanged.
+- **`findUnique` calls issued in the same tick share one statement**, as in
+  Prisma: same model, unique key and projection, outside transactions, a
+  `where` that is the key alone (string, int or bigint members). 50
+  concurrent lookups: 50 statements to 1. Extensions, permissions and
+  tracing still see one operation per call; a row is only handed to the
+  call whose key it exactly matches, and anything a batch cannot decide runs
+  alone.
+- **D1 runs the large permission reads it refused with `SQLITE_NOMEM`.** On
+  SQLite, a shared body that reads another one, and every `$exists` body, is
+  written `AS MATERIALIZED`, so the compiled program holds it once: the four
+  refused reads compile to 3–5× fewer opcodes and run, and a large
+  better-sqlite3 read went from 357 ms to 12.6 ms. Single-row checks compute
+  those bodies in full: a `can` over 14,000 grants went from 0.67 ms to
+  4.5 ms.
+- **`distinct` uses one window function** instead of two: about 2× faster at
+  200k rows on SQLite and PostgreSQL.
+- **Many-to-many relation filters join the junction table on SQLite,
+  libSQL, Bun and D1**: a filtered count went from 1,240 ms to 61 ms.
+- **Shared-body keys are about 20% cheaper to build**, and MySQL statements
+  can share bodies (no MySQL driver turns it on yet).
+
+### Added
+
+- **`$extends({ result })` computed fields**, Prisma-compatible: `needs`,
+  `compute`, `select`/`omit` by name, composition across extensions,
+  `$allModels`, on reads, returned writes, nested and recursive rows,
+  transactions and cached reads. `compute` is typed to its `needs`. Not yet:
+  polymorphic variant rows, and types for a nested `select`/`omit` naming a
+  computed field.
+
+## 1.3.3 — 2026-10-19
 
 Faster SQL plans on PostgreSQL and SQLite, shorter SQL, faster result
 decoding and a cheaper permissions client per request. Measurements are in

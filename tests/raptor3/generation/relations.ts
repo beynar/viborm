@@ -228,6 +228,13 @@ export function generatedRelations(
       );
       requestedChildren.sort((left, right) => left.id - right.id);
       const primarySucceeded = recipe.fault === "none";
+      // A memberless create is its OWN only statement: since 1.3.4 the write
+      // answers its relation `select` itself (`answersInStatement`), as it
+      // always answered a scalar one, so no transaction holds it and the cut
+      // after it falls after a committed row. The operation still fails.
+      const rootCommitted =
+        primarySucceeded ||
+        (recipe.fault === "after-root-write" && recipe.members.length === 0);
       const expectedFollowing = followingArgs.map((args, index) => {
         // The explicit two-fault witness fails both actors, then releases the suffix.
         if (recipe.fault === "two-before-dispatch" && index === 0)
@@ -239,7 +246,7 @@ export function generatedRelations(
       });
       const final = {
         parents: [
-          ...(primarySucceeded ? [{ id: rootId, label: "requested" }] : []),
+          ...(rootCommitted ? [{ id: rootId, label: "requested" }] : []),
           ...followingArgs
             .filter((_, index) => expectedFollowing[index]!.kind === "success")
             .map((args) => args.data),

@@ -96,42 +96,66 @@ export function executeArrayTransaction(
     assertOwnedOperations(operations, engine);
     if (operations.length === 0) return Promise.resolve(operations);
     prepareRequestAdmissions(operations, engine);
-    return canRequireInterceptedArray(engine) &&
-      requiresInterceptedArray(operations)
-      ? executeInterceptedArray(operations, engine, options, context)
-      : executeLegacyArrayTransaction(operations, engine, options, context);
+    return finishArrayResults(operations, engine, () =>
+      canRequireInterceptedArray(engine) && requiresInterceptedArray(operations)
+        ? executeInterceptedArray(operations, engine, options, context)
+        : executeLegacyArrayTransaction(operations, engine, options, context)
+    );
   }
   const observation: ArrayObservationState = {};
-  return runProtectedObservers(
-    { kind: "batch", operation: "$transaction([...])" },
-    observers,
-    () => {
-      assertOwnedOperations(operations, engine);
-      if (operations.length === 0) return Promise.resolve(operations);
-      return canRequireInterceptedArray(engine) &&
-        requiresInterceptedArray(operations)
-        ? executeInterceptedArray(
-            operations,
-            engine,
-            options,
-            context,
-            observation
-          )
-        : executeLegacyArrayTransaction(
-            operations,
-            engine,
-            options,
-            context,
-            true,
-            (certainty) => {
-              observation.certainty = certainty;
-            }
-          );
-    },
-    () =>
-      observation.certainty === undefined
-        ? undefined
-        : { commitCertainty: observation.certainty }
+  return finishArrayResults(operations, engine, () =>
+    runProtectedObservers(
+      { kind: "batch", operation: "$transaction([...])" },
+      observers,
+      () => {
+        assertOwnedOperations(operations, engine);
+        if (operations.length === 0) return Promise.resolve(operations);
+        return canRequireInterceptedArray(engine) &&
+          requiresInterceptedArray(operations)
+          ? executeInterceptedArray(
+              operations,
+              engine,
+              options,
+              context,
+              observation
+            )
+          : executeLegacyArrayTransaction(
+              operations,
+              engine,
+              options,
+              context,
+              true,
+              (certainty) => {
+                observation.certainty = certainty;
+              }
+            );
+      },
+      () =>
+        observation.certainty === undefined
+          ? undefined
+          : { commitCertainty: observation.certainty }
+    )
+  );
+}
+
+/**
+ * Each member's value as its caller receives it: a chain that computes
+ * result fields finishes every member's rows once the array has settled.
+ * The members are read before the run, which writes its values over them.
+ */
+function finishArrayResults(
+  operations: readonly unknown[],
+  engine: QueryEngine,
+  run: () => Promise<unknown[]>
+): Promise<unknown[]> {
+  if (engine.extensionChain?.result === undefined) return run();
+  const members = [...operations] as object[];
+  return run().then((values) =>
+    values.map((value, index) => {
+      const operation = members[index]!;
+      const owner = transactionOperationOwner(operation);
+      return owner.finishResult ? owner.finishResult(operation, value) : value;
+    })
   );
 }
 

@@ -57,4 +57,15 @@ export interface DatabaseAdapterCapabilities {
    * a recursive walk stays where it is. Absent: false.
    */
   sharesRelationBodies?: boolean;
+  /**
+   * Whether a many-to-many relation filter reads its junction joined to the
+   * target, correlated in the filter's own `WHERE` (`EXISTS (SELECT 1 FROM
+   * junction j JOIN target t ON t.key = j.target WHERE j.source = parent.key
+   * AND …)`), rather than as the target's membership in a correlated junction
+   * subquery. Declared where the dialect plans the joined form at least as
+   * well everywhere measured (SQLite); PostgreSQL turns it into a hashed
+   * semijoin for scans but plans bounded reads more slowly, so it keeps the
+   * membership form. Absent: false.
+   */
+  joinsJunctionFilters?: boolean;
 }

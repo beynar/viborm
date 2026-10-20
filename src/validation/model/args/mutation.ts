@@ -6,6 +6,7 @@ import v, { type V } from "../../primitives/v";
 import type { CoreSchemas } from "../core";
 import type { ScalarSchemas } from "../index";
 import { restrictToScalarProjection } from "./bulk-write-projection";
+import { refusingUndefinedOnlyWhere } from "./bulk-write-where";
 import { type OmitSchema, withOmitProjection } from "./omit";
 import { type BulkWriteLimitSchema, bulkWriteLimit } from "./pagination";
 import { rejectSelectInclude } from "./select-include-exclusivity";
@@ -249,15 +250,20 @@ export const getUpdateManyArgs = <
 ): UpdateManyArgs<M, F> => {
   return withOmitProjection(
     restrictToScalarProjection(
-      v.object(
-        {
-          where: v.lazyRef(() => core.where),
-          data: v.lazyRef(() => core.update),
-          select: v.lazyRef(() => core.scalarSelect),
-          omit: v.lazyRef(() => core.omit),
-          limit: bulkWriteLimit(),
-        },
-        { atLeast: ["data"] }
+      refusingUndefinedOnlyWhere(
+        v.object(
+          {
+            where: v.lazyRef(() => core.where),
+            data: v.lazyRef(() => core.update),
+            select: v.lazyRef(() => core.scalarSelect),
+            omit: v.lazyRef(() => core.omit),
+            limit: bulkWriteLimit(),
+          },
+          { atLeast: ["data"] }
+        ),
+        "updateMany",
+        false,
+        "where"
       ),
       model,
       "updateMany"
@@ -346,14 +352,19 @@ export const getDeleteManyArgs = <
 ): DeleteManyArgs<M, F> => {
   return withOmitProjection(
     restrictToScalarProjection(
-      v.object(
-        {
-          where: v.lazyRef(() => core.where),
-          select: v.lazyRef(() => core.scalarSelect),
-          omit: v.lazyRef(() => core.omit),
-          limit: bulkWriteLimit(),
-        },
-        { optional: true }
+      refusingUndefinedOnlyWhere(
+        v.object(
+          {
+            where: v.lazyRef(() => core.where),
+            select: v.lazyRef(() => core.scalarSelect),
+            omit: v.lazyRef(() => core.omit),
+            limit: bulkWriteLimit(),
+          },
+          { optional: true }
+        ),
+        "deleteMany",
+        false,
+        "where"
       ),
       model,
       "deleteMany"

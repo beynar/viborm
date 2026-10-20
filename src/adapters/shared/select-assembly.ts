@@ -75,7 +75,7 @@ const appendLimitOffset = (
 };
 
 /**
- * Simulate `SELECT DISTINCT ON` using ROW_NUMBER() window functions.
+ * Simulate `SELECT DISTINCT ON` using one ROW_NUMBER() window.
  *
  * Used by MySQL/SQLite (no DISTINCT ON support) and by PostgreSQL when an
  * ORDER BY is present: DISTINCT ON would require the ORDER BY to lead with
@@ -86,18 +86,19 @@ const appendLimitOffset = (
  * Generates:
  * SELECT col1, col2, ... FROM (
  *   SELECT columns,
- *     ROW_NUMBER() OVER (PARTITION BY distinct_cols ORDER BY order_cols) AS _rn,
- *     ROW_NUMBER() OVER (ORDER BY order_cols) AS _ord  -- only when ORDER BY present
+ *     order_term_1 AS _ord0, ...  -- only when ORDER BY present
+ *     ROW_NUMBER() OVER (PARTITION BY distinct_cols ORDER BY order_cols) AS _rn
  *   FROM table
  *   WHERE ...
  * ) AS _distinct_subquery
  * WHERE _rn = 1
- * ORDER BY _ord
+ * ORDER BY _ord0, ...
  * LIMIT ... OFFSET ...
  *
- * The outer ORDER BY uses the precomputed _ord rank because the user's
+ * The outer ORDER BY reads the projected `_ordN` terms because the user's
  * ORDER BY references inner table aliases (and relation-order joins) that
- * are out of scope outside the subquery.
+ * are out of scope outside the subquery. Ordering the kept rows by those
+ * values (and not by a second window ranking every row) spares one sort.
  */
 export const assembleDistinctOnEmulation = (
   parts: QueryParts,
@@ -107,17 +108,15 @@ export const assembleDistinctOnEmulation = (
 ): Sql => {
   // ORDER BY for ROW_NUMBER() - use provided orderBy or default to distinct columns
   const rowNumberOrder = parts.distinctOrderBy ?? parts.orderBy ?? distinct;
+  const order = parts.distinctOrder;
 
-  const selectColumns: Sql[] = [
-    parts.columns,
-    sql`ROW_NUMBER() OVER (PARTITION BY ${distinct} ORDER BY ${rowNumberOrder}) AS ${escapeIdentifier("_rn")}`,
-  ];
-
-  if (parts.orderBy) {
-    selectColumns.push(
-      sql`ROW_NUMBER() OVER (ORDER BY ${parts.orderBy}) AS ${escapeIdentifier("_ord")}`
-    );
+  const selectColumns: Sql[] = [parts.columns];
+  if (order) {
+    selectColumns.push(order.keys);
   }
+  selectColumns.push(
+    sql`ROW_NUMBER() OVER (PARTITION BY ${distinct} ORDER BY ${rowNumberOrder}) AS ${escapeIdentifier("_rn")}`
+  );
 
   // Inner query with ROW_NUMBER()
   const innerFragments: Sql[] = [
@@ -130,7 +129,7 @@ export const assembleDistinctOnEmulation = (
   const innerQuery = sql.join(innerFragments, " ");
 
   // Outer query that filters for first row of each partition. It names the
-  // output columns so _rn/_ord stay inside: every engine DISTINCT carrier
+  // output columns so _rn/_ordN stay inside: every engine DISTINCT carrier
   // states its aliases.
   const aliasColumns = parts.distinctColumnAliases!.map(escapeIdentifier);
   const outerFragments: Sql[] = [
@@ -138,8 +137,8 @@ export const assembleDistinctOnEmulation = (
     sql`WHERE ${escapeIdentifier("_rn")} = 1`,
   ];
 
-  if (parts.orderBy) {
-    outerFragments.push(sql`ORDER BY ${escapeIdentifier("_ord")}`);
+  if (order) {
+    outerFragments.push(sql`ORDER BY ${order.orderBy}`);
   }
 
   appendLimitOffset(outerFragments, parts.limit, parts.offset, noLimitValue);

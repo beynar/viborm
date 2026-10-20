@@ -808,6 +808,7 @@ const SQLITE_CAPABILITIES = {
   // off in the builds this project targets (better-sqlite3, libSQL, D1).
   supportsMutationRowLimit: false,
   supportsRowLocks: false,
+  joinsJunctionFilters: true,
 };
 
 const SQLITE_RESULT: AdapterResultParser = {
@@ -853,7 +854,11 @@ const SQLITE_FILTERS = createRelationFilters();
 
 const SQLITE_SUBQUERIES = createSubqueries(quoteIdent);
 
-const SQLITE_CTE = createCteBuilders(quoteIdent);
+// A member is written once and inlined at every use: one a nested body reads
+// is compiled again inside each use of that body, so it is materialized.
+const SQLITE_CTE = createCteBuilders(quoteIdent, {
+  materializing: sql.raw("MATERIALIZED"),
+});
 
 /**
  * A multi-row `VALUES` is the one compound SQLite does not count against

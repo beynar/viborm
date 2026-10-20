@@ -44,6 +44,8 @@ import {
 } from "@extensions/methods";
 import { TransactionWriteOutcomes } from "@extensions/query";
 import { applyRequestTransforms } from "@extensions/request";
+import { planResultFields } from "@extensions/result";
+import type { ResultInference } from "@extensions/result-types";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import {
   attachPendingCacheExecution,
@@ -326,6 +328,7 @@ export interface ProjectedContribution<
   readonly controls: Contribution["controls"];
   readonly rows: Contribution["rows"];
   readonly data: Contribution["data"];
+  readonly result: Contribution["result"];
 }
 
 type ContributionOf<
@@ -533,10 +536,14 @@ interface VibORMClientMembers<
       readonly $schema: Schema;
     }
   ): Result;
-  $extends<const Definition extends OfficialAwareDefinition<C, X, Definition>>(
+  $extends<
+    const Definition extends OfficialAwareDefinition<C, X, Definition>,
+    Fields = unknown,
+  >(
     extension: Definition &
       ExtensionAdmission<Definition, C, X> &
-      (Definition extends (...args: never[]) => unknown ? never : unknown)
+      (Definition extends (...args: never[]) => unknown ? never : unknown) &
+      ResultInference<C, X["result"], Fields>
   ): VibORMClient<
     AppliedClientConfig<C, Definition>,
     AppliedExtensionState<C, X, Definition>
@@ -716,13 +723,25 @@ export class VibORM<C extends VibORMConfig> {
       lookupPlacedControls(chain, modelNameStr, operation).length > 0;
     let operationArgs: Record<string, unknown> = rawArgs;
     let prepareInput: PrepareOperationInput | undefined;
-    // Apply the client omit, then refuse an empty unique where.
+    const resultFields = chain?.result;
+    let finishResult: ((value: unknown) => unknown) | undefined;
+    // Apply the client omit, then refuse an empty unique where, then plan
+    // the chain's computed fields.
     const finish = (requestArgs: Record<string, unknown>) => {
       const omittedArgs = clientOmit
         ? applyClientOmit(model, operation, requestArgs, clientOmit)
         : requestArgs;
       assertNonEmptyUniqueWhere(modelNameStr, operation, omittedArgs);
-      return omittedArgs;
+      if (resultFields === undefined) return omittedArgs;
+      const planned = planResultFields(
+        resultFields,
+        this.#relations,
+        model,
+        operation,
+        omittedArgs
+      );
+      finishResult = planned?.finish;
+      return planned?.args ?? omittedArgs;
     };
 
     if (
@@ -775,7 +794,15 @@ export class VibORM<C extends VibORMConfig> {
       model,
       operation,
       operationArgs,
-      officialReadCache ? { skipSpan: true } : undefined,
+      resultFields === undefined
+        ? officialReadCache
+          ? { skipSpan: true }
+          : undefined
+        : {
+            ...(officialReadCache ? { skipSpan: true } : {}),
+            finishResult: (value) =>
+              finishResult === undefined ? value : finishResult(value),
+          },
       prepareInput,
       prepareWriteOutcomeRegistration
     );
