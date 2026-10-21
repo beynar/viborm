@@ -571,6 +571,14 @@ export interface DatabaseAdapter {
      * element type to spell at all.
      */
     enumValue: (values: unknown[]) => Sql;
+    /**
+     * The values a one-column `query` answers, as one array, empty where it
+     * answers none (PostgreSQL `ARRAY(…)`). A row tests a key set held this
+     * way by {@link has} rather than by joining it: the array is computed once
+     * per statement, where a joined set is read again for each row of a
+     * correlated subquery. Absent where the dialect has no array value.
+     */
+    ofRows?: (query: Sql) => Sql;
     /** Check if array contains value */
     has: (column: Sql, value: Sql) => Sql;
     /** Check if array contains all values */
@@ -736,10 +744,19 @@ export interface DatabaseAdapter {
      * Build WITH clause: WITH name AS (query), ... A member `inlined` is read
      * correlated to each outer row through its own columns: PostgreSQL would
      * materialize a member read twice and scan it, without an index, once
-     * per row, so it is written `NOT MATERIALIZED` there.
+     * per row, so it is written `NOT MATERIALIZED` there. A member
+     * `inlined: false` is computed once: SQLite would inline it at every
+     * use, so it is written `MATERIALIZED` there. Without `inlined`, the
+     * database decides. A `recursive` member's query is its two terms,
+     * `anchor UNION recursive`, and makes the clause `WITH RECURSIVE`.
      */
     with: (
-      definitions: { name: string; query: Sql; inlined?: boolean }[]
+      definitions: {
+        name: string;
+        query: Sql;
+        inlined?: boolean;
+        recursive?: boolean;
+      }[]
     ) => Sql;
     /**
      * Build recursive CTE: WITH RECURSIVE name AS (anchor UNION ALL recursive).

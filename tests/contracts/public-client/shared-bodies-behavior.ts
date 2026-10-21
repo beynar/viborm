@@ -84,7 +84,9 @@ export function runSharedBodiesBehavior({
 
       // ENG-4 (review 2): a caller's `sql` text is not the engine's. Two
       // bodies that differ only in alias-shaped caller text ('_q1_' against
-      // '_q2_') were one key set, and both arms read the first's rows.
+      // '_q2_') were one key set, and both arms read the first's rows. Two
+      // `some` of one relation under `OR` are one body since 1.3.3; under
+      // `AND` they stay two.
       test(`${provider}: sharing=${shared} keeps alias-shaped text in a caller's SQL operand`, async () => {
         const doc = s.model({
           id: s.string().id(),
@@ -105,12 +107,14 @@ export function runSharedBodiesBehavior({
         clients.push(base);
         await syncLiveSchema(base);
         await base.doc.createMany({
-          data: [{ id: "d1" }, { id: "d2" }, { id: "d3" }],
+          data: [{ id: "d1" }, { id: "d2" }, { id: "d3" }, { id: "d4" }],
         });
         await base.grant.createMany({
           data: [
             { id: "g1", docId: "d1", level: "_q1_" },
             { id: "g2", docId: "d2", level: "_q2_" },
+            { id: "g3", docId: "d3", level: "_q1_" },
+            { id: "g4", docId: "d3", level: "_q2_" },
           ],
         });
         const governed = base
@@ -121,20 +125,24 @@ export function runSharedBodiesBehavior({
             })
           )
           .$as({ userId: "u1" });
-        const where = {
-          OR: [
-            { grants: { some: { level: { equals: sql`'_q1_'` } } } },
-            { grants: { some: { level: { equals: sql`'_q2_'` } } } },
-          ],
-        };
-        for (const client of [base, governed])
-          expect(
-            await client.doc.findMany({
+        const arms = [
+          { grants: { some: { level: { equals: sql`'_q1_'` } } } },
+          { grants: { some: { level: { equals: sql`'_q2_'` } } } },
+        ];
+        for (const client of [base, governed]) {
+          const read = (where: object) =>
+            client.doc.findMany({
               where,
               select: { id: true },
               orderBy: { id: "asc" },
-            })
-          ).toEqual([{ id: "d1" }, { id: "d2" }]);
+            });
+          expect(await read({ OR: arms })).toEqual([
+            { id: "d1" },
+            { id: "d2" },
+            { id: "d3" },
+          ]);
+          expect(await read({ AND: arms })).toEqual([{ id: "d3" }]);
+        }
       });
 
       test(`${provider}: sharing=${shared} preserves distinct policy parameter tuples and array members`, async () => {

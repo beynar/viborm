@@ -1,5 +1,6 @@
 import type { ArithmeticTarget } from "@adapters/adapter-core-types";
 import { assembleAdapterSelect } from "@adapters/adapter-internals";
+import type { QueryParts } from "@adapters/adapter-query-parts";
 import type { DatabaseAdapter, GeoPointSql } from "@adapters/database-adapter";
 import type { DriverResultParser } from "@drivers/exports";
 import {
@@ -343,6 +344,25 @@ export function returningSafeProjection(
     (field) => field.kind === "scalar" || field.kind === "sentinel"
   );
 }
+/**
+ * May decoding this projection REFUSE a row its statement already answered?
+ * A read-gated member (`GatedFieldRefusal`), a recursive relation (its output
+ * budget, a rejected cycle) and a variant slot (its integrity probe) each
+ * raise while decoding, after the statement. A write that answers its
+ * projection in its own statement (`OperationContext.answersInStatement`)
+ * could not roll back under such a refusal, so this owner says which do. A
+ * malformed provider result is not counted: it is no refusal of the row.
+ */
+export function refusesWhileDecoding(projection: PreparedProjection): boolean {
+  return projection.fields.some(
+    (field) =>
+      field.kind === "gate" ||
+      field.kind === "variants" ||
+      (field.kind === "relation" &&
+        (field.recurrence !== undefined ||
+          refusesWhileDecoding(field.projection)))
+  );
+}
 export interface Query {
   sql: Sql;
   shape: Shape;
@@ -362,6 +382,12 @@ interface SelectControls {
   unless?: Pick<PreparedSelector, "model" | "predicate">;
   /** The rows the read takes: its selector and cursor anchor under it. */
   purpose?: RowPurpose;
+  /**
+   * The relation the root row is read FROM in place of the model's table: a
+   * `WITH` member of the same statement carrying the table's columns (a
+   * write's `RETURNING *`, `OperationContext`'s projection over its own write).
+   */
+  source?: string;
 }
 /** One statement plus the operation's own cardinality and public shape. */
 export interface Read {
@@ -480,6 +506,8 @@ type PreparedTarget =
     };
 /** A recursive relation filter's range ({@link PreparedPredicate}). */
 type Closure = { readonly depth: number | false; readonly self: boolean };
+/** A row read through columns a walk or a key set carries, by field. */
+type CarriedRow = (field: string) => Sql;
 type PreparedPredicate =
   | {
       readonly kind: "and" | "or";
@@ -1492,19 +1520,108 @@ interface SharedBody {
    * would otherwise be materialized.
    */
   readonly correlated: boolean;
+  /**
+   * A walk's reaching set ({@link Queries.sharedWalk}): two terms, computed
+   * once by every database, so it states no form.
+   */
+  readonly recursive?: true;
   readonly slots: {
     readonly slot: SqlSlot;
     readonly inline: Sql;
     readonly use: Sql;
+    /** Absent for an `$exists`, which reads no row's column. */
+    readonly test?: SetTest;
   }[];
 }
-/** A statement's relation bodies, by {@link sharedKey}, in lowering order. */
+/**
+ * The row columns a placed body's use compares with its key set's `k`
+ * columns, in their order, and whether the test holds where they are in the
+ * set (`EXISTS`) or where they are not (`NOT EXISTS`).
+ */
+interface SetTest {
+  readonly alias: string;
+  readonly columns: readonly string[];
+  readonly holds: boolean;
+}
+/**
+ * A statement's relation bodies, by {@link sharedKey}, in lowering order,
+ * and the slots after each alias's `FROM` item where it may join the key
+ * sets it is tested against ({@link Queries.sharingBodies}).
+ */
 interface SharedBodies {
   readonly byKey: Map<string, SharedBody>;
   readonly order: SharedBody[];
+  readonly attach: Map<string, SqlSlot[]>;
 }
-/** An alias the per-statement counter minted, inside an identifier. */
-const ALIAS_TOKEN = /(?<=["_])q(\d+)(?=["_])/g;
+/** One place a shared body was lowered at ({@link SharedBody}). */
+type PlacedBody = SharedBody["slots"][number];
+/** The places one alias tests key sets on the same columns, and the sets. */
+interface TestedColumns {
+  readonly test: SetTest;
+  readonly bodies: SharedBody[];
+  readonly placed: [SharedBody, PlacedBody][];
+}
+/**
+ * Key sets one member flags for the groups that join it, and the relations
+ * joining it saves ({@link Queries.flagging}).
+ */
+interface FlagPlan {
+  readonly sets: readonly SharedBody[];
+  readonly groups: readonly TestedColumns[];
+  readonly saves: number;
+}
+/** The flag members a statement joins, of those that save relations. */
+type FlagChoice = (plans: readonly FlagPlan[]) => readonly FlagPlan[];
+/** A `WITH` member of key sets' flags ({@link Queries.flagging}). */
+interface FlagMember {
+  readonly name: string;
+  readonly query: Sql;
+  readonly inlined: boolean;
+}
+/** How a relation filter tests its subquery, and whether that is `EXISTS`. */
+interface Quantified {
+  readonly of: (query: Sql) => Sql;
+  readonly holds: boolean;
+}
+/** `"`, `_` or `` ` ``: a character an alias token sits between. */
+const aliasEdge = (code: number) => code === 34 || code === 95 || code === 96;
+/**
+ * `text` with each alias the per-statement counter minted renumbered in
+ * order of first appearance (`renumbered` carries the order across a body's
+ * runs). An alias token is `q<digits>` inside an identifier: quoted `"q1"`
+ * (PostgreSQL, SQLite) or `` `q1` `` (MySQL), or within a derived name
+ * (`__q1_recursive`), so between two of {@link aliasEdge}'s characters. A
+ * scan, not a regular expression: keying is most of what sharing costs.
+ */
+function renumberAliases(
+  text: string,
+  renumbered: Map<string, number>
+): string {
+  let out = "";
+  let from = 0;
+  let at = text.indexOf("q");
+  while (at !== -1) {
+    let next = at + 1;
+    if (aliasEdge(text.charCodeAt(at - 1))) {
+      let end = next;
+      let code = text.charCodeAt(end);
+      while (code >= 48 && code <= 57) code = text.charCodeAt(++end);
+      if (end > next && aliasEdge(code)) {
+        const minted = text.slice(next, end);
+        let local = renumbered.get(minted);
+        if (local === undefined) {
+          local = renumbered.size;
+          renumbered.set(minted, local);
+        }
+        out += `${text.slice(from, next)}${local}`;
+        from = end;
+      }
+      next = end;
+    }
+    at = text.indexOf("q", next);
+  }
+  return from === 0 ? text : out + text.slice(from);
+}
 /**
  * A caller's `Sql` operand as lowered, parenthesized ({@link Queries.value}):
  * text the engine did not write, so nothing in it is an alias of the
@@ -1537,33 +1654,75 @@ function valueKey(value: unknown): string {
  * two bodies (ENG-4, review 2). Its runs are found on the fragment tree,
  * which no lowering flattens before its statement settles ({@link SqlSlot}).
  */
+/** The places a statement reads a shared member unaliased, `FROM "<name>"`. */
+const memberReads = new WeakSet<Sql>();
+/** `name`'s member read unaliased, as a `FROM` item ({@link relations}). */
+function memberRead(a: DatabaseAdapter, name: string): Sql {
+  const read = sql`${a.identifiers.escape(name)}`;
+  memberReads.add(read);
+  return read;
+}
+/**
+ * How many relations `statement` references as PlanetScale's Neki counts
+ * them (it refuses over 256): each `FROM` item, a table, a reference to a
+ * `WITH` member or a derived table, wherever it is, a member's own counted
+ * once, used or not. Every item the engine writes is either aliased by the
+ * statement's counter, `"q<n>"` where it is defined (followed by anything
+ * but the `.` of a column it qualifies), or one of its {@link memberReads}.
+ * A caller's `Sql` operand is not counted. `visit` sees every fragment
+ * read.
+ */
+function relations(statement: Sql, visit?: (fragment: Sql) => void): number {
+  let count = 0;
+  const { runs } = Sql.peekRuns(statement, (fragment) => {
+    if (memberReads.has(fragment)) count++;
+    visit?.(fragment);
+    return isCallerText(fragment);
+  });
+  let text = "";
+  for (const run of runs) text += run.opaque ? " " : run.text;
+  let at = text.indexOf("q");
+  while (at !== -1) {
+    const quote = text.charCodeAt(at - 1);
+    let end = at + 1;
+    while (text.charCodeAt(end) >= 48 && text.charCodeAt(end) <= 57) end++;
+    if (
+      (quote === 34 || quote === 96) &&
+      end > at + 1 &&
+      text.charCodeAt(end) === quote &&
+      text.charCodeAt(end + 1) !== 46
+    )
+      count++;
+    at = text.indexOf("q", end);
+  }
+  return count;
+}
 function sharedKey(query: Sql): string {
   const { runs, values } = Sql.peekRuns(query, isCallerText);
   const renumbered = new Map<string, number>();
-  const normalized = runs.map(({ text, opaque }) =>
-    opaque
-      ? [text]
-      : text.replace(ALIAS_TOKEN, (_, n: string) => {
-          let local = renumbered.get(n);
-          if (local === undefined) {
-            local = renumbered.size;
-            renumbered.set(n, local);
-          }
-          return `q${local}`;
-        })
-  );
-  // SQL text and bound strings may contain any delimiter. Preserve the
-  // tuple boundaries, including array members, before sharing a predicate.
-  return JSON.stringify([normalized, values.map(valueKey)]);
+  // SQL text and bound strings may contain any delimiter: each part is
+  // length-prefixed (a caller's run marked `!`), after the count of runs,
+  // so the tuple boundaries, array members included, survive in the key.
+  let key = `${runs.length}|`;
+  for (const { text, opaque } of runs) {
+    const part = opaque ? text : renumberAliases(text, renumbered);
+    key += `${opaque ? "!" : ""}${part.length}:${part}`;
+  }
+  for (const value of values) {
+    const part = valueKey(value);
+    key += `${part.length}:${part}`;
+  }
+  return key;
 }
 
 /**
  * Textual alias renumbering cannot distinguish a physical name from an
  * alias. Such schemas keep their relation bodies inline: an optimization
  * must never rename a column, table, junction or namespace in its identity.
- * An alias is `q<n>` between quotes or underscores ({@link ALIAS_TOKEN}), so
- * only a name that is one, or holds one at an end or between underscores,
- * resembles it; `seq1` or `freq2` do not.
+ * An alias is `q<n>` between quotes or underscores
+ * ({@link renumberAliases}), so only a name that is one, or holds one at an
+ * end or between underscores, resembles it; `seq1` or `freq2` do not. A name
+ * holds no quote (`isValidSchemaIdentifier`).
  */
 const aliasLikeSchemas = new WeakMap<EngineSchema, boolean>();
 const ALIAS_LIKE_NAME = /(?:^|_)q\d+(?:_|$)/;
@@ -2004,6 +2163,12 @@ export class Queries {
   readonly schema: EngineSchema;
   readonly adapter: DatabaseAdapter;
   #nextAlias = 0;
+  /**
+   * The statement's aliases that read a stored row of a model's table as it
+   * stands ({@link table}), by model: a derived row (a produced row, a masked
+   * or paged window, a locked source) is never one.
+   */
+  readonly #rows = new Map<string, AnyModel>();
   readonly #views: QueryViews;
   /**
    * The DRIVER's own representation rules (D-17). Scalar meaning is owned by
@@ -2047,6 +2212,12 @@ export class Queries {
    * adapter shares them ({@link sharingBodies}).
    */
   #shared: SharedBodies | undefined;
+  /**
+   * The read lowering here is bounded: a unique, first or existence read, or
+   * a `take` (`capabilities.joinsJunctionFilters`). Each read sets it; a
+   * write's owner never reads, so its statements are never bounded.
+   */
+  #bounded = false;
   readonly #sharesBodies: boolean;
   constructor(
     schema: EngineSchema,
@@ -2073,10 +2244,26 @@ export class Queries {
    * every arm repeating it tests ({@link relationExists}); a body lowered once
    * keeps its place, so a statement that repeats none is unchanged. One scope
    * per statement: a statement lowered inside another's joins it.
+   *
+   * A recursive filter's walk stays in place, and each key set is tested
+   * where it is read, until the statement references more relations than
+   * the adapter's `relationsPerStatement` ({@link relations}): then walks it
+   * repeats become reaching sets ({@link sharedWalk}), those saving the most
+   * relations first, until it fits, and if still over, rows join the key
+   * sets they test ({@link flagging}), the largest saving first. Each costs
+   * plans: a reaching set is computed for every row of its table (a check of
+   * one row reads them all), and a joined flag member is read again per row
+   * of a correlated subquery, where the test it replaces was hashed once
+   * (PostgreSQL holds a one-column set as an array instead, computed once).
+   * The bound is the driver's to state (Neki: 256); absent, nothing changes.
    */
   #sharingBodies(build: () => Sql): Sql {
     if (this.#shared !== undefined) return build();
-    const shared: SharedBodies = { byKey: new Map(), order: [] };
+    const shared: SharedBodies = {
+      byKey: new Map(),
+      order: [],
+      attach: new Map(),
+    };
     this.#shared = shared;
     let statement: Sql;
     try {
@@ -2084,37 +2271,434 @@ export class Queries {
     } finally {
       this.#shared = undefined;
     }
-    const repeated = shared.order.filter((body) => {
-      const many = body.slots.length > 1;
-      for (const placed of body.slots)
-        placed.slot.settle(many ? placed.use : placed.inline);
-      return many;
-    });
+    const repeated: SharedBody[] = [];
+    for (const body of shared.order)
+      if (body.slots.length > 1) repeated.push(body);
+      else body.slots[0]!.slot.settle(body.slots[0]!.inline);
+    const walks = repeated.filter((body) => body.recursive === true);
+    const budget = this.adapter.capabilities.relationsPerStatement;
+    const settle = (
+      reaching: ReadonlySet<SharedBody>,
+      flagged: FlagChoice = () => []
+    ) => this.#settled(statement, shared, repeated, reaching, flagged);
+    let query = settle(new Set());
+    if (budget === undefined) return query;
+    let count = relations(query);
+    if (count <= budget) return query;
+    // Walks first, those saving the most relations, until the estimate fits;
+    // then key sets joined, the largest saving first, until it does.
+    const reaching = new Set<SharedBody>();
+    for (const { body, saves } of this.#rankedWalks(query, walks)) {
+      if (count <= budget) break;
+      reaching.add(body);
+      count -= saves;
+    }
+    query = settle(reaching);
+    count = relations(query);
+    if (count <= budget) return query;
+    const largest: FlagChoice = (plans) =>
+      [...plans]
+        .sort((left, right) => right.saves - left.saves)
+        .filter((plan) => {
+          if (count <= budget) return false;
+          count -= plan.saves;
+          return true;
+        });
+    query = settle(reaching, largest);
+    // An estimate counts each walk or member where the others are not: one
+    // nested in another saves less. Short, the most compact form.
+    return relations(query) <= budget
+      ? query
+      : settle(new Set(walks), (plans) => plans);
+  }
+  /**
+   * `statement` with each repeated body stated once but walks outside
+   * `reaching`, which stay in place, and the flag members `flagged` picks
+   * ({@link flagging}) joined.
+   */
+  #settled(
+    statement: Sql,
+    shared: SharedBodies,
+    repeated: readonly SharedBody[],
+    reaching: ReadonlySet<SharedBody>,
+    flagged: FlagChoice
+  ): Sql {
+    const stated: SharedBody[] = [];
+    for (const body of repeated)
+      if (body.recursive !== true || reaching.has(body)) {
+        stated.push(body);
+        for (const placed of body.slots) placed.slot.settle(placed.use);
+      } else for (const placed of body.slots) placed.slot.settle(placed.inline);
+    for (const slots of shared.attach.values())
+      for (const slot of slots) slot.settle(sql.empty);
     // A relation body is inlined where it reads no other shared body: a
     // nested one, inlined into every use of every body that reads it,
     // multiplies the plan (a 40-model policy's `can`: 9.8 s materialized,
     // 113 s inlined, 11 s inlining the leaves only).
     // By the slots a stated body settled to, not by text: a table may be
-    // named like a body.
+    // named like a body. The same pass finds the aliases each body joins
+    // flags after ({@link flagging}).
     const uses = new Set<Sql>(
-      repeated.flatMap((body) => body.slots.map((placed) => placed.slot))
+      stated.flatMap((body) => body.slots.map((placed) => placed.slot))
     );
-    const readsShared = (query: Sql): boolean => {
-      let found = false;
+    const attached = new Map<Sql, string>();
+    for (const [alias, slots] of shared.attach)
+      for (const slot of slots) attached.set(slot, alias);
+    const reads = new Set<SharedBody>();
+    // The aliases the statement states (a body lowered more than once states
+    // its first text only), by the first stated body holding each.
+    const within = new Map<string, number>();
+    const scan = (query: Sql, index: number, body?: SharedBody) => {
       Sql.peekRuns(query, (node) => {
-        if (uses.has(node)) found = true;
+        if (body !== undefined && uses.has(node)) reads.add(body);
+        const alias = attached.get(node);
+        if (alias !== undefined && !within.has(alias)) within.set(alias, index);
         return false;
       });
-      return found;
     };
-    const definitions = repeated.map((body) => ({
-      name: body.name,
-      query: body.query,
-      inlined: body.correlated && !readsShared(body.query),
-    }));
+    for (const [index, body] of stated.entries()) scan(body.query, index, body);
+    scan(statement, stated.length);
+    const flags = this.#flagging(shared, stated, within, flagged);
+    for (const body of stated)
+      for (const placed of body.slots)
+        placed.slot.settle(flags.atoms.get(placed) ?? placed.use);
+    const definitions = stated.flatMap((body) => [
+      body.recursive
+        ? { name: body.name, query: body.query, recursive: true }
+        : {
+            name: body.name,
+            query: body.query,
+            inlined: body.correlated && !reads.has(body),
+          },
+      ...(flags.after.get(body) ?? []),
+    ]);
     return definitions.length === 0
       ? statement
       : sql`${this.adapter.cte.with(definitions)} ${statement}`;
+  }
+  /**
+   * `walks`, placed in `query`, by how many relations stating each as a
+   * reaching set saves where the others stay: the relations of each place
+   * `query` reads it, less its set's and one per place. A walk `query` does
+   * not read (lowered in a body stated elsewhere) saves nothing.
+   */
+  #rankedWalks(
+    query: Sql,
+    walks: readonly SharedBody[]
+  ): { readonly body: SharedBody; readonly saves: number }[] {
+    const of = new Map<Sql, SharedBody>();
+    for (const body of walks)
+      for (const placed of body.slots) of.set(placed.slot, body);
+    const read = new Map<SharedBody, Sql[]>();
+    relations(query, (fragment) => {
+      const body = of.get(fragment);
+      if (body === undefined) return;
+      const places = read.get(body);
+      if (places === undefined) read.set(body, [fragment]);
+      else places.push(fragment);
+    });
+    return [...read]
+      .map(([body, places]) => ({
+        body,
+        saves:
+          places.reduce((sum, place) => sum + relations(place), 0) -
+          relations(body.query) -
+          places.length,
+      }))
+      .sort((left, right) => right.saves - left.saves);
+  }
+  /**
+   * Where aliases test repeated bodies' key sets on the same columns more
+   * often than joining them costs, and their `FROM` items can join them
+   * ({@link attached}), each joins them ONCE: one `WITH` member holds each
+   * key any set of a group holds, with one flag per set, `LEFT JOIN`ed after
+   * the item on those columns, and each test reads its set's flag, `IS NOT
+   * NULL` for an `EXISTS`, `IS NULL` for a `NOT EXISTS`: two-valued as they
+   * are, a NULL key holding no flag. PlanetScale's Neki bounds one statement
+   * to 256 relations and counts each test's `FROM` item; a member costs one
+   * per set it reads (and its union one more), and each alias joining it
+   * one. Aliases testing overlapping groups share one member of all their
+   * sets where that costs less and every body joining it (`within`, the
+   * first repeated body whose text holds the alias) follows its last set;
+   * else each distinct group has its own, which always does: each set an
+   * alias tests is lowered inside that alias's body. A member is stated
+   * after the last set it reads. Where the dialect holds a value list
+   * (`arrays.ofRows`, PostgreSQL), a group of one-column keys is instead one
+   * row of arrays, one per set (each one relation, no union), `CROSS JOIN`ed,
+   * each test `COALESCE(key = ANY(array), FALSE)` or its negation: a joined
+   * flag member is read again for each row of a correlated subquery (a
+   * nested include's 10x page read: 1.3 s in place, 5.1 s with flags, 1.4 s
+   * with arrays), an array once per statement.
+   */
+  #flagging(
+    shared: SharedBodies,
+    repeated: readonly SharedBody[],
+    within: ReadonlyMap<string, number>,
+    flagged: FlagChoice
+  ): {
+    readonly atoms: Map<PlacedBody, Sql>;
+    readonly after: Map<SharedBody, FlagMember[]>;
+  } {
+    const a = this.adapter;
+    const atoms = new Map<PlacedBody, Sql>();
+    const after = new Map<SharedBody, FlagMember[]>();
+    const order = new Map(repeated.map((body, index) => [body, index]));
+    const tested = new Map<string, TestedColumns>();
+    for (const body of repeated)
+      for (const placed of body.slots) {
+        const { test } = placed;
+        if (test === undefined || !within.has(test.alias)) continue;
+        const key = `${test.alias}\0${test.columns.join("\0")}`;
+        let group = tested.get(key);
+        if (group === undefined) {
+          group = { test, bodies: [], placed: [] };
+          tested.set(key, group);
+        }
+        group.placed.push([body, placed]);
+        if (!group.bodies.includes(body)) group.bodies.push(body);
+      }
+    const byOrder = (left: SharedBody, right: SharedBody) =>
+      order.get(left)! - order.get(right)!;
+    // A one-column key set is held as an array where the dialect has one
+    // (`arrays.ofRows`): one read per set, no union.
+    const arrays = (width: number) =>
+      width === 1 && a.arrays.ofRows !== undefined;
+    const member = (sets: number, width: number) =>
+      sets === 1 || arrays(width) ? sets : sets + 1;
+    const tests = (groups: readonly TestedColumns[]) =>
+      groups.reduce((sum, group) => sum + group.placed.length, 0);
+    // Each distinct group's own member, where it costs less than its tests.
+    const own = (groups: readonly TestedColumns[]) => {
+      const combinations = new Map<string, TestedColumns[]>();
+      for (const group of groups) {
+        const combination = [...group.bodies]
+          .sort(byOrder)
+          .map((body) => body.name)
+          .join(",");
+        const same = combinations.get(combination);
+        if (same === undefined) combinations.set(combination, [group]);
+        else same.push(group);
+      }
+      return [...combinations.values()].map((same) => {
+        const sets = [...same[0]!.bodies].sort(byOrder);
+        return {
+          sets,
+          groups: same,
+          saves:
+            tests(same) -
+            member(sets.length, same[0]!.test.columns.length) -
+            same.length,
+        };
+      });
+    };
+    // Groups of one key width that share a set, joined transitively: a
+    // group testing once gains nothing by a join.
+    const components: TestedColumns[][] = [];
+    for (const group of tested.values()) {
+      if (group.placed.length < 2) continue;
+      const joined = components.filter((component) =>
+        component.some(
+          (other) =>
+            other.test.columns.length === group.test.columns.length &&
+            other.bodies.some((body) => group.bodies.includes(body))
+        )
+      );
+      const merged = [group, ...joined.flat()];
+      for (const component of joined)
+        components.splice(components.indexOf(component), 1);
+      components.push(merged);
+    }
+    const plans: FlagPlan[] = components.flatMap((component) => {
+      const separate = own(component).filter((plan) => plan.saves > 0);
+      const sets = [
+        ...new Set(component.flatMap((group) => group.bodies)),
+      ].sort(byOrder);
+      const last = order.get(sets.at(-1)!)!;
+      const together = {
+        sets,
+        groups: component,
+        saves:
+          tests(component) -
+          member(sets.length, component[0]!.test.columns.length) -
+          component.length,
+      };
+      const ordered = component.every(
+        (group) => within.get(group.test.alias)! > last
+      );
+      return ordered &&
+        together.saves > separate.reduce((sum, plan) => sum + plan.saves, 0)
+        ? [together]
+        : separate;
+    });
+    const joins = new Map<string, Sql[]>();
+    let named = shared.order.length;
+    const chosen = new Set(flagged(plans));
+    for (const { sets, groups } of plans.filter((plan) => chosen.has(plan))) {
+      const keys = groups[0]!.test.columns.map((_, index) => `k${index}`);
+      const name = `__shared_${named++}`;
+      const last = sets.at(-1)!;
+      const held = arrays(keys.length);
+      after.set(last, [
+        ...(after.get(last) ?? []),
+        {
+          name,
+          query: held ? this.#keyArrays(sets) : this.#flagSet(sets, keys),
+          inlined: false,
+        },
+      ]);
+      for (const { test, placed } of groups) {
+        const flag = this.alias();
+        const member = a.identifiers.aliased(a.identifiers.escape(name), flag);
+        const joined = joins.get(test.alias) ?? [];
+        joined.push(
+          held
+            ? a.joins.cross(member)
+            : a.joins.left(
+                member,
+                a.operators.and(
+                  ...test.columns.map((column, index) =>
+                    a.operators.eq(
+                      a.identifiers.column(flag, keys[index]!),
+                      a.identifiers.column(test.alias, column)
+                    )
+                  )
+                )
+              )
+        );
+        joins.set(test.alias, joined);
+        for (const [body, slot] of placed) {
+          const index = sets.indexOf(body);
+          if (held) {
+            // Two-valued as the EXISTS it replaces: a NULL key, or a key an
+            // array holding a NULL does not hold, is not held.
+            const holds = a.expressions.coalesce(
+              a.arrays.has(
+                a.identifiers.column(flag, `f${index}`),
+                a.identifiers.column(test.alias, test.columns[0]!)
+              ),
+              a.literals.false()
+            );
+            atoms.set(slot, slot.test!.holds ? holds : a.operators.not(holds));
+            continue;
+          }
+          const flagged = a.identifiers.column(
+            flag,
+            sets.length === 1 ? keys[0]! : `f${index}`
+          );
+          atoms.set(
+            slot,
+            slot.test!.holds
+              ? a.operators.isNotNull(flagged)
+              : a.operators.isNull(flagged)
+          );
+        }
+      }
+    }
+    for (const [alias, slots] of shared.attach) {
+      const joined = joins.get(alias);
+      if (joined === undefined) continue;
+      for (const slot of slots) slot.settle(sql` ${sql.join(joined, " ")}`);
+    }
+    return { atoms, after };
+  }
+  /**
+   * One row holding each of `bodies`' one-column key sets as an array, `f<n>`
+   * for the n-th ({@link DatabaseAdapter.arrays.ofRows}): computed once per
+   * statement, each row joining it tests membership without reading a set
+   * again.
+   */
+  #keyArrays(bodies: readonly SharedBody[]): Sql {
+    const a = this.adapter;
+    return sql`SELECT ${sql.join(
+      bodies.map((body, index) =>
+        a.identifiers.aliased(
+          a.arrays.ofRows!(
+            assembleAdapterSelect(a, {
+              columns: a.identifiers.column(body.name, "k0"),
+              from: memberRead(a, body.name),
+            })
+          ),
+          `f${index}`
+        )
+      ),
+      ", "
+    )}`;
+  }
+  /**
+   * The keys `bodies`' sets hold, once each: with one set, its keys; with
+   * more, each key and per set `f<n>`, 1 where that set holds the key and
+   * NULL where it does not.
+   */
+  #flagSet(bodies: readonly SharedBody[], keys: readonly string[]): Sql {
+    const a = this.adapter;
+    if (bodies.length === 1) {
+      const columns = keys.map((key) =>
+        a.identifiers.column(bodies[0]!.name, key)
+      );
+      return assembleAdapterSelect(a, {
+        columns: sql.join(columns, ", "),
+        from: memberRead(a, bodies[0]!.name),
+        groupBy: sql.join(columns, ", "),
+      });
+    }
+    const flags = bodies.map((_, index) => `f${index}`);
+    // Typed: PostgreSQL types a bare NULL arm by arm, as text.
+    const absent = a.expressions.cast(a.literals.null(), "integer");
+    const arms = bodies.map((body, member) =>
+      assembleAdapterSelect(a, {
+        columns: sql.join(
+          [
+            ...keys.map((key) =>
+              a.identifiers.aliased(a.identifiers.column(body.name, key), key)
+            ),
+            ...flags.map((flag, index) =>
+              a.identifiers.aliased(index === member ? sql`1` : absent, flag)
+            ),
+          ],
+          ", "
+        ),
+        from: memberRead(a, body.name),
+      })
+    );
+    // A transport bounding a compound's terms (D1: 5) reads a longer union
+    // through derived tables of at most that many.
+    const bound = a.capabilities.compoundSelectTerms ?? arms.length;
+    const union = (terms: readonly Sql[]): Sql =>
+      terms.length <= bound
+        ? a.setOperations.unionAll(...terms)
+        : union(
+            Array.from({ length: Math.ceil(terms.length / bound) }, (_, at) =>
+              terms.slice(at * bound, (at + 1) * bound)
+            ).map((chunk) =>
+              chunk.length === 1
+                ? chunk[0]!
+                : assembleAdapterSelect(a, {
+                    columns: sql.raw("*"),
+                    from: a.subqueries.correlate(
+                      a.setOperations.unionAll(...chunk),
+                      this.alias()
+                    ),
+                  })
+            )
+          );
+    const held = this.alias();
+    const columns = keys.map((key) => a.identifiers.column(held, key));
+    return assembleAdapterSelect(a, {
+      columns: sql.join(
+        [
+          ...columns,
+          ...flags.map((flag) =>
+            a.identifiers.aliased(
+              a.aggregates.max(a.identifiers.column(held, flag)),
+              flag
+            )
+          ),
+        ],
+        ", "
+      ),
+      from: a.subqueries.correlate(union(arms), held),
+      groupBy: sql.join(columns, ", "),
+    });
   }
   /**
    * A write's statement, sharing its bodies where the adapter does: every
@@ -2321,9 +2905,36 @@ export class Queries {
    */
   #rootAlias(): string {
     this.#nextAlias = 0;
+    this.#rows.clear();
     return this.alias();
   }
+  /**
+   * `model`'s table read as `alias`, followed, inside a statement sharing its
+   * bodies, by the slot where `alias` joins the key sets it is tested
+   * against ({@link sharingBodies}). Only where nothing after the item but
+   * other joins and the clauses of its own query read `alias`.
+   */
+  #attached(model: AnyModel, alias: string): Sql {
+    return sql`${this.table(model, alias)}${this.#attachPoint(alias)}`;
+  }
+  /** The slot after `alias`'s `FROM` item ({@link attached}). */
+  #attachPoint(alias: string): Sql {
+    const shared = this.#shared;
+    if (shared === undefined) return sql.empty;
+    const slot = new SqlSlot(sql.empty);
+    const slots = shared.attach.get(alias);
+    if (slots === undefined) shared.attach.set(alias, [slot]);
+    else slots.push(slot);
+    return slot;
+  }
+  /** A fresh alias for a stored row of `model`, known before its `FROM` is. */
+  #rowAlias(model: AnyModel): string {
+    const alias = this.alias();
+    this.#rows.set(alias, model);
+    return alias;
+  }
   table(model: AnyModel, alias?: string): Sql {
+    if (alias !== undefined) this.#rows.set(alias, model);
     return this.adapter.identifiers.table(model["~"].names.sql!, alias);
   }
   column(model: AnyModel, field: string, alias?: string): Sql {
@@ -2685,7 +3296,7 @@ export class Queries {
   junctionSideConditions(
     side: ResolvedJunctionSide,
     junctionAlias: string | undefined,
-    endpoint: string | Input
+    endpoint: string | Input | CarriedRow
   ): Sql[] {
     const a = this.adapter;
     return side.members.map((pair) =>
@@ -2695,11 +3306,13 @@ export class Queries {
           : a.identifiers.escape(pair.junctionField),
         typeof endpoint === "string"
           ? this.column(side.model, pair.referencedField, endpoint)
-          : this.fieldValue(
-              side.model,
-              pair.referencedField,
-              endpoint[pair.referencedField]
-            )
+          : typeof endpoint === "function"
+            ? endpoint(pair.referencedField)
+            : this.fieldValue(
+                side.model,
+                pair.referencedField,
+                endpoint[pair.referencedField]
+              )
       )
     );
   }
@@ -5203,7 +5816,7 @@ export class Queries {
     )
       return a.literals.true();
     const { edge, closure } = predicate;
-    const childAlias = this.alias();
+    const childAlias = this.#rowAlias(edge.target);
     // A semijoin over a plain reference: `some`/`is` with a body, neither a
     // walk nor a variant arm. Its `FROM` takes the semijoins among its
     // conjuncts that read a row above it (`joins`), and it is one of those
@@ -5263,7 +5876,7 @@ export class Queries {
     const stated = nested
       ? [predicate.quantifier === "every" ? a.operators.not(nested) : nested]
       : [];
-    let query: Sql;
+    const quantified = this.#quantified(predicate);
     if (closure) {
       // The walk is this EXISTS's OWN `WITH`, never wrapped in a derived table
       // or a LATERAL: MySQL answers every outer row from one evaluation of a
@@ -5274,7 +5887,7 @@ export class Queries {
         parentAlias ?? "",
         closure
       );
-      query = sql`${cte} ${a.subqueries.existsCheck(
+      const query = sql`${cte} ${a.subqueries.existsCheck(
         sql`${a.identifiers.aliased(a.identifiers.escape(cteName), walk)} ${a.joins.inner(
           this.table(edge.target, childAlias),
           this.#sameRow(
@@ -5282,39 +5895,57 @@ export class Queries {
             childAlias,
             childColumns.map((name) => a.identifiers.column(walk, name))
           )
-        )}`,
+        )}${this.#attachPoint(childAlias)}`,
         a.operators.and(...stated)
       )}`;
-    } else
-      query = this.#relationExists(
+      // Admission refuses a `$row` across a recursive relation: what the
+      // walk states reads no row above the one it reaches.
+      return this.#sharedWalk(
         edge,
         parentAlias ?? "",
         childAlias,
-        predicate.unscoped === undefined,
+        closure,
         stated,
-        predicate.predicate !== undefined && readsRelation(predicate.predicate),
-        frame.escaped,
-        frame.joins
+        query,
+        quantified
       );
+    }
+    return this.#relationExists(
+      edge,
+      parentAlias ?? "",
+      childAlias,
+      predicate.unscoped === undefined,
+      stated,
+      quantified,
+      predicate.predicate !== undefined && readsRelation(predicate.predicate),
+      frame.escaped,
+      frame.joins
+    );
+  }
+  /** How `predicate`'s quantifier tests its relation's subquery. */
+  #quantified(
+    predicate: Extract<PreparedPredicate, { kind: "relation" }>
+  ): Quantified {
+    const { filters } = this.adapter;
     switch (predicate.quantifier) {
       case "some":
-        return a.filters.some(query);
+        return { of: (query) => filters.some(query), holds: true };
       case "none":
-        return a.filters.none(query);
+        return { of: (query) => filters.none(query), holds: false };
       case "every":
-        return a.filters.every(query);
+        return { of: (query) => filters.every(query), holds: false };
       case "is":
         return predicate.predicate
-          ? a.filters.is(query)
-          : a.filters.isNot(query);
+          ? { of: (query) => filters.is(query), holds: true }
+          : { of: (query) => filters.isNot(query), holds: false };
       default:
         // `isNot`, the one quantifier left: every relation filter that spells
         // quantifiers refuses a payload naming none of them in its own
         // registered sentence, at admission, so this switch only ever
         // receives an already-admitted quantifier.
         return predicate.predicate
-          ? a.filters.isNot(query)
-          : a.filters.is(query);
+          ? { of: (query) => filters.isNot(query), holds: false }
+          : { of: (query) => filters.is(query), holds: true };
     }
   }
   /**
@@ -5356,7 +5987,9 @@ export class Queries {
    * parent.fk)`: a semijoin on the correlated columns, read under the same
    * layers and values, so it takes exactly the rows the EXISTS takes. A
    * reference edge only (a junction's and a variant's membership stay
-   * where they are), and a body that states something.
+   * where they are), and a body that states something. A junction's
+   * membership is its join where the dialect plans that better, on
+   * PostgreSQL outside a bounded read ({@link junctionJoin}).
    */
   #relationExists(
     edge: Membership,
@@ -5364,19 +5997,36 @@ export class Queries {
     child: string,
     scoped: boolean,
     stated: readonly Sql[],
+    quantified: Quantified,
     deeper = false,
     correlatedAbove = false,
     joins: readonly Sql[] = []
   ): Sql {
     const a = this.adapter;
-    const member = this.#membershipWhere(edge, child, parent);
+    const junctions = a.capabilities.joinsJunctionFilters;
+    const joined =
+      edge.kind === "junction" &&
+      (junctions === true || (junctions === "unbounded" && !this.#bounded))
+        ? this.#junctionJoin(edge, child, parent)
+        : undefined;
+    const member =
+      joined?.correlation ?? this.#membershipWhere(edge, child, parent);
     const related = this.#relatedWhere(edge, child, scoped, deeper);
-    const table = this.table(edge.target, child);
-    const inline = a.subqueries.existsCheck(
-      joins.length === 0 ? table : sql`${table} ${sql.join(joins, " ")}`,
-      a.operators.and(
-        related ? a.operators.and(member, related) : member,
-        ...stated
+    // A flag join keeps SQLite from flattening the derived table each level
+    // of a nested filter reads from on D1, adding the level's height to every
+    // level above it (a three-arm policy at 15 levels passes depth 100).
+    const table =
+      joined?.from ??
+      (a.capabilities.boundsExpressionDepth === true
+        ? this.table(edge.target, child)
+        : this.#attached(edge.target, child));
+    const inline = quantified.of(
+      a.subqueries.existsCheck(
+        joins.length === 0 ? table : sql`${table} ${sql.join(joins, " ")}`,
+        a.operators.and(
+          related ? a.operators.and(member, related) : member,
+          ...stated
+        )
       )
     );
     const shared = this.#shared;
@@ -5400,7 +6050,7 @@ export class Queries {
         ),
         ", "
       ),
-      from: this.table(edge.target, child),
+      from: this.#attached(edge.target, child),
       where: a.operators.and(...conditions),
     });
     const key = sharedKey(query);
@@ -5416,20 +6066,377 @@ export class Queries {
       shared.order.push(body);
     }
     const { name } = body;
-    const use = a.subqueries.existsCheck(
-      a.identifiers.escape(name),
-      a.operators.and(
-        ...edge.pairs.map((pair, index) =>
-          a.operators.eq(
-            this.column(edge.source, pair.source, parent),
-            a.identifiers.column(name, `k${index}`)
+    const use = quantified.of(
+      a.subqueries.existsCheck(
+        memberRead(a, name),
+        a.operators.and(
+          ...edge.pairs.map((pair, index) =>
+            a.operators.eq(
+              this.column(edge.source, pair.source, parent),
+              a.identifiers.column(name, `k${index}`)
+            )
           )
         )
       )
     );
     const slot = new SqlSlot(use);
-    body.slots.push({ slot, inline, use });
+    body.slots.push({
+      slot,
+      inline,
+      use,
+      test: {
+        alias: parent,
+        columns: edge.pairs.map((pair) =>
+          this.columnName(edge.source, pair.source)
+        ),
+        holds: quantified.holds,
+      },
+    });
     return slot;
+  }
+  /**
+   * A recursive filter's walk from `parent`, `inline`, inside a statement
+   * sharing its bodies: a slot the statement settles to `inline` where the
+   * walk is lowered once, and else to a test of its REACHING SET, `EXISTS
+   * (SELECT 1 FROM <set> WHERE set.k = parent.key)`. Equal walks (the same
+   * text once aliases are renumbered, and the same values: the same edge,
+   * range, related domain and `stated`) share one set ({@link sharedKey}).
+   * The set holds the key of every stored row from which the walk reaches a
+   * row `stated` holds of ({@link reachingSet}), so it answers for `parent`
+   * where `parent` reads the stored row ({@link rows}) or the walk's first
+   * hop reads only its key: elsewhere (a produced row's new value, a masked
+   * window) the walk keeps its place, as it does on a dialect bounding
+   * recursion iterations, whose walks stay as they were.
+   */
+  #sharedWalk(
+    edge: Membership,
+    parent: string,
+    child: string,
+    closure: Closure,
+    stated: readonly Sql[],
+    walk: Sql,
+    quantified: Quantified
+  ): Sql {
+    const a = this.adapter;
+    const shared = this.#shared;
+    const model = edge.source;
+    const keys = this.schema.keys(model);
+    const inline = quantified.of(walk);
+    if (
+      shared === undefined ||
+      a.capabilities.boundsRecursionIterations === true ||
+      !(
+        this.#rows.get(parent) === model ||
+        this.#hopFields(edge).every((field) => keys.includes(field))
+      )
+    )
+      return inline;
+    const key = sharedKey(walk);
+    let body = shared.byKey.get(key);
+    if (body === undefined) {
+      const name = `__shared_${shared.order.length}`;
+      body = {
+        name,
+        query: this.#reachingSet(name, edge, child, closure, stated),
+        correlated: false,
+        recursive: true,
+        slots: [],
+      };
+      shared.byKey.set(key, body);
+      shared.order.push(body);
+    }
+    const { name } = body;
+    const use = quantified.of(
+      a.subqueries.existsCheck(
+        memberRead(a, name),
+        a.operators.and(
+          ...keys.map((field, index) =>
+            a.operators.eq(
+              this.column(model, field, parent),
+              a.identifiers.column(name, `k${index}`)
+            )
+          )
+        )
+      )
+    );
+    const slot = new SqlSlot(use);
+    body.slots.push({
+      slot,
+      inline,
+      use,
+      test: {
+        alias: parent,
+        columns: keys.map((field) => this.columnName(model, field)),
+        holds: quantified.holds,
+      },
+    });
+    return slot;
+  }
+  /**
+   * The two terms of a walk's reaching set `name`: the key of every stored
+   * row from which 1..`depth` hops of `edge` (every hop when `depth` is
+   * false), each into a row of the related domain, reach a row `stated`
+   * (lowered on `child`) holds of, and, where `self` holds, of every row it
+   * holds of. Read backwards from those rows: the anchor states them (at
+   * depth 0 where `self` holds; their predecessors at depth 1, each through a
+   * row of the domain, where it does not), and the recursive member adds the
+   * predecessors of each row of the set the domain takes, one depth further,
+   * below `depth`. A hidden row stops the walk below it, as forwards: it
+   * passes nothing on. `UNION` on the key (and depth, when bounded) ends
+   * every cycle and states a diamond's row once per depth.
+   */
+  #reachingSet(
+    name: string,
+    edge: Membership,
+    child: string,
+    closure: Closure,
+    stated: readonly Sql[]
+  ): Sql {
+    const a = this.adapter;
+    const model = edge.source;
+    const { depth, self } = closure;
+    const keys = this.schema.keys(model);
+    const keyColumns = keys.map((_, index) => `k${index}`);
+    const depthColumn = "depth";
+    const at = (value: Sql) =>
+      depth === false ? [] : [a.identifiers.aliased(value, depthColumn)];
+    const domain = this.domainOf(edge.target, "related");
+    const related = (alias: string) =>
+      domain ? [this.lowerSelector(domain, alias)!] : [];
+    const conditions = (all: readonly Sql[]) =>
+      all.length === 0 ? undefined : a.operators.and(...all);
+    let anchor: Sql;
+    if (self)
+      anchor = assembleAdapterSelect(a, {
+        columns: sql.join(
+          [
+            ...this.#aliased(keyColumns, this.#rowKey(model, child)),
+            ...at(a.expressions.cast(this.value(0), "integer")),
+          ],
+          ", "
+        ),
+        from: this.#attached(model, child),
+        where: conditions(stated),
+      });
+    else {
+      const first = this.#predecessor(edge, (field) =>
+        this.column(model, field, child)
+      );
+      anchor = assembleAdapterSelect(a, {
+        columns: sql.join(
+          [
+            ...this.#aliased(keyColumns, first.key),
+            ...at(a.expressions.cast(this.value(1), "integer")),
+          ],
+          ", "
+        ),
+        from: sql.join([this.#attached(model, child), ...first.joins], " "),
+        where: conditions([...related(child), ...stated]),
+      });
+    }
+    const set = this.alias();
+    const carried = (column: string) => a.identifiers.column(set, column);
+    // Every key the set states is a stored row's where its predecessors are
+    // joined rows: with no domain to read, the row is not joined again.
+    const reached =
+      domain !== undefined || !this.#joinsPredecessor(edge)
+        ? this.alias()
+        : undefined;
+    const before = this.#predecessor(edge, (field) =>
+      reached === undefined
+        ? carried(keyColumns[keys.indexOf(field)]!)
+        : this.column(model, field, reached)
+    );
+    const recursive = assembleAdapterSelect(a, {
+      columns: sql.join(
+        [
+          ...this.#aliased(keyColumns, before.key),
+          ...at(a.expressions.add(carried(depthColumn), this.value(1))),
+        ],
+        ", "
+      ),
+      from: sql.join(
+        [
+          a.identifiers.aliased(a.identifiers.escape(name), set),
+          ...(reached === undefined
+            ? []
+            : [
+                a.joins.inner(
+                  this.table(model, reached),
+                  a.operators.and(
+                    this.#sameRow(model, reached, keyColumns.map(carried)),
+                    ...related(reached)
+                  )
+                ),
+              ]),
+          ...before.joins,
+        ],
+        " "
+      ),
+      where: conditions(
+        depth === false
+          ? []
+          : [a.operators.lt(carried(depthColumn), this.value(depth))]
+      ),
+    });
+    return a.setOperations.union(anchor, recursive);
+  }
+  /**
+   * Whether the rows one hop of `edge` leads from are joined to be named
+   * ({@link predecessor}), reading nothing of the row they lead into but its
+   * key: then each names a stored row.
+   */
+  #joinsPredecessor(edge: Membership): boolean {
+    const keys = this.schema.keys(edge.source);
+    if (edge.kind !== "reference")
+      return (
+        !this.#covers(
+          edge.sourceSide.members.map((member) => member.referencedField),
+          keys
+        ) &&
+        edge.targetSide.members.every((member) =>
+          keys.includes(member.referencedField)
+        )
+      );
+    return (
+      edge.discriminator === undefined &&
+      !this.#covers(
+        edge.pairs.map((pair) => pair.source),
+        keys
+      ) &&
+      edge.pairs.every((pair) => keys.includes(pair.target))
+    );
+  }
+  /** Whether `fields` are exactly `keys`, in any order. */
+  #covers(fields: readonly string[], keys: readonly string[]): boolean {
+    return (
+      fields.length === keys.length &&
+      keys.every((field) => fields.includes(field))
+    );
+  }
+  /**
+   * The rows one hop of `edge` leads into `into` from, as their keys and the
+   * joins that read them: the hop's own columns where they are the key (a
+   * reference's target columns, a junction's source columns), and else the
+   * row joined by its membership. A key read from a column names a row that
+   * may not exist; it then passes nothing on and matches no row.
+   */
+  #predecessor(
+    edge: Membership,
+    into: CarriedRow
+  ): { readonly key: readonly Sql[]; readonly joins: readonly Sql[] } {
+    const a = this.adapter;
+    const model = edge.source;
+    const keys = this.schema.keys(model);
+    if (edge.kind === "reference") {
+      const sources = edge.pairs.map((pair) => pair.source);
+      if (edge.discriminator === undefined && this.#covers(sources, keys))
+        return {
+          key: keys.map((field) =>
+            into(edge.pairs[sources.indexOf(field)]!.target)
+          ),
+          joins: [],
+        };
+      const row = this.alias();
+      const arm = edge.discriminator;
+      return {
+        key: this.#rowKey(model, row),
+        joins: [
+          a.joins.inner(
+            this.table(model, row),
+            a.operators.and(
+              ...(arm === undefined
+                ? []
+                : [
+                    a.operators.eq(
+                      arm.side === "source"
+                        ? this.column(model, arm.field, row)
+                        : into(arm.field),
+                      this.value(arm.value)
+                    ),
+                  ]),
+              ...edge.pairs.map((pair) =>
+                a.operators.eq(
+                  this.column(model, pair.source, row),
+                  into(pair.target)
+                )
+              )
+            )
+          ),
+        ],
+      };
+    }
+    const link = this.alias();
+    const linked = a.joins.inner(
+      a.identifiers.table(edge.table, link),
+      a.operators.and(
+        ...this.junctionSideConditions(edge.targetSide, link, into)
+      )
+    );
+    const referenced = edge.sourceSide.members.map(
+      (member) => member.referencedField
+    );
+    if (this.#covers(referenced, keys))
+      return {
+        key: keys.map((field) =>
+          a.identifiers.column(
+            link,
+            edge.sourceSide.members[referenced.indexOf(field)]!.junctionField
+          )
+        ),
+        joins: [linked],
+      };
+    const row = this.alias();
+    return {
+      key: this.#rowKey(model, row),
+      joins: [
+        linked,
+        a.joins.inner(
+          this.table(model, row),
+          a.operators.and(
+            ...this.junctionSideConditions(edge.sourceSide, link, row)
+          )
+        ),
+      ],
+    };
+  }
+  /**
+   * A relation filter's junction joined to its target, `junction INNER JOIN
+   * target ON target.key = junction.target`, and the junction's correlation to
+   * the parent row, `junction.source = parent.key`, for the EXISTS's own
+   * `WHERE`: the same rows as the target's membership in a correlated junction
+   * subquery ({@link membershipWhere}), a pair joined on equal keys being a
+   * pair the membership's `IN` admits (a NULL key matches in neither). SQLite
+   * walks it from the junction's key per parent row instead of rebuilding the
+   * membership's set for every target row (200k posts, 300k links: a
+   * tagged-post count 1,240 → 61 ms, an `every` count 2,910 → 65 ms).
+   * PostgreSQL hashes it into a semijoin: the same count on PostgreSQL 18,
+   * 479 → 7 ms, but 0.2 ms more planning, so a bounded read keeps the
+   * membership.
+   */
+  #junctionJoin(
+    edge: Extract<Membership, { kind: "junction" }>,
+    child: string,
+    parent: string
+  ): { readonly from: Sql; readonly correlation: Sql } {
+    const a = this.adapter;
+    const link = this.alias();
+    return {
+      from: sql`${a.identifiers.table(edge.table, link)} ${a.joins.inner(
+        this.table(edge.target, child),
+        a.operators.and(
+          ...edge.targetSide.members.map((field) =>
+            a.operators.eq(
+              this.column(edge.target, field.referencedField, child),
+              a.identifiers.column(link, field.junctionField)
+            )
+          )
+        )
+      )}`,
+      correlation: a.operators.and(
+        ...this.junctionSideConditions(edge.sourceSide, link, parent)
+      ),
+    };
   }
   /**
    * `EXISTS (SELECT 1 FROM target WHERE related AND stated)`, correlated to
@@ -5440,7 +6447,7 @@ export class Queries {
   #lowerExists(predicate: Extract<PreparedPredicate, { kind: "exists" }>): Sql {
     const a = this.adapter;
     const { model } = predicate;
-    const child = this.alias();
+    const child = this.#rowAlias(model);
     const frame = { alias: child, escaped: false };
     this.#frames.push(frame);
     let stated: Sql[];
@@ -5462,13 +6469,16 @@ export class Queries {
       conditions.length === 0
         ? a.literals.true()
         : a.operators.and(...conditions);
-    const inline = a.subqueries.existsCheck(this.table(model, child), where);
+    const inline = a.subqueries.existsCheck(
+      this.#attached(model, child),
+      where
+    );
     const shared = this.#shared;
     // Correlated to a row above it: written where it is.
     if (shared === undefined || frame.escaped) return a.filters.some(inline);
     const query = assembleAdapterSelect(a, {
       columns: sql`1`,
-      from: this.table(model, child),
+      from: this.#attached(model, child),
       where,
       limit: this.value(1),
     });
@@ -5485,7 +6495,7 @@ export class Queries {
       shared.order.push(body);
     }
     const use = a.subqueries.existsCheck(
-      a.identifiers.escape(body.name),
+      memberRead(a, body.name),
       a.literals.true()
     );
     const slot = new SqlSlot(use);
@@ -5553,7 +6563,7 @@ export class Queries {
   /** The one join of a relation to its parent, under the {@link related} domain. */
   correlation(
     edge: Membership,
-    parent: string,
+    parent: string | CarriedRow,
     target: string,
     scoped = true
   ): Sql {
@@ -5609,32 +6619,41 @@ export class Queries {
   #membershipWhere(
     edge: Membership,
     target: string,
-    source: string | Input
+    source: string | Input | CarriedRow
   ): Sql {
     const a = this.adapter;
     if (edge.kind === "reference") {
+      // The source row's own column, where the source is a row and not values.
+      const given = typeof source === "object" ? source : undefined;
+      const read =
+        typeof source === "string"
+          ? (field: string) => this.column(edge.source, field, source)
+          : typeof source === "function"
+            ? source
+            : undefined;
       return a.operators.and(
         ...(edge.discriminator
           ? [
               a.operators.eq(
                 edge.discriminator.side === "source"
-                  ? typeof source === "string"
-                    ? this.column(edge.source, edge.discriminator.field, source)
-                    : this.value(source[edge.discriminator.field])
+                  ? read
+                    ? read(edge.discriminator.field)
+                    : this.value(given![edge.discriminator.field])
                   : this.column(edge.target, edge.discriminator.field, target),
                 this.value(edge.discriminator.value)
               ),
             ]
           : []),
         ...edge.pairs.map((pair) =>
-          a.operators.eq(
-            typeof source === "string"
-              ? this.column(edge.source, pair.source, source)
-              : this.column(edge.target, pair.target, target),
-            typeof source === "string"
-              ? this.column(edge.target, pair.target, target)
-              : this.fieldValue(edge.target, pair.target, source[pair.source])
-          )
+          read
+            ? a.operators.eq(
+                read(pair.source),
+                this.column(edge.target, pair.target, target)
+              )
+            : a.operators.eq(
+                this.column(edge.target, pair.target, target),
+                this.fieldValue(edge.target, pair.target, given![pair.source])
+              )
         )
       );
     }
@@ -5910,6 +6929,7 @@ export class Queries {
     readonly cursor?: Sql;
     readonly distinct?: Sql;
     readonly distinctOrderBy?: Sql;
+    readonly distinctOrder?: QueryParts["distinctOrder"];
   } {
     const backward = args.take !== undefined && args.take < 0;
     const cursored = args.cursor !== undefined;
@@ -5929,11 +6949,17 @@ export class Queries {
     if (cursored && requested.some((term) => term.field === undefined))
       throw new UnsupportedOperationError(CURSOR_ORDER_REFUSAL);
     const terms = total ?? requested;
+    const presented = backward ? this.#reverseOrder(terms) : terms;
+    const distinct = (args.distinct?.length ?? 0) > 0;
     return {
-      orderBy: this.#lowerOrder(backward ? this.#reverseOrder(terms) : terms),
+      orderBy: this.#lowerOrder(presented),
       joins: joins?.joins.length ? joins.joins : undefined,
       distinctOrderBy:
-        backward && args.distinct?.length ? this.#lowerOrder(terms) : undefined,
+        backward && distinct ? this.#lowerOrder(terms) : undefined,
+      distinctOrder:
+        distinct && terms.length > 0
+          ? this.#distinctOrder(terms, presented)
+          : undefined,
       limit:
         args.take === undefined ? undefined : this.value(Math.abs(args.take)),
       offset: args.skip === undefined ? undefined : this.value(args.skip),
@@ -5952,6 +6978,34 @@ export class Queries {
             ", "
           )
         : undefined,
+    };
+  }
+  /**
+   * A distinct page's order read from its own rows: each term projected once
+   * as `_ordN` beside the window that picks each group's representative, and
+   * the presented order over those columns. The emulation's outer `ORDER BY`
+   * reads them, so one window (`_rn`) does the work a second one ranking every
+   * row (`_ord`) did: one sort fewer (200k rows: PGlite 273 → 127 ms, SQLite
+   * 253 → 121 ms). `presented` is `terms`, reversed where the page is.
+   */
+  #distinctOrder(
+    terms: readonly OrderTerm[],
+    presented: readonly OrderTerm[]
+  ): QueryParts["distinctOrder"] {
+    const a = this.adapter;
+    return {
+      keys: sql.join(
+        terms.map((term, index) =>
+          a.identifiers.aliased(term.expression, `_ord${index}`)
+        ),
+        ", "
+      ),
+      orderBy: this.#lowerOrder(
+        presented.map((term, index) => ({
+          ...term,
+          expression: a.identifiers.escape(`_ord${index}`),
+        }))
+      )!,
     };
   }
   /** A windowed read needs a deterministic total order, not just the caller's. */
@@ -6202,6 +7256,7 @@ export class Queries {
     controls: SelectControls
   ): Query {
     const alias = this.#rootAlias();
+    if (controls.source === undefined) this.#rows.set(alias, model);
     // The shipped owner sequence, and the reason it is stated here: when one
     // call violates two contracts at once, the refusal the caller sees is the
     // one whose owner runs first. `buildFind` (`operations/find-common.ts`)
@@ -6246,7 +7301,16 @@ export class Queries {
     return {
       sql: assembleAdapterSelect(this.adapter, {
         columns: sql.join(projection, ", "),
-        from: this.table(model, alias),
+        from:
+          controls.source === undefined
+            ? // FOR UPDATE refuses the nullable side of an outer join.
+              controls.forUpdate
+              ? this.table(model, alias)
+              : this.#attached(model, alias)
+            : a.identifiers.aliased(
+                a.identifiers.escape(controls.source),
+                alias
+              ),
         joins: page.joins,
         where: this.#selectWhere(
           model,
@@ -6265,6 +7329,7 @@ export class Queries {
           ? {
               distinct: page.distinct,
               distinctOrderBy: page.distinctOrderBy,
+              distinctOrder: page.distinctOrder,
               distinctColumnAliases: prepared.fields.map((field) => field.name),
             }
           : {}),
@@ -6307,6 +7372,11 @@ export class Queries {
    * relation bodies where the adapter does ({@link sharingBodies}).
    */
   read(model: AnyModel, operation: ReadOperation, args: Arguments): Read {
+    this.#bounded =
+      operation === "findUnique" ||
+      operation === "findFirst" ||
+      operation === "exist" ||
+      (operation !== "groupBy" && args.take !== undefined);
     if (!this.#sharesBodies) return this.#read(model, operation, args);
     let read: Read | undefined;
     const statement = this.#sharingBodies(() => {
@@ -7663,7 +8733,7 @@ export class Queries {
   ): Sql {
     const a = this.adapter;
     const { edge, arguments: nested, projection } = relation;
-    const childAlias = this.alias();
+    const childAlias = this.#rowAlias(edge.target);
     const child = this.lowerProjection(projection, childAlias, true);
     const childFields = Object.keys(projection.shape.fields);
     // A nested node is the ordinary page operator inside the parent's
@@ -7706,6 +8776,7 @@ export class Queries {
         ? {
             distinct: window.distinct,
             distinctOrderBy: window.distinctOrderBy,
+            distinctOrder: window.distinctOrder,
             distinctColumnAliases: projection.fields.map((field) => field.name),
           }
         : {}),
@@ -7778,7 +8849,12 @@ export class Queries {
    * current.key)` correlates to `next`'s sibling, which PostgreSQL cannot turn
    * into a semi-join, so it would run once per target row at every hop.
    */
-  #step(edge: Membership, current: string, next: string, scoped = true): Sql {
+  #step(
+    edge: Membership,
+    current: string | CarriedRow,
+    next: string,
+    scoped = true
+  ): Sql {
     const a = this.adapter;
     if (edge.kind !== "junction")
       return a.joins.inner(
@@ -7811,7 +8887,7 @@ export class Queries {
   ): { from: Sql; joins?: Sql[]; where: Sql } {
     if (edge.kind !== "junction")
       return {
-        from: this.table(edge.target, child),
+        from: this.#attached(edge.target, child),
         where: this.correlation(edge, parent, child),
       };
     const link = this.alias();
@@ -7860,6 +8936,17 @@ export class Queries {
    *   The two are ONE derived-table term, so the CTE keeps exactly two
    *   top-level terms: PlanetScale's Neki cannot resolve the CTE from the
    *   recursive member of a third (42P01).
+   * Where the driver bounds a statement's relations (`sharesRelationBodies`),
+   * each reached row carries the columns its next hop reads ({@link hopFields}), so the
+   * recursive member joins no row again to leave it; the start row carries
+   * them as the statement reads it, so where the hop reads more than its key
+   * and it is not the stored row ({@link rows}: a produced row's new value, a
+   * masked window), the walk joins every row again, and so also leaves the
+   * start row by its stored columns, as it always has. The first hop stays in
+   * the anchor even where the start row alone would do: PostgreSQL plans the
+   * recursive member as a hash join over a scan of the table, and an anchor
+   * hop is an index probe (10× the acceptance fixture: an `accessGrant` read
+   * 124 → 785 ms with the start row alone).
    */
   #walk(
     edge: Membership,
@@ -7891,12 +8978,29 @@ export class Queries {
     const reached = (alias: string) =>
       selector ? [this.lowerSelector(selector, alias)!] : [];
 
+    const self = !edges && start.self;
+    const carries =
+      this.#sharesBodies &&
+      (!self ||
+        this.#rows.get(parentAlias) === model ||
+        this.#hopFields(edge).every((field) => keys.includes(field)));
+    const hopFields = carries
+      ? this.#hopFields(edge).filter((field) => !keys.includes(field))
+      : [];
+    const hopColumns = hopFields.map((_, index) => `__${scope}_hop_${index}`);
+    const row = (alias: string) => [
+      ...this.#aliased(childColumns, this.#rowKey(model, alias)),
+      ...this.#aliased(
+        hopColumns,
+        hopFields.map((field) => this.column(model, field, alias))
+      ),
+    ];
     const anchorChild = this.alias();
     const firstHop = assembleAdapterSelect(a, {
       columns: sql.join(
         [
           ...this.#aliased(parentColumns, this.#rowKey(model, parentAlias)),
-          ...this.#aliased(childColumns, this.#rowKey(model, anchorChild)),
+          ...row(anchorChild),
           ...hop(a.expressions.cast(this.value(1), "integer")),
         ],
         ", "
@@ -7907,13 +9011,15 @@ export class Queries {
         ...reached(anchorChild)
       ),
     });
-    const seed = !edges && start.self ? this.alias() : undefined;
+    const seed = self ? this.alias() : undefined;
     const anchor = seed
       ? assembleAdapterSelect(a, {
           columns: sql.join(
-            [...childColumns, ...(depth === false ? [] : [depthColumn])].map(
-              (column) => a.identifiers.column(seed, column)
-            ),
+            [
+              ...childColumns,
+              ...hopColumns,
+              ...(depth === false ? [] : [depthColumn]),
+            ].map((column) => a.identifiers.column(seed, column)),
             ", "
           ),
           from: a.subqueries.correlate(
@@ -7921,10 +9027,7 @@ export class Queries {
               a.clauses.select(
                 sql.join(
                   [
-                    ...this.#aliased(
-                      childColumns,
-                      this.#rowKey(model, parentAlias)
-                    ),
+                    ...row(parentAlias),
                     ...hop(a.expressions.cast(this.value(0), "integer")),
                   ],
                   ", "
@@ -7938,9 +9041,24 @@ export class Queries {
       : firstHop;
 
     const walk = this.alias();
-    const current = this.alias();
-    const next = this.alias();
     const carried = (column: string) => a.identifiers.column(walk, column);
+    let current: string | CarriedRow;
+    let reread: Sql | undefined;
+    if (carries)
+      current = (field) =>
+        carried(
+          keys.includes(field)
+            ? childColumns[keys.indexOf(field)]!
+            : hopColumns[hopFields.indexOf(field)]!
+        );
+    else {
+      current = this.alias();
+      reread = a.joins.inner(
+        this.table(model, current),
+        this.#sameRow(model, current, childColumns.map(carried))
+      );
+    }
+    const next = this.alias();
     // An unbounded, unfiltered walk states no WHERE rather than `WHERE TRUE`.
     const all = (bounds: Sql[]) =>
       bounds.length === 0 ? undefined : a.operators.and(...bounds);
@@ -7948,15 +9066,19 @@ export class Queries {
       columns: sql.join(
         [
           ...this.#aliased(parentColumns, childColumns.map(carried)),
-          ...this.#aliased(childColumns, this.#rowKey(model, next)),
+          ...row(next),
           ...hop(a.expressions.add(carried(depthColumn), this.value(1))),
         ],
         ", "
       ),
-      from: sql`${a.identifiers.aliased(a.identifiers.escape(cteName), walk)} ${a.joins.inner(
-        this.table(model, current),
-        this.#sameRow(model, current, childColumns.map(carried))
-      )} ${this.#step(edge, current, next, scoped)}`,
+      from: sql.join(
+        [
+          a.identifiers.aliased(a.identifiers.escape(cteName), walk),
+          ...(reread ? [reread] : []),
+          this.#step(edge, current, next, scoped),
+        ],
+        " "
+      ),
       where: all([
         ...(depth === false
           ? []
@@ -7974,6 +9096,17 @@ export class Queries {
       childColumns,
       depthColumn,
     };
+  }
+  /** The fields of the row it leaves that one hop of `edge` reads. */
+  #hopFields(edge: Membership): readonly string[] {
+    return edge.kind === "reference"
+      ? [
+          ...(edge.discriminator?.side === "source"
+            ? [edge.discriminator.field]
+            : []),
+          ...edge.pairs.map((pair) => pair.source),
+        ]
+      : edge.sourceSide.members.map((member) => member.referencedField);
   }
   /** Each expression aliased as the column of the same index. */
   #aliased(names: readonly string[], expressions: readonly Sql[]): Sql[] {

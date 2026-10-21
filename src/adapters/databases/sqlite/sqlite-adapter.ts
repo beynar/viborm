@@ -324,6 +324,19 @@ export interface SQLiteAdapterOptions {
    * to `false`.
    */
   readonly sharedRelationBodies?: boolean;
+  /**
+   * The most terms one compound `SELECT` may chain
+   * (`capabilities.compoundSelectTerms`): Cloudflare D1 compiles SQLite with
+   * 5 and refuses a sixth ("too many terms in compound SELECT"). Defaults to
+   * SQLite's own bound, which the engine never reaches.
+   */
+  readonly compoundSelectTerms?: number;
+  /**
+   * Where bodies are shared, the relations a statement may reference before
+   * its repeated walks become reaching sets and its rows join the key sets
+   * they test (`capabilities.relationsPerStatement`). Absent: unbounded.
+   */
+  readonly relationsPerStatement?: number;
 }
 
 /**
@@ -808,6 +821,7 @@ const SQLITE_CAPABILITIES = {
   // off in the builds this project targets (better-sqlite3, libSQL, D1).
   supportsMutationRowLimit: false,
   supportsRowLocks: false,
+  joinsJunctionFilters: true,
 };
 
 const SQLITE_RESULT: AdapterResultParser = {
@@ -853,7 +867,11 @@ const SQLITE_FILTERS = createRelationFilters();
 
 const SQLITE_SUBQUERIES = createSubqueries(quoteIdent);
 
-const SQLITE_CTE = createCteBuilders(quoteIdent);
+// A member is written once and inlined at every use: one a nested body reads
+// is compiled again inside each use of that body, so it is materialized.
+const SQLITE_CTE = createCteBuilders(quoteIdent, {
+  materializing: sql.raw("MATERIALIZED"),
+});
 
 /**
  * A multi-row `VALUES` is the one compound SQLite does not count against
@@ -893,6 +911,8 @@ export class SQLiteAdapter implements DatabaseAdapter {
     temporaryObjects = true,
     deepExpressions = true,
     sharedRelationBodies = false,
+    compoundSelectTerms,
+    relationsPerStatement,
   }: SQLiteAdapterOptions = {}) {
     installGeoPointSql(this, this.geoPoint);
     if (!deepExpressions) {
@@ -903,8 +923,13 @@ export class SQLiteAdapter implements DatabaseAdapter {
       this.subqueries.isolated = (condition) =>
         sql`EXISTS (SELECT 1 FROM (SELECT 1 WHERE ${condition}))`;
       this.operators.and = balancedConjunction(SQLITE_OPERATORS.and);
+      this.capabilities.boundsExpressionDepth = true;
     }
     if (sharedRelationBodies) this.capabilities.sharesRelationBodies = true;
+    if (compoundSelectTerms !== undefined)
+      this.capabilities.compoundSelectTerms = compoundSelectTerms;
+    if (relationsPerStatement !== undefined)
+      this.capabilities.relationsPerStatement = relationsPerStatement;
     // Only batches read the reference-table SQL, so it is built on first use.
     let batchRefs: BatchReferenceSqlAdapter | undefined;
     const createBatchRefs = () => this.#createBatchRefs(temporaryObjects);

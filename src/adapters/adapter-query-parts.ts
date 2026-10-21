@@ -17,6 +17,13 @@ export interface QueryParts {
   distinct?: Sql;
   /** Logical representative order, before a backward page reverses presentation. */
   distinctOrderBy?: Sql;
+  /**
+   * The emulated DISTINCT's order, stated wherever `orderBy` is: `keys`
+   * projects each order term as `_ordN` beside the representative's window,
+   * and `orderBy` is the presented order over those columns, the outer
+   * query's own `ORDER BY` (the emulation orders its page by nothing else).
+   */
+  distinctOrder?: { readonly keys: Sql; readonly orderBy: Sql };
   /** Column alias names for outer SELECT when using DISTINCT simulation (MySQL/SQLite) */
   distinctColumnAliases?: string[];
   /**

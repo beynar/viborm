@@ -33,6 +33,7 @@ import {
   observeTransactionBatchPhase,
   withOperationErrorContext,
 } from "./execution-context";
+import { batchFindUnique } from "./find-unique-batch";
 import { PendingExecution } from "./pending-execution";
 import type { QueryEngine } from "./query-engine";
 import { snapshotQueryInput } from "./query-inspection";
@@ -377,6 +378,10 @@ export class PendingOperation<T>
       // to synchronously publishes the one query and the parser for its one
       // result. A verb that needs the asynchronous fold publishes no single
       // query, and the array owner asks it for the package instead.
+      finishResult: (operation, value) =>
+        operation.#options.finishResult
+          ? operation.#options.finishResult(value)
+          : value,
       prepare: (operation) => operation.#resolveSinglePackage()?.queries[0],
       prepareBatch: (operation) =>
         operation.#resolveRouted().prepareBatch(operation.#context.attribution),
@@ -532,19 +537,26 @@ export class PendingOperation<T>
       );
     }
     const args = this.#resolveArgs();
-    const binding = this.#engine.extensionChain?.callRows;
     const routed = this.#route.operation(
       this.#model,
       String(this.#options.originalOperation),
       args,
-      binding &&
-        callRows(binding, this.#modelName, this.#inputPreparation?.controls)
+      this.#callRows()
     );
     this.#routedInstance = routed;
     if (this.#operationResolution) {
       this.#operationResolution.routed = routed;
     }
     return routed;
+  }
+
+  /** The row facts this call's admitted controls resolve to, if any. */
+  #callRows() {
+    const binding = this.#engine.extensionChain?.callRows;
+    return (
+      binding &&
+      callRows(binding, this.#modelName, this.#inputPreparation?.controls)
+    );
   }
 
   /**
@@ -607,13 +619,13 @@ export class PendingOperation<T>
     return this.#execution.executeDefault(() => {
       const observers = this.#engine.extensionChain?.observe;
       if (observers === undefined || observers.length === 0) {
-        return this.#runExecution();
+        return this.#finished(this.#runExecution());
       }
       return observeOperation(
         observers,
         String(this.#options.originalOperation),
         this.#modelName,
-        () => this.#runExecution(),
+        () => this.#finished(this.#runExecution()),
         () =>
           this.#observationCommitCertainty === undefined
             ? undefined
@@ -621,6 +633,12 @@ export class PendingOperation<T>
         this.#readInstrumentationFacts()
       );
     });
+  }
+
+  /** The value its caller receives: the client's last step applied, if any. */
+  #finished(value: Promise<T>): Promise<T> {
+    const finish = this.#options.finishResult;
+    return finish ? value.then((result) => finish(result) as T) : value;
   }
 
   #readInstrumentationFacts() {
@@ -801,14 +819,32 @@ export class PendingOperation<T>
     } catch (error) {
       return Promise.reject(error);
     }
-    return routed.execute<T>({
-      committedWriteSegment,
-      context: this.#context.attribution,
-      driverOverride,
-      engineDriver: this.#engine.driver,
-      isWrite: !isReadOperation(String(this.#options.originalOperation)),
-      writeMayBeVisible,
-    });
+    const run = () =>
+      routed.execute<T>({
+        committedWriteSegment,
+        context: this.#context.attribution,
+        driverOverride,
+        engineDriver: this.#engine.driver,
+        isWrite: !isReadOperation(String(this.#options.originalOperation)),
+        writeMayBeVisible,
+      });
+    // Below every per-call lifecycle step, outside any borrowed scope: a
+    // `findUnique` may share one read with the calls of the same tick.
+    if (this.#operation === "findUnique" && driverOverride === undefined) {
+      const batched = batchFindUnique({
+        engine: this.#engine,
+        model: this.#model,
+        requested: String(this.#options.originalOperation),
+        args: this.#resolveArgs(),
+        controls: this.#inputPreparation?.controls,
+        rows: () => this.#callRows(),
+        routed,
+        context: this.#context.attribution,
+        run,
+      });
+      if (batched !== undefined) return batched as Promise<T>;
+    }
+    return run();
   }
 
   getArgs(): Record<string, unknown> {

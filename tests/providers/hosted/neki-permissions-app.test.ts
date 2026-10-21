@@ -13,6 +13,12 @@
  *   actors), whose document reads recurse (`up()`) at every scope, in
  *   `viborm_permissions_t_entry`.
  *
+ * - the largest `$access` read as the first call of a node-postgres and of a
+ *   postgres.js driver given no `relationsPerStatement`: a read, an array
+ *   transaction, a callback transaction and an array nested in one, each
+ *   bounded to 256 (before any connection, or by the startup of the
+ *   transaction's own) (`viborm_permissions_nb_<random>`), with PGlite's rows.
+ *
  * Select with `-t` (the W-K1 and W-R ids) to run only the recursion
  * witnesses: each estate is created only for the cases selected.
  *
@@ -20,14 +26,25 @@
  */
 
 import { randomBytes } from "node:crypto";
+import type { AnyDriver } from "@drivers/driver";
 import { PgDriver } from "@drivers/pg";
+import { PGliteDriver } from "@drivers/pglite";
+import { PostgresDriver } from "@drivers/postgres";
+import { softDelete } from "@src/soft-delete/index";
 import { runDomainPredicateBehavior } from "@tests/contracts/engine/query/domain-predicate-behavior";
-import { runPermissionsAppBehavior } from "@tests/contracts/public-client/permissions-app-behavior";
+import {
+  createPermissionsAppClient,
+  loadPermissionsSeed,
+  runPermissionsAppBehavior,
+} from "@tests/contracts/public-client/permissions-app-behavior";
 import { runPermissionsEntryBehavior } from "@tests/contracts/public-client/permissions-entry-behavior";
 import { SAMPLED_ACTORS } from "@tests/contracts/public-client/permissions-sampled-actors";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { TOMBSTONED_MODELS } from "@tests/package/fixtures/permissions-app/oracle";
+import { actors } from "@tests/package/fixtures/permissions-app/seed";
+import { policy } from "@tests/types/permissions/acceptance-policy";
 import pg from "pg";
-import { afterAll, describe } from "vitest";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 const NEKI_URL = process.env.NEKI_DEV_CONNECTION_STRING;
 const TIMEOUT = 300_000;
@@ -45,6 +62,7 @@ function poolConfig(url: string): pg.PoolConfig {
 }
 
 const namespace = `viborm_permissions_${randomBytes(5).toString("hex")}`;
+const UNSTATED = `viborm_permissions_nb_${randomBytes(5).toString("hex")}`;
 const DOMAIN_PREDICATES = "viborm_permissions_t";
 const ENTRY = "viborm_permissions_t_entry";
 
@@ -73,15 +91,148 @@ async function dropped(schema: string): Promise<void> {
 
 // Neki refuses a statement referencing more than 256 relations (SQLSTATE
 // 54000); a governed read repeats relation bodies, so the driver states each
-// once (W-R1, E5.2).
+// once (W-R1, E5.2), and past 256 trades plans for fewer relations.
 const driverIn = (schema: string) => () =>
   new PgDriver({
     options: poolConfig(NEKI_URL as string),
     namespace: schema,
     sharedRelationBodies: true,
+    relationsPerStatement: 256,
   });
 
+// The largest of the nine `$access` reads (tests/providers/local/pglite-permissions-relations.test.ts):
+// 634 relations with every walk in place.
+const LARGEST = {
+  where: { parentId: null },
+  include: {
+    $access: true,
+    grants: { include: { $access: true } },
+    children: {
+      include: {
+        $access: true,
+        children: {
+          include: { $access: true, grants: { include: { $access: true } } },
+        },
+      },
+    },
+  },
+};
+const tombstones = softDelete({
+  models: Object.fromEntries(
+    TOMBSTONED_MODELS.map((model) => [model, { deletedAt: "deletedAt" }])
+  ),
+});
+type View = {
+  document: { findMany(args: object): Promise<unknown> };
+  $transaction(body: (tx: View) => Promise<unknown>): Promise<unknown>;
+  $transaction(operations: readonly unknown[]): Promise<unknown[]>;
+};
+type Governed = { $as(actor: unknown): View };
+/** The acceptance policy over `driver`, recording each statement it sends. */
+function governed(driver: AnyDriver, statements: string[] = []) {
+  const base = createPermissionsAppClient(driver);
+  const recorded = base.$extends({
+    name: "statements",
+    statement(context) {
+      statements.push(context.statement.toStatement());
+      return context.statement;
+    },
+  });
+  const db = policy.methods(
+    tombstones.methods(policy.rows(tombstones.rows(recorded)))
+  ) as unknown as Governed;
+  return { base, db };
+}
+// Neki's count: every `FROM` item, aliased `q<n>` or a bare shared member.
+const relationsOf = (statement: string) =>
+  (statement.match(/ AS "q\d+"/g) ?? []).length +
+  (statement.match(/(?:FROM|JOIN) "__shared_\d+"(?! AS)/g) ?? []).length;
+
 describe.skipIf(!NEKI_URL)("Neki", () => {
+  describe("a driver given no relationsPerStatement", () => {
+    const local = governed(new PGliteDriver());
+    let expected: unknown;
+    beforeAll(async () => {
+      await admin(`CREATE SCHEMA "${UNSTATED}"`);
+      const seeding = createPermissionsAppClient(driverIn(UNSTATED)());
+      await syncLiveSchema(seeding);
+      await loadPermissionsSeed(seeding);
+      await seeding.$disconnect();
+      await syncLiveSchema(local.base);
+      await loadPermissionsSeed(local.base);
+      expected = await local.db.$as(actors.u02).document.findMany(LARGEST);
+    }, TIMEOUT);
+    afterAll(async () => {
+      await local.base.$disconnect();
+      await dropped(UNSTATED);
+    }, TIMEOUT);
+    const drivers = [
+      [
+        "node-postgres",
+        () =>
+          new PgDriver({
+            options: poolConfig(NEKI_URL as string),
+            namespace: UNSTATED,
+          }),
+      ],
+      [
+        "postgres.js",
+        () =>
+          new PostgresDriver({
+            databaseUrl: NEKI_URL as string,
+            namespace: UNSTATED,
+          }),
+      ],
+    ] as const;
+    // Each the driver's first call: no connection has said what server it is.
+    const firstCalls: [string, (view: View) => Promise<unknown>][] = [
+      ["a read", (view) => view.document.findMany(LARGEST)],
+      [
+        "an array transaction",
+        async (view) =>
+          (await view.$transaction([view.document.findMany(LARGEST)]))[0],
+      ],
+      [
+        "a callback transaction",
+        (view) => view.$transaction((tx) => tx.document.findMany(LARGEST)),
+      ],
+      [
+        "an array nested in a callback transaction",
+        (view) =>
+          view.$transaction(
+            async (tx) =>
+              (await tx.$transaction([tx.document.findMany(LARGEST)]))[0]
+          ),
+      ],
+    ];
+    test.each(
+      drivers.flatMap(([name, createDriver]) =>
+        firstCalls.map(
+          ([call, run]) => [name, call, createDriver, run] as const
+        )
+      )
+    )(
+      "%s bounds the largest $access read to Neki's 256 as its first call, %s",
+      async (_name, _call, createDriver, run) => {
+        const statements: string[] = [];
+        const driver = createDriver();
+        const neki = governed(driver, statements);
+        try {
+          const rows = await run(neki.db.$as(actors.u02));
+          expect(driver.adapter.capabilities.relationsPerStatement).toBe(256);
+          const widest = statements.reduce((a, b) =>
+            b.length > a.length ? b : a
+          );
+          expect(relationsOf(widest)).toBeLessThanOrEqual(256);
+          expect(rows).toEqual(expected);
+        } finally {
+          await neki.base.$disconnect();
+        }
+      },
+      TIMEOUT
+    );
+  });
+
   runPermissionsAppBehavior({
     name: "Neki",
     createDriver: driverIn(namespace),

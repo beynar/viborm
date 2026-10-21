@@ -22,7 +22,24 @@ const result = await client.post.deleteMany({
 await client.post.deleteMany({});
 // or
 await client.post.deleteMany();
+// or
+await client.post.deleteMany({ where: {} });
 ```
+
+A `where` that matches every row only because its members are `undefined` is
+refused, unlike Prisma without `strictUndefinedChecks`:
+
+```ts
+const tenantId: string | undefined = undefined;
+await client.post.deleteMany({ where: { tenantId } });
+// ValidationError: deleteMany would delete every row: its where names only
+// undefined values (tenantId), and an undefined value is no condition. …
+```
+
+The same rule applies to a nested `deleteMany` / `updateMany` in a relation
+write, where it would have changed every related row. See
+[Filter behavior](/docs/client/compatibility#filter-behavior-on-a-port) for how
+`AND`, `OR`, `NOT` and `every` are read.
 
 ## Examples
 

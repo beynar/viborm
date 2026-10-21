@@ -75,7 +75,11 @@ vi.mock("pg", async () => {
     }
   }
 
+  // The class a pool PgDriver makes extends to read each startup; never built here.
+  class SocketFreeClient {}
+
   return {
+    Client: SocketFreeClient,
     Pool: SocketFreePool,
     types: {
       getTypeParser: () => (value: string) => value,

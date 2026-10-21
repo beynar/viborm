@@ -209,8 +209,66 @@ shaped like an alias still turn sharing off for the schema
 statement is whole, a body placed once settles to its `EXISTS` (so a statement
 repeating none is byte-identical) and a repeated one to its test; a nested
 repeated body is defined before the body holding it. A junction or variant
-membership and a recursive walk keep their place (a walk inside a shared body
-is shared with it). Measured on §1.1's heaviest write (D1 form): 261 KB, 1,675
+membership keeps its place (a walk inside a shared body is shared with it).
+Since 1.4.0, where the adapter bounds a statement's relations
+(`capabilities.relationsPerStatement`: a PostgreSQL driver's
+`relationsPerStatement` option, else, read as the statement is built, 256
+where the connection's startup named PlanetScale Neki or before any
+connection said, absent elsewhere (`src/adapters/AGENTS.md`); 256 on D1) and the statement settled as above references more (`relations`: every
+minted `"q<n>"` alias where defined, plus each bare `memberRead`, the count
+Neki makes), it escalates as far as it needs, each step re-settling the same
+slots (`#settled`) and recounting: first the walks it repeats become members,
+those saving the most relations first (`#rankedWalks`, an estimate by place),
+until the estimate fits; then key sets are joined (below), the largest saving
+first; an estimate still short takes the most compact form, every repeated
+walk a member and every set joined. Each step costs plans (a reaching set is
+computed for its whole table; a joined flag member is read again per row of
+a correlated subquery where the test it replaces was hashed once), so a
+statement that fits pays none of them, and plain PostgreSQL states no bound. A walk escalated is its REACHING
+SET (`#reachingSet`), the keys of the stored rows from which the walk reaches
+a row its predicate holds of, read backwards from those rows (the anchor
+states them, at depth 0 with `self`, else their predecessors at depth 1; the
+recursive member adds the predecessors of each row the related domain takes,
+below the depth), so a hidden row stops it, a cycle ends on `UNION`'s key,
+and the CTE keeps its two terms (Neki 42P01). It answers for the start row
+only where that row is the stored one (`#rows`: an alias `table()` or
+`#rowAlias` minted, never a produced row, a masked window or a locked
+source) or the first hop reads only its key; elsewhere the walk keeps its
+place, as on a dialect bounding recursion iterations
+(`boundsRecursionIterations`, MySQL). One recursive member makes the `WITH`
+`WITH RECURSIVE`. Past that, where an alias tests repeated members on the same
+columns more often than joining them costs (`#flagging`), and its `FROM`
+item is one `#attached` writes (a root read not locking, a relation page,
+an `EXISTS` body, a member's own read, a reaching set's anchor), it joins
+them once: one member per group of sets holds each key with one flag per
+set (`#flagSet`: `MAX` over a `UNION ALL` of typed 1/NULL flags; one set
+alone, its keys `GROUP BY`), `LEFT JOIN`ed after the item, and each test
+reads `flag IS NOT NULL` (`EXISTS`) or `IS NULL` (`NOT EXISTS`), two-valued
+as the tests it replaces. Where the dialect holds a value list
+(`arrays.ofRows`: PostgreSQL `ARRAY(…)`), a group of one-column keys is
+instead ONE row of arrays, one per set (`#keyArrays`: one relation per set,
+no union), `CROSS JOIN`ed, each test `COALESCE(key = ANY(array), FALSE)` or
+its `NOT`: the array is computed once per statement, where a flag member
+nested in a correlated subquery is rescanned per row (10× page read three
+depths: in place 1.3 s, flags 5.1 s, arrays about 1.4 s). Wider keys keep
+the flags; D1 has no array and keeps them. Overlapping groups share one member where every
+body joining it follows its last set (`within`); each distinct group's own
+member always does. Neki counts every `FROM` item of a statement, each `WITH`
+member's own once (used or not), each reference to one, each derived table:
+with a bound of 256 the nine acceptance `$access` reads went from 96–683 to
+95–253, the six over 256 escalated (all now run on Neki;
+`benchmarks/perf-1.4.0.md` §10, `pglite-permissions-relations.test.ts`). A member is `inlined` where it is correlated and reads no
+other member (a leaf): PostgreSQL writes it `NOT MATERIALIZED`, and since
+1.4.0 SQLite writes every other member `MATERIALIZED` (`cte.with`'s hints):
+SQLite inlines a member at each use and compiles a nested one again inside
+each use of the body reading it, which is what D1 refused (`SQLITE_NOMEM`) on
+four acceptance `$access` reads (63,867 → 14,345 opcodes for the largest;
+better-sqlite3, 10× the fixture's rows: 33 s → 0.26 s, while a single-row
+`can` pays one scan of each nested member's table, 0.67 → 4.5 ms at 7,500
+documents and 14,000 grants). The key is built by scanning the text
+(`renumberAliases`, quote-agnostic: MySQL's backtick aliases renumber too),
+length-prefixed, about 20% cheaper than the regular expression and JSON it
+replaced. Measured on §1.1's heaviest write (D1 form): 261 KB, 1,675
 binds, SQLite depth 144 before; 44.6 KB, 190 binds, depth 80 with the shared
 bodies and D1's balanced conjunctions; PostgreSQL 340 ms (JIT off) and 7.9 s
 (JIT on) before, 10 ms and 0.4 s after, the same answers. Where a relation
@@ -858,7 +916,9 @@ constructed again inside the region, so nothing has reached the provider at that
 point. `dispatch()` is the one site every provider round trip crosses, which is
 what lets the rule be stated in a single place and still be the operative
 decision. A root `create` or `update` that names no relation and whose prepared
-projection is RETURNING-safe folds onto the set-oriented owner
+projection its own statement can answer (`OperationContext.answersInStatement`:
+RETURNING-safe, or a relation projection under the guards stated below) folds
+onto the set-oriented owner
 (`Commands.rootCreate` / `rootUpdate` -> `OperationContext.createMany` /
 `updateMany`) plus one cardinality decision; that fold is why the frozen fast
 path costs 1 statement and 0 transactions for a root `create`, the shipped
@@ -992,6 +1052,23 @@ a `RETURNING`?" — `fields.every(kind === "scalar" || kind === "sentinel")` —
 owns the field kinds. The physical owner (`OperationContext`) and the root folds
 and bulk selection in `commands/commands.ts` all consult it; a physical owner
 does not classify a projection the projection owner already understands.
+
+`OperationContext.answersInStatement` is the one owner of "may this root
+single-row write answer its projection out of its OWN statement?" (perf 1.4.0).
+A RETURNING-safe projection rides the `RETURNING`; a relation projection is
+lowered by the read owner over the written row — PostgreSQL reads it over the
+write's `RETURNING *` in a data-modifying `WITH "__viborm_mutation"`
+(`Queries.select`'s `source`), SQLite inside the `RETURNING`, correlated by the
+table's name — under two guards that keep the answer the located/mutated/
+re-read route gave: the projection's statement does not name the written
+table in FROM position, and an UPDATE writes no member of a referenceable key
+(no referential action can change what it reads). A DELETE folds only into
+PostgreSQL's snapshot, which is what the capture-then-read route answered;
+SQLite's `RETURNING` reads after the cascade. `rootCreate`, `rootUpdate`,
+`#rootUpsert` and the root delete ask it, and so do `createMany`, `updateMany`
+and `deleteMany` before they choose a capture route. Pins:
+`tests/contracts/engine/write/write-projection-round-trips.test.ts` and
+`mutation-projection-cte-fold.test.ts`.
 
 Whether a nested write's unique target selector names its row through the
 CONSTRAINT is one predicate, `nestedTargetAddressesConstraint(edge, verb)` in
@@ -1185,7 +1262,14 @@ occurrence and transient-copy counts; do not invent an allocation metric API.
 A recursive relation FILTER (`recurse` in `where`) has the projection's ONE
 walk owner, `Queries.walk`; the projection reads its edges, a filter its
 reached set. Invariants the code comments explain: `self` joins the FIRST hop
-in the anchor (MySQL `cte_max_recursion_depth`); a junction hop joins the
+in the anchor (MySQL `cte_max_recursion_depth`; and PostgreSQL plans the
+recursive member as a hash join over a scan of the table where the anchor's
+hop is an index probe). Where the driver shares relation bodies
+(`sharesRelationBodies`), each reached row carries the columns its next hop
+reads (`#hopFields`) and the recursive member joins no row again, except
+from a start row that is not the stored row (`#rows`) where the hop reads
+more than its key: that walk still leaves the stored row too, as it always
+has; a junction hop joins the
 junction table (`step`, PostgreSQL semi-joins); the walk is the `EXISTS`'s OWN
 `WITH`, never wrapped in a derived table or `LATERAL` (MySQL answers every
 outer row from one evaluation of a wrapped one); a closure's read is INEXACT

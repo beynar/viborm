@@ -219,7 +219,73 @@ statement repeats once, through `cte.with`. An in-process SQLite pays for
 sharing and gains nothing a transport charges: measured on better-sqlite3
 (2026-10-19, acceptance policy with soft delete), SQLite runs both spellings
 in about the same time, and finding the repeats costs the engine about
-230 µs per governed statement (`can` 0.30 → 0.53 ms).
+230 µs per governed statement (`can` 0.30 → 0.53 ms). Re-measured for 1.4.0,
+with SQLite's nested members `MATERIALIZED` and the cheaper key (2026-10-20,
+end to end, default adapter): set reads are faster shared (`page` including
+its group 1.76 → 1.28 ms, `accessGrant.findMany` 3.18 → 1.71 ms) and point
+reads slower (`can` 0.38 → 0.78 ms, `findMany` `take: 10` 0.76 → 1.02 ms),
+so the in-process default stays off.
+
+`cte.with` hints: `createCteBuilders(quoteIdent, { inlining, materializing })`.
+PostgreSQL passes `inlining` (`NOT MATERIALIZED` for a correlated leaf
+member: it would otherwise materialize a member read twice); SQLite passes
+`materializing` (`MATERIALIZED` for a member `inlined: false`, every other
+member the engine shares: it would otherwise inline each member at every
+use, compiling a nested one again inside each use of the body reading it,
+which D1 refuses as `SQLITE_NOMEM`); a member without `inlined` is left to
+the database. MySQL
+passes neither (it has no such syntax). MySQL sharing works when declared
+(its backtick aliases renumber like quoted ones) but no MySQL driver declares
+it: no transport bound asks for it, and no MySQL plan has been measured.
+A `recursive` member (since 1.4.0, a recursive filter's reaching set) is its
+two terms, `anchor UNION recursive`, states no hint, and makes the clause
+`WITH RECURSIVE` (one keyword for the list, on every dialect).
+
+`capabilities.boundsRecursionIterations` is a dialect fact: MySQL fails a
+recursive CTE past `cte_max_recursion_depth` iterations (1000 by default), so
+its recursive filters keep their walk in place, whose anchor holds the first
+hop, even where it shares bodies; a reaching set would spend one iteration
+per depth from its anchor. Absent elsewhere.
+`capabilities.compoundSelectTerms` is a transport fact: D1 compiles SQLite
+with 5 terms per compound `SELECT` ("too many terms in compound SELECT"), so
+a flag member's union over more key sets nests in derived tables of 5.
+`capabilities.boundsExpressionDepth` is set by `SQLiteAdapter({
+deepExpressions: false })` (D1, depth 100): a relation filter's own `EXISTS`
+joins no flag member there, since the join keeps SQLite from flattening the
+derived table each nested level reads from.
+`capabilities.relationsPerStatement` is a transport bound: PlanetScale Neki
+refuses a statement referencing over 256 relations (every `FROM` item). Plain
+PostgreSQL bounds none, and a statement escalated to fit pays in its plan, so
+`installPostgresAdapter` sets it from the driver's `relationsPerStatement`
+option (a positive integer, refused otherwise), and only where bodies are
+shared. Absent the option, `src/drivers/shared/relation-bound.ts` answers
+from the server. Where the driver reads each connection's startup
+(node-postgres on a pool it makes, whose `Client` reads `server_version`;
+postgres.js's `sql.parameters`), `boundByServer` makes the capability a
+getter read as each statement is built: 256 until a connection said its
+server, then 256 where `server_version` ends `(Neki)` and none elsewhere. A
+transaction's statements are built on the connection its BEGIN opened, so
+they read its server; a driver's first statements and an array
+transaction's members are built before any connection and take 256, which
+costs a plain server only a plan, only past 256 relations. Nothing waits or
+connects for the fact: an earlier design that opened the first connection
+before building delayed calls that send no SQL and added an acquisition
+outside the transaction's own. Elsewhere (Bun SQL, a supplied pool, a pool
+given its own `Client`, a startup that names no Neki) `learnRelationLimit`
+takes the limit Neki's refusal names (54000, "references more than N
+relations"): that statement fails and the next fit (Neki: a refusal takes
+~0.4 s, a round trip ~36 ms). Each fills an absent bound only: a stated one
+always wins. Nothing caches built SQL across operations, so the next
+statement built reads the bound. A statement over it states its
+repeated recursive walks as reaching sets, then joins key sets per row, only
+as far as it needs; one within it keeps every walk in place. PostgreSQL
+holds a joined one-column key set as an array (`arrays.ofRows`, `ARRAY(…)`,
+tested by `arrays.has`), computed once per statement; a dialect without
+`ofRows` joins a flag member. D1 bounds no relations and takes 256
+(`SQLiteAdapter({ relationsPerStatement })`): on better-sqlite3 no read is
+slower with it (the 10× page read three depths: 385 ms without, 260 ms
+with), and the largest reads stay well inside 100 KB. Absent, nothing
+escalates.
 
 `assertions.holds` (a write's judgement of the row it produces) fails with its
 own sentinel, under the `__viborm_judged__` alias: PostgreSQL a text sublink

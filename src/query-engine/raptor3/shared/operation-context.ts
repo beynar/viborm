@@ -34,8 +34,8 @@ import {
   UnsupportedOperationError,
   VibORMErrorCode,
 } from "@errors";
-import type { AnyModel } from "@schema/model";
-import { type Sql, sql } from "@sql";
+import { type AnyModel, getModelKeyCatalog } from "@schema/model";
+import { Sql, sql } from "@sql";
 import { createFailureError } from "../../batch-error-attribution";
 import {
   compileBindBudgetChunks,
@@ -56,6 +56,7 @@ import {
   type Query,
   type Read,
   RecursiveOutputOverBudget,
+  refusesWhileDecoding,
   returningSafeProjection,
   wholeValue,
 } from "./query";
@@ -71,6 +72,15 @@ import { linkJudgement, type Membership, physicalField } from "./storage";
 import { type ScratchPublication, TransportAttempt } from "./transport-attempt";
 
 export type Member = object;
+
+/**
+ * The rows a write answering a relation projection returns, named in its own
+ * statement ({@link OperationContext.answersInStatement}); reserved-prefixed,
+ * as every engine-owned name is, so no table a projection reads is shadowed.
+ */
+const MUTATION_ROWS = "__viborm_mutation";
+/** The derived table a projection sharing relation bodies is read through. */
+const MUTATION_ANSWER = "__viborm_answer";
 
 /**
  * The single-row mutations whose returned identity a batch-only, non-returning
@@ -380,6 +390,13 @@ export class OperationContext {
    * that is attributed (`:1037-1046`) and is not marked here.
    */
   #answeredFailureSet: WeakSet<object> | undefined;
+  /** {@link answersInStatement}'s projections over a write. */
+  #overWrites:
+    | WeakMap<
+        PreparedProjection,
+        { readonly answer: Sql; readonly folds: boolean }
+      >
+    | undefined;
   #correlationIdValue: string | undefined;
   /**
    * This operation's correlation id, minted on its FIRST read and then stable
@@ -2290,6 +2307,141 @@ export class OperationContext {
       ? sql`${statement} ${duplicate.suffix}`
       : statement;
   }
+  /**
+   * Whether a write of `model`'s rows answers with `projection` out of its OWN
+   * statement, so no locate, capture or re-read is sent. A RETURNING-safe
+   * projection rides the `RETURNING` ({@link returningSafeProjection}). Any
+   * other reads other rows, lowered by the read owner over the written row
+   * (`#overWrite`), in one of two spellings:
+   *
+   * - where a `WITH` may write (PostgreSQL), over the write's own rows,
+   *
+   *     WITH "__viborm_mutation" AS (<write> RETURNING *)
+   *     SELECT <projection> FROM "__viborm_mutation" AS "q0"
+   *
+   *   and every part of one statement reads the snapshot taken BEFORE it: the
+   *   written row through the `WITH`, every table as it was;
+   * - elsewhere (SQLite) in the `RETURNING` itself, correlated to the written
+   *   row by its table's name (an aliased target is not visible there), each
+   *   subquery reading the database as the write left it, the referential
+   *   actions it fired included.
+   *
+   * Neither can roll the write back, so a projection whose decoding may
+   * refuse the row ({@link refusesWhileDecoding}) keeps the transactional
+   * route. Either is the answer the route it replaces gives, under two
+   * conditions:
+   *
+   * - a DELETE: that route read the projection BEFORE removing the row, which
+   *   is what a snapshot reads (self-relations and the rows the delete
+   *   cascades to included) and what a live read does not, so a DELETE folds
+   *   only into a snapshot;
+   * - an INSERT or UPDATE: no table the projection reads may change but the
+   *   written one, which an UPDATE can only do through a referential action
+   *   it fires by rewriting a column a foreign key references, one of the
+   *   model's referenceable keys (a foreign key targets nothing else); and
+   *   the projection's statement may not read the written table at all (a
+   *   self-relation, a filter or a policy reaching it), which every such read
+   *   spells as its identifier in FROM position, so the text is the sound
+   *   test and a name that merely contains it only costs the fold.
+   *
+   * A user trigger that writes OTHER tables is the one change neither sees,
+   * as the scalar fold's `RETURNING` never saw a trigger's own row changes.
+   *
+   * `written`: an UPDATE's assignments; absent for an INSERT and a DELETE.
+   */
+  answersInStatement(
+    model: AnyModel,
+    projection: PreparedProjection,
+    effect: "insert" | "update" | "delete",
+    written?: Input
+  ): boolean {
+    const capabilities = this.driver.adapter.capabilities;
+    if (!capabilities.supportsReturning) return false;
+    if (returningSafeProjection(projection)) return true;
+    // A refusal after the statement must roll the write back: a transaction.
+    if (refusesWhileDecoding(projection)) return false;
+    if (effect === "delete") return capabilities.supportsCteWithMutations;
+    if (written !== undefined) {
+      const keys = getModelKeyCatalog(model).referenceableKeys;
+      if (
+        keys.some((key) => key.some((field) => Object.hasOwn(written, field)))
+      )
+        return false;
+    }
+    return this.#overWrite(model, projection).folds;
+  }
+  /**
+   * The projection read over the written row ({@link answersInStatement}),
+   * and whether the write may answer it: not where it reads the written table
+   * or, in a `RETURNING`, needs a `WITH` of its own. Lowered once per
+   * projection: the plan asks before the statement exists.
+   */
+  #overWrite(
+    model: AnyModel,
+    projection: PreparedProjection
+  ): { readonly answer: Sql; readonly folds: boolean } {
+    const known = this.#overWrites?.get(projection);
+    if (known !== undefined) return known;
+    const a = this.driver.adapter;
+    const table = model["~"].names.sql!;
+    const name = Sql.leafText(a.identifiers.escape(table))!;
+    const opensWith = (fragment: Sql) =>
+      Sql.peek(fragment).strings[0]!.trimStart().startsWith("WITH");
+    let answer: Sql;
+    let folds = true;
+    if (a.capabilities.supportsCteWithMutations) {
+      answer = this.queries.select(model, {}, undefined, {
+        projection,
+        source: MUTATION_ROWS,
+      }).sql;
+      // A read sharing its relation bodies states them in a `WITH` of its
+      // own, and a statement has one: it reads from inside a derived table.
+      if (opensWith(answer))
+        answer = sql`SELECT * FROM ${a.subqueries.correlate(answer, MUTATION_ANSWER)}`;
+    } else {
+      answer = this.queries.sharing(() =>
+        sql.join(this.queries.lowerProjection(projection, table), ", ")
+      );
+      // A `RETURNING` takes no `WITH`: a projection repeating a relation body
+      // where the transport shares them keeps the re-read, which states each
+      // body once.
+      folds = !opensWith(answer);
+    }
+    // In FROM position, not as the correlation `"<table>".` names the row by.
+    folds &&= !Sql.peek(answer).strings.some((text) => {
+      for (
+        let at = text.indexOf(name);
+        at !== -1;
+        at = text.indexOf(name, at + 1)
+      )
+        if (text[at + name.length] !== ".") return true;
+      return false;
+    });
+    const over = { answer, folds };
+    (this.#overWrites ??= new WeakMap()).set(projection, over);
+    return over;
+  }
+  /** `statement` answering with `projection` ({@link answersInStatement}). */
+  #answering(
+    model: AnyModel,
+    statement: Sql,
+    projection: PreparedProjection
+  ): Sql {
+    const a = this.driver.adapter;
+    if (returningSafeProjection(projection))
+      return sql`${statement} ${a.mutations.returning(
+        sql.join(this.queries.lowerProjection(projection), ", ")
+      )}`;
+    const { answer } = this.#overWrite(model, projection);
+    if (!a.capabilities.supportsCteWithMutations)
+      return sql`${statement} ${a.mutations.returning(answer)}`;
+    return sql`${a.cte.with([
+      {
+        name: MUTATION_ROWS,
+        query: sql`${statement} ${a.mutations.returning(sql.raw("*"))}`,
+      },
+    ])} ${answer}`;
+  }
   /** Complete one set mutation through its single count/projection tail. */
   #completeSetMutation(
     model: AnyModel,
@@ -2298,11 +2450,8 @@ export class OperationContext {
     single?: () => Error,
     judged?: JudgedWrite
   ): Promise<unknown> {
-    const q = this.queries;
     const output = projection
-      ? sql`${statement} ${this.driver.adapter.mutations.returning(
-          sql.join(q.lowerProjection(projection), ", ")
-        )}`
+      ? this.#answering(model, statement, projection)
       : statement;
     return this.#setMutation(
       output,
@@ -2468,10 +2617,10 @@ export class OperationContext {
           )
         : this.published([], single);
     }
+    // A relation projection reaches here only where the write's own statement
+    // answers it (`Commands.rootCreate`, one row): each statement answers.
     const returning = projection
-      ? adapter.mutations.returning(
-          sql.join(q.lowerProjection(projection), ", ")
-        )
+      ? (mutation: Sql) => this.#answering(model, mutation, projection)
       : undefined;
     const groups: { readonly columns: string[]; readonly rows: Input[] }[] = [];
     for (const row of rows) {
@@ -2504,7 +2653,7 @@ export class OperationContext {
             false,
             placed
           );
-          if (returning) statement = sql`${statement} ${returning}`;
+          if (returning) statement = returning(statement);
           statements.push({
             sql: statement,
             context: this.statementContext(model, this.operation),
@@ -2523,7 +2672,7 @@ export class OperationContext {
             skipDuplicates,
             placed
           );
-          return returning ? sql`${mutation} ${returning}` : mutation;
+          return returning ? returning(mutation) : mutation;
         }
       );
       // A batch that rolls back on one chunk's refusal names that chunk by
@@ -2649,13 +2798,11 @@ export class OperationContext {
       refusal: this.#updateRefusal(model, selector.judgement),
     };
     // A relation carrier reads other rows, which no RETURNING can carry: the
-    // post-image is re-read by identity, as without RETURNING.
+    // post-image is re-read by identity, as without RETURNING, unless the
+    // write's own statement can read them (`answersInStatement`).
     if (
       projection &&
-      !(
-        adapter.capabilities.supportsReturning &&
-        returningSafeProjection(projection)
-      )
+      !this.answersInStatement(model, projection, "update", values)
     ) {
       const identities = await this.captureMutationIdentities(
         model,
@@ -2730,14 +2877,9 @@ export class OperationContext {
     const adapter = this.driver.adapter;
     // A relation carrier reads rows a DELETE is removing, so it can never ride
     // that statement's RETURNING: the row's shape is captured BEFORE the
-    // removal, under the same locked capture the non-returning branch owns.
-    if (
-      projection &&
-      !(
-        adapter.capabilities.supportsReturning &&
-        returningSafeProjection(projection)
-      )
-    ) {
+    // removal, under the same locked capture the non-returning branch owns,
+    // unless the write's own statement can read it (`answersInStatement`).
+    if (projection && !this.answersInStatement(model, projection, "delete")) {
       const identities = await this.captureMutationIdentities(
         model,
         selector,

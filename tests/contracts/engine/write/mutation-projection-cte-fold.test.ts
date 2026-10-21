@@ -49,6 +49,26 @@ import { beforeAll, describe, expect, test } from "vitest";
  * stands exactly as it was: every answer is asserted against the SAME projection
  * read back through `findUnique`, on the same row, over seeded state, on both
  * substrates.
+ *
+ * 1.4.0 (perf lane RT1): THE FOLD IS BACK, at one owner.
+ * `OperationContext.answersInStatement` decides whether a root write answers a
+ * relation projection out of its own statement, and on PostgreSQL the
+ * statement is the Phase-8 shape again,
+ *
+ *   WITH "__viborm_mutation" AS (UPDATE … RETURNING *)
+ *   SELECT <projection> FROM "__viborm_mutation" AS "q0"
+ *
+ * lowered by the read owner (`Queries.select`'s `source`). Both legality
+ * guards are restated there in the engine's own terms: the projection's
+ * statement may not NAME the written table (guard 1, now read off the lowered
+ * SQL, so a policy's predicate is covered with the payload), and an UPDATE may
+ * not write a member of one of the model's referenceable keys (guard 2, the
+ * `referenceableKeys` catalog — unique indexes included). A DELETE needs
+ * neither: the route it replaces read its projection before removing the row,
+ * which is the snapshot's answer. Measured on PGlite: update + include 3
+ * statements in a transaction → 1, create + include 2 → 1, and the batch-only
+ * transport's planning locate + 3-statement batch → 1. The `folds` column is
+ * back below, per case, and every case still answers what `findUnique` does.
  */
 
 const account = s
@@ -302,9 +322,13 @@ const TWO_INSERT_ROWS =
 /** No statement is a CTE fold: the machinery D-15 deleted emitted nothing else. */
 const noCteFold = (statements: string[]) =>
   statements.every((sql) => !sql.startsWith("WITH "));
+/** 1.4.0: the write and its relation projection, ONE statement. */
+const cteFolded = (statements: string[]) =>
+  statements.length === 1 &&
+  statements[0]?.startsWith('WITH "__viborm_mutation" AS (') === true;
 
 describe("Phase 8.1 — the fold's statement traffic", () => {
-  test("update + include is the located/mutated/re-read route, not one statement", async () => {
+  test("update + include is ONE statement: the write and its projection", async () => {
     const { driver, client } = await boot();
 
     driver.recording = true;
@@ -316,17 +340,13 @@ describe("Phase 8.1 — the fold's statement traffic", () => {
     const statements = drain(driver);
     driver.recording = false;
 
-    // THE measurement, re-expressed onto the shipped gate (D-15): `include` is a
-    // relation projection, `returningSafeProjection` refuses it, and the three
-    // statements the Phase-8 CTE folded into one are the three the shipped
-    // engine sends — locate, mutate, re-read. The mutation still carries the
-    // RETURNING the scalar fold answers its own row from.
-    expect(noCteFold(statements)).toBe(true);
-    expect(statements).toHaveLength(3);
-    expect(statements[0]?.startsWith("SELECT")).toBe(true);
-    expect(statements[1]?.startsWith("UPDATE")).toBe(true);
-    expect(statements[1]).toContain(" RETURNING ");
-    expect(statements[2]?.startsWith("SELECT")).toBe(true);
+    // THE measurement (1.4.0): `include` reads `p81_notes`, which the UPDATE
+    // of `p81_accounts` cannot change, so the locate, the UPDATE and the
+    // re-read the shipped 1.3.3 engine sent (3 statements in a transaction)
+    // are the one statement Phase 8 measured.
+    expect(cteFolded(statements)).toBe(true);
+    expect(statements[0]).toContain(' AS (UPDATE "');
+    expect(statements[0]).toContain(" RETURNING *)");
 
     expect(updated).toEqual({
       id: 3,
@@ -348,7 +368,7 @@ describe("Phase 8.1 — the fold's statement traffic", () => {
     ).toEqual({ label: "changed" });
   });
 
-  test("create + include is an INSERT and its terminal read, not one statement", async () => {
+  test("create + include is ONE statement: the INSERT and its projection", async () => {
     const { driver, client } = await boot();
 
     driver.recording = true;
@@ -359,12 +379,10 @@ describe("Phase 8.1 — the fold's statement traffic", () => {
     const statements = drain(driver);
     driver.recording = false;
 
-    // D-15: same gate, the `create` arm. A fresh root asks nothing first, so the
-    // route is the INSERT and the terminal read — two, where the CTE made one.
-    expect(noCteFold(statements)).toBe(true);
-    expect(statements).toHaveLength(2);
-    expect(statements[0]?.startsWith("INSERT")).toBe(true);
-    expect(statements[1]?.startsWith("SELECT")).toBe(true);
+    // Same owner, the `create` arm: the INSERT and the terminal read the 1.3.3
+    // engine sent are one statement again.
+    expect(cteFolded(statements)).toBe(true);
+    expect(statements[0]).toContain(' AS (INSERT INTO "');
 
     // A fresh row owns nothing, and the terminal read says so — the same `[]` the separate
     // terminal read answered.
@@ -377,12 +395,14 @@ describe("Phase 8.1 — the fold's statement traffic", () => {
     });
   });
 
-  // PIN RE-EXPRESSED (D-15). The Phase-8 fold left this shape at two statements
-  // — the in-unit presence guard and the CTE — by removing the locate and the
-  // terminal read. With the CTE gone all four are back: planning locate, in-unit
-  // presence guard, UPDATE, terminal SELECT. The guard is what the atomic batch
-  // uses instead of a JS postcondition (PLAN Phase 6.2) and is unaffected.
-  test("batch mode keeps its in-unit presence guard, and the route around it", async () => {
+  // PIN RE-EXPRESSED (1.4.0). The Phase-8 fold left this shape at two
+  // statements — the in-unit presence guard and the CTE. 1.3.3 sent four: a
+  // planning locate, then a batch of the presence guard, the UPDATE and the
+  // terminal SELECT. Folded, the write is the operation's ONLY statement, so it
+  // takes the plain execute path (D-7) and its missing row is its own empty
+  // answer — the guard's question, asked by the statement itself: one round
+  // trip where there were two.
+  test("batch mode sends the folded write alone, with no presence guard", async () => {
     const { driver, client } = await boot(true);
 
     driver.recording = true;
@@ -394,12 +414,8 @@ describe("Phase 8.1 — the fold's statement traffic", () => {
     const statements = drain(driver);
     driver.recording = false;
 
-    expect(noCteFold(statements)).toBe(true);
-    expect(statements).toHaveLength(4);
-    expect(statements[0]?.startsWith("SELECT")).toBe(true);
-    expect(statements[1]).toContain("__viborm_assert__");
-    expect(statements[2]?.startsWith("UPDATE")).toBe(true);
-    expect(statements[3]?.startsWith("SELECT")).toBe(true);
+    expect(cteFolded(statements)).toBe(true);
+    expect(statements[0]).not.toContain("__viborm_assert__");
 
     expect(updated).toEqual({
       id: 4,
@@ -427,27 +443,27 @@ describe("Phase 8.1 — the fold answers what the read answers", () => {
    * the `_count` correlation defect got past on the RETURNING fold
    * (`delete-fold.test.ts`).
    *
-   * D-15: every projection in this table is a RELATION projection, so the
-   * shipped gate (`returningSafeProjection`) refuses every one of them and they
-   * all take the same route — locate, UPDATE, terminal read, plus the batch
-   * leg's in-unit presence guard. The retired `folds` column that told them
-   * apart went with the CTE, and each case's own note below is kept as the
-   * record of why the RETIRED gate decided as it did. What the cases still do,
-   * and what they were always strongest at, is the oracle: twelve distinct
-   * projections, each answered identically by the mutation and by the read, on
-   * both substrates.
+   * Every projection in this table is a RELATION projection. D-15 sent them all
+   * down one route (locate, UPDATE, terminal read); 1.4.0 restores the `folds`
+   * column, now decided by `OperationContext.answersInStatement`, and each
+   * case's own note below says why. What the cases still do, and what they
+   * were always strongest at, is the oracle: twelve distinct projections, each
+   * answered identically by the mutation and by the read, on both substrates.
    */
   const projections = [
     {
       name: "a to-many include",
+      folds: true,
       args: { include: { notes: true } },
     },
     {
       name: "a to-many include with its own select",
+      folds: true,
       args: { include: { notes: { select: { body: true } } } },
     },
     {
       name: "a to-many include with a where and an orderBy",
+      folds: true,
       args: {
         include: {
           notes: { where: { id: { gt: 30 } }, orderBy: { id: "desc" } },
@@ -456,6 +472,7 @@ describe("Phase 8.1 — the fold answers what the read answers", () => {
     },
     {
       name: "_count with an explicit relation",
+      folds: true,
       args: { select: { id: true, _count: { select: { notes: true } } } },
     },
     {
@@ -465,10 +482,12 @@ describe("Phase 8.1 — the fold answers what the read answers", () => {
       // still holds, which is the point of asserting the answer separately
       // from the fold decision.
       name: "_count shorthand (every relation)",
+      folds: false,
       args: { select: { id: true, _count: true } },
     },
     {
       name: "a select mixing scalars and a relation",
+      folds: true,
       args: { select: { label: true, notes: { select: { id: true } } } },
     },
     // ── The relation payload's FILTER reaches the mutated table ──────────────
@@ -482,6 +501,7 @@ describe("Phase 8.1 — the fold answers what the read answers", () => {
     // `where` cannot get both right by luck.
     {
       name: "an include filtered through a relation on the mutated table (NEW value)",
+      folds: false,
       args: {
         include: {
           notes: { where: { account: { label: { equals: "oracle" } } } },
@@ -490,6 +510,7 @@ describe("Phase 8.1 — the fold answers what the read answers", () => {
     },
     {
       name: "an include filtered through a relation on the mutated table (OLD value)",
+      folds: false,
       args: {
         include: { notes: { where: { account: { label: { equals: "L3" } } } } },
       },
@@ -498,12 +519,14 @@ describe("Phase 8.1 — the fold answers what the read answers", () => {
       // The walk is over the whole payload, not over a list of keys that may
       // carry a filter: an array element is walked like any other value.
       name: "the same filter under an AND",
+      folds: false,
       args: filterUnderAnd,
     },
     {
       // `_count`'s per-relation `where` reaches by the identical mechanism, and
       // it answered 0 against a truth of 3.
       name: "_count whose per-relation where reaches the mutated table",
+      folds: false,
       args: {
         select: {
           id: true,
@@ -518,6 +541,7 @@ describe("Phase 8.1 — the fold answers what the read answers", () => {
     {
       // `orderBy` reads a table exactly as `where` does.
       name: "an include ordered through a relation on the mutated table",
+      folds: false,
       args: { include: { notes: { orderBy: { account: { label: "asc" } } } } },
     },
     {
@@ -527,6 +551,7 @@ describe("Phase 8.1 — the fold answers what the read answers", () => {
       // untouched child table, and they still fold into ONE statement. The
       // `where`+`orderBy` case earlier in this list is the other half of this.
       name: "a to-many include with a cursor on the child's own key",
+      folds: true,
       args: {
         include: {
           notes: { cursor: { id: 31 }, orderBy: { id: "asc" }, take: 5 },
@@ -560,9 +585,14 @@ describe("Phase 8.1 — the fold answers what the read answers", () => {
         driver.recording = false;
 
         expect(answer).toEqual(truth);
-        // …and by the route the SHIPPED gate chooses, not another one: no CTE
-        // fold exists to take, the mutation is its own statement, and the
-        // projection is shaped by the terminal read that follows it.
+        // …and by the route the gate chooses (1.4.0): ONE statement where the
+        // projection's statement names no `p81_accounts`, and otherwise the
+        // located/mutated/re-read route, its mutation its own statement and
+        // the projection shaped by the terminal read that follows it.
+        if (projection.folds) {
+          expect(cteFolded(statements)).toBe(true);
+          continue;
+        }
         expect(noCteFold(statements)).toBe(true);
         expect(statements).toHaveLength(batch ? 4 : 3);
         expect(statements[batch ? 2 : 1]?.startsWith("UPDATE")).toBe(true);
@@ -571,7 +601,7 @@ describe("Phase 8.1 — the fold answers what the read answers", () => {
     });
   }
 
-  test("a create's include answers what the read answers, through its terminal read", async () => {
+  test("a create's include answers what the read answers, in its own statement", async () => {
     const { client: truthClient } = await boot();
     await truthClient.account.create({
       data: { id: 200, email: "a200@x", label: "L200" },
@@ -591,12 +621,9 @@ describe("Phase 8.1 — the fold answers what the read answers", () => {
     driver.recording = false;
 
     expect(created).toEqual(truth);
-    // D-15: `_count` is a relation projection too (`g4/unit02/note.md` §4.4), so
-    // the create answers through its terminal read rather than through a CTE.
-    expect(noCteFold(statements)).toBe(true);
-    expect(statements).toHaveLength(2);
-    expect(statements[0]?.startsWith("INSERT")).toBe(true);
-    expect(statements[1]?.startsWith("SELECT")).toBe(true);
+    // `_count` is a relation projection (`g4/unit02/note.md` §4.4) that reads
+    // `p81_notes` alone, so the create answers it in its own statement.
+    expect(cteFolded(statements)).toBe(true);
   });
 });
 
@@ -768,14 +795,11 @@ describe("Phase 8.1 — the two legality guards", () => {
     const statements = drain(driver);
     driver.recording = false;
 
-    // ANTI-VACUITY, re-expressed onto the shipped gate (D-15). The retired
-    // guard 2 asked what the SET rewrites, and this case witnessed that widening
-    // it to unique indexes had not turned it into "never fold a model that has
-    // one". The shipped gate asks about the PROJECTION instead
-    // (`returningSafeProjection`), so the same `label` SET folds or not by what
-    // it answers with: a relation projection takes the three-statement route…
-    expect(noCteFold(statements)).toBe(true);
-    expect(statements).toHaveLength(3);
+    // ANTI-VACUITY for guard 2 (restored in 1.4.0): it asks what the SET
+    // rewrites, and this case witnesses that widening it to unique indexes did
+    // not turn it into "never fold a model that has one". `label` is in no
+    // referenceable key, so the relation projection folds…
+    expect(cteFolded(statements)).toBe(true);
     expect(updated).toEqual({
       id: 2,
       code: "K2",
@@ -872,7 +896,7 @@ describe("Phase 8.1 — what the fold must not change", () => {
    * corrected in this phase, PLAN 10.1. The gate reads that flag, so SQLite
    * keeps the three-statement path.
    */
-  test("SQLite keeps the unfolded path and the same answer", async () => {
+  test("SQLite answers the same, in its own RETURNING (no data-modifying WITH)", async () => {
     const sqliteClient = createClient({
       schema,
       driver: new SQLite3Driver({ dataDir: ":memory:" }),
@@ -902,7 +926,7 @@ describe("Phase 8.1 — what the fold must not change", () => {
     );
   });
 
-  test("a model nothing references takes the same route as the cascading one", async () => {
+  test("a model nothing references folds where the cascading key rewrite declines", async () => {
     const family = getSoloFamily();
     const driver = new RecordingPGliteDriver({
       client: family.database,
@@ -921,15 +945,11 @@ describe("Phase 8.1 — what the fold must not change", () => {
     const statements = drain(driver);
     driver.recording = false;
 
-    // The retired guard 2 asked what the SET rewrites, not whether the model has
-    // relations: `color` is in no unique constraint, so no action could fire and
-    // the m2m `_count` folded here while the cascading model's key rewrite
-    // declined. D-15 retired that question with the CTE. The shipped gate asks
-    // about the PROJECTION, and `_count` is a relation projection on both models
-    // (`g4/unit02/note.md` §4.4) — so the route is the same three statements on
-    // either, and what is left to tell is that the answer is the read's.
-    expect(noCteFold(statements)).toBe(true);
-    expect(statements).toHaveLength(3);
+    // Guard 2 asks what the SET rewrites, not whether the model has relations:
+    // `color` is in no referenceable key, so no action can fire and the m2m
+    // `_count` folds here (1.4.0, as in Phase 8) while the cascading model's
+    // key rewrite declines.
+    expect(cteFolded(statements)).toBe(true);
     expect(updated).toEqual(
       await client.tag.findUnique({
         where: { id: 1 },

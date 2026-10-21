@@ -13,7 +13,6 @@ import type { OperationContext } from "../shared/operation-context";
 import {
   InvalidScalarResult,
   type PreparedSelector,
-  returningSafeProjection,
   type SelectorFacts,
 } from "../shared/query";
 import {
@@ -1740,13 +1739,14 @@ export class Commands {
    * a provider without RETURNING keeps the located/mutated/re-read route.
    */
   /**
-   * A root `update` that writes no relation and publishes no relation is the
-   * set-oriented mutation owner plus ONE cardinality decision — the same
-   * statement, the same prepared projection and the same decoder a bulk verb
-   * uses, so no second single-row physical path exists. It is also the shipped
-   * fold gate (`UpdateOperation` `canFold`): a relation projection must read
-   * other rows, which no RETURNING can carry, and a provider without RETURNING
-   * keeps the located/mutated/re-read route.
+   * A root `update` that writes no relation is the set-oriented mutation owner
+   * plus ONE cardinality decision — the same statement, the same prepared
+   * projection and the same decoder a bulk verb uses, so no second single-row
+   * physical path exists. It is also the shipped fold gate (`UpdateOperation`
+   * `canFold`): a provider without RETURNING keeps the located/mutated/re-read
+   * route, and so does a relation projection, which must read other rows, unless
+   * the write's own statement can read them
+   * ({@link OperationContext.answersInStatement}).
    *
    * Root `create` folds under the same three conditions, through the set-oriented
    * INSERT owner ({@link rootCreate}).
@@ -1760,11 +1760,12 @@ export class Commands {
     if (ctx.schema.namesRelation(model, args.data)) return undefined;
     if (!ctx.driver.adapter.capabilities.supportsReturning) return undefined;
     const projection = ctx.queries.prepareProjection(model, args);
-    if (!returningSafeProjection(projection)) return undefined;
     const values = this.stamp(model, "update", args.data, raw.data);
     // Nothing to assign emits no UPDATE: the row is only read, on the
     // located route.
     if (Object.keys(values).length === 0) return undefined;
+    if (!ctx.answersInStatement(model, projection, "update", values))
+      return undefined;
     const selector = ctx.queries.candidates(
       ctx.queries.prepareSelector(model, args.where, true),
       "root",
@@ -2020,7 +2021,9 @@ export class Commands {
     if (ctx.schema.keys(model).some((key) => updates[key] !== undefined))
       return undefined;
     const projection = ctx.queries.prepareProjection(model, args);
-    if (!returningSafeProjection(projection)) return undefined;
+    // Either arm's statement answers: the update arm's is the stricter.
+    if (!ctx.answersInStatement(model, projection, "update", updates))
+      return undefined;
     const values = this.stamp(model, "create", args.create!, raw.create);
     const missing = () =>
       ctx.createMany(model, [values], projection, false, () => {
@@ -2115,7 +2118,7 @@ export class Commands {
     if (ctx.schema.namesRelation(model, args.data)) return undefined;
     if (!ctx.driver.adapter.capabilities.supportsReturning) return undefined;
     const projection = ctx.queries.prepareProjection(model, args);
-    if (!returningSafeProjection(projection)) return undefined;
+    if (!ctx.answersInStatement(model, projection, "insert")) return undefined;
     const values = this.stamp(model, "create", args.data, raw.data);
     return () =>
       ctx.createMany(model, [values], projection, false, () => {
@@ -2215,7 +2218,13 @@ export class Commands {
         ? () => new NotFoundError(model["~"].names.ts!, "delete")
         : undefined;
       const single =
-        !projection || (returning && returningSafeProjection(projection));
+        !projection ||
+        ctx.answersInStatement(
+          model,
+          projection,
+          tombstone ? "update" : "delete",
+          tombstone?.admitted
+        );
       if (!tombstone)
         return {
           single,
@@ -2230,10 +2239,7 @@ export class Commands {
         (rows) => {
           // A result without RETURNING is re-read by key, and its write binds
           // the captured keys beside the selector.
-          let bound =
-            projection && !(returning && returningSafeProjection(projection))
-              ? rows * ctx.schema.keys(model).length
-              : 0;
+          let bound = single ? 0 : rows * ctx.schema.keys(model).length;
           for (const [field, value] of Object.entries(values))
             bound += ctx.queries.updateAssignment(model, field, value).values
               .length;

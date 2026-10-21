@@ -14,7 +14,14 @@ const result = await client.user.updateMany({
 // Result: { count: 42 }
 ```
 
-`updateMany` returns a `{ count }`. `where` is optional — omit it to update every row.
+`updateMany` returns a `{ count }`. `where` is optional — omit it, or pass `where: {}`, to update every row.
+
+:::warning
+A `where` whose members are all `undefined`, such as `{ tenantId: undefined }`
+when `tenantId` was never set, is refused with a `ValidationError` instead of
+updating every row. An `undefined` member is otherwise an absent member, as in
+Prisma; see [Filter behavior](/docs/client/compatibility#filter-behavior-on-a-port).
+:::
 
 ## Examples
 

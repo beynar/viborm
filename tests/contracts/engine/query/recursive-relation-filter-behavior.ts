@@ -1,6 +1,7 @@
 // biome-ignore-all lint/suspicious/noMisplacedAssertion: expectChangeWalkingItsModel is invoked only from registered tests.
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
+import { ForbiddenError } from "@errors";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import {
@@ -756,6 +757,96 @@ export function runRecursiveRelationFilterBehavior(
           expect(actual).toEqual(expected);
         });
 
+    // Where the driver shares relation bodies (every PostgreSQL driver by
+    // default), a statement states a closure it repeats once, as the key set
+    // of the rows it holds for, and a row testing such sets more than once
+    // joins them once. Each statement here repeats two closures three times,
+    // once under NOT, read with a related domain hiding rows and without.
+    for (const slot of SLOTS)
+      test(`${slot.model}.${slot.relation}: closures repeated in one statement keep the oracle's rows, under a domain hiding rows and without`, async () => {
+        const { client, world } = context;
+        const hiddenIds = {
+          document: ["A", "C2", "r07", "r23", "r41"],
+          team: ["VN", "DL", "t05", "t31", "t44"],
+        };
+        const hidden = client.$extends({
+          name: "test.hiddenRows",
+          rows: {
+            control: "hidden",
+            default: "on",
+            models: {
+              document: {
+                on: { related: { id: { notIn: hiddenIds.document } } },
+                off: {},
+              },
+              team: {
+                on: { related: { id: { notIn: hiddenIds.team } } },
+                off: {},
+              },
+            },
+          },
+        });
+        const read = async (where: object, mode: "on" | "off") =>
+          sorted(
+            slot.model === "document"
+              ? await hidden.document.findMany({
+                  where,
+                  select: { id: true },
+                  hidden: mode,
+                })
+              : await hidden.team.findMany({
+                  where,
+                  select: { id: true },
+                  hidden: mode,
+                })
+          );
+        const [, first, second] = predicatesOf(world, slot.model);
+        const actual: [string, string[]][] = [];
+        const expected: [string, string[]][] = [];
+        for (const mode of ["off", "on"] as const) {
+          const hops = hopsOf(world, slot).filter(
+            ([, to]) => mode === "off" || !hiddenIds[slot.model].includes(to)
+          );
+          for (const quantifier of ["some", "every", "none"] as const)
+            for (const { recurse, depth } of DEPTHS)
+              for (const self of [false, true]) {
+                const closure = (predicate: Predicate) => ({
+                  [slot.relation]: {
+                    recurse,
+                    self,
+                    [quantifier]: predicate.where,
+                  },
+                });
+                const holds = (predicate: Predicate, id: string) =>
+                  quantify(
+                    quantifier,
+                    closureOf(hops, id, { depth, self }),
+                    predicate.holds
+                  );
+                actual.push([
+                  `${mode} ${JSON.stringify(recurse)} self=${self} ${quantifier}`,
+                  await read(
+                    {
+                      OR: [
+                        { AND: [closure(first!), closure(second!)] },
+                        { AND: [closure(first!), { NOT: closure(second!) }] },
+                        { AND: [closure(second!), { NOT: closure(first!) }] },
+                      ],
+                    },
+                    mode
+                  ),
+                ]);
+                expected.push([
+                  `${mode} ${JSON.stringify(recurse)} self=${self} ${quantifier}`,
+                  idsOf(slot.model, world)
+                    .filter((id) => holds(first!, id) || holds(second!, id))
+                    .sort(),
+                ]);
+              }
+        }
+        expect(actual).toEqual(expected);
+      });
+
     test("an empty closure: some is false, every and none are true; self makes it non-empty", async () => {
       const { client } = context;
       const lone = async (where: object) =>
@@ -1318,6 +1409,69 @@ export function runRecursiveRelationFilterBehavior(
           }),
         { result: { count: 1 }, state: named.filter(({ id }) => id !== "NE") }
       );
+    });
+
+    // An update is judged on the row it produces, which the database does not
+    // hold yet: the walk leaves it by the parent it is given. Ben owns A, an
+    // ancestor of D3 (D3 < G < A < R); L's ancestry holds no row of Ben's,
+    // C1's holds C1 itself.
+    const parentOwnedByBen = (self: boolean) => {
+      const closure = {
+        parent: { recurse: { depth: false }, self, some: { ownerId: "ben" } },
+      };
+      // Stated twice: where the driver shares bodies, as one reaching set.
+      return {
+        OR: [
+          { AND: [closure, { personal: true }] },
+          { AND: [closure, { personal: false }] },
+        ],
+      };
+    };
+    const judging = (client: Client, self: boolean) =>
+      client.$extends({
+        name: "test.ancestry",
+        rows: {
+          control: "scope",
+          default: "all",
+          models: {},
+          verbs: {
+            document: {
+              // A verb a model's entry leaves out holds of no row.
+              predicates: { all: {}, underBen: parentOwnedByBen(self) },
+              read: "all",
+              update: "underBen",
+            },
+          },
+        },
+      });
+    const parentOf = async (client: Client, id: string) =>
+      (await client.document.findUnique({ where: { id } }))?.parentId;
+
+    test("a judged update reads a closure it states twice from the new row's parent", async () => {
+      const { client } = context;
+      const judged = judging(client, false);
+      await expect(
+        judged.document.update({ where: { id: "D3" }, data: { parentId: "L" } })
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      expect(await parentOf(client, "D3")).toBe("G");
+      await judged.document.update({
+        where: { id: "D3" },
+        data: { parentId: "C1" },
+      });
+      expect(await parentOf(client, "D3")).toBe("C1");
+    });
+
+    // Pins the answer 1.3 gave, unchanged by the walk's trimming and sharing:
+    // with `self`, the walk reads the start row from the table by its key,
+    // and leaves the row stored there too, by its old parent.
+    test("a judged update's closure with self also leaves the stored row it replaces", async () => {
+      const { client } = context;
+      const judged = judging(client, true);
+      await judged.document.update({
+        where: { id: "D3" },
+        data: { parentId: "L" },
+      });
+      expect(await parentOf(client, "D3")).toBe("L");
     });
 
     test("a nested updateMany whose filter walks its own model, on every provider", async () => {

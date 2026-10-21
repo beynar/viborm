@@ -13,6 +13,9 @@ import { s } from "@schema";
 import { sql } from "@sql";
 import { describe, expect, test } from "vitest";
 
+const REFUSED_BOUND =
+  /"relationsPerStatement" option must be a positive integer/;
+
 const scratchDdl = (adapter: DatabaseAdapter): string[] =>
   getAdapterInternals(adapter)
     .batchRefs.setup("batch-1")
@@ -84,6 +87,49 @@ describe("Shared relation bodies", () => {
         client.$driver.adapter.capabilities.sharesRelationBodies ?? false
       ).toBe(sharedRelationBodies !== false);
     }
+  });
+  // Neki refuses a statement referencing more than 256 relations; a plain
+  // PostgreSQL server bounds none, and a statement escalated to fit pays in
+  // its plan, so the bound is the caller's to state, or, unstated, the
+  // server's where the driver reads its startup: node-postgres and
+  // postgres.js take Neki's until a connection says otherwise
+  // (postgres-server-facts.core.test.ts).
+  test.each([
+    [undefined, [256, undefined, 256, undefined, undefined]],
+    [256, [256, 256, 256, 256, 256]],
+    [1000, [1000, 1000, 1000, 1000, 1000]],
+  ])("every PostgreSQL client factory preserves relationsPerStatement=%s", (relationsPerStatement, bounds) => {
+    const config = {
+      schema: { item: s.model({ id: s.string().id() }) },
+      relationsPerStatement,
+    };
+    const remote = { ...config, databaseUrl: "postgres://h/d" };
+    expect(
+      [
+        pgClient(remote),
+        pgliteClient(config),
+        postgresClient(remote),
+        neonClient(remote),
+        bunSQLClient(remote),
+      ].map(
+        (client) => client.$driver.adapter.capabilities.relationsPerStatement
+      )
+    ).toEqual(bounds);
+  });
+  test.each([
+    0,
+    -1,
+    1.5,
+    Number.NaN,
+    "256",
+  ])("a PostgreSQL driver refuses relationsPerStatement=%s", (relationsPerStatement) => {
+    expect(
+      () =>
+        new PgDriver({
+          databaseUrl: "postgres://h/d",
+          relationsPerStatement: relationsPerStatement as number,
+        })
+    ).toThrow(REFUSED_BOUND);
   });
   // D1 refuses a statement over 100 KB; PlanetScale's Neki one referencing
   // more than 256 relations. D1 declares the fact, and so does every

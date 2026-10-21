@@ -46,11 +46,15 @@ An explicit `undefined` value is treated as if the key were absent, matching Pri
 :::
 
 :::warning
-Validate required filters before calling a mutation. For example,
-`deleteMany({ where: { id: undefined } })` has no ID restriction and can delete
-every row. VibORM has no strict-undefined mode. An empty `AND` or `NOT` is true;
-an empty `OR`, or an `OR` containing only empty objects after undefined keys
-are removed, is false. Build optional alternatives before constructing `OR`.
+A bulk write is the exception. `updateMany` and `deleteMany` (and the same
+verbs nested in a relation write) refuse a `where` that matches every row only
+because its `undefined` members were dropped:
+`deleteMany({ where: { tenantId: undefined } })` throws a `ValidationError`
+naming `tenantId` instead of deleting every row. `where: {}` or no `where` still
+means every row. Reads keep the Prisma rule, so validate required filters before
+using them elsewhere. An empty `AND` or `NOT` is true; an empty `OR`, or an `OR`
+containing only empty objects after undefined keys are removed, is false. Build
+optional alternatives before constructing `OR`.
 :::
 
 ## Untrusted filter values

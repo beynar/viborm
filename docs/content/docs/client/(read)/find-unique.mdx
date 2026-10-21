@@ -196,5 +196,68 @@ One place viborm goes **further** than Prisma:
   `cursor`, which is an exact row address in an ordering.
 :::
 
+## Batching concurrent calls
+
+Like Prisma, VibORM merges the `findUnique` and `findUniqueOrThrow` calls
+issued in the same tick into one read. This is the GraphQL N+1 case, where each
+resolver looks up one row:
+
+```ts
+// One statement: SELECT … WHERE "id" IN (…)
+const authors = await Promise.all(
+  posts.map((post) =>
+    client.user.findUnique({ where: { id: post.authorId } })
+  )
+);
+```
+
+Each caller still gets what its call would return on its own: its own row (a
+separate object, also when two calls name the same key), `null`, or
+`NotFoundError`. Request transforms, query interceptors, the cache, observers
+and [permissions](/docs/extensions/permissions) still see one operation per
+call. Only the statement is shared.
+
+Calls are merged only when all of these hold:
+
+- They come from the same client view (the same `$extends` or `$as` result) and
+  run outside any transaction. Calls inside `$transaction` are never merged.
+- They read the same model with the same `select`, `include` and `omit`
+  (nested arguments included) and the same per-call controls.
+- The `where` is the unique key alone: one field, or one complete compound key,
+  whose fields are `string`, `int` or `bigInt` scalars. A `where` that adds a
+  filter, or a key of another type (`dateTime`, `decimal`, `blob`…), runs as
+  its own statement.
+- No extension transforms statements, and the driver installs no result
+  parser of its own.
+
+A few things change:
+
+- **One tick of waiting.** Calls wait until the current synchronous code, and
+  the promise callbacks it queued, have run (`process.nextTick`, or the end of
+  the current synchronous run where there is no `process`). An isolated call
+  pays about 2 µs for it on SQLite.
+- **Some misses cost a second statement.** If the merged read returns no row
+  for a string key, VibORM reads that key again on its own. A case-insensitive
+  or space-padding collation (MySQL's default, PostgreSQL's `citext`) can
+  match a row that JavaScript equality would not. An `int` or `bigInt` key
+  that is not returned answers `null` directly. A missing
+  `findUniqueOrThrow` key is read again on its own, so its `NotFoundError` is
+  the one it would throw alone.
+- **Failures are retried one call at a time.** If the merged read fails, each
+  call runs on its own and gets its own result or error.
+- **Large batches are split** to fit the driver's bind-parameter limit (D1
+  allows 100 per statement). PostgreSQL binds a single-field key list as one
+  array parameter.
+- **Tracing.** Each call keeps its operation span. The merged statement appears
+  under the first call's span.
+- **Ordering.** A `findUnique` you do not `await` can now run after a write you
+  start later in the same tick, so it may see that write. If the read must not
+  see the write, `await` the read first.
+
+With 50 concurrent calls by id, the batch sends 1 statement instead of 50. On
+a simulated connection that waits 20 ms per statement and runs one statement
+at a time (like `pg` over Hyperdrive), this takes 22 ms instead of 1,080 ms. On
+in-memory PGlite it takes 0.6 ms instead of 7.8 ms.
+
 To get-or-create a record atomically, use [`upsert`](/docs/client/upsert) instead of a `findUnique` + `create` pair.
 

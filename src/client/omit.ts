@@ -179,7 +179,7 @@ export const createClientOmitResolver = <S extends Record<string, AnyModel>>(
  * and a client default must never be what flips a return shape. Its nested
  * nodes are covered anyway — a bulk write projects scalars only.
  */
-const PROJECTING_OPERATIONS: ReadonlySet<string> = new Set([
+export const PROJECTING_OPERATIONS: ReadonlySet<string> = new Set([
   "findFirst",
   "findFirstOrThrow",
   "findMany",
@@ -330,7 +330,7 @@ const rewriteRelationMap = (
 };
 
 /** The direct carrier edge of a variant slot — never a bound inverse's view. */
-const directVariantCarrier = (
+export const directVariantCarrier = (
   resolved: ResolvedSlot
 ): ResolvedVariantEdge | undefined => {
   if (resolved.member) return undefined;
@@ -348,7 +348,7 @@ const directVariantCarrier = (
  * invoked and no `targetEntries()` is walked: the edge already names both
  * endpoints, and a bound inverse names the carrier that holds the storage.
  */
-const slotTarget = (
+export const slotTarget = (
   resolved: ResolvedSlot,
   source: AnyModel
 ): AnyModel | undefined => {

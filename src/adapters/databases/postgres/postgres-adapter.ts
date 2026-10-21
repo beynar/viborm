@@ -483,6 +483,8 @@ export class PostgresAdapter implements DatabaseAdapter {
     // which is how the enum type is reached without naming it here.
     enumValue: (values: unknown[]): Sql => sql`${arrayLiteralText(values)}`,
 
+    ofRows: (query: Sql): Sql => sql`ARRAY(${query})`,
+
     has: (column: Sql, value: Sql): Sql => sql`${value} = ANY(${column})`,
 
     hasEvery: (column: Sql, values: Sql): Sql => sql`${column} @> ${values}`,
@@ -575,7 +577,9 @@ export class PostgresAdapter implements DatabaseAdapter {
     },
   };
 
-  cte = createCteBuilders(quoteIdent, sql.raw("NOT MATERIALIZED"));
+  cte = createCteBuilders(quoteIdent, {
+    inlining: sql.raw("NOT MATERIALIZED"),
+  });
 
   mutations = {
     skipDuplicatesStrategy: "sql" as const,
@@ -648,6 +652,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     supportsMutationTargetInSubquery: true,
     supportsMutationRowLimit: false, // PostgreSQL has no UPDATE/DELETE ... LIMIT
     supportsRowLocks: true,
+    joinsJunctionFilters: "unbounded",
   };
 
   lastInsertId = (): Sql => sql.raw`lastval()`;

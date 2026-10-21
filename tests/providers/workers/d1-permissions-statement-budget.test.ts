@@ -506,19 +506,16 @@ describe("D1: W-K2f, every governed statement inside D1's budget", () => {
       "page $access, group $access": "runs",
       "document $access": "runs",
       "document roots $access at three depths": "runs",
-      // Measured (u02) at 1.3.3: 89,678 B and 84,796 B, under the text
-      // limit since the 1.3.3 merged quantifiers and projection trims (they
-      // were 106,197 B and 100,850 B, refused SQLITE_TOOBIG), so the program
-      // D1 compiles is what refuses them now.
-      "document roots $access at three depths, with grants":
-        "refused: SQLITE_NOMEM",
-      "document every relation + $access": "refused: SQLITE_NOMEM",
-      // 75,514 B and 68,874 B at 1.3.3 (83,620 and 76,878 before; 82,780 and
-      // 76,038 at 9c50a3191): inside the published limits, refused for the
-      // program D1 compiles.
-      "page $access at three depths through group and grants":
-        "refused: SQLITE_NOMEM",
-      "accessGrant every relation + $access": "refused: SQLITE_NOMEM",
+      // The four below were refused SQLITE_NOMEM at 1.3.3 (89,678 B,
+      // 84,796 B, 75,514 B and 68,874 B, inside the published limits): every
+      // use of a shared body inlined it, and a nested one again inside each
+      // use of the body reading it. Since 1.4.0 SQLite materializes a nested
+      // body: SQLite compiles about a quarter of the opcodes (63,867 to
+      // 14,345 for the first, measured on better-sqlite3 3.53.2).
+      "document roots $access at three depths, with grants": "runs",
+      "document every relation + $access": "runs",
+      "page $access at three depths through group and grants": "runs",
+      "accessGrant every relation + $access": "runs",
     });
   }, 900_000);
 });

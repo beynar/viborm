@@ -34,6 +34,7 @@ import {
 import { refuseUnknownDriverConfigKeys } from "../shared/driver-options";
 import { CLEANUP_BOUND_MS } from "../shared/pinned-session";
 import { installPostgresAdapter } from "../shared/postgres-adapter";
+import { learnRelationLimit } from "../shared/relation-bound";
 import type { QueryResult } from "../types";
 
 // ============================================================
@@ -146,6 +147,8 @@ export interface BunSQLDriverOptions {
   postgis?: boolean;
   /** Each relation filter body a statement repeats is stated once (default `true`); `false` keeps every body inline. */
   sharedRelationBodies?: boolean;
+  /** The most relations (`FROM` items) one statement may reference: past it, a statement repeating recursive filters states them as key sets, which some plans pay for. PlanetScale Neki refuses more than 256: Bun SQL keeps no startup message, so set 256 there; absent, Neki's first refusal teaches it 256 (that statement fails). A stated bound always wins. Only where relation bodies are shared. */
+  relationsPerStatement?: number;
   /** The PostgreSQL schema this driver's persistent objects live in. Defaults to `public`. */
   namespace?: string;
   /**
@@ -167,6 +170,7 @@ const BUN_SQL_CONFIG_KEYS: Record<keyof BunSQLDriverOptions, true> = {
   pgvector: true,
   postgis: true,
   sharedRelationBodies: true,
+  relationsPerStatement: true,
   namespace: true,
   migrationSessionAttestation: true,
 };
@@ -265,10 +269,14 @@ export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     const operation = context?.operation ?? "execute";
-    const result = await client.unsafe<T>(
-      sql,
-      normalizeBunSQLParams(client, params)
-    );
+    // Bun SQL keeps no parameter status: Neki's bound is learned from its
+    // refusal, and the statements built after it fit.
+    const result = await client
+      .unsafe<T>(sql, normalizeBunSQLParams(client, params))
+      .catch((error: unknown) => {
+        learnRelationLimit(this.adapter, error);
+        throw error;
+      });
     return {
       rows: result,
       rowCount: normalizeProviderRowCount(result.count, {
@@ -400,6 +408,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     pgvector,
     postgis,
     sharedRelationBodies: config.sharedRelationBodies,
+    relationsPerStatement: config.relationsPerStatement,
     namespace,
     migrationSessionAttestation,
   });

@@ -50,6 +50,7 @@ import {
 } from "../shared/driver-options";
 import { CLEANUP_BOUND_MS } from "../shared/pinned-session";
 import { installPostgresAdapter } from "../shared/postgres-adapter";
+import { boundByServer, learnRelationLimit } from "../shared/relation-bound";
 import type { QueryResult } from "../types";
 
 export type PostgresOptions = PostgresOptionsType<
@@ -65,6 +66,8 @@ export interface PostgresDriverOptions {
   postgis?: boolean;
   /** Each relation filter body a statement repeats is stated once (default `true`); `false` keeps every body inline. */
   sharedRelationBodies?: boolean;
+  /** The most relations (`FROM` items) one statement may reference: past it, a statement repeating recursive filters states them as key sets, which some plans pay for. PlanetScale Neki refuses more than 256: absent, the driver reads each connection's startup, 256 on Neki and before the first connection, none elsewhere. A stated bound always wins. Only where relation bodies are shared. */
+  relationsPerStatement?: number;
   databaseUrl?: string;
   /** The PostgreSQL schema this driver's persistent objects live in. Defaults to `public`. */
   namespace?: string;
@@ -127,6 +130,7 @@ const POSTGRES_CONFIG_KEYS: Record<keyof PostgresDriverOptions, true> = {
   pgvector: true,
   postgis: true,
   sharedRelationBodies: true,
+  relationsPerStatement: true,
   databaseUrl: true,
   namespace: true,
   migrationSessionAttestation: true,
@@ -192,6 +196,13 @@ export class PostgresDriver extends Driver<
     }
 
     installPostgresAdapter(this, namespace, options);
+    // postgres.js keeps every parameter status its connections received.
+    boundByServer(this.adapter, () => {
+      const client = this.client;
+      return client && !isTransaction(client)
+        ? client.parameters.server_version
+        : undefined;
+    });
     defineImmutableDriverFact(
       this,
       "migrationSessionAttestation",
@@ -283,9 +294,14 @@ export class PostgresDriver extends Driver<
     fallbackOperation: "execute" | "executeRaw"
   ): Promise<QueryResult<T>> {
     const operation = context?.operation ?? fallbackOperation;
-    const result = await client.unsafe<T[]>(sqlStr, params, {
-      prepare: this.driverOptions.options?.prepare === true,
-    });
+    const result = await client
+      .unsafe<T[]>(sqlStr, params, {
+        prepare: this.driverOptions.options?.prepare === true,
+      })
+      .catch((error: unknown) => {
+        learnRelationLimit(this.adapter, error);
+        throw error;
+      });
     return {
       rows: result,
       rowCount: normalizePostgresRowCount(
@@ -478,6 +494,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     pgvector,
     postgis,
     sharedRelationBodies: config.sharedRelationBodies,
+    relationsPerStatement: config.relationsPerStatement,
     namespace,
     migrationSessionAttestation,
   });

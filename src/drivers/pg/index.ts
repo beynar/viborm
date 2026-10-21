@@ -22,7 +22,14 @@ import {
 } from "@client/client";
 import type { Schema } from "@client/types";
 import { ClientInitializationError, TransactionError } from "@errors";
-import { Pool, type PoolClient, type PoolConfig, types as pgTypes } from "pg";
+import {
+  Client,
+  type ClientConfig,
+  Pool,
+  type PoolClient,
+  type PoolConfig,
+  types as pgTypes,
+} from "pg";
 import {
   Driver,
   type MigrationSessionAttestation,
@@ -52,6 +59,7 @@ import {
   systemRootAsVerifyFull,
 } from "../shared/driver-options";
 import { installPostgresAdapter } from "../shared/postgres-adapter";
+import { boundByServer, learnRelationLimit } from "../shared/relation-bound";
 import type { QueryResult } from "../types";
 
 // DATE (1082) and TIMESTAMP WITHOUT TIME ZONE (1114): pg's default parsers
@@ -242,6 +250,17 @@ export interface PgDriverOptions {
    */
   sharedRelationBodies?: boolean;
   /**
+   * The most relations (`FROM` items) one statement may reference. Past it, a
+   * statement states the recursive filters it repeats as key sets, and then
+   * joins the key sets a row tests, as far as it needs to fit: the answers are
+   * the same, some plans slower. PlanetScale Neki refuses a statement over
+   * 256: absent, a pool this driver makes reads each connection's startup,
+   * 256 on Neki and before the first connection, none on plain PostgreSQL (a
+   * supplied pool learns from Neki's first refusal). A stated bound always
+   * wins. Only where relation bodies are shared.
+   */
+  relationsPerStatement?: number;
+  /**
    * Your claim, at your risk, that every connection this pool opens is one
    * server session for its whole life. It lifts migrations' refusal of
    * Cloudflare Hyperdrive and Neon `-pooler` hosts; application queries never
@@ -260,6 +279,7 @@ const PG_CONFIG_KEYS: Record<keyof PgDriverOptions, true> = {
   databaseUrl: true,
   namespace: true,
   sharedRelationBodies: true,
+  relationsPerStatement: true,
   migrationSessionAttestation: true,
 };
 
@@ -297,6 +317,13 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
    * transport until a proven successful end.
    */
   private readonly ownedPoolErrors = new WeakMap<object, OwnedPoolErrorState>();
+  /**
+   * The `server_version` the last connection this driver's own pool opened
+   * received at startup, read for the relation bound (`boundByServer`); a
+   * pool given its own `Client` class, or supplied, is not read.
+   */
+  private serverVersion: string | undefined;
+  private readonly readsServer: boolean;
 
   constructor(options: PgDriverOptions = {}) {
     super("postgresql", "pg");
@@ -317,6 +344,10 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
     }
 
     installPostgresAdapter(this, namespace, options);
+    this.readsServer =
+      this.suppliedPool === undefined &&
+      connection.Client === undefined &&
+      boundByServer(this.adapter, () => this.serverVersion);
     defineImmutableDriverFact(
       this,
       "migrationSessionAttestation",
@@ -358,11 +389,39 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
     if (this.suppliedPool !== undefined) {
       return Promise.resolve(this.suppliedPool);
     }
-    const pool = new Pool({ types: utcSafeTypes, ...this.connectionOptions });
+    const pool = new Pool({
+      types: utcSafeTypes,
+      ...this.connectionOptions,
+      ...(this.readsServer ? { Client: this.readingClient() } : {}),
+    });
     const errorState = createOwnedPoolErrorState();
     this.ownedPoolErrors.set(pool, errorState);
     pool.on("error", errorState.retain);
     return Promise.resolve(pool);
+  }
+
+  /**
+   * node-postgres's `Client`, reading each connection's startup: it keeps no
+   * parameter status, so the `server_version` that names Neki is read as it
+   * arrives, before the connection is handed out (to a statement, or to a
+   * transaction before its callback builds any).
+   */
+  private readingClient(): typeof Client {
+    const read = (version: string) => {
+      this.serverVersion = version;
+    };
+    return class extends Client {
+      constructor(config?: string | ClientConfig) {
+        super(config);
+        this.connection.on(
+          "parameterStatus",
+          (status: { parameterName: string; parameterValue: string }) => {
+            if (status.parameterName === "server_version")
+              read(status.parameterValue);
+          }
+        );
+      }
+    };
   }
 
   private readBackgroundPoolFailure(
@@ -551,16 +610,17 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
     const observed = this.readBackgroundPoolFailure(client);
     const result = await client
       .query({ text: sql, values: params, types: utcSafeTypes })
-      .catch((error: unknown) =>
-        this.throwPoolQueryFailure(
+      .catch((error: unknown) => {
+        learnRelationLimit(this.adapter, error);
+        return this.throwPoolQueryFailure(
           client,
           observed,
           error,
           sql,
           params,
           context
-        )
-      );
+        );
+      });
     // `Pool.query` includes an acquisition. Its success proves transport
     // recovery, but only for evidence that predates this exact operation.
     this.clearBackgroundPoolFailure(client, observed);
@@ -736,6 +796,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     pgvector,
     postgis,
     sharedRelationBodies: config.sharedRelationBodies,
+    relationsPerStatement: config.relationsPerStatement,
   });
 
   return createClientFromDriverConfig<S, C, PgDriver>(config, driver);

@@ -39,6 +39,7 @@ import {
   getTrustedProtectedObserverCapability,
   registerOfficialInstrumentationChain,
 } from "./observation";
+import { appendResultFields, type ResolvedResultFields } from "./result";
 import {
   bindRows,
   checkingLazyReferences,
@@ -136,6 +137,8 @@ export interface ResolvedExtensionChain {
    * resolve to.
    */
   readonly callRows?: RowsBinding;
+  /** Per model, every extension's computed fields, in chain order. */
+  readonly result?: ResolvedResultFields;
   readonly extensions: readonly ResolvedExtension[];
   readonly hasCache: boolean;
   readonly hasRequestHandlers: boolean;
@@ -630,12 +633,22 @@ export function appendResolvedExtension(
     rows === chain?.rows && deletion === chain?.deletion && data === chain?.data
       ? chain?.callRows
       : bindRows(rows, deletion, data, controls);
+  const result =
+    effectiveDefinition.result === undefined
+      ? chain?.result
+      : appendResultFields(
+          chain?.result,
+          definition.name,
+          effectiveDefinition.result,
+          schema
+        );
   const resolvedChain = Object.freeze({
     ...(controls === undefined ? {} : { controls }),
     ...(rows === undefined ? {} : { rows }),
     ...(deletion === undefined ? {} : { deletion }),
     ...(data === undefined ? {} : { data }),
     ...(callRows === undefined ? {} : { callRows }),
+    ...(result === undefined ? {} : { result }),
     extensions,
     hasCache: incomingCache !== undefined || chain?.hasCache === true,
     hasRequestHandlers: hasCompiledHandlers(request),

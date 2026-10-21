@@ -189,7 +189,7 @@ describe("$exists", () => {
     });
     // The mode's root and the read verb both hold it: four tests, one body.
     expect(uncorrelated.statements).toEqual([
-      'WITH "__shared_0" AS (SELECT 1 FROM "member" AS "q1" WHERE "q1"."userId" COLLATE BINARY = ? LIMIT ?) SELECT "q0"."id" AS "id" FROM "grant" AS "q0" WHERE (((EXISTS (SELECT 1 FROM "__shared_0" WHERE 1) AND "q0"."rank" = ?) OR (EXISTS (SELECT 1 FROM "__shared_0" WHERE 1) AND "q0"."rank" = ?)) AND ((EXISTS (SELECT 1 FROM "__shared_0" WHERE 1) AND "q0"."rank" = ?) OR (EXISTS (SELECT 1 FROM "__shared_0" WHERE 1) AND "q0"."rank" = ?))) ORDER BY "q0"."id" ASC',
+      'WITH "__shared_0" AS MATERIALIZED (SELECT 1 FROM "member" AS "q1" WHERE "q1"."userId" COLLATE BINARY = ? LIMIT ?) SELECT "q0"."id" AS "id" FROM "grant" AS "q0" WHERE (((EXISTS (SELECT 1 FROM "__shared_0" WHERE 1) AND "q0"."rank" = ?) OR (EXISTS (SELECT 1 FROM "__shared_0" WHERE 1) AND "q0"."rank" = ?)) AND ((EXISTS (SELECT 1 FROM "__shared_0" WHERE 1) AND "q0"."rank" = ?) OR (EXISTS (SELECT 1 FROM "__shared_0" WHERE 1) AND "q0"."rank" = ?))) ORDER BY "q0"."id" ASC',
     ]);
     const correlated = await open(
       {
@@ -525,7 +525,9 @@ describe("writes share repeated bodies too", () => {
       ).toBe(2);
       const updated = statements.find((sql) => UPDATE.test(sql))!;
       expect(
-        updated.startsWith('WITH "__shared_0" AS (SELECT 1 FROM "member"')
+        updated.startsWith(
+          'WITH "__shared_0" AS MATERIALIZED (SELECT 1 FROM "member"'
+        )
       ).toBe(shared);
       // The mode's root, the read verb and the update verb each hold it twice.
       expect(updated.match(MEMBER_READS)).toHaveLength(shared ? 1 : 6);

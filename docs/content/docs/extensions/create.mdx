@@ -60,6 +60,7 @@ deliberately small so the query protocol is visible.
 | Hide rows from every query | `rows` | Filters per model, chosen per call, with the call's values |
 | Change what a delete does | `deletion` | An update with fixed data and the call's time |
 | Supply defaults on creates and updates | `data` | Fixed values or control values; explicit caller data wins |
+| Add fields computed from a row | `result` | `needs` and `compute` per field; on every row of the model a call returns |
 
 Do not put every concern into `query`. Each capability exposes only the facts
 and authority appropriate to its boundary.
@@ -821,6 +822,92 @@ Both capabilities together make an optimistic lock: the row is filtered on the
 version the call expects, and every update moves the version on. The
 [recipes](/docs/extensions/recipes) give it in full, with tenancy and audit
 stamping.
+
+## Compute fields with `result`
+
+`result` adds fields that are computed from the row, as Prisma's result
+extensions do. Each field names the columns it reads in `needs` and computes
+its value in `compute`:
+
+```ts
+const db = client.$extends({
+  name: "names",
+  result: {
+    user: {
+      fullName: {
+        needs: { firstName: true, lastName: true },
+        compute: (user) => `${user.firstName} ${user.lastName}`,
+      },
+    },
+  },
+});
+
+const users = await db.user.findMany();
+// { id, firstName, lastName, email, fullName }[]
+const one = await db.user.findUnique({
+  where: { id },
+  select: { fullName: true },
+});
+// { fullName: string } | null
+```
+
+- **Every row of the model.** Reads, the writes that return rows (`create`,
+  `update`, `upsert`, `delete`, and `createMany` / `updateMany` / `deleteMany`
+  with a `select` or `omit`), relation rows reached through `include` or a
+  nested `select`, a recursive projection at every level, `$transaction`
+  arrays and callbacks, and `$withCache()` reads all carry the field.
+  `count`, `aggregate`, `groupBy` and `exist` do not.
+- **Selected and omitted by name.** With a `select`, the field is returned
+  only when the `select` names it; without one, always. A query-level `omit`
+  subtracts from either, as it does for columns: `select: { fullName: true,
+  firstName: true }, omit: { firstName: true }` returns `{ fullName }`, the
+  omitted column still read for the field.
+- **`needs` are read, then removed.** The columns a field needs are read even
+  when the call does not select them, and are not in the result unless the
+  call selects them. A column the client omits by default
+  ([`defaultOmit()`](/docs/extensions/omit)) is read for the field the same
+  way. `compute` is given exactly its `needs`, typed from the model: reading
+  another column is a compile error.
+- **Computed lazily, once.** Each field is an enumerable getter, as in
+  Prisma: `compute` runs the first time the field is read (by your code, a
+  spread, `JSON.stringify` or `structuredClone`), from the values the call
+  read, and its value is kept. Changing the row's columns afterwards, even
+  inside a JSON, date or list value, does not change it (such a value a
+  field needs is copied when the row is returned); assigning the field
+  replaces it. A `compute` that throws throws
+  where the field is read: the operation, and a write it made, still
+  succeed.
+- **A field may replace a column.** A field named like a scalar of the model
+  (`email: { needs: { email: true }, compute: (u) => u.email.toLowerCase() }`)
+  is returned instead of it. Filters, ordering and aggregates still use the
+  column.
+- **Extensions compose.** A later extension's field may need an earlier
+  extension's field, even one of the same name, and is computed after it.
+  `$allModels` declares a field on every model; a model's own field of the
+  same name replaces it there.
+
+The database never sees a computed field, so `where`, `orderBy`, `distinct`,
+`groupBy` and aggregates cannot name it (a `ValidationError`, as for any
+unknown field). The definition is checked when it is applied: a need that is
+not a readable scalar or an earlier computed field of the model, a field
+named like a relation, or an unknown model is refused. Each row is copied
+before its fields are attached, so cached and shared rows are never changed.
+
+Differences from Prisma, and what is not typed yet:
+
+- The rows of a polymorphic (variant) relation do not carry computed fields.
+- At runtime a nested `select` or `omit` may name a computed field
+  (`include: { author: { select: { fullName: true } } }`); the types accept
+  it only on the operation's own `select` and `omit` for now. `$withCache()`
+  delegates, `ExtendedOperationResult` and the methods of an extension
+  applied before the `result` one are typed without the computed fields,
+  which their rows carry at runtime. So is a relation row whose model shares
+  its scalar and relation names with another model of the schema, since the
+  types cannot tell the two apart: its added fields are left out, and a
+  field that replaces a column is typed as the column or any of those
+  models' computed value.
+
+A client without a `result` extension plans and copies nothing.
 
 ## Methods that call another extension's arguments
 

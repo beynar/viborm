@@ -14,6 +14,7 @@ import type {
   RelationState,
 } from "@schema/relation/types";
 import type { ResolvedSlot } from "@schema/validation/relation-resolution";
+import { refusingUndefinedOnlyWhere } from "@validation/model/args/bulk-write-where";
 import { refuseDefaultOnlySkipDuplicates } from "@validation/model/args/mutation";
 import { createSchema, fail, ok, validateSchema } from "../primitives/helpers";
 import v, { type V } from "../primitives/v";
@@ -449,12 +450,17 @@ export const toManyUpdateFactory = <
     { atLeast: ["where", "data"] }
   );
 
-  const updateManySchema = v.object(
-    {
-      where: () => targetSchemas().core.where,
-      data: getUpdateSchema,
-    },
-    { atLeast: ["data"] }
+  const updateManySchema = refusingUndefinedOnlyWhere(
+    v.object(
+      {
+        where: () => targetSchemas().core.where,
+        data: getUpdateSchema,
+      },
+      { atLeast: ["data"] }
+    ),
+    "updateMany",
+    true,
+    "where"
   );
 
   const upsertSchema = v.object(
@@ -489,6 +495,11 @@ export const toManyUpdateFactory = <
     update: v.singleOrArray(updateSchema),
     updateMany: v.singleOrArray(updateManySchema),
     upsert: v.singleOrArray(upsertSchema),
-    deleteMany: () => v.singleOrArray(targetSchemas().core.where),
+    deleteMany: () =>
+      refusingUndefinedOnlyWhere(
+        v.singleOrArray(targetSchemas().core.where),
+        "deleteMany",
+        true
+      ),
   }) as unknown as ToManyUpdateSchema<Source, Key, S>;
 };
