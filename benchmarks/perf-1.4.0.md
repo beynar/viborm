@@ -401,11 +401,11 @@ Run alone on a quieter machine: P11 at 10× 640 → 485 / 194 → 160 ms, P8 at
 
 | Entry | 1.3.3 | 1.4.0 before §10 | after §10 |
 |---|---|---|---|
-| pg application | 183,719 B | 188.58 kB | 191.26 kB |
-| D1 Worker | 183,229 B | 188.06 kB | 190.81 kB |
-| pg application + permissions | 196,634 B | 201.52 kB | 204.21 kB |
+| pg application | 183,719 B | 188.58 kB | 191.87 kB |
+| D1 Worker | 183,229 B | 188.06 kB | 191.41 kB |
+| pg application + permissions | 196,634 B | 201.52 kB | 204.75 kB |
 
-§10 adds about 2.7 kB to every entry (walk sets, flag members, the relation
+§10 adds about 3.3 kB to every entry (walk sets, flag members, the relation
 bound and the dialect facts); the `size-limit` rows are raised to the measured
 size rounded up to 0.1 kB plus 0.3 kB (OD-17).
 
