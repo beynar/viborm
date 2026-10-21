@@ -1087,6 +1087,22 @@ a provider without RETURNING, and the batch route, whose read rides the batch
 already. Pins: `tests/contracts/engine/write/nested-write-round-trips.test.ts`
 (each clause of the guard has a case whose answer is wrong without it).
 
+**Addendum (2026-10-22): the probe keeps its lock where a miss takes none.**
+The unlocked `insertsWhenAbsent` probe and the `confirmFound` read that
+re-takes its found row under lock exist because a MySQL locking miss takes a
+gap lock (`locksMissingKeys`, see the R2c addendum). PostgreSQL locks only the
+rows a read returns, so there the probe reads `FOR UPDATE`: a miss holds
+nothing, a hit holds the very row the confirmation would have re-read, and
+`confirmFound` returns the probe's row (`Selection.probesUnlocked`). A found
+requirement (a correlated to-many `upsert`'s membership) is a question the
+probe never asked, so its confirmation stays on every provider. SQLite takes
+no row lock (`supportsRowLocks`), so its confirmation stays too: it is the read
+that sees a change landed between the probe and the effect
+(`tests/raptor3/post-prep/row-scopes.test.ts`, the moved-tenant and
+soft-delete cells). Pins: `nested-write-round-trips.test.ts` (one read on
+PGlite, two on SQLite and under `locksMissingKeys`) and
+`tests/providers/local/pglite-shared-bodies.test.ts`.
+
 That same root `update` locates its row in its own UPDATE on the interactive
 route (`OperationContext.updateLocated`, `CommandExecution.#updateLocates`)
 instead of a `SELECT … FOR UPDATE` followed by an UPDATE by identity: the

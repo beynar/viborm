@@ -42,6 +42,13 @@ that refuse a `where` emptied by `undefined`. Measurements are in
   with the change above). The read stays where something must run between
   it and the UPDATE: a `connect` of a relation the row holds the key of, a
   nested target's lookup, or a change of a relation key.
+- **`upsert` and `connectOrCreate` read their row once on PostgreSQL.** The
+  lookup that decides between update and create now locks the row it finds
+  (a miss locks nothing there), so the second, locking read of the same row
+  is gone: one round trip fewer. MySQL keeps the unlocked lookup, because a
+  locking miss there takes a gap lock that deadlocks two concurrent creates;
+  SQLite keeps both reads, having no row lock. A to-many nested `upsert`
+  still confirms that the row it found belongs to the parent.
 - **`findUnique` calls issued in the same tick share one statement**, as in
   Prisma: same model, unique key and projection, outside transactions, a
   `where` that is the key alone (string, int or bigint members). 50

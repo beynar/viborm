@@ -866,7 +866,7 @@ export class CommandExecution {
   ): Promise<Input> {
     const ctx = this.context;
     const lookup = command.lookup;
-    if (ctx.usesBatch || !(requirement || lookup.insertsWhenAbsent))
+    if (ctx.usesBatch || !(requirement || lookup.probesUnlocked))
       return captured;
     const membership = requirement?.membership ?? lookup.membership();
     // A MATCHED condition is the narrowest requirement the operation owns here,

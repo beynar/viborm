@@ -194,7 +194,7 @@ const SUBSTRATES = [
   ["SQLite3", () => new RecordingSQLite3()],
 ] as const;
 
-describe.each(SUBSTRATES)("%s", (_name, make) => {
+describe.each(SUBSTRATES)("%s", (name, make) => {
   test("a nested create answers its root out of the root INSERT", async () => {
     const driver = make();
     const client = await boot(driver);
@@ -248,6 +248,36 @@ describe.each(SUBSTRATES)("%s", (_name, make) => {
     expect(await client.post.findUnique({ where: { id: 30 } })).toMatchObject({
       authorId: 2,
     });
+  });
+
+  // PostgreSQL's probe locks the row it finds, so nothing confirms it;
+  // SQLite takes no row lock and confirms it (`Selection.probesUnlocked`).
+  test("a found connectOrCreate confirms its target only where the probe holds nothing", async () => {
+    const driver = make();
+    const client = await boot(driver);
+    const { statements, value } = await traced(driver, () =>
+      client.post.create({
+        data: {
+          id: 40,
+          title: "r",
+          author: {
+            connectOrCreate: {
+              where: { email: "e1" },
+              create: { id: 9, email: "e1", name: "x" },
+            },
+          },
+        },
+      })
+    );
+    expect(value).toEqual({
+      id: 40,
+      title: "r",
+      authorId: 1,
+      reviewerId: null,
+    });
+    expect(
+      statements.filter((sql) => sql.includes('"nwrt_users"'))
+    ).toHaveLength(name === "PGlite" ? 1 : 2);
   });
 
   test("a nested update of a missing root fails as the locating read did, writing nothing", async () => {
@@ -372,6 +402,33 @@ describe.each(SUBSTRATES)("%s", (_name, make) => {
     expect(value).toEqual({ id: 2, email: "e2", name: "n2", managerId: 1 });
     expect(endsWithRead(statements)).toBe(true);
   });
+});
+
+test("a provider whose locking miss takes a lock probes unlocked and confirms what it finds", async () => {
+  const family = getFamily();
+  const driver = new RecordingPGlite({
+    client: family.database,
+    namespace: family.namespace,
+  });
+  driver.adapter.capabilities.locksMissingKeys = true;
+  const client = await boot(driver);
+  const { statements } = await traced(driver, () =>
+    client.post.create({
+      data: {
+        id: 41,
+        title: "r",
+        author: {
+          connectOrCreate: {
+            where: { email: "e1" },
+            create: { id: 9, email: "e1", name: "x" },
+          },
+        },
+      },
+    })
+  );
+  expect(statements.filter((sql) => sql.includes('"nwrt_users"'))).toHaveLength(
+    2
+  );
 });
 
 test("a provider without RETURNING keeps the re-read", async () => {

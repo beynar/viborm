@@ -157,9 +157,10 @@ export class Selection {
   dependent?: boolean;
   /**
    * THIS operation inserts the key this selector names when the row is absent:
-   * the missing arm of an `upsert` or a `connectOrCreate`. Such a probe reads
-   * without locking — the PROBE alone ({@link query}); the other reads this
-   * selection answers keep the lock their own answer earns.
+   * the missing arm of an `upsert` or a `connectOrCreate`. Where a locking
+   * read of a miss takes a lock (MySQL) such a probe reads without locking —
+   * the PROBE alone ({@link query}, {@link probesUnlocked}); the other reads
+   * this selection answers keep the lock their own answer earns.
    *
    * A locking read cannot protect an absence, and asking for one costs the
    * operation its own convergence. MySQL answers a miss on a unique index with
@@ -174,8 +175,9 @@ export class Selection {
    * That refusal is the arbiter the create arm already relies on (Pin Rule 2:
    * no `notExists` premise precedes the create INSERT), and the retryable
    * signal {@link CommandExecution.recover} converges on. PostgreSQL locks
-   * nothing for a miss and the batch route asks for no lock at all, so an
-   * unlocked probe is the answer the other two routes already give.
+   * nothing for a miss, so there the probe keeps its lock and holds the row it
+   * finds, which spares the confirmation (`CommandExecution.confirmFound`).
+   * SQLite has no row lock to keep, and the batch route asks for none.
    */
   insertsWhenAbsent?: boolean;
   /**
@@ -374,6 +376,21 @@ export class Selection {
       }
     );
   }
+  /**
+   * Whether the probe reads without holding what it finds: it
+   * {@link insertsWhenAbsent}, and the provider either takes no row lock
+   * (SQLite) or locks a miss too (`locksMissingKeys`, MySQL). Where a locking
+   * read locks only the rows it returns (PostgreSQL) the probe holds its
+   * found row, which is the confirmation's whole answer
+   * (`CommandExecution.confirmFound`).
+   */
+  get probesUnlocked(): boolean {
+    const capabilities = this.execution.context.driver.adapter.capabilities;
+    return (
+      this.insertsWhenAbsent === true &&
+      !(capabilities.supportsRowLocks && !capabilities.locksMissingKeys)
+    );
+  }
   query() {
     const identity =
       this.source.kind === "producer"
@@ -383,7 +400,7 @@ export class Selection {
       this.selector,
       this.membership(),
       identity,
-      this.insertsWhenAbsent
+      this.probesUnlocked
     );
   }
   /**
