@@ -1570,31 +1570,42 @@ item: each table, each reference to a `WITH` member, each derived table, each
 `WITH` member's own items once (used or not), and the items of every `EXISTS`.
 Since 1.4.0 a recursive filter's walk (`recurse`, as in a parent-chain rule)
 carries the columns its next hop reads instead of joining each row again: one
-relation fewer per walk, whatever the statement's size. The PostgreSQL drivers
-and D1 also bound a statement to 256 relations. A statement within it keeps
-every walk in place. Only a statement past it changes form, as far as it
-needs: first each walk it repeats becomes one `WITH` member, the keys of the
-rows it holds for; if still over, a row tested against the same shared sets
-several times joins them once. The acceptance policy's nine `$access` reads
-counted 96 to 683 relations and now count 95 to 255, all running on Neki with
-PGlite's answers; the six past 256 were refused before. `page`, `page` with
-its group and `document` stay in place. `accessGrant` (291 in place) states
-one walk as a set and the root documents three levels deep (432) four; the
-four largest (487 to 683) state eight and join 23 to 46 sets. This is not a
-bound for every policy. On D1, which bounds no relations, 256 is a target and
-not a guarantee: SQLite joins no set at a nested level, and two of these
-reads end at 259 and 266 relations, well inside D1's 100 KB.
+relation fewer per walk, whatever the statement's size.
 
-The trade-off is PostgreSQL's plan, on every PostgreSQL driver and not only
-on Neki. A walk stated as a set is computed once for the whole table,
-backwards from the rows its rule holds of; a joined set is read again for
-each row of a nested include. At 10× the acceptance fixture on PGlite, five
-of the six escalated reads got faster (`document.findMany` including every
-relation with `$access`, 7.0 s to 0.14 s), while pages three levels deep
-through groups and grants (527 relations in place), which PostgreSQL ran in
-1.4 s, takes about 5.2 s: the joined sets are the cost, and without them the
-read is past 256. Reads within the bound, a `can` on one row among them,
-measure as before or faster.
+**On Neki, set `relationsPerStatement: 256`.** A PostgreSQL driver given it
+bounds each statement to that many relations; without it (the default) every
+statement keeps its form, which is what plain PostgreSQL runs best. A
+statement within the bound keeps every walk in place. Only a statement past
+it changes form, as far as it needs: first each walk it repeats becomes one
+`WITH` member, the keys of the rows it holds for; if still over, a row tested
+against the same shared sets several times reads them as arrays computed once
+per statement. With 256, the acceptance policy's nine `$access` reads count
+95 to 253 relations (96 to 683 before) and all run on Neki with PGlite's
+answers; the six past 256 were refused before. `page`, `page` with its group
+and `document` stay in place. `accessGrant` (278 in place) states one walk as
+a set and the root documents three levels deep (393) four; the four largest
+(462 to 634) state eight and read 23 to 42 sets as arrays. This is not a
+bound for every policy.
+
+```ts
+import { createClient, PgDriver } from "viborm/pg";
+
+const driver = new PgDriver({ databaseUrl, relationsPerStatement: 256 }); // PlanetScale Neki
+const db = createClient({ schema, databaseUrl, relationsPerStatement: 256 }); // the same
+```
+
+The bound trades plans for relations, so set it only where the server needs
+it. A walk stated as a set is computed for every row of its table, so a
+statement past the bound that reads a few rows pays for all of them (a
+one-row `can` escalated this way, at 50× the acceptance fixture: 7.2 ms to
+23 ms). The acceptance reads past 256 read many rows and gained: on PGlite at
+10× the fixture they ran 1.6× to 35× faster than in place.
+
+D1 takes 256 without being asked: on SQLite no measured read is slower with
+it, and the largest are faster. There 256 is a target and not a guarantee:
+SQLite joins no set at a nested level, and two of these reads end at 259 and
+266 relations, well inside D1's 100 KB.
+
 `sharedRelationBodies: false` keeps every body inline, as 1.2.4 spelled it. A
 driver and `createClient` both take it:
 

@@ -254,13 +254,20 @@ deepExpressions: false })` (D1, depth 100): a relation filter's own `EXISTS`
 joins no flag member there, since the join keeps SQLite from flattening the
 derived table each nested level reads from.
 `capabilities.relationsPerStatement` is a transport bound: PlanetScale Neki
-refuses a statement referencing over 256 relations (every `FROM` item), so
-`installPostgresAdapter` sets 256 wherever bodies are shared. A statement over
-it states its repeated recursive walks as reaching sets, then joins key sets
-per row, only as far as it needs; one within it keeps every walk in place.
-D1 bounds no relations and takes the same 256 (`SQLiteAdapter({
-relationsPerStatement })`): in place a few rows read faster, and the largest
-reads stay well inside 100 KB. Absent, nothing escalates.
+refuses a statement referencing over 256 relations (every `FROM` item). Plain
+PostgreSQL bounds none, and a statement escalated to fit pays in its plan, so
+`installPostgresAdapter` sets it only from the driver's
+`relationsPerStatement` option (a positive integer, refused otherwise; 256
+for Neki), and only where bodies are shared. A statement over it states its
+repeated recursive walks as reaching sets, then joins key sets per row, only
+as far as it needs; one within it keeps every walk in place. PostgreSQL
+holds a joined one-column key set as an array (`arrays.ofRows`, `ARRAY(…)`,
+tested by `arrays.has`), computed once per statement; a dialect without
+`ofRows` joins a flag member. D1 bounds no relations and takes 256
+(`SQLiteAdapter({ relationsPerStatement })`): on better-sqlite3 no read is
+slower with it (the 10× page read three depths: 385 ms without, 260 ms
+with), and the largest reads stay well inside 100 KB. Absent, nothing
+escalates.
 
 `assertions.holds` (a write's judgement of the row it produces) fails with its
 own sentinel, under the `__viborm_judged__` alias: PostgreSQL a text sublink

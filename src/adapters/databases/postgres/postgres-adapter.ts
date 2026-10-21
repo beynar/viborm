@@ -483,6 +483,8 @@ export class PostgresAdapter implements DatabaseAdapter {
     // which is how the enum type is reached without naming it here.
     enumValue: (values: unknown[]): Sql => sql`${arrayLiteralText(values)}`,
 
+    ofRows: (query: Sql): Sql => sql`ARRAY(${query})`,
+
     has: (column: Sql, value: Sql): Sql => sql`${value} = ANY(${column})`,
 
     hasEvery: (column: Sql, values: Sql): Sql => sql`${column} @> ${values}`,

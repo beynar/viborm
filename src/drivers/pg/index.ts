@@ -242,6 +242,15 @@ export interface PgDriverOptions {
    */
   sharedRelationBodies?: boolean;
   /**
+   * The most relations (`FROM` items) one statement may reference. Past it, a
+   * statement states the recursive filters it repeats as key sets, and then
+   * joins the key sets a row tests, as far as it needs to fit: the answers are
+   * the same, some plans slower. Set 256 for PlanetScale Neki, which refuses a
+   * statement over 256. Absent: unbounded, every statement keeps its form.
+   * Only where relation bodies are shared.
+   */
+  relationsPerStatement?: number;
+  /**
    * Your claim, at your risk, that every connection this pool opens is one
    * server session for its whole life. It lifts migrations' refusal of
    * Cloudflare Hyperdrive and Neon `-pooler` hosts; application queries never
@@ -260,6 +269,7 @@ const PG_CONFIG_KEYS: Record<keyof PgDriverOptions, true> = {
   databaseUrl: true,
   namespace: true,
   sharedRelationBodies: true,
+  relationsPerStatement: true,
   migrationSessionAttestation: true,
 };
 
@@ -736,6 +746,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     pgvector,
     postgis,
     sharedRelationBodies: config.sharedRelationBodies,
+    relationsPerStatement: config.relationsPerStatement,
   });
 
   return createClientFromDriverConfig<S, C, PgDriver>(config, driver);

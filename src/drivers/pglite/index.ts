@@ -59,6 +59,8 @@ export interface PGliteDriverOptions {
   postgis?: boolean;
   /** Each relation filter body a statement repeats is stated once (default `true`); `false` keeps every body inline. */
   sharedRelationBodies?: boolean;
+  /** The most relations (`FROM` items) one statement may reference: past it, a statement repeating recursive filters states them as key sets, which some plans pay for. Set 256 for PlanetScale Neki, which refuses more. Absent: unbounded. Only where relation bodies are shared. */
+  relationsPerStatement?: number;
   /** The PostgreSQL schema this driver's persistent objects live in. Defaults to `public`. */
   namespace?: string;
 }
@@ -72,6 +74,7 @@ const PGLITE_CONFIG_KEYS: Record<keyof PGliteDriverOptions, true> = {
   pgvector: true,
   postgis: true,
   sharedRelationBodies: true,
+  relationsPerStatement: true,
   namespace: true,
 };
 
@@ -322,6 +325,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     pgvector,
     postgis,
     sharedRelationBodies: config.sharedRelationBodies,
+    relationsPerStatement: config.relationsPerStatement,
     namespace,
   });
 

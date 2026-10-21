@@ -2247,7 +2247,9 @@ export class Queries {
    * sets they test ({@link flagging}), the largest saving first. Each costs
    * plans: a reaching set is computed for every row of its table (a check of
    * one row reads them all), and a joined flag member is read again per row
-   * of a correlated subquery, where the test it replaces was hashed once.
+   * of a correlated subquery, where the test it replaces was hashed once
+   * (PostgreSQL holds a one-column set as an array instead, computed once).
+   * The bound is the driver's to state (Neki: 256); absent, nothing changes.
    */
   #sharingBodies(build: () => Sql): Sql {
     if (this.#shared !== undefined) return build();
@@ -2414,7 +2416,13 @@ export class Queries {
    * first repeated body whose text holds the alias) follows its last set;
    * else each distinct group has its own, which always does: each set an
    * alias tests is lowered inside that alias's body. A member is stated
-   * after the last set it reads.
+   * after the last set it reads. Where the dialect holds a value list
+   * (`arrays.ofRows`, PostgreSQL), a group of one-column keys is instead one
+   * row of arrays, one per set (each one relation, no union), `CROSS JOIN`ed,
+   * each test `COALESCE(key = ANY(array), FALSE)` or its negation: a joined
+   * flag member is read again for each row of a correlated subquery (a
+   * nested include's 10x page read: 1.3 s in place, 5.1 s with flags, 1.4 s
+   * with arrays), an array once per statement.
    */
   #flagging(
     shared: SharedBodies,
@@ -2445,7 +2453,12 @@ export class Queries {
       }
     const byOrder = (left: SharedBody, right: SharedBody) =>
       order.get(left)! - order.get(right)!;
-    const member = (sets: number) => (sets === 1 ? 1 : sets + 1);
+    // A one-column key set is held as an array where the dialect has one
+    // (`arrays.ofRows`): one read per set, no union.
+    const arrays = (width: number) =>
+      width === 1 && a.arrays.ofRows !== undefined;
+    const member = (sets: number, width: number) =>
+      sets === 1 || arrays(width) ? sets : sets + 1;
     const tests = (groups: readonly TestedColumns[]) =>
       groups.reduce((sum, group) => sum + group.placed.length, 0);
     // Each distinct group's own member, where it costs less than its tests.
@@ -2465,7 +2478,10 @@ export class Queries {
         return {
           sets,
           groups: same,
-          saves: tests(same) - member(sets.length) - same.length,
+          saves:
+            tests(same) -
+            member(sets.length, same[0]!.test.columns.length) -
+            same.length,
         };
       });
     };
@@ -2495,7 +2511,10 @@ export class Queries {
       const together = {
         sets,
         groups: component,
-        saves: tests(component) - member(sets.length) - component.length,
+        saves:
+          tests(component) -
+          member(sets.length, component[0]!.test.columns.length) -
+          component.length,
       };
       const ordered = component.every(
         (group) => within.get(group.test.alias)! > last
@@ -2512,37 +2531,59 @@ export class Queries {
       const keys = groups[0]!.test.columns.map((_, index) => `k${index}`);
       const name = `__shared_${named++}`;
       const last = sets.at(-1)!;
+      const held = arrays(keys.length);
       after.set(last, [
         ...(after.get(last) ?? []),
-        { name, query: this.#flagSet(sets, keys), inlined: false },
+        {
+          name,
+          query: held ? this.#keyArrays(sets) : this.#flagSet(sets, keys),
+          inlined: false,
+        },
       ]);
       for (const { test, placed } of groups) {
         const flag = this.alias();
+        const member = a.identifiers.aliased(a.identifiers.escape(name), flag);
         const joined = joins.get(test.alias) ?? [];
         joined.push(
-          a.joins.left(
-            a.identifiers.aliased(a.identifiers.escape(name), flag),
-            a.operators.and(
-              ...test.columns.map((column, index) =>
-                a.operators.eq(
-                  a.identifiers.column(flag, keys[index]!),
-                  a.identifiers.column(test.alias, column)
+          held
+            ? a.joins.cross(member)
+            : a.joins.left(
+                member,
+                a.operators.and(
+                  ...test.columns.map((column, index) =>
+                    a.operators.eq(
+                      a.identifiers.column(flag, keys[index]!),
+                      a.identifiers.column(test.alias, column)
+                    )
+                  )
                 )
               )
-            )
-          )
         );
         joins.set(test.alias, joined);
         for (const [body, slot] of placed) {
-          const held = a.identifiers.column(
+          const index = sets.indexOf(body);
+          if (held) {
+            // Two-valued as the EXISTS it replaces: a NULL key, or a key an
+            // array holding a NULL does not hold, is not held.
+            const holds = a.expressions.coalesce(
+              a.arrays.has(
+                a.identifiers.column(flag, `f${index}`),
+                a.identifiers.column(test.alias, test.columns[0]!)
+              ),
+              a.literals.false()
+            );
+            atoms.set(slot, slot.test!.holds ? holds : a.operators.not(holds));
+            continue;
+          }
+          const flagged = a.identifiers.column(
             flag,
-            sets.length === 1 ? keys[0]! : `f${sets.indexOf(body)}`
+            sets.length === 1 ? keys[0]! : `f${index}`
           );
           atoms.set(
             slot,
             slot.test!.holds
-              ? a.operators.isNotNull(held)
-              : a.operators.isNull(held)
+              ? a.operators.isNotNull(flagged)
+              : a.operators.isNull(flagged)
           );
         }
       }
@@ -2553,6 +2594,29 @@ export class Queries {
       for (const slot of slots) slot.settle(sql` ${sql.join(joined, " ")}`);
     }
     return { atoms, after };
+  }
+  /**
+   * One row holding each of `bodies`' one-column key sets as an array, `f<n>`
+   * for the n-th ({@link DatabaseAdapter.arrays.ofRows}): computed once per
+   * statement, each row joining it tests membership without reading a set
+   * again.
+   */
+  #keyArrays(bodies: readonly SharedBody[]): Sql {
+    const a = this.adapter;
+    return sql`SELECT ${sql.join(
+      bodies.map((body, index) =>
+        a.identifiers.aliased(
+          a.arrays.ofRows!(
+            assembleAdapterSelect(a, {
+              columns: a.identifiers.column(body.name, "k0"),
+              from: memberRead(a, body.name),
+            })
+          ),
+          `f${index}`
+        )
+      ),
+      ", "
+    )}`;
   }
   /**
    * The keys `bodies`' sets hold, once each: with one set, its keys; with

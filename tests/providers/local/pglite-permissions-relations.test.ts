@@ -1,7 +1,8 @@
 /**
  * PGlite Driver Tests — PlanetScale Neki refuses a statement referencing more
- * than 256 relations (SQLSTATE 54000), and the PostgreSQL drivers bound each
- * statement to 256 (`capabilities.relationsPerStatement`). The nine `$access`
+ * than 256 relations (SQLSTATE 54000), and a PostgreSQL driver given
+ * `relationsPerStatement: 256` bounds each statement to it; one given none
+ * keeps every statement's form. The nine `$access`
  * reads D1's statement budget runs (u02), as PGlite states them: each within
  * 256 as Neki counts them (every `FROM` item, aliased `q<n>` or a bare read
  * of a shared member), each past its in-place form escalated only as far as
@@ -9,13 +10,13 @@
  * and each answering what its in-place form answers.
  */
 
+import { PGliteDriver } from "@drivers/pglite";
 import { softDelete } from "@src/soft-delete/index";
 import {
   createPermissionsAppClient,
   loadPermissionsSeed,
   type PermissionsAppClient,
 } from "@tests/contracts/public-client/permissions-app-behavior";
-import { createInMemoryPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { TOMBSTONED_MODELS } from "@tests/package/fixtures/permissions-app/oracle";
 import { schema } from "@tests/package/fixtures/permissions-app/schema";
@@ -41,7 +42,8 @@ const formOf = (statement: string) => ({
   inPlace: statement.split("EXISTS (WITH RECURSIVE").length - 1,
   // A reaching set's recursive term reads its own member, aliased.
   reaching: (statement.match(/FROM "__shared_\d+" AS "q\d+"/g) ?? []).length,
-  joined: statement.split('LEFT JOIN "__shared_').length - 1,
+  // PostgreSQL joins a one-column key set held as an array.
+  joined: statement.split('CROSS JOIN "__shared_').length - 1,
 });
 
 const relationNames = (model: string) =>
@@ -140,6 +142,20 @@ const READS: [string, object, string][] = [
   ],
 ];
 
+// The relations each read references with every walk in place: the six past
+// 256 are those a bound of 256 escalates.
+const PINNED_IN_PLACE = {
+  "accessGrant $access": 278,
+  "page $access": 95,
+  "page $access, group $access": 111,
+  "document $access": 180,
+  "document roots $access at three depths": 393,
+  "document roots $access at three depths, with grants": 634,
+  "document every relation + $access": 610,
+  "page $access at three depths through group and grants": 502,
+  "accessGrant every relation + $access": 462,
+};
+
 describe("PGlite: every $access read within Neki's 256 relations", () => {
   const opened: PermissionsAppClient[] = [];
   const statements: string[] = [];
@@ -147,8 +163,9 @@ describe("PGlite: every $access read within Neki's 256 relations", () => {
   let inPlace: Governed;
 
   const open = async (budget: number | undefined) => {
-    const driver = createInMemoryPGliteDriver();
-    driver.adapter.capabilities.relationsPerStatement = budget;
+    const driver = new PGliteDriver(
+      budget === undefined ? {} : { relationsPerStatement: budget }
+    );
     const base = createPermissionsAppClient(driver);
     opened.push(base);
     await syncLiveSchema(base);
@@ -220,29 +237,42 @@ describe("PGlite: every $access read within Neki's 256 relations", () => {
         joined: 0,
       },
       "document roots $access at three depths, with grants": {
-        relations: 252,
+        relations: 253,
         inPlace: 0,
         reaching: 8,
-        joined: 38,
+        joined: 36,
       },
       "document every relation + $access": {
-        relations: 253,
+        relations: 250,
         inPlace: 0,
         reaching: 8,
         joined: 23,
       },
       "page $access at three depths through group and grants": {
-        relations: 255,
+        relations: 253,
         inPlace: 0,
         reaching: 8,
-        joined: 46,
+        joined: 42,
       },
       "accessGrant every relation + $access": {
-        relations: 255,
+        relations: 253,
         inPlace: 0,
         reaching: 8,
-        joined: 36,
+        joined: 33,
       },
     });
+  }, 300_000);
+  test("without relationsPerStatement, each keeps its walks in place, past 256 or not", async () => {
+    const relations: Record<string, number> = {};
+    for (const [line, args, model] of READS) {
+      statements.length = 0;
+      await inPlace.$as(actors.u02!)[model]!.findMany(args);
+      const widest = statements.reduce((a, b) => (b.length > a.length ? b : a));
+      const form = formOf(widest);
+      expect(form.reaching).toBe(0);
+      expect(form.joined).toBe(0);
+      relations[line] = form.relations;
+    }
+    expect(relations).toEqual(PINNED_IN_PLACE);
   }, 300_000);
 });

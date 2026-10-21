@@ -73,12 +73,13 @@ async function dropped(schema: string): Promise<void> {
 
 // Neki refuses a statement referencing more than 256 relations (SQLSTATE
 // 54000); a governed read repeats relation bodies, so the driver states each
-// once (W-R1, E5.2).
+// once (W-R1, E5.2), and past 256 trades plans for fewer relations.
 const driverIn = (schema: string) => () =>
   new PgDriver({
     options: poolConfig(NEKI_URL as string),
     namespace: schema,
     sharedRelationBodies: true,
+    relationsPerStatement: 256,
   });
 
 describe.skipIf(!NEKI_URL)("Neki", () => {

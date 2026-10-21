@@ -571,6 +571,14 @@ export interface DatabaseAdapter {
      * element type to spell at all.
      */
     enumValue: (values: unknown[]) => Sql;
+    /**
+     * The values a one-column `query` answers, as one array, empty where it
+     * answers none (PostgreSQL `ARRAY(…)`). A row tests a key set held this
+     * way by {@link has} rather than by joining it: the array is computed once
+     * per statement, where a joined set is read again for each row of a
+     * correlated subquery. Absent where the dialect has no array value.
+     */
+    ofRows?: (query: Sql) => Sql;
     /** Check if array contains value */
     has: (column: Sql, value: Sql) => Sql;
     /** Check if array contains all values */

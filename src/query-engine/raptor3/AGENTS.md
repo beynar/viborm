@@ -211,8 +211,9 @@ repeating none is byte-identical) and a repeated one to its test; a nested
 repeated body is defined before the body holding it. A junction or variant
 membership keeps its place (a walk inside a shared body is shared with it).
 Since 1.4.0, where the adapter bounds a statement's relations
-(`capabilities.relationsPerStatement`: 256 on every PostgreSQL driver and on
-D1) and the statement settled as above references more (`relations`: every
+(`capabilities.relationsPerStatement`: a PostgreSQL driver's
+`relationsPerStatement` option, 256 for PlanetScale Neki, absent by default;
+256 on D1) and the statement settled as above references more (`relations`: every
 minted `"q<n>"` alias where defined, plus each bare `memberRead`, the count
 Neki makes), it escalates as far as it needs, each step re-settling the same
 slots (`#settled`) and recounting: first the walks it repeats become members,
@@ -220,9 +221,9 @@ those saving the most relations first (`#rankedWalks`, an estimate by place),
 until the estimate fits; then key sets are joined (below), the largest saving
 first; an estimate still short takes the most compact form, every repeated
 walk a member and every set joined. Each step costs plans (a reaching set is
-computed for its whole table; a joined member is read again per row of a
-correlated subquery where the test it replaces was hashed once), so a
-statement that fits pays none of them. A walk escalated is its REACHING
+computed for its whole table; a joined flag member is read again per row of
+a correlated subquery where the test it replaces was hashed once), so a
+statement that fits pays none of them, and plain PostgreSQL states no bound. A walk escalated is its REACHING
 SET (`#reachingSet`), the keys of the stored rows from which the walk reaches
 a row its predicate holds of, read backwards from those rows (the anchor
 states them, at depth 0 with `self`, else their predecessors at depth 1; the
@@ -242,13 +243,20 @@ them once: one member per group of sets holds each key with one flag per
 set (`#flagSet`: `MAX` over a `UNION ALL` of typed 1/NULL flags; one set
 alone, its keys `GROUP BY`), `LEFT JOIN`ed after the item, and each test
 reads `flag IS NOT NULL` (`EXISTS`) or `IS NULL` (`NOT EXISTS`), two-valued
-as the tests it replaces. Overlapping groups share one member where every
+as the tests it replaces. Where the dialect holds a value list
+(`arrays.ofRows`: PostgreSQL `ARRAY(…)`), a group of one-column keys is
+instead ONE row of arrays, one per set (`#keyArrays`: one relation per set,
+no union), `CROSS JOIN`ed, each test `COALESCE(key = ANY(array), FALSE)` or
+its `NOT`: the array is computed once per statement, where a flag member
+nested in a correlated subquery is rescanned per row (10× page read three
+depths: in place 1.3 s, flags 5.1 s, arrays about 1.4 s). Wider keys keep
+the flags; D1 has no array and keeps them. Overlapping groups share one member where every
 body joining it follows its last set (`within`); each distinct group's own
 member always does. Neki counts every `FROM` item of a statement, each `WITH`
 member's own once (used or not), each reference to one, each derived table:
-the nine acceptance `$access` reads went from 96–683 to 95–255, the six over
-256 escalated (all now run; `benchmarks/perf-1.4.0.md` §10,
-`pglite-permissions-relations.test.ts`). A member is `inlined` where it is correlated and reads no
+with a bound of 256 the nine acceptance `$access` reads went from 96–683 to
+95–253, the six over 256 escalated (all now run on Neki;
+`benchmarks/perf-1.4.0.md` §10, `pglite-permissions-relations.test.ts`). A member is `inlined` where it is correlated and reads no
 other member (a leaf): PostgreSQL writes it `NOT MATERIALIZED`, and since
 1.4.0 SQLite writes every other member `MATERIALIZED` (`cte.with`'s hints):
 SQLite inlines a member at each use and compiles a nested one again inside

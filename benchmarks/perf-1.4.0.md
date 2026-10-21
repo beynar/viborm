@@ -277,8 +277,10 @@ relation: 253 + 3 runs, + 4 is refused).
 
 Where a driver shares relation bodies (PostgreSQL, D1), one change applies to
 every statement, and two more only to a statement past the driver's bound
-(`capabilities.relationsPerStatement`: 256 on every PostgreSQL driver and on
-D1), in this order and as far as the statement needs:
+(`capabilities.relationsPerStatement`: on PostgreSQL only where the caller
+sets the driver's `relationsPerStatement` option, 256 for Neki; 256 on D1),
+in this order and as far as the statement needs. A PostgreSQL driver without
+the option keeps every statement in place, whatever its size:
 
 1. **A walk carries what its next hop reads** (every statement). Each reached
    row carries the columns its next hop reads, so the recursive member joins
@@ -305,7 +307,14 @@ D1), in this order and as far as the statement needs:
    costs joins them once**, the largest saving first: one member of the sets'
    keys with one flag per set (`MAX` over a `UNION ALL`; one set alone,
    `GROUP BY` its keys), `LEFT JOIN`ed after the row's `FROM` item, each test
-   `flag IS NOT NULL` (`EXISTS`) or `IS NULL` (`NOT EXISTS`). Overlapping
+   `flag IS NOT NULL` (`EXISTS`) or `IS NULL` (`NOT EXISTS`). On PostgreSQL
+   a group of one-column sets is instead one row of arrays (`ARRAY(SELECT
+   k0 FROM set)`, one relation per set, no union), `CROSS JOIN`ed, each test
+   `COALESCE(key = ANY(f<n>), FALSE)` or its negation: a joined flag member
+   is read again for each row of a correlated subquery, an array once per
+   statement (pages three depths at 10×: 4.4 s with flags, 0.78 s with
+   arrays). `= ANY` scans the array per row, so a set of very many keys may
+   cost again at larger scales; not measured past 10×. Overlapping
    groups share one member where every body joining it is defined after its
    sets. D1 refuses a compound `SELECT` over 5 terms, so a longer union nests
    in derived tables there, and a relation filter's own `EXISTS` joins no flag
@@ -326,62 +335,62 @@ well inside 100 KB.
 | `page` + group `$access` | 112 → 111 | rows | in place | 13,516 → 13,466 | 16,209 → 16,168 | 2,549 → 2,541 |
 | `document` `$access` | 195 → 180 | rows | in place | 20,997 → 21,687 | 23,134 → 23,959 | 3,690 → 3,710 |
 | roots, 3 depths | 432 → 253 | 54000 → rows | 4 walk sets | 46,238 → 29,207 | 48,975 → 32,864 | 7,999 → 5,445 |
-| roots, 3 depths + grants | 683 → 252 | 54000 → rows | 8 sets, 38 joined | 81,153 → 47,189 | 89,706 → 53,930 | 14,345 → 7,582 |
-| `document` every relation | 659 → 253 | 54000 → rows | 8 sets, 23 joined | 77,348 → 43,020 | 84,638 → 49,693 | 13,443 → 7,080 |
-| `page` 3 depths group + grants | 527 → 255 | 54000 → rows | 8 sets, 46 joined | 66,344 → 50,188 | 75,472 → 56,779 | 12,034 → 7,780 |
-| `accessGrant` every relation | 487 → 255 | 54000 → rows | 8 sets, 36 joined | 61,109 → 44,971 | 68,747 → 51,648 | 10,690 → 7,279 |
+| roots, 3 depths + grants | 683 → 253 | 54000 → rows | 8 sets, 36 joined | 81,153 → 48,096 | 89,706 → 53,930 | 14,345 → 7,582 |
+| `document` every relation | 659 → 250 | 54000 → rows | 8 sets, 23 joined | 77,348 → 44,786 | 84,638 → 49,693 | 13,443 → 7,080 |
+| `page` 3 depths group + grants | 527 → 253 | 54000 → rows | 8 sets, 42 joined | 66,344 → 50,088 | 75,472 → 56,779 | 12,034 → 7,780 |
+| `accessGrant` every relation | 487 → 253 | 54000 → rows | 8 sets, 33 joined | 61,109 → 45,620 | 68,747 → 51,648 | 10,690 → 7,279 |
 
 Neki's rows equal PGlite's on every read (`neki.lane`, the 1.4.0 engine for
 "before"); the forms and counts are pinned by
-`pglite-permissions-relations.test.ts`. D1 bytes and opcodes are the D1 form
+`pglite-permissions-relations.test.ts`; Neki counts and PostgreSQL bytes are
+with `relationsPerStatement: 256` and PostgreSQL's arrays (joined sets on
+D1). D1 bytes and opcodes are the D1 form
 built in better-sqlite3; on local workerd the D1 driver's widest statements
 measure 38,685 to 57,363 bytes (`d1-permissions-statement-budget`). The
 statements within 256 differ from before only by step 1.
 
-PGlite, the widest statement of each read and workload run raw, old and new
-interleaved (medians, ms; the machine was loaded, read as ratios):
+PGlite, the widest statement of each read and workload run raw, interleaved
+(medians, ms; the machine was loaded, read as ratios): 1.4.0 before §10 →
+a PostgreSQL driver without the option / with `relationsPerStatement: 256`.
+Rows equal everywhere. P2 and P12 (in place both ways) and u05 P1–P8 move
+within noise.
 
 | Workload | fixture | 10× fixture |
 |---|---|---|
-| `accessGrant` `$access` | 28.1 → 22.0 | 2,445 → 746 |
-| `page` `$access` | 5.9 → 5.3 | 19.3 → 17.7 |
-| `page` + group `$access` | 6.1 → 5.7 | 25.3 → 21.3 |
-| `document` `$access` | 35.2 → 25.7 | 3,226 → 1,976 |
-| roots, 3 depths | 25.4 → 11.7 | 975 → 132 |
-| roots, 3 depths + grants | 72.3 → 26.9 | 1,949 → 405 |
-| `document` every relation | 141.3 → 22.1 | 6,996 → 143 |
-| `page` 3 depths group + grants | 53.3 → 41.4 | **1,908 → 5,856** |
-| `accessGrant` every relation | 82.4 → 33.8 | 3,507 → 522 |
-| P1 `document` take 10 (u02/u05) | 14.3 → 11.5 / 12.2 → 11.6 | 8.6 → 6.5 / 6.9 → 6.0 |
-| P2 `page` include group | 6.0 → 4.3 / 5.3 → 6.4 | 19.7 → 22.8 / 28.6 → 23.1 |
-| P3 `document` 3-level select | 46.8 → 27.0 / 14.7 → 12.0 | 2,654 → 2,156 / 869 → 490 |
-| P4 `document.count` | 13.8 → 12.4 / 17.0 → 15.3 | 856 → 808 / 199 → 179 |
-| P8 `document.can` update | 5.9 → 4.5 / 8.4 → 7.6 | 7.8 → 7.6 / 6.6 → 6.0 |
-| P11 `accessGrant.findMany` | 16.0 → 14.3 / 11.5 → 11.3 | 1,127 → 913 / 153 → 119 |
-| P12 `team.findMany` | 1.0 → 0.8 / 0.7 → 0.7 | 0.9 → 1.2 / 0.7 → 0.7 |
+| `accessGrant` `$access` | 22.9 → 20.2 / 16.9 | 1,471 → 1,110 / 534 |
+| `page` `$access` | 4.8 → 4.5 / 4.5 | 11.3 → 11.3 / 11.4 |
+| `page` + group `$access` | 5.2 → 4.7 / 4.7 | 15.1 → 15.1 / 15.2 |
+| `document` `$access` | 25.2 → 20.8 / 20.7 | 1,663 → 1,312 / 1,233 |
+| roots, 3 depths | 19.4 → 16.6 / 9.5 | 604 → 458 / 87 |
+| roots, 3 depths + grants | 33.4 → 29.1 / 14.3 | 1,219 → 933 / 220 |
+| `document` every relation | 78.2 → 65.4 / 18.9 | 4,765 → 3,617 / 136 |
+| `page` 3 depths group + grants | 31.0 → 28.5 / 22.4 | 1,279 → 1,144 / 775 |
+| `accessGrant` every relation | 34.4 → 30.4 / 16.0 | 2,083 → 1,544 / 175 |
+| P1 `document` take 10 (u02) | 9.6 → 7.9 / 7.9 | 7.2 → 4.7 / 4.6 |
+| P3 `document` 3-level select (u02) | 15.0 → 12.5 / 12.5 | 1,006 → 734 / 753 |
+| P4 `document.count` (u02) | 9.5 → 8.4 / 8.4 | 299 → 297 / 283 |
+| P8 `document.can` update (u02) | 3.9 → 3.3 / 3.3 | 4.9 → 4.4 / 4.3 |
+| P11 `accessGrant.findMany` (u02) | 8.9 → 7.5 / 7.6 | 353 → 262 / 256 |
+| P11 `accessGrant.findMany` (u05) | 7.1 → 6.4 / 6.4 | 131 → 104 / 108 |
 
-Run alone on a quieter machine: P11 at 10× 640 → 485 / 194 → 160 ms, P8 at
-50× (7,500 documents) 9.0 → 8.0 / 8.6 → 8.0 ms, pages three depths at 10×
-1,415 → 5,229 ms. P2 and P12 move both ways between runs and actors.
-
-- **Regression: pages three depths through groups and grants**, on every
-  PostgreSQL driver, since the bound applies to all of them. It counts 527
-  relations in place, so it escalates; at 10× PostgreSQL ran it in 1.4 s
-  in place and takes about 5.2 s escalated. The joined sets are the cost: a
-  row inside a correlated subquery (a nested include's page, an `EXISTS`
-  PostgreSQL evaluates per row) that joins a flag member rescans it for each
-  row, where the `EXISTS` it replaces was a hashed subplan computed once.
-  Each step alone, timed together (10×): in place 1,370 ms, every walk a set
-  781 ms (394 relations), every set joined with walks in place 8,929 ms (366
-  relations), both 4,628 ms (255). Neither step alone fits.
+- **Pages three depths through groups and grants**, the one read that
+  escalation once made slower: 527 relations in place. With joined flag
+  members (round 2, every PostgreSQL driver bounded) it went 1.4 → 5.2 s at
+  10×; each step alone, timed together (10×): in place 1,370 ms, every walk a
+  set 781 ms (394 relations), every set joined with walks in place 8,929 ms
+  (366), both 4,628 ms (255). A row inside a correlated subquery (a nested
+  include's page) rescanned a joined member per row, where the `EXISTS` it
+  replaced was a hashed subplan computed once. Holding one-column sets as
+  arrays brings it to 775 ms, and a driver without the option never
+  escalates (1,144 ms).
 - Round 1 stated every repeated walk as a set and joined sets in every
   statement: P11 at 10× went 430 → 953 ms, P8 at 50× 7.2 → 23 ms, this read
   1.5 → 5.3 s. Escalating only past the bound returns P11 and P8 to their
   in-place plans.
 - Not done: dropping the walk reader's join where its predicate reads only
   key columns (an escalated repeated walk has no reader, and the 9 reads hold
-  no single walk on a predicate reading only keys); a cheaper form than
-  joined sets for reads like pages three depths.
+  no single walk on a predicate reading only keys); arrays on D1 (SQLite has
+  no array value, so D1 keeps joined flag members).
 - Tests: `recursive-relation-filter-behavior.ts` (PGlite, SQLite3; pg and
   MySQL2 in CI) runs with a bound of 1, so every repeated closure escalates,
   against the oracle, with and without a domain hiding rows, on four slots ×
@@ -401,12 +410,12 @@ Run alone on a quieter machine: P11 at 10× 640 → 485 / 194 → 160 ms, P8 at
 
 | Entry | 1.3.3 | 1.4.0 before §10 | after §10 |
 |---|---|---|---|
-| pg application | 183,719 B | 188.58 kB | 191.87 kB |
-| D1 Worker | 183,229 B | 188.06 kB | 191.41 kB |
-| pg application + permissions | 196,634 B | 201.52 kB | 204.75 kB |
+| pg application | 183,719 B | 188.58 kB | 192.20 kB |
+| D1 Worker | 183,229 B | 188.06 kB | 191.62 kB |
+| pg application + permissions | 196,634 B | 201.52 kB | 205.10 kB |
 
-§10 adds about 3.3 kB to every entry (walk sets, flag members, the relation
-bound and the dialect facts); the `size-limit` rows are raised to the measured
+§10 adds about 3.6 kB to every entry (walk sets, flag members and arrays, the
+relation bound, its driver option and the dialect facts); the `size-limit` rows are raised to the measured
 size rounded up to 0.1 kB plus 0.3 kB (OD-17).
 
 About +1.75 kB is `findUnique` batching (measured by removing its hook),
