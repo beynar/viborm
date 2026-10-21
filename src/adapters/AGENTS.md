@@ -237,6 +237,30 @@ the database. MySQL
 passes neither (it has no such syntax). MySQL sharing works when declared
 (its backtick aliases renumber like quoted ones) but no MySQL driver declares
 it: no transport bound asks for it, and no MySQL plan has been measured.
+A `recursive` member (since 1.4.0, a recursive filter's reaching set) is its
+two terms, `anchor UNION recursive`, states no hint, and makes the clause
+`WITH RECURSIVE` (one keyword for the list, on every dialect).
+
+`capabilities.boundsRecursionIterations` is a dialect fact: MySQL fails a
+recursive CTE past `cte_max_recursion_depth` iterations (1000 by default), so
+its recursive filters keep their walk in place, whose anchor holds the first
+hop, even where it shares bodies; a reaching set would spend one iteration
+per depth from its anchor. Absent elsewhere.
+`capabilities.compoundSelectTerms` is a transport fact: D1 compiles SQLite
+with 5 terms per compound `SELECT` ("too many terms in compound SELECT"), so
+a flag member's union over more key sets nests in derived tables of 5.
+`capabilities.boundsExpressionDepth` is set by `SQLiteAdapter({
+deepExpressions: false })` (D1, depth 100): a relation filter's own `EXISTS`
+joins no flag member there, since the join keeps SQLite from flattening the
+derived table each nested level reads from.
+`capabilities.relationsPerStatement` is a transport bound: PlanetScale Neki
+refuses a statement referencing over 256 relations (every `FROM` item), so
+`installPostgresAdapter` sets 256 wherever bodies are shared. A statement over
+it states its repeated recursive walks as reaching sets, then joins key sets
+per row, only as far as it needs; one within it keeps every walk in place.
+D1 bounds no relations and takes the same 256 (`SQLiteAdapter({
+relationsPerStatement })`): in place a few rows read faster, and the largest
+reads stay well inside 100 KB. Absent, nothing escalates.
 
 `assertions.holds` (a write's judgement of the row it produces) fails with its
 own sentinel, under the `__viborm_judged__` alias: PostgreSQL a text sublink

@@ -739,10 +739,16 @@ export interface DatabaseAdapter {
      * per row, so it is written `NOT MATERIALIZED` there. A member
      * `inlined: false` is computed once: SQLite would inline it at every
      * use, so it is written `MATERIALIZED` there. Without `inlined`, the
-     * database decides.
+     * database decides. A `recursive` member's query is its two terms,
+     * `anchor UNION recursive`, and makes the clause `WITH RECURSIVE`.
      */
     with: (
-      definitions: { name: string; query: Sql; inlined?: boolean }[]
+      definitions: {
+        name: string;
+        query: Sql;
+        inlined?: boolean;
+        recursive?: boolean;
+      }[]
     ) => Sql;
     /**
      * Build recursive CTE: WITH RECURSIVE name AS (anchor UNION ALL recursive).

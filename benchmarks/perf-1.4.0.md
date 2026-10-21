@@ -262,13 +262,152 @@ Tests: `result-fields-behavior.ts` on SQLite3 and PGlite (12 each, 8
 mutations), `tests/types/client/result-extensions.core.types.ts` (3
 mutations).
 
+## 10. Neki: the nine `$access` reads under 256 relations
+
+PlanetScale's Neki router refuses a statement that references more than 256
+relations (SQLSTATE 54000, `semantics.RelationLimitError`). Synthetic probes
+on Neki: each table reference, each reference to a `WITH` member and each
+derived table or function scan counts 1; each `WITH` member's own items count
+once, used or not; `EXISTS` subqueries count their own items; `MATERIALIZED`
+changes nothing. An offline count of the statement text (aliased items plus
+bare member references) matched Neki on every read, and padding round 1's
+final statements with unused items put the boundary exactly where it predicts
+(page three depths: 255 + 1 runs, + 2 is refused; `accessGrant` every
+relation: 253 + 3 runs, + 4 is refused).
+
+Where a driver shares relation bodies (PostgreSQL, D1), one change applies to
+every statement, and two more only to a statement past the driver's bound
+(`capabilities.relationsPerStatement`: 256 on every PostgreSQL driver and on
+D1), in this order and as far as the statement needs:
+
+1. **A walk carries what its next hop reads** (every statement). Each reached
+   row carries the columns its next hop reads, so the recursive member joins
+   no row again (a parent walk carries `parentId`): one relation fewer per
+   walk, text −1% to +4% for the reads that keep their walks in place, plans
+   as fast or faster (table below). Not from a start row that is not the
+   stored row (a produced row's new value, a masked window) where the hop
+   reads more than its key: that walk keeps its old shape, which also leaves
+   the start row as stored. The first hop stays in the anchor: with the start
+   row alone as anchor, PostgreSQL planned the recursive member as a hash join
+   over a scan of the table, and a 10× `accessGrant.findMany` went from 124 to
+   785 ms (tried and dropped).
+2. **Past the bound, a walk the statement repeats is one `WITH RECURSIVE`
+   member** (a reaching set), those saving the most relations first, until
+   the estimate fits. It is keyed by its correlated text as a relation body
+   is: the keys of the stored rows from which it reaches a row its predicate
+   holds of, read backwards from those rows, each step through a row of the
+   related domain, depth-bounded, `UNION` on the key. Each use is
+   `EXISTS (SELECT 1 FROM set WHERE set.k = row.key)`. Stating every walk this
+   way, whatever the statement's size, made one-row checks scan the whole
+   table (tried and dropped: 50× `can`, 7.2 → 34 ms; in round 1, with every
+   repeated walk a set: 7.2 → 23 ms).
+3. **Still past it, a row tested against shared sets more often than a join
+   costs joins them once**, the largest saving first: one member of the sets'
+   keys with one flag per set (`MAX` over a `UNION ALL`; one set alone,
+   `GROUP BY` its keys), `LEFT JOIN`ed after the row's `FROM` item, each test
+   `flag IS NOT NULL` (`EXISTS`) or `IS NULL` (`NOT EXISTS`). Overlapping
+   groups share one member where every body joining it is defined after its
+   sets. D1 refuses a compound `SELECT` over 5 terms, so a longer union nests
+   in derived tables there, and a relation filter's own `EXISTS` joins no flag
+   on D1 (the join stops SQLite flattening each nested level: a 15-level
+   filter passed expression depth 100). An estimate still short takes the
+   most compact form: every repeated walk a set and every set joined.
+
+D1 bounds no relations; it takes 256 because below it walks in place serve a
+few rows faster (a take-10 read at 50× the fixture: 0.6 ms in place, 5.2 ms as
+reaching sets). There 256 is a target, not a guarantee: with no flag joined at
+a nested level, reads 6 to 9 end at 256, 256, 259 and 266 (text count), all
+well inside 100 KB.
+
+| Read (u02) | Neki relations | Neki | Form | PostgreSQL bytes | D1 bytes | D1 opcodes |
+|---|---|---|---|---|---|---|
+| `accessGrant` `$access` | 291 → 251 | 54000 → rows | 1 walk set | 34,985 → 31,778 | 41,366 → 38,435 | 6,651 → 6,162 |
+| `page` `$access` | 96 → 95 | rows | in place | 11,553 → 11,503 | 14,007 → 13,966 | 2,189 → 2,181 |
+| `page` + group `$access` | 112 → 111 | rows | in place | 13,516 → 13,466 | 16,209 → 16,168 | 2,549 → 2,541 |
+| `document` `$access` | 195 → 180 | rows | in place | 20,997 → 21,687 | 23,134 → 23,959 | 3,690 → 3,710 |
+| roots, 3 depths | 432 → 253 | 54000 → rows | 4 walk sets | 46,238 → 29,207 | 48,975 → 32,864 | 7,999 → 5,445 |
+| roots, 3 depths + grants | 683 → 252 | 54000 → rows | 8 sets, 38 joined | 81,153 → 47,189 | 89,706 → 53,930 | 14,345 → 7,582 |
+| `document` every relation | 659 → 253 | 54000 → rows | 8 sets, 23 joined | 77,348 → 43,020 | 84,638 → 49,693 | 13,443 → 7,080 |
+| `page` 3 depths group + grants | 527 → 255 | 54000 → rows | 8 sets, 46 joined | 66,344 → 50,188 | 75,472 → 56,779 | 12,034 → 7,780 |
+| `accessGrant` every relation | 487 → 255 | 54000 → rows | 8 sets, 36 joined | 61,109 → 44,971 | 68,747 → 51,648 | 10,690 → 7,279 |
+
+Neki's rows equal PGlite's on every read (`neki.lane`, the 1.4.0 engine for
+"before"); the forms and counts are pinned by
+`pglite-permissions-relations.test.ts`. D1 bytes and opcodes are the D1 form
+built in better-sqlite3; on local workerd the D1 driver's widest statements
+measure 38,685 to 57,363 bytes (`d1-permissions-statement-budget`). The
+statements within 256 differ from before only by step 1.
+
+PGlite, the widest statement of each read and workload run raw, old and new
+interleaved (medians, ms; the machine was loaded, read as ratios):
+
+| Workload | fixture | 10× fixture |
+|---|---|---|
+| `accessGrant` `$access` | 28.1 → 22.0 | 2,445 → 746 |
+| `page` `$access` | 5.9 → 5.3 | 19.3 → 17.7 |
+| `page` + group `$access` | 6.1 → 5.7 | 25.3 → 21.3 |
+| `document` `$access` | 35.2 → 25.7 | 3,226 → 1,976 |
+| roots, 3 depths | 25.4 → 11.7 | 975 → 132 |
+| roots, 3 depths + grants | 72.3 → 26.9 | 1,949 → 405 |
+| `document` every relation | 141.3 → 22.1 | 6,996 → 143 |
+| `page` 3 depths group + grants | 53.3 → 41.4 | **1,908 → 5,856** |
+| `accessGrant` every relation | 82.4 → 33.8 | 3,507 → 522 |
+| P1 `document` take 10 (u02/u05) | 14.3 → 11.5 / 12.2 → 11.6 | 8.6 → 6.5 / 6.9 → 6.0 |
+| P2 `page` include group | 6.0 → 4.3 / 5.3 → 6.4 | 19.7 → 22.8 / 28.6 → 23.1 |
+| P3 `document` 3-level select | 46.8 → 27.0 / 14.7 → 12.0 | 2,654 → 2,156 / 869 → 490 |
+| P4 `document.count` | 13.8 → 12.4 / 17.0 → 15.3 | 856 → 808 / 199 → 179 |
+| P8 `document.can` update | 5.9 → 4.5 / 8.4 → 7.6 | 7.8 → 7.6 / 6.6 → 6.0 |
+| P11 `accessGrant.findMany` | 16.0 → 14.3 / 11.5 → 11.3 | 1,127 → 913 / 153 → 119 |
+| P12 `team.findMany` | 1.0 → 0.8 / 0.7 → 0.7 | 0.9 → 1.2 / 0.7 → 0.7 |
+
+Run alone on a quieter machine: P11 at 10× 640 → 485 / 194 → 160 ms, P8 at
+50× (7,500 documents) 9.0 → 8.0 / 8.6 → 8.0 ms, pages three depths at 10×
+1,415 → 5,229 ms. P2 and P12 move both ways between runs and actors.
+
+- **Regression: pages three depths through groups and grants**, on every
+  PostgreSQL driver, since the bound applies to all of them. It counts 527
+  relations in place, so it escalates; at 10× PostgreSQL ran it in 1.4 s
+  in place and takes about 5.2 s escalated. The joined sets are the cost: a
+  row inside a correlated subquery (a nested include's page, an `EXISTS`
+  PostgreSQL evaluates per row) that joins a flag member rescans it for each
+  row, where the `EXISTS` it replaces was a hashed subplan computed once.
+  Each step alone, timed together (10×): in place 1,370 ms, every walk a set
+  781 ms (394 relations), every set joined with walks in place 8,929 ms (366
+  relations), both 4,628 ms (255). Neither step alone fits.
+- Round 1 stated every repeated walk as a set and joined sets in every
+  statement: P11 at 10× went 430 → 953 ms, P8 at 50× 7.2 → 23 ms, this read
+  1.5 → 5.3 s. Escalating only past the bound returns P11 and P8 to their
+  in-place plans.
+- Not done: dropping the walk reader's join where its predicate reads only
+  key columns (an escalated repeated walk has no reader, and the 9 reads hold
+  no single walk on a predicate reading only keys); a cheaper form than
+  joined sets for reads like pages three depths.
+- Tests: `recursive-relation-filter-behavior.ts` (PGlite, SQLite3; pg and
+  MySQL2 in CI) runs with a bound of 1, so every repeated closure escalates,
+  against the oracle, with and without a domain hiding rows, on four slots ×
+  three quantifiers × four depths × `self`, and two judged updates walking
+  from the row they produce; `extension-shared-bodies.core` pins the SQLite
+  spelling, MySQL's unchanged walks, and a closure stated thrice in place
+  within the bound and as one set past it; `pglite-permissions-relations`
+  pins the nine forms, each within 256 and with its in-place rows. Eight
+  mutations (the stored-row guard in both places, the domain in the reaching
+  set, the rejoin, the depth bound, the flag polarity, the self anchor,
+  MySQL's iteration bound) were each caught in round 1. The bound itself,
+  forced off and forced on (every statement the most compact form), each
+  fails the closure test in `extension-shared-bodies.core` and
+  `pglite-permissions-relations`.
+
 ## Bundle
 
-| Entry | 1.3.3 | 1.4.0 |
-|---|---|---|
-| pg application | 183,719 B | 188.39 kB |
-| D1 Worker | 183,229 B | 187.91 kB |
-| pg application + permissions | 196,634 B | 201.33 kB |
+| Entry | 1.3.3 | 1.4.0 before §10 | after §10 |
+|---|---|---|---|
+| pg application | 183,719 B | 188.58 kB | 191.26 kB |
+| D1 Worker | 183,229 B | 188.06 kB | 190.81 kB |
+| pg application + permissions | 196,634 B | 201.52 kB | 204.21 kB |
+
+§10 adds about 2.7 kB to every entry (walk sets, flag members, the relation
+bound and the dialect facts); the `size-limit` rows are raised to the measured
+size rounded up to 0.1 kB plus 0.3 kB (OD-17).
 
 About +1.75 kB is `findUnique` batching (measured by removing its hook),
 +2.2 kB the `undefined` refusal and `result`, the rest the write fold, the

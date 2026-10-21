@@ -43,6 +43,32 @@ that refuse a `where` emptied by `undefined`. Measurements are in
   better-sqlite3 read went from 357 ms to 12.6 ms. Single-row checks compute
   those bodies in full: a `can` over 14,000 grants went from 0.67 ms to
   4.5 ms.
+- **PlanetScale Neki runs the large permission reads it refused.** Neki
+  refuses a statement referencing more than 256 relations (54000) and counts
+  every `FROM` item. Where a driver shares relation bodies (every PostgreSQL
+  driver, D1), a recursive filter's walk carries the columns its next hop
+  reads instead of joining each row again: one relation fewer per walk, text
+  within −1% to +4%, and the reads that keep it measure as fast as before
+  or faster, within noise. These drivers also bound a statement to 256
+  relations (`relationsPerStatement`), and only a statement past it changes
+  form, as far as it needs: first each walk it repeats
+  becomes one `WITH RECURSIVE` member, the keys of the rows it holds for,
+  read backwards from the rows its predicate holds of (hidden rows, cycles,
+  depth and `self` as before); if still over, a row tested against shared
+  sets joins them once (`LEFT JOIN`, one flag per set). The nine acceptance
+  `$access` reads count 95–255 relations (96–683 before) and all run on Neki
+  with unchanged rows. `page`, `page` with its group and `document` stay in
+  place; `accessGrant` (291 in place) states one walk as a set and the roots
+  three levels deep (432) four; the four largest (487–683) state eight and
+  join 23–46 sets. Escalated PostgreSQL text is 9–44% shorter. The bound
+  applies on every PostgreSQL driver, not only Neki, and it costs one read:
+  pages three levels deep through groups and grants (527 relations), which
+  PostgreSQL ran in 1.4 s at 10× the fixture on PGlite, now takes about
+  5.2 s there; the joined key sets are the cost (its walks as sets alone run
+  in 0.8 s but count 394). The other escalated reads got 3–49× faster at
+  10×. On D1, which bounds no relations, 256 is a target, not a guarantee:
+  SQLite joins no set at a nested level, and two reads end at 259 and 266.
+  MySQL and in-process SQLite SQL are unchanged.
 - **`distinct` uses one window function** instead of two: about 2× faster at
   200k rows on SQLite and PostgreSQL.
 - **Many-to-many relation filters join the junction table on SQLite,

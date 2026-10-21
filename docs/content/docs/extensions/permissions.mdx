@@ -1496,33 +1496,35 @@ compiled program, and an opcode count does not predict it: on local workerd a
 measured boundary fell near 21,850 opcodes, yet `accessGrant.findMany` with
 `$access` compiles to 23,333 and runs.
 
-These figures were measured on 17 October 2026 (the 1.4.0 ones on 20
+These figures were measured on 17 October 2026 (the 1.4.0 ones on 21
 October) with the §1.1 acceptance policy, soft delete and actor `u02`, on
 local workerd. They are pinned by
 `tests/providers/workers/d1-permissions-statement-budget.test.ts`, which turns
 red when a read D1 runs is refused, or a refused one starts to run:
 
-- D1 runs `findMany` with `$access` on `accessGrant` (41,283 bytes, 26
-  values), `page` (13,825 bytes), `page` including its group with `$access`
-  (16,132 bytes) and `document` (22,978 bytes). It also runs the root
-  documents with `$access` at three levels, the roots, their children and
-  theirs (48,946 bytes, 39 values).
+- D1 runs `findMany` with `$access` on `accessGrant` (38,685 bytes, 26
+  values; 41,283 with its walks in place, see the relation bound below),
+  `page` (13,966 bytes), `page` including its group with `$access` (16,299
+  bytes) and `document` (23,959 bytes). It also runs the root documents with
+  `$access` at three levels, the roots, their children and theirs (33,057
+  bytes, 39 values; 48,946 with its walks in place).
 - Since 1.4.0 D1 also runs the four reads it refused with `SQLITE_NOMEM`
   at 1.3.3, all inside the published limits:
   - the same three levels including each level's grants with `$access`
-    (90,237 bytes, 57 values; 89,678 at 1.3.3);
-  - `document.findMany` including every relation with `$access` (85,186
+    (54,420 bytes, 57 values; 89,678 at 1.3.3);
+  - `document.findMany` including every relation with `$access` (50,200
     bytes, 79 values);
   - `page.findMany` with `$access` at every level of an include through the
-    group, its grants and pages, and the page's grants (76,073 bytes, 64
+    group, its grants and pages, and the page's grants (57,363 bytes, 64
     values);
-  - `accessGrant.findMany` including every relation with `$access` (69,316
+  - `accessGrant.findMany` including every relation with `$access` (52,200
     bytes, 74 values).
 
   SQLite inlined each shared body at every place that reads it, and a body
   read by another one again inside each of that body's uses: the largest of
   these compiled to 63,867 opcodes. Each body that reads another is now
-  computed once, and it compiles to 14,345 (measured with better-sqlite3).
+  computed once, and it compiles to 14,345 (measured with better-sqlite3);
+  past the relation bound below, to 7,582.
   Computing it once reads that body's whole table, once per statement: on
   better-sqlite3 with 7,500 documents and 14,000 grants, a `can` on one
   document went from 0.67 to 4.5 ms, while reads of many rows got faster
@@ -1563,9 +1565,36 @@ a policy repeats the same bodies at every arm and every key check, and the
 shared form keeps the statement small with the same answers. A member's
 `accessGrant` read of the acceptance fixture is 415 KB inline and 2,711 bound
 values; shared, it fits D1's 100 KB. **Neki** refuses a statement that
-references more than 256 relations. The shared form keeps that read under the
-limit: it went from 241 table references to 41, not counting the names of the
-shared bodies, and it runs on Neki. This is not a bound for every policy.
+references more than 256 relations (SQLSTATE 54000). It counts every `FROM`
+item: each table, each reference to a `WITH` member, each derived table, each
+`WITH` member's own items once (used or not), and the items of every `EXISTS`.
+Since 1.4.0 a recursive filter's walk (`recurse`, as in a parent-chain rule)
+carries the columns its next hop reads instead of joining each row again: one
+relation fewer per walk, whatever the statement's size. The PostgreSQL drivers
+and D1 also bound a statement to 256 relations. A statement within it keeps
+every walk in place. Only a statement past it changes form, as far as it
+needs: first each walk it repeats becomes one `WITH` member, the keys of the
+rows it holds for; if still over, a row tested against the same shared sets
+several times joins them once. The acceptance policy's nine `$access` reads
+counted 96 to 683 relations and now count 95 to 255, all running on Neki with
+PGlite's answers; the six past 256 were refused before. `page`, `page` with
+its group and `document` stay in place. `accessGrant` (291 in place) states
+one walk as a set and the root documents three levels deep (432) four; the
+four largest (487 to 683) state eight and join 23 to 46 sets. This is not a
+bound for every policy. On D1, which bounds no relations, 256 is a target and
+not a guarantee: SQLite joins no set at a nested level, and two of these
+reads end at 259 and 266 relations, well inside D1's 100 KB.
+
+The trade-off is PostgreSQL's plan, on every PostgreSQL driver and not only
+on Neki. A walk stated as a set is computed once for the whole table,
+backwards from the rows its rule holds of; a joined set is read again for
+each row of a nested include. At 10× the acceptance fixture on PGlite, five
+of the six escalated reads got faster (`document.findMany` including every
+relation with `$access`, 7.0 s to 0.14 s), while pages three levels deep
+through groups and grants (527 relations in place), which PostgreSQL ran in
+1.4 s, takes about 5.2 s: the joined sets are the cost, and without them the
+read is past 256. Reads within the bound, a `can` on one row among them,
+measure as before or faster.
 `sharedRelationBodies: false` keeps every body inline, as 1.2.4 spelled it. A
 driver and `createClient` both take it:
 

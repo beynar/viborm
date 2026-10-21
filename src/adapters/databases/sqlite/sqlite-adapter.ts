@@ -324,6 +324,19 @@ export interface SQLiteAdapterOptions {
    * to `false`.
    */
   readonly sharedRelationBodies?: boolean;
+  /**
+   * The most terms one compound `SELECT` may chain
+   * (`capabilities.compoundSelectTerms`): Cloudflare D1 compiles SQLite with
+   * 5 and refuses a sixth ("too many terms in compound SELECT"). Defaults to
+   * SQLite's own bound, which the engine never reaches.
+   */
+  readonly compoundSelectTerms?: number;
+  /**
+   * Where bodies are shared, the relations a statement may reference before
+   * its repeated walks become reaching sets and its rows join the key sets
+   * they test (`capabilities.relationsPerStatement`). Absent: unbounded.
+   */
+  readonly relationsPerStatement?: number;
 }
 
 /**
@@ -898,6 +911,8 @@ export class SQLiteAdapter implements DatabaseAdapter {
     temporaryObjects = true,
     deepExpressions = true,
     sharedRelationBodies = false,
+    compoundSelectTerms,
+    relationsPerStatement,
   }: SQLiteAdapterOptions = {}) {
     installGeoPointSql(this, this.geoPoint);
     if (!deepExpressions) {
@@ -908,8 +923,13 @@ export class SQLiteAdapter implements DatabaseAdapter {
       this.subqueries.isolated = (condition) =>
         sql`EXISTS (SELECT 1 FROM (SELECT 1 WHERE ${condition}))`;
       this.operators.and = balancedConjunction(SQLITE_OPERATORS.and);
+      this.capabilities.boundsExpressionDepth = true;
     }
     if (sharedRelationBodies) this.capabilities.sharesRelationBodies = true;
+    if (compoundSelectTerms !== undefined)
+      this.capabilities.compoundSelectTerms = compoundSelectTerms;
+    if (relationsPerStatement !== undefined)
+      this.capabilities.relationsPerStatement = relationsPerStatement;
     // Only batches read the reference-table SQL, so it is built on first use.
     let batchRefs: BatchReferenceSqlAdapter | undefined;
     const createBatchRefs = () => this.#createBatchRefs(temporaryObjects);

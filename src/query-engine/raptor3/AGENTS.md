@@ -209,8 +209,46 @@ shaped like an alias still turn sharing off for the schema
 statement is whole, a body placed once settles to its `EXISTS` (so a statement
 repeating none is byte-identical) and a repeated one to its test; a nested
 repeated body is defined before the body holding it. A junction or variant
-membership and a recursive walk keep their place (a walk inside a shared body
-is shared with it). A member is `inlined` where it is correlated and reads no
+membership keeps its place (a walk inside a shared body is shared with it).
+Since 1.4.0, where the adapter bounds a statement's relations
+(`capabilities.relationsPerStatement`: 256 on every PostgreSQL driver and on
+D1) and the statement settled as above references more (`relations`: every
+minted `"q<n>"` alias where defined, plus each bare `memberRead`, the count
+Neki makes), it escalates as far as it needs, each step re-settling the same
+slots (`#settled`) and recounting: first the walks it repeats become members,
+those saving the most relations first (`#rankedWalks`, an estimate by place),
+until the estimate fits; then key sets are joined (below), the largest saving
+first; an estimate still short takes the most compact form, every repeated
+walk a member and every set joined. Each step costs plans (a reaching set is
+computed for its whole table; a joined member is read again per row of a
+correlated subquery where the test it replaces was hashed once), so a
+statement that fits pays none of them. A walk escalated is its REACHING
+SET (`#reachingSet`), the keys of the stored rows from which the walk reaches
+a row its predicate holds of, read backwards from those rows (the anchor
+states them, at depth 0 with `self`, else their predecessors at depth 1; the
+recursive member adds the predecessors of each row the related domain takes,
+below the depth), so a hidden row stops it, a cycle ends on `UNION`'s key,
+and the CTE keeps its two terms (Neki 42P01). It answers for the start row
+only where that row is the stored one (`#rows`: an alias `table()` or
+`#rowAlias` minted, never a produced row, a masked window or a locked
+source) or the first hop reads only its key; elsewhere the walk keeps its
+place, as on a dialect bounding recursion iterations
+(`boundsRecursionIterations`, MySQL). One recursive member makes the `WITH`
+`WITH RECURSIVE`. Past that, where an alias tests repeated members on the same
+columns more often than joining them costs (`#flagging`), and its `FROM`
+item is one `#attached` writes (a root read not locking, a relation page,
+an `EXISTS` body, a member's own read, a reaching set's anchor), it joins
+them once: one member per group of sets holds each key with one flag per
+set (`#flagSet`: `MAX` over a `UNION ALL` of typed 1/NULL flags; one set
+alone, its keys `GROUP BY`), `LEFT JOIN`ed after the item, and each test
+reads `flag IS NOT NULL` (`EXISTS`) or `IS NULL` (`NOT EXISTS`), two-valued
+as the tests it replaces. Overlapping groups share one member where every
+body joining it follows its last set (`within`); each distinct group's own
+member always does. Neki counts every `FROM` item of a statement, each `WITH`
+member's own once (used or not), each reference to one, each derived table:
+the nine acceptance `$access` reads went from 96–683 to 95–255, the six over
+256 escalated (all now run; `benchmarks/perf-1.4.0.md` §10,
+`pglite-permissions-relations.test.ts`). A member is `inlined` where it is correlated and reads no
 other member (a leaf): PostgreSQL writes it `NOT MATERIALIZED`, and since
 1.4.0 SQLite writes every other member `MATERIALIZED` (`cte.with`'s hints):
 SQLite inlines a member at each use and compiles a nested one again inside
@@ -1215,7 +1253,14 @@ occurrence and transient-copy counts; do not invent an allocation metric API.
 A recursive relation FILTER (`recurse` in `where`) has the projection's ONE
 walk owner, `Queries.walk`; the projection reads its edges, a filter its
 reached set. Invariants the code comments explain: `self` joins the FIRST hop
-in the anchor (MySQL `cte_max_recursion_depth`); a junction hop joins the
+in the anchor (MySQL `cte_max_recursion_depth`; and PostgreSQL plans the
+recursive member as a hash join over a scan of the table where the anchor's
+hop is an index probe). Where the driver shares relation bodies
+(`sharesRelationBodies`), each reached row carries the columns its next hop
+reads (`#hopFields`) and the recursive member joins no row again, except
+from a start row that is not the stored row (`#rows`) where the hop reads
+more than its key: that walk still leaves the stored row too, as it always
+has; a junction hop joins the
 junction table (`step`, PostgreSQL semi-joins); the walk is the `EXISTS`'s OWN
 `WITH`, never wrapped in a derived table or `LATERAL` (MySQL answers every
 outer row from one evaluation of a wrapped one); a closure's read is INEXACT

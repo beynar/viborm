@@ -20,8 +20,11 @@ export function installPostgresAdapter(
 ): void {
   const adapter = new PostgresAdapter(namespace, options.postgis === true);
   adapter.capabilities.supportsVector = options.pgvector === true;
-  if (options.sharedRelationBodies !== false)
+  if (options.sharedRelationBodies !== false) {
     adapter.capabilities.sharesRelationBodies = true;
+    // PlanetScale Neki refuses a statement referencing over 256 relations.
+    adapter.capabilities.relationsPerStatement = 256;
+  }
   if (!options.pgvector) adapter.vector = unsupportedVector;
   defineImmutableDriverFact(driver, "adapter", adapter);
 }

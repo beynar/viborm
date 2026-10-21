@@ -367,7 +367,12 @@ export const createCteBuilders = (
   hints: { readonly inlining?: Sql; readonly materializing?: Sql } = {}
 ): DatabaseAdapter["cte"] => ({
   with: (
-    definitions: { name: string; query: Sql; inlined?: boolean }[]
+    definitions: {
+      name: string;
+      query: Sql;
+      inlined?: boolean;
+      recursive?: boolean;
+    }[]
   ): Sql => {
     const defs = definitions.map(({ name, query, inlined }) => {
       // A member stating no form (`inlined` absent) is left to the database.
@@ -378,7 +383,10 @@ export const createCteBuilders = (
         ? sql`${sql.raw(quoteIdent(name))} AS ${hint} (${query})`
         : sql`${sql.raw(quoteIdent(name))} AS (${query})`;
     });
-    return sql`WITH ${sql.join(defs, ", ")}`;
+    // One recursive member makes the whole list `WITH RECURSIVE`.
+    return definitions.some((definition) => definition.recursive)
+      ? sql`WITH RECURSIVE ${sql.join(defs, ", ")}`
+      : sql`WITH ${sql.join(defs, ", ")}`;
   },
 
   recursive: (

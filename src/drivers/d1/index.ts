@@ -191,11 +191,18 @@ export class D1Driver extends Driver<
   // relation filters nest as derived tables and conjunctions as balanced
   // trees (d1-permissions-verbs W-W3, W-W7). D1 refuses a statement over 100 KB: a
   // relation body a statement repeats is stated once (d1-permissions-placement
-  // W-P10's update form).
+  // W-P10's update form), and a compound SELECT over 5 terms ("too many terms
+  // in compound SELECT", witnessed by d1-permissions-statement-budget W-K2f).
+  // D1 bounds no relations: it takes PostgreSQL's (256, Neki's) because
+  // below it walks kept in place serve a few rows faster (a take-10 read at
+  // 50x the permissions fixture: 0.6 ms, 5.2 ms as reaching sets), and above
+  // it the compact form keeps the largest reads well inside 100 KB.
   readonly adapter: DatabaseAdapter = new SQLiteAdapter({
     temporaryObjects: false,
     deepExpressions: false,
     sharedRelationBodies: true,
+    compoundSelectTerms: 5,
+    relationsPerStatement: 256,
   });
   readonly maxBindParametersPerStatement: number | undefined = 100;
   readonly result: DriverResultParser = sqliteResultParser;

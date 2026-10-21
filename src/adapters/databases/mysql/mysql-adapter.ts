@@ -878,6 +878,7 @@ export class MySQLAdapter implements DatabaseAdapter {
     // mutated table and trip the same ERROR 1093 as above.
     supportsMutationRowLimit: true,
     supportsRowLocks: true,
+    boundsRecursionIterations: true,
   };
 
   lastInsertId = (): Sql => sql.raw`LAST_INSERT_ID()`;

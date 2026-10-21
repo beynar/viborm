@@ -68,4 +68,35 @@ export interface DatabaseAdapterCapabilities {
    * membership form. Absent: false.
    */
   joinsJunctionFilters?: boolean;
+  /**
+   * Whether a recursive CTE fails once it runs a fixed number of iterations
+   * (MySQL's `cte_max_recursion_depth`, 1000 by default): a recursive filter
+   * then keeps its walk in place, whose anchor holds the first hop, rather
+   * than a reaching set, which spends one iteration per depth from its
+   * anchor. Absent: false.
+   */
+  boundsRecursionIterations?: boolean;
+  /**
+   * The most terms one compound `SELECT` may chain, where the transport
+   * bounds it below anything the engine writes: Cloudflare D1, 5. The engine
+   * nests a longer union in derived tables of at most that many. Absent:
+   * unbounded.
+   */
+  compoundSelectTerms?: number;
+  /**
+   * Whether the transport bounds expression depth below what nested relation
+   * filters reach unless each level reads from a derived table SQLite
+   * flattens (D1, depth 100; `SQLiteAdapter({ deepExpressions: false })`):
+   * a relation filter's own `EXISTS` then joins no flag member. Absent: false.
+   */
+  boundsExpressionDepth?: boolean;
+  /**
+   * Where relation bodies are shared, the relations (`FROM` items) a
+   * statement may reference before the engine trades plans for fewer:
+   * PlanetScale Neki refuses a statement over 256. Over it, a recursive
+   * filter's walk the statement repeats becomes one reaching set, then rows
+   * join the key sets they test, each as far as the statement needs. Absent:
+   * unbounded, so neither.
+   */
+  relationsPerStatement?: number;
 }

@@ -845,6 +845,7 @@ describe("dialect physical SQL vocabulary", () => {
       supportsMutationTargetInSubquery: false,
       supportsMutationRowLimit: true,
       supportsRowLocks: true,
+      boundsRecursionIterations: true,
     });
     expect(sqlite.capabilities).toEqual({
       supportsReturning: true,
