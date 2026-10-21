@@ -81,7 +81,11 @@ that refuse a `where` emptied by `undefined`. Measurements are in
 - **`distinct` uses one window function** instead of two: about 2× faster at
   200k rows on SQLite and PostgreSQL.
 - **Many-to-many relation filters join the junction table on SQLite,
-  libSQL, Bun and D1**: a filtered count went from 1,240 ms to 61 ms.
+  libSQL, Bun and D1**: a filtered count went from 1,240 ms to 61 ms. On
+  PostgreSQL they do so in counts, aggregates, writes and `findMany` without
+  `take` (a filtered count on PostgreSQL 18, 479 ms to 7 ms); unique, first,
+  existence and `take` reads keep the old form, which plans about 0.2 ms
+  faster.
 - **Shared-body keys are about 20% cheaper to build**, and MySQL statements
   can share bodies (no MySQL driver turns it on yet).
 

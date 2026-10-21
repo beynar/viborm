@@ -62,12 +62,15 @@ export interface DatabaseAdapterCapabilities {
    * target, correlated in the filter's own `WHERE` (`EXISTS (SELECT 1 FROM
    * junction j JOIN target t ON t.key = j.target WHERE j.source = parent.key
    * AND …)`), rather than as the target's membership in a correlated junction
-   * subquery. Declared where the dialect plans the joined form at least as
-   * well everywhere measured (SQLite); PostgreSQL turns it into a hashed
-   * semijoin for scans but plans bounded reads more slowly, so it keeps the
-   * membership form. Absent: false.
+   * subquery. `true` where the dialect plans the joined form at least as well
+   * everywhere measured (SQLite); `"unbounded"` where it does only in a
+   * statement whose root read is unbounded, a count, an aggregate, a
+   * `findMany` without `take` or a write: PostgreSQL turns the join into a
+   * hashed semijoin there (10–300× faster scans) but plans it about 0.2 ms
+   * more slowly, which a bounded read (a unique, first or existence read, a
+   * `take`) pays without the scan to win it back. Absent: false.
    */
-  joinsJunctionFilters?: boolean;
+  joinsJunctionFilters?: boolean | "unbounded";
   /**
    * Whether a recursive CTE fails once it runs a fixed number of iterations
    * (MySQL's `cte_max_recursion_depth`, 1000 by default): a recursive filter

@@ -2212,6 +2212,12 @@ export class Queries {
    * adapter shares them ({@link sharingBodies}).
    */
   #shared: SharedBodies | undefined;
+  /**
+   * The read lowering here is bounded: a unique, first or existence read, or
+   * a `take` (`capabilities.joinsJunctionFilters`). Each read sets it; a
+   * write's owner never reads, so its statements are never bounded.
+   */
+  #bounded = false;
   readonly #sharesBodies: boolean;
   constructor(
     schema: EngineSchema,
@@ -5982,8 +5988,8 @@ export class Queries {
    * layers and values, so it takes exactly the rows the EXISTS takes. A
    * reference edge only (a junction's and a variant's membership stay
    * where they are), and a body that states something. A junction's
-   * membership is its join where the dialect plans that better
-   * ({@link junctionJoin}).
+   * membership is its join where the dialect plans that better, on
+   * PostgreSQL outside a bounded read ({@link junctionJoin}).
    */
   #relationExists(
     edge: Membership,
@@ -5997,8 +6003,10 @@ export class Queries {
     joins: readonly Sql[] = []
   ): Sql {
     const a = this.adapter;
+    const junctions = a.capabilities.joinsJunctionFilters;
     const joined =
-      edge.kind === "junction" && a.capabilities.joinsJunctionFilters
+      edge.kind === "junction" &&
+      (junctions === true || (junctions === "unbounded" && !this.#bounded))
         ? this.#junctionJoin(edge, child, parent)
         : undefined;
     const member =
@@ -6402,6 +6410,9 @@ export class Queries {
    * walks it from the junction's key per parent row instead of rebuilding the
    * membership's set for every target row (200k posts, 300k links: a
    * tagged-post count 1,240 → 61 ms, an `every` count 2,910 → 65 ms).
+   * PostgreSQL hashes it into a semijoin: the same count on PostgreSQL 18,
+   * 479 → 7 ms, but 0.2 ms more planning, so a bounded read keeps the
+   * membership.
    */
   #junctionJoin(
     edge: Extract<Membership, { kind: "junction" }>,
@@ -7361,6 +7372,11 @@ export class Queries {
    * relation bodies where the adapter does ({@link sharingBodies}).
    */
   read(model: AnyModel, operation: ReadOperation, args: Arguments): Read {
+    this.#bounded =
+      operation === "findUnique" ||
+      operation === "findFirst" ||
+      operation === "exist" ||
+      (operation !== "groupBy" && args.take !== undefined);
     if (!this.#sharesBodies) return this.#read(model, operation, args);
     let read: Read | undefined;
     const statement = this.#sharingBodies(() => {

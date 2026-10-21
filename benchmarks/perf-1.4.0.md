@@ -184,7 +184,7 @@ Tests: `distinct-window-sql.core.test.ts` (PostgreSQL, MySQL, SQLite nested)
 and 8 oracle tests in `distinct-skip-window-behavior.ts` (NULLs, duplicates,
 negative take, cursor).
 
-## 6. Many-to-many filters join the junction (SQLite family)
+## 6. Many-to-many filters join the junction (SQLite family, PostgreSQL scans)
 
 `EXISTS (SELECT 1 FROM junction JOIN target ON … WHERE junction.source =
 parent.key AND …)` instead of `target.id IN (correlated junction subquery)`
@@ -199,11 +199,31 @@ inside `EXISTS`, behind the adapter capability `joinsJunctionFilters`
 | page of 20 / unique lookup / nested include | 0.77× / 0.60× / 0.80× |
 
 All 16 engine shapes and 16 hand-written shapes are faster on SQLite.
-PostgreSQL keeps the old form: forced on, scans get much faster (count
-273 → 6 ms, OR 1,727 → 24 ms) but bounded reads get slower (page of 20
-1.46×, nested include 1.5×), mostly planning time. A 46-check equivalence
-script (compound keys, self junction, soft delete on both sides) agreed on
-SQLite old, SQLite new and PGlite.
+
+PostgreSQL declares `joinsJunctionFilters: "unbounded"`: the join in a
+statement whose root read is unbounded (a count, an aggregate, a write, a
+`findMany` without `take`), the old form in a unique, first or existence
+read or under a `take`. PostgreSQL 18.6 (Neon), same data, `EXPLAIN ANALYZE`
+medians of 14 (server time, no network):
+
+| Query | Planning old → join | Execution old → join | Form shipped |
+|---|---|---|---|
+| count, `some` on 1% of tags | 0.11 → 0.31 ms | 479 → 7.0 ms | join |
+| count, `some` on 99% | 0.11 → 0.32 | 7,074 → 214 | join |
+| list, no `take` | 0.11 → 0.32 | 422 → 16 | join |
+| count, `none` / `every` | 0.11 → 0.31 | 439 → 53 | join |
+| reverse (tag → posts) | 0.11 → 0.32 | 5,879 → 18 | join |
+| count, `OR` | 0.17 → 0.21 | 893 → 18 | join |
+| page of 20 | 0.12 → 0.34 | 1.26 → 1.74 | old |
+| unique lookup | 0.11 → 0.16 | 0.07 → 0.06 | old |
+| nested include under 20 users | 0.14 → 0.35 | 0.41 → 0.44 | old |
+
+The join plans about 0.2 ms slower everywhere; a scan wins it back many
+times over, a bounded read does not (page of 20 1.51×, nested include
+1.45×), so no shape is slower than 1.3.3. PGlite agreed (count 273 → 6 ms,
+OR 1,727 → 24 ms; page of 20 1.46×). A 46-check equivalence script
+(compound keys, self junction, soft delete on both sides) agreed on SQLite
+old and new and on PGlite with the old form, the join and the shipped rule.
 
 ## 7. Rejected: relation filters as `fk IN (SELECT …)`
 
