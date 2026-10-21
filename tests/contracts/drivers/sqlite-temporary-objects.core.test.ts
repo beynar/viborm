@@ -90,27 +90,31 @@ describe("Shared relation bodies", () => {
   });
   // Neki refuses a statement referencing more than 256 relations; a plain
   // PostgreSQL server bounds none, and a statement escalated to fit pays in
-  // its plan, so the bound is the caller's to state.
+  // its plan, so the bound is the caller's to state, or, unstated, the
+  // server's where the driver reads its startup: node-postgres and
+  // postgres.js take Neki's until a connection says otherwise
+  // (postgres-server-facts.core.test.ts).
   test.each([
-    undefined,
-    256,
-  ])("every PostgreSQL client factory preserves relationsPerStatement=%s", (relationsPerStatement) => {
+    [undefined, [256, undefined, 256, undefined, undefined]],
+    [256, [256, 256, 256, 256, 256]],
+    [1000, [1000, 1000, 1000, 1000, 1000]],
+  ])("every PostgreSQL client factory preserves relationsPerStatement=%s", (relationsPerStatement, bounds) => {
     const config = {
       schema: { item: s.model({ id: s.string().id() }) },
       relationsPerStatement,
     };
     const remote = { ...config, databaseUrl: "postgres://h/d" };
-    for (const client of [
-      pgClient(remote),
-      pgliteClient(config),
-      postgresClient(remote),
-      neonClient(remote),
-      bunSQLClient(remote),
-    ]) {
-      expect(client.$driver.adapter.capabilities.relationsPerStatement).toBe(
-        relationsPerStatement
-      );
-    }
+    expect(
+      [
+        pgClient(remote),
+        pgliteClient(config),
+        postgresClient(remote),
+        neonClient(remote),
+        bunSQLClient(remote),
+      ].map(
+        (client) => client.$driver.adapter.capabilities.relationsPerStatement
+      )
+    ).toEqual(bounds);
   });
   test.each([
     0,

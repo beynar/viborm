@@ -13,10 +13,11 @@
  *   actors), whose document reads recurse (`up()`) at every scope, in
  *   `viborm_permissions_t_entry`.
  *
- * - the largest `$access` read, as the first statement of a node-postgres and
- *   of a postgres.js driver given no `relationsPerStatement`: each reads Neki
- *   from its first connection's startup and bounds the read to 256
- *   (`viborm_permissions_nb_<random>`), with PGlite's rows.
+ * - the largest `$access` read as the first call of a node-postgres and of a
+ *   postgres.js driver given no `relationsPerStatement`: a read, an array
+ *   transaction, a callback transaction and an array nested in one, each
+ *   bounded to 256 (before any connection, or by the startup of the
+ *   transaction's own) (`viborm_permissions_nb_<random>`), with PGlite's rows.
  *
  * Select with `-t` (the W-K1 and W-R ids) to run only the recursion
  * witnesses: each estate is created only for the cases selected.
@@ -121,11 +122,12 @@ const tombstones = softDelete({
     TOMBSTONED_MODELS.map((model) => [model, { deletedAt: "deletedAt" }])
   ),
 });
-type Governed = {
-  $as(actor: unknown): {
-    document: { findMany(args: object): Promise<unknown> };
-  };
+type View = {
+  document: { findMany(args: object): Promise<unknown> };
+  $transaction(body: (tx: View) => Promise<unknown>): Promise<unknown>;
+  $transaction(operations: readonly unknown[]): Promise<unknown[]>;
 };
+type Governed = { $as(actor: unknown): View };
 /** The acceptance policy over `driver`, recording each statement it sends. */
 function governed(driver: AnyDriver, statements: string[] = []) {
   const base = createPermissionsAppClient(driver);
@@ -164,7 +166,7 @@ describe.skipIf(!NEKI_URL)("Neki", () => {
       await local.base.$disconnect();
       await dropped(UNSTATED);
     }, TIMEOUT);
-    test.each([
+    const drivers = [
       [
         "node-postgres",
         () =>
@@ -181,17 +183,42 @@ describe.skipIf(!NEKI_URL)("Neki", () => {
             namespace: UNSTATED,
           }),
       ],
-    ])(
-      "%s bounds the largest $access read, its first statement, to Neki's 256",
-      async (_name, createDriver) => {
+    ] as const;
+    // Each the driver's first call: no connection has said what server it is.
+    const firstCalls: [string, (view: View) => Promise<unknown>][] = [
+      ["a read", (view) => view.document.findMany(LARGEST)],
+      [
+        "an array transaction",
+        async (view) =>
+          (await view.$transaction([view.document.findMany(LARGEST)]))[0],
+      ],
+      [
+        "a callback transaction",
+        (view) => view.$transaction((tx) => tx.document.findMany(LARGEST)),
+      ],
+      [
+        "an array nested in a callback transaction",
+        (view) =>
+          view.$transaction(
+            async (tx) =>
+              (await tx.$transaction([tx.document.findMany(LARGEST)]))[0]
+          ),
+      ],
+    ];
+    test.each(
+      drivers.flatMap(([name, createDriver]) =>
+        firstCalls.map(
+          ([call, run]) => [name, call, createDriver, run] as const
+        )
+      )
+    )(
+      "%s bounds the largest $access read to Neki's 256 as its first call, %s",
+      async (_name, _call, createDriver, run) => {
         const statements: string[] = [];
         const driver = createDriver();
         const neki = governed(driver, statements);
         try {
-          expect(
-            driver.adapter.capabilities.relationsPerStatement
-          ).toBeUndefined();
-          const rows = await neki.db.$as(actors.u02).document.findMany(LARGEST);
+          const rows = await run(neki.db.$as(actors.u02));
           expect(driver.adapter.capabilities.relationsPerStatement).toBe(256);
           const widest = statements.reduce((a, b) =>
             b.length > a.length ? b : a

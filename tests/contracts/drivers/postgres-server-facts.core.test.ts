@@ -2,28 +2,26 @@
  * PlanetScale's Neki refuses a statement referencing more than 256 relations
  * (SQLSTATE 54000) and names itself in each connection's startup
  * (`server_version` "18.6 (…) (Neki)"). A PostgreSQL driver given no
- * `relationsPerStatement` takes 256 from that startup where its transport
- * keeps it (node-postgres on a pool it makes, postgres.js), before the first
- * statement is built, and from Neki's refusal elsewhere (Bun SQL, a supplied
- * pool); a stated bound always wins. Live witness:
- * tests/providers/hosted/neki-permissions-app.test.ts.
+ * `relationsPerStatement` reads that startup where its transport keeps it
+ * (node-postgres on a pool it makes, postgres.js) as each statement is built:
+ * Neki's 256 until a connection said otherwise, so the first statements and a
+ * transaction's fit, and nothing waits or connects for it. Elsewhere (Bun SQL,
+ * a supplied pool) Neki's refusal teaches it; a stated bound always wins.
+ * Live witness: tests/providers/hosted/neki-permissions-app.test.ts.
  */
 
 import { createServer, type Server, type Socket } from "node:net";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { createClient } from "@client/client";
+import type { AnyDriver } from "@drivers/driver";
 import { PgDriver } from "@drivers/pg";
 import { PostgresDriver } from "@drivers/postgres";
-import {
-  learnRelationLimit,
-  learnServerVersion,
-} from "@drivers/shared/relation-bound";
-import { defineExtension } from "@extensions/definition";
+import { learnRelationLimit } from "@drivers/shared/relation-bound";
 import { s } from "@schema";
-import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
+const MAX_WAIT = /maxWait/;
 const NEKI = "18.6 (Debian 18.6-1.pgdg13+2) (Neki)";
 const PLAIN = "18.6 (Debian 18.6-1.pgdg13+2)";
 
@@ -50,10 +48,14 @@ const int32 = (value: number) => {
  * A server that connects (trust authentication, the startup's
  * `server_version`, ready) and answers every statement with no rows: a simple
  * query, or an extended one at its Sync (postgres.js fetches its array types
- * on a first connection), or, `refusing`, with Neki's refusal. Terminate
- * ends the connection.
+ * on a first connection), or, `refusing`, with Neki's refusal of `SELECT 1`.
+ * Its startup answers after `startupDelay` ms. Terminate ends the connection.
  */
-function startupServer(serverVersion: string, refusing = false) {
+function startupServer(
+  serverVersion: string,
+  refusing = false,
+  startupDelay = 0
+) {
   const sockets = new Set<Socket>();
   let connections = 0;
   const empty = (complete: Buffer[]) =>
@@ -73,11 +75,16 @@ function startupServer(serverVersion: string, refusing = false) {
     sockets.add(socket);
     let started = false;
     let pending = Buffer.alloc(0);
-    const answer = (type: number) => {
+    let refuseNext = false;
+    const answer = (type: number, body: Buffer) => {
+      // `refusing` refuses the caller's `SELECT 1` only, not a driver's own reads.
+      if (refusing && (type === 0x51 || type === 0x50))
+        refuseNext ||= body.includes("SELECT 1");
       if (type === 0x58) socket.end();
-      else if (refusing && (type === 0x51 || type === 0x53))
+      else if (refuseNext && (type === 0x51 || type === 0x53)) {
+        refuseNext = false;
         socket.write(refusal);
-      else if (type === 0x51) socket.write(empty([]));
+      } else if (type === 0x51) socket.write(empty([]));
       else if (type === 0x53)
         socket.write(
           empty([
@@ -96,17 +103,16 @@ function startupServer(serverVersion: string, refusing = false) {
         }
         started = true;
         connections += 1;
-        socket.write(
-          Buffer.concat([
-            message("R", int32(0)),
-            message(
-              "S",
-              Buffer.from(`server_version\0${serverVersion}\0`, "utf8")
-            ),
-            message("K", Buffer.concat([int32(1), int32(2)])),
-            message("Z", Buffer.from("I")),
-          ])
-        );
+        const ready = Buffer.concat([
+          message("R", int32(0)),
+          message(
+            "S",
+            Buffer.from(`server_version\0${serverVersion}\0`, "utf8")
+          ),
+          message("K", Buffer.concat([int32(1), int32(2)])),
+          message("Z", Buffer.from("I")),
+        ]);
+        setTimeout(() => socket.write(ready), startupDelay);
         return;
       }
       pending = Buffer.concat([pending, data]);
@@ -114,7 +120,7 @@ function startupServer(serverVersion: string, refusing = false) {
         pending.length >= 5 &&
         pending.length >= 1 + pending.readInt32BE(1)
       ) {
-        answer(pending[0]!);
+        answer(pending[0]!, pending.subarray(5, 1 + pending.readInt32BE(1)));
         pending = pending.subarray(1 + pending.readInt32BE(1));
       }
     });
@@ -142,17 +148,21 @@ const servers = {
   neki: startupServer(NEKI),
   plain: startupServer(PLAIN),
   refusing: startupServer(PLAIN, true),
+  // Its startup answers late: a connection is opening, unread, for 50 ms.
+  slow: startupServer(PLAIN, false, 50),
 };
-const ports = { neki: 0, plain: 0, refusing: 0 };
+const ports = { neki: 0, plain: 0, refusing: 0, slow: 0 };
 beforeAll(async () => {
   ports.neki = await servers.neki.listen();
   ports.plain = await servers.plain.listen();
   ports.refusing = await servers.refusing.listen();
+  ports.slow = await servers.slow.listen();
 });
 afterAll(async () => {
   await servers.neki.close();
   await servers.plain.close();
   await servers.refusing.close();
+  await servers.slow.close();
 });
 
 const where = (port: number) => ({
@@ -162,109 +172,162 @@ const where = (port: number) => ({
   database: "d",
 });
 
+const drivers = [
+  [
+    "node-postgres",
+    (port: number, options: object = {}) =>
+      new PgDriver({ options: where(port), ...options }),
+  ],
+  [
+    "postgres.js",
+    (port: number, options: object = {}) =>
+      new PostgresDriver({ options: where(port), ...options }),
+  ],
+] as const;
+const serverKinds = [
+  ["Neki", "neki", 256],
+  ["plain PostgreSQL", "plain", undefined],
+] as const;
+const each = drivers.flatMap(([name, create]) =>
+  serverKinds.map(
+    ([server, key, bound]) => [name, server, create, key, bound] as const
+  )
+);
+const schema = { item: s.model({ id: s.string().id() }) };
+/** A client over `driver` recording the bound each statement was built under. */
+const recording = (driver: AnyDriver) => {
+  const bounds: (number | undefined)[] = [];
+  const db = createClient({ schema, driver }).$extends({
+    name: "bounds",
+    statement(context) {
+      bounds.push(driver.adapter.capabilities.relationsPerStatement);
+      return context.statement;
+    },
+  });
+  return { db, bounds };
+};
+
 describe("a PostgreSQL driver given no relationsPerStatement", () => {
-  test.each([
-    ["Neki", "neki", 256],
-    ["plain PostgreSQL", "plain", undefined],
-  ] as const)("node-postgres reads %s from its first connection's startup", async (_name, server, bound) => {
-    const driver = new PgDriver({ options: where(ports[server]) });
-    expect(driver.adapter.capabilities.relationsPerStatement).toBeUndefined();
-    const before = servers[server].connections();
-    await driver.serverFacts();
-    expect(servers[server].connections()).toBe(before + 1);
-    expect(driver.adapter.capabilities.relationsPerStatement).toBe(bound);
-    // Read once: nothing more to wait for.
-    expect(driver.serverFacts()).toBeUndefined();
-    await driver.disconnect();
-  });
-
-  test.each([
-    ["Neki", "neki", 256],
-    ["plain PostgreSQL", "plain", undefined],
-  ] as const)("postgres.js reads %s from its first connection's startup", async (_name, server, bound) => {
-    const driver = new PostgresDriver({ options: where(ports[server]) });
-    const before = servers[server].connections();
-    await driver.serverFacts();
-    expect(servers[server].connections()).toBe(before + 1);
-    expect(driver.adapter.capabilities.relationsPerStatement).toBe(bound);
-    expect(driver.serverFacts()).toBeUndefined();
-    await driver.disconnect();
-  });
-
-  // postgres.js 3.4 never answers a first `reserve()` that fetches no types.
-  test("postgres.js without its type fetch reads Neki once a statement connected it", async () => {
-    const driver = new PostgresDriver({
-      options: { ...where(ports.neki), fetch_types: false },
-    });
-    await driver.serverFacts();
-    expect(driver.adapter.capabilities.relationsPerStatement).toBeUndefined();
-    await driver._executeRaw("SELECT 1");
-    expect(driver.serverFacts()).toBeUndefined();
+  test.each(
+    each
+  )("%s on %s: Neki's bound until a connection says its server, then the server's", async (_name, _server, create, key, bound) => {
+    const driver = create(ports[key]);
+    const before = servers[key].connections();
     expect(driver.adapter.capabilities.relationsPerStatement).toBe(256);
+    // Reading it opens nothing.
+    expect(servers[key].connections()).toBe(before);
+    await driver._executeRaw("SELECT 1");
+    expect(driver.adapter.capabilities.relationsPerStatement).toBe(bound);
     await driver.disconnect();
   });
 
-  test("a supplied pool's startup is the caller's: none is opened, Neki's refusal teaches it", async () => {
-    const pool = new pg.Pool(where(ports.neki));
-    const driver = new PgDriver({ pool });
-    const before = servers.neki.connections();
-    expect(driver.serverFacts()).toBeUndefined();
-    expect(servers.neki.connections()).toBe(before);
-    await pool.end();
-  });
-
-  test("a pool given its own Client class keeps it: none is opened, Neki's refusal teaches it", async () => {
-    const driver = new PgDriver({
-      options: { ...where(ports.neki), Client: pg.Client },
+  // The callback's statements are built on the connection its BEGIN opened.
+  test.each(
+    each
+  )("%s on %s: a first callback transaction, and an array nested in it, build with the server's bound", async (_name, _server, create, key, bound) => {
+    const driver = create(ports[key]);
+    const { db, bounds } = recording(driver);
+    await db.$transaction(async (tx) => {
+      await tx.item.findMany();
+      await tx.$transaction([tx.item.findMany()]);
     });
+    expect(bounds).toEqual([bound, bound]);
+    await driver.disconnect();
+  });
+
+  test.each(
+    drivers
+  )("%s: neither $transaction([]) nor a call refused before SQL connects", async (_name, create) => {
+    const driver = create(ports.neki);
+    const db = createClient({ schema, driver });
     const before = servers.neki.connections();
-    expect(driver.serverFacts()).toBeUndefined();
+    await expect(db.$transaction([])).resolves.toEqual([]);
+    await expect(
+      db.item.findMany({ where: { missing: 1 } } as never)
+    ).rejects.toThrow();
     expect(servers.neki.connections()).toBe(before);
     await driver.disconnect();
   });
 
-  test("a connection that fails leaves the statement to report it, once", async () => {
-    const driver = new PgDriver({ options: where(1) });
-    await expect(driver.serverFacts()).resolves.toBeUndefined();
-    expect(driver.serverFacts()).toBeUndefined();
-    expect(driver.adapter.capabilities.relationsPerStatement).toBeUndefined();
+  // The only connection is opening for a transaction that then holds it: a
+  // first callback transaction waits no longer than its maxWait, and an array
+  // transaction refuses maxWait before it waits for anything.
+  test("node-postgres: a first transaction keeps its maxWait while the only connection is held", async () => {
+    const driver = new PgDriver({ options: { ...where(ports.slow), max: 1 } });
+    const db = createClient({ schema, driver });
+    let release = () => undefined as void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const holding = db.$transaction(() => held);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const started = performance.now();
+    await expect(
+      db.$transaction(() => Promise.resolve(), { maxWait: 10 })
+    ).rejects.toThrow(MAX_WAIT);
+    expect(performance.now() - started).toBeLessThan(1000);
+    await expect(
+      db.$transaction([db.item.findMany()], { maxWait: 10 } as never)
+    ).rejects.toThrow(MAX_WAIT);
+    release();
+    await holding;
     await driver.disconnect();
+  });
+
+  test.each([
+    ["a supplied pool", (pool: pg.Pool) => new PgDriver({ pool })],
+    [
+      "a pool given its own Client class",
+      (pool: pg.Pool) =>
+        new PgDriver({ options: { ...pool.options, Client: pg.Client } }),
+    ],
+  ])("node-postgres on %s reads no startup: unbounded, until Neki's refusal", async (_name, create) => {
+    for (const [key, bound] of [
+      ["neki", undefined],
+      ["refusing", 256],
+    ] as const) {
+      const pool = new pg.Pool(where(ports[key]));
+      const driver = create(pool);
+      await driver._executeRaw("SELECT 1").catch(() => undefined);
+      expect(driver.adapter.capabilities.relationsPerStatement).toBe(bound);
+      await driver.disconnect();
+      await pool.end();
+    }
   });
 });
 
+// A startup that names no Neki (a proxy in between, say) leaves the refusal.
+test.each(
+  drivers
+)("%s on a server whose startup names no Neki learns from its refusal", async (_name, create) => {
+  const driver = create(ports.refusing);
+  await expect(driver._executeRaw("SELECT 1")).rejects.toThrow();
+  expect(driver.adapter.capabilities.relationsPerStatement).toBe(256);
+  await driver.disconnect();
+});
+
 describe("a stated bound wins", () => {
-  const drivers = [
-    [
-      "node-postgres",
-      (options: object) =>
-        new PgDriver({ options: where(ports.neki), ...options }),
-    ],
-    [
-      "postgres.js",
-      (options: object) =>
-        new PostgresDriver({ options: where(ports.neki), ...options }),
-    ],
-  ] as const;
   test.each(
     drivers
-  )("%s: relationsPerStatement is never replaced, by the startup or the refusal, and waits for neither", async (_name, createDriver) => {
-    const driver = createDriver({ relationsPerStatement: 1000 });
-    expect(driver.serverFacts()).toBeUndefined();
-    learnServerVersion(driver.adapter, NEKI);
-    learnRelationLimit(driver.adapter, REFUSAL);
-    expect(driver.adapter.capabilities.relationsPerStatement).toBe(1000);
-    await driver.disconnect();
+  )("%s: relationsPerStatement is never replaced, by the startup or the refusal", async (_name, create) => {
+    for (const key of ["neki", "refusing"] as const) {
+      const driver = create(ports[key], { relationsPerStatement: 1000 });
+      await driver._executeRaw("SELECT 1").catch(() => undefined);
+      expect(driver.adapter.capabilities.relationsPerStatement).toBe(1000);
+      await driver.disconnect();
+    }
   });
 
   test.each(
     drivers
-  )("%s: sharedRelationBodies: false keeps every statement's form, Neki or not", async (_name, createDriver) => {
-    const driver = createDriver({ sharedRelationBodies: false });
-    expect(driver.serverFacts()).toBeUndefined();
-    learnServerVersion(driver.adapter, NEKI);
-    learnRelationLimit(driver.adapter, REFUSAL);
-    expect(driver.adapter.capabilities.relationsPerStatement).toBeUndefined();
-    await driver.disconnect();
+  )("%s: sharedRelationBodies: false keeps every statement's form, Neki or not", async (_name, create) => {
+    for (const key of ["neki", "refusing"] as const) {
+      const driver = create(ports[key], { sharedRelationBodies: false });
+      expect(driver.adapter.capabilities.relationsPerStatement).toBeUndefined();
+      await driver._executeRaw("SELECT 1").catch(() => undefined);
+      expect(driver.adapter.capabilities.relationsPerStatement).toBeUndefined();
+      await driver.disconnect();
+    }
   });
 });
 
@@ -292,26 +355,6 @@ describe("Neki's refusal", () => {
     learnRelationLimit(adapter, error);
     expect(adapter.capabilities.relationsPerStatement).toBe(bound);
   });
-  test.each([
-    [
-      "node-postgres, on a supplied pool",
-      () => new PgDriver({ pool: new pg.Pool(where(ports.refusing)) }),
-    ],
-    [
-      "postgres.js",
-      () =>
-        new PostgresDriver({
-          options: { ...where(ports.refusing), fetch_types: false },
-        }),
-    ],
-  ])("teaches %s, whose statement fails", async (_name, createDriver) => {
-    const driver = createDriver();
-    await driver.serverFacts();
-    expect(driver.adapter.capabilities.relationsPerStatement).toBeUndefined();
-    await expect(driver._executeRaw("SELECT 1")).rejects.toThrow();
-    expect(driver.adapter.capabilities.relationsPerStatement).toBe(256);
-    await driver.disconnect();
-  });
   test("names the limit it refuses past", () => {
     const adapter = shared();
     learnRelationLimit(adapter, {
@@ -319,94 +362,5 @@ describe("Neki's refusal", () => {
       message: REFUSAL.message.replace("256", "512"),
     });
     expect(adapter.capabilities.relationsPerStatement).toBe(512);
-  });
-});
-
-describe("the engine waits for the server before building", () => {
-  // A closure stated thrice: in place unbounded, one reaching set past a
-  // bound of 1 (tests/contracts/public-client/extension-shared-bodies.core.test.ts).
-  const folder = s.model({
-    id: s.string().id(),
-    owner: s.string(),
-    archived: s.boolean(),
-    parentId: s.string().nullable(),
-    parent: s
-      .toOne(() => folder)
-      .fields("parentId")
-      .references("id"),
-    children: s.toMany(() => folder),
-  });
-  const underAnn = {
-    parent: { recurse: { depth: false }, self: true, some: { owner: "ann" } },
-  };
-  const folders = defineExtension({
-    name: "folders",
-    rows: {
-      control: "scope",
-      default: "ann",
-      models: {
-        folder: {
-          ann: {
-            root: {
-              OR: [
-                { AND: [underAnn, { archived: false }] },
-                { AND: [underAnn, { archived: true }] },
-                { AND: [underAnn, { owner: "cid" }] },
-              ],
-            },
-          },
-        },
-      },
-    },
-  });
-
-  /** A driver whose server, read on a later turn, bounds statements to 1. */
-  class LateServer extends SqlOnlyDriver {
-    #read: Promise<void> | undefined;
-    #unread = true;
-    constructor() {
-      const adapter = new PostgresAdapter();
-      adapter.capabilities.sharesRelationBodies = true;
-      super(adapter, "postgresql");
-    }
-    override serverFacts(): Promise<void> | undefined {
-      if (!this.#unread) return undefined;
-      this.#read ??= new Promise<void>((resolve) =>
-        setTimeout(resolve, 5)
-      ).then(() => {
-        this.adapter.capabilities.relationsPerStatement = 1;
-        this.#unread = false;
-      });
-      return this.#read;
-    }
-  }
-  const inPlace = (statement: string) =>
-    statement.split("EXISTS (WITH RECURSIVE").length - 1;
-  const governed = () => {
-    const statements: string[] = [];
-    const db = createClient({ schema: { folder }, driver: new LateServer() })
-      .$extends(folders)
-      .$extends({
-        name: "statements",
-        statement(context) {
-          statements.push(context.statement.toStatement());
-          return context.statement;
-        },
-      });
-    return { db, statements };
-  };
-
-  test("an operation", async () => {
-    const { db, statements } = governed();
-    await db.folder.findMany({ select: { id: true } });
-    expect(statements.map(inPlace)).toEqual([0]);
-  });
-
-  test("an array transaction, whose members are built before it connects", async () => {
-    const { db, statements } = governed();
-    await db.$transaction([db.folder.findMany({ select: { id: true } })]);
-    expect(
-      statements.filter((sql) => sql.includes('"folder"')).map(inPlace)
-    ).toEqual([0]);
   });
 });

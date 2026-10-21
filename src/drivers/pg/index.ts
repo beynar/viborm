@@ -59,10 +59,7 @@ import {
   systemRootAsVerifyFull,
 } from "../shared/driver-options";
 import { installPostgresAdapter } from "../shared/postgres-adapter";
-import {
-  learnRelationLimit,
-  learnServerVersion,
-} from "../shared/relation-bound";
+import { boundByServer, learnRelationLimit } from "../shared/relation-bound";
 import type { QueryResult } from "../types";
 
 // DATE (1082) and TIMESTAMP WITHOUT TIME ZONE (1114): pg's default parsers
@@ -257,9 +254,9 @@ export interface PgDriverOptions {
    * statement states the recursive filters it repeats as key sets, and then
    * joins the key sets a row tests, as far as it needs to fit: the answers are
    * the same, some plans slower. PlanetScale Neki refuses a statement over
-   * 256: absent, a pool this driver makes reads Neki from its first
-   * connection's startup and takes 256 (a supplied pool from Neki's first
-   * refusal), and plain PostgreSQL stays unbounded. A stated bound always
+   * 256: absent, a pool this driver makes reads each connection's startup,
+   * 256 on Neki and before the first connection, none on plain PostgreSQL (a
+   * supplied pool learns from Neki's first refusal). A stated bound always
    * wins. Only where relation bodies are shared.
    */
   relationsPerStatement?: number;
@@ -321,12 +318,12 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
    */
   private readonly ownedPoolErrors = new WeakMap<object, OwnedPoolErrorState>();
   /**
-   * Whether the first connection's startup is still to be read for the
-   * relation bound ({@link serverFacts}): only on a pool this driver makes with
-   * node-postgres's own `Client`, and only while no bound is stated.
+   * The `server_version` the last connection this driver's own pool opened
+   * received at startup, read for the relation bound (`boundByServer`); a
+   * pool given its own `Client` class, or supplied, is not read.
    */
-  private serverUnread: boolean;
-  private firstConnection: Promise<void> | undefined;
+  private serverVersion: string | undefined;
+  private readonly readsServer: boolean;
 
   constructor(options: PgDriverOptions = {}) {
     super("postgresql", "pg");
@@ -347,40 +344,15 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
     }
 
     installPostgresAdapter(this, namespace, options);
-    const { capabilities } = this.adapter;
-    this.serverUnread =
+    this.readsServer =
       this.suppliedPool === undefined &&
       connection.Client === undefined &&
-      capabilities.sharesRelationBodies === true &&
-      capabilities.relationsPerStatement === undefined;
+      boundByServer(this.adapter, () => this.serverVersion);
     defineImmutableDriverFact(
       this,
       "migrationSessionAttestation",
       resolveMigrationSessionAttestationOption(options)
     );
-  }
-
-  /**
-   * Pending until the first connection's startup was read: the statement it
-   * waits for needs that connection anyway, so it costs no round trip, and
-   * Neki's `server_version` then bounds every statement built after it. Once,
-   * whether or not it connects (a failure is the statement's to report).
-   */
-  override serverFacts(): Promise<void> | undefined {
-    if (!this.serverUnread) return undefined;
-    this.firstConnection ??= this.openFirstConnection();
-    return this.firstConnection;
-  }
-
-  private async openFirstConnection(): Promise<void> {
-    try {
-      const pool = await this.getClient({ operation: "connect" });
-      if (!("release" in pool)) (await pool.connect()).release();
-    } catch {
-      // The waiting statement's own connection reports it, in its context.
-    } finally {
-      this.serverUnread = false;
-    }
   }
 
   /** Every host or URL this driver's pool connects through, for migration admission. */
@@ -420,7 +392,7 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
     const pool = new Pool({
       types: utcSafeTypes,
       ...this.connectionOptions,
-      ...(this.serverUnread ? { Client: this.readingClient() } : {}),
+      ...(this.readsServer ? { Client: this.readingClient() } : {}),
     });
     const errorState = createOwnedPoolErrorState();
     this.ownedPoolErrors.set(pool, errorState);
@@ -431,12 +403,12 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
   /**
    * node-postgres's `Client`, reading each connection's startup: it keeps no
    * parameter status, so the `server_version` that names Neki is read as it
-   * arrives, before the connection is handed out.
+   * arrives, before the connection is handed out (to a statement, or to a
+   * transaction before its callback builds any).
    */
   private readingClient(): typeof Client {
     const read = (version: string) => {
-      learnServerVersion(this.adapter, version);
-      this.serverUnread = false;
+      this.serverVersion = version;
     };
     return class extends Client {
       constructor(config?: string | ClientConfig) {

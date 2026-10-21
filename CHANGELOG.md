@@ -48,12 +48,13 @@ that refuse a `where` emptied by `undefined`. Measurements are in
   every `FROM` item. The PostgreSQL drivers take a `relationsPerStatement`
   option (a positive integer); a stated one always wins. Without it,
   `viborm/pg` (on a pool it makes) and `viborm/postgres` read the
-  `server_version` Neki sends when a connection opens and take 256, before
-  the first statement is built and on the connection it needs anyway: no
-  extra round trip on any server. `viborm/bun-sql` and a supplied pool keep
-  no such message: Neki's first refusal teaches them 256 (that statement
-  fails, the next ones fit), so set the option there. On plain PostgreSQL
-  every statement keeps its form. Past
+  `server_version` Neki sends when a connection opens: a statement built
+  after it, a transaction's included, takes 256 on Neki and no bound on plain
+  PostgreSQL, and one built before the first connection takes 256 (on
+  plain PostgreSQL that changes only the plan, never the rows, of a first
+  statement past 256 relations). Nothing waits or connects for it. `viborm/bun-sql` and a supplied pool keep no
+  such message: Neki's first refusal teaches them 256 (that statement fails,
+  the next ones fit), so set the option there. Past
   the bound, a statement changes form only as far as it needs: first each
   recursive filter walk it repeats becomes one `WITH RECURSIVE` member, the
   keys of the rows it holds for, read backwards from the rows its predicate

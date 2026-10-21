@@ -258,21 +258,25 @@ refuses a statement referencing over 256 relations (every `FROM` item). Plain
 PostgreSQL bounds none, and a statement escalated to fit pays in its plan, so
 `installPostgresAdapter` sets it from the driver's `relationsPerStatement`
 option (a positive integer, refused otherwise), and only where bodies are
-shared. Absent the option, `src/drivers/shared/relation-bound.ts` fills it
-from the server: 256 where a connection's startup `server_version` ends
-`(Neki)` (node-postgres on a pool the driver makes, whose `Client` reads it;
-postgres.js's `sql.parameters`), or the limit Neki's refusal names (54000,
-"references more than N relations"; Bun SQL and a supplied pool keep no
-startup, so their refused statement fails and the next fit). It fills an
-absent bound only: a stated one always wins. The driver's `serverFacts()` is
-pending until its first connection's startup was read, and the engine waits
-for it before building an operation or an array transaction's members
-(`PendingOperation`, `$transaction([...])`): that connection is the one the
-statement needs, so no server pays a round trip (Neki: a refusal takes
-~0.4 s, a round trip ~36 ms). postgres.js 3.4 never answers a first
-`reserve()` that fetches no types, so with `fetch_types: false` it is read
-once a statement connected. Nothing caches built SQL across operations, so
-the next statement built reads the bound. A statement over it states its
+shared. Absent the option, `src/drivers/shared/relation-bound.ts` answers
+from the server. Where the driver reads each connection's startup
+(node-postgres on a pool it makes, whose `Client` reads `server_version`;
+postgres.js's `sql.parameters`), `boundByServer` makes the capability a
+getter read as each statement is built: 256 until a connection said its
+server, then 256 where `server_version` ends `(Neki)` and none elsewhere. A
+transaction's statements are built on the connection its BEGIN opened, so
+they read its server; a driver's first statements and an array
+transaction's members are built before any connection and take 256, which
+costs a plain server only a plan, only past 256 relations. Nothing waits or
+connects for the fact: an earlier design that opened the first connection
+before building delayed calls that send no SQL and added an acquisition
+outside the transaction's own. Elsewhere (Bun SQL, a supplied pool, a pool
+given its own `Client`, a startup that names no Neki) `learnRelationLimit`
+takes the limit Neki's refusal names (54000, "references more than N
+relations"): that statement fails and the next fit (Neki: a refusal takes
+~0.4 s, a round trip ~36 ms). Each fills an absent bound only: a stated one
+always wins. Nothing caches built SQL across operations, so the next
+statement built reads the bound. A statement over it states its
 repeated recursive walks as reaching sets, then joins key sets per row, only
 as far as it needs; one within it keeps every walk in place. PostgreSQL
 holds a joined one-column key set as an array (`arrays.ofRows`, `ARRAY(…)`,
