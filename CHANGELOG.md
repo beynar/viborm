@@ -35,6 +35,13 @@ that refuse a `where` emptied by `undefined`. Measurements are in
   PostgreSQL, SQLite and libSQL (create with a nested create: 5 to 4). The
   read is kept where a later nested write can change the row: one writing
   the same model, or one deleting or re-keying a row it references.
+- **A nested `update` no longer reads and locks its row before updating
+  it.** On PostgreSQL, SQLite and libSQL the UPDATE finds the row itself,
+  takes the same lock and fails with the same `NotFoundError` when the row
+  is missing: one round trip fewer (update with a nested create: 6 to 4
+  with the change above). The read stays where something must run between
+  it and the UPDATE: a `connect` of a relation the row holds the key of, a
+  nested target's lookup, or a change of a relation key.
 - **`findUnique` calls issued in the same tick share one statement**, as in
   Prisma: same model, unique key and projection, outside transactions, a
   `where` that is the key alone (string, int or bigint members). 50

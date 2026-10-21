@@ -112,6 +112,8 @@ export class CommandExecution {
   readonly #entered = new Set<CommandOccurrence>();
   /** The result the root record's own statement answers, where it may ({@link complete}). */
   #answer?: StatementAnswer & { readonly occurrence: CommandOccurrence };
+  /** The occurrence {@link complete} runs: the one record whose UPDATE may locate its row. */
+  #root?: CommandOccurrence;
   constructor(commands: Commands) {
     this.commands = commands;
     this.context = commands.context;
@@ -520,6 +522,7 @@ export class CommandExecution {
     args: Arguments
   ): Promise<unknown> {
     const projection = this.#answeredByRoot(root, args);
+    this.#root = root;
     while (true) {
       try {
         this.#answer = projection && { occurrence: root, projection };
@@ -587,6 +590,71 @@ export class CommandExecution {
           return undefined;
     }
     return projection;
+  }
+  /**
+   * The values the root record's UPDATE writes when that UPDATE also locates
+   * the row ({@link OperationContext.updateLocated}), in place of the locking
+   * read that otherwise precedes it; `undefined` where the read stays. The read
+   * is only an address and a lock when nothing runs between it and the UPDATE
+   * — no `before` child, no key transition to require — and the row is a
+   * plain root lookup (no membership, condition or producer). Its binding is
+   * then the row as the UPDATE leaves it, which is the row as it was read in
+   * every field the UPDATE does not write: so the UPDATE may write no key and
+   * no field a later step reads off the located row. An UPDATE that writes
+   * nothing issues no statement, and keeps the read.
+   */
+  #updateLocates(occurrence: CommandOccurrence): Input | undefined {
+    const ctx = this.context;
+    const command = occurrence.command;
+    if (occurrence !== this.#root || command.kind !== "record")
+      return undefined;
+    if (
+      ctx.usesBatch ||
+      !ctx.driver.adapter.capabilities.supportsReturning ||
+      command.located === undefined ||
+      command.transitions.length > 0 ||
+      occurrence.children.some((child) => child.placement === "before")
+    )
+      return undefined;
+    const values = this.stored(command.fields);
+    return Object.keys(values).length === 0 ? undefined : values;
+  }
+  /**
+   * The root record's UPDATE locating its row ({@link #updateLocates}): the
+   * located row is bound to what it returns, as the locating read would have
+   * bound it, and the record to the fields its dependents demand.
+   */
+  async #locatingUpdate(
+    command: RecordCommand,
+    values: Input,
+    answer: StatementAnswer | undefined
+  ): Promise<Input> {
+    const ctx = this.context;
+    const model = command.model;
+    const located = command.located!;
+    const returned = new Set([
+      ...storedFields(ctx.schema, model),
+      ...command.fields.demands,
+    ]);
+    const row = await ctx.updateLocated(
+      model,
+      located.selector,
+      values,
+      ctx.queries.prepareProjection(
+        model,
+        { select: Object.fromEntries([...returned].map((f) => [f, true])) },
+        true
+      ),
+      located.required!,
+      command.operation,
+      this.#refusal(command),
+      answer
+    );
+    this.attempt.rows.set(located, row);
+    this.attempt.bind(located.fields, row);
+    return Object.fromEntries(
+      [...command.fields.demands].map((field) => [field, row[field]])
+    );
   }
   /** The models `model`'s rows reach through the foreign keys they hold, transitively. */
   #reachedThroughKeys(model: AnyModel): ReadonlySet<AnyModel> {
@@ -865,7 +933,8 @@ export class CommandExecution {
       case "record": {
         command.fields.activate();
         if (occurrence.refusal) throw occurrence.refusal;
-        if (command.located && !attempt.rows.has(command.located))
+        const locating = this.#updateLocates(occurrence);
+        if (command.located && !(locating || attempt.rows.has(command.located)))
           await this.runSelection(command.located, member);
         if (
           ctx.usesBatch &&
@@ -903,45 +972,47 @@ export class CommandExecution {
           command.fields.moved((holder) => this.#carried(holder));
         if (moved)
           attempt.materialize(command.located!.fields, attempt.resolve(moved));
-        const values = this.stored(command.fields);
+        const values = locating ?? this.stored(command.fields);
         const answer =
           this.#answer?.occurrence === occurrence ? this.#answer : undefined;
-        attempt.bind(
-          command.fields,
-          command.located
-            ? await ctx.update(
-                command.model,
-                // The row as it stands NOW: the same reader that answers the
-                // address answers every value the update computes from, so a
-                // cascade that moved this row cannot leave the two naming
-                // different rows ({@link CommandAttempt.read}, FC-02A). The
-                // ORIGINAL observation stays in `attempt.rows` for the
-                // consumers that need what was SEEN.
-                attempt.select(command.located.fields, [
-                  ...ctx.schema.keys(command.model),
-                  ...command.fields.demands,
-                ]),
-                values,
-                member,
-                command.operation,
-                command.fields.demands,
-                confirmationFailure,
-                command.located.judgement,
-                this.#refusal(command),
-                answer
-              )
-            : await ctx.insert(
-                command.model,
-                values,
-                command.fields.demands,
-                member,
-                command.operation,
-                command.fields,
-                this.#membershipParent(command, occurrence.parent?.command),
-                this.#refusal(command),
-                answer
-              )
-        );
+        let written: Input;
+        if (locating)
+          written = await this.#locatingUpdate(command, locating, answer);
+        else if (command.located)
+          written = await ctx.update(
+            command.model,
+            // The row as it stands NOW: the same reader that answers the
+            // address answers every value the update computes from, so a
+            // cascade that moved this row cannot leave the two naming
+            // different rows ({@link CommandAttempt.read}, FC-02A). The
+            // ORIGINAL observation stays in `attempt.rows` for the
+            // consumers that need what was SEEN.
+            attempt.select(command.located.fields, [
+              ...ctx.schema.keys(command.model),
+              ...command.fields.demands,
+            ]),
+            values,
+            member,
+            command.operation,
+            command.fields.demands,
+            confirmationFailure,
+            command.located.judgement,
+            this.#refusal(command),
+            answer
+          );
+        else
+          written = await ctx.insert(
+            command.model,
+            values,
+            command.fields.demands,
+            member,
+            command.operation,
+            command.fields,
+            this.#membershipParent(command, occurrence.parent?.command),
+            this.#refusal(command),
+            answer
+          );
+        attempt.bind(command.fields, written);
         // Every capture still runs before every effect, and the reason is
         // MEASURED, not stylistic: a capture flushes
         // (`OperationContext.captureSeries` → `flush`), and on the batch route a

@@ -1087,6 +1087,24 @@ a provider without RETURNING, and the batch route, whose read rides the batch
 already. Pins: `tests/contracts/engine/write/nested-write-round-trips.test.ts`
 (each clause of the guard has a case whose answer is wrong without it).
 
+That same root `update` locates its row in its own UPDATE on the interactive
+route (`OperationContext.updateLocated`, `CommandExecution.#updateLocates`)
+instead of a `SELECT … FOR UPDATE` followed by an UPDATE by identity: the
+UPDATE's WHERE is the selector the read would have taken (the root candidates,
+judgement included), it takes the row lock the read took and re-evaluates the
+selector over the row's current version as the read did, and it returns the
+stored row the read would have bound. The read is only an address and a lock
+when nothing runs between it and the UPDATE, so the fold is taken only where
+the root has no `before` child (a `connect` it holds the key of, a nested
+target's locking read: reordering those would change which failure a call with
+two missing rows reports) and no key transition to require (`#requireTransitions`
+reads the row as located). An UPDATE that writes nothing issues no statement
+and keeps the read. The located row is then bound as the UPDATE leaves it; a
+later step that reads a field the UPDATE writes already reads the written value
+(`CommandAttempt.read` answers from the stated assignment), which is why no
+field of the payload is excluded — measured on a rewritten primary key and a
+rewritten referenced unique key under every nested verb, identical results.
+
 Whether a nested write's unique target selector names its row through the
 CONSTRAINT is one predicate, `nestedTargetAddressesConstraint(edge, verb)` in
 `commands/selection.ts`, consulted at the three nested target sites in

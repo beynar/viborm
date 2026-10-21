@@ -3505,6 +3505,60 @@ export class OperationContext {
     return published;
   }
   /**
+   * A located row's UPDATE that locates it ITSELF, on the interactive route:
+   * the statement's WHERE is the `selector` the locating read would have
+   * taken, and it returns the stored row that read would have bound
+   * (`projection`), as the row leaves it. The UPDATE takes the row lock that
+   * read's `FOR UPDATE` took and re-evaluates the selector over the row's
+   * current version as it did, so a miss is the read's miss, `missing`. The
+   * produced row is judged as {@link updateMany}'s single-row fold judges it:
+   * the selector states the old row's judgement in this same statement.
+   */
+  async updateLocated(
+    model: AnyModel,
+    selector: PreparedSelector,
+    values: Input,
+    projection: PreparedProjection,
+    missing: () => Error,
+    operation = "update",
+    refusal?: PreparedGuardFailure,
+    answer?: StatementAnswer
+  ): Promise<Input> {
+    const q = this.queries;
+    const adapter = this.driver.adapter;
+    let produced: Sql | undefined;
+    const statement = q.sharing(() => {
+      produced = this.#produce(model, values, selector.judgement, (alias) =>
+        q.lowerSelector(selector, alias)
+      );
+      return adapter.mutations.update(
+        q.table(model),
+        sql.join(this.#updateAssignments(model, values), ", "),
+        produced ?? q.lowerMutationLimit(model, selector, undefined).where
+      );
+    });
+    const judged = produced
+      ? {
+          model,
+          refusal: refusal ?? this.#updateRefusal(model, selector.judgement),
+        }
+      : undefined;
+    const response = await this.dispatch(1, false, () =>
+      this.#judging(judged, () =>
+        this.#transport._execute<Input>(
+          sql`${statement} ${adapter.mutations.returning(
+            sql.join(this.#returned([answer?.projection, projection]), ", ")
+          )}`,
+          this.statementContext(model, operation)
+        )
+      )
+    );
+    const row = q.decodeProjection(projection.shape, response.rows, true)[0];
+    if (!row) throw missing();
+    if (answer) answer.row = response.rows[0];
+    return row;
+  }
+  /**
    * @param current The row's values as they stand NOW, before this statement:
    * its identity and every value an assignment of this update computes from.
    * ONE meaning answers all three of this path's questions — which row the

@@ -587,15 +587,17 @@ describe("Phase 8.1 — the fold answers what the read answers", () => {
         expect(answer).toEqual(truth);
         // …and by the route the gate chooses (1.4.0): ONE statement where the
         // projection's statement names no `p81_accounts`, and otherwise the
-        // located/mutated/re-read route, its mutation its own statement and
-        // the projection shaped by the terminal read that follows it.
+        // mutated/re-read route, its mutation its own statement and the
+        // projection shaped by the terminal read that follows it. The
+        // interactive UPDATE locates its own row (`updateLocated`); the batch
+        // keeps its locate.
         if (projection.folds) {
           expect(cteFolded(statements)).toBe(true);
           continue;
         }
         expect(noCteFold(statements)).toBe(true);
-        expect(statements).toHaveLength(batch ? 4 : 3);
-        expect(statements[batch ? 2 : 1]?.startsWith("UPDATE")).toBe(true);
+        expect(statements).toHaveLength(batch ? 4 : 2);
+        expect(statements[batch ? 2 : 0]?.startsWith("UPDATE")).toBe(true);
         expect(statements.at(-1)?.startsWith("SELECT")).toBe(true);
       }
     });
@@ -1003,13 +1005,13 @@ describe("Phase 8.2 — the nested-create tree", () => {
 
     // THE measurement, re-expressed (D-15, parity-17): the root's INSERT, both
     // arms in one grouped INSERT in the payload's order — the route the
-    // sibling createMany cell sends — and the terminal read.
+    // sibling createMany cell sends. The root's INSERT answers the result, so
+    // no terminal read follows (`CommandExecution.complete`).
     expect(noCteFold(statements)).toBe(true);
-    expect(statements).toHaveLength(3);
+    expect(statements).toHaveLength(2);
     expect(statements[0]).toContain('"p81_accounts"');
     expect(statements[1]).toContain('"p81_notes"');
     expect(statements[1]).toMatch(TWO_INSERT_ROWS);
-    expect(statements[2]?.startsWith("SELECT")).toBe(true);
 
     expect(created).toEqual({
       id: 300,
@@ -1052,13 +1054,12 @@ describe("Phase 8.2 — the nested-create tree", () => {
     driver.recording = false;
 
     expect(noCteFold(statements)).toBe(true);
-    expect(statements).toHaveLength(3);
+    expect(statements).toHaveLength(2);
     expect(statements[0]?.startsWith("INSERT")).toBe(true);
     expect(statements[0]).toContain('"p81_accounts"');
     expect(statements[1]?.startsWith("INSERT")).toBe(true);
     expect(statements[1]).toContain('"p81_notes"');
     expect(statements[1]).toMatch(TWO_INSERT_ROWS);
-    expect(statements[2]?.startsWith("SELECT")).toBe(true);
     expect(
       await client.note.findMany({
         where: { accountId: 301 },
@@ -1219,13 +1220,12 @@ describe("Phase 8.2 — the nested-create tree", () => {
     // tree fold gone scalar createMany still groups its rows in one INSERT.
     // The VALUES order must still produce the same generated-key row order.
     expect(noCteFold(statements)).toBe(true);
-    expect(statements).toHaveLength(3);
+    expect(statements).toHaveLength(2);
     expect(statements[0]?.startsWith("INSERT")).toBe(true);
     expect(statements[0]).toContain('"p82_crate"');
     expect(statements[1]?.startsWith("INSERT")).toBe(true);
     expect(statements[1]).toContain('"p82_item"');
     expect(statements[1]).toMatch(TWO_INSERT_ROWS);
-    expect(statements[2]?.startsWith("SELECT")).toBe(true);
     expect(
       await client.item.findMany({
         where: { crateId: 2 },
@@ -1377,7 +1377,7 @@ describe("Phase 8.2 — the nested-create tree", () => {
     // OWN member rollback region (`SAVEPOINT` / `RELEASE SAVEPOINT`), which is
     // the region G3P-04 names and the atomic-batch leg refuses for want of.
     expect(noCteFold(statements)).toBe(true);
-    expect(statements).toHaveLength(8);
+    expect(statements).toHaveLength(7);
     expect(
       statements.filter((sql) => sql.startsWith("SAVEPOINT "))
     ).toHaveLength(2);

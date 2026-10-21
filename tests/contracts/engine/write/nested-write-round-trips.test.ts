@@ -17,6 +17,7 @@ import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
+import { NotFoundError } from "@errors";
 import { hydrateSchemaNames, s } from "@schema";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -230,6 +231,35 @@ describe.each(SUBSTRATES)("%s", (_name, make) => {
       authorId: 1,
       reviewerId: null,
     });
+  });
+
+  test("a nested update locates its root in the root UPDATE: no locking read first", async () => {
+    const driver = make();
+    const client = await boot(driver);
+    const { statements, value } = await traced(driver, () =>
+      client.user.update({
+        where: { email: "e2" },
+        data: { name: "m", posts: { create: { id: 30, title: "q" } } },
+      })
+    );
+    expect(value).toEqual({ id: 2, email: "e2", name: "m", managerId: 1 });
+    expect(statements).toHaveLength(2);
+    expect(statements[0]?.trimStart().startsWith("UPDATE")).toBe(true);
+    expect(await client.post.findUnique({ where: { id: 30 } })).toMatchObject({
+      authorId: 2,
+    });
+  });
+
+  test("a nested update of a missing root fails as the locating read did, writing nothing", async () => {
+    const driver = make();
+    const client = await boot(driver);
+    await expect(
+      client.user.update({
+        where: { id: 99 },
+        data: { name: "m", posts: { create: { id: 31, title: "q" } } },
+      })
+    ).rejects.toBeInstanceOf(NotFoundError);
+    expect(await client.post.findUnique({ where: { id: 31 } })).toBeNull();
   });
 
   test("a later write that changes the root row keeps the re-read, and the answer shows it", async () => {
