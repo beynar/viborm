@@ -416,6 +416,7 @@ test("driver coverage isolates provider resources and admits only audited local 
     "tests/contracts/drivers/driver-export-surface.core.test.ts",
     "tests/contracts/drivers/namespace-options.core.test.ts",
     "tests/contracts/drivers/pglite-controlled-transport-coverage.core.test.ts",
+    "tests/contracts/drivers/postgres-server-facts.core.test.ts",
     "tests/contracts/drivers/postgres-url-options.core.test.ts",
     "tests/contracts/drivers/provider-result-contracts.core.test.ts",
     "tests/contracts/drivers/sqlite-binary-values.core.test.ts",
