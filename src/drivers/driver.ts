@@ -267,6 +267,17 @@ export abstract class Driver<
   async disconnect(): Promise<void> {
     return this._disconnect();
   }
+
+  /**
+   * Pending while what the server says of itself on its first connection is
+   * still to be read and could change how a statement is built (a PostgreSQL
+   * driver: whether it is PlanetScale's Neki, which bounds the relations a
+   * statement references); absent once read, or where nothing is to read.
+   * The engine waits for it before building an operation's statements.
+   */
+  serverFacts(): Promise<void> | undefined {
+    return undefined;
+  }
 }
 
 /**

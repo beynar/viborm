@@ -1572,10 +1572,17 @@ Since 1.4.0 a recursive filter's walk (`recurse`, as in a parent-chain rule)
 carries the columns its next hop reads instead of joining each row again: one
 relation fewer per walk, whatever the statement's size.
 
-**On Neki, set `relationsPerStatement: 256`.** A PostgreSQL driver given it
-bounds each statement to that many relations; without it (the default) every
-statement keeps its form, which is what plain PostgreSQL runs best. A
-statement within the bound keeps every walk in place. Only a statement past
+**On Neki, the bound is 256 without being asked.** A PostgreSQL driver given
+`relationsPerStatement` bounds each statement to that many relations. Given
+none, `viborm/pg` (on a pool it makes) and `viborm/postgres` read the
+`server_version` Neki sends when a connection opens (`18.6 (…) (Neki)`) and
+take 256. They read it before the first statement is built, on the
+connection that statement needs anyway, so no server pays a round trip for
+it; on plain PostgreSQL every statement keeps its form, which is what it runs
+best. `viborm/bun-sql` and a pool you supply keep no such message: there
+Neki's first refusal (54000) teaches the driver its limit, that statement
+fails and the next ones fit, so set the option. A stated
+`relationsPerStatement` always wins. A statement within the bound keeps every walk in place. Only a statement past
 it changes form, as far as it needs: first each walk it repeats becomes one
 `WITH` member, the keys of the rows it holds for; if still over, a row tested
 against the same shared sets several times reads them as arrays computed once
@@ -1590,12 +1597,12 @@ bound for every policy.
 ```ts
 import { createClient, PgDriver } from "viborm/pg";
 
-const driver = new PgDriver({ databaseUrl, relationsPerStatement: 256 }); // PlanetScale Neki
-const db = createClient({ schema, databaseUrl, relationsPerStatement: 256 }); // the same
+const db = createClient({ schema, databaseUrl }); // PlanetScale Neki: 256, read from the server
+const supplied = new PgDriver({ pool, relationsPerStatement: 256 }); // a pool you supply: say it
 ```
 
-The bound trades plans for relations, so set it only where the server needs
-it. A walk stated as a set is computed for every row of its table, so a
+The bound trades plans for relations, so it applies only where the server
+needs it. A walk stated as a set is computed for every row of its table, so a
 statement past the bound that reads a few rows pays for all of them (a
 one-row `can` escalated this way, at 50× the acceptance fixture: 7.2 ms to
 23 ms). The acceptance reads past 256 read many rows and gained: on PGlite at

@@ -687,9 +687,11 @@ renamed in it admits no column type change, rename, drop or schema move
 `statement-safety.ts` `catalogCommitBoundaries` is the one rule for where a
 commit must come, read from each statement's structure over the dispatches
 and the authored checks in run order; the PostgreSQL driver's `serverIsNeki`
-is the one owner of the Neki fact (`version()` names Neki), read once per
+is the one owner of the Neki fact for migrations (`version()` names Neki), read once per
 command by the lock protocol (`holdsSessionLock`, 1.2.3) and reused by the
-preflight, which asks it only of a program that would need a commit. With `splits` (only `apply`, over a session)
+preflight, which asks it only of a program that would need a commit. (Application
+statements take Neki's relation bound from the connection's startup instead,
+`src/drivers/shared/relation-bound.ts`: it states no lock or commit fact.) With `splits` (only `apply`, over a session)
 it answers that fact and refuses only two statements of one dispatch that
 need a commit between them; every other command is refused any such program
 before effects (V11021). On Neki, `apply` refines plan D5's groups: an edge

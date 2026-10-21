@@ -617,22 +617,31 @@ export class PendingOperation<T>
 
   #getPromise(): Promise<T> {
     return this.#execution.executeDefault(() => {
-      const observers = this.#engine.extensionChain?.observe;
-      if (observers === undefined || observers.length === 0) {
-        return this.#finished(this.#runExecution());
-      }
-      return observeOperation(
-        observers,
-        String(this.#options.originalOperation),
-        this.#modelName,
-        () => this.#finished(this.#runExecution()),
-        () =>
-          this.#observationCommitCertainty === undefined
-            ? undefined
-            : { commitCertainty: this.#observationCommitCertainty },
-        this.#readInstrumentationFacts()
-      );
+      // A driver yet to read its server waits for its first connection, which
+      // may bound how statements are built (Neki), once per driver.
+      const server = this.#engine.driver.serverFacts();
+      return server === undefined
+        ? this.#started()
+        : server.then(() => this.#started());
     });
+  }
+
+  #started(): Promise<T> {
+    const observers = this.#engine.extensionChain?.observe;
+    if (observers === undefined || observers.length === 0) {
+      return this.#finished(this.#runExecution());
+    }
+    return observeOperation(
+      observers,
+      String(this.#options.originalOperation),
+      this.#modelName,
+      () => this.#finished(this.#runExecution()),
+      () =>
+        this.#observationCommitCertainty === undefined
+          ? undefined
+          : { commitCertainty: this.#observationCommitCertainty },
+      this.#readInstrumentationFacts()
+    );
   }
 
   /** The value its caller receives: the client's last step applied, if any. */

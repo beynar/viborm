@@ -43,11 +43,17 @@ that refuse a `where` emptied by `undefined`. Measurements are in
   better-sqlite3 read went from 357 ms to 12.6 ms. Single-row checks compute
   those bodies in full: a `can` over 14,000 grants went from 0.67 ms to
   4.5 ms.
-- **PlanetScale Neki runs the large permission reads it refused, with
-  `relationsPerStatement: 256`.** Neki refuses a statement referencing more
-  than 256 relations (54000) and counts every `FROM` item. The PostgreSQL
-  drivers take a `relationsPerStatement` option (a positive integer; set 256
-  for Neki). Without it, the default, every statement keeps its form. Past
+- **PlanetScale Neki runs the large permission reads it refused.** Neki
+  refuses a statement referencing more than 256 relations (54000) and counts
+  every `FROM` item. The PostgreSQL drivers take a `relationsPerStatement`
+  option (a positive integer); a stated one always wins. Without it,
+  `viborm/pg` (on a pool it makes) and `viborm/postgres` read the
+  `server_version` Neki sends when a connection opens and take 256, before
+  the first statement is built and on the connection it needs anyway: no
+  extra round trip on any server. `viborm/bun-sql` and a supplied pool keep
+  no such message: Neki's first refusal teaches them 256 (that statement
+  fails, the next ones fit), so set the option there. On plain PostgreSQL
+  every statement keeps its form. Past
   the bound, a statement changes form only as far as it needs: first each
   recursive filter walk it repeats becomes one `WITH RECURSIVE` member, the
   keys of the rows it holds for, read backwards from the rows its predicate

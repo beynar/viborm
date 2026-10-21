@@ -22,7 +22,14 @@ import {
 } from "@client/client";
 import type { Schema } from "@client/types";
 import { ClientInitializationError, TransactionError } from "@errors";
-import { Pool, type PoolClient, type PoolConfig, types as pgTypes } from "pg";
+import {
+  Client,
+  type ClientConfig,
+  Pool,
+  type PoolClient,
+  type PoolConfig,
+  types as pgTypes,
+} from "pg";
 import {
   Driver,
   type MigrationSessionAttestation,
@@ -52,6 +59,10 @@ import {
   systemRootAsVerifyFull,
 } from "../shared/driver-options";
 import { installPostgresAdapter } from "../shared/postgres-adapter";
+import {
+  learnRelationLimit,
+  learnServerVersion,
+} from "../shared/relation-bound";
 import type { QueryResult } from "../types";
 
 // DATE (1082) and TIMESTAMP WITHOUT TIME ZONE (1114): pg's default parsers
@@ -245,9 +256,11 @@ export interface PgDriverOptions {
    * The most relations (`FROM` items) one statement may reference. Past it, a
    * statement states the recursive filters it repeats as key sets, and then
    * joins the key sets a row tests, as far as it needs to fit: the answers are
-   * the same, some plans slower. Set 256 for PlanetScale Neki, which refuses a
-   * statement over 256. Absent: unbounded, every statement keeps its form.
-   * Only where relation bodies are shared.
+   * the same, some plans slower. PlanetScale Neki refuses a statement over
+   * 256: absent, a pool this driver makes reads Neki from its first
+   * connection's startup and takes 256 (a supplied pool from Neki's first
+   * refusal), and plain PostgreSQL stays unbounded. A stated bound always
+   * wins. Only where relation bodies are shared.
    */
   relationsPerStatement?: number;
   /**
@@ -307,6 +320,13 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
    * transport until a proven successful end.
    */
   private readonly ownedPoolErrors = new WeakMap<object, OwnedPoolErrorState>();
+  /**
+   * Whether the first connection's startup is still to be read for the
+   * relation bound ({@link serverFacts}): only on a pool this driver makes with
+   * node-postgres's own `Client`, and only while no bound is stated.
+   */
+  private serverUnread: boolean;
+  private firstConnection: Promise<void> | undefined;
 
   constructor(options: PgDriverOptions = {}) {
     super("postgresql", "pg");
@@ -327,11 +347,40 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
     }
 
     installPostgresAdapter(this, namespace, options);
+    const { capabilities } = this.adapter;
+    this.serverUnread =
+      this.suppliedPool === undefined &&
+      connection.Client === undefined &&
+      capabilities.sharesRelationBodies === true &&
+      capabilities.relationsPerStatement === undefined;
     defineImmutableDriverFact(
       this,
       "migrationSessionAttestation",
       resolveMigrationSessionAttestationOption(options)
     );
+  }
+
+  /**
+   * Pending until the first connection's startup was read: the statement it
+   * waits for needs that connection anyway, so it costs no round trip, and
+   * Neki's `server_version` then bounds every statement built after it. Once,
+   * whether or not it connects (a failure is the statement's to report).
+   */
+  override serverFacts(): Promise<void> | undefined {
+    if (!this.serverUnread) return undefined;
+    this.firstConnection ??= this.openFirstConnection();
+    return this.firstConnection;
+  }
+
+  private async openFirstConnection(): Promise<void> {
+    try {
+      const pool = await this.getClient({ operation: "connect" });
+      if (!("release" in pool)) (await pool.connect()).release();
+    } catch {
+      // The waiting statement's own connection reports it, in its context.
+    } finally {
+      this.serverUnread = false;
+    }
   }
 
   /** Every host or URL this driver's pool connects through, for migration admission. */
@@ -368,11 +417,39 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
     if (this.suppliedPool !== undefined) {
       return Promise.resolve(this.suppliedPool);
     }
-    const pool = new Pool({ types: utcSafeTypes, ...this.connectionOptions });
+    const pool = new Pool({
+      types: utcSafeTypes,
+      ...this.connectionOptions,
+      ...(this.serverUnread ? { Client: this.readingClient() } : {}),
+    });
     const errorState = createOwnedPoolErrorState();
     this.ownedPoolErrors.set(pool, errorState);
     pool.on("error", errorState.retain);
     return Promise.resolve(pool);
+  }
+
+  /**
+   * node-postgres's `Client`, reading each connection's startup: it keeps no
+   * parameter status, so the `server_version` that names Neki is read as it
+   * arrives, before the connection is handed out.
+   */
+  private readingClient(): typeof Client {
+    const read = (version: string) => {
+      learnServerVersion(this.adapter, version);
+      this.serverUnread = false;
+    };
+    return class extends Client {
+      constructor(config?: string | ClientConfig) {
+        super(config);
+        this.connection.on(
+          "parameterStatus",
+          (status: { parameterName: string; parameterValue: string }) => {
+            if (status.parameterName === "server_version")
+              read(status.parameterValue);
+          }
+        );
+      }
+    };
   }
 
   private readBackgroundPoolFailure(
@@ -561,16 +638,17 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
     const observed = this.readBackgroundPoolFailure(client);
     const result = await client
       .query({ text: sql, values: params, types: utcSafeTypes })
-      .catch((error: unknown) =>
-        this.throwPoolQueryFailure(
+      .catch((error: unknown) => {
+        learnRelationLimit(this.adapter, error);
+        return this.throwPoolQueryFailure(
           client,
           observed,
           error,
           sql,
           params,
           context
-        )
-      );
+        );
+      });
     // `Pool.query` includes an acquisition. Its success proves transport
     // recovery, but only for evidence that predates this exact operation.
     this.clearBackgroundPoolFailure(client, observed);

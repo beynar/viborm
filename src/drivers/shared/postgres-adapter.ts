@@ -9,7 +9,8 @@ import { defineImmutableDriverFact } from "./driver-options";
  * answers are the same and the statement smaller; `false` keeps every body
  * inline, as 1.2.4 spelled it), `relationsPerStatement` the relations a
  * statement may reference before it trades plans for fewer (absent:
- * unbounded; PlanetScale Neki needs 256).
+ * unbounded until the server says otherwise, `relation-bound.ts`; PlanetScale
+ * Neki needs 256).
  */
 export function installPostgresAdapter(
   driver: object,

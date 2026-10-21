@@ -410,12 +410,13 @@ within noise.
 
 | Entry | 1.3.3 | 1.4.0 before §10 | after §10 |
 |---|---|---|---|
-| pg application | 183,719 B | 188.58 kB | 192.20 kB |
-| D1 Worker | 183,229 B | 188.06 kB | 191.62 kB |
-| pg application + permissions | 196,634 B | 201.52 kB | 205.10 kB |
+| pg application | 183,719 B | 188.58 kB | 192.65 kB |
+| D1 Worker | 183,229 B | 188.06 kB | 191.69 kB |
+| pg application + permissions | 196,634 B | 201.52 kB | 205.56 kB |
 
-§10 adds about 3.6 kB to every entry (walk sets, flag members and arrays, the
-relation bound, its driver option and the dialect facts); the `size-limit` rows are raised to the measured
+§10 adds about 3.6 kB to D1 and 4 kB to the PostgreSQL entries (walk sets,
+flag members and arrays, the relation bound, its driver option, reading Neki
+from the first connection and the dialect facts); the `size-limit` rows are raised to the measured
 size rounded up to 0.1 kB plus 0.3 kB (OD-17).
 
 About +1.75 kB is `findUnique` batching (measured by removing its hook),

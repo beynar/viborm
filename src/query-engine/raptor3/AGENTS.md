@@ -212,8 +212,10 @@ repeated body is defined before the body holding it. A junction or variant
 membership keeps its place (a walk inside a shared body is shared with it).
 Since 1.4.0, where the adapter bounds a statement's relations
 (`capabilities.relationsPerStatement`: a PostgreSQL driver's
-`relationsPerStatement` option, 256 for PlanetScale Neki, absent by default;
-256 on D1) and the statement settled as above references more (`relations`: every
+`relationsPerStatement` option, else 256 where the server is PlanetScale
+Neki, read from its startup before the operation is built
+(`driver.serverFacts()`, `src/adapters/AGENTS.md`), absent elsewhere; 256 on
+D1) and the statement settled as above references more (`relations`: every
 minted `"q<n>"` alias where defined, plus each bare `memberRead`, the count
 Neki makes), it escalates as far as it needs, each step re-settling the same
 slots (`#settled`) and recounting: first the walks it repeats become members,

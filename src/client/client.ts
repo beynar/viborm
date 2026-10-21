@@ -1040,7 +1040,14 @@ export class VibORM<C extends VibORMConfig> {
         chain
       );
       if (isArray) {
-        return executeArrayTransaction(input, engine, options, context);
+        // Its members are built before it connects: a driver yet to read its
+        // server (Neki's relation bound) reads it first, as one operation does.
+        const server = engine.driver.serverFacts();
+        return server === undefined
+          ? executeArrayTransaction(input, engine, options, context)
+          : server.then(() =>
+              executeArrayTransaction(input, engine, options, context)
+            );
       }
       // A coordinated chain collects write outcomes per scope: the root
       // publishes them, a savepoint promotes them into its parent's collector.

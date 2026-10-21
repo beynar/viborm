@@ -50,6 +50,10 @@ import {
 } from "../shared/driver-options";
 import { CLEANUP_BOUND_MS } from "../shared/pinned-session";
 import { installPostgresAdapter } from "../shared/postgres-adapter";
+import {
+  learnRelationLimit,
+  learnServerVersion,
+} from "../shared/relation-bound";
 import type { QueryResult } from "../types";
 
 export type PostgresOptions = PostgresOptionsType<
@@ -65,7 +69,7 @@ export interface PostgresDriverOptions {
   postgis?: boolean;
   /** Each relation filter body a statement repeats is stated once (default `true`); `false` keeps every body inline. */
   sharedRelationBodies?: boolean;
-  /** The most relations (`FROM` items) one statement may reference: past it, a statement repeating recursive filters states them as key sets, which some plans pay for. Set 256 for PlanetScale Neki, which refuses more. Absent: unbounded. Only where relation bodies are shared. */
+  /** The most relations (`FROM` items) one statement may reference: past it, a statement repeating recursive filters states them as key sets, which some plans pay for. PlanetScale Neki refuses more than 256: absent, the driver reads Neki from a connection's startup and takes 256; elsewhere unbounded. A stated bound always wins. Only where relation bodies are shared. */
   relationsPerStatement?: number;
   databaseUrl?: string;
   /** The PostgreSQL schema this driver's persistent objects live in. Defaults to `public`. */
@@ -163,6 +167,12 @@ export class PostgresDriver extends Driver<
    * holding the caller's transport while believing it had made its own.
    */
   private readonly suppliedClient: PostgresClient | undefined;
+  /**
+   * Whether the server's startup is still to be read for the relation bound
+   * ({@link serverFacts}): only while no bound is stated.
+   */
+  private serverUnread: boolean;
+  private firstConnection: Promise<void> | undefined;
 
   constructor(options: PostgresDriverOptions = {}) {
     super("postgresql", "postgres");
@@ -195,11 +205,61 @@ export class PostgresDriver extends Driver<
     }
 
     installPostgresAdapter(this, namespace, options);
+    const { capabilities } = this.adapter;
+    this.serverUnread =
+      capabilities.sharesRelationBodies === true &&
+      capabilities.relationsPerStatement === undefined;
     defineImmutableDriverFact(
       this,
       "migrationSessionAttestation",
       resolveMigrationSessionAttestationOption(options)
     );
+  }
+
+  /**
+   * Pending until a connection's startup was read: postgres.js keeps every
+   * parameter status a connection received (`sql.parameters`), and Neki's
+   * `server_version` bounds every statement built after it. A transport not
+   * yet connected opens the connection the waiting statement needs anyway, so
+   * it costs no round trip. Once, whether or not it connects (a failure is the
+   * statement's to report).
+   */
+  override serverFacts(): Promise<void> | undefined {
+    if (!this.serverUnread) return undefined;
+    const client = this.client;
+    if (client && !isTransaction(client)) {
+      // A supplied transport may have connected already.
+      if (client.parameters.server_version !== undefined) {
+        this.readServer(client);
+        return undefined;
+      }
+      if (client.options.fetch_types === false) return undefined;
+    }
+    this.firstConnection ??= this.openFirstConnection();
+    return this.firstConnection;
+  }
+
+  private readServer(sql: PostgresClient): void {
+    learnServerVersion(this.adapter, sql.parameters.server_version);
+    this.serverUnread = false;
+  }
+
+  private async openFirstConnection(): Promise<void> {
+    const sql = await this.getClient({ operation: "connect" }).catch(
+      () => undefined
+    );
+    if (sql === undefined || isTransaction(sql)) {
+      this.serverUnread = false;
+      return;
+    }
+    // postgres.js 3.4 never answers a first `reserve()` that fetches no
+    // types: such a transport is read once a statement connected it.
+    if (sql.options.fetch_types === false) return;
+    await sql.reserve().then(
+      (reserved) => reserved.release(),
+      () => undefined
+    );
+    this.readServer(sql);
   }
 
   /** Every host or URL this driver's client connects through, for migration admission. */
@@ -286,9 +346,14 @@ export class PostgresDriver extends Driver<
     fallbackOperation: "execute" | "executeRaw"
   ): Promise<QueryResult<T>> {
     const operation = context?.operation ?? fallbackOperation;
-    const result = await client.unsafe<T[]>(sqlStr, params, {
-      prepare: this.driverOptions.options?.prepare === true,
-    });
+    const result = await client
+      .unsafe<T[]>(sqlStr, params, {
+        prepare: this.driverOptions.options?.prepare === true,
+      })
+      .catch((error: unknown) => {
+        learnRelationLimit(this.adapter, error);
+        throw error;
+      });
     return {
       rows: result,
       rowCount: normalizePostgresRowCount(
