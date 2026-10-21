@@ -29,6 +29,12 @@ that refuse a `where` emptied by `undefined`. Measurements are in
   2 to 1 on D1 and Neon HTTP. The old route is kept where the answer could
   differ (a projection reading the written table, an update of a referenced
   key, a decoding refusal, a SQLite delete). MySQL is unchanged.
+- **Nested writes no longer read the row back at the end.** A `create` or
+  `update` with nested relation writes and no relation in its result returns
+  the row its own INSERT or UPDATE answered, one round trip fewer on
+  PostgreSQL, SQLite and libSQL (create with a nested create: 5 to 4). The
+  read is kept where a later nested write can change the row: one writing
+  the same model, or one deleting or re-keying a row it references.
 - **`findUnique` calls issued in the same tick share one statement**, as in
   Prisma: same model, unique key and projection, outside transactions, a
   `where` that is the key alone (string, int or bigint members). 50

@@ -233,6 +233,18 @@ export interface ObservationPremise {
   readonly present: boolean;
   readonly failure: () => Error;
 }
+/**
+ * The operation's result, asked of the root record's own INSERT or UPDATE on
+ * the interactive route: `projection` rides that statement's `RETURNING` and
+ * `row` holds what it answered, undecoded, for {@link OperationContext.finishAnswered}.
+ * Asked only where nothing after that statement can change the row
+ * (`CommandExecution.complete`); a statement that is never issued leaves `row`
+ * unset, and the operation reads its result as before.
+ */
+export interface StatementAnswer {
+  readonly projection: PreparedProjection;
+  row?: Input;
+}
 /** A nested write's refusal of the row it produces (§5.3, R4). */
 export function nestedRefusal(
   verb: string,
@@ -1982,6 +1994,13 @@ export class OperationContext {
   finishOne(query: Query): Promise<Input | undefined> {
     return this.finishTerminals([query], (rows) => rows[0]);
   }
+  /** The result the root's own statement answered ({@link StatementAnswer}). */
+  finishAnswered(answer: StatementAnswer): Promise<Input | undefined> {
+    return this.finishTerminals(
+      [],
+      () => this.publishedProjection(answer.projection.shape, [answer.row!])[0]
+    );
+  }
   finishMany(queries: readonly Query[]): Promise<Input[]> {
     return this.finishTerminals(queries, (rows) => rows);
   }
@@ -2420,6 +2439,24 @@ export class OperationContext {
     const over = { answer, folds };
     (this.#overWrites ??= new WeakMap()).set(projection, over);
     return over;
+  }
+  /**
+   * One `RETURNING` list for several projections over the same row, each
+   * field once: the first projection to name a field lowers it.
+   */
+  #returned(projections: readonly (PreparedProjection | undefined)[]): Sql[] {
+    const named = new Set<string>();
+    const columns: Sql[] = [];
+    for (const projection of projections) {
+      if (projection === undefined) continue;
+      const lowered = this.queries.lowerProjection(projection);
+      for (const [index, field] of projection.fields.entries()) {
+        if (named.has(field.name)) continue;
+        named.add(field.name);
+        columns.push(lowered[index]!);
+      }
+    }
+    return columns;
   }
   /** `statement` answering with `projection` ({@link answersInStatement}). */
   #answering(
@@ -3237,7 +3274,8 @@ export class OperationContext {
     operation = "create",
     producer?: object,
     membership?: MembershipParent,
-    refusal?: PreparedGuardFailure
+    refusal?: PreparedGuardFailure,
+    answer?: StatementAnswer
   ): Promise<Input> {
     const q = this.queries;
     const adapter = this.driver.adapter;
@@ -3284,10 +3322,16 @@ export class OperationContext {
         throw new Error(
           "Returning generated values requires RETURNING support or one generated increment field"
         );
-      if (producedProjection && adapter.capabilities.supportsReturning)
-        statement = sql`${statement} ${adapter.mutations.returning(
-          sql.join(q.lowerProjection(producedProjection), ", ")
-        )}`;
+      if (adapter.capabilities.supportsReturning) {
+        const returned = this.#returned([
+          answer?.projection,
+          producedProjection,
+        ]);
+        if (returned.length)
+          statement = sql`${statement} ${adapter.mutations.returning(
+            sql.join(returned, ", ")
+          )}`;
+      }
       this.#attempt.rejectedInsert = undefined;
       let response: QueryResult<Input>;
       try {
@@ -3312,6 +3356,7 @@ export class OperationContext {
         : undefined;
       if (produced.length && producedValues === undefined)
         throw new TypeError("INSERT did not produce the required record");
+      if (answer) answer.row = response.rows[0];
       return {
         ...values,
         ...producedValues,
@@ -3483,7 +3528,8 @@ export class OperationContext {
     demanded: ReadonlySet<string> = new Set(),
     missing?: () => Error,
     judgement?: RowJudgement,
-    refusal?: PreparedGuardFailure
+    refusal?: PreparedGuardFailure,
+    answer?: StatementAnswer
   ): Promise<Input> {
     if (Object.keys(values).length === 0) return {};
     const q = this.queries;
@@ -3619,7 +3665,7 @@ export class OperationContext {
         this.#judging(judged, () =>
           this.#transport._execute<Input>(
             sql`${statement} ${adapter.mutations.returning(
-              sql.join(q.lowerProjection(projection), ", ")
+              sql.join(this.#returned([answer?.projection, projection]), ", ")
             )}`,
             context
           )
@@ -3631,7 +3677,22 @@ export class OperationContext {
           missing?.() ??
           new TypeError("UPDATE RETURNING did not produce the required record")
         );
+      if (answer) answer.row = response.rows[0];
       return { ...published, ...rows[0] };
+    }
+    if (answer && !this.usesBatch && adapter.capabilities.supportsReturning) {
+      const response = await this.dispatch(1, false, () =>
+        this.#judging(judged, () =>
+          this.#transport._execute<Input>(
+            sql`${statement} ${adapter.mutations.returning(
+              sql.join(this.#returned([answer.projection]), ", ")
+            )}`,
+            context
+          )
+        )
+      );
+      answer.row = response.rows[0];
+      return published;
     }
     await this.#effect(statement, context, member, judged);
     if (observed.length === 0) return published;

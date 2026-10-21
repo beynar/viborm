@@ -17,11 +17,13 @@ import {
   nestedRefusal,
   type ObservationPremise,
   type OperationContext,
+  type StatementAnswer,
 } from "../shared/operation-context";
-import type {
-  PreparedProjection,
-  PreparedSelector,
-  Query,
+import {
+  type PreparedProjection,
+  type PreparedSelector,
+  type Query,
+  returningSafeProjection,
 } from "../shared/query";
 import { parseStamped } from "../shared/row-scope";
 import { type Arguments, entries, type Input, record } from "../shared/schema";
@@ -56,6 +58,49 @@ import {
   type Selection,
 } from "./selection";
 
+/**
+ * Every write `occurrence` and the occurrences under it may issue: the model
+ * whose rows it changes, and whether it only inserts them. A junction row
+ * belongs to no model, and no foreign key references it.
+ */
+function* writesUnder(
+  occurrence: CommandOccurrence
+): Generator<{ readonly model: AnyModel; readonly inserts: boolean }> {
+  const command = occurrence.command;
+  switch (command.kind) {
+    case "record":
+      yield { model: command.model, inserts: command.located === undefined };
+      break;
+    case "choose":
+    case "set":
+      yield { model: command.model, inserts: false };
+      break;
+    case "delete":
+      yield { model: command.located.model, inserts: false };
+      break;
+    case "selectedSeries":
+      yield { model: command.series.selection.model, inserts: false };
+      yield* writesUnder(command.template);
+      break;
+    case "captureSeries":
+      yield* writesUnder(command.target);
+      break;
+    case "remove":
+      if (command.edge.kind === "reference")
+        yield {
+          model:
+            command.edge.owner === "source"
+              ? command.edge.source
+              : command.edge.target,
+          inserts: false,
+        };
+      break;
+    default:
+      break;
+  }
+  for (const child of occurrence.children) yield* writesUnder(child);
+}
+
 /** What a captured series prepared, as its owner (`CommandAttempt`) states it. */
 type PreparedSeries = NonNullable<ReturnType<CommandAttempt["series"]["get"]>>;
 
@@ -65,6 +110,8 @@ export class CommandExecution {
   readonly context;
   #currentAttempt: CommandAttempt;
   readonly #entered = new Set<CommandOccurrence>();
+  /** The result the root record's own statement answers, where it may ({@link complete}). */
+  #answer?: StatementAnswer & { readonly occurrence: CommandOccurrence };
   constructor(commands: Commands) {
     this.commands = commands;
     this.context = commands.context;
@@ -472,9 +519,13 @@ export class CommandExecution {
     root: CommandOccurrence<RecordCommand | Choose>,
     args: Arguments
   ): Promise<unknown> {
+    const projection = this.#answeredByRoot(root, args);
     while (true) {
       try {
+        this.#answer = projection && { occurrence: root, projection };
         await this.run(root);
+        if (this.#answer?.row !== undefined)
+          return await this.context.finishAnswered(this.#answer);
         return await this.context.finishOne(
           this.context.queries.select(
             root.command.model,
@@ -491,6 +542,67 @@ export class CommandExecution {
         if (!(await this.#recover(error))) throw error;
       }
     }
+  }
+  /**
+   * The projection the root record's own INSERT or UPDATE answers in place of
+   * the read {@link complete} otherwise ends with, on the interactive route:
+   * one its `RETURNING` carries ({@link OperationContext.answersInStatement};
+   * RETURNING-safe only, since a relation projection reads rows the children
+   * have not written yet), and only where nothing written after that statement
+   * can change the row. A statement changes rows of the table it writes and,
+   * where it deletes or rewrites a key, rows holding a foreign key to those,
+   * transitively; an INSERT changes no other row. So no later write may name
+   * the root's model, and no later write but an INSERT may name a model the
+   * root's row reaches through the keys it holds. A user trigger is the one
+   * change this cannot see, as the folded root write's `RETURNING` never did.
+   */
+  #answeredByRoot(
+    root: CommandOccurrence<RecordCommand | Choose>,
+    args: Arguments
+  ): PreparedProjection | undefined {
+    const ctx = this.context;
+    const command = root.command;
+    if (ctx.usesBatch || command.kind !== "record") return undefined;
+    const model = command.model;
+    const projection = ctx.queries.prepareProjection(model, args);
+    if (
+      !(
+        returningSafeProjection(projection) &&
+        ctx.answersInStatement(
+          model,
+          projection,
+          command.located ? "update" : "insert"
+        )
+      )
+    )
+      return undefined;
+    const reached = this.#reachedThroughKeys(model);
+    for (const child of root.children) {
+      if (child.placement === "before") continue;
+      for (const write of writesUnder(child))
+        if (
+          write.model === model ||
+          (!write.inserts && reached.has(write.model))
+        )
+          return undefined;
+    }
+    return projection;
+  }
+  /** The models `model`'s rows reach through the foreign keys they hold, transitively. */
+  #reachedThroughKeys(model: AnyModel): ReadonlySet<AnyModel> {
+    const schema = this.context.schema;
+    const reached = new Set<AnyModel>();
+    const pending = [model];
+    for (let next = pending.pop(); next; next = pending.pop())
+      for (const [name, { edge }] of schema.index.get(next) ?? []) {
+        if (edge.kind !== "foreignKey") continue;
+        const view = schema.membership(next, name);
+        if (view.kind !== "reference" || view.owner !== "source") continue;
+        if (reached.has(view.target)) continue;
+        reached.add(view.target);
+        pending.push(view.target);
+      }
+    return reached;
   }
   private async runSelection(
     selection: Selection,
@@ -792,6 +904,8 @@ export class CommandExecution {
         if (moved)
           attempt.materialize(command.located!.fields, attempt.resolve(moved));
         const values = this.stored(command.fields);
+        const answer =
+          this.#answer?.occurrence === occurrence ? this.#answer : undefined;
         attempt.bind(
           command.fields,
           command.located
@@ -813,7 +927,8 @@ export class CommandExecution {
                 command.fields.demands,
                 confirmationFailure,
                 command.located.judgement,
-                this.#refusal(command)
+                this.#refusal(command),
+                answer
               )
             : await ctx.insert(
                 command.model,
@@ -823,7 +938,8 @@ export class CommandExecution {
                 command.operation,
                 command.fields,
                 this.#membershipParent(command, occurrence.parent?.command),
-                this.#refusal(command)
+                this.#refusal(command),
+                answer
               )
         );
         // Every capture still runs before every effect, and the reason is

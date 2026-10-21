@@ -1070,6 +1070,23 @@ and `deleteMany` before they choose a capture route. Pins:
 `tests/contracts/engine/write/write-projection-round-trips.test.ts` and
 `mutation-projection-cte-fold.test.ts`.
 
+A root `create` or `update` that DOES name relations ends with a read of the
+root row by its key, after its children ran (`CommandExecution.complete`). On
+the interactive route that read is answered by the root record's own INSERT or
+UPDATE instead (`StatementAnswer`, `OperationContext.finishAnswered`) when
+`answersInStatement` admits the projection, the projection is RETURNING-safe (a
+relation projection reads the children, which have not run yet), and nothing
+written after the root's statement can change the row
+(`CommandExecution.#answeredByRoot`). A statement changes rows of the model it
+writes and, where it deletes or rewrites a key, rows holding a foreign key to
+those, transitively; an INSERT changes no other row. So no later write may name
+the root's model, and no later write but an INSERT may name a model the root
+reaches through the foreign keys it holds (`#reachedThroughKeys`). An update
+that assigns nothing issues no statement to answer and keeps the read; so does
+a provider without RETURNING, and the batch route, whose read rides the batch
+already. Pins: `tests/contracts/engine/write/nested-write-round-trips.test.ts`
+(each clause of the guard has a case whose answer is wrong without it).
+
 Whether a nested write's unique target selector names its row through the
 CONSTRAINT is one predicate, `nestedTargetAddressesConstraint(edge, verb)` in
 `commands/selection.ts`, consulted at the three nested target sites in
