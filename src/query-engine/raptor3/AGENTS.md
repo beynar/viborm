@@ -1099,11 +1099,15 @@ the root has no `before` child (a `connect` it holds the key of, a nested
 target's locking read: reordering those would change which failure a call with
 two missing rows reports) and no key transition to require (`#requireTransitions`
 reads the row as located). An UPDATE that writes nothing issues no statement
-and keeps the read. The located row is then bound as the UPDATE leaves it; a
-later step that reads a field the UPDATE writes already reads the written value
-(`CommandAttempt.read` answers from the stated assignment), which is why no
-field of the payload is excluded — measured on a rewritten primary key and a
-rewritten referenced unique key under every nested verb, identical results.
+and keeps the read. The located row is then bound as the UPDATE leaves it, so
+the UPDATE may write no field a later step reads off the located row: a nested
+lookup correlated by a key the root holds reads it there, and an UPDATE that
+clears that key (a lax `delete: true` of the root's parent under a permissions
+entry, which places the lookup after the UPDATE) would leave it finding
+nothing — `tests/providers/local/pglite-permissions-entry.test.ts` W-W12. A
+key the CHILDREN hold is not read there: a rewritten primary key or referenced
+unique key reaches them through the stated assignment (`CommandAttempt.read`),
+measured identical under every nested verb, so keys are not excluded as such.
 
 Whether a nested write's unique target selector names its row through the
 CONSTRAINT is one predicate, `nestedTargetAddressesConstraint(edge, verb)` in

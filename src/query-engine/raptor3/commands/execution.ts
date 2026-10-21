@@ -597,11 +597,12 @@ export class CommandExecution {
    * read that otherwise precedes it; `undefined` where the read stays. The read
    * is only an address and a lock when nothing runs between it and the UPDATE
    * — no `before` child, no key transition to require — and the row is a
-   * plain root lookup (no membership, condition or producer). Its binding is
-   * then the row as the UPDATE leaves it, which is the row as it was read in
-   * every field the UPDATE does not write: so the UPDATE may write no key and
-   * no field a later step reads off the located row. An UPDATE that writes
-   * nothing issues no statement, and keeps the read.
+   * plain root lookup. Its binding is then the row as the UPDATE leaves it,
+   * which is the row as it was read in every field the UPDATE does not write:
+   * so the UPDATE may write no field a later step reads off the located row (a
+   * nested lookup correlated by the key the root holds, which the UPDATE
+   * clears: W-W12). An UPDATE that writes nothing issues no statement, and
+   * keeps the read.
    */
   #updateLocates(occurrence: CommandOccurrence): Input | undefined {
     const ctx = this.context;
@@ -617,7 +618,13 @@ export class CommandExecution {
     )
       return undefined;
     const values = this.stored(command.fields);
-    return Object.keys(values).length === 0 ? undefined : values;
+    const fields = Object.keys(values);
+    if (
+      fields.length === 0 ||
+      fields.some((field) => command.located!.fields.demands.has(field))
+    )
+      return undefined;
+    return values;
   }
   /**
    * The root record's UPDATE locating its row ({@link #updateLocates}): the
