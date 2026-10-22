@@ -3,7 +3,7 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
-## 1.4.0 — unreleased
+## 1.4.0 — 2026-10-22
 
 Fewer round trips, permission reads D1 can run, faster `distinct` and
 junction filters, `$extends({ result })` computed fields, and bulk writes
