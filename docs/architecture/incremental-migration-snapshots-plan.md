@@ -254,10 +254,61 @@ the disposable fixture's `entity.note` removal.
 
 The production package build, all 54 packed-consumer tests, strict package lint,
 documentation link validation and production documentation build passed.
-The final CI bundle-size check passed eight rows and exceeded two existing
+The initial CI bundle-size check passed eight rows and exceeded two existing
 limits: PostgreSQL migrations Worker 297.77 kB versus 295.9 kB, and all public
 exports 429.44 kB versus 427.5 kB (gzip, as reported by `size-limit`). These
-limits remain unchanged pending the owner's decision. A measured-growth update
-using the repository's established rounding plus 0.3 kB headroom would set only
-those rows to 298.1 kB and 429.8 kB. This is a shipped-code cost of the feature,
+limits were left unchanged. The owner requested the reduction review below
+instead of approving the proposed 298.1 kB and 429.8 kB limits. This is a shipped-code cost of the feature,
 separate from the measured snapshot-history storage savings.
+
+## Adversarial bundle-size review
+
+The owner requested an adversarial review and an attempt to fit the existing
+limits rather than approving increases. Two independent read-only review rounds
+found no accidental dependency or dialect import. The second round found no
+actionable regression in the retained reductions and no further evidenced safe
+change that closes the remaining gap.
+
+Built `29e43e6de` and `344bd1be8` in a disposable archive with the same installed
+lockfile dependencies, build configuration, fixtures and gzip level 9. The
+archive reproduced the feature build's measured sizes exactly. Final values
+below come from the normal worktree package build and unchanged CI fixtures.
+
+| Build | PostgreSQL migrations Worker | All public exports |
+| --- | ---: | ---: |
+| Current-main base | 295,582 B | 427,259 B |
+| Feature before reductions | 297,771 B | 429,445 B |
+| Feature after safe reductions | 297,412 B | 428,920 B |
+| Existing limit | 295,900 B | 427,500 B |
+
+Retained changes remove repeated algorithms and rules: standard `atob`/`btoa`
+replace manual Base64 arithmetic while canonical shape/re-encode checks and
+indexed byte reads remain; the existing type-default tables replace repeated
+ordinary scalar switches while decimal, timezone, vector, list and fallback
+semantics remain explicit; 18 persisted-array mappings share indexed diagnostic
+paths without moving their admission checks; canonical-byte admission uses the
+existing byte-equality owner. Regression tests cover large sliced byte views,
+hostile iteration, RFC 4648 vectors, noncanonical padding, prototype keys,
+timezone aliases, one scalar-kind read, and exact parser refusal order/paths.
+
+Rejected genuine-private-field experiments saved only small amounts and would
+change borrowed/proxy receiver behavior. Sharing the two undefined-key
+projections would change accessor-observation timing. Neither tradeoff is needed
+for incremental snapshots. Codec-format changes, shorter diagnostics, removed
+guards, lazy-chunk accounting, different compression settings and altered
+fixtures or thresholds were not used.
+
+The retained reductions save 359 B and 525 B respectively. The limits still
+fail by 1,512 B and 1,420 B. They remain unchanged; this review establishes a
+measured reduction, not proof that no other implementation could fit.
+
+Post-reduction qualification passed: complete types (53.49 s, 6801.9 MiB sampled
+RSS), migration core (149 files / 2,399 tests plus type probes in 27.29 s),
+migration coverage (168 files / 2,544 tests; 97.28% statements/lines, 97.31%
+branches, 98.41% functions; artifact codec 100% throughout), all 54 packed-package
+checks, strict package lint, all 44 coverage/runner-policy tests, Biome and
+`git diff --check`. The size test again measured 95.82% fewer snapshot bytes.
+Two core-lane attempts hit the aggregate 30 s limit while unrelated Node build
+processes consumed several cores; one completed all runtime tests but left too
+little time for probes. After observed contention dropped, the unchanged lane
+passed in 27.29 s. Neither its time nor memory limit changed.

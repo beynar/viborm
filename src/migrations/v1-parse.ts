@@ -26,7 +26,12 @@ import {
 } from "./identity";
 import type { MigrationTarget } from "./types";
 import { parseDispatch } from "./v1-parse-dispatch";
-import { exactObject, parseFormat, refuse } from "./v1-parse-shared";
+import {
+  exactObject,
+  parseFormat,
+  parseItems,
+  refuse,
+} from "./v1-parse-shared";
 import type {
   MigrationApprovalV1,
   MigrationBooleanCheckV1,
@@ -264,9 +269,7 @@ function parseOperation(value: unknown, label: string): MigrationOperationV1 {
     label: record.label,
     origin: record.origin,
     risk: record.risk,
-    steps: record.steps.map((step, index) =>
-      parseStep(step, `${label}.steps[${index}]`)
-    ),
+    steps: parseItems(record.steps, `${label}.steps`, parseStep),
   };
 }
 
@@ -284,8 +287,10 @@ function parseRollback(value: unknown, label: string): MigrationRollbackV1 {
       refuse(`${label}.operations must be an array`);
     return {
       kind: "schema",
-      operations: record.operations.map((operation, index) =>
-        parseOperation(operation, `${label}.operations[${index}]`)
+      operations: parseItems(
+        record.operations,
+        `${label}.operations`,
+        parseOperation
       ),
     };
   }
@@ -307,8 +312,10 @@ function parseRollback(value: unknown, label: string): MigrationRollbackV1 {
     return {
       kind: "manual",
       requestedBoundary: record.requestedBoundary,
-      operations: record.operations.map((operation, index) =>
-        parseOperation(operation, `${label}.operations[${index}]`)
+      operations: parseItems(
+        record.operations,
+        `${label}.operations`,
+        parseOperation
       ),
     };
   }
@@ -396,8 +403,10 @@ function parseParent(
     refuse(`${label}.originChecks must be an array`);
   if (!Array.isArray(record.operations))
     refuse(`${label}.operations must be an array`);
-  const operations = record.operations.map((operation, index) =>
-    parseOperation(operation, `${label}.operations[${index}]`)
+  const operations = parseItems(
+    record.operations,
+    `${label}.operations`,
+    parseOperation
   );
   const rollback = parseRollback(record.rollback, `${label}.rollback`);
   const origins = new Set(operations.map((operation) => operation.origin));
@@ -414,8 +423,10 @@ function parseParent(
   }
   const parsed: Omit<MigrationParentTransitionV1, "transitionHash"> = {
     fromState,
-    originChecks: record.originChecks.map((check, index) =>
-      parseCheck(check, `${label}.originChecks[${index}]`)
+    originChecks: parseItems(
+      record.originChecks,
+      `${label}.originChecks`,
+      parseCheck
     ),
     requestedForwardBoundary: record.requestedForwardBoundary,
     operations,
@@ -489,9 +500,7 @@ export function parseStateManifest(
   if (!isString(record.name) || record.name.length === 0) {
     refuse("state manifest.name must be a non-empty string");
   }
-  const parents = record.parents.map((parent, index) =>
-    parseParent(parent, `state.parents[${index}]`)
-  );
+  const parents = parseItems(record.parents, "state.parents", parseParent);
   // Strictly ascending, so no fromState appears twice.
   for (let i = 1; i < parents.length; i++) {
     if (
@@ -516,8 +525,10 @@ export function parseStateManifest(
         }
       : {}),
     sqlHash: parseSha256(record.sqlHash, "state.sqlHash"),
-    destinationChecks: record.destinationChecks.map((check, index) =>
-      parseCheck(check, `state.destinationChecks[${index}]`)
+    destinationChecks: parseItems(
+      record.destinationChecks,
+      "state.destinationChecks",
+      parseCheck
     ),
     parents,
   };

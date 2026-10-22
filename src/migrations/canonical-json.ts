@@ -68,20 +68,11 @@ export function assertCanonicalBytes(
   reconstructed: unknown,
   label: string
 ): void {
-  const expected = canonicalizeJson(reconstructed);
-  if (bytes.length !== expected.length) {
+  if (!bytesEqual(bytes, canonicalizeJson(reconstructed))) {
     throw new MigrationError(
       `${label} is not canonical RFC 8785 JSON`,
       VibORMErrorCode.MIGRATION_INVALID_ESTATE
     );
-  }
-  for (let i = 0; i < bytes.length; i++) {
-    if (bytes[i] !== expected[i]) {
-      throw new MigrationError(
-        `${label} is not canonical RFC 8785 JSON`,
-        VibORMErrorCode.MIGRATION_INVALID_ESTATE
-      );
-    }
   }
 }
 
