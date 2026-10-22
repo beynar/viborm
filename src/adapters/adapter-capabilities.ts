@@ -49,6 +49,18 @@ export interface DatabaseAdapterCapabilities {
    */
   supportsRowLocks: boolean;
   /**
+   * Whether a locking read whose exact match finds NOTHING still takes a lock.
+   * MySQL (InnoDB) does: a gap or next-key lock that two concurrent misses
+   * both hold and that each one's INSERT then waits on, a deadlock. So a read
+   * whose other arm inserts the key it looked for reads unlocked there and is
+   * confirmed under lock once it finds a row. PostgreSQL locks only the rows a
+   * read returns, so there that read locks what it finds and needs no
+   * confirmation. SQLite takes no row lock at all (`supportsRowLocks`), so
+   * its confirmation stays: it is the read that sees what changed. Absent:
+   * false.
+   */
+  locksMissingKeys?: boolean;
+  /**
    * Whether a statement states each relation filter body it repeats ONCE, in
    * a `WITH`, as the key set every arm repeating it tests (a semijoin on the
    * correlated columns), rather than once per arm. A driver declares it for

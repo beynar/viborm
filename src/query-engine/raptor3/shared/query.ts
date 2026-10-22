@@ -3737,6 +3737,24 @@ export class Queries {
     if (captured.length > 0) facts.exact = false;
     return balancedOr(captured, (arms) => this.combine("OR", arms));
   }
+  /**
+   * The rows any of `selectors` takes, as prepared meaning: a set, so it pins
+   * no equality ({@link capturedSet}'s rule for an `OR`).
+   */
+  orSelectors(
+    model: AnyModel,
+    selectors: readonly PreparedSelector[]
+  ): PreparedSelector {
+    const arms = selectors.map((selector) => selector.predicate);
+    return freeze({
+      model,
+      facts: newSelectorFacts(false),
+      // A selector that states nothing takes every row, and so does the set.
+      predicate: arms.every((arm) => arm !== undefined)
+        ? balancedOr(arms, (items) => this.combine("OR", items))
+        : undefined,
+    });
+  }
   andSelectors(
     model: AnyModel,
     selectors: readonly PreparedSelector[]

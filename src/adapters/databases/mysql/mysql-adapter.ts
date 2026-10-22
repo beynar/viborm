@@ -878,6 +878,9 @@ export class MySQLAdapter implements DatabaseAdapter {
     // mutated table and trip the same ERROR 1093 as above.
     supportsMutationRowLimit: true,
     supportsRowLocks: true,
+    // InnoDB answers a locking miss on a unique index with a gap lock that
+    // concurrent misses share and their INSERTs wait on (`ER_LOCK_DEADLOCK`).
+    locksMissingKeys: true,
     boundsRecursionIterations: true,
   };
 

@@ -3,7 +3,7 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
-## 1.4.0 — unreleased
+## 1.4.0 — 2026-10-22
 
 Fewer round trips, permission reads D1 can run, faster `distinct` and
 junction filters, `$extends({ result })` computed fields, and bulk writes
@@ -29,6 +29,33 @@ that refuse a `where` emptied by `undefined`. Measurements are in
   2 to 1 on D1 and Neon HTTP. The old route is kept where the answer could
   differ (a projection reading the written table, an update of a referenced
   key, a decoding refusal, a SQLite delete). MySQL is unchanged.
+- **Nested writes no longer read the row back at the end.** A `create` or
+  `update` with nested relation writes and no relation in its result returns
+  the row its own INSERT or UPDATE answered, one round trip fewer on
+  PostgreSQL, SQLite and libSQL (create with a nested create: 5 to 4). The
+  read is kept where a later nested write can change the row: one writing
+  the same model, or one deleting or re-keying a row it references.
+- **A nested `update` no longer reads and locks its row before updating
+  it.** On PostgreSQL, SQLite and libSQL the UPDATE finds the row itself,
+  takes the same lock and fails with the same `NotFoundError` when the row
+  is missing: one round trip fewer (update with a nested create: 6 to 4
+  with the change above). The read stays where something must run between
+  it and the UPDATE: a `connect` of a relation the row holds the key of, a
+  nested target's lookup, or a change of a relation key.
+- **`upsert` and `connectOrCreate` read their row once on PostgreSQL.** The
+  lookup that decides between update and create now locks the row it finds
+  (a miss locks nothing there), so the second, locking read of the same row
+  is gone: one round trip fewer. MySQL keeps the unlocked lookup, because a
+  locking miss there takes a gap lock that deadlocks two concurrent creates;
+  SQLite keeps both reads, having no row lock. A to-many nested `upsert`
+  still confirms that the row it found belongs to the parent.
+- **A to-many `connect` or `set` reads its targets in one statement and
+  links them in one INSERT.** `tags: { connect: [a, b, c] }` went from a
+  locking read and a junction INSERT per target to one of each: a `create`
+  connecting three tags is 10 to 5 round trips on PostgreSQL and SQLite with
+  the changes above, and 4 to 2 on D1 and Neon HTTP. Where a target is
+  missing, each is read again on its own and the call fails as before. MySQL
+  reads the targets together and keeps one INSERT per link.
 - **`findUnique` calls issued in the same tick share one statement**, as in
   Prisma: same model, unique key and projection, outside transactions, a
   `where` that is the key alone (string, int or bigint members). 50

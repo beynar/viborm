@@ -1070,6 +1070,90 @@ and `deleteMany` before they choose a capture route. Pins:
 `tests/contracts/engine/write/write-projection-round-trips.test.ts` and
 `mutation-projection-cte-fold.test.ts`.
 
+A root `create` or `update` that DOES name relations ends with a read of the
+root row by its key, after its children ran (`CommandExecution.complete`). On
+the interactive route that read is answered by the root record's own INSERT or
+UPDATE instead (`StatementAnswer`, `OperationContext.finishAnswered`) when
+`answersInStatement` admits the projection, the projection is RETURNING-safe (a
+relation projection reads the children, which have not run yet), and nothing
+written after the root's statement can change the row
+(`CommandExecution.#answeredByRoot`). A statement changes rows of the model it
+writes and, where it deletes or rewrites a key, rows holding a foreign key to
+those, transitively; an INSERT changes no other row. So no later write may name
+the root's model, and no later write but an INSERT may name a model the root
+reaches through the foreign keys it holds (`#reachedThroughKeys`). An update
+that assigns nothing issues no statement to answer and keeps the read; so does
+a provider without RETURNING, and the batch route, whose read rides the batch
+already. Pins: `tests/contracts/engine/write/nested-write-round-trips.test.ts`
+(each clause of the guard has a case whose answer is wrong without it).
+
+**Addendum (2026-10-22): the probe keeps its lock where a miss takes none.**
+The unlocked `insertsWhenAbsent` probe and the `confirmFound` read that
+re-takes its found row under lock exist because a MySQL locking miss takes a
+gap lock (`locksMissingKeys`, see the R2c addendum). PostgreSQL locks only the
+rows a read returns, so there the probe reads `FOR UPDATE`: a miss holds
+nothing, a hit holds the very row the confirmation would have re-read, and
+`confirmFound` returns the probe's row (`Selection.probesUnlocked`). A found
+requirement (a correlated to-many `upsert`'s membership) is a question the
+probe never asked, so its confirmation stays on every provider. SQLite takes
+no row lock (`supportsRowLocks`), so its confirmation stays too: it is the read
+that sees a change landed between the probe and the effect
+(`tests/raptor3/post-prep/row-scopes.test.ts`, the moved-tenant and
+soft-delete cells). Pins: `nested-write-round-trips.test.ts` (one read on
+PGlite, two on SQLite and under `locksMissingKeys`) and
+`tests/providers/local/pglite-shared-bodies.test.ts`.
+
+That same root `update` locates its row in its own UPDATE on the interactive
+route (`OperationContext.updateLocated`, `CommandExecution.#updateLocates`)
+instead of a `SELECT … FOR UPDATE` followed by an UPDATE by identity: the
+UPDATE's WHERE is the selector the read would have taken (the root candidates,
+judgement included), it takes the row lock the read took and re-evaluates the
+selector over the row's current version as the read did, and it returns the
+stored row the read would have bound. The read is only an address and a lock
+when nothing runs between it and the UPDATE, so the fold is taken only where
+the root has no `before` child (a `connect` it holds the key of, a nested
+target's locking read: reordering those would change which failure a call with
+two missing rows reports) and no key transition to require (`#requireTransitions`
+reads the row as located). An UPDATE that writes nothing issues no statement
+and keeps the read. The located row is then bound as the UPDATE leaves it, so
+the UPDATE may write no field a later step reads off the located row: a nested
+lookup correlated by a key the root holds reads it there, and an UPDATE that
+clears that key (a lax `delete: true` of the root's parent under a permissions
+entry, which places the lookup after the UPDATE) would leave it finding
+nothing — `tests/providers/local/pglite-permissions-entry.test.ts` W-W12. A
+key the CHILDREN hold is not read there: a rewritten primary key or referenced
+unique key reaches them through the stated assignment (`CommandAttempt.read`),
+measured identical under every nested verb, so keys are not excluded as such.
+
+**Addendum (2026-10-22): a to-many write reads its targets together.** A run
+of sibling lookups of one model — a to-many `connect` or `set`, its targets
+one lookup each, with the junction links between them — is read in one
+statement (`CommandExecution.#prefetch`,
+`Selection.rows`): the disjunction of the lookups' own selectors, under the
+lock each probe takes, after every write ahead of the run. Each row is bound
+as the lookup's own read binds it, and only an exact answer is kept: every
+lookup matched by exactly one row holding the key values its selector pins,
+no row twice; anything else binds nothing and each lookup reads alone where it
+runs, raising what it always raised. A lookup joins a run unless the shared
+read could answer differently from its own read where it stands: one reading
+by a membership its selector does not hold (`nested-write-round-trips`, the
+to-many `update` through a membership), one whose selector reads through a
+relation, which a link or move of the run can change (the scope that hides a
+tag beside a secret one), and a probe whose other arm inserts what it looks
+for, whose ordinary miss would cost a second read (the `connectOrCreate`
+statement count). The links of such a run then go as one INSERT per bind
+budget (`#linkTogether`, `OperationContext.linkMany`) where the dialect has a
+targeted upsert: the choices run first — with their rows found they write
+nothing — and a choice whose lookup is still unanswered ends the run, its
+read possibly depending on a link ahead of it. A link that captured its
+slot's owner stays out: it vacates the slot first, which the shared INSERT
+does not (`nested-write-round-trips`, a `set` moving two singular polymorphic
+members; Devin review of #109).
+
+On the batch route the run's read is a lone read, as each lookup's own is, so
+it reads what the last submitted unit left (the batch-route pin: two targets,
+one read and one batch).
+
 Whether a nested write's unique target selector names its row through the
 CONSTRAINT is one predicate, `nestedTargetAddressesConstraint(edge, verb)` in
 `commands/selection.ts`, consulted at the three nested target sites in
