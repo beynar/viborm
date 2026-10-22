@@ -12,6 +12,7 @@ export default defineMeta({
     "relations",
     "schema-validation",
     "query-engine",
+    "performance",
     "adapters",
     "drivers",
     "client",

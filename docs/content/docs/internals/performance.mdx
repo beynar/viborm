@@ -1,0 +1,340 @@
+---
+title: Performance
+description: What each query type sends to each database, and the optimizations behind it
+icon: gauge
+---
+
+This page lists, query type by query type, what VibORM does to keep round
+trips, statement size and query plans small on each database. It describes the
+current engine (`src/query-engine/raptor3/`). Every optimization keeps the
+answer the unoptimized form would give; where the two could differ, the engine
+takes the longer route.
+
+## Reading the tables
+
+Each section has one table. Its columns are the five ways VibORM reaches a
+database:
+
+| Column | Drivers | Route |
+|---|---|---|
+| **PostgreSQL** | `pg`, `postgres`, `pglite`, `bun-sql` | Interactive transaction |
+| **Neon HTTP** | `neon-http` | Native batch, no interactive transaction |
+| **MySQL** | `mysql2`, `planetscale` | Interactive transaction |
+| **SQLite** | `sqlite3` (better-sqlite3), `bun-sqlite`, `libsql` | Interactive transaction |
+| **D1** | `d1` | Native batch, no interactive transaction |
+
+A **round trip** is one exchange with the database: a lone statement, a whole
+native batch, or a `BEGIN`/`COMMIT`. Interactive counts include the
+`BEGIN`/`COMMIT` of the operation's own transaction.
+
+Where a number appears, it comes from the benchmark reports in `benchmarks/`
+(`perf-1.3.3.md`, `perf-1.4.0.md`) or from the nested-write census. The census
+ran on PGlite and better-sqlite3, and the Neon HTTP and D1 columns come from
+the same two engines driven through the batch route. The MySQL column was
+derived from MySQL's capability flags on SQLite, not measured on a MySQL
+server; it is marked *(sim.)*.
+
+### What decides the differences
+
+Most rows of the tables follow from a capability the adapter or driver states
+(`src/adapters/adapter-capabilities.ts`):
+
+| Capability | PostgreSQL | Neon HTTP | MySQL | SQLite | D1 |
+|---|---|---|---|---|---|
+| `RETURNING` on writes | ✅ | ✅ | ❌ | ✅ | ✅ |
+| Data-modifying `WITH` | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Upsert on a named conflict target | ✅ | ✅ | ❌ (any unique key) | ✅ | ✅ |
+| Row locks (`FOR UPDATE`) | ✅ | ✅ | ✅ | ❌ | ❌ |
+| A locking miss takes a lock | ❌ | ❌ | ✅ (gap lock) | — | — |
+| Shared relation bodies (`WITH` members) | ✅ (default) | ✅ (default) | ❌ | ❌ | ✅ |
+| Many-to-many filters joined to the junction | Unbounded reads | Unbounded reads | ❌ | ✅ | ✅ |
+| Bind values per statement | 65,535 (PGlite 32,767) | 65,535 | 65,535 | 32,766 | 100 |
+| Limits worked around | Neki: 256 relations | Neki: 256 relations | Recursion iterations | — | 5 compound terms, expression depth 100 |
+
+## Every operation
+
+| Optimization | PostgreSQL | Neon HTTP | MySQL | SQLite | D1 |
+|---|---|---|---|---|---|
+| An operation that needs one statement opens no transaction | ✅ | ✅ (no batch) | ✅ | ✅ | ✅ (no batch) |
+| Inside a callback `$transaction`, a savepoint only for an operation of several statements | ✅ | — | ✅ | ✅ | — |
+| Argument schemas built on first use of each operation (cold start) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Clients on the same schema share the engine's per-model views | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Result decoder compiled once per result, not per row | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Collection reads returned as positional rows | — | — | — | better-sqlite3 | ✅ |
+| Prepared statements reused | `postgres` with `prepare: true` | — | — | 100-entry cache per database (better-sqlite3), `query()` cache (bun) | — |
+
+The SQL of an operation is not cached across calls: it is built from the call's
+arguments each time. JSON and timestamp decoding was reworked in 1.3.3: a
+100-row read decodes about 21% faster and allocates 28% less.
+
+`postgres` (postgres.js) runs with `prepare: false` by default for pooler
+compatibility; `options.prepare: true` lets it reuse prepared statements on a
+session that keeps them.
+
+## findUnique
+
+One statement on every database.
+
+| Optimization | PostgreSQL | Neon HTTP | MySQL | SQLite | D1 |
+|---|---|---|---|---|---|
+| `findUnique` calls in the same tick share one statement | ✅ | ✅ | ✅ | ✅ | ✅ (split at 100 binds) |
+
+Calls are batched outside transactions when they target the same model, unique
+key and projection, and their `where` is the key alone (string, int or bigint
+members). The batch is split at the driver's bind budget. 50 lookups in one
+tick: 50 statements become 1 (SQLite 1.29 → 0.63 ms, PGlite 7.75 → 0.60 ms).
+Implementation: `src/query-engine/find-unique-batch.ts`.
+
+## findFirst and findMany
+
+One statement on every database, relations included.
+
+| Optimization | PostgreSQL | Neon HTTP | MySQL | SQLite | D1 |
+|---|---|---|---|---|---|
+| Ordering by a to-one relation: one `LEFT JOIN` per path | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Cursor as one row-value comparison an index can use | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Mixed-direction cursor bounded on its leading key | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `distinct` as one window | With `orderBy` (else `DISTINCT ON`) | With `orderBy` (else `DISTINCT ON`) | ✅ | ✅ | ✅ |
+| `_count` ordering as a correlated count | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+- **To-one ordering** reads each relation path once through a `LEFT JOIN`
+  instead of a correlated subquery per order term. 100k rows: SQLite 38 →
+  11 ms, PGlite 413 → 79 ms.
+- **Cursors.** When every order term runs the same direction over non-nullable
+  columns, the cursor is one row-value comparison. With mixed directions, a
+  range bound on the leading key is added so the index still narrows the scan.
+  At row 75k: SQLite 90 → 0.24 ms, PGlite 143 → 1.1 ms.
+- **`distinct`** keeps the first row of each group with one window function,
+  about 2× faster at 200k rows. PostgreSQL uses native `DISTINCT ON` when no
+  `orderBy` is given.
+
+## Relation projections (`select` and `include`)
+
+A read with relations is one statement: each relation is a correlated JSON
+subquery, nested to any depth, `_count` and polymorphic relations included.
+
+| Optimization | PostgreSQL | Neon HTTP | MySQL | SQLite | D1 |
+|---|---|---|---|---|---|
+| One statement for the whole relation tree | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Many-to-many read from the junction joined to the target | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Lean JSON spelling | Redundant column aliases dropped | Redundant column aliases dropped | Redundant column aliases dropped | `json_group_array(json_object(…))`, no extra `json()`/`COALESCE` | Same as SQLite |
+| Repeated relation bodies stated once in a `WITH` | ✅ `NOT MATERIALIZED` leaves | ✅ `NOT MATERIALIZED` leaves | ❌ | ❌ | ✅ `MATERIALIZED` non-leaf members |
+| Recursive projections | `LATERAL` derived table | `LATERAL` derived table | `LATERAL` derived table | Correlated CTE per reader | Correlated CTE per reader |
+
+- **Alias trimming** makes plain PostgreSQL and MySQL reads about 9–11% shorter.
+  The SQLite JSON spelling took a 9.4 MB include from 181 to 109 ms.
+- **Shared relation bodies.** A statement that repeats the same relation body
+  (typical of permission rules) states it once as a `WITH` member and tests
+  each use against its key set. On PostgreSQL the leaf members are
+  `NOT MATERIALIZED`, so the planner can still push filters into them (a nested
+  include at 100k rows: 19.65 → 1.48 ms). On D1, members that other members
+  read are `MATERIALIZED`, which brought four permission reads that failed out
+  of memory under the limit (63,867 → 14,345 VDBE opcodes). In-process SQLite
+  keeps sharing off: there it measured about 230 µs slower per statement.
+  `sharedRelationBodies: false` turns it off on the PostgreSQL drivers.
+
+## Filters (`where`)
+
+| Optimization | PostgreSQL | Neon HTTP | MySQL | SQLite | D1 |
+|---|---|---|---|---|---|
+| `some A OR some B` merged into `some (A OR B)` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `{ $row, up }` chains as one `EXISTS` over a join | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Many-to-many filter joins the junction to the target | Unbounded reads | Unbounded reads | ❌ | ✅ | ✅ |
+| Recursive walk carries the columns its next hop reads | ✅ | ✅ | ❌ (walk kept in place) | — | ✅ |
+| Past 256 relations: walks as reaching sets, rows joined to shared key sets | Neki | Neki | — | — | ✅ |
+| Expression depth kept under 100, unions nested 5 terms at a time | — | — | — | — | ✅ |
+| Equal values bound once past the bind budget | — | — | — | — | ✅ |
+
+- **Merged quantifiers** shorten permission-policy SQL by 8–12%. **`$row`
+  chains** as one `EXISTS` took a PGlite policy count from 864 to 87 ms.
+- **Junction-joined many-to-many filters** let the planner turn the filter into
+  a hashed semijoin. On PostgreSQL that is only done for reads that scan
+  (count, aggregate, `groupBy`, `findMany` without `take`; a count went from
+  479 to 7 ms), because it plans about 0.2 ms slower and a bounded read never
+  wins that back. On SQLite and D1 it is always used (a count: 1,240 → 61 ms).
+- **Neki's 256-relation limit.** PlanetScale Postgres (Neki) refuses a
+  statement that references more than 256 relations. Past that bound only, a
+  walk the statement repeats becomes one recursive set, then rows test the
+  shared sets (arrays on PostgreSQL, joined flag members on D1). The bound is
+  read from the server version or Neki's first refusal; `relationsPerStatement`
+  sets it. All nine `$access` reads of the permissions fixture now run on Neki
+  (96–683 → 95–253 relations); on PGlite at 10× the fixture, `document` with
+  every relation went from 4.8 s to 0.14 s.
+- **MySQL** keeps recursive walks in place because a recursive CTE fails after
+  `cte_max_recursion_depth` iterations (1,000 by default).
+
+## count, aggregate, groupBy and exist
+
+One statement on every database.
+
+| Optimization | PostgreSQL | Neon HTTP | MySQL | SQLite | D1 |
+|---|---|---|---|---|---|
+| Unpaged `count`, `aggregate` and `exist` read the filtered table directly | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Many-to-many filters joined to the junction (see Filters) | ✅ | ✅ | ❌ | ✅ | ✅ |
+
+A `count` over 200k SQLite rows went from about 1.8 ms to about 30 µs when the
+derived-table wrapper was removed.
+
+## `$transaction`
+
+| Shape | PostgreSQL | Neon HTTP | MySQL | SQLite | D1 |
+|---|---|---|---|---|---|
+| Array of operations | One transaction | One native batch | One transaction | One transaction | One native batch |
+| Callback | One transaction; a savepoint per operation of several statements | Not supported | Same as PostgreSQL | Same as PostgreSQL | Not supported |
+
+The savepoint inside a callback transaction keeps each nested write
+all-or-nothing when your code catches its error and continues, and lets an
+`upsert` or `connectOrCreate` that lost a create race re-run and converge.
+
+## create
+
+| Optimization | PostgreSQL | Neon HTTP | MySQL | SQLite | D1 |
+|---|---|---|---|---|---|
+| Create answered by its own `INSERT … RETURNING` | ✅ | ✅ | ❌ insert, then read by key | ✅ | ✅ |
+| `include` answered in the same statement | ✅ `WITH … RETURNING *` | ✅ `WITH … RETURNING *` | ❌ | ✅ relation subqueries in `RETURNING` | ✅ relation subqueries in `RETURNING` |
+| A nested to-many `create` list as one multi-row `INSERT` | ✅ | One `INSERT` per row, same batch | ✅ | ✅ | One `INSERT` per row, same batch |
+| Nested create answered by the root's `INSERT`, no final read | ✅ | — (rides the batch) | ❌ | ✅ | — (rides the batch) |
+
+- **`include` in the write's statement** (1.4.0): create with an include went
+  from 4 round trips to 1 on PostgreSQL and SQLite, and from 2 statements to 1
+  in the Neon HTTP and D1 batch. The engine keeps the separate read when the
+  projection reads the written table, when decoding could refuse the row, or
+  on D1 when a shared body would need a `WITH`.
+- **No final read after nested writes.** A create with nested writes used to end
+  by reading its row back. When nothing written after the root's `INSERT` can
+  change that row, the `INSERT`'s own `RETURNING` answers instead: a create with
+  a nested create went from 5 to 4 round trips. The read is kept when a later
+  nested write names the same model, or deletes or re-keys a row the root
+  references through its foreign keys.
+- **Generated keys on the batch route** cross statements through a scratch
+  table (`__viborm_batch_refs`): one statement on Neon HTTP (a data-modifying
+  `WITH`), two on D1. It is only used when a generated key is needed by a later
+  statement.
+
+## createMany and createManyAndReturn
+
+| Optimization | PostgreSQL | Neon HTTP | MySQL | SQLite | D1 |
+|---|---|---|---|---|---|
+| One `INSERT` per run of rows with the same columns | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Chunks sized by the bind budget, measured on the compiled SQL | ✅ | ✅ | ✅ | ✅ | ✅ (100 binds) |
+| `skipDuplicates` inside the grouped statement | ✅ `ON CONFLICT DO NOTHING` | ✅ | ❌ one row per savepoint | ✅ | ✅ |
+| `createManyAndReturn` | `RETURNING` per chunk | `RETURNING` per chunk | Row by row, re-read by key in chunks | `RETURNING` per chunk | `RETURNING` per chunk |
+
+Several chunks run in the operation's own transaction, or in one native batch
+on Neon HTTP and D1. Under the permissions extension, the check on each created
+row sits inside the `INSERT … SELECT` and adds no statement.
+
+## update
+
+| Optimization | PostgreSQL | Neon HTTP | MySQL | SQLite | D1 |
+|---|---|---|---|---|---|
+| Update answered by its own `UPDATE … RETURNING` | ✅ | ✅ | ❌ locate, update, re-read | ✅ | ✅ |
+| `include` answered in the same statement | ✅ | ✅ | ❌ | ✅ | ✅ |
+| Nested update: the root `UPDATE` finds and locks its row, no `SELECT … FOR UPDATE` first | ✅ | — | ❌ | ✅ | — |
+| Nested update answered by the root's `UPDATE`, no final read | ✅ | — | ❌ | ✅ | — |
+
+- **Update with an include** went from 5 round trips to 1 on PostgreSQL and
+  SQLite, and from 2 statements to 1 in the batch.
+- **The locating `UPDATE`.** A nested update used to lock its root row with a
+  `SELECT … FOR UPDATE`, then update it by key. The `UPDATE` now carries the
+  selector itself, takes the same lock and raises the same `NotFoundError` when
+  no row matches. With the final read gone too, an update with a nested create
+  went from 6 to 4 round trips. The `SELECT` is kept when something must run
+  between it and the `UPDATE`: a `connect` of a relation the root holds the key
+  of, a nested lookup, a change of a relation key, or a field a later step reads
+  off the located row.
+
+## updateMany and deleteMany
+
+| Optimization | PostgreSQL | Neon HTTP | MySQL | SQLite | D1 |
+|---|---|---|---|---|---|
+| `limit` in one statement | `key IN (SELECT … LIMIT n)` | `key IN (SELECT … LIMIT n)` | Native `ORDER BY key LIMIT n` | `key IN (SELECT … LIMIT n)` | `key IN (SELECT … LIMIT n)` |
+
+MySQL cannot read the table it is modifying in a subquery, so a selector that
+reads a relation is first materialized in a derived table there.
+
+## upsert
+
+| Optimization | PostgreSQL | Neon HTTP | MySQL | SQLite | D1 |
+|---|---|---|---|---|---|
+| Root upsert as one `INSERT … ON CONFLICT (key) DO UPDATE … RETURNING` | ✅ | ✅ | ❌ probe, then one arm | ✅ | ✅ |
+| The probe locks the row it finds, no confirming re-read | ✅ | — | ❌ unlocked probe, then a locked re-read | ❌ re-read kept (no row locks) | — |
+
+- **The `ON CONFLICT` fold** took an upsert with an include from 5 round trips
+  to 1 on PostgreSQL and SQLite, and from 2 statements to 1 in the batch. It is
+  not used for a conditional upsert, relation writes in `create` or `update`,
+  an update that writes the key, a `create` that does not spell the key the
+  `where` names, or a selector narrowed by a row scope (permissions, soft
+  delete). MySQL's `ON DUPLICATE KEY UPDATE` fires on any unique key, which
+  could silently update a row the call never named, so MySQL always probes.
+- **The probe.** Where the upsert is not folded (and for `connectOrCreate`), a
+  probe decides between update and create. On PostgreSQL it reads
+  `FOR UPDATE`: a miss locks nothing there, and a hit holds the row, so the
+  second, locking read is gone (one round trip fewer). MySQL's locking miss
+  takes a gap lock that deadlocks two concurrent creates, so it reads unlocked
+  and confirms the row it found under lock. SQLite has no row lock, so its
+  confirming read is what sees a change landed in between. A to-many nested
+  upsert always confirms that the row it found belongs to the parent.
+
+## delete
+
+| Optimization | PostgreSQL | Neon HTTP | MySQL | SQLite | D1 |
+|---|---|---|---|---|---|
+| Root delete in one statement | ✅ | ✅ | ❌ (sim.: 3 statements + transaction) | ✅ | ✅ |
+| `include` answered in the same statement | ✅ snapshot `WITH` | ✅ snapshot `WITH` | ❌ | ❌ (`RETURNING` reads after the cascade) | ❌ |
+
+## Nested relation writes
+
+| Optimization | PostgreSQL | Neon HTTP | MySQL | SQLite | D1 |
+|---|---|---|---|---|---|
+| A to-many `connect` or `set` reads its targets in one statement | ✅ | ✅ | ✅ | ✅ | ✅ |
+| …and links them in one junction `INSERT` | ✅ | ✅ (in the batch) | ❌ one per link | ✅ | ✅ (in the batch) |
+| Writes, checks and the final read in one native batch | — | ✅ | — | — | ✅ |
+
+- **Targets read together.** A run of sibling lookups of one model (the
+  targets of a to-many `connect` or `set`) is read in one statement: the
+  disjunction of the lookups' own selectors, under the lock each would take.
+  The answer is kept only if every lookup matches exactly one row and no row
+  twice; otherwise each target is read alone, and a missing target fails
+  exactly as before. Lookups that go through the parent's membership, whose
+  filter reads a relation the same write can change, or that probe for a row
+  `connectOrCreate` would create are read alone.
+- **On Neon HTTP and D1**, the reads that decide the plan run first, and the
+  writes, the checks that abort the batch on a stale premise, and the result
+  read follow as one native batch. A lookup through the parent's key still
+  waits for the parent's row, so those writes take one more round trip.
+
+### Round trips per nested write
+
+Without `include`. The 1.4.0 count is in brackets where it differs. MySQL is
+simulated.
+
+| Call | PostgreSQL | Neon HTTP | MySQL *(sim.)* | SQLite | D1 |
+|---|---|---|---|---|---|
+| `create` + nested `create` | 4 [5] | 1 | 5 | 4 [5] | 1 |
+| `create` + nested `create` ×3 | 4 [5] | 1 | 5 | 4 [5] | 1 |
+| `create` + to-one `connect` | 4 [5] | 2 | 5 | 4 [5] | 2 |
+| `create` + `connectOrCreate`, found | 4 [6] | 2 | 6 | 5 [6] | 2 |
+| `create` + `connectOrCreate`, missing | 5 [6] | 2 | 6 | 5 [6] | 2 |
+| `create` + many-to-many `connect` ×3 | 5 [10] | 2 [4] | 8 | 5 [10] | 2 [4] |
+| `update` + nested `create` | 4 [6] | 2 | 7 | 4 [6] | 2 |
+| `update` + many-to-many `connect` ×3 | 5 [11] | 3 [5] | 10 | 5 [11] | 3 [5] |
+| `update` + many-to-many `set` | 7 [10] | 3 [4] | 10 | 7 [10] | 3 [4] |
+| `update` + one-to-many `set` | 8 [10] | 3 [4] | 10 | 8 [10] | 3 [4] |
+| `update` + nested `delete` | 6 [7] | 3 | 8 | 6 [7] | 3 |
+| `update` + to-many `upsert`, found | 6 [8] | 3 | 9 | 6 [8] | 3 |
+| root `upsert` with a nested write, found | 7 [8] | 3 | 9 | 8 | 3 |
+| `delete` (foreign keys cascade) | 1 | 1 | 5 | 1 | 1 |
+
+Over the 72 calls of the census, round trips went from 480 to 399 on
+PostgreSQL, 484 to 411 on SQLite, 176 to 164 on Neon HTTP and 178 to 166 on
+D1, every result identical to 1.4.0.
+
+## Not optimized yet
+
+- A to-many `connect` or `set` on a relation whose foreign key the child holds
+  sends one `UPDATE` per target.
+- On Neon HTTP and D1, the reads that decide a nested write's plan are sent one
+  at a time.
+- MySQL answers creates, updates and upserts with a separate read, having no
+  `RETURNING`.
