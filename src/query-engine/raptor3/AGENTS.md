@@ -1125,6 +1125,33 @@ key the CHILDREN hold is not read there: a rewritten primary key or referenced
 unique key reaches them through the stated assignment (`CommandAttempt.read`),
 measured identical under every nested verb, so keys are not excluded as such.
 
+**Addendum (2026-10-22): a to-many write reads its targets together.** A run
+of sibling lookups of one model — a to-many `connect` or `set`, its targets
+one lookup each, with the junction links between them — is read in one
+statement (`CommandExecution.#prefetch`,
+`Selection.rows`): the disjunction of the lookups' own selectors, under the
+lock each probe takes, after every write ahead of the run. Each row is bound
+as the lookup's own read binds it, and only an exact answer is kept: every
+lookup matched by exactly one row holding the key values its selector pins,
+no row twice; anything else binds nothing and each lookup reads alone where it
+runs, raising what it always raised. A lookup joins a run unless the shared
+read could answer differently from its own read where it stands: one reading
+by a membership its selector does not hold (`nested-write-round-trips`, the
+to-many `update` through a membership), one whose selector reads through a
+relation, which a link or move of the run can change (the scope that hides a
+tag beside a secret one), and a probe whose other arm inserts what it looks
+for, whose ordinary miss would cost a second read (the `connectOrCreate`
+statement count). The links of such a run then go as one INSERT per bind
+budget (`#linkTogether`, `OperationContext.linkMany`) where the dialect has a
+targeted upsert: the choices run first — with their rows found they write
+nothing — and a choice whose lookup is still unanswered ends the run, its
+read possibly depending on a link ahead of it. A link that captured its
+slot's owner never stands in such a run: its capture is placed before it.
+
+On the batch route the run's read is a lone read, as each lookup's own is, so
+it reads what the last submitted unit left (the batch-route pin: two targets,
+one read and one batch).
+
 Whether a nested write's unique target selector names its row through the
 CONSTRAINT is one predicate, `nestedTargetAddressesConstraint(edge, verb)` in
 `commands/selection.ts`, consulted at the three nested target sites in

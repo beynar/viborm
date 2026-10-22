@@ -10,6 +10,10 @@ import {
   getModelKeyCatalog,
   type OrderedModelKey,
 } from "@schema/model";
+import {
+  compileBindBudgetChunks,
+  normalizedBindParameterLimit,
+} from "../../bind-budget";
 import type { PreparedGuardFailure } from "../../types";
 import {
   type Member,
@@ -40,6 +44,7 @@ import type {
   Command,
   CommandOccurrence,
   Commands,
+  Link,
   MembershipRequirement,
   RecordCommand,
   SelectedSeriesMember,
@@ -731,8 +736,12 @@ export class CommandExecution {
         );
       return;
     }
-    attempt.rows.set(selection, found);
-    attempt.bind(selection.fields, found);
+    this.#observed(selection, found);
+  }
+  /** `selection` FOUND `found`: its binding, and on the batch route its premise. */
+  #observed(selection: Selection, found: Input): void {
+    this.attempt.rows.set(selection, found);
+    this.attempt.bind(selection.fields, found);
     // The requirement this premise proves must last through the effect that
     // consumes it, and a probe that read UNLOCKED (`Selection.insertsWhenAbsent`)
     // holds nothing of its own answer — so on the batch route, where no
@@ -751,6 +760,153 @@ export class CommandExecution {
         ),
         selection.retained()
       );
+  }
+  /**
+   * The lookup `occurrence` reads, where a sibling run may read it with
+   * others ({@link prefetch}). The run's read states each lookup's own
+   * selector where the first would read — after every write ahead of the
+   * run, or on the batch route outside its queue, as each lookup's own lone
+   * read is — so a lookup qualifies unless
+   * that read could answer differently from its own read where it stands: it
+   * reads by a membership the selector does not hold, or its selector reads
+   * through a relation, which a link or a move of the run may change (a
+   * scope's relation filter reading a junction row a link writes). A
+   * producer's continuation never stands in a run of two: the arm that
+   * supplies its row stands between it and any other. Nor does a probe whose
+   * other arm inserts what it looks for: a miss is its ordinary answer, and a
+   * run with a miss binds nothing, so it would read twice.
+   */
+  #prefetchable(occurrence: CommandOccurrence): Selection | undefined {
+    const command = occurrence.command;
+    const lookup =
+      command.kind === "lookup"
+        ? command
+        : command.kind === "choose"
+          ? command.lookup
+          : undefined;
+    if (
+      !lookup ||
+      lookup.membership() ||
+      lookup.facts.reads.length > 0 ||
+      lookup.insertsWhenAbsent ||
+      this.attempt.rows.has(lookup) ||
+      this.attempt.prefetched.has(lookup)
+    )
+      return;
+    return lookup;
+  }
+  /**
+   * The rows a run of sibling lookups takes, in one read (per bind budget)
+   * where each would take its own: the lookup at `index` and every
+   * {@link prefetchable} one of its model up to the first sibling
+   * that is neither such a lookup nor a junction link. The read is the
+   * disjunction of their selectors under the lock each probe takes, and each
+   * row is bound as that lookup's own read binds it, so the lookups then read
+   * nothing.
+   *
+   * Only an exact answer is kept: every lookup matched by exactly one row
+   * holding the unique key values its selector pins, no row matched twice.
+   * A row the read returns satisfies some lookup's selector and so holds that
+   * lookup's pins, so in such an answer each row satisfies its own lookup's.
+   * Anything else — a missing row, a lookup that pins no key, a key the
+   * database compares differently (a collation, a numeric type) — binds
+   * nothing, and each lookup reads alone where it runs, raising what it
+   * always raised.
+   */
+  async #prefetch(
+    children: readonly CommandOccurrence[],
+    index: number
+  ): Promise<void> {
+    const first = this.#prefetchable(children[index]!);
+    if (!first) return;
+    const run = [first];
+    for (const sibling of children.slice(index + 1)) {
+      if (sibling.placement !== children[index]!.placement) break;
+      const lookup = this.#prefetchable(sibling);
+      if (lookup?.model === first.model) run.push(lookup);
+      else if (!lookup && sibling.command.kind !== "link") break;
+    }
+    for (const lookup of run) this.attempt.prefetched.add(lookup);
+    if (run.length < 2) return;
+    const ctx = this.context;
+    const rows: Input[] = [];
+    for (const chunk of compileBindBudgetChunks(
+      run.length,
+      normalizedBindParameterLimit(ctx.driver.maxBindParametersPerStatement),
+      (start, end) => first.rows(run.slice(start, end)).sql
+    ))
+      rows.push(
+        ...(await ctx.read(
+          first.rows(run.slice(chunk.start, chunk.end)),
+          true,
+          false,
+          first.model
+        ))
+      );
+    const found = run.map((lookup) =>
+      rows.filter((row) =>
+        [...lookup.facts.keys].every(([field, value]) =>
+          Object.is(row[field], value)
+        )
+      )
+    );
+    if (
+      rows.length !== run.length ||
+      found.some((matches) => matches.length !== 1) ||
+      new Set(found.map(([row]) => row)).size !== run.length
+    )
+      return;
+    for (const [position, lookup] of run.entries())
+      this.#observed(lookup, found[position]![0]!);
+  }
+  /**
+   * A run of links through one junction and the choices they link, once
+   * {@link prefetch} answered those choices' lookups: the choices run first,
+   * in order — a choice beside a junction link is a `connect`, a
+   * `connectOrCreate` or a `set` target, which with its row found writes
+   * nothing — and the links follow as one INSERT
+   * (`OperationContext.linkMany`), where each would be its own. A link that
+   * captured its slot's owner, which vacates it first, never joins one: its
+   * capture stands before it, between it and any earlier link. A choice
+   * whose lookup is still unanswered ends the run: its read may depend on a
+   * link ahead of it. The count of `children` from `index` it consumed, 0
+   * where it took none.
+   */
+  async #linkTogether(
+    children: readonly CommandOccurrence[],
+    index: number,
+    member: Member
+  ): Promise<number> {
+    if (!this.context.driver.adapter.capabilities.supportsTargetedUpsert)
+      return 0;
+    const run: CommandOccurrence[] = [];
+    const links: CommandOccurrence<Link>[] = [];
+    let edge: Link["edge"] | undefined;
+    for (const sibling of children.slice(index)) {
+      const command = sibling.command;
+      if (sibling.placement !== "after") break;
+      if (command.kind === "choose" && this.attempt.rows.has(command.lookup))
+        run.push(sibling);
+      else if (
+        command.kind === "link" &&
+        (edge ??= command.edge) === command.edge
+      ) {
+        run.push(sibling);
+        links.push(sibling as CommandOccurrence<Link>);
+      } else break;
+    }
+    if (links.length < 2) return 0;
+    // Choices after the last link are not this run's.
+    run.length = run.indexOf(links.at(-1)!) + 1;
+    for (const choice of run)
+      if (choice.command.kind === "choose") await this.run(choice, member);
+    for (const link of links) this.#entered.add(link);
+    await this.context.linkMany(
+      edge!,
+      links.map(({ command }) => this.attempt.resolve(command.values)),
+      member
+    );
+    return run.length;
   }
   /**
    * The shared FOUND-consumption rule: an unlocked positive observation is
@@ -963,8 +1119,11 @@ export class CommandExecution {
           );
         }
         await this.#requireTransitions(command);
-        for (const child of occurrence.children)
-          if (child.placement === "before") await this.run(child, member);
+        for (const [index, child] of occurrence.children.entries())
+          if (child.placement === "before") {
+            await this.#prefetch(occurrence.children, index);
+            await this.run(child, member);
+          }
         // Every `before` child has run, and one of them may already have moved
         // this row: a correlated arm's target is the row this one points at, so
         // the provider rewrote this row's foreign key when the arm rewrote the
@@ -1042,6 +1201,12 @@ export class CommandExecution {
         for (let index = 0; index < children.length; index++) {
           const child = children[index]!;
           if (child.placement !== "after") continue;
+          await this.#prefetch(children, index);
+          const linked = await this.#linkTogether(children, index, member);
+          if (linked > 0) {
+            index += linked - 1;
+            continue;
+          }
           // The maximal run of consecutive `after` records sharing `child`'s
           // INSERT (`child` itself first, when it qualifies at all).
           const run: CommandOccurrence<RecordCommand>[] = [];

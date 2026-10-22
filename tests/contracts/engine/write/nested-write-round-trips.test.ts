@@ -13,11 +13,11 @@
  */
 
 import { createClient } from "@client/client";
-import type { QueryExecutionContext, QueryResult } from "@drivers";
+import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
-import { NotFoundError } from "@errors";
+import { NestedWriteError, NotFoundError } from "@errors";
 import { hydrateSchemaNames, s } from "@schema";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -91,6 +91,22 @@ const note = s
   .map("nwrt_notes");
 const schema = { user, post, tag, note };
 
+/** Tags whose posts carry the "secret" tag are hidden from related reads. */
+const hiddenBesideSecret = {
+  name: "test.nwrt",
+  rows: {
+    control: "visibility",
+    default: "beside",
+    models: {
+      tag: {
+        beside: {
+          related: { posts: { none: { tags: { some: { name: "secret" } } } } },
+        },
+      },
+    },
+  },
+} as const;
+
 beforeAll(() => hydrateSchemaNames(schema));
 const getFamily = usePGliteSchemaFamily(schema);
 
@@ -123,6 +139,43 @@ class RecordingSQLite3 extends SQLite3Driver implements Recording {
   ): Promise<QueryResult<T>> {
     this.statements?.push(sql);
     return super.execute<T>(client, sql, params, context);
+  }
+}
+/**
+ * The batch route (D1's profile): no interactive transaction, a native batch
+ * per unit. `trips` counts round trips: a lone statement or a whole batch.
+ */
+class BatchRecordingSQLite3 extends RecordingSQLite3 {
+  override readonly supportsTransactions = false;
+  override readonly supportsBatch = true;
+  trips = 0;
+  #batching = false;
+  protected override execute<T>(
+    client: Database.Database,
+    sql: string,
+    params: unknown[],
+    context?: QueryExecutionContext
+  ): Promise<QueryResult<T>> {
+    if (!this.#batching) this.trips++;
+    return super.execute<T>(client, sql, params, context);
+  }
+  protected override async executeBatch<T>(
+    client: Database.Database,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
+    this.trips++;
+    this.#batching = true;
+    client.exec("BEGIN");
+    try {
+      const results = await super.executeBatch<T>(client, queries);
+      client.exec("COMMIT");
+      return results;
+    } catch (error) {
+      client.exec("ROLLBACK");
+      throw error;
+    } finally {
+      this.#batching = false;
+    }
   }
 }
 /** MySQL's capability profile on SQLite: no RETURNING. */
@@ -292,6 +345,150 @@ describe.each(SUBSTRATES)("%s", (name, make) => {
     expect(await client.post.findUnique({ where: { id: 31 } })).toBeNull();
   });
 
+  // `CommandExecution.prefetch` and `linkTogether`: the targets of a to-many
+  // `connect` are one read, and their junction rows one INSERT.
+  test("a to-many connect reads its targets once and links them in one INSERT", async () => {
+    const driver = make();
+    const client = await boot(driver);
+    const { statements } = await traced(driver, () =>
+      client.post.create({
+        data: { id: 41, title: "c", tags: { connect: [{ id: 1 }, { id: 2 }] } },
+      })
+    );
+    expect(
+      statements.filter((sql) => sql.includes('"nwrt_tags"'))
+    ).toHaveLength(1);
+    expect(
+      statements.filter((sql) => sql.trimStart().startsWith("INSERT"))
+    ).toHaveLength(2);
+    expect(
+      await client.post.findUnique({
+        where: { id: 41 },
+        select: { tags: { select: { id: true } } },
+      })
+    ).toEqual({ tags: [{ id: 1 }, { id: 2 }] });
+  });
+
+  test("a to-many set reads its targets once and links them in one INSERT", async () => {
+    const driver = make();
+    const client = await boot(driver);
+    await client.post.update({
+      where: { id: 10 },
+      data: { tags: { connect: [{ id: 1 }] } },
+    });
+    const { statements } = await traced(driver, () =>
+      client.post.update({
+        where: { id: 10 },
+        data: { title: "s", tags: { set: [{ id: 2 }, { id: 1 }] } },
+      })
+    );
+    expect(
+      statements.filter((sql) => sql.includes('"nwrt_tags"'))
+    ).toHaveLength(1);
+    expect(
+      statements.filter((sql) => sql.trimStart().startsWith("INSERT"))
+    ).toHaveLength(1);
+    expect(
+      await client.post.findUnique({
+        where: { id: 10 },
+        select: { tags: { select: { id: true } } },
+      })
+    ).toEqual({ tags: [{ id: 1 }, { id: 2 }] });
+  });
+
+  test("a to-many connect naming a missing target fails as each read did, writing nothing", async () => {
+    const driver = make();
+    const client = await boot(driver);
+    await expect(
+      client.post.create({
+        data: {
+          id: 42,
+          title: "m",
+          tags: { connect: [{ id: 1 }, { id: 99 }, { id: 2 }] },
+        },
+      })
+    ).rejects.toBeInstanceOf(NestedWriteError);
+    expect(await client.post.findUnique({ where: { id: 42 } })).toBeNull();
+  });
+
+  // The membership is not in the selector, so the run's read cannot state
+  // it: post 11 is user 2's, and the update must not reach it.
+  test("a to-many update through a membership does not read its targets together", async () => {
+    const driver = make();
+    const client = await boot(driver);
+    await expect(
+      client.user.update({
+        where: { id: 1 },
+        data: {
+          posts: {
+            update: [
+              { where: { id: 10 }, data: { title: "a" } },
+              { where: { id: 11 }, data: { title: "b" } },
+            ],
+          },
+        },
+      })
+    ).rejects.toBeInstanceOf(NestedWriteError);
+    expect(await client.post.findMany({ orderBy: { id: "asc" } })).toEqual([
+      { id: 10, title: "p10", authorId: 1, reviewerId: null },
+      { id: 11, title: "p11", authorId: 2, reviewerId: null },
+    ]);
+  });
+
+  // The second target's scope reads the junction row the first link writes
+  // (`dependent`, N1): tag 2 is hidden once a post it is on carries the
+  // secret tag, which the first link gives post 10. Read ahead of that link
+  // it would still be visible, and be linked.
+  test("a target whose scope reads an earlier link of the same write reads after it", async () => {
+    const driver = make();
+    const client = await boot(driver);
+    await client.tag.create({ data: { id: 3, name: "secret" } });
+    await client.post.update({
+      where: { id: 10 },
+      data: { tags: { connect: [{ id: 2 }] } },
+    });
+    const scoped = client.$extends(hiddenBesideSecret);
+    await expect(
+      scoped.post.update({
+        where: { id: 10 },
+        data: { tags: { connect: [{ id: 3 }, { id: 2 }] } },
+      })
+    ).rejects.toBeInstanceOf(NestedWriteError);
+    expect(
+      await client.post.findUnique({
+        where: { id: 10 },
+        select: { tags: { select: { id: true } } },
+      })
+    ).toEqual({ tags: [{ id: 2 }] });
+  });
+
+  // A miss is a connectOrCreate's ordinary answer, and a run's read with a
+  // miss binds nothing: its probes read alone.
+  test("a to-many connectOrCreate probes each target once", async () => {
+    const driver = make();
+    const client = await boot(driver);
+    const { statements } = await traced(driver, () =>
+      client.post.create({
+        data: {
+          id: 43,
+          title: "o",
+          tags: {
+            connectOrCreate: [
+              { where: { name: "t1" }, create: { id: 5, name: "t1" } },
+              { where: { name: "t9" }, create: { id: 6, name: "t9" } },
+            ],
+          },
+        },
+      })
+    );
+    expect(
+      statements.filter(
+        (sql) =>
+          sql.trimStart().startsWith("SELECT") && sql.includes('"nwrt_tags"')
+      )
+    ).toHaveLength(name === "PGlite" ? 2 : 3);
+  });
+
   test("a later write that changes the root row keeps the re-read, and the answer shows it", async () => {
     const driver = make();
     const client = await boot(driver);
@@ -429,6 +626,23 @@ test("a provider whose locking miss takes a lock probes unlocked and confirms wh
   expect(statements.filter((sql) => sql.includes('"nwrt_users"'))).toHaveLength(
     2
   );
+});
+
+// The batch route reads the targets once too, outside its one batch.
+test("on the batch route a to-many connect reads its targets once", async () => {
+  const driver = new BatchRecordingSQLite3();
+  const client = await boot(driver);
+  driver.trips = 0;
+  await client.post.create({
+    data: { id: 45, title: "b", tags: { connect: [{ id: 1 }, { id: 2 }] } },
+  });
+  expect(driver.trips).toBe(2);
+  expect(
+    await client.post.findUnique({
+      where: { id: 45 },
+      select: { tags: { select: { id: true } } },
+    })
+  ).toEqual({ tags: [{ id: 1 }, { id: 2 }] });
 });
 
 test("a provider without RETURNING keeps the re-read", async () => {

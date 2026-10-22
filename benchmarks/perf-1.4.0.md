@@ -428,18 +428,20 @@ within noise.
 
 ## Bundle
 
-| Entry | 1.3.3 | 1.4.0 before §10 | after §10 | after nested writes |
-|---|---|---|---|---|
-| pg application | 183,719 B | 188.58 kB | 192.55 kB | 193.57 kB |
-| D1 Worker | 183,229 B | 188.06 kB | 191.62 kB | 192.65 kB |
-| pg application + permissions | 196,634 B | 201.52 kB | 205.45 kB | 206.54 kB |
+| Entry | 1.3.3 | 1.4.0 before §10 | after §10 | after nested writes | after to-many targets |
+|---|---|---|---|---|---|
+| pg application | 183,719 B | 188.58 kB | 192.55 kB | 193.57 kB | 194.20 kB |
+| D1 Worker | 183,229 B | 188.06 kB | 191.62 kB | 192.65 kB | 193.28 kB |
+| pg application + permissions | 196,634 B | 201.52 kB | 205.45 kB | 206.54 kB | 207.16 kB |
 
 §10 adds about 3.6 kB to D1 and 3.9 kB to the PostgreSQL entries (walk sets,
 flag members and arrays, the relation bound, its driver option, reading Neki
 from each connection's startup and the dialect facts); the `size-limit` rows are raised to the measured
 size rounded up to 0.1 kB plus 0.3 kB (OD-17). The nested-write round trips
 (#109: the root statement answering the result, the locating UPDATE, the
-PostgreSQL upsert probe) add about 1 kB more, under the same rule.
+PostgreSQL upsert probe) add about 1 kB more, under the same rule, and reading
+a to-many write's targets together and linking them in one INSERT about
+0.6 kB more.
 
 About +1.75 kB is `findUnique` batching (measured by removing its hook),
 +2.2 kB the `undefined` refusal and `result`, the rest the write fold, the

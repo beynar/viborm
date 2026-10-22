@@ -17,6 +17,8 @@ export class CommandAttempt {
   constructor(readonly transport = new TransportAttempt()) {}
   readonly rows = new Map<Selection, Input>();
   readonly retained = new Set<Selection>();
+  /** Lookups a sibling run already tried to read together (`CommandExecution.prefetch`). */
+  readonly prefetched = new Set<Selection>();
   readonly junctions = new Map<JunctionCapture, Input>();
   readonly missingChoices = new Map<object, Choose>();
   readonly conditionalSkips = new Map<unknown, Choose>();

@@ -49,6 +49,13 @@ that refuse a `where` emptied by `undefined`. Measurements are in
   locking miss there takes a gap lock that deadlocks two concurrent creates;
   SQLite keeps both reads, having no row lock. A to-many nested `upsert`
   still confirms that the row it found belongs to the parent.
+- **A to-many `connect` or `set` reads its targets in one statement and
+  links them in one INSERT.** `tags: { connect: [a, b, c] }` went from a
+  locking read and a junction INSERT per target to one of each: a `create`
+  connecting three tags is 10 to 5 round trips on PostgreSQL and SQLite with
+  the changes above, and 4 to 2 on D1 and Neon HTTP. Where a target is
+  missing, each is read again on its own and the call fails as before. MySQL
+  reads the targets together and keeps one INSERT per link.
 - **`findUnique` calls issued in the same tick share one statement**, as in
   Prisma: same model, unique key and projection, outside transactions, a
   `where` that is the key alone (string, int or bigint members). 50

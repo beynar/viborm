@@ -404,6 +404,22 @@ export class Selection {
     );
   }
   /**
+   * The rows this lookup and others of its model take, as ONE read: the
+   * projection and the lock {@link query} takes for each locking probe, over
+   * the disjunction of their selectors (`CommandExecution.prefetch`).
+   */
+  rows(selections: readonly Selection[]) {
+    const ctx = this.execution.context;
+    return ctx.queries.select(this.model, {}, undefined, {
+      forUpdate: !ctx.usesBatch,
+      projection: this.#rowProjection,
+      selector: ctx.queries.orSelectors(
+        this.model,
+        selections.map((selection) => selection.selector)
+      ),
+    });
+  }
+  /**
    * The premise that states a requirement this operation still owns: the
    * located row, addressed by its IDENTITY, under the membership it is
    * consumed through and the condition it matched.

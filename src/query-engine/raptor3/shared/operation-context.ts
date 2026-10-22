@@ -3855,15 +3855,7 @@ export class OperationContext {
         }
       }
     }
-    const operands = [edge.sourceSide, edge.targetSide].flatMap((side) =>
-      side.members.map((pair) =>
-        q.fieldValue(
-          side.model,
-          pair.referencedField,
-          values[pair.junctionField]
-        )
-      )
-    );
+    const operands = this.#linkOperands(edge, values);
     if (!adapter.capabilities.supportsTargetedUpsert) {
       const targetAlias = q.alias();
       const membershipAlias = q.alias();
@@ -3904,22 +3896,71 @@ export class OperationContext {
       );
       return;
     }
-    const insert = adapter.mutations.insert(
-      adapter.identifiers.table(edge.table),
-      columns,
-      [operands]
-    );
     await this.#effect(
-      sql`${insert} ${adapter.mutations.onConflict(
-        sql.join(
-          columns.map((column) => adapter.identifiers.escape(column)),
-          ", "
-        ),
-        sql`NOTHING`
-      )}`,
+      this.#linkStatement(edge, [operands]),
       this.statementContext(edge.source, "update"),
       member
     );
+  }
+  /**
+   * Several memberships of one junction as ONE statement per bind budget: the
+   * rows {@link link} inserts one at a time where it captured nothing, each
+   * idempotent through the same conflict clause, so only where the dialect
+   * has a targeted upsert (elsewhere {@link link} states each membership as
+   * its own anti-join).
+   */
+  async linkMany(
+    edge: Extract<Membership, { kind: "junction" }>,
+    rows: readonly Input[],
+    member: Member
+  ): Promise<void> {
+    const operands = rows.map((values) => this.#linkOperands(edge, values));
+    for (const chunk of compileBindBudgetChunks(
+      operands.length,
+      normalizedBindParameterLimit(this.driver.maxBindParametersPerStatement),
+      (start, end) => this.#linkStatement(edge, operands.slice(start, end))
+    ))
+      await this.#effect(
+        chunk.statement,
+        this.statementContext(edge.source, "update"),
+        member
+      );
+  }
+  #linkOperands(
+    edge: Extract<Membership, { kind: "junction" }>,
+    values: Input
+  ): Sql[] {
+    return [edge.sourceSide, edge.targetSide].flatMap((side) =>
+      side.members.map((pair) =>
+        this.queries.fieldValue(
+          side.model,
+          pair.referencedField,
+          values[pair.junctionField]
+        )
+      )
+    );
+  }
+  /** Junction rows inserted where absent, through the edge's own conflict target. */
+  #linkStatement(
+    edge: Extract<Membership, { kind: "junction" }>,
+    rows: Sql[][]
+  ): Sql {
+    const adapter = this.driver.adapter;
+    const columns = [
+      ...edge.sourceSide.members,
+      ...edge.targetSide.members,
+    ].map((pair) => pair.junctionField);
+    return sql`${adapter.mutations.insert(
+      adapter.identifiers.table(edge.table),
+      columns,
+      rows
+    )} ${adapter.mutations.onConflict(
+      sql.join(
+        columns.map((column) => adapter.identifiers.escape(column)),
+        ", "
+      ),
+      sql`NOTHING`
+    )}`;
   }
   async captureMembership(
     edge: Extract<Membership, { kind: "junction" }>,
