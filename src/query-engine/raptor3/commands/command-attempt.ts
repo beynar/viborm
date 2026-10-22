@@ -14,7 +14,10 @@ import type {
 
 /** Database observations and field transports belonging to one command attempt. */
 export class CommandAttempt {
-  constructor(readonly transport = new TransportAttempt()) {}
+  readonly transport: TransportAttempt;
+  constructor(transport = new TransportAttempt()) {
+    this.transport = transport;
+  }
   readonly rows = new Map<Selection, Input>();
   readonly retained = new Set<Selection>();
   /** Lookups a sibling run already tried to read together (`CommandExecution.prefetch`). */
