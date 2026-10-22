@@ -53,6 +53,18 @@ idempotent, while different bytes at that identity are corruption. The state
 manifest is published last and is the only visibility boundary for a new
 state.
 
+`readSnapshot`, `publishSnapshot`, and `listSnapshots` cover both full schema
+documents and incremental delta artifacts. Storage handles exact bytes and
+physical content addresses; the migration engine authenticates and reconstructs
+them. A full document's address is its schema hash. A delta's address uses a
+separate hash domain, and the state manifest records it alongside the unchanged
+full-schema hash. Custom storage implementations need no new methods.
+
+Copy all snapshot artifacts, including transitive delta bases. Publication of a
+new delta uses already durable bases, then publishes the delta and SQL before
+the state manifest. Interrupted publication can leave unused artifacts, which
+`check` reports without deleting them.
+
 Eventually consistent or last-writer-wins storage cannot implement the writer
 contract directly. It needs an external single-writer or conditional
 publication owner. Workers KV is therefore refused as a writable estate;

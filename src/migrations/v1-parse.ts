@@ -93,6 +93,7 @@ const STATE_HASH_KEYS = [
   "sqlHash",
 ] as const;
 const PARENT_REQUIRED_KEYS = PARENT_KEYS.filter((key) => key !== "approvals");
+const STATE_ALLOWED_KEYS = [...STATE_KEYS, "snapshotArtifactHash"];
 const TRANSITION_HASH_KEYS = [
   "approvals",
   "fromState",
@@ -462,6 +463,9 @@ export function encodeStateId(
   for (const key of STATE_HASH_KEYS) {
     body[key] = manifest[key];
   }
+  if (manifest.snapshotArtifactHash !== undefined) {
+    body.snapshotArtifactHash = manifest.snapshotArtifactHash;
+  }
   return domainHash(HASH_DOMAIN.state, canonicalizeJson(body));
 }
 
@@ -470,7 +474,12 @@ export function parseStateManifest(
   expectedId: Sha256
 ): MigrationStateManifestV1 {
   const parsed = parseJsonBytes(bytes, `states/${expectedId}.json`);
-  const record = exactObject(parsed, STATE_KEYS, STATE_KEYS, "state manifest");
+  const record = exactObject(
+    parsed,
+    STATE_ALLOWED_KEYS,
+    STATE_KEYS,
+    "state manifest"
+  );
   if (!Array.isArray(record.parents) || record.parents.length === 0) {
     refuse("state manifest must have at least one parent transition");
   }
@@ -498,6 +507,14 @@ export function parseStateManifest(
     estateHash: parseSha256(record.estateHash, "state.estateHash"),
     name: record.name,
     snapshotHash: parseSha256(record.snapshotHash, "state.snapshotHash"),
+    ...("snapshotArtifactHash" in record
+      ? {
+          snapshotArtifactHash: parseSha256(
+            record.snapshotArtifactHash,
+            "state.snapshotArtifactHash"
+          ),
+        }
+      : {}),
     sqlHash: parseSha256(record.sqlHash, "state.sqlHash"),
     destinationChecks: record.destinationChecks.map((check, index) =>
       parseCheck(check, `state.destinationChecks[${index}]`)

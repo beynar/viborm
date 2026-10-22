@@ -80,6 +80,7 @@ function selectionGraph(
     },
     states: new Map(states.map((entry) => [entry.stateId, entry])),
     snapshots: new Map([[SNAPSHOT_HASH, emptyManagedSnapshot()]]),
+    snapshotArtifacts: new Map(),
     sql: new Map([[SQL_HASH, new Uint8Array()]]),
     roots,
     leaves,

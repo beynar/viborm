@@ -7,6 +7,7 @@
 import type { AnyDriver } from "../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { admitLiveMigrationCapability } from "./admission";
+import { bytesEqual } from "./canonical-json";
 import {
   type InvalidIndex,
   qualifiedName,
@@ -86,6 +87,7 @@ import type {
   ResolveCallback,
   SchemaSnapshot,
 } from "./types";
+import { encodeSnapshot } from "./v1-parse-snapshot";
 import type {
   BaselineOptions,
   DownPreviewEdgeV1,
@@ -464,10 +466,30 @@ export async function pruneV1(
   );
   const { into } = options;
   await into.publishEstate(await present(storage.readEstate(), "estate.json"));
+  const copiedSnapshots = new Set<Sha256>();
   for (const id of kept) {
-    const { snapshotHash, sqlHash } = graph.states.get(id)!;
-    const snapshot = storage.readSnapshot(snapshotHash);
-    await into.publishSnapshot(snapshotHash, await present(snapshot, id));
+    const { snapshotHash, snapshotArtifactHash, sqlHash } =
+      graph.states.get(id)!;
+    const dependencies: Sha256[] = [];
+    let hash: Sha256 | undefined = snapshotArtifactHash ?? snapshotHash;
+    while (hash !== undefined && !copiedSnapshots.has(hash)) {
+      dependencies.push(hash);
+      hash = graph.snapshotArtifacts.get(hash)?.baseArtifactHash;
+    }
+    for (const dependency of dependencies.reverse()) {
+      const expected =
+        graph.snapshotArtifacts.get(dependency)?.bytes ??
+        encodeSnapshot(requireStateSnapshot(graph, null)).bytes;
+      const bytes = await present(storage.readSnapshot(dependency), dependency);
+      if (!bytesEqual(bytes, expected)) {
+        throw new MigrationError(
+          `Snapshot ${dependency} changed while prune copied it`,
+          VibORMErrorCode.MIGRATION_CORRUPTION
+        );
+      }
+      await into.publishSnapshot(dependency, expected.slice());
+      copiedSnapshots.add(dependency);
+    }
     await into.publishSql(sqlHash, graph.sql.get(sqlHash)!);
     await into.publishState(id, await present(storage.readState(id), id));
   }

@@ -17,6 +17,7 @@ export const HASH_ALGORITHM = "sha256";
 export const HASH_DOMAIN = {
   estate: "viborm.migration.estate.v1",
   snapshot: "viborm.migration.snapshot.v1",
+  snapshotDelta: "viborm.migration.snapshot-delta.v1",
   sql: "viborm.migration.sql.v1",
   dispatch: "viborm.migration.dispatch.v1",
   transition: "viborm.migration.transition.v1",

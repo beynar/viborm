@@ -12,6 +12,7 @@ import "@src/migrations/dialects/all";
 import { generateV1 } from "@src/migrations/generate-v1";
 import { ArtifactCache, loadMigrationGraph } from "@src/migrations/graph";
 import type { Sha256 } from "@src/migrations/identity";
+import type * as SnapshotArtifacts from "@src/migrations/snapshot-artifacts";
 import type { MigrationStorageReader } from "@src/migrations/storage/contract";
 import { MemoryEstateStorage } from "@src/migrations/storage/memory";
 import type * as V1Parse from "@src/migrations/v1-parse";
@@ -38,9 +39,23 @@ vi.mock("@src/migrations/v1-parse", async (importOriginal) => {
   return {
     ...actual,
     parseStateManifest: counted(actual.parseStateManifest),
-    parseSnapshotDocument: counted(actual.parseSnapshotDocument),
   };
 });
+
+vi.mock("@src/migrations/snapshot-artifacts", async (importOriginal) => {
+  const actual = await importOriginal<typeof SnapshotArtifacts>();
+  return {
+    ...actual,
+    parseSnapshotArtifact: (
+      ...args: Parameters<typeof actual.parseSnapshotArtifact>
+    ) => {
+      parses.count++;
+      return actual.parseSnapshotArtifact(...args);
+    },
+  };
+});
+
+const SNAPSHOT_HASH_PROPERTY = /"snapshotHash":"[0-9a-f]{64}"/;
 
 const MODELS = 20;
 const STATES = 200;
@@ -156,10 +171,18 @@ describe("migration graph artifact cache", () => {
 
   test("tampered bytes under a cached name are refused, never served", async () => {
     const graph = await loadMigrationGraph(storage);
-    const hash = [...graph.states.values()][STATES - 1]!.snapshotHash;
+    const state = [...graph.states.values()][STATES - 1]!;
+    const hash = state.snapshotArtifactHash ?? state.snapshotHash;
     const bytes = (await storage.readSnapshot(hash))!;
     const tampered = new TextEncoder().encode(
-      new TextDecoder().decode(bytes).replace('"model0"', '"model9"')
+      state.snapshotArtifactHash
+        ? new TextDecoder()
+            .decode(bytes)
+            .replace(
+              SNAPSHOT_HASH_PROPERTY,
+              `"snapshotHash":"${"0".repeat(64)}"`
+            )
+        : new TextDecoder().decode(bytes).replace('"model0"', '"model9"')
     );
     expect(tampered).not.toEqual(bytes);
     const outcome = await loadMigrationGraph(

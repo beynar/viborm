@@ -46,6 +46,10 @@ import {
   strictResolver,
 } from "./resolver";
 import { serializeResolvedModels } from "./serializer";
+import {
+  type EncodedSnapshotArtifact,
+  encodeSnapshotArtifact,
+} from "./snapshot-artifacts";
 import { SqlAssembly } from "./sql-assembly";
 import { sliceDispatch } from "./sql-blob";
 import { assertArtifactExecutionSafe } from "./statement-safety";
@@ -140,6 +144,35 @@ export async function generateV1(
   const destinationPlaceholders: MigrationBooleanCheckV1[] = [];
   // Each state a low-lock split publishes before this one, parent first.
   const stepStates: SealedLowLockState[] = [];
+  const snapshotArtifacts = new Map(loaded.snapshotArtifacts);
+  const snapshotFor = (
+    snapshot: SchemaSnapshot,
+    fromStates: readonly (Sha256 | null)[]
+  ) => {
+    const bases = fromStates.flatMap((from) => {
+      if (from === null) return [];
+      const manifest =
+        loaded.states.get(from) ??
+        stepStates.find((step) => step.encoded.stateId === from)!.encoded
+          .manifest;
+      return [manifest.snapshotArtifactHash ?? manifest.snapshotHash].filter(
+        (hash) => snapshotArtifacts.has(hash)
+      );
+    });
+    const encoded = encodeSnapshotArtifact(snapshot, snapshotArtifacts, bases);
+    if (encoded.bytes) {
+      snapshotArtifacts.set(encoded.artifactHash, {
+        snapshot,
+        snapshotHash: encoded.snapshotHash,
+        depth: encoded.depth,
+        bytes: encoded.bytes,
+        ...(encoded.baseArtifactHash
+          ? { baseArtifactHash: encoded.baseArtifactHash }
+          : {}),
+      });
+    }
+    return encoded;
+  };
 
   if (request.manualMigration) {
     assertManualParents(loaded, request.manualMigration.transitions);
@@ -247,7 +280,8 @@ export async function generateV1(
           `${request.name?.trim() || generateMigrationName(staged)} (step ${index + 1} of ${before.length + 1})`,
           origin,
           state,
-          split?.steps
+          split?.steps,
+          snapshotFor
         );
         warnings.push(...step.warnings);
         stepStates.push(step);
@@ -280,6 +314,10 @@ export async function generateV1(
   }
 
   const named = request.name?.trim() || generateMigrationName(reported);
+  const storedSnapshot = snapshotFor(
+    desired,
+    parentBodies.map((parent) => parent.fromState)
+  );
   const { sealed, hashedParents, destinationChecks, encoded } = sealState(
     assembly,
     parentBodies,
@@ -287,7 +325,7 @@ export async function generateV1(
     driver.target.dialect,
     estateHash,
     named,
-    desiredEncoded.snapshotHash
+    storedSnapshot
   );
 
   // Decision 8: field and model order is cosmetic, so a document that only
@@ -311,7 +349,7 @@ export async function generateV1(
     };
   }
 
-  const final = { snapshot: desiredEncoded, sealed, encoded };
+  const final = { snapshot: storedSnapshot, sealed, encoded };
   const states = [...stepStates, final];
   const sqlText = states
     .map((state) => new TextDecoder().decode(state.sealed.bytes))
@@ -345,7 +383,8 @@ export async function generateV1(
   // Every state is complete before the first publishes. A low-lock split's
   // states publish parent first, each manifest after its snapshot and SQL.
   for (const { snapshot, sealed: sql, encoded: manifest } of states) {
-    await storage.publishSnapshot(snapshot.snapshotHash, snapshot.bytes);
+    if (snapshot.bytes)
+      await storage.publishSnapshot(snapshot.artifactHash, snapshot.bytes);
     await storage.publishSql(sql.sqlHash, sql.bytes);
     await storage.publishState(manifest.stateId, manifest.bytes);
   }
@@ -390,7 +429,7 @@ function sealState(
   dialect: Parameters<typeof assertArtifactExecutionSafe>[1],
   estateHash: Sha256,
   name: string,
-  snapshotHash: Sha256
+  snapshot: EncodedSnapshotArtifact
 ) {
   const sealed = assembly.seal();
   assertArtifactExecutionSafe(
@@ -414,7 +453,10 @@ function sealState(
     format: "1",
     estateHash,
     name,
-    snapshotHash,
+    snapshotHash: snapshot.snapshotHash,
+    ...(snapshot.artifactHash === snapshot.snapshotHash
+      ? {}
+      : { snapshotArtifactHash: snapshot.artifactHash }),
     sqlHash: sealed.sqlHash,
     destinationChecks,
     parents: hashedParents,
@@ -439,7 +481,11 @@ function sealLowLockState(
     readonly approvals: readonly MigrationApprovalV1[];
   },
   state: LowLockState,
-  steps: ReadonlySet<DiffOperation> | undefined
+  steps: ReadonlySet<DiffOperation> | undefined,
+  encode: (
+    snapshot: SchemaSnapshot,
+    fromStates: readonly (Sha256 | null)[]
+  ) => EncodedSnapshotArtifact
 ) {
   const assembly = new SqlAssembly();
   const compiled = compileGeneratedTransition(
@@ -451,7 +497,7 @@ function sealLowLockState(
     assembly,
     steps
   );
-  const snapshot = encodeSnapshot(state.snapshot);
+  const snapshot = encode(state.snapshot, [origin.from]);
   const sealed = sealState(
     assembly,
     [sealParent(origin.from, compiled, origin.approvals)],
@@ -459,7 +505,7 @@ function sealLowLockState(
     driver.target.dialect,
     estateHash,
     name,
-    snapshot.snapshotHash
+    snapshot
   );
   return {
     ...sealed,
@@ -559,6 +605,7 @@ function emptyGraph(
     descriptor,
     states: new Map(),
     snapshots: new Map([[emptySnapshotHash, emptyManagedSnapshot()]]),
+    snapshotArtifacts: new Map(),
     sql: new Map(),
     roots: [],
     leaves: [],

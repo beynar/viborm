@@ -99,6 +99,33 @@ dialect target. There is no mutable head or state list.
 
 Snapshots, SQL blobs, and state manifests are immutable content-addressed
 objects. Snapshot and manifest JSON is canonical RFC 8785 UTF-8 without a BOM.
+A snapshot artifact is either a full schema document or a structured delta.
+`snapshotHash` always identifies the reconstructed full canonical schema. A
+delta's exact bytes have their own `snapshot-delta` hash domain and physical
+address in `snapshots/`; a state authenticates that address with the optional
+`snapshotArtifactHash`. Without that field it refers to a full document.
+`snapshot-artifacts.ts` alone owns delta admission, literal JSON-path changes,
+iterative reconstruction, representation selection, and dependency depth. A
+delta is storage, never an execution program or a second DDL differ. Resolve
+every distinct physical reference and verify its logical hash against every
+referencing state before effects; do not deduplicate admission by schema hash.
+Patch only independently owned documents. A full document has depth zero;
+at most 32 delta links are admitted, including cached bases. Generation reuses
+authenticated representations in ascending physical-hash order, otherwise
+chooses a smaller delta from actual manifest parents, or a full checkpoint.
+Authored history checkpoints always remain full. The existing `ArtifactCache`
+shares only exact-byte parsed full/delta documents and manifests; every command
+still reads all dependencies from its own storage before reusing a reconstructed
+schema. Retained reconstructions charge their full canonical size to the same
+bounded cache, alongside the delta bytes. Frozen delta values must be
+detached before applying edits, and graph snapshots remain frozen. Low-lock
+generation includes candidate-owned artifacts in the same selection scope and
+seals every intermediate snapshot reference before publication. `prune` copies
+the retained states' physical dependency closure in base-first order and
+revalidates copied bytes against the graph's authenticated view.
+Offline check accounts for the committed-state transitive dependency closure
+separately from artifacts visited while validating orphans. Storage interfaces
+and immutable conditional publication are unchanged.
 A state becomes visible only when its manifest is conditionally created after
 all referenced snapshot and SQL bytes are durable.
 
@@ -133,8 +160,10 @@ The authenticated chain is:
 Every read revalidates the chain. A filename is not proof merely because it
 looks like a digest.
 
-Stored snapshot identity (`encodeSnapshot` / `hashSnapshot`) is those exact
-canonical bytes. Live physical comparison uses `fingerprintLive` in
+Logical snapshot identity (`encodeSnapshot` / `hashSnapshot`) is the exact
+canonical full-schema bytes, independently of full or delta representation.
+Stored delta identity authenticates the exact canonical delta bytes in its
+separate frozen hash domain. Live physical comparison uses `fingerprintLive` in
 `push-fingerprint.ts`. That path is the dialect canonicalization owner: it
 projects partial-index predicates through the live database, drops constraint
 names when `introspectionReadsConstraintNames` is false, keeps PostgreSQL
@@ -903,6 +932,7 @@ dependency-safe clear are compiled before anything is dropped.
 | Closed V1 persisted and operation-input shapes | `v1-types.ts` |
 | Frozen non-executable graph views | `public-view.ts` |
 | Hostile artifact, marker, and ledger admission; derived hashes | `v1-parse.ts` |
+| Stored snapshot delta admission, reconstruction, representation choice and bounded dependencies | `snapshot-artifacts.ts`, reusing the full snapshot parser |
 | SQL blob framing, range validation, and exact slicing | `sql-blob.ts` |
 | Semantic estate storage promises | `storage/contract.ts` |
 | Atomic filesystem publication | `storage/fs-estate.ts` |

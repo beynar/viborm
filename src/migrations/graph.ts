@@ -8,6 +8,12 @@ import { bytesEqual } from "./canonical-json";
 import { emptyManagedSnapshot } from "./empty-snapshot";
 import type { Sha256 } from "./identity";
 import { freezeDeep } from "./push-fingerprint";
+import {
+  type ParsedSnapshotArtifact,
+  parseSnapshotArtifact,
+  type ResolvedSnapshotArtifact,
+  resolveSnapshotArtifacts,
+} from "./snapshot-artifacts";
 import { sliceDispatch, validateSqlRanges } from "./sql-blob";
 import { assertArtifactExecutionSafe } from "./statement-safety";
 import type { MigrationStorageReader } from "./storage/contract";
@@ -16,7 +22,6 @@ import {
   encodeSnapshot,
   encodeSqlBlob,
   parseEstateDescriptor,
-  parseSnapshotDocument,
   parseStateManifest,
 } from "./v1-parse";
 import type {
@@ -27,6 +32,7 @@ import type {
   MigrationParentTransitionV1,
   MigrationStateManifestV1,
   PathWitness,
+  SnapshotDeltaV1,
   StateSelector,
 } from "./v1-types";
 
@@ -35,6 +41,7 @@ export interface MigrationGraph {
   readonly descriptor: MigrationEstateDescriptorV1;
   readonly states: ReadonlyMap<Sha256, MigrationStateManifestV1>;
   readonly snapshots: ReadonlyMap<Sha256, SchemaSnapshot>;
+  readonly snapshotArtifacts: ReadonlyMap<Sha256, ResolvedSnapshotArtifact>;
   readonly sql: ReadonlyMap<Sha256, Uint8Array>;
   readonly roots: readonly Sha256[];
   readonly leaves: readonly Sha256[];
@@ -62,6 +69,12 @@ export function requireStateSnapshot(
 
 type CachedArtifact =
   | { readonly bytes: Uint8Array; readonly snapshot: SchemaSnapshot }
+  | {
+      readonly bytes: Uint8Array;
+      readonly delta: SnapshotDeltaV1;
+      readonly snapshot?: SchemaSnapshot;
+      readonly decodedBytes?: number;
+    }
   | { readonly bytes: Uint8Array; readonly manifest: MigrationStateManifestV1 };
 
 /**
@@ -71,7 +84,8 @@ type CachedArtifact =
  * entry answers only bytes identical to the ones it was parsed from, so
  * changed bytes are parsed, and refused, as if nothing were cached. Values
  * are deep-frozen because commands and tenants share them. Least recently
- * used entries are dropped once the held bytes exceed `maxBytes`.
+ * used entries are dropped once the held bytes exceed `maxBytes`. A retained
+ * delta reconstruction charges its full canonical size as well as delta bytes.
  */
 export class ArtifactCache {
   private readonly entries = new Map<Sha256, CachedArtifact>();
@@ -86,11 +100,37 @@ export class ArtifactCache {
     return this.held;
   }
 
-  snapshot(hash: Sha256, bytes: Uint8Array): SchemaSnapshot {
+  storedSnapshot(bytes: Uint8Array, hash: Sha256): ParsedSnapshotArtifact {
     const hit = this.hit(hash, bytes);
-    if (hit && "snapshot" in hit) return hit.snapshot;
-    const snapshot = freezeDeep(parseSnapshotDocument(bytes, hash));
-    return this.keep(hash, { bytes: bytes.slice(), snapshot }).snapshot;
+    if (hit && "delta" in hit)
+      return { kind: "delta", delta: hit.delta, snapshot: hit.snapshot };
+    if (hit && "snapshot" in hit)
+      return { kind: "full", snapshot: hit.snapshot };
+    const artifact = freezeDeep(parseSnapshotArtifact(bytes, hash));
+    if (artifact.kind === "full") {
+      this.keep(hash, { bytes: bytes.slice(), snapshot: artifact.snapshot });
+    } else {
+      this.keep(hash, { bytes: bytes.slice(), delta: artifact.delta });
+    }
+    return artifact;
+  }
+
+  rememberSnapshot(
+    hash: Sha256,
+    bytes: Uint8Array,
+    snapshot: SchemaSnapshot
+  ): void {
+    const entry = this.hit(hash, bytes);
+    if (!(entry && "delta" in entry) || entry.snapshot) return;
+    // Charge the full canonical result as well as the small delta; compressed
+    // bytes must not turn the existing cache bound into unbounded decoded state.
+    this.entries.delete(hash);
+    this.held -= entry.bytes.length;
+    this.keep(hash, {
+      ...entry,
+      snapshot: freezeDeep(snapshot),
+      decodedBytes: encodeSnapshot(snapshot).bytes.length,
+    });
   }
 
   manifest(id: Sha256, bytes: Uint8Array): MigrationStateManifestV1 {
@@ -112,11 +152,15 @@ export class ArtifactCache {
     // Only a miss parses, and a miss on a held hash has other bytes, which
     // the parse refuses, so `hash` is never already held here.
     this.entries.set(hash, entry);
-    this.held += entry.bytes.length;
+    this.held +=
+      entry.bytes.length +
+      ("decodedBytes" in entry ? (entry.decodedBytes ?? 0) : 0);
     for (const [key, oldest] of this.entries) {
       if (this.held <= this.maxBytes) break;
       this.entries.delete(key);
-      this.held -= oldest.bytes.length;
+      this.held -=
+        oldest.bytes.length +
+        ("decodedBytes" in oldest ? (oldest.decodedBytes ?? 0) : 0);
     }
     return entry;
   }
@@ -143,7 +187,7 @@ export async function loadMigrationGraph(
   const emptySnapshotHash = encodeSnapshot(emptyManagedSnapshot()).snapshotHash;
   const stateIds = await storage.listStates();
   const states = new Map<Sha256, MigrationStateManifestV1>();
-  const neededSnapshots = new Set<Sha256>([emptySnapshotHash]);
+  const neededSnapshots = new Set<Sha256>();
   const neededSql = new Set<Sha256>();
 
   for (const id of stateIds) {
@@ -168,22 +212,44 @@ export async function loadMigrationGraph(
       );
     }
     states.set(id, manifest);
-    neededSnapshots.add(manifest.snapshotHash);
+    if (
+      manifest.snapshotArtifactHash !== undefined ||
+      manifest.snapshotHash !== emptySnapshotHash
+    ) {
+      neededSnapshots.add(
+        manifest.snapshotArtifactHash ?? manifest.snapshotHash
+      );
+    }
     neededSql.add(manifest.sqlHash);
   }
 
   const snapshots = new Map<Sha256, SchemaSnapshot>();
   snapshots.set(emptySnapshotHash, emptyManagedSnapshot());
-  for (const hash of neededSnapshots) {
-    if (hash === emptySnapshotHash) continue;
-    const bytes = await storage.readSnapshot(hash);
-    if (!bytes) {
+  const snapshotArtifacts = await resolveSnapshotArtifacts(
+    storage,
+    neededSnapshots,
+    new Map(),
+    cache
+  );
+  for (const artifact of snapshotArtifacts.values()) {
+    if (!Object.isFrozen(artifact.snapshot)) freezeDeep(artifact.snapshot);
+  }
+  for (const manifest of states.values()) {
+    if (
+      manifest.snapshotArtifactHash === undefined &&
+      manifest.snapshotHash === emptySnapshotHash
+    )
+      continue;
+    const artifact = snapshotArtifacts.get(
+      manifest.snapshotArtifactHash ?? manifest.snapshotHash
+    )!;
+    if (artifact.snapshotHash !== manifest.snapshotHash) {
       throw new MigrationError(
-        `Snapshot ${hash} is referenced but missing`,
+        `State ${manifest.stateId} snapshot identity does not match its artifact`,
         VibORMErrorCode.MIGRATION_CORRUPTION
       );
     }
-    snapshots.set(hash, cache.snapshot(hash, bytes));
+    snapshots.set(manifest.snapshotHash, artifact.snapshot);
   }
 
   const sql = new Map<Sha256, Uint8Array>();
@@ -263,6 +329,7 @@ export async function loadMigrationGraph(
     descriptor,
     states,
     snapshots,
+    snapshotArtifacts,
     sql,
     roots,
     leaves,

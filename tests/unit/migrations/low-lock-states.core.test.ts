@@ -140,6 +140,7 @@ async function generated(
     statements: string[];
     rollback: string[];
     snapshotHash: string;
+    snapshotArtifactHash?: string;
   }[] = [];
   let to = result.stateId!;
   while (to !== root.stateId) {
@@ -160,6 +161,7 @@ async function generated(
           ? []
           : stepStatements(blob, transition.rollback.operations),
       snapshotHash: state.snapshotHash,
+      snapshotArtifactHash: state.snapshotArtifactHash,
     });
     to = state.parents[0]!.fromState!;
   }
@@ -204,6 +206,12 @@ describe("a generated PostgreSQL change on tables that hold rows", () => {
     expect(validation!.rollback).toEqual([]);
     expect(validation!.snapshotHash).toBe(keys!.snapshotHash);
     expect(validation!.snapshotHash).toBe(result.snapshotHash);
+    expect(
+      states
+        .slice(1, 4)
+        .every((state) => state.snapshotArtifactHash !== undefined)
+    ).toBe(true);
+    expect(validation!.snapshotArtifactHash).toBe(keys!.snapshotArtifactHash);
     expect(new Set(states.map(({ snapshotHash }) => snapshotHash)).size).toBe(
       4
     );
