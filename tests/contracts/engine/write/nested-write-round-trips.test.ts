@@ -628,6 +628,59 @@ test("a provider whose locking miss takes a lock probes unlocked and confirms wh
   );
 });
 
+// A singular polymorphic member is a TRANSFER: each link vacates the slot's
+// captured owner first, which one shared INSERT would not. A `set` places
+// those links side by side.
+test("a to-many set of members another holder owns moves each of them", async () => {
+  const book = s
+    .model({
+      id: s.string().id(),
+      title: s.string(),
+      shelf: s.toOne(() => shelf),
+    })
+    .map("nwrt_books");
+  const shelf = s
+    .model({
+      id: s.string().id(),
+      items: s
+        .toMany({ book: () => book }, { values: { book: "book" } })
+        .through({
+          book: { table: "nwrt_members", source: "holder", target: "entry" },
+        }),
+    })
+    .map("nwrt_shelves");
+  const shelves = { shelf, book };
+  hydrateSchemaNames(shelves);
+  const client: Client = createClient({
+    schema: shelves,
+    driver: new RecordingSQLite3(),
+  });
+  await syncLiveSchema(client);
+  const items = [
+    { type: "book", where: { id: "b1" } },
+    { type: "book", where: { id: "b2" } },
+  ];
+  await client.book.createMany({
+    data: [
+      { id: "b1", title: "one" },
+      { id: "b2", title: "two" },
+    ],
+  });
+  await client.shelf.create({ data: { id: "s1", items: { connect: items } } });
+  await client.shelf.create({ data: { id: "s2" } });
+  await client.shelf.update({
+    where: { id: "s2" },
+    data: { items: { set: items } },
+  });
+  for (const id of ["b1", "b2"])
+    expect(
+      await client.book.findUnique({
+        where: { id },
+        select: { shelf: { select: { id: true } } },
+      })
+    ).toEqual({ shelf: { id: "s2" } });
+});
+
 // The batch route reads the targets once too, outside its one batch.
 test("on the batch route a to-many connect reads its targets once", async () => {
   const driver = new BatchRecordingSQLite3();

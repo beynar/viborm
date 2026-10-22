@@ -1146,7 +1146,9 @@ budget (`#linkTogether`, `OperationContext.linkMany`) where the dialect has a
 targeted upsert: the choices run first — with their rows found they write
 nothing — and a choice whose lookup is still unanswered ends the run, its
 read possibly depending on a link ahead of it. A link that captured its
-slot's owner never stands in such a run: its capture is placed before it.
+slot's owner stays out: it vacates the slot first, which the shared INSERT
+does not (`nested-write-round-trips`, a `set` moving two singular polymorphic
+members; Devin review of #109).
 
 On the batch route the run's read is a lone read, as each lookup's own is, so
 it reads what the last submitted unit left (the batch-route pin: two targets,

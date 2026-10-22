@@ -866,8 +866,9 @@ export class CommandExecution {
    * `connectOrCreate` or a `set` target, which with its row found writes
    * nothing — and the links follow as one INSERT
    * (`OperationContext.linkMany`), where each would be its own. A link that
-   * captured its slot's owner, which vacates it first, never joins one: its
-   * capture stands before it, between it and any earlier link. A choice
+   * captured its slot's owner stays out: it vacates that slot first, which
+   * the shared INSERT does not (a `set` of a singular polymorphic member's
+   * slots places its links side by side). A choice
    * whose lookup is still unanswered ends the run: its read may depend on a
    * link ahead of it. The count of `children` from `index` it consumed, 0
    * where it took none.
@@ -889,6 +890,7 @@ export class CommandExecution {
         run.push(sibling);
       else if (
         command.kind === "link" &&
+        !command.captured &&
         (edge ??= command.edge) === command.edge
       ) {
         run.push(sibling);
