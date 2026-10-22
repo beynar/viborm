@@ -7,7 +7,7 @@
 import type { AnyDriver } from "../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { admitLiveMigrationCapability } from "./admission";
-import { bytesEqual } from "./canonical-json";
+import { bytesEqual, canonicalizeJson } from "./canonical-json";
 import {
   type InvalidIndex,
   qualifiedName,
@@ -465,7 +465,13 @@ export async function pruneV1(
     resolveStateSelector(graph, options.checkpoint)
   );
   const { into } = options;
-  await into.publishEstate(await present(storage.readEstate(), "estate.json"));
+  await into.publishEstate(
+    await present(
+      storage.readEstate(),
+      "estate.json",
+      canonicalizeJson(graph.descriptor)
+    )
+  );
   const copiedSnapshots = new Set<Sha256>();
   for (const id of kept) {
     const { snapshotHash, snapshotArtifactHash, sqlHash } =
@@ -477,10 +483,16 @@ export async function pruneV1(
       hash = graph.snapshotArtifacts.get(hash)?.baseArtifactHash;
     }
     for (const dependency of dependencies.reverse()) {
+      const artifact = graph.snapshotArtifacts.get(dependency);
       const expected =
-        graph.snapshotArtifacts.get(dependency)?.bytes ??
+        artifact?.bytes ??
         encodeSnapshot(requireStateSnapshot(graph, null)).bytes;
-      const bytes = await present(storage.readSnapshot(dependency), dependency);
+      // Only the implicit empty schema needs no stored object. An explicit
+      // reference, including an empty delta base, must still remain present.
+      const bytes =
+        !artifact && dependency === graph.emptySnapshotHash
+          ? ((await storage.readSnapshot(dependency)) ?? expected)
+          : await present(storage.readSnapshot(dependency), dependency);
       if (!bytesEqual(bytes, expected)) {
         throw new MigrationError(
           `Snapshot ${dependency} changed while prune copied it`,
@@ -491,15 +503,23 @@ export async function pruneV1(
       copiedSnapshots.add(dependency);
     }
     await into.publishSql(sqlHash, graph.sql.get(sqlHash)!);
-    await into.publishState(id, await present(storage.readState(id), id));
+    await into.publishState(
+      id,
+      await present(
+        storage.readState(id),
+        id,
+        canonicalizeJson(graph.states.get(id)!)
+      )
+    );
   }
   return { states: [...kept] };
 }
 
-/** Bytes the loaded graph authenticated, gone by the time prune copies them. */
+/** Refuse missing objects and revalidate fresh manifest/descriptor reads. */
 async function present(
   read: Promise<Uint8Array | null>,
-  artifact: string
+  artifact: string,
+  expected?: Uint8Array
 ): Promise<Uint8Array> {
   const bytes = await read;
   if (!bytes) {
@@ -508,7 +528,13 @@ async function present(
       VibORMErrorCode.MIGRATION_CORRUPTION
     );
   }
-  return bytes;
+  if (expected && !bytesEqual(bytes, expected)) {
+    throw new MigrationError(
+      `${artifact} changed while prune copied it`,
+      VibORMErrorCode.MIGRATION_CORRUPTION
+    );
+  }
+  return expected ?? bytes;
 }
 
 export async function downV1(

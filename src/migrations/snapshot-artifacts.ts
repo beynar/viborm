@@ -334,6 +334,8 @@ export function encodeSnapshotArtifact(
     const base = artifacts.get(baseArtifactHash)!;
     if (base.depth >= MAX_SNAPSHOT_DELTA_DEPTH) continue;
     const changes: SnapshotChangeV1[] = [];
+    // Both encoded snapshots are records, so every emitted edit is below the
+    // root; the producer cannot emit the empty path that admission refuses.
     changesBetween(
       parseJsonBytes(encodeSnapshot(base.snapshot).bytes, "snapshot base"),
       desired,

@@ -123,6 +123,10 @@ generation includes candidate-owned artifacts in the same selection scope and
 seals every intermediate snapshot reference before publication. `prune` copies
 the retained states' physical dependency closure in base-first order and
 revalidates copied bytes against the graph's authenticated view.
+It materializes the canonical virtual empty snapshot when an implicit empty
+schema has no stored object; explicit artifact dependencies must remain present.
+Fresh estate-descriptor and state-manifest reads must also equal the graph's
+authenticated canonical bytes before publication into the destination.
 Offline check accounts for the committed-state transitive dependency closure
 separately from artifacts visited while validating orphans. Storage interfaces
 and immutable conditional publication are unchanged.

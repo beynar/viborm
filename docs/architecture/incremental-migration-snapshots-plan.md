@@ -350,3 +350,58 @@ the sole cause: the aggregate gate remains failed, despite passing independent
 typechecking and coverage and the earlier-base 27.29 s aggregate pass. No
 budget, runner, test selection or threshold was changed to obtain a pass.
 The PR remains draft with these timing and bundle gates disclosed.
+
+## Final CI diagnosis and review
+
+CI run `39814473980` on `3116e6a0d` completed the core job successfully
+(529 files, 10,737 passing tests and one skipped test across the existing four
+shards), as well as types/format/docs and every provider job. This is the
+repository's existing CI core selection, not a rerun or replacement of the
+local 30-second aggregate migration lane described above.
+
+The only failing jobs are Package contract on Node 22.12.0 (`119949241143`)
+and Node 24 (`119949241294`). Both pass all 25 runtime and 29 type package
+consumer checks and package lint, then fail solely at the same two size-limit
+rows: 298.99 kB against 297.5 kB, and 430.54 kB against 429.2 kB. The exact
+local measurements above explain those rounded CI values. No test failure
+or provider defect is being hidden behind the bundle failure.
+
+Devin's final read-only review examined the feature worktree at `3116e6a0d`.
+The reviewer had no shell access and ran no tests. The parent verified its
+findings against the actual files and reproduced three failures before fixing
+them:
+
+- Pruning a valid implicit empty-schema state incorrectly required a stored
+  snapshot. Prune now materializes canonical empty bytes only for the virtual
+  case; an explicitly referenced empty artifact disappearing still refuses.
+- The second state-manifest read was copied without authentication. Prune now
+  compares it against the graph's canonical manifest before publishing it.
+  The same gap existed for `estate.json`; its second read now receives the
+  same check. Regression tests show neither swapped input publishes a state,
+  and a swapped estate descriptor never enters the destination.
+- The suggested empty-root-path guard is unnecessary: the encoder compares
+  two complete snapshot records, so differing top-level container kinds are
+  unreachable. The producing call now documents that invariant; hostile
+  empty paths remain refused by admission.
+
+The original three new regressions failed, then all 60 focused artifact and
+checkpoint tests passed after the correction. An additional explicit-empty
+dependency witness distinguishes a required stored object from the virtual
+origin. The user explicitly approved only the two size limits, 299.3 kB for
+the PostgreSQL migrations Worker and 430.9 kB for all public exports, including
+the usual headroom. All other size, time, memory and coverage limits remain
+unchanged.
+
+Final review qualification: complete types passed in 47.13 s at 6776.0 MiB
+sampled RSS. Migration coverage passed all 168 files / 2,548 tests at 97.28%
+statements/lines, 97.32% branches and 98.41% functions. The strict migration
+lane passed all 149 files / 2,403 runtime tests plus type probes in 25.76 s,
+within its unchanged 30 s / 1536 MiB limits. This supersedes the earlier
+local timing failure for the final tree. The production package build and
+all ten bundle checks pass. After the prune fixes, exact gzip sizes are
+299,039 B against the approved 299,300 B Worker cap and 430,609 B against the
+approved 430,900 B all-exports cap. The fixes fit within the approved limits;
+no additional headroom was added.
+All 54 packed-package consumer checks passed again on the final build
+(25 runtime and 29 declaration tests). Strict package lint, changed-file Biome
+and `git diff --check` also passed.

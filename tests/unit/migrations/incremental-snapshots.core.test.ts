@@ -519,7 +519,10 @@ describe("incremental snapshot graph and generation", () => {
     expect(await into.listStates()).toEqual([]);
   });
 
-  test("prune refuses a dependency that disappears after authentication", async () => {
+  test.each([
+    "ordinary",
+    "explicit-empty",
+  ])("prune refuses a %s dependency that disappears after authentication", async (kind) => {
     class VanishingStorage extends MemoryEstateStorage {
       reads = 0;
       override async readSnapshot(hash: string) {
@@ -527,8 +530,11 @@ describe("incremental snapshot graph and generation", () => {
       }
     }
     const storage = new VanishingStorage();
-    const base = await full(storage, snapshot());
-    const root = await state(storage, base);
+    const base = await full(
+      storage,
+      kind === "explicit-empty" ? { tables: [], enums: [] } : snapshot()
+    );
+    const root = await state(storage, base, base);
     const into = new MemoryEstateStorage();
     await expect(
       pruneV1(storage, { checkpoint: { id: root.stateId }, into })
@@ -549,6 +555,48 @@ describe("incremental snapshot graph and generation", () => {
       await storage.readSnapshot(hash)
     );
     expect(await checkEstate(into)).toEqual({ ok: true, findings: [] });
+  });
+
+  test("prune materializes an implicit virtual empty snapshot", async () => {
+    const storage = new MemoryEstateStorage();
+    const empty = encodeSnapshot({ tables: [], enums: [] });
+    const root = await state(storage, empty.snapshotHash);
+    expect(await storage.readSnapshot(empty.snapshotHash)).toBeNull();
+    expect(await checkEstate(storage)).toEqual({ ok: true, findings: [] });
+    const into = new MemoryEstateStorage();
+    await pruneV1(storage, { checkpoint: { id: root.stateId }, into });
+    expect(await into.readSnapshot(empty.snapshotHash)).toEqual(empty.bytes);
+    expect(await into.readState(root.stateId)).toEqual(root.bytes);
+    expect(await checkEstate(into)).toEqual({ ok: true, findings: [] });
+  });
+
+  test.each([
+    "state",
+    "estate",
+  ])("prune refuses %s bytes replaced after graph authentication", async (artifact) => {
+    class ChangingStorage extends MemoryEstateStorage {
+      stateReads = 0;
+      estateReads = 0;
+      override async readState(id: string) {
+        const bytes = await super.readState(id);
+        if (artifact !== "state" || ++this.stateReads === 1) return bytes;
+        return utf8Bytes("{}");
+      }
+      override async readEstate() {
+        const bytes = await super.readEstate();
+        if (artifact !== "estate" || ++this.estateReads === 1) return bytes;
+        return encodeEstateDescriptor({ dialect: "mysql" }).bytes;
+      }
+    }
+    const storage = new ChangingStorage();
+    const base = await full(storage, snapshot());
+    const root = await state(storage, base);
+    const into = new MemoryEstateStorage();
+    await expect(
+      pruneV1(storage, { checkpoint: { id: root.stateId }, into })
+    ).rejects.toMatchObject({ code: VibORMErrorCode.MIGRATION_CORRUPTION });
+    expect(await into.listStates()).toEqual([]);
+    if (artifact === "estate") expect(await into.readEstate()).toBeNull();
   });
 
   test("concurrent equal destinations from different bases publish separate authenticated artifacts", async () => {
