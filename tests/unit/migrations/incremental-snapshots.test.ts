@@ -59,7 +59,18 @@ describe("incremental snapshots on filesystem and live SQLite", () => {
         await next.entity.findUnique({ where: { id: "one" } })
       ).toMatchObject({ title: "retained", note: null });
       expect((await nextMigrations.push()).operations).toEqual([]);
-      await nextMigrations.down();
+      await expect(nextMigrations.down()).rejects.toMatchObject({
+        code: VibORMErrorCode.MIGRATION_CONSENT_REQUIRED,
+      });
+      await nextMigrations.down({
+        resolve: (change) =>
+          change.type === "destructive" &&
+          change.operation === "dropColumn" &&
+          change.table === "entity" &&
+          change.column === "note"
+            ? change.proceed()
+            : change.reject(),
+      });
       expect((await rootMigrations.status()).marker?.stateId).toBe(
         root.stateId
       );

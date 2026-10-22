@@ -124,6 +124,58 @@ describe("PostgreSQL catalog SQL holds no shape Neki refuses", () => {
 });
 
 describe("a catalog read the provider refuses names itself", () => {
+  it.each([
+    null,
+    "not JSON",
+    "{}",
+    "[1]",
+  ])("refuses malformed control constraints %j before reading a decision", async (constraints) => {
+    const producer = pgEstateDriver("public");
+    producer.respond = (sql) => {
+      const rows = postgresControlCatalogAnswer(sql, {
+        state: true,
+        log: true,
+        check: "CHECK ((singleton = 1))",
+      });
+      if (!rows) throw new Error("No decision may follow a refused catalog");
+      const first = rows[0];
+      if (typeof first !== "object" || first === null)
+        throw new Error("Expected the control catalog fixture");
+      Reflect.set(first, "constraints", constraints);
+      return rows;
+    };
+    await expect(
+      readPostgresDecision(producer, getMigrationDriver(producer), "TRUE")
+    ).rejects.toMatchObject({ code: VibORMErrorCode.MIGRATION_INVALID_STATE });
+    expect(
+      producer.statements.some((sql) => sql.includes("AS digest WHERE"))
+    ).toBe(false);
+  });
+
+  it("refuses a truncated control catalog rather than treating it as no history", async () => {
+    const producer = pgEstateDriver("public");
+    producer.respond = () => [];
+    await expect(
+      readPostgresDecision(producer, getMigrationDriver(producer), "TRUE")
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_INVALID_STATE,
+      message: expect.stringContaining("one row per control table"),
+    });
+  });
+
+  it("ignores non-record aggregate carriers without inventing marker or ledger rows", async () => {
+    const producer = pgEstateDriver("public");
+    producer.respond = (sql) =>
+      postgresControlCatalogAnswer(sql, {
+        state: true,
+        log: true,
+        check: "CHECK ((singleton = 1))",
+      }) ?? [{ marker: "[null,1]", ledger: "[false]", digest: null }];
+    await expect(
+      readPostgresDecision(producer, getMigrationDriver(producer), "TRUE")
+    ).resolves.toMatchObject({ marker: null, ledger: [], digest: undefined });
+  });
+
   const refusing = (failure: Error) => async (sql: string) => {
     if (INDEXES.test(sql)) throw failure;
     return { rows: [] };

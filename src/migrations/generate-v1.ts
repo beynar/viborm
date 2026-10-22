@@ -159,7 +159,12 @@ export async function generateV1(
         (hash) => snapshotArtifacts.has(hash)
       );
     });
-    const encoded = encodeSnapshotArtifact(snapshot, snapshotArtifacts, bases);
+    const encoded = encodeSnapshotArtifact(
+      snapshot,
+      snapshotArtifacts,
+      bases,
+      fromStates.every((from) => from === null)
+    );
     if (encoded.bytes) {
       snapshotArtifacts.set(encoded.artifactHash, {
         snapshot,

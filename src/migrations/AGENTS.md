@@ -1102,14 +1102,15 @@ contradict each other.
 ## Coverage Gate
 
 `pnpm test:coverage:migrations` is the exact migration-subsystem report. It
-passes the deterministic core and selected local extended list from
-`scripts/migration-test-manifest.mjs` to one bounded `coverage-migrations`
-invocation and writes `coverage/migrations/index.html`.
+passes the deterministic core and selected local extended groups from
+`scripts/migration-test-manifest.mjs` to bounded `coverage-migrations`
+invocations and writes `coverage/migrations/index.html`.
 
-Its enforced floors are 98% statements, 98% functions and 98% lines, with
-branches at 97.3%. Statements, lines and functions hold the full 98; the branch
-floor is an APPROVED EXCEPTION with recorded evidence in
-`scripts/coverage-policy.mjs`. The 30 residual arms are unreachable defensive
+Its enforced floors are 97% statements, 98% functions and 97% lines, with
+branches at 97.3%. The statement/line exception covers the PostgreSQL-only Neki
+commit-boundary paths (approved 2026-10-13); live PGlite cannot fit this lane's
+1536 MiB coverage ceiling. The branch-floor exception has recorded evidence in
+`scripts/coverage-policy.mjs`. Its 30 documented residual arms are unreachable defensive
 guards, each with a named upstream invariant: all 18 in `serializer.ts`
 (hydration always assigns `names.sql`; `EnumScalar.enumValues` returns `[]`, never
 `undefined`) and all 12 in `graph.ts` (a cycle there would need a SHA-256 preimage

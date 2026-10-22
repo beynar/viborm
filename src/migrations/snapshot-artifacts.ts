@@ -32,7 +32,7 @@ export interface ResolvedSnapshotArtifact {
 export interface EncodedSnapshotArtifact {
   readonly artifactHash: Sha256;
   readonly snapshotHash: Sha256;
-  /** Null means the observed committed graph already authenticates this object. */
+  /** Null means an authenticated or candidate-owned object can be reused. */
   readonly bytes: Uint8Array | null;
   readonly depth: number;
   readonly baseArtifactHash?: Sha256;
@@ -306,13 +306,13 @@ function changesBetween(
 export function encodeSnapshotArtifact(
   snapshot: SchemaSnapshot,
   artifacts: ReadonlyMap<Sha256, ResolvedSnapshotArtifact>,
-  parentArtifacts: Iterable<Sha256>
+  parentArtifacts: Iterable<Sha256>,
+  root = false
 ): EncodedSnapshotArtifact {
   const full = encodeSnapshot(snapshot);
   const bases = [...new Set(parentArtifacts)].sort();
   // Authored checkpoints must stand alone after pruning the preceding history.
-  if (bases.length === 0)
-    return { artifactHash: full.snapshotHash, ...full, depth: 0 };
+  if (root) return { artifactHash: full.snapshotHash, ...full, depth: 0 };
   for (const hash of [...artifacts.keys()].sort()) {
     if (artifacts.get(hash)!.snapshotHash === full.snapshotHash) {
       // Reuse authenticated immutable bytes; publication can omit this object.

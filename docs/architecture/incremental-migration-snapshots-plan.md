@@ -226,3 +226,38 @@ reference and additionally checks actual byte reduction and exactly two retained
 snapshot objects. A trial without decoded-result memoization took 87.28 s for
 these four suites; the integrated existing cache reduced that to 9.83 s. These
 are local verification observations, not a published runtime benchmark.
+
+The independent current-main review found one representation-selection gap:
+a real state using the virtual empty snapshot had no physical base and was
+mistaken for an authored root. Root status now comes from actual transition
+parents, independently of eligible stored bases. A public generation regression
+uses a valid empty-schema state after a delta-backed state and proves returning
+to that schema reuses the original delta without publishing another snapshot.
+The existing authored-checkpoint witness continues to require a full document.
+
+The first current-main coverage run passed its tests but missed the unchanged
+branch floor (97.18% versus 97.3%). Added meaningful boundary witnesses for an
+evicted parse still producing a frozen reconstructed graph, a dependency
+vanishing during prune, a stored virtual-empty snapshot, and malformed
+PostgreSQL control-catalog answers. The rerun passed all 168 files / 2,531 tests:
+97.24% statements/lines, 97.30% branches and 98.41% functions. The new artifact
+codec has 100% in every metric. No coverage source, threshold or resource
+limit changed. A further GeoPoint-annotation refusal joins the strict metadata
+regressions and is included in the final core qualification.
+
+Final current-main typecheck passed in 36.85 s at 6713.4 MiB sampled process-group
+RSS (8192 MiB ceiling). Migration core passed all 149 files / 2,387 tests plus
+type probes in 25.18 s, within the unchanged 30 s / 1536 MiB limits. All 44
+coverage-policy and runner-policy tests passed. Live SQLite/filesystem coverage
+also verifies the current-main rollback consent refusal before approving only
+the disposable fixture's `entity.note` removal.
+
+The production package build, all 54 packed-consumer tests, strict package lint,
+documentation link validation and production documentation build passed.
+The final CI bundle-size check passed eight rows and exceeded two existing
+limits: PostgreSQL migrations Worker 297.77 kB versus 295.9 kB, and all public
+exports 429.44 kB versus 427.5 kB (gzip, as reported by `size-limit`). These
+limits remain unchanged pending the owner's decision. A measured-growth update
+using the repository's established rounding plus 0.3 kB headroom would set only
+those rows to 298.1 kB and 429.8 kB. This is a shipped-code cost of the feature,
+separate from the measured snapshot-history storage savings.

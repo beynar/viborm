@@ -845,6 +845,8 @@ structured delta against a selected parent artifact when that delta is smaller
 than the full schema. A full checkpoint limits reconstruction to 32 delta links.
 Large or widespread changes can therefore produce a full snapshot. No option
 or conversion command is needed, and existing full snapshots remain valid.
+Engines that predate incremental snapshots cannot read the new delta manifests;
+upgrade every estate reader before generating them.
 Authored history checkpoints (`generate({ from: null })`) always use a full
 snapshot. Low-lock split generation applies the same encoding to every step.
 

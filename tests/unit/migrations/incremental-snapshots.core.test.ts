@@ -382,6 +382,50 @@ describe("incremental snapshot artifacts", () => {
 });
 
 describe("incremental snapshot graph and generation", () => {
+  test("an evicted parse still returns a frozen reconstructed graph", async () => {
+    const storage = new MemoryEstateStorage();
+    const base = await full(storage, snapshot());
+    const child = await delta(storage, base, snapshot(1));
+    await state(storage, encodeSnapshot(snapshot(1)).snapshotHash, child);
+    const cache = new ArtifactCache(0);
+    const graph = await loadMigrationGraph(storage, cache);
+    expect(cache.heldBytes).toBe(0);
+    const resolved = graph.snapshotArtifacts.get(child)!.snapshot;
+    expect(Object.isFrozen(resolved.tables[0]!.columns)).toBe(true);
+    expect(
+      Reflect.set(resolved.tables[0]!.columns[1]!, "default", "'bad'")
+    ).toBe(false);
+    expect(resolved).toEqual(snapshot(1));
+  });
+
+  test.each([
+    {
+      property: "dateTime",
+      value: 1,
+      message: "dateTime must name a DateTime physical form",
+    },
+    {
+      property: "geoPointEncoding",
+      value: "binary64",
+      message: "geoPointEncoding contradicts its physical type",
+    },
+  ])("reconstruction refuses an invalid $property annotation", async ({
+    property,
+    value,
+    message,
+  }) => {
+    const storage = new MemoryEstateStorage();
+    const base = await full(storage, snapshot());
+    const child = await delta(storage, base, snapshot(1), [
+      { op: "set", path: ["tables", 0, "columns", 1, property], value },
+    ]);
+    await expect(
+      resolveSnapshotArtifacts(storage, [child])
+    ).rejects.toMatchObject({
+      message: expect.stringContaining(message),
+    });
+  });
+
   test("frozen cached deltas detach set objects before a later change edits them", async () => {
     const storage = new MemoryEstateStorage();
     const base = await full(storage, snapshot());
@@ -475,6 +519,38 @@ describe("incremental snapshot graph and generation", () => {
     expect(await into.listStates()).toEqual([]);
   });
 
+  test("prune refuses a dependency that disappears after authentication", async () => {
+    class VanishingStorage extends MemoryEstateStorage {
+      reads = 0;
+      override async readSnapshot(hash: string) {
+        return ++this.reads === 1 ? super.readSnapshot(hash) : null;
+      }
+    }
+    const storage = new VanishingStorage();
+    const base = await full(storage, snapshot());
+    const root = await state(storage, base);
+    const into = new MemoryEstateStorage();
+    await expect(
+      pruneV1(storage, { checkpoint: { id: root.stateId }, into })
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_CORRUPTION,
+      message: expect.stringContaining("vanished"),
+    });
+    expect(await into.listStates()).toEqual([]);
+  });
+
+  test("prune preserves an explicitly stored virtual empty snapshot", async () => {
+    const storage = new MemoryEstateStorage();
+    const hash = await full(storage, { tables: [], enums: [] });
+    const root = await state(storage, hash);
+    const into = new MemoryEstateStorage();
+    await pruneV1(storage, { checkpoint: { id: root.stateId }, into });
+    expect(await into.readSnapshot(hash)).toEqual(
+      await storage.readSnapshot(hash)
+    );
+    expect(await checkEstate(into)).toEqual({ ok: true, findings: [] });
+  });
+
   test("concurrent equal destinations from different bases publish separate authenticated artifacts", async () => {
     class BarrierStorage extends MemoryEstateStorage {
       blocked = false;
@@ -562,6 +638,38 @@ describe("incremental snapshot graph and generation", () => {
     const returned = await migrations(storage).generate({ name: "returned" });
     expect(returned.snapshotHash).toBe(root.snapshotHash);
     expect(await storage.listSnapshots()).toEqual(inventory);
+  });
+
+  test("a non-root empty parent still reuses an earlier delta", async () => {
+    const storage = new MemoryEstateStorage();
+    await migrations(storage).generate({ name: "root" });
+    const earlier = await migrations(storage, 1).generate({ name: "earlier" });
+    const before = await loadMigrationGraph(storage);
+    const emptied = await state(
+      storage,
+      before.emptySnapshotHash,
+      undefined,
+      earlier.stateId!,
+      "empty"
+    );
+    const inventory = await storage.listSnapshots();
+    const returned = await migrations(storage, 1).generate({
+      name: "returned",
+    });
+    const graph = await loadMigrationGraph(storage);
+    const earlierArtifact = graph.states.get(
+      earlier.stateId!
+    )!.snapshotArtifactHash;
+    expect(earlierArtifact).toBeDefined();
+    expect(emptied.manifest.snapshotHash).toBe(graph.emptySnapshotHash);
+    expect(graph.states.get(returned.stateId!)!.parents[0]!.fromState).toBe(
+      emptied.stateId
+    );
+    expect(graph.states.get(returned.stateId!)!.snapshotArtifactHash).toBe(
+      earlierArtifact
+    );
+    expect(await storage.listSnapshots()).toEqual(inventory);
+    expect(await checkEstate(storage)).toEqual({ ok: true, findings: [] });
   });
 
   test("manual delta bases come from actual transition parents rather than the automatic leaf", async () => {
