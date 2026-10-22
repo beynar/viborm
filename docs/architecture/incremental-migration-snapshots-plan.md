@@ -312,3 +312,41 @@ Two core-lane attempts hit the aggregate 30 s limit while unrelated Node build
 processes consumed several cores; one completed all runtime tests but left too
 little time for probes. After observed contention dropped, the unchanged lane
 passed in 27.29 s. Neither its time nor memory limit changed.
+
+## Refresh after main advanced
+
+During finalization, main advanced to `3e4f31ffd` with nested-write changes and
+their own measured bundle-budget updates. Merged that exact commit cleanly as
+`633504ba5`; its migration sources are unchanged. Rebuilt both that base and
+the feature before/after reductions with the same dependencies and fixtures:
+
+| Build on `3e4f31ffd` | PostgreSQL migrations Worker | All public exports |
+| --- | ---: | ---: |
+| Main alone | 297,203 B | 428,894 B |
+| Feature before reductions | 299,371 B | 431,037 B |
+| Feature after reductions | 298,985 B | 430,540 B |
+| Main's existing limit | 297,500 B | 429,200 B |
+
+On this base the retained changes save 386 B and 497 B, leaving overages of
+1,485 B and 1,340 B. `package.json` and the lockfile have no feature diff against
+this base: upstream headroom is not counted as a reduction or approval of this
+feature's size. The earlier measurements remain above as the original review
+record; this table supersedes them for the refreshed PR.
+
+Qualification on this refreshed base passed complete types (43.62 s,
+6797.0 MiB sampled RSS), all 168 migration-coverage files / 2,544 tests
+(97.28% statements/lines, 97.31% branches, 98.41% functions; new codec 100%),
+the production package build, all 54 packed-consumer checks, strict package
+lint, all 44 coverage/runner-policy tests, and documentation validation/build.
+The final unchanged size-limit check passes eight rows and fails the two rows
+above with exactly these measurements.
+
+The strict aggregate migration-core check did not pass on this refreshed base.
+The first attempt exhausted 30 s during runtime tests; after observed external
+CPU load dropped, a retry passed all 149 runtime files / 2,399 tests but used
+30.03 s, leaving no time for its type probes. Unrelated Node builds continued
+to consume several cores. This observation does not establish contention as
+the sole cause: the aggregate gate remains failed, despite passing independent
+typechecking and coverage and the earlier-base 27.29 s aggregate pass. No
+budget, runner, test selection or threshold was changed to obtain a pass.
+The PR remains draft with these timing and bundle gates disclosed.
