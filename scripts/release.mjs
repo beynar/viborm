@@ -975,23 +975,28 @@ function createArtifact(options) {
     stdio: "inherit",
   });
 
-  run(
-    process.execPath,
-    [
-      "scripts/run-vitest-safe.mjs",
-      "run",
-      "--workspace",
-      "vitest.workspace.ts",
-      "--project=package",
-    ],
-    {
-      env: {
-        ...process.env,
-        VIBORM_PACKAGE_TARBALL: tarballPath,
-      },
-      stdio: "inherit",
-    }
-  );
+  // The suite's two parts run as `pnpm test:package` runs them in CI: each
+  // its own bounded run with its own wall.
+  for (const part of ["runtime", "types"]) {
+    run(
+      process.execPath,
+      [
+        "scripts/run-vitest-safe.mjs",
+        "run",
+        "--workspace",
+        "vitest.workspace.ts",
+        "--project=package",
+      ],
+      {
+        env: {
+          ...process.env,
+          VIBORM_PACKAGE_PART: part,
+          VIBORM_PACKAGE_TARBALL: tarballPath,
+        },
+        stdio: "inherit",
+      }
+    );
+  }
 
   const manifestPath = join(outputDirectory, "viborm-release.json");
   const manifest = {
