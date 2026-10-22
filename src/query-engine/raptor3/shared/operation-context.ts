@@ -233,6 +233,18 @@ export interface ObservationPremise {
   readonly present: boolean;
   readonly failure: () => Error;
 }
+/**
+ * The operation's result, asked of the root record's own INSERT or UPDATE on
+ * the interactive route: `projection` rides that statement's `RETURNING` and
+ * `row` holds what it answered, undecoded, for {@link OperationContext.finishAnswered}.
+ * Asked only where nothing after that statement can change the row
+ * (`CommandExecution.complete`); a statement that is never issued leaves `row`
+ * unset, and the operation reads its result as before.
+ */
+export interface StatementAnswer {
+  readonly projection: PreparedProjection;
+  row?: Input;
+}
 /** A nested write's refusal of the row it produces (§5.3, R4). */
 export function nestedRefusal(
   verb: string,
@@ -1982,6 +1994,13 @@ export class OperationContext {
   finishOne(query: Query): Promise<Input | undefined> {
     return this.finishTerminals([query], (rows) => rows[0]);
   }
+  /** The result the root's own statement answered ({@link StatementAnswer}). */
+  finishAnswered(answer: StatementAnswer): Promise<Input | undefined> {
+    return this.finishTerminals(
+      [],
+      () => this.publishedProjection(answer.projection.shape, [answer.row!])[0]
+    );
+  }
   finishMany(queries: readonly Query[]): Promise<Input[]> {
     return this.finishTerminals(queries, (rows) => rows);
   }
@@ -2420,6 +2439,24 @@ export class OperationContext {
     const over = { answer, folds };
     (this.#overWrites ??= new WeakMap()).set(projection, over);
     return over;
+  }
+  /**
+   * One `RETURNING` list for several projections over the same row, each
+   * field once: the first projection to name a field lowers it.
+   */
+  #returned(projections: readonly (PreparedProjection | undefined)[]): Sql[] {
+    const named = new Set<string>();
+    const columns: Sql[] = [];
+    for (const projection of projections) {
+      if (projection === undefined) continue;
+      const lowered = this.queries.lowerProjection(projection);
+      for (const [index, field] of projection.fields.entries()) {
+        if (named.has(field.name)) continue;
+        named.add(field.name);
+        columns.push(lowered[index]!);
+      }
+    }
+    return columns;
   }
   /** `statement` answering with `projection` ({@link answersInStatement}). */
   #answering(
@@ -3237,7 +3274,8 @@ export class OperationContext {
     operation = "create",
     producer?: object,
     membership?: MembershipParent,
-    refusal?: PreparedGuardFailure
+    refusal?: PreparedGuardFailure,
+    answer?: StatementAnswer
   ): Promise<Input> {
     const q = this.queries;
     const adapter = this.driver.adapter;
@@ -3284,10 +3322,16 @@ export class OperationContext {
         throw new Error(
           "Returning generated values requires RETURNING support or one generated increment field"
         );
-      if (producedProjection && adapter.capabilities.supportsReturning)
-        statement = sql`${statement} ${adapter.mutations.returning(
-          sql.join(q.lowerProjection(producedProjection), ", ")
-        )}`;
+      if (adapter.capabilities.supportsReturning) {
+        const returned = this.#returned([
+          answer?.projection,
+          producedProjection,
+        ]);
+        if (returned.length)
+          statement = sql`${statement} ${adapter.mutations.returning(
+            sql.join(returned, ", ")
+          )}`;
+      }
       this.#attempt.rejectedInsert = undefined;
       let response: QueryResult<Input>;
       try {
@@ -3312,6 +3356,7 @@ export class OperationContext {
         : undefined;
       if (produced.length && producedValues === undefined)
         throw new TypeError("INSERT did not produce the required record");
+      if (answer) answer.row = response.rows[0];
       return {
         ...values,
         ...producedValues,
@@ -3460,6 +3505,60 @@ export class OperationContext {
     return published;
   }
   /**
+   * A located row's UPDATE that locates it ITSELF, on the interactive route:
+   * the statement's WHERE is the `selector` the locating read would have
+   * taken, and it returns the stored row that read would have bound
+   * (`projection`), as the row leaves it. The UPDATE takes the row lock that
+   * read's `FOR UPDATE` took and re-evaluates the selector over the row's
+   * current version as it did, so a miss is the read's miss, `missing`. The
+   * produced row is judged as {@link updateMany}'s single-row fold judges it:
+   * the selector states the old row's judgement in this same statement.
+   */
+  async updateLocated(
+    model: AnyModel,
+    selector: PreparedSelector,
+    values: Input,
+    projection: PreparedProjection,
+    missing: () => Error,
+    operation = "update",
+    refusal?: PreparedGuardFailure,
+    answer?: StatementAnswer
+  ): Promise<Input> {
+    const q = this.queries;
+    const adapter = this.driver.adapter;
+    let produced: Sql | undefined;
+    const statement = q.sharing(() => {
+      produced = this.#produce(model, values, selector.judgement, (alias) =>
+        q.lowerSelector(selector, alias)
+      );
+      return adapter.mutations.update(
+        q.table(model),
+        sql.join(this.#updateAssignments(model, values), ", "),
+        produced ?? q.lowerMutationLimit(model, selector, undefined).where
+      );
+    });
+    const judged = produced
+      ? {
+          model,
+          refusal: refusal ?? this.#updateRefusal(model, selector.judgement),
+        }
+      : undefined;
+    const response = await this.dispatch(1, false, () =>
+      this.#judging(judged, () =>
+        this.#transport._execute<Input>(
+          sql`${statement} ${adapter.mutations.returning(
+            sql.join(this.#returned([answer?.projection, projection]), ", ")
+          )}`,
+          this.statementContext(model, operation)
+        )
+      )
+    );
+    const row = q.decodeProjection(projection.shape, response.rows, true)[0];
+    if (!row) throw missing();
+    if (answer) answer.row = response.rows[0];
+    return row;
+  }
+  /**
    * @param current The row's values as they stand NOW, before this statement:
    * its identity and every value an assignment of this update computes from.
    * ONE meaning answers all three of this path's questions — which row the
@@ -3483,7 +3582,8 @@ export class OperationContext {
     demanded: ReadonlySet<string> = new Set(),
     missing?: () => Error,
     judgement?: RowJudgement,
-    refusal?: PreparedGuardFailure
+    refusal?: PreparedGuardFailure,
+    answer?: StatementAnswer
   ): Promise<Input> {
     if (Object.keys(values).length === 0) return {};
     const q = this.queries;
@@ -3619,7 +3719,7 @@ export class OperationContext {
         this.#judging(judged, () =>
           this.#transport._execute<Input>(
             sql`${statement} ${adapter.mutations.returning(
-              sql.join(q.lowerProjection(projection), ", ")
+              sql.join(this.#returned([answer?.projection, projection]), ", ")
             )}`,
             context
           )
@@ -3631,7 +3731,22 @@ export class OperationContext {
           missing?.() ??
           new TypeError("UPDATE RETURNING did not produce the required record")
         );
+      if (answer) answer.row = response.rows[0];
       return { ...published, ...rows[0] };
+    }
+    if (answer && !this.usesBatch && adapter.capabilities.supportsReturning) {
+      const response = await this.dispatch(1, false, () =>
+        this.#judging(judged, () =>
+          this.#transport._execute<Input>(
+            sql`${statement} ${adapter.mutations.returning(
+              sql.join(this.#returned([answer.projection]), ", ")
+            )}`,
+            context
+          )
+        )
+      );
+      answer.row = response.rows[0];
+      return published;
     }
     await this.#effect(statement, context, member, judged);
     if (observed.length === 0) return published;
@@ -3740,15 +3855,7 @@ export class OperationContext {
         }
       }
     }
-    const operands = [edge.sourceSide, edge.targetSide].flatMap((side) =>
-      side.members.map((pair) =>
-        q.fieldValue(
-          side.model,
-          pair.referencedField,
-          values[pair.junctionField]
-        )
-      )
-    );
+    const operands = this.#linkOperands(edge, values);
     if (!adapter.capabilities.supportsTargetedUpsert) {
       const targetAlias = q.alias();
       const membershipAlias = q.alias();
@@ -3789,22 +3896,71 @@ export class OperationContext {
       );
       return;
     }
-    const insert = adapter.mutations.insert(
-      adapter.identifiers.table(edge.table),
-      columns,
-      [operands]
-    );
     await this.#effect(
-      sql`${insert} ${adapter.mutations.onConflict(
-        sql.join(
-          columns.map((column) => adapter.identifiers.escape(column)),
-          ", "
-        ),
-        sql`NOTHING`
-      )}`,
+      this.#linkStatement(edge, [operands]),
       this.statementContext(edge.source, "update"),
       member
     );
+  }
+  /**
+   * Several memberships of one junction as ONE statement per bind budget: the
+   * rows {@link link} inserts one at a time where it captured nothing, each
+   * idempotent through the same conflict clause, so only where the dialect
+   * has a targeted upsert (elsewhere {@link link} states each membership as
+   * its own anti-join).
+   */
+  async linkMany(
+    edge: Extract<Membership, { kind: "junction" }>,
+    rows: readonly Input[],
+    member: Member
+  ): Promise<void> {
+    const operands = rows.map((values) => this.#linkOperands(edge, values));
+    for (const chunk of compileBindBudgetChunks(
+      operands.length,
+      normalizedBindParameterLimit(this.driver.maxBindParametersPerStatement),
+      (start, end) => this.#linkStatement(edge, operands.slice(start, end))
+    ))
+      await this.#effect(
+        chunk.statement,
+        this.statementContext(edge.source, "update"),
+        member
+      );
+  }
+  #linkOperands(
+    edge: Extract<Membership, { kind: "junction" }>,
+    values: Input
+  ): Sql[] {
+    return [edge.sourceSide, edge.targetSide].flatMap((side) =>
+      side.members.map((pair) =>
+        this.queries.fieldValue(
+          side.model,
+          pair.referencedField,
+          values[pair.junctionField]
+        )
+      )
+    );
+  }
+  /** Junction rows inserted where absent, through the edge's own conflict target. */
+  #linkStatement(
+    edge: Extract<Membership, { kind: "junction" }>,
+    rows: Sql[][]
+  ): Sql {
+    const adapter = this.driver.adapter;
+    const columns = [
+      ...edge.sourceSide.members,
+      ...edge.targetSide.members,
+    ].map((pair) => pair.junctionField);
+    return sql`${adapter.mutations.insert(
+      adapter.identifiers.table(edge.table),
+      columns,
+      rows
+    )} ${adapter.mutations.onConflict(
+      sql.join(
+        columns.map((column) => adapter.identifiers.escape(column)),
+        ", "
+      ),
+      sql`NOTHING`
+    )}`;
   }
   async captureMembership(
     edge: Extract<Membership, { kind: "junction" }>,

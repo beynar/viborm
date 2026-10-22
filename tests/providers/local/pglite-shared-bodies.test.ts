@@ -199,11 +199,13 @@ test("PGlite: an upsert's locked lookup states its repeated body once, ahead of 
           select: { id: true, title: true },
         })
       );
-    // d1's located row; d2, outside ann's organizations, is created.
+    // Each upsert's probe: on PostgreSQL it locks the row it finds (d1) and
+    // nothing where it finds none (d2, outside ann's organizations, created),
+    // so no confirmation follows it (`Selection.probesUnlocked`).
     const locked = statements.filter((statement) =>
       statement.endsWith("FOR UPDATE")
     );
-    expect(locked).toHaveLength(1);
+    expect(locked).toHaveLength(2);
     for (const statement of locked)
       if (shared) {
         expect(statement).toMatch(LEADING_SHARED_RELATION_BODY);
