@@ -1133,29 +1133,61 @@ export class OperationContext {
     return this.queries.decodeQuery(query, response.rows, internal);
   }
   /**
+   * Internal reads in ONE native batch, each answered as {@link read} answers
+   * it, under its own model's statement context: the batch route's planning
+   * reads taken together (`CommandExecution.readAhead`). They commit nothing,
+   * so the batch is a read like any other, outside the queue.
+   */
+  async readTogether(
+    reads: readonly { readonly query: Query; readonly model: AnyModel }[]
+  ): Promise<Input[][]> {
+    if (this.#ownership === "batch-preparation") {
+      throw this.incompletePreparation;
+    }
+    const statements = reads.map(({ query, model }) => {
+      const context = this.statementContext(model, this.operation);
+      const prepared = this.#transport._prepare(query.sql, context);
+      return transferPreparedStatement(prepared, { ...prepared, context });
+    });
+    const responses = await this.dispatch(statements.length, false, () =>
+      this.#transport._executeBatch<Input>(
+        statements,
+        undefined,
+        this.attribution
+      )
+    );
+    return reads.map(({ query }, index) =>
+      this.queries.decodeQuery(query, responses[index]!.rows, true)
+    );
+  }
+  /**
+   * The boundary a read outside the queue claims: a statement answered there
+   * cannot see a write the queue still holds, so this is where a member claims
+   * the boundary {@link executeMember} deferred. Only a member claims it, and
+   * only for a write some OTHER record of the series left waiting
+   * ({@link TransportAttempt.holdsOtherMemberWrite}). A read taken outside
+   * every member is the record's OWN observation, and where it stands relative
+   * to this unit's writes is the dependency pass's answer, not this one's — an
+   * ordered observation is stated INSIDE the queued unit on purpose (N1), and a
+   * boundary taken under it would commit the very writes its premise exists to
+   * abort.
+   */
+  async claimMemberBoundary(): Promise<void> {
+    const observer = this.#executingMember;
+    if (observer && this.#attemptStore?.holdsOtherMemberWrite(observer))
+      await this.flush();
+  }
+  /**
    * One statement's raw provider answer. The dispatcher both readers share, so
    * the terminal boundary ({@link publishedTerminal}) sees the rows the
    * provider handed back and an internal read sees the same rows decoded.
-   *
-   * It is also the ONE place this operation reads from OUTSIDE its own queue,
-   * so it is where a member claims the boundary {@link executeMember} deferred:
-   * a statement answered here cannot see a write the queue still holds. Only a
-   * member claims it, and only for a write some OTHER record of the series left
-   * waiting ({@link TransportAttempt.holdsOtherMemberWrite}). A read taken
-   * outside every member is the record's OWN observation, and where it stands
-   * relative to this unit's writes is the dependency pass's answer, not this
-   * one's — an ordered observation is stated INSIDE the queued unit on purpose
-   * (N1), and a boundary taken under it would commit the very writes its
-   * premise exists to abort.
    */
   private async answer(
     query: Query,
     terminal: boolean,
     model?: AnyModel
   ): Promise<QueryResult<Input>> {
-    const observer = this.#executingMember;
-    if (observer && this.#attemptStore?.holdsOtherMemberWrite(observer))
-      await this.flush();
+    await this.claimMemberBoundary();
     const context = model
       ? this.statementContext(model, this.operation)
       : this.attribution;
@@ -1429,10 +1461,20 @@ export class OperationContext {
       }
     );
   }
+  /**
+   * How many units this operation has submitted: a read outside the queue
+   * sees what the last one left, so an answer taken at one count is the
+   * answer at any point before the next.
+   */
+  get submissions(): number {
+    return this.#submissions;
+  }
+  #submissions = 0;
   private async submit(publishingGeneratedOutput = false, member?: Member) {
     if (this.#ownership === "batch-preparation") {
       throw this.incompletePreparation;
     }
+    this.#submissions++;
     const attempt = this.#attempt;
     this.#atomicAssertionRejection = undefined;
     attempt.rejectedInsert = undefined;
@@ -3771,6 +3813,57 @@ export class OperationContext {
     if (!rows[0])
       throw new TypeError("UPDATE did not produce the required record");
     return { ...published, ...rows[0] };
+  }
+  /**
+   * Several rows {@link update} would write one at a time with the same
+   * `values` and nothing to return, as ONE statement per bind budget: the
+   * rows `identities` names, judged as each one's own UPDATE judges it, so a
+   * refused row refuses the statement as it refused its own.
+   */
+  async updateRows(
+    model: AnyModel,
+    identities: readonly Input[],
+    values: Input,
+    member: Member,
+    operation: string,
+    judgement: RowJudgement | undefined,
+    refusal: PreparedGuardFailure | undefined
+  ): Promise<void> {
+    const q = this.queries;
+    const adapter = this.driver.adapter;
+    // Whether the rows' produced values are judged is a fact of `values` and
+    // `judgement`, the same for every chunk.
+    let produced: Sql | undefined;
+    const chunks = compileBindBudgetChunks(
+      identities.length,
+      normalizedBindParameterLimit(this.driver.maxBindParametersPerStatement),
+      (start, end) => {
+        const selector = q.includeIdentities(
+          model,
+          identities.slice(start, end)
+        );
+        return q.sharing(() => {
+          produced = this.#produce(model, values, judgement, (alias) =>
+            q.lowerSelector(selector, alias)
+          );
+          return adapter.mutations.update(
+            q.table(model),
+            sql.join(this.#updateAssignments(model, values), ", "),
+            produced ?? q.lowerSelector(selector)!
+          );
+        });
+      }
+    );
+    const judged = produced
+      ? { model, refusal: refusal ?? this.#updateRefusal(model, judgement) }
+      : undefined;
+    for (const chunk of chunks)
+      await this.#effect(
+        chunk.statement,
+        this.statementContext(model, operation),
+        member,
+        judged
+      );
   }
   /**
    * Has this captured slot already been spent — and, if it had not, spend it.

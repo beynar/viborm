@@ -74,14 +74,7 @@ interface DatabaseAdapter {
   result: { ... };                                        // result-shape hints
   lastInsertId: () => Sql;                                // lastval()/LAST_INSERT_ID()/...
 
-  capabilities: {
-    supportsReturning: boolean;
-    supportsLateralJoins: boolean;
-    supportsVector: boolean;
-    supportsUpsertWhere: boolean;
-    supportsMutationTargetInSubquery: boolean;
-    // ...
-  };
+  capabilities: DatabaseAdapterCapabilities;           // see "Database Capabilities"
 }
 ```
 
@@ -114,19 +107,36 @@ driver error mapping.
 
 ## Database Capabilities
 
-The `capabilities` group lets the query engine branch on database features instead of dialect names. Examples:
+The `capabilities` group (`DatabaseAdapterCapabilities`, in
+`src/adapters/adapter-capabilities.ts`) lets the query engine branch on
+database features instead of dialect names. The adapter sets the dialect's
+flags; a driver may set the ones its transport decides (the last five rows).
 
-| Capability | PostgreSQL | MySQL | SQLite |
-|------------|------------|-------|--------|
-| `supportsReturning` | ✅ | ❌ | ✅ |
-| `supportsLateralJoins` | ✅ | ✅ | ❌ |
-| `supportsVector` | with pgvector | ❌ | ❌ |
-| `supportsUpsertWhere` | ✅ | ❌ | ✅ |
-| `supportsMutationTargetInSubquery` | ✅ | ❌ | ✅ |
+| Capability | PostgreSQL | MySQL | SQLite | What the engine does with it |
+|------------|------------|-------|--------|------------------------------|
+| `supportsReturning` | ✅ | ❌ | ✅ | A write answers from its own `RETURNING`; without it, a locked re-read |
+| `supportsCteWithMutations` | ✅ | ❌ | ❌ | A write and the read of its answer in one `WITH` statement |
+| `supportsFullOuterJoin` | ✅ | ❌ | ❌ | The engine builds no full outer join; the adapter's full-join helper refuses where false |
+| `supportsLateralJoins` | ✅ | ✅ | ❌ | A recursive projection reads its walk in a lateral derived table, re-run per row; SQLite runs the correlated CTE as written |
+| `supportsVector` | with pgvector | ❌ | ❌ | Vector distance operators |
+| `supportsUpsertWhere` | ✅ | ❌ | ✅ | `ON CONFLICT … WHERE` |
+| `supportsTargetedUpsert` | ✅ | ❌ | ✅ | `ON CONFLICT (cols)` arbitrates on those columns only; MySQL's `ON DUPLICATE KEY` fires on any unique, so it takes the select-then-write path. Also gates merging junction links into one `INSERT` |
+| `supportsMutationTargetInSubquery` | ✅ | ❌ | ✅ | False: relation filters in an `UPDATE`/`DELETE` are wrapped in a derived table (MySQL error 1093) |
+| `supportsMutationRowLimit` | ❌ | ✅ | ❌ | `updateMany`/`deleteMany` `limit` as a native `LIMIT`, else a key subquery |
+| `supportsRowLocks` | ✅ | ✅ | ❌ | `SELECT … FOR UPDATE`; SQLite locks the database, so lock-only reads are skipped |
+| `locksMissingKeys` | ❌ | ✅ | ❌ | InnoDB's gap lock on a miss: a probe whose other arm inserts reads unlocked and is confirmed under lock once it finds a row |
+| `joinsJunctionFilters` | `"unbounded"` | ❌ | ✅ | Many-to-many filters join the junction to the target (on PostgreSQL only in unbounded reads, counts and writes) |
+| `boundsRecursionIterations` | ❌ | ✅ | ❌ | A recursive filter keeps its walk in place (MySQL's `cte_max_recursion_depth`) |
+| `sharesRelationBodies` | every PostgreSQL driver | ❌ | D1 | A repeated relation-filter body is stated once in a `WITH` (`sharedRelationBodies: false` turns it off) |
+| `relationsPerStatement` | option (Neki: 256) | — | D1: 256 | Over the bound, recursive walks become reaching sets |
+| `compoundSelectTerms` | — | — | D1: 5 | Longer `UNION`s nest in derived tables |
+| `boundsExpressionDepth` | — | — | `deepExpressions: false` | Relation filters read through derived tables SQLite flattens |
 
 When a capability is false the query engine picks a capability-specific path
 (for example, correlated subqueries instead of lateral joins, or a
 transactional upsert instead of `ON CONFLICT ... WHERE`).
+[Performance](./performance) lists what each query type sends per database
+as a result.
 
 ## How Adapters Are Used
 
@@ -134,13 +144,16 @@ Query engine calls adapter methods instead of generating SQL directly:
 
 ```typescript
 // In query engine
-const aggregated = ctx.adapter.json.agg(subquery);
+const aggregated = adapter.json.agg(object);
 
 // PostgreSQL adapter returns
-sql`COALESCE(json_agg(row_to_json(${subquery})), '[]'::json)`
+sql`COALESCE(json_agg(${object}), '[]'::json)`
 
 // MySQL adapter returns
-sql`JSON_ARRAYAGG(JSON_OBJECT(${fields}))`
+sql`COALESCE(JSON_ARRAYAGG(${object}), JSON_ARRAY())`
+
+// SQLite adapter returns (an empty aggregate is already `[]`)
+sql`json_group_array(${object})`
 ```
 
 The query engine knows the operation meaning and receives a composable fragment;

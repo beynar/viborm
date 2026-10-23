@@ -107,6 +107,26 @@ const hiddenBesideSecret = {
   },
 } as const;
 
+/** A post moves to another author only where its title is not "locked". */
+const lockedStays = {
+  name: "test.nwrt.moves",
+  rows: {
+    control: "moves",
+    default: "all",
+    models: {},
+    verbs: {
+      post: {
+        predicates: { any: {}, open: { title: { not: "locked" } } },
+        read: "any",
+        update: "any",
+        delete: "any",
+        place: "any",
+        moves: { authorId: "open" },
+      },
+    },
+  },
+} as const;
+
 beforeAll(() => hydrateSchemaNames(schema));
 const getFamily = usePGliteSchemaFamily(schema);
 
@@ -232,6 +252,17 @@ async function traced(
 /** Whether the operation ended with a read: the re-read of its root row. */
 const endsWithRead = (statements: readonly string[]) =>
   statements.at(-1)!.trimStart().startsWith("SELECT");
+
+/** Whether a statement writes `nwrt_posts`. */
+const updatesPosts = (statement: string) =>
+  statement.trimStart().startsWith("UPDATE") &&
+  statement.includes('"nwrt_posts"');
+
+/** Each post's id and author, in id order. */
+const authors = async (client: Client) =>
+  (await client.post.findMany({ orderBy: { id: "asc" } })).map(
+    (row: { id: number; authorId: number | null }) => [row.id, row.authorId]
+  );
 
 const SUBSTRATES = [
   [
@@ -489,6 +520,135 @@ describe.each(SUBSTRATES)("%s", (name, make) => {
     ).toHaveLength(name === "PGlite" ? 2 : 3);
   });
 
+  // `CommandExecution.updateTogether`: targets holding the key are each
+  // rewritten by the same UPDATE, so they share one.
+  test("a to-many connect of targets holding the key rewrites them in one UPDATE", async () => {
+    const driver = make();
+    const client = await boot(driver);
+    await client.post.create({ data: { id: 12, title: "p12" } });
+    const { statements } = await traced(driver, () =>
+      client.user.update({
+        where: { id: 2 },
+        data: { posts: { connect: [{ id: 10 }, { id: 12 }] } },
+      })
+    );
+    expect(statements.filter(updatesPosts)).toHaveLength(1);
+    expect(await authors(client)).toEqual([
+      [10, 2],
+      [11, 2],
+      [12, 2],
+    ]);
+  });
+
+  test("a to-many set of targets holding the key rewrites them in one UPDATE", async () => {
+    const driver = make();
+    const client = await boot(driver);
+    await client.post.create({ data: { id: 12, title: "p12" } });
+    const { statements } = await traced(driver, () =>
+      client.user.update({
+        where: { id: 2 },
+        data: { posts: { set: [{ id: 10 }, { id: 12 }] } },
+      })
+    );
+    // The disconnect of post 11, then the two targets.
+    expect(statements.filter(updatesPosts)).toHaveLength(2);
+    expect(await authors(client)).toEqual([
+      [10, 2],
+      [11, null],
+      [12, 2],
+    ]);
+  });
+
+  // Two relations to one model read their targets in one run, but each
+  // writes its own key: one UPDATE never writes both.
+  test("targets of two relations to one model each take their own key", async () => {
+    const driver = make();
+    const client = await boot(driver);
+    await client.post.createMany({
+      data: [
+        { id: 12, title: "p12" },
+        { id: 13, title: "p13" },
+      ],
+    });
+    await client.user.update({
+      where: { id: 2 },
+      data: {
+        posts: { connect: [{ id: 10 }, { id: 12 }] },
+        reviewed: { connect: [{ id: 11 }, { id: 13 }] },
+      },
+    });
+    expect(
+      (await client.post.findMany({ orderBy: { id: "asc" } })).map(
+        (row: {
+          id: number;
+          authorId: number | null;
+          reviewerId: number | null;
+        }) => [row.id, row.authorId, row.reviewerId]
+      )
+    ).toEqual([
+      [10, 2, null],
+      [11, 2, 2],
+      [12, 2, null],
+      [13, null, 2],
+    ]);
+  });
+
+  // A to-many upsert's found arm requires its target to be a member: the
+  // shared UPDATE is not taken where that requirement is still to confirm.
+  test("a to-many upsert of a target another holder owns fails, writing nothing", async () => {
+    const driver = make();
+    const client = await boot(driver);
+    await expect(
+      client.user.update({
+        where: { id: 1 },
+        data: {
+          posts: {
+            upsert: [10, 11].map((id) => ({
+              where: { id },
+              create: { id: id + 50, title: "new" },
+              update: { title: "x" },
+            })),
+          },
+        },
+      })
+    ).rejects.toBeInstanceOf(NestedWriteError);
+    expect(
+      (await client.post.findMany({ orderBy: { id: "asc" } })).map(
+        (row: { title: string }) => row.title
+      )
+    ).toEqual(["p10", "p11"]);
+  });
+
+  // The shared UPDATE judges each row it produces as that row's own did:
+  // post 12 may not move, so the set fails and moves nothing.
+  test("a shared UPDATE refusing one produced row refuses the write", async () => {
+    const driver = make();
+    const client = await boot(driver);
+    await client.post.create({ data: { id: 12, title: "locked" } });
+    const scoped = client.$extends(lockedStays);
+    await expect(
+      scoped.user.update({
+        where: { id: 2 },
+        data: { posts: { set: [{ id: 10 }, { id: 12 }] } },
+      })
+    ).rejects.toBeInstanceOf(NestedWriteError);
+    expect(await authors(client)).toEqual([
+      [10, 1],
+      [11, 2],
+      [12, null],
+    ]);
+    await scoped.post.update({ where: { id: 12 }, data: { title: "free" } });
+    await scoped.user.update({
+      where: { id: 2 },
+      data: { posts: { set: [{ id: 10 }, { id: 12 }] } },
+    });
+    expect(await authors(client)).toEqual([
+      [10, 2],
+      [11, null],
+      [12, 2],
+    ]);
+  });
+
   test("a later write that changes the root row keeps the re-read, and the answer shows it", async () => {
     const driver = make();
     const client = await boot(driver);
@@ -696,6 +856,40 @@ test("on the batch route a to-many connect reads its targets once", async () => 
       select: { tags: { select: { id: true } } },
     })
   ).toEqual({ tags: [{ id: 1 }, { id: 2 }] });
+});
+
+test("on the batch route an update reads its root and its targets in one batch", async () => {
+  const driver = new BatchRecordingSQLite3();
+  const client = await boot(driver);
+  driver.trips = 0;
+  await client.post.update({
+    where: { id: 10 },
+    data: { title: "b", tags: { connect: [{ id: 1 }, { id: 2 }] } },
+  });
+  expect(driver.trips).toBe(2);
+  expect(
+    await client.post.findUnique({
+      where: { id: 10 },
+      select: { title: true, tags: { select: { id: true } } },
+    })
+  ).toEqual({ title: "b", tags: [{ id: 1 }, { id: 2 }] });
+});
+
+test("on the batch route a target missing from the batch of reads fails as its own read did, writing nothing", async () => {
+  const driver = new BatchRecordingSQLite3();
+  const client = await boot(driver);
+  await expect(
+    client.post.update({
+      where: { id: 10 },
+      data: { title: "b", tags: { connect: [{ id: 1 }, { id: 3 }] } },
+    })
+  ).rejects.toThrow("connect");
+  expect(
+    await client.post.findUnique({
+      where: { id: 10 },
+      select: { title: true, tags: { select: { id: true } } },
+    })
+  ).toEqual({ title: "p10", tags: [] });
 });
 
 test("a provider without RETURNING keeps the re-read", async () => {

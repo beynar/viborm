@@ -1150,9 +1150,44 @@ slot's owner stays out: it vacates the slot first, which the shared INSERT
 does not (`nested-write-round-trips`, a `set` moving two singular polymorphic
 members; Devin review of #109).
 
-On the batch route the run's read is a lone read, as each lookup's own is, so
-it reads what the last submitted unit left (the batch-route pin: two targets,
-one read and one batch).
+Where each target of such a run HOLDS the key (a user's `posts`), every
+answered choice's found arm is the same UPDATE of its located row, so the run
+writes them as one per bind budget (`#updateTogether`, `#updatesAlone`,
+`OperationContext.updateRows`), `WHERE` the rows' identities. A choice joins
+only where its `run` would do nothing else: no found requirement, no
+condition, a probe that kept its lock (`confirmFound` takes no read), and a
+found arm writing that located row with no child, transition, refusal or
+demanded output; the run's members share the model, operation, judgement,
+refusal and written values. A shared UPDATE judging its produced rows judges
+each as its own UPDATE did, in the one statement, so one refused row refuses
+the write (`nested-write-round-trips`, the shared UPDATE refusing one produced
+row). The batch route keeps one UPDATE per row: they ride one batch anyway.
+
+**Addendum (2026-10-23): the batch route reads ahead.** On the batch route a
+lone read sees what the last submitted unit left, and nothing changes that
+until the next submit (`OperationContext.submissions`). So the first lone
+read of an epoch (`CommandExecution.#readAhead`, from `runSelection`) reads
+every lookup of the operation that would answer alike where it runs, in ONE
+native batch of reads (`OperationContext.readTogether`, each statement under
+its own model's context), and each lookup takes its own query's rows where it
+runs, found or not, as if it had read them there; a submit starts a new epoch
+and discards what is held. A lookup qualifies (`lookupsAhead`) unless its
+answer is not knowable now: one after a captured series (its members are known
+only once it captures, and the capture flushes), a series member's (it claims
+its own boundary, N5), a choice's arm's (it runs on the choice's answer, and
+an untaken arm must read nothing: CS-01), one reading by a membership or a
+producer's identity a later binding supplies, and an ordered observation
+(`dependent`, which reads behind the barrier). A held answer is still taken
+at the lookup's position, so the boundary its lone read would claim is
+claimed first (`claimMemberBoundary`, N5: a held "absent" bypassing it was the
+member-boundary-packaging unique violation). The reads' batch commits
+nothing, so it is no dispatch of the unit: a rejection of the unit that
+follows "dispatched nothing" (FC-02C), and a planted race lands before the
+first batch carrying a write (`BatchOnlyDriver.plant`). `#prefetch` still
+reads a run of siblings the read-ahead did not hold. Pins:
+`nested-write-round-trips` (an update with a to-many `connect`: one batch of
+reads and the unit; a target missing from it fails as its own read did),
+`member-boundary-packaging`, `lax-to-one` (N3), `ordered-observation`.
 
 Whether a nested write's unique target selector names its row through the
 CONSTRAINT is one predicate, `nestedTargetAddressesConstraint(edge, verb)` in

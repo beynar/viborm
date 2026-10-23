@@ -289,6 +289,8 @@ reads a relation is first materialized in a derived table there.
 |---|---|---|---|---|---|
 | A to-many `connect` or `set` reads its targets in one statement | ✅ | ✅ | ✅ | ✅ | ✅ |
 | …and links them in one junction `INSERT` | ✅ | ✅ (in the batch) | ❌ one per link | ✅ | ✅ (in the batch) |
+| …or, where each target holds the key, rewrites them in one `UPDATE` | ✅ | — (one batch either way) | ✅ | ✅ | — (one batch either way) |
+| Planning reads in one native batch | — | ✅ | — | — | ✅ |
 | Writes, checks and the final read in one native batch | — | ✅ | — | — | ✅ |
 
 - **Targets read together.** A run of sibling lookups of one model (the
@@ -299,15 +301,22 @@ reads a relation is first materialized in a derived table there.
   exactly as before. Lookups that go through the parent's membership, whose
   filter reads a relation the same write can change, or that probe for a row
   `connectOrCreate` would create are read alone.
-- **On Neon HTTP and D1**, the reads that decide the plan run first, and the
-  writes, the checks that abort the batch on a stale premise, and the result
-  read follow as one native batch. A lookup through the parent's key still
-  waits for the parent's row, so those writes take one more round trip.
+- **Targets rewritten together.** Where each target holds the foreign key (a
+  user's `posts`), every target of the run takes the same `UPDATE`, so the run
+  sends one, `WHERE` the targets' keys. A policy judging the rows it produces
+  judges each of them in that statement, and a refused row refuses the write as
+  its own `UPDATE` did.
+- **On Neon HTTP and D1**, the reads that decide the plan run first, as one
+  native batch of their own, and the writes, the checks that abort the batch on
+  a stale premise, and the result read follow as another. Each read answers as
+  it would alone: nothing has been written between them. A read that waits for
+  a write of the same call (a lookup through a key the call changes), a series
+  member's read and a branch's read stay alone, at their own place.
 
 ### Round trips per nested write
 
-Without `include`. The 1.4.0 count is in brackets where it differs. MySQL is
-simulated.
+Without `include`. The count before 1.4.0's nested-write work is in brackets
+where it differs. MySQL is simulated.
 
 | Call | PostgreSQL | Neon HTTP | MySQL *(sim.)* | SQLite | D1 |
 |---|---|---|---|---|---|
@@ -318,23 +327,19 @@ simulated.
 | `create` + `connectOrCreate`, missing | 5 [6] | 2 | 6 | 5 [6] | 2 |
 | `create` + many-to-many `connect` ×3 | 5 [10] | 2 [4] | 8 | 5 [10] | 2 [4] |
 | `update` + nested `create` | 4 [6] | 2 | 7 | 4 [6] | 2 |
-| `update` + many-to-many `connect` ×3 | 5 [11] | 3 [5] | 10 | 5 [11] | 3 [5] |
-| `update` + many-to-many `set` | 7 [10] | 3 [4] | 10 | 7 [10] | 3 [4] |
-| `update` + one-to-many `set` | 8 [10] | 3 [4] | 10 | 8 [10] | 3 [4] |
+| `update` + many-to-many `connect` ×3 | 5 [11] | 2 [5] | 10 | 5 [11] | 2 [5] |
+| `update` + many-to-many `set` | 7 [10] | 2 [4] | 10 | 7 [10] | 2 [4] |
+| `update` + one-to-many `set` | 7 [10] | 2 [4] | 9 [10] | 7 [10] | 2 [4] |
 | `update` + nested `delete` | 6 [7] | 3 | 8 | 6 [7] | 3 |
-| `update` + to-many `upsert`, found | 6 [8] | 3 | 9 | 6 [8] | 3 |
+| `update` + to-many `upsert`, found | 6 [8] | 2 [3] | 9 | 6 [8] | 2 [3] |
 | root `upsert` with a nested write, found | 7 [8] | 3 | 9 | 8 | 3 |
 | `delete` (foreign keys cascade) | 1 | 1 | 5 | 1 | 1 |
 
-Over the 72 calls of the census, round trips went from 480 to 399 on
-PostgreSQL, 484 to 411 on SQLite, 176 to 164 on Neon HTTP and 178 to 166 on
-D1, every result identical to 1.4.0.
+Over the 72 calls of the census, round trips went from 480 to 397 on
+PostgreSQL, 484 to 409 on SQLite, 176 to 146 on Neon HTTP and 178 to 148 on
+D1, every result identical to before.
 
 ## Not optimized yet
 
-- A to-many `connect` or `set` on a relation whose foreign key the child holds
-  sends one `UPDATE` per target.
-- On Neon HTTP and D1, the reads that decide a nested write's plan are sent one
-  at a time.
 - MySQL answers creates, updates and upserts with a separate read, having no
   `RETURNING`.

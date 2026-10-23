@@ -106,9 +106,46 @@ function* writesUnder(
   for (const child of occurrence.children) yield* writesUnder(child);
 }
 
+/**
+ * The lookups under `root` that a read ahead may answer, in run order: none
+ * after a captured series, whose members are known only once it captures (and
+ * the capture flushes), none of a series member, which claims its own
+ * boundary (N5), and none inside a choice's arms, which run on its answer.
+ */
+function lookupsAhead(root: CommandOccurrence): Selection[] {
+  const found: Selection[] = [];
+  let stopped = false;
+  const walk = (occurrence: CommandOccurrence): void => {
+    const command = occurrence.command;
+    if (command.kind === "selectedSeries" || command.kind === "captureSeries")
+      stopped = true;
+    if (stopped || command.kind === "series" || occurrence.role === "member")
+      return;
+    if (command.kind === "choose") {
+      found.push(command.lookup);
+      return;
+    }
+    if (command.kind === "lookup") found.push(command);
+    else if (command.kind === "record" && command.located)
+      found.push(command.located);
+    else if (command.kind === "delete") found.push(command.located);
+    for (const child of occurrence.children) walk(child);
+  };
+  walk(root);
+  return found;
+}
+
 /** What a captured series prepared, as its owner (`CommandAttempt`) states it. */
 type PreparedSeries = NonNullable<ReturnType<CommandAttempt["series"]["get"]>>;
 
+/** Whether two stored assignments write the same fields with the same values. */
+function sameValues(a: Input, b: Input): boolean {
+  const keys = Object.keys(a);
+  return (
+    keys.length === Object.keys(b).length &&
+    keys.every((key) => Object.hasOwn(b, key) && Object.is(a[key], b[key]))
+  );
+}
 /** Interprets the prepared command tree through one replaceable execution attempt. */
 export class CommandExecution {
   readonly commands: Commands;
@@ -719,12 +756,13 @@ export class CommandExecution {
                 failure: required,
               })
           )
-        : await this.context.read(
+        : ((await this.#readAhead(selection)) ??
+          (await this.context.read(
             selection.query(),
             true,
             false,
             selection.model
-          );
+          )));
     const found = rows[0];
     if (!found) {
       if (selection.required) throw selection.required();
@@ -737,6 +775,54 @@ export class CommandExecution {
       return;
     }
     this.#observed(selection, found);
+  }
+  /**
+   * The batch route's answer to `selection`, out of ONE native batch of every
+   * lookup of the operation whose lone read answers alike wherever it runs:
+   * one its query states whole now — no membership or producer's identity a
+   * later binding supplies — and that reads outside the queue rather than
+   * behind it (`dependent`, N1). Such a read sees what the last submitted unit
+   * left, so until the next submit its answer is the same at its own position:
+   * the first lone read after a submit reads them all, and each lookup takes
+   * its own query's rows where it runs, found or not, as if it had read them
+   * there. `undefined` where nothing is held for it.
+   */
+  async #readAhead(selection: Selection): Promise<Input[] | undefined> {
+    const ctx = this.context;
+    const root = this.#root;
+    if (!(ctx.usesBatch && root)) return;
+    const attempt = this.attempt;
+    // The boundary this lone read would claim is claimed before any answer,
+    // held or not (N5).
+    await ctx.claimMemberBoundary();
+    let ahead = attempt.ahead;
+    if (!ahead || ahead.epoch !== ctx.submissions) {
+      const selections = [
+        ...new Set([selection, ...lookupsAhead(root)]),
+      ].filter(
+        (candidate) =>
+          candidate.source.kind === "query" &&
+          !candidate.membership() &&
+          !candidate.dependent &&
+          !attempt.rows.has(candidate)
+      );
+      const answers =
+        selections.length < 2
+          ? []
+          : await ctx.readTogether(
+              selections.map((candidate) => ({
+                query: candidate.query(),
+                model: candidate.model,
+              }))
+            );
+      ahead = attempt.ahead = {
+        epoch: ctx.submissions,
+        rows: new Map(answers.map((rows, index) => [selections[index]!, rows])),
+      };
+    }
+    const rows = ahead.rows.get(selection);
+    ahead.rows.delete(selection);
+    return rows;
   }
   /** `selection` FOUND `found`: its binding, and on the batch route its premise. */
   #observed(selection: Selection, found: Input): void {
@@ -784,13 +870,17 @@ export class CommandExecution {
         : command.kind === "choose"
           ? command.lookup
           : undefined;
+    const ahead = this.attempt.ahead;
     if (
       !lookup ||
       lookup.membership() ||
       lookup.facts.reads.length > 0 ||
       lookup.insertsWhenAbsent ||
       this.attempt.rows.has(lookup) ||
-      this.attempt.prefetched.has(lookup)
+      this.attempt.prefetched.has(lookup) ||
+      (ahead !== undefined &&
+        ahead.epoch === this.context.submissions &&
+        ahead.rows.has(lookup))
     )
       return;
     return lookup;
@@ -909,6 +999,110 @@ export class CommandExecution {
       member
     );
     return run.length;
+  }
+  /**
+   * A run of choices whose found rows each take the same UPDATE, once
+   * {@link prefetch} (or a capture) answered their lookups: a child-held
+   * `connect` or `set` target, rewritten to point at its new holder. Each
+   * UPDATE would write its row's identity and return nothing, so the run
+   * writes them as one statement per bind budget
+   * (`OperationContext.updateRows`), where each would be its own. The batch
+   * route queues every UPDATE into the same native batch anyway and keeps its
+   * own. The count of `children` from `index` it consumed, 0 where it took
+   * none.
+   */
+  async #updateTogether(
+    children: readonly CommandOccurrence[],
+    index: number,
+    member: Member
+  ): Promise<number> {
+    if (this.context.usesBatch) return 0;
+    const run: [CommandOccurrence<Choose>, CommandOccurrence<RecordCommand>][] =
+      [];
+    let shared: Input | undefined;
+    for (const sibling of children.slice(index)) {
+      if (sibling.placement !== "after") break;
+      const found = this.#updatesAlone(sibling);
+      if (!found) break;
+      found.command.fields.activate();
+      const written = this.stored(found.command.fields);
+      // One statement writes one assignment: the run ends where the model or
+      // the values change (another relation's key, another holder).
+      if (
+        shared === undefined
+          ? Object.keys(written).length === 0
+          : found.command.model !== run[0]![1].command.model ||
+            !sameValues(written, shared)
+      )
+        break;
+      shared ??= written;
+      run.push([sibling as CommandOccurrence<Choose>, found]);
+    }
+    if (run.length < 2) return 0;
+    const first = run[0]![1].command;
+    const model = first.model;
+    await this.context.updateRows(
+      model,
+      run.map(([, found]) =>
+        this.context.schema.identity(
+          model,
+          this.attempt.select(
+            found.command.located!.fields,
+            this.context.schema.keys(model)
+          )
+        )
+      ),
+      shared!,
+      member,
+      first.operation,
+      first.located!.judgement,
+      this.#refusal(first)
+    );
+    for (const [choice, found] of run) {
+      this.#entered.add(choice);
+      this.#entered.add(found);
+      this.attempt.bind(found.command.fields, {});
+      this.attempt.bind(choice.command.fields, {
+        ...this.attempt.rows.get(choice.command.lookup)!,
+        ...this.attempt.select(
+          found.command.fields,
+          choice.command.fields.demands
+        ),
+      });
+    }
+    return run.length;
+  }
+  /**
+   * The found arm of `occurrence` where it is a choice whose answered row
+   * takes a plain UPDATE: on this route the choice's `run` would confirm
+   * nothing ({@link confirmFound}: no requirement, a probe that kept its lock)
+   * and branch on no condition, and its found arm is a record writing that located row
+   * with no child, transition, refusal or demanded output — exactly the
+   * UPDATE {@link OperationContext.update} sends and answers with nothing.
+   */
+  #updatesAlone(
+    occurrence: CommandOccurrence
+  ): CommandOccurrence<RecordCommand> | undefined {
+    const command = occurrence.command;
+    if (
+      command.kind !== "choose" ||
+      command.foundRequirement ||
+      command.conditions ||
+      command.lookup.probesUnlocked ||
+      !this.attempt.rows.has(command.lookup)
+    )
+      return;
+    const found = this.commands.choiceArm(occurrence, "found");
+    if (
+      !found ||
+      found.refusal ||
+      found.children.length > 0 ||
+      found.command.located !== command.lookup ||
+      found.command.transitions.length > 0 ||
+      found.command.fields.demands.size > 0
+    )
+      return;
+    return found;
   }
   /**
    * The shared FOUND-consumption rule: an unlocked positive observation is
@@ -1204,7 +1398,9 @@ export class CommandExecution {
           const child = children[index]!;
           if (child.placement !== "after") continue;
           await this.#prefetch(children, index);
-          const linked = await this.#linkTogether(children, index, member);
+          const linked =
+            (await this.#linkTogether(children, index, member)) ||
+            (await this.#updateTogether(children, index, member));
           if (linked > 0) {
             index += linked - 1;
             continue;
