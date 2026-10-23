@@ -367,3 +367,11 @@
   installation guidance with package metadata. Distinguish the candidate being
   prepared from the last verified publication; changing package metadata alone
   does not update those reader-facing instructions.
+- When the tree suddenly shows thousands of modified files, check editor
+  hooks (`.cursor/hooks.json`) before suspecting another actor. A repository-
+  wide `afterFileEdit` fixer rewrites every file whenever its formatter drifts
+  from the one the tree was formatted with; `ultracite fix` always starts the
+  latest Biome through `dlx`, even when ultracite itself is pinned. Restore only
+  the files outside the task's own change set, make further edits through the
+  shell so the hook does not fire, and check formatting with the pinned
+  `pnpm exec biome check` on changed files, as CI does.
