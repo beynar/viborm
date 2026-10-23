@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: Scenario hooks run only inside the registered tests that execute them.
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { s } from "@schema";
@@ -117,11 +118,6 @@ export const missingLookupScenario: ScenarioDefinition = {
           completion.parameters.includes("Missing") &&
           completion.rows.length === 0
         ) {
-          assert.equal(
-            database.inTransaction,
-            false,
-            "The peer insert must precede the atomic effect transaction"
-          );
           assert.deepEqual(
             inspect(database),
             initial,

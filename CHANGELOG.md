@@ -3,6 +3,26 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## Unreleased
+
+### Changed
+
+- **A to-many `connect` or `set` whose targets hold the foreign key rewrites
+  them in one UPDATE.** Connecting or setting a user's `posts` sent one
+  `UPDATE … WHERE id = ?` per post; the posts of one call now share one
+  `UPDATE` naming them all (`= ANY(…)` on PostgreSQL, `IN (…)` elsewhere; one
+  per bind budget), on PostgreSQL, MySQL, SQLite and libSQL. A row policy
+  judging the rows it produces judges each in that statement, and refuses the
+  write as before. D1 and Neon HTTP already sent these UPDATEs in one batch.
+- **On D1 and Neon HTTP, a nested write's planning reads go in one batch.** The
+  reads that decide the plan (the root row, a `connect` or `set` target, an
+  `upsert` probe) were sent one at a time before the write's batch; the ones
+  that answer alike wherever they run now share one native batch of reads. An
+  `update` with a to-many `connect`, `set` or `upsert` goes from 3 round trips
+  to 2; over the 72-call census, D1 goes from 166 to 148 and Neon HTTP from 164
+  to 146, every result unchanged. A read that waits for a write of the same
+  call, a series member's read and a branch's read are still sent alone.
+
 ## 1.4.0 — 2026-10-22
 
 Fewer round trips, permission reads D1 can run, faster `distinct` and
