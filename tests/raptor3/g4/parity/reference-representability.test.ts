@@ -129,6 +129,7 @@ const post = s
   .map("fc02c_posts");
 const schema = { badge, gate, holder, pass, post, tag };
 
+const WRITE_STATEMENT = /^\s*(?:insert|update|delete)\b/i;
 const NULL_CODE =
   "Cannot connect relation 'badge': the located target's referenced field 'code' is null.";
 const NULL_SERIAL =
@@ -711,8 +712,15 @@ for (const [transport, make] of SEGMENTED) {
       // carries the relation it refused and no progress vocabulary at all.
       assert.equal(failure.meta.recordSeriesProgress, undefined);
       assert.equal(failure.meta.atomicity, undefined);
-      // …and none exists because nothing was dispatched.
-      assert.equal(driver.batchCalls, 0);
+      // …and none exists because nothing was dispatched: the one batch is
+      // the planning reads'.
+      assert.equal(driver.batchCalls, 1);
+      assert.deepEqual(
+        driver.statements.filter((statement) =>
+          WRITE_STATEMENT.test(statement.sql)
+        ),
+        []
+      );
       assert.deepEqual(await client.holder.findMany(), [
         { id: "h1", name: "one", badgeCode: "GOLD" },
       ]);

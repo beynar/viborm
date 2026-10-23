@@ -8,6 +8,8 @@ overrides:
   fast-uri@3.1.4: 3.1.8
   brace-expansion@5.0.9: 5.0.12
   sharp@0.35.4: 0.35.5
+  dompurify@3.4.16: 3.4.17
+  zod@4.1.11: 4.6.7
   mysql2@3.15.3: 3.24.5
   mysql2@3.16.1: 3.24.5
   '@prisma/config@7.9.1>deepmerge-ts': 8.0.0
@@ -182,8 +184,8 @@ importers:
         specifier: 4.44.0
         version: 4.44.0(@cloudflare/workers-types@4.20260103.0)
       zod:
-        specifier: ^4.6.5
-        version: 4.6.5
+        specifier: ^4.6.7
+        version: 4.6.7
 
   docs:
     dependencies:
@@ -207,13 +209,13 @@ packages:
     resolution: {integrity: sha512-UgtnyyuIpMSzhha89MAK6c2pTeQW8s9jLSmDeYI92NzqDsoyEYFZ/lYAXTXLUQxA25j5iTWPEnzGVl5adIy+8w==}
     engines: {node: '>=22'}
     peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
+      zod: 4.6.7
 
   '@ai-sdk/provider-utils@5.0.57':
     resolution: {integrity: sha512-giQ9mNwVzYUbahU2DG1FWEjXkDU8D8Hitz7Rk4AlRGtqh8Ss48msQ9+wEAXquWs/GYOETzxMMFsgcHK0i7TbUQ==}
     engines: {node: '>=22'}
     peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
+      zod: 4.6.7
 
   '@ai-sdk/provider@4.0.25':
     resolution: {integrity: sha512-vG0l7MUavfhn6c5+Z0y1/E6lKUrzecsLtFkuIknnHjAGAIiuwFDucafzebJuFVTZcLyhf8qhYYU2zeKP55Mymw==}
@@ -1963,7 +1965,7 @@ packages:
     engines: {node: '>=18'}
     peerDependencies:
       '@cfworker/json-schema': ^4.1.1
-      zod: ^3.25 || ^4.0
+      zod: 4.6.7
     peerDependenciesMeta:
       '@cfworker/json-schema':
         optional: true
@@ -3860,7 +3862,7 @@ packages:
     resolution: {integrity: sha512-OjyVMdsDp4ORPSrRB9hiYGic4bzeiOtaOzBPxOM7jiavz6tSXuMrqLwd1eILGhN669VD0G/+jxaiweRqfVulYg==}
     engines: {node: '>=22'}
     peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
+      zod: 4.6.7
 
   ajv-draft-04@1.0.0:
     resolution: {integrity: sha512-mv00Te6nmYbRp5DCwclxtt7yV/joXJPGS7nM+97GdxvuttCOfgI3K4U25zboyeX0O+myI8ERluxQe5wljMmVIw==}
@@ -4696,8 +4698,8 @@ packages:
     resolution: {integrity: sha512-cgwlv/1iFQiFnU96XXgROh8xTeetsnJiDsTc7TYCLFd9+/WNkIqPTxiM/8pSd8VIrhXGTf1Ny1q1hquVqDJB5w==}
     engines: {node: '>= 4'}
 
-  dompurify@3.4.16:
-    resolution: {integrity: sha512-sqo+pNp3qRhCIpbgRi1y8Tgk27Bo2Ry7w0dC1NBeNTdZChWjz9Xb/KOoZbRP/R6pQZ80Qw8YhXw13hWWBbMRnQ==}
+  dompurify@3.4.17:
+    resolution: {integrity: sha512-B/pSlYVHQ58kqISD/yDjuJ1yfzI34m1gF4lAod2bwSRhiN4K5Cl3H8Af7hqB2PmTL911tdEudnnXn5FnhRoz0w==}
 
   domutils@2.8.0:
     resolution: {integrity: sha512-w96Cjofp72M5IIhpjgobBimYEfoPjx1Vx0BSX9P30WBdZW2WIKU0T1Bd0kz2eNZ9ikjKgHbEyKx8BB6H1L3h3A==}
@@ -7003,7 +7005,7 @@ packages:
       '@valibot/to-json-schema': ^1.1.0
       effect: ^3.14.2 || ^4.0.0
       valibot: ^1.1.0
-      zod: ^3.24.0 || ^4.0.0
+      zod: 4.6.7
     peerDependenciesMeta:
       '@orpc/server':
         optional: true
@@ -7708,37 +7710,34 @@ packages:
   zod-to-json-schema@3.25.2:
     resolution: {integrity: sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA==}
     peerDependencies:
-      zod: ^3.25.28 || ^4
+      zod: 4.6.7
 
   zod@3.22.3:
     resolution: {integrity: sha512-EjIevzuJRiRPbVH4mGc8nApb/lVLKVpmUhAaR5R5doKGfAnGJ6Gr3CViAVjP+4FWSxCsybeWQdcgCtbX+7oZug==}
 
-  zod@4.1.11:
-    resolution: {integrity: sha512-WPsqwxITS2tzx1bzhIKsEs19ABD5vmCVa4xBo2tq/SrV4RNZtfws1EnCWQXM6yh8bD08a1idvkB5MZSBiZsjwg==}
-
-  zod@4.6.5:
-    resolution: {integrity: sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==}
+  zod@4.6.7:
+    resolution: {integrity: sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==}
 
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
 snapshots:
 
-  '@ai-sdk/gateway@4.0.108(zod@4.6.5)':
+  '@ai-sdk/gateway@4.0.108(zod@4.6.7)':
     dependencies:
       '@ai-sdk/provider': 4.0.25
-      '@ai-sdk/provider-utils': 5.0.57(zod@4.6.5)
+      '@ai-sdk/provider-utils': 5.0.57(zod@4.6.7)
       '@vercel/oidc': 3.2.0
-      zod: 4.6.5
+      zod: 4.6.7
 
-  '@ai-sdk/provider-utils@5.0.57(zod@4.6.5)':
+  '@ai-sdk/provider-utils@5.0.57(zod@4.6.7)':
     dependencies:
       '@ai-sdk/provider': 4.0.25
       '@standard-schema/spec': 1.1.0
       '@workflow/serde': 4.1.0
       eventsource-parser: 3.1.1
       undici: 7.30.0
-      zod: 4.6.5
+      zod: 4.6.7
 
   '@ai-sdk/provider@4.0.25':
     dependencies:
@@ -9109,7 +9108,7 @@ snapshots:
     dependencies:
       '@chevrotain/types': 13.2.0
 
-  '@modelcontextprotocol/sdk@1.32.1(zod@4.6.5)':
+  '@modelcontextprotocol/sdk@1.32.1(zod@4.6.7)':
     dependencies:
       '@hono/node-server': 2.1.4(hono@4.13.13)
       ajv: 8.20.0
@@ -9126,8 +9125,8 @@ snapshots:
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
       raw-body: 3.0.2
-      zod: 4.6.5
-      zod-to-json-schema: 3.25.2(zod@4.6.5)
+      zod: 4.6.7
+      zod-to-json-schema: 3.25.2(zod@4.6.7)
     transitivePeerDependencies:
       - supports-color
 
@@ -10084,7 +10083,7 @@ snapshots:
       '@scalar/helpers': 0.16.2
       nanoid: 5.1.16
       type-fest: 5.10.0
-      zod: 4.6.5
+      zod: 4.6.7
 
   '@scalar/validation@0.6.6': {}
 
@@ -10593,7 +10592,7 @@ snapshots:
   '@vercel/cli-config@0.3.1':
     dependencies:
       xdg-app-paths: 5.5.1
-      zod: 4.1.11
+      zod: 4.6.7
 
   '@vercel/cli-exec@1.0.1':
     dependencies:
@@ -10874,12 +10873,12 @@ snapshots:
 
   agent-base@7.1.4: {}
 
-  ai@7.0.133(zod@4.6.5):
+  ai@7.0.133(zod@4.6.7):
     dependencies:
-      '@ai-sdk/gateway': 4.0.108(zod@4.6.5)
+      '@ai-sdk/gateway': 4.0.108(zod@4.6.7)
       '@ai-sdk/provider': 4.0.25
-      '@ai-sdk/provider-utils': 5.0.57(zod@4.6.5)
-      zod: 4.6.5
+      '@ai-sdk/provider-utils': 5.0.57(zod@4.6.7)
+      zod: 4.6.7
 
   ajv-draft-04@1.0.0(ajv@8.20.0):
     optionalDependencies:
@@ -11018,7 +11017,7 @@ snapshots:
       vitefu: 1.1.3(vite@8.3.3(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
       xxhash-wasm: 1.1.0
       yargs-parser: 22.0.0
-      zod: 4.6.5
+      zod: 4.6.7
     optionalDependencies:
       sharp: 0.35.5(@types/node@22.20.5)
     transitivePeerDependencies:
@@ -11114,7 +11113,7 @@ snapshots:
       '@iconify-json/lucide': 1.2.141
       '@iconify/types': 2.0.0
       '@iconify/utils': 3.1.7
-      '@modelcontextprotocol/sdk': 1.32.1(zod@4.6.5)
+      '@modelcontextprotocol/sdk': 1.32.1(zod@4.6.7)
       '@orama/orama': 3.1.18
       '@pierre/diffs': 1.5.2(@shikijs/themes@4.5.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@scalar/astro': 0.4.28(astro@7.3.7(445c60a1c3decf7329e99811fefd95bf))
@@ -11128,13 +11127,13 @@ snapshots:
       '@types/node': 22.20.5
       '@vercel/analytics': 2.0.1(react@19.3.0)
       '@vitejs/plugin-react': 6.1.1(babel-plugin-react-compiler@1.0.0)(oxc-transform-react@0.145.0)(vite@8.3.3(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
-      ai: 7.0.133(zod@4.6.5)
+      ai: 7.0.133(zod@4.6.7)
       astro: 7.3.7(445c60a1c3decf7329e99811fefd95bf)
       chokidar: 5.0.0
       citty: 0.2.2
       consola: 3.4.2
       cross-spawn: 7.0.6
-      dompurify: 3.4.16
+      dompurify: 3.4.17
       dotenv: 18.0.6
       epub-gen-memory: 1.1.2
       es-module-lexer: 3.0.3
@@ -11185,7 +11184,7 @@ snapshots:
       ufo: 1.6.4
       undici: 8.11.2
       write-file-atomic: 7.0.1
-      zod: 4.6.5
+      zod: 4.6.7
     optionalDependencies:
       '@astrojs/cloudflare': 14.3.4(@types/node@22.20.5)(astro@7.3.7(445c60a1c3decf7329e99811fefd95bf))(esbuild@0.28.2)(jiti@2.7.0)(wrangler@4.148.0(@cloudflare/workers-types@4.20260103.0)(@types/node@22.20.5))(yaml@2.9.1)
     transitivePeerDependencies:
@@ -11835,7 +11834,7 @@ snapshots:
     dependencies:
       domelementtype: 2.3.0
 
-  dompurify@3.4.16:
+  dompurify@3.4.17:
     optionalDependencies:
       '@types/trusted-types': 2.0.7
 
@@ -12993,7 +12992,7 @@ snapshots:
       d3-sankey: 0.12.3
       dagre-d3-es: 7.0.14
       dayjs: 1.11.23
-      dompurify: 3.4.16
+      dompurify: 3.4.17
       elkjs: 0.9.3
       es-toolkit: 1.52.0
       katex: 0.16.47
@@ -14508,14 +14507,14 @@ snapshots:
 
   trough@2.2.0: {}
 
-  trpc-cli@0.12.1(@trpc/server@11.8.1(typescript@5.9.3))(effect@3.20.0)(valibot@1.4.2(typescript@5.9.3))(zod@4.6.5):
+  trpc-cli@0.12.1(@trpc/server@11.8.1(typescript@5.9.3))(effect@3.20.0)(valibot@1.4.2(typescript@5.9.3))(zod@4.6.7):
     dependencies:
       commander: 14.0.2
     optionalDependencies:
       '@trpc/server': 11.8.1(typescript@5.9.3)
       effect: 3.20.0
       valibot: 1.4.2(typescript@5.9.3)
-      zod: 4.6.5
+      zod: 4.6.7
 
   ts-dedent@2.3.0: {}
 
@@ -14624,8 +14623,8 @@ snapshots:
       jsonc-parser: 3.3.1
       nypm: 0.6.2
       oxlint: 1.36.0
-      trpc-cli: 0.12.1(@trpc/server@11.8.1(typescript@5.9.3))(effect@3.20.0)(valibot@1.4.2(typescript@5.9.3))(zod@4.6.5)
-      zod: 4.6.5
+      trpc-cli: 0.12.1(@trpc/server@11.8.1(typescript@5.9.3))(effect@3.20.0)(valibot@1.4.2(typescript@5.9.3))(zod@4.6.7)
+      zod: 4.6.7
     transitivePeerDependencies:
       - '@orpc/server'
       - '@valibot/to-json-schema'
@@ -15186,14 +15185,12 @@ snapshots:
       grammex: 3.1.13
       graphmatch: 1.1.1
 
-  zod-to-json-schema@3.25.2(zod@4.6.5):
+  zod-to-json-schema@3.25.2(zod@4.6.7):
     dependencies:
-      zod: 4.6.5
+      zod: 4.6.7
 
   zod@3.22.3: {}
 
-  zod@4.1.11: {}
-
-  zod@4.6.5: {}
+  zod@4.6.7: {}
 
   zwitch@2.0.4: {}
