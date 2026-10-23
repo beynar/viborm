@@ -302,25 +302,27 @@ function changesBetween(
   }
 }
 
-/** Deterministic against the observed graph, independent of storage listing order. */
+/**
+ * A function of the parents' artifacts alone, independent of storage listing
+ * order: a state's id hashes its artifact, so the same parents and schema give
+ * the same id whatever else the history holds.
+ */
 export function encodeSnapshotArtifact(
   snapshot: SchemaSnapshot,
   artifacts: ReadonlyMap<Sha256, ResolvedSnapshotArtifact>,
-  parentArtifacts: Iterable<Sha256>,
-  root = false
+  parentArtifacts: Iterable<Sha256>
 ): EncodedSnapshotArtifact {
   const full = encodeSnapshot(snapshot);
   const bases = [...new Set(parentArtifacts)].sort();
-  // Authored checkpoints must stand alone after pruning the preceding history.
-  if (root) return { artifactHash: full.snapshotHash, ...full, depth: 0 };
-  for (const hash of [...artifacts.keys()].sort()) {
-    if (artifacts.get(hash)!.snapshotHash === full.snapshotHash) {
-      // Reuse authenticated immutable bytes; publication can omit this object.
+  for (const hash of bases) {
+    const base = artifacts.get(hash)!;
+    // A parent already stores this schema; publication can omit this object.
+    if (base.snapshotHash === full.snapshotHash) {
       return {
         artifactHash: hash,
         snapshotHash: full.snapshotHash,
         bytes: null,
-        depth: artifacts.get(hash)!.depth,
+        depth: base.depth,
       };
     }
   }

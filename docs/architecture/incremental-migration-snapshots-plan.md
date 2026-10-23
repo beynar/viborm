@@ -61,20 +61,19 @@ Start each root, including an authored history checkpoint, with a full snapshot.
 For later states, consider only selected
 parent artifacts, sorted by physical hash, and choose the smallest delta only
 when it is smaller than the full canonical document. Ties retain the first
-candidate. Reuse an existing authenticated representation of the desired logical
-schema when available; data-only states do not create snapshot objects. Delta
-base selection is a storage choice, independent of transition ancestry and SQL.
+candidate. When a parent's artifact already stores the desired schema (a
+data-only state), reuse it; no snapshot object is created. Delta base selection
+is a storage choice, independent of SQL, and reads nothing but the parents.
 Concurrent branches with different delta bases can publish distinct authenticated
 objects safely; their logical schema identity still agrees.
 
 Selected parents are the validated transitions actually entering the manifest,
 including manual transitions, not the separate automatic parent-selection list.
-Reuse takes precedence over new encoding for non-root states and considers
-authenticated artifacts reachable from committed states, plus artifacts already
-sealed within this candidate, in ascending physical-hash order. A root remains
-full even when an existing delta represents the same schema.
-Preview/publication determinism is relative to the same observed graph; a new
-concurrent commit can legitimately change the next call's candidate.
+A root has no parents and is therefore always full. A state's id hashes its
+artifact, so the artifact is a function of the parents' artifacts and the
+schema alone: regenerating a state from the same documents, names, parents and
+decisions reproduces its id whatever else the history holds (see the revision
+below).
 
 Publish estate, snapshot artifact, SQL, then state manifest. Bases already exist
 in the loaded graph. Dry runs write nothing and predict the same manifest as
@@ -405,3 +404,29 @@ no additional headroom was added.
 All 54 packed-package consumer checks passed again on the final build
 (25 runtime and 29 declaration tests). Strict package lint, changed-file Biome
 and `git diff --check` also passed.
+
+## Revision (2026-10-24): representation from the parents only
+
+The first implementation reused any authenticated artifact of the desired
+schema in the observed graph, before encoding against the parents. A state's id
+hashes `snapshotArtifactHash`, so the same state regenerated against a history
+that had gained another form of its schema (another route to it, or a full
+checkpoint of it) got a different id. That broke the documented restore repair
+("generating the lost states again reproduces their ids exactly") and the
+advice `reanchor` gives when the marker passed through a lost state.
+
+Drizzle RC5 stores each `diff` snapshot against `ddlPrev`, the state of its
+own parents (`generate-postgres.ts`, `snapshotOf`), and never borrows a
+representation from elsewhere in the history. The encoder now follows the
+same rule: it reuses a parent's artifact that already stores the schema,
+otherwise chooses the smallest delta from the parents' artifacts or the full
+document. A root has no parents, so the separate root flag is gone. Data-only
+states still create no snapshot object; a schema that returns to an earlier
+state's now stores a small delta against its parent instead of reusing the
+earlier object. Content-addressed ids are kept, unlike Drizzle's random ids:
+they are what makes the restore repair possible.
+
+The synthetic 100-table history still measures 616,430 bytes: its states only
+ever reuse or encode against their parents. A public regression regenerates a
+lost state on a restored history that reached the same schema through another
+parent and requires the original id; it fails against the first encoder.

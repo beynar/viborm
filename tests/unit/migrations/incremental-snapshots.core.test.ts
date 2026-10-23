@@ -365,16 +365,24 @@ describe("incremental snapshot artifacts", () => {
     expect(next.artifactHash).not.toBe(next.snapshotHash);
   });
 
-  test("reuse and smallest-base selection ignore map and candidate insertion order", async () => {
+  test("reuse comes only from parents, whatever the map and candidate insertion order", async () => {
     const storage = new MemoryEstateStorage();
     const base = await full(storage, snapshot());
     const same = await delta(storage, base, snapshot(), []);
     const artifacts = await resolveSnapshotArtifacts(storage, [same, base]);
     const reverse = new Map([...artifacts].reverse());
-    const reused = encodeSnapshotArtifact(snapshot(), artifacts, [base]);
+    const reused = encodeSnapshotArtifact(snapshot(), artifacts, [same, base]);
     expect(reused.bytes).toBeNull();
     expect(reused.artifactHash).toBe([same, base].sort()[0]);
-    expect(encodeSnapshotArtifact(snapshot(), reverse, [same])).toEqual(reused);
+    expect(encodeSnapshotArtifact(snapshot(), reverse, [base, same])).toEqual(
+      reused
+    );
+    expect(
+      encodeSnapshotArtifact(snapshot(), artifacts, [base]).artifactHash
+    ).toBe(base);
+    expect(
+      encodeSnapshotArtifact(snapshot(), artifacts, [same]).artifactHash
+    ).toBe(same);
     expect(
       encodeSnapshotArtifact(snapshot(1), artifacts, [same, base])
     ).toEqual(encodeSnapshotArtifact(snapshot(1), reverse, [base, same]));
@@ -659,7 +667,7 @@ describe("incremental snapshot graph and generation", () => {
     );
   });
 
-  test("branches converge with a complete transition from each parent and reuse returning schemas", async () => {
+  test("branches converge with a complete transition from each parent; a returning schema is stored against its parent", async () => {
     const storage = new MemoryEstateStorage();
     const root = await migrations(storage).generate({ name: "root" });
     const left = await migrations(storage, 1).generate({
@@ -682,13 +690,35 @@ describe("incremental snapshot graph and generation", () => {
       ok: true,
       findings: [],
     });
-    const inventory = await storage.listSnapshots();
     const returned = await migrations(storage).generate({ name: "returned" });
     expect(returned.snapshotHash).toBe(root.snapshotHash);
-    expect(await storage.listSnapshots()).toEqual(inventory);
+    const after = await loadMigrationGraph(storage);
+    const stored = after.states.get(returned.stateId!)!.snapshotArtifactHash!;
+    expect(after.snapshotArtifacts.get(stored)?.baseArtifactHash).toBe(
+      artifact
+    );
   });
 
-  test("a non-root empty parent still reuses an earlier delta", async () => {
+  test("a regenerated state keeps its id when the history gained another form of its schema", async () => {
+    const original = new MemoryEstateStorage();
+    const root = await migrations(original).generate({ name: "root" });
+    const lost = await migrations(original, 1).generate({ name: "lost" });
+    expect(
+      (await loadMigrationGraph(original)).states.get(lost.stateId!)!
+        .snapshotArtifactHash
+    ).toBeDefined();
+    const restored = new MemoryEstateStorage();
+    await migrations(restored).generate({ name: "root" });
+    await migrations(restored, 2).generate({ name: "two" });
+    await migrations(restored, 1).generate({ name: "back" });
+    const again = await migrations(restored, 1).generate({
+      from: root.stateId!,
+      name: "lost",
+    });
+    expect(again.stateId).toBe(lost.stateId);
+  });
+
+  test("a state after an empty-schema parent, which stores no base, is a full document", async () => {
     const storage = new MemoryEstateStorage();
     await migrations(storage).generate({ name: "root" });
     const earlier = await migrations(storage, 1).generate({ name: "earlier" });
@@ -700,23 +730,22 @@ describe("incremental snapshot graph and generation", () => {
       earlier.stateId!,
       "empty"
     );
-    const inventory = await storage.listSnapshots();
     const returned = await migrations(storage, 1).generate({
       name: "returned",
     });
     const graph = await loadMigrationGraph(storage);
-    const earlierArtifact = graph.states.get(
-      earlier.stateId!
-    )!.snapshotArtifactHash;
-    expect(earlierArtifact).toBeDefined();
+    expect(
+      graph.states.get(earlier.stateId!)!.snapshotArtifactHash
+    ).toBeDefined();
     expect(emptied.manifest.snapshotHash).toBe(graph.emptySnapshotHash);
     expect(graph.states.get(returned.stateId!)!.parents[0]!.fromState).toBe(
       emptied.stateId
     );
-    expect(graph.states.get(returned.stateId!)!.snapshotArtifactHash).toBe(
-      earlierArtifact
-    );
-    expect(await storage.listSnapshots()).toEqual(inventory);
+    expect(returned.snapshotHash).toBe(earlier.snapshotHash);
+    expect(
+      graph.states.get(returned.stateId!)!.snapshotArtifactHash
+    ).toBeUndefined();
+    expect(await storage.listSnapshots()).toContain(returned.snapshotHash);
     expect(await checkEstate(storage)).toEqual({ ok: true, findings: [] });
   });
 

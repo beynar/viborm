@@ -853,8 +853,10 @@ snapshot. Low-lock split generation applies the same encoding to every step.
 The state's `snapshotHash` always identifies the complete canonical schema.
 A delta has its own content address, recorded as `snapshotArtifactHash` in the
 state manifest. Two branches can reach the same schema through different
-delta artifacts without conflicting over a storage key. Identical schemas,
-including data-only migrations, reuse an already authenticated representation.
+delta artifacts without conflicting over a storage key. A state whose parent
+already stores its schema, such as a data-only migration, reuses the parent's
+representation. The representation depends only on the parents, so generating
+a state again reproduces its id.
 
 All dependent artifacts are authenticated and reconstructed into full schema
 snapshots before migration execution. Missing or changed bases fail before

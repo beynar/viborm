@@ -110,10 +110,12 @@ delta is storage, never an execution program or a second DDL differ. Resolve
 every distinct physical reference and verify its logical hash against every
 referencing state before effects; do not deduplicate admission by schema hash.
 Patch only independently owned documents. A full document has depth zero;
-at most 32 delta links are admitted, including cached bases. Generation reuses
-authenticated representations in ascending physical-hash order, otherwise
-chooses a smaller delta from actual manifest parents, or a full checkpoint.
-Authored history checkpoints always remain full. The existing `ArtifactCache`
+at most 32 delta links are admitted, including cached bases. Generation reads
+only the actual manifest parents' artifacts: it reuses one that already stores
+the schema, otherwise chooses the smallest delta from them, or a full document.
+A state's id hashes its artifact, so never widen that to other artifacts of the
+graph: a regenerated state must reproduce its id. Authored history checkpoints
+have no parents and are always full. The existing `ArtifactCache`
 shares only exact-byte parsed full/delta documents and manifests; every command
 still reads all dependencies from its own storage before reusing a reconstructed
 schema. Retained reconstructions charge their full canonical size to the same
