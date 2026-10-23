@@ -37,6 +37,7 @@ import type {
 import {
   exactObject,
   parseIdentifierArray,
+  parseItems,
   parseMember,
   parseRequiredString,
   parseStringArray,
@@ -356,17 +357,17 @@ function parseTable(value: unknown, label: string): TableDef {
   }
   const table: TableDef = {
     name: parseRequiredString(record.name, `${label}.name`),
-    columns: record.columns.map((column, index) =>
-      parseColumn(column, `${label}.columns[${index}]`)
+    columns: parseItems(record.columns, `${label}.columns`, parseColumn),
+    indexes: parseItems(record.indexes, `${label}.indexes`, parseIndex),
+    foreignKeys: parseItems(
+      record.foreignKeys,
+      `${label}.foreignKeys`,
+      parseForeignKey
     ),
-    indexes: record.indexes.map((index, position) =>
-      parseIndex(index, `${label}.indexes[${position}]`)
-    ),
-    foreignKeys: record.foreignKeys.map((foreignKey, index) =>
-      parseForeignKey(foreignKey, `${label}.foreignKeys[${index}]`)
-    ),
-    uniqueConstraints: record.uniqueConstraints.map((constraint, index) =>
-      parseUniqueConstraint(constraint, `${label}.uniqueConstraints[${index}]`)
+    uniqueConstraints: parseItems(
+      record.uniqueConstraints,
+      `${label}.uniqueConstraints`,
+      parseUniqueConstraint
     ),
   };
   if ("primaryKey" in record) {
@@ -463,9 +464,7 @@ function parsePolymorphicStorage(
       relation: parseRequiredString(record.relation, `${label}.relation`),
       kind: "toOne",
       storageRef: parseRequiredString(record.storageRef, `${label}.storageRef`),
-      members: record.members.map((member, index) =>
-        parseToOneMember(member, `${label}.members[${index}]`)
-      ),
+      members: parseItems(record.members, `${label}.members`, parseToOneMember),
     };
   }
   if (value.kind === "toMany") {
@@ -482,8 +481,10 @@ function parsePolymorphicStorage(
       ownerTable: parseRequiredString(record.ownerTable, `${label}.ownerTable`),
       relation: parseRequiredString(record.relation, `${label}.relation`),
       kind: "toMany",
-      members: record.members.map((member, index) =>
-        parseToManyMember(member, `${label}.members[${index}]`)
+      members: parseItems(
+        record.members,
+        `${label}.members`,
+        parseToManyMember
       ),
     };
   }
@@ -498,15 +499,11 @@ export function parseSnapshotDocument(
   const record = exactObject(parsed, SNAPSHOT_KEYS, ["tables"], "snapshot");
   if (!Array.isArray(record.tables)) refuse("snapshot.tables must be an array");
   const snapshot: SchemaSnapshot = {
-    tables: record.tables.map((table, index) =>
-      parseTable(table, `snapshot.tables[${index}]`)
-    ),
+    tables: parseItems(record.tables, "snapshot.tables", parseTable),
   };
   if ("enums" in record) {
     if (!Array.isArray(record.enums)) refuse("snapshot.enums must be an array");
-    snapshot.enums = record.enums.map((enumDef, index) =>
-      parseEnum(enumDef, `snapshot.enums[${index}]`)
-    );
+    snapshot.enums = parseItems(record.enums, "snapshot.enums", parseEnum);
   }
   if ("polymorphicStorage" in record) {
     if (!Array.isArray(record.polymorphicStorage)) {

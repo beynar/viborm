@@ -838,6 +838,36 @@ migrations/
 
 Snapshots, SQL blobs, and state manifests are content-addressed. A state becomes visible only after its snapshot and SQL bytes are durable and the manifest is published through an atomic no-replace boundary. Filenames that look like hashes are not proof — every read recomputes the chain.
 
+### Incremental snapshots
+
+Generation stores the first schema as a full snapshot. Later states store a
+structured delta against a selected parent artifact when that delta is smaller
+than the full schema. A full checkpoint limits reconstruction to 32 delta links.
+Large or widespread changes can therefore produce a full snapshot. No option
+or conversion command is needed, and existing full snapshots remain valid.
+Engines that predate incremental snapshots cannot read the new delta manifests;
+upgrade every estate reader before generating them.
+Authored history checkpoints (`generate({ from: null })`) always use a full
+snapshot. Low-lock split generation applies the same encoding to every step.
+
+The state's `snapshotHash` always identifies the complete canonical schema.
+A delta has its own content address, recorded as `snapshotArtifactHash` in the
+state manifest. Two branches can reach the same schema through different
+delta artifacts without conflicting over a storage key. A state whose parent
+already stores its schema, such as a data-only migration, reuses the parent's
+representation. The representation depends only on the parents, so generating
+a state again reproduces its id.
+
+All dependent artifacts are authenticated and reconstructed into full schema
+snapshots before migration execution. Missing or changed bases fail before
+effects. `check` also validates unused artifacts and counts transitive bases as
+referenced. Keep the entire estate when copying or bundling migrations.
+The `prune` operation copies all physical dependencies needed by retained
+states, including a base whose original migration state is no longer retained.
+
+This reduces repeated snapshot JSON on disk. It does not reduce the number of
+migrations or SQL statements, and savings depend on schema size and changes.
+
 There are no numbered `0001_*.sql` files, no `meta/_journal.json`, no latest snapshot, and no `meta/_down/` tree. Forward SQL, rollback SQL, and checks live in one SQL blob; the state manifest points at exact byte ranges.
 
 ### Storage Requirements

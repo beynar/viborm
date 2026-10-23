@@ -276,167 +276,59 @@ function requireDecimalDomain(context: ScalarTypeContext): DecimalDescriptor {
 }
 
 /**
- * Gets the PostgreSQL column type for a VibORM scalar type.
+ * The tables own ordinary defaults. Their timezone aliases are selected by
+ * withTimezone, not admitted as independent scalar kinds. Unknown and inherited
+ * keys retain the string fallback.
  */
+function defaultType(
+  defaults: Readonly<Record<string, string>> & { readonly string: string },
+  type: string
+): string {
+  return type !== "datetimetz" &&
+    type !== "timetz" &&
+    Object.hasOwn(defaults, type)
+    ? defaults[type]!
+    : defaults.string;
+}
+
+/** PostgreSQL keeps native lists, exact decimal typmods and vector dimensions. */
 export function getPostgresType(context: ScalarTypeContext): string {
+  const type = context.type;
   let baseType: string;
-
-  switch (context.type) {
-    case "string":
-      baseType = PG_TYPE_DEFAULTS.string;
-      break;
-    case "int":
-      baseType = PG_TYPE_DEFAULTS.int;
-      break;
-    case "number":
-      baseType = PG_TYPE_DEFAULTS.number;
-      break;
-    case "decimal":
-      // `NUMERIC(p,s)`, and `NUMERIC(p,s)[]` through the array suffix below:
-      // PostgreSQL carries the domain in the element typmod, which is the one
-      // place introspection can read it back from.
-      baseType = decimalColumnType("pg", requireDecimalDomain(context));
-      break;
-    case "boolean":
-      baseType = PG_TYPE_DEFAULTS.boolean;
-      break;
-    case "datetime":
-      baseType = context.withTimezone
-        ? PG_TYPE_DEFAULTS.datetimetz
-        : PG_TYPE_DEFAULTS.datetime;
-      break;
-    case "date":
-      baseType = PG_TYPE_DEFAULTS.date;
-      break;
-    case "time":
-      baseType = context.withTimezone
-        ? PG_TYPE_DEFAULTS.timetz
-        : PG_TYPE_DEFAULTS.time;
-      break;
-    case "bigint":
-      baseType = PG_TYPE_DEFAULTS.bigint;
-      break;
-    case "json":
-      baseType = PG_TYPE_DEFAULTS.json;
-      break;
-    case "blob":
-      baseType = PG_TYPE_DEFAULTS.blob;
-      break;
-    case "vector":
-      baseType =
-        context.dimension === undefined
-          ? PG_TYPE_DEFAULTS.vector
-          : `${PG_TYPE_DEFAULTS.vector}(${context.dimension})`;
-      break;
-    case "point":
-      baseType = PG_TYPE_DEFAULTS.point;
-      break;
-    case "enum":
-      baseType = PG_TYPE_DEFAULTS.enum;
-      break;
-    default:
-      baseType = PG_TYPE_DEFAULTS.string;
-  }
-
+  if (type === "decimal")
+    baseType = decimalColumnType("pg", requireDecimalDomain(context));
+  else if (type === "datetime" && context.withTimezone)
+    baseType = PG_TYPE_DEFAULTS.datetimetz;
+  else if (type === "time" && context.withTimezone)
+    baseType = PG_TYPE_DEFAULTS.timetz;
+  else if (type === "vector" && context.dimension !== undefined)
+    baseType = `${PG_TYPE_DEFAULTS.vector}(${context.dimension})`;
+  else baseType = defaultType(PG_TYPE_DEFAULTS, type);
   return context.array ? `${baseType}[]` : baseType;
 }
-
-/**
- * Gets the SQLite column type for a VibORM scalar type.
- * SQLite doesn't support native arrays - they are stored as JSON.
- */
+/** SQLite lists use JSON, except the checked decimal TEXT container. */
 export function getSQLiteType(context: ScalarTypeContext): string {
-  // SQLite doesn't support native arrays - use JSON.
-  //
-  // A decimal list is the one exception, and it is TEXT rather than JSON for a
-  // physical reason: its reserved CHECK asserts `typeof = 'text'`, and the
-  // literal type `JSON` has NUMERIC affinity under SQLite's rules, which would
-  // convert a numeric-looking container on the way in.
-  if (context.array) {
+  if (context.array)
     return context.type === "decimal" ? SQLITE_DECIMAL_LIST_TYPE : "JSON";
-  }
-
-  switch (context.type) {
-    case "string":
-    case "enum":
-      return SQLITE_TYPE_DEFAULTS.string;
-    case "json":
-    case "vector":
-      return "JSON";
-    case "point":
-      return SQLITE_TYPE_DEFAULTS.point;
-    case "int":
-    case "bigint":
-    case "boolean":
-      return SQLITE_TYPE_DEFAULTS.int;
-    case "number":
-      return SQLITE_TYPE_DEFAULTS.number;
-    // The signed INTEGER coefficient scaled by 10^scale. SQLite has no exact
-    // decimal type at all — `DECIMAL(10,5)` is a NUMERIC-affinity spelling
-    // whose numbers it ignores, and REAL rounds a fractional value into a
-    // double as it is stored — so the exact value lives in an integer and the
-    // declared precision is made real by the reserved CHECK the driver adds.
-    case "decimal":
-      return decimalColumnType("sqlite", requireDecimalDomain(context));
-    case "datetime":
-    case "date":
-    case "time":
-      return SQLITE_TYPE_DEFAULTS.datetime;
-    case "blob":
-      return SQLITE_TYPE_DEFAULTS.blob;
-    default:
-      return SQLITE_TYPE_DEFAULTS.string;
-  }
+  const type = context.type;
+  return type === "decimal"
+    ? decimalColumnType("sqlite", requireDecimalDomain(context))
+    : defaultType(SQLITE_TYPE_DEFAULTS, type);
 }
 
-/**
- * Gets the MySQL column type for a VibORM scalar type.
- * MySQL doesn't support native arrays - they are stored as JSON.
- */
+/** MySQL lists use JSON; scalar decimals retain their declared precision/scale. */
 export function getMySQLType(context: ScalarTypeContext): string {
-  // MySQL doesn't support native arrays - use JSON
-  if (context.array) {
-    return "JSON";
-  }
-
-  switch (context.type) {
-    case "string":
-      return MYSQL_TYPE_DEFAULTS.string;
-    case "int":
-      return MYSQL_TYPE_DEFAULTS.int;
-    case "number":
-      return MYSQL_TYPE_DEFAULTS.number;
-    // Never bare `DECIMAL`: MySQL reads that as `DECIMAL(10,0)` and silently
-    // truncates every fraction. A decimal LIST is caught by the array arm
-    // above, where it is JSON like every other MySQL list and carries its
-    // domain in the column-comment marker instead.
-    case "decimal":
-      return decimalColumnType("mysql", requireDecimalDomain(context));
-    case "boolean":
-      return MYSQL_TYPE_DEFAULTS.boolean;
-    case "datetime":
-      return context.withTimezone
-        ? MYSQL_TYPE_DEFAULTS.datetimetz
-        : MYSQL_TYPE_DEFAULTS.datetime;
-    case "date":
-      return MYSQL_TYPE_DEFAULTS.date;
-    case "time":
-      return context.withTimezone
-        ? MYSQL_TYPE_DEFAULTS.timetz
-        : MYSQL_TYPE_DEFAULTS.time;
-    case "bigint":
-      return MYSQL_TYPE_DEFAULTS.bigint;
-    case "json":
-      return MYSQL_TYPE_DEFAULTS.json;
-    case "blob":
-      return MYSQL_TYPE_DEFAULTS.blob;
-    case "vector":
-      return MYSQL_TYPE_DEFAULTS.vector;
-    case "point":
-      return MYSQL_TYPE_DEFAULTS.point;
-    case "enum":
-      return MYSQL_TYPE_DEFAULTS.enum;
-    default:
-      return MYSQL_TYPE_DEFAULTS.string;
-  }
+  if (context.array) return "JSON";
+  const type = context.type;
+  if (type === "decimal")
+    return decimalColumnType("mysql", requireDecimalDomain(context));
+  if (type === "datetime")
+    return context.withTimezone
+      ? MYSQL_TYPE_DEFAULTS.datetimetz
+      : MYSQL_TYPE_DEFAULTS.datetime;
+  if (type === "time")
+    return context.withTimezone
+      ? MYSQL_TYPE_DEFAULTS.timetz
+      : MYSQL_TYPE_DEFAULTS.time;
+  return defaultType(MYSQL_TYPE_DEFAULTS, type);
 }

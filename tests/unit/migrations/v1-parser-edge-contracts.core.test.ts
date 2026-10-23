@@ -55,6 +55,32 @@ function ledgerEvent(overrides: Partial<Omit<LedgerEventV1, "eventId">> = {}) {
 }
 
 describe("migration V1 parser edge contracts", () => {
+  test("snapshot array admission keeps refusal order and indexed diagnostics", () => {
+    const table = {
+      name: "entity",
+      columns: [
+        { name: "id", type: "TEXT", nullable: false },
+        { name: 1, type: "TEXT", nullable: false },
+      ],
+      indexes: [],
+      foreignKeys: [],
+      uniqueConstraints: [],
+    };
+    const parse = (indexes: unknown) => {
+      const bytes = canonicalizeJson({ tables: [{ ...table, indexes }] });
+      return parseSnapshotDocument(
+        bytes,
+        domainHash(HASH_DOMAIN.snapshot, bytes)
+      );
+    };
+    expect(() => parse("invalid array")).toThrow(
+      "snapshot.tables[0].indexes must be an array"
+    );
+    expect(() => parse([])).toThrow(
+      "snapshot.tables[0].columns[1].name must be a non-empty string"
+    );
+  });
+
   test("dispatch admission covers every primitive tagged parameter", () => {
     const parameters: readonly MigrationParameterV1[] = [
       { kind: "null" },

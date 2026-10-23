@@ -82,3 +82,12 @@ export function readFlag(value: unknown): boolean | undefined {
   if (TRUE_FLAGS.includes(value)) return true;
   return FALSE_FLAGS.includes(value) ? false : undefined;
 }
+
+/** Parse an already-admitted array with the artifact's indexed diagnostic path. */
+export function parseItems<T>(
+  items: readonly unknown[],
+  label: string,
+  parse: (value: unknown, label: string) => T
+): T[] {
+  return items.map((value, index) => parse(value, `${label}[${index}]`));
+}

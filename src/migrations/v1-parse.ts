@@ -26,7 +26,12 @@ import {
 } from "./identity";
 import type { MigrationTarget } from "./types";
 import { parseDispatch } from "./v1-parse-dispatch";
-import { exactObject, parseFormat, refuse } from "./v1-parse-shared";
+import {
+  exactObject,
+  parseFormat,
+  parseItems,
+  refuse,
+} from "./v1-parse-shared";
 import type {
   MigrationApprovalV1,
   MigrationBooleanCheckV1,
@@ -93,6 +98,7 @@ const STATE_HASH_KEYS = [
   "sqlHash",
 ] as const;
 const PARENT_REQUIRED_KEYS = PARENT_KEYS.filter((key) => key !== "approvals");
+const STATE_ALLOWED_KEYS = [...STATE_KEYS, "snapshotArtifactHash"];
 const TRANSITION_HASH_KEYS = [
   "approvals",
   "fromState",
@@ -263,9 +269,7 @@ function parseOperation(value: unknown, label: string): MigrationOperationV1 {
     label: record.label,
     origin: record.origin,
     risk: record.risk,
-    steps: record.steps.map((step, index) =>
-      parseStep(step, `${label}.steps[${index}]`)
-    ),
+    steps: parseItems(record.steps, `${label}.steps`, parseStep),
   };
 }
 
@@ -283,8 +287,10 @@ function parseRollback(value: unknown, label: string): MigrationRollbackV1 {
       refuse(`${label}.operations must be an array`);
     return {
       kind: "schema",
-      operations: record.operations.map((operation, index) =>
-        parseOperation(operation, `${label}.operations[${index}]`)
+      operations: parseItems(
+        record.operations,
+        `${label}.operations`,
+        parseOperation
       ),
     };
   }
@@ -306,8 +312,10 @@ function parseRollback(value: unknown, label: string): MigrationRollbackV1 {
     return {
       kind: "manual",
       requestedBoundary: record.requestedBoundary,
-      operations: record.operations.map((operation, index) =>
-        parseOperation(operation, `${label}.operations[${index}]`)
+      operations: parseItems(
+        record.operations,
+        `${label}.operations`,
+        parseOperation
       ),
     };
   }
@@ -395,8 +403,10 @@ function parseParent(
     refuse(`${label}.originChecks must be an array`);
   if (!Array.isArray(record.operations))
     refuse(`${label}.operations must be an array`);
-  const operations = record.operations.map((operation, index) =>
-    parseOperation(operation, `${label}.operations[${index}]`)
+  const operations = parseItems(
+    record.operations,
+    `${label}.operations`,
+    parseOperation
   );
   const rollback = parseRollback(record.rollback, `${label}.rollback`);
   const origins = new Set(operations.map((operation) => operation.origin));
@@ -413,8 +423,10 @@ function parseParent(
   }
   const parsed: Omit<MigrationParentTransitionV1, "transitionHash"> = {
     fromState,
-    originChecks: record.originChecks.map((check, index) =>
-      parseCheck(check, `${label}.originChecks[${index}]`)
+    originChecks: parseItems(
+      record.originChecks,
+      `${label}.originChecks`,
+      parseCheck
     ),
     requestedForwardBoundary: record.requestedForwardBoundary,
     operations,
@@ -462,6 +474,9 @@ export function encodeStateId(
   for (const key of STATE_HASH_KEYS) {
     body[key] = manifest[key];
   }
+  if (manifest.snapshotArtifactHash !== undefined) {
+    body.snapshotArtifactHash = manifest.snapshotArtifactHash;
+  }
   return domainHash(HASH_DOMAIN.state, canonicalizeJson(body));
 }
 
@@ -470,7 +485,12 @@ export function parseStateManifest(
   expectedId: Sha256
 ): MigrationStateManifestV1 {
   const parsed = parseJsonBytes(bytes, `states/${expectedId}.json`);
-  const record = exactObject(parsed, STATE_KEYS, STATE_KEYS, "state manifest");
+  const record = exactObject(
+    parsed,
+    STATE_ALLOWED_KEYS,
+    STATE_KEYS,
+    "state manifest"
+  );
   if (!Array.isArray(record.parents) || record.parents.length === 0) {
     refuse("state manifest must have at least one parent transition");
   }
@@ -480,9 +500,7 @@ export function parseStateManifest(
   if (!isString(record.name) || record.name.length === 0) {
     refuse("state manifest.name must be a non-empty string");
   }
-  const parents = record.parents.map((parent, index) =>
-    parseParent(parent, `state.parents[${index}]`)
-  );
+  const parents = parseItems(record.parents, "state.parents", parseParent);
   // Strictly ascending, so no fromState appears twice.
   for (let i = 1; i < parents.length; i++) {
     if (
@@ -498,9 +516,19 @@ export function parseStateManifest(
     estateHash: parseSha256(record.estateHash, "state.estateHash"),
     name: record.name,
     snapshotHash: parseSha256(record.snapshotHash, "state.snapshotHash"),
+    ...("snapshotArtifactHash" in record
+      ? {
+          snapshotArtifactHash: parseSha256(
+            record.snapshotArtifactHash,
+            "state.snapshotArtifactHash"
+          ),
+        }
+      : {}),
     sqlHash: parseSha256(record.sqlHash, "state.sqlHash"),
-    destinationChecks: record.destinationChecks.map((check, index) =>
-      parseCheck(check, `state.destinationChecks[${index}]`)
+    destinationChecks: parseItems(
+      record.destinationChecks,
+      "state.destinationChecks",
+      parseCheck
     ),
     parents,
   };

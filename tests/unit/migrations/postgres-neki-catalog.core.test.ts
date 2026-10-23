@@ -20,13 +20,19 @@
  */
 
 import { ConnectionError, QueryError, VibORMErrorCode } from "@errors";
-import { readPostgresDecision } from "@migrations/control";
+import { canonicalizeJsonText } from "@migrations/canonical-json";
+import { ledgerEvent, readPostgresDecision } from "@migrations/control";
 import { getMigrationDriver } from "@migrations/drivers";
 import { postgresCatalogDigestQuery } from "@migrations/drivers/postgres/catalog-digest";
 import {
   introspectPostgresSchema,
   NULLS_NOT_DISTINCT_QUERY,
 } from "@migrations/drivers/postgres/introspect";
+import {
+  letLockGo,
+  withLockedMigrationProducer,
+} from "@migrations/pinned-session";
+import { assertLockedSinceDecision } from "@migrations/proof";
 import {
   catalogCommitBoundaries,
   UNCHANGED_CATALOG,
@@ -124,6 +130,58 @@ describe("PostgreSQL catalog SQL holds no shape Neki refuses", () => {
 });
 
 describe("a catalog read the provider refuses names itself", () => {
+  it.each([
+    null,
+    "not JSON",
+    "{}",
+    "[1]",
+  ])("refuses malformed control constraints %j before reading a decision", async (constraints) => {
+    const producer = pgEstateDriver("public");
+    producer.respond = (sql) => {
+      const rows = postgresControlCatalogAnswer(sql, {
+        state: true,
+        log: true,
+        check: "CHECK ((singleton = 1))",
+      });
+      if (!rows) throw new Error("No decision may follow a refused catalog");
+      const first = rows[0];
+      if (typeof first !== "object" || first === null)
+        throw new Error("Expected the control catalog fixture");
+      Reflect.set(first, "constraints", constraints);
+      return rows;
+    };
+    await expect(
+      readPostgresDecision(producer, getMigrationDriver(producer), "TRUE")
+    ).rejects.toMatchObject({ code: VibORMErrorCode.MIGRATION_INVALID_STATE });
+    expect(
+      producer.statements.some((sql) => sql.includes("AS digest WHERE"))
+    ).toBe(false);
+  });
+
+  it("refuses a truncated control catalog rather than treating it as no history", async () => {
+    const producer = pgEstateDriver("public");
+    producer.respond = () => [];
+    await expect(
+      readPostgresDecision(producer, getMigrationDriver(producer), "TRUE")
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_INVALID_STATE,
+      message: expect.stringContaining("one row per control table"),
+    });
+  });
+
+  it("ignores non-record aggregate carriers without inventing marker or ledger rows", async () => {
+    const producer = pgEstateDriver("public");
+    producer.respond = (sql) =>
+      postgresControlCatalogAnswer(sql, {
+        state: true,
+        log: true,
+        check: "CHECK ((singleton = 1))",
+      }) ?? [{ marker: "[null,1]", ledger: "[false]", digest: null }];
+    await expect(
+      readPostgresDecision(producer, getMigrationDriver(producer), "TRUE")
+    ).resolves.toMatchObject({ marker: null, ledger: [], digest: undefined });
+  });
+
   const refusing = (failure: Error) => async (sql: string) => {
     if (INDEXES.test(sql)) throw failure;
     return { rows: [] };
@@ -171,6 +229,80 @@ describe("a catalog read the provider refuses names itself", () => {
 });
 
 describe("where Neki needs a commit inside one transaction", () => {
+  it("reacquired locks admit only the recorded attempt and its exact committed progress", async () => {
+    const producer = pgEstateDriver("public");
+    const attemptId = "a".repeat(64);
+    const otherAttempt = "b".repeat(64);
+    const event = (
+      kind: "started" | "step-confirmed",
+      effectState: "none" | "committed",
+      id = attemptId
+    ) =>
+      ledgerEvent({
+        attemptId: id,
+        kind,
+        effectState,
+        estateHash: "c".repeat(64),
+        snapshotHash: "d".repeat(64),
+        sqlHash: null,
+        fromState: null,
+        toState: null,
+        transitionHash: null,
+        direction: "forward",
+        operationId: null,
+        dispatchId: null,
+        open: kind === "started",
+      });
+    const events = [
+      event("started", "none"),
+      event("step-confirmed", "committed"),
+    ];
+    producer.respond = (sql) =>
+      postgresControlCatalogAnswer(sql, {
+        state: true,
+        log: true,
+        check: "CHECK ((singleton = 1))",
+      }) ??
+      (sql.includes("pg_namespace")
+        ? [{ present: 1 }]
+        : sql.startsWith('SELECT payload FROM "public"."_viborm_migration_log"')
+          ? events.map((item) => ({ payload: canonicalizeJsonText(item) }))
+          : []);
+    await withLockedMigrationProducer(
+      producer,
+      getMigrationDriver(producer),
+      async (pinned, driver) => {
+        await letLockGo(pinned);
+        await expect(
+          assertLockedSinceDecision(pinned, pinned, driver, null, {
+            attemptId,
+            steps: 1,
+          })
+        ).resolves.toBeUndefined();
+        for (const own of [
+          { attemptId, steps: 0 },
+          { attemptId: otherAttempt, steps: 1 },
+          false,
+        ]) {
+          await expect(
+            assertLockedSinceDecision(pinned, pinned, driver, null, own)
+          ).rejects.toMatchObject({
+            code: VibORMErrorCode.MIGRATION_MARKER_CONFLICT,
+          });
+        }
+        events.push(event("started", "none", otherAttempt));
+        await expect(
+          assertLockedSinceDecision(pinned, pinned, driver, null, {
+            attemptId,
+            steps: 1,
+          })
+        ).rejects.toMatchObject({
+          code: VibORMErrorCode.MIGRATION_MARKER_CONFLICT,
+        });
+      }
+    );
+  });
+
   const ADD = 'ALTER TABLE "public"."accounts" ADD COLUMN "nickname" text';
   const BACKFILL = 'UPDATE "public"."accounts" SET "nickname" = "email"';
   const VERSION = "SELECT pg_catalog.version() LIKE '%(Neki)%' AS neki";

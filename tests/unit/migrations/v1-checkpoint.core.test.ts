@@ -11,8 +11,10 @@ import { s } from "@schema";
 import { VibORMErrorCode } from "@src/errors";
 import { checkEstate } from "@src/migrations/check";
 import { createMigrationClient } from "@src/migrations/client";
+import { loadMigrationGraph } from "@src/migrations/graph";
 import { pruneV1 } from "@src/migrations/operators";
 import { MemoryEstateStorage } from "@src/migrations/storage/memory";
+import { encodeSnapshot } from "@src/migrations/v1-parse-snapshot";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { afterEach, describe, expect, test } from "vitest";
 
@@ -70,13 +72,22 @@ const stateOf = async (published: Promise<{ stateId: string | null }>) => {
   return stateId;
 };
 
-async function bytesOf(storage: MemoryEstateStorage) {
+async function bytesOf(storage: MemoryEstateStorage, fullSnapshots = false) {
   let total = 0;
   for (const id of await storage.listStates()) {
     total += (await storage.readState(id))?.length ?? 0;
   }
-  for (const hash of await storage.listSnapshots()) {
-    total += (await storage.readSnapshot(hash))?.length ?? 0;
+  if (fullSnapshots) {
+    const graph = await loadMigrationGraph(storage);
+    for (const hash of new Set(
+      [...graph.states.values()].map((state) => state.snapshotHash)
+    )) {
+      total += encodeSnapshot(graph.snapshots.get(hash)!).bytes.length;
+    }
+  } else {
+    for (const hash of await storage.listSnapshots()) {
+      total += (await storage.readSnapshot(hash))?.length ?? 0;
+    }
   }
   for (const hash of await storage.listSql()) {
     total += (await storage.readSql(hash))?.length ?? 0;
@@ -126,7 +137,13 @@ describe("authored checkpoints", () => {
     expect([...states].sort()).toEqual([checkpoint.stateId, after].sort());
     expect(await pruned.listStates()).toHaveLength(2);
     expect(await checkEstate(pruned)).toEqual({ ok: true, findings: [] });
-    expect(await bytesOf(pruned)).toBeLessThan((await bytesOf(history)) / 50);
+    // Retain the original full-history reference for the 50x size contract;
+    // incremental storage has already reduced the actual source denominator.
+    expect(await bytesOf(pruned)).toBeLessThan(
+      (await bytesOf(history, true)) / 50
+    );
+    expect(await bytesOf(pruned)).toBeLessThan(await bytesOf(history));
+    expect(await pruned.listSnapshots()).toHaveLength(2);
     expect(await history.listStates()).toHaveLength(STATES + 2);
 
     const tenant = db.at(LAST + 1, pruned);

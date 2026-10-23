@@ -14,6 +14,7 @@ import {
   exactObject,
   parseFiniteInteger,
   parseFormat,
+  parseItems,
   parseMember,
   parseRequiredString,
   refuse,
@@ -300,14 +301,20 @@ function parseResetPlan(value: unknown): ResetPlanV1 {
       record.sourceFingerprint,
       "resetPlan.sourceFingerprint"
     ),
-    replayPath: record.replayPath.map((id, index) =>
-      parseSha256(id, `resetPlan.replayPath[${index}]`)
+    replayPath: parseItems(
+      record.replayPath,
+      "resetPlan.replayPath",
+      parseSha256
     ),
-    clearDispatches: record.clearDispatches.map((dispatch, index) =>
-      parseDispatch(dispatch, `resetPlan.clearDispatches[${index}]`)
+    clearDispatches: parseItems(
+      record.clearDispatches,
+      "resetPlan.clearDispatches",
+      parseDispatch
     ),
-    referencedStates: record.referencedStates.map((id, index) =>
-      parseSha256(id, `resetPlan.referencedStates[${index}]`)
+    referencedStates: parseItems(
+      record.referencedStates,
+      "resetPlan.referencedStates",
+      parseSha256
     ),
     resetPlanHash: parseSha256(record.resetPlanHash, "resetPlan.resetPlanHash"),
   };

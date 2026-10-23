@@ -264,6 +264,7 @@ describe("coverage low value", () => {
           },
           states: new Map(),
           snapshots: new Map(),
+          snapshotArtifacts: new Map(),
           sql: new Map(),
           roots: [],
           leaves: [],

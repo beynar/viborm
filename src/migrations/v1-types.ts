@@ -108,9 +108,26 @@ export interface MigrationStateManifestV1 {
   readonly name: string;
   readonly stateId: Sha256;
   readonly snapshotHash: Sha256;
+  /** Exact stored delta bytes; absent for a full snapshot document. */
+  readonly snapshotArtifactHash?: Sha256;
   readonly sqlHash: Sha256;
   readonly destinationChecks: readonly MigrationBooleanCheckV1[];
   readonly parents: readonly MigrationParentTransitionV1[];
+}
+
+export type SnapshotChangeV1 =
+  | {
+      readonly op: "set";
+      readonly path: readonly (string | number)[];
+      readonly value: unknown;
+    }
+  | { readonly op: "remove"; readonly path: readonly (string | number)[] };
+
+export interface SnapshotDeltaV1 {
+  readonly format: "snapshot-delta-1";
+  readonly baseArtifactHash: Sha256;
+  readonly snapshotHash: Sha256;
+  readonly changes: readonly SnapshotChangeV1[];
 }
 
 export interface MigrationSqlRangeV1 {
