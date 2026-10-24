@@ -6,7 +6,7 @@ import { s } from "@schema";
 import { CountingMemoryCache } from "@tests/fixtures/counting-memory-cache";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { createSchemaRegistry, parse, toJsonSchema } from "@validation";
-import { carriesRepeatedKey } from "@validation/relations/recurrence";
+import { carriesRepeatedKey } from "@validation/relations/recurrence-values";
 import { describe, expect, test } from "vitest";
 
 const node = s.model({
