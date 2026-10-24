@@ -47,6 +47,14 @@ behaviour changes its notes left out.
   by scanning them all; 8,000 targets took 8.6 s (24 s where the targets hold
   the key), against 5.0 s and 11.8 s in 1.3.3. They are now matched through an
   index: 4.9 s either way.
+- **On D1 and Neon HTTP, a to-many `connect` or `set` sends a few
+  statements, not two per target.** 1.4.0 read a nested write's lookups
+  ahead in one batch, one statement each, and the targets read that way
+  were never grouped: 260 targets sent 261 SELECTs and 260 INSERTs (D1
+  counts every statement of a batch). Lookups of one model that pin a unique
+  key now share one statement per bind budget, and their junction links one
+  INSERT per bind budget: the same call sends 14 statements. Round trips are
+  unchanged.
 - **A libSQL client opened on `databaseUrl: ":memory:"` serializes its
   transactions** like `file::memory:`: a call on the originating client
   inside a callback transaction is refused with `TransactionError` instead of
