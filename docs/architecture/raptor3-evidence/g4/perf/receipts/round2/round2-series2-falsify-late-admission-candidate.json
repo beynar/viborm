@@ -1,5 +1,0 @@
-{
- "engine": "candidate",
- "status": "contract FAILED",
- "error": "series effects started before every member was admitted\n\n2 !== 3\n"
-}
