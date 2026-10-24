@@ -10,7 +10,6 @@ import {
 // One chunk graph with the client this extends: importing only the engine
 // pieces used here would split the package's shared chunks into more files.
 import "../client/client";
-import { isCacheManagedExecution } from "../cache/capability";
 import type { VibORMClient, VibORMConfig } from "../client/client";
 import type { ClientSchema } from "../client/schema-links";
 import type {
@@ -213,13 +212,12 @@ function prepare(
     const chain = engine.extensionChain;
     if (engine.driver instanceof TransactionBoundDriver)
       refuse("a read inside a transaction");
-    // `permissions()` installs one: authorization the sealed SQL would skip.
+    // `cache()` and `permissions()` install one; a cached view needs `cache()`.
     if (
       lookupResolvedExtensionHandlers(chain, "query", model, operation)?.length
     )
       refuse("a read through query handlers");
     if (chain?.statement.length) refuse("a read through statement transforms");
-    if (isCacheManagedExecution(options)) refuse("a cached read");
     if (options.finishResult) refuse("computed result fields");
     const read = routed.exportRead(transport);
     const plan = {
