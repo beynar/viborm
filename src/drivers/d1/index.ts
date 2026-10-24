@@ -203,6 +203,7 @@ export class D1Driver extends Driver<
     sharedRelationBodies: true,
     compoundSelectTerms: 5,
     relationsPerStatement: 256,
+    countsCascadedChanges: true,
   });
   readonly maxBindParametersPerStatement: number | undefined = 100;
   readonly result: DriverResultParser = sqliteResultParser;

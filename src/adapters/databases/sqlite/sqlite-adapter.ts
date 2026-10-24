@@ -337,6 +337,12 @@ export interface SQLiteAdapterOptions {
    * they test (`capabilities.relationsPerStatement`). Absent: unbounded.
    */
   readonly relationsPerStatement?: number;
+  /**
+   * Whether the transport's affected-row count also counts the rows a foreign
+   * key's cascade changed (`capabilities.countsCascadedChanges`): Cloudflare
+   * D1's `meta.changes` does. Defaults to `false`, SQLite's own count.
+   */
+  readonly countsCascadedChanges?: boolean;
 }
 
 /**
@@ -913,6 +919,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
     sharedRelationBodies = false,
     compoundSelectTerms,
     relationsPerStatement,
+    countsCascadedChanges,
   }: SQLiteAdapterOptions = {}) {
     installGeoPointSql(this, this.geoPoint);
     if (!deepExpressions) {
@@ -930,6 +937,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
       this.capabilities.compoundSelectTerms = compoundSelectTerms;
     if (relationsPerStatement !== undefined)
       this.capabilities.relationsPerStatement = relationsPerStatement;
+    if (countsCascadedChanges) this.capabilities.countsCascadedChanges = true;
     // Only batches read the reference-table SQL, so it is built on first use.
     let batchRefs: BatchReferenceSqlAdapter | undefined;
     const createBatchRefs = () => this.#createBatchRefs(temporaryObjects);

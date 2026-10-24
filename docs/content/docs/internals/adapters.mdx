@@ -110,7 +110,7 @@ driver error mapping.
 The `capabilities` group (`DatabaseAdapterCapabilities`, in
 `src/adapters/adapter-capabilities.ts`) lets the query engine branch on
 database features instead of dialect names. The adapter sets the dialect's
-flags; a driver may set the ones its transport decides (the last five rows).
+flags; a driver may set the ones its transport decides (the last six rows).
 
 | Capability | PostgreSQL | MySQL | SQLite | What the engine does with it |
 |------------|------------|-------|--------|------------------------------|
@@ -131,6 +131,7 @@ flags; a driver may set the ones its transport decides (the last five rows).
 | `relationsPerStatement` | option (Neki: 256) | — | D1: 256 | Over the bound, recursive walks become reaching sets |
 | `compoundSelectTerms` | — | — | D1: 5 | Longer `UNION`s nest in derived tables |
 | `boundsExpressionDepth` | — | — | `deepExpressions: false` | Relation filters read through derived tables SQLite flattens |
+| `countsCascadedChanges` | — | — | D1 | The provider's affected-row count includes rows a foreign key's cascade changed, so `updateMany`/`deleteMany` counts and captured-mutation checks count `RETURNING 1` rows instead |
 
 When a capability is false the query engine picks a capability-specific path
 (for example, correlated subqueries instead of lateral joins, or a

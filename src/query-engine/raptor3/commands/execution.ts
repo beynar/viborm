@@ -1047,6 +1047,7 @@ export class CommandExecution {
     const ahead = this.attempt.ahead;
     if (
       !lookup ||
+      lookup.dependent ||
       lookup.membership() ||
       lookup.facts.reads.length > 0 ||
       lookup.insertsWhenAbsent ||

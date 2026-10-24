@@ -3,6 +3,32 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## 1.4.2 — unreleased
+
+Two D1 and Neon HTTP bugs older than 1.4.0, left open by its adversarial
+review.
+
+### Fixed
+
+- **On D1 and Neon HTTP, a `connect` sees the earlier writes of its own
+  call.** A nested write's lookups read outside the batch its writes are
+  queued in, and a `connect` whose target sits behind a junction or holds the
+  key itself was never ordered behind them: one by a unique an earlier nested
+  `update` rewrote linked the row that held it before (`items: { update: …
+  code: "x" … }, liked: { connect: { code: "x" } }` linked the old row), and
+  one of a row an earlier nested `delete` removed failed on the foreign key
+  instead of as a missing target. Such a lookup now reads behind those
+  writes, as it does on every other driver; the order a collection checks its
+  targets in before its clears is unchanged.
+- **On D1, `deleteMany` counts the rows it deleted, and a `delete` that
+  answers a relation succeeds.** D1's affected-row count also counts the rows
+  a foreign key's cascade changed, so `deleteMany` over rows with
+  many-to-many links returned their links in its `count` (2 posts with 2 tags
+  each: 6), and a `delete` with an `include` failed with `TransactionError`
+  ("selected-row cardinality changed") after deleting the row. Those
+  statements now count their own rows (`RETURNING 1`); `SQLiteAdapter` takes
+  `countsCascadedChanges` for a transport that counts like D1.
+
 ## 1.4.1 — 2026-10-24
 
 Fixes found by two rounds of adversarial review of 1.4.0, and the 1.4.0
