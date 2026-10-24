@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { defineConfig, type Rolldown, type UserConfig } from "tsdown";
 import ts from "typescript";
 
@@ -254,35 +255,60 @@ const {
   ...runtimeEntries
 } = runtime.entry;
 
-// The server half imports the browser half's own published file, runtime and
-// declarations: a copy would split the shared chunks into more files.
-const REALTIME_CLIENT = "/src/neon-realtime/client";
-const REALTIME_SERVER = /\/src\/neon-realtime\/index\.(?:d\.)?ts$/;
-const realtimeClientImport = {
-  external: (id: string, importer: string | undefined) =>
-    runtime.external.includes(id) ||
-    (id === "./client" && REALTIME_SERVER.test(importer ?? "")),
-  paths: (id: string) =>
-    id.endsWith(REALTIME_CLIENT) || id === "./client"
-      ? "./neon-realtime/client.mjs"
-      : id,
+// The package's one Decimal class is its own file, `decimal.mjs`: every build
+// imports it rather than carry a copy, so the self-contained Neon Realtime
+// browser half decodes into the constructor every entry exports. The server
+// half imports the browser half's file for the envelope codec, so encode and
+// decode cannot drift. Neither standalone file, nor the server half, ships a
+// source map: the release keeps its file budget. Externals and paths stay
+// data: a function here lets rolldown 1.0.0-beta.58 stall the declaration
+// build for good, now and then.
+const REALTIME_CLIENT = "../neon-realtime/client";
+const DECIMAL = "src/validation/primitives/decimal-value";
+const standalone = {
+  external: [
+    ...runtime.external,
+    REALTIME_CLIENT,
+    /(?:^|\/)decimal-value(?:\.js)?$/,
+  ],
+  // Relative to dist/; the bundler prefixes nested outputs.
+  paths: {
+    [resolve("src/neon-realtime/client")]: "./neon-realtime/client.mjs",
+    "@validation/primitives/decimal-value": "./decimal.mjs",
+    [resolve(DECIMAL)]: "./decimal.mjs",
+    [resolve(`${DECIMAL}.js`)]: "./decimal.mjs",
+  },
+};
+const SOURCE_MAPPING_URL = /\n?\/\/# sourceMappingURL=\S+\s*$/;
+const withoutRealtimeServerMap: Rolldown.Plugin = {
+  name: "neon-realtime-server-without-source-map",
+  generateBundle(_options, bundle) {
+    const entry = bundle["neon-realtime.mjs"];
+    if (entry?.type !== "chunk") return;
+    entry.code = entry.code.replace(SOURCE_MAPPING_URL, "");
+    Reflect.deleteProperty(bundle, "neon-realtime.mjs.map");
+  },
 };
 
 export default defineConfig([
   {
     ...runtime,
-    external: realtimeClientImport.external,
+    external: standalone.external,
     entry: runtimeEntries,
-    outputOptions: {
-      ...runtime.outputOptions,
-      paths: realtimeClientImport.paths,
-    },
+    outputOptions: { ...runtime.outputOptions, paths: standalone.paths },
+    plugins: [withoutRealtimeServerMap],
   },
-  // The browser half is self-contained, declarations included: sharing the
-  // server's chunks would re-split them for every application bundle.
   {
     ...runtime,
+    external: standalone.external,
     entry: { "neon-realtime/client": realtimeClient },
+    clean: false,
+    sourcemap: false,
+    outputOptions: { keepNames: false, paths: standalone.paths },
+  },
+  {
+    ...runtime,
+    entry: { decimal: `./${DECIMAL}.ts` },
     clean: false,
     sourcemap: false,
     outputOptions: { keepNames: false },
@@ -297,11 +323,11 @@ export default defineConfig([
   },
   {
     ...runtime,
-    external: realtimeClientImport.external,
+    external: [...runtime.external, REALTIME_CLIENT],
     clean: false,
     minify: false,
     sourcemap: false,
-    outputOptions: { keepNames: false, paths: realtimeClientImport.paths },
+    outputOptions: { keepNames: false, paths: standalone.paths },
     dts: { emitDtsOnly: true },
     plugins: [declarationExportKinds],
   },

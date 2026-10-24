@@ -29,23 +29,27 @@ import type {
   ExtensionStateConstraint,
   MergeExtensionState,
 } from "../extensions/methods";
+// The browser half is a separate file. The build points this one spelling of
+// it at that file, so both halves encode and decode with one codec.
+import {
+  type RealtimeQuery,
+  type RealtimeRenewal,
+  realtimeEnvelope,
+  type TransportRow,
+} from "../neon-realtime/client";
 import {
   type ExportPreparation,
   exportPendingRead,
   type PendingOperation,
 } from "../query-engine/pending-operation";
 import type { Leaf, Read } from "../query-engine/raptor3/shared/query";
-// The browser half is a separate file; the build keeps this import pointing
-// at it, so both encode and decode with one codec.
-import {
-  type RealtimeQuery,
-  type RealtimeRenewal,
-  realtimeEnvelope,
-  type TransportRow,
-} from "./client";
 import { postgresTransport } from "./transport-sql";
 
-export type { RealtimePlan, RealtimeQuery, RealtimeRenewal } from "./client";
+export type {
+  RealtimePlan,
+  RealtimeQuery,
+  RealtimeRenewal,
+} from "../neon-realtime/client";
 
 export interface NeonRealtimeOptions {
   /** The application's `createRealtime(...)` server: only its `seal` is used. */

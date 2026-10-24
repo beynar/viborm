@@ -740,6 +740,31 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
     ["DatabaseAdapter"],
     ["MySQLAdapter", "PostgresAdapter", "SQLiteAdapter"]
   ),
+  "./neon-realtime": surface(
+    ["neonRealtime"],
+    [
+      "NeonRealtimeClient",
+      "NeonRealtimeOptions",
+      "RealtimePlan",
+      "RealtimeQuery",
+      "RealtimeReadOptions",
+      "RealtimeRenewal",
+    ],
+    []
+  ),
+  "./neon-realtime/client": surface(
+    ["realtimeData", "realtimeEnvelope", "subscribe"],
+    [
+      "RealtimePlan",
+      "RealtimeQuery",
+      "RealtimeRenewal",
+      "RealtimeSnapshot",
+      "RealtimeSubscription",
+      "RealtimeSubscriptionOptions",
+      "TransportRow",
+    ],
+    []
+  ),
 });
 
 export const PUBLIC_CLIENT_CAPABILITY_KEYS = Object.freeze([
