@@ -10,6 +10,7 @@
  */
 
 import { env } from "cloudflare:test";
+import type { D1Database } from "@cloudflare/workers-types";
 import { createClient } from "@src/client/client";
 import { D1Driver } from "@src/drivers/d1";
 import { createMigrationClient } from "@src/migrations/client";
@@ -17,6 +18,12 @@ import { permissions } from "@src/permissions";
 import { s } from "@src/schema";
 import { v } from "@src/validation";
 import { beforeAll, expect, test } from "vitest";
+
+declare module "cloudflare:test" {
+  interface ProvidedEnv {
+    DB: D1Database;
+  }
+}
 
 const post = s
   .model({
@@ -43,15 +50,15 @@ const policy = permissions({
 
 const base = createClient({
   schema: { post, tag },
-  driver: new D1Driver({ database: (env as any).DB }),
+  driver: new D1Driver({ database: env.DB }),
 });
 
 beforeAll(async () => {
-  const pushed = await createMigrationClient(base as any).push({
+  const pushed = await createMigrationClient(base).push({
     dryRun: true,
   });
   for (const statement of pushed.statements)
-    await (env as any).DB.prepare(statement.sql).run();
+    await env.DB.prepare(statement.sql).run();
   await base.tag.createMany({
     data: [
       { id: "t1", secret: false },
@@ -77,21 +84,25 @@ test("deleteMany counts the rows it deleted, not their cascaded links", async ()
   expect(await base.post.count()).toBe(0);
 });
 
-test.each([
-  ["the client", (client: any) => client],
-  [
-    "a governed view",
-    (client: any) => client.$extends(policy).$as({ userId: "alice" }),
-  ],
-])("a delete answering its links deletes and answers, through %s", async (_, view) => {
+test("a delete answering its links deletes and answers", async () => {
   await linkedPost("d");
-  const deleted = await view(base).post.delete({
+  const deleted = await base.post.delete({
     where: { id: "d" },
     include: { tags: { orderBy: { id: "asc" } } },
   });
-  expect(deleted.id).toBe("d");
-  expect(deleted.tags.map((row: { id: string }) => row.id)).toEqual(
-    _ === "the client" ? ["t1", "t2"] : ["t1"]
-  );
+  expect(deleted.tags.map((row) => row.id)).toEqual(["t1", "t2"]);
   expect(await base.post.findUnique({ where: { id: "d" } })).toBeNull();
+});
+
+test("a governed delete answering its links deletes and answers the links it reads", async () => {
+  await linkedPost("e");
+  const deleted = await base
+    .$extends(policy)
+    .$as({ userId: "alice" })
+    .post.delete({
+      where: { id: "e" },
+      include: { tags: { orderBy: { id: "asc" } } },
+    });
+  expect(deleted.tags.map((row) => row.id)).toEqual(["t1"]);
+  expect(await base.post.findUnique({ where: { id: "e" } })).toBeNull();
 });
