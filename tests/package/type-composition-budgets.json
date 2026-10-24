@@ -5,29 +5,29 @@
     "soft-60": {
       "tsc5": {
         "typescript": "5.9.3",
-        "instantiations": 553959
+        "instantiations": 554442
       },
       "tsc6": {
         "typescript": "6.0.3",
-        "instantiations": 555248
+        "instantiations": 555731
       },
       "tsc7": {
         "typescript": "7.0.2",
-        "instantiations": 561144
+        "instantiations": 562029
       }
     },
     "chain-60": {
       "tsc5": {
         "typescript": "5.9.3",
-        "instantiations": 1784304
+        "instantiations": 1789042
       },
       "tsc6": {
         "typescript": "6.0.3",
-        "instantiations": 1920401
+        "instantiations": 1925215
       },
       "tsc7": {
         "typescript": "7.0.2",
-        "instantiations": 2252569
+        "instantiations": 2274898
       }
     }
   },
