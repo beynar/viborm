@@ -37,11 +37,11 @@ import {
 import { type AnyModel, getModelKeyCatalog } from "@schema/model";
 import { Sql, sql } from "@sql";
 import { createFailureError } from "../../batch-error-attribution";
-import { publishReadResult } from "../../result/read-publication";
 import {
   compileBindBudgetChunks,
   normalizedBindParameterLimit,
 } from "../../bind-budget";
+import { publishReadResult } from "../../result/read-publication";
 import type {
   PreparedBatchGuard,
   PreparedBatchOperation,
