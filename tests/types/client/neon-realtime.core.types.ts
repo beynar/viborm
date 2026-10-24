@@ -29,7 +29,9 @@ type Row = { id: string; title: string; at: Date };
 export async function signatures() {
   const many = await db.post.findManyRealtime({ select: { id: true } });
   expectTypeOf(many).toEqualTypeOf<RealtimeQuery<{ id: string }[]>>();
-  expectTypeOf(many.data).toEqualTypeOf<{ id: string }[]>();
+  // Present only on the server that read it: transports drop it.
+  expectTypeOf(many.data).toEqualTypeOf<{ id: string }[] | undefined>();
+  expectTypeOf(realtimeData(many)).toEqualTypeOf<{ id: string }[]>();
   expectTypeOf(
     await db.post.findUniqueRealtime({ where: { id: "p" } })
   ).toEqualTypeOf<RealtimeQuery<Row | null>>();
@@ -53,15 +55,15 @@ export async function signatures() {
   await db.post.findUniqueRealtime();
 
   // A query that crossed JSON still names its result.
-  const wire: Omit<typeof many, "data"> = JSON.parse(JSON.stringify(many));
+  const wire: typeof many = JSON.parse(JSON.stringify(many));
   const subscription = subscribe(wire, { url: "wss://realtime" });
   expectTypeOf(subscription.getSnapshot().data).toEqualTypeOf<
     { id: string }[] | undefined
   >();
-  expectTypeOf(realtimeData(wire)).toEqualTypeOf<
-    { id: string }[] | undefined
-  >();
+  expectTypeOf(realtimeData(wire)).toEqualTypeOf<{ id: string }[]>();
   const count = await db.post.countRealtime(undefined, { initialData: false });
+  // @ts-expect-error: a renewal carries no first result.
+  realtimeData(count);
   // @ts-expect-error: a renewal is for the same read's result.
   await subscription.renew(count);
 }

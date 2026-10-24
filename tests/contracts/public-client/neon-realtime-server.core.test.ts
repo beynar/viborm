@@ -24,6 +24,7 @@ import { neonRealtime } from "../../../src/neon-realtime";
 import { realtimeData } from "../../../src/neon-realtime/client";
 
 const JSON_FUNCTIONS = /json_build|json_agg/;
+const RANK_THROUGH_DISTINCT = /^SELECT [^(]*"0viborm_ordinal" FROM \(SELECT/;
 const AUTH_TOKEN = /authToken/;
 const QUERY_HANDLERS = /query handlers/;
 const STATEMENT_TRANSFORMS = /statement transforms/;
@@ -31,6 +32,8 @@ const RESULT_FIELDS = /computed result fields/;
 const TRANSACTION = /transaction/;
 const READ_GATES = /field read gates/;
 const POINT = /point projection/;
+const VECTOR = /vector projection/;
+const DISTANCE = /`_distance` projection/;
 const RECURSIVE_KEY = /recursive 'replies' without its key fields/;
 
 class RecordingDriver extends SqlOnlyDriver {
@@ -59,7 +62,25 @@ const post = s.model({
   replies: s.toMany(() => post).name("thread"),
 });
 const place = s.model({ id: s.string().id(), at: s.point() });
-const schema = { post, place };
+const doc = s.model({
+  id: s.string().id(),
+  embedding: s.vector().dimension(3),
+});
+const kit = s.model({
+  id: s.string().id(),
+  score: s.number(),
+  bytes: s.blob(),
+  count: s.int(),
+  meta: s.json(),
+  tags: s.string().array(),
+  parentId: s.string().nullable(),
+  parent: s
+    .toOne(() => kit)
+    .fields("parentId")
+    .references("id"),
+  children: s.toMany(() => kit),
+});
+const schema = { post, place, doc, kit };
 
 const sealed: RawSqlQuery<unknown>[] = [];
 const realtime = {
@@ -138,7 +159,6 @@ describe("Neon Realtime server reads", () => {
     );
     expect(driver.statements).toEqual([]);
     expect(Object.keys(renewal)).toEqual(["kind", "sealed", "plan"]);
-    expect(realtimeData(renewal)).toBeUndefined();
   });
 
   it("ranks an ordered page and binds each parameter in PostgreSQL text", async () => {
@@ -155,6 +175,58 @@ describe("Neon Realtime server reads", () => {
     expect(parameters.map((parameter) => parameter.value)).toContain(
       "2026-01-01T00:00:00.000Z"
     );
+    // An emulated DISTINCT keeps the rank among the columns it publishes.
+    await db.post.findManyRealtime(
+      { distinct: ["title"], orderBy: { createdAt: "desc" } },
+      { initialData: false }
+    );
+    expect(sealed[1]!.sql).toMatch(RANK_THROUGH_DISTINCT);
+  });
+
+  it("binds bytes, lists and JSON documents as PostgreSQL parameters", async () => {
+    const { db } = live();
+    await db.kit.findManyRealtime(
+      {
+        where: {
+          bytes: { equals: new Uint8Array([1, 255]) },
+          tags: { hasSome: ["a,b"] },
+          meta: { equals: { quote: 'a"b' } },
+        },
+      },
+      { initialData: false }
+    );
+    expect(sealed[0]!.parameters).toEqual(
+      expect.arrayContaining([
+        { typeOid: 17, value: "\\x01ff" },
+        { typeOid: 0, value: '{"a,b"}' },
+        { typeOid: 0, value: '{"quote":"a\\"b"}' },
+      ])
+    );
+  });
+
+  it("spells every carried scalar as JSON text Neon admits", async () => {
+    const { db } = live();
+    await db.kit.findManyRealtime(
+      {
+        select: {
+          id: true,
+          parent: {
+            select: {
+              score: true,
+              bytes: true,
+              count: true,
+              meta: true,
+              tags: true,
+            },
+          },
+        },
+      },
+      { initialData: false }
+    );
+    const { sql } = sealed[0]!;
+    expect(sql).not.toMatch(JSON_FUNCTIONS);
+    // A non-finite double is a JSON string, as the ordinary read carries it.
+    expect(sql).toContain("IN ('NaN', 'Infinity', '-Infinity')");
   });
 
   it("rejects exactly like the ordinary read", async () => {
@@ -295,13 +367,25 @@ describe("Neon Realtime refusals", () => {
         .post.findManyRealtime({ select: { title: true } })
     ).rejects.toEqual(refusal(READ_GATES));
     await expect(db.place.findManyRealtime()).rejects.toEqual(refusal(POINT));
+    await expect(db.doc.findManyRealtime()).rejects.toEqual(refusal(VECTOR));
     await expect(
-      db.post.findManyRealtime({
+      db.place.findManyRealtime({
         select: {
-          title: true,
-          replies: { recurse: { depth: 2 }, select: { title: true } },
+          id: true,
+          at: { _distance: { to: { longitude: 0, latitude: 0 } } },
         },
       })
-    ).rejects.toEqual(refusal(RECURSIVE_KEY));
+    ).rejects.toEqual(refusal(DISTANCE));
+    // A recursive carrier names its nodes and its root by key: both must be selected.
+    for (const select of [
+      {
+        title: true,
+        replies: { recurse: { depth: 2 }, select: { title: true } },
+      },
+      { title: true, replies: { recurse: { depth: 2 }, select: { id: true } } },
+    ])
+      await expect(db.post.findManyRealtime({ select })).rejects.toEqual(
+        refusal(RECURSIVE_KEY)
+      );
   });
 });

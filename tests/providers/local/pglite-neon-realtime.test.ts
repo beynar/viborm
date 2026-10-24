@@ -243,12 +243,46 @@ describe("Neon Realtime reads on embedded PostgreSQL", () => {
       {
         where: { parentId: null },
         select: {
+          id: true,
           title: true,
           replies: {
             recurse: { depth: 3 },
             select: { id: true, counts: true },
           },
         },
+      },
+    ],
+    [
+      "parameters: dates, JSON, lists and decimals",
+      "post",
+      "findMany",
+      {
+        where: {
+          createdAt: {
+            in: [
+              new Date(Date.UTC(2026, 0, 1, 12, 30, 15, 123)),
+              new Date(Date.UTC(2026, 0, 2, 12, 30, 15, 123)),
+            ],
+          },
+          day: { gte: new Date(Date.UTC(2025, 5, 1)) },
+          price: { gt: new Decimal("0") },
+          tags: { has: "a,b" },
+          counts: { hasSome: [0, 1] },
+          OR: [
+            {
+              meta: {
+                equals: {
+                  id: "p1",
+                  nested: [1, "two", { three: null }],
+                  quote: 'a"b',
+                },
+              },
+            },
+            { meta: { path: ["id"], equals: "p2" } },
+          ],
+        },
+        orderBy: { id: "asc" },
+        select: { id: true },
       },
     ],
     [
@@ -329,33 +363,5 @@ describe("Neon Realtime reads on embedded PostgreSQL", () => {
     expect(snapshot.status).toBe("live");
     expect(snapshot.data).toEqual(ordinary);
     expect(seed).toEqual(ordinary);
-  });
-
-  it("refuses a recursive projection that leaves its key out", async () => {
-    const { client } = getFamily();
-    const db = client.$extends(neonRealtime({ realtime }));
-    await expect(
-      db.post.findManyRealtime({
-        select: {
-          title: true,
-          replies: { recurse: { depth: 2 }, select: { title: true } },
-        },
-      })
-    ).rejects.toThrow("recursive 'replies' without its key fields selected");
-  });
-
-  it("publishes an OrThrow read losing its row as a NotFoundError", async () => {
-    const { client } = getFamily();
-    const db = client.$extends(neonRealtime({ realtime }));
-    const query = await db.post.findUniqueOrThrowRealtime({
-      where: { id: "p1" },
-    });
-    native.data = [];
-    const snapshot = subscribe(JSON.parse(JSON.stringify(query)), {
-      url: "wss://realtime",
-    }).getSnapshot();
-    expect(snapshot.status).toBe("error");
-    expect(snapshot.error?.cause).toMatchObject({ name: "NotFoundError" });
-    expect(snapshot.data).toMatchObject({ id: "p1" });
   });
 });

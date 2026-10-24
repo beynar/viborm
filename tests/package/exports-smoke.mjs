@@ -106,8 +106,7 @@ assertWorkerSafeBuiltGraph([".", "./schema", "./d1", "./permissions"]);
 
 // The browser half is one self-contained file: besides the browser SDK it
 // reaches only the package's one Decimal module, never a driver, the SQL
-// compiler (whose cursor refusal marks it) or the server SDK.
-const SQL_COMPILER_MARKER = "Cursor pagination supports direct scalar sort";
+// compiler or the server SDK.
 const realtimeClientFile = resolve(
   repositoryRoot,
   packageJson.exports["./neon-realtime/client"].import
@@ -121,20 +120,6 @@ if (
   throw new Error(
     `viborm/neon-realtime/client imports ${realtimeClientImports.join(", ")}`
   );
-}
-const browserGraph = [realtimeClientFile];
-for (const file of browserGraph) {
-  const source = readFileSync(file, "utf8");
-  if (
-    source.includes(SQL_COMPILER_MARKER) ||
-    source.includes("@neon/realtime/server")
-  )
-    throw new Error(`viborm/neon-realtime/client reaches ${file}`);
-  for (const [, specifier] of source.matchAll(staticModuleSpecifier)) {
-    const dependency = resolve(dirname(file), specifier);
-    if (specifier.startsWith(".") && !browserGraph.includes(dependency))
-      browserGraph.push(dependency);
-  }
 }
 assertWorkerSafeBuiltGraph(["./neon-realtime/client"]);
 

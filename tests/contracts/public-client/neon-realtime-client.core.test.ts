@@ -71,6 +71,12 @@ const post = s.model({
   title: s.string(),
   views: s.bigInt(),
 });
+const tagged = s.model({
+  id: s.string().id(),
+  flags: s.boolean().array(),
+  counts: s.int().array(),
+  tags: s.string().array(),
+});
 // A capability the SDK admits: a compact JWE with Neon's header.
 const header = Buffer.from(
   JSON.stringify({ alg: "dir", enc: "A256GCM", v: 1 })
@@ -84,7 +90,7 @@ const realtime = {
   }),
 };
 const driver = new RowsDriver();
-const db = createClient({ schema: { post }, driver }).$extends(
+const db = createClient({ schema: { post, tagged }, driver }).$extends(
   neonRealtime({ realtime })
 );
 const wire = <T>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -142,7 +148,7 @@ describe("Neon Realtime subscriptions", () => {
     expect(rows[1]!.title).toBe("Title p2");
     subscription.unsubscribe();
     expect(subscription.getSnapshot().status).toBe("closed");
-    expect(native.state.released).toBe(2);
+    expect(native.state.released).toBe(1);
   });
 
   it("renews only with a capability for the same read", async () => {
@@ -217,6 +223,52 @@ describe("Neon Realtime subscriptions", () => {
     expect(snapshot.status).toBe("error");
     expect(snapshot.error?.cause).toMatchObject({ name: "NotFoundError" });
     expect(snapshot.data).toEqual({ id: "p1", title: "Seed", views: 1n });
-    expect(native.state.released).toBe(2);
+    expect(native.state.released).toBe(1);
+    subscription.unsubscribe();
+    expect(subscription.getSnapshot()).toBe(snapshot);
+    expect(native.state.released).toBe(1);
+  });
+
+  it("starts a renewal without data and decodes lists Neon sends as array text", async () => {
+    const renewal = wire(
+      await db.tagged.findManyRealtime(undefined, { initialData: false })
+    );
+    native.state.snapshot = {
+      status: "connecting",
+      error: undefined,
+      data: undefined,
+    };
+    const subscription = subscribe(renewal, { url: "wss://realtime" });
+    expect(subscription.getSnapshot().data).toBeUndefined();
+    native.publish({
+      status: "live",
+      error: undefined,
+      data: [
+        {
+          id: "t1",
+          flags: "{t,f}",
+          counts: "{1,-2}",
+          tags: '{"a,b",c}',
+          "0viborm_ordinal": "1",
+        },
+      ],
+    });
+    expect(subscription.getSnapshot().data).toEqual([
+      {
+        id: "t1",
+        flags: [true, false],
+        counts: [1, -2],
+        tags: ["a,b", "c"],
+      },
+    ]);
+    subscription.unsubscribe();
+  });
+
+  it("refuses a live read another VibORM version issued", async () => {
+    const query = wire(await db.post.findManyRealtime());
+    const foreign = { ...query, plan: { version: 2 as never } };
+    expect(() => subscribe(foreign, { url: "wss://realtime" })).toThrow(
+      "This live read was issued by another VibORM version."
+    );
   });
 });

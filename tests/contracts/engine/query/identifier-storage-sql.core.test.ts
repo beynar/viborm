@@ -18,11 +18,9 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { type Dialect, Driver } from "@drivers";
 import { D1Driver } from "@drivers/d1";
 import { QueryEngineError, ValidationError } from "@errors";
-import {
-  InvalidScalarResult,
-  Queries,
-} from "@query-engine/raptor3/shared/query";
+import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { InvalidScalarResult } from "@query-engine/result/projection-decoder";
 import { s } from "@schema";
 import { createModelFieldRefs } from "@schema/field-ref";
 import { MYSQL, PG, SQLITE } from "@schema/scalars/native-types";
