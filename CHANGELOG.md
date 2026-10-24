@@ -16,7 +16,8 @@ Versioning.
   ordinary read's value on every change. PostgreSQL only; `@neon/realtime` is
   an optional peer. Reads the sealed SQL cannot reproduce (query handlers,
   statement transforms, result fields, transactions, read gates, PostGIS and
-  pgvector projections) are refused by name.
+  pgvector projections, recursive relations without their key selected) are
+  refused by name.
 
 ## 1.4.1 — 2026-10-24
 

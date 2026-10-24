@@ -12,8 +12,8 @@ Dates, Decimals and bigints — every time a committed write changes it.
 
 It lives in two entry points: `viborm/neon-realtime` (server) and
 `viborm/neon-realtime/client` (browser). Install the optional peer
-`@neon/realtime` (`^0.1.1`). Neither entry adds anything to the rest of the
-package.
+`@neon/realtime` (`^0.1.1`). An application that imports neither carries only
+the engine's small transport seams (about 0.1 kB gzip).
 
 ## Setup
 
@@ -44,15 +44,17 @@ const query = await db.post.findManyRealtime({
   take: 20,
   include: { author: true },
 });
-query.data; // the read's value, on the server
+realtimeData(query); // the read's value (from "viborm/neon-realtime/client")
 ```
 
 The read runs once, through its ordinary lifecycle (controls, validation,
 `rows` domains, observers), and rejects exactly as the ordinary read would —
 an `OrThrow` read with no row rejects with `NotFoundError`. It answers
 `{ kind, sealed, plan, encoded }`: the sealed capability, the plan the browser
-decodes rows with, and the first result encoded as plain JSON. `data`, the
-logical first result, is a non-enumerable server-side property.
+decodes rows with, and the first result encoded as plain JSON. On the server
+that read it, `query.data` also holds the logical first result; it is not
+enumerable, so no transport carries it, and its type is optional for that
+reason. `realtimeData(query)` answers the first result on either side.
 
 `{ initialData: false }` answers a renewal — `{ kind, sealed, plan }` — with
 no database read:
@@ -94,9 +96,9 @@ ends the subscription in `error`; the original error is `error.cause`.
 
 The envelope is plain JSON, so any transport carries it: `JSON.stringify`,
 tRPC without a transformer, superjson, devalue, React Server Component props.
-No custom transformer is needed. On the server, render `query.data`. In the
-browser, `realtimeData(query)` decodes the first result from `encoded` —
-render it to hydrate — and `subscribe` starts from it.
+No custom transformer is needed. Render `realtimeData(query)` on the server
+and again in the browser to hydrate: there it decodes `encoded`, restoring
+Dates, Decimals and bigints. `subscribe` starts from the same value.
 
 ```ts
 import { realtimeData } from "viborm/neon-realtime/client";
@@ -111,7 +113,8 @@ const initial = realtimeData(query); // Dates, Decimals, bigints restored
   alone cannot reproduce its answer: a client with `query` handlers (including
   `cache()` and `permissions()`), statement transforms, computed `result`
   fields, a read inside `$transaction`, field read gates, and recursive
-  relations that leave their key fields out of the selection.
+  relations whose selection, or the row holding them, leaves the key fields
+  out (the live result names recursive rows by key).
 - **No database authorization.** Realtime runs the sealed SQL as one role,
   without row-level security: a `neon-http` client configured with `authToken`
   is refused, and a restricted database role your server uses is not

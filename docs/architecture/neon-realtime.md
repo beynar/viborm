@@ -10,19 +10,20 @@ pieces exist and what must stay true.
 1. `db.post.findManyRealtime(args)` calls the ordinary delegate method, so the
    read is admitted exactly like `findMany` (controls, request transforms,
    default omit, validation, `rows` domains).
-2. `exportPendingRead` (`query-engine/pending-operation.ts`) runs inside the
-   operation's own lifecycle — observers included, renewals too — and hands the
-   routed operation to the extension's `prepare` before any execution.
-   `prepare` refuses what the sealed SQL cannot reproduce, then
-   `PreparedCommand.exportRead` compiles the admitted read a second time with
-   a `ReadTransport`. With initial data, the ordinary statement then runs once;
-   the transport statement never runs on the server.
+2. `exportPendingRead` (`query-engine/pending-operation.ts`) puts the
+   extension's exporter in place of the operation's execution, inside its own
+   lifecycle — observers and error context included, renewals too. The
+   exporter refuses what the sealed SQL cannot reproduce, then
+   `PreparedCommand.exportRead` compiles the admitted read a second time over
+   the transport adapter. With initial data, the exporter then runs the
+   ordinary statement once; the transport statement never runs on the server.
 3. `realtime.seal` encrypts the transport SQL and its parameters
    (`rawSql`/`pgParam`). The answer is `{ kind, sealed, plan, encoded }`; `plan`
    is the row shape (schema objects stripped) and the read's publication rule,
    `encoded` the first result through the cache's value codecs. The logical
-   `data` is a non-enumerable server property, so every transport carries the
-   plain-JSON envelope.
+   `data` is a non-enumerable server property (typed optional), so every
+   transport carries the plain-JSON envelope; `realtimeData(query)` reads the
+   first result on either side.
 4. The browser subscribes with Neon's SDK (socket, materialization,
    `QueryRefreshController`), sorts the live rows by their rank, decodes them
    with `ProjectionDecoder` — the decoder ordinary reads use — and publishes
@@ -37,14 +38,20 @@ refuses `json_build_object`, `jsonb_build_object`, `row_to_json`,
 and every PostGIS/pgvector output function. The ordinary PostgreSQL statement
 builds relations and aggregates with those JSON functions.
 
-`neon-realtime/transport-sql.ts` is the PostgreSQL adapter's other spelling
-(`ReadTransport`): JSON concatenated from text — `json_object(ARRAY['v',
-x::text])->'v'` escapes a string, every other member is its own text —
-collections through `string_agg(… ORDER BY …)`, and lists as PostgreSQL array
-text the browser parses. `Queries` asks it at three seams only: a carried
-leaf's token (`#carriedValue`), an ordered aggregate (`#agg`), and the
-`QueryParts.ordinal` a page states, which only this adapter publishes. The
-ordinary statement is unchanged; core pays about 140 B gzip.
+`neon-realtime/transport-sql.ts` is the PostgreSQL adapter's other spelling,
+an adapter over the client's own: JSON concatenated from text —
+`json_object(ARRAY['v', x::text])->'v'` escapes a string, every other member
+is its own text — collections through `string_agg(… ORDER BY …)`, and lists
+as PostgreSQL array text the browser parses. `Queries` reaches it through
+three adapter seams that stock adapters ignore: `json.carry` (a carried
+scalar's token, absent elsewhere), the `rankedPage` argument of `json.agg`,
+and `QueryParts.ranked` on the four page selects. The ordinary statement is
+unchanged. Measured with `pnpm size` against main 1.4.1, the seams, the
+decoder extraction and the `decimal.mjs` split together cost the bundles
+that never import Neon Realtime between −5 and +262 B gzip (the
+"every public entry" row; +13 B for the D1 Worker, +29 B for a pg
+application); most of the largest figure is gzip ordering noise from the
+split, whose raw output is byte-identical.
 
 ## Why an ordinal
 
@@ -61,12 +68,14 @@ changes: correct, documented.
 
 - Install time (`neonRealtime`): a non-PostgreSQL client; `neon-http` with
   `authToken` (`NeonHTTPDriver.userAuthorized`).
-- `prepare`, before any execution: a transaction (`TransactionBoundDriver`),
+- `exportRead`, before any execution: a transaction (`TransactionBoundDriver`),
   `query` handlers (this covers `cache()` and `permissions()`; a `$withCache`
   view needs `cache()`), statement transforms, computed `result` fields.
 - `describe` (shape walk): field read gates, `_distance`, point and vector
-  projections, and a recursive relation whose selection leaves its key out —
-  its carrier names nodes by key, so shipping it would leak an omitted field.
+  projections, and a recursive relation whose selection, or the row holding
+  it, leaves its key out — its carrier names nodes and its root by key, so
+  shipping it would leak an omitted field. (The rejected first version keyed
+  them by ordinal instead; that costs every bundle 230–300 B gzip.)
 
 ## Trust model
 
@@ -84,10 +93,13 @@ driver, no SQL compiler): importing the server's chunks would re-split them
 and grow every application bundle. The package's one `Decimal` class is its
 own file, `dist/decimal.mjs`, which every build imports, so a browser-decoded
 value is an instance of the class every entry exports. The server half
-imports the browser file for the envelope codec, so encode and decode cannot
-drift; it spells that import `../neon-realtime/client` so the build can point
-exactly that specifier at the file. `decimal.mjs` and the browser file ship
-without source maps, to keep the 260-file release budget.
+imports the browser file for the envelope codec — which is why the browser
+entry exports `realtimeEnvelope` — and spells that import
+`../neon-realtime/client` so the build can point exactly that specifier at
+the file. Importing the codec modules from the server's own build instead
+splits shared chunks: 263 files against the 260-file release budget.
+`decimal.mjs`, the browser file and the server entry ship without source
+maps, for the same budget.
 Externals and output paths in `tsdown.config.ts` are data, never functions:
 with a function there, rolldown 1.0.0-beta.58 now and then stalls the
 declaration build for good.
