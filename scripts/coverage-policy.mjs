@@ -245,6 +245,10 @@ const definitions = [
       lines: 96,
     },
     root: "src/client/",
+    // Neon Realtime's server and browser halves are client surfaces.
+    files: new Set(
+      readTypeScriptFiles(resolve(COVERAGE_PROJECT_ROOT, "src/neon-realtime"))
+    ),
     projects: ["coverage-client"],
     tests: CLIENT_COVERAGE_TESTS,
   },

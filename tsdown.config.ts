@@ -26,6 +26,11 @@ const runtime = {
     postgres: "./src/drivers/postgres/index.ts",
     pglite: "./src/drivers/pglite/index.ts",
     "neon-http": "./src/drivers/neon-http/index.ts",
+
+    // Neon Realtime (viborm/neon-realtime): the server extension, and the
+    // browser half, which reaches no driver or SQL compiler.
+    "neon-realtime": "./src/neon-realtime/index.ts",
+    "neon-realtime/client": "./src/neon-realtime/client.ts",
     "bun-sql": "./src/drivers/bun-sql/index.ts",
 
     // MySQL drivers (viborm/mysql2, viborm/planetscale)
@@ -112,6 +117,8 @@ const runtime = {
     "@cloudflare/workers-types",
     "@opentelemetry/api",
     "@neondatabase/serverless",
+    "@neon/realtime/client",
+    "@neon/realtime/server",
     "@planetscale/database",
     "@libsql/client",
     "mysql2",
@@ -241,10 +248,45 @@ const declarationExportKinds: Rolldown.Plugin = {
   },
 };
 
-const { "soft-delete": softDelete, ...runtimeEntries } = runtime.entry;
+const {
+  "soft-delete": softDelete,
+  "neon-realtime/client": realtimeClient,
+  ...runtimeEntries
+} = runtime.entry;
+
+// The server half imports the browser half's own published file, runtime and
+// declarations: a copy would split the shared chunks into more files.
+const REALTIME_CLIENT = "/src/neon-realtime/client";
+const REALTIME_SERVER = /\/src\/neon-realtime\/index\.(?:d\.)?ts$/;
+const realtimeClientImport = {
+  external: (id: string, importer: string | undefined) =>
+    runtime.external.includes(id) ||
+    (id === "./client" && REALTIME_SERVER.test(importer ?? "")),
+  paths: (id: string) =>
+    id.endsWith(REALTIME_CLIENT) || id === "./client"
+      ? "./neon-realtime/client.mjs"
+      : id,
+};
 
 export default defineConfig([
-  { ...runtime, entry: runtimeEntries },
+  {
+    ...runtime,
+    external: realtimeClientImport.external,
+    entry: runtimeEntries,
+    outputOptions: {
+      ...runtime.outputOptions,
+      paths: realtimeClientImport.paths,
+    },
+  },
+  // The browser half is self-contained, declarations included: sharing the
+  // server's chunks would re-split them for every application bundle.
+  {
+    ...runtime,
+    entry: { "neon-realtime/client": realtimeClient },
+    clean: false,
+    sourcemap: false,
+    outputOptions: { keepNames: false },
+  },
   {
     ...runtime,
     entry: { "soft-delete": softDelete },
@@ -255,10 +297,11 @@ export default defineConfig([
   },
   {
     ...runtime,
+    external: realtimeClientImport.external,
     clean: false,
     minify: false,
     sourcemap: false,
-    outputOptions: { keepNames: false },
+    outputOptions: { keepNames: false, paths: realtimeClientImport.paths },
     dts: { emitDtsOnly: true },
     plugins: [declarationExportKinds],
   },
