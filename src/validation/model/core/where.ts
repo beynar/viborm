@@ -5,6 +5,7 @@ import { scopeOperands } from "@validation/primitives/operand";
 import { conditionNodeOr } from "@validation/primitives/parameter";
 import v, { type V } from "../../primitives/v";
 import type { ValidationIssue } from "../../types";
+import { isRecord } from "../../value-guards";
 import type { ScalarSchemas } from "../index";
 import {
   type CompoundConstraintFilterSchema,
@@ -141,8 +142,8 @@ const refuseNullSelector =
       };
     }
     for (const key of compound) {
-      const members = value[key] as Record<string, unknown> | undefined;
-      if (members === undefined) continue;
+      const members = value[key];
+      if (!isRecord(members)) continue;
       const nullMember = Object.keys(members).find(
         (member) => members[member] === null
       );
