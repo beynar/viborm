@@ -14,12 +14,6 @@ import { isRecord } from "../value-guards";
 
 import type { NormalizedRecurrence } from "./recurrence-values";
 
-export {
-  carriesRepeatedKey,
-  DEFAULT_MAX_OCCURRENCES,
-  type NormalizedRecurrence,
-} from "./recurrence-values";
-
 /**
  * A foreign-key traversal has no cycle policy to choose: it rejects every
  * cycle it reaches. `preventCycles` is therefore refused by the bag's own type,

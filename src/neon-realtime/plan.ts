@@ -2,6 +2,7 @@ import type { SealedLiveQuery } from "@neon/realtime/client";
 import {
   arrayCodec,
   compileFactsCodec,
+  compileProjectionValue,
   compileWidenedSumCodec,
   nullableCodec,
   type ValueCodec,
@@ -10,7 +11,6 @@ import type {
   Leaf,
   ProjectionShape,
 } from "../query-engine/result/projection-shape";
-import { compileProjectionValue } from "../query-engine/result/projection-value-codec";
 import type { ReadResultRule } from "../query-engine/result/read-publication";
 
 /** One live row as Neon delivers it: physical cells, decoded by the plan. */
@@ -42,12 +42,15 @@ export interface RealtimeRenewal<Data> {
 
 /**
  * A live read with its first result. `encoded` is that result as plain JSON,
- * which every transport carries; `data` is the logical result, on the server
- * only: not enumerable, so no serializer sees it.
+ * which every transport carries; `realtimeData(query)` reads it back.
  */
 export interface RealtimeQuery<Data> extends RealtimeRenewal<Data> {
   readonly encoded: unknown;
-  readonly data: Data;
+  /**
+   * The first result, on the server that read it only: not enumerable, so no
+   * transport carries it. Elsewhere, read `realtimeData(query)`.
+   */
+  readonly data?: Data;
 }
 
 /** The read's public value, encoded with the cache's own value codecs. */
@@ -72,7 +75,8 @@ function dataCodec(plan: Plan): ValueCodec {
 /**
  * The envelope `neonRealtime` answers: a renewal, or with `data` a live read
  * and its first result. It lives here, beside its decoder, so the server
- * encodes with the codec the browser reads.
+ * encodes with the codec the browser reads; the browser entry exports it only
+ * because the server half imports that file.
  */
 export function realtimeEnvelope<Data>(
   sealed: SealedLiveQuery<TransportRow>,
@@ -99,11 +103,8 @@ export function readPlan(query: RealtimeRenewal<unknown>): Plan {
 }
 
 /** A live read's first result: the server's own value, or the one it encoded. */
-export function realtimeData<Data>(
-  query: RealtimeRenewal<Data> & { readonly encoded?: unknown }
-): Data | undefined {
+export function realtimeData<Data>(query: RealtimeQuery<Data>): Data {
   if ("data" in query) return query.data as Data;
-  if (query.encoded === undefined) return;
   return dataCodec(readPlan(query)).materialize(
     query.encoded,
     new WeakSet()

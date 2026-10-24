@@ -7,8 +7,6 @@ import {
   type LiveQueryState,
   pgTypeOids,
   QueryRefreshController,
-  type RealtimeLogger,
-  type RealtimeLogLevel,
 } from "@neon/realtime/client";
 import { readArrayLiteralText } from "../adapters/databases/postgres/array-literal";
 import { NotFoundError } from "../errors/query";
@@ -17,6 +15,7 @@ import { publishReadResult } from "../query-engine/result/read-publication";
 import { READ_ORDINAL_RESULT_KEY } from "../query-engine/result-aliases";
 import {
   type Plan,
+  type RealtimeQuery,
   type RealtimeRenewal,
   readPlan,
   realtimeData,
@@ -29,7 +28,8 @@ export type {
   RealtimeRenewal,
   TransportRow,
 } from "./plan";
-// `realtimeEnvelope` is the server half's: it encodes with this decoder's codec.
+// `realtimeEnvelope` is the server half's, which imports this file for the
+// codec rather than split the package's shared chunks.
 export { realtimeData, realtimeEnvelope } from "./plan";
 
 /** Neon's lifecycle and the read's current value, in its ordinary shape. */
@@ -45,8 +45,6 @@ export interface RealtimeSubscriptionOptions<Data> {
   /** The same endpoint with `{ initialData: false }`, called before each capability expires. */
   readonly refreshQuery?: () => Promise<RealtimeRenewal<NoInfer<Data>>>;
   readonly onChange?: (snapshot: RealtimeSnapshot<Data>) => void;
-  readonly logLevel?: RealtimeLogLevel;
-  readonly logger?: RealtimeLogger;
 }
 
 export interface RealtimeSubscription<Data> {
@@ -69,10 +67,8 @@ const listReader = (type: string) => (value: unknown) => {
   const members =
     typeof value === "string" ? readArrayLiteralText(value) : undefined;
   if (members === undefined) return value;
-  if (type === "boolean")
-    return members.map((member) => (member === null ? null : member === "t"));
-  return type === "json"
-    ? members.map((member) => (member === null ? null : JSON.parse(member)))
+  return type === "boolean"
+    ? members.map((member) => (member === null ? null : member === "t"))
     : members;
 };
 
@@ -109,7 +105,7 @@ class RealtimeError extends Error {
  * plan cannot decode) ends the subscription in `error`, with the cause.
  */
 export function subscribe<Data>(
-  query: RealtimeRenewal<Data> & { readonly encoded?: unknown },
+  query: RealtimeRenewal<Data> | RealtimeQuery<Data>,
   options: RealtimeSubscriptionOptions<Data>
 ): RealtimeSubscription<Data> {
   const plan = readPlan(query);
@@ -120,17 +116,12 @@ export function subscribe<Data>(
     return renewal.sealed;
   };
   const publish = publisher(plan);
-  const client = createRealtimeClient({
-    url: options.url,
-    parsers,
-    logLevel: options.logLevel,
-    logger: options.logger,
-  });
+  const client = createRealtimeClient({ url: options.url, parsers });
   const native = client.subscribe<TransportRow>(query.sealed);
   let snapshot: RealtimeSnapshot<Data> = Object.freeze({
     status: "connecting",
     error: undefined,
-    data: realtimeData(query),
+    data: "encoded" in query ? realtimeData(query) : undefined,
   });
   let rows: readonly TransportRow[] | undefined;
   let closed = false;
@@ -139,7 +130,6 @@ export function subscribe<Data>(
     if (closed) return;
     closed = true;
     refresh.stop();
-    native.unsubscribe();
     client.close();
     snapshot = next;
     options.onChange?.(snapshot);

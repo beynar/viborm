@@ -18,7 +18,7 @@ import type {
   ResolvedVariantRowEdge,
   ResolvedVariantRowMember,
 } from "@schema/validation/relation-resolution";
-import type { NormalizedRecurrence } from "@validation/relations/recurrence";
+import type { NormalizedRecurrence } from "@validation/relations/recurrence-values";
 
 // Re-export errors from unified error hierarchy
 export {

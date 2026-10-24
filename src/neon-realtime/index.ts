@@ -10,6 +10,7 @@ import {
 // One chunk graph with the client this extends: importing only the engine
 // pieces used here would split the package's shared chunks into more files.
 import "../client/client";
+import type { DatabaseAdapter } from "../adapters/database-adapter";
 import type { VibORMClient, VibORMConfig } from "../client/client";
 import type { ClientSchema } from "../client/schema-links";
 import type {
@@ -38,11 +39,12 @@ import {
   type TransportRow,
 } from "../neon-realtime/client";
 import {
-  type ExportPreparation,
   exportPendingRead,
   type PendingOperation,
+  type ReadExporter,
 } from "../query-engine/pending-operation";
-import type { Leaf, Read } from "../query-engine/raptor3/shared/query";
+import type { Read } from "../query-engine/raptor3/shared/query";
+import type { Leaf } from "../query-engine/result/projection-shape";
 import { postgresTransport } from "./transport-sql";
 
 export type {
@@ -168,25 +170,27 @@ function refuse(reason: string): never {
   );
 }
 
-const fieldScalars = (shape: { readonly fields: object }) =>
-  Object.values(shape.fields).map((field: Leaf) => field.scalar);
+const selects = (fields: object, leaf: Leaf) =>
+  Object.values(fields).some((field: Leaf) => field.scalar === leaf.scalar);
 
 /** The shape the browser decodes, as plain JSON, refused where the sealed SQL cannot carry it. */
 function describe(
   shape: Read["query"]["shape"]
 ): Parameters<typeof realtimeEnvelope>[1]["shape"] {
   return JSON.parse(
-    JSON.stringify(shape, (key, value) => {
+    JSON.stringify(shape, function (this: object, key, value) {
       if (key === "scalar") return;
       if (key === "gated") refuse("field read gates");
       if (key === "_distance") refuse("a `_distance` projection");
       if (value?.type === "point" || value?.type === "vector")
         refuse(`a ${value.type} projection (PostGIS/pgvector functions)`);
-      // A recursive carrier names its nodes by key: ship only selected keys.
+      // A recursive carrier names its rows, and its root, by key: ship only
+      // keys the projection selects on both.
       if (
         value?.kind === "recursive" &&
         value.identity.some(
-          (leaf: Leaf) => !fieldScalars(value.row).includes(leaf.scalar)
+          (leaf: Leaf) =>
+            !(selects(value.row.fields, leaf) && selects(this, leaf))
         )
       )
         refuse(`recursive '${value.relation}' without its key fields selected`);
@@ -197,67 +201,66 @@ function describe(
 
 function parameter(value: unknown): RawSqlParameter {
   if (value instanceof Uint8Array) return pgParam.bytea(value);
-  if (value instanceof Date) return pgParam.timestamptz(value);
   if (Array.isArray(value)) return pgParam.array("unknown", value);
   // A JSON document parameter answers its canonical text (`JsonParameter`).
   if (typeof value === "object" && value !== null) return JSON.stringify(value);
-  return (value ?? null) as RawSqlParameter;
+  return value as RawSqlParameter;
 }
 
-type Exported = ReturnType<ReturnType<typeof prepare>>;
-
-/** One admitted read, exported: refused where its answer depends on this process. */
-function prepare(
+/** One admitted read's sealed SQL and plan, refused where its answer depends on this process. */
+function exportRead(
   model: string,
   operation: CacheableOperations,
-  transport: ReturnType<typeof postgresTransport>
+  adapter: DatabaseAdapter,
+  ...[engine, options, routed]: Parameters<ReadExporter>
 ) {
-  return ((engine, options, routed) => {
-    const chain = engine.extensionChain;
-    if (engine.driver instanceof TransactionBoundDriver)
-      refuse("a read inside a transaction");
-    // `cache()` and `permissions()` install one; a cached view needs `cache()`.
-    if (
-      lookupResolvedExtensionHandlers(chain, "query", model, operation)?.length
-    )
-      refuse("a read through query handlers");
-    if (chain?.statement.length) refuse("a read through statement transforms");
-    if (options.finishResult) refuse("computed result fields");
-    const read = routed.exportRead(transport);
-    const plan = {
+  const chain = engine.extensionChain;
+  if (engine.driver instanceof TransactionBoundDriver)
+    refuse("a read inside a transaction");
+  // `cache()` and `permissions()` install one; a cached view needs `cache()`.
+  if (lookupResolvedExtensionHandlers(chain, "query", model, operation)?.length)
+    refuse("a read through query handlers");
+  if (chain?.statement.length) refuse("a read through statement transforms");
+  if (options.finishResult) refuse("computed result fields");
+  const read = routed.exportRead(adapter);
+  const { sql } = read.query;
+  return {
+    plan: {
       shape: describe(read.query.shape),
       rule: read.rule,
       ...(operation.endsWith("OrThrow")
         ? { missing: { model, operation } }
         : {}),
-    };
-    const { sql } = read.query;
-    return {
-      plan,
-      query: rawSql<TransportRow>(
-        sql.toStatement("$n"),
-        sql.values.map(parameter)
-      ),
-    };
-  }) satisfies ExportPreparation;
+    },
+    query: rawSql<TransportRow>(
+      sql.toStatement("$n"),
+      sql.values.map(parameter)
+    ),
+  };
 }
 
 function methods(
   delegate: Readonly<Record<string, (args: unknown) => unknown>>,
   model: string,
   realtime: NeonRealtimeOptions["realtime"],
-  transport: ReturnType<typeof postgresTransport>
+  adapter: DatabaseAdapter
 ) {
   return Object.fromEntries(
     READS.map((operation) => [
       `${operation}Realtime`,
       async (args: unknown, options?: RealtimeReadOptions<boolean>) => {
         const initial = options?.initialData !== false;
-        const [{ plan, query }, data] = (await exportPendingRead(
+        let exported: ReturnType<typeof exportRead> | undefined;
+        // The ordinary read's own lifecycle (admission, observers), with the
+        // export in place of its execution, and its result where asked for.
+        const data = await exportPendingRead(
           delegate[operation]!(args) as PendingOperation<unknown>,
-          prepare(model, operation, transport),
-          initial
-        )) as [Exported, unknown];
+          async (...context) => {
+            exported = exportRead(model, operation, adapter, ...context);
+            return initial ? context[3]() : undefined;
+          }
+        );
+        const { plan, query } = exported!;
         const sealed = await realtime.seal({ query });
         return initial
           ? realtimeEnvelope(sealed, plan, data)
@@ -281,7 +284,7 @@ export function neonRealtime({ realtime }: NeonRealtimeOptions) {
     // Realtime runs the sealed SQL as one role, without the user's token.
     if ("userAuthorized" in driver && driver.userAuthorized)
       refuse("reads authorized by an `authToken` (row-level security)");
-    const transport = postgresTransport(driver.adapter);
+    const adapter = postgresTransport(driver.adapter);
     const model = Object.fromEntries(
       Object.keys(client.$schema).map((name) => [
         name,
@@ -291,7 +294,7 @@ export function neonRealtime({ realtime }: NeonRealtimeOptions) {
             delegate as Parameters<typeof methods>[0],
             name,
             realtime,
-            transport
+            adapter
           ),
       ])
     );

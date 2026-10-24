@@ -41,6 +41,12 @@ import {
   compileBindBudgetChunks,
   normalizedBindParameterLimit,
 } from "../../bind-budget";
+import {
+  GatedFieldRefusal,
+  InvalidScalarResult,
+  RecursiveOutputOverBudget,
+} from "../../result/projection-decoder";
+import type { ProjectionShape } from "../../result/projection-shape";
 import { publishReadResult } from "../../result/read-publication";
 import type {
   PreparedBatchGuard,
@@ -48,15 +54,11 @@ import type {
   PreparedGuardFailure,
 } from "../../types";
 import {
-  GatedFieldRefusal,
-  InvalidScalarResult,
   type PreparedProjection,
   type PreparedSelector,
-  type ProjectionShape,
   Queries,
   type Query,
   type Read,
-  RecursiveOutputOverBudget,
   refusesWhileDecoding,
   returningSafeProjection,
   wholeValue,
