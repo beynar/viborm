@@ -118,16 +118,17 @@ import {
  */
 const freeze = Object.freeze;
 
-export type {
-  GatedMember,
-  Leaf,
-  ProjectionShape,
-} from "@query-engine/result/projection-shape";
 export {
   GatedFieldRefusal,
   InvalidScalarResult,
   RecursiveOutputOverBudget,
 } from "@query-engine/result/projection-decoder";
+export type {
+  GatedMember,
+  Leaf,
+  ProjectionShape,
+} from "@query-engine/result/projection-shape";
+
 type Shape = ProjectionShape;
 /**
  * A physical value's provider continuation ({@link Queries.fieldReader}),

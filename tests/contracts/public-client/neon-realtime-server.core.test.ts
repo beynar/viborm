@@ -14,8 +14,8 @@ import {
   ValidationError,
 } from "@errors";
 import type { RawSqlQuery } from "@neon/realtime/server";
-import { permissions } from "@src/permissions";
 import { createClient, s } from "@src/index";
+import { permissions } from "@src/permissions";
 import { v } from "@src/validation";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
