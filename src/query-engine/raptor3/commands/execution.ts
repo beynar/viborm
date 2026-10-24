@@ -150,8 +150,15 @@ function sameValues(a: Input, b: Input): boolean {
 const isSelectionGroup = (
   owner: Selection | readonly Selection[]
 ): owner is readonly Selection[] => Array.isArray(owner);
-/** Rows by the values of a field list, one `Map` level per field. */
-type KeyIndex = Map<unknown, KeyIndex | Input[]>;
+/**
+ * One level of a key index: the rows whose key values end here, and the next
+ * level by the next field's value.
+ */
+interface KeyNode {
+  readonly rows: Input[];
+  readonly next: Map<unknown, KeyNode>;
+}
+const keyNode = (): KeyNode => ({ rows: [], next: new Map() });
 /**
  * For each lookup of a run, the rows holding every unique key value it pins
  * (`facts.keys`), compared with `Object.is`. The rows are indexed once per
@@ -162,7 +169,7 @@ type KeyIndex = Map<unknown, KeyIndex | Input[]>;
 function keyedMatches(
   rows: readonly Input[]
 ): (lookup: Selection) => readonly Input[] {
-  const indexes = new Map<string, KeyIndex>();
+  const indexes = new Map<string, KeyNode>();
   return (lookup) => {
     const pins = [...lookup.facts.keys].sort(([left], [right]) =>
       left < right ? -1 : left > right ? 1 : 0
@@ -172,33 +179,29 @@ function keyedMatches(
     const signature = fields.join("\u0000");
     let index = indexes.get(signature);
     if (!index) {
-      index = new Map();
+      index = keyNode();
       for (const row of rows) {
         let level = index;
-        for (const [position, field] of fields.entries()) {
-          const value = row[field];
-          const next = level.get(value);
-          if (position === fields.length - 1) {
-            if (next) (next as Input[]).push(row);
-            else level.set(value, [row]);
-          } else if (next) level = next as KeyIndex;
-          else {
-            const created: KeyIndex = new Map();
-            level.set(value, created);
-            level = created;
+        for (const field of fields) {
+          let child = level.next.get(row[field]);
+          if (!child) {
+            child = keyNode();
+            level.next.set(row[field], child);
           }
+          level = child;
         }
+        level.rows.push(row);
       }
       indexes.set(signature, index);
     }
-    let found: KeyIndex | Input[] | undefined = index;
+    let level: KeyNode | undefined = index;
     for (const [, value] of pins) {
-      found = (found as KeyIndex).get(value);
-      if (found === undefined) return [];
+      level = level.next.get(value);
+      if (level === undefined) return [];
     }
     // A `Map` compares with SameValueZero; the pins compare with `Object.is`,
     // which tells 0 from -0.
-    return ((found as Input[] | undefined) ?? []).filter((row) =>
+    return level.rows.filter((row) =>
       pins.every(([field, value]) => Object.is(row[field], value))
     );
   };

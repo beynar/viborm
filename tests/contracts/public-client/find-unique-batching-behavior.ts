@@ -13,9 +13,11 @@ import type { AnyDriver } from "@drivers";
 import { NotFoundError } from "@errors";
 import { s } from "@schema";
 import { instrumentation } from "@src/instrumentation/exports";
+import { SPAN_EXECUTE } from "@src/instrumentation/spans";
 import { permissions } from "@src/permissions";
 import { v } from "@src/validation";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { withOtelRecorder } from "@tests/unit/instrumentation/_capture";
 import {
   afterAll,
   beforeAll,
@@ -466,6 +468,36 @@ export function runFindUniqueBatchingBehavior(provider: {
         )
       ).toEqual([1, 2, 3]);
       expect(errors).toEqual([]);
+    });
+
+    // ...nor a failed span: the shared read's statement span ends without an
+    // error, while each caller's own read keeps its own span.
+    test("a recovered shared read ends its span without an error", async () => {
+      const recorder = withOtelRecorder();
+      try {
+        const traced = db.$extends(instrumentation({ tracing: true }));
+        const calls = [1, 2, 3].map(
+          (id) => () => traced.member.findUnique({ where: { id } })
+        );
+        // The tracer loads on first use; the first call primes it.
+        await inOneTick([calls[0]!]);
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        const own = driver.statements[0];
+        driver.failWhen = (statement) => statement !== own;
+        const before = recorder.spans().length;
+        const recovered = await inOneTick(calls);
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        expect(recovered.statements).toBe(4);
+        const executes = recorder
+          .spans()
+          .slice(before)
+          .filter((span) => span.name === SPAN_EXECUTE);
+        expect(executes).toHaveLength(4);
+        // SpanStatusCode.ERROR is 2.
+        expect(executes.filter((span) => span.status.code === 2)).toEqual([]);
+      } finally {
+        await recorder.dispose();
+      }
     });
 
     test("a client without findUniqueBatching sends one read per call", async () => {
