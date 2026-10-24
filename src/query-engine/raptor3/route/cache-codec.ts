@@ -1,21 +1,18 @@
 import { CacheConfigurationError } from "@errors";
 import type { CacheResultCodec } from "../../cache-flow";
 import {
-  arrayCodec,
   booleanCodec,
+  compileProjectionValue,
   compileScalarCodec,
   compileWidenedSumCodec,
   countCodec,
   nullableCodec,
   numberCodec,
-  recordCodec,
-  recursiveRelationCodec,
-  taggedRelationCodec,
   type ValueCodec,
 } from "../../result/cache-value-codecs";
+import type { Leaf } from "../../result/projection-shape";
 import type { PreparedRead } from "../commands";
 import { EngineInvariantError } from "../shared/invariant";
-import type { Leaf, ProjectionShape } from "../shared/query";
 
 /**
  * The detached cache representation of one prepared read.
@@ -36,7 +33,9 @@ export function cacheCodec(
   // The read owner's own publication for zero rows says whether the public
   // value may be absent: `null` for a located row, `[]`/`{}`/`0`/`false` for
   // the shapes that always publish a value.
-  const value = shapeCodec(read.value, requestedOperation);
+  const value = compileProjectionValue(read.value, (leaf) =>
+    leafCodec(leaf, requestedOperation)
+  );
   const compiled = read.empty === null ? nullableCodec(value) : value;
   return Object.freeze({
     snapshot(input: unknown): unknown {
@@ -68,54 +67,6 @@ export function cacheCodec(
   });
 }
 
-/** One published shape, composed from the official structural codecs. */
-function shapeCodec(
-  shape: ProjectionShape | Leaf,
-  requestedOperation: string
-): ValueCodec {
-  // biome-ignore lint/style/useDefaultSwitchClause: the published shape union is exhaustive; a default would be dead code.
-  switch (shape.kind) {
-    case "scalar":
-      return leafCodec(shape, requestedOperation);
-    case "object": {
-      const fields = new Map<string, ValueCodec>();
-      for (const [name, field] of Object.entries(shape.fields))
-        fields.set(name, shapeCodec(field, requestedOperation));
-      const record = recordCodec(fields);
-      return shape.nullable === false ? record : nullableCodec(record);
-    }
-    case "collection":
-      return arrayCodec(shapeCodec(shape.row, requestedOperation));
-    case "variants": {
-      const arms = new Map<string, ValueCodec>();
-      for (const [type, arm] of Object.entries(shape.arms))
-        arms.set(
-          type,
-          shapeCodec(
-            shape.many && arm.kind === "collection" ? arm.row : arm,
-            requestedOperation
-          )
-        );
-      const tagged = taggedRelationCodec(arms);
-      return shape.many ? arrayCodec(tagged) : nullableCodec(tagged);
-    }
-    case "recursive":
-      // The decoder published every occurrence; the entry keeps them as they
-      // were published. The node is the ordinary row codec, and the structural
-      // owner reads only the slot's own prepared facts — never an identity,
-      // never the cycle policy the decoder already applied.
-      return recursiveRelationCodec(
-        {
-          relation: shape.relation,
-          many: shape.many,
-          optional: shape.optional,
-          depth: shape.recurrence.depth,
-        },
-        shapeCodec(shape.row, requestedOperation)
-      );
-  }
-}
-
 /**
  * One leaf's value codec.
  *
@@ -143,7 +94,7 @@ function leafCodec(leaf: Leaf, requestedOperation: string): ValueCodec {
   let value: ValueCodec;
   if (declared) {
     value = leaf.widened
-      ? compileWidenedSumCodec(declared)
+      ? compileWidenedSumCodec(declared["~"].state)
       : compileScalarCodec(declared, false);
   } else if (leaf.type === "boolean") value = booleanCodec();
   else if (leaf.type === "int") value = countCodec();

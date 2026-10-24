@@ -41,21 +41,24 @@ import {
   compileBindBudgetChunks,
   normalizedBindParameterLimit,
 } from "../../bind-budget";
+import {
+  GatedFieldRefusal,
+  InvalidScalarResult,
+  RecursiveOutputOverBudget,
+} from "../../result/projection-decoder";
+import type { ProjectionShape } from "../../result/projection-shape";
+import { publishReadResult } from "../../result/read-publication";
 import type {
   PreparedBatchGuard,
   PreparedBatchOperation,
   PreparedGuardFailure,
 } from "../../types";
 import {
-  GatedFieldRefusal,
-  InvalidScalarResult,
   type PreparedProjection,
   type PreparedSelector,
-  type ProjectionShape,
   Queries,
   type Query,
   type Read,
-  RecursiveOutputOverBudget,
   refusesWhileDecoding,
   returningSafeProjection,
   wholeValue,
@@ -1326,7 +1329,7 @@ export class OperationContext {
     missing: (() => Error) | undefined,
     rows: Input[]
   ): unknown {
-    const value = read.result(rows);
+    const value = publishReadResult(rows, read.rule);
     if (value === null && missing) throw missing();
     return value;
   }

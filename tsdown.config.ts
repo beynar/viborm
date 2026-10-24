@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { defineConfig, type Rolldown, type UserConfig } from "tsdown";
 import ts from "typescript";
 
@@ -26,6 +27,11 @@ const runtime = {
     postgres: "./src/drivers/postgres/index.ts",
     pglite: "./src/drivers/pglite/index.ts",
     "neon-http": "./src/drivers/neon-http/index.ts",
+
+    // Neon Realtime (viborm/neon-realtime): the server extension, and the
+    // browser half, which reaches no driver or SQL compiler.
+    "neon-realtime": "./src/neon-realtime/index.ts",
+    "neon-realtime/client": "./src/neon-realtime/client.ts",
     "bun-sql": "./src/drivers/bun-sql/index.ts",
 
     // MySQL drivers (viborm/mysql2, viborm/planetscale)
@@ -112,6 +118,8 @@ const runtime = {
     "@cloudflare/workers-types",
     "@opentelemetry/api",
     "@neondatabase/serverless",
+    "@neon/realtime/client",
+    "@neon/realtime/server",
     "@planetscale/database",
     "@libsql/client",
     "mysql2",
@@ -241,10 +249,70 @@ const declarationExportKinds: Rolldown.Plugin = {
   },
 };
 
-const { "soft-delete": softDelete, ...runtimeEntries } = runtime.entry;
+const {
+  "soft-delete": softDelete,
+  "neon-realtime/client": realtimeClient,
+  ...runtimeEntries
+} = runtime.entry;
+
+// The package's one Decimal class is its own file, `decimal.mjs`: every build
+// imports it rather than carry a copy, so the self-contained Neon Realtime
+// browser half decodes into the constructor every entry exports. The server
+// half imports the browser half's file for the envelope codec, so encode and
+// decode cannot drift. Neither standalone file, nor the server half, ships a
+// source map: the release keeps its file budget. Externals and paths stay
+// data: a function here lets rolldown 1.0.0-beta.58 stall the declaration
+// build for good, now and then.
+const REALTIME_CLIENT = "../neon-realtime/client";
+const DECIMAL = "src/validation/primitives/decimal-value";
+const standalone = {
+  external: [
+    ...runtime.external,
+    REALTIME_CLIENT,
+    /(?:^|\/)decimal-value(?:\.js)?$/,
+  ],
+  // Relative to dist/; the bundler prefixes nested outputs.
+  paths: {
+    [resolve("src/neon-realtime/client")]: "./neon-realtime/client.mjs",
+    "@validation/primitives/decimal-value": "./decimal.mjs",
+    [resolve(DECIMAL)]: "./decimal.mjs",
+    [resolve(`${DECIMAL}.js`)]: "./decimal.mjs",
+  },
+};
+const SOURCE_MAPPING_URL = /\n?\/\/# sourceMappingURL=\S+\s*$/;
+const withoutRealtimeServerMap: Rolldown.Plugin = {
+  name: "neon-realtime-server-without-source-map",
+  generateBundle(_options, bundle) {
+    const entry = bundle["neon-realtime.mjs"];
+    if (entry?.type !== "chunk") return;
+    entry.code = entry.code.replace(SOURCE_MAPPING_URL, "");
+    Reflect.deleteProperty(bundle, "neon-realtime.mjs.map");
+  },
+};
 
 export default defineConfig([
-  { ...runtime, entry: runtimeEntries },
+  {
+    ...runtime,
+    external: standalone.external,
+    entry: runtimeEntries,
+    outputOptions: { ...runtime.outputOptions, paths: standalone.paths },
+    plugins: [withoutRealtimeServerMap],
+  },
+  {
+    ...runtime,
+    external: standalone.external,
+    entry: { "neon-realtime/client": realtimeClient },
+    clean: false,
+    sourcemap: false,
+    outputOptions: { keepNames: false, paths: standalone.paths },
+  },
+  {
+    ...runtime,
+    entry: { decimal: `./${DECIMAL}.ts` },
+    clean: false,
+    sourcemap: false,
+    outputOptions: { keepNames: false },
+  },
   {
     ...runtime,
     entry: { "soft-delete": softDelete },
@@ -255,10 +323,11 @@ export default defineConfig([
   },
   {
     ...runtime,
+    external: [...runtime.external, REALTIME_CLIENT],
     clean: false,
     minify: false,
     sourcemap: false,
-    outputOptions: { keepNames: false },
+    outputOptions: { keepNames: false, paths: standalone.paths },
     dts: { emitDtsOnly: true },
     plugins: [declarationExportKinds],
   },

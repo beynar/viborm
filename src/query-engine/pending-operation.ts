@@ -88,6 +88,10 @@ type ReadPendingCacheResult = (
 ) => PendingCacheResultAccess;
 
 let attachPendingCacheExecutionFriend: AttachPendingCacheExecution;
+let exportPendingReadFriend: (
+  operation: PendingOperation<unknown>,
+  exporter: ReadExporter
+) => PendingOperation<unknown>;
 let readPendingCacheResultFriend: ReadPendingCacheResult;
 
 type DeferredExecution<T> = (
@@ -239,6 +243,15 @@ export class PendingOperation<T>
       );
     attachPendingCacheExecutionFriend = (operation, wrapper) =>
       operation.#wrapExecution(wrapper);
+    exportPendingReadFriend = (operation, exporter) =>
+      operation.#wrapExecution((execute) =>
+        exporter(
+          operation.#engine,
+          operation.#options,
+          operation.#resolveRouted(),
+          execute
+        )
+      );
     // Each part is computed when read: a read the cache bypasses asks only
     // for its controls, admitted once with its arguments.
     readPendingCacheResultFriend = (operation) => ({
@@ -971,6 +984,26 @@ export function createPendingOperation<T>(
     prepareInput,
     prepareWriteOutcomeRegistration
   );
+}
+
+/** An external transport's step in one operation's execution (Neon Realtime). */
+export type ReadExporter = (
+  engine: QueryEngine,
+  options: PrepareOptions,
+  routed: RoutedCandidateOperation,
+  execute: () => Promise<unknown>
+) => Promise<unknown>;
+
+/**
+ * One read handed to an external transport inside its own lifecycle
+ * (admission, observers, error context): `exporter` runs in place of its
+ * execution, and calls `execute` where it wants the ordinary result.
+ */
+export function exportPendingRead(
+  operation: PendingOperation<unknown>,
+  exporter: ReadExporter
+): PendingOperation<unknown> {
+  return exportPendingReadFriend(operation, exporter);
 }
 
 /** Place the official cache child inside arbitrary query interception. */

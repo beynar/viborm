@@ -30,11 +30,9 @@ import { Driver } from "@drivers";
 import { resolvePositionalResultDriver } from "@drivers/positional-result";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { QueryEngineError, QueryError } from "@errors";
-import {
-  InvalidScalarResult,
-  Queries,
-} from "@query-engine/raptor3/shared/query";
+import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { InvalidScalarResult } from "@query-engine/result/projection-decoder";
 import { POLYMORPHIC_COLLECTION_ORPHANS_KEY } from "@query-engine/result-aliases";
 import { s } from "@schema";
 import { sql } from "@sql";

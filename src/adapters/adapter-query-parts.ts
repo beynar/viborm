@@ -11,6 +11,11 @@ export interface QueryParts {
   groupBy?: Sql;
   having?: Sql;
   orderBy?: Sql;
+  /**
+   * A page whose rows a row transport's adapter (Neon Realtime) publishes
+   * with their rank under `orderBy`; other adapters ignore it.
+   */
+  ranked?: boolean;
   limit?: Sql;
   offset?: Sql;
   /** DISTINCT ON columns (PostgreSQL), or simulated via ROW_NUMBER() (MySQL/SQLite) */

@@ -145,11 +145,14 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonQuery> {
 
   private readonly driverOptions: NeonHTTPDriverOptions;
   private queryTypes: CustomTypesConfig | undefined;
+  /** Reads run as the user an `authToken` names (Neon RLS), not as one role. */
+  readonly userAuthorized: boolean;
 
   constructor(options: NeonHTTPDriverOptions = {}) {
     super("postgresql", "neon-http");
     const namespace = resolveNamespaceOption(options);
     this.driverOptions = options;
+    this.userAuthorized = options.options?.authToken !== undefined;
 
     installPostgresAdapter(this, namespace, options);
   }

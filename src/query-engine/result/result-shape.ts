@@ -8,7 +8,7 @@ import {
 import type { Scalar } from "@schema/scalars";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
 import { projectableScalarNames } from "@validation/model/core/projection";
-import type { NormalizedRecurrence } from "@validation/relations/recurrence";
+import type { NormalizedRecurrence } from "@validation/relations/recurrence-values";
 import { isRecord } from "@validation/value-guards";
 import {
   type AggregateResultName,

@@ -8,13 +8,10 @@ import {
 } from "@errors";
 import type { AnyModel } from "@schema/model";
 import { createFailureError } from "../../batch-error-attribution";
+import { InvalidScalarResult } from "../../result/projection-decoder";
 import type { PreparedGuardFailure } from "../../types";
 import type { OperationContext } from "../shared/operation-context";
-import {
-  InvalidScalarResult,
-  type PreparedSelector,
-  type SelectorFacts,
-} from "../shared/query";
+import type { PreparedSelector, SelectorFacts } from "../shared/query";
 import {
   type ModelStamps,
   Parameter,

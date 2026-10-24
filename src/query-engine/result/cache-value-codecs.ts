@@ -7,7 +7,7 @@ import {
   toDecimal,
 } from "@validation/primitives/decimal-codec";
 import { validateGeoPoint } from "@validation/primitives/geo-point-codec";
-import { carriesRepeatedKey } from "@validation/relations/recurrence";
+import { carriesRepeatedKey } from "@validation/relations/recurrence-values";
 import { materializeJsonValue, snapshotJsonValue } from "./cache-json-codec";
 import {
   decodeSnapshotCount,
@@ -21,6 +21,7 @@ import {
   readSnapshotRecord,
   withSnapshotObject,
 } from "./cache-snapshot-structure";
+import type { Leaf, ProjectionShape } from "./projection-shape";
 
 const NORMALIZED_TIME = /^(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,3})?$/;
 
@@ -29,16 +30,34 @@ export interface ValueCodec {
   materialize(snapshot: unknown, active: WeakSet<object>): unknown;
 }
 
+/** What a scalar's codec reads: its state, and an enum's members. */
+export interface ScalarFacts {
+  readonly type: string;
+  readonly array?: boolean;
+  readonly nullable?: boolean;
+  readonly decimal?: DecimalDescriptor;
+  readonly dimension?: number;
+  readonly enumValues?: readonly string[];
+}
+
 export function compileScalarCodec(
   scalar: Scalar,
   useDeclaredNullability = true
 ): ValueCodec {
+  const state = scalar["~"].state;
+  return compileFactsCodec({
+    ...state,
+    nullable: useDeclaredNullability && state.nullable,
+    enumValues: "enumValues" in scalar ? scalar.enumValues : undefined,
+  });
+}
+
+/** The same codec from the facts alone, where no `Scalar` travels (a live transport). */
+export function compileFactsCodec(state: ScalarFacts): ValueCodec {
   let item: ValueCodec;
-  if ("enumValues" in scalar) {
-    item = enumCodec(new Set(scalar.enumValues));
+  if (state.enumValues) {
+    item = enumCodec(new Set(state.enumValues));
   } else {
-    const state = scalar["~"].state;
-    // biome-ignore lint/style/useDefaultSwitchClause: the scalar state union is exhaustive; a default would be dead code.
     switch (state.type) {
       case "string":
         item = stringCodec();
@@ -79,13 +98,12 @@ export function compileScalarCodec(
       case "point":
         item = pointCodec();
         break;
+      default:
+        return failCacheSnapshot();
     }
   }
-  const state = scalar["~"].state;
   const value = state.array ? arrayCodec(item) : item;
-  return useDeclaredNullability && state.nullable
-    ? nullableCodec(value)
-    : value;
+  return state.nullable ? nullableCodec(value) : value;
 }
 
 export function taggedRelationCodec(
@@ -498,8 +516,10 @@ const INFINITE_SUMS: ReadonlyMap<unknown, number> = new Map([
  * A number sum is a double that may be `±Infinity` (engine-10), an int sum a
  * double that may pass 2^53, and a bigint sum any integer.
  */
-export function compileWidenedSumCodec(scalar: Scalar): ValueCodec {
-  const { type } = scalar["~"].state;
+export function compileWidenedSumCodec({
+  type,
+  decimal: descriptor,
+}: ScalarFacts): ValueCodec {
   if (type === "bigint") return bigintCodec();
   if (type === "number" || type === "int")
     return primitiveCodec(
@@ -510,7 +530,6 @@ export function compileWidenedSumCodec(scalar: Scalar): ValueCodec {
       (snapshot) =>
         INFINITE_SUMS.get(snapshot) ?? decodeSnapshotNumber(snapshot)
     );
-  const descriptor = scalar["~"].state.decimal;
   return primitiveCodec(
     (value) => {
       if (!descriptor) return failCacheSnapshot();
@@ -685,4 +704,52 @@ function materializeArray<Value>(
   return withSnapshotObject(active, snapshot, () =>
     materialize(readSnapshotArray(snapshot))
   );
+}
+
+/** One published shape, composed from the official structural codecs. */
+export function compileProjectionValue(
+  shape: ProjectionShape | Leaf,
+  leafCodec: (leaf: Leaf) => ValueCodec
+): ValueCodec {
+  // biome-ignore lint/style/useDefaultSwitchClause: the published shape union is exhaustive; a default would be dead code.
+  switch (shape.kind) {
+    case "scalar":
+      return leafCodec(shape);
+    case "object": {
+      const fields = new Map<string, ValueCodec>();
+      for (const [name, field] of Object.entries(shape.fields))
+        fields.set(name, compileProjectionValue(field, leafCodec));
+      const record = recordCodec(fields);
+      return shape.nullable === false ? record : nullableCodec(record);
+    }
+    case "collection":
+      return arrayCodec(compileProjectionValue(shape.row, leafCodec));
+    case "variants": {
+      const arms = new Map<string, ValueCodec>();
+      for (const [type, arm] of Object.entries(shape.arms))
+        arms.set(
+          type,
+          compileProjectionValue(
+            shape.many && arm.kind === "collection" ? arm.row : arm,
+            leafCodec
+          )
+        );
+      const tagged = taggedRelationCodec(arms);
+      return shape.many ? arrayCodec(tagged) : nullableCodec(tagged);
+    }
+    case "recursive":
+      // The decoder published every occurrence; the entry keeps them as they
+      // were published. The node is the ordinary row codec, and the structural
+      // owner reads only the slot's own prepared facts — never an identity,
+      // never the cycle policy the decoder already applied.
+      return recursiveRelationCodec(
+        {
+          relation: shape.relation,
+          many: shape.many,
+          optional: shape.optional,
+          depth: shape.recurrence.depth,
+        },
+        compileProjectionValue(shape.row, leafCodec)
+      );
+  }
 }
