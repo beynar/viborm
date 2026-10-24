@@ -31,7 +31,11 @@ const databases = new Map<string, PGlite>();
 
 /** A pool-like router: each statement goes to the caller's tenant database. */
 class TenantRoutedDriver extends PGliteDriver {
-  protected override readonly serializeTransactions = false;
+  constructor(options: ConstructorParameters<typeof PGliteDriver>[0]) {
+    super(options);
+    // No single-connection queue: PGlite's types pin it on, a pool has none.
+    Object.defineProperty(this, "serializeTransactions", { value: false });
+  }
   protected override execute<T>(
     _client: PGlite | Transaction,
     statement: string,
@@ -72,7 +76,7 @@ const routedClient = (findUniqueBatching?: boolean) =>
   });
 
 /** Each tenant's request reads ids 1 and 2 on `clientOf(tenant)`, in one tick. */
-async function sameTick(clientOf: (name: string) => any) {
+async function sameTick(clientOf: (name: (typeof TENANTS)[number]) => any) {
   let open!: () => void;
   const opened = new Promise<void>((resolve) => {
     open = resolve;

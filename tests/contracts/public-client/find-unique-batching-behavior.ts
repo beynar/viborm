@@ -451,7 +451,13 @@ export function runFindUniqueBatchingBehavior(provider: {
     test("a recovered shared read logs no error", async () => {
       const errors: unknown[] = [];
       const logged = db.$extends(
-        instrumentation({ logging: { error: (event) => errors.push(event) } })
+        instrumentation({
+          logging: {
+            error: (event) => {
+              errors.push(event);
+            },
+          },
+        })
       );
       const calls = [1, 2, 3].map(
         (id) => () => logged.member.findUnique({ where: { id } })
