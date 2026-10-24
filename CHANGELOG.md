@@ -16,10 +16,11 @@ changes its notes left out.
   with a `null` member, deleted or updated every row holding that NULL (since
   1.0; 1.4.0 added the nested-write `update` to the calls that did). Such a
   selector is now refused with a `ValidationError` before any statement, in
-  `findUnique`, `update`, `delete`, `upsert`, cursors and every nested target,
-  unless another selector of the same `where` names the row (`{ id: 1, code:
-  null }`). Address rows by a NULL with `findFirst`, `updateMany` or
-  `deleteMany`. Prisma refuses `null` in every unique position.
+  `findUnique`, `update`, `delete`, `upsert`, cursors, every nested target and
+  the permissions extension's `can`/`assert`, unless another selector of the
+  same `where` names the row (`{ id: 1, code: null }`). Address rows by a NULL
+  with `findFirst`, `updateMany` or `deleteMany`. The types still admit `null`
+  there. Prisma refuses `null` in every unique position.
 - **A `findUnique` on the originating client inside its own callback
   transaction no longer hangs the client.** On drivers that run a callback
   transaction on their single connection (SQLite3, PGlite, local libSQL, Bun
