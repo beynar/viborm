@@ -202,7 +202,7 @@ export function subscribe<Data>(
 
   return {
     getSnapshot: read,
-    renew: (renewal) => refresh.replaceSealedQuery(sameRead(renewal)),
+    renew: async (renewal) => refresh.replaceSealedQuery(sameRead(renewal)),
     unsubscribe: () =>
       close(
         Object.freeze({
