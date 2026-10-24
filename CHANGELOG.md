@@ -3,7 +3,7 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
-## 1.4.2 — unreleased
+## 1.4.2 — 2026-10-25
 
 Two D1 and Neon HTTP bugs older than 1.4.0, left open by its adversarial
 review.
