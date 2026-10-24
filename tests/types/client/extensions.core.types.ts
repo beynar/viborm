@@ -22,6 +22,7 @@ import {
   createClient,
   defineExtension,
   type ExtendedClient,
+  type ExtensionContributionState,
   s,
 } from "@src/index";
 import { expectTypeOf } from "vitest";
@@ -958,3 +959,19 @@ baseClient().$extends({
     },
   },
 });
+
+// 1.3.3 exported the contribution state with six parameters; the seventh
+// (`Result`) is defaulted so a state spelled with six still names one.
+type _sixParameterContributionState = Expect<
+  Equal<
+    ExtensionContributionState<
+      Record<never, never>,
+      Record<never, never>,
+      Record<never, never>,
+      never,
+      never,
+      "result-independent"
+    >["result"],
+    Record<never, never>
+  >
+>;

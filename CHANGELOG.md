@@ -3,6 +3,55 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## 1.4.1 — unreleased
+
+Two fixes found by an adversarial review of 1.4.0, and the 1.4.0 behaviour
+changes its notes left out.
+
+### Fixed
+
+- **A unique `where` holding `null` no longer writes every row it matches.**
+  A unique index admits any number of NULLs, so `delete({ where: { code: null
+  } })` on a nullable `.unique()` field, or an `update` by a compound selector
+  with a `null` member, deleted or updated every row holding that NULL (since
+  1.0; 1.4.0 added the nested-write `update` to the calls that did). Such a
+  selector is now refused with a `ValidationError` before any statement, in
+  `findUnique`, `update`, `delete`, `upsert`, cursors and every nested target,
+  unless another selector of the same `where` names the row (`{ id: 1, code:
+  null }`). Address rows by a NULL with `findFirst`, `updateMany` or
+  `deleteMany`. Prisma refuses `null` in every unique position.
+- **A `findUnique` on the originating client inside its own callback
+  transaction no longer hangs the client.** On drivers that run a callback
+  transaction on their single connection (SQLite3, PGlite, local libSQL, Bun
+  SQLite), that call is refused with a `TransactionError`, as it was in
+  1.3.3; in 1.4.0, joined to a `findUnique` issued outside the transaction in
+  the same tick, its shared read waited behind the transaction that waited for
+  it, and every later call on the client waited too.
+- **`ExtensionContributionState` takes six type arguments again.** 1.4.0
+  added a seventh (`Result`) without a default; it now defaults to no result
+  fields.
+
+### 1.4.0 changes its notes did not list
+
+- **A nested write's returned row does not show what a trigger changed.** A
+  `create` or `update` with nested relation writes and no relation in its
+  result returns the row its own INSERT or UPDATE answered; a trigger that
+  later changes that row (a counter a child's INSERT bumps) is in the
+  database but not in the returned object. Add an `include` or re-read the row
+  where a trigger maintains it.
+- **`findUnique` waits one tick before it runs**, to share a read with the
+  other `findUnique` calls of the same tick. A write issued after it in the
+  same tick (`Promise.all([findUnique, update])`) can run first; await the read
+  where the order matters.
+- **The `undefined` bulk-where refusal (V4001) does not cover a to-one
+  relation filter.** `deleteMany({ where: { author: { is: { id: undefined } }
+  } })` asks that an author exists, which on a required relation is every row,
+  and is not refused (as the compatibility page states).
+- **An estate regenerated on 1.4.0 gets new state ids.** A state lost from a
+  1.3.3 history and generated again on 1.4.0 is stored as a delta, so its id
+  differs from the lost one; regenerate lost states with the version that
+  wrote them.
+
 ## 1.4.0 — 2026-10-24
 
 Fewer round trips, permission reads D1 can run, faster `distinct` and

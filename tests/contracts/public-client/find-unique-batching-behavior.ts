@@ -374,6 +374,40 @@ export function runFindUniqueBatchingBehavior(provider: {
       expect(array.map((row) => row?.id)).toEqual([8, 9]);
     });
 
+    // Both providers run a callback transaction on their one connection. A
+    // call on the ORIGINATING client inside that callback is refused; joined to
+    // a batch led from outside, its read queued behind the transaction that
+    // waited for it, and the client hung for good (1.4.0).
+    test("the originating client inside its own callback transaction is refused, never merged", async () => {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const transaction = db.$transaction(async (tx) => {
+        await tx.member.findFirst();
+        await gate;
+        return db.member.findUnique({ where: { id: 2 } });
+      });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const outside = db.member.findUnique({ where: { id: 1 } });
+      release();
+      const hung = Symbol("hung");
+      const settled = await Promise.race([
+        Promise.allSettled([outside, transaction]),
+        new Promise<typeof hung>((resolve) =>
+          setTimeout(() => resolve(hung), 5000)
+        ),
+      ]);
+      expect(settled).not.toBe(hung);
+      const [read, refused] = settled as PromiseSettledResult<unknown>[];
+      expect(read).toMatchObject({ status: "fulfilled", value: { id: 1 } });
+      expect(refused).toMatchObject({
+        status: "rejected",
+        reason: { name: "TransactionError" },
+      });
+      expect(await db.member.count()).toBe(MEMBERS.length);
+    });
+
     test("a failed merged read sends each caller to its own call: its own row, or its own error", async () => {
       const calls = [1, 2, 3].map(
         (id) => () => db.member.findUnique({ where: { id } })

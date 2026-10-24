@@ -110,7 +110,11 @@ const defer: (callback: () => void) => void = (() => {
 export function batchFindUnique(
   call: FindUniqueCall
 ): Promise<unknown> | undefined {
-  if (!engineBatches(call.engine)) return undefined;
+  // A call on the originating client inside its own callback transaction
+  // runs alone, and is refused there as it always was: in a batch, the shared
+  // read would queue behind the transaction that waits for this call.
+  if (!engineBatches(call.engine) || call.engine.driver.holdsConnectionScope())
+    return undefined;
   let admitted: Record<string, unknown>;
   try {
     admitted = call.routed.preparedArgs;

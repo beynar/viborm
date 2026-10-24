@@ -87,6 +87,20 @@ export abstract class DriverTransactionBase<
       throw this.transactionBoundError(context);
   }
 
+  /**
+   * Whether the caller runs inside this driver's own callback transaction,
+   * holding its single connection: an operation on the originating client is
+   * refused there ({@link assertBaseOperationAllowedDuringTransaction}), and
+   * one that waited for the connection instead would wait for itself.
+   */
+  holdsConnectionScope(): boolean {
+    return (
+      this.serializeTransactions &&
+      !this.inTransaction &&
+      isConnectionScope(this.connectionQueue)
+    );
+  }
+
   /** The refusal above, out of line: outside a transaction it never runs. */
   private transactionBoundError(context: QueryExecutionContext): Error {
     return new TransactionError(
