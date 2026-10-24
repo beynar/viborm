@@ -47,6 +47,22 @@ class TenantRoutedDriver extends PGliteDriver {
   }
 }
 
+/**
+ * The same router on PGlite's own single-connection queue: statements of
+ * concurrent calls wait behind each other on the one connection.
+ */
+class QueuedTenantDriver extends PGliteDriver {
+  protected override execute<T>(
+    _client: PGlite | Transaction,
+    statement: string,
+    parameters: unknown[],
+    context?: QueryExecutionContext
+  ): Promise<QueryResult<T>> {
+    const database = databases.get(tenant.getStore() ?? "acme")!;
+    return super.execute<T>(database, statement, parameters, context);
+  }
+}
+
 beforeAll(async () => {
   for (const name of TENANTS) {
     const database = new PGlite();
@@ -105,6 +121,22 @@ test("without findUniqueBatching, every call reads its own tenant", async () => 
 test("a batch reads in its own leader's context, not another client's", async () => {
   const clients = new Map(TENANTS.map((name) => [name, routedClient(true)]));
   expect(await sameTick((name) => clients.get(name))).toEqual([
+    ["acme one", "acme two"],
+    ["globex one", "globex two"],
+  ]);
+});
+
+// A single-connection driver queues the statements of concurrent calls. The
+// queue used to run every queued statement in the context of the call that
+// drained it, so the second tenant's read went to the first tenant's
+// database (since 1.0). Each queued statement now runs in its own call's
+// context.
+test("a statement queued on the one connection runs in its own call's context", async () => {
+  const db = createClient({
+    schema,
+    driver: new QueuedTenantDriver({ client: databases.get("acme")! }),
+  });
+  expect(await sameTick(() => db)).toEqual([
     ["acme one", "acme two"],
     ["globex one", "globex two"],
   ]);

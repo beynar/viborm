@@ -3,7 +3,7 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
-## 1.4.1 — unreleased
+## 1.4.1 — 2026-10-24
 
 Fixes found by two rounds of adversarial review of 1.4.0, and the 1.4.0
 behaviour changes its notes left out.
@@ -55,6 +55,13 @@ behaviour changes its notes left out.
   key now share one statement per bind budget, and their junction links one
   INSERT per bind budget: the same call sends 14 statements. Round trips are
   unchanged.
+- **A statement queued on a single-connection driver runs in its own call's
+  async context.** SQLite3, PGlite, local libSQL and Bun SQLite run one
+  statement at a time, and the statements of concurrent calls wait behind
+  each other. The queue ran each waiting statement in the async context of
+  the call that drained it (since 1.0), so a driver that picks its database
+  from `AsyncLocalStorage` could answer one request from another's, and a
+  statement's span could land in another request's trace.
 - **A libSQL client opened on `databaseUrl: ":memory:"` serializes its
   transactions** like `file::memory:`: a call on the originating client
   inside a callback transaction is refused with `TransactionError` instead of
