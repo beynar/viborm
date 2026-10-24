@@ -15,7 +15,10 @@ const box = s
 const note = s.model({
   id: s.int().id(),
   boxId: s.int().nullable(),
-  box: s.toOne(() => box).fields("boxId").references("id"),
+  box: s
+    .toOne(() => box)
+    .fields("boxId")
+    .references("id"),
 });
 const client = createClient({ schema: { box, note } });
 
