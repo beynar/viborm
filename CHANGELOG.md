@@ -3,6 +3,21 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## Unreleased
+
+### Added
+
+- **Live reads through Neon Realtime.** `viborm/neon-realtime` adds
+  `findManyRealtime`, `findFirstRealtime`, `findUniqueRealtime`, both
+  `OrThrow` variants, `countRealtime`, `existRealtime`, `aggregateRealtime`
+  and `groupByRealtime` to every model: the ordinary read's arguments and
+  result type, sealed for Neon Realtime with the first result as plain JSON.
+  `viborm/neon-realtime/client` subscribes in the browser and publishes the
+  ordinary read's value on every change. PostgreSQL only; `@neon/realtime` is
+  an optional peer. Reads the sealed SQL cannot reproduce (query handlers,
+  statement transforms, result fields, transactions, read gates, PostGIS and
+  pgvector projections) are refused by name.
+
 ## 1.4.1 — 2026-10-24
 
 Fixes found by two rounds of adversarial review of 1.4.0, and the 1.4.0
