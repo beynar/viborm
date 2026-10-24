@@ -104,6 +104,40 @@ function assertWorkerSafeBuiltGraph(exportNames) {
 // `viborm/permissions` governs a Worker's client too: its graph is held to the same rule.
 assertWorkerSafeBuiltGraph([".", "./schema", "./d1", "./permissions"]);
 
+// The browser half is one self-contained file: besides the browser SDK it
+// reaches only the package's one Decimal module, never a driver, the SQL
+// compiler (whose cursor refusal marks it) or the server SDK.
+const SQL_COMPILER_MARKER = "Cursor pagination supports direct scalar sort";
+const realtimeClientFile = resolve(
+  repositoryRoot,
+  packageJson.exports["./neon-realtime/client"].import
+);
+const realtimeClientImports = [
+  ...readFileSync(realtimeClientFile, "utf8").matchAll(staticModuleSpecifier),
+].map((match) => match[1]);
+if (
+  realtimeClientImports.sort().join() !== "../decimal.mjs,@neon/realtime/client"
+) {
+  throw new Error(
+    `viborm/neon-realtime/client imports ${realtimeClientImports.join(", ")}`
+  );
+}
+const browserGraph = [realtimeClientFile];
+for (const file of browserGraph) {
+  const source = readFileSync(file, "utf8");
+  if (
+    source.includes(SQL_COMPILER_MARKER) ||
+    source.includes("@neon/realtime/server")
+  )
+    throw new Error(`viborm/neon-realtime/client reaches ${file}`);
+  for (const [, specifier] of source.matchAll(staticModuleSpecifier)) {
+    const dependency = resolve(dirname(file), specifier);
+    if (specifier.startsWith(".") && !browserGraph.includes(dependency))
+      browserGraph.push(dependency);
+  }
+}
+assertWorkerSafeBuiltGraph(["./neon-realtime/client"]);
+
 function requireRuntimeFunction(exportName, member) {
   const namespace = runtimeExports.get(exportName);
   if (typeof namespace?.[member] !== "function") {
@@ -121,6 +155,8 @@ function requireRuntimeAbsence(exportName, member) {
 }
 
 requireRuntimeFunction(".", "defineExtension");
+requireRuntimeFunction("./neon-realtime", "neonRealtime");
+requireRuntimeFunction("./neon-realtime/client", "subscribe");
 for (const member of [
   "getOperationPayloadSchema",
   "renderOperationResultType",
