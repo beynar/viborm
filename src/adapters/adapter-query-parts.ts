@@ -11,6 +11,11 @@ export interface QueryParts {
   groupBy?: Sql;
   having?: Sql;
   orderBy?: Sql;
+  /**
+   * The rank of each row under `orderBy`, published as this column by an
+   * external row transport's adapter (Neon Realtime); others ignore it.
+   */
+  ordinal?: string;
   limit?: Sql;
   offset?: Sql;
   /** DISTINCT ON columns (PostgreSQL), or simulated via ROW_NUMBER() (MySQL/SQLite) */
