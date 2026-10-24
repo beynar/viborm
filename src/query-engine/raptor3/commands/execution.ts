@@ -146,6 +146,59 @@ function sameValues(a: Input, b: Input): boolean {
     keys.every((key) => Object.hasOwn(b, key) && Object.is(a[key], b[key]))
   );
 }
+/** Rows by the values of a field list, one `Map` level per field. */
+type KeyIndex = Map<unknown, KeyIndex | Input[]>;
+/**
+ * For each lookup of a run, the rows holding every unique key value it pins
+ * (`facts.keys`), compared with `Object.is`. The rows are indexed once per
+ * pinned field list, so a run of N lookups over N rows costs N descents into
+ * an index rather than N × N comparisons (a 4,000-target `connect` spent most
+ * of its time here).
+ */
+function keyedMatches(
+  rows: readonly Input[]
+): (lookup: Selection) => readonly Input[] {
+  const indexes = new Map<string, KeyIndex>();
+  return (lookup) => {
+    const pins = [...lookup.facts.keys].sort(([left], [right]) =>
+      left < right ? -1 : left > right ? 1 : 0
+    );
+    if (pins.length === 0) return rows;
+    const fields = pins.map(([field]) => field);
+    const signature = fields.join("\u0000");
+    let index = indexes.get(signature);
+    if (!index) {
+      index = new Map();
+      for (const row of rows) {
+        let level = index;
+        for (const [position, field] of fields.entries()) {
+          const value = row[field];
+          const next = level.get(value);
+          if (position === fields.length - 1) {
+            if (next) (next as Input[]).push(row);
+            else level.set(value, [row]);
+          } else if (next) level = next as KeyIndex;
+          else {
+            const created: KeyIndex = new Map();
+            level.set(value, created);
+            level = created;
+          }
+        }
+      }
+      indexes.set(signature, index);
+    }
+    let found: KeyIndex | Input[] | undefined = index;
+    for (const [, value] of pins) {
+      found = (found as KeyIndex).get(value);
+      if (found === undefined) return [];
+    }
+    // A `Map` compares with SameValueZero; the pins compare with `Object.is`,
+    // which tells 0 from -0.
+    return ((found as Input[] | undefined) ?? []).filter((row) =>
+      pins.every(([field, value]) => Object.is(row[field], value))
+    );
+  };
+}
 /** Interprets the prepared command tree through one replaceable execution attempt. */
 export class CommandExecution {
   readonly commands: Commands;
@@ -933,13 +986,7 @@ export class CommandExecution {
           first.model
         ))
       );
-    const found = run.map((lookup) =>
-      rows.filter((row) =>
-        [...lookup.facts.keys].every(([field, value]) =>
-          Object.is(row[field], value)
-        )
-      )
-    );
+    const found = run.map(keyedMatches(rows));
     if (
       rows.length !== run.length ||
       found.some((matches) => matches.length !== 1) ||

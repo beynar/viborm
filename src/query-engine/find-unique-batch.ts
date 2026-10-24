@@ -1,9 +1,13 @@
 /**
  * `findUnique` batching: Prisma's dataloader, at the operation dispatch layer.
  *
- * Calls issued in the same tick that would each cost one round trip are
- * answered by ONE `findMany` over the keys they name, and each caller gets its
- * own row back. The merge happens below every per-call lifecycle step — request
+ * Opt-in (`createClient({ findUniqueBatching: true })`, 1.4.1): calls issued
+ * in the same tick that would each cost one round trip are answered by ONE
+ * `findMany` over the keys they name, and each caller gets its own row back.
+ * The shared read runs in its leader's own async context (the first call of
+ * its batch), which may not be every member's: a driver that picks a database
+ * by `AsyncLocalStorage`, or a trace per request, sees the leader's. That is
+ * why it is opt-in. The merge happens below every per-call lifecycle step — request
  * transforms, controls, default omit, admission, query interceptors, the
  * official cache and observers all still see each call as its own operation —
  * and above the route, which runs the merged read like any other read.
@@ -31,6 +35,7 @@
 
 import { passThroughParseResult } from "@adapters/adapter-result-parser";
 import { normalizedBindParameterLimit } from "@drivers/bind-parameter-capacity";
+import { deriveRecoverableExecutionContext } from "@drivers/execution-context";
 import type { QueryExecutionContext } from "@drivers/exports";
 import type { AdmittedControls } from "@extensions/controls";
 import type { AnyModel } from "@schema/model";
@@ -71,6 +76,8 @@ interface Member {
 
 interface Batch {
   readonly leader: FindUniqueCall;
+  /** Starts the batch in its leader's own continuation (its async context). */
+  readonly start: () => void;
   readonly fields: readonly string[];
   readonly textKey: boolean;
   readonly members: Member[];
@@ -85,6 +92,14 @@ const EXACT_KEY_VALUES: Readonly<Record<string, (value: unknown) => boolean>> =
   };
 
 let pending: Map<QueryEngine, Map<string, Batch[]>> | undefined;
+
+/** The operation routes of the clients created with `findUniqueBatching`. */
+const batchingRoutes = new WeakSet<object>();
+
+/** Turn batching on for every engine of the client that owns `route`. */
+export function enableFindUniqueBatching(route: object): void {
+  batchingRoutes.add(route);
+}
 
 /**
  * After the current synchronous run AND the microtasks it queued, so resolvers
@@ -132,17 +147,35 @@ export function batchFindUnique(
   const decision = new Promise<Decision>((resolve) => {
     decide = resolve;
   });
+  let lead!: (batch: Batch) => void;
+  const leading = new Promise<Batch>((resolve) => {
+    lead = resolve;
+  });
   const member: Member = {
     values: key.values,
     signature: signatureOf(key.values)!,
     orThrow: call.requested !== "findUnique",
     decide,
   };
-  enqueue(call, `${key.selector}\u0000${shape}`, key, member);
-  // The decision is reached in the caller's own continuation, so a call that
-  // runs alone runs in its own async context.
-  return decision.then((settled) =>
-    settled === RUN_ALONE ? call.run() : settled.value
+  const leads = enqueue(
+    call,
+    `${key.selector}\u0000${shape}`,
+    key,
+    member,
+    lead
+  );
+  // Continuations run in the async context of the call that registered them:
+  // the leader runs its batch in its own, and a call that runs alone runs in
+  // its own. The tick's flush runs in whichever context queued first, and
+  // only starts batches.
+  const settled = leads
+    ? leading.then((batch) => {
+        runBatch(batch);
+        return decision;
+      })
+    : decision;
+  return settled.then((outcome) =>
+    outcome === RUN_ALONE ? call.run() : outcome.value
   );
 }
 
@@ -155,6 +188,7 @@ export function batchFindUnique(
 function engineBatches(engine: QueryEngine): boolean {
   const { driver } = engine;
   return (
+    batchingRoutes.has(engine.route) &&
     driver === engine.route.driver &&
     (engine.extensionChain?.statement.length ?? 0) === 0 &&
     driver.result?.parseResult === undefined &&
@@ -198,12 +232,14 @@ function keyOf(model: AnyModel, where: unknown): BatchKey | undefined {
   return { selector, fields: key.fields, values, textKey };
 }
 
+/** Join or open a batch; `true` when this call opened it and leads it. */
 function enqueue(
   call: FindUniqueCall,
   shape: string,
   key: BatchKey,
-  member: Member
-): void {
+  member: Member,
+  lead: (batch: Batch) => void
+): boolean {
   if (pending === undefined) {
     pending = new Map();
     defer(flush);
@@ -216,16 +252,21 @@ function enqueue(
   let batch = batches.find((candidate) =>
     sameControls(candidate.leader.controls, call.controls)
   );
+  let leads = false;
   if (batch === undefined) {
-    batch = {
+    const opened: Batch = {
       leader: call,
+      start: () => lead(opened),
       fields: key.fields,
       textKey: key.textKey,
       members: [],
     };
+    batch = opened;
     batches.push(batch);
+    leads = true;
   }
   batch.members.push(member);
+  return leads;
 }
 
 /** Admitted controls decide the row domain: the same values, the same rows. */
@@ -249,7 +290,7 @@ function flush(): void {
   pending = undefined;
   for (const byShape of batches!.values())
     for (const list of byShape.values())
-      for (const batch of list) runBatch(batch);
+      for (const batch of list) batch.start();
 }
 
 interface Chunk {
@@ -279,7 +320,10 @@ function runBatch(batch: Batch): void {
       else bySignature.set(member.signature, [member]);
     }
     const plan = planBatch(batch, [...bySignature.values()]);
-    const { engine, context } = batch.leader;
+    const { engine } = batch.leader;
+    // Its callers recover a failure by running alone, so the shared read's
+    // own failure is not logged or traced as an error.
+    const context = deriveRecoverableExecutionContext(batch.leader.context);
     for (const chunk of plan.chunks) {
       const callers = chunk.signatures.flatMap((key) => bySignature.get(key)!);
       chunk.read

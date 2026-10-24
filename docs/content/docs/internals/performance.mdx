@@ -77,8 +77,9 @@ One statement on every database.
 
 | Optimization | PostgreSQL | Neon HTTP | MySQL | SQLite | D1 |
 |---|---|---|---|---|---|
-| `findUnique` calls in the same tick share one statement | ✅ | ✅ | ✅ | ✅ | ✅ (split at 100 binds) |
+| `findUnique` calls in the same tick share one statement (`findUniqueBatching: true`) | ✅ | ✅ | ✅ | ✅ | ✅ (split at 100 binds) |
 
+Opt-in since 1.4.1 (the shared read runs in the first call's async context).
 Calls are batched outside transactions when they target the same model, unique
 key and projection, and their `where` is the key alone (string, int or bigint
 members). The batch is split at the driver's bind budget. 50 lookups in one

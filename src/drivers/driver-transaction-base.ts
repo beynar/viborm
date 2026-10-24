@@ -4,6 +4,7 @@ import { TransactionError } from "@errors";
 import { Sql } from "@sql";
 import {
   connectionQueueWait,
+  connectionScopeUntracked,
   isConnectionScope,
   withConnectionScope,
 } from "./connection-scope";
@@ -94,11 +95,12 @@ export abstract class DriverTransactionBase<
    * one that waited for the connection instead would wait for itself.
    */
   holdsConnectionScope(): boolean {
-    return (
-      this.serializeTransactions &&
-      !this.inTransaction &&
-      isConnectionScope(this.connectionQueue)
-    );
+    if (!this.serializeTransactions || this.inTransaction) return false;
+    // Where scopes cannot be tracked, a caller cannot tell whether it runs
+    // inside the transaction that holds the connection, so any holder counts.
+    return connectionScopeUntracked()
+      ? this.connectionQueue.busy
+      : isConnectionScope(this.connectionQueue);
   }
 
   /** The refusal above, out of line: outside a transaction it never runs. */

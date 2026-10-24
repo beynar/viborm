@@ -117,6 +117,14 @@ const DRIVER_CONTRACTS: readonly DriverContract[] = [
     maxWait: "queue",
   },
   {
+    // `@libsql/client` reads `:memory:` as `file::memory:`: one connection.
+    name: "libSQL (:memory:)",
+    create: () => new LibSQLDriver({ databaseUrl: ":memory:" }),
+    isolationLevel: "serializable-only",
+    timeout: true,
+    maxWait: "queue",
+  },
+  {
     name: "libSQL (remote)",
     create: () => new LibSQLDriver({ databaseUrl: "libsql://example.invalid" }),
     isolationLevel: "serializable-only",
@@ -243,10 +251,11 @@ describe("transaction option contract: the declaration matrix", () => {
   });
 
   test("the matrix covers every advertised driver", () => {
-    // The pre-D-2 file pinned 11 drivers; libSQL now contributes two rows
-    // because its maxWait mechanism depends on the database URL.
-    expect(DRIVER_CONTRACTS).toHaveLength(12);
-    expect(new Set(DRIVER_CONTRACTS.map((row) => row.name)).size).toBe(12);
+    // The pre-D-2 file pinned 11 drivers; libSQL now contributes three rows
+    // because its maxWait mechanism depends on the database URL (the default
+    // `file::memory:`, the `:memory:` spelling, a remote URL).
+    expect(DRIVER_CONTRACTS).toHaveLength(13);
+    expect(new Set(DRIVER_CONTRACTS.map((row) => row.name)).size).toBe(13);
   });
 });
 

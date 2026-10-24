@@ -46,6 +46,7 @@ import {
 import {
   getExecutionCallsite,
   getExecutionExtensionChain,
+  isRecoverableExecution,
   snapshotExecutionContext,
 } from "./execution-context";
 import { readPreparedStatement } from "./prepared-statement-provenance";
@@ -595,7 +596,12 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
           outcome.status === "failure" && outcome.failure instanceof Error
             ? outcome.failure
             : undefined;
-        if (outcome.status === "failure" && failure === undefined) {
+        // A failure its owner recovers is not the operation's: no error log,
+        // no failed statement span (a `findUnique` batch's shared read).
+        if (
+          outcome.status === "failure" &&
+          (failure === undefined || isRecoverableExecution(published.context))
+        ) {
           return undefined;
         }
         const member =

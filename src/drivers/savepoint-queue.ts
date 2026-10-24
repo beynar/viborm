@@ -33,6 +33,11 @@ export class SavepointQueue {
   private head = 0;
   private processing = false;
 
+  /** Whether a job holds the queue (runs or waits to be flushed). */
+  get busy(): boolean {
+    return this.processing;
+  }
+
   /**
    * Enqueue a savepoint operation to be executed sequentially.
    * Operations enqueued in the same tick are batched and executed in order.

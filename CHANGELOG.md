@@ -5,8 +5,22 @@ Versioning.
 
 ## 1.4.1 — unreleased
 
-Two fixes found by an adversarial review of 1.4.0, and the 1.4.0 behaviour
-changes its notes left out.
+Fixes found by two rounds of adversarial review of 1.4.0, and the 1.4.0
+behaviour changes its notes left out.
+
+### Changed
+
+- **`findUnique` batching is opt-in: `createClient({ findUniqueBatching: true
+  })`.** In 1.4.0 the `findUnique` calls of one tick always shared one read,
+  and that read ran in the async context of the first call of the tick, on
+  any client. A driver that picks its database or session from
+  `AsyncLocalStorage` (a per-request tenant router) answered every call of
+  the batch from the first request's tenant, and the statement was traced
+  under the first request's span. With the option on, a batch's read now runs
+  in its own first call's context (never another client's), but calls of
+  different requests on one client still share it: turn it on where nothing
+  below the client reads the caller's async context. A failed shared read
+  that every call recovers from by running alone no longer logs an error.
 
 ### Fixed
 
@@ -28,6 +42,18 @@ changes its notes left out.
   1.3.3; in 1.4.0, joined to a `findUnique` issued outside the transaction in
   the same tick, its shared read waited behind the transaction that waited for
   it, and every later call on the client waited too.
+- **A large to-many `connect` or `set` is no longer quadratic in its
+  targets.** 1.4.0 matched the rows of the shared target read to each target
+  by scanning them all; 8,000 targets took 8.6 s (24 s where the targets hold
+  the key), against 5.0 s and 11.8 s in 1.3.3. They are now matched through an
+  index: 4.9 s either way.
+- **A libSQL client opened on `databaseUrl: ":memory:"` serializes its
+  transactions** like `file::memory:`: a call on the originating client
+  inside a callback transaction is refused with `TransactionError` instead of
+  reaching another connection that has no tables.
+- **Without async context (a browser, Workers without `nodejs_compat`), a
+  batched `findUnique` no longer joins a batch while a transaction holds the
+  connection**, which made a misused call wait out the queue bound twice.
 - **`ExtensionContributionState` takes six type arguments again.** 1.4.0
   added a seventh (`Result`) without a default; it now defaults to no result
   fields.

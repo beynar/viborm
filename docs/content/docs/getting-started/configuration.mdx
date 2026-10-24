@@ -287,4 +287,13 @@ schema-definition checks; it does not disable operation input validation,
 provider result parsing, or relation resolution. Do not enable it for a schema
 that is assembled dynamically from unchecked input. The default is `false`.
 
+## Batched `findUnique`
+
+`createClient({ schema, driver, findUniqueBatching: true })` answers the
+`findUnique` calls issued in the same tick with one read over their keys, the
+GraphQL N+1 case. The default is `false`: the merged read runs in the first
+call's async context, so leave it off where a driver or a trace reads the
+caller's `AsyncLocalStorage` and one client serves several requests. See
+[Batching concurrent calls](/docs/client/find-unique#batching-concurrent-calls).
+
 See the [CLI reference](/docs/cli) for non-interactive and JSON output options.

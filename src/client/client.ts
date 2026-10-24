@@ -47,6 +47,7 @@ import { applyRequestTransforms } from "@extensions/request";
 import { planResultFields } from "@extensions/result";
 import type { ResultInference } from "@extensions/result-types";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
+import { enableFindUniqueBatching } from "@query-engine/find-unique-batch";
 import {
   attachPendingCacheExecution,
   type PendingOperation,
@@ -235,6 +236,14 @@ export interface VibORMConfig<S extends Schema = Schema> {
    * table and selector names, and the absence of required-relation cycles.
    */
   skipSchemaValidation?: boolean;
+  /**
+   * Answer the `findUnique` calls issued in the same tick with one read over
+   * their keys (Prisma's dataloader), instead of one read each. Off by
+   * default: the shared read runs in the first call's async context, so a
+   * driver that picks its database by `AsyncLocalStorage`, or a trace per
+   * request, sees that call's context for every call of the batch.
+   */
+  findUniqueBatching?: boolean;
 }
 
 export interface DriverConfig<S extends Schema = Schema>
@@ -662,6 +671,8 @@ export class VibORM<C extends VibORMConfig> {
         registry: schemaRegistry,
       })
     );
+    if (config.findUniqueBatching === true)
+      enableFindUniqueBatching(this.#engine.route);
   }
 
   /**
@@ -1356,11 +1367,12 @@ export const createClientFromDriverConfig = <
     C & { driver: D }
   >[P];
 }> => {
-  const { schema, skipSchemaValidation } = config;
+  const { schema, skipSchemaValidation, findUniqueBatching } = config;
   const coreConfig = {
     schema,
     driver,
     ...(skipSchemaValidation === undefined ? {} : { skipSchemaValidation }),
+    ...(findUniqueBatching === undefined ? {} : { findUniqueBatching }),
   };
   return VibORM.create<
     typeof coreConfig,

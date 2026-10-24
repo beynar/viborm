@@ -12,6 +12,7 @@ import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { NotFoundError } from "@errors";
 import { s } from "@schema";
+import { instrumentation } from "@src/instrumentation/exports";
 import { permissions } from "@src/permissions";
 import { v } from "@src/validation";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -128,7 +129,7 @@ function comparable(results: readonly unknown[]) {
 const SELECT_STATEMENT = /^select/i;
 
 function openClient(driver: AnyDriver) {
-  return createClient({ schema, driver });
+  return createClient({ schema, driver, findUniqueBatching: true });
 }
 
 export function runFindUniqueBatchingBehavior(provider: {
@@ -443,6 +444,38 @@ export function runFindUniqueBatchingBehavior(provider: {
       );
     });
 
+    // Every caller of a failed shared read runs alone and answers, so the
+    // shared read's failure is nobody's error: no error log for it.
+    test("a recovered shared read logs no error", async () => {
+      const errors: unknown[] = [];
+      const logged = db.$extends(
+        instrumentation({ logging: { error: (event) => errors.push(event) } })
+      );
+      const calls = [1, 2, 3].map(
+        (id) => () => logged.member.findUnique({ where: { id } })
+      );
+      const lone = (await inOneTick([calls[0]!])).statements;
+      expect(lone).toBe(1);
+      const own = driver.statements[0];
+      driver.failWhen = (statement) => statement !== own;
+      const recovered = await inOneTick(calls);
+      expect(recovered.statements).toBe(4);
+      expect(
+        recovered.results.map(
+          (result) => (result as { value: { id: number } }).value.id
+        )
+      ).toEqual([1, 2, 3]);
+      expect(errors).toEqual([]);
+    });
+
+    test("a client without findUniqueBatching sends one read per call", async () => {
+      const plain = createClient({ schema, driver });
+      const { statements } = await inOneTick(
+        [1, 2, 3].map((id) => () => plain.member.findUnique({ where: { id } }))
+      );
+      expect(statements).toBe(3);
+    });
+
     test("query interceptors and observers still see one operation per call", async () => {
       const intercepted: unknown[] = [];
       let observed = 0;
@@ -475,11 +508,16 @@ export function runFindUniqueBatchingBehavior(provider: {
       const batched = await inOneTick(calls);
       expect(batched.statements).toBe(1);
       expect(observed).toBe(3);
-      expect(intercepted).toEqual([
-        [{ id: 4 }, 4],
-        [{ id: 404 }, null],
-        [{ id: 5 }, 5],
-      ]);
+      // One answer per call; the order calls finish in is not the contract
+      // (the leader starts the batch, so it settles after its members).
+      expect(intercepted).toHaveLength(3);
+      expect(intercepted).toEqual(
+        expect.arrayContaining([
+          [{ id: 4 }, 4],
+          [{ id: 404 }, null],
+          [{ id: 5 }, 5],
+        ])
+      );
       expect(batched.results).toEqual(await alone(calls));
     });
 
