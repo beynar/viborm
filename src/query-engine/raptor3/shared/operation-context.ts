@@ -37,6 +37,7 @@ import {
 import { type AnyModel, getModelKeyCatalog } from "@schema/model";
 import { Sql, sql } from "@sql";
 import { createFailureError } from "../../batch-error-attribution";
+import { publishReadResult } from "../../result/read-publication";
 import {
   compileBindBudgetChunks,
   normalizedBindParameterLimit,
@@ -1326,7 +1327,7 @@ export class OperationContext {
     missing: (() => Error) | undefined,
     rows: Input[]
   ): unknown {
-    const value = read.result(rows);
+    const value = publishReadResult(rows, read.rule);
     if (value === null && missing) throw missing();
     return value;
   }

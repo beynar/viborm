@@ -1360,7 +1360,7 @@ hand every later outer row the first row's facts; SQLite has no `LATERAL` and
 evaluates the correlated CTE per row as written, once per reader — twice per
 carrier (nodes and edges) — where PostgreSQL materializes it once per outer
 row.
-`Queries.decodeRecursiveCarrier` validates that carrier — every bounded edge
+`ProjectionDecoder.decodeRecursiveCarrier` validates that carrier — every bounded edge
 reachable at its recorded level, every bounded hop below the cutoff carrying
 the parent's one set of children at the next level, every fact consumed, every
 node reached — and unfolds fresh public occurrences iteratively along one
@@ -1671,7 +1671,9 @@ Do not put it back.
 (`docs/architecture/raptor3-compiled-decoder-report.md`). `decodeProjection` —
 the entry of every read, RETURNING answer, terminal window, reference
 projection, prepared array member and recursive read, below `decodeResult` —
-calls `Queries.compileReader` once over the prepared shape and maps the rows
+calls `ProjectionDecoder.compileReader` (`result/projection-decoder.ts`, outside
+`query.ts` so a live transport decodes its rows with it too) once over the
+prepared shape and maps the rows
 through the reader it returns. That ONE visitor takes every invariant decision
 of a placement before the first row: an object's member list and each member's
 carried/physical placement, a variant slot's arms, a collection's and a
@@ -1704,7 +1706,7 @@ representations allocate fresh public rows and a fresh outer result array.
 
 **A list leaf's element descriptor has the same lifetime**
 (`docs/architecture/raptor3-compiled-list-decoder-report.md`). `compileReader`
-compiles a list leaf's container reader, `Queries.compileList`, beside the
+compiles a list leaf's container reader, `compileList`, beside the
 physical slot's provider continuation: the decimal whole-list codec or the one
 container, chosen once, and the member's non-null leaf (`list: undefined`,
 `nullable: false`), derived once per list placement of a decoded batch. It

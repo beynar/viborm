@@ -26,6 +26,7 @@ import type { CacheResultCodec } from "../../cache-flow";
 import type { PreparedBatchOperation } from "../../types";
 import { createCommandEngine, type PreparedOperation } from "../commands";
 import type { WriteOutcomeSeam } from "../shared/operation-context";
+import type { Read, ReadTransport } from "../shared/query";
 import type { CallRows } from "../shared/row-scope";
 import type { ResolvedSchemaViews } from "../shared/schema";
 
@@ -60,6 +61,8 @@ export interface RoutedCandidateOperation {
    * driver-prepared queries rather than an `Sql`.
    */
   buildStatement(): Sql | undefined;
+  /** This read compiled again for an external row transport (Neon Realtime). */
+  exportRead(transport: ReadTransport): Read;
   cacheResultCodec(): CacheResultCodec;
   /**
    * The prepared package when this operation prepares to it synchronously —
@@ -153,6 +156,10 @@ class RoutedOperation implements RoutedCandidateOperation {
 
   buildStatement(): Sql | undefined {
     return this.#prepared.read?.statement;
+  }
+
+  exportRead(transport: ReadTransport): Read {
+    return this.#prepared.exportRead(transport);
   }
 
   cacheResultCodec(): CacheResultCodec {
