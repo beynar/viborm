@@ -3,7 +3,12 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
-## Unreleased
+## 1.4.0 — 2026-10-24
+
+Fewer round trips, permission reads D1 can run, faster `distinct` and
+junction filters, `$extends({ result })` computed fields, bulk writes that
+refuse a `where` emptied by `undefined`, and incremental migration snapshots.
+Measurements are in `benchmarks/perf-1.4.0.md`.
 
 ### Changed
 
@@ -22,15 +27,6 @@ Versioning.
   to 2; over the 72-call census, D1 goes from 166 to 148 and Neon HTTP from 164
   to 146, every result unchanged. A read that waits for a write of the same
   call, a series member's read and a branch's read are still sent alone.
-
-## 1.4.0 — 2026-10-22
-
-Fewer round trips, permission reads D1 can run, faster `distinct` and
-junction filters, `$extends({ result })` computed fields, and bulk writes
-that refuse a `where` emptied by `undefined`. Measurements are in
-`benchmarks/perf-1.4.0.md`.
-
-### Changed
 
 - **`updateMany` and `deleteMany` refuse a `where` that `undefined`
   emptied.** `deleteMany({ where: { tenantId: undefined } })` deleted every
@@ -145,6 +141,16 @@ that refuse a `where` emptied by `undefined`. Measurements are in
   as in Prisma. `compute` is typed to its `needs`. Not yet:
   polymorphic variant rows, and types for a nested `select`/`omit` naming a
   computed field.
+- **Incremental migration snapshots.** Generation stores the first schema in
+  full and each later state as a delta against a parent artifact when that is
+  smaller, with a full checkpoint at most 32 deltas apart; a data-only
+  migration reuses its parent's artifact. A state's `snapshotHash` still names
+  the complete schema, and the delta's own address is `snapshotArtifactHash`.
+  Existing full snapshots stay valid and nothing needs converting, but **an
+  engine older than 1.4.0 cannot read a delta**: upgrade every reader of an
+  estate before generating with 1.4.0. `check` validates every artifact,
+  `prune` keeps the bases retained states need, and custom storage needs no new
+  method. Keep the whole estate when copying or bundling migrations.
 
 ## 1.3.3 — 2026-10-19
 
