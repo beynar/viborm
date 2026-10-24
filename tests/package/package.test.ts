@@ -31,7 +31,10 @@ const scripts = [
     "carries its published types on its own runtime dependencies",
     "./dependency-types-smoke.mjs",
   ],
-  ["publishes exactly one Decimal constructor", "./decimal-identity-smoke.mjs"],
+  [
+    "publishes one Decimal constructor outside the browser entry",
+    "./decimal-identity-smoke.mjs",
+  ],
   [
     "matches the reviewed packed public surface golden",
     "./public-surface-golden-smoke.mjs",

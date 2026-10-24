@@ -22,15 +22,16 @@ import {
   type TransportRow,
 } from "./plan";
 
+// The browser build's own copy: decoded decimals are its instances, not the
+// server entries' `Decimal`'s.
+export { Decimal } from "../validation/primitives/decimal-value";
 export type {
   RealtimePlan,
   RealtimeQuery,
   RealtimeRenewal,
   TransportRow,
 } from "./plan";
-// `realtimeEnvelope` is the server half's, which imports this file for the
-// codec rather than split the package's shared chunks.
-export { realtimeData, realtimeEnvelope } from "./plan";
+export { realtimeData } from "./plan";
 
 /** Neon's lifecycle and the read's current value, in its ordinary shape. */
 export interface RealtimeSnapshot<Data> {

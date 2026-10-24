@@ -75,8 +75,7 @@ function dataCodec(plan: Plan): ValueCodec {
 /**
  * The envelope `neonRealtime` answers: a renewal, or with `data` a live read
  * and its first result. It lives here, beside its decoder, so the server
- * encodes with the codec the browser reads; the browser entry exports it only
- * because the server half imports that file.
+ * encodes with the codec the browser reads.
  */
 export function realtimeEnvelope<Data>(
   sealed: SealedLiveQuery<TransportRow>,

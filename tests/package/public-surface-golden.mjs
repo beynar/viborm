@@ -753,7 +753,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
     []
   ),
   "./neon-realtime/client": surface(
-    ["realtimeData", "realtimeEnvelope", "subscribe"],
+    ["Decimal", "realtimeData", "subscribe"],
     [
       "RealtimePlan",
       "RealtimeQuery",
@@ -763,7 +763,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "RealtimeSubscriptionOptions",
       "TransportRow",
     ],
-    []
+    ["Decimal"]
   ),
 });
 
