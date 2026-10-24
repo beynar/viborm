@@ -38,10 +38,8 @@ scalar, or a complete compound constraint) plus any non-unique filters — scala
 [Narrowing a Unique Lookup](/docs/client/find-unique#narrowing-a-unique-lookup).
 
 A unique discriminator cannot be `null`, as in Prisma: a unique index holds any
-number of NULLs, so `{ code: null }` names no single row. VibORM refuses it with
-a `ValidationError` before any statement, unless another discriminator of the
-same `where` names the row (`{ id: 1, code: null }`); Prisma refuses it in
-every case.
+number of NULLs, so `{ code: null }` names no single row. The types refuse it,
+and so does validation, with a `ValidationError` before any statement.
 
 Nested to-many `update`, `upsert`, and `delete` targets take the extended
 unique `where` too — a superset of Prisma in those positions. A nested to-one

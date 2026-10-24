@@ -28,13 +28,13 @@ behaviour changes its notes left out.
   A unique index admits any number of NULLs, so `delete({ where: { code: null
   } })` on a nullable `.unique()` field, or an `update` by a compound selector
   with a `null` member, deleted or updated every row holding that NULL (since
-  1.0; 1.4.0 added the nested-write `update` to the calls that did). Such a
-  selector is now refused with a `ValidationError` before any statement, in
+  1.0; 1.4.0 added the nested-write `update` to the calls that did). A unique
+  selector member is now never `null`, as in Prisma: the types refuse it, and
+  validation refuses it with a `ValidationError` before any statement, in
   `findUnique`, `update`, `delete`, `upsert`, cursors, every nested target and
-  the permissions extension's `can`/`assert`, unless another selector of the
-  same `where` names the row (`{ id: 1, code: null }`). Address rows by a NULL
-  with `findFirst`, `updateMany` or `deleteMany`. The types still admit `null`
-  there. Prisma refuses `null` in every unique position.
+  the permissions extension's `can`/`assert`, also beside another selector
+  (`{ id: 1, code: null }`). Address rows by a NULL with `findFirst`,
+  `updateMany` or `deleteMany`.
 - **A `findUnique` on the originating client inside its own callback
   transaction no longer hangs the client.** On drivers that run a callback
   transaction on their single connection (SQLite3, PGlite, local libSQL, Bun

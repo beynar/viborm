@@ -134,7 +134,7 @@ describe("viborm/mysql2 construction refusals", () => {
         dataDir: "./x.db",
       })
     ).toThrow(
-      'viborm/mysql2 does not accept "dataDir"; it accepts schema, skipSchemaValidation, pool, options, databaseUrl, namespace, migrationNamespaceAttestation.'
+      'viborm/mysql2 does not accept "dataDir"; it accepts schema, skipSchemaValidation, findUniqueBatching, pool, options, databaseUrl, namespace, migrationNamespaceAttestation.'
     );
   });
 });

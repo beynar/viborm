@@ -149,9 +149,9 @@ describe("Where Unique Schema - Compound Unique Model Runtime", () => {
 // =============================================================================
 
 // A unique index admits any number of NULLs, so a selector holding one matches
-// every such row: `update` and `delete` wrote them all. Refused unless another
-// selector of the same `where` names the row without a null.
-const NULL_CODE_REFUSAL = /^A unique selector cannot be null: 'code' is null/;
+// every such row: `update` and `delete` wrote them all. Refused in every
+// unique position, as Prisma refuses it.
+const NULL_REFUSAL = /^A unique selector cannot be null/;
 
 describe("Where Unique Schema - null selectors", () => {
   const box = s
@@ -172,7 +172,7 @@ describe("Where Unique Schema - null selectors", () => {
   ] as const)("%s: refuses a nullable unique spelled null", (_, schema) => {
     const result = parse(schema(), { code: null });
     expect(result.issues?.[0]?.path).toEqual(["code"]);
-    expect(result.issues?.[0]?.message).toMatch(NULL_CODE_REFUSAL);
+    expect(result.issues?.[0]?.message).toMatch(NULL_REFUSAL);
   });
 
   test.each([
@@ -186,11 +186,13 @@ describe("Where Unique Schema - null selectors", () => {
   test.each([
     ["whereUnique", unique],
     ["whereUniqueExtended", extended],
-  ] as const)("%s: accepts a null beside a selector that names the row", (_, schema) => {
-    expect(parse(schema(), { id: 1, code: null }).issues).toBeUndefined();
+  ] as const)("%s: refuses a null even beside a selector that names the row", (_, schema) => {
+    expect(parse(schema(), { id: 1, code: null }).issues?.[0]?.path).toEqual([
+      "code",
+    ]);
     expect(
-      parse(schema(), { a_b: { a: 1, b: "x" }, code: null }).issues
-    ).toBeUndefined();
+      parse(schema(), { a_b: { a: 1, b: "x" }, code: null }).issues?.[0]?.path
+    ).toEqual(["code"]);
   });
 
   test("accepts non-null values of nullable members", () => {

@@ -4,8 +4,6 @@ import { entriesFromObject } from "@validation/primitives/from-object";
 import { scopeOperands } from "@validation/primitives/operand";
 import { conditionNodeOr } from "@validation/primitives/parameter";
 import v, { type V } from "../../primitives/v";
-import type { ValidationIssue } from "../../types";
-import { isRecord } from "../../value-guards";
 import type { ScalarSchemas } from "../index";
 import {
   type CompoundConstraintFilterSchema,
@@ -117,44 +115,7 @@ type WhereUniqueKey<M extends AnyModel, F extends ScalarSchemas<M>> = Extract<
 type WhereUniqueOptions<M extends AnyModel, F extends ScalarSchemas<M>> = {
   nonEmpty: true;
   requiresOneOf: readonly [WhereUniqueKey<M, F>[]];
-  refuse: (value: Record<string, unknown>) => ValidationIssue | undefined;
 };
-
-/**
- * A unique `where` must name at most one row, and a `null` names none in
- * particular: a unique index admits any number of NULLs, so `{ code: null }`
- * (or a compound selector with a `null` member) matches every row whose value
- * is NULL, and `update` / `delete` wrote all of them. Refused unless another
- * selector in the same `where` is complete without a `null`, which names the
- * row by itself (`{ id: 1, code: null }` stays a filter on that row). Prisma
- * refuses `null` in every unique position.
- */
-const refuseNullSelector =
-  (single: readonly string[], compound: readonly string[]) =>
-  (value: Record<string, unknown>): ValidationIssue | undefined => {
-    let refused: ValidationIssue | undefined;
-    for (const key of single) {
-      if (!(key in value)) continue;
-      if (value[key] !== null) return undefined;
-      refused ??= {
-        message: `A unique selector cannot be null: '${key}' is null, and a unique column holds any number of nulls, so it does not name one row.`,
-        path: [key],
-      };
-    }
-    for (const key of compound) {
-      const members = value[key];
-      if (!isRecord(members)) continue;
-      const nullMember = Object.keys(members).find(
-        (member) => members[member] === null
-      );
-      if (nullMember === undefined) return undefined;
-      refused ??= {
-        message: `A unique selector cannot be null: '${key}.${nullMember}' is null, and a unique index holds any number of nulls, so it does not name one row.`,
-        path: [key, nullMember],
-      };
-    }
-    return refused;
-  };
 
 export type WhereUniqueSchema<
   M extends AnyModel,
@@ -210,10 +171,6 @@ export const getWhereUniqueSchema = <
   return v.object(entries, {
     nonEmpty: true,
     requiresOneOf: [keys],
-    refuse: refuseNullSelector(
-      Object.keys(uniqueFilter.entries),
-      Object.keys(compoundConstraintFilter.entries)
-    ),
   });
 };
 
@@ -322,10 +279,6 @@ export const getWhereUniqueExtendedSchema = <
     v.object(entries, {
       nonEmpty: true,
       requiresOneOf: [keys],
-      refuse: refuseNullSelector(
-        Object.keys(uniqueFilter.entries),
-        Object.keys(compoundConstraintFilter.entries)
-      ),
     }),
     model
   );

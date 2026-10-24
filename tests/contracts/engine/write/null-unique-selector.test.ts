@@ -4,8 +4,8 @@
  * a `null` member, matches every row whose value is NULL. Before 1.4.1 a root
  * `update` or `delete` wrote all of them, and 1.4.0's nested `update` (its
  * root UPDATE locating its own row) did too. Every such call is now refused
- * as invalid, before any statement runs, unless another selector of the same
- * `where` names the row without a null.
+ * as invalid, before any statement runs, in every unique position, and the
+ * types refuse `null` there too, as Prisma's do.
  */
 
 import { createClient } from "@client/client";
@@ -135,12 +135,11 @@ describe.each(SUBSTRATES)("%s", (_, make) => {
     });
   });
 
-  test("a null beside a selector that names the row filters that row", async () => {
+  test("a null beside a selector that names the row is refused too", async () => {
     const client = await boot(make);
-    await client.box.update({
-      where: { id: 2, code: null },
-      data: { label: "x" },
-    });
-    expect(await labels(client)).toEqual(["one", "x"]);
+    await expect(
+      client.box.update({ where: { id: 2, code: null }, data: { label: "x" } })
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(await labels(client)).toEqual(["one", "two"]);
   });
 });
