@@ -1,0 +1,124 @@
+---
+title: Neon Realtime
+description: Live model reads in the browser through Neon Realtime (PostgreSQL)
+icon: radio
+---
+
+`neonRealtime()` turns any model read into a live one with
+[Neon Realtime](https://neon.com/docs/realtime). Your server runs the read
+as usual and seals the exact SQL Neon will keep live; the browser subscribes
+to that sealed query and receives the read's ordinary value — the same shape,
+Dates, Decimals and bigints — every time a committed write changes it.
+
+It lives in two entry points: `viborm/neon-realtime` (server) and
+`viborm/neon-realtime/client` (browser). Install the optional peer
+`@neon/realtime` (`^0.1.1`). Neither entry adds anything to the rest of the
+package.
+
+## Setup
+
+```ts
+// server
+import { createRealtime } from "@neon/realtime/server";
+import { neonRealtime } from "viborm/neon-realtime";
+
+const realtime = createRealtime({ secret: env.NEON_REALTIME_SECRET, db: env.NEON_REALTIME_DATABASE });
+export const db = createClient({ schema, driver }).$extends(neonRealtime({ realtime }));
+```
+
+The extension only borrows `realtime.seal`; your application owns the
+Realtime server and its secret.
+
+## The nine live reads
+
+Every model gains `findManyRealtime`, `findFirstRealtime`,
+`findUniqueRealtime`, `findFirstOrThrowRealtime`,
+`findUniqueOrThrowRealtime`, `countRealtime`, `existRealtime`,
+`aggregateRealtime` and `groupByRealtime`. Each takes the ordinary read's
+arguments and is typed like it:
+
+```ts
+const query = await db.post.findManyRealtime({
+  where: { published: true },
+  orderBy: { createdAt: "desc" },
+  take: 20,
+  include: { author: true },
+});
+query.data; // the read's value, on the server
+```
+
+The read runs once, through its ordinary lifecycle (controls, validation,
+`rows` domains, observers), and rejects exactly as the ordinary read would —
+an `OrThrow` read with no row rejects with `NotFoundError`. It answers
+`{ kind, sealed, plan, encoded }`: the sealed capability, the plan the browser
+decodes rows with, and the first result encoded as plain JSON. `data`, the
+logical first result, is a non-enumerable server-side property.
+
+`{ initialData: false }` answers a renewal — `{ kind, sealed, plan }` — with
+no database read:
+
+```ts
+await db.post.findManyRealtime(args, { initialData: false });
+```
+
+## Subscribe in the browser
+
+```ts
+import { subscribe } from "viborm/neon-realtime/client";
+
+const live = subscribe(query, {
+  url: "wss://<your-realtime-endpoint>",
+  refreshQuery: () => fetchLivePosts({ initialData: false }),
+  onChange: (snapshot) => render(snapshot.data),
+});
+live.getSnapshot(); // { status, error, data }
+live.unsubscribe();
+```
+
+`status` is Neon's: `connecting`, `live`, `stale`, `closed` or `error`. The
+first result shows until Neon delivers its first live baseline. Rows are
+decoded by the decoder ordinary reads use, so `data` has the ordinary read's
+shape: rows for `findMany`/`groupBy`, one row or `null` for the `find*`
+reads, a number, a boolean or a record for `count`, `exist` and `aggregate`.
+Each change publishes fresh objects.
+
+A capability lives 60 seconds. With `refreshQuery` — your endpoint asked for
+`{ initialData: false }` — Neon's own refresh controller renews it before it
+expires and retries through outages; `renew(renewal)` applies one now. A
+renewal must be for the same read: another read's plan is refused, and a
+different sealed query fails Neon's own fingerprint check. An update the plan
+refuses — an `OrThrow` read losing its row, a value that does not decode —
+ends the subscription in `error`; the original error is `error.cause`.
+
+## Server rendering and transports
+
+The envelope is plain JSON, so any transport carries it: `JSON.stringify`,
+tRPC without a transformer, superjson, devalue, React Server Component props.
+No custom transformer is needed. On the server, render `query.data`. In the
+browser, `realtimeData(query)` decodes the first result from `encoded` —
+render it to hydrate — and `subscribe` starts from it.
+
+```ts
+import { realtimeData } from "viborm/neon-realtime/client";
+
+const initial = realtimeData(query); // Dates, Decimals, bigints restored
+```
+
+## Limitations
+
+- **PostgreSQL only**, on the Neon database Realtime watches.
+- **Refused reads.** A live read is refused, by name, where the sealed SQL
+  alone cannot reproduce its answer: a client with `query` handlers (including
+  `cache()` and `permissions()`), statement transforms, computed `result`
+  fields, a read inside `$transaction`, field read gates, and recursive
+  relations that leave their key fields out of the selection.
+- **No database authorization.** Realtime runs the sealed SQL as one role,
+  without row-level security: a `neon-http` client configured with `authToken`
+  is refused, and a restricted database role your server uses is not
+  reproduced either. Authorize on your server before issuing a query; the
+  sealed SQL, not the plan, is what Neon runs.
+- **PostGIS and pgvector.** Neon refuses their functions in live queries:
+  point and vector projections and `_distance` are refused when the query is
+  issued, and point or vector filters are refused by Neon when subscribing.
+- Several subscriptions changed by one transaction each update on their own
+  when Neon delivers a fresh baseline (ordered reads do).
