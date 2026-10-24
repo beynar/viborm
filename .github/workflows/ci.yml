@@ -372,11 +372,11 @@ jobs:
   platform-providers:
     name: Bun and D1 providers
     runs-on: ubuntu-latest
-    # Three Vitest runs at run-vitest-safe.mjs's 300000 ms default ceiling, so
-    # at most 15 min of test time, + 5 min setup, + the Bun install and the
+    # Four Vitest runs at run-vitest-safe.mjs's 300000 ms default ceiling, so
+    # at most 20 min of test time, + 5 min setup, + the Bun install and the
     # PostgreSQL service's health check; the package build and `bun check`
     # leg add 7 min at their own ceilings.
-    timeout-minutes: 32
+    timeout-minutes: 37
     services:
       postgres:
         image: postgis/postgis@sha256:8828b03e9a95269f808abe62aa83215b22a2d3710f54a55e8040327b7b5f9932 # 16-3.5
@@ -439,11 +439,22 @@ jobs:
           --workspace vitest.workspace.ts
           --project=provider-bun
 
+      # The D1 project as two runs, each under its own wall: the permissions
+      # suites alone took 110-235 s of the one run's 300 s (main: 264 s in
+      # all, and a slow runner passed it).
+      - name: Run D1 permissions contracts
+        run: >-
+          node scripts/run-vitest-safe.mjs run
+          --workspace vitest.workspace.ts
+          --project=provider-d1
+          tests/providers/workers/d1-permissions
+
       - name: Run D1 contracts
         run: >-
           node scripts/run-vitest-safe.mjs run
           --workspace vitest.workspace.ts
           --project=provider-d1
+          --exclude 'tests/providers/workers/d1-permissions*'
 
       - name: Run the tenant Durable Object suite
         run: >-

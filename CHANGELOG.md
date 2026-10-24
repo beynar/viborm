@@ -62,6 +62,10 @@ behaviour changes its notes left out.
   the call that drained it (since 1.0), so a driver that picks its database
   from `AsyncLocalStorage` could answer one request from another's, and a
   statement's span could land in another request's trace.
+- **A created row's `now()` and `updatedAt()` fields hold the same instant.**
+  Each generator read the clock on its own, so `createdAt` and `updatedAt`
+  could differ by a millisecond. Every generator of one call's admission now
+  reads one instant.
 - **A libSQL client opened on `databaseUrl: ":memory:"` serializes its
   transactions** like `file::memory:`: a call on the originating client
   inside a callback transaction is refused with `TransactionError` instead of
