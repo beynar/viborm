@@ -165,31 +165,25 @@ function refuse(reason: string): never {
   );
 }
 
-const selects = (fields: object, leaf: Leaf) =>
-  Object.values(fields).some((field: Leaf) => field.scalar === leaf.scalar);
+// The transport names recursive rows by ordinal (`postgresTransport`).
+const ORDINAL: readonly Leaf[] = [
+  { kind: "scalar", type: "int", nullable: false },
+];
 
 /** The shape the browser decodes, as plain JSON, refused where the sealed SQL cannot carry it. */
 function describe(
   shape: Read["query"]["shape"]
 ): Parameters<typeof realtimeEnvelope>[1]["shape"] {
   return JSON.parse(
-    JSON.stringify(shape, function (this: object, key, value) {
+    JSON.stringify(shape, (key, value) => {
       if (key === "scalar") return;
       if (key === "gated") refuse("field read gates");
       if (key === "_distance") refuse("a `_distance` projection");
       if (value?.type === "point" || value?.type === "vector")
         refuse(`a ${value.type} projection (PostGIS/pgvector functions)`);
-      // A recursive carrier names its rows, and its root, by key: ship only
-      // keys the projection selects on both.
-      if (
-        value?.kind === "recursive" &&
-        value.identity.some(
-          (leaf: Leaf) =>
-            !(selects(value.row.fields, leaf) && selects(this, leaf))
-        )
-      )
-        refuse(`recursive '${value.relation}' without its key fields selected`);
-      return value;
+      return value?.kind === "recursive"
+        ? { ...value, identity: ORDINAL }
+        : value;
     })
   );
 }

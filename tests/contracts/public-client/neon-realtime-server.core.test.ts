@@ -34,7 +34,6 @@ const READ_GATES = /field read gates/;
 const POINT = /point projection/;
 const VECTOR = /vector projection/;
 const DISTANCE = /`_distance` projection/;
-const RECURSIVE_KEY = /recursive 'replies' without its key fields/;
 
 class RecordingDriver extends SqlOnlyDriver {
   readonly statements: string[] = [];
@@ -376,16 +375,5 @@ describe("Neon Realtime refusals", () => {
         },
       })
     ).rejects.toEqual(refusal(DISTANCE));
-    // A recursive carrier names its nodes and its root by key: both must be selected.
-    for (const select of [
-      {
-        title: true,
-        replies: { recurse: { depth: 2 }, select: { title: true } },
-      },
-      { title: true, replies: { recurse: { depth: 2 }, select: { id: true } } },
-    ])
-      await expect(db.post.findManyRealtime({ select })).rejects.toEqual(
-        refusal(RECURSIVE_KEY)
-      );
   });
 });

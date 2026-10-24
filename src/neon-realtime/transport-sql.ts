@@ -53,6 +53,16 @@ export function postgresTransport(adapter: DatabaseAdapter): DatabaseAdapter {
         return jsonString(value);
     }
   };
+  const row = (key: readonly Sql[]) => sql.join(key, ", ", "ROW(", ")");
+  const node = adapter.identifiers.escape("0viborm_node");
+  // A recursive carrier's root is 0, every other row 1 + the number of
+  // reached keys below its own: an ordinal, never the key.
+  const identity: DatabaseAdapter["json"]["identity"] = (key, root, nodes) =>
+    array([
+      key === root
+        ? sql`0`
+        : sql`CASE WHEN ${row(key)} = ${row(root)} THEN 0 ELSE 1 + (SELECT count(*) FROM (${nodes}) AS ${node} WHERE ROW(${node}.*) < ${row(key)}) END`,
+    ]);
   const spelling: DatabaseAdapter = Object.create(adapter, {
     json: {
       value: {
@@ -61,6 +71,7 @@ export function postgresTransport(adapter: DatabaseAdapter): DatabaseAdapter {
         objectFromColumns: object,
         array,
         carry,
+        identity,
         // Rows aggregated in their page's rank, else in their own text order.
         agg: (element: Sql, rankedPage?: string) =>
           sql`('[' || COALESCE(string_agg(${token(element)}, ',' ORDER BY ${rankedPage === undefined ? token(element) : adapter.identifiers.column(rankedPage, READ_ORDINAL_RESULT_KEY)}), '') || ']')::json`,

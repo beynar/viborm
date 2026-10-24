@@ -8931,6 +8931,10 @@ export class Queries {
       ),
       from: a.identifiers.aliased(a.identifiers.escape(cteName), walk),
     });
+    const root = this.#rowKey(model, parentAlias);
+    const identity = (key: readonly Sql[]) =>
+      a.json.identity?.(key, root, distinctIds) ??
+      this.#recursiveIdentity(model, key);
     const node = this.alias();
     const nodeDocument = a.json.object(
       relation.projection.fields.map((field) => [
@@ -8943,10 +8947,7 @@ export class Queries {
       ])
     );
     const nodeCarrier = a.json.object([
-      [
-        RECURSIVE_CARRIER.key,
-        this.#recursiveIdentity(model, this.#rowKey(model, node)),
-      ],
+      [RECURSIVE_CARRIER.key, identity(this.#rowKey(model, node))],
       [RECURSIVE_CARRIER.row, nodeDocument],
     ]);
     const nodes = a.subqueries.scalar(
@@ -8968,14 +8969,8 @@ export class Queries {
     const edgeColumn = (name: string) => a.identifiers.column(edgeWalk, name);
     const edgeCarrierName = `__${scope}_edge`;
     const edgePairs: [string, Sql][] = [
-      [
-        RECURSIVE_CARRIER.parent,
-        this.#recursiveIdentity(model, parentColumns.map(edgeColumn)),
-      ],
-      [
-        RECURSIVE_CARRIER.child,
-        this.#recursiveIdentity(model, childColumns.map(edgeColumn)),
-      ],
+      [RECURSIVE_CARRIER.parent, identity(parentColumns.map(edgeColumn))],
+      [RECURSIVE_CARRIER.child, identity(childColumns.map(edgeColumn))],
     ];
     if (recurrence.depth !== false)
       edgePairs.push([RECURSIVE_CARRIER.depth, edgeColumn(depthColumn)]);
@@ -9023,10 +9018,7 @@ export class Queries {
 
     const carrier = (nodeFacts: Sql, edgeFacts: Sql) =>
       a.json.object([
-        [
-          RECURSIVE_CARRIER.root,
-          this.#recursiveIdentity(model, this.#rowKey(model, parentAlias)),
-        ],
+        [RECURSIVE_CARRIER.root, identity(root)],
         [RECURSIVE_CARRIER.nodes, a.json.document(nodeFacts)],
         [RECURSIVE_CARRIER.edges, a.json.document(edgeFacts)],
       ]);

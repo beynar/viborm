@@ -45,6 +45,7 @@ const NEON_PARSERS = {
 // Neon refuses every function that is not immutable.
 const REFUSED =
   /json_build|json_agg|jsonb_agg|row_to_json|to_json|array_to_|unnest/i;
+const POST_ID = /p[1-5]/;
 
 const author = s
   .model({
@@ -363,5 +364,22 @@ describe("Neon Realtime reads on embedded PostgreSQL", () => {
     expect(snapshot.status).toBe("live");
     expect(snapshot.data).toEqual(ordinary);
     expect(seed).toEqual(ordinary);
+  });
+
+  it("names recursive rows by ordinal: no omitted key reaches the rows", async () => {
+    const {
+      ordinary,
+      live: snapshot,
+      rows,
+    } = await live("post", "findMany", {
+      where: { parentId: null },
+      select: {
+        rank: true,
+        replies: { recurse: { depth: 3 }, select: { score: true } },
+      },
+    });
+    expect(snapshot.data).toEqual(ordinary);
+    expect(JSON.stringify(ordinary)).toContain("4.25");
+    expect(JSON.stringify(rows)).not.toMatch(POST_ID);
   });
 });

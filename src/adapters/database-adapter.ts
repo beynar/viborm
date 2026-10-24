@@ -502,6 +502,13 @@ export interface DatabaseAdapter {
       leaf: { readonly type: string; readonly list?: boolean },
       value: Sql
     ) => Sql;
+    /**
+     * A row transport's name for one recursive carrier row, in place of its
+     * key (`key` is `root`'s own array for the root): an ordinal among the
+     * `nodes` select's keys, so no key the projection omits leaves the
+     * database. Absent elsewhere.
+     */
+    identity?: (key: readonly Sql[], root: readonly Sql[], nodes: Sql) => Sql;
     /** Build JSON object from explicit column list (works on all databases) */
     objectFromColumns: (columns: [string, Sql][]) => Sql;
     /**
