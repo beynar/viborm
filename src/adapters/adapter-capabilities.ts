@@ -114,4 +114,14 @@ export interface DatabaseAdapterCapabilities {
    * unbounded, so neither.
    */
   relationsPerStatement?: number;
+  /**
+   * Whether the transport's affected-row count of an `UPDATE` or `DELETE`
+   * also counts the rows a foreign key's cascade changed: Cloudflare D1's
+   * `meta.changes` reports 3 for one post deleted with its two junction rows,
+   * where SQLite's own count is 1. The engine then counts the rows such a
+   * statement writes by returning one marker per row, where the count is an
+   * answer (`updateMany` / `deleteMany`) or a check (a captured mutation).
+   * Absent: false.
+   */
+  countsCascadedChanges?: boolean;
 }

@@ -2521,6 +2521,25 @@ export class OperationContext {
       },
     ])} ${answer}`;
   }
+  /**
+   * `statement`, an `UPDATE` or `DELETE` without `RETURNING`, and how the
+   * number of rows it wrote is read: the provider's affected count, or where
+   * that count also counts the rows a foreign key's cascade changed
+   * (`capabilities.countsCascadedChanges`, D1), one returned marker per row
+   * the statement itself wrote.
+   */
+  #counted(statement: Sql): {
+    readonly statement: Sql;
+    readonly count: (response: QueryResult<unknown>) => number;
+  } {
+    const a = this.driver.adapter;
+    if (!a.capabilities.countsCascadedChanges)
+      return { statement, count: (response) => response.rowCount };
+    return {
+      statement: sql`${statement} ${a.mutations.returning(sql.raw("1"))}`,
+      count: (response) => response.rows.length,
+    };
+  }
   /** Complete one set mutation through its single count/projection tail. */
   #completeSetMutation(
     model: AnyModel,
@@ -2529,9 +2548,10 @@ export class OperationContext {
     single?: () => Error,
     judged?: JudgedWrite
   ): Promise<unknown> {
+    const counted = projection ? undefined : this.#counted(statement);
     const output = projection
       ? this.#answering(model, statement, projection)
-      : statement;
+      : counted!.statement;
     return this.#setMutation(
       output,
       this.statementContext(model, this.operation),
@@ -2544,7 +2564,7 @@ export class OperationContext {
               ),
               single
             )
-          : { count: result.rowCount },
+          : { count: counted!.count(result) },
       judged
     );
   }
@@ -3121,12 +3141,14 @@ export class OperationContext {
         { meta: this.#errorMeta }
       );
     await this.requireCapturedSet(model, selector, identities, limit, changed);
-    const statement = this.queries.sharing(() =>
-      mutation(this.capturedTarget(model, selector, identities))
+    const { statement, count } = this.#counted(
+      this.queries.sharing(() =>
+        mutation(this.capturedTarget(model, selector, identities))
+      )
     );
     const context = this.statementContext(model, this.operation);
     const answered = (response: QueryResult<unknown>) => {
-      if (response.rowCount !== identities.length)
+      if (count(response) !== identities.length)
         throw this.failure(changed(), "result");
     };
     if (!this.usesBatch) {

@@ -1066,12 +1066,16 @@ export class Commands {
   }
   #readTarget(write: DependencyWrite, read: DependencyRead): void {
     const { lookup } = read;
-    if (
-      !lookup.origin ||
-      lookup.membershipOnly ||
-      lookup.source.kind === "producer"
-    )
-      return;
+    if (!lookup.origin || lookup.source.kind === "producer") return;
+    // A target that only takes a membership (a junction or child-held
+    // `connect`) is a guard its collection's phase order places ahead of its
+    // relation's clears and deletes (G3P-05); it is never moved. Where the
+    // schedule already reads it behind a write, it is read behind that write
+    // on the batch route too (`dependent`), as the interactive route reads
+    // it there: a connect by a unique an earlier update rewrote links the row
+    // holding it now, and one of a row an earlier delete removed fails as a
+    // missing target.
+    const placedOnly = lookup.membershipOnly === true;
     const scopes = [
       {
         model: lookup.model,
@@ -1092,12 +1096,17 @@ export class Commands {
           observed.scope.edge === mutation.edge.scope.edge;
         if (!sameEdge) continue;
         const origin = lookup.origin;
-        this.#depend(write, read, () =>
-          dependsOn(origin.operation, origin.relation, "membership write", {
-            conflictsWith: mutation.kind === "link" ? "connect" : "disconnect",
-            dependency: "membership",
-            overlap: "unknown",
-          })
+        this.#depend(
+          write,
+          read,
+          () =>
+            dependsOn(origin.operation, origin.relation, "membership write", {
+              conflictsWith:
+                mutation.kind === "link" ? "connect" : "disconnect",
+              dependency: "membership",
+              overlap: "unknown",
+            }),
+          placedOnly
         );
         return;
       }
@@ -1155,20 +1164,24 @@ export class Commands {
             (mutation.kind === "delete"
               ? "delete"
               : mutation.fields.operation));
-      this.#depend(write, read, () =>
-        dependsOn(
-          origin.operation,
-          origin.relation,
-          `'${operation}' target write`,
-          {
-            conflictsWith: operation,
-            dependency: "targetExistence",
-            overlap:
-              scope.exact && matched > 0 && matched === scope.fields.size
-                ? "equal"
-                : "unknown",
-          }
-        )
+      this.#depend(
+        write,
+        read,
+        () =>
+          dependsOn(
+            origin.operation,
+            origin.relation,
+            `'${operation}' target write`,
+            {
+              conflictsWith: operation,
+              dependency: "targetExistence",
+              overlap:
+                scope.exact && matched > 0 && matched === scope.fields.size
+                  ? "equal"
+                  : "unknown",
+            }
+          ),
+        placedOnly
       );
       return;
     }
@@ -1215,7 +1228,8 @@ export class Commands {
   #depend(
     write: DependencyWrite,
     read: DependencyRead,
-    refusal: () => NestedWriteError
+    refusal: () => NestedWriteError,
+    placedOnly = false
   ): void {
     const owner = read.owner;
     // A mutation's own effects are placed behind its read by construction: a
@@ -1277,6 +1291,7 @@ export class Commands {
       ? this.#runsBefore(producer, consumer, ancestor)
       : consumer.placement !== "before";
     if (!follows) {
+      if (placedOnly) return;
       const consumed =
         isRecordOccurrence(ancestor) &&
         (ancestor.command.fields.consumes(read.lookup.fields) ||
