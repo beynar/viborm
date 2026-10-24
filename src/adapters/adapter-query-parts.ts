@@ -12,10 +12,10 @@ export interface QueryParts {
   having?: Sql;
   orderBy?: Sql;
   /**
-   * The rank of each row under `orderBy`, published as this column by an
-   * external row transport's adapter (Neon Realtime); others ignore it.
+   * A page whose rows a row transport's adapter (Neon Realtime) publishes
+   * with their rank under `orderBy`; other adapters ignore it.
    */
-  ordinal?: string;
+  ranked?: boolean;
   limit?: Sql;
   offset?: Sql;
   /** DISTINCT ON columns (PostgreSQL), or simulated via ROW_NUMBER() (MySQL/SQLite) */

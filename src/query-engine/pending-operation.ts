@@ -90,9 +90,8 @@ type ReadPendingCacheResult = (
 let attachPendingCacheExecutionFriend: AttachPendingCacheExecution;
 let exportPendingReadFriend: (
   operation: PendingOperation<unknown>,
-  prepare: ExportPreparation,
-  execute: boolean
-) => Promise<unknown>;
+  exporter: ReadExporter
+) => PendingOperation<unknown>;
 let readPendingCacheResultFriend: ReadPendingCacheResult;
 
 type DeferredExecution<T> = (
@@ -244,20 +243,14 @@ export class PendingOperation<T>
       );
     attachPendingCacheExecutionFriend = (operation, wrapper) =>
       operation.#wrapExecution(wrapper);
-    exportPendingReadFriend = (operation, prepare, execute) =>
-      operation.#getPromise(() =>
-        withOperationErrorContext(operation.#context.attribution, () => {
-          const exported = prepare(
-            operation.#engine,
-            operation.#options,
-            operation.#resolveRouted()
-          );
-          return execute
-            ? operation
-                .#runAttributedExecution()
-                .then((data) => [exported, data])
-            : Promise.resolve([exported]);
-        })
+    exportPendingReadFriend = (operation, exporter) =>
+      operation.#wrapExecution((execute) =>
+        exporter(
+          operation.#engine,
+          operation.#options,
+          operation.#resolveRouted(),
+          execute
+        )
       );
     // Each part is computed when read: a read the cache bypasses asks only
     // for its controls, admitted once with its arguments.
@@ -635,17 +628,17 @@ export class PendingOperation<T>
     return this.#resolveRouted().cacheResultCodec();
   }
 
-  #getPromise(run = () => this.#runExecution()): Promise<T> {
+  #getPromise(): Promise<T> {
     return this.#execution.executeDefault(() => {
       const observers = this.#engine.extensionChain?.observe;
       if (observers === undefined || observers.length === 0) {
-        return this.#finished(run());
+        return this.#finished(this.#runExecution());
       }
       return observeOperation(
         observers,
         String(this.#options.originalOperation),
         this.#modelName,
-        () => this.#finished(run()),
+        () => this.#finished(this.#runExecution()),
         () =>
           this.#observationCommitCertainty === undefined
             ? undefined
@@ -993,24 +986,24 @@ export function createPendingOperation<T>(
   );
 }
 
-/** What an external transport reads of one admitted operation, before it runs. */
-export type ExportPreparation = (
+/** An external transport's step in one operation's execution (Neon Realtime). */
+export type ReadExporter = (
   engine: QueryEngine,
   options: PrepareOptions,
-  routed: RoutedCandidateOperation
-) => unknown;
+  routed: RoutedCandidateOperation,
+  execute: () => Promise<unknown>
+) => Promise<unknown>;
 
 /**
  * One read handed to an external transport inside its own lifecycle
- * (admission, observers): `prepare` exports it before any execution, and
- * `execute` then runs it for its data. Answers `[exported, data?]`.
+ * (admission, observers, error context): `exporter` runs in place of its
+ * execution, and calls `execute` where it wants the ordinary result.
  */
 export function exportPendingRead(
   operation: PendingOperation<unknown>,
-  prepare: ExportPreparation,
-  execute: boolean
-): Promise<unknown> {
-  return exportPendingReadFriend(operation, prepare, execute);
+  exporter: ReadExporter
+): PendingOperation<unknown> {
+  return exportPendingReadFriend(operation, exporter);
 }
 
 /** Place the official cache child inside arbitrary query interception. */

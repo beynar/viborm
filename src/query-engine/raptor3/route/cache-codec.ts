@@ -2,6 +2,7 @@ import { CacheConfigurationError } from "@errors";
 import type { CacheResultCodec } from "../../cache-flow";
 import {
   booleanCodec,
+  compileProjectionValue,
   compileScalarCodec,
   compileWidenedSumCodec,
   countCodec,
@@ -9,10 +10,9 @@ import {
   numberCodec,
   type ValueCodec,
 } from "../../result/cache-value-codecs";
-import { compileProjectionValue } from "../../result/projection-value-codec";
+import type { Leaf } from "../../result/projection-shape";
 import type { PreparedRead } from "../commands";
 import { EngineInvariantError } from "../shared/invariant";
-import type { Leaf } from "../shared/query";
 
 /**
  * The detached cache representation of one prepared read.

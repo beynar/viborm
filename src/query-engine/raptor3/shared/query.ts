@@ -31,7 +31,6 @@ import {
   EMPTY_ROW_RESULT_KEY,
   gateResultKey,
   POLYMORPHIC_COLLECTION_ORPHANS_KEY,
-  READ_ORDINAL_RESULT_KEY,
 } from "@query-engine/result-aliases";
 import { fieldRefPayload, formatFieldRef, isFieldRef } from "@schema/field-ref";
 import { jsonNullKindOf } from "@schema/json-null";
@@ -59,7 +58,7 @@ import {
   validateIsoTime,
   validateIsoTimestamp,
 } from "@validation/primitives/iso";
-import type { NormalizedRecurrence } from "@validation/relations/recurrence";
+import type { NormalizedRecurrence } from "@validation/relations/recurrence-values";
 import { SqlSlot } from "../../../sql/slot";
 import type { Operation } from "../../types";
 import {
@@ -117,17 +116,6 @@ import {
  * ahead of every module-level use.
  */
 const freeze = Object.freeze;
-
-export {
-  GatedFieldRefusal,
-  InvalidScalarResult,
-  RecursiveOutputOverBudget,
-} from "@query-engine/result/projection-decoder";
-export type {
-  GatedMember,
-  Leaf,
-  ProjectionShape,
-} from "@query-engine/result/projection-shape";
 
 type Shape = ProjectionShape;
 /**
@@ -306,18 +294,6 @@ export interface Read {
   readonly value: ProjectionShape | Leaf;
   /** How the decoded rows become that value (`publishReadResult`). */
   readonly rule: ReadResultRule;
-}
-/**
- * A second spelling of one read for an external row transport (Neon
- * Realtime): `adapter` builds JSON without JSON functions, so each carried
- * leaf states its own token and each aggregate its order. A page's row order
- * travels as `QueryParts.ordinal`, which only that adapter publishes.
- */
-export interface ReadTransport {
-  readonly adapter: DatabaseAdapter;
-  carry(leaf: Leaf, expression: Sql): Sql;
-  /** Rows aggregated in `orderBy`, else in their own text order. */
-  agg(element: Sql, orderBy?: Sql): Sql;
 }
 export interface SelectorFacts {
   fields: Set<string>;
@@ -1998,16 +1974,13 @@ export class Queries {
    */
   #bounded = false;
   readonly #sharesBodies: boolean;
-  readonly #transport: ReadTransport | undefined;
   constructor(
     schema: EngineSchema,
     adapter: DatabaseAdapter,
     result?: DriverResultParser,
     domain?: PreparedDomain,
-    call?: CallScope,
-    transport?: ReadTransport
+    call?: CallScope
   ) {
-    this.#transport = transport;
     this.schema = schema;
     this.adapter = adapter;
     this.#views = schema.queryViews(adapter);
@@ -2954,9 +2927,9 @@ export class Queries {
    * JSON stays a document; a value the container would round stays exact text.
    */
   #carriedValue(leaf: Shape | Leaf, expression: Sql): Sql {
-    if (this.#transport && leaf.kind === "scalar")
-      return this.#transport.carry(leaf, expression);
     if (leaf.kind !== "scalar") return this.adapter.json.document(expression);
+    const { carry } = this.adapter.json;
+    if (carry) return carry(leaf, expression);
     // A decimal crossed the projection in the spelling {@link projectedColumn}
     // states — a text cast for a scalar, the adapter's decimal array
     // projection for a list — and its codec reads an exact value only from
@@ -7102,7 +7075,7 @@ export class Queries {
       );
     return {
       sql: assembleAdapterSelect(this.adapter, {
-        ordinal: READ_ORDINAL_RESULT_KEY,
+        ranked: true,
         columns: sql.join(projection, ", "),
         from:
           controls.source === undefined
@@ -8539,7 +8512,7 @@ export class Queries {
     const window = this.#page(edge.target, nested, childAlias, "related");
     const source = this.#memberSource(edge, alias, childAlias);
     const page = assembleAdapterSelect(a, {
-      ordinal: READ_ORDINAL_RESULT_KEY,
+      ranked: true,
       columns: sql.join(child, ", "),
       from: source.from,
       joins:
@@ -8594,23 +8567,12 @@ export class Queries {
     const expression = a.subqueries.scalar(
       assembleAdapterSelect(a, {
         columns: edge.many
-          ? this.#agg(
-              object,
-              window.orderBy &&
-                a.identifiers.column(pageAlias, READ_ORDINAL_RESULT_KEY)
-            )
+          ? a.json.agg(object, window.orderBy && pageAlias)
           : object,
         from: a.subqueries.correlate(page, pageAlias),
       })
     );
     return expression;
-  }
-
-  /** Rows aggregated into a JSON array: a transport states their order. */
-  #agg(element: Sql, orderBy: Sql | undefined): Sql {
-    return this.#transport
-      ? this.#transport.agg(element, orderBy)
-      : this.adapter.json.agg(element);
   }
 
   /**
@@ -8989,7 +8951,7 @@ export class Queries {
     ]);
     const nodes = a.subqueries.scalar(
       assembleAdapterSelect(a, {
-        columns: this.#agg(nodeCarrier, undefined),
+        columns: a.json.agg(nodeCarrier),
         from: sql`${a.subqueries.correlate(distinctIds, ids)} ${a.joins.inner(
           this.table(model, node),
           this.#sameRow(
@@ -9028,7 +8990,7 @@ export class Queries {
       )
     );
     const edgePage = assembleAdapterSelect(a, {
-      ordinal: READ_ORDINAL_RESULT_KEY,
+      ranked: true,
       columns: a.identifiers.aliased(edgeCarrier, edgeCarrierName),
       from: sql`${a.identifiers.aliased(
         a.identifiers.escape(cteName),
@@ -9051,9 +9013,9 @@ export class Queries {
     const edgePageAlias = this.alias();
     const edges = a.subqueries.scalar(
       assembleAdapterSelect(a, {
-        columns: this.#agg(
+        columns: a.json.agg(
           a.json.document(a.identifiers.column(edgePageAlias, edgeCarrierName)),
-          a.identifiers.column(edgePageAlias, READ_ORDINAL_RESULT_KEY)
+          edgePageAlias
         ),
         from: a.subqueries.correlate(edgePage, edgePageAlias),
       })
@@ -9177,7 +9139,7 @@ export class Queries {
     }
     return {
       sql: assembleAdapterSelect(a, {
-        ordinal: READ_ORDINAL_RESULT_KEY,
+        ranked: true,
         columns: sql.join(columns, ", "),
         from: rows.from,
         where: rows.where,
