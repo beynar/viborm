@@ -45,7 +45,7 @@ describe("refuseUnknownDriverConfigKeys", () => {
         SQLITE_KEYS
       )
     ).toThrow(
-      'viborm/sqlite3 does not accept "url"; it accepts schema, skipSchemaValidation, client, dataDir, options.'
+      'viborm/sqlite3 does not accept "url"; it accepts schema, skipSchemaValidation, findUniqueBatching, client, dataDir, options.'
     );
   });
 

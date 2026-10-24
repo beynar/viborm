@@ -35,7 +35,13 @@ import { createContext, SUPPORTED_TARGETS } from "./types";
 /**
  * Wrapper schema types that should be traversed to find inner schemas.
  */
-const WRAPPER_TYPES = new Set(["array", "nullable", "optional", "lazyRef"]);
+const WRAPPER_TYPES = new Set([
+  "array",
+  "nullable",
+  "nonNullable",
+  "optional",
+  "lazyRef",
+]);
 const DECIMAL_INPUT_PATTERN = "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)$";
 const DECIMAL_OUTPUT_PATTERN =
   "^(?:0|-?(?:[1-9]\\d*(?:\\.\\d*[1-9])?|0\\.\\d*[1-9]))$";
@@ -391,6 +397,25 @@ function convertSchemaBody(
         jsonSchema.anyOf = [wrappedSchema, { type: "null" }];
       }
       break;
+    }
+
+    case "nonNullable": {
+      // The wrapped schema without its null branch: `nullable` above spells
+      // it as `anyOf` with `{ type: "null" }` or as OpenAPI's `nullable`.
+      const wrapped = (schema as any).wrapped as VibSchema<unknown, unknown>;
+      const converted = convertSchema(wrapped as any, context);
+      if (Array.isArray(converted.anyOf)) {
+        const kept = converted.anyOf.filter(
+          (branch: JsonSchema) => branch.type !== "null"
+        );
+        if (kept.length === 1) return kept[0]!;
+        return { ...converted, anyOf: kept };
+      }
+      if (converted.nullable === true) {
+        const { nullable: _nullable, ...rest } = converted;
+        return rest;
+      }
+      return converted;
     }
 
     case "optional": {

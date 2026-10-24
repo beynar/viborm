@@ -45,7 +45,7 @@ BC spelling rather than asking the server to parse unsupported ISO year `0000`.
 import { s } from "viborm";
 
 const user = s.model({
-  id: s.int().id().autoIncrement(),
+  id: s.int().id().increment(),
   status: s.enum(["active", "inactive"]).name("user_status"),
 }).map("users");
 ```

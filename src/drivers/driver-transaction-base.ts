@@ -4,6 +4,7 @@ import { TransactionError } from "@errors";
 import { Sql } from "@sql";
 import {
   connectionQueueWait,
+  connectionScopeUntracked,
   isConnectionScope,
   withConnectionScope,
 } from "./connection-scope";
@@ -85,6 +86,21 @@ export abstract class DriverTransactionBase<
   ): void {
     if (isConnectionScope(this.connectionQueue))
       throw this.transactionBoundError(context);
+  }
+
+  /**
+   * Whether the caller runs inside this driver's own callback transaction,
+   * holding its single connection: an operation on the originating client is
+   * refused there ({@link assertBaseOperationAllowedDuringTransaction}), and
+   * one that waited for the connection instead would wait for itself.
+   */
+  holdsConnectionScope(): boolean {
+    if (!this.serializeTransactions || this.inTransaction) return false;
+    // Where scopes cannot be tracked, a caller cannot tell whether it runs
+    // inside the transaction that holds the connection, so any holder counts.
+    return connectionScopeUntracked()
+      ? this.connectionQueue.busy
+      : isConnectionScope(this.connectionQueue);
   }
 
   /** The refusal above, out of line: outside a transaction it never runs. */

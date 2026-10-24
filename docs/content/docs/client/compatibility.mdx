@@ -14,7 +14,7 @@ The common API has provider-specific storage, collation and transaction limits. 
 
 | Operation | Status | Notes |
 |-----------|--------|-------|
-| `findUnique` / `findUniqueOrThrow` | ✅ | Requires a unique selector, returns `T \| null` (or throws). The selector may also carry non-unique scalar and relation filters and `AND`/`OR`/`NOT` (Prisma ≥ 4.5) — see [Unique selectors](#unique-selectors). Calls issued in the same tick share one read, as Prisma's dataloader does; the rules differ in places — see [Batching concurrent calls](/docs/client/find-unique#batching-concurrent-calls). |
+| `findUnique` / `findUniqueOrThrow` | ✅ | Requires a unique selector, returns `T \| null` (or throws). The selector may also carry non-unique scalar and relation filters and `AND`/`OR`/`NOT` (Prisma ≥ 4.5) — see [Unique selectors](#unique-selectors). With `findUniqueBatching: true`, calls issued in the same tick share one read, as Prisma's dataloader does (always on in Prisma); the rules differ in places — see [Batching concurrent calls](/docs/client/find-unique#batching-concurrent-calls). |
 | `findFirst` / `findFirstOrThrow` | ✅ | Filtering, ordering, pagination, `select`, `include`. |
 | `findMany` | ✅ | Filters, relation filters, ordering, cursor pagination, negative `take`, `distinct`, `select`, `include`. |
 | `create` | ✅ | Scalar data and nested writes. |
@@ -36,6 +36,10 @@ The common API has provider-specific storage, collation and transaction limits. 
 scalar, or a complete compound constraint) plus any non-unique filters — scalar
 **and relation** — and `AND` / `OR` / `NOT`. Full semantics, per operation, are in
 [Narrowing a Unique Lookup](/docs/client/find-unique#narrowing-a-unique-lookup).
+
+A unique discriminator cannot be `null`, as in Prisma: a unique index holds any
+number of NULLs, so `{ code: null }` names no single row. The types refuse it,
+and so does validation, with a `ValidationError` before any statement.
 
 Nested to-many `update`, `upsert`, and `delete` targets take the extended
 unique `where` too — a superset of Prisma in those positions. A nested to-one

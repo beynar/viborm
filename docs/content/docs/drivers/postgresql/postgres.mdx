@@ -30,6 +30,8 @@ const client = createClient({
 | `namespace` | `string` | PostgreSQL schema for VibORM-owned objects (default `public`) |
 | `pgvector` | `boolean` | Enable pgvector support |
 | `postgis` | `boolean` | Enable PostGIS support |
+| `sharedRelationBodies` | `boolean` | State each relation-filter body a statement repeats once, in a `WITH` (default `true`; `false` keeps the bodies inline) |
+| `relationsPerStatement` | `number` | The most relations (`FROM` items) one statement may reference (PlanetScale Neki: `256`); a statement over it is rewritten to fit. See [Neki](/docs/extensions/permissions#providers) |
 
 `createClient` refuses any other key with a `ClientInitializationError` that
 names it.

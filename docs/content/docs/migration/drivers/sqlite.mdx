@@ -54,7 +54,7 @@ a write stores a coefficient before its returned row fails to decode.
 import { s } from "viborm";
 
 const user = s.model({
-  id: s.int().id().autoIncrement(),
+  id: s.int().id().increment(),
   status: s.enum(["active", "inactive"]).default("active"),
   createdAt: s.dateTime().now(),
 }).map("users");

@@ -178,6 +178,17 @@ VibORM generates that name. PostgreSQL/MySQL synchronization refuses an existing
 equivalent constraint with a different, unrepresentable physical name before
 applying effects, rather than dropping and recreating it solely to rename it.
 
+A unique selector cannot be `null`: a unique index admits any number of NULLs,
+so `{ email_orgId: { email: "a@b", orgId: null } }`, or `{ code: null }` on a
+nullable `.unique()` field, names no single row. Every unique `where` refuses
+it, in its types and at run time with a `ValidationError` before any
+statement: `findUnique`, `findUniqueOrThrow`, `update`, `delete`, `upsert`,
+every cursor, every nested link or target selector (`connect`,
+`connectOrCreate`, `disconnect`, `set`, `update`, `upsert`, `delete`,
+polymorphic items included) and the permissions extension's `can` and
+`assert`, as Prisma does. Use `findFirst`, `updateMany` or `deleteMany` to
+address rows by a NULL.
+
 ### `.extends(fields)`
 
 Adds additional fields to an existing model:

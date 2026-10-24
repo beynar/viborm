@@ -1609,12 +1609,11 @@ describe("RQ-06 recursive projections composed through the shipped client", () =
       { id: "z", children: [] },
       whole,
     ]);
-    // Reads asking the same projection by key in the same tick share one
-    // batched `findMany` (admitted once more): `a` with `z`, and `a1` with the
-    // exhaustive `r`. Each depth-bounded read keeps its own statement.
-    assert.equal(driver.statements.length, 4);
-    assert.equal(admissions.mock.calls.length, 8);
-    assert.equal(recursiveStatements(driver.statements).length, 4);
+    // `findUnique` batching is opt-in (1.4.1), so every read keeps its own
+    // statement, as in 1.3.3.
+    assert.equal(driver.statements.length, 6);
+    assert.equal(admissions.mock.calls.length, 6);
+    assert.equal(recursiveStatements(driver.statements).length, 6);
     const [, two, fromA, , , fromR] = values as {
       children: { children: object[] }[];
     }[];

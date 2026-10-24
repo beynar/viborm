@@ -875,6 +875,39 @@ test("on the batch route an update reads its root and its targets in one batch",
   ).toEqual({ title: "b", tags: [{ id: 1 }, { id: 2 }] });
 });
 
+// D1 counts every statement of a batch. The batch of reads takes the targets
+// in one statement, and their links go as one INSERT (`#readTogether`,
+// `#bindHeld`), where 1.4.0 sent one SELECT and one INSERT per target.
+test("on the batch route an update's targets share one read and one INSERT", async () => {
+  const driver = new BatchRecordingSQLite3();
+  const client = await boot(driver);
+  await client.tag.create({ data: { id: 3, name: "t3" } });
+  const { statements } = await traced(driver, () =>
+    client.post.update({
+      where: { id: 10 },
+      data: {
+        title: "b",
+        tags: { connect: [{ id: 1 }, { id: 2 }, { id: 3 }] },
+      },
+    })
+  );
+  expect(
+    statements.filter(
+      (sql) =>
+        sql.trimStart().startsWith("SELECT") && sql.includes('FROM "nwrt_tags"')
+    )
+  ).toHaveLength(1);
+  expect(
+    statements.filter((sql) => sql.trimStart().startsWith("INSERT"))
+  ).toHaveLength(1);
+  expect(
+    await client.post.findUnique({
+      where: { id: 10 },
+      select: { tags: { select: { id: true } } },
+    })
+  ).toEqual({ tags: [{ id: 1 }, { id: 2 }, { id: 3 }] });
+});
+
 test("on the batch route a target missing from the batch of reads fails as its own read did, writing nothing", async () => {
   const driver = new BatchRecordingSQLite3();
   const client = await boot(driver);

@@ -9,6 +9,11 @@ interface TrustedExecutionContext {
   readonly model?: string;
   readonly operation?: string;
   readonly transactionPhases?: TransactionPhaseNotifications;
+  /**
+   * A failure of this execution is recovered by its owner, so it is not the
+   * operation's error: the statement it ran logs and traces no failure.
+   */
+  readonly recoverable?: true;
 }
 
 /** Private exact transaction lifecycle facts attached only to trusted contexts. */
@@ -109,6 +114,7 @@ export function snapshotExecutionContext(
   const callsite = contextValues.callsite ?? boundValues.callsite;
   const transactionPhases =
     contextValues.transactionPhases ?? boundValues.transactionPhases;
+  const recoverable = contextValues.recoverable ?? boundValues.recoverable;
 
   if (
     context &&
@@ -121,7 +127,8 @@ export function snapshotExecutionContext(
       correlationIdGetter,
       extensionChain,
       transactionPhases,
-      callsite
+      callsite,
+      recoverable
     )
   ) {
     return context;
@@ -137,7 +144,8 @@ export function snapshotExecutionContext(
       correlationIdGetter,
       extensionChain,
       transactionPhases,
-      callsite
+      callsite,
+      recoverable
     )
   ) {
     return boundContext;
@@ -151,7 +159,27 @@ export function snapshotExecutionContext(
     model,
     operation,
     transactionPhases,
+    ...(recoverable && { recoverable }),
   });
+}
+
+/**
+ * This context, for an execution whose failure its owner recovers: a
+ * `findUnique` batch's shared read, whose callers each run alone when it
+ * fails. Its statement then logs and traces no failure of its own.
+ */
+export function deriveRecoverableExecutionContext(
+  context: QueryExecutionContext
+): QueryExecutionContext {
+  const values = trusted(context) ?? snapshotExternalExecutionContext(context);
+  return createTrustedExecutionContext({ ...values, recoverable: true });
+}
+
+/** Whether this trusted context's failure is recovered by its owner. */
+export function isRecoverableExecution(
+  context: QueryExecutionContext | undefined
+): boolean {
+  return context !== undefined && trusted(context)?.recoverable === true;
 }
 
 /**
@@ -252,9 +280,11 @@ function representsExecutionContext(
   correlationIdGetter: (() => string) | undefined,
   extensionChain: ResolvedExtensionChain | undefined,
   transactionPhases: TransactionPhaseNotifications | undefined,
-  callsite: string | undefined
+  callsite: string | undefined,
+  recoverable: true | undefined
 ): boolean {
   return (
+    values.recoverable === recoverable &&
     values.callsite === callsite &&
     values.model === model &&
     values.operation === operation &&

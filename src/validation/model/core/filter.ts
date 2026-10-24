@@ -1,6 +1,11 @@
 import type { AnyModel } from "@schema/model";
+import {
+  type NonNullableSchema,
+  nonNullable,
+} from "@validation/primitives/non-nullable";
 import type { ObjectSchema } from "@validation/primitives/object";
 import v, { type V } from "../../primitives/v";
+import type { VibSchema } from "../../types";
 import type { ScalarSchemas } from "../index";
 
 type ModelStateOf<M extends AnyModel> = M["~"]["state"];
@@ -35,15 +40,43 @@ export const getScalarFilter = <M extends AnyModel, F extends ScalarSchemas<M>>(
   return v.fromObject(fieldSchemas.scalars, "filter");
 };
 
+/**
+ * A unique selector cannot be `null`: a unique index admits any number of
+ * NULLs, so `{ code: null }` names no single row, and `update` / `delete`
+ * by it wrote every row holding the NULL. Every member of a unique selector
+ * is its field's value schema without `null` (Prisma refuses it the same).
+ */
+export const UNIQUE_NULL_REFUSAL =
+  "A unique selector cannot be null: a unique index holds any number of nulls, so null names no single row.";
+
+/** A field's value schema in a unique selector: never `null`. */
+type UniqueMember<S> = S extends {
+  readonly base: infer Base extends VibSchema<any, any>;
+}
+  ? NonNullableSchema<Base>
+  : never;
+
+const uniqueMember = (base: VibSchema<any, any>) =>
+  nonNullable(base, UNIQUE_NULL_REFUSAL);
+
 export type UniqueFilterSchema<
   M extends AnyModel,
   F extends ScalarSchemas<M>,
-> = V.FromObject<UniqueScalarSchemas<M, F>, "base">;
+> = V.Object<{
+  [K in keyof UniqueScalarSchemas<M, F>]: UniqueMember<
+    UniqueScalarSchemas<M, F>[K]
+  >;
+}>;
 export const getUniqueFilter = <M extends AnyModel, F extends ScalarSchemas<M>>(
   model: M,
   fieldSchemas: F
 ): UniqueFilterSchema<M, F> => {
-  return v.fromObject(getUniqueScalarSchemas(model, fieldSchemas), "base");
+  const members: Record<string, VibSchema<any, any>> = {};
+  for (const [key, schema] of Object.entries(
+    getUniqueScalarSchemas(model, fieldSchemas)
+  ))
+    members[key] = uniqueMember((schema as { base: VibSchema<any, any> }).base);
+  return v.object(members) as UniqueFilterSchema<M, F>;
 };
 
 export type RelationFilterSchema<
@@ -65,15 +98,32 @@ export const getRelationFilter = <
  * Creates an object schema where each compound key maps to an optional object of field base schemas
  */
 
+/** A declared compound selector with every member's `null` removed. */
+type NonNullSelectors<Selectors> = {
+  [Name in keyof Selectors]: Selectors[Name] extends ObjectSchema<
+    infer Members,
+    infer Options
+  >
+    ? ObjectSchema<
+        {
+          [Member in keyof Members]: Members[Member] extends VibSchema<any, any>
+            ? NonNullableSchema<Members[Member]>
+            : Members[Member];
+        },
+        Options
+      >
+    : Selectors[Name];
+};
+
 type CompoundConstraintEntries<M extends AnyModel> =
   (ModelStateOf<M>["compoundId"] extends Record<string, ObjectSchema<any>>
-    ? ModelStateOf<M>["compoundId"]
+    ? NonNullSelectors<ModelStateOf<M>["compoundId"]>
     : Record<never, never>) &
     (ModelStateOf<M>["compoundUniques"] extends Record<
       string,
       ObjectSchema<any>
     >
-      ? ModelStateOf<M>["compoundUniques"]
+      ? NonNullSelectors<ModelStateOf<M>["compoundUniques"]>
       : Record<never, never>);
 
 export type CompoundConstraintFilterSchema<M extends AnyModel> = ObjectSchema<
@@ -110,7 +160,7 @@ const compoundSelector = (
     // Every member IS a model scalar: `Model.id([...])` refuses a name that is
     // not one, and the registry builds one schema per model scalar. There is
     // no absent case to fall back for.
-    members[field] = scalars[field]!.base;
+    members[field] = uniqueMember(scalars[field]!.base);
   }
   return v.object(members, { partial: false });
 };
@@ -145,7 +195,7 @@ export const getCompoundConstraintFilter = <
 };
 
 export type CompoundIdFilterSchema<M extends AnyModel> = V.Object<
-  ModelStateOf<M>["compoundId"]
+  NonNullSelectors<ModelStateOf<M>["compoundId"]>
 >;
 export const getCompoundIdFilter = <
   M extends AnyModel,
@@ -156,7 +206,7 @@ export const getCompoundIdFilter = <
 ): CompoundIdFilterSchema<M> => {
   const state = model["~"].state;
   if (!state.compoundId) {
-    return v.object({});
+    return v.object({}) as CompoundIdFilterSchema<M>;
   }
   return v.object(
     compoundSelectors(state.compoundId, fieldSchemas.scalars)

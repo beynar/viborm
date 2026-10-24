@@ -190,6 +190,7 @@ export function defineImmutableDriverFact(
 const CLIENT_CONFIG_KEYS: Readonly<Record<keyof DriverConfig, true>> = {
   schema: true,
   skipSchemaValidation: true,
+  findUniqueBatching: true,
 };
 
 /**

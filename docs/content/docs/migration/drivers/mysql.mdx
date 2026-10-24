@@ -110,7 +110,7 @@ deliberately; a code upgrade alone does not change existing schema semantics.
 
 ```ts
 const user = s.model({
-  id: s.int().id().autoIncrement(),
+  id: s.int().id().increment(),
 }).map("users");
 ```
 

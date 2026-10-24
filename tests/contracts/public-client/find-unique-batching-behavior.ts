@@ -12,9 +12,12 @@ import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { NotFoundError } from "@errors";
 import { s } from "@schema";
+import { instrumentation } from "@src/instrumentation/exports";
+import { SPAN_EXECUTE } from "@src/instrumentation/spans";
 import { permissions } from "@src/permissions";
 import { v } from "@src/validation";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { withOtelRecorder } from "@tests/unit/instrumentation/_capture";
 import {
   afterAll,
   beforeAll,
@@ -128,7 +131,7 @@ function comparable(results: readonly unknown[]) {
 const SELECT_STATEMENT = /^select/i;
 
 function openClient(driver: AnyDriver) {
-  return createClient({ schema, driver });
+  return createClient({ schema, driver, findUniqueBatching: true });
 }
 
 export function runFindUniqueBatchingBehavior(provider: {
@@ -374,6 +377,40 @@ export function runFindUniqueBatchingBehavior(provider: {
       expect(array.map((row) => row?.id)).toEqual([8, 9]);
     });
 
+    // Both providers run a callback transaction on their one connection. A
+    // call on the ORIGINATING client inside that callback is refused; joined to
+    // a batch led from outside, its read queued behind the transaction that
+    // waited for it, and the client hung for good (1.4.0).
+    test("the originating client inside its own callback transaction is refused, never merged", async () => {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const transaction = db.$transaction(async (tx) => {
+        await tx.member.findFirst();
+        await gate;
+        return db.member.findUnique({ where: { id: 2 } });
+      });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const outside = db.member.findUnique({ where: { id: 1 } });
+      release();
+      const hung = Symbol("hung");
+      const settled = await Promise.race([
+        Promise.allSettled([outside, transaction]),
+        new Promise<typeof hung>((resolve) =>
+          setTimeout(() => resolve(hung), 5000)
+        ),
+      ]);
+      expect(settled).not.toBe(hung);
+      const [read, refused] = settled as PromiseSettledResult<unknown>[];
+      expect(read).toMatchObject({ status: "fulfilled", value: { id: 1 } });
+      expect(refused).toMatchObject({
+        status: "rejected",
+        reason: { name: "TransactionError" },
+      });
+      expect(await db.member.count()).toBe(MEMBERS.length);
+    });
+
     test("a failed merged read sends each caller to its own call: its own row, or its own error", async () => {
       const calls = [1, 2, 3].map(
         (id) => () => db.member.findUnique({ where: { id } })
@@ -409,6 +446,74 @@ export function runFindUniqueBatchingBehavior(provider: {
       );
     });
 
+    // Every caller of a failed shared read runs alone and answers, so the
+    // shared read's failure is nobody's error: no error log for it.
+    test("a recovered shared read logs no error", async () => {
+      const errors: unknown[] = [];
+      const logged = db.$extends(
+        instrumentation({
+          logging: {
+            error: (event) => {
+              errors.push(event);
+            },
+          },
+        })
+      );
+      const calls = [1, 2, 3].map(
+        (id) => () => logged.member.findUnique({ where: { id } })
+      );
+      const lone = (await inOneTick([calls[0]!])).statements;
+      expect(lone).toBe(1);
+      const own = driver.statements[0];
+      driver.failWhen = (statement) => statement !== own;
+      const recovered = await inOneTick(calls);
+      expect(recovered.statements).toBe(4);
+      expect(
+        recovered.results.map(
+          (result) => (result as { value: { id: number } }).value.id
+        )
+      ).toEqual([1, 2, 3]);
+      expect(errors).toEqual([]);
+    });
+
+    // ...nor a failed span: the shared read's statement span ends without an
+    // error, while each caller's own read keeps its own span.
+    test("a recovered shared read ends its span without an error", async () => {
+      const recorder = withOtelRecorder();
+      try {
+        const traced = db.$extends(instrumentation({ tracing: true }));
+        const calls = [1, 2, 3].map(
+          (id) => () => traced.member.findUnique({ where: { id } })
+        );
+        // The tracer loads on first use; the first call primes it.
+        await inOneTick([calls[0]!]);
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        const own = driver.statements[0];
+        driver.failWhen = (statement) => statement !== own;
+        const before = recorder.spans().length;
+        const recovered = await inOneTick(calls);
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        expect(recovered.statements).toBe(4);
+        const executes = recorder
+          .spans()
+          .slice(before)
+          .filter((span) => span.name === SPAN_EXECUTE);
+        expect(executes).toHaveLength(4);
+        // SpanStatusCode.ERROR is 2.
+        expect(executes.filter((span) => span.status.code === 2)).toEqual([]);
+      } finally {
+        await recorder.dispose();
+      }
+    });
+
+    test("a client without findUniqueBatching sends one read per call", async () => {
+      const plain = createClient({ schema, driver });
+      const { statements } = await inOneTick(
+        [1, 2, 3].map((id) => () => plain.member.findUnique({ where: { id } }))
+      );
+      expect(statements).toBe(3);
+    });
+
     test("query interceptors and observers still see one operation per call", async () => {
       const intercepted: unknown[] = [];
       let observed = 0;
@@ -441,11 +546,16 @@ export function runFindUniqueBatchingBehavior(provider: {
       const batched = await inOneTick(calls);
       expect(batched.statements).toBe(1);
       expect(observed).toBe(3);
-      expect(intercepted).toEqual([
-        [{ id: 4 }, 4],
-        [{ id: 404 }, null],
-        [{ id: 5 }, 5],
-      ]);
+      // One answer per call; the order calls finish in is not the contract
+      // (the leader starts the batch, so it settles after its members).
+      expect(intercepted).toHaveLength(3);
+      expect(intercepted).toEqual(
+        expect.arrayContaining([
+          [{ id: 4 }, 4],
+          [{ id: 404 }, null],
+          [{ id: 5 }, 5],
+        ])
+      );
       expect(batched.results).toEqual(await alone(calls));
     });
 

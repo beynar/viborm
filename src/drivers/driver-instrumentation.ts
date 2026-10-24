@@ -46,6 +46,7 @@ import {
 import {
   getExecutionCallsite,
   getExecutionExtensionChain,
+  isRecoverableExecution,
   snapshotExecutionContext,
 } from "./execution-context";
 import { readPreparedStatement } from "./prepared-statement-provenance";
@@ -597,6 +598,27 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
             : undefined;
         if (outcome.status === "failure" && failure === undefined) {
           return undefined;
+        }
+        // A failure its owner recovers is not the operation's: no error log,
+        // and its span ends without an error (a `findUnique` batch's shared
+        // read, whose callers each run alone).
+        if (
+          failure !== undefined &&
+          isRecoverableExecution(published.context)
+        ) {
+          const capability = readOfficialCapability(published.context);
+          return capability === undefined
+            ? undefined
+            : Object.freeze({
+                kind: "statement",
+                endedAt: Date.now(),
+                capability,
+                skipLog: true as const,
+                recovered: true as const,
+                context: published.context,
+                sql: published.sql,
+                params: published.params,
+              });
         }
         const member =
           failure === undefined || published.forceErrorContext

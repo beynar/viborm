@@ -146,6 +146,66 @@ function sameValues(a: Input, b: Input): boolean {
     keys.every((key) => Object.hasOwn(b, key) && Object.is(a[key], b[key]))
   );
 }
+/** A merged read's owners, as opposed to one lookup's. */
+const isSelectionGroup = (
+  owner: Selection | readonly Selection[]
+): owner is readonly Selection[] => Array.isArray(owner);
+/**
+ * One level of a key index: the rows whose key values end here, and the next
+ * level by the next field's value.
+ */
+interface KeyNode {
+  readonly rows: Input[];
+  readonly next: Map<unknown, KeyNode>;
+}
+const keyNode = (): KeyNode => ({ rows: [], next: new Map() });
+/**
+ * For each lookup of a run, the rows holding every unique key value it pins
+ * (`facts.keys`), compared with `Object.is`. The rows are indexed once per
+ * pinned field list, so a run of N lookups over N rows costs N descents into
+ * an index rather than N × N comparisons (a 4,000-target `connect` spent most
+ * of its time here).
+ */
+function keyedMatches(
+  rows: readonly Input[]
+): (lookup: Selection) => readonly Input[] {
+  const indexes = new Map<string, KeyNode>();
+  return (lookup) => {
+    const pins = [...lookup.facts.keys].sort(([left], [right]) =>
+      left < right ? -1 : left > right ? 1 : 0
+    );
+    if (pins.length === 0) return rows;
+    const fields = pins.map(([field]) => field);
+    const signature = fields.join("\u0000");
+    let index = indexes.get(signature);
+    if (!index) {
+      index = keyNode();
+      for (const row of rows) {
+        let level = index;
+        for (const field of fields) {
+          let child = level.next.get(row[field]);
+          if (!child) {
+            child = keyNode();
+            level.next.set(row[field], child);
+          }
+          level = child;
+        }
+        level.rows.push(row);
+      }
+      indexes.set(signature, index);
+    }
+    let level: KeyNode | undefined = index;
+    for (const [, value] of pins) {
+      level = level.next.get(value);
+      if (level === undefined) return [];
+    }
+    // A `Map` compares with SameValueZero; the pins compare with `Object.is`,
+    // which tells 0 from -0.
+    return level.rows.filter((row) =>
+      pins.every(([field, value]) => Object.is(row[field], value))
+    );
+  };
+}
 /** Interprets the prepared command tree through one replaceable execution attempt. */
 export class CommandExecution {
   readonly commands: Commands;
@@ -806,23 +866,137 @@ export class CommandExecution {
           !candidate.dependent &&
           !attempt.rows.has(candidate)
       );
-      const answers =
-        selections.length < 2
-          ? []
-          : await ctx.readTogether(
-              selections.map((candidate) => ({
-                query: candidate.query(),
-                model: candidate.model,
-              }))
-            );
       ahead = attempt.ahead = {
         epoch: ctx.submissions,
-        rows: new Map(answers.map((rows, index) => [selections[index]!, rows])),
+        rows:
+          selections.length < 2
+            ? new Map()
+            : await this.#readTogether(selections),
       };
     }
     const rows = ahead.rows.get(selection);
     ahead.rows.delete(selection);
     return rows;
+  }
+  /**
+   * The row the batch route's read ahead found for `lookup` and still holds
+   * (no submit since), or `undefined`. Nothing is consumed.
+   */
+  #held(lookup: Selection): Input | undefined {
+    const ahead = this.attempt.ahead;
+    if (!ahead || ahead.epoch !== this.context.submissions) return;
+    return ahead.rows.get(lookup)?.[0];
+  }
+  /**
+   * Bind the held answers of a run's choices before the run, as each one's
+   * own read would bind it where it runs ({@link readAhead}): the run's
+   * choices with their rows found write nothing, so no submit falls between
+   * here and them. The boundary their reads would claim is claimed first
+   * (N5); a claim that submits makes the held answers stale, and then nothing
+   * is bound and the run is not taken (`false`).
+   */
+  async #bindHeld(run: readonly CommandOccurrence[]): Promise<boolean> {
+    const pending = run.flatMap(({ command }) =>
+      command.kind === "choose" && !this.attempt.rows.has(command.lookup)
+        ? [command.lookup]
+        : []
+    );
+    if (pending.length === 0) return true;
+    await this.context.claimMemberBoundary();
+    const rows = pending.map((lookup) => this.#held(lookup));
+    if (rows.some((row) => row === undefined)) return false;
+    for (const [position, lookup] of pending.entries()) {
+      this.attempt.ahead!.rows.delete(lookup);
+      this.#observed(lookup, rows[position]!);
+    }
+    return true;
+  }
+  /**
+   * The answers of `selections`, read in one native batch. Lookups of one
+   * model that each pin a unique key (a to-many `connect` or `set`'s targets)
+   * share ONE statement per bind budget, the disjunction of their selectors
+   * ({@link prefetch}'s read), where each would be its own: D1 counts every
+   * statement of a batch. Only an exact answer is kept, as there: every
+   * lookup matched by exactly one row holding its pins and no row twice;
+   * otherwise those lookups are read again, one statement each, in one more
+   * batch (a missing target, a key the database compares differently).
+   */
+  async #readTogether(
+    selections: readonly Selection[]
+  ): Promise<Map<Selection, Input[]>> {
+    const ctx = this.context;
+    const groups = new Map<AnyModel, Selection[]>();
+    const alone: Selection[] = [];
+    for (const selection of selections)
+      if (
+        selection.facts.keys.size > 0 &&
+        selection.facts.reads.length === 0 &&
+        !selection.insertsWhenAbsent
+      ) {
+        const group = groups.get(selection.model);
+        if (group) group.push(selection);
+        else groups.set(selection.model, [selection]);
+      } else alone.push(selection);
+    const merged: (readonly Selection[])[] = [];
+    for (const group of groups.values())
+      if (group.length > 1) merged.push(group);
+      else alone.push(...group);
+    const limit = normalizedBindParameterLimit(
+      ctx.driver.maxBindParametersPerStatement
+    );
+    const reads: { readonly query: Query; readonly model: AnyModel }[] = [];
+    const owners: (Selection | readonly Selection[])[] = [];
+    for (const selection of alone) {
+      reads.push({ query: selection.query(), model: selection.model });
+      owners.push(selection);
+    }
+    for (const group of merged) {
+      const [first] = group;
+      for (const chunk of compileBindBudgetChunks(
+        group.length,
+        limit,
+        (start, end) => first!.rows(group.slice(start, end)).sql
+      )) {
+        reads.push({
+          query: first!.rows(group.slice(chunk.start, chunk.end)),
+          model: first!.model,
+        });
+        owners.push(group);
+      }
+    }
+    const answers = await ctx.readTogether(reads);
+    const held = new Map<Selection, Input[]>();
+    const groupRows = new Map<readonly Selection[], Input[]>();
+    for (const [index, owner] of owners.entries()) {
+      if (isSelectionGroup(owner)) {
+        const rows = groupRows.get(owner);
+        if (rows) rows.push(...answers[index]!);
+        else groupRows.set(owner, [...answers[index]!]);
+      } else held.set(owner, answers[index]!);
+    }
+    const reread: Selection[] = [];
+    for (const [group, rows] of groupRows) {
+      const found = group.map(keyedMatches(rows));
+      if (
+        rows.length === group.length &&
+        found.every((matches) => matches.length === 1) &&
+        new Set(found.map(([row]) => row)).size === group.length
+      )
+        for (const [position, selection] of group.entries())
+          held.set(selection, [found[position]![0]!]);
+      else reread.push(...group);
+    }
+    if (reread.length > 0) {
+      const again = await ctx.readTogether(
+        reread.map((selection) => ({
+          query: selection.query(),
+          model: selection.model,
+        }))
+      );
+      for (const [index, selection] of reread.entries())
+        held.set(selection, again[index]!);
+    }
+    return held;
   }
   /** `selection` FOUND `found`: its binding, and on the batch route its premise. */
   #observed(selection: Selection, found: Input): void {
@@ -933,13 +1107,7 @@ export class CommandExecution {
           first.model
         ))
       );
-    const found = run.map((lookup) =>
-      rows.filter((row) =>
-        [...lookup.facts.keys].every(([field, value]) =>
-          Object.is(row[field], value)
-        )
-      )
-    );
+    const found = run.map(keyedMatches(rows));
     if (
       rows.length !== run.length ||
       found.some((matches) => matches.length !== 1) ||
@@ -976,7 +1144,11 @@ export class CommandExecution {
     for (const sibling of children.slice(index)) {
       const command = sibling.command;
       if (sibling.placement !== "after") break;
-      if (command.kind === "choose" && this.attempt.rows.has(command.lookup))
+      if (
+        command.kind === "choose" &&
+        (this.attempt.rows.has(command.lookup) ||
+          this.#held(command.lookup) !== undefined)
+      )
         run.push(sibling);
       else if (
         command.kind === "link" &&
@@ -990,6 +1162,7 @@ export class CommandExecution {
     if (links.length < 2) return 0;
     // Choices after the last link are not this run's.
     run.length = run.indexOf(links.at(-1)!) + 1;
+    if (!(await this.#bindHeld(run))) return 0;
     for (const choice of run)
       if (choice.command.kind === "choose") await this.run(choice, member);
     for (const link of links) this.#entered.add(link);

@@ -82,7 +82,7 @@ describe("SQLite wrappers refuse keys they do not read", () => {
     const held = { schema: { note }, dataDir: ":memory:", pool: { max: 1 } };
     // @ts-expect-error -- `pool` is not a viborm/sqlite3 option
     expect(() => createSQLite3Client(held)).toThrow(
-      'viborm/sqlite3 does not accept "pool"; it accepts schema, skipSchemaValidation, client, dataDir, options.'
+      'viborm/sqlite3 does not accept "pool"; it accepts schema, skipSchemaValidation, findUniqueBatching, client, dataDir, options.'
     );
   });
 

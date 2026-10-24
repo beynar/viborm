@@ -356,7 +356,8 @@ export interface ExtensionContributionState<
   RowModels extends string,
   Data,
   ConsumerContext extends string,
-  Result extends object,
+  // Defaulted: 1.3.3 exported this state with six parameters.
+  Result extends object = Record<never, never>,
 > extends ExtensionStateConstraint {
   readonly client: ClientMethods;
   readonly models: ModelMethods;

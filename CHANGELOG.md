@@ -3,6 +3,101 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## 1.4.1 — 2026-10-24
+
+Fixes found by two rounds of adversarial review of 1.4.0, and the 1.4.0
+behaviour changes its notes left out.
+
+### Changed
+
+- **`findUnique` batching is opt-in: `createClient({ findUniqueBatching: true
+  })`.** In 1.4.0 the `findUnique` calls of one tick always shared one read,
+  and that read ran in the async context of the first call of the tick, on
+  any client. A driver that picks its database or session from
+  `AsyncLocalStorage` (a per-request tenant router) answered every call of
+  the batch from the first request's tenant, and the statement was traced
+  under the first request's span. With the option on, a batch's read now runs
+  in its own first call's context (never another client's), but calls of
+  different requests on one client still share it: turn it on where nothing
+  below the client reads the caller's async context. A failed shared read
+  that every call recovers from by running alone no longer logs an error.
+
+### Fixed
+
+- **A unique `where` holding `null` no longer writes every row it matches.**
+  A unique index admits any number of NULLs, so `delete({ where: { code: null
+  } })` on a nullable `.unique()` field, or an `update` by a compound selector
+  with a `null` member, deleted or updated every row holding that NULL (since
+  1.0; 1.4.0 added the nested-write `update` to the calls that did). A unique
+  selector member is now never `null`, as in Prisma: the types refuse it, and
+  validation refuses it with a `ValidationError` before any statement, in
+  `findUnique`, `update`, `delete`, `upsert`, cursors, every nested target and
+  the permissions extension's `can`/`assert`, also beside another selector
+  (`{ id: 1, code: null }`). Address rows by a NULL with `findFirst`,
+  `updateMany` or `deleteMany`.
+- **A `findUnique` on the originating client inside its own callback
+  transaction no longer hangs the client.** On drivers that run a callback
+  transaction on their single connection (SQLite3, PGlite, local libSQL, Bun
+  SQLite), that call is refused with a `TransactionError`, as it was in
+  1.3.3; in 1.4.0, joined to a `findUnique` issued outside the transaction in
+  the same tick, its shared read waited behind the transaction that waited for
+  it, and every later call on the client waited too.
+- **A large to-many `connect` or `set` is no longer quadratic in its
+  targets.** 1.4.0 matched the rows of the shared target read to each target
+  by scanning them all; 8,000 targets took 8.6 s (24 s where the targets hold
+  the key), against 5.0 s and 11.8 s in 1.3.3. They are now matched through an
+  index: 4.9 s either way.
+- **On D1 and Neon HTTP, a to-many `connect` or `set` sends a few
+  statements, not two per target.** 1.4.0 read a nested write's lookups
+  ahead in one batch, one statement each, and the targets read that way
+  were never grouped: 260 targets sent 261 SELECTs and 260 INSERTs (D1
+  counts every statement of a batch). Lookups of one model that pin a unique
+  key now share one statement per bind budget, and their junction links one
+  INSERT per bind budget: the same call sends 14 statements. Round trips are
+  unchanged.
+- **A statement queued on a single-connection driver runs in its own call's
+  async context.** SQLite3, PGlite, local libSQL and Bun SQLite run one
+  statement at a time, and the statements of concurrent calls wait behind
+  each other. The queue ran each waiting statement in the async context of
+  the call that drained it (since 1.0), so a driver that picks its database
+  from `AsyncLocalStorage` could answer one request from another's, and a
+  statement's span could land in another request's trace.
+- **A created row's `now()` and `updatedAt()` fields hold the same instant.**
+  Each generator read the clock on its own, so `createdAt` and `updatedAt`
+  could differ by a millisecond. Every generator of one call's admission now
+  reads one instant.
+- **A libSQL client opened on `databaseUrl: ":memory:"` serializes its
+  transactions** like `file::memory:`: a call on the originating client
+  inside a callback transaction is refused with `TransactionError` instead of
+  reaching another connection that has no tables.
+- **Without async context (a browser, Workers without `nodejs_compat`), a
+  batched `findUnique` no longer joins a batch while a transaction holds the
+  connection**, which made a misused call wait out the queue bound twice.
+- **`ExtensionContributionState` takes six type arguments again.** 1.4.0
+  added a seventh (`Result`) without a default; it now defaults to no result
+  fields.
+
+### 1.4.0 changes its notes did not list
+
+- **A nested write's returned row does not show what a trigger changed.** A
+  `create` or `update` with nested relation writes and no relation in its
+  result returns the row its own INSERT or UPDATE answered; a trigger that
+  later changes that row (a counter a child's INSERT bumps) is in the
+  database but not in the returned object. Add an `include` or re-read the row
+  where a trigger maintains it.
+- **`findUnique` waits one tick before it runs**, to share a read with the
+  other `findUnique` calls of the same tick. A write issued after it in the
+  same tick (`Promise.all([findUnique, update])`) can run first; await the read
+  where the order matters.
+- **The `undefined` bulk-where refusal (V4001) does not cover a to-one
+  relation filter.** `deleteMany({ where: { author: { is: { id: undefined } }
+  } })` asks that an author exists, which on a required relation is every row,
+  and is not refused (as the compatibility page states).
+- **An estate regenerated on 1.4.0 gets new state ids.** A state lost from a
+  1.3.3 history and generated again on 1.4.0 is stored as a delta, so its id
+  differs from the lost one; regenerate lost states with the version that
+  wrote them.
+
 ## 1.4.0 — 2026-10-24
 
 Fewer round trips, permission reads D1 can run, faster `distinct` and
