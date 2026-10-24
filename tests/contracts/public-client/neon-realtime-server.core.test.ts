@@ -7,8 +7,12 @@
  */
 
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
+import { MemoryCache } from "@cache/drivers/memory";
+import { cache } from "@cache/extension";
 import { NeonHTTPDriver } from "@drivers/neon-http";
 import {
+  ClientInitializationError,
+  ForbiddenError,
   NotFoundError,
   UnsupportedOperationError,
   ValidationError,
@@ -26,11 +30,11 @@ import { realtimeData } from "../../../src/neon-realtime/client";
 const JSON_FUNCTIONS = /json_build|json_agg/;
 const RANK_THROUGH_DISTINCT = /^SELECT [^(]*"0viborm_ordinal" FROM \(SELECT/;
 const AUTH_TOKEN = /authToken/;
-const QUERY_HANDLERS = /query handlers/;
+const QUERY_HANDLERS = /query handlers replace its answer/;
 const STATEMENT_TRANSFORMS = /statement transforms/;
 const RESULT_FIELDS = /computed result fields/;
 const TRANSACTION = /transaction/;
-const READ_GATES = /field read gates/;
+const READ_GATES = /read-gated field's projection/;
 const POINT = /point projection/;
 const VECTOR = /vector projection/;
 const DISTANCE = /`_distance` projection/;
@@ -293,13 +297,6 @@ describe("Neon Realtime refusals", () => {
     const { base, driver } = live();
     const cases: [object, RegExp][] = [
       [
-        base.$extends({
-          name: "q",
-          query: { post: { findMany: ({ proceed }) => proceed() } },
-        }),
-        QUERY_HANDLERS,
-      ],
-      [
         base.$extends({ name: "t", statement: (context) => context.statement }),
         STATEMENT_TRANSFORMS,
       ],
@@ -317,17 +314,6 @@ describe("Neon Realtime refusals", () => {
         } as never),
         RESULT_FIELDS,
       ],
-      [
-        base
-          .$extends(
-            permissions({
-              actor: v.object({ id: v.string() }),
-              models: { post: { read: true } },
-            })
-          )
-          .$as({ id: "ada" }),
-        QUERY_HANDLERS,
-      ],
     ];
     for (const [client, reason] of cases) {
       const db = (client as typeof base).$extends(neonRealtime({ realtime }));
@@ -340,6 +326,29 @@ describe("Neon Realtime refusals", () => {
     expect(
       driver.statements.filter((statement) => statement.startsWith("SELECT"))
     ).toEqual([]);
+  });
+
+  it("refuses query handlers that do not pass the read's own answer through", async () => {
+    const { base, driver } = live();
+    driver.rows = [ROW];
+    for (const handler of [
+      async () => [],
+      async ({ proceed }: { proceed: () => Promise<unknown[]> }) => [
+        ...(await proceed()),
+      ],
+    ]) {
+      const db = base
+        .$extends({
+          name: "q",
+          query: { post: { findMany: handler } },
+        } as never)
+        .$extends(neonRealtime({ realtime })) as typeof base & {
+        post: Reads;
+      };
+      await expect(db.post.findManyRealtime!()).rejects.toEqual(
+        refusal(QUERY_HANDLERS)
+      );
+    }
   });
 
   it("refuses projections the sealed SQL cannot carry", async () => {
@@ -375,5 +384,53 @@ describe("Neon Realtime refusals", () => {
         },
       })
     ).rejects.toEqual(refusal(DISTANCE));
+  });
+});
+
+describe("Neon Realtime through permissions()", () => {
+  const policy = permissions({
+    actor: v.object({ id: v.string() }),
+    models: { post: { read: { title: { actor: "id" } } } },
+  });
+
+  it("seals the permission-filtered read and admits renewals again", async () => {
+    const { base, driver } = live();
+    const db = base.$extends(policy).$extends(neonRealtime({ realtime }));
+    const ada = db.$as({ id: "ada" });
+    driver.rows = [ROW];
+    const query = await ada.post.findManyRealtime({ select: { id: true } });
+    expect(query.data).toEqual(
+      await ada.post.findMany({ select: { id: true } })
+    );
+    const [first, ordinary] = driver.statements;
+    expect(sealed[0]!.parameters.map(({ value }) => value)).toContain("ada");
+    expect(first).toBe(ordinary);
+    // The renewal passes the handlers again, which only ever see a result.
+    await ada.post.findManyRealtime(
+      { select: { id: true } },
+      { initialData: false }
+    );
+    expect(driver.statements).toHaveLength(3);
+    // A model the policy does not list is forbidden, live or not.
+    await expect(ada.place.findManyRealtime()).rejects.toBeInstanceOf(
+      ForbiddenError
+    );
+    await expect(
+      ada.place.findManyRealtime(undefined, { initialData: false })
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(ada.place.findMany()).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it("follows permissions(), and a cached view has no live reads", () => {
+    const { base } = live();
+    expect(() =>
+      base.$extends(neonRealtime({ realtime })).$extends(policy)
+    ).toThrow(ClientInitializationError);
+    const cached = base
+      .$extends(cache({ driver: new MemoryCache() }))
+      .$extends(neonRealtime({ realtime }));
+    expect(
+      (cached.$withCache().post as Partial<Reads>).findManyRealtime
+    ).toBeUndefined();
   });
 });

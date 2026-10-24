@@ -177,7 +177,8 @@ function describe(
   return JSON.parse(
     JSON.stringify(shape, (key, value) => {
       if (key === "scalar") return;
-      if (key === "gated") refuse("field read gates");
+      // Its row carries the withheld value: only the decoder leaves it out.
+      if (key === "gated") refuse("a read-gated field's projection");
       if (key === "_distance") refuse("a `_distance` projection");
       if (value?.type === "point" || value?.type === "vector")
         refuse(`a ${value.type} projection (PostGIS/pgvector functions)`);
@@ -206,9 +207,6 @@ function exportRead(
   const chain = engine.extensionChain;
   if (engine.driver instanceof TransactionBoundDriver)
     refuse("a read inside a transaction");
-  // `cache()` and `permissions()` install one; a cached view needs `cache()`.
-  if (lookupResolvedExtensionHandlers(chain, "query", model, operation)?.length)
-    refuse("a read through query handlers");
   if (chain?.statement.length) refuse("a read through statement transforms");
   if (options.finishResult) refuse("computed result fields");
   const read = routed.exportRead(adapter);
@@ -240,16 +238,33 @@ function methods(
       async (args: unknown, options?: RealtimeReadOptions<boolean>) => {
         const initial = options?.initialData !== false;
         let exported: ReturnType<typeof exportRead> | undefined;
-        // The ordinary read's own lifecycle (admission, observers), with the
-        // export in place of its execution, and its result where asked for.
+        let answer: unknown;
+        // The ordinary read's own lifecycle (admission, query handlers,
+        // observers), with the export in place of its execution, and its
+        // result where asked for. Query handlers (`permissions()`) only ever
+        // see that result, so a renewal through them reads it too.
         const data = await exportPendingRead(
           delegate[operation]!(args) as PendingOperation<unknown>,
           async (...context) => {
             exported = exportRead(model, operation, adapter, ...context);
-            return initial ? context[3]() : undefined;
+            const [engine, , , execute] = context;
+            if (
+              initial ||
+              lookupResolvedExtensionHandlers(
+                engine.extensionChain,
+                "query",
+                model,
+                operation
+              )?.length
+            )
+              answer = await execute();
+            return answer;
           }
         );
-        const { plan, query } = exported!;
+        // Every query handler ran the export and passed its answer through.
+        if (exported === undefined || data !== answer)
+          refuse("a read whose query handlers replace its answer");
+        const { plan, query } = exported;
         const sealed = await realtime.seal({ query });
         return initial
           ? realtimeEnvelope(sealed, plan, data)

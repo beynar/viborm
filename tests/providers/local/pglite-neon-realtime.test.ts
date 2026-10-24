@@ -4,8 +4,11 @@
  * the ordinary read returns. The family lives in a non-public namespace.
  */
 
+import type { PGlite } from "@electric-sql/pglite";
 import type { RawSqlQuery } from "@neon/realtime/server";
 import { s } from "@schema";
+import { permissions } from "@src/permissions";
+import { v } from "@src/validation";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { Decimal } from "@validation/primitives/decimal-value";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -124,19 +127,55 @@ const row = (
   ...extra,
 });
 
+const sealed: RawSqlQuery<unknown>[] = [];
+const realtime = {
+  seal: async ({ query }: { readonly query: RawSqlQuery<never> }) => {
+    sealed.push(query);
+    return {
+      capability: "capability",
+      queryFingerprint: "fingerprint",
+      expiresAt: Date.now() + 60_000,
+    };
+  },
+};
+
+/** The live value Neon's rows decode to, through the real browser half. */
+async function liveRead(
+  db: object,
+  database: PGlite,
+  model: string,
+  operation: string,
+  args: unknown
+) {
+  const delegate = (db as Record<string, unknown>)[model] as Record<
+    string,
+    (args: unknown) => Promise<unknown>
+  >;
+  const query = await delegate[`${operation}Realtime`]!(args);
+  const statement = sealed.at(-1)!;
+  const { rows } = await database.query<Record<string, unknown>>(
+    statement.sql,
+    statement.parameters.map((parameter) => parameter.value),
+    {
+      parsers: NEON_PARSERS,
+      paramTypes: statement.parameters.map((parameter) => parameter.typeOid),
+    }
+  );
+  // A materialized live result has no order of its own.
+  native.data = [...rows].reverse();
+  const transported = JSON.parse(JSON.stringify(query));
+  const subscription = subscribe(transported, { url: "wss://realtime" });
+  return {
+    ordinary: await delegate[operation]!(args),
+    seed: realtimeData(transported),
+    live: subscription.getSnapshot(),
+    rows,
+    sql: statement.sql,
+  };
+}
+
 describe("Neon Realtime reads on embedded PostgreSQL", () => {
   const getFamily = usePGliteSchemaFamily(schema);
-  const sealed: RawSqlQuery<unknown>[] = [];
-  const realtime = {
-    seal: async ({ query }: { readonly query: RawSqlQuery<never> }) => {
-      sealed.push(query);
-      return {
-        capability: "capability",
-        queryFingerprint: "fingerprint",
-        expiresAt: Date.now() + 60_000,
-      };
-    },
-  };
 
   beforeEach(async () => {
     const { client } = getFamily();
@@ -156,40 +195,14 @@ describe("Neon Realtime reads on embedded PostgreSQL", () => {
     for (const data of posts) await client.post.create({ data });
   });
 
-  /** The live value Neon's rows decode to, through the real browser half. */
-  async function live(
-    model: "author" | "post",
-    operation: string,
-    args: unknown
-  ) {
-    const { client, database } = getFamily();
-    const db = client.$extends(neonRealtime({ realtime }));
-    const delegate = db[model] as unknown as Record<
-      string,
-      (args: unknown) => Promise<unknown>
-    >;
-    const query = await delegate[`${operation}Realtime`]!(args);
-    const statement = sealed.at(-1)!;
-    const { rows } = await database.query<Record<string, unknown>>(
-      statement.sql,
-      statement.parameters.map((parameter) => parameter.value),
-      {
-        parsers: NEON_PARSERS,
-        paramTypes: statement.parameters.map((parameter) => parameter.typeOid),
-      }
+  const live = (model: "author" | "post", operation: string, args: unknown) =>
+    liveRead(
+      getFamily().client.$extends(neonRealtime({ realtime })),
+      getFamily().database,
+      model,
+      operation,
+      args
     );
-    // A materialized live result has no order of its own.
-    native.data = [...rows].reverse();
-    const transported = JSON.parse(JSON.stringify(query));
-    const subscription = subscribe(transported, { url: "wss://realtime" });
-    return {
-      ordinary: await delegate[operation]!(args),
-      seed: realtimeData(transported),
-      live: subscription.getSnapshot(),
-      rows,
-      sql: statement.sql,
-    };
-  }
 
   const cases: [string, "author" | "post", string, unknown][] = [
     [
@@ -381,5 +394,138 @@ describe("Neon Realtime reads on embedded PostgreSQL", () => {
     expect(snapshot.data).toEqual(ordinary);
     expect(JSON.stringify(ordinary)).toContain("4.25");
     expect(JSON.stringify(rows)).not.toMatch(POST_ID);
+  });
+});
+
+const org = s
+  .model({
+    id: s.string().id(),
+    name: s.string(),
+    members: s.toMany(() => member),
+    projects: s.toMany(() => project),
+  })
+  .map("rt_orgs");
+const member = s
+  .model({
+    id: s.string().id(),
+    userId: s.string(),
+    role: s.string(),
+    orgId: s.string(),
+    org: s
+      .toOne(() => org)
+      .fields("orgId")
+      .references("id"),
+  })
+  .map("rt_members");
+const project = s
+  .model({
+    id: s.string().id(),
+    name: s.string(),
+    budget: s.int(),
+    ownerId: s.string(),
+    orgId: s.string(),
+    org: s
+      .toOne(() => org)
+      .fields("orgId")
+      .references("id"),
+  })
+  .map("rt_projects");
+const inOrg = { members: { some: { userId: { actor: "userId" } } } } as const;
+// A relation predicate, an `$exists` with a `$row` reference, an actor
+// parameter and a read-gated field: all of it in the sealed SQL.
+const policy = permissions({
+  actor: v.object({ userId: v.string() }),
+  levels: ["read", "full"],
+  models: {
+    org: { read: inOrg },
+    member: { read: true },
+    project: {
+      read: { org: { is: inOrg } },
+      full: {
+        OR: [
+          { ownerId: { actor: "userId" } },
+          {
+            $exists: {
+              member: {
+                userId: { actor: "userId" },
+                role: "admin",
+                orgId: { $row: "orgId", up: 1 },
+              },
+            },
+          },
+        ],
+      },
+      fields: { budget: { read: "full" } },
+    },
+  },
+});
+// Only u1's org (o1) and u1's own budget (pA) are readable as u1.
+const HIDDEN_FROM_U1 = /o2|pC|200|300/;
+
+describe("Neon Realtime reads through permissions on embedded PostgreSQL", () => {
+  const getFamily = usePGliteSchemaFamily({ org, member, project });
+
+  beforeEach(async () => {
+    const { client } = getFamily();
+    await client.org.createMany({
+      data: [
+        { id: "o1", name: "One" },
+        { id: "o2", name: "Two" },
+      ],
+    });
+    await client.member.createMany({
+      data: [
+        { id: "m1", userId: "u1", role: "member", orgId: "o1" },
+        { id: "m2", userId: "u2", role: "admin", orgId: "o1" },
+        { id: "m3", userId: "u3", role: "member", orgId: "o2" },
+      ],
+    });
+    await client.project.createMany({
+      data: [
+        { id: "pA", name: "A", budget: 100, ownerId: "u1", orgId: "o1" },
+        { id: "pB", name: "B", budget: 200, ownerId: "u3", orgId: "o1" },
+        { id: "pC", name: "C", budget: 300, ownerId: "u3", orgId: "o2" },
+      ],
+    });
+  });
+
+  const as = (userId: string) =>
+    getFamily()
+      .client.$extends(policy)
+      .$extends(neonRealtime({ realtime }))
+      .$as({ userId });
+
+  // A read-gated field read where the caller writes it (where, orderBy,
+  // aggregates, groupBy) is masked in the SQL; projected, only the decoder
+  // would withhold it, so that is refused.
+  const OMIT_BUDGET = { omit: { budget: true } };
+  it.each([
+    ["u1", "findMany", { ...OMIT_BUDGET, include: { org: true } }],
+    ["u2", "findMany", { ...OMIT_BUDGET, orderBy: { budget: "desc" } }],
+    ["u1", "count", { where: { budget: { gt: 150 } } }],
+    ["u1", "aggregate", { _sum: { budget: true }, _max: { budget: true } }],
+    ["u1", "groupBy", { by: ["budget"], _count: { _all: true } }],
+  ])("%s %s: the live value is the permitted ordinary value", async (actor, operation, args) => {
+    const { ordinary, seed, live, rows, sql } = await liveRead(
+      as(actor),
+      getFamily().database,
+      "project",
+      operation,
+      args
+    );
+    expect(sql).not.toMatch(REFUSED);
+    expect(live.data).toEqual(ordinary);
+    expect(seed).toEqual(ordinary);
+    if (actor === "u1")
+      expect(JSON.stringify(rows)).not.toMatch(HIDDEN_FROM_U1);
+  });
+
+  it("refuses a read-gated field's projection", async () => {
+    await expect(as("u1").project.findManyRealtime()).rejects.toThrow(
+      "read-gated field"
+    );
+    await expect(
+      as("u1").project.findManyRealtime({ select: { budget: true } })
+    ).rejects.toThrow("read-gated field");
   });
 });
