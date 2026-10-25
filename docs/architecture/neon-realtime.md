@@ -15,9 +15,9 @@ pieces exist and what must stay true.
    lifecycle — query handlers, observers and error context included, renewals
    too. The exporter refuses what the sealed SQL cannot reproduce, then
    `PreparedCommand.exportRead` compiles the admitted read a second time over
-   the transport adapter. With initial data, or with `query` handlers, the
-   exporter then runs the ordinary statement once and answers its result (a
-   handler that keeps what it sees, a memo, must never see a missing result);
+   the transport adapter. With initial data, the exporter then runs the
+   ordinary statement once and answers its result; a renewal reads nothing and
+   answers `undefined` through the handlers (a memoizing handler must skip it);
    the transport statement never runs on the server.
 3. `realtime.seal` encrypts the transport SQL and its parameters
    (`rawSql`/`pgParam`). The answer is `{ kind, sealed, plan, encoded }`; `plan`
@@ -88,9 +88,8 @@ edge page to change shape.
   fingerprint refuses).
 - After the lifecycle: `query` handlers that did not answer with the
   exporter's own answer (it never ran, or a handler replaced its result).
-  That one identity check is the invariant: handlers see only the genuine
-  ordinary result (so a renewal through them reads it once), and pass it
-  through. `permissions()` only refuses or proceeds. The official `cache()`
+  That one identity check is the invariant: handlers see the genuine ordinary
+  result (`undefined` on a renewal), and pass it through. `permissions()` only refuses or proceeds. The official `cache()`
   installs no chain handler; its cached reads live on `$withCache()` views,
   which carry no model methods, so no cached read can wrap the exporter.
 - `describe` (shape walk, by node `kind`: keys also name model fields): a

@@ -24,7 +24,6 @@ import type {
 } from "../client/types";
 import { TransactionBoundDriver } from "../drivers/driver";
 import { UnsupportedOperationError } from "../errors";
-import { lookupResolvedExtensionHandlers } from "../extensions/chain";
 import type {
   ExtensionModelDelegate,
   ExtensionStateConstraint,
@@ -69,10 +68,7 @@ const READS = [
   "groupBy",
 ] as const satisfies readonly CacheableOperations[];
 
-/**
- * `{ initialData: false }` renews a capability without a result: the database
- * is read only where query handlers (`permissions()`) need the read's own.
- */
+/** `{ initialData: false }` renews a capability without reading the database. */
 export interface RealtimeReadOptions<Initial extends boolean> {
   readonly initialData?: Initial;
 }
@@ -249,24 +245,13 @@ function methods(
         let answer: unknown;
         // The ordinary read's own lifecycle (admission, query handlers,
         // observers), with the export in place of its execution, and its
-        // result where asked for. Query handlers (`permissions()`) only ever
-        // see that result, so a renewal through them reads it too: a handler
-        // that keeps what it sees (a memo) never keeps a missing result.
+        // result where asked for: a renewal's query handlers see `undefined`.
         const data = await exportPendingRead(
           delegate[operation]!(args) as PendingOperation<unknown>,
           async (...context) => {
             exported = exportRead(model, operation, adapter, ...context);
-            const [engine, , , execute] = context;
-            if (
-              initial ||
-              lookupResolvedExtensionHandlers(
-                engine.extensionChain,
-                "query",
-                model,
-                operation
-              )?.length
-            )
-              answer = await execute();
+            const [, , , execute] = context;
+            answer = initial ? await execute() : undefined;
             return answer;
           }
         );

@@ -423,12 +423,12 @@ describe("Neon Realtime through permissions()", () => {
     const [first, ordinary] = driver.statements;
     expect(sealed[0]!.parameters.map(({ value }) => value)).toContain("ada");
     expect(first).toBe(ordinary);
-    // The renewal passes the handlers again, which only ever see a result.
+    // The renewal passes the handlers again without reading the database.
     await ada.post.findManyRealtime(
       { select: { id: true } },
       { initialData: false }
     );
-    expect(driver.statements).toHaveLength(3);
+    expect(driver.statements).toHaveLength(2);
     // A model the policy does not list is forbidden, live or not.
     await expect(ada.place.findManyRealtime()).rejects.toBeInstanceOf(
       ForbiddenError

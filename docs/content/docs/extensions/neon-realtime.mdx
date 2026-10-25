@@ -58,8 +58,7 @@ enumerable, so no transport carries it, and its type is optional for that
 reason. `realtimeData(query)` answers the first result on either side.
 
 `{ initialData: false }` answers a renewal — `{ kind, sealed, plan }` — with
-no database read (unless the client has `query` handlers, see
-[Permissions](#permissions)):
+no database read:
 
 ```ts
 await db.post.findManyRealtime(args, { initialData: false });
@@ -80,9 +79,10 @@ The sealed SQL is the permission-filtered statement the ordinary read runs:
 its `rows` predicates, relation and `$exists` checks, `$row` references and
 actor values all stay live. A forbidden read rejects with the same
 `ForbiddenError`, and every renewal is admitted again for the actor you bind.
-`query` handlers (`permissions()` installs one) only ever see the read's own
-result, so through them a renewal reads it once too. A handler that answers
-without running the read, or replaces its result, is refused. A predicate on
+`query` handlers (`permissions()` installs one) run on every live read; on a
+renewal, which reads nothing, `proceed()` answers `undefined`, so a handler
+that stores what it sees must skip it. A handler that answers without running
+the read, or replaces its result, is refused. A predicate on
 `{ now: true }` is refused: sealed, its instant would never move.
 
 A read-gated field can be filtered, ordered, aggregated and grouped on: the
