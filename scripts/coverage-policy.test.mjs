@@ -99,6 +99,10 @@ const MIGRATION_CORE_PROVIDER_EXCEPTIONS = new Map([
     "in-memory-sqlite",
   ],
   ["tests/unit/migrations/reset-program.core.test.ts", "in-memory-sqlite"],
+  [
+    "tests/unit/migrations/reset-unknown-marker.core.test.ts",
+    "in-memory-sqlite",
+  ],
   // The Durable Object storage stand-in runs the binding's SQL on an
   // in-memory better-sqlite3 database.
   [
