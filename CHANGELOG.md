@@ -14,10 +14,13 @@ Versioning.
   result type, sealed for Neon Realtime with the first result as plain JSON.
   `viborm/neon-realtime/client` subscribes in the browser and publishes the
   ordinary read's value on every change. PostgreSQL only; `@neon/realtime` is
-  an optional peer. Reads the sealed SQL cannot reproduce (query handlers,
-  statement transforms, result fields, transactions, read gates, PostGIS and
-  pgvector projections, recursive relations without their key selected) are
-  refused by name.
+  an optional peer. `permissions()` clients read live through `$as` (extend
+  with `permissions()` first), and recursive relations are live whether or
+  not they select their keys. Reads the sealed SQL cannot reproduce (query
+  handlers that replace the result, statement transforms, result fields,
+  transactions, projected read-gated fields, PostGIS and pgvector
+  projections) are refused by name. The browser entry carries its own
+  `Decimal`, which it exports.
 
 ## 1.4.2 — 2026-10-25
 

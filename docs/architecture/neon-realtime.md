@@ -9,14 +9,15 @@ pieces exist and what must stay true.
 
 1. `db.post.findManyRealtime(args)` calls the ordinary delegate method, so the
    read is admitted exactly like `findMany` (controls, request transforms,
-   default omit, validation, `rows` domains).
+   default omit, validation, `rows` domains, `query` handlers).
 2. `exportPendingRead` (`query-engine/pending-operation.ts`) puts the
    extension's exporter in place of the operation's execution, inside its own
-   lifecycle — observers and error context included, renewals too. The
-   exporter refuses what the sealed SQL cannot reproduce, then
+   lifecycle — query handlers, observers and error context included, renewals
+   too. The exporter refuses what the sealed SQL cannot reproduce, then
    `PreparedCommand.exportRead` compiles the admitted read a second time over
-   the transport adapter. With initial data, the exporter then runs the
-   ordinary statement once; the transport statement never runs on the server.
+   the transport adapter. With initial data, or with `query` handlers, the
+   exporter then runs the ordinary statement once and answers its result; the
+   transport statement never runs on the server.
 3. `realtime.seal` encrypts the transport SQL and its parameters
    (`rawSql`/`pgParam`). The answer is `{ kind, sealed, plan, encoded }`; `plan`
    is the row shape (schema objects stripped) and the read's publication rule,
@@ -43,15 +44,16 @@ an adapter over the client's own: JSON concatenated from text —
 `json_object(ARRAY['v', x::text])->'v'` escapes a string, every other member
 is its own text — collections through `string_agg(… ORDER BY …)`, and lists
 as PostgreSQL array text the browser parses. `Queries` reaches it through
-three adapter seams that stock adapters ignore: `json.carry` (a carried
-scalar's token, absent elsewhere), the `rankedPage` argument of `json.agg`,
-and `QueryParts.ranked` on the four page selects. The ordinary statement is
-unchanged. Measured with `pnpm size` against main 1.4.1, the seams, the
-decoder extraction and the `decimal.mjs` split together cost the bundles
-that never import Neon Realtime between −5 and +262 B gzip (the
-"every public entry" row; +13 B for the D1 Worker, +29 B for a pg
-application); most of the largest figure is gzip ordering noise from the
-split, whose raw output is byte-identical.
+four adapter seams that stock adapters ignore: `json.carry` (a carried
+scalar's token), `json.identity` (a recursive row's ordinal), the
+`rankedPage` argument of `json.agg`, and `QueryParts.ranked` on the four page
+selects. The ordinary statement is unchanged. Measured with `pnpm size`
+against main 1.4.2, the seams and the decoder extraction cost the bundles
+that never import Neon Realtime +63 B gzip (D1 Worker), +80 B (pg
+application), +79 B (pg + permissions), +71 B (pg + migrations Worker) and
++140 B ("every public entry", 12 B over its limit); `json.identity` alone is
+13–33 B of that. The browser entry is 23.6 kB gzip, the server entry file
+2.3 kB.
 
 ## Why an ordinal
 
@@ -64,49 +66,63 @@ pages use the same rank inside their `string_agg … ORDER BY`. The emulated
 through. Ranking makes Neon deliver fresh baselines rather than incremental
 changes: correct, documented.
 
+A recursive carrier names its root and nodes by ordinal too, not by key, so a
+projection that leaves its key out ships no key: the root is 0, every other
+reached row 1 + the number of reached keys below its own (`json.identity`; a
+row equal to the root is 0, so a cycle back to it is still one). The plan's
+`identity` becomes one integer leaf.
+
 ## Refusals (one place each)
 
 - Install time (`neonRealtime`): a non-PostgreSQL client; `neon-http` with
   `authToken` (`NeonHTTPDriver.userAuthorized`).
 - `exportRead`, before any execution: a transaction (`TransactionBoundDriver`),
-  `query` handlers (this covers `cache()` and `permissions()`; a `$withCache`
-  view needs `cache()`), statement transforms, computed `result` fields.
-- `describe` (shape walk): field read gates, `_distance`, point and vector
-  projections, and a recursive relation whose selection, or the row holding
-  it, leaves its key out — its carrier names nodes and its root by key, so
-  shipping it would leak an omitted field. (The rejected first version keyed
-  them by ordinal instead; that costs every bundle 230–300 B gzip.)
+  statement transforms, computed `result` fields.
+- After the lifecycle: `query` handlers that did not answer with the
+  exporter's own answer (it never ran, or a handler replaced its result).
+  That one identity check is the invariant: handlers see only the genuine
+  ordinary result (so a renewal through them reads it once), and pass it
+  through. `permissions()` only refuses or proceeds. The official `cache()`
+  installs no chain handler; its cached reads live on `$withCache()` views,
+  which carry no model methods, so no cached read can wrap the exporter.
+- `describe` (shape walk): a projected read-gated field (its row carries the
+  withheld value; only the decoder drops it — where, orderBy, aggregates and
+  groupBy mask it in the SQL and are live), `_distance`, point and vector
+  projections.
+- `permissions()` must come first: `rows` cannot follow an extension with
+  model methods, and `$extends` refuses that order with
+  `ClientInitializationError`.
 
 ## Trust model
 
 The sealed SQL is the security boundary: Neon runs exactly what the server
 sealed, as one database role, without row-level security. Authorize on the
-server before issuing a query. The plan is not a boundary — it only tells the
+server before issuing a query, or seal through `permissions()`, whose rows
+compile into that SQL. The plan is not a boundary — it only tells the
 browser how to read rows its own sealed query returns — so the browser checks
 one thing, the plan's version. A renewal must carry the same plan (one string
 comparison) and passes Neon's own fingerprint check; neither is wrapped.
 
 ## Packaging
 
-The browser half is built as one self-contained file (no shared chunk, no
-driver, no SQL compiler): importing the server's chunks would re-split them
-and grow every application bundle. The package's one `Decimal` class is its
-own file, `dist/decimal.mjs`, which every build imports, so a browser-decoded
-value is an instance of the class every entry exports. The server half
-imports the browser file for the envelope codec — which is why the browser
-entry exports `realtimeEnvelope` — and spells that import
-`../neon-realtime/client` so the build can point exactly that specifier at
-the file. Importing the codec modules from the server's own build instead
-splits shared chunks: 263 files against the 260-file release budget.
-`decimal.mjs`, the browser file and the server entry ship without source
-maps, for the same budget.
-Externals and output paths in `tsdown.config.ts` are data, never functions:
-with a function there, rolldown 1.0.0-beta.58 now and then stalls the
-declaration build for good.
+The browser half is built as one self-contained file with its own `Decimal`
+copy, which it exports (no shared chunk, no driver, no SQL compiler):
+importing the server's chunks would re-split them and grow every application
+bundle. A decimal it decodes is therefore not an instance of the server
+entries' `Decimal`; `decimal-identity-smoke.mjs` holds every other entry to
+one class and names this exception. The server half imports the envelope
+codec (`plan.ts`) from its own build, which splits one shared chunk
+(`cache-value-codecs`): 265 files against the 265-file release budget.
+Externals in `tsdown.config.ts` stay data, never functions: with a function
+there, rolldown 1.0.0-beta.58 now and then stalls the declaration build for
+good.
 
 ## Hosted evidence
 
 `tests/providers/hosted/neon-realtime-smoke.mjs` (manual, reads `.env`) runs
-the nine reads, one live update and one renewal against a Neon database with
-Realtime enabled. `tests/providers/local/pglite-neon-realtime.test.ts` runs
+the nine reads, one live update, one renewal, a recursive read without its
+keys, and permission-filtered reads (relation predicate, `$exists` with
+`$row`, actor parameters, an aggregated read-gated field) with a forbidden
+and a permitted update and a renewal, against a Neon database with Realtime
+enabled. `tests/providers/local/pglite-neon-realtime.test.ts` runs
 the exact sealed SQL on embedded PostgreSQL in CI.

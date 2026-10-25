@@ -13,7 +13,7 @@ Dates, Decimals and bigints — every time a committed write changes it.
 It lives in two entry points: `viborm/neon-realtime` (server) and
 `viborm/neon-realtime/client` (browser). Install the optional peer
 `@neon/realtime` (`^0.1.1`). An application that imports neither carries only
-the engine's small transport seams (about 0.1 kB gzip).
+the engine's small transport seams (60–140 B gzip).
 
 ## Setup
 
@@ -48,20 +48,45 @@ realtimeData(query); // the read's value (from "viborm/neon-realtime/client")
 ```
 
 The read runs once, through its ordinary lifecycle (controls, validation,
-`rows` domains, observers), and rejects exactly as the ordinary read would —
-an `OrThrow` read with no row rejects with `NotFoundError`. It answers
-`{ kind, sealed, plan, encoded }`: the sealed capability, the plan the browser
-decodes rows with, and the first result encoded as plain JSON. On the server
+`rows` domains, `query` handlers, observers), and rejects exactly as the
+ordinary read would — an `OrThrow` read with no row rejects with
+`NotFoundError`. It answers `{ kind, sealed, plan, encoded }`: the sealed
+capability, the plan the browser decodes rows with, and the first result
+encoded as plain JSON. On the server
 that read it, `query.data` also holds the logical first result; it is not
 enumerable, so no transport carries it, and its type is optional for that
 reason. `realtimeData(query)` answers the first result on either side.
 
 `{ initialData: false }` answers a renewal — `{ kind, sealed, plan }` — with
-no database read:
+no database read (unless the client has `query` handlers, see
+[Permissions](#permissions)):
 
 ```ts
 await db.post.findManyRealtime(args, { initialData: false });
 ```
+
+## Permissions
+
+A [`permissions()`](/docs/extensions/permissions) client reads live through
+`$as`. Extend with `permissions()` first: `neonRealtime()` after it, never
+before (`$extends` refuses `rows` after model methods).
+
+```ts
+const db = base.$extends(policy).$extends(neonRealtime({ realtime }));
+const query = await db.$as(actor, scopes).post.findManyRealtime(args);
+```
+
+The sealed SQL is the permission-filtered statement the ordinary read runs:
+its `rows` predicates, relation and `$exists` checks, `$row` references and
+actor values all stay live. A forbidden read rejects with the same
+`ForbiddenError`, and every renewal is admitted again for the actor you bind.
+`query` handlers (`permissions()` installs one) only ever see the read's own
+result, so through them a renewal reads it once too. A handler that answers
+without running the read, or replaces its result, is refused.
+
+A read-gated field can be filtered, ordered, aggregated and grouped on: the
+SQL masks it. Projecting it is refused, since the live row would carry the
+withheld value; leave it out with `omit` or `select`.
 
 ## Subscribe in the browser
 
@@ -106,15 +131,19 @@ import { realtimeData } from "viborm/neon-realtime/client";
 const initial = realtimeData(query); // Dates, Decimals, bigints restored
 ```
 
+The browser entry carries its own `Decimal` class and exports it: a decimal
+decoded there is an instance of `Decimal` from `viborm/neon-realtime/client`,
+not of the one `viborm` exports.
+
 ## Limitations
 
 - **PostgreSQL only**, on the Neon database Realtime watches.
 - **Refused reads.** A live read is refused, by name, where the sealed SQL
-  alone cannot reproduce its answer: a client with `query` handlers (including
-  `cache()` and `permissions()`), statement transforms, computed `result`
-  fields, a read inside `$transaction`, field read gates, and recursive
-  relations whose selection, or the row holding them, leaves the key fields
-  out (the live result names recursive rows by key).
+  alone cannot reproduce its answer: a `query` handler that does not pass
+  the read's own result through, statement transforms, computed `result`
+  fields, a read inside `$transaction`, and a projected read-gated field. A
+  `$withCache()` view has no live reads. Recursive relations are live, keys
+  selected or not: the live rows name nodes by position, never by key.
 - **No database authorization.** Realtime runs the sealed SQL as one role,
   without row-level security: a `neon-http` client configured with `authToken`
   is refused, and a restricted database role your server uses is not
