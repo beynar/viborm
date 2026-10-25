@@ -16,7 +16,11 @@ import type { MigrationStorageReader } from "./storage/contract";
 import type { SchemaSnapshot } from "./types";
 import { exactObject, refuse } from "./v1-parse-shared";
 import { encodeSnapshot, parseSnapshotDocument } from "./v1-parse-snapshot";
-import type { SnapshotChangeV1, SnapshotDeltaV1 } from "./v1-types";
+import type {
+  SnapshotChangeV1,
+  SnapshotDeltaFormat,
+  SnapshotDeltaV1,
+} from "./v1-types";
 
 export const MAX_SNAPSHOT_DELTA_DEPTH = 32;
 
@@ -69,11 +73,24 @@ function corrupt(message: string): never {
   throw new MigrationError(message, VibORMErrorCode.MIGRATION_CORRUPTION);
 }
 
-function parseChange(value: unknown): SnapshotChangeV1 {
-  if (!isRecord(value) || (value.op !== "set" && value.op !== "remove")) {
-    refuse("snapshot delta change must set or remove a path");
+function parseChange(
+  value: unknown,
+  format: SnapshotDeltaFormat
+): SnapshotChangeV1 {
+  const inserts = format === "snapshot-delta-2";
+  if (
+    !isRecord(value) ||
+    (value.op !== "set" &&
+      value.op !== "remove" &&
+      !(inserts && value.op === "insert"))
+  ) {
+    refuse(
+      inserts
+        ? "snapshot delta change must set, insert or remove a path"
+        : "snapshot delta change must set or remove a path"
+    );
   }
-  const keys = value.op === "set" ? ["op", "path", "value"] : ["op", "path"];
+  const keys = value.op === "remove" ? ["op", "path"] : ["op", "path", "value"];
   const record = exactObject(value, keys, keys, "snapshot delta change");
   if (!Array.isArray(record.path) || record.path.length === 0) {
     refuse("snapshot delta path must be a non-empty array");
@@ -90,9 +107,9 @@ function parseChange(value: unknown): SnapshotChangeV1 {
       "snapshot delta path segments must be strings or nonnegative safe integers"
     );
   });
-  return value.op === "set"
-    ? { op: "set", path, value: record.value }
-    : { op: "remove", path };
+  return value.op === "remove"
+    ? { op: "remove", path }
+    : { op: value.op, path, value: record.value };
 }
 
 function parseDelta(
@@ -102,11 +119,25 @@ function parseDelta(
 ): SnapshotDeltaV1 {
   const keys = ["format", "baseArtifactHash", "snapshotHash", "changes"];
   const record = exactObject(value, keys, keys, "snapshot delta");
-  if (record.format !== "snapshot-delta-1" || !Array.isArray(record.changes)) {
+  const format = record.format;
+  if (
+    typeof format === "string" &&
+    format.startsWith("snapshot-delta-") &&
+    format !== "snapshot-delta-1" &&
+    format !== "snapshot-delta-2"
+  ) {
+    refuse(
+      `snapshot delta format ${format} is not one this engine reads; a newer VibORM may have written it`
+    );
+  }
+  if (
+    (format !== "snapshot-delta-1" && format !== "snapshot-delta-2") ||
+    !Array.isArray(record.changes)
+  ) {
     refuse("snapshot delta format or changes is invalid");
   }
   const delta: SnapshotDeltaV1 = {
-    format: "snapshot-delta-1",
+    format,
     baseArtifactHash: parseSha256(
       record.baseArtifactHash,
       "snapshot delta baseArtifactHash"
@@ -115,7 +146,7 @@ function parseDelta(
       record.snapshotHash,
       "snapshot delta snapshotHash"
     ),
-    changes: record.changes.map(parseChange),
+    changes: record.changes.map((change) => parseChange(change, format)),
   };
   assertCanonicalBytes(bytes, delta, "snapshot delta");
   if (domainHash(HASH_DOMAIN.snapshotDelta, bytes) !== hash) {
@@ -124,12 +155,24 @@ function parseDelta(
   return delta;
 }
 
+type PathLocation =
+  | {
+      readonly kind: "array";
+      readonly container: unknown[];
+      readonly key: number;
+    }
+  | {
+      readonly kind: "object";
+      readonly container: Record<string, unknown>;
+      readonly key: string;
+    };
+
 /** A segment's spelling is interpreted only by its actual container. */
 function pathLocation(
   container: unknown,
   segment: string | number,
   append: boolean
-): { container: object; key: string | number } {
+): PathLocation {
   if (Array.isArray(container)) {
     if (
       typeof segment !== "number" ||
@@ -140,15 +183,19 @@ function pathLocation(
         "snapshot delta array path must name an existing index or append at length"
       );
     }
-    return { container, key: segment };
+    return { kind: "array", container, key: segment };
   }
   if (!isRecord(container) || typeof segment !== "string") {
     refuse("snapshot delta object path must name a string key on an object");
   }
-  return { container, key: segment };
+  return { kind: "object", container, key: segment };
 }
 
-function applyChange(document: unknown, change: SnapshotChangeV1): void {
+function applyChange(
+  document: unknown,
+  change: SnapshotChangeV1,
+  format: SnapshotDeltaFormat
+): void {
   let container = document;
   for (const segment of change.path.slice(0, -1)) {
     const location = pathLocation(container, segment, false);
@@ -163,13 +210,17 @@ function applyChange(document: unknown, change: SnapshotChangeV1): void {
   const location = pathLocation(
     container,
     change.path.at(-1)!,
-    change.op === "set"
+    change.op !== "remove"
   );
-  const target = location.container;
-  const key = location.key;
+  if (change.op === "insert") {
+    if (location.kind !== "array")
+      refuse("snapshot delta insert must name an array index");
+    location.container.splice(location.key, 0, change.value);
+    return;
+  }
   if (change.op === "set") {
     // defineProperty treats __proto__ as a literal key, never a prototype setter.
-    Object.defineProperty(target, key, {
+    Object.defineProperty(location.container, location.key, {
       value: change.value,
       enumerable: true,
       configurable: true,
@@ -177,14 +228,15 @@ function applyChange(document: unknown, change: SnapshotChangeV1): void {
     });
     return;
   }
-  if (!Object.hasOwn(target, key))
+  if (!Object.hasOwn(location.container, location.key))
     refuse("snapshot delta cannot remove a missing property");
-  if (Array.isArray(target)) {
-    if (key !== target.length - 1)
+  if (location.kind === "array") {
+    const { container: array, key: index } = location;
+    if (format === "snapshot-delta-1" && index !== array.length - 1)
       refuse("snapshot delta array removal must remove the final element");
-    target.pop();
+    array.splice(index, 1);
   } else {
-    Reflect.deleteProperty(target, key);
+    Reflect.deleteProperty(location.container, location.key);
   }
 }
 
@@ -199,7 +251,7 @@ function reconstruct(
   );
   // Cached deltas are frozen and shared; set values belong to this document.
   for (const change of structuredClone(delta.changes))
-    applyChange(document, change);
+    applyChange(document, change, delta.format);
   return parseSnapshotDocument(canonicalizeJson(document), delta.snapshotHash);
 }
 
@@ -272,17 +324,124 @@ export async function resolveSnapshotArtifacts(
   return resolved;
 }
 
+/**
+ * An array's element identities when every element has a distinct one: a
+ * record's `name` (tables, columns, indexes, constraints, enums) or the string
+ * itself (enum values, column lists). Otherwise the array diffs by position.
+ */
+function elementKeys(array: readonly unknown[]): string[] | undefined {
+  const keys = new Set<string>();
+  for (const element of array) {
+    let key: string | undefined;
+    if (typeof element === "string") key = `s:${element}`;
+    else if (isRecord(element) && typeof element.name === "string")
+      key = `n:${element.name}`;
+    if (key === undefined || keys.has(key)) return undefined;
+    keys.add(key);
+  }
+  return [...keys];
+}
+
+/**
+ * The before-indexes of the most shared keys that keep their relative order:
+ * with distinct keys, the longest common subsequence is the longest increasing
+ * run of after-positions, found in O(n log n) by patience sorting.
+ */
+function keptInOrder(
+  before: readonly string[],
+  after: readonly string[]
+): Set<number> {
+  const position = new Map(after.map((key, index) => [key, index]));
+  // tails[length - 1] is the before-index ending the lowest run of that length.
+  const tails: number[] = [];
+  const previous = new Map<number, number>();
+  for (const [index, key] of before.entries()) {
+    const target = position.get(key);
+    if (target === undefined) continue;
+    let low = 0;
+    let high = tails.length;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (position.get(before[tails[middle]!]!)! < target) low = middle + 1;
+      else high = middle;
+    }
+    if (low > 0) previous.set(index, tails[low - 1]!);
+    tails[low] = index;
+  }
+  const kept = new Set<number>();
+  for (
+    let index = tails.at(-1);
+    index !== undefined;
+    index = previous.get(index)
+  )
+    kept.add(index);
+  return kept;
+}
+
+/**
+ * Keyed edits leave one element's insertion at one change however many follow
+ * it: drop the elements that are not kept, last first, then insert the new and
+ * moved ones at their final indexes in order, then edit the kept pairs there.
+ */
+function keyedChangesBetween(
+  before: readonly unknown[],
+  after: readonly unknown[],
+  beforeKeys: readonly string[],
+  afterKeys: readonly string[],
+  path: readonly (string | number)[],
+  changes: SnapshotChangeV1[]
+): void {
+  const kept = keptInOrder(beforeKeys, afterKeys);
+  const keptAt = new Map([...kept].map((index) => [beforeKeys[index]!, index]));
+  for (let index = before.length - 1; index >= 0; index--) {
+    if (!kept.has(index))
+      changes.push({ op: "remove", path: [...path, index] });
+  }
+  for (const [index, key] of afterKeys.entries()) {
+    if (!keptAt.has(key))
+      changes.push({
+        op: "insert",
+        path: [...path, index],
+        value: after[index],
+      });
+  }
+  for (const [index, key] of afterKeys.entries()) {
+    const from = keptAt.get(key);
+    if (from !== undefined)
+      changesBetween(
+        before[from],
+        after[index],
+        [...path, index],
+        changes,
+        true
+      );
+  }
+}
+
 function changesBetween(
   before: unknown,
   after: unknown,
   path: readonly (string | number)[],
-  changes: SnapshotChangeV1[]
+  changes: SnapshotChangeV1[],
+  keyed: boolean
 ): void {
   if (canonicalizeJsonText(before) === canonicalizeJsonText(after)) return;
   if (Array.isArray(before) && Array.isArray(after)) {
+    const beforeKeys = keyed ? elementKeys(before) : undefined;
+    const afterKeys = beforeKeys && elementKeys(after);
+    if (beforeKeys && afterKeys) {
+      keyedChangesBetween(before, after, beforeKeys, afterKeys, path, changes);
+      return;
+    }
     const shared = Math.min(before.length, after.length);
     for (let index = 0; index < shared; index++)
-      changesBetween(before[index], after[index], [...path, index], changes);
+      changesBetween(
+        before[index],
+        after[index],
+        [...path, index],
+        changes,
+        keyed
+      );
     for (let index = before.length - 1; index >= after.length; index--)
       changes.push({ op: "remove", path: [...path, index] });
     for (let index = shared; index < after.length; index++)
@@ -294,7 +453,7 @@ function changesBetween(
     }
     for (const key of Object.keys(after).sort()) {
       if (Object.hasOwn(before, key))
-        changesBetween(before[key], after[key], [...path, key], changes);
+        changesBetween(before[key], after[key], [...path, key], changes, keyed);
       else changes.push({ op: "set", path: [...path, key], value: after[key] });
     }
   } else {
@@ -335,30 +494,33 @@ export function encodeSnapshotArtifact(
   for (const baseArtifactHash of bases) {
     const base = artifacts.get(baseArtifactHash)!;
     if (base.depth >= MAX_SNAPSHOT_DELTA_DEPTH) continue;
-    const changes: SnapshotChangeV1[] = [];
-    // Both encoded snapshots are records, so every emitted edit is below the
-    // root; the producer cannot emit the empty path that admission refuses.
-    changesBetween(
-      parseJsonBytes(encodeSnapshot(base.snapshot).bytes, "snapshot base"),
-      desired,
-      [],
-      changes
+    const document = parseJsonBytes(
+      encodeSnapshot(base.snapshot).bytes,
+      "snapshot base"
     );
-    const delta: SnapshotDeltaV1 = {
-      format: "snapshot-delta-1",
-      baseArtifactHash,
-      snapshotHash: full.snapshotHash,
-      changes,
-    };
-    const bytes = canonicalizeJson(delta);
-    if (bytes.length < best.bytes.length) {
-      best = {
-        artifactHash: domainHash(HASH_DOMAIN.snapshotDelta, bytes),
-        snapshotHash: full.snapshotHash,
-        bytes,
-        depth: base.depth + 1,
+    // Keyed edits win on insertions; positional ones still win on an element
+    // renamed in place, which a keyed diff spells as a removal and an insert.
+    for (const keyed of [true, false]) {
+      const changes: SnapshotChangeV1[] = [];
+      // Both encoded snapshots are records, so every emitted edit is below the
+      // root; the producer cannot emit the empty path that admission refuses.
+      changesBetween(document, desired, [], changes, keyed);
+      const delta: SnapshotDeltaV1 = {
+        format: "snapshot-delta-2",
         baseArtifactHash,
+        snapshotHash: full.snapshotHash,
+        changes,
       };
+      const bytes = canonicalizeJson(delta);
+      if (bytes.length < best.bytes.length) {
+        best = {
+          artifactHash: domainHash(HASH_DOMAIN.snapshotDelta, bytes),
+          snapshotHash: full.snapshotHash,
+          bytes,
+          depth: base.depth + 1,
+          baseArtifactHash,
+        };
+      }
     }
   }
   return best;

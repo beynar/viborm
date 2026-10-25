@@ -7,7 +7,9 @@
     // without this the project's own `biome check` cannot be run from the
     // repository root while any agent worktree exists. Only the worktrees are
     // excluded; the rest of `.claude` is tracked and stays checked.
-    "includes": ["!.claude/worktrees"]
+    // An estate written by a released engine is canonical bytes addressed by
+    // their hashes; formatting it would corrupt the history it pins.
+    "includes": ["!.claude/worktrees", "!tests/fixtures/migrations/estate-*"]
   },
   "linter": {
     "rules": {

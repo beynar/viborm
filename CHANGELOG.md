@@ -3,6 +3,35 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## 1.5.0 — 2026-10-25
+
+### Changed
+
+- **Snapshot deltas address named collections by name, so inserting a table,
+  column or enum value mid-list stores one change.** The incremental snapshots
+  of 1.4.0 paired array elements by position: inserting a table in the middle
+  of a schema rewrote every table after it, field by field. A one-table
+  migration of a 59-table schema stored a 68,588-byte delta (795 changes, 78%
+  of the full snapshot); the same migration now stores 1,802 bytes, one
+  `insert`. Tables, columns, indexes, foreign keys, unique constraints, enums,
+  enum values and column lists are matched by name; the elements that keep
+  their order are edited in place, the others removed and inserted where they
+  land. Generation writes the new `snapshot-delta-2` format, with an `insert`
+  change and removals at any array index, and keeps whichever of the keyed and
+  the positional encoding is smaller, so no delta grows. Existing deltas are
+  never rewritten: their bytes are their address and their states' ids.
+
+### Upgrade order
+
+- **Upgrade every reader of an estate before generating with 1.5.0.** VibORM
+  1.5.0 reads the `snapshot-delta-1` artifacts of 1.4.x, but 1.4.x refuses a
+  `snapshot-delta-2` one, with `MIGRATION_INVALID_ESTATE` ("snapshot delta
+  format or changes is invalid") from `check()`, `apply()` and the other
+  commands that load the estate; it never misreads a schema. Every machine
+  that loads the estate (CI, deploys, Durable Objects that apply tenant
+  schemas) needs 1.5.0 before a state is generated with it. A later format
+  is refused by name, as written by a newer VibORM.
+
 ## 1.4.3 — 2026-10-25
 
 ### Fixed

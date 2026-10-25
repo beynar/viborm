@@ -106,7 +106,12 @@ address in `snapshots/`; a state authenticates that address with the optional
 `snapshotArtifactHash`. Without that field it refers to a full document.
 `snapshot-artifacts.ts` alone owns delta admission, literal JSON-path changes,
 iterative reconstruction, representation selection, and dependency depth. A
-delta is storage, never an execution program or a second DDL differ. Resolve
+delta is storage, never an execution program or a second DDL differ.
+Generation writes `snapshot-delta-2` (adds `insert` and removal at any array
+index); `snapshot-delta-1` stays readable and is never rewritten. The reader is
+positional; only the encoder matches named elements (by `name`, or a unique
+string) so a mid-array insertion is one change, and it keeps the smaller of
+the keyed and positional encodings. Resolve
 every distinct physical reference and verify its logical hash against every
 referencing state before effects; do not deduplicate admission by schema hash.
 Patch only independently owned documents. A full document has depth zero;
