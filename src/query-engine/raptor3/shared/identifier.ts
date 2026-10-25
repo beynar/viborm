@@ -23,7 +23,6 @@ import { idDomainOf } from "@schema/validation/id-domains";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
 import type { Sql } from "@sql";
 import {
-  decodePhysicalId,
   describeIdDomain,
   encodePhysicalId,
   type IdDomain,
@@ -104,14 +103,6 @@ export function encodeIdentifier(
     column.domain,
     column.representation
   )!;
-}
-
-/** The public string one physical identifier value stands for, or `undefined`. */
-export function decodeIdentifier(
-  column: IdentifierColumn,
-  value: unknown
-): string | undefined {
-  return decodePhysicalId(value, column.domain, column.representation);
 }
 
 /**

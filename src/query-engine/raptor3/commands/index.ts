@@ -119,8 +119,11 @@ export interface PreparedOperation {
   prepareSingle(
     attribution?: QueryExecutionContext
   ): PreparedBatchOperation<unknown> | undefined;
-  /** The read admitted here, compiled again over a row transport's adapter. */
-  exportRead(adapter: DatabaseAdapter): Read;
+  /**
+   * The read admitted here, compiled again over a row transport's adapter,
+   * with `instant` in place of the call's (a live read has none).
+   */
+  exportRead(adapter: DatabaseAdapter, instant: () => Date): Read;
 }
 
 class PreparedCommand implements PreparedOperation {
@@ -205,7 +208,7 @@ class PreparedCommand implements PreparedOperation {
     ).read(this.#model, this.#operation, this.args));
   }
 
-  exportRead(adapter: DatabaseAdapter): Read {
+  exportRead(adapter: DatabaseAdapter, instant: () => Date): Read {
     // The scope `domain.reads` answers, over the transport's adapter.
     const scope = this.#scope;
     return new Queries(
@@ -213,7 +216,7 @@ class PreparedCommand implements PreparedOperation {
       adapter,
       undefined,
       scope?.domain,
-      scope?.rows.values === undefined ? undefined : scope
+      scope?.rows.values === undefined ? undefined : { ...scope, instant }
     ).read(this.#model, this.#operation as ReadOperation, this.args);
   }
 

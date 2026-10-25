@@ -63,7 +63,7 @@ export interface RoutedCandidateOperation {
    */
   buildStatement(): Sql | undefined;
   /** This read compiled again over a row transport's adapter (Neon Realtime). */
-  exportRead(adapter: DatabaseAdapter): Read;
+  exportRead(adapter: DatabaseAdapter, instant: () => Date): Read;
   cacheResultCodec(): CacheResultCodec;
   /**
    * The prepared package when this operation prepares to it synchronously —
@@ -159,8 +159,8 @@ class RoutedOperation implements RoutedCandidateOperation {
     return this.#prepared.read?.statement;
   }
 
-  exportRead(adapter: DatabaseAdapter): Read {
-    return this.#prepared.exportRead(adapter);
+  exportRead(adapter: DatabaseAdapter, instant: () => Date): Read {
+    return this.#prepared.exportRead(adapter, instant);
   }
 
   cacheResultCodec(): CacheResultCodec {

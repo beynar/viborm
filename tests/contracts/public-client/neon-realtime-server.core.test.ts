@@ -38,6 +38,7 @@ const READ_GATES = /read-gated field's projection/;
 const POINT = /point projection/;
 const VECTOR = /vector projection/;
 const DISTANCE = /`_distance` projection/;
+const NOW = /`\{ now: true \}` predicate/;
 
 class RecordingDriver extends SqlOnlyDriver {
   readonly statements: string[] = [];
@@ -83,7 +84,13 @@ const kit = s.model({
     .references("id"),
   children: s.toMany(() => kit),
 });
-const schema = { post, place, doc, kit };
+// Field names the projection shape also uses as its own keys.
+const odd = s.model({
+  id: s.string().id(),
+  scalar: s.string(),
+  gated: s.int(),
+});
+const schema = { post, place, doc, kit, odd };
 
 const sealed: RawSqlQuery<unknown>[] = [];
 const realtime = {
@@ -222,6 +229,7 @@ describe("Neon Realtime server reads", () => {
               tags: true,
             },
           },
+          children: { recurse: { depth: 2 }, select: { count: true } },
         },
       },
       { initialData: false }
@@ -230,6 +238,16 @@ describe("Neon Realtime server reads", () => {
     expect(sql).not.toMatch(JSON_FUNCTIONS);
     // A non-finite double is a JSON string, as the ordinary read carries it.
     expect(sql).toContain("IN ('NaN', 'Infinity', '-Infinity')");
+    // Recursive rows are named by their ordinal among the reached keys.
+    expect(sql).toContain('"0viborm_node"');
+  });
+
+  it("reads fields named like the shape's own keys", async () => {
+    const { db, driver } = live();
+    driver.rows = [{ id: "o1", scalar: "S", gated: 1 }];
+    const query = await db.odd.findManyRealtime();
+    expect(query.data).toEqual([{ id: "o1", scalar: "S", gated: 1 }]);
+    expect(realtimeData(JSON.parse(JSON.stringify(query)))).toEqual(query.data);
   });
 
   it("rejects exactly like the ordinary read", async () => {
@@ -419,6 +437,23 @@ describe("Neon Realtime through permissions()", () => {
       ada.place.findManyRealtime(undefined, { initialData: false })
     ).rejects.toBeInstanceOf(ForbiddenError);
     await expect(ada.place.findMany()).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it("refuses a `{ now: true }` predicate, which sealing would freeze", async () => {
+    const { base } = live();
+    const ada = base
+      .$extends(
+        permissions({
+          actor: v.object({ id: v.string() }),
+          models: { post: { read: { createdAt: { lt: { now: true } } } } },
+        })
+      )
+      .$extends(neonRealtime({ realtime }))
+      .$as({ id: "ada" });
+    for (const initialData of [true, false])
+      await expect(
+        ada.post.findManyRealtime(undefined, { initialData })
+      ).rejects.toThrow(NOW);
   });
 
   it("follows permissions(), and a cached view has no live reads", () => {

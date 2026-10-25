@@ -11,6 +11,7 @@ import {
 import { readArrayLiteralText } from "../adapters/databases/postgres/array-literal";
 import { NotFoundError } from "../errors/query";
 import { ProjectionDecoder } from "../query-engine/result/projection-decoder";
+import type { Leaf } from "../query-engine/result/projection-shape";
 import { publishReadResult } from "../query-engine/result/read-publication";
 import { READ_ORDINAL_RESULT_KEY } from "../query-engine/result-aliases";
 import {
@@ -64,21 +65,27 @@ const parsers = defineParsers({
 });
 
 /** A carried list arrives as its array text, whose members are PostgreSQL text. */
-const listReader = (type: string) => (value: unknown) => {
-  const members =
-    typeof value === "string" ? readArrayLiteralText(value) : undefined;
-  if (members === undefined) return value;
-  return type === "boolean"
-    ? members.map((member) => (member === null ? null : member === "t"))
-    : members;
-};
+class TransportDecoder extends ProjectionDecoder {
+  protected override compileList(leaf: Leaf, internal: boolean) {
+    const read = super.compileList(leaf, internal);
+    return (value: unknown) => {
+      const members =
+        typeof value === "string" ? readArrayLiteralText(value) : undefined;
+      if (members === undefined) return read(value);
+      return read(
+        leaf.type === "boolean"
+          ? members.map((member) => (member === null ? null : member === "t"))
+          : members
+      );
+    };
+  }
+}
 
 /** The read's value from Neon's rows: ranked, decoded and published as the ordinary read does. */
 function publisher(plan: Plan) {
-  const decoder = new ProjectionDecoder({
+  const decoder = new TransportDecoder({
     result: { enumListRepresentation: "arrayText" },
     integerSum: false,
-    listReader,
   });
   const rank = (row: TransportRow) => Number(row[READ_ORDINAL_RESULT_KEY]);
   return (rows: readonly TransportRow[]) => {

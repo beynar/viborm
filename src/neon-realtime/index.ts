@@ -69,7 +69,10 @@ const READS = [
   "groupBy",
 ] as const satisfies readonly CacheableOperations[];
 
-/** `{ initialData: false }` renews a capability without reading the database. */
+/**
+ * `{ initialData: false }` renews a capability without a result: the database
+ * is read only where query handlers (`permissions()`) need the read's own.
+ */
 export interface RealtimeReadOptions<Initial extends boolean> {
   readonly initialData?: Initial;
 }
@@ -175,16 +178,18 @@ function describe(
   shape: Read["query"]["shape"]
 ): Parameters<typeof realtimeEnvelope>[1]["shape"] {
   return JSON.parse(
+    // Keys also name model fields, so each node is judged by its `kind`.
     JSON.stringify(shape, (key, value) => {
-      if (key === "scalar") return;
-      // Its row carries the withheld value: only the decoder leaves it out.
-      if (key === "gated") refuse("a read-gated field's projection");
       if (key === "_distance") refuse("a `_distance` projection");
-      if (value?.type === "point" || value?.type === "vector")
+      if (value?.kind === "recursive") return { ...value, identity: ORDINAL };
+      // Its row carries the withheld value: only the decoder leaves it out.
+      if (value?.kind === "object" && value.gated)
+        refuse("a read-gated field's projection");
+      if (value?.kind !== "scalar") return value;
+      if (value.type === "point" || value.type === "vector")
         refuse(`a ${value.type} projection (PostGIS/pgvector functions)`);
-      return value?.kind === "recursive"
-        ? { ...value, identity: ORDINAL }
-        : value;
+      const { scalar: _declared, ...leaf } = value;
+      return leaf;
     })
   );
 }
@@ -209,7 +214,10 @@ function exportRead(
     refuse("a read inside a transaction");
   if (chain?.statement.length) refuse("a read through statement transforms");
   if (options.finishResult) refuse("computed result fields");
-  const read = routed.exportRead(adapter);
+  // Sealed once, the call's instant would never move.
+  const read = routed.exportRead(adapter, () =>
+    refuse("a `{ now: true }` predicate")
+  );
   const { sql } = read.query;
   return {
     plan: {
@@ -242,7 +250,8 @@ function methods(
         // The ordinary read's own lifecycle (admission, query handlers,
         // observers), with the export in place of its execution, and its
         // result where asked for. Query handlers (`permissions()`) only ever
-        // see that result, so a renewal through them reads it too.
+        // see that result, so a renewal through them reads it too: a handler
+        // that keeps what it sees (a memo) never keeps a missing result.
         const data = await exportPendingRead(
           delegate[operation]!(args) as PendingOperation<unknown>,
           async (...context) => {

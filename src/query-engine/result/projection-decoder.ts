@@ -50,8 +50,6 @@ export interface DecoderBinding {
   readonly integerSum: boolean;
   /** A PHYSICAL scalar slot's provider continuation. */
   readonly fieldReader?: (type: string) => Reader;
-  /** A list whose container arrives as array text (a live transport's carried list). */
-  readonly listReader?: (type: string) => Reader;
 }
 
 const freeze = Object.freeze;
@@ -1003,12 +1001,11 @@ export class ProjectionDecoder {
    * returned list. The reader runs after the NULL and absence checks and the
    * provider continuation, and each member is a carried value.
    */
-  private compileList(leaf: Leaf, internal: boolean): Reader {
-    const container = this.#binding.listReader?.(leaf.type);
+  protected compileList(leaf: Leaf, internal: boolean): Reader {
     if (leaf.type === "decimal")
       return (value) => {
         const members = decodeDecimalList(
-          container ? container(value) : value,
+          value,
           leaf.decimal!,
           internal,
           this.#binding.result
@@ -1028,8 +1025,7 @@ export class ProjectionDecoder {
     const readMember = this.compileScalar(member, internal);
     const arrayText =
       this.#binding.result.enumListRepresentation === "arrayText";
-    return (input) => {
-      const value = container ? container(input) : input;
+    return (value) => {
       const items: unknown =
         typeof value !== "string"
           ? value
