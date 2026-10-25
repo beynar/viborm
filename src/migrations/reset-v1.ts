@@ -253,9 +253,16 @@ export async function resetV1(
         : prepared;
       // The statements this command runs, as apply hands its path over: the
       // dialect refuses what they would lose (S11, T5a, Neki) before effects.
+      // The source is the marker's state where this estate holds it; a marker
+      // it does not (a history replaced by a fresh one, `markerState:
+      // "unknown"`) has no snapshot here, and the clear drops what the live
+      // inventory names, as the dry run plans it.
+      const source = marker?.stateId ?? null;
       await command.preflightSchemaRequirements(
         [
-          requireStateSnapshot(graph, marker?.stateId ?? null),
+          ...(source === null || graph.states.has(source)
+            ? [requireStateSnapshot(graph, source)]
+            : []),
           ...path.map((stateId) => requireStateSnapshot(graph, stateId)),
         ],
         (sql, params) => pinned._executeRaw(sql, params),
@@ -332,10 +339,16 @@ function matchingResetPlan(
 ): ResetPlanV1 {
   const targetState = graph.states.get(target);
   const plan = attempt.resetPlan;
+  // A source this estate holds fixes the plan's fingerprint; a foreign one (a
+  // history replaced by a fresh one) does not, and the plan's own record of
+  // the marker is what `resetSourceMarkerMatches` proves the live marker
+  // still is.
   const sourceSnapshotHash =
     attempt.fromState === null
       ? graph.emptySnapshotHash
-      : graph.states.get(attempt.fromState)?.snapshotHash;
+      : graph.states.has(attempt.fromState)
+        ? graph.states.get(attempt.fromState)!.snapshotHash
+        : plan?.sourceFingerprint;
   if (
     !(targetState && plan) ||
     attempt.direction !== "reset" ||
