@@ -15,6 +15,7 @@
  * ONE operation owner rather than a selectable alternative.
  */
 
+import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { officialCacheRuntime } from "@cache/capability";
 import type { Operations } from "@client/types";
 import type { AnyDriver, QueryExecutionContext } from "@drivers/exports";
@@ -26,6 +27,7 @@ import type { CacheResultCodec } from "../../cache-flow";
 import type { PreparedBatchOperation } from "../../types";
 import { createCommandEngine, type PreparedOperation } from "../commands";
 import type { WriteOutcomeSeam } from "../shared/operation-context";
+import type { Read } from "../shared/query";
 import type { CallRows } from "../shared/row-scope";
 import type { ResolvedSchemaViews } from "../shared/schema";
 
@@ -60,6 +62,8 @@ export interface RoutedCandidateOperation {
    * driver-prepared queries rather than an `Sql`.
    */
   buildStatement(): Sql | undefined;
+  /** This read compiled again over a row transport's adapter (Neon Realtime). */
+  exportRead(adapter: DatabaseAdapter, instant: () => Date): Read;
   cacheResultCodec(): CacheResultCodec;
   /**
    * The prepared package when this operation prepares to it synchronously —
@@ -153,6 +157,10 @@ class RoutedOperation implements RoutedCandidateOperation {
 
   buildStatement(): Sql | undefined {
     return this.#prepared.read?.statement;
+  }
+
+  exportRead(adapter: DatabaseAdapter, instant: () => Date): Read {
+    return this.#prepared.exportRead(adapter, instant);
   }
 
   cacheResultCodec(): CacheResultCodec {

@@ -104,6 +104,22 @@ function assertWorkerSafeBuiltGraph(exportNames) {
 // `viborm/permissions` governs a Worker's client too: its graph is held to the same rule.
 assertWorkerSafeBuiltGraph([".", "./schema", "./d1", "./permissions"]);
 
+// The browser half is one self-contained file: it imports only the browser
+// SDK, never a driver, the SQL compiler or the server SDK.
+const realtimeClientFile = resolve(
+  repositoryRoot,
+  packageJson.exports["./neon-realtime/client"].import
+);
+const realtimeClientImports = [
+  ...readFileSync(realtimeClientFile, "utf8").matchAll(staticModuleSpecifier),
+].map((match) => match[1]);
+if (realtimeClientImports.join() !== "@neon/realtime/client") {
+  throw new Error(
+    `viborm/neon-realtime/client imports ${realtimeClientImports.join(", ")}`
+  );
+}
+assertWorkerSafeBuiltGraph(["./neon-realtime/client"]);
+
 function requireRuntimeFunction(exportName, member) {
   const namespace = runtimeExports.get(exportName);
   if (typeof namespace?.[member] !== "function") {
@@ -121,6 +137,8 @@ function requireRuntimeAbsence(exportName, member) {
 }
 
 requireRuntimeFunction(".", "defineExtension");
+requireRuntimeFunction("./neon-realtime", "neonRealtime");
+requireRuntimeFunction("./neon-realtime/client", "subscribe");
 for (const member of [
   "getOperationPayloadSchema",
   "renderOperationResultType",

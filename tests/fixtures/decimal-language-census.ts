@@ -100,7 +100,14 @@ const DECIMAL_FACTORY_OWNER = "src/schema/scalars/decimal/scalar.ts";
 const DECIMAL_PUBLIC_BUILDER_OWNER = "src/schema/index.ts";
 const SCALAR_TYPE_OWNER = "src/schema/scalars/common.ts";
 const DECIMAL_OPERATION_SCHEMA_OWNER = "src/validation/scalars/decimal.ts";
-const ADMITTED_DECIMAL_EXPORT_OWNER = "src/index.ts";
+/**
+ * The entries that publish the class: the root, and the Neon Realtime browser
+ * entry, a self-contained build that carries (and exports) its own copy.
+ */
+const ADMITTED_DECIMAL_EXPORT_OWNERS: ReadonlySet<string> = new Set([
+  "src/index.ts",
+  "src/neon-realtime/client.ts",
+]);
 const DECIMAL_CODEC_MODULE = "@validation/primitives/decimal-codec";
 /**
  * The one module that declares and exports the `Decimal` CLASS, and the
@@ -123,7 +130,7 @@ const namesDecimalValueModule = (specifier: string): boolean =>
 /** The modules that legitimately import the class at RUNTIME, not as a type. */
 const DECIMAL_VALUE_RUNTIME_IMPORTERS: ReadonlySet<string> = new Set([
   DECIMAL_DESCRIPTOR_OWNER,
-  ADMITTED_DECIMAL_EXPORT_OWNER,
+  ...ADMITTED_DECIMAL_EXPORT_OWNERS,
 ]);
 const DECIMAL_SOURCE_PATH = /(?:^|\/)decimal(?:-[^/]*)?\.(?:[cm]?[jt]sx?)$/;
 const DECIMAL_IDENTIFIER_TOKEN = /^(?:decimal(?:[A-Z_]|$)|Decimal)/;
@@ -1390,7 +1397,7 @@ export function ormOwnedDecimalWrapperEntries(
             (element.name.text === "Decimal" ||
               element.propertyName?.text === "Decimal")
         );
-      if (file !== ADMITTED_DECIMAL_EXPORT_OWNER) {
+      if (!ADMITTED_DECIMAL_EXPORT_OWNERS.has(file)) {
         if (exportsDecimalJs || exportsNamedDecimal) {
           add(counts, "decimalConstructorExport");
         }
@@ -1417,7 +1424,7 @@ export function ormOwnedDecimalWrapperEntries(
       }
     }
     if (
-      file !== ADMITTED_DECIMAL_EXPORT_OWNER &&
+      !ADMITTED_DECIMAL_EXPORT_OWNERS.has(file) &&
       ts.isExportAssignment(node) &&
       ts.isIdentifier(node.expression) &&
       node.expression.text === "Decimal"
@@ -1426,7 +1433,7 @@ export function ormOwnedDecimalWrapperEntries(
     }
   });
   if (
-    file === ADMITTED_DECIMAL_EXPORT_OWNER &&
+    ADMITTED_DECIMAL_EXPORT_OWNERS.has(file) &&
     admittedConstructorExports !== 1
   ) {
     add(counts, "decimalConstructorExportCount");
@@ -1770,7 +1777,10 @@ export function collectDecimalLanguageCensus(
       secondDecimalMode.push(...secondDecimalModeEntries(owner, ""));
     }
   }
-  for (const owner of [ADMITTED_DECIMAL_EXPORT_OWNER, DECIMAL_VALUE_OWNER]) {
+  for (const owner of [
+    ...ADMITTED_DECIMAL_EXPORT_OWNERS,
+    DECIMAL_VALUE_OWNER,
+  ]) {
     if (!sourceFiles.includes(owner)) {
       ormOwnedWrapper.push(...ormOwnedDecimalWrapperEntries(owner, ""));
     }

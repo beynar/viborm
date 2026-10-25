@@ -1,7 +1,10 @@
+import type { DatabaseAdapter } from "@adapters/database-adapter";
 import type { Operations } from "@client/types";
 import type { QueryExecutionContext } from "@drivers/types";
 import { NotFoundError } from "@errors";
 import type { Sql } from "@sql";
+import type { Leaf, ProjectionShape } from "../../result/projection-shape";
+import { publishReadResult } from "../../result/read-publication";
 import { baseOperation } from "../../routed-operations";
 import type { PreparedBatchOperation } from "../../types";
 import {
@@ -9,7 +12,7 @@ import {
   OperationContext,
 } from "../shared/operation-context";
 import { admitProjected } from "../shared/projected";
-import type { Leaf, ProjectionShape, Read } from "../shared/query";
+import type { Read } from "../shared/query";
 import { PreparedDomain, Queries } from "../shared/query";
 import {
   type CallRows,
@@ -24,6 +27,7 @@ import {
   isReadOperation,
   memo,
   type Operation,
+  type ReadOperation,
 } from "../shared/schema";
 import { Commands, type PhysicalPlan } from "./commands";
 
@@ -79,7 +83,7 @@ function publishedFacts(value: Read): PreparedRead {
     shape: value.query.shape,
     value: value.value,
     single: value.single,
-    empty: value.result([]),
+    empty: publishReadResult([], value.rule),
     statement: value.query.sql,
   };
 }
@@ -115,6 +119,11 @@ export interface PreparedOperation {
   prepareSingle(
     attribution?: QueryExecutionContext
   ): PreparedBatchOperation<unknown> | undefined;
+  /**
+   * The read admitted here, compiled again over a row transport's adapter,
+   * with `instant` in place of the call's (a live read has none).
+   */
+  exportRead(adapter: DatabaseAdapter, instant: () => Date): Read;
 }
 
 class PreparedCommand implements PreparedOperation {
@@ -197,6 +206,18 @@ class PreparedCommand implements PreparedOperation {
     return (this.#prepared ??= (
       this.#scope?.domain.reads(this.#scope) ?? this.#queries
     ).read(this.#model, this.#operation, this.args));
+  }
+
+  exportRead(adapter: DatabaseAdapter, instant: () => Date): Read {
+    // The scope `domain.reads` answers, over the transport's adapter.
+    const scope = this.#scope;
+    return new Queries(
+      this.#queries.schema,
+      adapter,
+      undefined,
+      scope?.domain,
+      scope?.rows.values === undefined ? undefined : { ...scope, instant }
+    ).read(this.#model, this.#operation as ReadOperation, this.args);
   }
 
   get read(): PreparedRead | undefined {

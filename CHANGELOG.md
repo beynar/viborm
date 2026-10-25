@@ -3,6 +3,25 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## Unreleased
+
+### Added
+
+- **Live reads through Neon Realtime.** `viborm/neon-realtime` adds
+  `findManyRealtime`, `findFirstRealtime`, `findUniqueRealtime`, both
+  `OrThrow` variants, `countRealtime`, `existRealtime`, `aggregateRealtime`
+  and `groupByRealtime` to every model: the ordinary read's arguments and
+  result type, sealed for Neon Realtime with the first result as plain JSON.
+  `viborm/neon-realtime/client` subscribes in the browser and publishes the
+  ordinary read's value on every change. PostgreSQL only; `@neon/realtime` is
+  an optional peer. `permissions()` clients read live through `$as` (extend
+  with `permissions()` first), and recursive relations are live whether or
+  not they select their keys. Reads the sealed SQL cannot reproduce (query
+  handlers that replace the result, statement transforms, result fields,
+  transactions, `{ now: true }` predicates, projected read-gated fields,
+  PostGIS and pgvector projections) are refused by name. The browser entry carries its own
+  `Decimal`, which it exports.
+
 ## 1.4.2 — 2026-10-25
 
 Two D1 and Neon HTTP bugs older than 1.4.0, left open by its adversarial

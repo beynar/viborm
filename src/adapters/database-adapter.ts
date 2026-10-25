@@ -488,8 +488,27 @@ export interface DatabaseAdapter {
      * JSON value as built here (`object`, `array`): one read back through a
      * subquery column goes through `document` first, which SQLite needs to
      * keep it a JSON value rather than a quoted string.
+     *
+     * `rankedPage` names the subquery whose rows carry their rank
+     * (`QueryParts.ranked`): only a row transport's adapter (Neon Realtime)
+     * reads it, to keep the page's order without relying on input order.
      */
-    agg: (expr: Sql) => Sql;
+    agg: (expr: Sql, rankedPage?: string) => Sql;
+    /**
+     * A row transport's own spelling of one scalar as JSON text (Neon
+     * Realtime, whose SQL admits no JSON builder); absent elsewhere.
+     */
+    carry?: (
+      leaf: { readonly type: string; readonly list?: boolean },
+      value: Sql
+    ) => Sql;
+    /**
+     * A row transport's name for one recursive carrier row, in place of its
+     * key (`key` is `root`'s own array for the root): an ordinal among the
+     * `nodes` select's keys, so no key the projection omits leaves the
+     * database. Absent elsewhere.
+     */
+    identity?: (key: readonly Sql[], root: readonly Sql[], nodes: Sql) => Sql;
     /** Build JSON object from explicit column list (works on all databases) */
     objectFromColumns: (columns: [string, Sql][]) => Sql;
     /**

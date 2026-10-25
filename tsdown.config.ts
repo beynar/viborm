@@ -26,6 +26,11 @@ const runtime = {
     postgres: "./src/drivers/postgres/index.ts",
     pglite: "./src/drivers/pglite/index.ts",
     "neon-http": "./src/drivers/neon-http/index.ts",
+
+    // Neon Realtime (viborm/neon-realtime): the server extension, and the
+    // browser half, which reaches no driver or SQL compiler.
+    "neon-realtime": "./src/neon-realtime/index.ts",
+    "neon-realtime/client": "./src/neon-realtime/client.ts",
     "bun-sql": "./src/drivers/bun-sql/index.ts",
 
     // MySQL drivers (viborm/mysql2, viborm/planetscale)
@@ -112,6 +117,8 @@ const runtime = {
     "@cloudflare/workers-types",
     "@opentelemetry/api",
     "@neondatabase/serverless",
+    "@neon/realtime/client",
+    "@neon/realtime/server",
     "@planetscale/database",
     "@libsql/client",
     "mysql2",
@@ -241,10 +248,24 @@ const declarationExportKinds: Rolldown.Plugin = {
   },
 };
 
-const { "soft-delete": softDelete, ...runtimeEntries } = runtime.entry;
+const {
+  "soft-delete": softDelete,
+  "neon-realtime/client": realtimeClient,
+  ...runtimeEntries
+} = runtime.entry;
 
 export default defineConfig([
   { ...runtime, entry: runtimeEntries },
+  // The Neon Realtime browser half is one self-contained file, with its own
+  // Decimal copy: it shares no chunk with the server builds. Its map, which
+  // embeds every source it copies, would put the release over its byte budget.
+  {
+    ...runtime,
+    entry: { "neon-realtime/client": realtimeClient },
+    clean: false,
+    sourcemap: false,
+    outputOptions: { keepNames: false },
+  },
   {
     ...runtime,
     entry: { "soft-delete": softDelete },

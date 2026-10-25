@@ -127,7 +127,7 @@ export function decodeDecimalScalar(
   descriptor: DecimalDescriptor,
   widened: boolean,
   internal: boolean,
-  result: ResultContract
+  result: Pick<ResultContract, "decimalRepresentation">
 ): unknown {
   const representation = result.decimalRepresentation ?? "text";
   if (widened)
@@ -144,7 +144,7 @@ export function decodeDecimalList(
   value: unknown,
   descriptor: DecimalDescriptor,
   internal: boolean,
-  result: ResultContract
+  result: Pick<ResultContract, "decimalListRepresentation">
 ): unknown[] | undefined {
   const members = decodePhysicalDecimalList(
     value,

@@ -14,11 +14,12 @@ import {
   type ResolvedSlot,
 } from "@schema/validation/relation-resolution";
 import { createResolvedSchemaRegistry } from "@validation/builder";
-import type { NormalizedRecurrence } from "@validation/relations/recurrence";
+import type { NormalizedRecurrence } from "@validation/relations/recurrence-values";
 import type { VibSchema } from "@validation/types";
 import { isRecord } from "@validation/value-guards";
+import type { Leaf } from "../../result/projection-shape";
 import { parseValidated, upsertEnvelopeSchema } from "./parse-boundary";
-import type { Leaf, PreparedProjection } from "./query";
+import type { PreparedProjection } from "./query";
 import {
   buildMembershipView,
   buildPhysicalFieldView,

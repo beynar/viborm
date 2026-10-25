@@ -74,6 +74,9 @@ importers:
       '@libsql/client':
         specifier: 0.18.0
         version: 0.18.0
+      '@neon/realtime':
+        specifier: 0.1.1
+        version: 0.1.1
       '@neondatabase/serverless':
         specifier: 1.2.0
         version: 1.2.0
@@ -1994,6 +1997,15 @@ packages:
 
   '@neon-rs/load@0.0.4':
     resolution: {integrity: sha512-kTPhdZyTQxB+2wpiRcFWrDcejc4JI6tkPuS7UZCG4l6Zvc5kU/gGQ/ozvHTh1XR5tS+UlfAfGuPajjzQjCiHCw==}
+
+  '@neon/realtime@0.1.1':
+    resolution: {integrity: sha512-YbTaKcq7Vmaw05oEu/1HNbxrtLeHaofnPHptd6QPGZj2M1uZJRJKKrjb+ShH0GpR5fpBlp8S4iZcTW3IsnIoqg==}
+    engines: {node: '>=20.19.0'}
+    peerDependencies:
+      ws: ^8.21.2
+    peerDependenciesMeta:
+      ws:
+        optional: true
 
   '@neondatabase/serverless@1.2.0':
     resolution: {integrity: sha512-tnaqgixUengZQNd9ZrS3ytQfamJzLKY8QxgqWQTNHHtB+KrFQWk77JTbbpg4RD+J3qE4eO2lVytvGDX5Kj6FdQ==}
@@ -9159,6 +9171,10 @@ snapshots:
     optional: true
 
   '@neon-rs/load@0.0.4': {}
+
+  '@neon/realtime@0.1.1':
+    dependencies:
+      postgres-array: 3.0.4
 
   '@neondatabase/serverless@1.2.0': {}
 

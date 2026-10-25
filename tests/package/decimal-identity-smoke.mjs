@@ -1,5 +1,6 @@
 /**
- * The built package publishes exactly ONE Decimal constructor.
+ * The built package publishes exactly ONE Decimal constructor outside the
+ * browser entry.
  *
  * `Decimal` used to be an external dependency, and `tsdown.config.ts` kept it
  * external for one reason: bundling it would have inlined one class per entry
@@ -17,6 +18,10 @@
  *    that one file, so there is one constructor for every entry to share. A
  *    build that inlined a private copy per entry writes the sentence twice and
  *    this goes red.
+ *
+ * The one exception is the browser entry `viborm/neon-realtime/client`: a
+ * self-contained file with its own copy, which it exports. A Decimal it
+ * decodes is an instance of that copy, not of the server entries' Decimal.
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -90,8 +95,9 @@ const walk = (directory) => {
   return found;
 };
 
-const carriers = walk(distRoot).filter((path) =>
-  REFUSAL.test(readFileSync(path, "utf8"))
+const BROWSER_ENTRY = join(distRoot, "neon-realtime", "client.mjs");
+const carriers = walk(distRoot).filter(
+  (path) => path !== BROWSER_ENTRY && REFUSAL.test(readFileSync(path, "utf8"))
 );
 if (carriers.length !== 1) {
   throw new Error(

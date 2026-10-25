@@ -6,6 +6,8 @@
 export const DISTANCE_RESULT_KEY = "0viborm_distance" as const;
 export const RELATION_COUNTS_RESULT_KEY = "0viborm_relation_counts" as const;
 export const EMPTY_ROW_RESULT_KEY = "0viborm_empty_row" as const;
+/** A page's row rank under its ORDER BY, for a transport that loses row order. */
+export const READ_ORDINAL_RESULT_KEY = "0viborm_ordinal" as const;
 /** The `index`-th read gate of one projected row (K5), never published. */
 export const gateResultKey = (index: number): string => `0viborm_gate:${index}`;
 /**

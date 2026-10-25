@@ -1,13 +1,11 @@
 import assert from "node:assert/strict";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { UnsupportedOperationError } from "@errors";
-import {
-  Queries,
-  RecursiveOutputOverBudget,
-} from "@query-engine/raptor3/shared/query";
+import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { RecursiveOutputOverBudget } from "@query-engine/result/projection-decoder";
 import { s } from "@schema";
-import type { NormalizedRecurrence } from "@validation/relations/recurrence";
+import type { NormalizedRecurrence } from "@validation/relations/recurrence-values";
 import { describe, it } from "vitest";
 
 const INVALID_PROVIDER_RECURSIVE_IDENTITY_PATTERN =
