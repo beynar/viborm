@@ -6,6 +6,11 @@ import {
 } from "@src/migrations/snapshot-artifacts";
 import { MemoryEstateStorage } from "@src/migrations/storage/memory";
 import { encodeSnapshot } from "@src/migrations/v1-parse-snapshot";
+import {
+  columnsOf,
+  heterogeneousSchema,
+  heterogeneousTable,
+} from "@tests/fixtures/heterogeneous-snapshot";
 import { test } from "vitest";
 
 test("measure complete incremental snapshot history, including full checkpoints", async () => {
@@ -103,6 +108,98 @@ test("measure complete incremental snapshot history, including full checkpoints"
           "Every schema and logical hash round-tripped; cold reverse-order reconstruction; exact stored-byte count; tiny full fallback",
         exclusions:
           "SQL and state manifests are not included in these snapshot-only byte totals. No database, latency or memory improvement is measured.",
+      },
+      null,
+      2
+    )}\n`
+  );
+});
+
+test("measure mid-array edits on tables that differ: each costs about the element it adds", async () => {
+  const names = Array.from(
+    { length: 60 },
+    (_, index) => `table_${String(index).padStart(2, "0")}`
+  );
+  const base = heterogeneousSchema(names);
+  const bytesOf = (value: unknown) => JSON.stringify(value).length;
+  // The envelope (format and two hashes) and one change's path fit in 400 B.
+  const slack = 400;
+  const inserted = heterogeneousTable("table_29a", columnsOf("table_29a"));
+  const withTable = heterogeneousSchema(names);
+  withTable.tables.splice(30, 0, inserted);
+  const column = { name: "inserted", type: "TEXT", nullable: true };
+  const withColumn = heterogeneousSchema(names);
+  withColumn.tables[10]!.columns.splice(3, 0, column);
+  const withValue = heterogeneousSchema(names);
+  withValue.enums![0]!.values.splice(1, 0, "suggest");
+  const renamed = heterogeneousSchema([
+    ...names.slice(0, 20),
+    "table_19z",
+    ...names.slice(21),
+  ]);
+  const cases = [
+    {
+      scenario: "insert a table mid-array",
+      desired: withTable,
+      ceiling: bytesOf(inserted) + slack,
+    },
+    {
+      scenario: "insert a column mid-table",
+      desired: withColumn,
+      ceiling: bytesOf(column) + slack,
+    },
+    {
+      scenario: "insert an enum value mid-list",
+      desired: withValue,
+      ceiling: slack,
+    },
+    {
+      scenario: "drop the first table",
+      desired: heterogeneousSchema(names.slice(1)),
+      ceiling: slack,
+    },
+    {
+      scenario: "rename a table in place",
+      desired: renamed,
+      ceiling: bytesOf(renamed.tables[20]) + slack,
+    },
+  ];
+  const storage = new MemoryEstateStorage();
+  const root = encodeSnapshot(base);
+  await storage.publishSnapshot(root.snapshotHash, root.bytes);
+  const artifacts = await resolveSnapshotArtifacts(storage, [
+    root.snapshotHash,
+  ]);
+  const measured: Record<string, unknown>[] = [];
+  for (const { scenario, desired, ceiling } of cases) {
+    const encoded = encodeSnapshotArtifact(desired, artifacts, [
+      root.snapshotHash,
+    ]);
+    assert.ok(encoded.bytes);
+    assert.ok(encoded.baseArtifactHash, `${scenario} stores a delta`);
+    await storage.publishSnapshot(encoded.artifactHash, encoded.bytes);
+    const cold = await resolveSnapshotArtifacts(storage, [
+      encoded.artifactHash,
+    ]);
+    assert.deepEqual(cold.get(encoded.artifactHash)!.snapshot, desired);
+    assert.ok(
+      encoded.bytes.length <= ceiling,
+      `${scenario}: ${encoded.bytes.length} B exceeds ${ceiling} B`
+    );
+    measured.push({
+      scenario,
+      fullSnapshotBytes: encodeSnapshot(desired).bytes.length,
+      deltaBytes: encoded.bytes.length,
+      ceiling,
+    });
+  }
+  process.stdout.write(
+    `${JSON.stringify(
+      {
+        schema: "60 tables that differ (columns, types, defaults, constraints)",
+        measured,
+        checks:
+          "Every delta rebuilt cold to its exact schema and stayed under its ceiling",
       },
       null,
       2

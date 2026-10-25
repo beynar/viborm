@@ -115,16 +115,24 @@ export interface MigrationStateManifestV1 {
   readonly parents: readonly MigrationParentTransitionV1[];
 }
 
+/**
+ * `snapshot-delta-1` sets a path, appends at an array's length, or removes a
+ * key or an array's final element. `snapshot-delta-2` adds `insert` at an
+ * array index and lets `remove` take any array index; generation writes only
+ * delta-2, and both stay readable.
+ */
 export type SnapshotChangeV1 =
   | {
-      readonly op: "set";
+      readonly op: "set" | "insert";
       readonly path: readonly (string | number)[];
       readonly value: unknown;
     }
   | { readonly op: "remove"; readonly path: readonly (string | number)[] };
 
+export type SnapshotDeltaFormat = "snapshot-delta-1" | "snapshot-delta-2";
+
 export interface SnapshotDeltaV1 {
-  readonly format: "snapshot-delta-1";
+  readonly format: SnapshotDeltaFormat;
   readonly baseArtifactHash: Sha256;
   readonly snapshotHash: Sha256;
   readonly changes: readonly SnapshotChangeV1[];

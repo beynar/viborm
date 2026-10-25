@@ -1,0 +1,1 @@
+{"baseArtifactHash":"0d23d4415d0cc414ecc2bc10267c708131c6fa10f8b7018fb6f2851363c1c4fd","changes":[{"op":"set","path":["enums",0,"values",1],"value":"mid"},{"op":"set","path":["enums",0,"values",2],"value":"high"}],"format":"snapshot-delta-1","snapshotHash":"0abeec265efce96fa5c6bf431d467df273590434dd515213d6e8c252d498cd88"}

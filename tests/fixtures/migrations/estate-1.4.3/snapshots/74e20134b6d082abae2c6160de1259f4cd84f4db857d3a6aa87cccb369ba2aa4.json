@@ -1,0 +1,1 @@
+{"baseArtifactHash":"0abada3d9e78d10965a1c4240ebc036117b7c3874c548a4385bbb0246387d6f3","changes":[{"op":"set","path":["tables",1,"columns",1,"default"],"value":"1"}],"format":"snapshot-delta-1","snapshotHash":"3c80418e5a7eb9b256c39b4b2779cd8236e53500befb3a313f098ac3aa309d89"}

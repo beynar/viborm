@@ -51,7 +51,7 @@ describe("incremental snapshots on filesystem and live SQLite", () => {
           join(directory, "snapshots", `${manifest.snapshotArtifactHash}.json`),
           "utf8"
         )
-      ).toContain('"snapshot-delta-1"');
+      ).toContain('"snapshot-delta-2"');
       expect(await nextMigrations.check()).toEqual({ ok: true, findings: [] });
       await nextMigrations.apply();
       expect(await nextMigrations.verify()).toEqual({ ok: true });
