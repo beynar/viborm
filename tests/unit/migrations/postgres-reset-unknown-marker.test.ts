@@ -5,7 +5,7 @@
  * carries the old marker; `reanchor()` refuses (the schemas differ), and
  * `reset()` clears and replays. In 1.4.2 its dry run returned a plan and the
  * run refused with MIGRATION_CORRUPTION (V11022), asking the estate for the
- * marker's own snapshot. See `reset-unknown-marker.core.test.ts` (SQLite).
+ * marker's own snapshot. See `reset-unknown-marker.test.ts` (SQLite).
  */
 
 import { createClient } from "@client/client";
