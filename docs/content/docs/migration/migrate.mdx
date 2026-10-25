@@ -770,7 +770,9 @@ Before you prune:
 
 - **Apply the leaf everywhere.** A database still behind the checkpoint's
   schema cannot be re-anchored: `reanchor` refuses with `V11014`. Apply it with
-  the old history first, which `prune` left untouched, then re-anchor.
+  the old history first, which `prune` left untouched, then re-anchor. Where
+  its data can go, [`reset`](#reset) clears it and replays the fresh history
+  instead.
 - **Resolve unfinished attempts.** `reanchor` refuses while one is open, and
   `resolve` needs the states the attempt names.
 - **Generate after the checkpoint from it.** Between the checkpoint and the
@@ -804,6 +806,12 @@ await migrations.reset({ to: { name: "add-users" } });
 Reset drops managed objects, then replays authenticated states. Effectful CLI reset requires `--confirm`. Dry-run reads the actual selected
 physical table inventory, returns it as `tables`, and writes nothing.
 :::
+
+`reset` also works on a database whose marker names a state this estate does
+not hold (`status().markerState` is `"ahead"` or `"unknown"`, say after the
+estate was replaced by a fresh history): what it drops is the live inventory,
+which needs no snapshot of the old state, and its dry run and its run plan the
+same clear and replay. Before 1.4.3 the run refused with `V11022`.
 
 There is no squash or inferred compaction command. History is bounded by an explicitly authored, fully checked direct transition instead: see [Bounded History with Checkpoints](#bounded-history-with-checkpoints).
 

@@ -3,6 +3,24 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## 1.4.3 — 2026-10-25
+
+### Fixed
+
+- **`reset()` works on a database whose marker this estate does not hold.**
+  After an estate was replaced by a fresh history (a new root, no shared
+  states), a database still carrying the old marker (`status().markerState`
+  `"unknown"`, or `"ahead"`) could not be reset: `reset({ dryRun: true })`
+  returned a plan, but `reset()` refused with `MigrationError` V11022, "A
+  selected state is missing its authenticated snapshot"
+  (`MIGRATION_CORRUPTION`), though nothing was corrupt. It asked the estate
+  for the marker's own snapshot, for checks that run on the replay's states;
+  a marker the estate does not hold now contributes none, as in the dry run,
+  and the clear drops the live inventory as planned. A reset of such a marker
+  that was interrupted also resumes: its plan's source (the marker's own
+  revision and snapshot hash) is proved against the live marker, not looked
+  up in the estate.
+
 ## 1.4.2 — 2026-10-25
 
 Two D1 and Neon HTTP bugs older than 1.4.0, left open by its adversarial
