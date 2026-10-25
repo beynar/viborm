@@ -155,12 +155,24 @@ function parseDelta(
   return delta;
 }
 
+type PathLocation =
+  | {
+      readonly kind: "array";
+      readonly container: unknown[];
+      readonly key: number;
+    }
+  | {
+      readonly kind: "object";
+      readonly container: Record<string, unknown>;
+      readonly key: string;
+    };
+
 /** A segment's spelling is interpreted only by its actual container. */
 function pathLocation(
   container: unknown,
   segment: string | number,
   append: boolean
-): { container: object; key: string | number } {
+): PathLocation {
   if (Array.isArray(container)) {
     if (
       typeof segment !== "number" ||
@@ -171,12 +183,12 @@ function pathLocation(
         "snapshot delta array path must name an existing index or append at length"
       );
     }
-    return { container, key: segment };
+    return { kind: "array", container, key: segment };
   }
   if (!isRecord(container) || typeof segment !== "string") {
     refuse("snapshot delta object path must name a string key on an object");
   }
-  return { container, key: segment };
+  return { kind: "object", container, key: segment };
 }
 
 function applyChange(
@@ -200,17 +212,15 @@ function applyChange(
     change.path.at(-1)!,
     change.op !== "remove"
   );
-  const target = location.container;
-  const key = location.key;
   if (change.op === "insert") {
-    if (!Array.isArray(target))
+    if (location.kind !== "array")
       refuse("snapshot delta insert must name an array index");
-    target.splice(key as number, 0, change.value);
+    location.container.splice(location.key, 0, change.value);
     return;
   }
   if (change.op === "set") {
     // defineProperty treats __proto__ as a literal key, never a prototype setter.
-    Object.defineProperty(target, key, {
+    Object.defineProperty(location.container, location.key, {
       value: change.value,
       enumerable: true,
       configurable: true,
@@ -218,14 +228,15 @@ function applyChange(
     });
     return;
   }
-  if (!Object.hasOwn(target, key))
+  if (!Object.hasOwn(location.container, location.key))
     refuse("snapshot delta cannot remove a missing property");
-  if (Array.isArray(target)) {
-    if (format === "snapshot-delta-1" && key !== target.length - 1)
+  if (location.kind === "array") {
+    const { container: array, key: index } = location;
+    if (format === "snapshot-delta-1" && index !== array.length - 1)
       refuse("snapshot delta array removal must remove the final element");
-    target.splice(key as number, 1);
+    array.splice(index, 1);
   } else {
-    Reflect.deleteProperty(target, key);
+    Reflect.deleteProperty(location.container, location.key);
   }
 }
 
