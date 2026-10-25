@@ -257,11 +257,13 @@ const {
 export default defineConfig([
   { ...runtime, entry: runtimeEntries },
   // The Neon Realtime browser half is one self-contained file, with its own
-  // Decimal copy: it shares no chunk with the server builds.
+  // Decimal copy: it shares no chunk with the server builds. Its map, which
+  // embeds every source it copies, would put the release over its byte budget.
   {
     ...runtime,
     entry: { "neon-realtime/client": realtimeClient },
     clean: false,
+    sourcemap: false,
     outputOptions: { keepNames: false },
   },
   {

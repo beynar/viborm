@@ -18,8 +18,8 @@ Versioning.
   with `permissions()` first), and recursive relations are live whether or
   not they select their keys. Reads the sealed SQL cannot reproduce (query
   handlers that replace the result, statement transforms, result fields,
-  transactions, projected read-gated fields, PostGIS and pgvector
-  projections) are refused by name. The browser entry carries its own
+  transactions, `{ now: true }` predicates, projected read-gated fields,
+  PostGIS and pgvector projections) are refused by name. The browser entry carries its own
   `Decimal`, which it exports.
 
 ## 1.4.2 — 2026-10-25

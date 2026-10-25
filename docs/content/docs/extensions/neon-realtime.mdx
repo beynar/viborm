@@ -13,7 +13,7 @@ Dates, Decimals and bigints — every time a committed write changes it.
 It lives in two entry points: `viborm/neon-realtime` (server) and
 `viborm/neon-realtime/client` (browser). Install the optional peer
 `@neon/realtime` (`^0.1.1`). An application that imports neither carries only
-the engine's small transport seams (60–140 B gzip).
+the engine's small transport seams (45–122 B gzip).
 
 ## Setup
 
@@ -82,7 +82,8 @@ actor values all stay live. A forbidden read rejects with the same
 `ForbiddenError`, and every renewal is admitted again for the actor you bind.
 `query` handlers (`permissions()` installs one) only ever see the read's own
 result, so through them a renewal reads it once too. A handler that answers
-without running the read, or replaces its result, is refused.
+without running the read, or replaces its result, is refused. A predicate on
+`{ now: true }` is refused: sealed, its instant would never move.
 
 A read-gated field can be filtered, ordered, aggregated and grouped on: the
 SQL masks it. Projecting it is refused, since the live row would carry the
@@ -141,7 +142,8 @@ not of the one `viborm` exports.
 - **Refused reads.** A live read is refused, by name, where the sealed SQL
   alone cannot reproduce its answer: a `query` handler that does not pass
   the read's own result through, statement transforms, computed `result`
-  fields, a read inside `$transaction`, and a projected read-gated field. A
+  fields, a read inside `$transaction`, a `{ now: true }` predicate and a
+  projected read-gated field. A
   `$withCache()` view has no live reads. Recursive relations are live, keys
   selected or not: the live rows name nodes by position, never by key.
 - **No database authorization.** Realtime runs the sealed SQL as one role,

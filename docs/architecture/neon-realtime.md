@@ -16,8 +16,9 @@ pieces exist and what must stay true.
    too. The exporter refuses what the sealed SQL cannot reproduce, then
    `PreparedCommand.exportRead` compiles the admitted read a second time over
    the transport adapter. With initial data, or with `query` handlers, the
-   exporter then runs the ordinary statement once and answers its result; the
-   transport statement never runs on the server.
+   exporter then runs the ordinary statement once and answers its result (a
+   handler that keeps what it sees, a memo, must never see a missing result);
+   the transport statement never runs on the server.
 3. `realtime.seal` encrypts the transport SQL and its parameters
    (`rawSql`/`pgParam`). The answer is `{ kind, sealed, plan, encoded }`; `plan`
    is the row shape (schema objects stripped) and the read's publication rule,
@@ -49,10 +50,11 @@ scalar's token), `json.identity` (a recursive row's ordinal), the
 `rankedPage` argument of `json.agg`, and `QueryParts.ranked` on the four page
 selects. The ordinary statement is unchanged. Measured with `pnpm size`
 against main 1.4.2, the seams and the decoder extraction cost the bundles
-that never import Neon Realtime +63 B gzip (D1 Worker), +80 B (pg
-application), +79 B (pg + permissions), +71 B (pg + migrations Worker) and
-+140 B ("every public entry", 12 B over its limit); `json.identity` alone is
-13–33 B of that. The browser entry is 23.6 kB gzip, the server entry file
+that never import Neon Realtime +45 B gzip (D1 Worker), +63 B (pg
+application), +58 B (pg + permissions), +53 B (pg + migrations Worker) and
++122 B ("every public entry"); `json.identity` alone is 13–33 B of that. The
+browser's array-text lists stay in the browser (`TransportDecoder` overrides
+`compileList`). The browser entry is 23.6 kB gzip, the server entry file
 2.3 kB.
 
 ## Why an ordinal
@@ -70,14 +72,20 @@ A recursive carrier names its root and nodes by ordinal too, not by key, so a
 projection that leaves its key out ships no key: the root is 0, every other
 reached row 1 + the number of reached keys below its own (`json.identity`; a
 row equal to the root is 0, so a cycle back to it is still one). The plan's
-`identity` becomes one integer leaf.
+`identity` becomes one integer leaf. Each ordinal is a correlated count over
+the reached keys, so a carrier costs Neon work quadratic in its reached rows
+(bounded by `maxOccurrences`) on each change; a join would need the core's
+edge page to change shape.
 
 ## Refusals (one place each)
 
 - Install time (`neonRealtime`): a non-PostgreSQL client; `neon-http` with
   `authToken` (`NeonHTTPDriver.userAuthorized`).
 - `exportRead`, before any execution: a transaction (`TransactionBoundDriver`),
-  statement transforms, computed `result` fields.
+  statement transforms, computed `result` fields; while compiling, a
+  `{ now: true }` predicate (the export's instant refuses: sealed, the instant
+  would never move, and each renewal would bind another, which Neon's
+  fingerprint refuses).
 - After the lifecycle: `query` handlers that did not answer with the
   exporter's own answer (it never ran, or a handler replaced its result).
   That one identity check is the invariant: handlers see only the genuine
@@ -85,10 +93,12 @@ row equal to the root is 0, so a cycle back to it is still one). The plan's
   through. `permissions()` only refuses or proceeds. The official `cache()`
   installs no chain handler; its cached reads live on `$withCache()` views,
   which carry no model methods, so no cached read can wrap the exporter.
-- `describe` (shape walk): a projected read-gated field (its row carries the
-  withheld value; only the decoder drops it — where, orderBy, aggregates and
-  groupBy mask it in the SQL and are live), `_distance`, point and vector
-  projections.
+- `describe` (shape walk, by node `kind`: keys also name model fields): a
+  projected read-gated field (its gate is a boolean of the sealed row, but the
+  value travels beside it unmasked and only the decoder drops it; masking it
+  needs a gate per projected field in the core lowering — where, orderBy,
+  aggregates and groupBy already mask it in the SQL and are live),
+  `_distance`, point and vector projections.
 - `permissions()` must come first: `rows` cannot follow an extension with
   model methods, and `$extends` refuses that order with
   `ClientInitializationError`.
@@ -112,7 +122,9 @@ bundle. A decimal it decodes is therefore not an instance of the server
 entries' `Decimal`; `decimal-identity-smoke.mjs` holds every other entry to
 one class and names this exception. The server half imports the envelope
 codec (`plan.ts`) from its own build, which splits one shared chunk
-(`cache-value-codecs`): 265 files against the 265-file release budget.
+(`cache-value-codecs`). The browser file ships no source map: embedding every
+source it copies, the map alone is 125 kB of the tarball and puts it over
+`maximumCompressedBytes`. The tarball has 264 files (budget 265).
 Externals in `tsdown.config.ts` stay data, never functions: with a function
 there, rolldown 1.0.0-beta.58 now and then stalls the declaration build for
 good.
