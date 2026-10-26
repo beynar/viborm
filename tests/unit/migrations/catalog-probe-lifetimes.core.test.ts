@@ -291,4 +291,58 @@ describe("catalog probes for column and index statements", () => {
       { kind: "string", value: "by_backup" },
     ]);
   });
+
+  test("a created table's MySQL FULLTEXT and SPATIAL index statements keep their probes", () => {
+    const driver = mysqlCommand();
+    const createTable: DiffOperation = {
+      type: "createTable",
+      table: {
+        name: "place",
+        columns: [
+          { name: "id", type: "varchar(191)", nullable: false },
+          { name: "body", type: "text", nullable: false },
+          { name: "location", type: "point", nullable: false },
+        ],
+        primaryKey: { columns: ["id"] },
+        indexes: [
+          {
+            name: "place_body",
+            columns: ["body"],
+            unique: false,
+            type: "fulltext",
+          },
+          {
+            name: "place_location",
+            columns: ["location"],
+            unique: false,
+            type: "spatial",
+          },
+        ],
+        foreignKeys: [],
+        uniqueConstraints: [],
+      },
+    };
+    const statements = driver
+      .compileStatements(createTable, {
+        currentSchema: { tables: [] },
+        precedingOperations: [],
+        followingOperations: [],
+      } as never)
+      .filter((statement) => INDEX_STATEMENT.test(statement));
+    expect(
+      statements.map((statement) => statement.split(" ").slice(0, 3).join(" "))
+    ).toEqual(["CREATE FULLTEXT INDEX", "CREATE SPATIAL INDEX"]);
+    expect(
+      statements.map((statement) =>
+        probeForGeneratedStatement(
+          driver,
+          createTable,
+          statement
+        )?.post.parameters.at(-1)
+      )
+    ).toEqual([
+      { kind: "string", value: "place_body" },
+      { kind: "string", value: "place_location" },
+    ]);
+  });
 });

@@ -168,7 +168,7 @@ export function indexExistsProbe(
 }
 
 const CREATE_INDEX_HEADER =
-  /^\s*CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?("(?:[^"]|"")+"|`(?:[^`]|``)+`|[\w$]+)\s+ON\b/i;
+  /^\s*CREATE\s+(?:UNIQUE\s+|SPATIAL\s+|FULLTEXT\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?("(?:[^"]|"")+"|`(?:[^`]|``)+`|[\w$]+)\s+ON\b/i;
 
 /** The name a `CREATE INDEX` statement gives its index, unquoted. */
 function createdIndexName(statement: string): string | undefined {
