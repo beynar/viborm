@@ -196,6 +196,12 @@ export function deriveStatementExecutionContext(
   return createTrustedExecutionContext({ ...values, model });
 }
 
+/**
+ * A client view answers this symbol with its official instrumentation's
+ * `diagnostics`: what `createMigrationClient` discloses through `$driver`.
+ */
+export const CLIENT_DIAGNOSTICS = Symbol("viborm.client.diagnostics");
+
 /** Read only the chain attached by the trusted context owner. */
 export function getExecutionExtensionChain(
   context: QueryExecutionContext | undefined

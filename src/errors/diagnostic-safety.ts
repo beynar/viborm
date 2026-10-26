@@ -292,8 +292,11 @@ export function sanitizeProviderCode(
 ): string | number | undefined {
   if (typeof value === "number") return sanitizeProviderErrno(value);
   if (typeof value !== "string" || value.length > 64) return undefined;
+  // Any SQLSTATE-shaped code, standard class or not: a provider's own class
+  // (PlanetScale Neki's `NK013`, a `RAISE … USING ERRCODE`) is what names
+  // its refusal, and `providerSqlState` still admits only standard classes.
   return TRUSTED_CODE_PATTERN.test(value) ||
-    sanitizeSqlState(value) !== undefined ||
+    SQL_STATE_PATTERN.test(value) ||
     STABLE_PROVIDER_CODES.has(value)
     ? value
     : undefined;

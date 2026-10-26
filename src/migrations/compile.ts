@@ -808,15 +808,17 @@ export function classifyStoredAtomicity(
   operations: readonly MigrationOperationV1[],
   blob?: Uint8Array
 ): AtomicityClass {
-  if (requested === "transactional") {
-    if (driver.dialect === "mysql") {
-      throw new MigrationError(
-        "This provider cannot honor a transactional manual boundary",
-        VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER
-      );
-    }
-    return "transactional";
+  if (requested === "transactional" && driver.dialect === "mysql") {
+    throw new MigrationError(
+      "This provider cannot honor a transactional manual boundary",
+      VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER
+    );
   }
+  // Neki refuses any statement after a schema change in its transaction, a
+  // control write included: there every step commits alone, as before an
+  // edge whose statements needed a commit was already cut into parts.
+  if (driver.commitsSchemaChangesAlone()) return "stepwise";
+  if (requested === "transactional") return "transactional";
   if (requested === "stepwise") return "stepwise";
   if (driver.dialect === "mysql") return "stepwise";
   if (

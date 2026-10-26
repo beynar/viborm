@@ -725,7 +725,10 @@ async function planRollback(
       (sql, params) => producer._executeRaw(sql, params),
       prepared.flatMap((item) =>
         stepStatements(item.blob, item.rollback.operations)
-      )
+      ),
+      // On Neki each statement commits alone: only one dispatch's own
+      // statements cannot be divided.
+      true
     );
     if (attempt) {
       assertResumesSelectedPath(
@@ -810,7 +813,9 @@ export async function resolveV1(
       await command.preflightSchemaRequirements(
         [originSnapshot, destSnapshot],
         (sql, params) => pinned._executeRaw(sql, params),
-        options.outcome === "retry" ? statements : []
+        options.outcome === "retry" ? statements : [],
+        // On Neki each statement commits alone.
+        true
       );
       if (options.outcome !== "retry") {
         await repairInvalidIndexes(
@@ -926,7 +931,7 @@ export async function resolveV1(
             boundary,
             undefined,
             command.namespace,
-            { fromState: from, toState: to }
+            { fromState: from, toState: to, step: "resolve" }
           );
           await assertAllChecks(
             producer,
@@ -1284,7 +1289,7 @@ async function executeRollbackEdge(
         events.event("step-confirmed", effect, progress, failure)
       ),
     command.namespace,
-    { fromState: edge.stateId, toState: nextState }
+    { fromState: edge.stateId, toState: nextState, step: "down" }
   );
   // Manual rollback SQL may store text typed queries cannot compare.
   await canonicalizeSqliteStorage(

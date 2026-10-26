@@ -34,6 +34,13 @@ const BUN_SQL_STATE_PATTERN = /^[0-9A-Z]{5}$/;
 const PROVIDER_CONNECTION_CODE_PATTERN =
   /^(?:CONNECTION_(?:CLOSED|DESTROYED|ENDED)$|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|EPIPE$|ERR_POSTGRES_CONNECTION_|08[0-9A-Z]{3}$|57P0[123]$)/;
 const SQLITE_CONSTRAINT_COLUMNS_PATTERN = /constraint failed: ([^:]+)/;
+// node-postgres (and the pg-compatible Neon pool) give a connection that
+// dropped under a statement, and every use of that client after it, no code:
+// only these messages. Unrecognized, both read as a refused statement (V2001).
+const POSTGRES_CONNECTION_LOST_MESSAGES = new Set([
+  "Connection terminated unexpectedly",
+  "Client has encountered a connection error and is not queryable",
+]);
 // Symbolic BUSY/LOCKED codes are the exact base name or an underscore-delimited
 // extended family member. The delimiter is load-bearing: startsWith accepted
 // unrelated provider codes such as SQLITE_BUSYWORK and SQLITE_LOCKEDNESS.
@@ -440,7 +447,14 @@ function mapProviderError(
       error,
       configurationFailure(cause, context, meta)
     );
-  if (typeof code === "string" && PROVIDER_CONNECTION_CODE_PATTERN.test(code)) {
+  const lost =
+    code === undefined &&
+    context.dialect === "postgresql" &&
+    POSTGRES_CONNECTION_LOST_MESSAGES.has(rawMessage);
+  if (
+    lost ||
+    (typeof code === "string" && PROVIDER_CONNECTION_CODE_PATTERN.test(code))
+  ) {
     return withProviderFailureEvidence(
       error,
       new ConnectionError("Database connection failed", {

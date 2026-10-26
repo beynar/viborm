@@ -26,9 +26,12 @@ import {
 } from "./control";
 import type { BoundMigrationDriver } from "./drivers";
 import {
+  annotateMigrationFailure,
   assertAllChecks,
   executeExactSql,
   executeOperations,
+  providerFacts,
+  providerRefused,
 } from "./execute-dispatch";
 import {
   loadMigrationGraph,
@@ -105,7 +108,8 @@ export async function resetV1(
           graph,
           path
         )
-      )
+      ),
+      true
     );
     return {
       preview: true,
@@ -266,7 +270,9 @@ export async function resetV1(
           ...path.map((stateId) => requireStateSnapshot(graph, stateId)),
         ],
         (sql, params) => pinned._executeRaw(sql, params),
-        resetProgram(livePlan, remaining)
+        resetProgram(livePlan, remaining),
+        // Where Neki needs a commit, each statement commits alone.
+        true
       );
       const begin = resetAttempt
         ? undefined
@@ -485,10 +491,31 @@ async function executeResetClear(
   command: Parameters<typeof planLiveNamespaceReset>[1],
   livePlan: Awaited<ReturnType<typeof planLiveNamespaceReset>>,
   attemptId: Sha256,
-  graph: MigrationGraph
+  graph: MigrationGraph,
+  strategy: "transactional" | "stepwise"
 ): Promise<void> {
+  // Clear statements are numbered in the order they run, as replay ones are.
+  let statementIndex = 0;
+  const runClearStatement = async (sql: string) => {
+    const site = {
+      step: "reset-clear",
+      strategy,
+      statementIndex: statementIndex++,
+      dispatchId: dispatchForClearSql(sql).dispatchId,
+    };
+    try {
+      await executeExactSql(pinned, sql);
+    } catch (error) {
+      if (!providerRefused(error)) throw annotateMigrationFailure(error, site);
+      throw new MigrationError(
+        `Reset clear statement ${site.statementIndex} failed`,
+        VibORMErrorCode.MIGRATION_FAILED,
+        { cause: error, meta: { ...site, ...providerFacts(error) } }
+      );
+    }
+  };
   for (const sql of livePlan.dropForeignKeys) {
-    await executeExactSql(pinned, sql);
+    await runClearStatement(sql);
     await confirmResetStep(pinned, command, graph, attemptId, sql);
   }
   for (const table of livePlan.dropTables) {
@@ -498,7 +525,7 @@ async function executeResetClear(
       await confirmResetStep(pinned, command, graph, attemptId, table.sql);
       continue;
     }
-    await executeExactSql(pinned, table.sql);
+    await runClearStatement(table.sql);
     if (!(await evaluateProbe(pinned, post))) {
       throw new MigrationError(
         `Reset clear did not drop table ${table.name}`,
@@ -508,7 +535,7 @@ async function executeResetClear(
     await confirmResetStep(pinned, command, graph, attemptId, table.sql);
   }
   for (const sql of livePlan.dropEnums) {
-    await executeExactSql(pinned, sql);
+    await runClearStatement(sql);
     await confirmResetStep(pinned, command, graph, attemptId, sql);
   }
 }
@@ -762,6 +789,9 @@ async function executeResetProgram(
     liveClear.map((sql) => dispatchForClearSql(sql).dispatchId)
   );
   let clearPending = liveClear.length > 0 ? livePlan : undefined;
+  // On Neki no program opens a transaction (`runProgram`): what a failure
+  // reports as its boundary is the one it ran under.
+  const neki = command.commitsSchemaChangesAlone();
   let clearEvidencePending = livePlan !== undefined;
   let admissionPending = beforeFirstEffect;
   // `statements` are the ones the boundary runs: apply's program, so SQLite's
@@ -784,14 +814,23 @@ async function executeResetProgram(
       await body(target);
     };
     // On MySQL the reset already runs as one sequential program (`resetV1`).
-    await (command.target.dialect === "mysql"
-      ? guarded(producer)
-      : runProgram(
-          pinned,
-          command,
-          { transactional: boundary === "transactional", statements },
-          guarded
-        ));
+    try {
+      await (command.target.dialect === "mysql"
+        ? guarded(producer)
+        : runProgram(
+            pinned,
+            command,
+            { transactional: boundary === "transactional", statements },
+            guarded
+          ));
+    } catch (failure) {
+      // A failure no statement named is this boundary's: its commit, its lock.
+      throw annotateMigrationFailure(failure, {
+        step: "reset",
+        strategy: neki ? "stepwise" : boundary,
+        stateId: plan.replayPath.at(-1),
+      });
+    }
   };
   const completeClearEvidence = async (
     target: Parameters<typeof appendLedger>[0]
@@ -816,7 +855,14 @@ async function executeResetProgram(
       resetProgram(clear, []),
       async (target) => {
         await admit(target);
-        await executeResetClear(target, command, clear, attemptId, graph);
+        await executeResetClear(
+          target,
+          command,
+          clear,
+          attemptId,
+          graph,
+          neki ? "stepwise" : "transactional"
+        );
         await completeClearEvidence(target);
         clearEvidencePending = false;
       }
@@ -835,7 +881,8 @@ async function executeResetProgram(
           command,
           clearPending,
           attemptId,
-          graph
+          graph,
+          neki ? "stepwise" : "transactional"
         );
       }
       if (clearEvidencePending) {
@@ -856,7 +903,8 @@ async function executeResetProgram(
           command,
           clearPending,
           attemptId,
-          graph
+          graph,
+          group.boundary
         );
         clearPending = undefined;
       }
@@ -911,7 +959,8 @@ async function executeResetReplayEdge(
         command,
         events.event("reset-step-confirmed", effect, progress, failure)
       ),
-    command.namespace
+    command.namespace,
+    { fromState: from, toState: to, step: "reset-replay" }
   );
   // Replayed manual SQL is canonicalized exactly as apply canonicalizes it.
   await canonicalizeSqliteStorage(

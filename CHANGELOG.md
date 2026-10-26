@@ -3,6 +3,67 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## 1.5.1 — 2026-10-26
+
+A `reset()` on a PlanetScale Postgres (Neki) production branch failed every
+time, as a bare, redacted `V2001 { driver, operation: "transaction" }`; this
+release fixes it, and the four gaps that hid its cause.
+
+### Fixed
+
+- **Migrations run on every PlanetScale Neki router.** Some Neki routers
+  (`checkTaint`) refuse to plan any statement against any relation once its
+  transaction changed the schema: `NK013`, "[817] Planning against relation
+  public._viborm_migration_log is unavailable: earlier DDL in this
+  transaction is not reflected in the router's schema view". `reset()` ran
+  its drops, then wrote its ledger row in the same transaction, and failed
+  there; `apply()`, `down()`, `resolve({ outcome: "retry" })` and `push()`
+  wrote their ledger rows and marker after their schema changes the same
+  way. Another branch of the same database, whose router does not refuse,
+  passed. Every migration command on Neki now runs stepwise: no
+  transaction, each statement committed alone, each step's ledger record and
+  the marker move in statements of their own. A command stopped part way
+  leaves its attempt open, and the next `apply()` (or `reset()`, from its
+  stored plan) resumes it from what did not commit. A created table's index
+  statement is now proven against its own index rather than one whose name
+  it extends (`by_email` for `by_email_b`), which a stepwise run would
+  otherwise have skipped (states generated before 1.5.1 keep the probe they
+  were generated with; a wrongly skipped index fails the state's destination
+  proof before the marker moves).
+- **Migration commands honour their client's `diagnostics`.** A client
+  extended with `instrumentation({ diagnostics })` disclosed provider text and
+  SQL for its own operations, but `createMigrationClient(client)` runs its
+  statements through `$driver`, which carried none of it: a migration failure
+  stayed redacted, a `lock_timeout` in `reset()` included. Every statement of
+  a migration's session now discloses as its client's `diagnostics` allow
+  (only those: the client's observers and statement transforms do not reach
+  migration SQL), a `MigrationError` keeps the disclosure of the failure it
+  wraps, and with `includeSql` a refused statement is in its `meta.query`.
+  Drivers that run migrations without a session (Neon HTTP) are unchanged.
+  Direct `$driver` calls are unchanged too: the driver API has no client.
+- **A provider's own SQLSTATE class is kept.** `meta.providerCode` kept a
+  five-character code only when its class was one of the SQL standard's, so
+  Neki's `NK013` or `NK316` (and any `RAISE … USING ERRCODE`) became a bare
+  `V2001` with no code. Any `[0-9A-Z]{5}` code is now kept as `providerCode`
+  (`providerSqlState` still admits only standard classes), and a migration
+  statement Neki refuses is the located `MigrationError` V11001 a refusal is,
+  rather than an unexplained transport failure.
+- **A PostgreSQL connection dropped under a statement is a `ConnectionError`.**
+  node-postgres reports it ("Connection terminated unexpectedly", then "Client
+  has encountered a connection error and is not queryable") without a code, so
+  it read as a refused query (`V2001`). It is now a retryable
+  `ConnectionError` V1001 (`CONNECTION_FAILED`), like `ECONNRESET`, so a
+  caller can tell "retry" from "the database refused".
+- **Migration failures say where they happened.** A failure inside `reset()`
+  carried only `{ driver, operation }`. Every dispatched statement's failure
+  now names its `step` (`apply`, `down`, `resolve`, `reset-clear`,
+  `reset-replay`), `stateId`, `statementIndex`, `strategy` (its boundary),
+  `operationId` and `dispatchId`: reset's replay names its edge, and reset's
+  clear statements are located (and, refused, are a `MigrationError` V11001
+  like any dispatch). A failure outside any statement (a commit, a lock wait)
+  keeps its class and code and names its `step`, and inside an `apply` or
+  `reset` transaction its `strategy` and `stateId`.
+
 ## 1.5.0 — 2026-10-25
 
 ### Changed

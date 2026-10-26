@@ -167,6 +167,19 @@ export function indexExistsProbe(
   };
 }
 
+const CREATE_INDEX_HEADER =
+  /^\s*CREATE\s+(?:UNIQUE\s+|SPATIAL\s+|FULLTEXT\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?("(?:[^"]|"")+"|`(?:[^`]|``)+`|[\w$]+)\s+ON\b/i;
+
+/** The name a `CREATE INDEX` statement gives its index, unquoted. */
+function createdIndexName(statement: string): string | undefined {
+  const name = CREATE_INDEX_HEADER.exec(statement)?.[1];
+  if (name === undefined) return undefined;
+  const quote = name[0];
+  return quote === '"' || quote === "`"
+    ? name.slice(1, -1).replaceAll(quote + quote, quote)
+    : name;
+}
+
 export function probeForGeneratedStatement(
   driver: MigrationDriver,
   operation: DiffOperation,
@@ -205,8 +218,11 @@ export function probeForGeneratedStatement(
         };
       }
       if (text.startsWith("CREATE ") && text.includes("INDEX")) {
-        const index = operation.table.indexes.find((item) =>
-          statement.includes(item.name)
+        // The index this statement creates, read from its header: neither one
+        // whose name it extends (`by_email_b`) nor a column it indexes is it.
+        const created = createdIndexName(statement);
+        const index = operation.table.indexes.find(
+          (item) => item.name === created
         );
         if (!index) return null;
         return {

@@ -9,6 +9,7 @@ import type { CacheExecutionOptions } from "@cache/driver";
 import type { WithCacheOptions } from "@cache/schema";
 import { ASYNC_DISPOSE, type AsyncDisposeMember } from "@drivers/async-dispose";
 import { readDriverIdentity } from "@drivers/driver-identity";
+import { CLIENT_DIAGNOSTICS } from "@drivers/execution-context";
 import type { AnyDriver } from "@drivers/exports";
 import type {
   BatchTransactionOptions,
@@ -42,6 +43,7 @@ import {
   type HasResultConsumingExtension,
   type MergeModelMethods,
 } from "@extensions/methods";
+import { getOfficialInstrumentationChainCapability } from "@extensions/observation";
 import { TransactionWriteOutcomes } from "@extensions/query";
 import { applyRequestTransforms } from "@extensions/request";
 import { planResultFields } from "@extensions/result";
@@ -1113,6 +1115,8 @@ export class VibORM<C extends VibORMConfig> {
       eager,
       (prop) => {
         if (prop === "$driver") return engine.driver;
+        if (prop === CLIENT_DIAGNOSTICS)
+          return getOfficialInstrumentationChainCapability(chain)?.diagnostics;
         if (prop === "$extends") {
           return (
             extension:

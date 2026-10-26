@@ -1378,6 +1378,24 @@ export class PostgresMigrationDriver extends MigrationDriver {
     return serverIsNeki(this, read);
   }
 
+  /**
+   * Neki's router plans every statement against the schema committed before
+   * its transaction, and on some of its cells refuses any relation once the
+   * transaction changed the schema: the answer the lock protocol read for
+   * this command (or the command it views).
+   */
+  override commitsSchemaChangesAlone(): boolean {
+    for (
+      let owner: object | null = this;
+      owner !== null;
+      owner = Object.getPrototypeOf(owner)
+    ) {
+      const neki = NEKI.get(owner);
+      if (neki !== undefined) return neki;
+    }
+    return false;
+  }
+
   override generateSessionLock(lockId: number): string {
     return `SELECT pg_try_advisory_lock(${lockId}) AS acquired`;
   }

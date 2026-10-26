@@ -12,7 +12,11 @@ import type {
   AnyDriver,
   SqliteMigrationCapability,
 } from "../../drivers/driver";
-import { MigrationError, VibORMErrorCode } from "../../errors";
+import {
+  type DiagnosticDisclosure,
+  MigrationError,
+  VibORMErrorCode,
+} from "../../errors";
 import {
   DEFAULT_MIGRATION_LIMITS,
   type ResolvedMigrationLimits,
@@ -111,6 +115,11 @@ export interface BoundMigrationDriver extends MigrationDriver {
   readonly sqliteMigrationCapability: SqliteMigrationCapability | undefined;
   /** The command's limits: the client's own, or the defaults. */
   readonly limits: ResolvedMigrationLimits;
+  /**
+   * What the command's failures disclose: its client's own instrumentation
+   * `diagnostics`, carried by the session its statements run on.
+   */
+  readonly diagnostics: DiagnosticDisclosure | undefined;
 }
 
 /**
@@ -139,7 +148,8 @@ export interface BoundMigrationDriver extends MigrationDriver {
 export function getMigrationDriver(
   driver: AnyDriver,
   tables?: readonly string[],
-  limits: ResolvedMigrationLimits = DEFAULT_MIGRATION_LIMITS
+  limits: ResolvedMigrationLimits = DEFAULT_MIGRATION_LIMITS,
+  diagnostics?: DiagnosticDisclosure
 ): BoundMigrationDriver {
   const { target: baseTarget, namespace } = resolveMigrationEstate(driver);
   const target =
@@ -163,6 +173,7 @@ export function getMigrationDriver(
     namespace: { value: namespace, enumerable: true },
     sqliteMigrationCapability: { value: capability, enumerable: true },
     limits: { value: limits, enumerable: true },
+    diagnostics: { value: diagnostics, enumerable: true },
     introspect: {
       async value(
         this: MigrationDriver,

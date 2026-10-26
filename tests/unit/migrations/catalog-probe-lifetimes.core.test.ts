@@ -14,6 +14,8 @@ import {
   sqliteEstateDriver,
 } from "./_estate";
 
+const INDEX_STATEMENT = /INDEX/i;
+
 const emailIndex = {
   name: "account_email_idx",
   columns: ["email"],
@@ -235,5 +237,112 @@ describe("catalog probes for column and index statements", () => {
     expect(tableExistsProbe(sqliteCommand(), "account", false).sql).toContain(
       "sqlite_master"
     );
+  });
+
+  test.each([
+    ["PostgreSQL", postgresCommand],
+    ["MySQL", mysqlCommand],
+    ["SQLite", sqliteCommand],
+  ])("a created table's %s index statement is proven against its own index, not one whose name it extends or a column it indexes", (_label, command) => {
+    // Matched by substring, `by_email_b`'s statement named `by_email`: its
+    // postcheck then held once `by_email` existed, and a stepwise run (every
+    // run on Neki) skipped creating it.
+    const driver = command();
+    const createTable: DiffOperation = {
+      type: "createTable",
+      table: {
+        name: "account",
+        columns: [
+          { name: "id", type: "TEXT", nullable: false },
+          { name: "email", type: "TEXT", nullable: true },
+          { name: "backup", type: "TEXT", nullable: true },
+        ],
+        primaryKey: { columns: ["id"] },
+        indexes: [
+          { name: "by_email", columns: ["email"], unique: false },
+          { name: "by_email_b", columns: ["backup"], unique: false },
+          // An index named like a column another one indexes (Devin, #119).
+          { name: "email", columns: ["id"], unique: false },
+          { name: "by_backup", columns: ["email"], unique: false },
+        ],
+        foreignKeys: [],
+        uniqueConstraints: [],
+      },
+    };
+    const statements = driver.compileStatements(createTable, {
+      currentSchema: { tables: [] },
+      precedingOperations: [],
+      followingOperations: [],
+    } as never);
+    const probed = statements
+      .filter((statement) => INDEX_STATEMENT.test(statement))
+      .map((statement) => {
+        const probes = probeForGeneratedStatement(
+          driver,
+          createTable,
+          statement
+        );
+        return probes?.post.parameters.at(-1);
+      });
+    expect(probed).toEqual([
+      { kind: "string", value: "by_email" },
+      { kind: "string", value: "by_email_b" },
+      { kind: "string", value: "email" },
+      { kind: "string", value: "by_backup" },
+    ]);
+  });
+
+  test("a created table's MySQL FULLTEXT and SPATIAL index statements keep their probes", () => {
+    const driver = mysqlCommand();
+    const createTable: DiffOperation = {
+      type: "createTable",
+      table: {
+        name: "place",
+        columns: [
+          { name: "id", type: "varchar(191)", nullable: false },
+          { name: "body", type: "text", nullable: false },
+          { name: "location", type: "point", nullable: false },
+        ],
+        primaryKey: { columns: ["id"] },
+        indexes: [
+          {
+            name: "place_body",
+            columns: ["body"],
+            unique: false,
+            type: "fulltext",
+          },
+          {
+            name: "place_location",
+            columns: ["location"],
+            unique: false,
+            type: "spatial",
+          },
+        ],
+        foreignKeys: [],
+        uniqueConstraints: [],
+      },
+    };
+    const statements = driver
+      .compileStatements(createTable, {
+        currentSchema: { tables: [] },
+        precedingOperations: [],
+        followingOperations: [],
+      } as never)
+      .filter((statement) => INDEX_STATEMENT.test(statement));
+    expect(
+      statements.map((statement) => statement.split(" ").slice(0, 3).join(" "))
+    ).toEqual(["CREATE FULLTEXT INDEX", "CREATE SPATIAL INDEX"]);
+    expect(
+      statements.map((statement) =>
+        probeForGeneratedStatement(
+          driver,
+          createTable,
+          statement
+        )?.post.parameters.at(-1)
+      )
+    ).toEqual([
+      { kind: "string", value: "place_body" },
+      { kind: "string", value: "place_location" },
+    ]);
   });
 });

@@ -1183,6 +1183,19 @@ export abstract class MigrationDriver {
   }
 
   /**
+   * Whether this command's server refuses to plan a statement against any
+   * relation in a transaction that changed the schema (PlanetScale's Neki,
+   * `NK013` "[817] … earlier DDL in this transaction is not reflected in the
+   * router's schema view"), VibORM's own ledger and marker writes included:
+   * its work then runs stepwise, each statement committed alone, its control
+   * writes in their own. Known once {@link holdsSessionLock} answered for the
+   * command. Default: no.
+   */
+  commitsSchemaChangesAlone(): boolean {
+    return false;
+  }
+
+  /**
    * The session lock PostgreSQL stepwise work keeps (plan D1), taken while
    * the session holds the transaction lock on the same key (or alone, where
    * {@link holdsSessionLock}); null elsewhere.

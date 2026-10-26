@@ -766,6 +766,20 @@ providers record durable progress and honest `partial` or
 the system never claims rollback merely because code opened a nominal
 transaction.
 
+**Neki's `checkTaint` (1.5.1, supersedes the committed parts above on
+Neki).** Some Neki routers refuse to plan any statement against any relation
+once its transaction changed the schema, VibORM's own ledger and marker
+writes included (`NK013 [817]`). A schema change and its record can then
+never commit together, so on Neki (`commitsSchemaChangesAlone`, the lock
+protocol's answer for the command) every boundary is stepwise
+(`classifyStoredAtomicity`) and `runProgram` opens no transaction: each
+statement commits alone and each control write is a statement of its own.
+Never put a control statement after a schema statement in one transaction on
+Neki. The committed-parts path (`splitAtCatalogBoundaries` with `splits`) is
+then never taken there; its preflight still refuses two statements of one
+dispatch that need a commit between them. A reset's preflight passes
+`splits` too, since its statements commit alone on Neki.
+
 **Neki's lock (1.2.3, amends plan D1 on Neki).** Neki refuses a session
 advisory lock and a transaction advisory lock in one session, in either
 order (`NK013 [61]`). On Neki (`holdsSessionLock`, asked on the pinned

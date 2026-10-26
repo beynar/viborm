@@ -53,6 +53,10 @@ Both flags default to `false`. `includeProviderDetails` retains bounded own-data
 provider `message`, `detail`, and `hint` values in the sanitized cause, with URL
 credentials, named passwords/tokens, and bearer credentials redacted. Provider
 text can still contain application data, so choose disclosure deliberately.
+Migration commands of a client extended with this extension
+(`createMigrationClient(client)`) disclose their failures under the same
+`diagnostics`; only its `diagnostics`, never its observers or transforms, reach
+migration statements.
 `includeCallsite` captures `meta.callsite` when a deferred raw or model operation
 is created, before its later await; ordinary operations allocate no diagnostic
 stack. The selected details and callsite survive official error logs and JSON
