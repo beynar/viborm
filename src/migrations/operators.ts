@@ -926,7 +926,7 @@ export async function resolveV1(
             boundary,
             undefined,
             command.namespace,
-            { fromState: from, toState: to }
+            { fromState: from, toState: to, step: "resolve" }
           );
           await assertAllChecks(
             producer,
@@ -1284,7 +1284,7 @@ async function executeRollbackEdge(
         events.event("step-confirmed", effect, progress, failure)
       ),
     command.namespace,
-    { fromState: edge.stateId, toState: nextState }
+    { fromState: edge.stateId, toState: nextState, step: "down" }
   );
   // Manual rollback SQL may store text typed queries cannot compare.
   await canonicalizeSqliteStorage(

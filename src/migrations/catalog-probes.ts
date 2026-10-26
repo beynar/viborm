@@ -167,6 +167,25 @@ export function indexExistsProbe(
   };
 }
 
+const IDENTIFIER_CHARACTER = /[\w$]/;
+
+/** Whether `statement` names `name` whole, not as part of a longer name. */
+function namesIdentifier(statement: string, name: string): boolean {
+  for (
+    let at = statement.indexOf(name);
+    at !== -1;
+    at = statement.indexOf(name, at + 1)
+  ) {
+    const before = statement[at - 1] ?? "";
+    const after = statement[at + name.length] ?? "";
+    if (
+      !(IDENTIFIER_CHARACTER.test(before) || IDENTIFIER_CHARACTER.test(after))
+    )
+      return true;
+  }
+  return false;
+}
+
 export function probeForGeneratedStatement(
   driver: MigrationDriver,
   operation: DiffOperation,
@@ -205,8 +224,10 @@ export function probeForGeneratedStatement(
         };
       }
       if (text.startsWith("CREATE ") && text.includes("INDEX")) {
+        // The index this statement creates, named as a whole identifier: one
+        // whose name it extends (`by_email` in `by_email_b`) is not it.
         const index = operation.table.indexes.find((item) =>
-          statement.includes(item.name)
+          namesIdentifier(statement, item.name)
         );
         if (!index) return null;
         return {

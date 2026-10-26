@@ -5,6 +5,7 @@ import { errorCause } from "../errors/diagnostic-safety";
  */
 
 import type { AnyDriver } from "../drivers/driver";
+import { attachMissingMeta } from "../drivers/driver-error-context";
 import {
   ConnectionError,
   isVibORMError,
@@ -133,17 +134,20 @@ export function providerRefused(error: unknown): error is VibORMError {
  * The provider's SQLSTATE and code of a refusal, for the meta of the
  * migration error that wraps it (both are on the error-metadata allow-list;
  * the provider's text stays in the cause, disclosed as the driver's
- * diagnostics allow). Nothing for a transport failure.
+ * diagnostics allow), and the statement when those diagnostics disclosed it:
+ * a wrapped cause keeps no meta of its own. Nothing for a transport failure.
  */
 export function providerFacts(error: unknown): {
   readonly providerCode?: unknown;
   readonly providerSqlState?: unknown;
+  readonly query?: string;
 } {
   if (!providerRefused(error)) return {};
-  const { providerCode, providerSqlState } = error.meta;
+  const { providerCode, providerSqlState, query } = error.meta;
   return {
     ...(providerCode === undefined ? {} : { providerCode }),
     ...(providerSqlState === undefined ? {} : { providerSqlState }),
+    ...(query === undefined ? {} : { query }),
   };
 }
 
@@ -165,17 +169,32 @@ type OnProgress = (
   failure?: string
 ) => Promise<void>;
 
-/** The edge a program runs: every dispatch failure names it. */
+/** The edge a program runs, and its command step: every failure names both. */
 export interface DispatchEdge {
   readonly fromState: string | null;
   readonly toState: string | null;
+  /** `apply`, `down`, `resolve` or `reset-replay`. */
+  readonly step: string;
 }
 
-/** Where one dispatch sits: its edge, operation and statement position. */
+/** Where one dispatch sits: its edge, operation, statement and boundary. */
 interface DispatchSite {
   readonly edge: DispatchEdge | undefined;
   readonly operationId: string;
   readonly statementIndex: number;
+  readonly strategy: "transactional" | "stepwise" | "atomic";
+}
+
+/**
+ * `failure`, naming where in the command it happened: the keys it already has
+ * stay its own. A transport failure keeps its class, so a lost connection is
+ * still the retryable `ConnectionError` it is (plan S2).
+ */
+export function annotateMigrationFailure(
+  failure: unknown,
+  meta: MigrationErrorMeta
+): unknown {
+  return isVibORMError(failure) ? attachMissingMeta(failure, meta) : failure;
 }
 
 /**
@@ -201,7 +220,12 @@ export async function executeOperations(
       await executeStep(
         producer,
         blob,
-        { edge, operationId: operation.id, statementIndex },
+        {
+          edge,
+          operationId: operation.id,
+          statementIndex,
+          strategy: boundary,
+        },
         step,
         boundary,
         onProgress,
@@ -213,9 +237,12 @@ export async function executeOperations(
 }
 
 function siteMeta(site: DispatchSite, dispatchId: string): MigrationErrorMeta {
+  const { edge } = site;
   return {
-    ...(site.edge?.fromState ? { fromState: site.edge.fromState } : {}),
-    ...(site.edge?.toState ? { toState: site.edge.toState } : {}),
+    ...(edge ? { step: edge.step } : {}),
+    strategy: site.strategy,
+    ...(edge?.fromState ? { fromState: edge.fromState } : {}),
+    ...(edge?.toState ? { toState: edge.toState, stateId: edge.toState } : {}),
     operationId: site.operationId,
     dispatchId,
     statementIndex: site.statementIndex,
@@ -240,7 +267,11 @@ async function runDispatch(
   try {
     await executeDispatch(producer, blob, dispatch, targetNamespace);
   } catch (error) {
-    if (!providerRefused(error)) throw error;
+    if (!providerRefused(error))
+      throw annotateMigrationFailure(
+        error,
+        siteMeta(site, dispatch.dispatchId)
+      );
     throw refusal(site, dispatch.dispatchId, error);
   }
 }
@@ -258,8 +289,7 @@ function refusal(
       cause: error,
       meta: {
         ...siteMeta(site, dispatchId),
-        providerCode: error.meta.providerCode,
-        providerSqlState: error.meta.providerSqlState,
+        ...providerFacts(error),
         ...meta,
       },
     }

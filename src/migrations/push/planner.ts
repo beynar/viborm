@@ -1,5 +1,10 @@
 import type { AnyDriver } from "../../drivers/driver";
-import { MigrationError, VibORMErrorCode } from "../../errors";
+import { CLIENT_DIAGNOSTICS } from "../../drivers/execution-context";
+import {
+  type DiagnosticDisclosure,
+  MigrationError,
+  VibORMErrorCode,
+} from "../../errors";
 import type { AnyModel } from "../../schema/model";
 import type { ResolvedRelationIndex } from "../../schema/validation/relation-resolution";
 import { admitLiveMigrationCapability } from "../admission";
@@ -55,6 +60,8 @@ export interface MigrationClient {
   $schema: Record<string, AnyModel>;
   readonly [MANAGED_TABLES]?: readonly string[] | undefined;
   readonly [MIGRATION_LIMITS]?: ResolvedMigrationLimits | undefined;
+  /** The client's own `instrumentation({ diagnostics })`, when it has one. */
+  readonly [CLIENT_DIAGNOSTICS]?: DiagnosticDisclosure | undefined;
 }
 
 export interface PushOptions {
@@ -121,7 +128,8 @@ export function getPushMigrationDriver(
   return getMigrationDriver(
     client.$driver,
     client[MANAGED_TABLES],
-    client[MIGRATION_LIMITS]
+    client[MIGRATION_LIMITS],
+    client[CLIENT_DIAGNOSTICS]
   );
 }
 

@@ -11,6 +11,10 @@
 import type { AnyDriver } from "../drivers/driver";
 import { normalizeDriverError } from "../drivers/error-mapping";
 import {
+  createExecutionContext,
+  snapshotExecutionContext,
+} from "../drivers/execution-context";
+import {
   CLEANUP_BOUND_MS,
   leasePinnedCommand,
   type PinnedSessionControl,
@@ -23,12 +27,15 @@ import { runTransactionLifecycle } from "../drivers/shared/transactions";
 import type { BatchQuery, QueryExecutionContext } from "../drivers/types";
 import {
   ConnectionError,
+  type DiagnosticDisclosure,
   FeatureNotSupportedError,
   MigrationError,
   VibORMError,
   VibORMErrorCode,
 } from "../errors";
 import { errorCause } from "../errors/diagnostic-safety";
+import type { ResolvedExtensionChain } from "../extensions/chain";
+import { registerOfficialInstrumentationChain } from "../extensions/observation";
 import type { BoundMigrationDriver } from "./drivers";
 import { providerFacts, providerRefused } from "./execute-dispatch";
 import { liftForeignKeyPragmas, withForeignKeysLifted } from "./foreign-keys";
@@ -182,6 +189,8 @@ export interface PinnedSessionScope {
   readonly connectionWait: number;
   readonly limits?: PostgresSessionLimits | undefined;
   readonly session?: () => Promise<PinnedSessionReservation<unknown>>;
+  /** The command's `diagnostics`, disclosed by every statement of the session. */
+  readonly diagnostics?: DiagnosticDisclosure | undefined;
 }
 
 /** The statements that impose, lift and reset one PostgreSQL session's limits. */
@@ -243,7 +252,8 @@ export async function withPinnedSession<D extends AnyDriver, T>(
       driver,
       reservation.session,
       control,
-      limits
+      limits,
+      scope.diagnostics
     );
 
     // Converted only when the failure IS the loss: a failure the command hit
@@ -439,6 +449,42 @@ function connectionWaitError(driverName: string, ms: number): ConnectionError {
   );
 }
 
+const NO_HANDLERS = Object.freeze({
+  global: Object.freeze([]),
+  models: Object.freeze({}),
+});
+
+/**
+ * A chain of no extension whose official capability is `diagnostics` alone:
+ * a driver discloses a failure as an official instrumentation says, and this
+ * one has no observer, transform or row scope of the client's to bring.
+ */
+function disclosingChain(
+  diagnostics: DiagnosticDisclosure
+): ResolvedExtensionChain {
+  const chain: ResolvedExtensionChain = Object.freeze({
+    extensions: Object.freeze([]),
+    hasCache: false,
+    hasRequestHandlers: false,
+    hasQueryHandlers: false,
+    hasResultConsumers: false,
+    request: NO_HANDLERS,
+    query: NO_HANDLERS,
+    statement: Object.freeze([]),
+    observe: Object.freeze([]),
+  });
+  registerOfficialInstrumentationChain(
+    chain,
+    Object.freeze({
+      observesLifecycle: false,
+      diagnostics,
+      wants: () => false,
+      warn: () => false,
+    })
+  );
+  return chain;
+}
+
 /**
  * This driver, viewed with its client pinned to one reserved session: the
  * same driver in every other respect, with the transport assertion forwarded
@@ -448,9 +494,20 @@ function createPinnedSessionView<D extends AnyDriver>(
   driver: D,
   session: unknown,
   control: PinnedSessionControl,
-  limits: PostgresSessionLimits | undefined
+  limits: PostgresSessionLimits | undefined,
+  diagnostics: DiagnosticDisclosure | undefined
 ): D {
   const view: D = Object.create(driver);
+  // The session's statements, its transactions' included, disclose failures
+  // as the command's client does: only its `diagnostics`, not its chain.
+  if (diagnostics !== undefined) {
+    Object.defineProperty(view, "boundContext", {
+      value: snapshotExecutionContext(
+        createExecutionContext({}, undefined, disclosingChain(diagnostics)),
+        driver["boundContext"]
+      ),
+    });
+  }
   const support = driver["transactionOptionSupport"]();
   const executeRaw = driver["executeRaw"];
   const beforeForeignKeysOff = driver["beforeForeignKeysOff"];
@@ -600,6 +657,7 @@ export function withLockedMigrationProducer<T>(
     );
   const scope: PinnedSessionScope = {
     connectionWait: limits.connectionWait,
+    diagnostics: migrationDriver.diagnostics,
     limits:
       dialect === "postgresql" ? postgresSessionLimits(limits) : undefined,
     session:
@@ -1199,7 +1257,15 @@ export async function runProgram<T>(
   }
   if (!program) return body(pinned, false);
   const { bracket } = liftForeignKeyPragmas(pinned, program.statements);
-  if (!mayWrapTransaction(pinned, dialect, program.transactional)) {
+  // Neki refuses any statement after a schema change in its transaction:
+  // the body's own ledger and marker writes run outside one.
+  if (
+    !mayWrapTransaction(
+      pinned,
+      dialect,
+      program.transactional && !command.commitsSchemaChangesAlone()
+    )
+  ) {
     return body(pinned, false);
   }
   const { phase } = program;

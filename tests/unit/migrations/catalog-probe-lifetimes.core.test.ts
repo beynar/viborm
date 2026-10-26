@@ -14,6 +14,8 @@ import {
   sqliteEstateDriver,
 } from "./_estate";
 
+const INDEX_STATEMENT = /INDEX/i;
+
 const emailIndex = {
   name: "account_email_idx",
   columns: ["email"],
@@ -235,5 +237,53 @@ describe("catalog probes for column and index statements", () => {
     expect(tableExistsProbe(sqliteCommand(), "account", false).sql).toContain(
       "sqlite_master"
     );
+  });
+
+  test.each([
+    ["PostgreSQL", postgresCommand],
+    ["MySQL", mysqlCommand],
+    ["SQLite", sqliteCommand],
+  ])("a created table's %s index statement is proven against its own index, not one whose name it extends", (_label, command) => {
+    // Matched by substring, `by_email_b`'s statement named `by_email`: its
+    // postcheck then held once `by_email` existed, and a stepwise run (every
+    // run on Neki) skipped creating it.
+    const driver = command();
+    const createTable: DiffOperation = {
+      type: "createTable",
+      table: {
+        name: "account",
+        columns: [
+          { name: "id", type: "TEXT", nullable: false },
+          { name: "email", type: "TEXT", nullable: true },
+          { name: "backup", type: "TEXT", nullable: true },
+        ],
+        primaryKey: { columns: ["id"] },
+        indexes: [
+          { name: "by_email", columns: ["email"], unique: false },
+          { name: "by_email_b", columns: ["backup"], unique: false },
+        ],
+        foreignKeys: [],
+        uniqueConstraints: [],
+      },
+    };
+    const statements = driver.compileStatements(createTable, {
+      currentSchema: { tables: [] },
+      precedingOperations: [],
+      followingOperations: [],
+    } as never);
+    const probed = statements
+      .filter((statement) => INDEX_STATEMENT.test(statement))
+      .map((statement) => {
+        const probes = probeForGeneratedStatement(
+          driver,
+          createTable,
+          statement
+        );
+        return probes?.post.parameters.at(-1);
+      });
+    expect(probed).toEqual([
+      { kind: "string", value: "by_email" },
+      { kind: "string", value: "by_email_b" },
+    ]);
   });
 });

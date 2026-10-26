@@ -266,28 +266,39 @@ Neki differences shape how:
   `to_regclass('…')` or `'…'::regclass`, still answers for the committed
   schema.
 
-`apply()` commits where Neki needs it, and only there:
+Some Neki routers go further (`checkTaint`, met on a production branch while
+its `pre-prod` branch accepted the same reset): once a transaction changed the
+schema, they refuse to plan any statement against any relation, VibORM's own
+writes to `_viborm_migration_log` and `_viborm_migration_state` included
+(`NK013`, "[817] Planning against relation … is unavailable: earlier DDL in
+this transaction is not reflected in the router's schema view"). A schema
+change and its record cannot then commit together, so since 1.5.1 every
+migration command on Neki (`apply`, `down`, `reset`, `resolve`, `push`) runs
+stepwise, on any router: no transaction is opened, each statement commits
+alone, and each step's ledger record (announced before an unproven step,
+answered after it) and the marker move run as statements of their own.
 
-- States that follow each other share a transaction until one would read a
-  change an earlier one made (a data state after a schema state, a check
-  that reads a new column). That state starts the next transaction, after
-  the earlier ones committed and the marker moved.
-- A state whose own statements need a commit inside it, such as a manual
-  transition that adds a column and then fills it, runs as committed parts.
-  Its first part runs the origin checks and opens the state's ledger
-  attempt; each part records its steps (`step-confirmed`) in the
-  transaction they ran in; its last part runs the destination checks, proves
-  the state and moves the marker. Between two parts the application can see
-  the intermediate schema.
-- If a later part fails, the marker stays on the previous state and the
-  attempt stays open: `status()` reports `unfinished: true`, other commands
-  refuse to start (`V11016`), and the next `apply()` resumes it, running only
-  the parts that did not commit. `apply({ dryRun: true })` previews those.
-  A failure in the first part leaves nothing behind, as on PostgreSQL.
+- A data statement after a schema change it depends on, such as a manual
+  transition that adds a column and then fills it, therefore always sees the
+  change. Between two statements the application can see the intermediate
+  schema.
+- If a statement fails, what committed stays: the marker stays on the
+  previous state and the attempt stays open. `status()` reports
+  `unfinished: true` and other commands refuse to start (`V11016`). A
+  `reset()` resumes from its stored plan. For `apply()`, a manual statement
+  the server refused whole is re-run by the next `apply()` (previewed by
+  `apply({ dryRun: true })`), never what committed; any other failure (a
+  generated statement, a check, a lost connection) is resumed with
+  `resolve({ outcome: "retry" })`, or closed with
+  `resolve({ outcome: "complete" })` when the destination already holds.
 - Two statements of one dispatch (one `sql` fragment such as
-  `ALTER TABLE …; UPDATE …`) cannot be divided: a migration that needs a
-  commit between them is refused before any effect (`V11021`, naming both).
-  Write them as two `sql` fragments.
+  `ALTER TABLE …; UPDATE …`) run as one request, which no commit divides: a
+  migration that needs a commit between them is refused before any effect
+  (`V11021`, naming both). Write them as two `sql` fragments.
+- An `execution: "transactional"` transition is run stepwise too: Neki cannot
+  commit it with its record.
+- `push()` keeps no ledger: a failed push leaves what committed, as a failed
+  stepwise migration would without its resume.
 
 ```ts
 await migrations.generate({
@@ -306,20 +317,16 @@ await migrations.generate({
     ],
   },
 });
-await migrations.apply(); // two committed parts on Neki, one transaction elsewhere
+await migrations.apply(); // each statement committed alone on Neki, one transaction elsewhere
 ```
 
-Which relation a data statement reads cannot be told from its text (a
-function, a view, a literal such as `nextval('…')` can reach any), so on Neki
-any data statement after a change it needs committed gets the commit. A
-statement position in a refusal counts the transitions' checks with their
-statements. `down`, `reset`, `resolve({ outcome: "retry" })` and `push` run
-their program in one transaction: on Neki they refuse a program whose
-statements would need a commit (`V11021`) before any effect; apply its states
-with `apply()` instead. They read their statements, not their checks: a check
-that needs a commit after a statement fails inside the transaction, which
-rolls back. A `DO` block's own schema changes cannot be read from its text
-either: a column change of a table one created fails the same way (`NK316`).
+Before 1.5.1, `apply()` ran states in transactions and committed only where a
+statement needed it, recording each step in the transaction it ran in, and
+`down`, `reset`, `resolve({ outcome: "retry" })` and `push` ran their program
+in one transaction: on a router that enforces `checkTaint` they all failed at
+their first record after a schema change. A `DO` block's own schema changes
+cannot be read from its text: a column change of a table one created fails
+(`NK316`).
 
 Neki refuses a session advisory lock and a transaction advisory lock in the
 same session (`NK013`, "Mixing session and transaction advisory locks is
@@ -339,10 +346,13 @@ in the same `apply()` as transactional ones. 1.2.2 refused them with
 A catalog read the server refuses fails with `V11001` and names itself and its
 SQLSTATE, for example `PostgreSQL catalog query "indexes" failed with SQLSTATE
 0A000`, instead of reporting control tables that cannot be authenticated. The
-SQLSTATE is in `meta.providerSqlState`. The server's own message is not: drivers
-redact provider messages, and migration commands do not run under the
+SQLSTATE is in `meta.providerSqlState`. The server's own message is redacted
+unless the client handed to `createMigrationClient` was extended with the
 [instrumentation](/docs/extensions/instrumentation) extension's
-`diagnostics.includeProviderDetails`, which opts query errors into them.
+`diagnostics.includeProviderDetails`: since 1.5.1 a migration command discloses
+its failures as its client's `diagnostics` allow, `includeSql` included.
+PlanetScale Neki's own codes (`NK013`, `NK316`, …) are kept in
+`meta.providerCode` like standard SQLSTATEs.
 
 ## Native index and constraint fidelity
 
