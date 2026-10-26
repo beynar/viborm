@@ -789,6 +789,9 @@ async function executeResetProgram(
     liveClear.map((sql) => dispatchForClearSql(sql).dispatchId)
   );
   let clearPending = liveClear.length > 0 ? livePlan : undefined;
+  // On Neki no program opens a transaction (`runProgram`): what a failure
+  // reports as its boundary is the one it ran under.
+  const neki = command.commitsSchemaChangesAlone();
   let clearEvidencePending = livePlan !== undefined;
   let admissionPending = beforeFirstEffect;
   // `statements` are the ones the boundary runs: apply's program, so SQLite's
@@ -824,7 +827,7 @@ async function executeResetProgram(
       // A failure no statement named is this boundary's: its commit, its lock.
       throw annotateMigrationFailure(failure, {
         step: "reset",
-        strategy: boundary,
+        strategy: neki ? "stepwise" : boundary,
         stateId: plan.replayPath.at(-1),
       });
     }
@@ -858,7 +861,7 @@ async function executeResetProgram(
           clear,
           attemptId,
           graph,
-          "transactional"
+          neki ? "stepwise" : "transactional"
         );
         await completeClearEvidence(target);
         clearEvidencePending = false;
@@ -879,7 +882,7 @@ async function executeResetProgram(
           clearPending,
           attemptId,
           graph,
-          "transactional"
+          neki ? "stepwise" : "transactional"
         );
       }
       if (clearEvidencePending) {

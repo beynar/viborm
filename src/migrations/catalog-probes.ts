@@ -167,23 +167,17 @@ export function indexExistsProbe(
   };
 }
 
-const IDENTIFIER_CHARACTER = /[\w$]/;
+const CREATE_INDEX_HEADER =
+  /^\s*CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?("(?:[^"]|"")+"|`(?:[^`]|``)+`|[\w$]+)\s+ON\b/i;
 
-/** Whether `statement` names `name` whole, not as part of a longer name. */
-function namesIdentifier(statement: string, name: string): boolean {
-  for (
-    let at = statement.indexOf(name);
-    at !== -1;
-    at = statement.indexOf(name, at + 1)
-  ) {
-    const before = statement[at - 1] ?? "";
-    const after = statement[at + name.length] ?? "";
-    if (
-      !(IDENTIFIER_CHARACTER.test(before) || IDENTIFIER_CHARACTER.test(after))
-    )
-      return true;
-  }
-  return false;
+/** The name a `CREATE INDEX` statement gives its index, unquoted. */
+function createdIndexName(statement: string): string | undefined {
+  const name = CREATE_INDEX_HEADER.exec(statement)?.[1];
+  if (name === undefined) return undefined;
+  const quote = name[0];
+  return quote === '"' || quote === "`"
+    ? name.slice(1, -1).replaceAll(quote + quote, quote)
+    : name;
 }
 
 export function probeForGeneratedStatement(
@@ -224,10 +218,11 @@ export function probeForGeneratedStatement(
         };
       }
       if (text.startsWith("CREATE ") && text.includes("INDEX")) {
-        // The index this statement creates, named as a whole identifier: one
-        // whose name it extends (`by_email` in `by_email_b`) is not it.
-        const index = operation.table.indexes.find((item) =>
-          namesIdentifier(statement, item.name)
+        // The index this statement creates, read from its header: neither one
+        // whose name it extends (`by_email_b`) nor a column it indexes is it.
+        const created = createdIndexName(statement);
+        const index = operation.table.indexes.find(
+          (item) => item.name === created
         );
         if (!index) return null;
         return {

@@ -22,6 +22,7 @@ import { VibORMErrorCode } from "@errors";
 import { instrumentation } from "@instrumentation/extension";
 import { createMigrationClient, MemoryEstateStorage } from "@migrations";
 import { s } from "@schema";
+import { sql } from "@sql";
 import { afterEach, expect, test } from "vitest";
 
 const v1 = {
@@ -167,4 +168,41 @@ test("a replayed reset statement that fails names its step, edge and statement",
       providerCode: "NK013",
     },
   });
+});
+
+test("in a group of states applied together, a failed origin check names its own state, not the group's last", async () => {
+  const { storage, client, root } = await applied(false);
+  const migrations = createMigrationClient(client(v1), { storage });
+  const failing = (
+    await migrations.generate({
+      name: "checked",
+      manualMigration: {
+        transitions: [
+          {
+            from: root,
+            execution: "transactional",
+            originChecks: [
+              {
+                kind: "trusted-read",
+                query: sql.raw("SELECT false AS ok"),
+                equals: true,
+              },
+            ],
+            up: [sql.raw('UPDATE "mff_account" SET "email" = "email"')],
+            rollback: { kind: "irreversible", reason: "test" },
+          },
+        ],
+      },
+    })
+  ).stateId!;
+  const last = (
+    await createMigrationClient(client(v2), { storage }).generate({
+      name: "add-name",
+    })
+  ).stateId!;
+  expect(last).not.toBe(failing);
+
+  await expect(
+    createMigrationClient(client(v2), { storage }).apply()
+  ).rejects.toMatchObject({ meta: { step: "apply", stateId: failing } });
 });

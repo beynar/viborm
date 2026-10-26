@@ -16,6 +16,7 @@ import { createClient } from "@drivers/pglite";
 import { VibORMErrorCode } from "@errors";
 import { createMigrationClient, MemoryEstateStorage } from "@migrations";
 import { s } from "@schema";
+import { sql } from "@sql";
 import { asNeki } from "@tests/fixtures/neki-simulation";
 import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -121,7 +122,12 @@ describe("migration commands on a Neki router that enforces checkTaint", () => {
     simulation.fail = fail;
     await expect(at(0).reset()).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_FAILED,
-      meta: { step: expect.stringMatching(RESET_STEP), stateId: root },
+      // On Neki the clear runs stepwise too, and says so.
+      meta: {
+        step: expect.stringMatching(RESET_STEP),
+        stateId: root,
+        strategy: "stepwise",
+      },
     });
     simulation.fail = undefined;
     const stopped = await at(0).status();
@@ -191,6 +197,62 @@ describe("migration commands on a Neki router that enforces checkTaint", () => {
           : change.reject(),
     });
     expect((await at(0).status()).marker?.stateId).toBe(root);
+    expect(simulation.refusals).toEqual([]);
+  });
+
+  it("rolls back a state whose manual rollback adds a column, then fills it: the preflight lets a commit come between them", async () => {
+    // Before, down's preflight refused it (V11021) as if one transaction ran it.
+    const namespace = "taint_down";
+    await database.exec(`CREATE SCHEMA "${namespace}"`);
+    const table = `"${namespace}"."person"`;
+    const person = (legacy: boolean) => ({
+      person: s
+        .model({
+          id: s.string().id(),
+          email: s.string(),
+          ...(legacy ? { oldEmail: s.string().nullable() } : {}),
+        })
+        .map("person"),
+    });
+    const storage = new MemoryEstateStorage();
+    const at = (legacy: boolean) =>
+      createMigrationClient(
+        createClient({ client: database, schema: person(legacy), namespace }),
+        { storage }
+      );
+    const v1 = (await at(true).generate({ name: "with-old-email" })).stateId!;
+    await at(true).apply();
+    await database.exec(
+      `INSERT INTO ${table} ("id", "email") VALUES ('p1', 'a@b')`
+    );
+    await at(false).generate({
+      name: "drop-old-email",
+      manualMigration: {
+        transitions: [
+          {
+            from: v1,
+            execution: "transactional",
+            up: [sql.raw(`ALTER TABLE ${table} DROP COLUMN "oldEmail"`)],
+            rollback: {
+              kind: "manual",
+              execution: "transactional",
+              sql: [
+                sql.raw(`ALTER TABLE ${table} ADD COLUMN "oldEmail" text`),
+                sql.raw(`UPDATE ${table} SET "oldEmail" = "email"`),
+              ],
+            },
+          },
+        ],
+      },
+    });
+    await at(false).apply();
+
+    await expect(at(false).down()).resolves.toBeDefined();
+    expect((await at(true).status()).marker?.stateId).toBe(v1);
+    const { rows } = await database.query<{ old: string }>(
+      `SELECT "oldEmail" AS old FROM ${table}`
+    );
+    expect(rows).toEqual([{ old: "a@b" }]);
     expect(simulation.refusals).toEqual([]);
   });
 });

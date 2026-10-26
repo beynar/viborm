@@ -196,7 +196,9 @@ export async function buildPushPlan(
     (sql, params) => producer._executeRaw(sql, params),
     compiled.statements.map((statement) =>
       sliceDispatch(compiled.bytes, statement.dispatch)
-    )
+    ),
+    // On Neki each statement commits alone.
+    true
   );
   const reportedOperations: PushOperation[] = operations.map(
     (operation, index) => ({

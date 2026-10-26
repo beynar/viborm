@@ -243,7 +243,7 @@ describe("catalog probes for column and index statements", () => {
     ["PostgreSQL", postgresCommand],
     ["MySQL", mysqlCommand],
     ["SQLite", sqliteCommand],
-  ])("a created table's %s index statement is proven against its own index, not one whose name it extends", (_label, command) => {
+  ])("a created table's %s index statement is proven against its own index, not one whose name it extends or a column it indexes", (_label, command) => {
     // Matched by substring, `by_email_b`'s statement named `by_email`: its
     // postcheck then held once `by_email` existed, and a stepwise run (every
     // run on Neki) skipped creating it.
@@ -261,6 +261,9 @@ describe("catalog probes for column and index statements", () => {
         indexes: [
           { name: "by_email", columns: ["email"], unique: false },
           { name: "by_email_b", columns: ["backup"], unique: false },
+          // An index named like a column another one indexes (Devin, #119).
+          { name: "email", columns: ["id"], unique: false },
+          { name: "by_backup", columns: ["email"], unique: false },
         ],
         foreignKeys: [],
         uniqueConstraints: [],
@@ -284,6 +287,8 @@ describe("catalog probes for column and index statements", () => {
     expect(probed).toEqual([
       { kind: "string", value: "by_email" },
       { kind: "string", value: "by_email_b" },
+      { kind: "string", value: "email" },
+      { kind: "string", value: "by_backup" },
     ]);
   });
 });

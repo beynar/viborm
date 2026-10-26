@@ -371,6 +371,8 @@ async function applyPathUnderLock(
       continue;
     }
     const running: { attempt?: ForwardAttempt } = {};
+    // The edge the group is running, which a failure no statement named is.
+    const runningEdge: { to?: Sha256 } = {};
     // A resumed stepwise edge: its attempt stays open, as apply left it.
     const resumed = group.items[0] === first ? resume : undefined;
     const run = async (
@@ -402,6 +404,7 @@ async function applyPathUnderLock(
       }
       // Edge by edge, each step probed and recorded as it runs.
       for (const [index, item] of group.items.entries()) {
+        runningEdge.to = item.to;
         const own = index === 0 ? resumed : undefined;
         const attempt = forwardAttempt(graph, item, own?.attempt.attemptId);
         if (own === undefined) {
@@ -460,7 +463,7 @@ async function applyPathUnderLock(
       const failure = annotateMigrationFailure(raised, {
         step: "apply",
         strategy: group.boundary,
-        stateId: group.items.at(-1)?.to,
+        stateId: running.attempt?.item.to ?? runningEdge.to,
       });
       // Past the commit only the foreign-key restore can fail: it is reported.
       if (phase.committed) throw failure;

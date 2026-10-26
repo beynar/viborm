@@ -760,8 +760,10 @@ describe("a state of four statements on Neki, each committed alone", () => {
     await expect(at(1).resolve({ outcome: "complete" })).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_INVALID_STATE,
     });
+    // Its manual steps are opaque: a retry has no proof to start from, as on
+    // PostgreSQL (no longer refused as a one-transaction program on Neki).
     await expect(at(1).resolve({ outcome: "retry" })).rejects.toMatchObject({
-      code: VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER,
+      code: VibORMErrorCode.MIGRATION_INVALID_STATE,
     });
     expect((await at(1).status()).marker?.stateId).toBe(v1);
 
