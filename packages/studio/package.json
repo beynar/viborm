@@ -1,6 +1,6 @@
 {
   "name": "@viborm/studio",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "description": "VibORM Studio: your schema as a diagram, your rows to browse and edit through your own VibORM client",
   "repository": {
     "type": "git",
@@ -33,7 +33,7 @@
     "jiti": "^2.7.0"
   },
   "peerDependencies": {
-    "viborm": "~1.5.1"
+    "viborm": "~1.6.0"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "7.3.1",

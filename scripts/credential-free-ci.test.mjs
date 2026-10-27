@@ -190,6 +190,8 @@ test("CI keeps every delegated check and shallow sparse checkout", () => {
     ["quality", "run: pnpm test:types"],
     ["quality", "run: pnpm test:coverage:policy"],
     ["quality", "scripts/credential-free-ci.test.mjs"],
+    ["quality", "run: pnpm --filter @viborm/studio check"],
+    ["quality", "run: pnpm --filter @viborm/studio build"],
     ["core", "run: pnpm test:core"],
     ["package", "run: pnpm test:package"],
     ["docker-providers", "--project=provider-pg\n"],

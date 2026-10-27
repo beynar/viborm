@@ -59,35 +59,5 @@ review of a destructive plan or an independently verified backup.
 
 ## Studio
 
-VibORM Studio (preview) is its own package, `@viborm/studio`, so `viborm`
-carries none of it:
-
-```sh
-npx @viborm/studio
-```
-
-Run it anywhere in the project: it finds the config by itself
-(`viborm.config.ts` here or in a parent directory, else a file below that
-imports `defineConfig` from `"viborm/config"`), loads the client it exports as
-every command does, and serves a local app on `http://127.0.0.1:5577`:
-
-- the schema as a diagram: each model's columns with their types, nullability,
-  primary and unique keys, and each relation as a line between the columns
-  that store it, its ends in crow's foot notation;
-- each model's rows, a page at a time, searched, filtered, sorted, and linked
-  to the rows each relation reaches; cells edited in place, rows added and
-  deleted.
-
-It watches the config and every project file it imports: save the schema and
-the studio reloads it. Every read and write goes through your client, so its
-validation, defaults, generators and relation semantics apply as in your
-application, and a refused value shows the client's own message. A model
-without a primary key is read-only. The server listens on 127.0.0.1 only, and
-takes API calls only from its own page.
-
-| Option | Purpose |
-| --- | --- |
-| `--config <path>` | Use this config instead of searching for one |
-| `--port <port>` | Listen on this port; without it, 5577 or a free port when 5577 is taken |
-| `--no-open` | Print the address without opening a browser |
-| `--no-watch` | Do not reload when the config or the schema changes |
+VibORM Studio, a local app to browse the schema and the rows through your
+client, is its own package: `npx @viborm/studio`. See [Studio](/docs/studio).

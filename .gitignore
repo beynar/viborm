@@ -27,3 +27,4 @@ packages/studio/dist/
 packages/studio/ui/dist/
 packages/studio/demo/*.db*
 packages/studio/viborm-studio
+release-studio/

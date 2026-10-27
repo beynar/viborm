@@ -1,6 +1,6 @@
 {
   "name": "viborm",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "description": "Type-safe ORM for PostgreSQL, MySQL, and SQLite with a Prisma-inspired API",
   "repository": {
     "type": "git",
@@ -237,7 +237,7 @@
     "test:coverage:client": "node --max-old-space-size=768 scripts/run-coverage.mjs client",
     "test:coverage:cache": "node --max-old-space-size=768 scripts/run-coverage.mjs cache",
     "test:coverage:migrations": "node --max-old-space-size=768 scripts/run-coverage.mjs migrations",
-    "test:coverage:policy": "node scripts/run-node-safe.mjs 512 60000 scripts/coverage-policy.test.mjs && node scripts/run-node-safe.mjs 512 60000 scripts/bounded-process.test.mjs && node scripts/run-node-safe.mjs 512 60000 scripts/test-run-lock.test.mjs && node scripts/run-node-safe.mjs 512 60000 scripts/raptor3-refusal-census.test.mjs",
+    "test:coverage:policy": "node scripts/run-node-safe.mjs 512 60000 scripts/coverage-policy.test.mjs && node scripts/run-node-safe.mjs 512 60000 scripts/bounded-process.test.mjs && node scripts/run-node-safe.mjs 512 60000 scripts/test-run-lock.test.mjs && node scripts/run-node-safe.mjs 512 60000 scripts/raptor3-refusal-census.test.mjs && node scripts/run-node-safe.mjs 512 60000 scripts/release-studio.test.mjs",
     "test:package": "pnpm package:build && VIBORM_PACKAGE_PART=runtime node scripts/run-vitest-safe.mjs run --workspace vitest.workspace.ts --project=package && VIBORM_PACKAGE_PART=types node scripts/run-vitest-safe.mjs run --workspace vitest.workspace.ts --project=package",
     "test:providers": "node scripts/run-vitest-safe.mjs run --workspace vitest.workspace.ts --project=provider-pg --project=provider-postgres --project=provider-mysql2 --project=provider-transaction-options --project=provider-pgbouncer --project=provider-neon-http --project=provider-planetscale --project=provider-neki",
     "test:layer:validation": "node scripts/run-layer-core.mjs validation",

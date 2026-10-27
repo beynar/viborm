@@ -129,6 +129,14 @@ jobs:
       - name: Check public types
         run: pnpm test:types
 
+      # @viborm/studio: its Svelte app type-checked, then its package built
+      # (the app, then the CLI that bundles VibORM's internals).
+      - name: Check the studio app
+        run: pnpm --filter @viborm/studio check
+
+      - name: Build the studio package
+        run: pnpm --filter @viborm/studio build
+
   core:
     name: Core tests
     runs-on: ubuntu-latest

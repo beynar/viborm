@@ -1,0 +1,80 @@
+---
+title: Studio
+description: Browse your schema as a diagram, and your rows through your own client
+icon: layout-dashboard
+---
+
+VibORM Studio is a local app for your database, read and written through the
+VibORM client your project already has. It ships as its own package, so
+`viborm` carries none of it:
+
+```sh
+npx @viborm/studio
+# or, in the project: pnpm add -D @viborm/studio && pnpm viborm-studio
+```
+
+Its version follows `viborm`'s: install the release that matches yours.
+
+![The schema as a diagram](https://raw.githubusercontent.com/beynar/viborm/main/packages/studio/screenshots/erd.png)
+
+## Finding your config
+
+Run it anywhere in the project. It looks for `viborm.config.ts` (or `.mts`,
+`.js`, `.mjs`) in the working directory, then in each parent directory up to
+the repository root. Without one, it searches below the working directory for
+a file that imports `defineConfig` from `"viborm/config"`, skipping
+`node_modules`, build output and hidden folders: in a monorepo, run from the
+root, it opens `apps/api/viborm.config.ts`. It names any other config it found;
+`--config <path>` opens one of them instead.
+
+The config loads as every `viborm` command loads it: the project's `.env`,
+then the client its config exports. Relative paths in it (a SQLite file, say)
+read from the config's own directory.
+
+## What it shows
+
+- **The schema**: each model's columns with their types, nullability,
+  primary and unique keys, and each relation as a line between the columns
+  that store it, its ends in crow's foot notation. One-to-one, one-to-many,
+  many-to-many (with its junction table) and polymorphic relations each have
+  their own line. Cards move by hand, and stay where you leave them.
+- **Rows**: a page at a time, searched in their text columns, filtered by
+  conditions joined with AND or OR, sorted by any column. A relation's cell
+  opens the related rows under the row; from there, open them all in their
+  own table.
+- **Editing**: a cell is edited in place, a row is opened in a drawer, a new
+  row is added there, rows are deleted after a confirmation. A foreign key is
+  picked from the rows it can point to, and a to-many relation links or
+  unlinks a row through the client's nested writes.
+- **Export**: every row the current filter and search reach, as CSV or JSON.
+
+![Related rows under their row](https://raw.githubusercontent.com/beynar/viborm/main/packages/studio/screenshots/related-rows.png)
+
+Every read and write goes through your client, so its validation, defaults,
+generators and relation semantics apply exactly as in your application, and a
+refused value shows the client's own message. A model without a primary key is
+read-only.
+
+## Live schema
+
+The studio watches your config and every project file it imports. Save your
+schema and the diagram, the sidebar and the open rows reload; a save that does
+not load keeps the previous schema and shows the error. `--no-watch` turns
+this off.
+
+## Options
+
+| Option | Purpose |
+| --- | --- |
+| `-c, --config <path>` | Use this config instead of searching for one |
+| `-p, --port <port>` | Listen on this port; without it, 5577 or a free port when 5577 is taken |
+| `--no-open` | Print the address without opening a browser |
+| `--no-watch` | Do not reload when the config or the schema changes |
+| `--readonly` | Browse and export only: no create, update or delete |
+
+## Security
+
+The server listens on `127.0.0.1` only. It answers only requests addressed to
+that host, so a DNS-rebound name cannot reach it, and it takes API calls only
+as JSON from its own page. It writes with your client's credentials: start it
+with `--readonly` against a database you only mean to look at.
