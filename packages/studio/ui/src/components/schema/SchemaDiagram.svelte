@@ -4,9 +4,9 @@ import {
   type ColorMode,
   type Edge,
   type Node,
-  Panel,
   SvelteFlow,
 } from "@xyflow/svelte";
+import { type PageShellApi, setPageShell } from "entasis/page-shell";
 import { untrack } from "svelte";
 import type { StudioSchema } from "../../lib/api";
 import {
@@ -17,6 +17,7 @@ import {
   linksOf,
   schemaLayout,
 } from "../../lib/diagram";
+import { fillPage } from "../../lib/fill";
 import RelationEdge from "./RelationEdge.svelte";
 import SchemaLegend from "./SchemaLegend.svelte";
 import SchemaMarkers from "./SchemaMarkers.svelte";
@@ -38,6 +39,9 @@ const FIT = { padding: 0.15, minZoom: 0.5, maxZoom: 1 };
 const NO_MODE = "" as ColorMode;
 
 const links = $derived(linksOf(schema));
+
+// The page's header: its title, what the schema holds, and the legend.
+setPageShell({ title: "Schema", subtitle, headerActions });
 
 function laidOut(current: StudioSchema): Node<TableData>[] {
   const at = schemaLayout(current);
@@ -107,7 +111,15 @@ const edges = $derived.by<Edge<{ link: Link; markers: string }>[]>(() => {
 });
 </script>
 
-<div class="schema">
+{#snippet subtitle(_page: PageShellApi)}
+  {schema.models.length} {schema.models.length === 1 ? 'model' : 'models'} · {schema.edges.length} {schema.edges.length === 1 ? 'relation' : 'relations'} · {schema.dialect}
+{/snippet}
+
+{#snippet headerActions(_page: PageShellApi)}
+  <SchemaLegend />
+{/snippet}
+
+<div class="schema" {@attach fillPage}>
   <SchemaMarkers id={markers} />
   <SvelteFlow
     bind:nodes
@@ -123,7 +135,6 @@ const edges = $derived.by<Edge<{ link: Link; markers: string }>[]>(() => {
     elementsSelectable={false}
     proOptions={{ hideAttribution: true }}
   >
-    <Panel position="top-right"><SchemaLegend /></Panel>
     <SchemaZoom fit={FIT} />
   </SvelteFlow>
 </div>
@@ -131,9 +142,6 @@ const edges = $derived.by<Edge<{ link: Link; markers: string }>[]>(() => {
 <style>
   .schema {
     position: relative;
-    flex: 1;
-    min-height: 0;
-    height: 100%;
     background: var(--color-surface-recessed, color-mix(in oklab, var(--color-neutral) 4%, var(--color-surface)));
     --xy-background-color: transparent;
     --xy-edge-stroke: color-mix(in oklab, var(--color-neutral) 55%, transparent);

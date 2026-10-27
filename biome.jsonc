@@ -54,13 +54,15 @@
     },
     {
       // Svelte components are PascalCase by convention, and Biome does not
-      // connect a component's script bindings to their uses in its markup.
+      // connect a component's script bindings to their uses in its markup,
+      // nor see the snippets its markup declares.
       "includes": ["packages/studio/ui/**/*.svelte"],
       "linter": {
         "rules": {
           "correctness": {
             "noUnusedVariables": "off",
-            "noUnusedImports": "off"
+            "noUnusedImports": "off",
+            "noUndeclaredVariables": "off"
           },
           "style": {
             "useFilenamingConvention": "off",

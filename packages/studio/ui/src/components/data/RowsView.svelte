@@ -10,15 +10,16 @@ import {
   type DataTableEditor,
   type DataTableState,
 } from "entasis/data-table";
-import { arrowRightIcon } from "entasis/icons/arrowRight";
 import { arrowsClockwiseIcon } from "entasis/icons/arrowsClockwise";
 import { arrowsOutSimpleIcon } from "entasis/icons/arrowsOutSimple";
+import { caretDownIcon } from "entasis/icons/caretDown";
 import { funnelIcon } from "entasis/icons/funnel";
 import { linkSimpleIcon } from "entasis/icons/linkSimple";
 import { magnifyingGlassIcon } from "entasis/icons/magnifyingGlass";
 import { plusIcon } from "entasis/icons/plus";
 import { trashIcon } from "entasis/icons/trash";
 import { xIcon } from "entasis/icons/x";
+import { type PageShellApi, setPageShell } from "entasis/page-shell";
 import { Pagination } from "entasis/pagination";
 import { Popover } from "entasis/popover";
 import { Select } from "entasis/select";
@@ -38,6 +39,7 @@ import {
   updateRow,
   type Where,
 } from "../../lib/api";
+import { fillPage } from "../../lib/fill";
 import {
   type Condition,
   conditionWhere,
@@ -47,6 +49,7 @@ import {
   written,
 } from "../../lib/values";
 import FilterGroup from "./FilterGroup.svelte";
+import RelatedRows from "./RelatedRows.svelte";
 import RowDrawer from "./RowDrawer.svelte";
 
 // One model's rows, explored as in Pyxel's `TableStudio`: a page at a time, found by words in its text columns,
@@ -374,32 +377,55 @@ async function removeSelected(ids: string[]) {
   await load();
 }
 
-/** Follow one row's relation to the rows it reaches. */
-function follow(relation: StudioRelation, row: Row) {
-  const target = relation.targets[0];
-  const reached = relatedWhere(model, relation, row);
-  if (!(target && reached)) return;
-  const key = model.key
-    ? model.key.fields.map((field) => display(row[field])).join(", ")
-    : "";
-  navigate(target, {
-    where: reached,
-    label: `${relation.name} of ${model.name} ${key}`,
-  });
+// A row's related rows open under it (Pyxel's `RelatedRows`): the relation shown, by row; a row opened by a relation's
+// cell shows that relation.
+let opened = $state<Record<string, string>>({});
+const expandableRelations = $derived(
+  model.relations.filter(
+    (relation) =>
+      relation.storage !== "variant" && relation.targets.length === 1
+  )
+);
+const expandable = $derived(keyed && expandableRelations.length > 0);
+/** Opens a row's related rows on a relation, or closes them when that relation already shows. */
+function openRelated(
+  id: string,
+  relation: string,
+  expanded: boolean,
+  toggle: () => void
+) {
+  const shown = opened[id] ?? expandableRelations[0]?.name;
+  opened = { ...opened, [id]: relation };
+  if (!expanded || shown === relation) toggle();
 }
+
 const heldKey = (relation: StudioRelation, row: Row) =>
   relation.fields.map((field) => row[field]);
+
+// The page's header and footer are the page shell's: this page fills them. The shell may render them once more
+// as the page leaves, after the route moved on: they read the model the page opened with, which a page keeps
+// (App keys a page on its route).
+const pageModel = untrack(() => model);
+setPageShell({ title, subtitle, headerActions: controls, footer: pages });
 </script>
 
-<section bind:this={root} class="flex h-full min-h-0 flex-1 flex-col" aria-label="The rows of {model.name}">
-  <header class="flex flex-wrap items-center gap-2 border-b border-neutral/10 px-4 py-2.5">
-    <h1 class="m-0 text-[16px] font-semibold">{model.name}</h1>
-    <span class="text-[13px] text-neutral/60 tabular-nums">{total} {total === 1 ? 'row' : 'rows'}</span>
+<!-- The page's header: the model, its rows, the relation followed here; then what changes the rows. -->
+{#snippet title(_page: PageShellApi)}
+  <span class="inline-flex items-center gap-2">
+    {pageModel.name}
     {#if scope}
       <Chip size="small" variant="soft">{scope.label}</Chip>
-      <Button size="small" variant="ghost" squared label="Show every {model.name} row" prefix={xIcon} onclick={() => navigate(model.name)} />
+      <Button size="small" variant="ghost" squared label="Show every {pageModel.name} row" prefix={xIcon} onclick={() => navigate(pageModel.name)} />
     {/if}
-    <span class="flex-1"></span>
+  </span>
+{/snippet}
+
+{#snippet subtitle(_page: PageShellApi)}
+  {total} {total === 1 ? 'row' : 'rows'} · {pageModel.table}
+{/snippet}
+
+{#snippet controls(_page: PageShellApi)}
+  <div class="flex flex-wrap items-center gap-2">
     {#if selected.length}
       <Button size="small" variant="soft" color="danger" prefix={trashIcon} onclick={() => removeSelected(selected)}>
         {selected.length === 1 ? 'Delete the row' : `Delete ${selected.length} rows`}
@@ -413,7 +439,7 @@ const heldKey = (relation: StudioRelation, row: Row) =>
       {/snippet}
       {#snippet children(popover)}
         <div class="grid gap-3">
-          <FilterGroup {model} bind:conditions bind:combinator />
+          <FilterGroup model={pageModel} bind:conditions bind:combinator />
           <div class="flex justify-end gap-2">
             {#if appliedCount || conditions.length}<Button size="small" variant="ghost" onclick={() => (clear(), popover.close())}>Clear</Button>{/if}
             <Button size="small" color="primary" onclick={() => (apply(), popover.close())}>Apply</Button>
@@ -426,10 +452,31 @@ const heldKey = (relation: StudioRelation, row: Row) =>
     </div>
     <Button size="small" variant="ghost" squared prefix={arrowsClockwiseIcon} label="Read the rows again" onclick={() => load()} />
     <Button size="small" color="primary" prefix={plusIcon} onclick={() => (editing = {})}>Add row</Button>
-  </header>
+  </div>
+{/snippet}
 
-  <!-- Positioned, the table has a definite height to scroll within. -->
-  <div class="relative min-h-0 flex-1">
+<!-- The page's footer: which rows show, how many a page holds, and the pages. -->
+{#snippet pages(_page: PageShellApi)}
+  <div class="flex w-full flex-wrap items-center justify-between gap-3">
+    {#if api}
+      {@const pagination = api.state.pagination}
+      {@const page = Math.min(pagination.page, Math.max(api.totalPages, 1))}
+      <div class="flex items-center gap-4 text-[13px]">
+        <span class="text-neutral/70 tabular-nums" role="status">{total ? (page - 1) * pagination.pageSize + 1 : 0}–{Math.min(total, page * pagination.pageSize)} of {total}</span>
+        <div class="flex items-center gap-2">
+          <span class="text-neutral/70">Rows per page</span>
+          <div class="w-20"><Select size="small" label="Rows per page" theme={HIDDEN_LABEL} items={PAGE_SIZES} value={String(pagination.pageSize)} onValueChange={value => api?.setPageSize(Number(value))} /></div>
+        </div>
+      </div>
+      {#if api.totalPages > 1}
+        <Pagination totalPages={api.totalPages} value={page} size="small" controlVariant="ghost" siblingCount={1} label="Pages of {pageModel.name}" onValueChange={value => api?.setPage(value)} />
+      {/if}
+    {/if}
+  </div>
+{/snippet}
+
+<!-- Sized to end at the page's footer, the table scrolls within (`fillPage`). -->
+<section bind:this={root} class="relative" aria-label="The rows of {model.name}" {@attach fillPage}>
     <DataTable
       items={rows}
       {columns}
@@ -444,19 +491,28 @@ const heldKey = (relation: StudioRelation, row: Row) =>
       error={failure}
       pagination={{ pageSize: 50, showControls: false }}
       onCellCommit={commit}
+      canExpand={() => expandable}
       bind:state={tableState}
       bind:api
       theme={{
         root: { base: 'absolute inset-0 gap-0' },
         viewport: { base: 'min-h-0 flex-1 rounded-none border-0' },
         cellContent: { base: 'min-w-0 w-full truncate' },
+        // A row's related rows, on a recessed ground: their own padding, so they stay on the table's left as it
+        // scrolls sideways (`sticky`), as wide as the table shows (`RelatedRows`).
+        detailRow: { base: 'grid min-w-full border-b border-neutral-muted bg-surface-recessed' },
+        detailCell: { base: 'min-w-0 overflow-visible p-0', density: { compact: 'p-0', normal: 'p-0', comfortable: 'p-0' } },
       }}
     >
+      {#snippet expandedContent({ row, rowId })}
+        <RelatedRows {models} {model} {row} active={opened[rowId] ?? expandableRelations[0]?.name ?? ''} onActive={name => (opened = { ...opened, [rowId]: name })} {navigate} />
+      {/snippet}
+
       {#snippet rowActions({ row })}
         <Button size="small" variant="ghost" squared prefix={arrowsOutSimpleIcon} label="Open the row" onclick={() => (editing = { row })} />
       {/snippet}
 
-      {#snippet cell({ row, columnId })}
+      {#snippet cell({ row, columnId, rowId, expanded, toggleExpanded })}
         {@const field = fieldsByName.get(columnId)}
         {@const relation = field ? undefined : model.relations.find(candidate => candidate.name === columnId)}
         {@const value = row[columnId]}
@@ -465,13 +521,13 @@ const heldKey = (relation: StudioRelation, row: Row) =>
           {#if !reachable}
             <span class="text-neutral/40">—</span>
           {:else if relation.cardinality === 'many'}
-            <Button size="small" variant="ghost" suffix={arrowRightIcon} label="{relation.name} of this row" onclick={() => follow(relation, row)}>
+            <Button size="small" variant={expanded && opened[rowId] === relation.name ? 'soft' : 'ghost'} suffix={caretDownIcon} label="{relation.name} of this row" onclick={() => openRelated(rowId, relation.name, expanded, toggleExpanded)}>
               <span class="tabular-nums">{row._count?.[relation.name] ?? '?'}</span>&nbsp;{relation.targets[0]}
             </Button>
           {:else if relation.owner && heldKey(relation, row).some(held => held === null)}
             <span class="text-neutral/40 italic">null</span>
           {:else}
-            <Button size="small" variant="ghost" prefix={linkSimpleIcon} label="{relation.name} of this row" onclick={() => follow(relation, row)}>
+            <Button size="small" variant={expanded && opened[rowId] === relation.name ? 'soft' : 'ghost'} prefix={linkSimpleIcon} label="{relation.name} of this row" onclick={() => openRelated(rowId, relation.name, expanded, toggleExpanded)}>
               <span class="truncate">{relation.targets[0]}{relation.owner ? ` ${heldKey(relation, row).map(display).join(', ')}` : ''}</span>
             </Button>
           {/if}
@@ -513,24 +569,6 @@ const heldKey = (relation: StudioRelation, row: Row) =>
         </div>
       {/snippet}
     </DataTable>
-  </div>
-
-  <footer class="flex flex-wrap items-center justify-between gap-3 border-t border-neutral/10 px-4 py-2">
-    {#if api}
-      {@const pagination = api.state.pagination}
-      {@const page = Math.min(pagination.page, Math.max(api.totalPages, 1))}
-      <div class="flex items-center gap-4 text-[13px]">
-        <span class="text-neutral/70 tabular-nums" role="status">{total ? (page - 1) * pagination.pageSize + 1 : 0}–{Math.min(total, page * pagination.pageSize)} of {total}</span>
-        <div class="flex items-center gap-2">
-          <span class="text-neutral/70">Rows per page</span>
-          <div class="w-20"><Select size="small" label="Rows per page" theme={HIDDEN_LABEL} items={PAGE_SIZES} value={String(pagination.pageSize)} onValueChange={value => api?.setPageSize(Number(value))} /></div>
-        </div>
-      </div>
-      {#if api.totalPages > 1}
-        <Pagination totalPages={api.totalPages} value={page} size="small" controlVariant="ghost" siblingCount={1} label="Pages of {model.name}" onValueChange={value => api?.setPage(value)} />
-      {/if}
-    {/if}
-  </footer>
 </section>
 
 {#if editing}
