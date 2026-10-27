@@ -3,14 +3,16 @@
  * own VibORM client, so its validation, defaults, generators and relation
  * semantics are the ones the studio exercises; no SQL is written here.
  *
- * The API owns three things only: which model a path names, the paging bound,
- * and that an update or delete addresses exactly one row by its key. What a
- * `where`, `orderBy` or `data` may contain is the client's to decide, and its
- * refusal comes back as a 400 with the client's own message.
+ * The API owns four things only: which model a path names, the paging bound,
+ * that an update or delete addresses exactly one row by its key, and whether
+ * the studio writes at all (`--readonly`). What a `where`, `orderBy` or `data`
+ * may contain is the client's to decide, and its refusal comes back as a 400
+ * with the client's own message.
  */
 
 import type { Model } from "@src/schema/model";
-import { describeSchema, type StudioModel } from "./schema";
+import { describeSchema, type StudioModel, type StudioSchema } from "./schema";
+import { encodeJson } from "./server";
 
 export interface StudioRequest {
   readonly method: string;
@@ -21,7 +23,14 @@ export interface StudioRequest {
 
 export interface StudioResponse {
   readonly status: number;
+  /** JSON to encode, or the text of a file when `file` names it. */
   readonly body: unknown;
+  readonly file?: { readonly name: string; readonly type: string };
+}
+
+/** The schema as the page reads it: the models, and whether it may write. */
+export interface StudioDescription extends StudioSchema {
+  readonly readonly: boolean;
 }
 
 /** The delegate surface the studio calls on `client[model]`. */
@@ -38,10 +47,14 @@ export interface StudioApiOptions {
   readonly client: object;
   readonly models: Readonly<Record<string, Model<any>>>;
   readonly dialect: string;
+  /** Refuse every create, update and delete. */
+  readonly readonly?: boolean;
 }
 
 /** The largest page one request may read. */
 export const MAX_PAGE_SIZE = 500;
+/** The most rows one export writes. */
+export const MAX_EXPORT_ROWS = 100_000;
 const DEFAULT_PAGE_SIZE = 50;
 
 class Refusal extends Error {
@@ -57,11 +70,15 @@ class Refusal extends Error {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const ROUTE = /^\/models\/([^/]+)\/(rows|create|update|delete)$/;
+const ROUTE = /^\/models\/([^/]+)\/(rows|export|create|update|delete)$/;
 
 export function createStudioApi(options: StudioApiOptions) {
-  const schema = describeSchema(options.models, options.dialect);
+  const schema: StudioDescription = {
+    ...describeSchema(options.models, options.dialect),
+    readonly: options.readonly === true,
+  };
   const byName = new Map(schema.models.map((model) => [model.name, model]));
+  const select = (model: StudioModel) => selection(model, byName);
 
   const delegateOf = (model: StudioModel): ModelDelegate =>
     Reflect.get(options.client, model.name) as ModelDelegate;
@@ -84,14 +101,24 @@ export function createStudioApi(options: StudioApiOptions) {
       throw new Refusal(400, "invalid_body", "The body must be a JSON object");
     }
     const delegate = delegateOf(model);
-    switch (match[2]) {
+    const action = match[2]!;
+    if (schema.readonly && action !== "rows" && action !== "export") {
+      throw new Refusal(
+        403,
+        "read_only",
+        "The studio was started with --readonly: it does not write"
+      );
+    }
+    switch (action) {
       case "rows":
-        return readRows(model, delegate, body);
+        return readRows(model, delegate, body, select(model));
+      case "export":
+        return exportRows(model, delegate, body);
       case "create":
         return {
           row: await delegate.create({
             data: decodeData(model, body.data),
-            select: selection(model),
+            select: select(model),
           }),
         };
       case "update":
@@ -99,7 +126,7 @@ export function createStudioApi(options: StudioApiOptions) {
           row: await delegate.update({
             where: uniqueWhere(model, body.key),
             data: decodeData(model, body.data),
-            select: selection(model),
+            select: select(model),
           }),
         };
       default:
@@ -116,7 +143,10 @@ export function createStudioApi(options: StudioApiOptions) {
     schema,
     async handle(request: StudioRequest): Promise<StudioResponse> {
       try {
-        return { status: 200, body: await route(request) };
+        const answer = await route(request);
+        return answer instanceof FileAnswer
+          ? { status: 200, body: answer.text, file: answer.file }
+          : { status: 200, body: answer };
       } catch (error) {
         return failure(error);
       }
@@ -127,10 +157,28 @@ export function createStudioApi(options: StudioApiOptions) {
 const methodNotAllowed = () =>
   new Refusal(405, "method_not_allowed", "Method not allowed");
 
+/** What a page asks: its filter, its search and its order, checked and combined. */
+function queryOf(model: StudioModel, body: Record<string, unknown>) {
+  if (body.where !== undefined && !isRecord(body.where)) {
+    throw new Refusal(400, "invalid_where", "where must be an object");
+  }
+  const search = body.search ?? "";
+  if (typeof search !== "string") {
+    throw new Refusal(400, "invalid_search", "search must be a string");
+  }
+  const where = combine(
+    body.where as Record<string, unknown> | undefined,
+    searchWhere(model, search.trim())
+  );
+  const orderBy = withTieBreaker(model, body.orderBy);
+  return { ...(where ? { where } : {}), ...(orderBy ? { orderBy } : {}) };
+}
+
 async function readRows(
   model: StudioModel,
   delegate: ModelDelegate,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
+  select: Record<string, unknown>
 ) {
   const skip = body.skip ?? 0;
   const take = body.take ?? DEFAULT_PAGE_SIZE;
@@ -150,29 +198,87 @@ async function readRows(
       `take must be a whole number between 1 and ${MAX_PAGE_SIZE}`
     );
   }
-  if (body.where !== undefined && !isRecord(body.where)) {
-    throw new Refusal(400, "invalid_where", "where must be an object");
-  }
-  const search = body.search ?? "";
-  if (typeof search !== "string") {
-    throw new Refusal(400, "invalid_search", "search must be a string");
-  }
-  const where = combine(
-    body.where as Record<string, unknown> | undefined,
-    searchWhere(model, search.trim())
-  );
-  const orderBy = withTieBreaker(model, body.orderBy);
+  const query = queryOf(model, body);
   const [rows, total] = await Promise.all([
-    delegate.findMany({
-      ...(where ? { where } : {}),
-      ...(orderBy ? { orderBy } : {}),
-      skip,
-      take,
-      select: selection(model),
-    }),
-    delegate.count(where ? { where } : {}),
+    delegate.findMany({ ...query, skip, take, select }),
+    delegate.count(query.where ? { where: query.where } : {}),
   ]);
   return { rows, total };
+}
+
+/** A file the API answers with, rather than JSON. */
+class FileAnswer {
+  readonly text: string;
+  readonly file: { readonly name: string; readonly type: string };
+  constructor(text: string, name: string, type: string) {
+    this.text = text;
+    this.file = { name, type };
+  }
+}
+
+/** Every row a page's filter, search and order reach, as CSV or JSON, read a page at a time. */
+async function exportRows(
+  model: StudioModel,
+  delegate: ModelDelegate,
+  body: Record<string, unknown>
+) {
+  const format = body.format ?? "csv";
+  if (format !== "csv" && format !== "json") {
+    throw new Refusal(400, "invalid_format", 'format must be "csv" or "json"');
+  }
+  const query = queryOf(model, body);
+  const select = scalarSelection(model);
+  const rows: Record<string, unknown>[] = [];
+  for (;;) {
+    const page = await delegate.findMany({
+      ...query,
+      skip: rows.length,
+      take: MAX_PAGE_SIZE,
+      select,
+    });
+    rows.push(...page);
+    if (page.length < MAX_PAGE_SIZE) break;
+    if (rows.length >= MAX_EXPORT_ROWS) {
+      throw new Refusal(
+        413,
+        "export_too_large",
+        `An export writes at most ${MAX_EXPORT_ROWS} rows: narrow the filter`
+      );
+    }
+  }
+  return format === "json"
+    ? new FileAnswer(encodeJson(rows), `${model.name}.json`, "application/json")
+    : new FileAnswer(
+        toCsv(
+          model.fields.map((field) => field.name),
+          rows
+        ),
+        `${model.name}.csv`,
+        "text/csv"
+      );
+}
+
+const CSV_QUOTED = /[",\r\n]|^\s|\s$/;
+
+/** RFC 4180 CSV: a header, then a line per row; structures as JSON, bytes as base64. */
+export function toCsv(
+  columns: readonly string[],
+  rows: readonly Record<string, unknown>[]
+): string {
+  const cell = (value: unknown): string => {
+    if (value === null || value === undefined) return "";
+    // A value as its JSON reads (a Decimal, a Date, bytes as base64), a structure as JSON.
+    const json: unknown = JSON.parse(encodeJson(value));
+    const text =
+      typeof json === "object" && json !== null
+        ? JSON.stringify(json)
+        : String(json);
+    return CSV_QUOTED.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+  };
+  return [
+    columns.map(cell).join(","),
+    ...rows.map((row) => columns.map((column) => cell(row[column])).join(",")),
+  ].join("\r\n");
 }
 
 /** Free text: any text column containing the words. */
@@ -218,9 +324,28 @@ function scalarSelection(model: StudioModel): Record<string, unknown> {
   return select;
 }
 
-/** Every column, and how many rows each ordinary to-many relation holds. */
-function selection(model: StudioModel): Record<string, unknown> {
+/**
+ * Every column, the key of the row each to-one relation reaches (null when
+ * there is none), and how many rows each to-many relation holds.
+ */
+function selection(
+  model: StudioModel,
+  models: ReadonlyMap<string, StudioModel>
+): Record<string, unknown> {
   const select = scalarSelection(model);
+  for (const relation of model.relations) {
+    const target = models.get(relation.targets[0]!);
+    if (
+      relation.cardinality !== "one" ||
+      relation.storage === "variant" ||
+      !target?.key
+    ) {
+      continue;
+    }
+    select[relation.name] = {
+      select: Object.fromEntries(target.key.fields.map((field) => [field, true])),
+    };
+  }
   const counted = model.relations.filter(
     (relation) => relation.cardinality === "many"
   );

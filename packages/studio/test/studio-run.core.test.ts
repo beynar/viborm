@@ -172,6 +172,21 @@ describe("viborm-studio", () => {
     await running;
   });
 
+  test("read-only says so and refuses writes", async () => {
+    writeProject(project.dir, NOTE);
+    const running = runStudio(options({ readonly: true }));
+    const url = await serving();
+    expect(printed()).toContain("(sqlite, 1 models, read-only)");
+    const refused = await fetch(`${url}/api/models/note/create`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ data: { id: 1, text: "x" } }),
+    });
+    expect(refused.status).toBe(403);
+    stop();
+    await running;
+  });
+
   test("an explicit config is read relative to the working directory", async () => {
     mkdirSync(join(project.dir, "db"));
     writeProject(join(project.dir, "db"), NOTE);

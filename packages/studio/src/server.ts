@@ -134,6 +134,16 @@ export function startStudioServer(
       path: url.pathname.slice("/api".length),
       body,
     });
+    if (answer.file) {
+      response.writeHead(answer.status, {
+        "content-type": `${answer.file.type}; charset=utf-8`,
+        "content-disposition": `attachment; filename="${answer.file.name.replaceAll('"', "")}"`,
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+      });
+      response.end(String(answer.body));
+      return;
+    }
     send(response, answer.status, answer.body);
   }
 

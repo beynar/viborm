@@ -17,6 +17,13 @@ let port: number;
 const handle = async (request: StudioRequest): Promise<StudioResponse> => {
   seen.push(request);
   if (request.path === "/throws") throw new Error("handler broke");
+  if (request.path === "/file") {
+    return {
+      status: 200,
+      body: "a,b\r\n1,2",
+      file: { name: 'rows "1".csv', type: "text/csv" },
+    };
+  }
   if (request.path === "/throws-text") {
     // biome-ignore lint/style/useThrowOnlyError: a handler may throw anything; the server must still answer.
     throw "not an error";
@@ -158,6 +165,16 @@ describe("the studio server", () => {
       JSON.stringify({ text: "x".repeat(1024 * 1024) })
     );
     expect([large.status, codeOf(large.text)]).toEqual([413, "body_too_large"]);
+  });
+
+  test("a file answer downloads as an attachment", async () => {
+    const file = await send({ path: "/api/file" });
+    expect(file.status).toBe(200);
+    expect(file.text).toBe("a,b\r\n1,2");
+    expect(file.headers["content-type"]).toBe("text/csv; charset=utf-8");
+    expect(file.headers["content-disposition"]).toBe(
+      'attachment; filename="rows 1.csv"'
+    );
   });
 
   test("a handler failure is a 500, not a crash", async () => {

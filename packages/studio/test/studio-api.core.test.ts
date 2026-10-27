@@ -3,7 +3,12 @@ import { s } from "@schema";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { createStudioApi, MAX_PAGE_SIZE } from "../src/api";
+import {
+  createStudioApi,
+  MAX_EXPORT_ROWS,
+  MAX_PAGE_SIZE,
+  toCsv,
+} from "../src/api";
 import { describeSchema } from "../src/schema";
 
 // One schema with each relation shape the studio draws and follows:
@@ -198,7 +203,7 @@ describe("schema extraction", () => {
   test("the schema route answers the same description", async () => {
     const response = await call("GET", "/schema");
     expect(response.status).toBe(200);
-    expect(response.body).toEqual(described);
+    expect(response.body).toEqual({ ...described, readonly: false });
   });
 });
 
@@ -533,5 +538,111 @@ describe("failures the client raises", () => {
         body: { error: { code: "internal", message } },
       });
     }
+  });
+});
+
+describe("to-one relations", () => {
+  test("a page holds the key each to-one relation reaches, or null", async () => {
+    const users = await call("POST", "/models/user/rows", {
+      orderBy: { id: "asc" },
+    });
+    const [ada, bob] = (users.body as { rows: Record<string, unknown>[] }).rows;
+    expect(ada?.profile).toEqual({ id: 1 });
+    expect(bob?.profile).toBeNull();
+    const posts = await call("POST", "/models/post/rows", { take: 1 });
+    expect(posts.body).toMatchObject({ rows: [{ author: { id: 1 } }] });
+  });
+});
+
+describe("export", () => {
+  test("every row the filter reaches, as CSV or JSON", async () => {
+    const csv = await call("POST", "/models/post/export", {
+      where: { authorId: 1 },
+      orderBy: { id: "asc" },
+    });
+    expect(csv.file).toEqual({ name: "post.csv", type: "text/csv" });
+    const lines = String(csv.body).split("\r\n");
+    expect(lines[0]).toBe("id,title,rating,createdAt,authorId");
+    expect(lines).toHaveLength(3);
+    expect(lines[1]).toMatch(/^1,Engines,4\.5,\d{4}-/);
+    const json = await call("POST", "/models/user/export", {
+      format: "json",
+      search: "ada",
+    });
+    expect(json.file).toEqual({ name: "user.json", type: "application/json" });
+    expect(JSON.parse(String(json.body))).toMatchObject([
+      { email: "ada@example.com", karma: "0" },
+    ]);
+  });
+
+  test("refuses a format it does not write", async () => {
+    const response = await call("POST", "/models/user/export", {
+      format: "xml",
+    });
+    expect([response.status, errorCode(response)]).toEqual([
+      400,
+      "invalid_format",
+    ]);
+  });
+
+  test("refuses more rows than an export writes", async () => {
+    const page = Array.from({ length: MAX_PAGE_SIZE }, (_, id) => ({ id }));
+    const endless = createStudioApi({
+      client: { tag: { findMany: async () => page } },
+      models: schema,
+      dialect: "sqlite",
+    });
+    const response = await endless.handle({
+      method: "POST",
+      path: "/models/tag/export",
+      body: {},
+    });
+    expect(response.status).toBe(413);
+    expect(MAX_EXPORT_ROWS % MAX_PAGE_SIZE).toBe(0);
+  });
+
+  test("CSV quotes what needs quoting and spells every type as text", () => {
+    expect(
+      toCsv(
+        ["a", "b", "c", "d", "e", "f"],
+        [
+          {
+            a: 'say "hi", twice',
+            b: null,
+            c: new Date(0),
+            d: { n: 1n },
+            e: new Uint8Array([0, 1, 2]),
+            f: " padded",
+          },
+        ]
+      )
+    ).toBe(
+      'a,b,c,d,e,f\r\n"say ""hi"", twice",,1970-01-01T00:00:00.000Z,"{""n"":""1""}",AAEC," padded"'
+    );
+  });
+});
+
+describe("read-only", () => {
+  const readonly = createStudioApi({
+    client,
+    models: schema,
+    dialect: "sqlite",
+    readonly: true,
+  });
+  const ask = (path: string, body?: unknown) =>
+    readonly.handle({ method: "POST", path, body });
+
+  test("reads and exports, and says so in the schema", async () => {
+    expect(readonly.schema.readonly).toBe(true);
+    expect((await ask("/models/tag/rows")).status).toBe(200);
+    expect((await ask("/models/tag/export")).status).toBe(200);
+  });
+
+  test.each(["create", "update", "delete"])("refuses to %s", async (action) => {
+    const response = await ask(`/models/tag/${action}`, {
+      data: { label: "x" },
+      key: { id: 1 },
+    });
+    expect([response.status, errorCode(response)]).toEqual([403, "read_only"]);
   });
 });

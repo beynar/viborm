@@ -19,6 +19,7 @@ Options:
   -p, --port <port>    Port on 127.0.0.1 (default ${DEFAULT_STUDIO_PORT}, or a free one when taken)
       --no-open        Do not open the browser
       --no-watch       Do not reload when the config or the schema changes
+      --readonly       Browse and export only: no create, update or delete
   -h, --help           Show this help
 `;
 
@@ -37,6 +38,7 @@ export async function main(
       port: { type: "string", short: "p" },
       open: { type: "boolean", default: true },
       watch: { type: "boolean", default: true },
+      readonly: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
     allowNegative: true,
@@ -61,6 +63,7 @@ export async function main(
     port,
     open: values.open,
     watch: values.watch,
+    readonly: values.readonly,
   });
   return 0;
 }

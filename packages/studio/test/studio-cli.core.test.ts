@@ -21,12 +21,13 @@ describe("viborm-studio's arguments", () => {
       port: undefined,
       open: true,
       watch: true,
+      readonly: false,
     });
   });
 
   test("takes a config, a port, and turns opening and watching off", async () => {
     await main(
-      ["-c", "db.config.ts", "--port", "0", "--no-open", "--no-watch"],
+      ["-c", "db.config.ts", "--port", "0", "--no-open", "--no-watch", "--readonly"],
       app
     );
     expect(runStudio).toHaveBeenCalledWith(
@@ -35,6 +36,7 @@ describe("viborm-studio's arguments", () => {
         port: 0,
         open: false,
         watch: false,
+        readonly: true,
       })
     );
   });
