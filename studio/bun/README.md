@@ -20,7 +20,7 @@ installed from the packed tarball, `pg` and `better-sqlite3`.
 
 | | `npx viborm studio` (Node 24) | compiled binary |
 | --- | --- | --- |
-| What the user downloads | +~100 kB in the viborm tarball | 93 MB (darwin-arm64), 113 MB (linux-x64), 120 MB (windows-x64); 43 MB gzipped |
+| What the user downloads | +~340 kB in the viborm tarball (with the entasis app) | 96 MB (darwin-arm64, with the Entasis app; 93 MB before it), 113 MB (linux-x64), 120 MB (windows-x64) |
 | Start to first `/api/schema` answer | ~110 ms | ~45 ms with `--bytecode`, ~57 ms without; ~950 ms on the first launch of a fresh binary (macOS) |
 | PostgreSQL (`pg`) | works | works |
 | SQLite through `better-sqlite3` | works | **fails**: Bun cannot load the addon (oven-sh/bun#4290); every query is V1001 |

@@ -3,6 +3,7 @@
 // serves it against a running `viborm studio` (VIBORM_STUDIO_URL).
 import { resolve } from "node:path";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
+import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, type Plugin } from "vite";
 
 const root = import.meta.dirname;
@@ -42,7 +43,7 @@ const inlineAssets = (): Plugin => ({
 export default defineConfig({
   root,
   base: "./",
-  plugins: [svelte(), inlineAssets()],
+  plugins: [tailwindcss(), svelte(), inlineAssets()],
   build: {
     outDir,
     emptyOutDir: true,

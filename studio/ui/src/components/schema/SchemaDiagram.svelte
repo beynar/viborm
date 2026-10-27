@@ -4,6 +4,7 @@ import {
   type ColorMode,
   type Edge,
   type Node,
+  Panel,
   SvelteFlow,
 } from "@xyflow/svelte";
 import { untrack } from "svelte";
@@ -17,17 +18,15 @@ import {
   schemaLayout,
 } from "../../lib/diagram";
 import RelationEdge from "./RelationEdge.svelte";
+import SchemaLegend from "./SchemaLegend.svelte";
 import SchemaMarkers from "./SchemaMarkers.svelte";
 import SchemaZoom from "./SchemaZoom.svelte";
 import TableNode, { type TableData } from "./TableNode.svelte";
 
-// The schema as a diagram (Svelte Flow): a card per model, its columns with their key, their links and their types,
-// then its relations; a stepped line per relation, from the columns that hold a key to the key they point to, its
-// ends in crow's foot notation. The models pointed to stand on the left. A card moves by hand.
-const {
-  schema,
-  open,
-}: { schema: StudioSchema; open: (model: string) => void } = $props();
+// The schema as a diagram (Svelte Flow), after Pyxel's: a card per model, its columns with their key, their links and
+// their types, then its relations; a stepped line per relation, from the columns that hold a key to the key they
+// point to, its ends in crow's foot notation. The models pointed to stand on the left. A card moves by hand.
+let { schema }: { schema: StudioSchema } = $props();
 
 const uid = $props.id();
 const markers = `schema-${uid}`;
@@ -35,17 +34,16 @@ const NODE_TYPES = { table: TableNode };
 const EDGE_TYPES = { relation: RelationEdge };
 /** The whole diagram in view, read at a zoom of one half at least: a large one scrolls rather than shrinks to a mark. */
 const FIT = { padding: 0.15, minZoom: 0.5, maxZoom: 1 };
-/** No colour mode of Svelte Flow's: its classes would bring its own palette, not the studio's. */
+/** No colour mode of Svelte Flow's: its classes would bring its own palette, not entasis's. */
 const NO_MODE = "" as ColorMode;
 
 const links = $derived(linksOf(schema));
 
-function laidOut(schema: StudioSchema): Node<TableData>[] {
-  const at = schemaLayout(schema);
-  const kept = new Map(
-    untrack(() => nodes ?? []).map((node) => [node.id, node.position])
-  );
-  return schema.models.map((model) => ({
+function laidOut(current: StudioSchema): Node<TableData>[] {
+  const at = schemaLayout(current);
+  const all = linksOf(current);
+  const kept = new Map((nodes ?? []).map((node) => [node.id, node.position]));
+  return current.models.map((model) => ({
     id: model.name,
     type: "table",
     position: kept.get(model.name) ?? at.get(model.name) ?? { x: 0, y: 0 },
@@ -55,17 +53,17 @@ function laidOut(schema: StudioSchema): Node<TableData>[] {
     data: {
       model,
       sources: new Set(
-        links
+        all
           .filter((link) => link.from === model.name)
           .map((link) => link.fromAnchor)
       ),
       targets: new Set(
-        links
+        all
           .filter((link) => link.to === model.name)
           .map((link) => link.toAnchor)
       ),
       pointing: new Map(
-        schema.edges
+        current.edges
           .filter(
             (edge) =>
               edge.from.model === model.name && edge.kind !== "many-to-many"
@@ -74,17 +72,15 @@ function laidOut(schema: StudioSchema): Node<TableData>[] {
             edge.from.columns.map((column) => [column, edge.to.model] as const)
           )
       ),
-      open,
     },
   }));
 }
 
 let nodes = $state.raw<Node<TableData>[]>([]);
-nodes = untrack(() => laidOut(schema));
-// The schema changed: each card keeps where it was moved, a new one takes its place.
-$effect(() => {
-  const next = schema;
-  nodes = untrack(() => laidOut(next));
+// The schema read again: each card keeps where it was moved, a new one takes its place.
+$effect.pre(() => {
+  const current = schema;
+  nodes = untrack(() => laidOut(current));
 });
 
 /** Each line leaves and meets its cards on the sides that face each other; a model pointing to itself loops on its right. */
@@ -127,13 +123,9 @@ const edges = $derived.by<Edge<{ link: Link; markers: string }>[]>(() => {
     elementsSelectable={false}
     proOptions={{ hideAttribution: true }}
   >
+    <Panel position="top-right"><SchemaLegend /></Panel>
     <SchemaZoom fit={FIT} />
   </SvelteFlow>
-  <div class="legend" aria-label="Legend">
-    <span><svg viewBox="0 0 40 12" aria-hidden="true"><path d="M0 6H40" /></svg>one to many</span>
-    <span><svg viewBox="0 0 40 12" aria-hidden="true"><path class="dashed" d="M0 6H40" /></svg>one to one</span>
-    <span><svg viewBox="0 0 40 12" aria-hidden="true"><path class="dotted" d="M0 6H40" /></svg>many to many</span>
-  </div>
 </div>
 
 <style>
@@ -142,9 +134,7 @@ const edges = $derived.by<Edge<{ link: Link; markers: string }>[]>(() => {
     flex: 1;
     min-height: 0;
     height: 100%;
-    background-color: var(--color-canvas);
-    background-image: radial-gradient(color-mix(in oklab, var(--color-neutral) 12%, transparent) 1px, transparent 1px);
-    background-size: 20px 20px;
+    background: var(--color-surface-recessed, color-mix(in oklab, var(--color-neutral) 4%, var(--color-surface)));
     --xy-background-color: transparent;
     --xy-edge-stroke: color-mix(in oklab, var(--color-neutral) 55%, transparent);
     --xy-edge-stroke-width: 1.6;
@@ -154,22 +144,4 @@ const edges = $derived.by<Edge<{ link: Link; markers: string }>[]>(() => {
   .schema :global(.svelte-flow__edge-path.one-to-one) { stroke-dasharray: 6 4; }
   .schema :global(.svelte-flow__edge-path.many-to-many) { stroke-dasharray: 2 4; }
   .schema :global(.svelte-flow__edge-path.variant) { stroke-dasharray: 10 3 2 3; }
-  .legend {
-    position: absolute;
-    left: 12px;
-    bottom: 12px;
-    display: flex;
-    gap: 14px;
-    padding: 6px 10px;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    background: var(--color-surface);
-    font-size: 11px;
-    color: var(--muted);
-  }
-  .legend span { display: inline-flex; align-items: center; gap: 6px; }
-  .legend svg { width: 32px; height: 12px; }
-  .legend path { stroke: color-mix(in oklab, var(--color-neutral) 55%, transparent); stroke-width: 1.6; fill: none; }
-  .legend .dashed { stroke-dasharray: 6 4; }
-  .legend .dotted { stroke-dasharray: 2 4; }
 </style>

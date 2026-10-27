@@ -1,0 +1,184 @@
+<script lang="ts">
+import { Alert } from "entasis/alert";
+import { Button } from "entasis/button";
+import { Checkbox } from "entasis/checkbox";
+import { confirmation } from "entasis/confirmation";
+import { Dialog } from "entasis/dialog";
+import { trashIcon } from "entasis/icons/trash";
+import { Select } from "entasis/select";
+import { Switch } from "entasis/switch";
+import { TextArea } from "entasis/text-area";
+import { TextInput } from "entasis/text-input";
+import { untrack } from "svelte";
+import type { Row, StudioField, StudioModel } from "../../lib/api";
+import { TYPE_ICONS } from "../../lib/icons";
+import { draftOf, editsAsJson, parseDraft, typeLabel } from "../../lib/values";
+
+// One row in a drawer over the table's right side: every column as an editor of its type, and a null switch where a
+// column may be empty. A new row sends what was written and leaves the rest to the schema's defaults and generators;
+// an existing one sends only what changed. Both go through the client: what it refuses shows here, in its words.
+let {
+  model,
+  row,
+  save,
+  remove,
+  close,
+}: {
+  model: StudioModel;
+  /** The row edited; absent for a new one. */
+  row?: Row;
+  save: (data: Row) => Promise<void>;
+  remove?: () => Promise<void>;
+  close: () => void;
+} = $props();
+
+type Draft = { text: string; isNull: boolean };
+const initial = (field: StudioField): Draft =>
+  row
+    ? {
+        text: draftOf(field, row[field.name]),
+        isNull: row[field.name] === null,
+      }
+    : { text: "", isNull: false };
+// The drawer is keyed on its row (`RowsView`): its drafts start from the row it opened with.
+let drafts = $state<Record<string, Draft>>(
+  untrack(() =>
+    Object.fromEntries(
+      model.fields.map((field) => [field.name, initial(field)])
+    )
+  )
+);
+let failure = $state<string>();
+let busy = $state(false);
+let open = $state(true);
+
+const HIDDEN_LABEL = { label: { base: "sr-only" } };
+const readOnly = (field: StudioField) =>
+  row !== undefined && field.id && field.generated !== undefined;
+const hint = (field: StudioField) =>
+  field.generated
+    ? `generated (${field.generated})`
+    : field.optional
+      ? "default"
+      : "";
+const keyText = $derived(
+  row && model.key
+    ? model.key.fields.map((field) => String(row[field])).join(", ")
+    : ""
+);
+
+/** What the client is sent: the changed columns of a row, or the written ones of a new row. */
+function dataOf(): Row {
+  const data: Row = {};
+  for (const field of model.fields) {
+    const draft = drafts[field.name]!;
+    if (readOnly(field)) continue;
+    if (row) {
+      const before = initial(field);
+      if (draft.isNull === before.isNull && draft.text === before.text)
+        continue;
+    } else if (
+      !draft.isNull &&
+      draft.text === "" &&
+      (field.optional || field.type !== "string")
+    ) {
+      continue;
+    }
+    data[field.name] = draft.isNull ? null : parseDraft(field, draft.text);
+  }
+  return data;
+}
+
+async function submit() {
+  failure = undefined;
+  busy = true;
+  try {
+    await save(dataOf());
+    open = false;
+  } catch (error) {
+    failure = error instanceof Error ? error.message : String(error);
+  } finally {
+    busy = false;
+  }
+}
+
+async function destroy() {
+  if (!remove) return;
+  const { confirmed } = await confirmation({
+    title: `Delete this ${model.name}?`,
+    description: "The row is deleted through your client. It cannot be undone.",
+    confirm: { text: "Delete", color: "danger" },
+    cancel: "Cancel",
+  });
+  if (!confirmed) return;
+  failure = undefined;
+  busy = true;
+  try {
+    await remove();
+    open = false;
+  } catch (error) {
+    failure = error instanceof Error ? error.message : String(error);
+  } finally {
+    busy = false;
+  }
+}
+</script>
+
+<Dialog
+  bind:open
+  type="drawerRight"
+  title={row ? `${model.name} ${keyText}` : `New ${model.name}`}
+  description={row ? 'Changed columns are saved through your client.' : 'Left empty, a column takes its default.'}
+  onAfterClose={close}
+>
+  {#if failure}
+    <div class="mb-4">
+      <Alert color="danger" variant="soft">
+        {#snippet title()}The client refused this change{/snippet}
+        {#snippet description()}<span class="whitespace-pre-wrap">{failure}</span>{/snippet}
+      </Alert>
+    </div>
+  {/if}
+  <form class="grid gap-4" onsubmit={event => { event.preventDefault(); submit() }} id="row-form">
+    {#each model.fields as field (field.name)}
+      {@const draft = drafts[field.name]!}
+      {@const disabled = draft.isNull || readOnly(field)}
+      <div class="grid gap-1.5">
+        <div class="flex items-center gap-2 text-[13px]">
+          <span class="inline-flex text-neutral/55">{@render TYPE_ICONS[field.type]({ size: 14 })}</span>
+          <span class="font-medium">{field.name}</span>
+          <span class="font-mono text-[11px] text-neutral/50">{typeLabel(field)}</span>
+          {#if field.nullable && !readOnly(field)}
+            <span class="ml-auto"><Checkbox size="small" label="null" value={draft.isNull} onValueChange={value => (draft.isNull = value === true)} /></span>
+          {/if}
+        </div>
+        {#if field.type === 'boolean' && !field.list}
+          <Switch label={field.name} theme={HIDDEN_LABEL} {disabled} value={draft.text === 'true'} onValueChange={value => (draft.text = value ? 'true' : 'false')} />
+        {:else if field.type === 'enum' && !field.list}
+          <Select
+            size="small"
+            label={field.name}
+            theme={HIDDEN_LABEL}
+            {disabled}
+            placeholder={hint(field) || 'Choose'}
+            items={(field.enumValues ?? []).map(value => ({ value, label: value }))}
+            value={draft.text || null}
+            onValueChange={value => (draft.text = value ?? '')}
+          />
+        {:else if editsAsJson(field) || field.type === 'blob'}
+          <TextArea size="small" label={field.name} theme={HIDDEN_LABEL} {disabled} rows={4} placeholder={field.type === 'blob' ? 'base64' : 'JSON'} value={draft.text} onValueChange={value => (draft.text = value ?? '')} />
+        {:else}
+          <TextInput size="small" label={field.name} theme={HIDDEN_LABEL} {disabled} placeholder={readOnly(field) ? '' : hint(field)} value={draft.text} onValueChange={value => (draft.text = value ?? '')} />
+        {/if}
+      </div>
+    {/each}
+  </form>
+  {#snippet footer()}
+    <div class="flex w-full items-center gap-2">
+      {#if remove}<Button variant="soft" color="danger" prefix={trashIcon} disabled={busy} onclick={destroy}>Delete</Button>{/if}
+      <span class="flex-1"></span>
+      <Button variant="ghost" onclick={() => (open = false)}>Cancel</Button>
+      <Button color="primary" loading={busy} onclick={() => submit()}>{row ? 'Save' : 'Create'}</Button>
+    </div>
+  {/snippet}
+</Dialog>

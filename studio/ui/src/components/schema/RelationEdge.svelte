@@ -64,10 +64,11 @@ const edge = $derived(data?.link.edge);
 <style>
   .junction {
     padding: 1px 6px;
-    border: 1px solid var(--border);
+    border: 1px solid color-mix(in oklab, var(--color-neutral) 14%, transparent);
     border-radius: 999px;
     background: var(--color-surface);
-    font: 10px var(--mono);
-    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: color-mix(in oklab, var(--color-neutral) 55%, transparent);
   }
 </style>

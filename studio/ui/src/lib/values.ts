@@ -195,3 +195,29 @@ export function relatedWhere(
   }
   return undefined;
 }
+
+/** A value as a table cell's editor holds it: text for what JSON carries as text or structure, else itself. */
+export function editable(field: StudioField, value: unknown): unknown {
+  if (value === null || value === undefined) return "";
+  if (editsAsJson(field)) return JSON.stringify(value);
+  if (
+    field.type === "int" ||
+    field.type === "number" ||
+    field.type === "boolean"
+  ) {
+    return value;
+  }
+  return String(value);
+}
+
+/**
+ * What a cell's editor wrote, as the client takes it: emptied, a nullable
+ * column becomes null; text is typed back by `parseDraft`.
+ */
+export function written(field: StudioField, value: unknown): unknown {
+  if (value === null || value === undefined || value === "") {
+    return field.nullable ? null : field.type === "string" ? "" : null;
+  }
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  return parseDraft(field, String(value));
+}

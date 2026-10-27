@@ -1,0 +1,34 @@
+{
+  // The app imports the server's types (`src/studio/schema.ts`), so it resolves
+  // `src/` the way the root project does.
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "verbatimModuleSyntax": true,
+    "lib": ["es2023", "DOM", "DOM.Iterable"],
+    "types": ["node", "svelte"],
+    "paths": {
+      "@src/*": ["../../src/*"],
+      "@schema/*": ["../../src/schema/*"],
+      "@schema": ["../../src/schema/index.ts"],
+      "@validation/*": ["../../src/validation/*"],
+      "@validation": ["../../src/validation/index.ts"],
+      "@errors": ["../../src/errors.ts"],
+      "@adapters/*": ["../../src/adapters/*"],
+      "@adapters": ["../../src/adapters/index.ts"],
+      "@client/*": ["../../src/client/*"],
+      "@client": ["../../src/client/index.ts"],
+      "@drivers/*": ["../../src/drivers/*"],
+      "@drivers": ["../../src/drivers/exports.ts"],
+      "@sql": ["../../src/sql/sql.ts"],
+      "@query-engine/*": ["../../src/query-engine/*"],
+      "@extensions/*": ["../../src/extensions/*"],
+      "@extensions": ["../../src/extensions/index.ts"],
+      "@migrations/*": ["../../src/migrations/*"],
+      "@migrations": ["../../src/migrations/index.ts"],
+      "@instrumentation/*": ["../../src/instrumentation/*"],
+      "@cache/*": ["../../src/cache/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.svelte"],
+  "exclude": []
+}

@@ -1,10 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
+import { brotliCompressSync, constants as zlibConstants } from "node:zlib";
 import { defineConfig, type Rolldown, type UserConfig } from "tsdown";
 import ts from "typescript";
 
 // The studio app (`studio/ui`, built by `pnpm studio:build`) as one HTML
 // string. Only `src/studio/run.ts` imports it, behind `viborm studio`'s dynamic
-// import, so it lands in a CLI-only chunk and in no runtime entry.
+// import, so it lands in a CLI-only chunk and in no runtime entry. It ships
+// brotli-compressed (1.5 MB of HTML, 0.4 MB in the package) and is inflated
+// once, when the command imports it.
 const STUDIO_UI_ID = "viborm:studio-ui";
 const STUDIO_UI_FILE = "studio/ui/dist/index.html";
 const studioUi: Rolldown.Plugin = {
@@ -17,7 +20,14 @@ const studioUi: Rolldown.Plugin = {
     if (!existsSync(STUDIO_UI_FILE)) {
       this.error(`${STUDIO_UI_FILE} is missing: run pnpm studio:build first`);
     }
-    return `export default ${JSON.stringify(readFileSync(STUDIO_UI_FILE, "utf8"))};`;
+    const html = readFileSync(STUDIO_UI_FILE);
+    const packed = brotliCompressSync(html, {
+      params: {
+        [zlibConstants.BROTLI_PARAM_QUALITY]: 11,
+        [zlibConstants.BROTLI_PARAM_SIZE_HINT]: html.length,
+      },
+    }).toString("base64");
+    return `import { brotliDecompressSync } from "node:zlib";\nexport default brotliDecompressSync(Buffer.from(${JSON.stringify(packed)}, "base64")).toString("utf8");`;
   },
 };
 

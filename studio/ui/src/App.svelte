@@ -1,7 +1,16 @@
 <script lang="ts">
+import { Button } from "entasis/button";
+import { Chip } from "entasis/chip";
+import { Confirmation } from "entasis/confirmation";
+import { databaseIcon } from "entasis/icons/database";
+import { graphIcon } from "entasis/icons/graph";
+import { moonIcon } from "entasis/icons/moon";
+import { sunIcon } from "entasis/icons/sun";
+import { tableIcon } from "entasis/icons/table";
+import { Theme } from "entasis/theme";
+import { Toaster } from "entasis/toast";
 import { onMount } from "svelte";
 import RowsView from "./components/data/RowsView.svelte";
-import Icon from "./components/Icon.svelte";
 import SchemaDiagram from "./components/schema/SchemaDiagram.svelte";
 import { loadSchema, type Scope, type StudioSchema } from "./lib/api";
 
@@ -53,45 +62,58 @@ const current = $derived(
     ? schema?.models.find((model) => model.name === route.model)
     : undefined
 );
+const NAV =
+  "flex h-8 items-center gap-2 rounded-md px-2 text-[13px] text-neutral/80 no-underline hover:bg-neutral/5";
+const CURRENT = "bg-neutral/8 font-medium text-neutral";
 </script>
 
-<div class="frame">
-  <nav aria-label="Studio">
-    <div class="brand"><Icon name="database" size={18} /><span>VibORM Studio</span></div>
-    {#if schema}<div class="dialect">{schema.dialect}</div>{/if}
-    <a class="item" class:current={route.view === 'schema'} href="#/schema"><Icon name="diagram" />Schema</a>
-    <h2>Models</h2>
-    {#each schema?.models ?? [] as model (model.name)}
-      <a class="item" class:current={route.view === 'data' && route.model === model.name} href="#/data/{encodeURIComponent(model.name)}"><Icon name="table" />{model.name}</a>
-    {/each}
-  </nav>
-  <main>
-    {#if failure}
-      <p class="failure" role="alert">The studio could not read the schema: {failure}</p>
-    {:else if !schema}
-      <p class="loading">Loading the schema…</p>
-    {:else if route.view === 'schema'}
-      <SchemaDiagram {schema} open={model => navigate(model)} />
-    {:else if current}
-      {#key hash}
-        <RowsView {schema} model={current} scope={route.view === 'data' ? route.scope : undefined} {navigate} />
-      {/key}
-    {:else}
-      <p class="loading">No model named “{route.view === 'data' ? route.model : ''}”.</p>
-    {/if}
-  </main>
-</div>
-
-<style>
-  .frame { display: grid; grid-template-columns: 220px 1fr; height: 100%; }
-  nav { display: flex; flex-direction: column; gap: 2px; padding: 12px 8px; border-right: 1px solid var(--border); background: var(--color-surface); overflow: auto; }
-  .brand { display: flex; align-items: center; gap: 8px; padding: 4px 8px; font-weight: 700; font-size: 14px; }
-  .dialect { margin: 0 8px 10px; font: 11px var(--mono); color: var(--muted); }
-  h2 { margin: 14px 8px 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
-  .item { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 8px; color: inherit; }
-  .item:hover { background: var(--faint); text-decoration: none; }
-  .item.current { background: color-mix(in oklab, var(--color-link) 12%, transparent); color: var(--color-link); font-weight: 600; }
-  main { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-  .loading, .failure { padding: 24px; color: var(--muted); }
-  .failure { color: var(--color-danger); }
-</style>
+<Theme>
+  {#snippet children(theme)}
+    <div class="grid h-full grid-cols-[232px_1fr]">
+      <nav class="flex min-h-0 flex-col gap-0.5 overflow-auto border-r border-neutral/10 bg-surface-recessed p-3" aria-label="Studio">
+        <div class="mb-1 flex items-center gap-2 px-2 py-1.5">
+          {@render databaseIcon({ size: 18 })}
+          <span class="text-[14px] font-semibold">VibORM Studio</span>
+        </div>
+        {#if schema}<div class="mb-3 px-2"><Chip size="small" variant="soft">{schema.dialect}</Chip></div>{/if}
+        <a class="{NAV} {route.view === 'schema' ? CURRENT : ''}" href="#/schema" aria-current={route.view === 'schema' ? 'page' : undefined}>
+          {@render graphIcon({ size: 16 })}Schema
+        </a>
+        <h2 class="mt-4 mb-1 px-2 text-[11px] font-medium tracking-wide text-neutral/50 uppercase">Models</h2>
+        {#each schema?.models ?? [] as model (model.name)}
+          {@const selected = route.view === 'data' && route.model === model.name}
+          <a class="{NAV} {selected ? CURRENT : ''}" href="#/data/{encodeURIComponent(model.name)}" aria-current={selected ? 'page' : undefined}>
+            {@render tableIcon({ size: 16 })}<span class="truncate">{model.name}</span>
+          </a>
+        {/each}
+        <div class="mt-auto pt-3">
+          <Button
+            size="small"
+            variant="ghost"
+            prefix={theme.resolvedTheme === 'dark' ? sunIcon : moonIcon}
+            onclick={() => (theme.theme = theme.resolvedTheme === 'dark' ? 'light' : 'dark')}
+          >
+            {theme.resolvedTheme === 'dark' ? 'Light mode' : 'Dark mode'}
+          </Button>
+        </div>
+      </nav>
+      <main class="relative flex min-h-0 min-w-0 flex-col">
+        {#if failure}
+          <p class="m-0 p-6 text-danger">The studio could not read the schema: {failure}</p>
+        {:else if !schema}
+          <p class="m-0 p-6 text-neutral/60">Loading the schema…</p>
+        {:else if route.view === 'schema'}
+          <SchemaDiagram {schema} />
+        {:else if current}
+          {#key hash}
+            <RowsView model={current} models={schema.models} scope={route.scope} {navigate} />
+          {/key}
+        {:else}
+          <p class="m-0 p-6 text-neutral/60">No model named “{route.model}”.</p>
+        {/if}
+      </main>
+    </div>
+    <Toaster />
+    <Confirmation />
+  {/snippet}
+</Theme>
