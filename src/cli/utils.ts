@@ -75,6 +75,8 @@ export interface LoadConfigOptions {
   config?: string;
   /** Leave validation to the caller (`viborm check` reports every issue). */
   skipValidation?: boolean;
+  /** How the config module is imported; jiti unless a runtime imports TypeScript itself. */
+  importer?: (path: string) => Promise<unknown>;
 }
 
 export interface LoadedConfig {
@@ -234,9 +236,9 @@ export async function loadConfig(
   }
 
   // Load the config file
-  const configModule = await loadCliModule<
-    VibORMConfig & { default?: VibORMConfig; config?: VibORMConfig }
-  >(configPath);
+  const configModule = (await (options.importer ?? loadCliModule)(
+    configPath
+  )) as VibORMConfig & { default?: VibORMConfig; config?: VibORMConfig };
 
   // Extract config (handle both default export and named export)
   const config: VibORMConfig =

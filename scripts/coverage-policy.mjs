@@ -156,6 +156,13 @@ const definitions = [
     projects: ["layer-adapters", "coverage-adapter-storage"],
   },
   {
+    id: "studio",
+    label: "studio",
+    target: 100,
+    root: "src/studio/",
+    projects: ["coverage-studio"],
+  },
+  {
     id: "cli",
     label: "CLI",
     target: 100,
@@ -166,6 +173,7 @@ const definitions = [
       "tests/contracts/public-client/cli/index.test.ts",
       "tests/contracts/public-client/cli/migrate.test.ts",
       "tests/contracts/public-client/cli/push.test.ts",
+      "tests/contracts/public-client/cli/studio.test.ts",
       "tests/contracts/public-client/cli/utils.test.ts",
     ],
   },

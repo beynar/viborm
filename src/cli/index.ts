@@ -11,6 +11,7 @@ import { VIBORM_VERSION } from "../version";
 import { checkCommand } from "./commands/check";
 import { migrateCommand } from "./commands/migrate";
 import { pushCommand } from "./commands/push";
+import { studioCommand } from "./commands/studio";
 
 registerEveryMigrationDriver();
 
@@ -25,6 +26,7 @@ program
 program.addCommand(checkCommand);
 program.addCommand(pushCommand);
 program.addCommand(migrateCommand);
+program.addCommand(studioCommand);
 
 // Parse arguments
 try {

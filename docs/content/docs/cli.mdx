@@ -14,6 +14,7 @@ then discovers `viborm.config.ts` (also `.mts`, `.js`, or `.mjs`). See
 | --- | --- |
 | `viborm check` | Validate the configured schema, including advisory checks |
 | `viborm check --db` | Also audit SQLite storage of the pushed schema: one catalog read per table reports missing columns and decimal columns without VibORM's checked scaled-integer storage, and each existing DateTime/Time text column's noncanonical values are counted (one full scan each); see [repairing timestamps](/docs/migration/drivers/sqlite#repairing-foreign-timestamp-and-time-text) and [adopting decimals](/docs/migration/drivers/sqlite#adopting-decimal-columns-from-another-tool) |
+| `viborm studio` | Browse the schema as a diagram and the rows of each model, and edit them through your client ([studio](#studio)) |
 | `viborm push --dry-run` | Preview direct synchronization without applying it |
 | `viborm push --yes` | Apply a non-destructive synchronization without a prompt |
 | `viborm migrate generate --name change` | Generate the next migration state |
@@ -56,3 +57,31 @@ messages and values follow the same disclosure rules as application errors.
 See [push](/docs/migration/push) and [migrations](/docs/migration/migrate) for the
 state, rollback, and interrupted-operation contracts. No CLI command replaces
 review of a destructive plan or an independently verified backup.
+
+## Studio
+
+`viborm studio` (preview) serves a local app on `http://127.0.0.1:5577` and
+opens it in the browser. It loads the client your config exports, as every
+command does, and shows:
+
+- the schema as a diagram: each model's columns with their types, nullability,
+  primary and unique keys, and each relation as a line between the columns
+  that store it, its ends in crow's foot notation;
+- each model's rows, a page at a time, searched, filtered, sorted, and linked
+  to the rows each relation reaches;
+- a panel to create, update and delete a row.
+
+Every read and write goes through your client, so its validation, defaults,
+generators and relation semantics apply exactly as in your application, and a
+refused value shows the client's own message. A model without a primary key is
+read-only. The server listens on 127.0.0.1 only, and takes API calls only from
+its own page.
+
+| Option | Purpose |
+| --- | --- |
+| `--port <port>` | Listen on this port; without it, 5577 or a free port when 5577 is taken |
+| `--no-open` | Print the address without opening a browser |
+| `--config <path>` | Select a config |
+
+The studio ships inside the CLI's own files: an application that imports
+`viborm` or a driver entry bundles none of it.

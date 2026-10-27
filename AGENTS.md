@@ -498,6 +498,7 @@ Client uses types:     orm.user.findMany({ where: { name: ... }})  // Fully type
 | Add cache invalidation option | [cache/](src/cache/AGENTS.md) | Update `schema.ts` |
 | Add tracing span/attribute | [instrumentation/](src/instrumentation/AGENTS.md) | Update `spans.ts`, `presentation.ts`; core only publishes neutral facts |
 | Add logging level | [instrumentation/](src/instrumentation/AGENTS.md) | Update `types.ts`, `logger.ts` |
+| Change `viborm studio` | `src/studio/` (server, API, schema view), `studio/ui/` (Svelte app) | Reads and writes only through the loaded client; only `src/cli/commands/studio.ts` may import it (`tests/contracts/public-client/studio/studio-boundary.core.test.ts`), so no runtime entry carries it |
 
 ---
 

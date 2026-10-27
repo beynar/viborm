@@ -38,7 +38,7 @@
       "src/",
       "tests/"
     ],
-    "maximumCompressedBytes": 2600000,
+    "maximumCompressedBytes": 2700000,
     "maximumUnpackedBytes": 10000000,
     "maximumFileCount": 260
   }

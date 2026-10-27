@@ -21,3 +21,8 @@ dist/**/*.d.ts.map
 /release
 benchmarks/baseline.json
 benchmarks/baseline.json
+
+# The studio app's build, inlined into the CLI chunk by the package build.
+studio/ui/dist/
+studio/demo/*.db*
+/viborm-studio

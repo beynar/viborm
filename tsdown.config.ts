@@ -1,6 +1,25 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { defineConfig, type Rolldown, type UserConfig } from "tsdown";
 import ts from "typescript";
+
+// The studio app (`studio/ui`, built by `pnpm studio:build`) as one HTML
+// string. Only `src/studio/run.ts` imports it, behind `viborm studio`'s dynamic
+// import, so it lands in a CLI-only chunk and in no runtime entry.
+const STUDIO_UI_ID = "viborm:studio-ui";
+const STUDIO_UI_FILE = "studio/ui/dist/index.html";
+const studioUi: Rolldown.Plugin = {
+  name: "viborm-studio-ui",
+  resolveId(id) {
+    return id === STUDIO_UI_ID ? `\0${STUDIO_UI_ID}` : null;
+  },
+  load(id) {
+    if (id !== `\0${STUDIO_UI_ID}`) return null;
+    if (!existsSync(STUDIO_UI_FILE)) {
+      this.error(`${STUDIO_UI_FILE} is missing: run pnpm studio:build first`);
+    }
+    return `export default ${JSON.stringify(readFileSync(STUDIO_UI_FILE, "utf8"))};`;
+  },
+};
 
 const runtime = {
   // Multiple entry points for tree-shaking
@@ -132,6 +151,7 @@ const runtime = {
   dts: false,
   // Enable tree-shaking
   treeshake: true,
+  plugins: [studioUi],
 } satisfies UserConfig;
 
 function namedExports(source: ts.SourceFile) {
@@ -260,6 +280,6 @@ export default defineConfig([
     sourcemap: false,
     outputOptions: { keepNames: false },
     dts: { emitDtsOnly: true },
-    plugins: [declarationExportKinds],
+    plugins: [studioUi, declarationExportKinds],
   },
 ]);

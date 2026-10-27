@@ -223,6 +223,13 @@ export default defineWorkspace([
       include: ["tests/contracts/public-client/cli/**/*.test.ts"],
     },
   },
+  {
+    extends: "./vitest.config.ts",
+    test: {
+      name: "coverage-studio",
+      include: ["tests/contracts/public-client/studio/**/*.test.ts"],
+    },
+  },
   coverageProject("cache", [
     "tests/unit/cache/**/*.core.test.ts",
     "tests/contracts/public-client/official-cache-extension.core.test.ts",

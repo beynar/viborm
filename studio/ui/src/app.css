@@ -1,0 +1,131 @@
+:root {
+  color-scheme: light dark;
+  --color-neutral: #1d2433;
+  --color-surface: #ffffff;
+  --color-canvas: #f5f6f8;
+  --color-link: #3b5bdb;
+  --color-danger: #c92a2a;
+  --color-success: #2b8a3e;
+  --border: color-mix(in oklab, var(--color-neutral) 14%, transparent);
+  --muted: color-mix(in oklab, var(--color-neutral) 55%, transparent);
+  --faint: color-mix(in oklab, var(--color-neutral) 6%, transparent);
+  --radius: 10px;
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-neutral: #e6e9f0;
+    --color-surface: #191c23;
+    --color-canvas: #12141a;
+    --color-link: #7c9cff;
+    --color-danger: #ff6b6b;
+    --color-success: #51cf66;
+  }
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+body {
+  font: 13px / 1.45 var(--font);
+  color: var(--color-neutral);
+  background: var(--color-canvas);
+  -webkit-font-smoothing: antialiased;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  cursor: pointer;
+  white-space: nowrap;
+}
+button:hover:not(:disabled) {
+  background: var(--faint);
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+button.primary {
+  background: var(--color-link);
+  border-color: var(--color-link);
+  color: #fff;
+}
+button.primary:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--color-link) 88%, black);
+}
+button.danger {
+  color: var(--color-danger);
+}
+button.ghost {
+  border-color: transparent;
+  background: transparent;
+}
+button.icon {
+  width: 30px;
+  padding: 0;
+  justify-content: center;
+}
+input,
+select,
+textarea {
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  min-width: 0;
+}
+textarea {
+  height: auto;
+  padding: 6px 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  resize: vertical;
+}
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--color-link) 60%, transparent);
+  outline-offset: 1px;
+}
+a {
+  color: var(--color-link);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: 0.6;
+}
