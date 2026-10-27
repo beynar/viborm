@@ -1,0 +1,51 @@
+{
+  "name": "@viborm/studio",
+  "version": "1.5.1",
+  "description": "VibORM Studio: your schema as a diagram, your rows to browse and edit through your own VibORM client",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/beynar/viborm.git",
+    "directory": "packages/studio"
+  },
+  "homepage": "https://viborm.dev/docs/cli#studio",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "viborm-studio": "dist/cli.mjs"
+  },
+  "files": [
+    "dist/cli.mjs",
+    "dist/studio.html"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vite build --config ui/vite.config.ts --logLevel warn && tsdown && node -e \"require('node:fs').copyFileSync('ui/dist/index.html', 'dist/studio.html')\"",
+    "dev": "vite --config ui/vite.config.ts",
+    "check": "svelte-check --workspace ui --tsconfig ./tsconfig.json",
+    "compile": "vite build --config ui/vite.config.ts --logLevel warn && bun build --compile --bytecode --format=esm --minify --compile-autoload-package-json --compile-autoload-tsconfig bun/main.ts --outfile viborm-studio"
+  },
+  "dependencies": {
+    "jiti": "^2.7.0"
+  },
+  "peerDependencies": {
+    "viborm": "~1.5.1"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "@tailwindcss/vite": "4.3.3",
+    "@xyflow/svelte": "1.7.0",
+    "entasis": "0.13.2",
+    "svelte": "5.57.2",
+    "svelte-check": "4.7.7",
+    "tailwindcss": "4.3.3",
+    "tsdown": "0.19.0-beta.4",
+    "typescript": "5.9.3",
+    "viborm": "workspace:*",
+    "vite": "8.3.5"
+  }
+}

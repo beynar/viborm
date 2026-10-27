@@ -1,0 +1,70 @@
+/*
+ * The studio's only stylesheet, after Pyxel's: Tailwind 4 reads its
+ * configuration here. entasis ships no CSS; its components carry Tailwind
+ * classes, which `@source` hands to Tailwind, and its theme plugin generates
+ * the palette they read.
+ */
+@import "tailwindcss";
+@source "../../node_modules/entasis/dist";
+/* The components' MCP descriptions hold class names no page renders. */
+@source not "../../node_modules/entasis/dist/**/*.mcp.js";
+
+/* The default theme installs entasis's engine; ink on near-white, flat, as Pyxel. */
+@plugin "entasis/tailwind-plugin/theme" {
+  name: light;
+  default: true;
+  colorscheme: light;
+  elevation: flat;
+  surface: #fefefe;
+  surface-recessed: #f6f6f5;
+  surface-canvas: #fafafa;
+  surface-raised: #ffffff;
+  surface-floating: #ffffff;
+  neutral: #191919;
+  primary: #191919;
+  secondary: #ebebe6;
+  danger: #dc2626;
+  success: #15803d;
+  warning: #f4d35e;
+  info: #083d77;
+}
+
+@plugin "entasis/tailwind-plugin/theme" {
+  name: dark;
+  colorscheme: dark;
+  surface: #191919;
+  surface-recessed: #101010;
+  surface-canvas: #141414;
+  surface-raised: #1e1e1e;
+  surface-floating: #272727;
+  neutral: #fefefe;
+  primary: #fefefe;
+  secondary: #3a3a3a;
+  danger: #f87171;
+  success: #4ade80;
+  warning: #ee964b;
+  info: #74a7ea;
+  state-hover-opacity: 0.16;
+  state-pressed-opacity: 0.32;
+}
+
+/* Links and key marks: a deep blue on light, a readable one on dark. */
+@layer base {
+  html:not([data-theme="dark"]) {
+    --color-link: #1f5fbf;
+  }
+  html[data-theme="dark"] {
+    --color-link: #8ab4f8;
+  }
+  html,
+  body,
+  #app {
+    height: 100%;
+    margin: 0;
+  }
+  body {
+    background: var(--color-surface);
+    color: var(--color-neutral);
+    -webkit-font-smoothing: antialiased;
+  }
+}

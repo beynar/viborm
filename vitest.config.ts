@@ -66,12 +66,6 @@ export default defineConfig({
       // acceptance fixture (tests/package/fixtures/permissions-app) is written
       // against "viborm" so a packed-tarball consumer compiles it unchanged.
       { find: /^viborm$/, replacement: resolve(__dirname, "src/index.ts") },
-      // The studio app is inlined by the package build (tsdown.config.ts);
-      // tests serve a stand-in document.
-      {
-        find: /^viborm:studio-ui$/,
-        replacement: resolve(__dirname, "tests/fixtures/studio-ui.ts"),
-      },
       ...Object.entries({
         "@src": resolve(__dirname, "src"),
         "@tests": resolve(__dirname, "tests"),

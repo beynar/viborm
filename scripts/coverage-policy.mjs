@@ -159,7 +159,9 @@ const definitions = [
     id: "studio",
     label: "studio",
     target: 100,
-    root: "src/studio/",
+    // @viborm/studio: its own package, measured as every source this
+    // repository ships is.
+    root: "packages/studio/src/",
     projects: ["coverage-studio"],
   },
   {
@@ -173,7 +175,6 @@ const definitions = [
       "tests/contracts/public-client/cli/index.test.ts",
       "tests/contracts/public-client/cli/migrate.test.ts",
       "tests/contracts/public-client/cli/push.test.ts",
-      "tests/contracts/public-client/cli/studio.test.ts",
       "tests/contracts/public-client/cli/utils.test.ts",
     ],
   },
@@ -338,8 +339,13 @@ function readTypeScriptFiles(directory) {
   return files;
 }
 
+/** Every source the repository ships: `viborm`'s, and @viborm/studio's. */
 export function sourceFiles() {
-  return readTypeScriptFiles(resolve(COVERAGE_PROJECT_ROOT, "src")).sort();
+  return ["src", "packages/studio/src"]
+    .flatMap((root) =>
+      readTypeScriptFiles(resolve(COVERAGE_PROJECT_ROOT, root))
+    )
+    .sort();
 }
 
 function owns(definition, source) {

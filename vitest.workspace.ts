@@ -131,6 +131,8 @@ export default defineWorkspace([
   ]),
   layerProject("migrations", ["tests/unit/migrations/**/*.core.test.ts"]),
   layerProject("permissions", ["tests/unit/permissions/**/*.core.test.ts"]),
+  // @viborm/studio's own tests; its package lives outside tests/.
+  layerProject("studio", ["packages/studio/test/**/*.core.test.ts"]),
   {
     extends: "./vitest.config.ts",
     test: {
@@ -227,7 +229,7 @@ export default defineWorkspace([
     extends: "./vitest.config.ts",
     test: {
       name: "coverage-studio",
-      include: ["tests/contracts/public-client/studio/**/*.test.ts"],
+      include: ["packages/studio/test/**/*.core.test.ts"],
     },
   },
   coverageProject("cache", [

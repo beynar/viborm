@@ -1,35 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
-import { brotliCompressSync, constants as zlibConstants } from "node:zlib";
+import { readFileSync } from "node:fs";
 import { defineConfig, type Rolldown, type UserConfig } from "tsdown";
 import ts from "typescript";
-
-// The studio app (`studio/ui`, built by `pnpm studio:build`) as one HTML
-// string. Only `src/studio/run.ts` imports it, behind `viborm studio`'s dynamic
-// import, so it lands in a CLI-only chunk and in no runtime entry. It ships
-// brotli-compressed (1.5 MB of HTML, 0.4 MB in the package) and is inflated
-// once, when the command imports it.
-const STUDIO_UI_ID = "viborm:studio-ui";
-const STUDIO_UI_FILE = "studio/ui/dist/index.html";
-const studioUi: Rolldown.Plugin = {
-  name: "viborm-studio-ui",
-  resolveId(id) {
-    return id === STUDIO_UI_ID ? `\0${STUDIO_UI_ID}` : null;
-  },
-  load(id) {
-    if (id !== `\0${STUDIO_UI_ID}`) return null;
-    if (!existsSync(STUDIO_UI_FILE)) {
-      this.error(`${STUDIO_UI_FILE} is missing: run pnpm studio:build first`);
-    }
-    const html = readFileSync(STUDIO_UI_FILE);
-    const packed = brotliCompressSync(html, {
-      params: {
-        [zlibConstants.BROTLI_PARAM_QUALITY]: 11,
-        [zlibConstants.BROTLI_PARAM_SIZE_HINT]: html.length,
-      },
-    }).toString("base64");
-    return `import { brotliDecompressSync } from "node:zlib";\nexport default brotliDecompressSync(Buffer.from(${JSON.stringify(packed)}, "base64")).toString("utf8");`;
-  },
-};
 
 const runtime = {
   // Multiple entry points for tree-shaking
@@ -161,7 +132,6 @@ const runtime = {
   dts: false,
   // Enable tree-shaking
   treeshake: true,
-  plugins: [studioUi],
 } satisfies UserConfig;
 
 function namedExports(source: ts.SourceFile) {
@@ -290,6 +260,6 @@ export default defineConfig([
     sourcemap: false,
     outputOptions: { keepNames: false },
     dts: { emitDtsOnly: true },
-    plugins: [studioUi, declarationExportKinds],
+    plugins: [declarationExportKinds],
   },
 ]);

@@ -82,6 +82,5 @@ describe("CLI entrypoint", () => {
     );
     expect(output).toContain("push");
     expect(output).toContain("migrate");
-    expect(output).toContain("studio");
   });
 });
