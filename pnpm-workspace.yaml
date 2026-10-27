@@ -1,5 +1,6 @@
 packages:
   - docs
+  - packages/studio
 allowBuilds:
   '@prisma/client': true
   '@prisma/engines': true

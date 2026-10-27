@@ -156,6 +156,15 @@ const definitions = [
     projects: ["layer-adapters", "coverage-adapter-storage"],
   },
   {
+    id: "studio",
+    label: "studio",
+    target: 100,
+    // @viborm/studio: its own package, measured as every source this
+    // repository ships is.
+    root: "packages/studio/src/",
+    projects: ["coverage-studio"],
+  },
+  {
     id: "cli",
     label: "CLI",
     target: 100,
@@ -330,8 +339,13 @@ function readTypeScriptFiles(directory) {
   return files;
 }
 
+/** Every source the repository ships: `viborm`'s, and @viborm/studio's. */
 export function sourceFiles() {
-  return readTypeScriptFiles(resolve(COVERAGE_PROJECT_ROOT, "src")).sort();
+  return ["src", "packages/studio/src"]
+    .flatMap((root) =>
+      readTypeScriptFiles(resolve(COVERAGE_PROJECT_ROOT, root))
+    )
+    .sort();
 }
 
 function owns(definition, source) {

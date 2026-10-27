@@ -3,6 +3,33 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## 1.6.0 — 2026-10-28
+
+VibORM Studio: the schema as a diagram, and the rows to browse and edit
+through your own client, in a new package, `@viborm/studio`.
+
+### Added
+
+- **`npx @viborm/studio`**, at this release's version (it requires `viborm`
+  `~1.6.0`). It finds the project's config by itself: `viborm.config.*` in
+  the working directory or a parent up to the repository root, else a file
+  below that imports `defineConfig` from `"viborm/config"`. It serves a local
+  app on `127.0.0.1:5577`:
+  - the schema as an ERD: columns with their types, nullability, primary and
+    unique keys; one-to-one, one-to-many, many-to-many and polymorphic
+    relations in crow's foot notation; cards kept where you move them;
+  - each model's rows: paging, search, AND/OR filters, sorting, related rows
+    opened under their row, CSV and JSON export of what a filter reaches;
+  - editing through the client: cells in place, a row drawer, a foreign-key
+    picker, related rows linked and unlinked through nested writes, deletes
+    after a confirmation, the client's own message on a refusal.
+
+  It watches the config and every project file it imports: a saved schema
+  reloads the page, a broken one keeps the previous schema and says why.
+  `--readonly` refuses every write. The server answers only `127.0.0.1` and
+  its own page. `viborm` carries none of it: no runtime entry, bundle or
+  dependency changed.
+
 ## 1.5.1 — 2026-10-26
 
 A `reset()` on a PlanetScale Postgres (Neki) production branch failed every

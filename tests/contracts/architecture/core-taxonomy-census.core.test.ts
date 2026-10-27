@@ -145,6 +145,8 @@ function typescriptFilesUnderTests(): string[] {
     }
   };
   visit(join(REPOSITORY_ROOT, "tests"));
+  // @viborm/studio keeps its tests beside its package.
+  visit(join(REPOSITORY_ROOT, "packages/studio/test"));
   return found.sort();
 }
 

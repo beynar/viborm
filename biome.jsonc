@@ -53,6 +53,25 @@
       "json": { "parser": { "allowComments": true } }
     },
     {
+      // Svelte components are PascalCase by convention, and Biome does not
+      // connect a component's script bindings to their uses in its markup,
+      // nor see the snippets its markup declares.
+      "includes": ["packages/studio/ui/**/*.svelte"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUnusedVariables": "off",
+            "noUnusedImports": "off",
+            "noUndeclaredVariables": "off"
+          },
+          "style": {
+            "useFilenamingConvention": "off",
+            "useConst": "off"
+          }
+        }
+      }
+    },
+    {
       // Blume page overrides use PascalCase component names, and Biome does not
       // connect Astro frontmatter imports to their template references.
       "includes": ["docs/**/*.astro"],

@@ -42,7 +42,7 @@ jobs:
           - group: migrations
             subsystems: migrations
           - group: engine
-            subsystems: query-engine-core,validation,cli
+            subsystems: query-engine-core,validation,cli,studio
           - group: surface
             subsystems: public,schema,sql,instrumentation,extensions,errors,adapters,client,cache
     steps:

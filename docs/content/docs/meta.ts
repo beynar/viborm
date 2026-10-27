@@ -12,6 +12,7 @@ export default defineMeta({
     "client",
     "migration",
     "cli",
+    "studio",
     "extensions",
     "internals",
   ],

@@ -1,0 +1,12 @@
+{
+  // The app imports the server's types (`src/schema.ts`), which import
+  // VibORM's source: it resolves them through the root project's paths.
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "verbatimModuleSyntax": true,
+    "lib": ["es2023", "DOM", "DOM.Iterable"],
+    "types": ["node", "svelte"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.svelte"],
+  "exclude": []
+}

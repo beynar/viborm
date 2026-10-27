@@ -87,10 +87,12 @@ separate [migration workflow](docs/content/docs/migration/index.mdx).
   instrumentation, omit, soft-delete and permissions tools.
 - Fixed-decimal values, millisecond DateTime values, GeoPoint and PostgreSQL vector
   operations with explicit provider requirements.
+- [VibORM Studio](docs/content/docs/studio.mdx) (`npx @viborm/studio`): the schema
+  as a diagram, and the rows to browse and edit through your own client.
 
 See the [driver matrix](docs/content/docs/drivers/index.mdx) for actual provider
-qualification and hosted limitations. SQL Server, a database browser, read-replica
-routing and cross-schema relations are not implemented.
+qualification and hosted limitations. SQL Server, read-replica routing and
+cross-schema relations are not implemented.
 
 ## Contracts to know
 

@@ -34,6 +34,7 @@ const LAYERS = new Set([
   "instrumentation",
   "migrations",
   "permissions",
+  "studio",
 ]);
 
 const layer = process.argv[2];
