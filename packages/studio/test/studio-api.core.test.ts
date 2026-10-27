@@ -77,6 +77,7 @@ const api = createStudioApi({ client, models: schema, dialect: "sqlite" });
 
 const call = (method: string, path: string, body?: unknown) =>
   api.handle({ method, path, body });
+const FIRST_POST_LINE = /^1,Engines,4\.5,\d{4}-/;
 const errorCode = (response: { body: unknown }) =>
   (response.body as { error: { code: string } }).error.code;
 
@@ -564,7 +565,7 @@ describe("export", () => {
     const lines = String(csv.body).split("\r\n");
     expect(lines[0]).toBe("id,title,rating,createdAt,authorId");
     expect(lines).toHaveLength(3);
-    expect(lines[1]).toMatch(/^1,Engines,4\.5,\d{4}-/);
+    expect(lines[1]).toMatch(FIRST_POST_LINE);
     const json = await call("POST", "/models/user/export", {
       format: "json",
       search: "ada",

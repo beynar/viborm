@@ -14,12 +14,12 @@ import { onMount } from "svelte";
 import RowsView from "./components/data/RowsView.svelte";
 import SchemaDiagram from "./components/schema/SchemaDiagram.svelte";
 import ThemeToggle from "./components/ThemeToggle.svelte";
-import { loadSchema, type Scope, type StudioSchema } from "./lib/api";
+import { loadSchema, type Scope, type StudioDescription } from "./lib/api";
 
 // The studio's frame, entasis's AppShell: the models in its sidebar, then a page — the schema diagram or one model's
 // rows — whose title, header actions and footer the page sets itself (`setPageShell`). Where the member is lives in
 // the address (`#/schema`, `#/data/<model>?scope=…`), so the browser's back button follows relations back.
-let schema = $state<StudioSchema>();
+let schema = $state<StudioDescription>();
 let failure = $state<string>();
 let hash = $state(location.hash);
 /** Bumped each time the server reloads the config: the open page reads again. */
@@ -146,7 +146,7 @@ const sidebar = $derived<AppShellSidebarProps>({
         <SchemaDiagram {schema} />
       {:else if current}
         {#key `${hash}#${revision}`}
-          <RowsView model={current} models={schema.models} scope={route.scope} {navigate} />
+          <RowsView model={current} models={schema.models} readonly={schema.readonly} scope={route.scope} {navigate} />
         {/key}
       {:else}
         <p class="m-0 p-6 text-neutral/60">No model named “{route.model}”.</p>

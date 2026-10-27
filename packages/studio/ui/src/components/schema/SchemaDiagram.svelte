@@ -6,6 +6,8 @@ import {
   type Node,
   SvelteFlow,
 } from "@xyflow/svelte";
+import { Button } from "entasis/button";
+import { arrowCounterClockwiseIcon } from "entasis/icons/arrowCounterClockwise";
 import { type PageShellApi, setPageShell } from "entasis/page-shell";
 import { untrack } from "svelte";
 import type { StudioSchema } from "../../lib/api";
@@ -43,10 +45,53 @@ const links = $derived(linksOf(schema));
 // The page's header: its title, what the schema holds, and the legend.
 setPageShell({ title: "Schema", subtitle, headerActions });
 
+/**
+ * Where the member moved each card, kept in the browser per project (the
+ * models' names make the key), so the diagram opens as it was left.
+ */
+// The project the studio opened: a reload keeps the key, so a new model joins the saved layout.
+const LAYOUT_KEY = `viborm-studio:layout:${untrack(() =>
+  schema.models
+    .map((model) => model.name)
+    .sort()
+    .join(",")
+)}`;
+function savedLayout(): Record<string, { x: number; y: number }> {
+  try {
+    return JSON.parse(localStorage.getItem(LAYOUT_KEY) ?? "{}");
+  } catch {
+    return {};
+  }
+}
+let saving: ReturnType<typeof setTimeout> | undefined;
+function saveLayout(current: readonly Node<TableData>[]) {
+  clearTimeout(saving);
+  saving = setTimeout(() => {
+    localStorage.setItem(
+      LAYOUT_KEY,
+      JSON.stringify(
+        Object.fromEntries(current.map((node) => [node.id, node.position]))
+      )
+    );
+  }, 300);
+}
+/** The diagram as the schema lays it out: every card back to its column. */
+function resetLayout() {
+  localStorage.removeItem(LAYOUT_KEY);
+  const at = schemaLayout(schema);
+  nodes = nodes.map((node) => ({
+    ...node,
+    position: at.get(node.id) ?? node.position,
+  }));
+}
+
 function laidOut(current: StudioSchema): Node<TableData>[] {
   const at = schemaLayout(current);
   const all = linksOf(current);
-  const kept = new Map((nodes ?? []).map((node) => [node.id, node.position]));
+  const kept = new Map([
+    ...Object.entries(savedLayout()),
+    ...(nodes ?? []).map((node) => [node.id, node.position] as const),
+  ]);
   return current.models.map((model) => ({
     id: model.name,
     type: "table",
@@ -87,6 +132,9 @@ $effect.pre(() => {
   nodes = untrack(() => laidOut(current));
 });
 
+// A card moved (or the schema reloaded): where every card stands is kept.
+$effect(() => saveLayout(nodes));
+
 /** Each line leaves and meets its cards on the sides that face each other; a model pointing to itself loops on its right. */
 const edges = $derived.by<Edge<{ link: Link; markers: string }>[]>(() => {
   const x = new Map(nodes.map((node) => [node.id, node.position.x]));
@@ -116,6 +164,7 @@ const edges = $derived.by<Edge<{ link: Link; markers: string }>[]>(() => {
 {/snippet}
 
 {#snippet headerActions(_page: PageShellApi)}
+  <Button size="small" variant="ghost" prefix={arrowCounterClockwiseIcon} onclick={resetLayout}>Reset layout</Button>
   <SchemaLegend />
 {/snippet}
 

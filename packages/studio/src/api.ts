@@ -343,7 +343,9 @@ function selection(
       continue;
     }
     select[relation.name] = {
-      select: Object.fromEntries(target.key.fields.map((field) => [field, true])),
+      select: Object.fromEntries(
+        target.key.fields.map((field) => [field, true])
+      ),
     };
   }
   const counted = model.relations.filter(

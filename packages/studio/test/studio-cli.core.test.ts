@@ -27,7 +27,15 @@ describe("viborm-studio's arguments", () => {
 
   test("takes a config, a port, and turns opening and watching off", async () => {
     await main(
-      ["-c", "db.config.ts", "--port", "0", "--no-open", "--no-watch", "--readonly"],
+      [
+        "-c",
+        "db.config.ts",
+        "--port",
+        "0",
+        "--no-open",
+        "--no-watch",
+        "--readonly",
+      ],
       app
     );
     expect(runStudio).toHaveBeenCalledWith(

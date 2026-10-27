@@ -1,6 +1,7 @@
 <script lang="ts">
 import { Button } from "entasis/button";
 import { Chip } from "entasis/chip";
+import { Combobox } from "entasis/combobox";
 import { confirmation } from "entasis/confirmation";
 import {
   DataTable,
@@ -8,11 +9,13 @@ import {
   type DataTableCellCommit,
   type DataTableColumn,
   type DataTableEditor,
+  type DataTableEditorPayload,
   type DataTableState,
 } from "entasis/data-table";
 import { arrowsClockwiseIcon } from "entasis/icons/arrowsClockwise";
 import { arrowsOutSimpleIcon } from "entasis/icons/arrowsOutSimple";
 import { caretDownIcon } from "entasis/icons/caretDown";
+import { downloadSimpleIcon } from "entasis/icons/downloadSimple";
 import { funnelIcon } from "entasis/icons/funnel";
 import { linkSimpleIcon } from "entasis/icons/linkSimple";
 import { magnifyingGlassIcon } from "entasis/icons/magnifyingGlass";
@@ -29,9 +32,11 @@ import { untrack } from "svelte";
 import {
   createRow,
   deleteRow,
+  exportRows,
   keyOf,
   type Row,
   readRows,
+  rowChoices,
   type Scope,
   type StudioField,
   type StudioModel,
@@ -58,11 +63,14 @@ import RowDrawer from "./RowDrawer.svelte";
 let {
   model,
   models,
+  readonly = false,
   scope,
   navigate,
 }: {
   model: StudioModel;
   models: readonly StudioModel[];
+  /** The studio does not write: no editor, no add, no delete. */
+  readonly?: boolean;
   scope?: Scope;
   navigate: (model: string, scope?: Scope) => void;
 } = $props();
@@ -205,6 +213,19 @@ async function load(current = query) {
   }
 }
 
+/** Every row the page's filter, search and order reach, downloaded as a file. */
+async function download(format: "csv" | "json") {
+  const { skip: _skip, take: _take, ...reach } = query;
+  try {
+    await exportRows(model.name, reach, format);
+  } catch (error) {
+    toast.danger({
+      title: "The rows could not be exported",
+      description: said(error),
+    });
+  }
+}
+
 const said = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
@@ -244,8 +265,23 @@ function clear() {
   firstPage();
 }
 
+/** The model a column holds the one key of, when it is a relation's single foreign key. */
+function pointsTo(field: StudioField): StudioModel | undefined {
+  const relation = model.relations.find(
+    (candidate) =>
+      candidate.owner &&
+      candidate.fields.length === 1 &&
+      candidate.fields[0] === field.name
+  );
+  const target = models.find(
+    (candidate) => candidate.name === relation?.targets[0]
+  );
+  return target?.key?.fields.length === 1 ? target : undefined;
+}
+
 function editor(field: StudioField): DataTableEditor<Row> | undefined {
-  if (!keyed || (field.id && field.generated)) return undefined;
+  if (readonly || !keyed || (field.id && field.generated)) return undefined;
+  if (pointsTo(field)) return { type: "custom", render: keyPicker };
   if (
     field.list ||
     field.type === "json" ||
@@ -426,7 +462,10 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
 
 {#snippet controls(_page: PageShellApi)}
   <div class="flex flex-wrap items-center gap-2">
-    {#if selected.length}
+    {#if readonly}
+      <Chip size="small" variant="soft">Read-only</Chip>
+    {/if}
+    {#if selected.length && !readonly}
       <Button size="small" variant="soft" color="danger" prefix={trashIcon} onclick={() => removeSelected(selected)}>
         {selected.length === 1 ? 'Delete the row' : `Delete ${selected.length} rows`}
       </Button>
@@ -451,8 +490,43 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
       <TextInput size="small" label="Search the text columns" theme={HIDDEN_LABEL} placeholder="Search" prefix={magnifyingGlassIcon} value={words} onValueChange={search} />
     </div>
     <Button size="small" variant="ghost" squared prefix={arrowsClockwiseIcon} label="Read the rows again" onclick={() => load()} />
-    <Button size="small" color="primary" prefix={plusIcon} onclick={() => (editing = {})}>Add row</Button>
+    <Popover position="bottom-end">
+      {#snippet trigger(popover)}
+        <Button size="small" variant="ghost" squared prefix={downloadSimpleIcon} label="Export the rows" {@attach popover.trigger} />
+      {/snippet}
+      {#snippet children(popover)}
+        <div class="grid gap-1">
+          <p class="m-0 px-2 pb-1 text-[12px] text-neutral/60">Every row the filter and search reach</p>
+          <Button size="small" variant="ghost" onclick={() => (download('csv'), popover.close())}>Export as CSV</Button>
+          <Button size="small" variant="ghost" onclick={() => (download('json'), popover.close())}>Export as JSON</Button>
+        </div>
+      {/snippet}
+    </Popover>
+    {#if !readonly}
+      <Button size="small" color="primary" prefix={plusIcon} onclick={() => (editing = {})}>Add row</Button>
+    {/if}
   </div>
+{/snippet}
+
+<!-- A foreign key changed in its cell: the rows of the model it points to, found by their text or their key. -->
+{#snippet keyPicker({ columnId, draft, setDraft, commit: save }: DataTableEditorPayload<Row>)}
+  {@const target = pointsTo(fieldsByName.get(columnId)!)!}
+  <Combobox
+    size="small"
+    label={columnId}
+    theme={HIDDEN_LABEL}
+    items={rowChoices(target)}
+    openOnFocus
+    placeholder="A {target.name} row"
+    loadingText="Searching…"
+    noOptionsText="No {target.name} row matches"
+    value={draft === null || draft === undefined || draft === '' ? null : String(draft)}
+    getValueOption={value => ({ value, label: `${target.name} ${value}` })}
+    onValueChange={({ value }) => {
+      setDraft(value ?? '')
+      save()
+    }}
+  />
 {/snippet}
 
 <!-- The page's footer: which rows show, how many a page holds, and the pages. -->
@@ -484,7 +558,7 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
       processingMode="manual"
       rowCount={total}
       interactionMode="grid"
-      selectionMode={keyed ? 'multiple' : 'none'}
+      selectionMode={keyed && !readonly ? 'multiple' : 'none'}
       density="compact"
       stickyHeader
       {loading}
@@ -505,7 +579,7 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
       }}
     >
       {#snippet expandedContent({ row, rowId })}
-        <RelatedRows {models} {model} {row} active={opened[rowId] ?? expandableRelations[0]?.name ?? ''} onActive={name => (opened = { ...opened, [rowId]: name })} {navigate} />
+        <RelatedRows {models} {model} {row} {readonly} active={opened[rowId] ?? expandableRelations[0]?.name ?? ''} onActive={name => (opened = { ...opened, [rowId]: name })} {navigate} onChanged={() => load()} />
       {/snippet}
 
       {#snippet rowActions({ row })}
@@ -524,12 +598,18 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
             <Button size="small" variant={expanded && opened[rowId] === relation.name ? 'soft' : 'ghost'} suffix={caretDownIcon} label="{relation.name} of this row" onclick={() => openRelated(rowId, relation.name, expanded, toggleExpanded)}>
               <span class="tabular-nums">{row._count?.[relation.name] ?? '?'}</span>&nbsp;{relation.targets[0]}
             </Button>
-          {:else if relation.owner && heldKey(relation, row).some(held => held === null)}
-            <span class="text-neutral/40 italic">null</span>
           {:else}
-            <Button size="small" variant={expanded && opened[rowId] === relation.name ? 'soft' : 'ghost'} prefix={linkSimpleIcon} label="{relation.name} of this row" onclick={() => openRelated(rowId, relation.name, expanded, toggleExpanded)}>
-              <span class="truncate">{relation.targets[0]}{relation.owner ? ` ${heldKey(relation, row).map(display).join(', ')}` : ''}</span>
-            </Button>
+            <!-- A to-one relation: the key of the row it reaches, or an empty mark when there is none. -->
+            {@const reached = row[relation.name] as Row | null | undefined}
+            {#if reached === null || (relation.owner && heldKey(relation, row).some(held => held === null))}
+              <Button size="small" variant={expanded && opened[rowId] === relation.name ? 'soft' : 'ghost'} label="{relation.name} of this row: none" onclick={() => openRelated(rowId, relation.name, expanded, toggleExpanded)}>
+                <span class="text-neutral/40 italic">none</span>
+              </Button>
+            {:else}
+              <Button size="small" variant={expanded && opened[rowId] === relation.name ? 'soft' : 'ghost'} prefix={linkSimpleIcon} label="{relation.name} of this row" onclick={() => openRelated(rowId, relation.name, expanded, toggleExpanded)}>
+                <span class="truncate">{relation.targets[0]} {reached ? Object.values(reached).map(display).join(', ') : heldKey(relation, row).map(display).join(', ')}</span>
+              </Button>
+            {/if}
           {/if}
         {:else if !field || value === null || value === undefined}
           <span class="text-neutral/40 italic">null</span>
@@ -573,6 +653,6 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
 
 {#if editing}
   {#key editing}
-    <RowDrawer {model} row={editing.row} save={saveRow} remove={editing.row && keyed ? removeRow : undefined} close={() => (editing = undefined)} />
+    <RowDrawer {model} {models} {readonly} row={editing.row} save={saveRow} remove={editing.row && keyed ? removeRow : undefined} close={() => (editing = undefined)} />
   {/key}
 {/if}

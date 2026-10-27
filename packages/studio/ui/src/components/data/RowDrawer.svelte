@@ -2,6 +2,7 @@
 import { Alert } from "entasis/alert";
 import { Button } from "entasis/button";
 import { Checkbox } from "entasis/checkbox";
+import { Combobox } from "entasis/combobox";
 import { confirmation } from "entasis/confirmation";
 import { Dialog } from "entasis/dialog";
 import { trashIcon } from "entasis/icons/trash";
@@ -10,7 +11,12 @@ import { Switch } from "entasis/switch";
 import { TextArea } from "entasis/text-area";
 import { TextInput } from "entasis/text-input";
 import { untrack } from "svelte";
-import type { Row, StudioField, StudioModel } from "../../lib/api";
+import {
+  type Row,
+  rowChoices,
+  type StudioField,
+  type StudioModel,
+} from "../../lib/api";
 import { TYPE_ICONS } from "../../lib/icons";
 import { draftOf, editsAsJson, parseDraft, typeLabel } from "../../lib/values";
 
@@ -19,12 +25,18 @@ import { draftOf, editsAsJson, parseDraft, typeLabel } from "../../lib/values";
 // an existing one sends only what changed. Both go through the client: what it refuses shows here, in its words.
 let {
   model,
+  models,
+  readonly = false,
   row,
   save,
   remove,
   close,
 }: {
   model: StudioModel;
+  /** Every model: a foreign key picks a row of the model it points to. */
+  models: readonly StudioModel[];
+  /** The studio does not write: the drawer shows the row and saves nothing. */
+  readonly?: boolean;
   /** The row edited; absent for a new one. */
   row?: Row;
   save: (data: Row) => Promise<void>;
@@ -66,6 +78,20 @@ const keyText = $derived(
     ? model.key.fields.map((field) => String(row[field])).join(", ")
     : ""
 );
+
+/** The model a column holds the one key of, when it is a relation's single foreign key. */
+function pointsTo(field: StudioField): StudioModel | undefined {
+  const relation = model.relations.find(
+    (candidate) =>
+      candidate.owner &&
+      candidate.fields.length === 1 &&
+      candidate.fields[0] === field.name
+  );
+  const target = models.find(
+    (candidate) => candidate.name === relation?.targets[0]
+  );
+  return target?.key?.fields.length === 1 ? target : undefined;
+}
 
 /** What the client is sent: the changed columns of a row, or the written ones of a new row. */
 function dataOf(): Row {
@@ -128,7 +154,7 @@ async function destroy() {
   bind:open
   type="drawerRight"
   title={row ? `${model.name} ${keyText}` : `New ${model.name}`}
-  description={row ? 'Changed columns are saved through your client.' : 'Left empty, a column takes its default.'}
+  description={readonly ? 'The studio is read-only.' : row ? 'Changed columns are saved through your client.' : 'Left empty, a column takes its default.'}
   onAfterClose={close}
 >
   {#if failure}
@@ -142,17 +168,34 @@ async function destroy() {
   <form class="grid gap-4" onsubmit={event => { event.preventDefault(); submit() }} id="row-form">
     {#each model.fields as field (field.name)}
       {@const draft = drafts[field.name]!}
-      {@const disabled = draft.isNull || readOnly(field)}
+      {@const disabled = readonly || draft.isNull || readOnly(field)}
+      {@const target = pointsTo(field)}
       <div class="grid gap-1.5">
         <div class="flex items-center gap-2 text-[13px]">
           <span class="inline-flex text-neutral/55">{@render TYPE_ICONS[field.type]({ size: 14 })}</span>
           <span class="font-medium">{field.name}</span>
           <span class="font-mono text-[11px] text-neutral/50">{typeLabel(field)}</span>
-          {#if field.nullable && !readOnly(field)}
+          {#if field.nullable && !readonly && !readOnly(field)}
             <span class="ml-auto"><Checkbox size="small" label="null" value={draft.isNull} onValueChange={value => (draft.isNull = value === true)} /></span>
           {/if}
         </div>
-        {#if field.type === 'boolean' && !field.list}
+        {#if target}
+          <!-- A foreign key picks the row it points to, found by its text or its key. -->
+          <Combobox
+            size="small"
+            label={field.name}
+            theme={HIDDEN_LABEL}
+            {disabled}
+            items={rowChoices(target)}
+            openOnFocus
+            placeholder={hint(field) || `A ${target.name} row`}
+            loadingText="Searching…"
+            noOptionsText="No {target.name} row matches"
+            value={draft.text || null}
+            getValueOption={value => ({ value, label: `${target.name} ${value}` })}
+            onValueChange={({ value }) => (draft.text = value ?? '')}
+          />
+        {:else if field.type === 'boolean' && !field.list}
           <Switch label={field.name} theme={HIDDEN_LABEL} {disabled} value={draft.text === 'true'} onValueChange={value => (draft.text = value ? 'true' : 'false')} />
         {:else if field.type === 'enum' && !field.list}
           <Select
@@ -175,10 +218,14 @@ async function destroy() {
   </form>
   {#snippet footer()}
     <div class="flex w-full items-center gap-2">
-      {#if remove}<Button variant="soft" color="danger" prefix={trashIcon} disabled={busy} onclick={destroy}>Delete</Button>{/if}
+      {#if remove && !readonly}<Button variant="soft" color="danger" prefix={trashIcon} disabled={busy} onclick={destroy}>Delete</Button>{/if}
       <span class="flex-1"></span>
-      <Button variant="ghost" onclick={() => (open = false)}>Cancel</Button>
-      <Button color="primary" loading={busy} onclick={() => submit()}>{row ? 'Save' : 'Create'}</Button>
+      {#if readonly}
+        <Button variant="ghost" onclick={() => (open = false)}>Close</Button>
+      {:else}
+        <Button variant="ghost" onclick={() => (open = false)}>Cancel</Button>
+        <Button color="primary" loading={busy} onclick={() => submit()}>{row ? 'Save' : 'Create'}</Button>
+      {/if}
     </div>
   {/snippet}
 </Dialog>
