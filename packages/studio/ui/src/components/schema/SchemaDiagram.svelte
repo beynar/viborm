@@ -10,7 +10,7 @@ import { Button } from "entasis/button";
 import { arrowCounterClockwiseIcon } from "entasis/icons/arrowCounterClockwise";
 import { type PageShellApi, setPageShell } from "entasis/page-shell";
 import { untrack } from "svelte";
-import type { StudioSchema } from "../../lib/api";
+import type { StudioDescription, StudioSchema } from "../../lib/api";
 import {
   CARD_WIDTH,
   END_LABELS,
@@ -29,7 +29,7 @@ import TableNode, { type TableData } from "./TableNode.svelte";
 // The schema as a diagram (Svelte Flow), after Pyxel's: a card per model, its columns with their key, their links and
 // their types, then its relations; a stepped line per relation, from the columns that hold a key to the key they
 // point to, its ends in crow's foot notation. The models pointed to stand on the left. A card moves by hand.
-let { schema }: { schema: StudioSchema } = $props();
+let { schema }: { schema: StudioDescription } = $props();
 
 const uid = $props.id();
 const markers = `schema-${uid}`;
@@ -47,15 +47,10 @@ setPageShell({ title: "Schema", subtitle, headerActions });
 
 /**
  * Where the member moved each card, kept in the browser per project (the
- * models' names make the key), so the diagram opens as it was left.
+ * config's path makes the key, which no reload changes: a model added later
+ * joins the saved layout), so the diagram opens as it was left.
  */
-// The project the studio opened: a reload keeps the key, so a new model joins the saved layout.
-const LAYOUT_KEY = `viborm-studio:layout:${untrack(() =>
-  schema.models
-    .map((model) => model.name)
-    .sort()
-    .join(",")
-)}`;
+const LAYOUT_KEY = `viborm-studio:layout:${untrack(() => schema.project)}`;
 function savedLayout(): Record<string, { x: number; y: number }> {
   try {
     return JSON.parse(localStorage.getItem(LAYOUT_KEY) ?? "{}");

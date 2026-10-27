@@ -143,6 +143,17 @@ describe("the studio server", () => {
       403,
       "forbidden_origin",
     ]);
+    // A stream another site's tag opens carries no Origin, only fetch metadata.
+    for (const site of ["cross-site", "same-site"]) {
+      const tagged = await send({
+        path: "/api/events",
+        headers: { "sec-fetch-site": site },
+      });
+      expect([tagged.status, codeOf(tagged.text)]).toEqual([
+        403,
+        "forbidden_origin",
+      ]);
+    }
   });
 
   test("takes API writes as JSON only, of a bounded size", async () => {

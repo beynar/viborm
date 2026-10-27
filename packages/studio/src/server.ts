@@ -95,7 +95,14 @@ export function startStudioServer(
       return;
     }
     const origin = request.headers.origin;
-    if (origin !== undefined && !origins.has(origin)) {
+    // A tag on another page (`<img src>`, `<script src>`) sends no Origin, but
+    // the browser's fetch metadata still says it came from elsewhere.
+    const site = request.headers["sec-fetch-site"];
+    if (
+      (origin !== undefined && !origins.has(origin)) ||
+      site === "cross-site" ||
+      site === "same-site"
+    ) {
       refuse(response, 403, "forbidden_origin", "Cross-origin call refused");
       return;
     }

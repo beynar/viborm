@@ -69,7 +69,7 @@ export async function runStudio(options: RunStudioOptions): Promise<void> {
   }
 
   let project = await loadProject(found.path, options.importer);
-  let api = studioApiOf(project, options.readonly === true);
+  let api = studioApiOf(project, found.path, options.readonly === true);
   const server = await listen(options, (request) => api.handle(request));
   print(
     `VibORM Studio is running on ${server.url} (${api.schema.dialect}, ${api.schema.models.length} models${api.schema.readonly ? ", read-only" : ""})`
@@ -85,7 +85,7 @@ export async function runStudio(options: RunStudioOptions): Promise<void> {
   async function reload() {
     try {
       const next = await loadProject(found!.path, options.importer);
-      const nextApi = studioApiOf(next, options.readonly === true);
+      const nextApi = studioApiOf(next, found!.path, options.readonly === true);
       const previous = project;
       project = next;
       api = nextApi;
@@ -117,12 +117,13 @@ export async function runStudio(options: RunStudioOptions): Promise<void> {
   await project.config.client.$disconnect();
 }
 
-const studioApiOf = (project: LoadedProject, readonly: boolean) =>
+const studioApiOf = (project: LoadedProject, path: string, readonly: boolean) =>
   createStudioApi({
     client: project.config.client,
     models: project.config.models,
     dialect: String(Reflect.get(project.config.driver, "dialect")),
     readonly,
+    project: path,
   });
 
 async function listen(

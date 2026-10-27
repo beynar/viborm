@@ -134,8 +134,11 @@ describe("schema extraction", () => {
     const token = model("session").fields.find(
       (field) => field.name === "token"
     );
-    expect(token).toMatchObject({ optional: false });
+    // A compact identifier compares but has no substring to search.
+    expect(token).toMatchObject({ optional: false, searchable: false });
     expect(token).not.toHaveProperty("generated");
+    expect(fields.email).toMatchObject({ searchable: true });
+    expect(fields.karma).toMatchObject({ searchable: false });
     expect(model("user").key).toEqual({ fields: ["id"] });
     expect(model("membership").key).toEqual({
       name: "orgId_memberId",
@@ -204,7 +207,11 @@ describe("schema extraction", () => {
   test("the schema route answers the same description", async () => {
     const response = await call("GET", "/schema");
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ ...described, readonly: false });
+    expect(response.body).toEqual({
+      ...described,
+      readonly: false,
+      project: "",
+    });
   });
 });
 
@@ -271,6 +278,11 @@ describe("browsing", () => {
       search: "7",
     });
     expect(numeric.body).toMatchObject({ total: 1, rows: [{ value: 7 }] });
+    // A ulid column is no text to search: the search leaves it out.
+    const compact = await call("POST", "/models/session/rows", {
+      search: "Ada",
+    });
+    expect(compact.status).toBe(200);
   });
 
   test("an empty body reads the first page, unordered when there is no key", async () => {
@@ -586,20 +598,29 @@ describe("export", () => {
     ]);
   });
 
-  test("refuses more rows than an export writes", async () => {
-    const page = Array.from({ length: MAX_PAGE_SIZE }, (_, id) => ({ id }));
-    const endless = createStudioApi({
-      client: { tag: { findMany: async () => page } },
-      models: schema,
-      dialect: "sqlite",
-    });
-    const response = await endless.handle({
-      method: "POST",
-      path: "/models/tag/export",
-      body: {},
-    });
-    expect(response.status).toBe(413);
-    expect(MAX_EXPORT_ROWS % MAX_PAGE_SIZE).toBe(0);
+  test("writes as many rows as an export holds, and refuses one more", async () => {
+    const exportOf = (count: number) =>
+      createStudioApi({
+        client: {
+          tag: {
+            findMany: async ({ skip, take }: { skip: number; take: number }) =>
+              Array.from(
+                { length: Math.max(0, Math.min(take, count - skip)) },
+                (_, index) => ({ id: skip + index })
+              ),
+          },
+        },
+        models: schema,
+        dialect: "sqlite",
+      }).handle({
+        method: "POST",
+        path: "/models/tag/export",
+        body: { format: "json" },
+      });
+    const full = await exportOf(MAX_EXPORT_ROWS);
+    expect(full.status).toBe(200);
+    expect(JSON.parse(String(full.body))).toHaveLength(MAX_EXPORT_ROWS);
+    expect((await exportOf(MAX_EXPORT_ROWS + 1)).status).toBe(413);
   });
 
   test("CSV quotes what needs quoting and spells every type as text", () => {

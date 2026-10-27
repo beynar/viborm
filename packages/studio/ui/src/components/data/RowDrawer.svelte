@@ -12,6 +12,7 @@ import { TextArea } from "entasis/text-area";
 import { TextInput } from "entasis/text-input";
 import { untrack } from "svelte";
 import {
+  foreignKeyOf,
   type Row,
   rowChoices,
   type StudioField,
@@ -78,20 +79,6 @@ const keyText = $derived(
     ? model.key.fields.map((field) => String(row[field])).join(", ")
     : ""
 );
-
-/** The model a column holds the one key of, when it is a relation's single foreign key. */
-function pointsTo(field: StudioField): StudioModel | undefined {
-  const relation = model.relations.find(
-    (candidate) =>
-      candidate.owner &&
-      candidate.fields.length === 1 &&
-      candidate.fields[0] === field.name
-  );
-  const target = models.find(
-    (candidate) => candidate.name === relation?.targets[0]
-  );
-  return target?.key?.fields.length === 1 ? target : undefined;
-}
 
 /** What the client is sent: the changed columns of a row, or the written ones of a new row. */
 function dataOf(): Row {
@@ -169,7 +156,7 @@ async function destroy() {
     {#each model.fields as field (field.name)}
       {@const draft = drafts[field.name]!}
       {@const disabled = readonly || draft.isNull || readOnly(field)}
-      {@const target = pointsTo(field)}
+      {@const pointed = foreignKeyOf(model, models, field)}
       <div class="grid gap-1.5">
         <div class="flex items-center gap-2 text-[13px]">
           <span class="inline-flex text-neutral/55">{@render TYPE_ICONS[field.type]({ size: 14 })}</span>
@@ -179,14 +166,15 @@ async function destroy() {
             <span class="ml-auto"><Checkbox size="small" label="null" value={draft.isNull} onValueChange={value => (draft.isNull = value === true)} /></span>
           {/if}
         </div>
-        {#if target}
-          <!-- A foreign key picks the row it points to, found by its text or its key. -->
+        {#if pointed}
+          {@const target = pointed.target}
+          <!-- A foreign key picks the row it points to, found by its text or the value it holds. -->
           <Combobox
             size="small"
             label={field.name}
             theme={HIDDEN_LABEL}
             {disabled}
-            items={rowChoices(target)}
+            items={rowChoices(target, pointed.reference)}
             openOnFocus
             placeholder={hint(field) || `A ${target.name} row`}
             loadingText="Searching…"

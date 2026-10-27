@@ -33,6 +33,7 @@ import {
   createRow,
   deleteRow,
   exportRows,
+  foreignKeyOf,
   keyOf,
   type Row,
   readRows,
@@ -265,23 +266,10 @@ function clear() {
   firstPage();
 }
 
-/** The model a column holds the one key of, when it is a relation's single foreign key. */
-function pointsTo(field: StudioField): StudioModel | undefined {
-  const relation = model.relations.find(
-    (candidate) =>
-      candidate.owner &&
-      candidate.fields.length === 1 &&
-      candidate.fields[0] === field.name
-  );
-  const target = models.find(
-    (candidate) => candidate.name === relation?.targets[0]
-  );
-  return target?.key?.fields.length === 1 ? target : undefined;
-}
-
 function editor(field: StudioField): DataTableEditor<Row> | undefined {
   if (readonly || !keyed || (field.id && field.generated)) return undefined;
-  if (pointsTo(field)) return { type: "custom", render: keyPicker };
+  if (foreignKeyOf(model, models, field))
+    return { type: "custom", render: keyPicker };
   if (
     field.list ||
     field.type === "json" ||
@@ -508,14 +496,14 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
   </div>
 {/snippet}
 
-<!-- A foreign key changed in its cell: the rows of the model it points to, found by their text or their key. -->
+<!-- A foreign key changed in its cell: the rows of the model it points to, found by their text or the value it holds. -->
 {#snippet keyPicker({ columnId, draft, setDraft, commit: save }: DataTableEditorPayload<Row>)}
-  {@const target = pointsTo(fieldsByName.get(columnId)!)!}
+  {@const { target, reference } = foreignKeyOf(model, models, fieldsByName.get(columnId)!)!}
   <Combobox
     size="small"
     label={columnId}
     theme={HIDDEN_LABEL}
-    items={rowChoices(target)}
+    items={rowChoices(target, reference)}
     openOnFocus
     placeholder="A {target.name} row"
     loadingText="Searching…"
@@ -523,7 +511,7 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
     value={draft === null || draft === undefined || draft === '' ? null : String(draft)}
     getValueOption={value => ({ value, label: `${target.name} ${value}` })}
     onValueChange={({ value }) => {
-      setDraft(value ?? '')
+      setDraft(value ?? null)
       save()
     }}
   />
@@ -631,7 +619,9 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
       {#snippet empty()}
         <div class="grid justify-items-center gap-3 p-10 text-center">
           <strong>No {model.name} rows yet</strong>
-          <Button size="small" variant="outline" prefix={plusIcon} onclick={() => (editing = {})}>Add the first row</Button>
+          {#if !readonly}
+            <Button size="small" variant="outline" prefix={plusIcon} onclick={() => (editing = {})}>Add the first row</Button>
+          {/if}
         </div>
       {/snippet}
       {#snippet noResults()}

@@ -99,6 +99,7 @@ const schemaAt = async (url: string) =>
   (await (await fetch(`${url}/api/schema`)).json()) as {
     dialect: string;
     models: { name: string }[];
+    project: string;
   };
 
 function occupiedPort(port: number): Promise<{ close: () => void }> {
@@ -120,6 +121,7 @@ describe("viborm-studio", () => {
     expect(await schemaAt(url)).toMatchObject({
       dialect: "sqlite",
       models: [{ name: "note" }],
+      project: join(project.dir, "viborm.config.ts"),
     });
     expect(printed()).toContain("Config: viborm.config.ts");
     expect(printed()).toContain("(sqlite, 1 models)");

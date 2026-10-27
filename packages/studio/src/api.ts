@@ -31,6 +31,8 @@ export interface StudioResponse {
 /** The schema as the page reads it: the models, and whether it may write. */
 export interface StudioDescription extends StudioSchema {
   readonly readonly: boolean;
+  /** The config the studio opened: what the page keys the layout it saves by. */
+  readonly project: string;
 }
 
 /** The delegate surface the studio calls on `client[model]`. */
@@ -49,6 +51,8 @@ export interface StudioApiOptions {
   readonly dialect: string;
   /** Refuse every create, update and delete. */
   readonly readonly?: boolean;
+  /** The config's path, which a reload keeps. */
+  readonly project?: string;
 }
 
 /** The largest page one request may read. */
@@ -76,6 +80,7 @@ export function createStudioApi(options: StudioApiOptions) {
   const schema: StudioDescription = {
     ...describeSchema(options.models, options.dialect),
     readonly: options.readonly === true,
+    project: options.project ?? "",
   };
   const byName = new Map(schema.models.map((model) => [model.name, model]));
   const select = (model: StudioModel) => selection(model, byName);
@@ -230,21 +235,23 @@ async function exportRows(
   const select = scalarSelection(model);
   const rows: Record<string, unknown>[] = [];
   for (;;) {
+    // The last page asks for one row past the ceiling: only that row refuses.
+    const take = Math.min(MAX_PAGE_SIZE, MAX_EXPORT_ROWS + 1 - rows.length);
     const page = await delegate.findMany({
       ...query,
       skip: rows.length,
-      take: MAX_PAGE_SIZE,
+      take,
       select,
     });
     rows.push(...page);
-    if (page.length < MAX_PAGE_SIZE) break;
-    if (rows.length >= MAX_EXPORT_ROWS) {
+    if (rows.length > MAX_EXPORT_ROWS) {
       throw new Refusal(
         413,
         "export_too_large",
         `An export writes at most ${MAX_EXPORT_ROWS} rows: narrow the filter`
       );
     }
+    if (page.length < take) break;
   }
   return format === "json"
     ? new FileAnswer(encodeJson(rows), `${model.name}.json`, "application/json")
@@ -287,9 +294,7 @@ function searchWhere(
   search: string
 ): Record<string, unknown> | undefined {
   if (search === "") return undefined;
-  const text = model.fields.filter(
-    (field) => field.type === "string" && !field.list
-  );
+  const text = model.fields.filter((field) => field.searchable);
   if (text.length === 0) return undefined;
   return {
     OR: text.map((field) => ({ [field.name]: { contains: search } })),

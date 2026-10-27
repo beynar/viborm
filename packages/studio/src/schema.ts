@@ -12,12 +12,14 @@ import { getModelKeyCatalog } from "@src/schema/model/keys";
 import type { RelationSlot } from "@src/schema/relation/types";
 import type { Scalar } from "@src/schema/scalars/base";
 import type { ScalarType } from "@src/schema/scalars/common";
+import { idDomainOfState } from "@src/schema/scalars/string/id-domain";
 import type {
   ResolvedRelationEdge,
   ResolvedSlot,
 } from "@src/schema/validation/relation-resolution";
 import { resolvedEdges } from "@src/schema/validation/relation-resolution";
 import { resolveSchemaOrThrow } from "@src/schema/validation/validator";
+import { isCompactIdFormat } from "@src/validation/primitives/id-codec";
 
 export interface StudioField {
   readonly name: string;
@@ -28,6 +30,11 @@ export interface StudioField {
   readonly list: boolean;
   readonly id: boolean;
   readonly unique: boolean;
+  /**
+   * Text a search reads with `contains`: a single string column, unless it
+   * stores a compact identifier (uuid, ulid, …), whose filter has no substring.
+   */
+  readonly searchable: boolean;
   /** A create may leave it out: a default, a generator, or nullable. */
   readonly optional: boolean;
   /** The generator that fills it (`increment`, `uuid`, `now`, `updatedAt`, …). */
@@ -111,6 +118,12 @@ export function describeSchema(models: Models, dialect: string): StudioSchema {
   };
 }
 
+function searchable(state: Scalar["~"]["state"]): boolean {
+  if (state.type !== "string" || state.array) return false;
+  const domain = idDomainOfState(state);
+  return !(domain && isCompactIdFormat(domain.format));
+}
+
 function describeModel(
   name: string,
   model: Model<any>,
@@ -140,6 +153,7 @@ function describeModel(
       list: scalarState.array,
       id: scalarState.isId || (catalog.rowKey?.fields.includes(field) ?? false),
       unique: scalarState.isUnique,
+      searchable: searchable(scalarState),
       optional:
         scalarState.hasDefault ||
         generated !== undefined ||

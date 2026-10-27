@@ -111,6 +111,10 @@ const TEMPORAL = new Set(["datetime", "date", "time"]);
 export function operatorsOf(field: StudioField): Operator[] {
   const nulls: Operator[] = field.nullable ? ["isNull", "isNotNull"] : [];
   if (field.list) return nulls;
+  // A compact identifier's filter compares; it has no substring to search.
+  if (field.type === "string" && !field.searchable) {
+    return ["equals", "not", "in", ...nulls];
+  }
   if (field.type === "string") {
     return [
       "contains",
@@ -211,10 +215,12 @@ export function editable(field: StudioField, value: unknown): unknown {
 }
 
 /**
- * What a cell's editor wrote, as the client takes it: emptied, a nullable
+ * What a cell's editor wrote, as the client takes it: emptied text stays an
+ * empty string (null is the drawer's checkbox), any other emptied nullable
  * column becomes null; text is typed back by `parseDraft`.
  */
 export function written(field: StudioField, value: unknown): unknown {
+  if (value === "" && field.searchable) return "";
   if (value === null || value === undefined || value === "") {
     return field.nullable ? null : field.type === "string" ? "" : null;
   }

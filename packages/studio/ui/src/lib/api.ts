@@ -1,6 +1,7 @@
 // The studio API, as the app calls it. Its types are the server's own.
 import type { StudioDescription } from "../../../src/api";
-import type { StudioModel } from "../../../src/schema";
+import type { StudioField, StudioModel } from "../../../src/schema";
+import { parseDraft } from "./values";
 
 export type { StudioDescription } from "../../../src/api";
 export type {
@@ -105,10 +106,7 @@ export async function exportRows(
 export function rowLabel(model: StudioModel, row: Row): string {
   const text = model.fields.find(
     (field) =>
-      field.type === "string" &&
-      !field.id &&
-      !field.list &&
-      typeof row[field.name] === "string"
+      field.searchable && !field.id && typeof row[field.name] === "string"
   );
   const key = model.key
     ? model.key.fields.map((field) => String(row[field])).join(", ")
@@ -116,38 +114,80 @@ export function rowLabel(model: StudioModel, row: Row): string {
   return text ? String(row[text.name]) : key;
 }
 
-/**
- * The rows of `target` a picker offers for the words typed: found by its text
- * columns, or by its key when it has none. Each option's value is the row's
- * one key value.
- */
-export function rowChoices(target: StudioModel, exclude?: string) {
-  const key =
-    target.key?.fields.length === 1 ? target.key.fields[0]! : undefined;
-  const keyField = target.fields.find((field) => field.name === key);
-  const searchable = target.fields.some(
-    (field) => field.type === "string" && !field.list
+/** A column that is a relation's single foreign key: the model it points to, and the column there it holds. */
+export interface ForeignKey {
+  readonly target: StudioModel;
+  readonly reference: string;
+}
+
+export function foreignKeyOf(
+  model: StudioModel,
+  models: readonly StudioModel[],
+  field: StudioField
+): ForeignKey | undefined {
+  const relation = model.relations.find(
+    (candidate) =>
+      candidate.owner &&
+      candidate.fields.length === 1 &&
+      candidate.fields[0] === field.name
   );
-  const numeric = keyField?.type === "int" || keyField?.type === "number";
+  const target = models.find(
+    (candidate) => candidate.name === relation?.targets[0]
+  );
+  return relation && target
+    ? { target, reference: relation.references[0]! }
+    : undefined;
+}
+
+const PICKED = 20;
+
+/**
+ * The rows of `target` a picker offers for the words typed, each option's
+ * value the row's `valueField` (its one key column unless named): the row whose
+ * value is the words, then the rows whose text holds them. The exact lookup is
+ * the client's to admit: words that are no such value find nothing there.
+ */
+export function rowChoices(
+  target: StudioModel,
+  valueField = target.key?.fields.length === 1
+    ? target.key.fields[0]
+    : undefined
+) {
+  const field = target.fields.find(
+    (candidate) => candidate.name === valueField
+  );
+  const searchable = target.fields.some((candidate) => candidate.searchable);
   return async (words: string | undefined) => {
-    if (!key) return [];
+    if (!(valueField && field)) return [];
     const typed = words?.trim() ?? "";
-    if (typed && !searchable && numeric && !Number.isFinite(Number(typed)))
-      return [];
-    const { rows } = await readRows(target.name, {
-      skip: 0,
-      take: 20,
-      ...(typed && searchable ? { search: typed } : {}),
-      ...(typed && !searchable
-        ? { where: { [key]: numeric ? Number(typed) : typed } }
-        : {}),
-    });
-    return rows
-      .filter((row) => String(row[key]) !== exclude)
-      .map((row) => ({
-        value: String(row[key]),
+    const exact = async (): Promise<Row[]> => {
+      if (!typed) return [];
+      try {
+        const where = { [valueField]: parseDraft(field, typed) };
+        return (await readRows(target.name, { skip: 0, take: 1, where })).rows;
+      } catch {
+        return [];
+      }
+    };
+    const found = async (): Promise<Row[]> => {
+      if (typed && !searchable) return [];
+      const search = typed ? { search: typed } : {};
+      return (await readRows(target.name, { skip: 0, take: PICKED, ...search }))
+        .rows;
+    };
+    const [first, rest] = await Promise.all([exact(), found()]);
+    const seen = new Set<string>();
+    const choices: { value: string; label: string; description: string }[] = [];
+    for (const row of [...first, ...rest]) {
+      const value = String(row[valueField]);
+      if (seen.has(value) || seen.size === PICKED) continue;
+      seen.add(value);
+      choices.push({
+        value,
         label: rowLabel(target, row),
-        description: `${target.name} ${String(row[key])}`,
-      }));
+        description: `${target.name} ${value}`,
+      });
+    }
+    return choices;
   };
 }
