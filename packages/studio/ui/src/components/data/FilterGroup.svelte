@@ -63,9 +63,27 @@ const HIDDEN_LABEL = {
   label: { base: "sr-only" },
 };
 const columns = $derived(filterColumns(model, models));
-const columnItems = $derived(
-  columns.map((column) => ({ value: column.key, label: column.key }))
-);
+const columnItems = $derived.by(() => {
+  const groups = new Map<string | undefined, FilterColumn[]>();
+  for (const column of columns) {
+    const group = relationLabel(column);
+    const items = groups.get(group);
+    if (items) items.push(column);
+    else groups.set(group, [column]);
+  }
+  return Array.from(groups, ([group, items]) => ({
+    label: group ?? model.name,
+    items: items.map((column) => ({
+      value: column.key,
+      label: column.field.name,
+    })),
+  }));
+});
+function relationLabel(column: FilterColumn | undefined) {
+  const via = column?.via;
+  if (!via) return undefined;
+  return `${via.relation.name}${via.variant ? ` (${via.variant})` : ""}`;
+}
 const QUANTIFIERS = (Object.keys(QUANTIFIER_LABELS) as Quantifier[]).map(
   (value) => ({ value, label: QUANTIFIER_LABELS[value] })
 );
@@ -181,7 +199,10 @@ const setValue = (id: number, value: string) => update(id, { value });
         <!-- Through a to-many relation: whether any, every or no related row matches. -->
         <div class="w-[5.5rem] shrink-0"><Select size="small" label="Which related rows" theme={HIDDEN_LABEL} items={QUANTIFIERS} value={condition.via?.quantifier ?? 'some'} onValueChange={value => value && condition.via && update(condition.id, { via: { ...condition.via, quantifier: value as Quantifier } })} /></div>
       {/if}
-      <div class="min-w-[8rem] flex-1 @xl:w-48 @xl:flex-none"><Select size="small" label="Column" theme={HIDDEN_LABEL} items={columnItems} value={condition.field} onValueChange={value => value && update(condition.id, { field: value })} /></div>
+      {#snippet relationPrefix()}
+        <span class="max-w-28 truncate text-neutral/55">{relationLabel(column)} /</span>
+      {/snippet}
+      <div class="min-w-[8rem] flex-1 @xl:w-48 @xl:flex-none"><Select size="small" label="Column" theme={HIDDEN_LABEL} alignItemWithTrigger={false} prefix={column?.via ? relationPrefix : undefined} triggerAttrs={{ title: condition.field }} items={columnItems} value={condition.field} onValueChange={value => value && update(condition.id, { field: value })} /></div>
       <div class="w-28 shrink-0"><Select size="small" label="Comparison" theme={HIDDEN_LABEL} items={operators.map(operator => ({ value: operator, label: OPERATOR_LABELS[operator] }))} value={condition.operator} onValueChange={value => value && update(condition.id, { operator: value as Operator })} /></div>
       <!-- Last on the line when the value shares it; on the first line when the value takes its own. -->
       <div class="shrink-0 @xl:order-last"><Button size="small" variant="ghost" squared label="Remove the condition" prefix={xIcon} onclick={() => remove(condition.id)} /></div>
