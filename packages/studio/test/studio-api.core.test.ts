@@ -462,7 +462,10 @@ describe("variant relations", () => {
       .name("items"),
   });
   const variants = { article, video, comment, shelf };
-  createClient({ schema: variants, driver: createInMemorySQLite3Driver() });
+  const variantClient = createClient({
+    schema: variants,
+    driver: createInMemorySQLite3Driver(),
+  });
   const described = describeSchema(variants, "sqlite");
   const relation = (model: string, name: string) =>
     described.models
@@ -478,6 +481,15 @@ describe("variant relations", () => {
       owner: false,
       fields: [],
       references: [],
+      variants: [
+        {
+          name: "article",
+          target: "article",
+          inverse: "comments",
+          inverseCardinality: "many",
+        },
+        { name: "video", target: "video" },
+      ],
     });
     expect(relation("article", "comments")).toEqual({
       name: "comments",
@@ -489,8 +501,59 @@ describe("variant relations", () => {
       references: [],
       inverse: "subject",
       inverseCardinality: "one",
+      variant: "article",
     });
     expect(relation("shelf", "items")?.targets).toEqual(["article", "video"]);
+    expect(relation("article", "shelves")).toMatchObject({
+      inverse: "items",
+      inverseCardinality: "many",
+      variant: "article",
+    });
+  });
+
+  test("a polymorphic to-one reads its variant and key; a collection is counted", async () => {
+    await syncLiveSchema(variantClient);
+    await variantClient.article.create({ data: { id: 1 } });
+    await variantClient.video.create({ data: { id: 1 } });
+    await variantClient.comment.create({
+      data: {
+        id: 1,
+        subject: { connect: { type: "video", where: { id: 1 } } },
+      },
+    });
+    await variantClient.comment.create({
+      data: {
+        id: 2,
+        subject: { connect: { type: "article", where: { id: 1 } } },
+      },
+    });
+    await variantClient.shelf.create({
+      data: {
+        id: 1,
+        items: {
+          connect: [
+            { type: "article", where: { id: 1 } },
+            { type: "video", where: { id: 1 } },
+          ],
+        },
+      },
+    });
+    const api = createStudioApi({
+      client: variantClient,
+      models: variants,
+      dialect: "sqlite",
+    });
+    const read = (model: string) =>
+      api.handle({ method: "POST", path: `/models/${model}/rows`, body: {} });
+    expect((await read("comment")).body).toMatchObject({
+      rows: [
+        { id: 1, subject: { type: "video", data: { id: 1 } } },
+        { id: 2, subject: { type: "article", data: { id: 1 } } },
+      ],
+    });
+    expect((await read("shelf")).body).toMatchObject({
+      rows: [{ id: 1, _count: { items: 2 } }],
+    });
   });
 
   test("each member is an edge from its carrier", () => {

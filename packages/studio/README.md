@@ -20,7 +20,10 @@ the studio on `http://127.0.0.1:5577` and opens it.
   unique keys, and each relation as a line in crow's foot notation.
 - **Rows:** a page at a time, searched, filtered (AND/OR) and sorted. A
   relation's cell opens the related rows under the row, and from there in
-  their own table. Export what a filter reaches as CSV or JSON.
+  their own table, polymorphic relations included. Export what a filter
+  reaches as CSV or JSON.
+- **Saved views:** a table's filter, search, order and page size saved under
+  a name in the sidebar, kept in your browser per project.
 - **Editing:** cells edited in place, rows opened or added in a drawer,
   deleted after a confirmation. A foreign key is picked from the rows it can
   point to; a to-many relation links and unlinks rows through nested writes.

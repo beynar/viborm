@@ -102,11 +102,14 @@ export async function exportRows(
   URL.revokeObjectURL(link.href);
 }
 
-/** A row as a picker says it: its first text column, else its key. */
-export function rowLabel(model: StudioModel, row: Row): string {
+/** A row as a picker says it: its first text column (other than `shown`, which the option says already), else its key. */
+export function rowLabel(model: StudioModel, row: Row, shown?: string): string {
   const text = model.fields.find(
     (field) =>
-      field.searchable && !field.id && typeof row[field.name] === "string"
+      field.searchable &&
+      !field.id &&
+      field.name !== shown &&
+      typeof row[field.name] === "string"
   );
   const key = model.key
     ? model.key.fields.map((field) => String(row[field])).join(", ")
@@ -184,7 +187,7 @@ export function rowChoices(
       seen.add(value);
       choices.push({
         value,
-        label: rowLabel(target, row),
+        label: rowLabel(target, row, valueField),
         description: `${target.name} ${value}`,
       });
     }

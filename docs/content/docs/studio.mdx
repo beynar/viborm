@@ -41,11 +41,19 @@ read from the config's own directory.
 - **Rows**: a page at a time, searched in their text columns, filtered by
   conditions joined with AND or OR, sorted by any column. A relation's cell
   opens the related rows under the row; from there, open them all in their
-  own table.
+  own table. Polymorphic relations are followed too: a to-one says the variant
+  it reached (`video 1`) and opens that row, a collection opens one variant at
+  a time, and a target's inverse lists only its own variant's rows.
+- **Saved views**: a model's table as you left it (its filter, search, order,
+  page size and column widths) saved under a name and listed in the sidebar.
+  An open view shows when it no longer matches the table, and is saved again,
+  renamed or copied from the same button; a view's menu in the sidebar
+  deletes it. Views are kept in your browser, per project.
 - **Editing**: a cell is edited in place, a row is opened in a drawer, a new
   row is added there, rows are deleted after a confirmation. A foreign key is
   picked from the rows it can point to, and a to-many relation links or
-  unlinks a row through the client's nested writes.
+  unlinks a row through the client's nested writes (not yet through a
+  polymorphic relation).
 - **Export**: every row the current filter and search reach, as CSV or JSON.
 
 ![Related rows under their row](https://raw.githubusercontent.com/beynar/viborm/main/packages/studio/screenshots/related-rows.png)

@@ -19,7 +19,10 @@ through your own client, in a new package, `@viborm/studio`.
     unique keys; one-to-one, one-to-many, many-to-many and polymorphic
     relations in crow's foot notation; cards kept where you move them;
   - each model's rows: paging, search, AND/OR filters, sorting, related rows
-    opened under their row, CSV and JSON export of what a filter reaches;
+    opened under their row (polymorphic relations included), CSV and JSON
+    export of what a filter reaches;
+  - saved views: a table's filter, search, order and page size, named and
+    listed in the sidebar;
   - editing through the client: cells in place, a row drawer, a foreign-key
     picker, related rows linked and unlinked through nested writes, deletes
     after a confirmation, the client's own message on a refusal.

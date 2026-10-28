@@ -24,7 +24,11 @@ let {
   combinator: "AND" | "OR";
 } = $props();
 
-const HIDDEN_LABEL = { label: { base: "sr-only" } };
+// The label is read by assistive technology only: its header leaves the layout too, so no empty row spaces the control.
+const HIDDEN_LABEL = {
+  header: { base: "!absolute sr-only" },
+  label: { base: "sr-only" },
+};
 const filterable = $derived(
   model.fields.filter((field) => operatorsOf(field).length > 0)
 );
@@ -33,15 +37,15 @@ const fieldItems = $derived(
 );
 const fieldOf = (name: string) =>
   model.fields.find((field) => field.name === name);
-let next = 0;
-
 function add() {
   const field = filterable[0];
+  // Past every id the list holds: a saved view brings its conditions with theirs.
+  const id = Math.max(0, ...conditions.map((condition) => condition.id)) + 1;
   if (field)
     conditions = [
       ...conditions,
       {
-        id: ++next,
+        id,
         field: field.name,
         operator: operatorsOf(field)[0]!,
         value: field.type === "boolean" ? "true" : "",
@@ -70,7 +74,7 @@ function update(id: number, change: Partial<Condition>) {
     {@const field = fieldOf(condition.field)}
     {@const operators = field ? operatorsOf(field) : []}
     <div class="flex items-center gap-2">
-      <div class="w-14 shrink-0 text-right text-[13px] text-neutral/60">
+      <div class="w-[4.5rem] shrink-0 text-right text-[13px] text-neutral/60">
         {#if index === 0}
           where
         {:else if index === 1}

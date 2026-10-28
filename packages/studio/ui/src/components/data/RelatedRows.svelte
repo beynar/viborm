@@ -16,11 +16,16 @@ import {
   type StudioRelation,
   updateRow,
 } from "../../lib/api";
-import { display, relatedWhere } from "../../lib/values";
+import {
+  display,
+  isReached,
+  reachedText,
+  relatedScopes,
+} from "../../lib/values";
 
 // A row's related rows, under it, as Pyxel's `RelatedRows` opens them: one button per relation and what it holds
 // beside its name, then the first rows of the relation chosen, read through the client with the filter that
-// follows it (`relatedWhere`), and a link to see them all in their own table. A relation the row does not hold the
+// follows it (`relatedScopes`; one per variant for a polymorphic collection), and a link to see them all in their own table. A relation the row does not hold the
 // key of is linked here too: a row connected, or one disconnected, through the client's nested writes. A relation
 // changed reads them again; a later answer replaces an earlier one, never the reverse.
 let {
@@ -53,18 +58,30 @@ const LINKED_AREA = {
     base: "bg-surface border-neutral-muted max-h-72 min-w-0 rounded-[12px] border",
   },
 };
-const HIDDEN_LABEL = { label: { base: "sr-only" } };
+// The label is read by assistive technology only: its header leaves the layout too, so no empty row spaces the control.
+const HIDDEN_LABEL = {
+  header: { base: "!absolute sr-only" },
+  label: { base: "sr-only" },
+};
 
 const relations = $derived(
   model.relations.filter(
-    (relation) => relatedWhere(model, relation, row) !== undefined
+    (relation) => relatedScopes(model, relation, row) !== undefined
   )
 );
 const relation = $derived(
   relations.find((candidate) => candidate.name === active) ?? relations[0]
 );
+/** Where the relation reaches: one model, or one per variant of a polymorphic collection, shown one at a time. */
+const scopes = $derived(
+  relation ? (relatedScopes(model, relation, row) ?? []) : []
+);
+let pickedVariant = $state<string>();
+const reaching = $derived(
+  scopes.find((candidate) => candidate.variant === pickedVariant) ?? scopes[0]
+);
 const target = $derived(
-  relation && models.find((candidate) => candidate.name === relation.targets[0])
+  reaching && models.find((candidate) => candidate.name === reaching.target)
 );
 const keyText = $derived(
   model.key
@@ -72,10 +89,10 @@ const keyText = $derived(
     : ""
 );
 const scope = $derived<Scope | undefined>(
-  relation
+  relation && reaching
     ? {
-        where: relatedWhere(model, relation, row)!,
-        label: `${relation.name} of ${model.name} ${keyText}`,
+        where: reaching.where,
+        label: `${relation.name}${scopes.length > 1 ? ` (${reaching.variant})` : ""} of ${model.name} ${keyText}`,
       }
     : undefined
 );
@@ -84,8 +101,32 @@ const scope = $derived<Scope | undefined>(
  * the other row holds. A key this row holds is changed in its own column.
  */
 const links = $derived(
-  !readonly && !!relation && !relation.owner && target?.key?.fields.length === 1
+  !readonly &&
+    !!relation &&
+    !relation.owner &&
+    // A polymorphic membership is written with its variant: not offered here yet.
+    relation.storage !== "variant" &&
+    target?.key?.fields.length === 1
 );
+/**
+ * Whether a linked row can be let go: a junction row always, a foreign key only
+ * when one of its columns on the other row takes null (the client clears those;
+ * a key none of whose columns does has no disconnect, and that row is moved by
+ * linking it elsewhere).
+ */
+const unlinks = $derived.by(() => {
+  if (!(links && relation && target)) return false;
+  if (relation.storage === "junction") return true;
+  const held = target.relations.find(
+    (candidate) => candidate.name === relation.inverse
+  );
+  return (
+    !!held &&
+    held.fields.some(
+      (name) => target.fields.find((field) => field.name === name)?.nullable
+    )
+  );
+});
 
 /** What a relation holds, beside its name: how many rows, or the key it reaches. */
 function held(candidate: StudioRelation): string {
@@ -93,6 +134,7 @@ function held(candidate: StudioRelation): string {
     return String(row._count?.[candidate.name] ?? "");
   const reached = row[candidate.name] as Row | null | undefined;
   if (reached === null) return "none";
+  if (isReached(reached)) return reachedText(reached);
   return reached ? Object.values(reached).map(display).join(", ") : "";
 }
 
@@ -186,8 +228,18 @@ let picked = $state<string | null>(null);
       </Button>
     {/each}
   </div>
+  {#if scopes.length > 1}
+    <!-- A polymorphic collection: its rows one variant at a time. -->
+    <div class="relations" aria-label="Variants of {relation?.name}">
+      {#each scopes as candidate (candidate.variant)}
+        <Button size="small" variant={candidate === reaching ? 'soft' : 'ghost'} onclick={() => (pickedVariant = candidate.variant)}>{candidate.variant}</Button>
+      {/each}
+    </div>
+  {/if}
 
-  {#if !relation || !target || !scope}
+  {#if relation && scopes.length === 0}
+    <p class="note">This row reaches no {relation.targets.join(' or ')} row.</p>
+  {:else if !relation || !target || !scope}
     <p class="note">This row has no relation to follow.</p>
   {:else if answer === 'failed'}
     <p class="note">The related rows could not be read.</p>
@@ -204,7 +256,7 @@ let picked = $state<string | null>(null);
           <thead>
             <tr>
               {#each target.fields as field (field.name)}<th>{field.name}</th>{/each}
-              {#if links}<th class="action"><span class="sr-only">Unlink</span></th>{/if}
+              {#if unlinks}<th class="action"><span class="sr-only">Unlink</span></th>{/if}
             </tr>
           </thead>
           <tbody>
@@ -213,7 +265,7 @@ let picked = $state<string | null>(null);
                 {#each target.fields as field (field.name)}
                   <td class:empty={linked[field.name] == null}>{display(linked[field.name])}</td>
                 {/each}
-                {#if links}
+                {#if unlinks}
                   <td class="action">
                     <Button size="small" variant="ghost" squared prefix={linkBreakIcon} label="Unlink this {target.name}" onclick={() => disconnect(linked)} />
                   </td>

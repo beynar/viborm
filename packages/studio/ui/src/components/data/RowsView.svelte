@@ -4,6 +4,7 @@ import { Chip } from "entasis/chip";
 import { Combobox } from "entasis/combobox";
 import { confirmation } from "entasis/confirmation";
 import {
+  createDataTableState,
   DataTable,
   type DataTableApi,
   type DataTableCellCommit,
@@ -14,6 +15,7 @@ import {
 } from "entasis/data-table";
 import { arrowsClockwiseIcon } from "entasis/icons/arrowsClockwise";
 import { arrowsOutSimpleIcon } from "entasis/icons/arrowsOutSimple";
+import { bookmarkSimpleIcon } from "entasis/icons/bookmarkSimple";
 import { caretDownIcon } from "entasis/icons/caretDown";
 import { downloadSimpleIcon } from "entasis/icons/downloadSimple";
 import { funnelIcon } from "entasis/icons/funnel";
@@ -51,9 +53,12 @@ import {
   conditionWhere,
   display,
   editable,
-  relatedWhere,
+  isReached,
+  reachedText,
+  relatedScopes,
   written,
 } from "../../lib/values";
+import type { SavedView, ViewState, Views } from "../../lib/views.svelte";
 import FilterGroup from "./FilterGroup.svelte";
 import RelatedRows from "./RelatedRows.svelte";
 import RowDrawer from "./RowDrawer.svelte";
@@ -66,6 +71,9 @@ let {
   models,
   readonly = false,
   scope,
+  view,
+  views,
+  openView,
   navigate,
 }: {
   model: StudioModel;
@@ -73,10 +81,20 @@ let {
   /** The studio does not write: no editor, no add, no delete. */
   readonly?: boolean;
   scope?: Scope;
+  /** The saved view the page opens with: its filter, search, order, page size and widths. */
+  view?: SavedView;
+  views: Views;
+  openView: (view: SavedView) => void;
   navigate: (model: string, scope?: Scope) => void;
 } = $props();
+/** The view as the page opened it: the page starts from it, then the member changes what they like. */
+const initial = untrack(() => view);
 
-const HIDDEN_LABEL = { label: { base: "sr-only" } };
+// The label is read by assistive technology only: its header leaves the layout too, so no empty row spaces the control.
+const HIDDEN_LABEL = {
+  header: { base: "!absolute sr-only" },
+  label: { base: "sr-only" },
+};
 const PAGE_SIZES = [25, 50, 100, 250].map((value) => ({
   value: String(value),
   label: String(value),
@@ -114,11 +132,15 @@ $effect(() => {
       return;
     const group = focused.closest('[role="gridcell"] > [role="group"]');
     const columnId = group?.parentElement?.dataset.columnId;
-    if (
-      !group ||
-      columns.find((column) => column.id === columnId)?.editor?.type !== "text"
-    )
-      return;
+    const type = columns.find((column) => column.id === columnId)?.editor?.type;
+    // The foreign-key picker (custom) is released on Escape only: Enter and a
+    // click on one of its options are its own to handle.
+    const released =
+      type === "text" ||
+      (type === "custom" &&
+        event instanceof KeyboardEvent &&
+        event.key === "Escape");
+    if (!(group && released)) return;
     if (
       event instanceof MouseEvent &&
       event.target instanceof Node &&
@@ -136,7 +158,7 @@ $effect(() => {
 });
 
 // The words searched, typed in the header: the table searches them once the member stops typing.
-let words = $state("");
+let words = $state(initial?.search ?? "");
 let typing: ReturnType<typeof setTimeout> | undefined;
 function search(value: string | null) {
   words = value ?? "";
@@ -145,10 +167,15 @@ function search(value: string | null) {
 }
 
 /** The filter being written, and the one the rows answer: written is not applied until « Apply ». */
-let conditions = $state<Condition[]>([]);
-let combinator = $state<"AND" | "OR">("AND");
+let conditions = $state<Condition[]>(
+  initial ? ($state.snapshot(initial.conditions) as Condition[]) : []
+);
+let combinator = $state<"AND" | "OR">(initial?.combinator ?? "AND");
 let applied = $state.raw<Where>();
 let appliedCount = $state(0);
+/** The conditions the rows answer, as a view saves them (the ones being written may not be applied yet). */
+let appliedConditions = $state.raw<readonly Condition[]>([]);
+let appliedCombinator = $state<"AND" | "OR">(initial?.combinator ?? "AND");
 
 const rowId = (row: Row) => JSON.stringify(model.key ? keyOf(model, row) : row);
 const selected = $derived(
@@ -251,6 +278,8 @@ function apply() {
           ? clauses[0]
           : { [combinator]: clauses };
     appliedCount = clauses.length;
+    appliedConditions = $state.snapshot(conditions);
+    appliedCombinator = combinator;
     firstPage();
   } catch (error) {
     toast.danger({
@@ -263,6 +292,7 @@ function clear() {
   conditions = [];
   applied = undefined;
   appliedCount = 0;
+  appliedConditions = [];
   firstPage();
 }
 
@@ -328,6 +358,55 @@ const columns = $derived<DataTableColumn<Row>[]>([
     width: 150,
   })),
 ]);
+
+// A view opens the table as it was saved: its order, page size and widths, its search, then its filter applied.
+if (initial) {
+  tableState = createDataTableState(
+    untrack(() => columns),
+    {
+      sorting: initial.sorting.map((sort) => ({ ...sort })),
+      globalFilter: initial.search,
+      columnSizing: { ...initial.columnSizing },
+    },
+    initial.pageSize
+  );
+  if (initial.conditions.length) apply();
+}
+
+/** The table as a view saves it, now. */
+function stateOf(): ViewState {
+  return {
+    ...(scope ? { scope } : {}),
+    conditions: appliedConditions,
+    combinator: appliedCombinator,
+    search: words.trim(),
+    sorting: (tableState?.sorting ?? []).map(({ id, desc }) => ({ id, desc })),
+    pageSize: tableState?.pagination.pageSize ?? 50,
+    columnSizing: { ...tableState?.columnSizing },
+  };
+}
+/** The open view no longer says what the table shows: its filter, search, order, size or widths changed. */
+const unsaved = $derived.by(() => {
+  if (!view) return false;
+  const { id: _id, name: _name, model: _model, ...saved } = view;
+  return (
+    JSON.stringify(stateOf()) !==
+    JSON.stringify({ ...saved, ...(scope ? { scope } : {}) })
+  );
+});
+let viewName = $state(untrack(() => view?.name ?? ""));
+function saveView(asNew: boolean, close: () => void) {
+  const name = viewName.trim();
+  if (!name) return;
+  if (view && !asNew) {
+    views.update(view.id, name, stateOf());
+    toast.success({ title: `The view “${name}” was saved` });
+  } else {
+    openView(views.create(name, model.name, stateOf()));
+    toast.success({ title: `The view “${name}” was added to the sidebar` });
+  }
+  close();
+}
 
 async function commit({ row, columnId, value }: DataTableCellCommit<Row>) {
   const field = fieldsByName.get(columnId);
@@ -404,12 +483,7 @@ async function removeSelected(ids: string[]) {
 // A row's related rows open under it (Pyxel's `RelatedRows`): the relation shown, by row; a row opened by a relation's
 // cell shows that relation.
 let opened = $state<Record<string, string>>({});
-const expandableRelations = $derived(
-  model.relations.filter(
-    (relation) =>
-      relation.storage !== "variant" && relation.targets.length === 1
-  )
-);
+const expandableRelations = $derived(model.relations);
 const expandable = $derived(keyed && expandableRelations.length > 0);
 /** Opens a row's related rows on a relation, or closes them when that relation already shows. */
 function openRelated(
@@ -437,7 +511,10 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
 {#snippet title(_page: PageShellApi)}
   <span class="inline-flex items-center gap-2">
     {pageModel.name}
-    {#if scope}
+    {#if view}
+      <Chip size="small" variant="soft">{view.name}</Chip>
+    {/if}
+    {#if scope && !view}
       <Chip size="small" variant="soft">{scope.label}</Chip>
       <Button size="small" variant="ghost" squared label="Show every {pageModel.name} row" prefix={xIcon} onclick={() => navigate(pageModel.name)} />
     {/if}
@@ -478,6 +555,24 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
       <TextInput size="small" label="Search the text columns" theme={HIDDEN_LABEL} placeholder="Search" prefix={magnifyingGlassIcon} value={words} onValueChange={search} />
     </div>
     <Button size="small" variant="ghost" squared prefix={arrowsClockwiseIcon} label="Read the rows again" onclick={() => load()} />
+    <!-- The table as it is, saved as a view in the sidebar; an open view is saved again, renamed or copied. -->
+    <Popover position="bottom-end" focusOnOpen="first" theme={{ popover: { base: 'w-72 p-3' } }}>
+      {#snippet trigger(popover)}
+        <Button size="small" variant={view ? 'soft' : 'ghost'} squared={!unsaved} prefix={bookmarkSimpleIcon} label={view ? `Save the view ${view.name}` : 'Save as a view'} {@attach popover.trigger}>
+          {#if unsaved}<span class="text-[12px]">Unsaved</span>{/if}
+        </Button>
+      {/snippet}
+      {#snippet children(popover)}
+        <form class="grid gap-2" onsubmit={event => { event.preventDefault(); saveView(false, popover.close) }}>
+          <p class="m-0 text-[12px] text-neutral/60">{view ? 'This view keeps the filter, search, order and page size shown now.' : 'Keep this filter, search, order and page size as a view in the sidebar.'}</p>
+          <TextInput size="small" label="The view's name" theme={HIDDEN_LABEL} placeholder="The view's name" value={viewName} onValueChange={value => (viewName = value ?? '')} />
+          <div class="flex justify-end gap-2">
+            {#if view}<Button size="small" variant="ghost" disabled={!viewName.trim()} onclick={() => saveView(true, popover.close)}>Save as new</Button>{/if}
+            <Button size="small" color="primary" type="submit" disabled={!viewName.trim()}>{view ? 'Save view' : 'Save'}</Button>
+          </div>
+        </form>
+      {/snippet}
+    </Popover>
     <Popover position="bottom-end">
       {#snippet trigger(popover)}
         <Button size="small" variant="ghost" squared prefix={downloadSimpleIcon} label="Export the rows" {@attach popover.trigger} />
@@ -512,6 +607,8 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
     getValueOption={value => ({ value, label: `${target.name} ${value}` })}
     onValueChange={({ value }) => {
       setDraft(value ?? null)
+      // Saving closes the editor: let go of its focus first (see releaseEditorFocus).
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
       save()
     }}
   />
@@ -579,23 +676,32 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
         {@const relation = field ? undefined : model.relations.find(candidate => candidate.name === columnId)}
         {@const value = row[columnId]}
         {#if relation}
-          {@const reachable = relatedWhere(model, relation, row) !== undefined}
+          {@const reachable = relatedScopes(model, relation, row) !== undefined}
           {#if !reachable}
             <span class="text-neutral/40">—</span>
           {:else if relation.cardinality === 'many'}
             <Button size="small" variant={expanded && opened[rowId] === relation.name ? 'soft' : 'ghost'} suffix={caretDownIcon} label="{relation.name} of this row" onclick={() => openRelated(rowId, relation.name, expanded, toggleExpanded)}>
-              <span class="tabular-nums">{row._count?.[relation.name] ?? '?'}</span>&nbsp;{relation.targets[0]}
+              <!-- One row is said by its model, several by the relation's own (plural) name; a polymorphic
+                   collection, whose one row may be of any variant, by its name before the count. -->
+              {@const count = row._count?.[relation.name]}
+              {#if relation.variants}
+                {relation.name}&nbsp;<span class="tabular-nums">{count ?? '?'}</span>
+              {:else}
+                <span class="tabular-nums">{count ?? '?'}</span>&nbsp;{count === 1 ? relation.targets[0] : relation.name}
+              {/if}
             </Button>
           {:else}
             <!-- A to-one relation: the key of the row it reaches, or an empty mark when there is none. -->
             {@const reached = row[relation.name] as Row | null | undefined}
+            <!-- A polymorphic one says the variant it reached before that row's key. -->
+            {@const said = isReached(reached) ? reachedText(reached) : undefined}
             {#if reached === null || (relation.owner && heldKey(relation, row).some(held => held === null))}
               <Button size="small" variant={expanded && opened[rowId] === relation.name ? 'soft' : 'ghost'} label="{relation.name} of this row: none" onclick={() => openRelated(rowId, relation.name, expanded, toggleExpanded)}>
                 <span class="text-neutral/40 italic">none</span>
               </Button>
             {:else}
               <Button size="small" variant={expanded && opened[rowId] === relation.name ? 'soft' : 'ghost'} prefix={linkSimpleIcon} label="{relation.name} of this row" onclick={() => openRelated(rowId, relation.name, expanded, toggleExpanded)}>
-                <span class="truncate">{relation.targets[0]} {reached ? Object.values(reached).map(display).join(', ') : heldKey(relation, row).map(display).join(', ')}</span>
+                <span class="truncate">{said ?? `${relation.targets[0]} ${(reached ? Object.values(reached) : heldKey(relation, row)).map(display).join(', ')}`}</span>
               </Button>
             {/if}
           {/if}
