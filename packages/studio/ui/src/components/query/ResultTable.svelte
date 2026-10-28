@@ -62,7 +62,6 @@ const rows = $derived.by<Row[]>(() => {
       : [result];
   return list.map((entry) => {
     if (!isRecord(entry)) return { value: entry };
-    if (isReached(entry)) return { type: entry.type, ...entry.data };
     const row: Row = {};
     for (const [key, value] of Object.entries(entry)) {
       const relation = model?.relations.some(
@@ -130,48 +129,81 @@ const columns = $derived<DataTableColumn<Row>[]>(
   }))
 );
 
-/** What a relation holds on a row: its rows (one, several, none) and the model they are of. */
+/** Rows of one model a relation holds: all of them, or one variant's of a polymorphic relation. */
+interface Group {
+  /** The variant, for a polymorphic relation. */
+  variant?: string;
+  model: StudioModel | undefined;
+  rows: Row[];
+}
+
+const modelNamed = (name: string | undefined) =>
+  models.find((candidate) => candidate.name === name);
+
+/**
+ * What a relation holds on a row: its rows (one, several, none), by the model they are of. A polymorphic
+ * relation's entries are `{ type, data }`: the variant names its model (`article` may be a `post`), and its rows
+ * are the data, read as that model's (their own relations included).
+ */
 function related(row: Row, relation: StudioRelation) {
   const value = row[relation.name];
-  const target =
-    relation.targets.length === 1
-      ? models.find((candidate) => candidate.name === relation.targets[0])
-      : undefined;
-  if (Array.isArray(value)) return { rows: value, many: true, target };
-  if (value === null || value === undefined)
-    return { rows: [], many: false, target };
-  const reached = isReached(value)
-    ? models.find((candidate) => candidate.name === value.type)
-    : target;
-  return { rows: [value], many: false, target: reached };
+  const many = Array.isArray(value);
+  const entries = many
+    ? value
+    : value === null || value === undefined
+      ? []
+      : [value];
+  const groups = new Map<string, Group>();
+  for (const entry of entries) {
+    const variant =
+      relation.variants && isReached(entry)
+        ? relation.variants.find((candidate) => candidate.name === entry.type)
+        : undefined;
+    const key = variant?.name ?? "";
+    const group = groups.get(key) ?? {
+      ...(variant ? { variant: variant.name } : {}),
+      model: modelNamed(
+        variant?.target ??
+          (relation.targets.length === 1 ? relation.targets[0] : undefined)
+      ),
+      rows: [],
+    };
+    const data = variant && isReached(entry) ? entry.data : entry;
+    group.rows.push(isRecord(data) ? data : { value: data });
+    groups.set(key, group);
+  }
+  return { many, count: entries.length, groups: [...groups.values()] };
 }
 
 const relationColumns = $derived(
   described.filter((column) => column.kind === "relation")
 );
-const holds = (row: Row) =>
-  relationColumns.some(
-    (column) => related(row, column.relation!).rows.length > 0
-  );
+/** The first relation that holds rows on a row: the one its expander opens. */
+const firstHeld = (row: Row) =>
+  relationColumns.find((column) => related(row, column.relation!).count > 0)
+    ?.id;
+const holds = (row: Row) => firstHeld(row) !== undefined;
 
-/** The relation shown under each row opened, by its place. */
+/** The relation shown under each row opened, by its place; else the first that holds rows. */
 let opened = $state<Record<string, string>>({});
+const shownOf = (row: Row, rowId: string) => opened[rowId] ?? firstHeld(row);
 function open(
+  row: Row,
   rowId: string,
   relation: string,
   expanded: boolean,
   toggle: () => void
 ) {
-  const shown = opened[rowId] ?? relationColumns[0]?.id;
+  const shown = shownOf(row, rowId);
   opened = { ...opened, [rowId]: relation };
   if (!expanded || shown === relation) toggle();
 }
 
-/** A row reached by a to-one relation, said by its model and its key's value. */
-function reachedLabel(value: unknown, target: StudioModel | undefined): string {
-  const data = isReached(value) ? value.data : isRecord(value) ? value : {};
-  const name = isReached(value) ? value.type : (target?.name ?? "row");
-  const key = target?.key?.fields.map((field) => data[field]) ?? [];
+/** A row reached by a to-one relation, said by its variant or its model, and its key's value. */
+function reachedLabel(group: Group): string {
+  const data = group.rows[0] ?? {};
+  const name = group.variant ?? group.model?.name ?? "row";
+  const key = group.model?.key?.fields.map((field) => data[field]) ?? [];
   return key.length && key.every((part) => part !== undefined)
     ? `${name} ${key.map(display).join(", ")}`
     : name;
@@ -261,16 +293,16 @@ const FRAMED = $derived(
       {@const column = byId.get(columnId)}
       {#if column?.relation}
         {@const holding = related(row, column.relation)}
-        {@const active = expanded && (opened[rowId] ?? relationColumns[0]?.id) === columnId}
+        {@const active = expanded && shownOf(row, rowId) === columnId}
         {#if holding.many}
-          <Button size="small" variant={active ? 'soft' : 'ghost'} suffix={caretDownIcon} disabled={holding.rows.length === 0} label="{columnId} of this row" onclick={() => open(rowId, columnId, expanded, toggleExpanded)}>
-            <span class="tabular-nums">{holding.rows.length}</span>&nbsp;{holding.rows.length === 1 ? (holding.target?.name ?? 'row') : columnId}
+          <Button size="small" variant={active ? 'soft' : 'ghost'} suffix={caretDownIcon} disabled={holding.count === 0} label="{columnId} of this row" onclick={() => open(row, rowId, columnId, expanded, toggleExpanded)}>
+            <span class="tabular-nums">{holding.count}</span>&nbsp;{holding.count === 1 ? (holding.groups[0]?.variant ?? holding.groups[0]?.model?.name ?? 'row') : columnId}
           </Button>
-        {:else if holding.rows.length === 0}
+        {:else if holding.count === 0}
           <span class="text-neutral/40 italic">none</span>
         {:else}
-          <Button size="small" variant={active ? 'soft' : 'ghost'} prefix={linkSimpleIcon} label="{columnId} of this row" onclick={() => open(rowId, columnId, expanded, toggleExpanded)}>
-            <span class="truncate">{reachedLabel(holding.rows[0], holding.target)}</span>
+          <Button size="small" variant={active ? 'soft' : 'ghost'} prefix={linkSimpleIcon} label="{columnId} of this row" onclick={() => open(row, rowId, columnId, expanded, toggleExpanded)}>
+            <span class="truncate">{reachedLabel(holding.groups[0]!)}</span>
           </Button>
         {/if}
       {:else}
@@ -280,21 +312,26 @@ const FRAMED = $derived(
 
     <!-- A relation's rows under their row: a button per relation the row holds, then their table. -->
     {#snippet expandedContent({ row, rowId })}
-      {@const shown = relationColumns.find(column => column.id === (opened[rowId] ?? relationColumns[0]?.id))}
+      {@const shown = relationColumns.find(column => column.id === shownOf(row, rowId))}
       <div class="sticky left-0 grid gap-2" {@attach fitView}>
         {#if relationColumns.length > 1}
           <div class="flex flex-wrap gap-1 px-3 pt-3 pl-10">
             {#each relationColumns as column (column.id)}
               {@const holding = related(row, column.relation!)}
-              <Button size="small" variant={shown?.id === column.id ? 'soft' : 'ghost'} disabled={holding.rows.length === 0} onclick={() => (opened = { ...opened, [rowId]: column.id })}>
-                {column.id}&nbsp;<span class="tabular-nums text-neutral/55">{holding.rows.length}</span>
+              <Button size="small" variant={shown?.id === column.id ? 'soft' : 'ghost'} disabled={holding.count === 0} onclick={() => (opened = { ...opened, [rowId]: column.id })}>
+                {column.id}&nbsp;<span class="tabular-nums text-neutral/55">{holding.count}</span>
               </Button>
             {/each}
           </div>
         {/if}
         {#if shown}
-          {@const holding = related(row, shown.relation!)}
-          <ResultTable model={holding.target} {models} result={holding.rows} nested />
+          <!-- A polymorphic relation's rows, a table per variant, each read as its own model's. -->
+          {#each related(row, shown.relation!).groups as group (group.variant ?? '')}
+            {#if group.variant}
+              <span class="px-3 pt-1 pl-10 text-[12px] text-neutral/60"><span class="font-medium text-neutral">{group.variant}</span>{group.model && group.model.name !== group.variant ? ` (${group.model.name})` : ''} · {group.rows.length}</span>
+            {/if}
+            <ResultTable model={group.model} {models} result={group.rows} nested />
+          {/each}
         {/if}
       </div>
     {/snippet}
