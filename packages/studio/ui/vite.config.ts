@@ -51,6 +51,11 @@ export default defineConfig({
     cssCodeSplit: false,
     modulePreload: false,
     reportCompressedSize: false,
+    rolldownOptions: {
+      // An entasis icon module makes each weight with `icon(...)`: marked pure, the weights the app never renders
+      // are dropped (the models' icons would otherwise bring six each).
+      treeshake: { manualPureFunctions: ["icon"] },
+    },
   },
   server: {
     host: "127.0.0.1",

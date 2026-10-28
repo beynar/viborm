@@ -51,6 +51,7 @@ import {
 } from "../../lib/api";
 import type { Changes } from "../../lib/changes.svelte";
 import { fillPage } from "../../lib/fill";
+import { MODEL_ICON } from "../../lib/model-icons";
 import {
   type Condition,
   columnOf,
@@ -708,6 +709,7 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
 <!-- The page's header: the model, its rows, the relation followed here; then what changes the rows. -->
 {#snippet title(_page: PageShellApi)}
   <span class="inline-flex items-center gap-2">
+    <span class="inline-flex text-neutral/60" aria-hidden="true">{@render MODEL_ICON[pageModel.icon]({ size: 16 })}</span>
     {pageModel.name}
     {#if view}
       <Chip size="small" variant="soft">{view.name}</Chip>

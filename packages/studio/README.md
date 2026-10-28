@@ -19,7 +19,8 @@ the studio on `http://127.0.0.1:5577` and opens it.
 - **Schema:** each model's columns with their types, nullability, primary and
   unique keys, and each relation as a line in crow's foot notation. Click a
   model or a relation to light up what it reaches, find a model by name,
-  export the diagram as PNG or SVG.
+  export the diagram as PNG or SVG. Each model gets an icon guessed from its
+  name.
 - **Rows:** a page at a time, searched, filtered (AND/OR, through relations,
   values picked by type) and sorted; columns hidden, moved, resized, pinned. A
   relation's cell opens the related rows under the row, and from there in

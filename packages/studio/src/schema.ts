@@ -20,6 +20,7 @@ import type {
 import { resolvedEdges } from "@src/schema/validation/relation-resolution";
 import { resolveSchemaOrThrow } from "@src/schema/validation/validator";
 import { isCompactIdFormat } from "@src/validation/primitives/id-codec";
+import { guessIcon, type ModelIcon } from "./icons";
 
 export interface StudioField {
   readonly name: string;
@@ -78,6 +79,8 @@ export interface StudioVariant {
 export interface StudioModel {
   readonly name: string;
   readonly table: string;
+  /** The icon the studio shows it with, guessed from its names and its shape (`guessIcon`). */
+  readonly icon: ModelIcon;
   /** The primary key, which update and delete address one row by; absent, the model is read-only. */
   readonly key?: { readonly name?: string; readonly fields: readonly string[] };
   readonly fields: readonly StudioField[];
@@ -187,7 +190,7 @@ function describeModel(
     // A resolved schema resolves every slot of every model.
     return [describeRelation(field, model, slots!.get(field)!, named)];
   });
-  return {
+  const described = {
     name,
     table: getModelSqlName(model),
     ...(key
@@ -201,6 +204,7 @@ function describeModel(
     fields,
     relations,
   };
+  return { ...described, icon: guessIcon(described) };
 }
 
 function describeRelation(

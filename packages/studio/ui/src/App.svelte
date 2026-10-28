@@ -8,7 +8,6 @@ import { databaseIcon } from "entasis/icons/database";
 import { graphIcon } from "entasis/icons/graph";
 import { magnifyingGlassIcon } from "entasis/icons/magnifyingGlass";
 import { sidebarSimpleIcon } from "entasis/icons/sidebarSimple";
-import { tableIcon } from "entasis/icons/table";
 import { terminalWindowIcon } from "entasis/icons/terminalWindow";
 import { trashIcon } from "entasis/icons/trash";
 import type { SidebarApi } from "entasis/sidebar";
@@ -30,6 +29,7 @@ import {
   type StudioDrift,
 } from "./lib/api";
 import { Changes } from "./lib/changes.svelte";
+import { MODEL_ICON } from "./lib/model-icons";
 import { type SavedView, Views } from "./lib/views.svelte";
 
 // The studio's frame, entasis's AppShell: the models in its sidebar, then a page — the schema diagram or one model's
@@ -218,7 +218,7 @@ const sidebar = $derived<AppShellSidebarProps>({
       items: (schema?.models ?? []).map((model) => ({
         label: model.name,
         href: `#/data/${encodeURIComponent(model.name)}`,
-        icon: tableIcon,
+        icon: MODEL_ICON[model.icon],
         isActive:
           route.view === "data" && route.model === model.name && !opened,
       })),

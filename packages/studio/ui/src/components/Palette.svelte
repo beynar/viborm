@@ -5,12 +5,12 @@ import { floppyDiskIcon } from "entasis/icons/floppyDisk";
 import { graphIcon } from "entasis/icons/graph";
 import { magnifyingGlassIcon } from "entasis/icons/magnifyingGlass";
 import { moonIcon } from "entasis/icons/moon";
-import { tableIcon } from "entasis/icons/table";
 import { terminalWindowIcon } from "entasis/icons/terminalWindow";
 import { xIcon } from "entasis/icons/x";
 import { useTheme } from "entasis/theme";
 import type { Scope, StudioDescription } from "../lib/api";
 import type { Changes } from "../lib/changes.svelte";
+import { MODEL_ICON } from "../lib/model-icons";
 import { parseDraft } from "../lib/values";
 import type { Views } from "../lib/views.svelte";
 
@@ -66,7 +66,7 @@ const items = $derived.by<CommandGroup[]>(() => {
           value: "row",
           label: `Open ${byKey.model.name} ${byKey.typed}`,
           description: `${byKey.field.name} = ${byKey.typed}`,
-          icon: tableIcon,
+          icon: MODEL_ICON[byKey.model.icon],
           keywords: [search],
         },
       ],
@@ -87,7 +87,7 @@ const items = $derived.by<CommandGroup[]>(() => {
         value: `model:${model.name}`,
         label: model.name,
         description: model.table === model.name ? undefined : model.table,
-        icon: tableIcon,
+        icon: MODEL_ICON[model.icon],
       })),
       ...(views?.list ?? [])
         .filter((view) =>

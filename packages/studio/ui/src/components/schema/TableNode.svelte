@@ -17,10 +17,10 @@ export type TableData = {
   import { fingerprintIcon } from 'entasis/icons/fingerprint'
   import { keyIcon } from 'entasis/icons/key'
   import { linkSimpleIcon } from 'entasis/icons/linkSimple'
-  import { tableIcon } from 'entasis/icons/table'
   import { tooltip } from 'entasis/tooltip'
   import { CARD_HEADER, CARD_ROW, CARD_WIDTH, columnAnchor, handleOf, relationAnchor } from '../../lib/diagram'
   import { TYPE_ICONS } from '../../lib/icons'
+  import { MODEL_ICON } from '../../lib/model-icons'
   import { TYPE_LABELS } from '../../lib/values'
   import { useFocus } from './focus.svelte'
 
@@ -47,7 +47,7 @@ export type TableData = {
 
 <div class={['card', tone]} style:width="{CARD_WIDTH}px" style:--header="{CARD_HEADER}px" style:--row="{CARD_ROW}px">
   <header>
-    <span class="icon" aria-hidden="true">{@render tableIcon({ size: 16 })}</span>
+    <span class="icon" aria-hidden="true">{@render MODEL_ICON[data.model.icon]({ size: 16 })}</span>
     <a class="name nodrag" href="#/data/{encodeURIComponent(data.model.name)}">{data.model.name}</a>
     {#if data.model.table !== data.model.name}
       <span class="table" {@attach tooltip({ content: 'The table in the database' })}>{data.model.table}</span>

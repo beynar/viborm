@@ -19,7 +19,8 @@ through your own client, in a new package, `@viborm/studio`.
     unique keys; one-to-one, one-to-many, many-to-many and polymorphic
     relations in crow's foot notation; a clicked model or relation lights up
     what it reaches; find a model; export as PNG or SVG; cards kept where you
-    move them;
+    move them; an icon for each model, guessed from its name (about a
+    thousand words) or its shape;
   - each model's rows: paging, search, AND/OR filters (through relations,
     values picked by type), sorting, columns hidden, moved, resized and
     pinned, related rows opened under their row (polymorphic relations
