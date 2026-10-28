@@ -10,7 +10,7 @@ const { client } = await import(
 await createMigrationClient(client).push();
 
 await client.$transaction(async (tx: any) => {
-  for (const model of ["post", "profile", "tag", "user"]) {
+  for (const model of ["collection", "comment", "post", "profile", "tag", "user"]) {
     await tx[model].deleteMany({});
   }
 });
@@ -89,7 +89,50 @@ for (const [name, role, bio, website] of people) {
     });
   }
 }
+// Polymorphic: comments on posts and on users, and collections of posts and tags.
+const posts = await client.post.findMany({ select: { id: true }, orderBy: { id: "asc" } });
+const users = await client.user.findMany({ select: { id: true }, orderBy: { id: "asc" } });
+const remarks = [
+  ["post", 0, "Clear and short. More of these."],
+  ["post", 0, "The second example does not compile."],
+  ["post", 4, "Which version of the compiler?"],
+  ["user", 0, "Thanks for the notes on the engine."],
+  ["post", 9, "Linked this from our wiki."],
+  ["user", 2, "Your talk last week was great."],
+] as const;
+for (const [type, index, body] of remarks) {
+  const target = (type === "post" ? posts : users)[index]!;
+  await client.comment.create({
+    data: { body, commentable: { connect: { type, where: { id: target.id } } } },
+  });
+}
+await client.comment.create({ data: { body: "A remark on nothing in particular." } });
+await client.collection.create({
+  data: {
+    name: "Start here",
+    items: {
+      connect: [
+        { type: "post", where: { id: posts[0]!.id } },
+        { type: "post", where: { id: posts[3]!.id } },
+        { type: "tag", where: { id: tags[0]!.id } },
+        { type: "tag", where: { id: tags[2]!.id } },
+      ],
+    },
+  },
+});
+await client.collection.create({
+  data: {
+    name: "Compilers",
+    items: {
+      connect: [
+        { type: "tag", where: { id: tags[2]!.id } },
+        { type: "post", where: { id: posts[6]!.id } },
+      ],
+    },
+  },
+});
+
 console.log(
-  `Seeded ${target}: ${people.length} users, ${n} posts, ${labels.length} tags.`
+  `Seeded ${target}: ${people.length} users, ${n} posts, ${labels.length} tags, ${remarks.length + 1} comments, 2 collections.`
 );
 await client.$disconnect();

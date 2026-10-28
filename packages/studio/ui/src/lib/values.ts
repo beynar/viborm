@@ -60,6 +60,16 @@ export function instantText(value: unknown): string {
   if (Number.isNaN(date.getTime())) return String(value);
   return `${dayOfDate(date)} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
+/** A value as a read-only cell says it: instants in the browser's zone, days and times as the table shows them. */
+export function cellText(field: StudioField, value: unknown): string {
+  if (value === null || value === undefined || field.list)
+    return display(value);
+  if (field.type === "datetime") return instantText(value);
+  if (field.type === "date") return dayText(value);
+  if (field.type === "time") return timeText(value);
+  return display(value);
+}
+
 /** A calendar date's day, `YYYY-MM-DD`. */
 export const dayText = (value: unknown) => String(value).slice(0, 10);
 /** A time of day to the second, `HH:mm:ss`. */

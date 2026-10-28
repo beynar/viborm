@@ -18,6 +18,7 @@ import {
 } from "../../lib/api";
 import type { Changes } from "../../lib/changes.svelte";
 import {
+  cellText,
   display,
   isReached,
   reachedText,
@@ -272,7 +273,7 @@ let picked = $state<string | null>(null);
             {#each answer.rows as linked, index (index)}
               <tr>
                 {#each target.fields as field (field.name)}
-                  <td class:empty={linked[field.name] == null}>{display(linked[field.name])}</td>
+                  <td class:empty={linked[field.name] == null}>{cellText(field, linked[field.name])}</td>
                 {/each}
                 {#if unlinks}
                   <td class="action">
