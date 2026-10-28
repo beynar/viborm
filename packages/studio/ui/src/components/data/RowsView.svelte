@@ -51,10 +51,12 @@ import type { Changes } from "../../lib/changes.svelte";
 import { fillPage } from "../../lib/fill";
 import {
   type Condition,
+  columnOf,
   conditionWhere,
   dayText,
   display,
   editable,
+  filterColumns,
   instantOf,
   instantParts,
   instantText,
@@ -345,8 +347,8 @@ function firstPage() {
 function apply() {
   try {
     const clauses = conditions.flatMap((condition) => {
-      const field = fieldsByName.get(condition.field);
-      return field ? [conditionWhere(field, condition)] : [];
+      const column = columnOf(filterColumns(model, models), condition);
+      return column ? [conditionWhere(column, condition)] : [];
     });
     applied =
       clauses.length === 0
@@ -682,7 +684,7 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
       {/snippet}
       {#snippet children(popover)}
         <div class="grid gap-3">
-          <FilterGroup model={pageModel} bind:conditions bind:combinator />
+          <FilterGroup model={pageModel} {models} bind:conditions bind:combinator />
           <div class="flex justify-end gap-2">
             {#if appliedCount || conditions.length}<Button size="small" variant="ghost" onclick={() => (clear(), popover.close())}>Clear</Button>{/if}
             <Button size="small" color="primary" onclick={() => (apply(), popover.close())}>Apply</Button>

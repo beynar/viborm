@@ -213,17 +213,97 @@ export interface Condition {
   value: string;
   /** A text comparison folds ASCII letters (`mode: "insensitive"`). */
   ignoreCase?: boolean;
+  /** A column of a related model: the relation followed (and its variant), and for a to-many which rows must match. */
+  via?: Via;
 }
+
+export interface Via {
+  relation: string;
+  variant?: string;
+  quantifier?: Quantifier;
+}
+
+export type Quantifier = "some" | "every" | "none";
+export const QUANTIFIER_LABELS: Record<Quantifier, string> = {
+  some: "any",
+  every: "every",
+  none: "no",
+};
+
+/** A column a condition can compare: one of the model's, or one level away through a relation. */
+export interface FilterColumn {
+  /** The condition's own spelling of it: `email`, `author.email`, `commentable(post).title`. */
+  readonly key: string;
+  readonly field: StudioField;
+  readonly via?: {
+    readonly relation: StudioRelation;
+    readonly variant?: string;
+  };
+}
+
+/** Every column the model's filter can compare: its own, then its relations' (each variant of a polymorphic one). */
+export function filterColumns(
+  model: StudioModel,
+  models: readonly StudioModel[]
+): FilterColumn[] {
+  const own = model.fields
+    .filter((field) => operatorsOf(field).length > 0)
+    .map((field) => ({ key: field.name, field }));
+  const reached = model.relations.flatMap((relation) => {
+    const targets = relation.variants
+      ? relation.variants.map((variant) => ({
+          name: variant.target,
+          variant: variant.name,
+        }))
+      : [{ name: relation.targets[0]!, variant: undefined }];
+    return targets.flatMap(({ name, variant }) => {
+      const target = models.find((candidate) => candidate.name === name);
+      return (target?.fields ?? [])
+        .filter((field) => operatorsOf(field).length > 0)
+        .map((field) => ({
+          key: `${relation.name}${variant ? `(${variant})` : ""}.${field.name}`,
+          field,
+          via: { relation, ...(variant ? { variant } : {}) },
+        }));
+    });
+  });
+  return [...own, ...reached];
+}
+
+/** The column a condition compares, found again by its key and its relation. */
+export const columnOf = (
+  columns: readonly FilterColumn[],
+  condition: Condition
+) => columns.find((column) => column.key === condition.field);
 
 /** Whether a condition can ignore case: a comparison of a text column (a compact identifier's filter has no mode). */
 export const foldsCase = (field: StudioField, operator: Operator) =>
   field.searchable && operator !== "isNull" && operator !== "isNotNull";
 
 /** One condition as the client's `where` spells it. */
+/**
+ * A condition as the client filters: the column's comparison, wrapped in the
+ * relation it goes through (`is` for a to-one, its quantifier for a to-many,
+ * the variant's `{ type, is }` for a polymorphic one).
+ */
 export function conditionWhere(
-  field: StudioField,
+  column: FilterColumn,
   condition: Condition
 ): Where {
+  const inner = comparisonWhere(column.field, condition);
+  const via = column.via;
+  if (!via) return inner;
+  const { relation, variant } = via;
+  const matched = variant ? { type: variant, is: inner } : inner;
+  if (relation.cardinality === "many") {
+    return {
+      [relation.name]: { [condition.via?.quantifier ?? "some"]: matched },
+    };
+  }
+  return { [relation.name]: variant ? matched : { is: inner } };
+}
+
+function comparisonWhere(field: StudioField, condition: Condition): Where {
   const { operator } = condition;
   if (operator === "isNull") return { [field.name]: null };
   if (operator === "isNotNull") return { [field.name]: { not: null } };
