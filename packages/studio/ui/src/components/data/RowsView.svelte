@@ -175,7 +175,7 @@ let applied = $state.raw<Where>();
 let appliedCount = $state(0);
 /** The conditions the rows answer, as a view saves them (the ones being written may not be applied yet). */
 let appliedConditions = $state.raw<readonly Condition[]>([]);
-let appliedCombinator = $state<"AND" | "OR">("AND");
+let appliedCombinator = $state<"AND" | "OR">(initial?.combinator ?? "AND");
 
 const rowId = (row: Row) => JSON.stringify(model.key ? keyOf(model, row) : row);
 const selected = $derived(
