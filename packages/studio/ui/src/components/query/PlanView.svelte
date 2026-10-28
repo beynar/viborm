@@ -1,12 +1,12 @@
 <script lang="ts">
 import "@xyflow/svelte/dist/base.css";
 import { type Edge, type Node, SvelteFlow } from "@xyflow/svelte";
+import { Button } from "entasis/button";
 import { Code } from "entasis/code";
+import { xIcon } from "entasis/icons/x";
 import { SegmentedControl } from "entasis/segmented-control";
+import { Sidebar, type SidebarApi } from "entasis/sidebar";
 import { useTheme } from "entasis/theme";
-import { cubicOut } from "svelte/easing";
-import { prefersReducedMotion } from "svelte/motion";
-import { fly } from "svelte/transition";
 import type { PlanNode, StudioExplained } from "../../lib/api";
 import {
   compact,
@@ -48,6 +48,7 @@ let nodes = $state.raw<Node<PlanCardData>[]>([]);
 let edges = $state.raw<Edge[]>([]);
 $effect(() => {
   chosen = undefined;
+  statsOpen = false;
   if (!plan) {
     nodes = [];
     edges = [];
@@ -59,6 +60,7 @@ $effect(() => {
 });
 
 let chosen = $state<string>();
+let statsOpen = $state(false);
 const flat = $derived.by(() => {
   const out: { node: PlanNode; depth: number }[] = [];
   const visit = (node: PlanNode, depth: number) => {
@@ -71,9 +73,15 @@ const flat = $derived.by(() => {
 const chosenNode = $derived(
   flat.find((entry) => entry.node.id === chosen)?.node
 );
-function chooseNode(id: string | undefined) {
+function chooseNode(id: string, sidebar: SidebarApi) {
   nodes = nodes.map((node) => ({ ...node, selected: node.id === id }));
   chosen = id;
+  statsOpen = true;
+  if (sidebar.isMobile) sidebar.setOpenMobile(true);
+}
+function closeStats(sidebar: SidebarApi) {
+  statsOpen = false;
+  sidebar.setOpenMobile(false);
 }
 
 const total = $derived(
@@ -163,9 +171,23 @@ const time = (date: Date) =>
     </div>
 
     {#if plan}
-      <!-- The plan (graph, table or the database's text), and beside it (below on a narrow page) the selected operation’s metrics. -->
-      <div class={['grid min-h-0 gap-3', chosenNode ? 'grid-rows-[minmax(26rem,1fr)_auto] @3xl:grid-cols-[minmax(0,1fr)_20rem] @3xl:grid-rows-1' : 'grid-rows-[minmax(26rem,1fr)]']}>
-        <div class="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-2">
+      <div class="relative min-h-[26rem] min-w-0 overflow-hidden">
+      <Sidebar
+        mode="layout"
+        frame="contained"
+        side="right"
+        variant="admin"
+        collapsible="offcanvas"
+        keyboardShortcut={false}
+        edgeReveal={false}
+        width="20rem"
+        bind:open={statsOpen}
+        content={statsPane}
+        theme={{ panel: { base: '!border-0 bg-transparent' } }}
+      >
+        {#snippet children(sidebar: SidebarApi)}
+        <div class="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-2" class:pr-3={statsOpen}>
+
           <SegmentedControl size="small" label="How to show the plan" items={[{ value: 'graph', label: 'Graph' }, { value: 'table', label: 'Table' }, { value: 'raw', label: plan.dialect === 'postgresql' ? 'JSON' : 'Text' }]} bind:value={view} />
           {#if view === 'graph'}
             <div class="plan relative min-h-[24rem] overflow-hidden rounded-lg border border-neutral-muted">
@@ -183,8 +205,8 @@ const time = (date: Date) =>
                 nodesConnectable={false}
                 nodesDraggable={false}
                 proOptions={{ hideAttribution: true }}
-                onnodeclick={({ node }) => chooseNode(node.id)}
-                onpaneclick={() => chooseNode(undefined)}
+                onnodeclick={({ node }) => chooseNode(node.id, sidebar)}
+                onpaneclick={() => closeStats(sidebar)}
               >
                 <PlanFocus root={plan.root.id} />
               </SvelteFlow>
@@ -206,7 +228,7 @@ const time = (date: Date) =>
                 </thead>
                 <tbody>
                   {#each flat as { node, depth } (node.id)}
-                    <tr class={['cursor-pointer border-t border-neutral-muted hover:bg-neutral-muted/40', chosen === node.id && 'bg-primary/10', node.neverExecuted && 'opacity-50']} onclick={() => chooseNode(node.id)}>
+                    <tr class={['cursor-pointer border-t border-neutral-muted hover:bg-neutral-muted/40', chosen === node.id && 'bg-primary/10', node.neverExecuted && 'opacity-50']} onclick={() => chooseNode(node.id, sidebar)}>
                       <td class="px-3 py-1.5" style:padding-left="{12 + depth * 16}px">
                         <span class="font-medium">{node.operation}</span>
                         {#if node.relation}<span class="ml-1 font-mono text-neutral/65">{node.relation}</span>{/if}
@@ -227,14 +249,26 @@ const time = (date: Date) =>
             <div class="min-h-0 overflow-auto"><Code language={plan.dialect === 'postgresql' ? 'json' : 'text'} title={plan.dialect === 'postgresql' ? 'EXPLAIN (FORMAT JSON)' : plan.dialect === 'mysql' ? 'EXPLAIN' : 'EXPLAIN QUERY PLAN'} code={plan.raw} /></div>
           {/if}
         </div>
-        {#if chosenNode}
+        {/snippet}
+      </Sidebar>
+
+      </div>
+    {/if}
+  {/if}
+</div>
+
+{#snippet statsPane(sidebar: SidebarApi)}
+  {#if chosenNode}
           {@const node = chosenNode}
-        <aside class="grid min-h-0 content-start gap-2 overflow-auto @3xl:max-h-full" aria-label="Operation metrics" in:fly={{ x: 12, duration: prefersReducedMotion.current ? 0 : 180, easing: cubicOut }}>
+        <section class="p-0.5" aria-label="Operation metrics">
             <div class="grid gap-3 rounded-lg border border-neutral-muted bg-surface p-3 text-[13px]">
-              <div class="grid gap-0.5">
+              <div class="flex items-start gap-2">
+                <div class="grid min-w-0 flex-1 gap-0.5">
                 <span class="text-[11px] tracking-wide text-neutral/55 uppercase">{kindLabel(node) || 'Operation'}</span>
                 <h4 class="m-0 text-[15px] font-semibold">{node.operation}</h4>
                 {#if node.relation || node.alias}<span class="font-mono text-[12px] text-neutral/70">{[node.relation, node.alias].filter(Boolean).join(' as ')}{node.index ? ` · ${node.index}` : ''}</span>{/if}
+                </div>
+                <Button size="small" variant="ghost" squared prefix={xIcon} label="Close operation metrics" onclick={() => closeStats(sidebar)} />
               </div>
               {#if node.neverExecuted}
                 <p class="m-0 text-neutral/65">The query never reached it: the rows above it were already enough, or none came to it.</p>
@@ -282,12 +316,9 @@ const time = (date: Date) =>
                 </div>
               {/if}
             </div>
-        </aside>
+        </section>
         {/if}
-      </div>
-    {/if}
-  {/if}
-</div>
+{/snippet}
 
 <style>
   .plan {
