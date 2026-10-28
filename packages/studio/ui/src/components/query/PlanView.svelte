@@ -29,7 +29,7 @@ import PlanFocus from "./PlanFocus.svelte";
 
 // A read's plan, as the database ran it (ANALYZE) or would run it (an estimate): what it took (time, rows, pages in
 // memory and read), the operations as a graph, a table or the database's own text, and beside them what to do,
-// gravest first, each fix written as the model's `.index([...])` and as the database's SQL. Choosing a piece of
+// gravest first, each index fix written as the model's `.index([...])`. Choosing a piece of
 // advice brings its operations into view; choosing an operation says all the database told of it.
 let {
   explained,
@@ -57,6 +57,8 @@ let view = $state<"graph" | "table" | "raw">("graph");
 let nodes = $state.raw<Node<PlanCardData>[]>([]);
 let edges = $state.raw<Edge[]>([]);
 $effect(() => {
+  chosen = undefined;
+  panel = "advice";
   if (!plan) {
     nodes = [];
     edges = [];
@@ -86,6 +88,8 @@ const flat = $derived.by(() => {
 const chosenNode = $derived(
   flat.find((entry) => entry.node.id === chosen)?.node
 );
+const hasAdvice = $derived((plan?.advice.length ?? 0) > 0);
+const showPanel = $derived(hasAdvice || chosenNode !== undefined);
 function choose(ids: readonly string[]) {
   const set = new Set(ids);
   nodes = nodes.map((node) => ({ ...node, selected: set.has(node.id) }));
@@ -131,10 +135,6 @@ const counts = $derived.by(() => {
   for (const entry of plan?.advice ?? []) by[entry.severity] += 1;
   return by;
 });
-/** Scan access paths, which may still stop early under a parent operation. */
-const fullScans = $derived(
-  flat.filter(({ node }) => node.fullScan && !node.neverExecuted)
-);
 
 const SEVERITY: Record<
   Severity,
@@ -229,7 +229,7 @@ const time = (date: Date) =>
           {@render stat(plan.analyzed ? 'Rows returned' : 'Rows expected', returned === undefined ? '—' : compact(returned))}
           {#if cache}{@render stat('Cache', `${Math.round(cache.share * 100)}% hit`, `${compact(cache.hit)} pages found in shared memory, ${compact(cache.read)} read from disk or the OS cache`)}{/if}
           {#if slowest?.actual}{@render stat('Slowest step', `${ms(slowest.actual.self)} · ${slowest.operation}${slowest.relation ? ` on ${slowest.relation}` : ''}`, 'The operation with the most time of its own')}{/if}
-          {@render stat('Advice', plan.advice.length === 0 ? 'None detected' : [counts.critical && `${counts.critical} slow`, counts.warning && `${counts.warning} to look at`, counts.info && `${counts.info} to know`].filter(Boolean).join(' · '))}
+          {#if hasAdvice}{@render stat('Advice', [counts.critical && `${counts.critical} slow`, counts.warning && `${counts.warning} to look at`, counts.info && `${counts.info} to know`].filter(Boolean).join(' · '))}{/if}
         </div>
         {#if !plan.analyzed}
           <p class="m-0 text-[12px] text-neutral/60">{plan.dialect === 'sqlite' ? 'SQLite says the plan it chose, not what each step cost: the time is the whole statement’s.' : 'An estimate: the rows are the planner’s guesses and no step is timed. Analyze to measure them.'}</p>
@@ -239,7 +239,7 @@ const time = (date: Date) =>
 
     {#if plan}
       <!-- The plan (graph, table or the database's text), and beside it (below on a narrow page) the advice and the chosen operation. -->
-      <div class="grid min-h-0 grid-rows-[minmax(26rem,1fr)_auto] gap-3 @3xl:grid-cols-[minmax(0,1fr)_20rem] @3xl:grid-rows-1">
+      <div class={['grid min-h-0 gap-3', showPanel ? 'grid-rows-[minmax(26rem,1fr)_auto] @3xl:grid-cols-[minmax(0,1fr)_20rem] @3xl:grid-rows-1' : 'grid-rows-[minmax(26rem,1fr)]']}>
         <div class="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-2">
           <SegmentedControl size="small" label="How to show the plan" items={[{ value: 'graph', label: 'Graph' }, { value: 'table', label: 'Table' }, { value: 'raw', label: plan.dialect === 'postgresql' ? 'JSON' : 'Text' }]} bind:value={view} />
           {#if view === 'graph'}
@@ -302,23 +302,13 @@ const time = (date: Date) =>
             <div class="min-h-0 overflow-auto"><Code language={plan.dialect === 'postgresql' ? 'json' : 'text'} title={plan.dialect === 'postgresql' ? 'EXPLAIN (FORMAT JSON)' : plan.dialect === 'mysql' ? 'EXPLAIN' : 'EXPLAIN QUERY PLAN'} code={plan.raw} /></div>
           {/if}
         </div>
+        {#if showPanel}
         <aside class="grid min-h-0 content-start gap-2 overflow-auto @3xl:max-h-full" aria-label="Advice and the chosen operation">
+          {#if hasAdvice}
           <SegmentedControl size="small" label="What to show" items={[{ value: 'advice', label: `Advice · ${plan.advice.length}` }, { value: 'node', label: chosenNode ? chosenNode.operation : 'Operation' }]} bind:value={panel} />
-          {#if panel === 'advice'}
-            {#if plan.advice.length === 0}
-              <div class="grid gap-1 rounded-lg border border-neutral-muted bg-surface p-3 text-[13px]">
-                <strong>No recommendations detected</strong>
-                <span class="text-neutral/70">
-                  {#if fullScans.length > 0}
-                    {fullScans.length === 1 ? 'One operation uses' : `${fullScans.length} operations use`} a scan access path ({fullScans.map(({ node }) => node.relation ?? node.operation).join(', ')}). A limit or parent operation may stop a scan before it visits every row. No specific index recommendation was detected.
-                  {:else}
-                    No specific recommendation was detected from the available plan evidence.
-                  {/if}
-                </span>
-              </div>
-            {:else}
-              {#each plan.advice as entry (entry.id)}{@render adviceCard(entry)}{/each}
-            {/if}
+          {/if}
+          {#if hasAdvice && panel === 'advice'}
+            {#each plan.advice as entry (entry.id)}{@render adviceCard(entry)}{/each}
           {:else if chosenNode}
             {@const node = chosenNode}
             <div class="grid gap-3 rounded-lg border border-neutral-muted bg-surface p-3 text-[13px]">
@@ -378,6 +368,7 @@ const time = (date: Date) =>
             <p class="m-0 text-[13px] text-neutral/60">Choose an operation in the plan to see all the database said of it.</p>
           {/if}
         </aside>
+        {/if}
       </div>
     {/if}
   {/if}
