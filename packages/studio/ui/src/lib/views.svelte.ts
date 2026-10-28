@@ -18,6 +18,13 @@ export interface SavedView {
   readonly sorting: readonly { readonly id: string; readonly desc: boolean }[];
   readonly pageSize: number;
   readonly columnSizing: Readonly<Record<string, number>>;
+  /** The columns hidden, their order and those pinned; absent in views saved before the studio kept them. */
+  readonly columnVisibility?: Readonly<Record<string, boolean>>;
+  readonly columnOrder?: readonly string[];
+  readonly columnPinning?: {
+    readonly left: readonly string[];
+    readonly right: readonly string[];
+  };
 }
 
 export type ViewState = Omit<SavedView, "id" | "name" | "model">;

@@ -1,5 +1,6 @@
 <script lang="ts">
 import { Button } from "entasis/button";
+import { Checkbox } from "entasis/checkbox";
 import { Chip } from "entasis/chip";
 import { Combobox } from "entasis/combobox";
 import {
@@ -17,6 +18,7 @@ import { arrowsClockwiseIcon } from "entasis/icons/arrowsClockwise";
 import { arrowsOutSimpleIcon } from "entasis/icons/arrowsOutSimple";
 import { bookmarkSimpleIcon } from "entasis/icons/bookmarkSimple";
 import { caretDownIcon } from "entasis/icons/caretDown";
+import { columnsIcon } from "entasis/icons/columns";
 import { downloadSimpleIcon } from "entasis/icons/downloadSimple";
 import { funnelIcon } from "entasis/icons/funnel";
 import { linkSimpleIcon } from "entasis/icons/linkSimple";
@@ -455,6 +457,11 @@ const columns = $derived<DataTableColumn<Row>[]>([
     ),
     editor: editor(field),
     width: widthOf(field),
+    // Hidden, moved, resized or pinned from its header; a view keeps where.
+    hideable: true,
+    reorderable: true,
+    resizable: true,
+    pinnable: true,
     ...(NUMERIC.has(field.type)
       ? { align: "end" as const, class: "tabular-nums" }
       : {}),
@@ -466,6 +473,10 @@ const columns = $derived<DataTableColumn<Row>[]>([
     accessor: () => "",
     sortable: false,
     width: 150,
+    hideable: true,
+    reorderable: true,
+    resizable: true,
+    pinnable: true,
   })),
 ]);
 
@@ -477,10 +488,35 @@ if (initial) {
       sorting: initial.sorting.map((sort) => ({ ...sort })),
       globalFilter: initial.search,
       columnSizing: { ...initial.columnSizing },
+      ...(initial.columnVisibility
+        ? { columnVisibility: { ...initial.columnVisibility } }
+        : {}),
+      ...(initial.columnOrder ? { columnOrder: [...initial.columnOrder] } : {}),
+      ...(initial.columnPinning
+        ? {
+            columnPinning: {
+              left: [...initial.columnPinning.left],
+              right: [...initial.columnPinning.right],
+            },
+          }
+        : {}),
     },
     initial.pageSize
   );
   if (initial.conditions.length) apply();
+}
+
+/** How many columns are hidden, and one shown or hidden. */
+const hiddenCount = $derived(
+  Object.values(tableState?.columnVisibility ?? {}).filter((shown) => !shown)
+    .length
+);
+function showColumn(id: string, shown: boolean) {
+  if (!tableState) return;
+  tableState = {
+    ...tableState,
+    columnVisibility: { ...tableState.columnVisibility, [id]: shown },
+  };
 }
 
 /** The table as a view saves it, now. */
@@ -494,6 +530,12 @@ function stateOf(): ViewState {
     sorting: (tableState?.sorting ?? []).map(({ id, desc }) => ({ id, desc })),
     pageSize: tableState?.pagination.pageSize ?? 50,
     columnSizing: { ...tableState?.columnSizing },
+    columnVisibility: { ...tableState?.columnVisibility },
+    columnOrder: [...(tableState?.columnOrder ?? [])],
+    columnPinning: {
+      left: [...(tableState?.columnPinning.left ?? [])],
+      right: [...(tableState?.columnPinning.right ?? [])],
+    },
   };
 }
 /** A state as JSON whose keys are sorted at every depth, so two equal states compare equal whatever their order. */
@@ -509,8 +551,16 @@ const canonical = (value: unknown): string =>
 const unsaved = $derived.by(() => {
   if (!view) return false;
   const { id: _id, name: _name, model: _model, ...saved } = view;
+  // A view saved before the studio kept its columns says nothing of them: they are not compared.
+  const now: Partial<ViewState> = stateOf();
+  for (const key of [
+    "columnVisibility",
+    "columnOrder",
+    "columnPinning",
+  ] as const)
+    if (!(key in saved)) delete now[key];
   return (
-    canonical(stateOf()) !==
+    canonical(now) !==
     canonical({ ignoreCase: false, ...saved, ...(scope ? { scope } : {}) })
   );
 });
@@ -696,6 +746,24 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
       <TextInput size="small" label="Search the text columns" theme={HIDDEN_LABEL} placeholder="Search" prefix={magnifyingGlassIcon} value={words} onValueChange={search} />
     </div>
     <CaseToggle value={ignoreCase} onValueChange={value => (ignoreCase = value)} />
+    <!-- Which columns show: each one hidden or shown here; moved, resized or pinned from its header. -->
+    <Popover position="bottom-end" theme={{ popover: { base: 'w-60 p-2' } }}>
+      {#snippet trigger(popover)}
+        <Button size="small" variant={hiddenCount ? 'soft' : 'ghost'} squared={!hiddenCount} prefix={columnsIcon} label="Choose the columns" {@attach popover.trigger}>
+          {#if hiddenCount}<span class="text-[12px]">{hiddenCount} hidden</span>{/if}
+        </Button>
+      {/snippet}
+      {#snippet children()}
+        <div class="grid max-h-80 gap-0.5 overflow-auto">
+          {#each columns as column (column.id)}
+            <Checkbox size="small" label={column.id} value={tableState?.columnVisibility[column.id] !== false} onValueChange={shown => showColumn(column.id, shown === true)} />
+          {/each}
+        </div>
+        {#if hiddenCount}
+          <div class="mt-2 border-t border-neutral-muted pt-2"><Button size="small" variant="ghost" onclick={() => columns.forEach(column => showColumn(column.id, true))}>Show every column</Button></div>
+        {/if}
+      {/snippet}
+    </Popover>
     <Button size="small" variant="ghost" squared prefix={arrowsClockwiseIcon} label="Read the rows again" onclick={() => load()} />
     <!-- The table as it is, saved as a view in the sidebar; an open view is saved again, renamed or copied. -->
     <Popover position="bottom-end" focusOnOpen="first" theme={{ popover: { base: 'w-72 p-3' } }}>
