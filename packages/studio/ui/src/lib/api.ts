@@ -14,6 +14,16 @@ export type {
   StudioSpan,
   StudioStatement,
 } from "../../../src/api";
+export type {
+  StudioExplained,
+  StudioPlan,
+} from "../../../src/explain";
+export type { PlanNode } from "../../../src/plan";
+export type {
+  PlanAdvice,
+  Severity,
+  TableIndex,
+} from "../../../src/plan-advice";
 export type { QueryOperation } from "../../../src/query";
 export type {
   StudioEdge,
@@ -88,6 +98,22 @@ export const runQuery = (model: string, operation: string, args: unknown) =>
     statements: StudioStatement[];
     spans: StudioSpan[];
   }>("/query", { model, operation, args });
+
+/** A read's plan: each statement it ran, as the database explains it, with the advice the plan calls for. */
+export const explainQuery = (
+  model: string,
+  operation: string,
+  args: unknown,
+  analyze: boolean
+) =>
+  call<{
+    result: unknown;
+    duration: number;
+    statements: StudioStatement[];
+    spans: StudioSpan[];
+    analyze: boolean;
+    explained: import("../../../src/explain").StudioExplained[];
+  }>("/explain", { model, operation, args, analyze });
 
 /** What the studio keeps for the page, per project: its views and the diagram's layout. */
 export const readStored = async (name: "views" | "layout") =>

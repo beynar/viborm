@@ -435,6 +435,88 @@ describe("the query page", () => {
     expect(typeof (counted.body as { result: number }).result).toBe("number");
   });
 
+  test("a read explained: each statement it ran, as the database plans it", async () => {
+    const traced = createStudioApi({
+      client,
+      models: schema,
+      dialect: "sqlite",
+      trace: async (inner, report) => {
+        // The statement as the instrumentation reports it, run again under EXPLAIN QUERY PLAN.
+        report.statement({
+          sql: 'SELECT "id" FROM "tag" WHERE "label" = ?',
+          params: ["x"],
+          duration: 2,
+        });
+        return inner;
+      },
+    });
+    const answer = await traced.handle({
+      method: "POST",
+      path: "/explain",
+      body: { model: "tag", operation: "count" },
+    });
+    expect(answer.status).toBe(200);
+    const body = answer.body as {
+      explained: {
+        sql: string;
+        plan: {
+          dialect: string;
+          root: { children: { operation: string }[] };
+          executionTime: number;
+        };
+      }[];
+    };
+    expect(body.explained[0]!.plan).toMatchObject({
+      dialect: "sqlite",
+      executionTime: 2,
+    });
+    expect(body.explained[0]!.plan.root.children.length).toBeGreaterThan(0);
+    expect(answer.body).toHaveProperty("result");
+    expect(answer.body).toHaveProperty("statements");
+    const invalidMode = await traced.handle({
+      method: "POST",
+      path: "/explain",
+      body: { model: "tag", operation: "count", analyze: "yes" },
+    });
+    expect(errorCode(invalidMode)).toBe("invalid_analyze");
+    const estimated = await traced.handle({
+      method: "POST",
+      path: "/explain",
+      body: { model: "tag", operation: "count", analyze: false },
+    });
+    expect(estimated.body).toHaveProperty("analyze", false);
+    expect(
+      (await traced.handle({ method: "POST", path: "/explain", body: null }))
+        .status
+    ).toBe(400);
+    expect(
+      (
+        await traced.handle({
+          method: "GET",
+          path: "/explain",
+          body: undefined,
+        })
+      ).status
+    ).toBe(405);
+    // No instrumentation to say what ran, or a database the studio does not know how to ask: refused.
+    for (const options of [
+      { dialect: "sqlite" },
+      { dialect: "mssql", trace: async (inner: object) => inner },
+    ]) {
+      const refused = await createStudioApi({
+        client,
+        models: schema,
+        ...options,
+      }).handle({
+        method: "POST",
+        path: "/explain",
+        body: { model: "tag", operation: "count" },
+      });
+      expect(refused.status).toBe(501);
+      expect(errorCode(refused)).toBe("no_explain");
+    }
+  });
+
   test("a traced client says each statement it ran", async () => {
     const traced = createStudioApi({
       client,

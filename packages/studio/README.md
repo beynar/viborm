@@ -39,7 +39,18 @@ the studio on `http://127.0.0.1:5577` and opens it.
 - **Query:** a read built with pickers (filter, order, page, columns,
   relations; counts, sums and averages per group), run through your client as
   you build it, with its rows, the SQL it ran, its trace (spans on a
-  waterfall, database time against VibORM time) and the code to write.
+  waterfall, database time against VibORM time) and the code to write. SQL is
+  formatted in the database's dialect, with timing and bound values above it.
+- **Plan:** PostgreSQL and MySQL execution plans as a Svelte Flow graph, a
+  compact table or the raw database response. Inspect node timing, estimated
+  and actual rows, index access and PostgreSQL buffers. Advice suggests indexes
+  against the live catalog, preserves mixed sort directions, and distinguishes
+  separate scans of the same table. Recommendations are heuristics to review;
+  Studio never applies them. Analyze captures the read and runs each statement
+  again; Estimate captures the read once and asks for its plan without a second
+  execution. PostgreSQL Analyze uses a transaction-local 30-second timeout;
+  MySQL uses a MAX_EXECUTION_TIME hint. SQLite supplies an estimated query plan
+  only, with the original read's duration and no per-node timings.
 - **Drift:** a banner when the database differs from the schema, with what
   `viborm push` would change and its SQL.
 - **⌘K:** go to a model, a view or a row by its key (`user 7`).

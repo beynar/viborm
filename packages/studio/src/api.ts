@@ -11,6 +11,7 @@
  */
 
 import type { Model } from "@src/schema/model";
+import { dialectOf, explainStatements } from "./explain";
 import { QUERY_OPERATIONS } from "./query";
 import { describeSchema, type StudioModel, type StudioSchema } from "./schema";
 import { encodeJson } from "./server";
@@ -176,6 +177,10 @@ export function createStudioApi(options: StudioApiOptions) {
       if (request.method !== "POST") throw methodNotAllowed();
       return query(request.body);
     }
+    if (request.path === "/explain") {
+      if (request.method !== "POST") throw methodNotAllowed();
+      return explain(request.body);
+    }
     const match = ROUTE.exec(request.path);
     if (!match) throw new Refusal(404, "not_found", "Unknown studio route");
     if (request.method !== "POST") throw methodNotAllowed();
@@ -210,6 +215,42 @@ export function createStudioApi(options: StudioApiOptions) {
         reason: error instanceof Error ? error.message : String(error),
       };
     }
+  }
+
+  /**
+   * A read's plan: the read runs traced, so the statements it ran are known with the values they bound, then the
+   * database explains each (`explainStatements`).
+   */
+  async function explain(body: unknown) {
+    const dialect = dialectOf(options.dialect);
+    if (!(options.trace && dialect)) {
+      throw new Refusal(
+        501,
+        "no_explain",
+        "This studio cannot explain a query: it needs the project's instrumentation and a SQL database it knows."
+      );
+    }
+    if (
+      isRecord(body) &&
+      body.analyze !== undefined &&
+      typeof body.analyze !== "boolean"
+    ) {
+      throw new Refusal(400, "invalid_analyze", "analyze must be a boolean");
+    }
+    const ran = await query(body);
+    // `analyze: false` asks the plan only: the statement does not run again.
+    const analyze = !(isRecord(body) && body.analyze === false);
+    return {
+      ...ran,
+      analyze,
+      explained: await explainStatements(
+        options.client,
+        dialect,
+        ran.statements,
+        schema.models,
+        analyze
+      ),
+    };
   }
 
   /** One read, as written on the query page: its answer, how long it took, and the statements it ran. */

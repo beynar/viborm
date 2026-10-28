@@ -2,11 +2,16 @@
 import { Code } from "entasis/code";
 import { warningCircleIcon } from "entasis/icons/warningCircle";
 import type { StudioSpan } from "../../lib/api";
+import { prettySql } from "../../lib/sql";
 
 // What the query did, as the project's instrumentation traced it: each span a row, nested under the one it ran in,
 // its bar where and as long as it ran on the query's time, then a span's attributes when it is chosen (the SQL it
 // ran and its parameters, the driver, the model and the operation). The trace a collector would receive, kept here.
-let { spans, duration }: { spans: readonly StudioSpan[]; duration: number } =
+let {
+  spans,
+  duration,
+  dialect,
+}: { spans: readonly StudioSpan[]; duration: number; dialect: string } =
   $props();
 
 /** The spans in tree order, each with its depth. */
@@ -162,7 +167,7 @@ const details = $derived.by(() => {
           <p class="m-0 text-[13px] text-danger">{selected.error}</p>
         {/if}
         {#if details.sql}
-          <Code language="sql" code={details.sql} wrap title="db.query.text" />
+          <Code language="sql" code={prettySql(details.sql, dialect)} title="db.query.text" />
         {/if}
         {#if details.parameters.length}
           <div class="grid gap-1">

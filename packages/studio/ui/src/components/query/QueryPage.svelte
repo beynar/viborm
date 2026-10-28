@@ -15,10 +15,12 @@ import { Sidebar, type SidebarApi } from "entasis/sidebar";
 import { TextInput } from "entasis/text-input";
 import { untrack } from "svelte";
 import {
+  explainQuery,
   type QueryOperation,
   runQuery,
   type Scope,
   type StudioDescription,
+  type StudioExplained,
   type StudioSpan,
   type StudioStatement,
 } from "../../lib/api";
@@ -38,8 +40,10 @@ import {
   uniqueFields,
   whereOf,
 } from "../../lib/query-builder";
+import { prettySql } from "../../lib/sql";
 import { cellText, display, grouped } from "../../lib/values";
 import FilterGroup from "../data/FilterGroup.svelte";
+import PlanView from "./PlanView.svelte";
 import ResultTable from "./ResultTable.svelte";
 import TraceView from "./TraceView.svelte";
 
@@ -146,6 +150,7 @@ const built = $derived.by<{ args?: Record<string, unknown>; error?: string }>(
 
 let running = $state(false);
 let answer = $state.raw<{
+  signature: string;
   result: unknown;
   duration: number;
   statements: StudioStatement[];
@@ -154,48 +159,102 @@ let answer = $state.raw<{
   operation: QueryOperation;
 }>();
 let failure = $state<string>();
-let tab = $state<"table" | "json" | "sql" | "trace" | "code">("table");
+let tab = $state<"table" | "json" | "sql" | "trace" | "plan" | "code">("table");
+
+/** The captured read and its plans belong to one request and are replaced together. */
+let explained = $state.raw<{
+  explained: StudioExplained[];
+  at: Date;
+}>();
+let planMode = $state<"analyze" | "estimate">("analyze");
+let explaining = $state(false);
+let explainFailure = $state<string>();
 /** The query's sidebar open; folded away, the result takes the page. */
 let editing = $state(true);
-let asked = 0;
 
-async function run() {
-  const { args } = built;
-  if (!args) return;
-  asked += 1;
-  const ask = asked;
-  const read = modelName;
-  const asking = operation;
-  running = true;
-  try {
-    const answered = await runQuery(read, asking, args);
-    if (ask !== asked) return;
-    answer = { ...answered, model: read, operation: asking };
-    failure = undefined;
-  } catch (error) {
-    if (ask !== asked) return;
-    failure = error instanceof Error ? error.message : String(error);
-  } finally {
-    if (ask === asked) running = false;
-  }
-}
-
-// The query runs again a moment after it changes: what is built shows what it reads.
 const signature = $derived(
   built.args
     ? `${modelName}.${operation}${JSON.stringify(built.args)}`
     : undefined
 );
+const wantsPlan = $derived(tab === "plan");
+// One request owner for both paths: changing the query invalidates an in-flight answer before the debounce.
+let request = 0;
+let timer: ReturnType<typeof setTimeout> | undefined;
+async function run(
+  asked: string,
+  mode: "analyze" | "estimate" | undefined,
+  ask: number
+) {
+  const { args } = built;
+  if (!args) return;
+  const read = modelName;
+  const operationRead = operation;
+  running = true;
+  explaining = mode !== undefined;
+  failure = undefined;
+  explainFailure = undefined;
+  try {
+    const answered =
+      mode === undefined
+        ? {
+            ...(await runQuery(read, operationRead, args)),
+            explained: undefined,
+          }
+        : await explainQuery(read, operationRead, args, mode === "analyze");
+    if (ask !== request || signature !== asked) return;
+    answer = {
+      ...answered,
+      signature: asked,
+      model: read,
+      operation: operationRead,
+    };
+    // /explain returns the same read used to capture the statements: Result, SQL and Trace stay together.
+    explained = answered.explained
+      ? { explained: answered.explained, at: new Date() }
+      : undefined;
+  } catch (error) {
+    if (ask !== request || signature !== asked) return;
+    const message = error instanceof Error ? error.message : String(error);
+    if (mode === undefined) failure = message;
+    else explainFailure = message;
+  } finally {
+    if (ask === request) {
+      running = false;
+      explaining = false;
+    }
+  }
+}
+
 $effect(() => {
-  if (signature === undefined) return;
-  const timer = setTimeout(() => untrack(run), 350);
-  return () => clearTimeout(timer);
+  const asked = signature;
+  const mode = wantsPlan ? planMode : undefined;
+  const ask = ++request;
+  running = false;
+  explaining = false;
+  // Leaving Plan already has the captured read; changing between Result, SQL and Trace never reruns it.
+  if (
+    asked !== undefined &&
+    (mode !== undefined || untrack(() => answer?.signature) !== asked)
+  )
+    timer = setTimeout(() => untrack(() => run(asked, mode, ask)), 350);
+  return () => {
+    clearTimeout(timer);
+    ++request;
+  };
 });
+
+/** One path per click: explaining already runs and captures the read. */
+function runAgain() {
+  clearTimeout(timer);
+  if (signature !== undefined)
+    run(signature, wantsPlan ? planMode : undefined, ++request);
+}
 
 function keys(event: KeyboardEvent) {
   if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
     event.preventDefault();
-    run();
+    runAgain();
   }
 }
 
@@ -236,13 +295,13 @@ const counted = $derived(
     ? undefined
     : `${table.rows.length} ${table.rows.length === 1 ? "row" : "rows"}`
 );
-const sql = $derived(
-  (answer?.statements ?? [])
-    .map(
-      (statement) =>
-        `-- ${statement.duration ?? "?"} ms${statement.params?.length ? ` · ${JSON.stringify(statement.params)}` : ""}\n${statement.sql ?? "(not reported)"};`
-    )
-    .join("\n\n")
+/** Each statement the read ran, laid out to be read, with its time and the values it bound. */
+const statements = $derived(
+  (answer?.statements ?? []).map((statement) => ({
+    sql: statement.sql ? prettySql(statement.sql, schema.dialect) : "",
+    duration: statement.duration,
+    params: statement.params ?? [],
+  }))
 );
 const code = $derived(
   built.args ? codeOf(modelName, operation, built.args) : ""
@@ -395,7 +454,7 @@ function chooseFunction(
   <div class="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3 p-4">
     <div class="flex flex-wrap items-center gap-3">
       <Button size="small" variant="ghost" squared prefix={sidebarSimpleIcon} label={editing ? 'Hide the query: the result takes the page' : 'Show the query'} onclick={() => (editing = !editing)} />
-      <SegmentedControl size="small" label="What to show" items={[{ value: 'table', label: 'Result' }, { value: 'json', label: 'JSON' }, { value: 'sql', label: `SQL${answer ? ` · ${answer.statements.length}` : ''}` }, { value: 'trace', label: `Trace${answer ? ` · ${answer.spans.length}` : ''}` }, { value: 'code', label: 'Code' }]} bind:value={tab} />
+      <SegmentedControl size="small" label="What to show" items={[{ value: 'table', label: 'Result' }, { value: 'json', label: 'JSON' }, { value: 'sql', label: `SQL${answer ? ` · ${answer.statements.length}` : ''}` }, { value: 'trace', label: `Trace${answer ? ` · ${answer.spans.length}` : ''}` }, { value: 'plan', label: 'Plan' }, { value: 'code', label: 'Code' }]} bind:value={tab} />
       {#if answer}
         <span class="text-[12px] text-neutral/60">{counted ? `${counted} · ` : ''}{answer.duration} ms</span>
       {/if}
@@ -404,10 +463,10 @@ function chooseFunction(
           {@const where = openable}
           <Button size="small" variant="outline" prefix={arrowSquareOutIcon} onclick={() => navigate(modelName, { where, label: 'Query' })}>Open these rows</Button>
         {/if}
-        <Button size="small" variant="ghost" prefix={arrowsClockwiseIcon} loading={running} disabled={!built.args} onclick={run}>Run again</Button>
+        <Button size="small" variant="ghost" prefix={arrowsClockwiseIcon} loading={running || (tab === 'plan' && explaining)} disabled={!built.args} onclick={runAgain}>{tab === 'plan' ? 'Explain again' : 'Run again'}</Button>
       </div>
     </div>
-    <div class="grid min-h-0 content-start gap-3 overflow-auto">
+    <div class={['min-h-0 gap-3 overflow-auto', tab === 'plan' ? 'flex flex-col' : 'grid content-start']}>
       <!-- A result the latest query did not replace shows faded under its error. -->
       {#if built.error}
         <Alert color="warning" variant="soft">{#snippet title()}Not ready to run{/snippet}{#snippet description()}{built.error}{/snippet}</Alert>
@@ -415,15 +474,41 @@ function chooseFunction(
       {#if failure}
         <Alert color="danger" variant="soft">{#snippet title()}The client refused the query{/snippet}{#snippet description()}<span class="whitespace-pre-wrap">{failure}</span>{/snippet}</Alert>
       {/if}
-      <div class={['grid content-start gap-3 transition-opacity', (failure || built.error) && tab !== 'code' && 'opacity-45']}>
-      {#if tab === 'code'}
+      <div class={['gap-3 transition-opacity', tab === 'plan' ? 'flex min-h-0 flex-1 flex-col' : 'grid content-start', (failure || built.error) && tab !== 'code' && 'opacity-45']}>
+      {#if tab === 'plan'}
+        {#if explainFailure}
+          <Alert color="danger" variant="soft">{#snippet title()}The plan could not be read{/snippet}{#snippet description()}<span class="whitespace-pre-wrap">{explainFailure}</span>{/snippet}</Alert>
+        {:else}
+          <div class={['min-h-0 flex-1 transition-opacity', explaining && 'opacity-60']}>
+            <PlanView
+              explained={explained?.explained ?? []}
+              loading={explaining}
+              at={explained?.at}
+              bind:mode={planMode}
+            />
+          </div>
+        {/if}
+      {:else if tab === 'code'}
         <Code language="ts" code={code || '// Not ready to run'} />
       {:else if !answer}
         <p class="m-0 text-[13px] text-neutral/60">{running ? 'Reading…' : 'Choose what to read: it runs as you build it.'}</p>
       {:else if tab === 'trace'}
-        <TraceView spans={answer.spans} duration={answer.duration} />
+        <TraceView spans={answer.spans} duration={answer.duration} dialect={schema.dialect} />
       {:else if tab === 'sql'}
-        <Code language="sql" code={sql || '-- No statement ran.'} wrap />
+        {#each statements as statement, index (index)}
+          <div class="grid gap-1.5">
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-neutral/60">
+              <span class="font-medium text-neutral/80">{statements.length > 1 ? `Statement ${index + 1}` : 'Statement'}</span>
+              {#if statement.duration !== undefined}<span class="tabular-nums">{statement.duration} ms</span>{/if}
+              {#each statement.params as param, at (at)}
+                <span class="rounded border border-neutral-muted px-1.5 py-0.5 font-mono text-[11px]"><span class="text-neutral/45">{schema.dialect.includes('postgres') ? `$${at + 1}` : `?${at + 1}`}</span> {typeof param === 'string' ? param : JSON.stringify(param)}</span>
+              {/each}
+            </div>
+            <Code language="sql" code={statement.sql || '-- Not reported'} />
+          </div>
+        {:else}
+          <p class="m-0 text-[13px] text-neutral/60">No statement ran.</p>
+        {/each}
       {:else if tab === 'json'}
         <Code language="json" code={JSON.stringify(answer.result, null, 2)} />
       {:else if typeof answer.result === 'number'}

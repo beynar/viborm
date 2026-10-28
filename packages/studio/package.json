@@ -41,6 +41,7 @@
     "@xyflow/svelte": "1.7.0",
     "entasis": "0.13.2",
     "html-to-image": "1.11.13",
+    "sql-formatter": "^15.9.0",
     "svelte": "5.57.2",
     "svelte-check": "4.7.7",
     "tailwindcss": "4.3.3",
