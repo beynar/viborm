@@ -10,7 +10,7 @@ import {
   type QueryDraft,
   tableOf,
 } from "../ui/src/lib/query-builder";
-import { grouped } from "../ui/src/lib/values";
+import { type Condition, filterWhere, grouped } from "../ui/src/lib/values";
 
 const field = (
   name: string,
@@ -239,7 +239,7 @@ test("a lookup by key reads no condition, even one that cannot be read", () => {
 });
 
 test("an empty text is a value; an empty number or list is not yet", () => {
-  const where = (condition: Omit<QueryDraft["conditions"][number], "id">) =>
+  const where = (condition: Omit<Condition, "id">) =>
     argsOf(
       user,
       models,
@@ -266,4 +266,69 @@ test("a count reads any column, a list's too; sums and extremes only theirs", ()
   expect(names("_max")).toEqual(["id", "email", "karma"]);
   expect(aggregateOf("_avg")?.label).toBe("average");
   expect(aggregateOf("median")).toBeUndefined();
+});
+
+test("groups join their conditions their own way: all, any or none, nested", () => {
+  const where = filterWhere(
+    user,
+    models,
+    [
+      { id: 1, field: "email", operator: "contains", value: "ada" },
+      {
+        id: 2,
+        group: true,
+        combinator: "OR",
+        conditions: [
+          { id: 1, field: "karma", operator: "gt", value: "10" },
+          {
+            id: 2,
+            group: true,
+            combinator: "NOT",
+            conditions: [
+              { id: 1, field: "email", operator: "contains", value: "test" },
+              { id: 2, field: "id", operator: "equals", value: "3" },
+            ],
+          },
+        ],
+      },
+      // A group holding only a condition waiting for its value says nothing.
+      {
+        id: 3,
+        group: true,
+        combinator: "AND",
+        conditions: [{ id: 1, field: "id", operator: "gt", value: "" }],
+      },
+      { id: 4, group: true, combinator: "OR", conditions: [] },
+    ],
+    "AND"
+  );
+  expect(where).toEqual({
+    count: 4,
+    where: {
+      AND: [
+        { email: { contains: "ada" } },
+        {
+          OR: [
+            { karma: { gt: "10" } },
+            {
+              NOT: [{ email: { contains: "test" } }, { id: { equals: 3 } }],
+            },
+          ],
+        },
+      ],
+    },
+  });
+  // None of one condition, at the top.
+  expect(
+    filterWhere(
+      user,
+      models,
+      [{ id: 1, field: "id", operator: "equals", value: "1" }],
+      "NOT"
+    )
+  ).toEqual({ count: 1, where: { NOT: [{ id: { equals: 1 } }] } });
+  expect(filterWhere(user, models, [], "OR")).toEqual({
+    count: 0,
+    where: undefined,
+  });
 });

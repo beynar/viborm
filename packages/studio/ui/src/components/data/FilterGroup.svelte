@@ -1,6 +1,7 @@
 <script lang="ts">
 import { Button } from "entasis/button";
 import { DateInput } from "entasis/date-input";
+import { bracketsRoundIcon } from "entasis/icons/bracketsRound";
 import { plusIcon } from "entasis/icons/plus";
 import { xIcon } from "entasis/icons/x";
 import { NumberInput } from "entasis/number-input";
@@ -9,15 +10,19 @@ import { TextInput } from "entasis/text-input";
 import { TimeInput } from "entasis/time-input";
 import type { StudioModel } from "../../lib/api";
 import {
+  COMBINATOR_LABELS,
+  type Combinator,
   type Condition,
   columnOf,
   dateToDay,
   dayToDate,
   type FilterColumn,
+  type FilterEntry,
   filterColumns,
   foldsCase,
   instantOf,
   instantParts,
+  isGroup,
   OPERATOR_LABELS,
   type Operator,
   operatorsOf,
@@ -27,21 +32,33 @@ import {
   timeToSeconds,
 } from "../../lib/values";
 import CaseToggle from "./CaseToggle.svelte";
+import FilterGroup from "./FilterGroup.svelte";
 
 // The conditions being written, each a column (the model's, or a related model's through one relation), a
-// comparison and a value picked as its type is (a calendar, a time, a number, a choice), joined by AND or OR
-// (Pyxel's `FilterGroup`, one level). They reach the client only when applied: a half-written value is never sent.
+// comparison and a value picked as its type is (a calendar, a time, a number, a choice), and groups of them, joined
+// as each group says: all of them, any, or none (`a AND (b OR NOT (c))`). A group is this same component, a level
+// down. They reach the client only when applied: a half-written value is never sent.
 let {
   model,
   models,
   conditions = $bindable(),
   combinator = $bindable(),
+  depth = 0,
+  onRemove,
 }: {
   model: StudioModel;
   models: readonly StudioModel[];
-  conditions: Condition[];
-  combinator: "AND" | "OR";
+  conditions: FilterEntry[];
+  combinator: Combinator;
+  /** How deep the group sits: groups nest two levels down at most. */
+  depth?: number;
+  /** Removes this group from the one it sits in. */
+  onRemove?: () => void;
 } = $props();
+const MAX_DEPTH = 2;
+const COMBINATORS = (Object.keys(COMBINATOR_LABELS) as Combinator[]).map(
+  (value) => ({ value, label: COMBINATOR_LABELS[value] })
+);
 
 // The label is read by assistive technology only: its header leaves the layout too, so no empty row spaces the control.
 const HIDDEN_LABEL = {
@@ -78,17 +95,39 @@ function fresh(
   };
 }
 
+/** Past every id the group holds: a saved view brings its conditions with theirs. */
+const nextId = () => Math.max(0, ...conditions.map((entry) => entry.id)) + 1;
+
 function add() {
   const column = columns[0];
-  // Past every id the list holds: a saved view brings its conditions with theirs.
-  const id = Math.max(0, ...conditions.map((condition) => condition.id)) + 1;
   if (column)
-    conditions = [...conditions, { id, field: column.key, ...fresh(column) }];
+    conditions = [
+      ...conditions,
+      { id: nextId(), field: column.key, ...fresh(column) },
+    ];
 }
+
+/** A group of its own, joined all its conditions at first, holding one to start from. */
+function addGroup() {
+  const column = columns[0];
+  if (!column) return;
+  conditions = [
+    ...conditions,
+    {
+      id: nextId(),
+      group: true,
+      combinator: "AND",
+      conditions: [{ id: 1, field: column.key, ...fresh(column) }],
+    },
+  ];
+}
+
+const remove = (id: number) =>
+  (conditions = conditions.filter((entry) => entry.id !== id));
 
 function update(id: number, change: Partial<Condition>) {
   conditions = conditions.map((condition) => {
-    if (condition.id !== id) return condition;
+    if (isGroup(condition) || condition.id !== id) return condition;
     if (change.field && change.field !== condition.field) {
       // Another column: its relation, a value of its type, and its own first comparison, unless the member chose
       // one the new column has too.
@@ -115,16 +154,27 @@ const setValue = (id: number, value: string) => update(id, { value });
 <!-- A container query lays each condition out for the room it has: one line in the rows' filter, the value on a
      line of its own in the query's narrower sidebar. -->
 <div class="@container grid gap-2">
-  {#if conditions.length === 0}
-    <p class="m-0 text-[13px] text-neutral/70">No condition: every row shows.</p>
-  {:else if conditions.length > 1}
+  <!-- How the group's conditions join; a group says it always, the top only once it is more than one condition. -->
+  {#if conditions.length > 1 || combinator !== 'AND' || depth > 0}
     <div class="flex items-center gap-2 text-[13px] text-neutral/70">
       Match
-      <div class="w-20"><Select size="small" label="Which conditions must hold" theme={HIDDEN_LABEL} items={[{ value: 'AND', label: 'all' }, { value: 'OR', label: 'any' }]} value={combinator} onValueChange={value => (combinator = value === 'OR' ? 'OR' : 'AND')} /></div>
+      <div class="w-24"><Select size="small" label="Which conditions must hold" theme={HIDDEN_LABEL} items={COMBINATORS} value={combinator} onValueChange={value => (combinator = COMBINATORS.find(entry => entry.value === value)?.value ?? 'AND')} /></div>
       of the conditions
+      {#if onRemove}
+        <div class="ml-auto"><Button size="small" variant="ghost" squared label="Remove the group" prefix={xIcon} onclick={onRemove} /></div>
+      {/if}
     </div>
   {/if}
-  {#each conditions as condition (condition.id)}
+  {#if conditions.length === 0}
+    <p class="m-0 text-[13px] text-neutral/70">{depth === 0 ? 'No condition: every row shows.' : 'No condition in this group yet.'}</p>
+  {/if}
+  {#each conditions as entry (entry.id)}
+    {#if isGroup(entry)}
+      <div class={['rounded-md border border-neutral-muted bg-neutral-muted/20 p-2', conditions.length > 1 && 'ml-2']}>
+        <FilterGroup {model} {models} bind:conditions={entry.conditions} bind:combinator={entry.combinator} depth={depth + 1} onRemove={() => remove(entry.id)} />
+      </div>
+    {:else}
+    {@const condition = entry}
     {@const column = columnOf(columns, condition)}
     {@const field = column?.field}
     {@const operators = field ? operatorsOf(field) : []}
@@ -137,7 +187,7 @@ const setValue = (id: number, value: string) => update(id, { value });
       <div class="min-w-[8rem] flex-1 @xl:w-48 @xl:flex-none"><Select size="small" label="Column" theme={HIDDEN_LABEL} items={columnItems} value={condition.field} onValueChange={value => value && update(condition.id, { field: value })} /></div>
       <div class="w-28 shrink-0"><Select size="small" label="Comparison" theme={HIDDEN_LABEL} items={operators.map(operator => ({ value: operator, label: OPERATOR_LABELS[operator] }))} value={condition.operator} onValueChange={value => value && update(condition.id, { operator: value as Operator })} /></div>
       <!-- Last on the line when the value shares it; on the first line when the value takes its own. -->
-      <div class="shrink-0 @xl:order-last"><Button size="small" variant="ghost" squared label="Remove the condition" prefix={xIcon} onclick={() => (conditions = conditions.filter(entry => entry.id !== condition.id))} /></div>
+      <div class="shrink-0 @xl:order-last"><Button size="small" variant="ghost" squared label="Remove the condition" prefix={xIcon} onclick={() => remove(condition.id)} /></div>
       <div class={['flex min-w-0 basis-full items-center gap-2 @xl:basis-0 @xl:flex-1', (condition.operator === 'isNull' || condition.operator === 'isNotNull' || !field) && 'hidden @xl:flex']}>
       <div class="min-w-0 flex-1">
         {#if condition.operator === 'isNull' || condition.operator === 'isNotNull' || !field}
@@ -167,6 +217,12 @@ const setValue = (id: number, value: string) => update(id, { value });
         {/if}
       </div>
     </div>
+    {/if}
   {/each}
-  <div><Button size="small" variant="outline" prefix={plusIcon} disabled={columns.length === 0} onclick={add}>Condition</Button></div>
+  <div class="flex gap-2">
+    <Button size="small" variant="outline" prefix={plusIcon} disabled={columns.length === 0} onclick={add}>Condition</Button>
+    {#if depth < MAX_DEPTH}
+      <Button size="small" variant="ghost" prefix={bracketsRoundIcon} disabled={columns.length === 0} onclick={addGroup}>Group</Button>
+    {/if}
+  </div>
 </div>

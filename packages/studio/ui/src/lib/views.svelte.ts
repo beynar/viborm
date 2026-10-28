@@ -4,7 +4,7 @@
 // studio that keeps nothing leaves them to the browser.
 import type { ModelIcon } from "../../../src/icons";
 import { keepStored, readStored, type Scope } from "./api";
-import type { Condition } from "./values";
+import type { Combinator, FilterEntry } from "./values";
 
 export interface SavedView {
   readonly id: string;
@@ -14,8 +14,9 @@ export interface SavedView {
   readonly icon?: ModelIcon;
   /** The relation followed into the model, when the view was saved from one. */
   readonly scope?: Scope;
-  readonly conditions: readonly Condition[];
-  readonly combinator: "AND" | "OR";
+  /** Conditions and groups of them; views saved before groups hold conditions only. */
+  readonly conditions: readonly FilterEntry[];
+  readonly combinator: Combinator;
   readonly search: string;
   /** The search folds case; absent in views saved before it could. */
   readonly ignoreCase?: boolean;
@@ -35,6 +36,8 @@ export type ViewState = Omit<SavedView, "id" | "name" | "model" | "icon">;
 
 export class Views {
   list = $state<SavedView[]>([]);
+  /** The views the studio keeps were read (or it keeps none): an address naming one can find it. */
+  loaded = $state(false);
   readonly #key: string;
   /** The studio keeps them; else the browser does. */
   #kept = false;
@@ -61,6 +64,8 @@ export class Views {
       localStorage.removeItem(this.#key);
     } catch {
       this.#kept = false;
+    } finally {
+      this.loaded = true;
     }
   }
 

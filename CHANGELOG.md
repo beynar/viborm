@@ -22,7 +22,7 @@ through your own client, in a new package, `@viborm/studio`.
     move them; an icon for each model, guessed from its name (some 1,300
     words for 171 icons, compound and generic words read as such) or its
     shape, measured on 2,384 names from open-source schemas;
-  - each model's rows: paging, search, AND/OR filters (through relations,
+  - each model's rows: paging, search, filters of nested AND/OR/NOT groups (through relations,
     values picked by type), sorting, columns hidden, moved, resized and
     pinned, related rows opened under their row (polymorphic relations
     included), CSV and JSON export of what a filter reaches;

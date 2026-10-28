@@ -46,7 +46,8 @@ read from the config's own directory.
   others, an email and a password); on the schemas of open-source
   applications, more than nineteen names in twenty get one.
 - **Rows**: a page at a time, searched in their text columns, filtered by
-  conditions joined with AND or OR, sorted by any column. A condition reads a
+  conditions and groups of them, each group matching all, any or none of
+  its conditions (AND, OR, NOT, nested), sorted by any column. A condition reads a
   column of the model or of a related model (some, every or no related row,
   through a to-many relation), and its value is picked by type: a calendar, a
   time, a number, a choice. An "Aa" toggle on the search and on each text

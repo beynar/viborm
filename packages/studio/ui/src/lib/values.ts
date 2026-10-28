@@ -304,7 +304,6 @@ export const columnOf = (
 export const foldsCase = (field: StudioField, operator: Operator) =>
   field.searchable && operator !== "isNull" && operator !== "isNotNull";
 
-/** One condition as the client's `where` spells it. */
 /**
  * A condition as the client filters: the column's comparison, wrapped in the
  * relation it goes through (`is` for a to-one, its quantifier for a to-many,
@@ -344,6 +343,72 @@ function comparisonWhere(field: StudioField, condition: Condition): Where {
       ? { mode: "insensitive" }
       : {};
   return { [field.name]: { [operator]: value, ...mode } };
+}
+
+/** How a group's conditions join: all of them (AND), any (OR), or none (NOT). */
+export type Combinator = "AND" | "OR" | "NOT";
+export const COMBINATOR_LABELS: Record<Combinator, string> = {
+  AND: "all",
+  OR: "any",
+  NOT: "none",
+};
+
+/** Conditions joined their own way inside another group: `a AND (b OR NOT (c))`. */
+export interface ConditionGroup {
+  id: number;
+  group: true;
+  combinator: Combinator;
+  conditions: FilterEntry[];
+}
+export type FilterEntry = Condition | ConditionGroup;
+export const isGroup = (entry: FilterEntry): entry is ConditionGroup =>
+  "group" in entry;
+
+/**
+ * A condition still waiting for its value, left out until it has one: an empty value a text column cannot be
+ * compared with (a text column can: `name = ""` finds the empty names), or an empty list.
+ */
+const waiting = (condition: Condition, field: StudioField) =>
+  condition.value.trim() === "" &&
+  condition.operator !== "isNull" &&
+  condition.operator !== "isNotNull" &&
+  (condition.operator === "in" || field.type !== "string");
+
+/**
+ * Conditions and groups as one `where`, and how many conditions it holds: a group that holds none (only
+ * conditions waiting for their value, or nothing) is left out. Throws the reason a value cannot be read.
+ */
+export function filterWhere(
+  model: StudioModel,
+  models: readonly StudioModel[],
+  entries: readonly FilterEntry[],
+  combinator: Combinator
+): { where: Where | undefined; count: number } {
+  const columns = filterColumns(model, models);
+  const join = (
+    group: readonly FilterEntry[],
+    joined: Combinator
+  ): { where: Where | undefined; count: number } => {
+    let count = 0;
+    const clauses = group.flatMap((entry): Where[] => {
+      if (isGroup(entry)) {
+        const inner = join(entry.conditions, entry.combinator);
+        count += inner.count;
+        return inner.where ? [inner.where] : [];
+      }
+      const column = columnOf(columns, entry);
+      if (!column || waiting(entry, column.field)) return [];
+      count += 1;
+      return [conditionWhere(column, entry)];
+    });
+    if (clauses.length === 0) return { where: undefined, count };
+    if (joined === "NOT") return { where: { NOT: clauses }, count };
+    return {
+      where: clauses.length === 1 ? clauses[0] : { [joined]: clauses },
+      count,
+    };
+  };
+  return join(entries, combinator);
 }
 
 /** Rows one relation of one row reaches: a model, the `where` that finds them there, and the variant it went through. */

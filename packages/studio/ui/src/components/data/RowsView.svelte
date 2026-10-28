@@ -54,13 +54,12 @@ import type { Changes } from "../../lib/changes.svelte";
 import { fillPage } from "../../lib/fill";
 import { MODEL_ICON } from "../../lib/model-icons";
 import {
-  type Condition,
-  columnOf,
-  conditionWhere,
+  type Combinator,
   dayText,
   display,
   editable,
-  filterColumns,
+  type FilterEntry,
+  filterWhere,
   instantOf,
   instantParts,
   instantText,
@@ -185,15 +184,15 @@ function search(value: string | null) {
 }
 
 /** The filter being written, and the one the rows answer: written is not applied until « Apply ». */
-let conditions = $state<Condition[]>(
-  initial ? ($state.snapshot(initial.conditions) as Condition[]) : []
+let conditions = $state<FilterEntry[]>(
+  initial ? [...$state.snapshot(initial.conditions)] : []
 );
-let combinator = $state<"AND" | "OR">(initial?.combinator ?? "AND");
+let combinator = $state<Combinator>(initial?.combinator ?? "AND");
 let applied = $state.raw<Where>();
 let appliedCount = $state(0);
 /** The conditions the rows answer, as a view saves them (the ones being written may not be applied yet). */
-let appliedConditions = $state.raw<readonly Condition[]>([]);
-let appliedCombinator = $state<"AND" | "OR">(initial?.combinator ?? "AND");
+let appliedConditions = $state.raw<readonly FilterEntry[]>([]);
+let appliedCombinator = $state<Combinator>(initial?.combinator ?? "AND");
 
 /**
  * What the stacked changes do to a row the table shows: a row to add (its
@@ -351,17 +350,9 @@ function firstPage() {
 }
 function apply() {
   try {
-    const clauses = conditions.flatMap((condition) => {
-      const column = columnOf(filterColumns(model, models), condition);
-      return column ? [conditionWhere(column, condition)] : [];
-    });
-    applied =
-      clauses.length === 0
-        ? undefined
-        : clauses.length === 1
-          ? clauses[0]
-          : { [combinator]: clauses };
-    appliedCount = clauses.length;
+    const filter = filterWhere(model, models, conditions, combinator);
+    applied = filter.where;
+    appliedCount = filter.count;
     appliedConditions = $state.snapshot(conditions);
     appliedCombinator = combinator;
     firstPage();

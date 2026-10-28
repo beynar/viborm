@@ -3,10 +3,9 @@
 // per group). `argsOf` spells them as the client takes them; a value that cannot be one throws its reason.
 import type { QueryOperation, StudioField, StudioModel, Where } from "./api";
 import {
-  type Condition,
-  columnOf,
-  conditionWhere,
-  filterColumns,
+  type Combinator,
+  type FilterEntry,
+  filterWhere,
   parseDraft,
 } from "./values";
 
@@ -36,8 +35,8 @@ export interface Sort {
 }
 
 export interface QueryDraft {
-  conditions: Condition[];
-  combinator: "AND" | "OR";
+  conditions: FilterEntry[];
+  combinator: Combinator;
   sort: Sort[];
   take: number | null;
   skip: number | null;
@@ -106,31 +105,13 @@ export const emptyDraft = (model: StudioModel): QueryDraft => ({
   computed: [{ id: 1, fn: "_count", field: "" }],
 });
 
-/**
- * A condition still waiting for its value, left out until it has one: an empty value a text column cannot be
- * compared with (a text column can: `name = ""` finds the empty names), or an empty list.
- */
-const waiting = (condition: Condition, field: StudioField) =>
-  condition.value.trim() === "" &&
-  condition.operator !== "isNull" &&
-  condition.operator !== "isNotNull" &&
-  (condition.operator === "in" || field.type !== "string");
-
 /** The conditions as one `where`, or none; those still waiting for a value are left out. */
-export function whereOf(
+export const whereOf = (
   model: StudioModel,
   models: readonly StudioModel[],
   draft: QueryDraft
-): Where | undefined {
-  const columns = filterColumns(model, models);
-  const clauses = draft.conditions.flatMap((condition) => {
-    const column = columnOf(columns, condition);
-    if (!column || waiting(condition, column.field)) return [];
-    return [conditionWhere(column, condition)];
-  });
-  if (clauses.length === 0) return undefined;
-  return clauses.length === 1 ? clauses[0] : { [draft.combinator]: clauses };
-}
+): Where | undefined =>
+  filterWhere(model, models, draft.conditions, draft.combinator).where;
 
 function computedArgs(draft: QueryDraft): Record<string, unknown> {
   const out: Record<string, Record<string, true> | true> = {};

@@ -322,6 +322,9 @@ const sidebar = $derived<AppShellSidebarProps>({
           <SchemaDiagram {schema} />
         {:else if route.view === 'query'}
           {#key revision}<QueryPage {schema} {navigate} />{/key}
+        {:else if current && route.saved && !views?.loaded}
+          <!-- A view's address waits for the views to be read: the page opens on the view, not on every row. -->
+          <p class="m-0 p-6 text-neutral/60">Loading the view…</p>
         {:else if current}
           {#key `${hash}#${revision}`}
             <RowsView model={current} models={schema.models} readonly={schema.readonly} scope={opened?.scope ?? route.scope} view={opened} views={views!} changes={changes!} openView={view => (location.hash = viewHref(view))} {navigate} />
