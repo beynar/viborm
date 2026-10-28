@@ -27,7 +27,7 @@ through your own client, in a new package, `@viborm/studio`.
     pinned, related rows opened under their row (polymorphic relations
     included), CSV and JSON export of what a filter reaches;
   - saved views: a table's filter, search, order, page size and columns,
-    named and listed in the sidebar, kept with the diagram's layout by the
+    named, given an icon and listed in the sidebar, kept with the diagram's layout by the
     studio per project (`~/.viborm/studio`);
   - editing through the client: cells in place with an editor of their type
     (switch, calendar, time, select), a row drawer, a foreign-key picker,

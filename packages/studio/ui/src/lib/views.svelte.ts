@@ -2,6 +2,7 @@
 // listed in the sidebar. The studio keeps them per project (`~/.viborm/studio`), whatever port it takes and in
 // whichever browser, and tells every open page when they change. Views a browser kept before move there once; a
 // studio that keeps nothing leaves them to the browser.
+import type { ModelIcon } from "../../../src/icons";
 import { keepStored, readStored, type Scope } from "./api";
 import type { Condition } from "./values";
 
@@ -9,6 +10,8 @@ export interface SavedView {
   readonly id: string;
   readonly name: string;
   readonly model: string;
+  /** The icon chosen for it in the sidebar; none, a bookmark. */
+  readonly icon?: ModelIcon;
   /** The relation followed into the model, when the view was saved from one. */
   readonly scope?: Scope;
   readonly conditions: readonly Condition[];
@@ -28,7 +31,7 @@ export interface SavedView {
   };
 }
 
-export type ViewState = Omit<SavedView, "id" | "name" | "model">;
+export type ViewState = Omit<SavedView, "id" | "name" | "model" | "icon">;
 
 export class Views {
   list = $state<SavedView[]>([]);
@@ -69,17 +72,40 @@ export class Views {
   async create(
     name: string,
     model: string,
-    state: ViewState
+    state: ViewState,
+    icon?: ModelIcon
   ): Promise<SavedView> {
-    const view = { ...state, id: crypto.randomUUID(), name, model };
+    const view = {
+      ...state,
+      id: crypto.randomUUID(),
+      name,
+      model,
+      ...(icon ? { icon } : {}),
+    };
     await this.#write((list) => [...list, view]);
     return view;
   }
 
-  /** The view, renamed, holding the table as it is now. */
-  update(id: string, name: string, state: ViewState): Promise<void> {
+  /** The view, renamed, holding the table as it is now, under the icon chosen (else the one it had). */
+  update(
+    id: string,
+    name: string,
+    state: ViewState,
+    icon?: ModelIcon
+  ): Promise<void> {
     return this.#write((list) =>
-      list.map((view) => (view.id === id ? { ...view, ...state, name } : view))
+      list.map((view) =>
+        view.id === id
+          ? { ...view, ...state, name, ...(icon ? { icon } : {}) }
+          : view
+      )
+    );
+  }
+
+  /** The view's icon in the sidebar. */
+  setIcon(id: string, icon: ModelIcon): Promise<void> {
+    return this.#write((list) =>
+      list.map((view) => (view.id === id ? { ...view, icon } : view))
     );
   }
 

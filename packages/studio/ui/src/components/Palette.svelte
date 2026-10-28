@@ -97,7 +97,7 @@ const items = $derived.by<CommandGroup[]>(() => {
           value: `view:${view.id}`,
           label: view.name,
           description: `View of ${view.model}`,
-          icon: bookmarkSimpleIcon,
+          icon: view.icon ? MODEL_ICON[view.icon] : bookmarkSimpleIcon,
           keywords: [view.model, "view"],
         })),
     ],

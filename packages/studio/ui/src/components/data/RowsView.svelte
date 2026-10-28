@@ -36,6 +36,7 @@ import { TextInput } from "entasis/text-input";
 import { TimeInput } from "entasis/time-input";
 import { toast } from "entasis/toast";
 import { untrack } from "svelte";
+import type { ModelIcon } from "../../../../src/icons";
 import {
   exportRows,
   foreignKeyOf,
@@ -72,6 +73,7 @@ import {
   written,
 } from "../../lib/values";
 import type { SavedView, ViewState, Views } from "../../lib/views.svelte";
+import IconPicker from "../IconPicker.svelte";
 import CaseToggle from "./CaseToggle.svelte";
 import FilterGroup from "./FilterGroup.svelte";
 import RelatedRows from "./RelatedRows.svelte";
@@ -551,7 +553,7 @@ const canonical = (value: unknown): string =>
 /** The open view no longer says what the table shows: its filter, search, order, size or widths changed. */
 const unsaved = $derived.by(() => {
   if (!view) return false;
-  const { id: _id, name: _name, model: _model, ...saved } = view;
+  const { id: _id, name: _name, model: _model, icon: _icon, ...saved } = view;
   // A view saved before the studio kept its columns says nothing of them: they are not compared.
   const now: Partial<ViewState> = stateOf();
   for (const key of [
@@ -566,15 +568,18 @@ const unsaved = $derived.by(() => {
   );
 });
 let viewName = $state(untrack(() => view?.name ?? ""));
+/** The icon the view is shown with in the sidebar, as chosen in the form; none, a bookmark. */
+let viewIcon = $state<ModelIcon | undefined>(untrack(() => view?.icon));
+let choosingIcon = $state(false);
 async function saveView(asNew: boolean, close: () => void) {
   const name = viewName.trim();
   if (!name) return;
   try {
     if (view && !asNew) {
-      await views.update(view.id, name, stateOf());
+      await views.update(view.id, name, stateOf(), viewIcon);
       toast.success({ title: `The view “${name}” was saved` });
     } else {
-      openView(await views.create(name, model.name, stateOf()));
+      openView(await views.create(name, model.name, stateOf(), viewIcon));
       toast.success({ title: `The view “${name}” was added to the sidebar` });
     }
     close();
@@ -775,7 +780,7 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
     </Popover>
     <Button size="small" variant="ghost" squared prefix={arrowsClockwiseIcon} label="Read the rows again" onclick={() => load()} />
     <!-- The table as it is, saved as a view in the sidebar; an open view is saved again, renamed or copied. -->
-    <Popover position="bottom-end" focusOnOpen="first" theme={{ popover: { base: 'w-72 p-3' } }}>
+    <Popover position="bottom-end" focusOnOpen="first" theme={{ popover: { base: 'w-80 p-3' } }}>
       {#snippet trigger(popover)}
         <Button size="small" variant={view ? 'soft' : 'ghost'} squared={!unsaved} prefix={bookmarkSimpleIcon} label={view ? `Save the view ${view.name}` : 'Save as a view'} {@attach popover.trigger}>
           {#if unsaved}<span class="text-[12px]">Unsaved</span>{/if}
@@ -784,7 +789,13 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
       {#snippet children(popover)}
         <form class="grid gap-2" onsubmit={event => { event.preventDefault(); saveView(false, popover.close) }}>
           <p class="m-0 text-[12px] text-neutral/60">{view ? 'This view keeps the filter, search, order and page size shown now.' : 'Keep this filter, search, order and page size as a view in the sidebar.'}</p>
-          <TextInput size="small" label="The view's name" theme={HIDDEN_LABEL} placeholder="The view's name" value={viewName} onValueChange={value => (viewName = value ?? '')} />
+          <div class="flex items-center gap-2">
+            <Button size="small" variant={choosingIcon ? 'soft' : 'outline'} squared prefix={viewIcon ? MODEL_ICON[viewIcon] : bookmarkSimpleIcon} label="The view's icon" onclick={() => (choosingIcon = !choosingIcon)} />
+            <div class="min-w-0 flex-1"><TextInput size="small" label="The view's name" theme={HIDDEN_LABEL} placeholder="The view's name" value={viewName} onValueChange={value => (viewName = value ?? '')} /></div>
+          </div>
+          {#if choosingIcon}
+            <IconPicker value={viewIcon} onValueChange={icon => ((viewIcon = icon), (choosingIcon = false))} />
+          {/if}
           <div class="flex justify-end gap-2">
             {#if view}<Button size="small" variant="ghost" disabled={!viewName.trim()} onclick={() => saveView(true, popover.close)}>Save as new</Button>{/if}
             <Button size="small" color="primary" type="submit" disabled={!viewName.trim()}>{view ? 'Save view' : 'Save'}</Button>

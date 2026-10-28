@@ -27,7 +27,7 @@ the studio on `http://127.0.0.1:5577` and opens it.
   their own table, polymorphic relations included. Export what a filter
   reaches as CSV or JSON.
 - **Saved views:** a table's filter, search, order, page size and columns
-  saved under a name in the sidebar, kept by the studio per project
+  saved under a name and an icon in the sidebar, kept by the studio per project
   (`~/.viborm/studio`), with the diagram's layout.
 - **Editing:** cells edited in place with an editor of their type (switch,
   calendar, time, select), rows opened or added in a drawer, rows deleted. A

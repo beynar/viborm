@@ -3,9 +3,11 @@ import { AppShell, type AppShellSidebarProps } from "entasis/app-shell";
 import { Button } from "entasis/button";
 import { Chip } from "entasis/chip";
 import { Confirmation, confirmation } from "entasis/confirmation";
+import { Dialog } from "entasis/dialog";
 import { bookmarkSimpleIcon } from "entasis/icons/bookmarkSimple";
 import { databaseIcon } from "entasis/icons/database";
 import { graphIcon } from "entasis/icons/graph";
+import { imageSquareIcon } from "entasis/icons/imageSquare";
 import { magnifyingGlassIcon } from "entasis/icons/magnifyingGlass";
 import { sidebarSimpleIcon } from "entasis/icons/sidebarSimple";
 import { terminalWindowIcon } from "entasis/icons/terminalWindow";
@@ -14,9 +16,11 @@ import type { SidebarApi } from "entasis/sidebar";
 import { Theme } from "entasis/theme";
 import { Toaster, toast } from "entasis/toast";
 import { onMount } from "svelte";
+import type { ModelIcon } from "../../src/icons";
 import DriftBanner from "./components/DriftBanner.svelte";
 import ChangesBar from "./components/data/ChangesBar.svelte";
 import RowsView from "./components/data/RowsView.svelte";
+import IconPicker from "./components/IconPicker.svelte";
 import Palette from "./components/Palette.svelte";
 import QueryPage from "./components/query/QueryPage.svelte";
 import SchemaDiagram from "./components/schema/SchemaDiagram.svelte";
@@ -167,6 +171,20 @@ const listed = $derived(
   )
 );
 
+/** The view whose icon is being chosen, from its menu in the sidebar. */
+let iconFor = $state<SavedView>();
+async function chooseIcon(view: SavedView, icon: ModelIcon) {
+  try {
+    await views?.setIcon(view.id, icon);
+    iconFor = undefined;
+  } catch (error) {
+    toast.danger({
+      title: `The icon of “${view.name}” could not be kept`,
+      description: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 async function removeView(view: SavedView) {
   const { confirmed } = await confirmation({
     title: `Delete the view “${view.name}”?`,
@@ -230,13 +248,19 @@ const sidebar = $derived<AppShellSidebarProps>({
             items: listed.map((view) => ({
               label: view.name,
               href: viewHref(view),
-              icon: bookmarkSimpleIcon,
+              icon: view.icon ? MODEL_ICON[view.icon] : bookmarkSimpleIcon,
               badge: view.model,
               tooltip: `${view.name} · ${view.model}`,
               isActive: opened?.id === view.id,
               action: {
                 label: `Actions for the view ${view.name}`,
                 menu: [
+                  {
+                    type: "option" as const,
+                    title: "Change icon",
+                    prefix: imageSquareIcon,
+                    onclick: () => (iconFor = view),
+                  },
                   {
                     type: "option" as const,
                     title: "Delete view",
@@ -314,5 +338,14 @@ const sidebar = $derived<AppShellSidebarProps>({
     <!-- Bottom right: the changes bar holds the bottom centre. -->
     <Toaster position="bottom-right" />
     <Confirmation />
+    <!-- A view's icon, chosen from its menu in the sidebar. -->
+    <Dialog open={iconFor !== undefined} onOpenChange={open => { if (!open) iconFor = undefined; }} size="small" title={iconFor ? `The icon of “${iconFor.name}”` : ''} description="Shown beside the view in the sidebar and in ⌘K.">
+      {#snippet children()}
+        {#if iconFor}
+          {@const view = iconFor}
+          <IconPicker value={view.icon} onValueChange={icon => chooseIcon(view, icon)} />
+        {/if}
+      {/snippet}
+    </Dialog>
   {/snippet}
 </Theme>
