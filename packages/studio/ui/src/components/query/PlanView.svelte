@@ -7,6 +7,7 @@ import { xIcon } from "entasis/icons/x";
 import { SegmentedControl } from "entasis/segmented-control";
 import { Sidebar, type SidebarApi } from "entasis/sidebar";
 import { useTheme } from "entasis/theme";
+import { untrack } from "svelte";
 import type { PlanNode, StudioExplained } from "../../lib/api";
 import {
   compact,
@@ -59,8 +60,12 @@ $effect(() => {
   edges = graph.edges;
 });
 
+// Retain the inspected operation while the sidebar slides closed; selection lives on the graph nodes.
 let chosen = $state<string>();
 let statsOpen = $state(false);
+const selected = $derived(
+  new Set(nodes.filter((node) => node.selected).map((node) => node.id))
+);
 const flat = $derived.by(() => {
   const out: { node: PlanNode; depth: number }[] = [];
   const visit = (node: PlanNode, depth: number) => {
@@ -82,6 +87,19 @@ function chooseNode(id: string, sidebar: SidebarApi) {
 function closeStats(sidebar: SidebarApi) {
   statsOpen = false;
   sidebar.setOpenMobile(false);
+}
+function syncSelection(sidebar: SidebarApi) {
+  return () => {
+    $effect(() => {
+      if (sidebar.isMobile ? sidebar.openMobile : sidebar.open) return;
+      // Also handles the mobile drawer's Escape and backdrop dismissal.
+      untrack(() => {
+        statsOpen = false;
+        if (nodes.some((node) => node.selected))
+          nodes = nodes.map((node) => ({ ...node, selected: false }));
+      });
+    });
+  };
 }
 
 const total = $derived(
@@ -186,7 +204,7 @@ const time = (date: Date) =>
         theme={{ panel: { base: '!border-0 bg-transparent' } }}
       >
         {#snippet children(sidebar: SidebarApi)}
-        <div class="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-2" class:pr-3={statsOpen}>
+        <div class="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-2" class:pr-3={statsOpen} {@attach syncSelection(sidebar)}>
 
           <SegmentedControl size="small" label="How to show the plan" items={[{ value: 'graph', label: 'Graph' }, { value: 'table', label: 'Table' }, { value: 'raw', label: plan.dialect === 'postgresql' ? 'JSON' : 'Text' }]} bind:value={view} />
           {#if view === 'graph'}
@@ -228,7 +246,7 @@ const time = (date: Date) =>
                 </thead>
                 <tbody>
                   {#each flat as { node, depth } (node.id)}
-                    <tr class={['cursor-pointer border-t border-neutral-muted hover:bg-neutral-muted/40', chosen === node.id && 'bg-primary/10', node.neverExecuted && 'opacity-50']} onclick={() => chooseNode(node.id, sidebar)}>
+                    <tr class={['cursor-pointer border-t border-neutral-muted hover:bg-neutral-muted/40', selected.has(node.id) && 'bg-primary/10', node.neverExecuted && 'opacity-50']} onclick={() => chooseNode(node.id, sidebar)}>
                       <td class="px-3 py-1.5" style:padding-left="{12 + depth * 16}px">
                         <span class="font-medium">{node.operation}</span>
                         {#if node.relation}<span class="ml-1 font-mono text-neutral/65">{node.relation}</span>{/if}
