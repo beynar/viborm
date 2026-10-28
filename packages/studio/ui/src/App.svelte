@@ -200,19 +200,32 @@ const sidebar = $derived<AppShellSidebarProps>({
 });
 </script>
 
-{#snippet brand(_sidebar: SidebarApi)}
-  <div class="flex items-center gap-2 px-2 py-1.5">
-    <span class="inline-flex shrink-0">{@render databaseIcon({ size: 18 })}</span>
-    <span class="truncate text-[14px] font-semibold">VibORM Studio</span>
-    {#if schema}<span class="ml-auto"><Chip size="small" variant="soft">{schema.dialect}</Chip></span>{/if}
-  </div>
+<!-- The studio's name and the database it speaks to, the sidebar's fold beside them. Folded to its icons, the
+     sidebar shows the database's icon, which turns into the unfold button under the pointer or the keyboard. -->
+{#snippet brand(sidebar: SidebarApi)}
+  {#if sidebar.open || sidebar.isMobile}
+    <div class="flex items-start gap-2 px-2 py-1">
+      <span class="mt-0.5 inline-flex shrink-0">{@render databaseIcon({ size: 18 })}</span>
+      <div class="grid min-w-0 flex-1 gap-1">
+        <span class="truncate text-[14px] leading-5 font-semibold">VibORM Studio</span>
+        {#if schema}<span><Chip size="small" variant="soft">{schema.dialect}</Chip></span>{/if}
+      </div>
+      <Button size="small" variant="ghost" squared prefix={sidebarSimpleIcon} label="Collapse the sidebar" onclick={sidebar.toggle} />
+    </div>
+  {:else}
+    <div class="group/brand relative mx-auto grid size-8 place-items-center">
+      <span class="inline-flex transition-opacity group-focus-within/brand:opacity-0 group-hover/brand:opacity-0">{@render databaseIcon({ size: 18 })}</span>
+      <span class="absolute inset-0 grid place-items-center opacity-0 transition-opacity group-focus-within/brand:opacity-100 group-hover/brand:opacity-100">
+        <Button size="small" variant="ghost" squared prefix={sidebarSimpleIcon} label="Expand the sidebar" onclick={sidebar.toggle} />
+      </span>
+    </div>
+  {/if}
 {/snippet}
 
-{#snippet sidebarFooter(sidebar: SidebarApi)}
-  <!-- Two icons: the theme, and the sidebar folded to its icons or unfolded. -->
-  <div class="flex flex-wrap items-center gap-1">
+{#snippet sidebarFooter(_sidebar: SidebarApi)}
+  <!-- The theme, light or dark. -->
+  <div class="flex items-center gap-1">
     <ThemeToggle />
-    <Button size="small" variant="ghost" squared prefix={sidebarSimpleIcon} label={sidebar.open ? 'Collapse the sidebar' : 'Expand the sidebar'} onclick={sidebar.toggle} />
   </div>
 {/snippet}
 
