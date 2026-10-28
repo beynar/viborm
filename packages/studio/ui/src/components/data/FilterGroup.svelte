@@ -10,7 +10,7 @@ import { TextInput } from "entasis/text-input";
 import { TimeInput } from "entasis/time-input";
 import type { StudioModel } from "../../lib/api";
 import {
-  COMBINATOR_LABELS,
+  COMBINATORS,
   type Combinator,
   type Condition,
   columnOf,
@@ -56,9 +56,6 @@ let {
   onRemove?: () => void;
 } = $props();
 const MAX_DEPTH = 2;
-const COMBINATORS = (Object.keys(COMBINATOR_LABELS) as Combinator[]).map(
-  (value) => ({ value, label: COMBINATOR_LABELS[value] })
-);
 
 // The label is read by assistive technology only: its header leaves the layout too, so no empty row spaces the control.
 const HIDDEN_LABEL = {

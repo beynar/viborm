@@ -346,12 +346,12 @@ function comparisonWhere(field: StudioField, condition: Condition): Where {
 }
 
 /** How a group's conditions join: all of them (AND), any (OR), or none (NOT). */
-export type Combinator = "AND" | "OR" | "NOT";
-export const COMBINATOR_LABELS: Record<Combinator, string> = {
-  AND: "all",
-  OR: "any",
-  NOT: "none",
-};
+export const COMBINATORS = [
+  { value: "AND", label: "all" },
+  { value: "OR", label: "any" },
+  { value: "NOT", label: "none" },
+] as const;
+export type Combinator = (typeof COMBINATORS)[number]["value"];
 
 /** Conditions joined their own way inside another group: `a AND (b OR NOT (c))`. */
 export interface ConditionGroup {
