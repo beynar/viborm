@@ -95,7 +95,10 @@ const items = $derived.by<CommandGroup[]>(() => {
       ...(queries?.list ?? []).map((query) => ({
         value: `go:${queryHref(query)}`,
         label: query.name,
-        description: `Query on ${query.model}`,
+        description:
+          query.code === undefined
+            ? `Query on ${query.model}`
+            : "VibORM code query",
         icon: terminalWindowIcon,
         keywords: [query.model, "query"],
       })),

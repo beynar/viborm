@@ -158,6 +158,9 @@ test("values computed over the rows, and per group", () => {
 
 test("the call as the application writes it", () => {
   expect(codeOf("user", "count", {})).toBe("await client.user.count();");
+  expect(codeOf("odd-name", "count", {})).toBe(
+    'await client["odd-name"].count();'
+  );
   expect(codeOf("user", "findMany", { take: 2, "a-b": 1 })).toBe(
     'await client.user.findMany({\n  take: 2,\n  "a-b": 1\n});'
   );

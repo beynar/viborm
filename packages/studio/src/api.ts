@@ -13,6 +13,7 @@
 import type { Model } from "@src/schema/model";
 import { dialectOf, explainStatements } from "./explain";
 import { QUERY_OPERATIONS } from "./query";
+import { parseQueryCode } from "./query-code";
 import { describeSchema, type StudioModel, type StudioSchema } from "./schema";
 import { encodeJson } from "./server";
 
@@ -257,16 +258,28 @@ export function createStudioApi(options: StudioApiOptions) {
     if (!isRecord(body)) {
       throw new Refusal(400, "invalid_body", "The body must be a JSON object");
     }
+    let input = body;
+    if ("code" in input) {
+      try {
+        input = { ...parseQueryCode(input.code) };
+      } catch (error) {
+        throw new Refusal(
+          400,
+          "invalid_query_code",
+          error instanceof Error ? error.message : String(error)
+        );
+      }
+    }
     const model =
-      typeof body.model === "string" ? byName.get(body.model) : undefined;
+      typeof input.model === "string" ? byName.get(input.model) : undefined;
     if (!model) {
       throw new Refusal(
         404,
         "unknown_model",
-        `Unknown model "${String(body.model)}"`
+        `Unknown model "${String(input.model)}"`
       );
     }
-    const operation = QUERY_OPERATIONS.find((name) => name === body.operation);
+    const operation = QUERY_OPERATIONS.find((name) => name === input.operation);
     if (!operation) {
       throw new Refusal(
         400,
@@ -274,7 +287,7 @@ export function createStudioApi(options: StudioApiOptions) {
         `The query page reads: ${QUERY_OPERATIONS.join(", ")}`
       );
     }
-    const args = body.args ?? {};
+    const args = input.args ?? {};
     if (!isRecord(args)) {
       throw new Refusal(400, "invalid_args", "args must be an object");
     }
@@ -298,6 +311,8 @@ export function createStudioApi(options: StudioApiOptions) {
     if (options.trace) await new Promise((resolve) => setImmediate(resolve));
     const at = (time: number) => Math.round(time * 100) / 100;
     return {
+      model: model.name,
+      operation,
       result: result ?? null,
       duration,
       statements,

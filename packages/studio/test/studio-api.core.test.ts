@@ -2,7 +2,7 @@ import { createClient } from "@client/client";
 import { s } from "@schema";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import {
   createStudioApi,
   MAX_CHANGES,
@@ -10,6 +10,8 @@ import {
   MAX_PAGE_SIZE,
   toCsv,
 } from "../src/api";
+// biome-ignore lint/performance/noNamespaceImport: The failure-boundary test spies on the parser module.
+import * as queryCode from "../src/query-code";
 import { describeSchema } from "../src/schema";
 
 // One schema with each relation shape the studio draws and follows:
@@ -411,6 +413,76 @@ describe("the database against the schema", () => {
 });
 
 describe("the query page", () => {
+  test("a parser failure returns a refusal without invoking the client", async () => {
+    const parser = vi
+      .spyOn(queryCode, "parseQueryCode")
+      .mockImplementationOnce(() => {
+        // biome-ignore lint/style/useThrowOnlyError: Exercise a dependency's non-Error failure at the API boundary.
+        throw "parser unavailable";
+      });
+    try {
+      const response = await call("POST", "/query", {
+        code: "client.user.count()",
+      });
+      expect(response).toEqual({
+        status: 400,
+        body: {
+          error: { code: "invalid_query_code", message: "parser unavailable" },
+        },
+      });
+    } finally {
+      parser.mockRestore();
+    }
+  });
+  test("code queries share client validation, relation reads and read-only admission", async () => {
+    const response = await call("POST", "/query", {
+      code: "await client.user.findMany({ where: { name: 'Ada' }, select: { email: true, posts: { where: { title: 'Engines' }, select: { title: true } } } });",
+    });
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      model: "user",
+      operation: "findMany",
+      result: [{ email: "ada@example.com", posts: [{ title: "Engines" }] }],
+    });
+    expect(
+      errorCode(
+        await call("POST", "/query", {
+          code: "client.user.findMany({ where: { nmae: 'Ada' } })",
+        })
+      )
+    ).toBe("V4001");
+    for (const code of [
+      "client.user.deleteMany()",
+      "client.user.create({ data: {} })",
+      "client.user.count({ where: globalThis })",
+    ])
+      expect(errorCode(await call("POST", "/query", { code }))).toBe(
+        "invalid_query_code"
+      );
+    expect(
+      errorCode(
+        await call("POST", "/query", { code: "client.missing.count()" })
+      )
+    ).toBe("unknown_model");
+    expect(errorCode(await call("POST", "/query", { code: 1 }))).toBe(
+      "invalid_query_code"
+    );
+    const readonly = createStudioApi({
+      client,
+      models: schema,
+      dialect: "sqlite",
+      readonly: true,
+    });
+    expect(
+      (
+        await readonly.handle({
+          method: "POST",
+          path: "/query",
+          body: { code: "client.user.count()" },
+        })
+      ).status
+    ).toBe(200);
+  });
   test("a read answers, with how long it took", async () => {
     const found = await call("POST", "/query", {
       model: "user",
@@ -473,6 +545,18 @@ describe("the query page", () => {
     expect(body.explained[0]!.plan.root.children.length).toBeGreaterThan(0);
     expect(answer.body).toHaveProperty("result");
     expect(answer.body).toHaveProperty("statements");
+    const codePlan = await traced.handle({
+      method: "POST",
+      path: "/explain",
+      body: { code: "client.tag.count()", analyze: false },
+    });
+    expect(codePlan.status).toBe(200);
+    expect(codePlan.body).toMatchObject({
+      model: "tag",
+      operation: "count",
+      analyze: false,
+      explained: [{ plan: { dialect: "sqlite" } }],
+    });
     const invalidMode = await traced.handle({
       method: "POST",
       path: "/explain",

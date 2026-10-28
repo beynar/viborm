@@ -41,7 +41,15 @@ the studio on `http://127.0.0.1:5577` and opens it.
   you build it, with its rows, the SQL it ran, its trace (spans on a
   waterfall, database time against VibORM time) and the code to write. SQL is
   formatted in the database's dialect, with timing and bound values above it.
-- **Saved queries:** save the model, operation and builder settings under a
+- **Query code:** switch the query sidebar to Code and paste a single call,
+  such as `await client.user.findMany({ where: { active: true } })`. Run it
+  with Run or ⌘/Ctrl+Enter; typing does not execute it. Result, SQL, Trace and
+  Plan use the same loaded client. The editor accepts the six read operations
+  (`findMany`, `findFirst`, `findUnique`, `count`, `aggregate`, `groupBy`)
+  with literal objects/arrays, bigint and `new Date(...)`. Source is parsed
+  as data, never evaluated: variables, functions, imports and mutations are
+  refused. No setup or client import is needed.
+- **Saved queries:** save the code or the model, operation and builder settings under a
   name. Reopen them from the sidebar or ⌘K, update or rename them, or use
   Save as new to keep a copy. Queries share the views' per-project storage and
   sync across open Studio pages. Deleting a saved query leaves database rows alone.

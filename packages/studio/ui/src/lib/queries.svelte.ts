@@ -6,6 +6,8 @@ export interface QueryState {
   readonly model: string;
   readonly operation: QueryOperation;
   readonly draft: QueryDraft;
+  /** Present when the query opens in the code editor. Older saved queries use the builder. */
+  readonly code?: string;
 }
 
 export interface SavedQuery extends QueryState {

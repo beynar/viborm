@@ -9,6 +9,8 @@ export default defineConfig({
   entry: { cli: "./src/bin.ts" },
   format: ["esm"],
   platform: "node",
+  // TypeScript's syntax reader uses CommonJS filename globals at startup.
+  shims: true,
   target: "node22",
   outDir: "./dist",
   clean: true,

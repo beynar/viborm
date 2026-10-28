@@ -88,29 +88,28 @@ export const readRows = (
 export const checkDrift = () => call<StudioDrift>("/drift");
 
 /** One read through the client, as the query page writes it: its answer, its time and the SQL it ran. */
-export const runQuery = (model: string, operation: string, args: unknown) =>
-  call<{
-    result: unknown;
-    duration: number;
-    statements: StudioStatement[];
-    spans: StudioSpan[];
-  }>("/query", { model, operation, args });
+interface QueryAnswer {
+  model: string;
+  operation: import("../../../src/query").QueryOperation;
+  result: unknown;
+  duration: number;
+  statements: StudioStatement[];
+  spans: StudioSpan[];
+}
 
-/** A read's plan: each statement it ran, with the database's execution metrics and estimates. */
-export const explainQuery = (
-  model: string,
-  operation: string,
-  args: unknown,
-  analyze: boolean
-) =>
-  call<{
-    result: unknown;
-    duration: number;
-    statements: StudioStatement[];
-    spans: StudioSpan[];
-    analyze: boolean;
-    explained: import("../../../src/explain").StudioExplained[];
-  }>("/explain", { model, operation, args, analyze });
+type QueryInput =
+  | { code: string }
+  | { model: string; operation: string; args: unknown };
+
+export const runQuery = (input: QueryInput) =>
+  call<QueryAnswer>("/query", input);
+export const explainQuery = (input: QueryInput, analyze: boolean) =>
+  call<
+    QueryAnswer & {
+      analyze: boolean;
+      explained: import("../../../src/explain").StudioExplained[];
+    }
+  >("/explain", { ...input, analyze });
 
 /** What the studio keeps for the page, per project: its views and the diagram's layout. */
 export const readStored = async (name: StoredName) =>

@@ -15,6 +15,7 @@ import { SegmentedControl } from "entasis/segmented-control";
 import { Select } from "entasis/select";
 import { Sidebar, type SidebarApi } from "entasis/sidebar";
 import { Tabbar } from "entasis/tabbar";
+import { TextArea } from "entasis/text-area";
 import { TextInput } from "entasis/text-input";
 import { toast } from "entasis/toast";
 import { untrack } from "svelte";
@@ -107,9 +108,12 @@ function keptState(): {
   model?: string;
   operation?: QueryOperation;
   drafts?: Record<string, QueryDraft>;
+  code?: string;
+  editorCode?: string;
 } {
   if (saved)
     return {
+      code: saved.code,
       model: saved.model,
       operation: saved.operation,
       drafts: { [saved.model]: structuredClone($state.snapshot(saved.draft)) },
@@ -121,6 +125,12 @@ function keptState(): {
   }
 }
 const kept = keptState();
+let inputMode = $state(kept.code === undefined ? "builder" : "code");
+let source = $state(kept.code ?? kept.editorCode ?? "");
+let hasSource = $state(
+  kept.code !== undefined || kept.editorCode !== undefined
+);
+const editorTabsId = $props.id();
 let modelName = $state(
   models.some((candidate) => candidate.name === kept.model)
     ? kept.model!
@@ -139,7 +149,13 @@ $effect(() => {
   if (saved) return;
   sessionStorage.setItem(
     KEPT,
-    JSON.stringify({ model: modelName, operation, drafts })
+    JSON.stringify({
+      model: modelName,
+      operation,
+      drafts,
+      code: inputMode === "code" ? source : undefined,
+      editorCode: hasSource ? source : undefined,
+    })
   );
 });
 
@@ -149,6 +165,7 @@ const stateOf = (): QueryState => ({
   model: modelName,
   operation,
   draft: structuredClone($state.snapshot(draft)),
+  code: inputMode === "code" ? source : undefined,
 });
 const unsaved = $derived(
   saved !== undefined &&
@@ -157,6 +174,7 @@ const unsaved = $derived(
         model: saved.model,
         operation: saved.operation,
         draft: saved.draft,
+        code: saved.code,
       })
 );
 let queryName = $state(untrack(() => saved?.name ?? ""));
@@ -215,7 +233,7 @@ let answer = $state.raw<{
 }>();
 let failure = $state<string>();
 let tab = $state<"table" | "json" | "sql" | "trace" | "plan" | "code">("table");
-const resultTabsId = $props.id();
+const resultTabsId = `${editorTabsId}-result`;
 const resultTabs = $derived([
   { value: "table", label: "Result" },
   { value: "json", label: "JSON" },
@@ -245,11 +263,16 @@ let explainFailure = $state<string>();
 /** The query's sidebar open; folded away, the result takes the page. */
 let editing = $state(true);
 
-const signature = $derived(
-  built.args
-    ? `${modelName}.${operation}${JSON.stringify(built.args)}`
-    : undefined
+const input = $derived(
+  inputMode === "code"
+    ? source.trim()
+      ? { code: source }
+      : undefined
+    : built.args
+      ? { model: modelName, operation, args: built.args }
+      : undefined
 );
+const signature = $derived(input ? JSON.stringify(input) : undefined);
 const wantsPlan = $derived(tab === "plan");
 // One request owner for both paths: changing the query invalidates an in-flight answer before the debounce.
 let request = 0;
@@ -259,10 +282,8 @@ async function run(
   mode: "analyze" | "estimate" | undefined,
   ask: number
 ) {
-  const { args } = built;
-  if (!args) return;
-  const read = modelName;
-  const operationRead = operation;
+  const submitted = input;
+  if (!submitted) return;
   running = true;
   explaining = mode !== undefined;
   failure = undefined;
@@ -271,16 +292,14 @@ async function run(
     const answered =
       mode === undefined
         ? {
-            ...(await runQuery(read, operationRead, args)),
+            ...(await runQuery(submitted)),
             explained: undefined,
           }
-        : await explainQuery(read, operationRead, args, mode === "analyze");
+        : await explainQuery(submitted, mode === "analyze");
     if (ask !== request || signature !== asked) return;
     answer = {
       ...answered,
       signature: asked,
-      model: read,
-      operation: operationRead,
     };
     // /explain returns the same read used to capture the statements: Result, SQL and Trace stay together.
     explained = answered.explained
@@ -308,6 +327,8 @@ $effect(() => {
   // Leaving Plan already has the captured read; changing between Result, SQL and Trace never reruns it.
   if (
     asked !== undefined &&
+    (inputMode === "builder" ||
+      (mode !== undefined && untrack(() => answer?.signature) === asked)) &&
     (mode !== undefined || untrack(() => answer?.signature) !== asked)
   )
     timer = setTimeout(() => untrack(() => run(asked, mode, ask)), 350);
@@ -351,7 +372,7 @@ const openable = $derived.by(() => {
     operation === "findMany" ||
     operation === "findFirst" ||
     operation === "count";
-  if (!(answer && listed)) return undefined;
+  if (inputMode === "code" || !(answer && listed)) return undefined;
   try {
     return whereOf(model, models, draft);
   } catch {
@@ -377,8 +398,22 @@ const statements = $derived(
   }))
 );
 const code = $derived(
-  built.args ? codeOf(modelName, operation, built.args) : ""
+  inputMode === "code"
+    ? source
+    : built.args
+      ? codeOf(modelName, operation, built.args)
+      : ""
 );
+
+function chooseInputMode(value: string) {
+  if (value === "code" && !hasSource) {
+    source = built.args
+      ? codeOf(modelName, operation, built.args)
+      : codeOf(modelName, "findMany", { take: 20 });
+    hasSource = true;
+  }
+  inputMode = value;
+}
 
 function chooseOperation(value: string | null) {
   const chosen = OPERATIONS.find((entry) => entry.value === value);
@@ -404,7 +439,7 @@ function chooseFunction(
 {#snippet queryTitle(_page: PageShellApi)}{saved?.name ?? 'Query'}{/snippet}
 
 {#snippet subtitle(_page: PageShellApi)}
-  Build a read with pickers: it runs through your client as you go
+  {inputMode === "code" ? "Write a VibORM read · ⌘/Ctrl+Enter to run" : "Build a read with pickers: it runs through your client as you go"}
 {/snippet}
 
 {#snippet heading(text: string)}
@@ -434,6 +469,14 @@ function chooseFunction(
 {#snippet queryPane(_sidebar: SidebarApi)}
   <!-- What to read: the model, the operation, then what that operation takes. -->
   <div class="grid content-start gap-5 p-4">
+    <Tabbar id={editorTabsId} controlsPanels size="small" label="Query input" items={[{ value: 'builder', label: 'Builder' }, { value: 'code', label: 'Code' }]} value={inputMode} onValueChange={({ value }) => chooseInputMode(value)} />
+    {#if inputMode === 'code'}
+      <div role="tabpanel" id="{editorTabsId}-panel-1" aria-labelledby="{editorTabsId}-tab-1" tabindex="0" class="grid gap-3">
+        <TextArea label="VibORM query" rows={18} maxLength={65536} value={source} onValueChange={value => { source = value ?? ''; hasSource = true }} textareaAttrs={{ spellcheck: false, autocapitalize: 'off' }} theme={{ input: { base: 'font-mono text-[13px] leading-relaxed' } }} />
+        <span class="text-[12px] text-neutral/50">One read call · ⌘/Ctrl+Enter to run</span>
+      </div>
+    {:else}
+    <div role="tabpanel" id="{editorTabsId}-panel-0" aria-labelledby="{editorTabsId}-tab-0" tabindex="0" class="grid content-start gap-5">
     <div class="grid gap-2">
       {@render heading('Read')}
       <Select size="small" label="Model" theme={HIDDEN_LABEL} items={models.map(entry => ({ value: entry.name, label: entry.name, icon: MODEL_ICON[entry.icon] }))} value={modelName} onValueChange={value => value && (modelName = value)} />
@@ -520,6 +563,8 @@ function chooseFunction(
       <Button size="small" variant="ghost" onclick={() => (drafts[modelName] = emptyDraft(model))}>Reset</Button>
       <span class="ml-auto text-[12px] text-neutral/50">Runs as you build · ⌘↵ runs again</span>
     </div>
+    </div>
+    {/if}
   </div>
 {/snippet}
 
@@ -530,6 +575,7 @@ function chooseFunction(
     <div class="flex flex-wrap items-center gap-3">
       <Button size="small" variant="ghost" squared prefix={sidebarSimpleIcon} label={editing ? 'Hide the query: the result takes the page' : 'Show the query'} onclick={() => (editing = !editing)} />
       <Tabbar id={resultTabsId} controlsPanels size="small" label="What to show" items={resultTabs} bind:value={tab} />
+      {#if inputMode === 'code' && answer && answer.signature !== signature}<span class="text-[12px] text-neutral/60">Edited · Run to refresh</span>{/if}
       {#if answer}
         <span class="text-[12px] text-neutral/60">{counted ? `${counted} · ` : ''}{answer.duration} ms</span>
       {/if}
@@ -554,18 +600,18 @@ function chooseFunction(
           {@const where = openable}
           <Button size="small" variant="outline" prefix={arrowSquareOutIcon} onclick={() => navigate(modelName, { where, label: 'Query' })}>Open these rows</Button>
         {/if}
-        <Button size="small" variant="ghost" prefix={arrowsClockwiseIcon} loading={running || (tab === 'plan' && explaining)} disabled={!built.args} onclick={runAgain}>{tab === 'plan' ? 'Explain again' : 'Run again'}</Button>
+        <Button size="small" variant="ghost" prefix={arrowsClockwiseIcon} loading={running || (tab === 'plan' && explaining)} disabled={!input} onclick={runAgain}>{tab === 'plan' ? 'Explain' : inputMode === 'code' ? 'Run' : 'Run again'}</Button>
       </div>
     </div>
     <div role="tabpanel" id="{resultTabsId}-panel-{resultTabIndex}" aria-labelledby="{resultTabsId}-tab-{resultTabIndex}" tabindex="0" class={['min-h-0 gap-3 overflow-auto', tab === 'plan' ? 'flex flex-col' : 'grid content-start']}>
       <!-- A result the latest query did not replace shows faded under its error. -->
-      {#if built.error}
+      {#if inputMode === 'builder' && built.error}
         <Alert color="warning" variant="soft">{#snippet title()}Not ready to run{/snippet}{#snippet description()}{built.error}{/snippet}</Alert>
       {/if}
       {#if failure}
         <Alert color="danger" variant="soft">{#snippet title()}The client refused the query{/snippet}{#snippet description()}<span class="whitespace-pre-wrap">{failure}</span>{/snippet}</Alert>
       {/if}
-      <div class={['gap-3 transition-opacity', tab === 'plan' ? 'flex min-h-0 flex-1 flex-col' : 'grid content-start', (failure || built.error) && tab !== 'code' && 'opacity-45']}>
+      <div class={['gap-3 transition-opacity', tab === 'plan' ? 'flex min-h-0 flex-1 flex-col' : 'grid content-start', (failure || (inputMode === 'builder' && built.error) || (inputMode === 'code' && answer?.signature !== signature)) && tab !== 'code' && 'opacity-45']}>
       {#if tab === 'plan'}
         {#if explainFailure}
           <Alert color="danger" variant="soft">{#snippet title()}The plan could not be read{/snippet}{#snippet description()}<span class="whitespace-pre-wrap">{explainFailure}</span>{/snippet}</Alert>
@@ -582,7 +628,7 @@ function chooseFunction(
       {:else if tab === 'code'}
         <Code language="ts" code={code || '// Not ready to run'} />
       {:else if !answer}
-        <p class="m-0 text-[13px] text-neutral/60">{running ? 'Reading…' : 'Choose what to read: it runs as you build it.'}</p>
+        <p class="m-0 text-[13px] text-neutral/60">{running ? 'Reading…' : inputMode === 'code' ? 'Run the query to see its result.' : 'Choose what to read: it runs as you build it.'}</p>
       {:else if tab === 'trace'}
         <TraceView spans={answer.spans} duration={answer.duration} dialect={schema.dialect} />
       {:else if tab === 'sql'}

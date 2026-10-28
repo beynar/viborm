@@ -227,13 +227,14 @@ export function computedColumn(
 }
 
 const IDENTIFIER = /"([A-Za-z_$][\w$]*)":/g;
+const MODEL_IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
 /** The call as the application would write it. */
 export const codeOf = (
   model: string,
   operation: QueryOperation,
   args: Record<string, unknown>
 ) =>
-  `await client.${model}.${operation}(${
+  `await client${MODEL_IDENTIFIER.test(model) ? `.${model}` : `[${JSON.stringify(model)}]`}.${operation}(${
     Object.keys(args).length
       ? JSON.stringify(args, null, 2).replace(IDENTIFIER, "$1:")
       : ""

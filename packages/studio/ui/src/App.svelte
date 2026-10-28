@@ -281,7 +281,7 @@ const sidebar = $derived<AppShellSidebarProps>({
               label: query.name,
               href: queryHref(query),
               icon: terminalWindowIcon,
-              badge: query.model,
+              badge: query.code === undefined ? query.model : "Code",
               isActive: route.view === "query" && route.saved === query.id,
               action: {
                 label: `Actions for the query ${query.name}`,
@@ -383,7 +383,7 @@ const sidebar = $derived<AppShellSidebarProps>({
             <p class="m-0 p-6 text-neutral/60">Loading queries…</p>
           {:else if route.saved && !openedQuery}
             <p class="m-0 p-6 text-neutral/60">This saved query no longer exists.</p>
-          {:else if openedQuery && !schema.models.some(model => model.name === openedQuery.model)}
+          {:else if openedQuery && openedQuery.code === undefined && !schema.models.some(model => model.name === openedQuery.model)}
             <p class="m-0 p-6 text-neutral/60">No model named “{openedQuery.model}”.</p>
           {:else}
             {#key `${route.saved ?? ''}#${revision}`}<QueryPage {schema} {navigate} {queries} saved={openedQuery} />{/key}

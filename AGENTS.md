@@ -504,6 +504,9 @@ Studio's project store keeps `views`, `queries`, and `layout` independently in
 one file. Saved views and queries share `ui/src/lib/saved-items.svelte.ts` for
 loading, browser migration, and ordered persistence; their content and actions
 remain in their respective collection classes. Saved query URLs use `#/query?query=<id>`.
+Query code is one read call parsed by `src/query-code.ts` into the existing
+model/operation/args API; never evaluate it as JavaScript. Code runs explicitly,
+and saved queries retain their source. The builder keeps its automatic reads.
 
 ---
 
