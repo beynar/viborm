@@ -11,6 +11,7 @@ import { NumberInput } from "entasis/number-input";
 import { type PageShellApi, setPageShell } from "entasis/page-shell";
 import { SegmentedControl } from "entasis/segmented-control";
 import { Select } from "entasis/select";
+import { Sidebar, type SidebarApi } from "entasis/sidebar";
 import { TextInput } from "entasis/text-input";
 import { untrack } from "svelte";
 import {
@@ -154,8 +155,8 @@ let answer = $state.raw<{
 }>();
 let failure = $state<string>();
 let tab = $state<"table" | "json" | "sql" | "trace" | "code">("table");
-/** The query folded away: the result takes the page. */
-let folded = $state(false);
+/** The query's sidebar open; folded away, the result takes the page. */
+let editing = $state(true);
 let asked = 0;
 
 async function run() {
@@ -276,10 +277,29 @@ function chooseFunction(
   <h3 class="m-0 text-[11px] font-semibold tracking-wide text-neutral/55 uppercase">{text}</h3>
 {/snippet}
 
-<section class={['grid gap-4 p-4', folded ? 'grid-cols-[minmax(0,1fr)]' : 'grid-cols-[30rem_minmax(0,1fr)]']} aria-label="Query" {@attach fillPage}>
-  {#if !folded}
+<!-- The query in a sidebar of the page's own: resized from its edge, folded away (the button above the result,
+     or dragging the edge past its narrowest), the result filling the rest. ⌘B stays the studio's sidebar's. -->
+<section class="relative min-h-0" aria-label="Query" {@attach fillPage}>
+  <Sidebar
+    mode="layout"
+    frame="contained"
+    variant="admin"
+    collapsible="offcanvas"
+    keyboardShortcut={false}
+    edgeReveal={false}
+    width="26rem"
+    resizable={{ minWidth: '20rem', maxWidth: '44rem', storageKey: 'viborm-studio:query-sidebar' }}
+    bind:open={editing}
+    content={queryPane}
+    theme={{ panel: { base: 'bg-surface' } }}
+  >
+    {#snippet children()}{@render resultPane()}{/snippet}
+  </Sidebar>
+</section>
+
+{#snippet queryPane(_sidebar: SidebarApi)}
   <!-- What to read: the model, the operation, then what that operation takes. -->
-  <aside class="grid min-h-0 content-start gap-5 overflow-auto rounded-lg border border-neutral-muted bg-surface p-4" aria-label="The query">
+  <div class="grid content-start gap-5 p-4">
     <div class="grid gap-2">
       {@render heading('Read')}
       <Select size="small" label="Model" theme={HIDDEN_LABEL} items={models.map(entry => ({ value: entry.name, label: entry.name, icon: MODEL_ICON[entry.icon] }))} value={modelName} onValueChange={value => value && (modelName = value)} />
@@ -366,13 +386,15 @@ function chooseFunction(
       <Button size="small" variant="ghost" onclick={() => (drafts[modelName] = emptyDraft(model))}>Reset</Button>
       <span class="ml-auto text-[12px] text-neutral/50">Runs as you build · ⌘↵ runs again</span>
     </div>
-  </aside>
-  {/if}
+  </div>
+{/snippet}
+
+{#snippet resultPane()}
 
   <!-- What it read. -->
-  <div class="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3">
+  <div class="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3 p-4">
     <div class="flex flex-wrap items-center gap-3">
-      <Button size="small" variant="ghost" squared prefix={sidebarSimpleIcon} label={folded ? 'Show the query' : 'Hide the query: the result takes the page'} onclick={() => (folded = !folded)} />
+      <Button size="small" variant="ghost" squared prefix={sidebarSimpleIcon} label={editing ? 'Hide the query: the result takes the page' : 'Show the query'} onclick={() => (editing = !editing)} />
       <SegmentedControl size="small" label="What to show" items={[{ value: 'table', label: 'Result' }, { value: 'json', label: 'JSON' }, { value: 'sql', label: `SQL${answer ? ` · ${answer.statements.length}` : ''}` }, { value: 'trace', label: `Trace${answer ? ` · ${answer.spans.length}` : ''}` }, { value: 'code', label: 'Code' }]} bind:value={tab} />
       {#if answer}
         <span class="text-[12px] text-neutral/60">{counted ? `${counted} · ` : ''}{answer.duration} ms</span>
@@ -428,4 +450,4 @@ function chooseFunction(
       </div>
     </div>
   </div>
-</section>
+{/snippet}

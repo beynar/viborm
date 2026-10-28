@@ -112,31 +112,33 @@ function update(id: number, change: Partial<Condition>) {
 const setValue = (id: number, value: string) => update(id, { value });
 </script>
 
-<div class="grid gap-2">
+<!-- A container query lays each condition out for the room it has: one line in the rows' filter, the value on a
+     line of its own in the query's narrower sidebar. -->
+<div class="@container grid gap-2">
   {#if conditions.length === 0}
     <p class="m-0 text-[13px] text-neutral/70">No condition: every row shows.</p>
+  {:else if conditions.length > 1}
+    <div class="flex items-center gap-2 text-[13px] text-neutral/70">
+      Match
+      <div class="w-20"><Select size="small" label="Which conditions must hold" theme={HIDDEN_LABEL} items={[{ value: 'AND', label: 'all' }, { value: 'OR', label: 'any' }]} value={combinator} onValueChange={value => (combinator = value === 'OR' ? 'OR' : 'AND')} /></div>
+      of the conditions
+    </div>
   {/if}
-  {#each conditions as condition, index (condition.id)}
+  {#each conditions as condition (condition.id)}
     {@const column = columnOf(columns, condition)}
     {@const field = column?.field}
     {@const operators = field ? operatorsOf(field) : []}
     {@const listed = condition.operator === 'in'}
-    <div class="flex items-center gap-2">
-      <div class="w-[4.5rem] shrink-0 text-right text-[13px] text-neutral/60">
-        {#if index === 0}
-          where
-        {:else if index === 1}
-          <Select size="small" label="Join" theme={HIDDEN_LABEL} items={[{ value: 'AND', label: 'and' }, { value: 'OR', label: 'or' }]} value={combinator} onValueChange={value => (combinator = value === 'OR' ? 'OR' : 'AND')} />
-        {:else}
-          {combinator.toLowerCase()}
-        {/if}
-      </div>
+    <div class={['flex flex-wrap items-center gap-2', conditions.length > 1 && 'border-l-2 border-neutral-muted pl-2']}>
       {#if column?.via?.relation.cardinality === 'many'}
         <!-- Through a to-many relation: whether any, every or no related row matches. -->
         <div class="w-[5.5rem] shrink-0"><Select size="small" label="Which related rows" theme={HIDDEN_LABEL} items={QUANTIFIERS} value={condition.via?.quantifier ?? 'some'} onValueChange={value => value && condition.via && update(condition.id, { via: { ...condition.via, quantifier: value as Quantifier } })} /></div>
       {/if}
-      <div class="w-48 shrink-0"><Select size="small" label="Column" theme={HIDDEN_LABEL} items={columnItems} value={condition.field} onValueChange={value => value && update(condition.id, { field: value })} /></div>
+      <div class="min-w-[8rem] flex-1 @xl:w-48 @xl:flex-none"><Select size="small" label="Column" theme={HIDDEN_LABEL} items={columnItems} value={condition.field} onValueChange={value => value && update(condition.id, { field: value })} /></div>
       <div class="w-28 shrink-0"><Select size="small" label="Comparison" theme={HIDDEN_LABEL} items={operators.map(operator => ({ value: operator, label: OPERATOR_LABELS[operator] }))} value={condition.operator} onValueChange={value => value && update(condition.id, { operator: value as Operator })} /></div>
+      <!-- Last on the line when the value shares it; on the first line when the value takes its own. -->
+      <div class="shrink-0 @xl:order-last"><Button size="small" variant="ghost" squared label="Remove the condition" prefix={xIcon} onclick={() => (conditions = conditions.filter(entry => entry.id !== condition.id))} /></div>
+      <div class={['flex min-w-0 basis-full items-center gap-2 @xl:basis-0 @xl:flex-1', (condition.operator === 'isNull' || condition.operator === 'isNotNull' || !field) && 'hidden @xl:flex']}>
       <div class="min-w-0 flex-1">
         {#if condition.operator === 'isNull' || condition.operator === 'isNotNull' || !field}
           <span></span>
@@ -159,11 +161,11 @@ const setValue = (id: number, value: string) => update(id, { value });
         {:else}
           <TextInput size="small" label="Value" theme={HIDDEN_LABEL} placeholder={listed ? 'a, b, c' : 'value'} value={condition.value} onValueChange={value => setValue(condition.id, value ?? '')} />
         {/if}
+        </div>
+        {#if field && foldsCase(field, condition.operator)}
+          <CaseToggle value={condition.ignoreCase === true} onValueChange={value => update(condition.id, { ignoreCase: value })} />
+        {/if}
       </div>
-      {#if field && foldsCase(field, condition.operator)}
-        <CaseToggle value={condition.ignoreCase === true} onValueChange={value => update(condition.id, { ignoreCase: value })} />
-      {/if}
-      <Button size="small" variant="ghost" squared label="Remove the condition" prefix={xIcon} onclick={() => (conditions = conditions.filter(entry => entry.id !== condition.id))} />
     </div>
   {/each}
   <div><Button size="small" variant="outline" prefix={plusIcon} disabled={columns.length === 0} onclick={add}>Condition</Button></div>
