@@ -65,6 +65,7 @@ $effect(() => {
   const graph = planGraph(plan.root, plan.executionTime, plan.advice);
   nodes = graph.nodes;
   edges = graph.edges;
+  focus = { targets: [], version: 0 };
 });
 
 let panel = $state<"advice" | "node">("advice");
@@ -249,6 +250,7 @@ const time = (date: Date) =>
           <SegmentedControl size="small" label="How to show the plan" items={[{ value: 'graph', label: 'Graph' }, { value: 'table', label: 'Table' }, { value: 'raw', label: plan.dialect === 'postgresql' ? 'JSON' : 'Text' }]} bind:value={view} />
           {#if view === 'graph'}
             <div class="plan relative min-h-[24rem] overflow-hidden rounded-lg border border-neutral-muted">
+              {#key plan}
               <SvelteFlow
                 bind:nodes
                 {edges}
@@ -257,7 +259,7 @@ const time = (date: Date) =>
                 colorMode={theme.resolvedTheme === 'dark' ? 'dark' : 'light'}
                 panOnScroll
                 zoomOnScroll={false}
-                minZoom={0.15}
+                minZoom={0.01}
                 maxZoom={1.6}
                 nodesConnectable={false}
                 nodesDraggable={false}
@@ -267,6 +269,7 @@ const time = (date: Date) =>
               >
                 <PlanFocus root={plan.root.id} targets={focus.targets} version={focus.version} />
               </SvelteFlow>
+              {/key}
             </div>
           {:else if view === 'table'}
             <div class="min-h-0 overflow-auto rounded-lg border border-neutral-muted bg-surface">

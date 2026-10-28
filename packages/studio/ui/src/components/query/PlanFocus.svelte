@@ -1,5 +1,10 @@
 <script lang="ts">
-import { Panel, useNodesInitialized, useStore, useSvelteFlow } from "@xyflow/svelte";
+import {
+  Panel,
+  useNodesInitialized,
+  useStore,
+  useSvelteFlow,
+} from "@xyflow/svelte";
 import { Button } from "entasis/button";
 import { cornersOutIcon } from "entasis/icons/cornersOut";
 import { magnifyingGlassMinusIcon } from "entasis/icons/magnifyingGlassMinus";
@@ -8,8 +13,8 @@ import { untrack } from "svelte";
 import { prefersReducedMotion } from "svelte/motion";
 import { PLAN_CARD_WIDTH } from "../../lib/plan-graph";
 
-// Start at the root at readable size. Overview is an explicit choice, so a tall plan never opens with tiny,
-// centre-clipped cards. Advice still brings its operations into view; wheel/trackpad scrolling pans the canvas.
+// Fit the measured plan on mount and when the canvas changes size. The explicit 100% control and advice focus
+// let the reader inspect individual operations; wheel/trackpad scrolling pans the canvas.
 let {
   targets,
   version,
@@ -45,9 +50,10 @@ $effect(() => {
     store.width < 1 ||
     store.height < 1 ||
     size === placed
-  ) return;
+  )
+    return;
   placed = size;
-  untrack(() => start(false));
+  untrack(() => flow.fitView({ padding: 0.12, minZoom: 0.01, maxZoom: 1 }));
 });
 
 $effect(() => {
@@ -57,7 +63,8 @@ $effect(() => {
     !measured.current ||
     store.width < 1 ||
     store.height < 1
-  ) return;
+  )
+    return;
   flow.fitView({
     nodes: targets.map((id) => ({ id })),
     padding: 0.2,
@@ -76,6 +83,6 @@ $effect(() => {
     <Button variant="ghost" size="small" onclick={() => start()}>Start · 100%</Button>
     <Button variant="ghost" size="small" squared label="Zoom in" prefix={magnifyingGlassPlusIcon} onclick={() => flow.zoomIn({ duration: duration() })} />
     <Button variant="ghost" size="small" squared label="Zoom out" prefix={magnifyingGlassMinusIcon} onclick={() => flow.zoomOut({ duration: duration() })} />
-    <Button variant="ghost" size="small" squared label="Overview of the whole plan" prefix={cornersOutIcon} onclick={() => flow.fitView({ padding: 0.12, minZoom: 0.15, maxZoom: 1, duration: duration() })} />
+    <Button variant="ghost" size="small" squared label="Overview of the whole plan" prefix={cornersOutIcon} onclick={() => flow.fitView({ padding: 0.12, minZoom: 0.01, maxZoom: 1, duration: duration() })} />
   </div>
 </Panel>

@@ -27,6 +27,79 @@ function client(answers: [string, (params: unknown[]) => unknown][]) {
 const TAB_SEPARATED = /^\d+\t\d+\t\S/;
 const PAGE_SQL = `SELECT "q0"."id" FROM "public"."orders" AS "q0" WHERE ("q0"."status" = $1 AND "q0"."total" > $2) ORDER BY "q0"."createdAt" DESC, "q0"."id" ASC LIMIT $3`;
 
+test("PostgreSQL catalog preserves quotes in mapped table and schema names", async () => {
+  const pg = client([
+    [
+      "EXPLAIN",
+      () => [
+        {
+          "QUERY PLAN": [
+            {
+              Plan: { "Node Type": "Seq Scan", "Relation Name": 'sales"2026' },
+            },
+          ],
+        },
+      ],
+    ],
+    ["FROM pg_index", () => []],
+    ["FROM pg_class", () => []],
+  ]);
+  const [result] = await explainStatements(
+    pg,
+    "postgresql",
+    [{ sql: 'SELECT * FROM "tenant""east"."sales""2026" AS "q0"' }],
+    [],
+    false
+  );
+  expect(result?.error).toBeUndefined();
+  expect(pg.asked[1]?.params).toEqual([['"tenant""east"."sales""2026"']]);
+});
+
+test("PostgreSQL transactionless drivers refuse Analyze before replay and retain Estimate", async () => {
+  const pg = client([
+    [
+      "EXPLAIN",
+      () => [{ "QUERY PLAN": [{ Plan: { "Node Type": "Result" } }] }],
+    ],
+  ]);
+  const unsupported = {
+    ...pg,
+    $driver: { supportsTransactions: false },
+    $transaction() {
+      throw new Error("must not call interactive transactions");
+    },
+  };
+  const [analyzed] = await explainStatements(
+    unsupported,
+    "postgresql",
+    [{ sql: "SELECT 1" }],
+    []
+  );
+  expect(analyzed?.error).toContain("Use Estimate");
+  expect(pg.asked).toHaveLength(0);
+  const [estimated] = await explainStatements(
+    unsupported,
+    "postgresql",
+    [{ sql: "SELECT 1" }],
+    [],
+    false
+  );
+  expect(estimated?.plan?.analyzed).toBe(false);
+});
+
+test("MySQL CTE reads put their timeout on the outer SELECT", async () => {
+  const my = client([
+    ["EXPLAIN", () => [{ EXPLAIN: fixture("mysql-page.txt") }]],
+    ["information_schema", () => []],
+  ]);
+  const sql =
+    "WITH `SELECT` AS (SELECT 'SELECT )' AS value /* SELECT ) */), other AS (SELECT 2) SELECT * FROM `SELECT`";
+  await explainStatements(my, "mysql", [{ sql }], []);
+  expect(my.asked[0]?.sql).toBe(
+    `EXPLAIN ANALYZE ${sql.replace("SELECT *", "SELECT /*+ MAX_EXECUTION_TIME(30000) */ *")}`
+  );
+});
+
 test("dialects by the name a driver gives", () => {
   expect(dialectOf("postgresql")).toBe("postgresql");
   expect(dialectOf("mysql")).toBe("mysql");
@@ -85,6 +158,7 @@ test("PostgreSQL: the plan of the statement with its values, the catalog, the ad
   const transactions: unknown[] = [];
   const withTransaction = {
     ...pg,
+    $driver: { supportsTransactions: true },
     $transaction(run: (tx: object) => Promise<unknown>) {
       transactions.push(run);
       return run(pg);
@@ -249,7 +323,7 @@ test("MySQL: EXPLAIN ANALYZE, its aliases named as tables, the catalog", async (
       },
     ],
   ]);
-  expect(await explainStatements(odd, "mysql", [{}], [])).toEqual([
+  expect(await explainStatements(odd, "mysql", [{}], [], false)).toEqual([
     { sql: "", error: "odd" },
   ]);
   // PostgreSQL answering no row: no plan.
@@ -259,7 +333,8 @@ test("MySQL: EXPLAIN ANALYZE, its aliases named as tables, the catalog", async (
         client([["EXPLAIN", () => []]]),
         "postgresql",
         [{ sql: "SELECT 1" }],
-        []
+        [],
+        false
       )
     )[0]!.error
   ).toContain("no plan");
@@ -269,6 +344,37 @@ test("MySQL: EXPLAIN ANALYZE, its aliases named as tables, the catalog", async (
     (await explainStatements(empty, "mysql", [{ sql: "SELECT 1" }], []))[0]!
       .error
   ).toContain("no plan");
+});
+
+test("Analyze refuses statements it cannot execute under a database timeout", async () => {
+  const noReplay = client([]);
+  for (const unsupported of [
+    noReplay,
+    {
+      ...noReplay,
+      $transaction() {
+        /* Capability presence only; Analyze must refuse before dispatch. */
+      },
+    },
+    {
+      ...noReplay,
+      $driver: null,
+      $transaction() {
+        /* Capability presence only; Analyze must refuse before dispatch. */
+      },
+    },
+  ]) {
+    const [result] = await explainStatements(
+      unsupported,
+      "postgresql",
+      [{ sql: "SELECT 1" }],
+      []
+    );
+    expect(result?.error).toContain("Use Estimate");
+  }
+  const [unsupported] = await explainStatements(noReplay, "mysql", [{}], []);
+  expect(unsupported?.error).toContain("Cannot safely bound");
+  expect(noReplay.asked).toHaveLength(0);
 });
 
 test("SQLite: the plan, the statement's own time, the catalog by pragma", async () => {

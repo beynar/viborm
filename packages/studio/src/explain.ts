@@ -52,7 +52,24 @@ const rowsOf = (answer: unknown): Row[] =>
         (row): row is Row => typeof row === "object" && row !== null
       )
     : [];
-const SELECT = /^\s*SELECT\b/i;
+// Skip SQL strings, quoted identifiers and comments while finding the outer SELECT after any CTEs.
+const MYSQL_TOKEN =
+  /'(?:''|\\[\s\S]|[^'\\])*'|"(?:""|\\[\s\S]|[^"\\])*"|`(?:``|[^`])*`|--[^\n]*|#[^\n]*|\/\*[\s\S]*?\*\/|\bSELECT\b|[()]/gi;
+function limitedMysqlRead(sql: string): string {
+  let depth = 0;
+  for (const match of sql.matchAll(MYSQL_TOKEN)) {
+    const token = match[0];
+    if (token === "(") depth++;
+    else if (token === ")") depth--;
+    else if (depth === 0 && token.toUpperCase() === "SELECT") {
+      const end = match.index + token.length;
+      return `${sql.slice(0, end)} /*+ MAX_EXECUTION_TIME(${ANALYZE_LIMIT_MS}) */${sql.slice(end)}`;
+    }
+  }
+  throw new Error(
+    "Cannot safely bound MySQL Analyze for this statement. Use Estimate instead."
+  );
+}
 
 /** A method of the client, called on it; undefined when it has none. */
 function methodOf(
@@ -93,6 +110,18 @@ async function planOf(
   if (dialect === "postgresql") {
     const explain = `EXPLAIN (${analyze ? "ANALYZE, BUFFERS, FORMAT JSON" : "FORMAT JSON"}) ${sql}`;
     const transaction = methodOf(client, "$transaction");
+    const driver: unknown = Reflect.get(client, "$driver");
+    if (
+      analyze &&
+      (!transaction ||
+        typeof driver !== "object" ||
+        driver === null ||
+        Reflect.get(driver, "supportsTransactions") !== true)
+    ) {
+      throw new Error(
+        "PostgreSQL Analyze requires a driver with interactive transactions for its timeout. Use Estimate instead."
+      );
+    }
     // Run again under a time limit that holds for this statement only: SET LOCAL ends with its transaction.
     const rows =
       analyze && transaction
@@ -115,12 +144,10 @@ async function planOf(
   }
   if (dialect === "mysql") {
     // MySQL stops a SELECT that outlives its hint.
-    const limited = sql.replace(
-      SELECT,
-      `SELECT /*+ MAX_EXECUTION_TIME(${ANALYZE_LIMIT_MS}) */`
-    );
     const [row] = await rawOf(client)(
-      analyze ? `EXPLAIN ANALYZE ${limited}` : `EXPLAIN FORMAT=TREE ${sql}`,
+      analyze
+        ? `EXPLAIN ANALYZE ${limitedMysqlRead(sql)}`
+        : `EXPLAIN FORMAT=TREE ${sql}`,
       ...params
     );
     const text = String(row ? Object.values(row)[0] : "");
@@ -145,7 +172,7 @@ async function planOf(
   };
 }
 
-const sqliteName = (name: string) => `"${name.replaceAll('"', '""')}"`;
+const quotedName = (name: string) => `"${name.replaceAll('"', '""')}"`;
 type Catalog = Pick<StudioPlan, "indexes" | "columns" | "tableRows">;
 const strings = (value: unknown) =>
   Array.isArray(value) ? value.map(String) : [];
@@ -160,7 +187,9 @@ async function postgresCatalog(
   const tableRows: Record<string, number> = {};
   // The relation the statement named: its schema when it names one, else the search path's.
   const qualified = tables.map((table) =>
-    schemas[table] ? `"${schemas[table]}"."${table}"` : `"${table}"`
+    schemas[table]
+      ? `${quotedName(schemas[table])}.${quotedName(table)}`
+      : quotedName(table)
   );
   const relations =
     "(SELECT to_regclass(name) FROM unnest($1::text[]) AS name)";
@@ -270,7 +299,7 @@ async function sqliteCatalog(
   const columns: Record<string, string[]> = {};
   const tableRows: Record<string, number> = {};
   for (const table of tables) {
-    const info = await raw(`PRAGMA table_info(${sqliteName(table)})`);
+    const info = await raw(`PRAGMA table_info(${quotedName(table)})`);
     columns[table] = info.map((column) => String(column.name));
     // The primary key, which index_list leaves out when it is the rowid.
     const key = info
@@ -295,10 +324,10 @@ async function sqliteCatalog(
             },
           ]
         : [];
-    for (const index of await raw(`PRAGMA index_list(${sqliteName(table)})`)) {
+    for (const index of await raw(`PRAGMA index_list(${quotedName(table)})`)) {
       const name = String(index.name);
       const keys = (
-        await raw(`PRAGMA index_xinfo(${sqliteName(name)})`)
+        await raw(`PRAGMA index_xinfo(${quotedName(name)})`)
       ).filter((column) => Number(column.key) === 1);
       held.push({
         name,
@@ -311,7 +340,7 @@ async function sqliteCatalog(
     }
     indexes[table] = held;
     const [counted] = await raw(
-      `SELECT count(*) AS "rows" FROM ${sqliteName(table)}`
+      `SELECT count(*) AS "rows" FROM ${quotedName(table)}`
     );
     tableRows[table] = Number(counted?.rows ?? 0);
   }

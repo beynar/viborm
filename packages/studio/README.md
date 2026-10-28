@@ -48,8 +48,10 @@ the studio on `http://127.0.0.1:5577` and opens it.
   separate scans of the same table. Recommendations are heuristics to review;
   Studio never applies them. Analyze captures the read and runs each statement
   again; Estimate captures the read once and asks for its plan without a second
-  execution. PostgreSQL Analyze uses a transaction-local 30-second timeout;
-  MySQL uses a MAX_EXECUTION_TIME hint. SQLite supplies an estimated query plan
+  execution. The graph fits the whole plan on mount; zoom or focus an operation
+  to inspect it. PostgreSQL Analyze uses a transaction-local 30-second timeout
+  and requires interactive transactions (use Estimate on Neon HTTP).
+  MySQL uses a MAX_EXECUTION_TIME hint, including on CTE reads. SQLite supplies an estimated query plan
   only, with the original read's duration and no per-node timings.
 - **Drift:** a banner when the database differs from the schema, with what
   `viborm push` would change and its SQL.

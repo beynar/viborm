@@ -332,7 +332,7 @@ export const filtersOf = (sql: string) =>
 // Bind only the pattern literals used for advice. This text is never executed. Skip quoted SQL and comments
 // so a question mark in a literal cannot shift SQLite/MySQL's positional bindings.
 const SQL_TOKEN =
-  /'(?:''|\\.|[^'])*'|"(?:""|[^"])*"|`(?:``|[^`])*`|--[^\n]*|\/\*[\s\S]*?\*\/|\$(\d+)|\?/g;
+  /'(?:''|\\[\s\S]|[^'\\])*'|"(?:""|[^"])*"|`(?:``|[^`])*`|--[^\n]*|\/\*[\s\S]*?\*\/|\$(\d+)|\?/g;
 function boundPatterns(sql: string, params: readonly unknown[]): string {
   let position = 0;
   return sql.replace(
@@ -348,13 +348,23 @@ function boundPatterns(sql: string, params: readonly unknown[]): string {
   );
 }
 
-const ALIAS =
-  /\b(?:FROM|JOIN)\s+(?:[`"]?(\w+)[`"]?\.)?[`"]?(\w+)[`"]?\s+(?:AS\s+)?[`"]?(\w+)[`"]?/gi;
+const TABLE_NAME = '(?:"(?:""|[^"])*"|`(?:``|[^`])*`|\\w+)';
+const ALIAS = new RegExp(
+  `\\b(?:FROM|JOIN)\\s+(?:(${TABLE_NAME})\\.)?(${TABLE_NAME})\\s+(?:AS\\s+)?(${TABLE_NAME})`,
+  "gi"
+);
+const identifierOf = (name: string) =>
+  name.startsWith('"')
+    ? name.slice(1, -1).replaceAll('""', '"')
+    : name.startsWith("`")
+      ? name.slice(1, -1).replaceAll("``", "`")
+      : name;
 /** The tables a statement reads, by the alias it gives them (`FROM "public"."orders" AS "q0"`). */
 export function aliasesOf(sql: string): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [, , table = "", alias = ""] of sql.matchAll(ALIAS)) {
-    if (!KEYWORDS.has(alias.toLowerCase())) out[alias] = table;
+    if (!KEYWORDS.has(alias.toLowerCase()))
+      out[identifierOf(alias)] = identifierOf(table);
   }
   return out;
 }
@@ -362,7 +372,7 @@ export function aliasesOf(sql: string): Record<string, string> {
 export function schemasOf(sql: string): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [, schema, table = ""] of sql.matchAll(ALIAS)) {
-    if (schema) out[table] = schema;
+    if (schema) out[identifierOf(table)] = identifierOf(schema);
   }
   return out;
 }

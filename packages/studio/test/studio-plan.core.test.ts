@@ -239,6 +239,33 @@ describe("review regressions", () => {
     ).toBe(true);
   });
 
+  test("pattern binding handles repeated escapes without backtracking", () => {
+    const tree = sqlitePlan([{ id: 1, parent: 0, detail: "SCAN q0" }]);
+    const escaped = "\\&".repeat(32);
+    const advice = adviseOn(
+      tree,
+      context(
+        "sqlite",
+        `SELECT '${escaped} FROM orders AS q0 WHERE q0.note GLOB ?`,
+        { params: ["Customer 12*"] }
+      )
+    );
+    expect(advice).toBeDefined();
+  });
+
+  test("quoted catalog names preserve embedded identifier quotes", () => {
+    const sql =
+      'SELECT * FROM "tenant""east"."sales""2026" AS "q 0" JOIN `db``west`.`orders``archive` AS `q 1` ON 1=1';
+    expect(aliasesOf(sql)).toEqual({
+      "q 0": 'sales"2026',
+      "q 1": "orders`archive",
+    });
+    expect(schemasOf(sql)).toEqual({
+      'sales"2026': 'tenant"east',
+      "orders`archive": "db`west",
+    });
+  });
+
   test("PostgreSQL prefix searches explain the pattern operator class", () => {
     const tree = postgresPlan({
       Plan: {
