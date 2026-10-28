@@ -342,8 +342,8 @@ const NAMED: readonly (readonly [string, ModelIcon])[] = [
   ["building", "building"],
   ["venue", "building"],
   ["listing", "house"],
-  ["property", "house"],
-  ["properties", "house"],
+  ["property", "gear"],
+  ["properties", "gear"],
   ["room", "door"],
   ["address", "mapPin"],
   ["addresses", "mapPin"],
@@ -361,7 +361,7 @@ const NAMED: readonly (readonly [string, ModelIcon])[] = [
   ["vehicle", "car"],
   // Life.
   ["restaurant", "forkKnife"],
-  ["menu", "forkKnife"],
+  ["menu", "listBullets"],
   ["recipe", "cookingPot"],
   ["recipes", "cookingPot"],
   ["pet", "pawPrint"],
@@ -378,6 +378,43 @@ const NAMED: readonly (readonly [string, ModelIcon])[] = [
   ["support_tickets", "ticket"],
   ["ticket", "ticket"],
   ["seat", "ticket"],
+  // A word before a generic one says more; words run together are read as one.
+  ["OrderStatus", "shoppingCart"],
+  ["PasswordResetRequest", "key"],
+  ["EventData", "calendar"],
+  ["TransactionItem", "creditCard"],
+  ["SecretStore", "key"],
+  ["spree_stores", "storefront"],
+  ["push_subscriptions", "bell"],
+  ["Subscription", "currencyDollar"],
+  ["WebhookDelivery", "lightning"],
+  ["preview_cards", "link"],
+  ["credit_cards", "creditCard"],
+  ["widget_cards", "code"],
+  ["tool_calls", "robot"],
+  ["VoucherCode", "percent"],
+  ["TwoFactorBackupCode", "key"],
+  ["OAuthClient", "plugs"],
+  ["otp_challenges", "key"],
+  ["pull_requests", "gitPullRequest"],
+  ["merge_request_diffs", "gitPullRequest"],
+  ["phone_numbers", "phone"],
+  ["terms_of_services", "scales"],
+  ["wp_terms", "tag"],
+  ["wp_postmeta", "gear"],
+  ["Typebot", "robot"],
+  ["spree_states", "globe"],
+  ["flow_state", "flowArrow"],
+  ["securities", "chartLineUp"],
+  ["progress_bars", "gauge"],
+  ["survey_completions", "clipboardText"],
+  ["diff_note_positions", "note"],
+  ["access_levels", "shield"],
+  ["github_repositories", "gitBranch"],
+  ["vulnerabilities", "shieldWarning"],
+  ["ml_models", "robot"],
+  ["releases", "rocket"],
+  ["holdings", "chartPie"],
 ];
 
 test.each(NAMED)("%s → %s", (name, icon) => {
@@ -451,4 +488,28 @@ test("every icon is one entasis ships, and every word calls for one icon", () =>
     }
   }
   expect(seen.size).toBeGreaterThan(900);
+});
+
+/**
+ * The model and table names of open-source applications' schemas (Cal.com, Mastodon, Forem, Chatwoot, Documenso,
+ * Langfuse, Trigger.dev, Saleor, Solidus, Maybe, Consul, Loomio, Lago, Open Food Network, RubyGems.org, …), as
+ * their own schema files spell them: what the studio meets in the wild. Ninety-five in a hundred, at least, get
+ * an icon of their own rather than the table's.
+ */
+test("names from real schemas get an icon of their own", async () => {
+  const { default: sources } = await import("./fixtures/model-names.json", {
+    with: { type: "json" },
+  });
+  let named = 0;
+  let total = 0;
+  const left: string[] = [];
+  for (const names of Object.values(sources)) {
+    for (const name of names) {
+      total += 1;
+      if (guessIcon(model(name)) === "table") left.push(name);
+      else named += 1;
+    }
+  }
+  expect(total).toBeGreaterThan(2000);
+  expect(named / total, left.join(", ")).toBeGreaterThanOrEqual(0.95);
 });
