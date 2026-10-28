@@ -35,6 +35,7 @@ export class Views {
   readonly #key: string;
   /** The studio keeps them; else the browser does. */
   #kept = false;
+  #writing: Promise<void> = Promise.resolve();
 
   constructor(project: string) {
     this.#key = `viborm-studio:views:${project}`;
@@ -71,21 +72,19 @@ export class Views {
     state: ViewState
   ): Promise<SavedView> {
     const view = { ...state, id: crypto.randomUUID(), name, model };
-    await this.#write([...this.list, view]);
+    await this.#write((list) => [...list, view]);
     return view;
   }
 
   /** The view, renamed, holding the table as it is now. */
   update(id: string, name: string, state: ViewState): Promise<void> {
-    return this.#write(
-      this.list.map((view) =>
-        view.id === id ? { ...view, ...state, name } : view
-      )
+    return this.#write((list) =>
+      list.map((view) => (view.id === id ? { ...view, ...state, name } : view))
     );
   }
 
   remove(id: string): Promise<void> {
-    return this.#write(this.list.filter((view) => view.id !== id));
+    return this.#write((list) => list.filter((view) => view.id !== id));
   }
 
   #readLocal(): SavedView[] {
@@ -97,19 +96,19 @@ export class Views {
     }
   }
 
-  /** The list shown at once, and kept; the list before it comes back when the studio could not keep it. */
-  async #write(list: SavedView[]): Promise<void> {
-    const before = this.list;
-    this.list = list;
-    if (!this.#kept) {
-      localStorage.setItem(this.#key, JSON.stringify(list));
-      return;
-    }
-    try {
-      await keepStored("views", list);
-    } catch (error) {
-      this.list = before;
-      throw error;
-    }
+  /**
+   * One change at a time, each made to the list the previous one left, and shown once kept: a change the studio
+   * refused leaves the list as it was, and is never carried into the next one.
+   */
+  #write(change: (list: SavedView[]) => SavedView[]): Promise<void> {
+    const next = this.#writing.then(async () => {
+      const list = change(this.list);
+      if (this.#kept) await keepStored("views", list);
+      else localStorage.setItem(this.#key, JSON.stringify(list));
+      this.list = list;
+    });
+    // A refused change fails its own caller only: the next one still runs.
+    this.#writing = next.catch(() => undefined);
+    return next;
   }
 }
