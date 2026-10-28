@@ -169,7 +169,7 @@ function open(
 
 /** A row reached by a to-one relation, said by its model and its key's value. */
 function reachedLabel(value: unknown, target: StudioModel | undefined): string {
-  const data = isReached(value) ? value.data : (value as Row);
+  const data = isReached(value) ? value.data : isRecord(value) ? value : {};
   const name = isReached(value) ? value.type : (target?.name ?? "row");
   const key = target?.key?.fields.map((field) => data[field]) ?? [];
   return key.length && key.every((part) => part !== undefined)

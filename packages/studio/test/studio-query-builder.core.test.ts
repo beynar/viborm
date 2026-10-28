@@ -1,6 +1,8 @@
 import { expect, test } from "vitest";
 import type { StudioField, StudioModel } from "../src/schema";
 import {
+  aggregatable,
+  aggregateOf,
   argsOf,
   codeOf,
   computedColumn,
@@ -210,4 +212,58 @@ test("numbers read with their thousands apart", () => {
   expect(grouped("999")).toBe("999");
   expect(grouped("abc")).toBe("abc");
   expect(grouped(null)).toBe("null");
+});
+
+test("a lookup by key reads no condition, even one that cannot be read", () => {
+  expect(
+    argsOf(
+      user,
+      models,
+      "findUnique",
+      draft({
+        conditions: [{ id: 1, field: "id", operator: "gt", value: "abc" }],
+        key: { field: "id", value: "7" },
+      })
+    )
+  ).toEqual({ where: { id: 7 } });
+  expect(() =>
+    argsOf(
+      user,
+      models,
+      "findMany",
+      draft({
+        conditions: [{ id: 1, field: "id", operator: "gt", value: "abc" }],
+      })
+    )
+  ).toThrow();
+});
+
+test("an empty text is a value; an empty number or list is not yet", () => {
+  const where = (condition: Omit<QueryDraft["conditions"][number], "id">) =>
+    argsOf(
+      user,
+      models,
+      "count",
+      draft({ conditions: [{ id: 1, ...condition }] })
+    );
+  expect(where({ field: "email", operator: "equals", value: "" })).toEqual({
+    where: { email: { equals: "" } },
+  });
+  expect(where({ field: "email", operator: "in", value: " " })).toEqual({});
+  expect(where({ field: "karma", operator: "equals", value: "" })).toEqual({});
+  expect(where({ field: "gone", operator: "equals", value: "x" })).toEqual({});
+});
+
+test("a count reads any column, a list's too; sums and extremes only theirs", () => {
+  const tagged = {
+    ...user,
+    fields: [...user.fields, field("tags", "string", { list: true })],
+  };
+  const names = (fn: Parameters<typeof aggregatable>[1]) =>
+    aggregatable(tagged, fn).map((entry) => entry.name);
+  expect(names("_count")).toEqual(["id", "email", "karma", "tags"]);
+  expect(names("_sum")).toEqual(["id", "karma"]);
+  expect(names("_max")).toEqual(["id", "email", "karma"]);
+  expect(aggregateOf("_avg")?.label).toBe("average");
+  expect(aggregateOf("median")).toBeUndefined();
 });

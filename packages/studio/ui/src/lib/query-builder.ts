@@ -10,14 +10,17 @@ import {
   parseDraft,
 } from "./values";
 
-export type Aggregate = "_count" | "_sum" | "_avg" | "_min" | "_max";
-export const AGGREGATE_LABELS: Record<Aggregate, string> = {
-  _count: "count",
-  _sum: "sum",
-  _avg: "average",
-  _min: "minimum",
-  _max: "maximum",
-};
+export const AGGREGATES = [
+  { value: "_count", label: "count" },
+  { value: "_sum", label: "sum" },
+  { value: "_avg", label: "average" },
+  { value: "_min", label: "minimum" },
+  { value: "_max", label: "maximum" },
+] as const;
+export type Aggregate = (typeof AGGREGATES)[number]["value"];
+/** The function a picker's value names, if it names one. */
+export const aggregateOf = (value: string | null | undefined) =>
+  AGGREGATES.find((entry) => entry.value === value);
 
 /** One value computed: a function of a column (no column: the rows themselves, counted). */
 export interface Computed {
@@ -67,6 +70,7 @@ const ORDERED = new Set<StudioField["type"]>([
 /** The columns a function reads: sums and averages of numbers, extremes of what orders, counts of any column. */
 export function aggregatable(model: StudioModel, fn: Aggregate): StudioField[] {
   return model.fields.filter((field) => {
+    if (fn === "_count") return true;
     if (field.list) return false;
     if (fn === "_sum" || fn === "_avg") return NUMERIC.has(field.type);
     if (fn === "_min" || fn === "_max") return ORDERED.has(field.type);
@@ -102,11 +106,15 @@ export const emptyDraft = (model: StudioModel): QueryDraft => ({
   computed: [{ id: 1, fn: "_count", field: "" }],
 });
 
-/** A condition still waiting for its value: left out until it has one. */
-const waiting = (condition: Condition) =>
+/**
+ * A condition still waiting for its value, left out until it has one: an empty value a text column cannot be
+ * compared with (a text column can: `name = ""` finds the empty names), or an empty list.
+ */
+const waiting = (condition: Condition, field: StudioField) =>
   condition.value.trim() === "" &&
   condition.operator !== "isNull" &&
-  condition.operator !== "isNotNull";
+  condition.operator !== "isNotNull" &&
+  (condition.operator === "in" || field.type !== "string");
 
 /** The conditions as one `where`, or none; those still waiting for a value are left out. */
 export function whereOf(
@@ -116,9 +124,9 @@ export function whereOf(
 ): Where | undefined {
   const columns = filterColumns(model, models);
   const clauses = draft.conditions.flatMap((condition) => {
-    if (waiting(condition)) return [];
     const column = columnOf(columns, condition);
-    return column ? [conditionWhere(column, condition)] : [];
+    if (!column || waiting(condition, column.field)) return [];
+    return [conditionWhere(column, condition)];
   });
   if (clauses.length === 0) return undefined;
   return clauses.length === 1 ? clauses[0] : { [draft.combinator]: clauses };
@@ -152,8 +160,11 @@ export function argsOf(
   operation: QueryOperation,
   draft: QueryDraft
 ): Record<string, unknown> {
-  const where = whereOf(model, models, draft);
-  const filtered = where ? { where } : {};
+  // Only the operations that filter read the conditions: a lookup by key does not.
+  const filtering = () => {
+    const where = whereOf(model, models, draft);
+    return where ? { where } : {};
+  };
   const sorts = draft.sort.filter(
     (sort) =>
       sort.field !== "" &&
@@ -181,9 +192,9 @@ export function argsOf(
       : {};
   switch (operation) {
     case "findMany":
-      return { ...filtered, ...ordered, ...taken, ...skipped, ...shaped };
+      return { ...filtering(), ...ordered, ...taken, ...skipped, ...shaped };
     case "findFirst":
-      return { ...filtered, ...ordered, ...skipped, ...shaped };
+      return { ...filtering(), ...ordered, ...skipped, ...shaped };
     case "findUnique": {
       const field = model.fields.find(
         (candidate) => candidate.name === draft.key.field
@@ -197,15 +208,15 @@ export function argsOf(
       };
     }
     case "count":
-      return { ...filtered };
+      return { ...filtering() };
     case "aggregate":
-      return { ...filtered, ...computedArgs(draft) };
+      return { ...filtering(), ...computedArgs(draft) };
     default:
       if (draft.by.length === 0)
         throw new Error("Choose the columns the groups share");
       return {
         by: draft.by,
-        ...filtered,
+        ...filtering(),
         ...computedArgs(draft),
         ...ordered,
         ...taken,
@@ -222,12 +233,13 @@ export function computedColumn(
   model: StudioModel | undefined,
   key: string
 ): { label: string; numeric: boolean; field?: StudioField } | undefined {
-  const [fn, of] = key.split(".") as [string, string | undefined];
-  if (!(fn in AGGREGATE_LABELS)) return undefined;
-  const said = AGGREGATE_LABELS[fn as Aggregate];
+  const [name, of] = key.split(".");
+  const fn = aggregateOf(name);
+  if (!fn) return undefined;
+  const said = fn.label;
   const label = of === undefined || of === "_all" ? said : `${said} · ${of}`;
   const field = model?.fields.find((candidate) => candidate.name === of);
-  const extreme = fn === "_min" || fn === "_max";
+  const extreme = fn.value === "_min" || fn.value === "_max";
   if (extreme && field && !NUMERIC.has(field.type))
     return { label, numeric: false, field };
   return { label, numeric: true };

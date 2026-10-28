@@ -23,9 +23,9 @@ import {
 import { fillPage } from "../../lib/fill";
 import { MODEL_ICON } from "../../lib/model-icons";
 import {
-  AGGREGATE_LABELS,
-  type Aggregate,
+  AGGREGATES,
   aggregatable,
+  aggregateOf,
   argsOf,
   codeOf,
   computedColumn,
@@ -79,9 +79,6 @@ const OPERATIONS: {
   },
   { value: "groupBy", label: "Compute per group", description: "groupBy" },
 ];
-const AGGREGATES = (Object.keys(AGGREGATE_LABELS) as Aggregate[]).map(
-  (value) => ({ value, label: AGGREGATE_LABELS[value] })
-);
 
 // The page is keyed on the schema's revision: it opens on the models it was given.
 const models = untrack(() => schema.models);
@@ -247,12 +244,17 @@ const code = $derived(
   built.args ? codeOf(modelName, operation, built.args) : ""
 );
 
+function chooseOperation(value: string | null) {
+  const chosen = OPERATIONS.find((entry) => entry.value === value);
+  if (chosen) operation = chosen.value;
+}
+
 function chooseFunction(
   computed: QueryDraft["computed"][number],
   value: string | null
 ) {
-  if (!value) return;
-  const fn = value as Aggregate;
+  const fn = aggregateOf(value)?.value;
+  if (!fn) return;
   computed.fn = fn;
   // A sum, an average or an extreme reads a column the function takes.
   if (!aggregatable(model, fn).some((field) => field.name === computed.field))
@@ -278,7 +280,7 @@ function chooseFunction(
     <div class="grid gap-2">
       {@render heading('Read')}
       <Select size="small" label="Model" theme={HIDDEN_LABEL} items={models.map(entry => ({ value: entry.name, label: entry.name, icon: MODEL_ICON[entry.icon] }))} value={modelName} onValueChange={value => value && (modelName = value)} />
-      <Select size="small" label="Operation" theme={HIDDEN_LABEL} items={OPERATIONS} value={operation} onValueChange={value => value && (operation = value as QueryOperation)} />
+      <Select size="small" label="Operation" theme={HIDDEN_LABEL} items={OPERATIONS} value={operation} onValueChange={chooseOperation} />
     </div>
 
     {#if operation === 'groupBy'}
