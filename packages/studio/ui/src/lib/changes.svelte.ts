@@ -64,6 +64,37 @@ export class Changes {
   /** Bumped by every save that wrote: the open table reads its rows again. */
   saved = $state(0);
   readonly #key: string;
+  #past = $state.raw<StagedChange[][]>([]);
+  #future = $state.raw<StagedChange[][]>([]);
+  #batching = false;
+
+  get canUndo() {
+    return !this.busy && this.#past.length > 0;
+  }
+  get canRedo() {
+    return !this.busy && this.#future.length > 0;
+  }
+
+  /** One user action (paste/import/bulk edit) is one undo step, even across rows. */
+  batch(action: () => void): void {
+    if (this.#batching) {
+      action();
+      return;
+    }
+    if (this.busy) throw new Error("Wait for the current save to finish");
+    const before = this.list;
+    this.#batching = true;
+    try {
+      action();
+      sessionStorage.setItem(this.#key, JSON.stringify(this.list));
+    } catch (error) {
+      this.#replace(before);
+      throw error;
+    } finally {
+      this.#batching = false;
+    }
+    if (this.list !== before) this.#remember(before);
+  }
 
   constructor(project: string) {
     this.#key = `viborm-studio:changes:${project}`;
@@ -192,7 +223,9 @@ export class Changes {
     this.busy = true;
     try {
       const { saved } = await saveChanges(this.toSend());
-      this.clear();
+      this.#replace([]);
+      this.#past = [];
+      this.#future = [];
       this.refusal = undefined;
       this.saved += 1;
       toast.success({
@@ -228,12 +261,21 @@ export class Changes {
     if (confirmed) this.clear();
   }
 
-  /** The last change dropped (⌘Z). */
+  /** Undo the last editing action, preserving earlier edits to the same row. */
   undo(): void {
-    const last = this.list.at(-1);
-    if (!last) return;
-    this.remove(last.id);
-    toast.neutral({ title: `Dropped: ${said(last)}` });
+    if (!this.canUndo) return;
+    const previous = this.#past.at(-1)!;
+    this.#past = this.#past.slice(0, -1);
+    this.#future = [...this.#future, this.list];
+    this.#replace(previous);
+  }
+
+  redo(): void {
+    if (!this.canRedo) return;
+    const next = this.#future.at(-1)!;
+    this.#future = this.#future.slice(0, -1);
+    this.#past = [...this.#past, this.list];
+    this.#replace(next);
   }
 
   /** The cells stacked for one row, merged. */
@@ -275,8 +317,22 @@ export class Changes {
   }
 
   #write(list: StagedChange[]): void {
+    if (this.busy) throw new Error("Wait for the current save to finish");
+    if (JSON.stringify(list) === JSON.stringify(this.list)) return;
+    const before = this.list;
+    this.#replace(list);
+    if (!this.#batching) this.#remember(before);
+  }
+
+  #remember(list: StagedChange[]): void {
+    this.#past = [...this.#past.slice(-99), list];
+    this.#future = [];
+  }
+
+  #replace(list: StagedChange[]): void {
+    if (!this.#batching)
+      sessionStorage.setItem(this.#key, JSON.stringify(list));
     this.list = list;
     this.failed = undefined;
-    sessionStorage.setItem(this.#key, JSON.stringify(list));
   }
 }

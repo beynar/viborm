@@ -533,8 +533,23 @@ async function exportRows(
   if (format !== "csv" && format !== "json") {
     throw new Refusal(400, "invalid_format", 'format must be "csv" or "json"');
   }
+  const names = model.fields.map((field) => field.name);
+  const columns = body.columns ?? names;
+  if (
+    !(Array.isArray(columns) && columns.length) ||
+    columns.some(
+      (column) => typeof column !== "string" || !names.includes(column)
+    ) ||
+    new Set(columns).size !== columns.length
+  )
+    throw new Refusal(
+      400,
+      "invalid_columns",
+      "columns must name distinct scalar fields"
+    );
+  const picked: string[] = columns;
   const query = queryOf(model, body);
-  const select = scalarSelection(model);
+  const select = Object.fromEntries(picked.map((name) => [name, true]));
   const rows: Record<string, unknown>[] = [];
   for (;;) {
     // The last page asks for one row past the ceiling: only that row refuses.
@@ -557,14 +572,7 @@ async function exportRows(
   }
   return format === "json"
     ? new FileAnswer(encodeJson(rows), `${model.name}.json`, "application/json")
-    : new FileAnswer(
-        toCsv(
-          model.fields.map((field) => field.name),
-          rows
-        ),
-        `${model.name}.csv`,
-        "text/csv"
-      );
+    : new FileAnswer(toCsv(picked, rows), `${model.name}.csv`, "text/csv");
 }
 
 const CSV_QUOTED = /[",\r\n]|^\s|\s$/;

@@ -13,6 +13,7 @@ import {
 // biome-ignore lint/performance/noNamespaceImport: The failure-boundary test spies on the parser module.
 import * as queryCode from "../src/query-code";
 import { describeSchema } from "../src/schema";
+import { importedRows } from "../ui/src/lib/table-data";
 
 // One schema with each relation shape the studio draws and follows:
 // user ↔ profile (one to one), user → post (one to many), post ↔ tag (many to many).
@@ -720,6 +721,62 @@ describe("what the page remembers", () => {
 });
 
 describe("saving stacked changes", () => {
+  test("imports typed CSV through the client with defaults and exact values", async () => {
+    const model = describeSchema(schema, "sqlite").models.find(
+      (model) => model.name === "user"
+    )!;
+    const rows = importedRows(
+      model,
+      'email,name,karma,avatar\nimport-parity@example.com,"",9007199254740993,\\N',
+      "csv"
+    );
+    try {
+      const response = await call("POST", "/changes", {
+        changes: rows.map((data) => ({
+          model: "user",
+          action: "create",
+          data,
+        })),
+      });
+      expect(response).toEqual({ status: 200, body: { saved: 1 } });
+      const saved = await client.user.findUnique({
+        where: { email: "import-parity@example.com" },
+      });
+      expect(saved).toMatchObject({
+        name: "",
+        karma: 9007199254740993n,
+        avatar: null,
+        role: "reader",
+      });
+      expect(saved?.id).toBeTypeOf("number");
+    } finally {
+      await client.user.deleteMany({
+        where: { email: "import-parity@example.com" },
+      });
+    }
+  });
+
+  test("a client refusal rolls back the entire imported batch", async () => {
+    const model = describeSchema(schema, "sqlite").models.find(
+      (model) => model.name === "user"
+    )!;
+    const rows = importedRows(
+      model,
+      "email,name,role\nimport-refusal-a@example.com,First,reader\nimport-refusal-b@example.com,Second,invalid",
+      "csv"
+    );
+    const response = await call("POST", "/changes", {
+      changes: rows.map((data) => ({ model: "user", action: "create", data })),
+    });
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({ error: { at: 1 } });
+    expect(
+      await client.user.count({
+        where: { email: { startsWith: "import-refusal-" } },
+      })
+    ).toBe(0);
+  });
+
   const labels = async () =>
     (
       (await call("POST", "/models/tag/rows", { take: 500 })).body as {
@@ -1076,6 +1133,40 @@ describe("to-one relations", () => {
 });
 
 describe("export", () => {
+  test("exports only requested scalar columns in the requested CSV order", async () => {
+    const response = await call("POST", "/models/user/export", {
+      format: "csv",
+      columns: ["name", "email"],
+      search: "ada",
+    });
+    expect(response.status).toBe(200);
+    expect(String(response.body).split("\r\n")[0]).toBe("name,email");
+    const json = await call("POST", "/models/user/export", {
+      format: "json",
+      columns: ["email"],
+      search: "ada",
+    });
+    expect(JSON.parse(String(json.body))).toEqual([
+      { email: "ada@example.com" },
+    ]);
+  });
+
+  test("refuses empty, duplicate, unknown and non-scalar export columns", async () => {
+    for (const columns of [
+      [],
+      ["email", "email"],
+      ["missing"],
+      ["posts"],
+      [1],
+      "email",
+    ]) {
+      const response = await call("POST", "/models/user/export", { columns });
+      expect([response.status, errorCode(response)]).toEqual([
+        400,
+        "invalid_columns",
+      ]);
+    }
+  });
   test("every row the filter reaches, as CSV or JSON", async () => {
     const csv = await call("POST", "/models/post/export", {
       where: { authorId: 1 },

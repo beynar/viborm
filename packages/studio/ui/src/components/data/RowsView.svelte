@@ -18,6 +18,7 @@ import { arrowsOutSimpleIcon } from "entasis/icons/arrowsOutSimple";
 import { bookmarkSimpleIcon } from "entasis/icons/bookmarkSimple";
 import { caretDownIcon } from "entasis/icons/caretDown";
 import { columnsIcon } from "entasis/icons/columns";
+import { copyIcon } from "entasis/icons/copy";
 import { downloadSimpleIcon } from "entasis/icons/downloadSimple";
 import { funnelIcon } from "entasis/icons/funnel";
 import { linkSimpleIcon } from "entasis/icons/linkSimple";
@@ -25,6 +26,7 @@ import { lockSimpleIcon } from "entasis/icons/lockSimple";
 import { magnifyingGlassIcon } from "entasis/icons/magnifyingGlass";
 import { plusIcon } from "entasis/icons/plus";
 import { trashIcon } from "entasis/icons/trash";
+import { uploadSimpleIcon } from "entasis/icons/uploadSimple";
 import { xIcon } from "entasis/icons/x";
 import { type PageShellApi, setPageShell } from "entasis/page-shell";
 import { Pagination } from "entasis/pagination";
@@ -54,6 +56,13 @@ import { fillPage } from "../../lib/fill";
 import { TYPE_COLORS, TYPE_ICONS } from "../../lib/icons";
 import { MODEL_ICON } from "../../lib/model-icons";
 import {
+  cellText,
+  type DataFormat,
+  dataText,
+  duplicateData,
+  pastedRows,
+} from "../../lib/table-data";
+import {
   type Combinator,
   dayText,
   display,
@@ -73,9 +82,11 @@ import {
 } from "../../lib/values";
 import type { SavedView, ViewState, Views } from "../../lib/views.svelte";
 import IconPicker from "../IconPicker.svelte";
+import BulkEdit from "./BulkEdit.svelte";
 import CaseToggle from "./CaseToggle.svelte";
 import FilterGroup from "./FilterGroup.svelte";
 import ForeignKeyInput from "./ForeignKeyInput.svelte";
+import ImportRows from "./ImportRows.svelte";
 import RelatedRows from "./RelatedRows.svelte";
 import RowDrawer from "./RowDrawer.svelte";
 import TableSkeleton from "./TableSkeleton.svelte";
@@ -131,7 +142,9 @@ let loading = $state(true);
 let failure = $state<unknown>(null);
 let tableState = $state<DataTableState>();
 let api = $state<DataTableApi<Row>>();
-let editing = $state<{ row?: Row }>();
+let editing = $state<{ row?: Row; seed?: Row }>();
+let importing = $state(false);
+let bulkEditing = $state(false);
 let root = $state<HTMLElement>();
 
 // Pyxel's `TableStudio` workaround: entasis removes the focused text editor before its Field stops watching
@@ -209,11 +222,19 @@ interface Staged {
 const marks = new WeakMap<Row, Staged>();
 /** The row as the database holds it, which a staged change addresses by its key. */
 const heldOf = (row: Row) => marks.get(row)?.held ?? row;
+// Keyless rows may have identical values; each loaded object still needs its own selection identity.
+const keylessIds = new WeakMap<Row, string>();
 const rowId = (row: Row) => {
   const created = marks.get(row)?.created;
   if (created) return `new:${created}`;
   const held = heldOf(row);
-  return JSON.stringify(model.key ? keyOf(model, held) : held);
+  if (model.key) return JSON.stringify(keyOf(model, held));
+  let id = keylessIds.get(held);
+  if (!id) {
+    id = crypto.randomUUID();
+    keylessIds.set(held, id);
+  }
+  return id;
 };
 const keyText = (row: Row) =>
   model.key
@@ -260,11 +281,120 @@ $effect(() => {
   savedSeen = changes.saved;
   untrack(() => load());
 });
-const selected = $derived(
-  Object.keys(tableState?.rowSelection ?? {}).filter(
-    (id) => tableState?.rowSelection[id]
+const chosenRows = $derived(
+  (api?.visibleRows ?? shown).filter(
+    (row) => tableState?.rowSelection[rowId(row)]
   )
 );
+const visibleColumns = $derived.by(() => {
+  const ordered = [
+    ...(tableState?.columnOrder ?? []),
+    ...columns.map((column) => column.id),
+  ];
+  const left = tableState?.columnPinning.left ?? [];
+  const right = tableState?.columnPinning.right ?? [];
+  return [
+    ...new Set([
+      ...left,
+      ...ordered.filter((id) => !(left.includes(id) || right.includes(id))),
+      ...right,
+    ]),
+  ].filter(
+    (id) =>
+      columns.some((column) => column.id === id) &&
+      tableState?.columnVisibility[id] !== false
+  );
+});
+const visibleFields = $derived(
+  visibleColumns.filter((id) => fieldsByName.has(id))
+);
+
+function transferRows(format: DataFormat, copy: boolean) {
+  const picked = chosenRows.length ? chosenRows : (api?.visibleRows ?? shown);
+  const text = dataText(visibleFields, picked, format);
+  if (copy) {
+    navigator.clipboard
+      .writeText(text)
+      .then(() => toast.success({ title: `Copied ${picked.length} rows` }))
+      .catch((error) =>
+        toast.danger({ title: "Copy failed", description: said(error) })
+      );
+  } else {
+    const url = URL.createObjectURL(
+      new Blob([text], {
+        type:
+          format === "json" ? "application/json" : "text/plain;charset=utf-8",
+      })
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${model.name}.${format}`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+}
+
+function importData(data: Row[]) {
+  changes.batch(() => {
+    for (const row of data)
+      changes.create(model.name, row, `new ${model.name}`);
+  });
+}
+function bulkApply(field: string, value: unknown) {
+  changes.batch(() => {
+    for (const row of chosenRows) stage(row, { [field]: value });
+  });
+}
+function duplicate(row: Row) {
+  editing = { seed: duplicateData(model, row) };
+}
+
+function clipboardCell(event: ClipboardEvent) {
+  const target = event.target;
+  if (
+    !(target instanceof HTMLElement) ||
+    target.closest("input,textarea,[contenteditable=true]")
+  )
+    return;
+  const cell = target.closest<HTMLElement>("[role=gridcell][data-column-id]");
+  const id = cell?.closest<HTMLElement>("[data-row-id]")?.dataset.rowId;
+  const row = (api?.visibleRows ?? shown).find((row) => rowId(row) === id);
+  const field = fieldsByName.get(cell?.dataset.columnId ?? "");
+  return row && field ? { row, field } : undefined;
+}
+function copyCells(event: ClipboardEvent) {
+  const cell = clipboardCell(event);
+  if (!(cell && event.clipboardData)) return;
+  event.preventDefault();
+  event.clipboardData.setData(
+    "text/plain",
+    chosenRows.length
+      ? dataText(visibleFields, chosenRows, "tsv")
+      : cellText(cell.field, cell.row[cell.field.name])
+  );
+}
+function pasteCells(event: ClipboardEvent) {
+  const cell = clipboardCell(event);
+  if (!cell || readonly || changes.busy || !keyed || !event.clipboardData)
+    return;
+  event.preventDefault();
+  try {
+    const loaded = api?.visibleRows ?? shown;
+    const rowStart = loaded.indexOf(cell.row);
+    const columnStart = visibleColumns.indexOf(cell.field.name);
+    const updates = pastedRows(
+      model,
+      loaded.slice(rowStart),
+      visibleColumns.slice(columnStart),
+      event.clipboardData.getData("text/plain")
+    );
+    changes.batch(() => {
+      for (const update of updates) stage(update.row, update.data);
+    });
+  } catch (error) {
+    toast.danger({ title: "Nothing pasted", description: said(error) });
+  }
+}
 
 // Every change of what is asked reads the rows again; a later answer replaces an earlier one, never the reverse.
 const query = $derived.by(() => {
@@ -330,7 +460,7 @@ async function load(current = query) {
 async function download(format: "csv" | "json") {
   const { skip: _skip, take: _take, ...reach } = query;
   try {
-    await exportRows(model.name, reach, format);
+    await exportRows(model.name, { ...reach, columns: visibleFields }, format);
   } catch (error) {
     toast.danger({
       title: "The rows could not be exported",
@@ -670,20 +800,22 @@ function removeRow() {
 
 /** Rows stacked to be deleted; a row still to add is just dropped. */
 function remove(chosen: readonly Row[]) {
-  for (const row of chosen) {
-    const created = marks.get(row)?.created;
-    if (created) changes.remove(created);
-    else
-      changes.delete(
-        model.name,
-        keyOf(model, heldOf(row))!,
-        `${model.name} ${keyText(row)}`
-      );
-  }
+  changes.batch(() => {
+    for (const row of chosen) {
+      const created = marks.get(row)?.created;
+      if (created) changes.remove(created);
+      else
+        changes.delete(
+          model.name,
+          keyOf(model, heldOf(row))!,
+          `${model.name} ${keyText(row)}`
+        );
+    }
+  });
 }
 
-function removeSelected(ids: string[]) {
-  remove(shown.filter((row) => ids.includes(rowId(row))));
+function removeSelected() {
+  remove(chosenRows);
   api?.clearSelection();
 }
 
@@ -738,9 +870,11 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
     {#if readonly}
       <Chip size="small" variant="soft">Read-only</Chip>
     {/if}
-    {#if selected.length && !readonly}
-      <Button size="small" variant="soft" color="danger" prefix={trashIcon} onclick={() => removeSelected(selected)}>
-        {selected.length === 1 ? 'Delete the row' : `Delete ${selected.length} rows`}
+    {#if chosenRows.length && !readonly && keyed}
+      <Button size="small" variant="outline" disabled={changes.busy} onclick={() => bulkEditing = true}>Edit {chosenRows.length}</Button>
+      {#if chosenRows.length === 1}<Button size="small" variant="ghost" prefix={copyIcon} disabled={changes.busy} onclick={() => duplicate(chosenRows[0]!)}>Duplicate</Button>{/if}
+      <Button size="small" variant="soft" color="danger" prefix={trashIcon} disabled={changes.busy} onclick={() => removeSelected()}>
+        {chosenRows.length === 1 ? 'Delete the row' : `Delete ${chosenRows.length} rows`}
       </Button>
     {/if}
     <Popover position="bottom-end" size="large" focusOnOpen="first" theme={{ popover: { size: { large: 'max-w-[44rem] w-[min(44rem,calc(100vw-2rem))] p-4' } } }}>
@@ -781,7 +915,7 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
         {/if}
       {/snippet}
     </Popover>
-    <Button size="small" variant="ghost" squared prefix={arrowsClockwiseIcon} label="Read the rows again" onclick={() => load()} />
+    <Button size="small" variant="ghost" squared prefix={arrowsClockwiseIcon} label="Read the rows again" loading={loading} disabled={loading} onclick={() => load()} />
     <!-- The table as it is, saved as a view in the sidebar; an open view is saved again, renamed or copied. -->
     <Popover position="bottom-end" focusOnOpen="first" theme={{ popover: { base: 'w-80 p-3' } }}>
       {#snippet trigger(popover)}
@@ -808,10 +942,15 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
     </Popover>
     <Popover position="bottom-end">
       {#snippet trigger(popover)}
-        <Button size="small" variant="ghost" squared prefix={downloadSimpleIcon} label="Export the rows" {@attach popover.trigger} />
+        <Button size="small" variant="ghost" squared prefix={downloadSimpleIcon} label="Export the rows" disabled={!visibleFields.length} {@attach popover.trigger} />
       {/snippet}
       {#snippet children(popover)}
         <div class="grid gap-1">
+          <p class="m-0 px-2 pb-1 text-[12px] text-neutral/60">{chosenRows.length ? `${chosenRows.length} selected rows` : 'Current page'} · visible columns</p>
+          <Button size="small" variant="ghost" onclick={() => transferRows('tsv',true)}>Copy for spreadsheet</Button>
+          <Button size="small" variant="ghost" onclick={() => transferRows('json',true)}>Copy as JSON</Button>
+          <Button size="small" variant="ghost" onclick={() => transferRows('csv',false)}>Download CSV</Button>
+          <Button size="small" variant="ghost" onclick={() => transferRows('json',false)}>Download JSON</Button>
           <p class="m-0 px-2 pb-1 text-[12px] text-neutral/60">Every row the filter and search reach</p>
           <Button size="small" variant="ghost" onclick={() => (download('csv'), popover.close())}>Export as CSV</Button>
           <Button size="small" variant="ghost" onclick={() => (download('json'), popover.close())}>Export as JSON</Button>
@@ -819,6 +958,7 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
       {/snippet}
     </Popover>
     {#if !readonly}
+      <Button size="small" variant="ghost" prefix={uploadSimpleIcon} disabled={changes.busy} onclick={() => importing = true}>Import</Button>
       <Button size="small" color="primary" prefix={plusIcon} onclick={() => (editing = {})}>Add row</Button>
     {/if}
   </div>
@@ -895,7 +1035,13 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
 {/snippet}
 
 <!-- Sized to end at the page's footer, the table scrolls within (`fillPage`). -->
-<section bind:this={root} class="relative" aria-label="The rows of {model.name}" {@attach fillPage}>
+<section bind:this={root} class="relative flex min-h-0 flex-col" aria-label="The rows of {model.name}" oncopy={copyCells} onpaste={pasteCells} {@attach fillPage}>
+    {#if failure && rows.length}
+      <div role="alert" class="flex shrink-0 items-center gap-3 border-b border-neutral-muted bg-danger-muted px-4 py-2 text-sm">
+        <span class="min-w-0 flex-1">Refresh failed. Showing previously loaded rows. {said(failure)}</span>
+        <Button size="small" variant="outline" disabled={loading} onclick={() => load()}>Retry</Button>
+      </div>
+    {/if}
     <DataTable
       items={shown}
       {columns}
@@ -903,18 +1049,19 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
       processingMode="manual"
       rowCount={total}
       interactionMode="grid"
-      selectionMode={keyed && !readonly ? 'multiple' : 'none'}
+      selectionMode="multiple"
+      disabled={changes.busy}
       density="compact"
       stickyHeader
       {loading}
-      error={failure}
+      error={rows.length ? null : failure}
       pagination={{ pageSize: 50, showControls: false }}
       onCellCommit={commit}
       canExpand={row => expandable && !marks.get(row)?.created}
       bind:state={tableState}
       bind:api
       theme={{
-        root: { base: 'absolute inset-0 gap-0' },
+        root: { base: 'relative min-h-0 flex-1 gap-0' },
         viewport: { base: 'min-h-0 flex-1 rounded-none border-0' },
         cellContent: { base: 'min-w-0 w-full truncate' },
         // Inherit the table's actual tracks, including resized columns and its flexible spacer.
@@ -1003,7 +1150,7 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
           <Chip size="small" variant="soft">{String(value)}</Chip>
         {:else if field.type === 'boolean' && !field.list}
           <!-- A boolean flips in its cell, one click, saved at once. -->
-          <Switch size="small" label="{columnId} of this row" theme={HIDDEN_LABEL} value={value === true} disabled={readonly || !keyed || !field.updatable} onValueChange={next => toggle(row, columnId, next === true)} />
+          <Switch size="small" label="{columnId} of this row" theme={HIDDEN_LABEL} value={value === true} disabled={readonly || changes.busy || !keyed || !field.updatable} onValueChange={next => toggle(row, columnId, next === true)} />
         {:else if field.id}
           <span class="font-mono text-[12px] text-neutral/75">{display(value)}</span>
         {:else if NUMERIC.has(field.type)}
@@ -1074,6 +1221,8 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
 
 {#if editing}
   {#key editing}
-    <RowDrawer {model} {models} {readonly} row={editing.row} save={saveRow} remove={editing.row && keyed ? removeRow : undefined} close={() => (editing = undefined)} />
+    <RowDrawer {model} {models} readonly={readonly || changes.busy} row={editing.row} seed={editing.seed} save={saveRow} remove={editing.row && keyed ? removeRow : undefined} close={() => (editing = undefined)} />
   {/key}
 {/if}
+{#if importing && !readonly}<ImportRows {model} stage={importData} close={() => importing = false} />{/if}
+{#if bulkEditing && !readonly}<BulkEdit {model} count={chosenRows.length} apply={bulkApply} close={() => bulkEditing = false} />{/if}

@@ -24,18 +24,28 @@ the studio on `http://127.0.0.1:5577` and opens it.
 - **Rows:** a page at a time, searched, filtered (nested AND/OR/NOT groups, through relations,
   values picked by type) and sorted; columns hidden, moved, resized, pinned. A
   relation's cell opens the related rows under the row, and from there in
-  their own table, polymorphic relations included. Export what a filter
-  reaches as CSV or JSON.
+  their own table, polymorphic relations included. Copy a cell or selected rows;
+  download the selection/current page, or export all filtered rows as CSV or
+  JSON. Exports use visible scalar columns in their displayed order. A failed
+  refresh keeps the last rows visible with a retry banner.
 - **Saved views:** a table's filter, search, order, page size and columns
   saved under a name and an icon in the sidebar, kept by the studio per project
   (`~/.viborm/studio`), with the diagram's layout.
 - **Editing:** cells edited in place with an editor of their type (switch,
   calendar, time, select), rows opened or added in a drawer, rows deleted. A
   foreign key is picked from the rows it can point to; a relation links and
-  unlinks rows through nested writes, polymorphic ones included.
+  unlinks rows through nested writes, polymorphic ones included. Select rows to
+  set one field across them, or duplicate one row into the new-row drawer
+  without copying generated, primary-key or unique values.
 - **Stacked changes:** nothing is written as you edit. A bar counts the
   changes; review, drop, or save them (⌘S), every one in one transaction of
-  your client.
+  your client. Undo/redo works per editing action, including an entire paste,
+  import or bulk edit; successive edits of one cell remain separate undo steps.
+  The last 100 undo steps live in the open app; pending changes survive reload.
+- **Import and paste:** preview CSV, TSV or a JSON array before staging new
+  rows (500 rows / 512 KB per import). Paste a TSV rectangle at the focused
+  cell to update loaded rows. Parsing finishes before any changes are staged;
+  the client remains the final validator when saving. See the format below.
 - **Query:** a read built with pickers (filter, order, page, columns,
   relations; counts, sums and averages per group), run through your client as
   you build it, with its rows, the SQL it ran, its trace (spans on a
@@ -64,6 +74,8 @@ the studio on `http://127.0.0.1:5577` and opens it.
   only, with the original read's duration and no per-node timings.
 - **Drift:** a banner when the database differs from the schema, with what
   `viborm push` would change and its SQL.
+- **Keyboard help:** the keyboard button in the sidebar, or ⌘/Ctrl+/, lists
+  navigation, editing, clipboard and undo shortcuts.
 - **⌘K:** go to a model, a view or a row by its key (`user 7`).
 - **Navigation:** clean URLs (`/schema`, `/data/profile`, `/query`,
   `/query/<saved-id>`) with browser Back/Forward and direct-link refresh.
@@ -91,6 +103,27 @@ a refused value shows the client's own message. The server listens on
 The studio's version follows `viborm`'s: it reads the models your client
 holds, so install the release that matches your `viborm` (`@viborm/studio`
 1.6.0 requires `viborm` ~1.6.0). Full guide: https://viborm.dev/docs/studio
+
+## Transferring data
+
+Import uses scalar field names as CSV/TSV headers or JSON object keys. Unknown
+fields and relations are refused. Omit a field to use its default; generated
+values are omitted unless **Use new generated values** is unchecked. JSON
+bigints and decimals must be strings to keep their exact value.
+
+CSV/TSV imports and selection/page downloads use `\N` for null, an empty cell
+for an empty string, and a doubled initial backslash for literal backslashes.
+Quoted cells can contain separators, quotes and line breaks. Clipboard paste
+has no header and starts at the focused cell; it must fit the loaded rows and
+visible editable columns. Native text editors keep their normal clipboard.
+
+The existing **All filtered rows** CSV export keeps its conventional empty
+null cells for compatibility; use JSON for a lossless export/import round trip.
+The export reads the database, while selection/page downloads include staged
+cell values. Neither operation writes data.
+
+The [comparison with Prisma and Drizzle](COMPETITIVE_REVIEW.md) records the
+implemented improvements and the remaining product differences.
 
 ## Developing it
 

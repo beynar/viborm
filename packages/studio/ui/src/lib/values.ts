@@ -142,10 +142,18 @@ export function instantOf(day: Date, seconds: number, previous = ""): string {
  * A draft typed back into the value the API takes. Throws a readable message
  * when the text cannot be one; everything else is the client's to refuse.
  */
+export function parseJson(text: string): unknown {
+  return JSON.parse(text, (_key, value: unknown) => {
+    if (typeof value === "number" && !Number.isFinite(value))
+      throw new Error("JSON numbers must be finite");
+    return value;
+  });
+}
+
 export function parseDraft(field: StudioField, draft: string): unknown {
   if (editsAsJson(field)) {
     try {
-      return JSON.parse(draft);
+      return parseJson(draft);
     } catch {
       throw new Error(`${field.name}: not valid JSON`);
     }
@@ -160,6 +168,8 @@ export function parseDraft(field: StudioField, draft: string): unknown {
       return number;
     }
     case "boolean":
+      if (draft !== "true" && draft !== "false")
+        throw new Error(`${field.name}: expected true or false`);
       return draft === "true";
     case "bigint":
     case "decimal":

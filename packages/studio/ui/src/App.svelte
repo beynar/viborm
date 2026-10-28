@@ -21,6 +21,7 @@ import type { ModelIcon } from "../../src/icons";
 import DriftBanner from "./components/DriftBanner.svelte";
 import ChangesBar from "./components/data/ChangesBar.svelte";
 import IconPicker from "./components/IconPicker.svelte";
+import KeyboardShortcuts from "./components/KeyboardShortcuts.svelte";
 import Palette from "./components/Palette.svelte";
 import ThemeToggle from "./components/ThemeToggle.svelte";
 import {
@@ -333,8 +334,9 @@ const sidebar = $derived<AppShellSidebarProps>({
 
 {#snippet sidebarFooter(sidebar: SidebarApi)}
   <!-- The theme, light or dark; centred in the rail when the sidebar is folded to its icons. -->
-  <div class={['flex items-center gap-1', !(sidebar.open || sidebar.isMobile) && 'justify-center']}>
+  <div class={['flex items-center gap-1', !(sidebar.open || sidebar.isMobile) && 'flex-col justify-center']}>
     <ThemeToggle />
+    <KeyboardShortcuts />
   </div>
 {/snippet}
 

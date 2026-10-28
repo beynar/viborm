@@ -130,7 +130,12 @@ export const keyOf = (model: StudioModel, row: Row): Row | undefined =>
 /** Download every row a page's filter, search and order reach, as a file. */
 export async function exportRows(
   model: string,
-  query: { where?: Where; search?: string; orderBy?: OrderBy[] },
+  query: {
+    where?: Where;
+    search?: string;
+    orderBy?: OrderBy[];
+    columns?: readonly string[];
+  },
   format: "csv" | "json"
 ): Promise<void> {
   const response = await fetch(`/api${at(model, "export")}`, {

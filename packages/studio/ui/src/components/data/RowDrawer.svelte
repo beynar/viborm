@@ -42,6 +42,7 @@ let {
   models,
   readonly = false,
   row,
+  seed,
   save,
   remove,
   close,
@@ -53,6 +54,8 @@ let {
   readonly?: boolean;
   /** The row edited; absent for a new one. */
   row?: Row;
+  /** Initial scalar values for a new row, without treating it as an update. */
+  seed?: Row;
   /** Stacks the row's changes (or the new row) with the changes to save. */
   save: (data: Row) => void;
   /** Stacks the row's deletion. */
@@ -62,10 +65,10 @@ let {
 
 type Draft = { text: string; isNull: boolean };
 const initial = (field: StudioField): Draft =>
-  row
+  row || seed
     ? {
-        text: draftOf(field, row[field.name]),
-        isNull: row[field.name] === null,
+        text: draftOf(field, (row ?? seed)?.[field.name]),
+        isNull: (row ?? seed)?.[field.name] === null,
       }
     : { text: "", isNull: false };
 // The drawer is keyed on its row (`RowsView`): its drafts start from the row it opened with.
@@ -121,7 +124,8 @@ function dataOf(): Row {
     } else if (
       !draft.isNull &&
       draft.text === "" &&
-      (field.optional || field.type !== "string")
+      (field.optional || field.type !== "string") &&
+      !(seed && Object.hasOwn(seed, field.name))
     ) {
       continue;
     }

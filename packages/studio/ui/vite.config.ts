@@ -44,6 +44,8 @@ export default defineConfig({
   root,
   base: "./",
   plugins: [tailwindcss(), svelte(), inlineAssets()],
+  // The embedded production HTML is output, not another development entry.
+  optimizeDeps: { entries: [resolve(root, "index.html")] },
   build: {
     outDir,
     emptyOutDir: true,
