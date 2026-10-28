@@ -89,8 +89,16 @@ export function timeToSeconds(time: string): number | null {
     ? hours! * 3600 + minutes! * 60 + Math.floor(seconds)
     : null;
 }
-export const secondsToTime = (seconds: number) =>
-  `${pad(Math.floor(seconds / 3600))}:${pad(Math.floor(seconds / 60) % 60)}:${pad(seconds % 60)}`;
+const FRACTION = /\.\d+$/;
+/**
+ * The pickers show whole seconds: a time or an instant written from one keeps the fraction of a second it held
+ * (`previous`) while its whole seconds stay the same, so moving an instant to another day changes nothing else.
+ */
+export function secondsToTime(seconds: number, previous = ""): string {
+  const fraction =
+    timeToSeconds(previous) === seconds ? FRACTION.exec(previous)?.[0] : "";
+  return `${pad(Math.floor(seconds / 3600))}:${pad(Math.floor(seconds / 60) % 60)}:${pad(seconds % 60)}${fraction ?? ""}`;
+}
 
 /** An ISO instant as the local day and the seconds into it, and back. */
 export function instantParts(
@@ -104,15 +112,21 @@ export function instantParts(
       date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds(),
   };
 }
-export const instantOf = (day: Date, seconds: number) =>
-  new Date(
+export function instantOf(day: Date, seconds: number, previous = ""): string {
+  const millis =
+    instantParts(previous)?.seconds === seconds
+      ? new Date(previous).getMilliseconds()
+      : 0;
+  return new Date(
     day.getFullYear(),
     day.getMonth(),
     day.getDate(),
     0,
     0,
-    seconds
+    seconds,
+    millis
   ).toISOString();
+}
 
 /**
  * A draft typed back into the value the API takes. Throws a readable message

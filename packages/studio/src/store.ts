@@ -4,7 +4,7 @@
  * takes, in whichever browser. The file says which config it is for.
  */
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -31,18 +31,27 @@ export function projectStore(
       return {};
     }
   };
+  // One write at a time: each reads the file the previous one left, so the views kept while the layout is
+  // (two requests at once) both stay.
+  let writing: Promise<void> = Promise.resolve();
+  const write = async (name: StoredName, value: unknown) => {
+    const kept = { ...(await read()), project, [name]: value };
+    await mkdir(dir, { recursive: true });
+    // Written whole, then moved in place: a reader never sees half of it.
+    const draft = `${file}.${randomUUID()}.tmp`;
+    await writeFile(draft, `${JSON.stringify(kept, null, 2)}\n`);
+    await rename(draft, file);
+    written(name);
+  };
   return {
     async read(name) {
       return (await read())[name];
     },
-    async write(name, value) {
-      const kept = { ...(await read()), project, [name]: value };
-      await mkdir(dir, { recursive: true });
-      // Written whole, then moved in place: a reader never sees half of it.
-      const draft = `${file}.${process.pid}.tmp`;
-      await writeFile(draft, `${JSON.stringify(kept, null, 2)}\n`);
-      await rename(draft, file);
-      written(name);
+    write(name, value) {
+      const next = writing.then(() => write(name, value));
+      // A failed write fails its own request only: the next one still runs.
+      writing = next.catch(() => undefined);
+      return next;
     },
   };
 }

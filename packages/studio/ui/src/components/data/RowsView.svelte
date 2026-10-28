@@ -565,17 +565,24 @@ const unsaved = $derived.by(() => {
   );
 });
 let viewName = $state(untrack(() => view?.name ?? ""));
-function saveView(asNew: boolean, close: () => void) {
+async function saveView(asNew: boolean, close: () => void) {
   const name = viewName.trim();
   if (!name) return;
-  if (view && !asNew) {
-    views.update(view.id, name, stateOf());
-    toast.success({ title: `The view “${name}” was saved` });
-  } else {
-    openView(views.create(name, model.name, stateOf()));
-    toast.success({ title: `The view “${name}” was added to the sidebar` });
+  try {
+    if (view && !asNew) {
+      await views.update(view.id, name, stateOf());
+      toast.success({ title: `The view “${name}” was saved` });
+    } else {
+      openView(await views.create(name, model.name, stateOf()));
+      toast.success({ title: `The view “${name}” was added to the sidebar` });
+    }
+    close();
+  } catch (error) {
+    toast.danger({
+      title: `The view “${name}” could not be kept`,
+      description: error instanceof Error ? error.message : String(error),
+    });
   }
-  close();
 }
 
 const commit = ({ row, columnId, value }: DataTableCellCommit<Row>) =>
@@ -823,14 +830,14 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
 {#snippet instantEditor({ columnId, draft, setDraft, commit: done }: DataTableEditorPayload<Row>)}
   {@const parts = instantParts(String(draft ?? ''))}
   <div class="flex w-full items-center gap-1" onkeydowncapture={enterSaves(done)}>
-    <div class="min-w-0 flex-1"><DateInput size="small" label="{columnId}, day" theme={HIDDEN_LABEL} format="yyyy/mm/dd" closeOnSelect value={parts?.day ?? null} onValueChange={day => setDraft(day ? instantOf(day, parts?.seconds ?? 0) : null)} /></div>
-    <div class="w-[7.5rem] shrink-0"><TimeInput size="small" label="{columnId}, time" theme={HIDDEN_LABEL} format="HH:MM:SS" as="secondSinceMidnight" value={parts?.seconds ?? null} onValueChange={seconds => setDraft(instantOf(parts?.day ?? new Date(), seconds ?? 0))} /></div>
+    <div class="min-w-0 flex-1"><DateInput size="small" label="{columnId}, day" theme={HIDDEN_LABEL} format="yyyy/mm/dd" closeOnSelect value={parts?.day ?? null} onValueChange={day => setDraft(day ? instantOf(day, parts?.seconds ?? 0, String(draft ?? '')) : null)} /></div>
+    <div class="w-[7.5rem] shrink-0"><TimeInput size="small" label="{columnId}, time" theme={HIDDEN_LABEL} format="HH:MM:SS" as="secondSinceMidnight" value={parts?.seconds ?? null} onValueChange={seconds => setDraft(instantOf(parts?.day ?? new Date(), seconds ?? 0, String(draft ?? '')))} /></div>
   </div>
 {/snippet}
 
 <!-- A time of day changed in its cell, to the second. -->
 {#snippet timeEditor({ columnId, draft, setDraft, commit: done }: DataTableEditorPayload<Row>)}
-  <div class="contents" onkeydowncapture={enterSaves(done)}><TimeInput size="small" label={columnId} theme={HIDDEN_LABEL} format="HH:MM:SS" as="secondSinceMidnight" value={timeToSeconds(String(draft ?? ''))} onValueChange={seconds => setDraft(seconds === null ? '' : secondsToTime(seconds))} /></div>
+  <div class="contents" onkeydowncapture={enterSaves(done)}><TimeInput size="small" label={columnId} theme={HIDDEN_LABEL} format="HH:MM:SS" as="secondSinceMidnight" value={timeToSeconds(String(draft ?? ''))} onValueChange={seconds => setDraft(seconds === null ? '' : secondsToTime(seconds, String(draft ?? '')))} /></div>
 {/snippet}
 
 <!-- A foreign key changed in its cell: the rows of the model it points to, found by their text or the value it holds. -->

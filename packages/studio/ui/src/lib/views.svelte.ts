@@ -2,7 +2,6 @@
 // listed in the sidebar. The studio keeps them per project (`~/.viborm/studio`), whatever port it takes and in
 // whichever browser, and tells every open page when they change. Views a browser kept before move there once; a
 // studio that keeps nothing leaves them to the browser.
-import { toast } from "entasis/toast";
 import { keepStored, readStored, type Scope } from "./api";
 import type { Condition } from "./values";
 
@@ -65,24 +64,28 @@ export class Views {
     return this.list.find((view) => view.id === id);
   }
 
-  /** A new view, named, of a model's table as it is now. */
-  create(name: string, model: string, state: ViewState): SavedView {
+  /** A new view, named, of a model's table as it is now; once it is kept. */
+  async create(
+    name: string,
+    model: string,
+    state: ViewState
+  ): Promise<SavedView> {
     const view = { ...state, id: crypto.randomUUID(), name, model };
-    this.#write([...this.list, view]);
+    await this.#write([...this.list, view]);
     return view;
   }
 
   /** The view, renamed, holding the table as it is now. */
-  update(id: string, name: string, state: ViewState): void {
-    this.#write(
+  update(id: string, name: string, state: ViewState): Promise<void> {
+    return this.#write(
       this.list.map((view) =>
         view.id === id ? { ...view, ...state, name } : view
       )
     );
   }
 
-  remove(id: string): void {
-    this.#write(this.list.filter((view) => view.id !== id));
+  remove(id: string): Promise<void> {
+    return this.#write(this.list.filter((view) => view.id !== id));
   }
 
   #readLocal(): SavedView[] {
@@ -94,17 +97,19 @@ export class Views {
     }
   }
 
-  #write(list: SavedView[]): void {
+  /** The list shown at once, and kept; the list before it comes back when the studio could not keep it. */
+  async #write(list: SavedView[]): Promise<void> {
+    const before = this.list;
     this.list = list;
     if (!this.#kept) {
       localStorage.setItem(this.#key, JSON.stringify(list));
       return;
     }
-    keepStored("views", list).catch((error: unknown) =>
-      toast.danger({
-        title: "The views could not be kept",
-        description: error instanceof Error ? error.message : String(error),
-      })
-    );
+    try {
+      await keepStored("views", list);
+    } catch (error) {
+      this.list = before;
+      throw error;
+    }
   }
 }

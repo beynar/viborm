@@ -215,14 +215,14 @@ function destroy() {
           <!-- An instant: its day on a calendar and its time, in the browser's zone; stored as an ISO instant. -->
           {@const parts = instantParts(draft.text)}
           <div class="flex items-center gap-2">
-            <div class="min-w-0 flex-1"><DateInput size="small" label="{field.name}, day" theme={HIDDEN_LABEL} {disabled} readOnly={readonly} format="yyyy/mm/dd" closeOnSelect value={parts?.day ?? null} onValueChange={day => (draft.text = day ? instantOf(day, parts?.seconds ?? 0) : '')} /></div>
-            <div class="w-36 shrink-0"><TimeInput size="small" label="{field.name}, time" theme={HIDDEN_LABEL} {disabled} readOnly={readonly} format="HH:MM:SS" as="secondSinceMidnight" value={parts?.seconds ?? null} onValueChange={seconds => (draft.text = instantOf(parts?.day ?? new Date(), seconds ?? 0))} /></div>
+            <div class="min-w-0 flex-1"><DateInput size="small" label="{field.name}, day" theme={HIDDEN_LABEL} {disabled} readOnly={readonly} format="yyyy/mm/dd" closeOnSelect value={parts?.day ?? null} onValueChange={day => (draft.text = day ? instantOf(day, parts?.seconds ?? 0, draft.text) : '')} /></div>
+            <div class="w-36 shrink-0"><TimeInput size="small" label="{field.name}, time" theme={HIDDEN_LABEL} {disabled} readOnly={readonly} format="HH:MM:SS" as="secondSinceMidnight" value={parts?.seconds ?? null} onValueChange={seconds => (draft.text = instantOf(parts?.day ?? new Date(), seconds ?? 0, draft.text))} /></div>
             {#if !readonly && !disabled}<Button size="small" variant="ghost" type="button" onclick={() => (draft.text = new Date().toISOString())}>Now</Button>{/if}
           </div>
         {:else if field.type === 'date' && !field.list}
           <DateInput size="small" label={field.name} theme={HIDDEN_LABEL} {disabled} readOnly={readonly} format="yyyy/mm/dd" closeOnSelect value={dayToDate(draft.text)} onValueChange={day => (draft.text = day ? dateToDay(day) : '')} />
         {:else if field.type === 'time' && !field.list}
-          <TimeInput size="small" label={field.name} theme={HIDDEN_LABEL} {disabled} readOnly={readonly} format="HH:MM:SS" as="secondSinceMidnight" value={timeToSeconds(draft.text)} onValueChange={seconds => (draft.text = seconds === null ? '' : secondsToTime(seconds))} />
+          <TimeInput size="small" label={field.name} theme={HIDDEN_LABEL} {disabled} readOnly={readonly} format="HH:MM:SS" as="secondSinceMidnight" value={timeToSeconds(draft.text)} onValueChange={seconds => (draft.text = seconds === null ? '' : secondsToTime(seconds, draft.text))} />
         {:else if (field.type === 'int' || field.type === 'number') && !field.list}
           <NumberInput size="small" label={field.name} theme={HIDDEN_LABEL} {disabled} readOnly={readonly} {placeholder} step={field.type === 'int' ? 1 : 0.1} value={draft.text === '' ? null : Number(draft.text)} onValueChange={value => (draft.text = value === null || value === undefined ? '' : String(value))} />
         {:else if editsAsJson(field) || field.type === 'blob'}

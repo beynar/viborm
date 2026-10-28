@@ -176,7 +176,15 @@ async function removeView(view: SavedView) {
   });
   if (!confirmed) return;
   const open = opened?.id === view.id;
-  views?.remove(view.id);
+  try {
+    await views?.remove(view.id);
+  } catch (error) {
+    toast.danger({
+      title: `The view “${view.name}” could not be deleted`,
+      description: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
   if (open) location.hash = `#/data/${encodeURIComponent(view.model)}`;
   toast.success({ title: `The view “${view.name}” was deleted` });
 }

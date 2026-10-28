@@ -111,6 +111,8 @@ function saveLayout(current: readonly Node<TableData>[]) {
 }
 /** The diagram as the schema lays it out: every card back to its column. */
 function resetLayout() {
+  // A move still waiting to be kept would write its places over the reset.
+  clearTimeout(saving);
   held = {};
   if (keptByStudio) keepStored("layout", {}).catch(() => undefined);
   else localStorage.removeItem(LAYOUT_KEY);
