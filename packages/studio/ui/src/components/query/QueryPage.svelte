@@ -12,6 +12,7 @@ import { type PageShellApi, setPageShell } from "entasis/page-shell";
 import { SegmentedControl } from "entasis/segmented-control";
 import { Select } from "entasis/select";
 import { Sidebar, type SidebarApi } from "entasis/sidebar";
+import { Tabbar } from "entasis/tabbar";
 import { TextInput } from "entasis/text-input";
 import { untrack } from "svelte";
 import {
@@ -160,6 +161,24 @@ let answer = $state.raw<{
 }>();
 let failure = $state<string>();
 let tab = $state<"table" | "json" | "sql" | "trace" | "plan" | "code">("table");
+const resultTabsId = $props.id();
+const resultTabs = $derived([
+  { value: "table", label: "Result" },
+  { value: "json", label: "JSON" },
+  {
+    value: "sql",
+    label: `SQL${answer ? ` · ${answer.statements.length}` : ""}`,
+  },
+  {
+    value: "trace",
+    label: `Trace${answer ? ` · ${answer.spans.length}` : ""}`,
+  },
+  { value: "plan", label: "Plan" },
+  { value: "code", label: "Code" },
+]);
+const resultTabIndex = $derived(
+  resultTabs.findIndex((item) => item.value === tab)
+);
 
 /** The captured read and its plans belong to one request and are replaced together. */
 let explained = $state.raw<{
@@ -454,7 +473,7 @@ function chooseFunction(
   <div class="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3 p-4">
     <div class="flex flex-wrap items-center gap-3">
       <Button size="small" variant="ghost" squared prefix={sidebarSimpleIcon} label={editing ? 'Hide the query: the result takes the page' : 'Show the query'} onclick={() => (editing = !editing)} />
-      <SegmentedControl size="small" label="What to show" items={[{ value: 'table', label: 'Result' }, { value: 'json', label: 'JSON' }, { value: 'sql', label: `SQL${answer ? ` · ${answer.statements.length}` : ''}` }, { value: 'trace', label: `Trace${answer ? ` · ${answer.spans.length}` : ''}` }, { value: 'plan', label: 'Plan' }, { value: 'code', label: 'Code' }]} bind:value={tab} />
+      <Tabbar id={resultTabsId} controlsPanels size="small" label="What to show" items={resultTabs} bind:value={tab} />
       {#if answer}
         <span class="text-[12px] text-neutral/60">{counted ? `${counted} · ` : ''}{answer.duration} ms</span>
       {/if}
@@ -466,7 +485,7 @@ function chooseFunction(
         <Button size="small" variant="ghost" prefix={arrowsClockwiseIcon} loading={running || (tab === 'plan' && explaining)} disabled={!built.args} onclick={runAgain}>{tab === 'plan' ? 'Explain again' : 'Run again'}</Button>
       </div>
     </div>
-    <div class={['min-h-0 gap-3 overflow-auto', tab === 'plan' ? 'flex flex-col' : 'grid content-start']}>
+    <div role="tabpanel" id="{resultTabsId}-panel-{resultTabIndex}" aria-labelledby="{resultTabsId}-tab-{resultTabIndex}" tabindex="0" class={['min-h-0 gap-3 overflow-auto', tab === 'plan' ? 'flex flex-col' : 'grid content-start']}>
       <!-- A result the latest query did not replace shows faded under its error. -->
       {#if built.error}
         <Alert color="warning" variant="soft">{#snippet title()}Not ready to run{/snippet}{#snippet description()}{built.error}{/snippet}</Alert>
