@@ -84,6 +84,14 @@ const HIDDEN_LABEL = {
   header: { base: "!absolute sr-only" },
   label: { base: "sr-only" },
 };
+/** The actions at the drawer's foot: pinned to its bottom edge, in view however long the row. */
+const DRAWER = {
+  // No padding under the foot: what scrolls behind it would show there.
+  content: { base: "pb-0" },
+  footer: {
+    base: "sticky bottom-0 mt-auto border-t border-neutral-muted bg-surface-floating py-md",
+  },
+};
 /** A field an existing row keeps: its generated key, or a `.now()` creation timestamp. */
 const readOnly = (field: StudioField) =>
   row !== undefined &&
@@ -144,6 +152,7 @@ function destroy() {
   title={row ? `${model.name} ${keyText}` : `New ${model.name}`}
   description={readonly ? 'The studio is read-only.' : row ? 'Changed columns join the changes to save.' : 'Left empty, a column takes its default. The row joins the changes to save.'}
   onAfterClose={close}
+  theme={DRAWER}
 >
   {#if failure}
     <div class="mb-4">
@@ -225,7 +234,7 @@ function destroy() {
     {/each}
   </form>
   {#snippet footer()}
-    <div class="flex w-full items-center gap-2 border-t border-neutral-muted pt-4">
+    <div class="flex w-full items-center gap-2">
       {#if remove && !readonly}<Button variant="soft" color="danger" prefix={trashIcon} onclick={destroy}>Delete</Button>{/if}
       <span class="flex-1"></span>
       {#if readonly}
