@@ -18,7 +18,7 @@ export type TableData = {
   import { linkSimpleIcon } from 'entasis/icons/linkSimple'
   import { tooltip } from 'entasis/tooltip'
   import { CARD_HEADER, CARD_ROW, CARD_WIDTH, columnAnchor, handleOf, relationAnchor } from '../../lib/diagram'
-  import { TYPE_ICONS } from '../../lib/icons'
+  import { TYPE_COLORS, TYPE_ICONS } from '../../lib/icons'
   import { MODEL_ICON } from '../../lib/model-icons'
   import { TYPE_LABELS } from '../../lib/values'
   import { modelHref } from '../../router'
@@ -65,7 +65,7 @@ export type TableData = {
             <span {@attach tooltip({ content: `Holds a key of ${target}` })}>{@render linkSimpleIcon({ size: 14 })}</span>
           {/if}
         </span>
-        <span class="type" {@attach tooltip({ content: TYPE_LABELS[field.type] })}>{@render TYPE_ICONS[field.type]({ size: 14 })}</span>
+        <span class={["type", TYPE_COLORS[field.type]]} {@attach tooltip({ content: TYPE_LABELS[field.type] })}>{@render TYPE_ICONS[field.type]({ size: 14 })}</span>
         <span class="field">{field.name}{#if field.list}<span class="optional">[]</span>{/if}{#if field.nullable}<span class="optional" {@attach tooltip({ content: 'Nullable' })}>?</span>{/if}</span>
         {#if field.unique && !field.id}
           <span class="unique" {@attach tooltip({ content: 'Unique: no two rows hold the same value' })}>{@render fingerprintIcon({ size: 14 })}</span>
@@ -127,7 +127,7 @@ export type TableData = {
   li.key { font-weight: 600; }
   .relations li { color: color-mix(in oklab, var(--color-neutral) 60%, transparent); font-style: italic; }
   .mark { display: inline-flex; width: 14px; color: var(--color-link); }
-  .type { display: inline-flex; color: color-mix(in oklab, var(--color-neutral) 55%, transparent); }
+  .type { display: inline-flex; }
   .field { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .optional { margin-left: 2px; color: color-mix(in oklab, var(--color-neutral) 45%, transparent); font-weight: 400; }
   .unique { display: inline-flex; color: var(--color-link); }

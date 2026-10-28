@@ -20,7 +20,7 @@ import {
   type StudioField,
   type StudioModel,
 } from "../../lib/api";
-import { TYPE_ICONS } from "../../lib/icons";
+import { TYPE_COLORS, TYPE_ICONS } from "../../lib/icons";
 import {
   dateToDay,
   dayToDate,
@@ -171,7 +171,7 @@ function destroy() {
       {@const pointed = foreignKeyOf(model, models, field)}
       <div class="grid gap-1.5">
         <div class="flex items-center gap-2 text-[13px]">
-          <span class="inline-flex text-neutral/55">{@render TYPE_ICONS[field.type]({ size: 14 })}</span>
+          <span class={["inline-flex", TYPE_COLORS[field.type]]}>{@render TYPE_ICONS[field.type]({ size: 14 })}</span>
           <span class="font-medium">{field.name}</span>
           <span class="font-mono text-[11px] text-neutral/50">{typeLabel(field)}</span>
           {#if !readonly && readOnly(field)}<span class="text-[11px] text-neutral/50 italic">{field.updatable ? 'generated' : 'set on create'}</span>{/if}

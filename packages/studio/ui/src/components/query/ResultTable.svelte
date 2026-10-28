@@ -7,7 +7,7 @@ import { functionIcon } from "entasis/icons/function";
 import { linkSimpleIcon } from "entasis/icons/linkSimple";
 import type { Attachment } from "svelte/attachments";
 import type { StudioField, StudioModel, StudioRelation } from "../../lib/api";
-import { TYPE_ICONS } from "../../lib/icons";
+import { TYPE_COLORS, TYPE_ICONS } from "../../lib/icons";
 import { computedColumn } from "../../lib/query-builder";
 import {
   dayText,
@@ -279,7 +279,7 @@ const FRAMED = $derived(
       {@const described = byId.get(column.id)}
       <span class="inline-flex min-w-0 items-center gap-1.5">
         {#if described?.field}
-          <span class="inline-flex shrink-0 text-neutral/45">{@render TYPE_ICONS[described.field.type]({ size: 12 })}</span>
+          <span class={["inline-flex shrink-0", TYPE_COLORS[described.field.type]]}>{@render TYPE_ICONS[described.field.type]({ size: 12 })}</span>
         {:else if described?.kind === 'computed'}
           <span class="inline-flex shrink-0 text-primary/70">{@render functionIcon({ size: 12 })}</span>
         {:else if described?.kind === 'relation'}
