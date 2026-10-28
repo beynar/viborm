@@ -179,10 +179,14 @@ describe("viborm-studio", () => {
     const running = runStudio(options({ readonly: true }));
     const url = await serving();
     expect(printed()).toContain("(sqlite, 1 models, read-only)");
-    const refused = await fetch(`${url}/api/models/note/create`, {
+    const refused = await fetch(`${url}/api/changes`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ data: { id: 1, text: "x" } }),
+      body: JSON.stringify({
+        changes: [
+          { model: "note", action: "create", data: { id: 1, text: "x" } },
+        ],
+      }),
     });
     expect(refused.status).toBe(403);
     stop();

@@ -5,6 +5,7 @@ import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
   createStudioApi,
+  MAX_CHANGES,
   MAX_EXPORT_ROWS,
   MAX_PAGE_SIZE,
   toCsv,
@@ -77,6 +78,12 @@ const api = createStudioApi({ client, models: schema, dialect: "sqlite" });
 
 const call = (method: string, path: string, body?: unknown) =>
   api.handle({ method, path, body });
+/** One change saved on its own. */
+const write = (
+  model: string,
+  action: string,
+  change: Record<string, unknown> = {}
+) => call("POST", "/changes", { changes: [{ model, action, ...change }] });
 const FIRST_POST_LINE = /^1,Engines,4\.5,\d{4}-/;
 const errorCode = (response: { body: unknown }) =>
   (response.body as { error: { code: string } }).error.code;
@@ -324,23 +331,20 @@ describe("browsing", () => {
 
 describe("editing", () => {
   test("create, update and delete go through the client", async () => {
-    const created = await call("POST", "/models/tag/create", {
-      data: { label: "draft" },
+    expect(
+      (await write("tag", "create", { data: { label: "draft" } })).status
+    ).toBe(200);
+    const { id } = (await client.tag.findFirst({ where: { label: "draft" } }))!;
+    await write("tag", "update", { key: { id }, data: { label: "final" } });
+    expect(await client.tag.findUnique({ where: { id } })).toMatchObject({
+      label: "final",
     });
-    expect(created.status).toBe(200);
-    const { id } = (created.body as { row: { id: number } }).row;
-    const updated = await call("POST", "/models/tag/update", {
-      key: { id },
-      data: { label: "final" },
-    });
-    expect(updated.body).toMatchObject({ row: { id, label: "final" } });
-    const deleted = await call("POST", "/models/tag/delete", { key: { id } });
-    expect(deleted.body).toMatchObject({ row: { id, label: "final" } });
+    await write("tag", "delete", { key: { id } });
     expect(await client.tag.findUnique({ where: { id } })).toBeNull();
   });
 
   test("text forms of bigint, decimal and bytes are typed for the client", async () => {
-    const updated = await call("POST", "/models/user/update", {
+    const updated = await write("user", "update", {
       key: { id: 2 },
       data: { karma: "9007199254740993", avatar: "AAEC" },
     });
@@ -348,30 +352,111 @@ describe("editing", () => {
     const row = await client.user.findUnique({ where: { id: 2 } });
     expect(row?.karma).toBe(9_007_199_254_740_993n);
     expect(row?.avatar).toEqual(new Uint8Array([0, 1, 2]));
-    const rated = await call("POST", "/models/post/update", {
-      key: { id: 3 },
-      data: { rating: "3.25" },
-    });
-    expect(
-      String((rated.body as { row: { rating: unknown } }).row.rating)
-    ).toBe("3.25");
+    await write("post", "update", { key: { id: 3 }, data: { rating: "3.25" } });
+    const rated = await client.post.findUnique({ where: { id: 3 } });
+    expect(String(rated?.rating)).toBe("3.25");
   });
 
   test("a compound key addresses its row through the named selector", async () => {
-    const updated = await call("POST", "/models/membership/update", {
+    await write("membership", "update", {
       key: { orgId: 1, memberId: 2 },
       data: { title: "Admin" },
     });
-    expect(updated.body).toMatchObject({ row: { title: "Admin" } });
+    const membership = await client.membership.findUnique({
+      where: { orgId_memberId: { orgId: 1, memberId: 2 } },
+    });
+    expect(membership?.title).toBe("Admin");
   });
 
   test("defaults and generators fill what a create leaves out", async () => {
-    const created = await call("POST", "/models/user/create", {
+    await write("user", "create", {
       data: { email: "cy@example.com", name: "Cy" },
     });
-    expect(created.body).toMatchObject({
-      row: { role: "reader", karma: 0n, _count: { posts: 0 } },
+    expect(
+      await client.user.findUnique({ where: { email: "cy@example.com" } })
+    ).toMatchObject({ role: "reader", karma: 0n });
+  });
+});
+
+describe("saving stacked changes", () => {
+  const labels = async () =>
+    (
+      (await call("POST", "/models/tag/rows", { take: 500 })).body as {
+        rows: { label: string }[];
+      }
+    ).rows.map((row) => row.label);
+
+  test("writes every change in its order, in one transaction", async () => {
+    const response = await call("POST", "/changes", {
+      changes: [
+        { model: "tag", action: "create", data: { label: "staged-a" } },
+        { model: "tag", action: "create", data: { label: "staged-b" } },
+      ],
     });
+    expect(response).toEqual({ status: 200, body: { saved: 2 } });
+    const created = (
+      (
+        await call("POST", "/models/tag/rows", {
+          where: { label: { startsWith: "staged-" } },
+        })
+      ).body as { rows: { id: number; label: string }[] }
+    ).rows;
+    const [a, b] = created.map((row) => row.id);
+    const second = await call("POST", "/changes", {
+      changes: [
+        {
+          model: "tag",
+          action: "update",
+          key: { id: a },
+          data: { label: "staged-c" },
+        },
+        { model: "tag", action: "delete", key: { id: b } },
+      ],
+    });
+    expect(second.status).toBe(200);
+    expect(
+      (await labels()).filter((label) => label.startsWith("staged-"))
+    ).toEqual(["staged-c"]);
+  });
+
+  test("writes none when one fails, and says which", async () => {
+    const before = await labels();
+    const response = await call("POST", "/changes", {
+      changes: [
+        { model: "tag", action: "create", data: { label: "never-kept" } },
+        { model: "tag", action: "create", data: { label: "never-kept" } },
+      ],
+    });
+    expect(response.status).toBe(409);
+    expect((response.body as { error: { at: number } }).error.at).toBe(1);
+    expect(await labels()).toEqual(before);
+  });
+
+  test("checks every change before writing any", async () => {
+    for (const [changes, code, at] of [
+      [[{ model: "nope", action: "create" }], "unknown_model", 0],
+      [[{ model: 3, action: "create" }], "unknown_model", 0],
+      [[{ model: "tag", action: "create", data: {} }, 3], "invalid_change", 1],
+      [[{ model: "tag", action: "upsert" }], "invalid_action", 0],
+      [[{ model: "tag", action: "delete", key: {} }], "invalid_key", 0],
+    ] as const) {
+      const response = await call("POST", "/changes", { changes });
+      expect([
+        errorCode(response),
+        (response.body as { error: { at: number } }).error.at,
+      ]).toEqual([code, at]);
+    }
+    for (const body of [
+      [],
+      {},
+      { changes: "all" },
+      { changes: Array.from({ length: MAX_CHANGES + 1 }, () => ({})) },
+    ]) {
+      expect(errorCode(await call("POST", "/changes", body))).toBe(
+        "invalid_changes"
+      );
+    }
+    expect((await call("GET", "/changes")).status).toBe(405);
   });
 });
 
@@ -388,9 +473,7 @@ describe("refusals", () => {
   });
 
   test("a row without a key cannot be updated or deleted", async () => {
-    const response = await call("POST", "/models/reading/delete", {
-      key: { value: 7 },
-    });
+    const response = await write("reading", "delete", { key: { value: 7 } });
     expect([response.status, errorCode(response)]).toEqual([400, "no_key"]);
   });
 
@@ -419,7 +502,7 @@ describe("refusals", () => {
       orderBy: { nope: "asc" },
     });
     expect(order.status).toBe(400);
-    const data = await call("POST", "/models/user/create", {
+    const data = await write("user", "create", {
       data: { email: "x@example.com" },
     });
     expect(data.status).toBe(400);
@@ -427,7 +510,7 @@ describe("refusals", () => {
       orderBy: ["name"],
     });
     expect(listed.status).toBe(400);
-    const shapeless = await call("POST", "/models/user/create", { data: 1 });
+    const shapeless = await write("user", "create", { data: 1 });
     expect([shapeless.status, errorCode(shapeless)]).toEqual([
       400,
       "invalid_data",
@@ -436,25 +519,23 @@ describe("refusals", () => {
 
   test("an update or delete names exactly one row by its key", async () => {
     for (const key of [undefined, { id: 1, email: "ada@example.com" }, {}, 1]) {
-      const response = await call("POST", "/models/user/delete", { key });
+      const response = await write("user", "delete", { key });
       expect([response.status, errorCode(response)]).toEqual([
         400,
         "invalid_key",
       ]);
     }
-    const missing = await call("POST", "/models/user/delete", {
-      key: { id: 999 },
-    });
+    const missing = await write("user", "delete", { key: { id: 999 } });
     expect(missing.status).toBe(404);
   });
 
   test("bytes must be base64 and constraint failures are conflicts", async () => {
-    const bytes = await call("POST", "/models/user/update", {
+    const bytes = await write("user", "update", {
       key: { id: 1 },
       data: { avatar: "not base64!" },
     });
     expect([bytes.status, errorCode(bytes)]).toEqual([400, "invalid_data"]);
-    const duplicate = await call("POST", "/models/user/update", {
+    const duplicate = await write("user", "update", {
       key: { id: 2 },
       data: { email: "ada@example.com" },
     });
@@ -593,9 +674,8 @@ describe("failures the client raises", () => {
   const failing = (thrown: unknown) =>
     createStudioApi({
       client: {
-        tag: {
-          create: () => Promise.reject(thrown),
-        },
+        $transaction: (run: (tx: object) => Promise<void>) =>
+          run({ tag: { create: () => Promise.reject(thrown) } }),
       },
       models: schema,
       dialect: "sqlite",
@@ -610,12 +690,12 @@ describe("failures the client raises", () => {
   ] as const)("a %s error answers %i with its code and message", async (code, status) => {
     const response = await failing(coded(code)).handle({
       method: "POST",
-      path: "/models/tag/create",
-      body: { data: {} },
+      path: "/changes",
+      body: { changes: [{ model: "tag", action: "create", data: {} }] },
     });
     expect(response).toEqual({
       status,
-      body: { error: { code, message: `failed ${code}` } },
+      body: { error: { code, message: `failed ${code}`, at: 0 } },
     });
   });
 
@@ -626,12 +706,12 @@ describe("failures the client raises", () => {
     ] as const) {
       const response = await failing(thrown).handle({
         method: "POST",
-        path: "/models/tag/create",
-        body: { data: {} },
+        path: "/changes",
+        body: { changes: [{ model: "tag", action: "create", data: {} }] },
       });
       expect(response).toEqual({
         status: 500,
-        body: { error: { code: "internal", message } },
+        body: { error: { code: "internal", message, at: 0 } },
       });
     }
   });
@@ -743,11 +823,8 @@ describe("read-only", () => {
     expect((await ask("/models/tag/export")).status).toBe(200);
   });
 
-  test.each(["create", "update", "delete"])("refuses to %s", async (action) => {
-    const response = await ask(`/models/tag/${action}`, {
-      data: { label: "x" },
-      key: { id: 1 },
-    });
+  test("refuses to save changes", async () => {
+    const response = await ask("/changes", { changes: [] });
     expect([response.status, errorCode(response)]).toEqual([403, "read_only"]);
   });
 });

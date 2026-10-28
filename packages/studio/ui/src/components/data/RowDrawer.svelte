@@ -3,7 +3,6 @@ import { Alert } from "entasis/alert";
 import { Button } from "entasis/button";
 import { Checkbox } from "entasis/checkbox";
 import { Combobox } from "entasis/combobox";
-import { confirmation } from "entasis/confirmation";
 import { DateInput } from "entasis/date-input";
 import { Dialog } from "entasis/dialog";
 import { trashIcon } from "entasis/icons/trash";
@@ -54,8 +53,10 @@ let {
   readonly?: boolean;
   /** The row edited; absent for a new one. */
   row?: Row;
-  save: (data: Row) => Promise<void>;
-  remove?: () => Promise<void>;
+  /** Stacks the row's changes (or the new row) with the changes to save. */
+  save: (data: Row) => void;
+  /** Stacks the row's deletion. */
+  remove?: () => void;
   close: () => void;
 } = $props();
 
@@ -76,7 +77,6 @@ let drafts = $state<Record<string, Draft>>(
   )
 );
 let failure = $state<string>();
-let busy = $state(false);
 let open = $state(true);
 
 // The label is read by assistive technology only: its header leaves the layout too, so no empty row spaces the control.
@@ -122,38 +122,19 @@ function dataOf(): Row {
   return data;
 }
 
-async function submit() {
+function submit() {
   failure = undefined;
-  busy = true;
   try {
-    await save(dataOf());
+    save(dataOf());
     open = false;
   } catch (error) {
     failure = error instanceof Error ? error.message : String(error);
-  } finally {
-    busy = false;
   }
 }
 
-async function destroy() {
-  if (!remove) return;
-  const { confirmed } = await confirmation({
-    title: `Delete this ${model.name}?`,
-    description: "The row is deleted through your client. It cannot be undone.",
-    confirm: { text: "Delete", color: "danger" },
-    cancel: "Cancel",
-  });
-  if (!confirmed) return;
-  failure = undefined;
-  busy = true;
-  try {
-    await remove();
-    open = false;
-  } catch (error) {
-    failure = error instanceof Error ? error.message : String(error);
-  } finally {
-    busy = false;
-  }
+function destroy() {
+  remove?.();
+  open = false;
 }
 </script>
 
@@ -161,7 +142,7 @@ async function destroy() {
   bind:open
   type="drawerRight"
   title={row ? `${model.name} ${keyText}` : `New ${model.name}`}
-  description={readonly ? 'The studio is read-only.' : row ? 'Changed columns are saved through your client.' : 'Left empty, a column takes its default.'}
+  description={readonly ? 'The studio is read-only.' : row ? 'Changed columns join the changes to save.' : 'Left empty, a column takes its default. The row joins the changes to save.'}
   onAfterClose={close}
 >
   {#if failure}
@@ -244,13 +225,13 @@ async function destroy() {
   </form>
   {#snippet footer()}
     <div class="flex w-full items-center gap-2 border-t border-neutral-muted pt-4">
-      {#if remove && !readonly}<Button variant="soft" color="danger" prefix={trashIcon} disabled={busy} onclick={destroy}>Delete</Button>{/if}
+      {#if remove && !readonly}<Button variant="soft" color="danger" prefix={trashIcon} onclick={destroy}>Delete</Button>{/if}
       <span class="flex-1"></span>
       {#if readonly}
         <Button variant="ghost" onclick={() => (open = false)}>Close</Button>
       {:else}
         <Button variant="ghost" onclick={() => (open = false)}>Cancel</Button>
-        <Button color="primary" loading={busy} onclick={() => submit()}>{row ? 'Save' : 'Create'}</Button>
+        <Button color="primary" onclick={() => submit()}>{row ? 'Done' : 'Add the row'}</Button>
       {/if}
     </div>
   {/snippet}

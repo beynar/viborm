@@ -1,11 +1,12 @@
 <script lang="ts">
 import { Button } from "entasis/button";
+import { Chip } from "entasis/chip";
 import { Combobox } from "entasis/combobox";
 import { arrowRightIcon } from "entasis/icons/arrowRight";
 import { linkBreakIcon } from "entasis/icons/linkBreak";
+import { xIcon } from "entasis/icons/x";
 import { ScrollArea } from "entasis/scroll-area";
 import { Skeleton } from "entasis/skeleton";
-import { toast } from "entasis/toast";
 import {
   keyOf,
   type Row,
@@ -14,8 +15,8 @@ import {
   type Scope,
   type StudioModel,
   type StudioRelation,
-  updateRow,
 } from "../../lib/api";
+import type { Changes } from "../../lib/changes.svelte";
 import {
   display,
   isReached,
@@ -26,8 +27,8 @@ import {
 // A row's related rows, under it, as Pyxel's `RelatedRows` opens them: one button per relation and what it holds
 // beside its name, then the first rows of the relation chosen, read through the client with the filter that
 // follows it (`relatedScopes`; one per variant for a polymorphic collection), and a link to see them all in their own table. A relation the row does not hold the
-// key of is linked here too: a row connected, or one disconnected, through the client's nested writes. A relation
-// changed reads them again; a later answer replaces an earlier one, never the reverse.
+// key of is linked here too: a row connected, or one disconnected, through the client's nested writes, stacked with
+// the other changes until they are saved. A later answer replaces an earlier one, never the reverse.
 let {
   models,
   model,
@@ -36,7 +37,7 @@ let {
   active,
   onActive,
   navigate,
-  onChanged,
+  changes,
 }: {
   models: readonly StudioModel[];
   model: StudioModel;
@@ -46,8 +47,8 @@ let {
   active: string;
   onActive: (relation: string) => void;
   navigate: (model: string, scope?: Scope) => void;
-  /** The row's relations changed: the table reads it again. */
-  onChanged: () => void;
+  /** Where a link or an unlink is stacked until it is saved. */
+  changes: Changes;
 } = $props();
 
 /** The rows of a relation shown under a row; the rest open in their own table. */
@@ -175,25 +176,33 @@ $effect(() => {
   }
 });
 
-/** Link or unlink one row of the relation, as a nested write on this row; then both read again. */
-async function change(write: Record<string, unknown>, done: string) {
-  if (!(relation && target && scope && model.key)) return;
-  // The table reads the row again and redraws this panel: a field still focused would write its state as it goes
-  // (entasis's `state_unsafe_mutation`, as `RowsView`'s editors), so focus leaves it first.
+/** Link or unlink one row of the relation: a nested write on this row, stacked until the changes are saved. */
+function change(write: Record<string, unknown>, done: string) {
+  if (!(relation && model.key)) return;
+  // The panel redraws: a field still focused would write its state as it goes (entasis's `state_unsafe_mutation`,
+  // as `RowsView`'s editors), so focus leaves it first.
   if (document.activeElement instanceof HTMLElement)
     document.activeElement.blur();
-  try {
-    await updateRow(model.name, keyOf(model, row)!, { [relation.name]: write });
-    toast.success({ title: done });
-    await load(target, scope.where);
-    onChanged();
-  } catch (error) {
-    toast.danger({
-      title: "The client refused this change",
-      description: error instanceof Error ? error.message : String(error),
-    });
-  }
+  changes.nested(
+    model.name,
+    keyOf(model, row)!,
+    { [relation.name]: write },
+    done
+  );
 }
+/** The links and unlinks stacked for this row's relation shown, which the rows above do not show yet. */
+const staged = $derived(
+  relation
+    ? changes.list.filter(
+        (entry) =>
+          entry.nested &&
+          entry.model === model.name &&
+          JSON.stringify(entry.key) === JSON.stringify(keyOf(model, row)) &&
+          entry.data !== undefined &&
+          relation.name in entry.data
+      )
+    : []
+);
 const keyWhere = (value: string) => {
   const field = target!.fields.find(
     (candidate) => candidate.name === target!.key!.fields[0]
@@ -275,6 +284,18 @@ let picked = $state<string | null>(null);
           </tbody>
         </table>
       </ScrollArea>
+    {/if}
+    {#if staged.length}
+      <!-- Stacked, not yet written: the rows above show the database as it is. -->
+      <div class="flex flex-wrap items-center gap-1">
+        <span class="text-[12px] text-neutral/60">Not saved yet:</span>
+        {#each staged as entry (entry.id)}
+          <Chip size="small" variant="soft" color="warning">
+            {entry.label}
+            <Button size="small" variant="ghost" squared prefix={xIcon} label="Drop “{entry.label}”" onclick={() => changes.remove(entry.id)} />
+          </Chip>
+        {/each}
+      </div>
     {/if}
     <div class="foot">
       {#if links && (relation.cardinality === 'many' || !answer.rows.length)}

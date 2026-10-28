@@ -24,9 +24,13 @@ the studio on `http://127.0.0.1:5577` and opens it.
   reaches as CSV or JSON.
 - **Saved views:** a table's filter, search, order and page size saved under
   a name in the sidebar, kept in your browser per project.
-- **Editing:** cells edited in place, rows opened or added in a drawer,
-  deleted after a confirmation. A foreign key is picked from the rows it can
-  point to; a to-many relation links and unlinks rows through nested writes.
+- **Editing:** cells edited in place with an editor of their type (switch,
+  calendar, time, select), rows opened or added in a drawer, rows deleted. A
+  foreign key is picked from the rows it can point to; a to-many relation links
+  and unlinks rows through nested writes.
+- **Stacked changes:** nothing is written as you edit. A bar counts the
+  changes; review, drop, or save them, every one in one transaction of your
+  client.
 - **Live:** the studio watches your config and every project file it imports.
   Save your schema and the diagram and the rows reload; a save that does not
   load keeps the previous schema and says why.

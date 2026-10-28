@@ -55,11 +55,22 @@ export interface StudioApiOptions {
   readonly project?: string;
 }
 
+/** The most changes one save sends. */
+export const MAX_CHANGES = 1000;
 /** The largest page one request may read. */
 export const MAX_PAGE_SIZE = 500;
 /** The most rows one export writes. */
 export const MAX_EXPORT_ROWS = 100_000;
 const DEFAULT_PAGE_SIZE = 50;
+
+/** One change of a save, refused or failed: which one, by its place in the list. */
+class ChangeFailure extends Error {
+  readonly at: number;
+  constructor(at: number, cause: unknown) {
+    super("A change failed", { cause });
+    this.at = at;
+  }
+}
 
 class Refusal extends Error {
   readonly status: number;
@@ -74,7 +85,7 @@ class Refusal extends Error {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const ROUTE = /^\/models\/([^/]+)\/(rows|export|create|update|delete)$/;
+const ROUTE = /^\/models\/([^/]+)\/(rows|export)$/;
 
 export function createStudioApi(options: StudioApiOptions) {
   const schema: StudioDescription = {
@@ -93,6 +104,10 @@ export function createStudioApi(options: StudioApiOptions) {
       if (request.method !== "GET") throw methodNotAllowed();
       return schema;
     }
+    if (request.path === "/changes") {
+      if (request.method !== "POST") throw methodNotAllowed();
+      return saveChanges(request.body);
+    }
     const match = ROUTE.exec(request.path);
     if (!match) throw new Refusal(404, "not_found", "Unknown studio route");
     if (request.method !== "POST") throw methodNotAllowed();
@@ -106,41 +121,99 @@ export function createStudioApi(options: StudioApiOptions) {
       throw new Refusal(400, "invalid_body", "The body must be a JSON object");
     }
     const delegate = delegateOf(model);
-    const action = match[2]!;
-    if (schema.readonly && action !== "rows" && action !== "export") {
+    return match[2] === "rows"
+      ? readRows(model, delegate, body, select(model))
+      : exportRows(model, delegate, body);
+  }
+
+  /**
+   * The changes the member stacked, written in their order in one transaction
+   * of the client: every one of them, or none. Each is checked before any is
+   * written; a failure names the change by its place in the list (`at`).
+   */
+  async function saveChanges(body: unknown) {
+    if (schema.readonly) {
       throw new Refusal(
         403,
         "read_only",
         "The studio was started with --readonly: it does not write"
       );
     }
-    switch (action) {
-      case "rows":
-        return readRows(model, delegate, body, select(model));
-      case "export":
-        return exportRows(model, delegate, body);
+    const changes = isRecord(body) ? body.changes : undefined;
+    if (!Array.isArray(changes) || changes.length > MAX_CHANGES) {
+      throw new Refusal(
+        400,
+        "invalid_changes",
+        `changes must be a list of at most ${MAX_CHANGES} changes`
+      );
+    }
+    const planned = changes.map((change, at) => {
+      try {
+        return planChange(change);
+      } catch (error) {
+        throw new ChangeFailure(at, error);
+      }
+    });
+    const transaction = Reflect.get(options.client, "$transaction") as (
+      run: (tx: object) => Promise<void>
+    ) => Promise<void>;
+    await transaction.call(options.client, async (tx) => {
+      for (const [at, change] of planned.entries()) {
+        const delegate = Reflect.get(tx, change.model.name) as ModelDelegate;
+        try {
+          await delegate[change.action]({
+            ...change.args,
+            select: scalarSelection(change.model),
+          });
+        } catch (error) {
+          throw new ChangeFailure(at, error);
+        }
+      }
+    });
+    return { saved: planned.length };
+  }
+
+  function planChange(change: unknown) {
+    if (!isRecord(change)) {
+      throw new Refusal(400, "invalid_change", "A change must be an object");
+    }
+    const model =
+      typeof change.model === "string" ? byName.get(change.model) : undefined;
+    if (!model) {
+      throw new Refusal(
+        404,
+        "unknown_model",
+        `Unknown model "${String(change.model)}"`
+      );
+    }
+    switch (change.action) {
       case "create":
         return {
-          row: await delegate.create({
-            data: decodeData(model, body.data),
-            select: select(model),
-          }),
+          model,
+          action: "create" as const,
+          args: { data: decodeData(model, change.data) },
         };
       case "update":
         return {
-          row: await delegate.update({
-            where: uniqueWhere(model, body.key),
-            data: decodeData(model, body.data),
-            select: select(model),
-          }),
+          model,
+          action: "update" as const,
+          args: {
+            where: uniqueWhere(model, change.key),
+            data: decodeData(model, change.data),
+          },
+        };
+      case "delete":
+        return {
+          model,
+          action: "delete" as const,
+          args: { where: uniqueWhere(model, change.key) },
         };
       default:
-        return {
-          row: await delegate.delete({
-            where: uniqueWhere(model, body.key),
-            select: scalarSelection(model),
-          }),
-        };
+        throw new Refusal(
+          400,
+          "invalid_action",
+          'A change\'s action is "create", "update" or "delete"'
+        );
     }
   }
 
@@ -439,6 +512,11 @@ function decodeData(model: StudioModel, data: unknown) {
  * its class: the client may come from the application's own copy of VibORM.
  */
 function failure(error: unknown): StudioResponse {
+  if (error instanceof ChangeFailure) {
+    const { status, body } = failure(error.cause);
+    const { error: said } = body as { error: Record<string, unknown> };
+    return { status, body: { error: { ...said, at: error.at } } };
+  }
   if (error instanceof Refusal) {
     return {
       status: error.status,

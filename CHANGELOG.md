@@ -23,9 +23,13 @@ through your own client, in a new package, `@viborm/studio`.
     export of what a filter reaches;
   - saved views: a table's filter, search, order and page size, named and
     listed in the sidebar;
-  - editing through the client: cells in place, a row drawer, a foreign-key
-    picker, related rows linked and unlinked through nested writes, deletes
-    after a confirmation, the client's own message on a refusal.
+  - editing through the client: cells in place with an editor of their type
+    (switch, calendar, time, select), a row drawer, a foreign-key picker,
+    related rows linked and unlinked through nested writes;
+  - changes stacked, not written as you edit: reviewed, dropped, or saved
+    together in one transaction of the client, all or none, a refused one
+    named with the client's own message;
+  - an "Aa" toggle that ignores case in search and text conditions;
 
   It watches the config and every project file it imports: a saved schema
   reloads the page, a broken one keeps the previous schema and says why.

@@ -13,10 +13,12 @@ import type { SidebarApi } from "entasis/sidebar";
 import { Theme } from "entasis/theme";
 import { Toaster, toast } from "entasis/toast";
 import { onMount } from "svelte";
+import ChangesBar from "./components/data/ChangesBar.svelte";
 import RowsView from "./components/data/RowsView.svelte";
 import SchemaDiagram from "./components/schema/SchemaDiagram.svelte";
 import ThemeToggle from "./components/ThemeToggle.svelte";
 import { loadSchema, type Scope, type StudioDescription } from "./lib/api";
+import { Changes } from "./lib/changes.svelte";
 import { type SavedView, Views } from "./lib/views.svelte";
 
 // The studio's frame, entasis's AppShell: the models in its sidebar, then a page — the schema diagram or one model's
@@ -26,6 +28,8 @@ import { type SavedView, Views } from "./lib/views.svelte";
 let schema = $state<StudioDescription>();
 /** The saved views of the project the studio opened: known once its schema is. */
 let views = $state<Views>();
+/** The edits stacked until they are saved, across every model's page. */
+let changes = $state<Changes>();
 let failure = $state<string>();
 let hash = $state(location.hash);
 /** Bumped each time the server reloads the config: the open page reads again. */
@@ -45,6 +49,7 @@ onMount(() => {
     .then((loaded) => {
       schema = loaded;
       views = new Views(loaded.project);
+      changes = new Changes(loaded.project);
     })
     .catch(
       (error) =>
@@ -222,13 +227,15 @@ const sidebar = $derived<AppShellSidebarProps>({
         <SchemaDiagram {schema} />
       {:else if current}
         {#key `${hash}#${revision}`}
-          <RowsView model={current} models={schema.models} readonly={schema.readonly} scope={opened?.scope ?? route.scope} view={opened} views={views!} openView={view => (location.hash = viewHref(view))} {navigate} />
+          <RowsView model={current} models={schema.models} readonly={schema.readonly} scope={opened?.scope ?? route.scope} view={opened} views={views!} changes={changes!} openView={view => (location.hash = viewHref(view))} {navigate} />
         {/key}
       {:else}
         <p class="m-0 p-6 text-neutral/60">No model named “{route.model}”.</p>
       {/if}
+      {#if changes}<ChangesBar {changes} />{/if}
     </AppShell>
-    <Toaster />
+    <!-- Bottom right: the changes bar holds the bottom centre. -->
+    <Toaster position="bottom-right" />
     <Confirmation />
   {/snippet}
 </Theme>

@@ -23,9 +23,12 @@ export type Scope = { where: Where; label: string };
 /** A refusal the API answered with: the client's own code and message. */
 export class StudioError extends Error {
   readonly code: string;
-  constructor(code: string, message: string) {
+  /** The change a save stopped at, by its place in the list. */
+  readonly at?: number;
+  constructor(code: string, message: string, at?: number) {
     super(message);
     this.code = code;
+    if (at !== undefined) this.at = at;
   }
 }
 
@@ -40,7 +43,8 @@ async function call<T>(path: string, body?: unknown): Promise<T> {
     const error = answer?.error ?? {};
     throw new StudioError(
       error.code ?? String(response.status),
-      error.message ?? response.statusText
+      error.message ?? response.statusText,
+      typeof error.at === "number" ? error.at : undefined
     );
   }
   return answer as T;
@@ -62,14 +66,9 @@ export const readRows = (
   }
 ) => call<{ rows: Row[]; total: number }>(at(model, "rows"), query);
 
-export const createRow = (model: string, data: Row) =>
-  call<{ row: Row }>(at(model, "create"), { data });
-
-export const updateRow = (model: string, key: Row, data: Row) =>
-  call<{ row: Row }>(at(model, "update"), { key, data });
-
-export const deleteRow = (model: string, key: Row) =>
-  call<{ row: Row }>(at(model, "delete"), { key });
+/** The stacked changes, written in one transaction: all of them, or none. */
+export const saveChanges = (changes: readonly unknown[]) =>
+  call<{ saved: number }>("/changes", { changes });
 
 /** The values of a row's key, which update and delete address it by. */
 export const keyOf = (model: StudioModel, row: Row): Row | undefined =>

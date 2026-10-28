@@ -2,7 +2,6 @@
 import { Button } from "entasis/button";
 import { Chip } from "entasis/chip";
 import { Combobox } from "entasis/combobox";
-import { confirmation } from "entasis/confirmation";
 import {
   createDataTableState,
   DataTable,
@@ -35,8 +34,6 @@ import { TimeInput } from "entasis/time-input";
 import { toast } from "entasis/toast";
 import { untrack } from "svelte";
 import {
-  createRow,
-  deleteRow,
   exportRows,
   foreignKeyOf,
   keyOf,
@@ -47,9 +44,9 @@ import {
   type StudioField,
   type StudioModel,
   type StudioRelation,
-  updateRow,
   type Where,
 } from "../../lib/api";
+import type { Changes } from "../../lib/changes.svelte";
 import { fillPage } from "../../lib/fill";
 import {
   type Condition,
@@ -85,6 +82,7 @@ let {
   view,
   views,
   openView,
+  changes,
   navigate,
 }: {
   model: StudioModel;
@@ -96,6 +94,8 @@ let {
   view?: SavedView;
   views: Views;
   openView: (view: SavedView) => void;
+  /** Where every edit, addition and deletion is stacked until it is saved, or dropped. */
+  changes: Changes;
   navigate: (model: string, scope?: Scope) => void;
 } = $props();
 /** The view as the page opened it: the page starts from it, then the member changes what they like. */
@@ -187,7 +187,70 @@ let appliedCount = $state(0);
 let appliedConditions = $state.raw<readonly Condition[]>([]);
 let appliedCombinator = $state<"AND" | "OR">(initial?.combinator ?? "AND");
 
-const rowId = (row: Row) => JSON.stringify(model.key ? keyOf(model, row) : row);
+/**
+ * What the stacked changes do to a row the table shows: a row to add (its
+ * change), a row to delete, the cells set, and the row the database holds.
+ */
+interface Staged {
+  readonly created?: string;
+  readonly deleted?: boolean;
+  readonly cells?: ReadonlySet<string>;
+  readonly held?: Row;
+}
+const marks = new WeakMap<Row, Staged>();
+/** The row as the database holds it, which a staged change addresses by its key. */
+const heldOf = (row: Row) => marks.get(row)?.held ?? row;
+const rowId = (row: Row) => {
+  const created = marks.get(row)?.created;
+  if (created) return `new:${created}`;
+  const held = heldOf(row);
+  return JSON.stringify(model.key ? keyOf(model, held) : held);
+};
+const keyText = (row: Row) =>
+  model.key
+    ? model.key.fields.map((field) => display(heldOf(row)[field])).join(", ")
+    : "";
+
+/**
+ * The rows the table shows: the rows to add first, then the page the database
+ * answered with the stacked cells set over it. A key set anew shows the
+ * relation by its new key, not the row the database last reached.
+ */
+const shown = $derived.by(() => {
+  const created = changes.createdOf(model.name).map((change) => {
+    const row: Row = { ...change.data };
+    marks.set(row, { created: change.id });
+    return row;
+  });
+  const held = rows.map((row) => {
+    const key = keyOf(model, row);
+    const pending = changes.pendingOf(model.name, key);
+    const deleted = changes.isDeleted(model.name, key);
+    if (!(pending || deleted)) return row;
+    const next: Row = { ...row, ...pending };
+    for (const relation of model.relations) {
+      if (
+        relation.owner &&
+        relation.fields.some((field) => pending && field in pending)
+      )
+        delete next[relation.name];
+    }
+    marks.set(next, {
+      deleted,
+      cells: new Set(Object.keys(pending ?? {})),
+      held: row,
+    });
+    return next;
+  });
+  return [...created, ...held];
+});
+// A save that wrote reads the page again.
+let savedSeen = untrack(() => changes.saved);
+$effect(() => {
+  if (changes.saved === savedSeen) return;
+  savedSeen = changes.saved;
+  untrack(() => load());
+});
 const selected = $derived(
   Object.keys(tableState?.rowSelection ?? {}).filter(
     (id) => tableState?.rowSelection[id]
@@ -458,76 +521,75 @@ function toggle(row: Row, columnId: string, value: boolean) {
   persist(row, columnId, value).catch(() => undefined);
 }
 
+/** One cell set: stacked over its row (or into the row to add), not written. */
 async function persist(row: Row, columnId: string, value: unknown) {
   const field = fieldsByName.get(columnId);
   if (!field) throw new Error("This column no longer exists.");
   const next = written(field, value);
   if (Object.is(next, row[columnId])) return;
-  try {
-    const { row: changed } = await updateRow(model.name, keyOf(model, row)!, {
-      [columnId]: next,
-    });
-    rows = rows.map((candidate) =>
-      rowId(candidate) === rowId(row) ? changed : candidate
+  stage(row, { [columnId]: next });
+}
+
+/** Columns of a row stacked: a row to add takes them into its data; a row to delete refuses them. */
+function stage(row: Row, data: Row) {
+  const mark = marks.get(row);
+  const created = mark?.created
+    ? changes.list.find((change) => change.id === mark.created)
+    : undefined;
+  if (created) {
+    changes.create(
+      model.name,
+      { ...created.data, ...data },
+      created.label,
+      created.id
     );
-  } catch (error) {
-    toast.danger({
-      title: `${columnId} was not saved`,
-      description: said(error),
+    return;
+  }
+  if (mark?.deleted) {
+    toast.warning({
+      title: "This row is to be deleted",
+      description: "Drop its deletion in the changes to edit it.",
     });
-    throw new Error(said(error));
+    throw new Error("This row is to be deleted.");
+  }
+  const held = heldOf(row);
+  changes.update(
+    model.name,
+    keyOf(model, held)!,
+    data,
+    `${model.name} ${keyText(row)}`,
+    held
+  );
+}
+
+function saveRow(data: Row) {
+  const row = editing?.row;
+  if (row) stage(row, data);
+  else changes.create(model.name, data, `new ${model.name}`);
+}
+
+function removeRow() {
+  const row = editing?.row;
+  if (row) remove([row]);
+}
+
+/** Rows stacked to be deleted; a row still to add is just dropped. */
+function remove(chosen: readonly Row[]) {
+  for (const row of chosen) {
+    const created = marks.get(row)?.created;
+    if (created) changes.remove(created);
+    else
+      changes.delete(
+        model.name,
+        keyOf(model, heldOf(row))!,
+        `${model.name} ${keyText(row)}`
+      );
   }
 }
 
-async function saveRow(data: Row) {
-  const row = editing?.row;
-  if (row) await updateRow(model.name, keyOf(model, row)!, data);
-  else await createRow(model.name, data);
-  toast.success({ title: row ? "The row was saved" : "The row was added" });
-  await load();
-}
-
-async function removeRow() {
-  const row = editing?.row;
-  if (!row) return;
-  await deleteRow(model.name, keyOf(model, row)!);
-  toast.success({ title: "The row was deleted" });
-  await load();
-}
-
-async function removeSelected(ids: string[]) {
-  const { confirmed } = await confirmation({
-    title:
-      ids.length === 1
-        ? "Delete this row?"
-        : `Delete these ${ids.length} rows?`,
-    description:
-      ids.length === 1
-        ? "It is deleted through your client. It cannot be undone."
-        : "They are deleted through your client, one by one. It cannot be undone.",
-    confirm: { text: "Delete", color: "danger" },
-    cancel: "Cancel",
-  });
-  if (!confirmed) return;
-  let count = 0;
-  try {
-    for (const id of ids) {
-      await deleteRow(model.name, JSON.parse(id));
-      count++;
-    }
-    toast.success({
-      title: count === 1 ? "One row deleted" : `${count} rows deleted`,
-    });
-  } catch (error) {
-    toast.danger({
-      title: count
-        ? `${count} deleted, then one was refused`
-        : "Nothing was deleted",
-      description: said(error),
-    });
-  }
+function removeSelected(ids: string[]) {
+  remove(shown.filter((row) => ids.includes(rowId(row))));
   api?.clearSelection();
-  await load();
 }
 
 // A row's related rows open under it (Pyxel's `RelatedRows`): the relation shown, by row; a row opened by a relation's
@@ -703,7 +765,7 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
 <!-- Sized to end at the page's footer, the table scrolls within (`fillPage`). -->
 <section bind:this={root} class="relative" aria-label="The rows of {model.name}" {@attach fillPage}>
     <DataTable
-      items={rows}
+      items={shown}
       {columns}
       getRowId={rowId}
       processingMode="manual"
@@ -716,7 +778,7 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
       error={failure}
       pagination={{ pageSize: 50, showControls: false }}
       onCellCommit={commit}
-      canExpand={() => expandable}
+      canExpand={row => expandable && !marks.get(row)?.created}
       bind:state={tableState}
       bind:api
       theme={{
@@ -732,7 +794,7 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
       }}
     >
       {#snippet expandedContent({ row, rowId })}
-        <RelatedRows {models} {model} {row} {readonly} active={opened[rowId] ?? expandableRelations[0]?.name ?? ''} onActive={name => (opened = { ...opened, [rowId]: name })} {navigate} onChanged={() => load()} />
+        <RelatedRows {models} {model} {row} {readonly} active={opened[rowId] ?? expandableRelations[0]?.name ?? ''} onActive={name => (opened = { ...opened, [rowId]: name })} {navigate} {changes} />
       {/snippet}
 
       {#snippet rowActions({ row })}
@@ -743,7 +805,13 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
         {@const field = fieldsByName.get(columnId)}
         {@const relation = field ? undefined : model.relations.find(candidate => candidate.name === columnId)}
         {@const value = row[columnId]}
-        {#if relation}
+        {@const mark = marks.get(row)}
+        <!-- Stacked, not saved: a row to add, a row to delete, a cell set. -->
+        <div class={['flex min-w-0 items-center', mark?.created && '-mx-1 rounded-sm bg-success-muted px-1', mark?.deleted && 'line-through opacity-45', mark?.cells?.has(columnId) && '-mx-1 rounded-sm bg-warning-muted px-1']}>
+        {#if mark?.created && (relation || !(columnId in row))}
+          <!-- A row to add: what it leaves out, the schema fills; its relations wait for its key. -->
+          <span class="text-neutral/50 italic">{relation ? '—' : field?.generated ?? 'default'}</span>
+        {:else if relation}
           {@const reachable = relatedScopes(model, relation, row) !== undefined}
           {#if !reachable}
             <span class="text-neutral/40">—</span>
@@ -794,6 +862,7 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
         {:else}
           <span class={field.list || field.type === 'json' ? 'font-mono text-[12px]' : ''}>{display(value)}</span>
         {/if}
+        </div>
       {/snippet}
 
       {#snippet empty()}
