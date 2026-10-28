@@ -20,6 +20,7 @@ import {
   schemaLayout,
 } from "../../lib/diagram";
 import { fillPage } from "../../lib/fill";
+import { provideFocus, SchemaFocus } from "./focus.svelte";
 import RelationEdge from "./RelationEdge.svelte";
 import SchemaLegend from "./SchemaLegend.svelte";
 import SchemaMarkers from "./SchemaMarkers.svelte";
@@ -41,6 +42,8 @@ const FIT = { padding: 0.15, minZoom: 0.5, maxZoom: 1 };
 const NO_MODE = "" as ColorMode;
 
 const links = $derived(linksOf(schema));
+/** The model (or relation) put forward, the rest faded: a card or a relation row clicked; the pane or Escape lets go. */
+const focus = provideFocus(new SchemaFocus(() => links));
 
 // The page's header: its title, what the schema holds, and the legend.
 setPageShell({ title: "Schema", subtitle, headerActions });
@@ -163,6 +166,8 @@ const edges = $derived.by<Edge<{ link: Link; markers: string }>[]>(() => {
   <SchemaLegend />
 {/snippet}
 
+<svelte:window onkeydown={event => event.key === 'Escape' && focus.model && focus.clear()} />
+
 <div class="schema" {@attach fillPage}>
   <SchemaMarkers id={markers} />
   <SvelteFlow
@@ -178,6 +183,12 @@ const edges = $derived.by<Edge<{ link: Link; markers: string }>[]>(() => {
     nodesConnectable={false}
     elementsSelectable={false}
     proOptions={{ hideAttribution: true }}
+    onnodeclick={({ node, event }) => {
+      // A relation row chooses its relation itself (`TableNode`); the model's name is a link to its rows.
+      if (event.target instanceof Element && event.target.closest('[data-relation], a')) return
+      focus.chooseModel(node.id)
+    }}
+    onpaneclick={() => focus.clear()}
   >
     <SchemaZoom fit={FIT} />
   </SvelteFlow>

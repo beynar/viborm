@@ -22,12 +22,16 @@ export type TableData = {
   import { CARD_HEADER, CARD_ROW, CARD_WIDTH, columnAnchor, handleOf, relationAnchor } from '../../lib/diagram'
   import { TYPE_ICONS } from '../../lib/icons'
   import { TYPE_LABELS } from '../../lib/values'
+  import { useFocus } from './focus.svelte'
 
   // One model of the diagram, after Pyxel's: its name (a link to its rows), then a row per column — its key (a key), a
   // column that holds a key of another model (a link), its type's icon, its name, a « ? » when a row may leave it
   // empty, a fingerprint when no two rows share its value — then a row per relation. Each row a line meets has an
   // anchor on each side (`RelationEdge`).
   let { data }: NodeProps<Node<TableData>> = $props()
+  const focus = useFocus()
+  /** Chosen, reached by the chosen relation, beside the chosen model, or faded behind them. */
+  const tone = $derived(focus.card(data.model.name))
 </script>
 
 {#snippet anchors(anchor: string)}
@@ -41,7 +45,7 @@ export type TableData = {
   {/if}
 {/snippet}
 
-<div class="card" style:width="{CARD_WIDTH}px" style:--header="{CARD_HEADER}px" style:--row="{CARD_ROW}px">
+<div class={['card', tone]} style:width="{CARD_WIDTH}px" style:--header="{CARD_HEADER}px" style:--row="{CARD_ROW}px">
   <header>
     <span class="icon" aria-hidden="true">{@render tableIcon({ size: 16 })}</span>
     <a class="name nodrag" href="#/data/{encodeURIComponent(data.model.name)}">{data.model.name}</a>
@@ -73,11 +77,15 @@ export type TableData = {
   {#if data.model.relations.length > 0}
     <ul class="relations">
       {#each data.model.relations as relation (relation.name)}
-        <li>
+        {@const chosen = focus.model === data.model.name && focus.relation === relation.name}
+        <!-- A relation chosen lights its own lines and the cards it reaches. -->
+        <li class:chosen data-relation={relation.name}>
           {@render anchors(relationAnchor(relation.name))}
-          <span class="mark">{@render arrowRightIcon({ size: 14 })}</span>
-          <span class="field">{relation.name}</span>
-          <span class="label">{relation.targets.join(' | ')}{relation.cardinality === 'many' ? '[]' : ''}</span>
+          <button type="button" class="relation nodrag" aria-pressed={chosen} title="Show where {relation.name} leads" onclick={() => focus.chooseRelation(data.model.name, relation.name)}>
+            <span class="mark">{@render arrowRightIcon({ size: 14 })}</span>
+            <span class="field">{relation.name}</span>
+            <span class="label">{relation.targets.join(' | ')}{relation.cardinality === 'many' ? '[]' : ''}</span>
+          </button>
         </li>
       {/each}
     </ul>
@@ -91,7 +99,17 @@ export type TableData = {
     background: var(--color-surface);
     font-size: 13px;
     line-height: 18px;
+    cursor: pointer;
+    transition: opacity 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
   }
+  /* The model chosen, the cards its relation reaches, and the rest, faded behind them. */
+  .card.chosen { border-color: var(--color-link); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-link) 22%, transparent); }
+  .card.reached { border-color: color-mix(in oklab, var(--color-link) 70%, transparent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-link) 14%, transparent); }
+  .card.faded { opacity: 0.35; }
+  .relation { all: unset; display: flex; flex: 1; align-items: center; gap: 6px; min-width: 0; height: 100%; cursor: pointer; }
+  .relation:focus-visible { outline: 2px solid var(--color-link); outline-offset: -2px; border-radius: 4px; }
+  .relations li:hover { background: color-mix(in oklab, var(--color-neutral) 5%, transparent); }
+  .relations li.chosen { color: var(--color-link); background: color-mix(in oklab, var(--color-link) 9%, transparent); }
   header {
     display: flex;
     align-items: center;

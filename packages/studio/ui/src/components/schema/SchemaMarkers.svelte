@@ -7,17 +7,20 @@ const { id }: { id: string } = $props();
 
 <svg class="markers" aria-hidden="true">
   <defs>
-    <marker id="{id}-one" viewBox="0 0 24 20" refX="24" refY="10" markerWidth="24" markerHeight="20" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
-      <path d="M14 3V17M19 3V17" />
-    </marker>
-    <marker id="{id}-zero-or-one" viewBox="0 0 24 20" refX="24" refY="10" markerWidth="24" markerHeight="20" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
-      <circle cx="8" cy="10" r="4" />
-      <path d="M19 3V17" />
-    </marker>
-    <marker id="{id}-zero-or-many" viewBox="0 0 24 20" refX="24" refY="10" markerWidth="24" markerHeight="20" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
-      <circle cx="6" cy="10" r="4" />
-      <path d="M13 10L24 2M13 10H24M13 10L24 18" />
-    </marker>
+    <!-- Each end twice: as the lines are drawn, and lit (a chosen model's or relation's lines). -->
+    {#each ['', '-lit'] as tone (tone)}
+      <marker id="{id}{tone}-one" class={tone ? 'lit' : undefined} viewBox="0 0 24 20" refX="24" refY="10" markerWidth="24" markerHeight="20" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+        <path d="M14 3V17M19 3V17" />
+      </marker>
+      <marker id="{id}{tone}-zero-or-one" class={tone ? 'lit' : undefined} viewBox="0 0 24 20" refX="24" refY="10" markerWidth="24" markerHeight="20" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+        <circle cx="8" cy="10" r="4" />
+        <path d="M19 3V17" />
+      </marker>
+      <marker id="{id}{tone}-zero-or-many" class={tone ? 'lit' : undefined} viewBox="0 0 24 20" refX="24" refY="10" markerWidth="24" markerHeight="20" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+        <circle cx="6" cy="10" r="4" />
+        <path d="M13 10L24 2M13 10H24M13 10L24 18" />
+      </marker>
+    {/each}
   </defs>
 </svg>
 
@@ -31,4 +34,6 @@ const { id }: { id: string } = $props();
     stroke-linecap: round;
   }
   path { fill: none; }
+  .lit path,
+  .lit circle { stroke: var(--color-link); stroke-width: 2.2; }
 </style>
