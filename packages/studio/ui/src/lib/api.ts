@@ -66,6 +66,12 @@ export const readRows = (
   }
 ) => call<{ rows: Row[]; total: number }>(at(model, "rows"), query);
 
+/** What the studio keeps for the page, per project: its views and the diagram's layout. */
+export const readStored = async (name: "views" | "layout") =>
+  (await call<{ value: unknown }>(`/store/${name}`)).value;
+export const keepStored = (name: "views" | "layout", value: unknown) =>
+  call<{ kept: string }>(`/store/${name}`, { value });
+
 /** The stacked changes, written in one transaction: all of them, or none. */
 export const saveChanges = (changes: readonly unknown[]) =>
   call<{ saved: number }>("/changes", { changes });

@@ -378,6 +378,40 @@ describe("editing", () => {
   });
 });
 
+describe("what the page remembers", () => {
+  const kept = new Map<string, unknown>();
+  const remembering = createStudioApi({
+    client,
+    models: schema,
+    dialect: "sqlite",
+    readonly: true,
+    store: {
+      read: async (name) => kept.get(name),
+      write: async (name, value) => void kept.set(name, value),
+    },
+  });
+  const ask = (method: string, path: string, body?: unknown) =>
+    remembering.handle({ method, path, body });
+
+  test("views and layout are kept, even by a read-only studio", async () => {
+    expect((await ask("GET", "/store/views")).body).toEqual({ value: null });
+    const layout = { post: { x: 1, y: 2 } };
+    expect(
+      (await ask("POST", "/store/layout", { value: layout })).body
+    ).toEqual({ kept: "layout" });
+    expect((await ask("GET", "/store/layout")).body).toEqual({ value: layout });
+  });
+
+  test("a body without a value, another method, or no store is refused", async () => {
+    expect(errorCode(await ask("POST", "/store/views", { views: [] }))).toBe(
+      "invalid_body"
+    );
+    expect((await ask("DELETE", "/store/views")).status).toBe(405);
+    expect(errorCode(await call("GET", "/store/views"))).toBe("no_store");
+    expect((await ask("GET", "/store/other")).status).toBe(404);
+  });
+});
+
 describe("saving stacked changes", () => {
   const labels = async () =>
     (

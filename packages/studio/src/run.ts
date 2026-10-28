@@ -7,7 +7,7 @@
 
 import { spawn } from "node:child_process";
 import { dirname, relative, resolve } from "node:path";
-import { createStudioApi } from "./api";
+import { createStudioApi, type StudioStore } from "./api";
 import {
   findConfig,
   type Importer,
@@ -16,6 +16,7 @@ import {
   watchFiles,
 } from "./config";
 import { type StudioServer, startStudioServer } from "./server";
+import { defaultStoreDir, projectStore } from "./store";
 
 /** Where the studio listens unless `--port` says otherwise; a free port when it is taken. */
 export const DEFAULT_STUDIO_PORT = 5577;
@@ -40,6 +41,8 @@ export interface RunStudioOptions {
   readonly print?: (line: string) => void;
   /** Resolves when the studio should stop; SIGINT or SIGTERM by default. */
   readonly stopped?: Promise<void>;
+  /** Where each project's views and layout are kept; `~/.viborm/studio` by default. */
+  readonly storeDir?: string;
 }
 
 export async function runStudio(options: RunStudioOptions): Promise<void> {
@@ -69,7 +72,15 @@ export async function runStudio(options: RunStudioOptions): Promise<void> {
   }
 
   let project = await loadProject(found.path, options.importer);
-  let api = studioApiOf(project, found.path, options.readonly === true);
+  // The page's views and layout, kept per project; a write tells every open page to read them again.
+  const store = projectStore(
+    options.storeDir ?? defaultStoreDir(),
+    found.path,
+    (name) => server.broadcast("store", { name })
+  );
+  const serving = (loaded: LoadedProject) =>
+    studioApiOf(loaded, found!.path, options.readonly === true, store);
+  let api = serving(project);
   const server = await listen(options, (request) => api.handle(request));
   print(
     `VibORM Studio is running on ${server.url} (${api.schema.dialect}, ${api.schema.models.length} models${api.schema.readonly ? ", read-only" : ""})`
@@ -85,7 +96,7 @@ export async function runStudio(options: RunStudioOptions): Promise<void> {
   async function reload() {
     try {
       const next = await loadProject(found!.path, options.importer);
-      const nextApi = studioApiOf(next, found!.path, options.readonly === true);
+      const nextApi = serving(next);
       const previous = project;
       project = next;
       api = nextApi;
@@ -117,13 +128,19 @@ export async function runStudio(options: RunStudioOptions): Promise<void> {
   await project.config.client.$disconnect();
 }
 
-const studioApiOf = (project: LoadedProject, path: string, readonly: boolean) =>
+const studioApiOf = (
+  project: LoadedProject,
+  path: string,
+  readonly: boolean,
+  store: StudioStore
+) =>
   createStudioApi({
     client: project.config.client,
     models: project.config.models,
     dialect: String(Reflect.get(project.config.driver, "dialect")),
     readonly,
     project: path,
+    store,
   });
 
 async function listen(

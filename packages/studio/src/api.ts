@@ -53,7 +53,17 @@ export interface StudioApiOptions {
   readonly readonly?: boolean;
   /** The config's path, which a reload keeps. */
   readonly project?: string;
+  /** Where the page keeps what it remembers of the project (its views, the diagram's layout); none, it keeps it itself. */
+  readonly store?: StudioStore;
 }
+
+/** What the page remembers of a project, by name, kept by the studio rather than the browser. */
+export interface StudioStore {
+  read(name: StoredName): Promise<unknown>;
+  write(name: StoredName, value: unknown): Promise<void>;
+}
+export type StoredName = "views" | "layout";
+const STORE_ROUTE = /^\/store\/(views|layout)$/;
 
 /** The most changes one save sends. */
 export const MAX_CHANGES = 1000;
@@ -108,6 +118,8 @@ export function createStudioApi(options: StudioApiOptions) {
       if (request.method !== "POST") throw methodNotAllowed();
       return saveChanges(request.body);
     }
+    const stored = STORE_ROUTE.exec(request.path);
+    if (stored) return keep(stored[1] as StoredName, request);
     const match = ROUTE.exec(request.path);
     if (!match) throw new Refusal(404, "not_found", "Unknown studio route");
     if (request.method !== "POST") throw methodNotAllowed();
@@ -124,6 +136,26 @@ export function createStudioApi(options: StudioApiOptions) {
     return match[2] === "rows"
       ? readRows(model, delegate, body, select(model))
       : exportRows(model, delegate, body);
+  }
+
+  /** What the page remembers, read (GET) or kept (POST `{ value }`), even by a read-only studio: it is not the data. */
+  async function keep(name: StoredName, request: StudioRequest) {
+    const { store } = options;
+    if (!store) {
+      throw new Refusal(
+        404,
+        "no_store",
+        "This studio keeps nothing: the page does"
+      );
+    }
+    if (request.method === "GET")
+      return { value: (await store.read(name)) ?? null };
+    if (request.method !== "POST") throw methodNotAllowed();
+    if (!(isRecord(request.body) && "value" in request.body)) {
+      throw new Refusal(400, "invalid_body", "Send { value }");
+    }
+    await store.write(name, request.body.value);
+    return { kept: name };
   }
 
   /**

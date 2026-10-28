@@ -53,6 +53,7 @@ onMount(() => {
     .then((loaded) => {
       schema = loaded;
       views = new Views(loaded.project);
+      views.load();
       changes = new Changes(loaded.project);
     })
     .catch(
@@ -73,6 +74,10 @@ onMount(() => {
       });
     }
   });
+  // Another page kept its views (or the diagram's layout): this one reads them again.
+  events.addEventListener("store", (event) => {
+    if (JSON.parse(event.data).name === "views") views?.load();
+  });
   events.addEventListener("error", (event) => {
     if (!(event instanceof MessageEvent)) return;
     toast.danger({
@@ -85,8 +90,6 @@ onMount(() => {
     events.close();
   };
 });
-
-$effect(() => views?.follow());
 
 type Route =
   | { view: "schema" }

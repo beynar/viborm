@@ -1,7 +1,9 @@
-// Saved views: a model's table as the member left it (its filter, search, order, page size and column widths),
-// named and listed in the sidebar. They are kept in the browser per project (the config's path makes the key, as for
-// the diagram's layout), and every tab of the studio sees a change made in another.
-import type { Scope } from "./api";
+// Saved views: a model's table as the member left it (its filter, search, order, page size and columns), named and
+// listed in the sidebar. The studio keeps them per project (`~/.viborm/studio`), whatever port it takes and in
+// whichever browser, and tells every open page when they change. Views a browser kept before move there once; a
+// studio that keeps nothing leaves them to the browser.
+import { toast } from "entasis/toast";
+import { keepStored, readStored, type Scope } from "./api";
 import type { Condition } from "./values";
 
 export interface SavedView {
@@ -32,19 +34,31 @@ export type ViewState = Omit<SavedView, "id" | "name" | "model">;
 export class Views {
   list = $state<SavedView[]>([]);
   readonly #key: string;
+  /** The studio keeps them; else the browser does. */
+  #kept = false;
 
   constructor(project: string) {
     this.#key = `viborm-studio:views:${project}`;
-    this.list = this.#read();
+    this.list = this.#readLocal();
   }
 
-  /** Follows the views another tab saved; returns what stops following them. */
-  follow(): () => void {
-    const changed = (event: StorageEvent) => {
-      if (event.key === this.#key) this.list = this.#read();
-    };
-    addEventListener("storage", changed);
-    return () => removeEventListener("storage", changed);
+  /** The views the studio keeps, read (again, when another page changed them); the browser's moved there once. */
+  async load(): Promise<void> {
+    try {
+      const kept: SavedView[] = await readStored("views").then((value) =>
+        Array.isArray(value) ? value : []
+      );
+      // Views this browser kept alone join the studio's, never replace them.
+      const local = this.#readLocal().filter(
+        (view) => !kept.some((other) => other.id === view.id)
+      );
+      this.list = [...kept, ...local];
+      if (local.length) await keepStored("views", this.list);
+      this.#kept = true;
+      localStorage.removeItem(this.#key);
+    } catch {
+      this.#kept = false;
+    }
   }
 
   find(id: string | undefined): SavedView | undefined {
@@ -71,7 +85,7 @@ export class Views {
     this.#write(this.list.filter((view) => view.id !== id));
   }
 
-  #read(): SavedView[] {
+  #readLocal(): SavedView[] {
     try {
       const stored = JSON.parse(localStorage.getItem(this.#key) ?? "[]");
       return Array.isArray(stored) ? stored : [];
@@ -82,6 +96,15 @@ export class Views {
 
   #write(list: SavedView[]): void {
     this.list = list;
-    localStorage.setItem(this.#key, JSON.stringify(list));
+    if (!this.#kept) {
+      localStorage.setItem(this.#key, JSON.stringify(list));
+      return;
+    }
+    keepStored("views", list).catch((error: unknown) =>
+      toast.danger({
+        title: "The views could not be kept",
+        description: error instanceof Error ? error.message : String(error),
+      })
+    );
   }
 }

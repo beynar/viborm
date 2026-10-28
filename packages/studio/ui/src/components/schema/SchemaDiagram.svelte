@@ -10,7 +10,12 @@ import { Button } from "entasis/button";
 import { arrowCounterClockwiseIcon } from "entasis/icons/arrowCounterClockwise";
 import { type PageShellApi, setPageShell } from "entasis/page-shell";
 import { untrack } from "svelte";
-import type { StudioDescription, StudioSchema } from "../../lib/api";
+import {
+  keepStored,
+  readStored,
+  type StudioDescription,
+  type StudioSchema,
+} from "../../lib/api";
 import {
   CARD_WIDTH,
   END_LABELS,
@@ -49,33 +54,63 @@ const focus = provideFocus(new SchemaFocus(() => links));
 setPageShell({ title: "Schema", subtitle, headerActions });
 
 /**
- * Where the member moved each card, kept in the browser per project (the
- * config's path makes the key, which no reload changes: a model added later
- * joins the saved layout), so the diagram opens as it was left.
+ * Where the member moved each card, kept by the studio per project (`~/.viborm/studio`, whatever its port), so the
+ * diagram opens as it was left; a layout the browser kept before moves there once. Nothing is kept until the kept
+ * layout is read: the cards' first places are the schema's own, not the member's.
  */
 const LAYOUT_KEY = `viborm-studio:layout:${untrack(() => schema.project)}`;
-function savedLayout(): Record<string, { x: number; y: number }> {
+let held = $state.raw<Record<string, { x: number; y: number }>>({});
+/** The kept layout is read; the studio keeps it, or the browser does. */
+let loaded = false;
+let keptByStudio = false;
+const isLayout = (
+  value: unknown
+): value is Record<string, { x: number; y: number }> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+function localLayout() {
   try {
-    return JSON.parse(localStorage.getItem(LAYOUT_KEY) ?? "{}");
+    const kept: unknown = JSON.parse(localStorage.getItem(LAYOUT_KEY) ?? "{}");
+    return isLayout(kept) ? kept : {};
   } catch {
     return {};
   }
 }
+$effect(() => {
+  untrack(async () => {
+    try {
+      const kept = await readStored("layout");
+      const local = localLayout();
+      held = isLayout(kept) ? kept : local;
+      if (!isLayout(kept) && Object.keys(local).length)
+        await keepStored("layout", local);
+      keptByStudio = true;
+      localStorage.removeItem(LAYOUT_KEY);
+    } catch {
+      held = localLayout();
+    }
+    nodes = nodes.map((node) => ({
+      ...node,
+      position: held[node.id] ?? node.position,
+    }));
+    loaded = true;
+  });
+});
+const savedLayout = () => held;
 let saving: ReturnType<typeof setTimeout> | undefined;
 function saveLayout(current: readonly Node<TableData>[]) {
+  if (!loaded) return;
   clearTimeout(saving);
   saving = setTimeout(() => {
-    localStorage.setItem(
-      LAYOUT_KEY,
-      JSON.stringify(
-        Object.fromEntries(current.map((node) => [node.id, node.position]))
-      )
-    );
+    held = Object.fromEntries(current.map((node) => [node.id, node.position]));
+    if (keptByStudio) keepStored("layout", held).catch(() => undefined);
+    else localStorage.setItem(LAYOUT_KEY, JSON.stringify(held));
   }, 300);
 }
 /** The diagram as the schema lays it out: every card back to its column. */
 function resetLayout() {
-  localStorage.removeItem(LAYOUT_KEY);
+  held = {};
+  if (keptByStudio) keepStored("layout", {}).catch(() => undefined);
+  else localStorage.removeItem(LAYOUT_KEY);
   const at = schemaLayout(schema);
   nodes = nodes.map((node) => ({
     ...node,

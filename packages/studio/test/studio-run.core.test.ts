@@ -84,6 +84,8 @@ const options = (overrides: Partial<Parameters<typeof runStudio>[0]> = {}) => ({
   watch: false,
   print: (line: string) => output.push(line),
   stopped,
+  // Never the user's own home.
+  storeDir: join(project.dir, ".store"),
   ...overrides,
 });
 
@@ -174,6 +176,31 @@ describe("viborm-studio", () => {
     await running;
   });
 
+  test("views and layout are kept per project, and every page is told", async () => {
+    writeProject(project.dir, NOTE);
+    const running = runStudio(options());
+    const url = await serving();
+    const events = await fetch(`${url}/api/events`);
+    const reader = events.body!.getReader();
+    const kept = await fetch(`${url}/api/store/views`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ value: [{ id: "a", name: "Mine" }] }),
+    });
+    expect(kept.status).toBe(200);
+    let received = "";
+    while (!received.includes("event: store")) {
+      received += new TextDecoder().decode((await reader.read()).value);
+    }
+    expect(received).toContain('data: {"name":"views"}');
+    expect(await (await fetch(`${url}/api/store/views`)).json()).toEqual({
+      value: [{ id: "a", name: "Mine" }],
+    });
+    await reader.cancel();
+    stop();
+    await running;
+  });
+
   test("read-only says so and refuses writes", async () => {
     writeProject(project.dir, NOTE);
     const running = runStudio(options({ readonly: true }));
@@ -196,7 +223,10 @@ describe("viborm-studio", () => {
   test("an explicit config is read relative to the working directory", async () => {
     mkdirSync(join(project.dir, "db"));
     writeProject(join(project.dir, "db"), NOTE);
-    const running = runStudio(options({ config: "db/viborm.config.ts" }));
+    // The default store, under the home, which this test never writes to.
+    const running = runStudio(
+      options({ config: "db/viborm.config.ts", storeDir: undefined })
+    );
     await serving();
     expect(printed()).toContain(`Config: ${join("db", "viborm.config.ts")}`);
     expect(process.cwd().endsWith("db")).toBe(true);
