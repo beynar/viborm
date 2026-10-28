@@ -24,7 +24,11 @@ let {
   combinator: "AND" | "OR";
 } = $props();
 
-const HIDDEN_LABEL = { label: { base: "sr-only" } };
+// The label is read by assistive technology only: its header leaves the layout too, so no empty row spaces the control.
+const HIDDEN_LABEL = {
+  header: { base: "!absolute sr-only" },
+  label: { base: "sr-only" },
+};
 const filterable = $derived(
   model.fields.filter((field) => operatorsOf(field).length > 0)
 );

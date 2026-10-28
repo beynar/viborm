@@ -65,7 +65,11 @@ let failure = $state<string>();
 let busy = $state(false);
 let open = $state(true);
 
-const HIDDEN_LABEL = { label: { base: "sr-only" } };
+// The label is read by assistive technology only: its header leaves the layout too, so no empty row spaces the control.
+const HIDDEN_LABEL = {
+  header: { base: "!absolute sr-only" },
+  label: { base: "sr-only" },
+};
 const readOnly = (field: StudioField) =>
   row !== undefined && field.id && field.generated !== undefined;
 const hint = (field: StudioField) =>
@@ -155,7 +159,9 @@ async function destroy() {
   <form class="grid gap-4" onsubmit={event => { event.preventDefault(); submit() }} id="row-form">
     {#each model.fields as field (field.name)}
       {@const draft = drafts[field.name]!}
-      {@const disabled = readonly || draft.isNull || readOnly(field)}
+      <!-- A read-only studio shows values as text to read, not greyed out; null is said as null. -->
+      {@const disabled = !readonly && (draft.isNull || readOnly(field))}
+      {@const placeholder = draft.isNull ? 'null' : readonly || readOnly(field) ? '' : hint(field)}
       {@const pointed = foreignKeyOf(model, models, field)}
       <div class="grid gap-1.5">
         <div class="flex items-center gap-2 text-[13px]">
@@ -174,9 +180,10 @@ async function destroy() {
             label={field.name}
             theme={HIDDEN_LABEL}
             {disabled}
+            readOnly={readonly}
             items={rowChoices(target, pointed.reference)}
             openOnFocus
-            placeholder={hint(field) || `A ${target.name} row`}
+            placeholder={placeholder || (readonly ? '' : `A ${target.name} row`)}
             loadingText="Searching…"
             noOptionsText="No {target.name} row matches"
             value={draft.text || null}
@@ -184,28 +191,29 @@ async function destroy() {
             onValueChange={({ value }) => (draft.text = value ?? '')}
           />
         {:else if field.type === 'boolean' && !field.list}
-          <Switch label={field.name} theme={HIDDEN_LABEL} {disabled} value={draft.text === 'true'} onValueChange={value => (draft.text = value ? 'true' : 'false')} />
+          <Switch label={field.name} theme={HIDDEN_LABEL} disabled={disabled || readonly} value={draft.text === 'true'} onValueChange={value => (draft.text = value ? 'true' : 'false')} />
         {:else if field.type === 'enum' && !field.list}
           <Select
             size="small"
             label={field.name}
             theme={HIDDEN_LABEL}
             {disabled}
-            placeholder={hint(field) || 'Choose'}
+            readOnly={readonly}
+            placeholder={placeholder || (readonly ? '' : 'Choose')}
             items={(field.enumValues ?? []).map(value => ({ value, label: value }))}
             value={draft.text || null}
             onValueChange={value => (draft.text = value ?? '')}
           />
         {:else if editsAsJson(field) || field.type === 'blob'}
-          <TextArea size="small" label={field.name} theme={HIDDEN_LABEL} {disabled} rows={4} placeholder={field.type === 'blob' ? 'base64' : 'JSON'} value={draft.text} onValueChange={value => (draft.text = value ?? '')} />
+          <TextArea size="small" label={field.name} theme={HIDDEN_LABEL} {disabled} readOnly={readonly} rows={4} placeholder={placeholder || (readonly ? '' : field.type === 'blob' ? 'base64' : 'JSON')} value={draft.text} onValueChange={value => (draft.text = value ?? '')} />
         {:else}
-          <TextInput size="small" label={field.name} theme={HIDDEN_LABEL} {disabled} placeholder={readOnly(field) ? '' : hint(field)} value={draft.text} onValueChange={value => (draft.text = value ?? '')} />
+          <TextInput size="small" label={field.name} theme={HIDDEN_LABEL} {disabled} readOnly={readonly} {placeholder} value={draft.text} onValueChange={value => (draft.text = value ?? '')} />
         {/if}
       </div>
     {/each}
   </form>
   {#snippet footer()}
-    <div class="flex w-full items-center gap-2">
+    <div class="flex w-full items-center gap-2 border-t border-neutral-muted pt-4">
       {#if remove && !readonly}<Button variant="soft" color="danger" prefix={trashIcon} disabled={busy} onclick={destroy}>Delete</Button>{/if}
       <span class="flex-1"></span>
       {#if readonly}

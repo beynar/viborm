@@ -53,7 +53,11 @@ const LINKED_AREA = {
     base: "bg-surface border-neutral-muted max-h-72 min-w-0 rounded-[12px] border",
   },
 };
-const HIDDEN_LABEL = { label: { base: "sr-only" } };
+// The label is read by assistive technology only: its header leaves the layout too, so no empty row spaces the control.
+const HIDDEN_LABEL = {
+  header: { base: "!absolute sr-only" },
+  label: { base: "sr-only" },
+};
 
 const relations = $derived(
   model.relations.filter(
@@ -86,6 +90,24 @@ const scope = $derived<Scope | undefined>(
 const links = $derived(
   !readonly && !!relation && !relation.owner && target?.key?.fields.length === 1
 );
+/**
+ * Whether a linked row can be let go: a junction row always, a foreign key only
+ * when its columns on the other row take null (the client has no disconnect for
+ * a required one; that row is moved by linking it elsewhere).
+ */
+const unlinks = $derived.by(() => {
+  if (!(links && relation && target)) return false;
+  if (relation.storage === "junction") return true;
+  const held = target.relations.find(
+    (candidate) => candidate.name === relation.inverse
+  );
+  return (
+    !!held &&
+    held.fields.every(
+      (name) => target.fields.find((field) => field.name === name)?.nullable
+    )
+  );
+});
 
 /** What a relation holds, beside its name: how many rows, or the key it reaches. */
 function held(candidate: StudioRelation): string {
@@ -204,7 +226,7 @@ let picked = $state<string | null>(null);
           <thead>
             <tr>
               {#each target.fields as field (field.name)}<th>{field.name}</th>{/each}
-              {#if links}<th class="action"><span class="sr-only">Unlink</span></th>{/if}
+              {#if unlinks}<th class="action"><span class="sr-only">Unlink</span></th>{/if}
             </tr>
           </thead>
           <tbody>
@@ -213,7 +235,7 @@ let picked = $state<string | null>(null);
                 {#each target.fields as field (field.name)}
                   <td class:empty={linked[field.name] == null}>{display(linked[field.name])}</td>
                 {/each}
-                {#if links}
+                {#if unlinks}
                   <td class="action">
                     <Button size="small" variant="ghost" squared prefix={linkBreakIcon} label="Unlink this {target.name}" onclick={() => disconnect(linked)} />
                   </td>

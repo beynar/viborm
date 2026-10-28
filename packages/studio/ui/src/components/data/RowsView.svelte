@@ -76,7 +76,11 @@ let {
   navigate: (model: string, scope?: Scope) => void;
 } = $props();
 
-const HIDDEN_LABEL = { label: { base: "sr-only" } };
+// The label is read by assistive technology only: its header leaves the layout too, so no empty row spaces the control.
+const HIDDEN_LABEL = {
+  header: { base: "!absolute sr-only" },
+  label: { base: "sr-only" },
+};
 const PAGE_SIZES = [25, 50, 100, 250].map((value) => ({
   value: String(value),
   label: String(value),
@@ -114,11 +118,15 @@ $effect(() => {
       return;
     const group = focused.closest('[role="gridcell"] > [role="group"]');
     const columnId = group?.parentElement?.dataset.columnId;
-    if (
-      !group ||
-      columns.find((column) => column.id === columnId)?.editor?.type !== "text"
-    )
-      return;
+    const type = columns.find((column) => column.id === columnId)?.editor?.type;
+    // The foreign-key picker (custom) is released on Escape only: Enter and a
+    // click on one of its options are its own to handle.
+    const released =
+      type === "text" ||
+      (type === "custom" &&
+        event instanceof KeyboardEvent &&
+        event.key === "Escape");
+    if (!(group && released)) return;
     if (
       event instanceof MouseEvent &&
       event.target instanceof Node &&
@@ -512,6 +520,8 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
     getValueOption={value => ({ value, label: `${target.name} ${value}` })}
     onValueChange={({ value }) => {
       setDraft(value ?? null)
+      // Saving closes the editor: let go of its focus first (see releaseEditorFocus).
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
       save()
     }}
   />
@@ -584,7 +594,9 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
             <span class="text-neutral/40">—</span>
           {:else if relation.cardinality === 'many'}
             <Button size="small" variant={expanded && opened[rowId] === relation.name ? 'soft' : 'ghost'} suffix={caretDownIcon} label="{relation.name} of this row" onclick={() => openRelated(rowId, relation.name, expanded, toggleExpanded)}>
-              <span class="tabular-nums">{row._count?.[relation.name] ?? '?'}</span>&nbsp;{relation.targets[0]}
+              <!-- One row is said by its model, several by the relation's own (plural) name. -->
+              {@const count = row._count?.[relation.name]}
+              <span class="tabular-nums">{count ?? '?'}</span>&nbsp;{count === 1 ? relation.targets[0] : relation.name}
             </Button>
           {:else}
             <!-- A to-one relation: the key of the row it reaches, or an empty mark when there is none. -->

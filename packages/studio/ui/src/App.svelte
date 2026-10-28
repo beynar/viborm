@@ -26,7 +26,14 @@ let hash = $state(location.hash);
 let revision = $state(0);
 
 onMount(() => {
-  const changed = () => (hash = location.hash);
+  // Back, forward or a typed URL tear the page down under a focused field, which
+  // entasis then writes mid-teardown (`state_unsafe_mutation`): blur it first.
+  const changed = () => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    hash = location.hash;
+  };
   addEventListener("hashchange", changed);
   loadSchema()
     .then((loaded) => (schema = loaded))
