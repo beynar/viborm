@@ -222,9 +222,9 @@ const sidebar = $derived<AppShellSidebarProps>({
   {/if}
 {/snippet}
 
-{#snippet sidebarFooter(_sidebar: SidebarApi)}
-  <!-- The theme, light or dark. -->
-  <div class="flex items-center gap-1">
+{#snippet sidebarFooter(sidebar: SidebarApi)}
+  <!-- The theme, light or dark; centred in the rail when the sidebar is folded to its icons. -->
+  <div class={['flex items-center gap-1', !(sidebar.open || sidebar.isMobile) && 'justify-center']}>
     <ThemeToggle />
   </div>
 {/snippet}
