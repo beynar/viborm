@@ -203,7 +203,7 @@ const time = (date: Date) =>
         width="20rem"
         bind:open={statsOpen}
         content={statsPane}
-        theme={{ panel: { base: '!border-0 bg-transparent' } }}
+        theme={{ root: { base: 'bg-surface' }, panel: { base: '!border-0 bg-transparent' } }}
       >
         {#snippet children(sidebar: SidebarApi)}
         <div class="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-2" class:pr-3={statsOpen} {@attach syncSelection(sidebar)}>
