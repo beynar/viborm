@@ -53,6 +53,7 @@ import {
 } from "../../lib/api";
 import type { Changes } from "../../lib/changes.svelte";
 import { fillPage } from "../../lib/fill";
+import { TYPE_COLORS, TYPE_ICONS } from "../../lib/icons";
 import { MODEL_ICON } from "../../lib/model-icons";
 import {
   type Combinator,
@@ -432,7 +433,7 @@ function editor(field: StudioField): DataTableEditor<Row> | undefined {
 
 /** A column as wide as what it holds reads: a key or a number narrow, an instant or a text wider. */
 function widthOf(field: StudioField): number {
-  if (field.id && NUMERIC.has(field.type)) return 80;
+  if (field.id && NUMERIC.has(field.type)) return 120;
   if (field.type === "boolean") return 110;
   if (NUMERIC.has(field.type))
     return field.type === "bigint" || field.type === "decimal" ? 160 : 110;
@@ -453,6 +454,8 @@ const columns = $derived<DataTableColumn<Row>[]>([
     ),
     editor: editor(field),
     width: widthOf(field),
+    // A numeric key's header needs room for its type, name, lock, sort and menu.
+    ...(field.id && NUMERIC.has(field.type) ? { minWidth: 120 } : {}),
     // Hidden, moved, resized or pinned from its header; a view keeps where.
     hideable: true,
     reorderable: true,
@@ -936,7 +939,12 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
       {#snippet header({ column, renderDefault })}
         {@const field = fieldsByName.get(column.id)}
         {@const locked = !readonly && keyed && field !== undefined && (!field.updatable || (field.id && field.generated !== undefined))}
-        <span class="inline-flex min-w-0 items-center gap-1" title={locked ? (field?.updatable ? 'A generated key: not edited' : 'Set when the row is created: the client refuses to update it (.now())') : undefined}>
+        <span class="inline-flex min-w-0 items-center gap-1.5" title={locked ? (field?.updatable ? 'A generated key: not edited' : 'Set when the row is created: the client refuses to update it (.now())') : undefined}>
+          {#if field}
+            <span class={["inline-flex shrink-0", TYPE_COLORS[field.type]]}>{@render TYPE_ICONS[field.type]({ size: 12 })}</span>
+          {:else if model.relations.some(relation => relation.name === column.id)}
+            <span class="inline-flex shrink-0 text-neutral/45">{@render linkSimpleIcon({ size: 12 })}</span>
+          {/if}
           {@render renderDefault()}
           {#if locked}<span class="inline-flex shrink-0 text-neutral/45">{@render lockSimpleIcon({ size: 12 })}</span>{/if}
         </span>
