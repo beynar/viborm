@@ -17,6 +17,17 @@ export interface StagedChange {
   readonly nested?: boolean;
   /** How the list of changes says it. */
   readonly label: string;
+  /** A row linked or unlinked through a relation: what the related rows panel draws until it is saved. */
+  readonly link?: StagedLink;
+}
+
+export interface StagedLink {
+  readonly relation: string;
+  readonly variant?: string;
+  /** The model of the row linked or unlinked, and its key. */
+  readonly target: string;
+  readonly key: Record<string, unknown>;
+  readonly action: "connect" | "disconnect";
 }
 
 const keyId = (key: Record<string, unknown> | undefined) =>
@@ -113,7 +124,8 @@ export class Changes {
     model: string,
     key: Record<string, unknown>,
     data: Record<string, unknown>,
-    label: string
+    label: string,
+    link?: StagedLink
   ): void {
     this.#write([
       ...this.list,
@@ -125,6 +137,7 @@ export class Changes {
         data,
         nested: true,
         label,
+        ...(link ? { link } : {}),
       },
     ]);
   }

@@ -591,6 +591,7 @@ describe("variant relations", () => {
         },
         { name: "video", target: "video" },
       ],
+      clearable: false,
     });
     expect(relation("article", "comments")).toEqual({
       name: "comments",
@@ -603,13 +604,16 @@ describe("variant relations", () => {
       inverse: "subject",
       inverseCardinality: "one",
       variant: "article",
+      clearable: false,
     });
     expect(relation("shelf", "items")?.targets).toEqual(["article", "video"]);
     expect(relation("article", "shelves")).toMatchObject({
       inverse: "items",
       inverseCardinality: "many",
       variant: "article",
+      clearable: true,
     });
+    expect(relation("shelf", "items")?.clearable).toBe(true);
   });
 
   test("a polymorphic to-one reads its variant and key; a collection is counted", async () => {

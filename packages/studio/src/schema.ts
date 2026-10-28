@@ -61,6 +61,11 @@ export interface StudioRelation {
   readonly variants?: readonly StudioVariant[];
   /** The inverse of a polymorphic carrier: the variant this model is a member under. */
   readonly variant?: string;
+  /**
+   * A polymorphic membership may be let go: always in a collection (its junction), only when the to-one carrier is
+   * `.optional()` for a row-held one and its inverse.
+   */
+  readonly clearable?: boolean;
 }
 
 export interface StudioVariant {
@@ -253,6 +258,7 @@ function describeRelation(
       references: [],
       ...partnerOf(edge.carrier),
       variant: resolved.member.variant,
+      clearable: clearable(edge.carrier),
     };
   }
   const variants = edge.members.map(
@@ -276,7 +282,14 @@ function describeRelation(
     fields: [],
     references: [],
     variants,
+    clearable: clearable(edge.carrier),
   };
+}
+
+/** A collection's memberships always come apart; a to-one carrier's only when it is `.optional()`. */
+function clearable(carrier: RelationSlot): boolean {
+  const state = carrier.source["~"].state.relations[carrier.field]!["~"].state;
+  return state.cardinality === "many" || state.optional === true;
 }
 
 const partnerOf = (slot: RelationSlot) => ({

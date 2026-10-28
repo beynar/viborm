@@ -1,11 +1,12 @@
 <script lang="ts">
 import { Button } from "entasis/button";
-import { Chip } from "entasis/chip";
 import { Combobox } from "entasis/combobox";
+import { arrowCounterClockwiseIcon } from "entasis/icons/arrowCounterClockwise";
 import { arrowRightIcon } from "entasis/icons/arrowRight";
 import { linkBreakIcon } from "entasis/icons/linkBreak";
 import { xIcon } from "entasis/icons/x";
 import { ScrollArea } from "entasis/scroll-area";
+import { Select } from "entasis/select";
 import {
   keyOf,
   type Row,
@@ -15,7 +16,11 @@ import {
   type StudioModel,
   type StudioRelation,
 } from "../../lib/api";
-import type { Changes } from "../../lib/changes.svelte";
+import type {
+  Changes,
+  StagedChange,
+  StagedLink,
+} from "../../lib/changes.svelte";
 import {
   cellText,
   display,
@@ -97,17 +102,31 @@ const scope = $derived<Scope | undefined>(
       }
     : undefined
 );
+/** A polymorphic to-one that reaches no row yet: the variant a row is linked under, chosen here. */
+let linkVariant = $state<string>();
+const chosenVariant = $derived(
+  relation?.variants?.find((variant) => variant.name === linkVariant) ??
+    relation?.variants?.[0]
+);
+/** The model a row is linked from: the one the relation reaches here, else the chosen variant's. */
+const linkTarget = $derived(
+  target ??
+    (relation?.variants && relation.cardinality === "one"
+      ? models.find((candidate) => candidate.name === chosenVariant?.target)
+      : undefined)
+);
+/** The variant a link or an unlink goes through, for a polymorphic carrier. */
+const variantOf = () =>
+  relation?.variants ? (reaching?.variant ?? chosenVariant?.name) : undefined;
 /**
  * Whether this row links its related rows itself, through the relation: a to-many relation, or a to-one whose key
- * the other row holds. A key this row holds is changed in its own column.
+ * the other row holds (a polymorphic one too, under its variant). A key this row holds is changed in its own column.
  */
 const links = $derived(
   !readonly &&
     !!relation &&
     !relation.owner &&
-    // A polymorphic membership is written with its variant: not offered here yet.
-    relation.storage !== "variant" &&
-    target?.key?.fields.length === 1
+    linkTarget?.key?.fields.length === 1
 );
 /**
  * Whether a linked row can be let go: a junction row always, a foreign key only
@@ -118,6 +137,8 @@ const links = $derived(
 const unlinks = $derived.by(() => {
   if (!(links && relation && target)) return false;
   if (relation.storage === "junction") return true;
+  // A polymorphic membership: a collection's always, a to-one's when it is optional.
+  if (relation.storage === "variant") return relation.clearable === true;
   const held = target.relations.find(
     (candidate) => candidate.name === relation.inverse
   );
@@ -189,7 +210,11 @@ $effect(() => {
 });
 
 /** Link or unlink one row of the relation: a nested write on this row, stacked until the changes are saved. */
-function change(write: Record<string, unknown>, done: string) {
+function change(
+  write: Record<string, unknown>,
+  done: string,
+  link: StagedLink
+) {
   if (!(relation && model.key)) return;
   // The panel redraws: a field still focused would write its state as it goes (entasis's `state_unsafe_mutation`,
   // as `RowsView`'s editors), so focus leaves it first.
@@ -199,45 +224,162 @@ function change(write: Record<string, unknown>, done: string) {
     model.name,
     keyOf(model, row)!,
     { [relation.name]: write },
-    done
+    done,
+    link
   );
 }
-/** The links and unlinks stacked for this row's relation shown, which the rows above do not show yet. */
-const staged = $derived(
+const sameKey = (a: unknown, b: unknown) =>
+  JSON.stringify(a) === JSON.stringify(b);
+/** The links and unlinks stacked for this row's relation shown (its variant shown), drawn in the rows until saved. */
+const pending = $derived(
   relation
     ? changes.list.filter(
         (entry) =>
-          entry.nested &&
+          entry.link?.relation === relation.name &&
           entry.model === model.name &&
-          JSON.stringify(entry.key) === JSON.stringify(keyOf(model, row)) &&
-          entry.data !== undefined &&
-          relation.name in entry.data
+          sameKey(entry.key, keyOf(model, row)) &&
+          (entry.link.variant === undefined ||
+            entry.link.variant === variantOf())
       )
     : []
 );
-const keyWhere = (value: string) => {
-  const field = target!.fields.find(
-    (candidate) => candidate.name === target!.key!.fields[0]
+/** The rows stacked to be linked, read so they show among the related rows. */
+let toLink = $state.raw<{ change: StagedChange; row: Row }[]>([]);
+$effect(() => {
+  const from = linkTarget;
+  const wanted = pending.filter(
+    (entry) =>
+      entry.link?.action === "connect" && entry.link.target === from?.name
+  );
+  if (!(from && wanted.length)) {
+    toLink = [];
+    return;
+  }
+  readRows(from.name, {
+    where: { OR: wanted.map((entry) => entry.link!.key) },
+    skip: 0,
+    take: LINKED_PAGE,
+  })
+    .then(({ rows }) => {
+      toLink = wanted.flatMap((entry) => {
+        const found = rows.find((candidate) =>
+          sameKey(keyOf(from, candidate), entry.link!.key)
+        );
+        return found ? [{ change: entry, row: found }] : [];
+      });
+    })
+    .catch(() => (toLink = []));
+});
+/** The stacked unlink of a row shown, if any. */
+const unlinking = (linked: Row) =>
+  pending.find(
+    (entry) =>
+      entry.link?.action === "disconnect" &&
+      target !== undefined &&
+      sameKey(entry.link.key, keyOf(target, linked))
+  );
+const keyWhere = (from: StudioModel, value: string) => {
+  const field = from.fields.find(
+    (candidate) => candidate.name === from.key!.fields[0]
   )!;
   return {
     [field.name]:
       field.type === "int" || field.type === "number" ? Number(value) : value,
   };
 };
-const connect = (value: string) =>
+function connect(value: string) {
+  const from = linkTarget!;
+  const where = keyWhere(from, value);
+  const variant = variantOf();
+  const tagged = variant ? { type: variant, where } : undefined;
+  const write = tagged
+    ? relation!.cardinality === "many"
+      ? { connect: [tagged] }
+      : { connect: tagged }
+    : { connect: where };
+  change(write, `${from.name} ${value} linked to ${model.name} ${keyText}`, {
+    relation: relation!.name,
+    ...(variant ? { variant } : {}),
+    target: from.name,
+    key: where,
+    action: "connect",
+  });
+}
+function disconnect(linked: Row) {
+  const key = keyOf(target!, linked)!;
+  const variant = variantOf();
+  const many = relation!.cardinality === "many";
+  const write = many
+    ? variant
+      ? { disconnect: [{ type: variant, where: key }] }
+      : { disconnect: key }
+    : { disconnect: true };
   change(
-    { connect: keyWhere(value) },
-    `${target!.name} ${value} linked to ${model.name} ${keyText}`
+    write,
+    `${target!.name} ${Object.values(key).map(display).join(", ")} unlinked from ${model.name} ${keyText}`,
+    {
+      relation: relation!.name,
+      ...(variant ? { variant } : {}),
+      target: target!.name,
+      key,
+      action: "disconnect",
+    }
   );
-const disconnect = (linked: Row) =>
-  change(
-    relation!.cardinality === "many"
-      ? { disconnect: keyOf(target!, linked) }
-      : { disconnect: true },
-    `${target!.name} ${Object.values(keyOf(target!, linked)!).map(display).join(", ")} unlinked`
-  );
+}
 let picked = $state<string | null>(null);
 </script>
+
+{#snippet head(from: StudioModel)}
+  <thead>
+    <tr>
+      {#each from.fields as field (field.name)}<th>{field.name}</th>{/each}
+      {#if unlinks || toLink.length}<th class="action"><span class="sr-only">Unlink</span></th>{/if}
+    </tr>
+  </thead>
+{/snippet}
+
+<!-- The rows stacked to be linked, first and marked, each dropped by its button: not written until saved. -->
+{#snippet pendingRows(from: StudioModel)}
+  {#each toLink as { change: entry, row: linked } (entry.id)}
+    <tr class="arriving">
+      {#each from.fields as field (field.name)}
+        <td class:empty={linked[field.name] == null}>{cellText(field, linked[field.name])}</td>
+      {/each}
+      <td class="action">
+        <Button size="small" variant="ghost" squared prefix={xIcon} label="Do not link this {from.name}" onclick={() => changes.remove(entry.id)} />
+      </td>
+    </tr>
+  {/each}
+{/snippet}
+
+{#snippet pendingTable(from: StudioModel)}
+  <ScrollArea label="The {from.name} rows to link" type="auto" theme={LINKED_AREA}>
+    <table class="related">
+      {@render head(from)}
+      <tbody>{@render pendingRows(from)}</tbody>
+    </table>
+  </ScrollArea>
+{/snippet}
+
+{#snippet linkPicker(from: StudioModel)}
+  <div class="w-64">
+    <Combobox
+      size="small"
+      label="Link a {from.name}"
+      theme={HIDDEN_LABEL}
+      items={rowChoices(from)}
+      openOnFocus
+      placeholder="Link a {from.name}…"
+      loadingText="Searching…"
+      noOptionsText="No {from.name} row matches"
+      bind:value={picked}
+      onValueChange={({ value }) => {
+        if (value) connect(value)
+        picked = null
+      }}
+    />
+  </div>
+{/snippet}
 
 <div class="linked" bind:this={root} style:width={width ? `${width}px` : undefined} aria-label="The rows related to this {model.name}">
   <div class="relations">
@@ -259,7 +401,20 @@ let picked = $state<string | null>(null);
   {/if}
 
   {#if relation && scopes.length === 0}
-    <p class="note">This row reaches no {relation.targets.join(' or ')} row.</p>
+    <!-- A to-one that reaches no row: say so, and link one (under a variant, for a polymorphic one). -->
+    {#if toLink.length && linkTarget}
+      {@render pendingTable(linkTarget)}
+    {:else}
+      <p class="note">This row reaches no {relation.targets.join(' or ')} row.</p>
+    {/if}
+    {#if links && linkTarget && !toLink.length}
+      <div class="foot">
+        {#if relation.variants && relation.variants.length > 1}
+          <div class="w-32"><Select size="small" label="Link under" theme={HIDDEN_LABEL} items={relation.variants.map(variant => ({ value: variant.name, label: variant.name }))} value={chosenVariant?.name ?? null} onValueChange={value => (linkVariant = value ?? undefined)} /></div>
+        {/if}
+        {@render linkPicker(linkTarget)}
+      </div>
+    {/if}
   {:else if !relation || !target || !scope}
     <p class="note">This row has no relation to follow.</p>
   {:else if answer === 'failed'}
@@ -269,36 +424,40 @@ let picked = $state<string | null>(null);
          counts, the foot), so the panel keeps its size when they arrive. -->
     {@const shown = answer?.rows.length ?? Math.min(expected ?? 3, LINKED_PAGE)}
     {@const total = answer?.total ?? expected}
-    {#if shown === 0}
+    {#if shown === 0 && !toLink.length}
       <p class="note">
         {relation.cardinality === 'one' ? `This row reaches no ${target.name} row.` : `No ${target.name} row belongs to this one.`}
       </p>
     {:else}
       <ScrollArea label="The {target.name} rows" type="auto" theme={LINKED_AREA}>
         <table class="related" aria-busy={answer === null}>
-          <thead>
-            <tr>
-              {#each target.fields as field (field.name)}<th>{field.name}</th>{/each}
-              {#if unlinks}<th class="action"><span class="sr-only">Unlink</span></th>{/if}
-            </tr>
-          </thead>
+          {@render head(target)}
           <tbody>
+            {@render pendingRows(target)}
             {#if answer === null}
               {#each { length: shown } as _, index (index)}
                 <tr>
                   {#each target.fields as field (field.name)}<td><span class="placeholder"></span></td>{/each}
-                  {#if unlinks}<td class="action"><span class="placeholder square"></span></td>{/if}
+                  {#if unlinks}<td class="action"><span class="placeholder square"></span></td>{:else if toLink.length}<td class="action"></td>{/if}
                 </tr>
               {/each}
             {/if}
             {#each answer?.rows ?? [] as linked, index (index)}
-              <tr>
+              {@const leaving = unlinking(linked)}
+              <!-- A row stacked to be unlinked stays, struck through, until the changes are saved. -->
+              <tr class:leaving={leaving !== undefined}>
                 {#each target.fields as field (field.name)}
                   <td class:empty={linked[field.name] == null}>{cellText(field, linked[field.name])}</td>
                 {/each}
-                {#if unlinks}
+                {#if !unlinks && toLink.length}
+                  <td class="action"></td>
+                {:else if unlinks}
                   <td class="action">
-                    <Button size="small" variant="ghost" squared prefix={linkBreakIcon} label="Unlink this {target.name}" onclick={() => disconnect(linked)} />
+                    {#if leaving}
+                      <Button size="small" variant="ghost" squared prefix={arrowCounterClockwiseIcon} label="Keep this {target.name} linked" onclick={() => changes.remove(leaving.id)} />
+                    {:else}
+                      <Button size="small" variant="ghost" squared prefix={linkBreakIcon} label="Unlink this {target.name}" onclick={() => disconnect(linked)} />
+                    {/if}
                   </td>
                 {/if}
               </tr>
@@ -307,37 +466,9 @@ let picked = $state<string | null>(null);
         </table>
       </ScrollArea>
     {/if}
-    {#if staged.length}
-      <!-- Stacked, not yet written: the rows above show the database as it is. -->
-      <div class="flex flex-wrap items-center gap-1">
-        <span class="text-[12px] text-neutral/60">Not saved yet:</span>
-        {#each staged as entry (entry.id)}
-          <Chip size="small" variant="soft" color="warning">
-            {entry.label}
-            <Button size="small" variant="ghost" squared prefix={xIcon} label="Drop “{entry.label}”" onclick={() => changes.remove(entry.id)} />
-          </Chip>
-        {/each}
-      </div>
-    {/if}
     <div class="foot">
-      {#if links && (relation.cardinality === 'many' || shown === 0)}
-        <div class="w-64">
-          <Combobox
-            size="small"
-            label="Link a {target.name}"
-            theme={HIDDEN_LABEL}
-            items={rowChoices(target)}
-            openOnFocus
-            placeholder="Link a {target.name}…"
-            loadingText="Searching…"
-            noOptionsText="No {target.name} row matches"
-            bind:value={picked}
-            onValueChange={({ value }) => {
-              if (value) connect(value)
-              picked = null
-            }}
-          />
-        </div>
+      {#if links && (relation.cardinality === 'many' || (shown === 0 && !toLink.length))}
+        {@render linkPicker(target)}
       {/if}
       <span class="count">{total === undefined ? '' : total > shown ? `${shown} of ${total} ${target.name} rows` : `${total} ${target.name} ${total === 1 ? 'row' : 'rows'}`}</span>
       <Button size="small" variant="ghost" suffix={arrowRightIcon} onclick={() => navigate(target.name, scope)}>Open them in {target.name}</Button>
@@ -360,6 +491,9 @@ let picked = $state<string | null>(null);
   .related tr:last-child td { border-bottom: 0; }
   .related .action { width: 1%; padding: 2px 6px; }
   .related td.empty { opacity: 0.45; font-style: italic; }
+  /* Stacked, not yet saved: a row to link, a row to unlink. */
+  .related tr.arriving td { background: var(--color-success-muted); }
+  .related tr.leaving td:not(.action) { text-decoration: line-through; opacity: 0.45; }
   /* A cell still being read: a bar on the text's line, so the row is as tall as it will be. */
   .placeholder { display: inline-block; width: 4.5rem; height: 0.7em; vertical-align: middle; border-radius: 3px; background: color-mix(in oklab, var(--color-neutral) 10%, transparent); animation: pulse 1.6s ease-in-out infinite; }
   .placeholder.square { width: 28px; height: 28px; border-radius: 6px; }
