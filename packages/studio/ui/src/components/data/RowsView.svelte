@@ -568,15 +568,16 @@ const unsaved = $derived.by(() => {
   );
 });
 let viewName = $state(untrack(() => view?.name ?? ""));
-/** The icon the view is shown with in the sidebar, as chosen in the form; none, a bookmark. */
-let viewIcon = $state<ModelIcon | undefined>(untrack(() => view?.icon));
+/** The icon chosen in the form; until one is, the view keeps its own (changed from the sidebar too). */
+let pickedIcon = $state<ModelIcon>();
+const viewIcon = $derived(pickedIcon ?? view?.icon);
 let choosingIcon = $state(false);
 async function saveView(asNew: boolean, close: () => void) {
   const name = viewName.trim();
   if (!name) return;
   try {
     if (view && !asNew) {
-      await views.update(view.id, name, stateOf(), viewIcon);
+      await views.update(view.id, name, stateOf(), pickedIcon);
       toast.success({ title: `The view “${name}” was saved` });
     } else {
       openView(await views.create(name, model.name, stateOf(), viewIcon));
@@ -794,7 +795,7 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
             <div class="min-w-0 flex-1"><TextInput size="small" label="The view's name" theme={HIDDEN_LABEL} placeholder="The view's name" value={viewName} onValueChange={value => (viewName = value ?? '')} /></div>
           </div>
           {#if choosingIcon}
-            <IconPicker value={viewIcon} onValueChange={icon => ((viewIcon = icon), (choosingIcon = false))} />
+            <IconPicker value={viewIcon} onValueChange={icon => ((pickedIcon = icon), (choosingIcon = false))} />
           {/if}
           <div class="flex justify-end gap-2">
             {#if view}<Button size="small" variant="ghost" disabled={!viewName.trim()} onclick={() => saveView(true, popover.close)}>Save as new</Button>{/if}
