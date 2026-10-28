@@ -6,7 +6,6 @@ import { arrowRightIcon } from "entasis/icons/arrowRight";
 import { linkBreakIcon } from "entasis/icons/linkBreak";
 import { xIcon } from "entasis/icons/x";
 import { ScrollArea } from "entasis/scroll-area";
-import { Skeleton } from "entasis/skeleton";
 import {
   keyOf,
   type Row,
@@ -128,6 +127,18 @@ const unlinks = $derived.by(() => {
       (name) => target.fields.find((field) => field.name === name)?.nullable
     )
   );
+});
+
+/**
+ * How many rows the relation reaches, which the row already says (its count, or the one row a to-one reaches): the
+ * rows drawn while they are read. A polymorphic collection counts every variant at once, so a variant's is unknown.
+ */
+const expected = $derived.by(() => {
+  if (!relation) return undefined;
+  if (relation.cardinality === "one") return 1;
+  if (scopes.length > 1) return undefined;
+  const count = row._count?.[relation.name];
+  return typeof count === "number" ? count : undefined;
 });
 
 /** What a relation holds, beside its name: how many rows, or the key it reaches. */
@@ -253,16 +264,18 @@ let picked = $state<string | null>(null);
     <p class="note">This row has no relation to follow.</p>
   {:else if answer === 'failed'}
     <p class="note">The related rows could not be read.</p>
-  {:else if !answer}
-    <Skeleton theme={{ root: { base: 'h-16 w-full' } }} />
   {:else}
-    {#if !answer.rows.length}
+    <!-- While they are read, the rows to come are drawn as they will stand (the header, as many rows as the row
+         counts, the foot), so the panel keeps its size when they arrive. -->
+    {@const shown = answer?.rows.length ?? Math.min(expected ?? 3, LINKED_PAGE)}
+    {@const total = answer?.total ?? expected}
+    {#if shown === 0}
       <p class="note">
         {relation.cardinality === 'one' ? `This row reaches no ${target.name} row.` : `No ${target.name} row belongs to this one.`}
       </p>
     {:else}
       <ScrollArea label="The {target.name} rows" type="auto" theme={LINKED_AREA}>
-        <table class="related">
+        <table class="related" aria-busy={answer === null}>
           <thead>
             <tr>
               {#each target.fields as field (field.name)}<th>{field.name}</th>{/each}
@@ -270,7 +283,15 @@ let picked = $state<string | null>(null);
             </tr>
           </thead>
           <tbody>
-            {#each answer.rows as linked, index (index)}
+            {#if answer === null}
+              {#each { length: shown } as _, index (index)}
+                <tr>
+                  {#each target.fields as field (field.name)}<td><span class="placeholder"></span></td>{/each}
+                  {#if unlinks}<td class="action"><span class="placeholder square"></span></td>{/if}
+                </tr>
+              {/each}
+            {/if}
+            {#each answer?.rows ?? [] as linked, index (index)}
               <tr>
                 {#each target.fields as field (field.name)}
                   <td class:empty={linked[field.name] == null}>{cellText(field, linked[field.name])}</td>
@@ -299,7 +320,7 @@ let picked = $state<string | null>(null);
       </div>
     {/if}
     <div class="foot">
-      {#if links && (relation.cardinality === 'many' || !answer.rows.length)}
+      {#if links && (relation.cardinality === 'many' || shown === 0)}
         <div class="w-64">
           <Combobox
             size="small"
@@ -318,7 +339,7 @@ let picked = $state<string | null>(null);
           />
         </div>
       {/if}
-      <span class="count">{answer.total > answer.rows.length ? `${answer.rows.length} of ${answer.total} ${target.name} rows` : `${answer.total} ${target.name} ${answer.total === 1 ? 'row' : 'rows'}`}</span>
+      <span class="count">{total === undefined ? '' : total > shown ? `${shown} of ${total} ${target.name} rows` : `${total} ${target.name} ${total === 1 ? 'row' : 'rows'}`}</span>
       <Button size="small" variant="ghost" suffix={arrowRightIcon} onclick={() => navigate(target.name, scope)}>Open them in {target.name}</Button>
     </div>
   {/if}
@@ -339,4 +360,8 @@ let picked = $state<string | null>(null);
   .related tr:last-child td { border-bottom: 0; }
   .related .action { width: 1%; padding: 2px 6px; }
   .related td.empty { opacity: 0.45; font-style: italic; }
+  /* A cell still being read: a bar on the text's line, so the row is as tall as it will be. */
+  .placeholder { display: inline-block; width: 4.5rem; height: 0.7em; vertical-align: middle; border-radius: 3px; background: color-mix(in oklab, var(--color-neutral) 10%, transparent); animation: pulse 1.6s ease-in-out infinite; }
+  .placeholder.square { width: 28px; height: 28px; border-radius: 6px; }
+  @keyframes pulse { 50% { opacity: 0.45; } }
 </style>
