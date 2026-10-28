@@ -1,5 +1,6 @@
 // The studio API, as the app calls it. Its types are the server's own.
 import type {
+  StoredName,
   StudioDescription,
   StudioDrift,
   StudioSpan,
@@ -112,9 +113,9 @@ export const explainQuery = (
   }>("/explain", { model, operation, args, analyze });
 
 /** What the studio keeps for the page, per project: its views and the diagram's layout. */
-export const readStored = async (name: "views" | "layout") =>
+export const readStored = async (name: StoredName) =>
   (await call<{ value: unknown }>(`/store/${name}`)).value;
-export const keepStored = (name: "views" | "layout", value: unknown) =>
+export const keepStored = (name: StoredName, value: unknown) =>
   call<{ kept: string }>(`/store/${name}`, { value });
 
 /** The stacked changes, written in one transaction: all of them, or none. */

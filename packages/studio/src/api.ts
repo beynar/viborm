@@ -111,8 +111,8 @@ export interface StudioStore {
   read(name: StoredName): Promise<unknown>;
   write(name: StoredName, value: unknown): Promise<void>;
 }
-export type StoredName = "views" | "layout";
-const STORE_ROUTE = /^\/store\/(views|layout)$/;
+export type StoredName = "views" | "queries" | "layout";
+const STORE_ROUTE = /^\/store\/(views|queries|layout)$/;
 
 /** The most changes one save sends. */
 export const MAX_CHANGES = 1000;

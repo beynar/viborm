@@ -500,6 +500,11 @@ Client uses types:     orm.user.findMany({ where: { name: ... }})  // Fully type
 | Add logging level | [instrumentation/](src/instrumentation/AGENTS.md) | Update `types.ts`, `logger.ts` |
 | Change VibORM Studio | `packages/studio/` (`@viborm/studio`: `src/` server, API, config discovery and watching; `ui/` Svelte app) | Reads and writes only through the loaded client; bundles VibORM internals from `src/`, so its version follows `viborm`'s; no `viborm` source imports it (`packages/studio/test/studio-boundary.core.test.ts`) |
 
+Studio's project store keeps `views`, `queries`, and `layout` independently in
+one file. Saved views and queries share `ui/src/lib/saved-items.svelte.ts` for
+loading, browser migration, and ordered persistence; their content and actions
+remain in their respective collection classes. Saved query URLs use `#/query?query=<id>`.
+
 ---
 
 ## Invisible Knowledge (Things Code Doesn't Show)

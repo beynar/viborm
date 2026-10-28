@@ -782,14 +782,14 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
         <form class="grid gap-2" onsubmit={event => { event.preventDefault(); saveView(false, popover.close) }}>
           <p class="m-0 text-[12px] text-neutral/60">{view ? 'This view keeps the filter, search, order and page size shown now.' : 'Keep this filter, search, order and page size as a view in the sidebar.'}</p>
           <div class="flex items-center gap-2">
-            <Button size="small" variant={choosingIcon ? 'soft' : 'outline'} squared prefix={viewIcon ? MODEL_ICON[viewIcon] : bookmarkSimpleIcon} label="The view's icon" onclick={() => (choosingIcon = !choosingIcon)} />
+            <Button type="button" size="small" variant={choosingIcon ? 'soft' : 'outline'} squared prefix={viewIcon ? MODEL_ICON[viewIcon] : bookmarkSimpleIcon} label="The view's icon" onclick={() => (choosingIcon = !choosingIcon)} />
             <div class="min-w-0 flex-1"><TextInput size="small" label="The view's name" theme={HIDDEN_LABEL} placeholder="The view's name" value={viewName} onValueChange={value => (viewName = value ?? '')} /></div>
           </div>
           {#if choosingIcon}
             <IconPicker value={viewIcon} onValueChange={icon => ((pickedIcon = icon), (choosingIcon = false))} />
           {/if}
           <div class="flex justify-end gap-2">
-            {#if view}<Button size="small" variant="ghost" disabled={!viewName.trim()} onclick={() => saveView(true, popover.close)}>Save as new</Button>{/if}
+            {#if view}<Button type="button" size="small" variant="ghost" disabled={!viewName.trim()} onclick={() => saveView(true, popover.close)}>Save as new</Button>{/if}
             <Button size="small" color="primary" type="submit" disabled={!viewName.trim()}>{view ? 'Save view' : 'Save'}</Button>
           </div>
         </form>

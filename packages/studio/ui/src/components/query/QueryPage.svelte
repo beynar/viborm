@@ -4,16 +4,19 @@ import { Button } from "entasis/button";
 import { Code } from "entasis/code";
 import { arrowSquareOutIcon } from "entasis/icons/arrowSquareOut";
 import { arrowsClockwiseIcon } from "entasis/icons/arrowsClockwise";
+import { bookmarkSimpleIcon } from "entasis/icons/bookmarkSimple";
 import { plusIcon } from "entasis/icons/plus";
 import { sidebarSimpleIcon } from "entasis/icons/sidebarSimple";
 import { xIcon } from "entasis/icons/x";
 import { NumberInput } from "entasis/number-input";
 import { type PageShellApi, setPageShell } from "entasis/page-shell";
+import { Popover } from "entasis/popover";
 import { SegmentedControl } from "entasis/segmented-control";
 import { Select } from "entasis/select";
 import { Sidebar, type SidebarApi } from "entasis/sidebar";
 import { Tabbar } from "entasis/tabbar";
 import { TextInput } from "entasis/text-input";
+import { toast } from "entasis/toast";
 import { untrack } from "svelte";
 import {
   explainQuery,
@@ -27,6 +30,12 @@ import {
 } from "../../lib/api";
 import { fillPage } from "../../lib/fill";
 import { MODEL_ICON } from "../../lib/model-icons";
+import {
+  type Queries,
+  type QueryState,
+  queryHref,
+  type SavedQuery,
+} from "../../lib/queries.svelte";
 import {
   AGGREGATES,
   aggregatable,
@@ -55,12 +64,16 @@ import TraceView from "./TraceView.svelte";
 let {
   schema,
   navigate,
+  queries,
+  saved,
 }: {
   schema: StudioDescription;
   navigate: (model: string, scope?: Scope) => void;
+  queries: Queries;
+  saved?: SavedQuery;
 } = $props();
 
-setPageShell({ title: "Query", subtitle });
+setPageShell({ title: queryTitle, subtitle });
 
 const KEPT = `viborm-studio:query-builder:${untrack(() => schema.project)}`;
 const HIDDEN_LABEL = {
@@ -95,6 +108,12 @@ function keptState(): {
   operation?: QueryOperation;
   drafts?: Record<string, QueryDraft>;
 } {
+  if (saved)
+    return {
+      model: saved.model,
+      operation: saved.operation,
+      drafts: { [saved.model]: structuredClone($state.snapshot(saved.draft)) },
+    };
   try {
     return JSON.parse(sessionStorage.getItem(KEPT) ?? "{}");
   } catch {
@@ -117,6 +136,7 @@ const drafts = $state<Record<string, QueryDraft>>(
   )
 );
 $effect(() => {
+  if (saved) return;
   sessionStorage.setItem(
     KEPT,
     JSON.stringify({ model: modelName, operation, drafts })
@@ -125,6 +145,40 @@ $effect(() => {
 
 const model = $derived(models.find((entry) => entry.name === modelName)!);
 const draft = $derived(drafts[modelName]!);
+const stateOf = (): QueryState => ({
+  model: modelName,
+  operation,
+  draft: structuredClone($state.snapshot(draft)),
+});
+const unsaved = $derived(
+  saved !== undefined &&
+    JSON.stringify(stateOf()) !==
+      JSON.stringify({
+        model: saved.model,
+        operation: saved.operation,
+        draft: saved.draft,
+      })
+);
+let queryName = $state(untrack(() => saved?.name ?? ""));
+let saving = $state(false);
+async function saveQuery(asNew: boolean, close: () => void) {
+  const name = queryName.trim();
+  if (!name || saving) return;
+  saving = true;
+  try {
+    if (saved && !asNew) await queries.update(saved.id, name, stateOf());
+    else location.hash = queryHref(await queries.create(name, stateOf()));
+    close();
+    toast.success({ title: `The query “${name}” was saved` });
+  } catch (error) {
+    toast.danger({
+      title: "The query could not be saved",
+      description: error instanceof Error ? error.message : String(error),
+    });
+  } finally {
+    saving = false;
+  }
+}
 const reads = $derived(
   operation === "findMany" ||
     operation === "findFirst" ||
@@ -347,6 +401,8 @@ function chooseFunction(
 
 <svelte:window onkeydown={keys} />
 
+{#snippet queryTitle(_page: PageShellApi)}{saved?.name ?? 'Query'}{/snippet}
+
 {#snippet subtitle(_page: PageShellApi)}
   Build a read with pickers: it runs through your client as you go
 {/snippet}
@@ -478,6 +534,22 @@ function chooseFunction(
         <span class="text-[12px] text-neutral/60">{counted ? `${counted} · ` : ''}{answer.duration} ms</span>
       {/if}
       <div class="ml-auto flex items-center gap-2">
+        <Popover position="bottom-end" focusOnOpen="first" theme={{ popover: { base: 'w-72 p-3' } }}>
+          {#snippet trigger(popover)}
+            <Button size="small" variant={saved ? 'soft' : 'ghost'} squared={!unsaved} prefix={bookmarkSimpleIcon} label={saved ? `Save the query ${saved.name}` : 'Save query'} {@attach popover.trigger}>
+              {#if unsaved}<span class="text-[12px]">Unsaved</span>{/if}
+            </Button>
+          {/snippet}
+          {#snippet children(popover)}
+            <form class="grid gap-3" onsubmit={event => { event.preventDefault(); saveQuery(false, popover.close) }}>
+              <TextInput size="small" label="Query name" value={queryName} onValueChange={value => (queryName = value ?? '')} />
+              <div class="flex justify-end gap-2">
+                {#if saved}<Button type="button" size="small" variant="ghost" disabled={!queryName.trim() || saving} onclick={() => saveQuery(true, popover.close)}>Save as new</Button>{/if}
+                <Button size="small" color="primary" type="submit" loading={saving} disabled={!queryName.trim()}>Save</Button>
+              </div>
+            </form>
+          {/snippet}
+        </Popover>
         {#if openable}
           {@const where = openable}
           <Button size="small" variant="outline" prefix={arrowSquareOutIcon} onclick={() => navigate(modelName, { where, label: 'Query' })}>Open these rows</Button>

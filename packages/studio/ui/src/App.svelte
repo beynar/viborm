@@ -34,6 +34,7 @@ import {
 } from "./lib/api";
 import { Changes } from "./lib/changes.svelte";
 import { MODEL_ICON } from "./lib/model-icons";
+import { Queries, queryHref, type SavedQuery } from "./lib/queries.svelte";
 import { type SavedView, Views } from "./lib/views.svelte";
 
 // The studio's frame, entasis's AppShell: the models in its sidebar, then a page — the schema diagram or one model's
@@ -43,6 +44,7 @@ import { type SavedView, Views } from "./lib/views.svelte";
 let schema = $state<StudioDescription>();
 /** The saved views of the project the studio opened: known once its schema is. */
 let views = $state<Views>();
+let queries = $state<Queries>();
 /** The edits stacked until they are saved, across every model's page. */
 let changes = $state<Changes>();
 /** The ⌘K palette, open. */
@@ -83,6 +85,8 @@ onMount(() => {
       schema = loaded;
       views = new Views(loaded.project);
       views.load();
+      queries = new Queries(loaded.project);
+      queries.load();
       changes = new Changes(loaded.project);
       check();
     })
@@ -108,6 +112,7 @@ onMount(() => {
   // Another page kept its views (or the diagram's layout): this one reads them again.
   events.addEventListener("store", (event) => {
     if (JSON.parse(event.data).name === "views") views?.load();
+    if (JSON.parse(event.data).name === "queries") queries?.load();
   });
   events.addEventListener("error", (event) => {
     if (!(event instanceof MessageEvent)) return;
@@ -124,12 +129,16 @@ onMount(() => {
 
 type Route =
   | { view: "schema" }
-  | { view: "query" }
+  | { view: "query"; saved?: string }
   | { view: "data"; model: string; scope?: Scope; saved?: string };
 const route = $derived.by<Route>(() => {
   const [path = "", query = ""] = hash.slice(1).split("?");
   const parts = path.split("/").filter(Boolean);
-  if (parts[0] === "query") return { view: "query" };
+  if (parts[0] === "query")
+    return {
+      view: "query",
+      saved: new URLSearchParams(query).get("query") ?? undefined,
+    };
   if (parts[0] !== "data" || !parts[1]) return { view: "schema" };
   const encoded = new URLSearchParams(query).get("scope");
   let scope: Scope | undefined;
@@ -163,6 +172,9 @@ const opened = $derived(
   route.view === "data" && views?.find(route.saved)?.model === route.model
     ? views.find(route.saved)
     : undefined
+);
+const openedQuery = $derived(
+  route.view === "query" ? queries?.find(route.saved) : undefined
 );
 /** The views whose model the schema still has. */
 const listed = $derived(
@@ -206,6 +218,26 @@ async function removeView(view: SavedView) {
   if (open) location.hash = `#/data/${encodeURIComponent(view.model)}`;
   toast.success({ title: `The view “${view.name}” was deleted` });
 }
+async function removeQuery(query: SavedQuery) {
+  const { confirmed } = await confirmation({
+    title: `Delete the query “${query.name}”?`,
+    description: "This removes the saved query only.",
+    confirm: { text: "Delete", color: "danger" },
+    cancel: "Cancel",
+  });
+  if (!confirmed) return;
+  try {
+    await queries?.remove(query.id);
+    if (route.view === "query" && route.saved === query.id)
+      location.hash = "#/query";
+    toast.success({ title: `The query “${query.name}” was deleted` });
+  } catch (error) {
+    toast.danger({
+      title: "The query could not be deleted",
+      description: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
 const sidebar = $derived<AppShellSidebarProps>({
   collapsible: "icon",
   items: [
@@ -227,7 +259,7 @@ const sidebar = $derived<AppShellSidebarProps>({
           label: "Query",
           href: "#/query",
           icon: terminalWindowIcon,
-          isActive: route.view === "query",
+          isActive: route.view === "query" && !route.saved,
         },
       ],
     },
@@ -241,6 +273,32 @@ const sidebar = $derived<AppShellSidebarProps>({
           route.view === "data" && route.model === model.name && !opened,
       })),
     },
+    ...(queries?.list.length
+      ? [
+          {
+            label: "Queries",
+            items: queries.list.map((query) => ({
+              label: query.name,
+              href: queryHref(query),
+              icon: terminalWindowIcon,
+              badge: query.model,
+              isActive: route.view === "query" && route.saved === query.id,
+              action: {
+                label: `Actions for the query ${query.name}`,
+                menu: [
+                  {
+                    type: "option" as const,
+                    title: "Delete query",
+                    prefix: trashIcon,
+                    color: "danger" as const,
+                    onclick: () => removeQuery(query),
+                  },
+                ],
+              },
+            })),
+          },
+        ]
+      : []),
     ...(listed.length
       ? [
           {
@@ -321,7 +379,15 @@ const sidebar = $derived<AppShellSidebarProps>({
         {#if route.view === 'schema'}
           <SchemaDiagram {schema} />
         {:else if route.view === 'query'}
-          {#key revision}<QueryPage {schema} {navigate} />{/key}
+          {#if !queries?.loaded}
+            <p class="m-0 p-6 text-neutral/60">Loading queries…</p>
+          {:else if route.saved && !openedQuery}
+            <p class="m-0 p-6 text-neutral/60">This saved query no longer exists.</p>
+          {:else if openedQuery && !schema.models.some(model => model.name === openedQuery.model)}
+            <p class="m-0 p-6 text-neutral/60">No model named “{openedQuery.model}”.</p>
+          {:else}
+            {#key `${route.saved ?? ''}#${revision}`}<QueryPage {schema} {navigate} {queries} saved={openedQuery} />{/key}
+          {/if}
         {:else if current && route.saved && !views?.loaded}
           <!-- A view's address waits for the views to be read: the page opens on the view, not on every row. -->
           <p class="m-0 p-6 text-neutral/60">Loading the view…</p>
@@ -336,7 +402,7 @@ const sidebar = $derived<AppShellSidebarProps>({
       {#if changes}<ChangesBar {changes} />{/if}
     </AppShell>
     {#if schema}
-      <Palette bind:open={paletteOpen} {schema} {views} {changes} {navigate} go={hash => (location.hash = hash)} />
+      <Palette bind:open={paletteOpen} {schema} {views} {queries} {changes} {navigate} go={hash => (location.hash = hash)} />
     {/if}
     <!-- Bottom right: the changes bar holds the bottom centre. -->
     <Toaster position="bottom-right" />

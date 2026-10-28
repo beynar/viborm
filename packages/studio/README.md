@@ -41,12 +41,13 @@ the studio on `http://127.0.0.1:5577` and opens it.
   you build it, with its rows, the SQL it ran, its trace (spans on a
   waterfall, database time against VibORM time) and the code to write. SQL is
   formatted in the database's dialect, with timing and bound values above it.
+- **Saved queries:** save the model, operation and builder settings under a
+  name. Reopen them from the sidebar or ⌘K, update or rename them, or use
+  Save as new to keep a copy. Queries share the views' per-project storage and
+  sync across open Studio pages. Deleting a saved query leaves database rows alone.
 - **Plan:** PostgreSQL and MySQL execution plans as a Svelte Flow graph, a
   compact table or the raw database response. Inspect node timing, estimated
-  and actual rows, index access and PostgreSQL buffers. Advice suggests indexes
-  against the live catalog, preserves mixed sort directions, and distinguishes
-  separate scans of the same table. Recommendations are heuristics to review;
-  Studio never applies them. Analyze captures the read and runs each statement
+  and actual rows, index access and PostgreSQL buffers. Analyze captures the read and runs each statement
   again; Estimate captures the read once and asks for its plan without a second
   execution. The graph fits the whole plan on mount; zoom or focus an operation
   to inspect it. PostgreSQL Analyze uses a transaction-local 30-second timeout

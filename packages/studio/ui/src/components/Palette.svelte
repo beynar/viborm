@@ -11,6 +11,7 @@ import { useTheme } from "entasis/theme";
 import type { Scope, StudioDescription } from "../lib/api";
 import type { Changes } from "../lib/changes.svelte";
 import { MODEL_ICON } from "../lib/model-icons";
+import { type Queries, queryHref } from "../lib/queries.svelte";
 import { parseDraft } from "../lib/values";
 import type { Views } from "../lib/views.svelte";
 
@@ -20,6 +21,7 @@ let {
   open = $bindable(false),
   schema,
   views,
+  queries,
   changes,
   navigate,
   go,
@@ -27,6 +29,7 @@ let {
   open?: boolean;
   schema: StudioDescription;
   views: Views | undefined;
+  queries: Queries | undefined;
   changes: Changes | undefined;
   navigate: (model: string, scope?: Scope) => void;
   /** An address in the studio (`#/schema`, `#/query`, a view's). */
@@ -88,6 +91,13 @@ const items = $derived.by<CommandGroup[]>(() => {
         label: model.name,
         description: model.table === model.name ? undefined : model.table,
         icon: MODEL_ICON[model.icon],
+      })),
+      ...(queries?.list ?? []).map((query) => ({
+        value: `go:${queryHref(query)}`,
+        label: query.name,
+        description: `Query on ${query.model}`,
+        icon: terminalWindowIcon,
+        keywords: [query.model, "query"],
       })),
       ...(views?.list ?? [])
         .filter((view) =>

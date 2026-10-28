@@ -598,12 +598,28 @@ describe("what the page remembers", () => {
   const ask = (method: string, path: string, body?: unknown) =>
     remembering.handle({ method, path, body });
 
-  test("views and layout are kept, even by a read-only studio", async () => {
+  test("views, queries and layout are kept, even by a read-only studio", async () => {
     expect((await ask("GET", "/store/views")).body).toEqual({ value: null });
     const layout = { post: { x: 1, y: 2 } };
     expect(
       (await ask("POST", "/store/layout", { value: layout })).body
     ).toEqual({ kept: "layout" });
+    expect((await ask("GET", "/store/layout")).body).toEqual({ value: layout });
+    const queries = [
+      {
+        id: "query-1",
+        name: "Active users",
+        model: "user",
+        operation: "findMany",
+        draft: { take: 10 },
+      },
+    ];
+    expect(
+      (await ask("POST", "/store/queries", { value: queries })).body
+    ).toEqual({ kept: "queries" });
+    expect((await ask("GET", "/store/queries")).body).toEqual({
+      value: queries,
+    });
     expect((await ask("GET", "/store/layout")).body).toEqual({ value: layout });
   });
 
@@ -614,6 +630,8 @@ describe("what the page remembers", () => {
     expect((await ask("DELETE", "/store/views")).status).toBe(405);
     expect(errorCode(await call("GET", "/store/views"))).toBe("no_store");
     expect((await ask("GET", "/store/other")).status).toBe(404);
+    expect((await ask("POST", "/store/queries", {})).status).toBe(400);
+    expect((await ask("DELETE", "/store/queries")).status).toBe(405);
   });
 });
 

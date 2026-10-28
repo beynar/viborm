@@ -3,7 +3,8 @@
 // whichever browser, and tells every open page when they change. Views a browser kept before move there once; a
 // studio that keeps nothing leaves them to the browser.
 import type { ModelIcon } from "../../../src/icons";
-import { keepStored, readStored, type Scope } from "./api";
+import type { Scope } from "./api";
+import { SavedItems } from "./saved-items.svelte";
 import type { Combinator, FilterEntry } from "./values";
 
 export interface SavedView {
@@ -34,39 +35,9 @@ export interface SavedView {
 
 export type ViewState = Omit<SavedView, "id" | "name" | "model" | "icon">;
 
-export class Views {
-  list = $state<SavedView[]>([]);
-  /** The views the studio keeps were read (or it keeps none): an address naming one can find it. */
-  loaded = $state(false);
-  readonly #key: string;
-  /** The studio keeps them; else the browser does. */
-  #kept = false;
-  #writing: Promise<void> = Promise.resolve();
-
+export class Views extends SavedItems<SavedView> {
   constructor(project: string) {
-    this.#key = `viborm-studio:views:${project}`;
-    this.list = this.#readLocal();
-  }
-
-  /** The views the studio keeps, read (again, when another page changed them); the browser's moved there once. */
-  async load(): Promise<void> {
-    try {
-      const kept: SavedView[] = await readStored("views").then((value) =>
-        Array.isArray(value) ? value : []
-      );
-      // Views this browser kept alone join the studio's, never replace them.
-      const local = this.#readLocal().filter(
-        (view) => !kept.some((other) => other.id === view.id)
-      );
-      this.list = [...kept, ...local];
-      if (local.length) await keepStored("views", this.list);
-      this.#kept = true;
-      localStorage.removeItem(this.#key);
-    } catch {
-      this.#kept = false;
-    } finally {
-      this.loaded = true;
-    }
+    super(project, "views");
   }
 
   find(id: string | undefined): SavedView | undefined {
@@ -87,7 +58,7 @@ export class Views {
       model,
       ...(icon ? { icon } : {}),
     };
-    await this.#write((list) => [...list, view]);
+    await this.change((list) => [...list, view]);
     return view;
   }
 
@@ -98,7 +69,7 @@ export class Views {
     state: ViewState,
     icon?: ModelIcon
   ): Promise<void> {
-    return this.#write((list) =>
+    return this.change((list) =>
       list.map((view) =>
         view.id === id
           ? { ...view, ...state, name, ...(icon ? { icon } : {}) }
@@ -109,37 +80,12 @@ export class Views {
 
   /** The view's icon in the sidebar. */
   setIcon(id: string, icon: ModelIcon): Promise<void> {
-    return this.#write((list) =>
+    return this.change((list) =>
       list.map((view) => (view.id === id ? { ...view, icon } : view))
     );
   }
 
   remove(id: string): Promise<void> {
-    return this.#write((list) => list.filter((view) => view.id !== id));
-  }
-
-  #readLocal(): SavedView[] {
-    try {
-      const stored = JSON.parse(localStorage.getItem(this.#key) ?? "[]");
-      return Array.isArray(stored) ? stored : [];
-    } catch {
-      return [];
-    }
-  }
-
-  /**
-   * One change at a time, each made to the list the previous one left, and shown once kept: a change the studio
-   * refused leaves the list as it was, and is never carried into the next one.
-   */
-  #write(change: (list: SavedView[]) => SavedView[]): Promise<void> {
-    const next = this.#writing.then(async () => {
-      const list = change(this.list);
-      if (this.#kept) await keepStored("views", list);
-      else localStorage.setItem(this.#key, JSON.stringify(list));
-      this.list = list;
-    });
-    // A refused change fails its own caller only: the next one still runs.
-    this.#writing = next.catch(() => undefined);
-    return next;
+    return this.change((list) => list.filter((view) => view.id !== id));
   }
 }

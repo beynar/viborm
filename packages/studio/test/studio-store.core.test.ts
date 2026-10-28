@@ -38,9 +38,15 @@ test("writes at once each keep theirs, and a failed one fails alone", async () =
   await Promise.all([
     store.write("views", [{ id: "a" }]),
     store.write("layout", { user: { x: 1, y: 2 } }),
+    store.write("queries", [{ id: "query", name: "Recent users" }]),
   ]);
   expect(await store.read("views")).toEqual([{ id: "a" }]);
   expect(await store.read("layout")).toEqual({ user: { x: 1, y: 2 } });
+  expect(
+    await projectStore(join(project.dir, "store"), "/p", () => undefined).read(
+      "queries"
+    )
+  ).toEqual([{ id: "query", name: "Recent users" }]);
   // A value JSON cannot write fails its own write; the next one runs.
   await expect(store.write("views", [1n])).rejects.toThrow(TypeError);
   await store.write("views", [{ id: "b" }]);
