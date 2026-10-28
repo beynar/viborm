@@ -13,7 +13,6 @@ export type TableData = {
 
 <script lang="ts">
   import { Handle, type Node, type NodeProps, Position } from '@xyflow/svelte'
-  import { arrowRightIcon } from 'entasis/icons/arrowRight'
   import { fingerprintIcon } from 'entasis/icons/fingerprint'
   import { keyIcon } from 'entasis/icons/key'
   import { linkSimpleIcon } from 'entasis/icons/linkSimple'
@@ -83,7 +82,6 @@ export type TableData = {
         <li class:chosen data-relation={relation.name}>
           {@render anchors(relationAnchor(relation.name))}
           <button type="button" class="relation nodrag" aria-pressed={chosen} title="Show where {relation.name} leads" onclick={() => focus.chooseRelation(data.model.name, relation.name)}>
-            <span class="mark">{@render arrowRightIcon({ size: 14 })}</span>
             <span class="field">{relation.name}</span>
             <span class="label">{relation.targets.join(' | ')}{relation.cardinality === 'many' ? '[]' : ''}</span>
           </button>
@@ -129,7 +127,6 @@ export type TableData = {
   li.key { font-weight: 600; }
   .relations li { color: color-mix(in oklab, var(--color-neutral) 60%, transparent); font-style: italic; }
   .mark { display: inline-flex; width: 14px; color: var(--color-link); }
-  .relations .mark { color: inherit; }
   .type { display: inline-flex; color: color-mix(in oklab, var(--color-neutral) 55%, transparent); }
   .field { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .optional { margin-left: 2px; color: color-mix(in oklab, var(--color-neutral) 45%, transparent); font-weight: 400; }
