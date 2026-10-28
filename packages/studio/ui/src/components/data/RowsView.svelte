@@ -657,6 +657,8 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
         root: { base: 'absolute inset-0 gap-0' },
         viewport: { base: 'min-h-0 flex-1 rounded-none border-0' },
         cellContent: { base: 'min-w-0 w-full truncate' },
+        // The table fills the page, open below: its last row keeps its rule (entasis drops it, for a framed table).
+        row: { base: 'last:!border-b' },
         // A row's related rows, on a recessed ground: their own padding, so they stay on the table's left as it
         // scrolls sideways (`sticky`), as wide as the table shows (`RelatedRows`).
         detailRow: { base: 'grid min-w-full border-b border-neutral-muted bg-surface-recessed' },
