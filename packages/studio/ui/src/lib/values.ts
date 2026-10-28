@@ -23,6 +23,16 @@ export const TYPE_LABELS: Record<StudioField["type"], string> = {
 export const typeLabel = (field: StudioField) =>
   `${TYPE_LABELS[field.type]}${field.list ? "[]" : ""}${field.nullable ? "?" : ""}`;
 
+const DIGITS = /^(-?\d+)(\.\d+)?$/;
+const THOUSANDS = /\B(?=(\d{3})+(?!\d))/g;
+/** A number (or a bigint's or a decimal's text) with its thousands apart, to read: 8 500 000 059 500. */
+export function grouped(value: unknown): string {
+  const text = typeof value === "number" ? String(value) : display(value);
+  const parts = DIGITS.exec(text);
+  if (!parts) return text;
+  return `${parts[1]!.replace(THOUSANDS, "\u202f")}${parts[2] ?? ""}`;
+}
+
 /** A cell's text. */
 export function display(value: unknown): string {
   if (value === null) return "null";

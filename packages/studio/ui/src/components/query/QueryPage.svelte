@@ -5,6 +5,7 @@ import { Code } from "entasis/code";
 import { arrowSquareOutIcon } from "entasis/icons/arrowSquareOut";
 import { arrowsClockwiseIcon } from "entasis/icons/arrowsClockwise";
 import { plusIcon } from "entasis/icons/plus";
+import { sidebarSimpleIcon } from "entasis/icons/sidebarSimple";
 import { xIcon } from "entasis/icons/x";
 import { NumberInput } from "entasis/number-input";
 import { type PageShellApi, setPageShell } from "entasis/page-shell";
@@ -27,6 +28,7 @@ import {
   aggregatable,
   argsOf,
   codeOf,
+  computedColumn,
   emptyDraft,
   type QueryDraft,
   scalarFields,
@@ -34,8 +36,9 @@ import {
   uniqueFields,
   whereOf,
 } from "../../lib/query-builder";
-import { cellText, display } from "../../lib/values";
+import { cellText, display, grouped } from "../../lib/values";
 import FilterGroup from "../data/FilterGroup.svelte";
+import ResultTable from "./ResultTable.svelte";
 
 // A read built with pickers, as the application would write it: what to read (the rows' own filter, an order, a
 // page, columns and relations) or what to compute (counts, sums, averages, extremes, per group). It runs through
@@ -147,9 +150,12 @@ let answer = $state.raw<{
   duration: number;
   statements: StudioStatement[];
   model: string;
+  operation: QueryOperation;
 }>();
 let failure = $state<string>();
 let tab = $state<"table" | "json" | "sql" | "code">("table");
+/** The query folded away: the result takes the page. */
+let folded = $state(false);
 let asked = 0;
 
 async function run() {
@@ -158,11 +164,12 @@ async function run() {
   asked += 1;
   const ask = asked;
   const read = modelName;
+  const asking = operation;
   running = true;
   try {
-    const answered = await runQuery(read, operation, args);
+    const answered = await runQuery(read, asking, args);
     if (ask !== asked) return;
-    answer = { ...answered, model: read };
+    answer = { ...answered, model: read, operation: asking };
     failure = undefined;
   } catch (error) {
     if (ask !== asked) return;
@@ -223,14 +230,6 @@ const table = $derived(tableOf(answer?.result));
 const answeredModel = $derived(
   models.find((entry) => entry.name === answer?.model)
 );
-function cell(column: string, value: unknown): string {
-  if (Array.isArray(value))
-    return `${value.length} ${value.length === 1 ? "row" : "rows"}`;
-  const field = answeredModel?.fields.find((entry) => entry.name === column);
-  if (field && (typeof value !== "object" || value === null))
-    return cellText(field, value);
-  return display(value);
-}
 const counted = $derived(
   typeof answer?.result === "number"
     ? undefined
@@ -272,7 +271,8 @@ function chooseFunction(
   <h3 class="m-0 text-[11px] font-semibold tracking-wide text-neutral/55 uppercase">{text}</h3>
 {/snippet}
 
-<section class="grid grid-cols-[minmax(30rem,36rem)_minmax(0,1fr)] gap-4 p-4" aria-label="Query" {@attach fillPage}>
+<section class={['grid gap-4 p-4', folded ? 'grid-cols-[minmax(0,1fr)]' : 'grid-cols-[30rem_minmax(0,1fr)]']} aria-label="Query" {@attach fillPage}>
+  {#if !folded}
   <!-- What to read: the model, the operation, then what that operation takes. -->
   <aside class="grid min-h-0 content-start gap-5 overflow-auto rounded-lg border border-neutral-muted bg-surface p-4" aria-label="The query">
     <div class="grid gap-2">
@@ -362,10 +362,12 @@ function chooseFunction(
       <span class="ml-auto text-[12px] text-neutral/50">Runs as you build · ⌘↵ runs again</span>
     </div>
   </aside>
+  {/if}
 
   <!-- What it read. -->
   <div class="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3">
     <div class="flex flex-wrap items-center gap-3">
+      <Button size="small" variant="ghost" squared prefix={sidebarSimpleIcon} label={folded ? 'Show the query' : 'Hide the query: the result takes the page'} onclick={() => (folded = !folded)} />
       <SegmentedControl size="small" label="What to show" items={[{ value: 'table', label: 'Result' }, { value: 'json', label: 'JSON' }, { value: 'sql', label: `SQL${answer ? ` · ${answer.statements.length}` : ''}` }, { value: 'code', label: 'Code' }]} bind:value={tab} />
       {#if answer}
         <span class="text-[12px] text-neutral/60">{counted ? `${counted} · ` : ''}{answer.duration} ms</span>
@@ -400,30 +402,21 @@ function chooseFunction(
           <span class="text-4xl font-semibold tabular-nums">{answer.result}</span>
           <span class="text-[13px] text-neutral/60">{answer.result === 1 ? 'row matches' : 'rows match'}</span>
         </div>
-      {:else if table.rows.length === 0}
-        <p class="m-0 text-[13px] text-neutral/60">No row.</p>
-      {:else}
-        <div class="overflow-auto rounded-lg border border-neutral-muted bg-surface">
-          <table class="w-full border-collapse text-[13px]">
-            <thead class="sticky top-0 bg-surface-floating">
-              <tr>
-                {#each table.columns as column (column)}
-                  <th class="border-b border-neutral-muted px-3 py-2 text-left font-medium whitespace-nowrap">{column}</th>
-                {/each}
-              </tr>
-            </thead>
-            <tbody>
-              {#each table.rows as row, index (index)}
-                <tr class="hover:bg-neutral-muted/40">
-                  {#each table.columns as column (column)}
-                    {@const value = row[column]}
-                    <td class={['max-w-[22rem] truncate border-b border-neutral-muted px-3 py-1.5 whitespace-nowrap', value === null && 'text-neutral/40', typeof value === 'number' && 'text-right tabular-nums']} title={cell(column, value)}>{value === undefined ? '' : cell(column, value)}</td>
-                  {/each}
-                </tr>
-              {/each}
-            </tbody>
-          </table>
+      {:else if answer.operation === 'aggregate' && table.rows.length === 1}
+        <!-- Values computed over the rows: one card each. -->
+        <div class="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3">
+          {#each table.columns as column (column)}
+            {@const computed = computedColumn(answeredModel, column)}
+            {@const held = table.rows[0]![column]}
+            {@const said = held === null || held === undefined ? '—' : computed?.field ? cellText(computed.field, held) : grouped(held)}
+            <div class="grid content-start gap-1 rounded-lg border border-neutral-muted bg-surface p-4">
+              <span class="text-[12px] text-neutral/60">{computed?.label ?? column}</span>
+              <span class="text-lg font-semibold break-words tabular-nums" title={display(held)}>{said}</span>
+            </div>
+          {/each}
         </div>
+      {:else}
+        <ResultTable model={answeredModel} {models} result={answer.result} />
       {/if}
       </div>
     </div>

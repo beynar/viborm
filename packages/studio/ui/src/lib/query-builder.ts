@@ -214,6 +214,25 @@ export function argsOf(
   }
 }
 
+/**
+ * A computed value's column: said as it reads (`_sum.rating` → "sum · rating", `_count` → "count"), and shown as a
+ * number, or as the column it is the extreme of (`_max.createdAt` is an instant).
+ */
+export function computedColumn(
+  model: StudioModel | undefined,
+  key: string
+): { label: string; numeric: boolean; field?: StudioField } | undefined {
+  const [fn, of] = key.split(".") as [string, string | undefined];
+  if (!(fn in AGGREGATE_LABELS)) return undefined;
+  const said = AGGREGATE_LABELS[fn as Aggregate];
+  const label = of === undefined || of === "_all" ? said : `${said} · ${of}`;
+  const field = model?.fields.find((candidate) => candidate.name === of);
+  const extreme = fn === "_min" || fn === "_max";
+  if (extreme && field && !NUMERIC.has(field.type))
+    return { label, numeric: false, field };
+  return { label, numeric: true };
+}
+
 const IDENTIFIER = /"([A-Za-z_$][\w$]*)":/g;
 /** The call as the application would write it. */
 export const codeOf = (

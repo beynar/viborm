@@ -79,8 +79,11 @@ read from the config's own directory.
   columns and related rows to return), find one by a unique column, count
   them, or compute counts, sums, averages and extremes over them or per
   group. It runs through your client as you build it; the page shows the
-  rows, the JSON, the SQL it ran and the call to write in your application,
-  and opens the rows it found in their table. Only reads run there.
+  rows as a table (sorted in place, the related rows read with them opening
+  under their row, as deep as the read went; computed values as cards or a
+  column each), the JSON, the SQL it ran and the call to write in your
+  application, and opens the rows it found in their table. Only reads run
+  there.
 - **Drift**: the studio asks your client what `viborm push` would change
   (a dry run, nothing applied) when it opens and on each reload. When the
   database differs from the schema, a banner lists the changes and their SQL,

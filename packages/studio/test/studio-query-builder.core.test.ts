@@ -3,10 +3,12 @@ import type { StudioField, StudioModel } from "../src/schema";
 import {
   argsOf,
   codeOf,
+  computedColumn,
   emptyDraft,
   type QueryDraft,
   tableOf,
 } from "../ui/src/lib/query-builder";
+import { grouped } from "../ui/src/lib/values";
 
 const field = (
   name: string,
@@ -176,4 +178,36 @@ test("results as table rows", () => {
       { value: 7 },
     ],
   });
+});
+
+test("computed columns read as numbers, or as the column they are the extreme of", () => {
+  const joined = field("joinedAt", "datetime");
+  const dated = { ...user, fields: [...user.fields, joined] };
+  expect(computedColumn(dated, "_count")).toEqual({
+    label: "count",
+    numeric: true,
+  });
+  expect(computedColumn(dated, "_count._all")?.label).toBe("count");
+  expect(computedColumn(dated, "_avg.karma")).toEqual({
+    label: "average · karma",
+    numeric: true,
+  });
+  expect(computedColumn(dated, "_max.joinedAt")).toEqual({
+    label: "maximum · joinedAt",
+    numeric: false,
+    field: joined,
+  });
+  expect(computedColumn(dated, "_min.karma")?.numeric).toBe(true);
+  expect(computedColumn(undefined, "_min.gone")?.numeric).toBe(true);
+  expect(computedColumn(dated, "email")).toBeUndefined();
+});
+
+test("numbers read with their thousands apart", () => {
+  expect(grouped(8_500_000_059_500)).toBe(
+    "8\u202f500\u202f000\u202f059\u202f500"
+  );
+  expect(grouped("-1234567.891")).toBe("-1\u202f234\u202f567.891");
+  expect(grouped("999")).toBe("999");
+  expect(grouped("abc")).toBe("abc");
+  expect(grouped(null)).toBe("null");
 });
