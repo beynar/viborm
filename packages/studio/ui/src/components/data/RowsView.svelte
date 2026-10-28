@@ -53,7 +53,8 @@ import {
   conditionWhere,
   display,
   editable,
-  type Reached,
+  isReached,
+  reachedText,
   relatedScopes,
   written,
 } from "../../lib/values";
@@ -693,7 +694,7 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
             <!-- A to-one relation: the key of the row it reaches, or an empty mark when there is none. -->
             {@const reached = row[relation.name] as Row | null | undefined}
             <!-- A polymorphic one says the variant it reached before that row's key. -->
-            {@const said = relation.variants && reached ? `${(reached as Reached).type} ${Object.values((reached as Reached).data).map(display).join(', ')}` : undefined}
+            {@const said = isReached(reached) ? reachedText(reached) : undefined}
             {#if reached === null || (relation.owner && heldKey(relation, row).some(held => held === null))}
               <Button size="small" variant={expanded && opened[rowId] === relation.name ? 'soft' : 'ghost'} label="{relation.name} of this row: none" onclick={() => openRelated(rowId, relation.name, expanded, toggleExpanded)}>
                 <span class="text-neutral/40 italic">none</span>

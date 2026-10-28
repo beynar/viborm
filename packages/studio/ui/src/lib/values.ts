@@ -173,6 +173,23 @@ export interface RelatedScope {
 /** A polymorphic to-one as the API reads it: the variant reached, and that row's key. */
 export type Reached = { type: string; data: Record<string, unknown> };
 
+/** Whether a relation's value is a polymorphic to-one as the API reads it. */
+export function isReached(value: unknown): value is Reached {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "type" in value &&
+    typeof value.type === "string" &&
+    "data" in value &&
+    typeof value.data === "object" &&
+    value.data !== null
+  );
+}
+
+/** A polymorphic to-one as a cell says it: the variant, then that row's key. */
+export const reachedText = ({ type, data }: Reached) =>
+  `${type} ${Object.values(data).map(display).join(", ")}`;
+
 /**
  * The rows a relation of one row reaches, as a `where` on each model it can
  * reach: through the partner slot when there is one (`is` for a to-one
@@ -193,18 +210,13 @@ export function relatedScopes(
     model.key.fields.map((field) => [field, row[field]])
   );
   if (relation.variants && relation.cardinality === "one") {
-    const reached = row[relation.name] as Reached | null;
+    const reached = row[relation.name];
+    if (!isReached(reached)) return [];
     const variant = relation.variants.find(
-      (candidate) => candidate.name === reached?.type
+      (candidate) => candidate.name === reached.type
     );
     return variant
-      ? [
-          {
-            target: variant.target,
-            where: reached!.data,
-            variant: variant.name,
-          },
-        ]
+      ? [{ target: variant.target, where: reached.data, variant: variant.name }]
       : [];
   }
   if (relation.variants) {

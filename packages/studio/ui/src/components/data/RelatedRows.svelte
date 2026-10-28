@@ -16,7 +16,12 @@ import {
   type StudioRelation,
   updateRow,
 } from "../../lib/api";
-import { display, type Reached, relatedScopes } from "../../lib/values";
+import {
+  display,
+  isReached,
+  reachedText,
+  relatedScopes,
+} from "../../lib/values";
 
 // A row's related rows, under it, as Pyxel's `RelatedRows` opens them: one button per relation and what it holds
 // beside its name, then the first rows of the relation chosen, read through the client with the filter that
@@ -105,8 +110,9 @@ const links = $derived(
 );
 /**
  * Whether a linked row can be let go: a junction row always, a foreign key only
- * when its columns on the other row take null (the client has no disconnect for
- * a required one; that row is moved by linking it elsewhere).
+ * when one of its columns on the other row takes null (the client clears those;
+ * a key none of whose columns does has no disconnect, and that row is moved by
+ * linking it elsewhere).
  */
 const unlinks = $derived.by(() => {
   if (!(links && relation && target)) return false;
@@ -116,7 +122,7 @@ const unlinks = $derived.by(() => {
   );
   return (
     !!held &&
-    held.fields.every(
+    held.fields.some(
       (name) => target.fields.find((field) => field.name === name)?.nullable
     )
   );
@@ -128,10 +134,7 @@ function held(candidate: StudioRelation): string {
     return String(row._count?.[candidate.name] ?? "");
   const reached = row[candidate.name] as Row | null | undefined;
   if (reached === null) return "none";
-  if (reached && candidate.variants) {
-    const { type, data } = reached as Reached;
-    return `${type} ${Object.values(data).map(display).join(", ")}`;
-  }
+  if (isReached(reached)) return reachedText(reached);
   return reached ? Object.values(reached).map(display).join(", ") : "";
 }
 
