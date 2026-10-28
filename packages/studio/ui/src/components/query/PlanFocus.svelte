@@ -65,13 +65,16 @@ $effect(() => {
     store.height < 1
   )
     return;
-  flow.fitView({
-    nodes: targets.map((id) => ({ id })),
-    padding: 0.2,
-    minZoom: 1,
-    maxZoom: 1,
-    duration: prefersReducedMotion.current ? 0 : 320,
-  });
+  // fitView reads and updates internal node state; only the focus request and readiness should retrigger us.
+  untrack(() =>
+    flow.fitView({
+      nodes: targets.map((id) => ({ id })),
+      padding: 0.2,
+      minZoom: 1,
+      maxZoom: 1,
+      duration: prefersReducedMotion.current ? 0 : 320,
+    })
+  );
 });
 </script>
 

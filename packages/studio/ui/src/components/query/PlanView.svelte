@@ -172,19 +172,14 @@ const time = (date: Date) =>
     <header class="flex items-start gap-2">
       <span class="mt-0.5 inline-flex shrink-0" role="img" aria-label={tone.label} title={tone.label}>{@render tone.icon({ size: 16 })}</span>
       <div class="grid min-w-0 gap-0.5">
-        <h4 class="m-0 text-[13px] font-semibold text-neutral">{entry.title}</h4>
+        <h4 class="m-0 text-[13px] font-semibold text-neutral" title={entry.title}>{entry.fix?.schema ? 'Add an index' : entry.title}</h4>
       </div>
       <div class="ml-auto shrink-0"><Button size="small" variant="ghost" prefix={crosshairIcon} onclick={() => show(entry.nodes)}>Show</Button></div>
     </header>
-    <p class="m-0 text-[12px] leading-5 text-neutral/80">{entry.detail}</p>
     {#if entry.fix?.schema}
       <Code language="ts" title="Schema" code={entry.fix.schema} />
-    {/if}
-    {#if entry.fix?.sql}
-      <Code language="sql" title="SQL" code={entry.fix.sql} wrap />
-    {/if}
-    {#if entry.fix?.note}
-      <p class="m-0 text-[12px] text-neutral/65">{entry.fix.note}</p>
+    {:else}
+      <p class="m-0 text-[12px] leading-5 text-neutral/80">{entry.fix?.note ?? entry.detail}</p>
     {/if}
   </article>
 {/snippet}
