@@ -6,6 +6,7 @@ import { Confirmation, confirmation } from "entasis/confirmation";
 import { bookmarkSimpleIcon } from "entasis/icons/bookmarkSimple";
 import { databaseIcon } from "entasis/icons/database";
 import { graphIcon } from "entasis/icons/graph";
+import { magnifyingGlassIcon } from "entasis/icons/magnifyingGlass";
 import { sidebarSimpleIcon } from "entasis/icons/sidebarSimple";
 import { tableIcon } from "entasis/icons/table";
 import { trashIcon } from "entasis/icons/trash";
@@ -15,6 +16,7 @@ import { Toaster, toast } from "entasis/toast";
 import { onMount } from "svelte";
 import ChangesBar from "./components/data/ChangesBar.svelte";
 import RowsView from "./components/data/RowsView.svelte";
+import Palette from "./components/Palette.svelte";
 import SchemaDiagram from "./components/schema/SchemaDiagram.svelte";
 import ThemeToggle from "./components/ThemeToggle.svelte";
 import { loadSchema, type Scope, type StudioDescription } from "./lib/api";
@@ -30,6 +32,8 @@ let schema = $state<StudioDescription>();
 let views = $state<Views>();
 /** The edits stacked until they are saved, across every model's page. */
 let changes = $state<Changes>();
+/** The ⌘K palette, open. */
+let paletteOpen = $state(false);
 let failure = $state<string>();
 let hash = $state(location.hash);
 /** Bumped each time the server reloads the config: the open page reads again. */
@@ -150,6 +154,12 @@ const sidebar = $derived<AppShellSidebarProps>({
     {
       items: [
         {
+          label: "Search",
+          icon: magnifyingGlassIcon,
+          badge: "⌘K",
+          onclick: () => (paletteOpen = true),
+        },
+        {
           label: "Schema",
           href: "#/schema",
           icon: graphIcon,
@@ -247,6 +257,9 @@ const sidebar = $derived<AppShellSidebarProps>({
       {/if}
       {#if changes}<ChangesBar {changes} />{/if}
     </AppShell>
+    {#if schema}
+      <Palette bind:open={paletteOpen} {schema} {views} {changes} {navigate} go={hash => (location.hash = hash)} />
+    {/if}
     <!-- Bottom right: the changes bar holds the bottom centre. -->
     <Toaster position="bottom-right" />
     <Confirmation />

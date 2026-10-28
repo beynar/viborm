@@ -2,7 +2,9 @@
 // linked or unlinked waits here until it is sent, every one in one transaction of the client (`POST /api/changes`),
 // or dropped. The table shows them over the rows the database answered. They are kept for the browser's session,
 // per project, so a reload does not lose them.
-import type { Row } from "./api";
+import { confirmation } from "entasis/confirmation";
+import { toast } from "entasis/toast";
+import { type Row, StudioError, saveChanges } from "./api";
 
 export interface StagedChange {
   readonly id: string;
@@ -33,10 +35,21 @@ function same(held: unknown, staged: unknown): boolean {
   return JSON.stringify(held) === JSON.stringify(staged);
 }
 
+/** A change as the list says it. */
+export function said(change: StagedChange): string {
+  if (change.action === "create") return `Add a ${change.model} row`;
+  if (change.action === "delete") return `Delete ${change.label}`;
+  if (change.nested) return change.label;
+  return `${change.label} · ${Object.keys(change.data ?? {}).join(", ")}`;
+}
+
 export class Changes {
   list = $state<StagedChange[]>([]);
-  /** The change the last save stopped at, when the client refused it. */
+  /** The change the last save stopped at, when the client refused it, and the client's words for it. */
   failed = $state<string>();
+  refusal = $state<string>();
+  /** A save is on its way. */
+  busy = $state(false);
   /** Bumped by every save that wrote: the open table reads its rows again. */
   saved = $state(0);
   readonly #key: string;
@@ -153,6 +166,58 @@ export class Changes {
 
   clear(): void {
     this.#write([]);
+  }
+
+  /** Every change sent in one transaction: all written, or none, the refused one named. */
+  async save(): Promise<void> {
+    if (this.busy || this.list.length === 0) return;
+    if (document.activeElement instanceof HTMLElement)
+      document.activeElement.blur();
+    this.busy = true;
+    try {
+      const { saved } = await saveChanges(this.toSend());
+      this.clear();
+      this.refusal = undefined;
+      this.saved += 1;
+      toast.success({
+        title: saved === 1 ? "One change saved" : `${saved} changes saved`,
+      });
+    } catch (error) {
+      const at = error instanceof StudioError ? error.at : undefined;
+      const stopped = at === undefined ? undefined : this.list[at];
+      this.failed = stopped?.id;
+      this.refusal = error instanceof Error ? error.message : String(error);
+      toast.danger({
+        title: stopped
+          ? `Nothing was saved: “${said(stopped)}” was refused`
+          : "Nothing was saved",
+        description: this.refusal,
+      });
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  /** Every change dropped, once the member says so. */
+  async discard(): Promise<void> {
+    const count = this.list.length;
+    if (count === 0) return;
+    const { confirmed } = await confirmation({
+      title: count === 1 ? "Drop this change?" : `Drop these ${count} changes?`,
+      description:
+        "Nothing was written: the rows stay as the database holds them.",
+      confirm: { text: "Drop", color: "danger" },
+      cancel: "Keep them",
+    });
+    if (confirmed) this.clear();
+  }
+
+  /** The last change dropped (⌘Z). */
+  undo(): void {
+    const last = this.list.at(-1);
+    if (!last) return;
+    this.remove(last.id);
+    toast.neutral({ title: `Dropped: ${said(last)}` });
   }
 
   /** The cells stacked for one row, merged. */

@@ -1,70 +1,34 @@
 <script lang="ts">
 import { Button } from "entasis/button";
-import { confirmation } from "entasis/confirmation";
 import { floppyDiskIcon } from "entasis/icons/floppyDisk";
 import { xIcon } from "entasis/icons/x";
 import { Popover } from "entasis/popover";
-import { toast } from "entasis/toast";
-import { StudioError, saveChanges } from "../../lib/api";
-import type { Changes, StagedChange } from "../../lib/changes.svelte";
+import { type Changes, said } from "../../lib/changes.svelte";
 
 // The stacked changes, floating over the page while there are some: how many, each one listed (and dropped one by
-// one), all of them dropped, or all of them saved in one transaction of the client. A save the client refuses
-// writes nothing and names the change it stopped at.
+// one), all of them dropped, or all of them saved in one transaction of the client (⌘S). ⌘Z drops the last one
+// when no field has the keyboard. A save the client refuses writes nothing and names the change it stopped at.
 let { changes }: { changes: Changes } = $props();
 
-let busy = $state(false);
-/** The client's words for the change the last save stopped at. */
-let refusal = $state<string>();
-
-/** A change as the list says it. */
-function said(change: StagedChange): string {
-  if (change.action === "create") return `Add a ${change.model} row`;
-  if (change.action === "delete") return `Delete ${change.label}`;
-  if (change.nested) return change.label;
-  return `${change.label} · ${Object.keys(change.data ?? {}).join(", ")}`;
-}
-
-async function save() {
-  if (document.activeElement instanceof HTMLElement)
-    document.activeElement.blur();
-  busy = true;
-  try {
-    const { saved } = await saveChanges(changes.toSend());
-    changes.clear();
-    changes.saved += 1;
-    refusal = undefined;
-    toast.success({
-      title: saved === 1 ? "One change saved" : `${saved} changes saved`,
-    });
-  } catch (error) {
-    const at = error instanceof StudioError ? error.at : undefined;
-    const stopped = at === undefined ? undefined : changes.list[at];
-    changes.failed = stopped?.id;
-    refusal = error instanceof Error ? error.message : String(error);
-    toast.danger({
-      title: stopped
-        ? `Nothing was saved: “${said(stopped)}” was refused`
-        : "Nothing was saved",
-      description: refusal,
-    });
-  } finally {
-    busy = false;
+function keys(event: KeyboardEvent) {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
+  const key = event.key.toLowerCase();
+  if (key === "s" && !event.shiftKey) {
+    event.preventDefault();
+    changes.save();
+  } else if (key === "z" && !event.shiftKey) {
+    // A field keeps its own undo.
+    const typing =
+      event.target instanceof HTMLElement &&
+      event.target.closest("input, textarea, [contenteditable=true]");
+    if (typing || changes.list.length === 0) return;
+    event.preventDefault();
+    changes.undo();
   }
 }
-
-async function discard() {
-  const count = changes.list.length;
-  const { confirmed } = await confirmation({
-    title: count === 1 ? "Drop this change?" : `Drop these ${count} changes?`,
-    description:
-      "Nothing was written: the rows stay as the database holds them.",
-    confirm: { text: "Drop", color: "danger" },
-    cancel: "Keep them",
-  });
-  if (confirmed) changes.clear();
-}
 </script>
+
+<svelte:window onkeydown={keys} />
 
 {#if changes.list.length}
   <div class="pointer-events-none fixed inset-x-0 bottom-16 z-40 flex justify-center px-4">
@@ -81,15 +45,15 @@ async function discard() {
                 <span class="min-w-0 flex-1 truncate" title={said(change)}>{said(change)}</span>
                 <Button size="small" variant="ghost" squared prefix={xIcon} label="Drop “{said(change)}”" onclick={() => changes.remove(change.id)} />
               </li>
-              {#if changes.failed === change.id && refusal}
-                <li class="px-2 pb-1 text-[12px] whitespace-pre-wrap text-danger">{refusal}</li>
+              {#if changes.failed === change.id && changes.refusal}
+                <li class="px-2 pb-1 text-[12px] whitespace-pre-wrap text-danger">{changes.refusal}</li>
               {/if}
             {/each}
           </ol>
         {/snippet}
       </Popover>
-      <Button size="small" variant="ghost" disabled={busy} onclick={discard}>Discard</Button>
-      <Button size="small" color="primary" prefix={floppyDiskIcon} loading={busy} onclick={save}>Save changes</Button>
+      <Button size="small" variant="ghost" disabled={changes.busy} onclick={() => changes.discard()}>Discard</Button>
+      <Button size="small" color="primary" prefix={floppyDiskIcon} loading={changes.busy} onclick={() => changes.save()}>Save changes <span class="ml-1 opacity-60">⌘S</span></Button>
     </div>
   </div>
 {/if}
