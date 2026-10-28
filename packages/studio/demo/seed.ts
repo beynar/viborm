@@ -10,7 +10,14 @@ const { client } = await import(
 await createMigrationClient(client).push();
 
 await client.$transaction(async (tx: any) => {
-  for (const model of ["collection", "comment", "post", "profile", "tag", "user"]) {
+  for (const model of [
+    "collection",
+    "comment",
+    "post",
+    "profile",
+    "tag",
+    "user",
+  ]) {
     await tx[model].deleteMany({});
   }
 });
@@ -62,7 +69,9 @@ for (const [name, role, bio, website] of people) {
       name,
       role,
       karma: BigInt(1000 * (n + 1)) * 1_000_000_007n,
-      birthday: new Date(Date.UTC(1815 + 20 * people.findIndex(([who]) => who === name), 11, 10)),
+      birthday: new Date(
+        Date.UTC(1815 + 20 * people.findIndex(([who]) => who === name), 11, 10)
+      ),
       ...(bio === null && website === null
         ? {}
         : { profile: { create: { bio, website } } }),
@@ -75,7 +84,8 @@ for (const [name, role, bio, website] of people) {
         title: `${name.split(" ")[1]} notes #${i + 1}`,
         body: `Draft ${i + 1} by ${name}.`,
         published: i % 2 === 0,
-        publishedAt: i % 2 === 0 ? new Date(Date.UTC(2026, 9, 1 + i, 9, 30)) : null,
+        publishedAt:
+          i % 2 === 0 ? new Date(Date.UTC(2026, 9, 1 + i, 9, 30)) : null,
         rating: i % 3 === 0 ? null : `${(n % 5) + 0.25}`,
         metadata: { words: 120 * (i + 1), lang: "en" },
         authorId: user.id,
@@ -90,8 +100,14 @@ for (const [name, role, bio, website] of people) {
   }
 }
 // Polymorphic: comments on posts and on users, and collections of posts and tags.
-const posts = await client.post.findMany({ select: { id: true }, orderBy: { id: "asc" } });
-const users = await client.user.findMany({ select: { id: true }, orderBy: { id: "asc" } });
+const posts = await client.post.findMany({
+  select: { id: true },
+  orderBy: { id: "asc" },
+});
+const users = await client.user.findMany({
+  select: { id: true },
+  orderBy: { id: "asc" },
+});
 const remarks = [
   ["post", 0, "Clear and short. More of these."],
   ["post", 0, "The second example does not compile."],
@@ -103,10 +119,15 @@ const remarks = [
 for (const [type, index, body] of remarks) {
   const target = (type === "post" ? posts : users)[index]!;
   await client.comment.create({
-    data: { body, commentable: { connect: { type, where: { id: target.id } } } },
+    data: {
+      body,
+      commentable: { connect: { type, where: { id: target.id } } },
+    },
   });
 }
-await client.comment.create({ data: { body: "A remark on nothing in particular." } });
+await client.comment.create({
+  data: { body: "A remark on nothing in particular." },
+});
 await client.collection.create({
   data: {
     name: "Start here",

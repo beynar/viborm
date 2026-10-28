@@ -101,7 +101,10 @@ export class Changes {
       )
     );
     const rest = this.list.filter((change) => change !== pending);
-    if (Object.keys(merged).length === 0) return this.#write(rest);
+    if (Object.keys(merged).length === 0) {
+      this.#write(rest);
+      return;
+    }
     const change: StagedChange = pending
       ? { ...pending, data: merged }
       : {

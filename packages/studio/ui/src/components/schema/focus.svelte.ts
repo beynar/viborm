@@ -58,8 +58,10 @@ export class SchemaFocus {
 
   /** A card clicked: chosen, or let go when it already was. */
   chooseModel(model: string): void {
-    if (this.model === model && this.relation === undefined)
-      return this.clear();
+    if (this.model === model && this.relation === undefined) {
+      this.clear();
+      return;
+    }
     this.model = model;
     this.relation = undefined;
   }

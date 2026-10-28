@@ -25,13 +25,17 @@ test("one file per project keeps each name, says its config, and tells", async (
   await store.write("layout", { user: { x: 1, y: 2 } });
   expect(await store.read("views")).toEqual([{ id: "a" }]);
   expect(told).toEqual(["views", "layout"]);
-  const other = projectStore(dir, "/work/other/viborm.config.ts", () => {});
+  const other = projectStore(
+    dir,
+    "/work/other/viborm.config.ts",
+    () => undefined
+  );
   expect(await other.read("views")).toBeUndefined();
 });
 
 test("a file that is not JSON, or not an object, keeps nothing", async () => {
   const dir = join(project.dir, "store");
-  const store = projectStore(dir, "/p", () => {});
+  const store = projectStore(dir, "/p", () => undefined);
   await store.write("views", []);
   const [file] = (await import("node:fs")).readdirSync(dir);
   expect(JSON.parse(readFileSync(join(dir, file!), "utf8"))).toMatchObject({
