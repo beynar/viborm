@@ -65,6 +65,10 @@ the studio on `http://127.0.0.1:5577` and opens it.
 - **Drift:** a banner when the database differs from the schema, with what
   `viborm push` would change and its SQL.
 - **⌘K:** go to a model, a view or a row by its key (`user 7`).
+- **Navigation:** clean URLs (`/schema`, `/data/profile`, `/query`,
+  `/query/<saved-id>`) with browser Back/Forward and direct-link refresh.
+  Old hash bookmarks redirect in-place. The app shell and pending changes
+  stay mounted as pages change; invalid pages and missing saved items are explicit.
 - **Live:** the studio watches your config and every project file it imports.
   Save your schema and the diagram and the rows reload; a save that does not
   load keeps the previous schema and says why.

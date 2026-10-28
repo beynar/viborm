@@ -22,6 +22,7 @@ export type TableData = {
   import { TYPE_ICONS } from '../../lib/icons'
   import { MODEL_ICON } from '../../lib/model-icons'
   import { TYPE_LABELS } from '../../lib/values'
+  import { modelHref } from '../../router'
   import { useFocus } from './focus.svelte'
 
   // One model of the diagram, after Pyxel's: its name (a link to its rows), then a row per column — its key (a key), a
@@ -48,7 +49,7 @@ export type TableData = {
 <div class={['card', tone]} style:width="{CARD_WIDTH}px" style:--header="{CARD_HEADER}px" style:--row="{CARD_ROW}px">
   <header>
     <span class="icon" aria-hidden="true">{@render MODEL_ICON[data.model.icon]({ size: 16 })}</span>
-    <a class="name nodrag" href="#/data/{encodeURIComponent(data.model.name)}">{data.model.name}</a>
+    <a class="name nodrag" href={modelHref(data.model.name)}>{data.model.name}</a>
     {#if data.model.table !== data.model.name}
       <span class="table" {@attach tooltip({ content: 'The table in the database' })}>{data.model.table}</span>
     {/if}

@@ -51,7 +51,7 @@ export class StudioError extends Error {
 }
 
 async function call<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(`./api${path}`, {
+  const response = await fetch(`/api${path}`, {
     method: body === undefined ? "GET" : "POST",
     headers: body === undefined ? {} : { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -133,7 +133,7 @@ export async function exportRows(
   query: { where?: Where; search?: string; orderBy?: OrderBy[] },
   format: "csv" | "json"
 ): Promise<void> {
-  const response = await fetch(`./api${at(model, "export")}`, {
+  const response = await fetch(`/api${at(model, "export")}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ ...query, format }),

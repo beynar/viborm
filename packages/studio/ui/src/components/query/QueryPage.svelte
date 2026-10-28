@@ -31,12 +31,7 @@ import {
 } from "../../lib/api";
 import { fillPage } from "../../lib/fill";
 import { MODEL_ICON } from "../../lib/model-icons";
-import {
-  type Queries,
-  type QueryState,
-  queryHref,
-  type SavedQuery,
-} from "../../lib/queries.svelte";
+import type { Queries, QueryState, SavedQuery } from "../../lib/queries.svelte";
 import {
   AGGREGATES,
   aggregatable,
@@ -53,6 +48,7 @@ import {
 } from "../../lib/query-builder";
 import { prettySql } from "../../lib/sql";
 import { cellText, display, grouped } from "../../lib/values";
+import { openQuery } from "../../router";
 import FilterGroup from "../data/FilterGroup.svelte";
 import PlanView from "./PlanView.svelte";
 import ResultTable from "./ResultTable.svelte";
@@ -185,7 +181,7 @@ async function saveQuery(asNew: boolean, close: () => void) {
   saving = true;
   try {
     if (saved && !asNew) await queries.update(saved.id, name, stateOf());
-    else location.hash = queryHref(await queries.create(name, stateOf()));
+    else await openQuery(await queries.create(name, stateOf()));
     close();
     toast.success({ title: `The query “${name}” was saved` });
   } catch (error) {

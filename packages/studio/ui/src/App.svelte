@@ -15,31 +15,40 @@ import { trashIcon } from "entasis/icons/trash";
 import type { SidebarApi } from "entasis/sidebar";
 import { Theme } from "entasis/theme";
 import { Toaster, toast } from "entasis/toast";
-import { onMount } from "svelte";
+import { searchParams } from "sv-router";
+import { onMount, type Snippet } from "svelte";
 import type { ModelIcon } from "../../src/icons";
 import DriftBanner from "./components/DriftBanner.svelte";
 import ChangesBar from "./components/data/ChangesBar.svelte";
-import RowsView from "./components/data/RowsView.svelte";
 import IconPicker from "./components/IconPicker.svelte";
 import Palette from "./components/Palette.svelte";
-import QueryPage from "./components/query/QueryPage.svelte";
-import SchemaDiagram from "./components/schema/SchemaDiagram.svelte";
 import ThemeToggle from "./components/ThemeToggle.svelte";
 import {
   checkDrift,
   loadSchema,
-  type Scope,
   type StudioDescription,
   type StudioDrift,
 } from "./lib/api";
 import { Changes } from "./lib/changes.svelte";
 import { MODEL_ICON } from "./lib/model-icons";
-import { Queries, queryHref, type SavedQuery } from "./lib/queries.svelte";
+import { Queries, type SavedQuery } from "./lib/queries.svelte";
+import { provideStudio } from "./lib/studio-context";
 import { type SavedView, Views } from "./lib/views.svelte";
+import {
+  go,
+  isActive,
+  modelHref,
+  navigateModel,
+  p,
+  queryHref,
+  viewHref,
+} from "./router";
+
+let { children: content }: { children: Snippet } = $props();
 
 // The studio's frame, entasis's AppShell: the models in its sidebar, then a page — the schema diagram or one model's
 // rows — whose title, header actions and footer the page sets itself (`setPageShell`). Where the member is lives in
-// the address (`#/schema`, `#/data/<model>?scope=…`, `#/data/<model>?view=<id>`), so the browser's back button
+// the route, so the browser's back button
 // follows relations back. The views the member saved are listed under the models.
 let schema = $state<StudioDescription>();
 /** The saved views of the project the studio opened: known once its schema is. */
@@ -50,9 +59,26 @@ let changes = $state<Changes>();
 /** The ⌘K palette, open. */
 let paletteOpen = $state(false);
 let failure = $state<string>();
-let hash = $state(location.hash);
+
 /** Bumped each time the server reloads the config: the open page reads again. */
 let revision = $state(0);
+provideStudio({
+  get schema() {
+    return schema;
+  },
+  get views() {
+    return views;
+  },
+  get queries() {
+    return queries;
+  },
+  get changes() {
+    return changes;
+  },
+  get revision() {
+    return revision;
+  },
+});
 /** How the database stands against the schema, checked when it loads and reloads. */
 let drift = $state<StudioDrift>();
 let checking = $state(false);
@@ -71,15 +97,6 @@ async function check() {
 }
 
 onMount(() => {
-  // Back, forward or a typed URL tear the page down under a focused field, which
-  // entasis then writes mid-teardown (`state_unsafe_mutation`): blur it first.
-  const changed = () => {
-    if (document.activeElement instanceof HTMLElement) {
-      document.activeElement.blur();
-    }
-    hash = location.hash;
-  };
-  addEventListener("hashchange", changed);
   loadSchema()
     .then((loaded) => {
       schema = loaded;
@@ -95,7 +112,7 @@ onMount(() => {
         (failure = error instanceof Error ? error.message : String(error))
     );
   // The server watches the config and the schema it imports: a save reloads them here.
-  const events = new EventSource("./api/events");
+  const events = new EventSource("/api/events");
   events.addEventListener("schema", async () => {
     try {
       schema = await loadSchema();
@@ -122,60 +139,10 @@ onMount(() => {
     });
   });
   return () => {
-    removeEventListener("hashchange", changed);
     events.close();
   };
 });
 
-type Route =
-  | { view: "schema" }
-  | { view: "query"; saved?: string }
-  | { view: "data"; model: string; scope?: Scope; saved?: string };
-const route = $derived.by<Route>(() => {
-  const [path = "", query = ""] = hash.slice(1).split("?");
-  const parts = path.split("/").filter(Boolean);
-  if (parts[0] === "query")
-    return {
-      view: "query",
-      saved: new URLSearchParams(query).get("query") ?? undefined,
-    };
-  if (parts[0] !== "data" || !parts[1]) return { view: "schema" };
-  const encoded = new URLSearchParams(query).get("scope");
-  let scope: Scope | undefined;
-  try {
-    scope = encoded ? JSON.parse(encoded) : undefined;
-  } catch {
-    scope = undefined;
-  }
-  const saved = new URLSearchParams(query).get("view");
-  return {
-    view: "data",
-    model: decodeURIComponent(parts[1]),
-    ...(scope ? { scope } : {}),
-    ...(saved ? { saved } : {}),
-  };
-});
-
-function navigate(model: string, scope?: Scope) {
-  location.hash = `#/data/${encodeURIComponent(model)}${scope ? `?${new URLSearchParams({ scope: JSON.stringify(scope) })}` : ""}`;
-}
-
-const current = $derived(
-  route.view === "data"
-    ? schema?.models.find((model) => model.name === route.model)
-    : undefined
-);
-const viewHref = (view: SavedView) =>
-  `#/data/${encodeURIComponent(view.model)}?view=${encodeURIComponent(view.id)}`;
-/** The view open, when the address names one of this model's. */
-const opened = $derived(
-  route.view === "data" && views?.find(route.saved)?.model === route.model
-    ? views.find(route.saved)
-    : undefined
-);
-const openedQuery = $derived(
-  route.view === "query" ? queries?.find(route.saved) : undefined
-);
 /** The views whose model the schema still has. */
 const listed = $derived(
   (views?.list ?? []).filter((view) =>
@@ -205,7 +172,9 @@ async function removeView(view: SavedView) {
     cancel: "Cancel",
   });
   if (!confirmed) return;
-  const open = opened?.id === view.id;
+  const open =
+    isActive("/data/:model", { model: view.model }) &&
+    searchParams.toURLSearchParams().get("view") === view.id;
   try {
     await views?.remove(view.id);
   } catch (error) {
@@ -215,7 +184,7 @@ async function removeView(view: SavedView) {
     });
     return;
   }
-  if (open) location.hash = `#/data/${encodeURIComponent(view.model)}`;
+  if (open) await navigateModel(view.model);
   toast.success({ title: `The view “${view.name}” was deleted` });
 }
 async function removeQuery(query: SavedQuery) {
@@ -228,8 +197,7 @@ async function removeQuery(query: SavedQuery) {
   if (!confirmed) return;
   try {
     await queries?.remove(query.id);
-    if (route.view === "query" && route.saved === query.id)
-      location.hash = "#/query";
+    if (isActive("/query/:id", { id: query.id })) await go("/query");
     toast.success({ title: `The query “${query.name}” was deleted` });
   } catch (error) {
     toast.danger({
@@ -251,15 +219,15 @@ const sidebar = $derived<AppShellSidebarProps>({
         },
         {
           label: "Schema",
-          href: "#/schema",
+          href: p("/schema"),
           icon: graphIcon,
-          isActive: route.view === "schema",
+          isActive: isActive("/schema"),
         },
         {
           label: "Query",
-          href: "#/query",
+          href: p("/query"),
           icon: terminalWindowIcon,
-          isActive: route.view === "query" && !route.saved,
+          isActive: isActive("/query"),
         },
       ],
     },
@@ -267,10 +235,11 @@ const sidebar = $derived<AppShellSidebarProps>({
       label: "Models",
       items: (schema?.models ?? []).map((model) => ({
         label: model.name,
-        href: `#/data/${encodeURIComponent(model.name)}`,
+        href: modelHref(model.name),
         icon: MODEL_ICON[model.icon],
         isActive:
-          route.view === "data" && route.model === model.name && !opened,
+          isActive("/data/:model", { model: model.name }) &&
+          !searchParams.has("view"),
       })),
     },
     ...(queries?.list.length
@@ -282,7 +251,7 @@ const sidebar = $derived<AppShellSidebarProps>({
               href: queryHref(query),
               icon: terminalWindowIcon,
               badge: query.code === undefined ? query.model : "Code",
-              isActive: route.view === "query" && route.saved === query.id,
+              isActive: isActive("/query/:id", { id: query.id }),
               action: {
                 label: `Actions for the query ${query.name}`,
                 menu: [
@@ -309,7 +278,9 @@ const sidebar = $derived<AppShellSidebarProps>({
               icon: view.icon ? MODEL_ICON[view.icon] : bookmarkSimpleIcon,
               badge: view.model,
               tooltip: `${view.name} · ${view.model}`,
-              isActive: opened?.id === view.id,
+              isActive:
+                isActive("/data/:model", { model: view.model }) &&
+                searchParams.toURLSearchParams().get("view") === view.id,
               action: {
                 label: `Actions for the view ${view.name}`,
                 menu: [
@@ -376,33 +347,12 @@ const sidebar = $derived<AppShellSidebarProps>({
         <p class="m-0 p-6 text-neutral/60">Loading the schema…</p>
       {:else}
         {#if drift?.state === 'drift'}{#key drift}<DriftBanner {drift} {checking} {check} />{/key}{/if}
-        {#if route.view === 'schema'}
-          <SchemaDiagram {schema} />
-        {:else if route.view === 'query'}
-          {#if !queries?.loaded}
-            <p class="m-0 p-6 text-neutral/60">Loading queries…</p>
-          {:else if route.saved && !openedQuery}
-            <p class="m-0 p-6 text-neutral/60">This saved query no longer exists.</p>
-          {:else if openedQuery && openedQuery.code === undefined && !schema.models.some(model => model.name === openedQuery.model)}
-            <p class="m-0 p-6 text-neutral/60">No model named “{openedQuery.model}”.</p>
-          {:else}
-            {#key `${route.saved ?? ''}#${revision}`}<QueryPage {schema} {navigate} {queries} saved={openedQuery} />{/key}
-          {/if}
-        {:else if current && route.saved && !views?.loaded}
-          <!-- A view's address waits for the views to be read: the page opens on the view, not on every row. -->
-          <p class="m-0 p-6 text-neutral/60">Loading the view…</p>
-        {:else if current}
-          {#key `${hash}#${revision}`}
-            <RowsView model={current} models={schema.models} readonly={schema.readonly} scope={opened?.scope ?? route.scope} view={opened} views={views!} changes={changes!} openView={view => (location.hash = viewHref(view))} {navigate} />
-          {/key}
-        {:else}
-          <p class="m-0 p-6 text-neutral/60">No model named “{route.model}”.</p>
-        {/if}
+        {@render content()}
       {/if}
       {#if changes}<ChangesBar {changes} />{/if}
     </AppShell>
     {#if schema}
-      <Palette bind:open={paletteOpen} {schema} {views} {queries} {changes} {navigate} go={hash => (location.hash = hash)} />
+      <Palette bind:open={paletteOpen} {schema} {views} {queries} {changes} navigate={navigateModel} />
     {/if}
     <!-- Bottom right: the changes bar holds the bottom centre. -->
     <Toaster position="bottom-right" />

@@ -15,9 +15,6 @@ export interface SavedQuery extends QueryState {
   readonly name: string;
 }
 
-export const queryHref = (query: SavedQuery) =>
-  `#/query?query=${encodeURIComponent(query.id)}`;
-
 export class Queries extends SavedItems<SavedQuery> {
   constructor(project: string) {
     super(project, "queries");

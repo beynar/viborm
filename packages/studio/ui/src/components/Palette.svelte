@@ -11,9 +11,10 @@ import { useTheme } from "entasis/theme";
 import type { Scope, StudioDescription } from "../lib/api";
 import type { Changes } from "../lib/changes.svelte";
 import { MODEL_ICON } from "../lib/model-icons";
-import { type Queries, queryHref } from "../lib/queries.svelte";
+import type { Queries } from "../lib/queries.svelte";
 import { parseDraft } from "../lib/values";
 import type { Views } from "../lib/views.svelte";
+import { go, openQuery, openView } from "../router";
 
 // ⌘K: go anywhere the studio has (the schema, a model, a saved view), open one row by its key
 // ("user 7"), or act (save or drop the changes, switch the theme).
@@ -24,7 +25,6 @@ let {
   queries,
   changes,
   navigate,
-  go,
 }: {
   open?: boolean;
   schema: StudioDescription;
@@ -32,8 +32,6 @@ let {
   queries: Queries | undefined;
   changes: Changes | undefined;
   navigate: (model: string, scope?: Scope) => void;
-  /** An address in the studio (`#/schema`, `#/query`, a view's). */
-  go: (hash: string) => void;
 } = $props();
 
 const SPACES = /\s+/;
@@ -78,9 +76,9 @@ const items = $derived.by<CommandGroup[]>(() => {
   groups.push({
     heading: "Go to",
     items: [
-      { value: "go:#/schema", label: "Schema", icon: graphIcon },
+      { value: "schema", label: "Schema", icon: graphIcon },
       {
-        value: "go:#/query",
+        value: "query",
         label: "Query",
         description: "A read through the client, with its SQL",
         icon: terminalWindowIcon,
@@ -93,7 +91,7 @@ const items = $derived.by<CommandGroup[]>(() => {
         icon: MODEL_ICON[model.icon],
       })),
       ...(queries?.list ?? []).map((query) => ({
-        value: `go:${queryHref(query)}`,
+        value: `query:${query.id}`,
         label: query.name,
         description:
           query.code === undefined
@@ -143,14 +141,15 @@ function run(value: string) {
       where: { [byKey.field.name]: byKey.value },
       label: `${byKey.model.name} ${byKey.typed}`,
     });
-  } else if (value.startsWith("go:")) go(value.slice(3));
-  else if (value.startsWith("model:")) navigate(value.slice(6));
+  } else if (value === "schema") go("/schema");
+  else if (value === "query") go("/query");
+  else if (value.startsWith("query:")) {
+    const query = queries?.find(value.slice(6));
+    if (query) openQuery(query);
+  } else if (value.startsWith("model:")) navigate(value.slice(6));
   else if (value.startsWith("view:")) {
     const view = views?.find(value.slice(5));
-    if (view)
-      go(
-        `#/data/${encodeURIComponent(view.model)}?view=${encodeURIComponent(view.id)}`
-      );
+    if (view) openView(view);
   } else if (value === "save") changes?.save();
   else if (value === "discard") changes?.discard();
   else if (value === "theme")
