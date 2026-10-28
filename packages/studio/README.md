@@ -17,20 +17,29 @@ imports `defineConfig` from `"viborm/config"` (a monorepo's
 the studio on `http://127.0.0.1:5577` and opens it.
 
 - **Schema:** each model's columns with their types, nullability, primary and
-  unique keys, and each relation as a line in crow's foot notation.
-- **Rows:** a page at a time, searched, filtered (AND/OR) and sorted. A
+  unique keys, and each relation as a line in crow's foot notation. Click a
+  model or a relation to light up what it reaches, find a model by name,
+  export the diagram as PNG or SVG.
+- **Rows:** a page at a time, searched, filtered (AND/OR, through relations,
+  values picked by type) and sorted; columns hidden, moved, resized, pinned. A
   relation's cell opens the related rows under the row, and from there in
   their own table, polymorphic relations included. Export what a filter
   reaches as CSV or JSON.
-- **Saved views:** a table's filter, search, order and page size saved under
-  a name in the sidebar, kept in your browser per project.
+- **Saved views:** a table's filter, search, order, page size and columns
+  saved under a name in the sidebar, kept by the studio per project
+  (`~/.viborm/studio`), with the diagram's layout.
 - **Editing:** cells edited in place with an editor of their type (switch,
   calendar, time, select), rows opened or added in a drawer, rows deleted. A
-  foreign key is picked from the rows it can point to; a to-many relation links
-  and unlinks rows through nested writes.
+  foreign key is picked from the rows it can point to; a relation links and
+  unlinks rows through nested writes, polymorphic ones included.
 - **Stacked changes:** nothing is written as you edit. A bar counts the
-  changes; review, drop, or save them, every one in one transaction of your
-  client.
+  changes; review, drop, or save them (⌘S), every one in one transaction of
+  your client.
+- **Query:** a read (`findMany`, `count`, `groupBy`...) written in JSON, run
+  through your client, with its answer, its time and the SQL it ran.
+- **Drift:** a banner when the database differs from the schema, with what
+  `viborm push` would change and its SQL.
+- **⌘K:** go to a model, a view or a row by its key (`user 7`).
 - **Live:** the studio watches your config and every project file it imports.
   Save your schema and the diagram and the rows reload; a save that does not
   load keeps the previous schema and says why.

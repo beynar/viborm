@@ -17,19 +17,29 @@ through your own client, in a new package, `@viborm/studio`.
   app on `127.0.0.1:5577`:
   - the schema as an ERD: columns with their types, nullability, primary and
     unique keys; one-to-one, one-to-many, many-to-many and polymorphic
-    relations in crow's foot notation; cards kept where you move them;
-  - each model's rows: paging, search, AND/OR filters, sorting, related rows
-    opened under their row (polymorphic relations included), CSV and JSON
-    export of what a filter reaches;
-  - saved views: a table's filter, search, order and page size, named and
-    listed in the sidebar;
+    relations in crow's foot notation; a clicked model or relation lights up
+    what it reaches; find a model; export as PNG or SVG; cards kept where you
+    move them;
+  - each model's rows: paging, search, AND/OR filters (through relations,
+    values picked by type), sorting, columns hidden, moved, resized and
+    pinned, related rows opened under their row (polymorphic relations
+    included), CSV and JSON export of what a filter reaches;
+  - saved views: a table's filter, search, order, page size and columns,
+    named and listed in the sidebar, kept with the diagram's layout by the
+    studio per project (`~/.viborm/studio`);
   - editing through the client: cells in place with an editor of their type
     (switch, calendar, time, select), a row drawer, a foreign-key picker,
-    related rows linked and unlinked through nested writes;
+    related rows linked and unlinked through nested writes, polymorphic
+    relations included;
   - changes stacked, not written as you edit: reviewed, dropped, or saved
     together in one transaction of the client, all or none, a refused one
     named with the client's own message;
   - an "Aa" toggle that ignores case in search and text conditions;
+  - a query page: a read (`findMany`, `count`, `groupBy`...) in JSON, run
+    through the client, with its answer, its time and the SQL it ran;
+  - a banner when the database differs from the schema: what `viborm push`
+    would change (a dry run) and its SQL, red when it would lose data;
+  - ⌘K to go to a model, a view or a row by its key; ⌘S saves, ⌘Z undoes.
 
   It watches the config and every project file it imports: a saved schema
   reloads the page, a broken one keeps the previous schema and says why.

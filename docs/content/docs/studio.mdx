@@ -37,31 +37,52 @@ read from the config's own directory.
   primary and unique keys, and each relation as a line between the columns
   that store it, its ends in crow's foot notation. One-to-one, one-to-many,
   many-to-many (with its junction table) and polymorphic relations each have
-  their own line. Cards move by hand, and stay where you leave them.
+  their own line. Click a model and its relations light up while the rest
+  fades; click one of its relations and the models it reaches stand out.
+  Find a model by name, move cards by hand (they stay where you leave them),
+  and export the diagram as PNG or SVG.
 - **Rows**: a page at a time, searched in their text columns, filtered by
-  conditions joined with AND or OR, sorted by any column. An "Aa" toggle on
-  the search and on each text condition ignores case. A relation's cell
+  conditions joined with AND or OR, sorted by any column. A condition reads a
+  column of the model or of a related model (some, every or no related row,
+  through a to-many relation), and its value is picked by type: a calendar, a
+  time, a number, a choice. An "Aa" toggle on the search and on each text
+  condition ignores case. Columns are hidden, moved, resized and pinned. A relation's cell
   opens the related rows under the row; from there, open them all in their
   own table. Polymorphic relations are followed too: a to-one says the variant
   it reached (`video 1`) and opens that row, a collection opens one variant at
   a time, and a target's inverse lists only its own variant's rows.
 - **Saved views**: a model's table as you left it (its filter, search, order,
-  page size and column widths) saved under a name and listed in the sidebar.
-  An open view shows when it no longer matches the table, and is saved again,
-  renamed or copied from the same button; a view's menu in the sidebar
-  deletes it. Views are kept in your browser, per project.
+  page size and columns: which show, in which order, how wide, which are
+  pinned) saved under a name and listed in the sidebar. An open view shows
+  when it no longer matches the table, and is saved again, renamed or copied
+  from the same button; a view's menu in the sidebar deletes it. The studio
+  keeps views and the diagram's layout per project, in
+  `~/.viborm/studio`: the same whichever port or browser opens it.
 - **Editing**: a cell is edited in place with an editor of its type (a
   switch for a boolean, a calendar for a date, a date and a time for an
   instant, a select for an enum), a row is opened in a drawer, a new row is
   added there, rows are selected and deleted. A foreign key is picked from the
   rows it can point to, and a to-many relation links or unlinks a row through
-  the client's nested writes (not yet through a polymorphic relation).
+  the client's nested writes, polymorphic relations included (the variant
+  chosen first when the relation has several). A link or unlink waiting to
+  be saved shows as a row of the related table.
 - **Changes are stacked, then saved together**: nothing is written as you
   edit. Changed cells, rows to add and rows to delete show in the table, and a
   bar counts them: review them (and drop any one), discard them all, or save
   them. A save writes every change in one transaction of your client: all of
   them, or none, and a refused one is named with the client's message. The
-  stack survives a reload of the page.
+  stack survives a reload of the page. ⌘S saves, ⌘Z drops the last change.
+- **Query**: a read written as your application writes it (`findMany`,
+  `findFirst`, `findUnique`, `count`, `aggregate`, `groupBy` and their
+  arguments in JSON) runs through your client; the page shows its answer, its
+  time and the SQL it ran, and opens the rows a `where` reaches in their
+  table. Only reads run there.
+- **Drift**: the studio asks your client what `viborm push` would change
+  (a dry run, nothing applied) when it opens and on each reload. When the
+  database differs from the schema, a banner lists the changes and their SQL,
+  red when a push would lose data.
+- **⌘K**: go to a model, a saved view or the query page, open a row by its
+  key (`user 7`), save or drop the changes, switch the theme.
 - **Export**: every row the current filter and search reach, as CSV or JSON.
 
 ![Related rows under their row](https://raw.githubusercontent.com/beynar/viborm/main/packages/studio/screenshots/related-rows.png)
@@ -93,4 +114,5 @@ this off.
 The server listens on `127.0.0.1` only. It answers only requests addressed to
 that host, so a DNS-rebound name cannot reach it, and it takes API calls only
 as JSON from its own page. It writes with your client's credentials: start it
-with `--readonly` against a database you only mean to look at.
+with `--readonly` against a database you only mean to look at (the query page
+runs reads only, in either mode).
