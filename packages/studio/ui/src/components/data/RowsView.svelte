@@ -456,6 +456,11 @@ const columns = $derived<DataTableColumn<Row>[]>([
     width: widthOf(field),
     // A numeric key's header needs room for its type, name, lock, sort and menu.
     ...(field.id && NUMERIC.has(field.type) ? { minWidth: 120 } : {}),
+    // Temporal editors need room for their full value and picker buttons, even in saved narrow columns.
+    ...(field.type === "datetime" ? { minWidth: 280 } : {}),
+    ...(field.type === "date" || field.type === "time"
+      ? { minWidth: 150 }
+      : {}),
     // Hidden, moved, resized or pinned from its header; a view keeps where.
     hideable: true,
     reorderable: true,
@@ -841,7 +846,7 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
      Enter or a click outside saves it, Escape leaves it. -->
 {#snippet instantEditor({ columnId, draft, setDraft, commit: done }: DataTableEditorPayload<Row>)}
   {@const parts = instantParts(String(draft ?? ''))}
-  <div class="flex w-full items-center gap-1" onkeydowncapture={enterSaves(done)}>
+  <div class="flex min-w-0 w-full items-center gap-1 px-1" onkeydowncapture={enterSaves(done)}>
     <div class="min-w-0 flex-1"><DateInput size="small" label="{columnId}, day" theme={HIDDEN_LABEL} format="yyyy/mm/dd" closeOnSelect value={parts?.day ?? null} onValueChange={day => setDraft(day ? instantOf(day, parts?.seconds ?? 0, String(draft ?? '')) : null)} /></div>
     <div class="w-[7.5rem] shrink-0"><TimeInput size="small" label="{columnId}, time" theme={HIDDEN_LABEL} format="HH:MM:SS" as="secondSinceMidnight" value={parts?.seconds ?? null} onValueChange={seconds => setDraft(instantOf(parts?.day ?? new Date(), seconds ?? 0, String(draft ?? '')))} /></div>
   </div>
@@ -849,7 +854,7 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
 
 <!-- A time of day changed in its cell, to the second. -->
 {#snippet timeEditor({ columnId, draft, setDraft, commit: done }: DataTableEditorPayload<Row>)}
-  <div class="contents" onkeydowncapture={enterSaves(done)}><TimeInput size="small" label={columnId} theme={HIDDEN_LABEL} format="HH:MM:SS" as="secondSinceMidnight" value={timeToSeconds(String(draft ?? ''))} onValueChange={seconds => setDraft(seconds === null ? '' : secondsToTime(seconds, String(draft ?? '')))} /></div>
+  <div class="min-w-0 w-full px-1" onkeydowncapture={enterSaves(done)}><TimeInput size="small" label={columnId} theme={HIDDEN_LABEL} format="HH:MM:SS" as="secondSinceMidnight" value={timeToSeconds(String(draft ?? ''))} onValueChange={seconds => setDraft(seconds === null ? '' : secondsToTime(seconds, String(draft ?? '')))} /></div>
 {/snippet}
 
 <!-- A foreign key changed in its cell: the rows of the model it points to, found by their text or the value it holds. -->
