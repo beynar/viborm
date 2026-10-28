@@ -4,6 +4,9 @@ import { type Edge, type Node, SvelteFlow } from "@xyflow/svelte";
 import { Code } from "entasis/code";
 import { SegmentedControl } from "entasis/segmented-control";
 import { useTheme } from "entasis/theme";
+import { cubicOut } from "svelte/easing";
+import { prefersReducedMotion } from "svelte/motion";
+import { fly } from "svelte/transition";
 import type { PlanNode, StudioExplained } from "../../lib/api";
 import {
   compact,
@@ -226,7 +229,7 @@ const time = (date: Date) =>
         </div>
         {#if chosenNode}
           {@const node = chosenNode}
-        <aside class="grid min-h-0 content-start gap-2 overflow-auto @3xl:max-h-full" aria-label="Operation metrics">
+        <aside class="grid min-h-0 content-start gap-2 overflow-auto @3xl:max-h-full" aria-label="Operation metrics" in:fly={{ x: 12, duration: prefersReducedMotion.current ? 0 : 180, easing: cubicOut }}>
             <div class="grid gap-3 rounded-lg border border-neutral-muted bg-surface p-3 text-[13px]">
               <div class="grid gap-0.5">
                 <span class="text-[11px] tracking-wide text-neutral/55 uppercase">{kindLabel(node) || 'Operation'}</span>
