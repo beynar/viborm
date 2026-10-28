@@ -191,7 +191,8 @@ const time = (date: Date) =>
     </div>
 
     {#if plan}
-      <div class="relative min-h-[26rem] min-w-0 overflow-hidden">
+      <div class="relative grid min-h-[26rem] min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-2 overflow-hidden">
+      <Tabbar id={viewTabsId} controlsPanels size="small" label="How to show the plan" items={[{ value: 'graph', label: 'Graph' }, { value: 'table', label: 'Table' }, { value: 'raw', label: plan.dialect === 'postgresql' ? 'JSON' : 'Text' }]} bind:value={view} />
       <Sidebar
         mode="layout"
         frame="contained"
@@ -206,9 +207,7 @@ const time = (date: Date) =>
         theme={{ root: { base: 'bg-surface' }, panel: { base: '!border-0 bg-transparent' } }}
       >
         {#snippet children(sidebar: SidebarApi)}
-        <div class="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-2" class:pr-3={statsOpen} {@attach syncSelection(sidebar)}>
-
-          <Tabbar id={viewTabsId} controlsPanels size="small" label="How to show the plan" items={[{ value: 'graph', label: 'Graph' }, { value: 'table', label: 'Table' }, { value: 'raw', label: plan.dialect === 'postgresql' ? 'JSON' : 'Text' }]} bind:value={view} />
+        <div class="grid h-full min-h-0 min-w-0 grid-rows-[minmax(0,1fr)]" class:pr-3={statsOpen} {@attach syncSelection(sidebar)}>
           {#if view === 'graph'}
             <div role="tabpanel" id="{viewTabsId}-panel-0" aria-labelledby="{viewTabsId}-tab-0" tabindex="0" class="plan relative min-h-[24rem] overflow-hidden rounded-lg border border-neutral-muted">
               {#key plan}
@@ -280,7 +279,7 @@ const time = (date: Date) =>
 {#snippet statsPane(sidebar: SidebarApi)}
   {#if chosenNode}
           {@const node = chosenNode}
-        <section class="p-0.5" aria-label="Operation metrics">
+        <section class="px-0.5 pb-0.5" aria-label="Operation metrics">
             <div class="grid gap-3 rounded-lg border border-neutral-muted bg-surface p-3 text-[13px]">
               <div class="flex items-start gap-2">
                 <div class="grid min-w-0 flex-1 gap-0.5">
