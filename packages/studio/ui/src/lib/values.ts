@@ -38,12 +38,71 @@ export const editsAsJson = (field: StudioField) =>
   field.type === "point" ||
   field.type === "vector";
 
-/** A value as its editor shows it. */
+/** A value as its editor shows it: a calendar date as its day, a time of day to the second. */
 export function draftOf(field: StudioField, value: unknown): string {
   if (value === null || value === undefined) return "";
   if (editsAsJson(field)) return JSON.stringify(value, null, 2);
+  if (field.type === "date" && !field.list) return dayText(value);
+  if (field.type === "time" && !field.list) return timeText(value);
   return String(value);
 }
+
+// Times as a person reads and picks them. An instant is shown and picked in the browser's own zone, and written
+// back as an ISO instant; a calendar date is its stored day (the API spells it as that day's UTC midnight), and a
+// time of day has no zone. The pickers hold local `Date`s and seconds since midnight.
+const pad = (value: number, width = 2) => String(value).padStart(width, "0");
+const dayOfDate = (date: Date) =>
+  `${pad(date.getFullYear(), 4)}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+
+/** An instant in the browser's zone, to the second; anything else as it came. */
+export function instantText(value: unknown): string {
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return `${dayOfDate(date)} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+/** A calendar date's day, `YYYY-MM-DD`. */
+export const dayText = (value: unknown) => String(value).slice(0, 10);
+/** A time of day to the second, `HH:mm:ss`. */
+export const timeText = (value: unknown) => String(value).slice(0, 8);
+
+/** A stored day as the calendar's local date, and a picked date as the day to store. */
+export function dayToDate(day: string): Date | null {
+  const [year, month, date] = day.split("-").map(Number);
+  return year && month && date ? new Date(year, month - 1, date) : null;
+}
+export const dateToDay = (date: Date) => dayOfDate(date);
+
+/** `HH:mm:ss` as seconds since midnight, and back. */
+export function timeToSeconds(time: string): number | null {
+  const [hours, minutes, seconds = 0] = time.split(":").map(Number);
+  return Number.isFinite(hours) && Number.isFinite(minutes)
+    ? hours! * 3600 + minutes! * 60 + Math.floor(seconds)
+    : null;
+}
+export const secondsToTime = (seconds: number) =>
+  `${pad(Math.floor(seconds / 3600))}:${pad(Math.floor(seconds / 60) % 60)}:${pad(seconds % 60)}`;
+
+/** An ISO instant as the local day and the seconds into it, and back. */
+export function instantParts(
+  instant: string
+): { day: Date; seconds: number } | null {
+  const date = new Date(instant);
+  if (!instant || Number.isNaN(date.getTime())) return null;
+  return {
+    day: new Date(date.getFullYear(), date.getMonth(), date.getDate()),
+    seconds:
+      date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds(),
+  };
+}
+export const instantOf = (day: Date, seconds: number) =>
+  new Date(
+    day.getFullYear(),
+    day.getMonth(),
+    day.getDate(),
+    0,
+    0,
+    seconds
+  ).toISOString();
 
 /**
  * A draft typed back into the value the API takes. Throws a readable message
@@ -266,6 +325,9 @@ export function relatedScopes(
 export function editable(field: StudioField, value: unknown): unknown {
   if (value === null || value === undefined) return "";
   if (editsAsJson(field)) return JSON.stringify(value);
+  // The calendar editor holds a local date.
+  if (field.type === "date") return dayToDate(dayText(value));
+  if (field.type === "time") return timeText(value);
   if (
     field.type === "int" ||
     field.type === "number" ||
@@ -287,5 +349,6 @@ export function written(field: StudioField, value: unknown): unknown {
     return field.nullable ? null : field.type === "string" ? "" : null;
   }
   if (typeof value === "number" || typeof value === "boolean") return value;
+  if (value instanceof Date) return dateToDay(value);
   return parseDraft(field, String(value));
 }

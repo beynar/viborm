@@ -4,12 +4,15 @@ import { Button } from "entasis/button";
 import { Checkbox } from "entasis/checkbox";
 import { Combobox } from "entasis/combobox";
 import { confirmation } from "entasis/confirmation";
+import { DateInput } from "entasis/date-input";
 import { Dialog } from "entasis/dialog";
 import { trashIcon } from "entasis/icons/trash";
+import { NumberInput } from "entasis/number-input";
 import { Select } from "entasis/select";
 import { Switch } from "entasis/switch";
 import { TextArea } from "entasis/text-area";
 import { TextInput } from "entasis/text-input";
+import { TimeInput } from "entasis/time-input";
 import { untrack } from "svelte";
 import {
   foreignKeyOf,
@@ -19,7 +22,18 @@ import {
   type StudioModel,
 } from "../../lib/api";
 import { TYPE_ICONS } from "../../lib/icons";
-import { draftOf, editsAsJson, parseDraft, typeLabel } from "../../lib/values";
+import {
+  dateToDay,
+  dayToDate,
+  draftOf,
+  editsAsJson,
+  instantOf,
+  instantParts,
+  parseDraft,
+  secondsToTime,
+  timeToSeconds,
+  typeLabel,
+} from "../../lib/values";
 
 // One row in a drawer over the table's right side: every column as an editor of its type, and a null switch where a
 // column may be empty. A new row sends what was written and leaves the rest to the schema's defaults and generators;
@@ -70,8 +84,10 @@ const HIDDEN_LABEL = {
   header: { base: "!absolute sr-only" },
   label: { base: "sr-only" },
 };
+/** A field an existing row keeps: its generated key, or a `.now()` creation timestamp. */
 const readOnly = (field: StudioField) =>
-  row !== undefined && field.id && field.generated !== undefined;
+  row !== undefined &&
+  (!field.updatable || (field.id && field.generated !== undefined));
 const hint = (field: StudioField) =>
   field.generated
     ? `generated (${field.generated})`
@@ -204,6 +220,20 @@ async function destroy() {
             value={draft.text || null}
             onValueChange={value => (draft.text = value ?? '')}
           />
+        {:else if field.type === 'datetime' && !field.list}
+          <!-- An instant: its day on a calendar and its time, in the browser's zone; stored as an ISO instant. -->
+          {@const parts = instantParts(draft.text)}
+          <div class="flex items-center gap-2">
+            <div class="min-w-0 flex-1"><DateInput size="small" label="{field.name}, day" theme={HIDDEN_LABEL} {disabled} readOnly={readonly} format="yyyy/mm/dd" closeOnSelect value={parts?.day ?? null} onValueChange={day => (draft.text = day ? instantOf(day, parts?.seconds ?? 0) : '')} /></div>
+            <div class="w-36 shrink-0"><TimeInput size="small" label="{field.name}, time" theme={HIDDEN_LABEL} {disabled} readOnly={readonly} format="HH:MM:SS" as="secondSinceMidnight" value={parts?.seconds ?? null} onValueChange={seconds => (draft.text = instantOf(parts?.day ?? new Date(), seconds ?? 0))} /></div>
+            {#if !readonly && !disabled}<Button size="small" variant="ghost" type="button" onclick={() => (draft.text = new Date().toISOString())}>Now</Button>{/if}
+          </div>
+        {:else if field.type === 'date' && !field.list}
+          <DateInput size="small" label={field.name} theme={HIDDEN_LABEL} {disabled} readOnly={readonly} format="yyyy/mm/dd" closeOnSelect value={dayToDate(draft.text)} onValueChange={day => (draft.text = day ? dateToDay(day) : '')} />
+        {:else if field.type === 'time' && !field.list}
+          <TimeInput size="small" label={field.name} theme={HIDDEN_LABEL} {disabled} readOnly={readonly} format="HH:MM:SS" as="secondSinceMidnight" value={timeToSeconds(draft.text)} onValueChange={seconds => (draft.text = seconds === null ? '' : secondsToTime(seconds))} />
+        {:else if (field.type === 'int' || field.type === 'number') && !field.list}
+          <NumberInput size="small" label={field.name} theme={HIDDEN_LABEL} {disabled} readOnly={readonly} {placeholder} step={field.type === 'int' ? 1 : 0.1} value={draft.text === '' ? null : Number(draft.text)} onValueChange={value => (draft.text = value === null || value === undefined ? '' : String(value))} />
         {:else if editsAsJson(field) || field.type === 'blob'}
           <TextArea size="small" label={field.name} theme={HIDDEN_LABEL} {disabled} readOnly={readonly} rows={4} placeholder={placeholder || (readonly ? '' : field.type === 'blob' ? 'base64' : 'JSON')} value={draft.text} onValueChange={value => (draft.text = value ?? '')} />
         {:else}

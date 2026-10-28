@@ -37,6 +37,8 @@ export interface StudioField {
   readonly searchable: boolean;
   /** A create may leave it out: a default, a generator, or nullable. */
   readonly optional: boolean;
+  /** An update may write it: not a `.now()` creation timestamp, which the client keeps insert-only. */
+  readonly updatable: boolean;
   /** The generator that fills it (`increment`, `uuid`, `now`, `updatedAt`, …). */
   readonly generated?: string;
   readonly enumValues?: readonly string[];
@@ -165,6 +167,7 @@ function describeModel(
       id: scalarState.isId || (catalog.rowKey?.fields.includes(field) ?? false),
       unique: scalarState.isUnique,
       searchable: searchable(scalarState),
+      updatable: generator !== "now",
       optional:
         scalarState.hasDefault ||
         generated !== undefined ||

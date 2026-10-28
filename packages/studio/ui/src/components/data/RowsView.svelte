@@ -13,6 +13,7 @@ import {
   type DataTableEditorPayload,
   type DataTableState,
 } from "entasis/data-table";
+import { DateInput } from "entasis/date-input";
 import { arrowsClockwiseIcon } from "entasis/icons/arrowsClockwise";
 import { arrowsOutSimpleIcon } from "entasis/icons/arrowsOutSimple";
 import { bookmarkSimpleIcon } from "entasis/icons/bookmarkSimple";
@@ -28,7 +29,9 @@ import { type PageShellApi, setPageShell } from "entasis/page-shell";
 import { Pagination } from "entasis/pagination";
 import { Popover } from "entasis/popover";
 import { Select } from "entasis/select";
+import { Switch } from "entasis/switch";
 import { TextInput } from "entasis/text-input";
+import { TimeInput } from "entasis/time-input";
 import { toast } from "entasis/toast";
 import { untrack } from "svelte";
 import {
@@ -51,11 +54,18 @@ import { fillPage } from "../../lib/fill";
 import {
   type Condition,
   conditionWhere,
+  dayText,
   display,
   editable,
+  instantOf,
+  instantParts,
+  instantText,
   isReached,
   reachedText,
   relatedScopes,
+  secondsToTime,
+  timeText,
+  timeToSeconds,
   written,
 } from "../../lib/values";
 import type { SavedView, ViewState, Views } from "../../lib/views.svelte";
@@ -128,18 +138,15 @@ $effect(() => {
     )
       return;
     const focused = document.activeElement;
-    if (!(focused instanceof HTMLInputElement && current.contains(focused)))
-      return;
+    if (!(focused instanceof HTMLElement && current.contains(focused))) return;
     const group = focused.closest('[role="gridcell"] > [role="group"]');
     const columnId = group?.parentElement?.dataset.columnId;
     const type = columns.find((column) => column.id === columnId)?.editor?.type;
-    // The foreign-key picker (custom) is released on Escape only: Enter and a
-    // click on one of its options are its own to handle.
+    // Escape closes every editor, a switch's or a picker's too. The others (the
+    // pickers, a select) keep Enter and a click on their own options to handle.
     const released =
       type === "text" ||
-      (type === "custom" &&
-        event instanceof KeyboardEvent &&
-        event.key === "Escape");
+      (event instanceof KeyboardEvent && event.key === "Escape");
     if (!(group && released)) return;
     if (
       event instanceof MouseEvent &&
@@ -297,7 +304,8 @@ function clear() {
 }
 
 function editor(field: StudioField): DataTableEditor<Row> | undefined {
-  if (readonly || !keyed || (field.id && field.generated)) return undefined;
+  if (readonly || !keyed || !field.updatable || (field.id && field.generated))
+    return undefined;
   if (foreignKeyOf(model, models, field))
     return { type: "custom", render: keyPicker };
   if (
@@ -309,7 +317,12 @@ function editor(field: StudioField): DataTableEditor<Row> | undefined {
     return { type: "text", placeholder: field.list ? "[…]" : "{…}" };
   if (field.type === "int") return { type: "number", step: 1 };
   if (field.type === "number") return { type: "number" };
-  if (field.type === "boolean") return { type: "switch" };
+  // A boolean is its own switch, in the cell (`toggle`).
+  if (field.type === "boolean") return undefined;
+  if (field.type === "date") return { type: "date" };
+  if (field.type === "datetime")
+    return { type: "custom", render: instantEditor };
+  if (field.type === "time") return { type: "custom", render: timeEditor };
   if (field.type === "enum")
     return {
       type: "select",
@@ -318,8 +331,6 @@ function editor(field: StudioField): DataTableEditor<Row> | undefined {
         ...(field.enumValues ?? []).map((value) => ({ value, label: value })),
       ],
     };
-  if (field.type === "datetime")
-    return { type: "text", placeholder: "2026-01-31T12:00:00Z" };
   return { type: "text", placeholder: field.nullable ? "null" : undefined };
 }
 
@@ -329,7 +340,8 @@ function widthOf(field: StudioField): number {
   if (field.type === "boolean") return 110;
   if (NUMERIC.has(field.type))
     return field.type === "bigint" || field.type === "decimal" ? 160 : 110;
-  if (field.type === "datetime") return 230;
+  if (field.type === "datetime") return 300;
+  if (field.type === "date" || field.type === "time") return 170;
   if (field.type === "enum") return 130;
   if (field.list || field.type === "json") return 260;
   return 220;
@@ -408,7 +420,29 @@ function saveView(asNew: boolean, close: () => void) {
   close();
 }
 
-async function commit({ row, columnId, value }: DataTableCellCommit<Row>) {
+const commit = ({ row, columnId, value }: DataTableCellCommit<Row>) =>
+  persist(row, columnId, value);
+
+/**
+ * Enter in a picker's text saves the cell: the date and time inputs keep Enter
+ * from the table. Focus leaves first, so the mask publishes what was typed and
+ * the editor is not torn down under it.
+ */
+const enterSaves = (done: () => void) => (event: KeyboardEvent) => {
+  if (event.key !== "Enter" || !(event.target instanceof HTMLInputElement))
+    return;
+  event.preventDefault();
+  event.stopPropagation();
+  event.target.blur();
+  queueMicrotask(done);
+};
+
+/** A boolean flipped in its cell: saved at once, the switch back where it was when the client refuses. */
+function toggle(row: Row, columnId: string, value: boolean) {
+  persist(row, columnId, value).catch(() => undefined);
+}
+
+async function persist(row: Row, columnId: string, value: unknown) {
   const field = fieldsByName.get(columnId);
   if (!field) throw new Error("This column no longer exists.");
   const next = written(field, value);
@@ -591,6 +625,21 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
   </div>
 {/snippet}
 
+<!-- An instant changed in its cell: its local day on a calendar, its time to the second. Each change is the draft;
+     Enter or a click outside saves it, Escape leaves it. -->
+{#snippet instantEditor({ columnId, draft, setDraft, commit: done }: DataTableEditorPayload<Row>)}
+  {@const parts = instantParts(String(draft ?? ''))}
+  <div class="flex w-full items-center gap-1" onkeydowncapture={enterSaves(done)}>
+    <div class="min-w-0 flex-1"><DateInput size="small" label="{columnId}, day" theme={HIDDEN_LABEL} format="yyyy/mm/dd" closeOnSelect value={parts?.day ?? null} onValueChange={day => setDraft(day ? instantOf(day, parts?.seconds ?? 0) : null)} /></div>
+    <div class="w-[7.5rem] shrink-0"><TimeInput size="small" label="{columnId}, time" theme={HIDDEN_LABEL} format="HH:MM:SS" as="secondSinceMidnight" value={parts?.seconds ?? null} onValueChange={seconds => setDraft(instantOf(parts?.day ?? new Date(), seconds ?? 0))} /></div>
+  </div>
+{/snippet}
+
+<!-- A time of day changed in its cell, to the second. -->
+{#snippet timeEditor({ columnId, draft, setDraft, commit: done }: DataTableEditorPayload<Row>)}
+  <div class="contents" onkeydowncapture={enterSaves(done)}><TimeInput size="small" label={columnId} theme={HIDDEN_LABEL} format="HH:MM:SS" as="secondSinceMidnight" value={timeToSeconds(String(draft ?? ''))} onValueChange={seconds => setDraft(seconds === null ? '' : secondsToTime(seconds))} /></div>
+{/snippet}
+
 <!-- A foreign key changed in its cell: the rows of the model it points to, found by their text or the value it holds. -->
 {#snippet keyPicker({ columnId, draft, setDraft, commit: save }: DataTableEditorPayload<Row>)}
   {@const { target, reference } = foreignKeyOf(model, models, fieldsByName.get(columnId)!)!}
@@ -712,13 +761,19 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
         {:else if field.type === 'enum' && !field.list}
           <Chip size="small" variant="soft">{String(value)}</Chip>
         {:else if field.type === 'boolean' && !field.list}
-          <span>{value ? 'true' : 'false'}</span>
+          <!-- A boolean flips in its cell, one click, saved at once. -->
+          <Switch size="small" label="{columnId} of this row" theme={HIDDEN_LABEL} value={value === true} disabled={readonly || !keyed || !field.updatable} onValueChange={next => toggle(row, columnId, next === true)} />
         {:else if field.id}
           <span class="font-mono text-[12px] text-neutral/75">{display(value)}</span>
         {:else if NUMERIC.has(field.type)}
           <span class="tabular-nums">{display(value)}</span>
-        {:else if field.type === 'datetime'}
-          <span class="font-mono text-[12px] tabular-nums">{display(value)}</span>
+        {:else if field.type === 'datetime' && !field.list}
+          <!-- In the browser's zone, the stored instant on hover. -->
+          <span class="font-mono text-[12px] tabular-nums" title="{String(value)} (UTC)">{instantText(value)}</span>
+        {:else if field.type === 'date' && !field.list}
+          <span class="font-mono text-[12px] tabular-nums">{dayText(value)}</span>
+        {:else if field.type === 'time' && !field.list}
+          <span class="font-mono text-[12px] tabular-nums">{timeText(value)}</span>
         {:else}
           <span class={field.list || field.type === 'json' ? 'font-mono text-[12px]' : ''}>{display(value)}</span>
         {/if}

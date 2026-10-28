@@ -139,6 +139,14 @@ describe("schema extraction", () => {
     expect(token).not.toHaveProperty("generated");
     expect(fields.email).toMatchObject({ searchable: true });
     expect(fields.karma).toMatchObject({ searchable: false });
+    // A `.now()` creation timestamp is insert-only, as the client keeps it.
+    const created = model("post").fields.find(
+      (field) => field.name === "createdAt"
+    );
+    expect([created?.updatable, fields.karma?.updatable]).toEqual([
+      false,
+      true,
+    ]);
     expect(model("user").key).toEqual({ fields: ["id"] });
     expect(model("membership").key).toEqual({
       name: "orgId_memberId",
