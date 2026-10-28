@@ -81,9 +81,12 @@ read from the config's own directory.
   group. It runs through your client as you build it; the page shows the
   rows as a table (sorted in place, the related rows read with them opening
   under their row, as deep as the read went; computed values as cards or a
-  column each), the JSON, the SQL it ran and the call to write in your
-  application, and opens the rows it found in their table. Only reads run
-  there.
+  column each), the JSON, the SQL it ran, its trace and the call to write in
+  your application, and opens the rows it found in their table. The trace is
+  what your instrumentation's tracer would receive: each span (the operation,
+  each statement inside it) on a waterfall, the time spent in the database and
+  in VibORM, and a span's attributes (its SQL, its parameters, the driver).
+  Only reads run there.
 - **Drift**: the studio asks your client what `viborm push` would change
   (a dry run, nothing applied) when it opens and on each reload. When the
   database differs from the schema, a banner lists the changes and their SQL,

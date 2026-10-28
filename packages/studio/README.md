@@ -38,7 +38,8 @@ the studio on `http://127.0.0.1:5577` and opens it.
   your client.
 - **Query:** a read built with pickers (filter, order, page, columns,
   relations; counts, sums and averages per group), run through your client as
-  you build it, with its rows, the SQL it ran and the code to write.
+  you build it, with its rows, the SQL it ran, its trace (spans on a
+  waterfall, database time against VibORM time) and the code to write.
 - **Drift:** a banner when the database differs from the schema, with what
   `viborm push` would change and its SQL.
 - **⌘K:** go to a model, a view or a row by its key (`user 7`).

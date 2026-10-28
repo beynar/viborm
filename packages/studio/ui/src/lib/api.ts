@@ -2,6 +2,7 @@
 import type {
   StudioDescription,
   StudioDrift,
+  StudioSpan,
   StudioStatement,
 } from "../../../src/api";
 import type { StudioField, StudioModel } from "../../../src/schema";
@@ -10,6 +11,7 @@ import { parseDraft } from "./values";
 export type {
   StudioDescription,
   StudioDrift,
+  StudioSpan,
   StudioStatement,
 } from "../../../src/api";
 export type { QueryOperation } from "../../../src/query";
@@ -84,6 +86,7 @@ export const runQuery = (model: string, operation: string, args: unknown) =>
     result: unknown;
     duration: number;
     statements: StudioStatement[];
+    spans: StudioSpan[];
   }>("/query", { model, operation, args });
 
 /** What the studio keeps for the page, per project: its views and the diagram's layout. */

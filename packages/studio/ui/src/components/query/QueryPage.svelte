@@ -18,6 +18,7 @@ import {
   runQuery,
   type Scope,
   type StudioDescription,
+  type StudioSpan,
   type StudioStatement,
 } from "../../lib/api";
 import { fillPage } from "../../lib/fill";
@@ -39,6 +40,7 @@ import {
 import { cellText, display, grouped } from "../../lib/values";
 import FilterGroup from "../data/FilterGroup.svelte";
 import ResultTable from "./ResultTable.svelte";
+import TraceView from "./TraceView.svelte";
 
 // A read built with pickers, as the application would write it: what to read (the rows' own filter, an order, a
 // page, columns and relations) or what to compute (counts, sums, averages, extremes, per group). It runs through
@@ -146,11 +148,12 @@ let answer = $state.raw<{
   result: unknown;
   duration: number;
   statements: StudioStatement[];
+  spans: StudioSpan[];
   model: string;
   operation: QueryOperation;
 }>();
 let failure = $state<string>();
-let tab = $state<"table" | "json" | "sql" | "code">("table");
+let tab = $state<"table" | "json" | "sql" | "trace" | "code">("table");
 /** The query folded away: the result takes the page. */
 let folded = $state(false);
 let asked = 0;
@@ -370,7 +373,7 @@ function chooseFunction(
   <div class="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3">
     <div class="flex flex-wrap items-center gap-3">
       <Button size="small" variant="ghost" squared prefix={sidebarSimpleIcon} label={folded ? 'Show the query' : 'Hide the query: the result takes the page'} onclick={() => (folded = !folded)} />
-      <SegmentedControl size="small" label="What to show" items={[{ value: 'table', label: 'Result' }, { value: 'json', label: 'JSON' }, { value: 'sql', label: `SQL${answer ? ` · ${answer.statements.length}` : ''}` }, { value: 'code', label: 'Code' }]} bind:value={tab} />
+      <SegmentedControl size="small" label="What to show" items={[{ value: 'table', label: 'Result' }, { value: 'json', label: 'JSON' }, { value: 'sql', label: `SQL${answer ? ` · ${answer.statements.length}` : ''}` }, { value: 'trace', label: `Trace${answer ? ` · ${answer.spans.length}` : ''}` }, { value: 'code', label: 'Code' }]} bind:value={tab} />
       {#if answer}
         <span class="text-[12px] text-neutral/60">{counted ? `${counted} · ` : ''}{answer.duration} ms</span>
       {/if}
@@ -395,6 +398,8 @@ function chooseFunction(
         <Code language="ts" code={code || '// Not ready to run'} />
       {:else if !answer}
         <p class="m-0 text-[13px] text-neutral/60">{running ? 'Reading…' : 'Choose what to read: it runs as you build it.'}</p>
+      {:else if tab === 'trace'}
+        <TraceView spans={answer.spans} duration={answer.duration} />
       {:else if tab === 'sql'}
         <Code language="sql" code={sql || '-- No statement ran.'} wrap />
       {:else if tab === 'json'}

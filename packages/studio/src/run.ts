@@ -7,7 +7,12 @@
 
 import { spawn } from "node:child_process";
 import { dirname, relative, resolve } from "node:path";
-import { createStudioApi, type StudioDrift, type StudioStatement } from "./api";
+import {
+  createStudioApi,
+  type StudioDrift,
+  type StudioStatement,
+  type StudioTraceReport,
+} from "./api";
 import {
   findConfig,
   type Importer,
@@ -18,6 +23,7 @@ import {
 } from "./config";
 import { type StudioServer, startStudioServer } from "./server";
 import { defaultStoreDir, projectStore } from "./store";
+import { type RecordingTracer, recordingTracer } from "./trace";
 
 /** Where the studio listens unless `--port` says otherwise; a free port when it is taken. */
 export const DEFAULT_STUDIO_PORT = 5577;
@@ -171,6 +177,11 @@ type Instrumentation = {
       includeSql: true;
       includeParams: true;
     };
+    tracing: {
+      tracer: RecordingTracer;
+      includeSql: true;
+      includeParams: true;
+    };
   }): unknown;
 };
 
@@ -195,7 +206,7 @@ function projectTools(fromProject: (specifier: string) => Promise<unknown>) {
         statements: preview.statements.map(({ sql }) => sql),
       };
     },
-    async trace(client: object, report: (statement: StudioStatement) => void) {
+    async trace(client: object, report: StudioTraceReport) {
       const { instrumentation } = (await fromProject(
         "viborm/instrumentation"
       )) as Instrumentation;
@@ -207,7 +218,12 @@ function projectTools(fromProject: (specifier: string) => Promise<unknown>) {
         instrumentation({
           logging: {
             query: ({ sql, params, duration }) =>
-              report({ sql, params, duration }),
+              report.statement({ sql, params, duration }),
+            includeSql: true,
+            includeParams: true,
+          },
+          tracing: {
+            tracer: recordingTracer(report.span),
             includeSql: true,
             includeParams: true,
           },

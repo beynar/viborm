@@ -257,6 +257,18 @@ export default { client };
     ).json();
     expect(queried, JSON.stringify(queried)).toMatchObject({ result: 0 });
     expect(queried.statements[0].sql).toMatch(SELECT_COUNT);
+    // The instrumentation's spans: the operation, and the statement it ran inside it.
+    const operation = queried.spans.find(
+      (span: { name: string }) => span.name === "viborm.operation"
+    );
+    expect(operation).toBeDefined();
+    expect(
+      queried.spans.some(
+        (span: { name: string; parent?: number }) =>
+          span.name === "viborm.execute" && span.parent === operation.id
+      ),
+      JSON.stringify(queried.spans)
+    ).toBe(true);
     stop();
     await running;
   });

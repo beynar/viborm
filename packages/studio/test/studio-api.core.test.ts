@@ -441,7 +441,24 @@ describe("the query page", () => {
       models: schema,
       dialect: "sqlite",
       trace: async (inner, report) => {
-        report({ sql: "SELECT 1", params: [], duration: 1 });
+        report.statement({ sql: "SELECT 1", params: [], duration: 1 });
+        // Two spans, reported as they end: the inner first. The page reads them in the order they started.
+        const now = performance.now();
+        report.span({
+          id: 2,
+          parent: 1,
+          name: "viborm.execute",
+          start: now + 2,
+          duration: 1.234,
+          attributes: {},
+        });
+        report.span({
+          id: 1,
+          name: "viborm.operation",
+          start: now + 1,
+          duration: 3,
+          attributes: { "db.operation.name": "count" },
+        });
         return inner;
       },
     });
@@ -452,6 +469,10 @@ describe("the query page", () => {
     });
     expect(answer.body).toMatchObject({
       statements: [{ sql: "SELECT 1", params: [], duration: 1 }],
+      spans: [
+        { id: 1, name: "viborm.operation", duration: 3 },
+        { id: 2, parent: 1, name: "viborm.execute", duration: 1.23 },
+      ],
     });
   });
 

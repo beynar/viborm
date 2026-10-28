@@ -58,10 +58,10 @@ export interface StudioApiOptions {
   readonly store?: StudioStore;
   /** How the database stands against the schema, for this client. */
   readonly drift?: (client: object) => Promise<StudioDrift>;
-  /** The client, extended to report each statement it runs; without it, a query runs untraced. */
+  /** The client, extended to report each statement it runs and each span it opens; without it, a query runs untraced. */
   readonly trace?: (
     client: object,
-    report: (statement: StudioStatement) => void
+    report: StudioTraceReport
   ) => Promise<object>;
 }
 
@@ -84,6 +84,25 @@ export interface StudioStatement {
   readonly sql?: string;
   readonly params?: readonly unknown[];
   readonly duration?: number;
+}
+
+/** One span the project's instrumentation opened while a query ran. */
+export interface StudioSpan {
+  readonly id: number;
+  /** The span it ran inside. */
+  readonly parent?: number;
+  readonly name: string;
+  /** When it started, in milliseconds: from the query's start once the API answers. */
+  readonly start: number;
+  readonly duration: number;
+  readonly attributes: Readonly<Record<string, string | number | boolean>>;
+  readonly error?: string;
+}
+
+/** Where a traced client reports what a query did. */
+export interface StudioTraceReport {
+  statement(statement: StudioStatement): void;
+  span(span: StudioSpan): void;
 }
 
 /** What the page remembers of a project, by name, kept by the studio rather than the browser. */
@@ -220,10 +239,12 @@ export function createStudioApi(options: StudioApiOptions) {
       throw new Refusal(400, "invalid_args", "args must be an object");
     }
     const statements: StudioStatement[] = [];
+    const spans: StudioSpan[] = [];
     const client = options.trace
-      ? await options.trace(options.client, (statement) =>
-          statements.push(statement)
-        )
+      ? await options.trace(options.client, {
+          statement: (statement) => statements.push(statement),
+          span: (span) => spans.push(span),
+        })
       : options.client;
     const delegate = Reflect.get(client, model.name) as Record<
       string,
@@ -231,10 +252,23 @@ export function createStudioApi(options: StudioApiOptions) {
     >;
     const started = performance.now();
     const result = await delegate[operation]!(args);
+    const duration = Math.round(performance.now() - started);
+    // The instrumentation ends the operation's span once its promise settled, a few microtasks after this await:
+    // one turn of the loop and every span the query opened has ended.
+    if (options.trace) await new Promise((resolve) => setImmediate(resolve));
+    const at = (time: number) => Math.round(time * 100) / 100;
     return {
       result: result ?? null,
-      duration: Math.round(performance.now() - started),
+      duration,
       statements,
+      // In the order they started, from the query's start.
+      spans: spans
+        .map((span) => ({
+          ...span,
+          start: at(span.start - started),
+          duration: at(span.duration),
+        }))
+        .sort((left, right) => left.start - right.start),
     };
   }
 
