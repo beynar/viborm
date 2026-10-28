@@ -5,6 +5,7 @@ import {
   type Edge,
   type Node,
   SvelteFlow,
+  ViewportPortal,
 } from "@xyflow/svelte";
 import { Button } from "entasis/button";
 import { arrowCounterClockwiseIcon } from "entasis/icons/arrowCounterClockwise";
@@ -27,6 +28,8 @@ import {
 import { fillPage } from "../../lib/fill";
 import { provideFocus, SchemaFocus } from "./focus.svelte";
 import RelationEdge from "./RelationEdge.svelte";
+import SchemaExport from "./SchemaExport.svelte";
+import SchemaFind from "./SchemaFind.svelte";
 import SchemaLegend from "./SchemaLegend.svelte";
 import SchemaMarkers from "./SchemaMarkers.svelte";
 import SchemaZoom from "./SchemaZoom.svelte";
@@ -204,7 +207,6 @@ const edges = $derived.by<Edge<{ link: Link; markers: string }>[]>(() => {
 <svelte:window onkeydown={event => event.key === 'Escape' && focus.model && focus.clear()} />
 
 <div class="schema" {@attach fillPage}>
-  <SchemaMarkers id={markers} />
   <SvelteFlow
     bind:nodes
     {edges}
@@ -225,7 +227,11 @@ const edges = $derived.by<Edge<{ link: Link; markers: string }>[]>(() => {
     }}
     onpaneclick={() => focus.clear()}
   >
+    <!-- Inside the viewport, so an export of it keeps the lines' ends. -->
+    <ViewportPortal target="back"><SchemaMarkers id={markers} /></ViewportPortal>
     <SchemaZoom fit={FIT} />
+    <SchemaFind {schema} />
+    <SchemaExport name="schema-{schema.dialect}" />
   </SvelteFlow>
 </div>
 

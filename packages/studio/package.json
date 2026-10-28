@@ -40,6 +40,7 @@
     "@tailwindcss/vite": "4.3.3",
     "@xyflow/svelte": "1.7.0",
     "entasis": "0.13.2",
+    "html-to-image": "1.11.13",
     "svelte": "5.57.2",
     "svelte-check": "4.7.7",
     "tailwindcss": "4.3.3",
