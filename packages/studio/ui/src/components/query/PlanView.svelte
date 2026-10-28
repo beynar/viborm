@@ -6,6 +6,7 @@ import { Code } from "entasis/code";
 import { xIcon } from "entasis/icons/x";
 import { SegmentedControl } from "entasis/segmented-control";
 import { Sidebar, type SidebarApi } from "entasis/sidebar";
+import { Tabbar } from "entasis/tabbar";
 import { useTheme } from "entasis/theme";
 import { untrack } from "svelte";
 import type { PlanNode, StudioExplained } from "../../lib/api";
@@ -37,6 +38,7 @@ let {
 const NODE_TYPES = { plan: PlanCard };
 const EDGE_TYPES = { plan: PlanEdge };
 const theme = useTheme();
+const viewTabsId = $props.id();
 
 let statementIndex = $state(0);
 const current = $derived(
@@ -206,9 +208,9 @@ const time = (date: Date) =>
         {#snippet children(sidebar: SidebarApi)}
         <div class="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-2" class:pr-3={statsOpen} {@attach syncSelection(sidebar)}>
 
-          <SegmentedControl size="small" label="How to show the plan" items={[{ value: 'graph', label: 'Graph' }, { value: 'table', label: 'Table' }, { value: 'raw', label: plan.dialect === 'postgresql' ? 'JSON' : 'Text' }]} bind:value={view} />
+          <Tabbar id={viewTabsId} controlsPanels size="small" label="How to show the plan" items={[{ value: 'graph', label: 'Graph' }, { value: 'table', label: 'Table' }, { value: 'raw', label: plan.dialect === 'postgresql' ? 'JSON' : 'Text' }]} bind:value={view} />
           {#if view === 'graph'}
-            <div class="plan relative min-h-[24rem] overflow-hidden rounded-lg border border-neutral-muted">
+            <div role="tabpanel" id="{viewTabsId}-panel-0" aria-labelledby="{viewTabsId}-tab-0" tabindex="0" class="plan relative min-h-[24rem] overflow-hidden rounded-lg border border-neutral-muted">
               {#key plan}
               <SvelteFlow
                 bind:nodes
@@ -231,7 +233,7 @@ const time = (date: Date) =>
               {/key}
             </div>
           {:else if view === 'table'}
-            <div class="max-h-full min-h-0 self-start overflow-auto rounded-lg border border-neutral-muted bg-surface">
+            <div role="tabpanel" id="{viewTabsId}-panel-1" aria-labelledby="{viewTabsId}-tab-1" tabindex="0" class="max-h-full min-h-0 self-start overflow-auto rounded-lg border border-neutral-muted bg-surface">
               <table class="w-full border-collapse text-[12px]">
                 <thead class="sticky top-0 bg-surface-floating text-left text-neutral/60">
                   <tr>
@@ -264,7 +266,7 @@ const time = (date: Date) =>
               </table>
             </div>
           {:else}
-            <div class="min-h-0 overflow-auto"><Code language={plan.dialect === 'postgresql' ? 'json' : 'text'} title={plan.dialect === 'postgresql' ? 'EXPLAIN (FORMAT JSON)' : plan.dialect === 'mysql' ? 'EXPLAIN' : 'EXPLAIN QUERY PLAN'} code={plan.raw} /></div>
+            <div role="tabpanel" id="{viewTabsId}-panel-2" aria-labelledby="{viewTabsId}-tab-2" tabindex="0" class="min-h-0 overflow-auto"><Code language={plan.dialect === 'postgresql' ? 'json' : 'text'} title={plan.dialect === 'postgresql' ? 'EXPLAIN (FORMAT JSON)' : plan.dialect === 'mysql' ? 'EXPLAIN' : 'EXPLAIN QUERY PLAN'} code={plan.raw} /></div>
           {/if}
         </div>
         {/snippet}
