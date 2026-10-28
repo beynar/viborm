@@ -2,7 +2,6 @@
 import { Button } from "entasis/button";
 import { Checkbox } from "entasis/checkbox";
 import { Chip } from "entasis/chip";
-import { Combobox } from "entasis/combobox";
 import {
   createDataTableState,
   DataTable,
@@ -44,7 +43,6 @@ import {
   keyOf,
   type Row,
   readRows,
-  rowChoices,
   type Scope,
   type StudioField,
   type StudioModel,
@@ -77,6 +75,7 @@ import type { SavedView, ViewState, Views } from "../../lib/views.svelte";
 import IconPicker from "../IconPicker.svelte";
 import CaseToggle from "./CaseToggle.svelte";
 import FilterGroup from "./FilterGroup.svelte";
+import ForeignKeyInput from "./ForeignKeyInput.svelte";
 import RelatedRows from "./RelatedRows.svelte";
 import RowDrawer from "./RowDrawer.svelte";
 import TableSkeleton from "./TableSkeleton.svelte";
@@ -859,21 +858,16 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
 
 <!-- A foreign key changed in its cell: the rows of the model it points to, found by their text or the value it holds. -->
 {#snippet keyPicker({ columnId, draft, setDraft, commit: save }: DataTableEditorPayload<Row>)}
-  {@const { target, reference } = foreignKeyOf(model, models, fieldsByName.get(columnId)!)!}
-  <Combobox
-    size="small"
+  {@const field = fieldsByName.get(columnId)!}
+  {@const { target, reference } = foreignKeyOf(model, models, field)!}
+  <ForeignKeyInput
     label={columnId}
-    theme={HIDDEN_LABEL}
-    items={rowChoices(target, reference)}
-    openOnFocus
-    placeholder="A {target.name} row"
-    loadingText="Searching…"
-    noOptionsText="No {target.name} row matches"
+    {target}
+    {reference}
+    nullable={field.nullable}
     value={draft === null || draft === undefined || draft === '' ? null : String(draft)}
-    getValueOption={value => ({ value, label: `${target.name} ${value}` })}
-    onValueChange={({ value }) => {
-      setDraft(value ?? null)
-      // Saving closes the editor: let go of its focus first (see releaseEditorFocus).
+    onSelect={value => {
+      setDraft(value)
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
       save()
     }}
