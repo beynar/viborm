@@ -51,7 +51,8 @@ import {
   conditionWhere,
   display,
   editable,
-  relatedWhere,
+  type Reached,
+  relatedScopes,
   written,
 } from "../../lib/values";
 import FilterGroup from "./FilterGroup.svelte";
@@ -412,12 +413,7 @@ async function removeSelected(ids: string[]) {
 // A row's related rows open under it (Pyxel's `RelatedRows`): the relation shown, by row; a row opened by a relation's
 // cell shows that relation.
 let opened = $state<Record<string, string>>({});
-const expandableRelations = $derived(
-  model.relations.filter(
-    (relation) =>
-      relation.storage !== "variant" && relation.targets.length === 1
-  )
-);
+const expandableRelations = $derived(model.relations);
 const expandable = $derived(keyed && expandableRelations.length > 0);
 /** Opens a row's related rows on a relation, or closes them when that relation already shows. */
 function openRelated(
@@ -589,25 +585,32 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
         {@const relation = field ? undefined : model.relations.find(candidate => candidate.name === columnId)}
         {@const value = row[columnId]}
         {#if relation}
-          {@const reachable = relatedWhere(model, relation, row) !== undefined}
+          {@const reachable = relatedScopes(model, relation, row) !== undefined}
           {#if !reachable}
             <span class="text-neutral/40">—</span>
           {:else if relation.cardinality === 'many'}
             <Button size="small" variant={expanded && opened[rowId] === relation.name ? 'soft' : 'ghost'} suffix={caretDownIcon} label="{relation.name} of this row" onclick={() => openRelated(rowId, relation.name, expanded, toggleExpanded)}>
-              <!-- One row is said by its model, several by the relation's own (plural) name. -->
+              <!-- One row is said by its model, several by the relation's own (plural) name; a polymorphic
+                   collection, whose one row may be of any variant, by its name before the count. -->
               {@const count = row._count?.[relation.name]}
-              <span class="tabular-nums">{count ?? '?'}</span>&nbsp;{count === 1 ? relation.targets[0] : relation.name}
+              {#if relation.variants}
+                {relation.name}&nbsp;<span class="tabular-nums">{count ?? '?'}</span>
+              {:else}
+                <span class="tabular-nums">{count ?? '?'}</span>&nbsp;{count === 1 ? relation.targets[0] : relation.name}
+              {/if}
             </Button>
           {:else}
             <!-- A to-one relation: the key of the row it reaches, or an empty mark when there is none. -->
             {@const reached = row[relation.name] as Row | null | undefined}
+            <!-- A polymorphic one says the variant it reached before that row's key. -->
+            {@const said = relation.variants && reached ? `${(reached as Reached).type} ${Object.values((reached as Reached).data).map(display).join(', ')}` : undefined}
             {#if reached === null || (relation.owner && heldKey(relation, row).some(held => held === null))}
               <Button size="small" variant={expanded && opened[rowId] === relation.name ? 'soft' : 'ghost'} label="{relation.name} of this row: none" onclick={() => openRelated(rowId, relation.name, expanded, toggleExpanded)}>
                 <span class="text-neutral/40 italic">none</span>
               </Button>
             {:else}
               <Button size="small" variant={expanded && opened[rowId] === relation.name ? 'soft' : 'ghost'} prefix={linkSimpleIcon} label="{relation.name} of this row" onclick={() => openRelated(rowId, relation.name, expanded, toggleExpanded)}>
-                <span class="truncate">{relation.targets[0]} {reached ? Object.values(reached).map(display).join(', ') : heldKey(relation, row).map(display).join(', ')}</span>
+                <span class="truncate">{said ?? `${relation.targets[0]} ${(reached ? Object.values(reached) : heldKey(relation, row)).map(display).join(', ')}`}</span>
               </Button>
             {/if}
           {/if}

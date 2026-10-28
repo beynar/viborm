@@ -163,39 +163,89 @@ export function conditionWhere(
   return { [field.name]: { [operator]: value } };
 }
 
+/** Rows one relation of one row reaches: a model, the `where` that finds them there, and the variant it went through. */
+export interface RelatedScope {
+  readonly target: string;
+  readonly where: Where;
+  readonly variant?: string;
+}
+
+/** A polymorphic to-one as the API reads it: the variant reached, and that row's key. */
+export type Reached = { type: string; data: Record<string, unknown> };
+
 /**
- * The rows a relation of one row reaches, as a `where` on its target: through
- * the partner slot when there is one (`is` for a to-one partner, `some` for a
- * to-many one), else through the key the row holds.
+ * The rows a relation of one row reaches, as a `where` on each model it can
+ * reach: through the partner slot when there is one (`is` for a to-one
+ * partner, `some` for a to-many one), else through the key the row holds.
+ * A polymorphic relation is followed as the client filters it: a member's
+ * inverse matches the carrier's `{ type, is }`; a to-one carrier reaches the
+ * one row it holds; a collection reaches, per variant, the rows whose inverse
+ * holds this row (a variant without an inverse cannot be listed). Undefined
+ * when nothing can be followed; empty when a to-one reaches no row.
  */
-export function relatedWhere(
+export function relatedScopes(
   model: StudioModel,
   relation: StudioRelation,
   row: Record<string, unknown>
-): Where | undefined {
-  if (
-    !model.key ||
-    relation.storage === "variant" ||
-    relation.targets.length !== 1
-  ) {
-    return undefined;
-  }
-  if (relation.inverse !== undefined && relation.inverseCardinality) {
-    const self = Object.fromEntries(
-      model.key.fields.map((field) => [field, row[field]])
+): RelatedScope[] | undefined {
+  if (!model.key) return undefined;
+  const self = Object.fromEntries(
+    model.key.fields.map((field) => [field, row[field]])
+  );
+  if (relation.variants && relation.cardinality === "one") {
+    const reached = row[relation.name] as Reached | null;
+    const variant = relation.variants.find(
+      (candidate) => candidate.name === reached?.type
     );
-    return {
-      [relation.inverse]:
-        relation.inverseCardinality === "many" ? { some: self } : { is: self },
-    };
+    return variant
+      ? [
+          {
+            target: variant.target,
+            where: reached!.data,
+            variant: variant.name,
+          },
+        ]
+      : [];
+  }
+  if (relation.variants) {
+    const listed = relation.variants.flatMap((variant) =>
+      variant.inverse
+        ? [
+            {
+              target: variant.target,
+              variant: variant.name,
+              where: {
+                [variant.inverse]:
+                  variant.inverseCardinality === "one"
+                    ? { is: self }
+                    : { some: self },
+              },
+            },
+          ]
+        : []
+    );
+    return listed.length > 0 ? listed : undefined;
+  }
+  const target = relation.targets[0]!;
+  if (relation.inverse !== undefined && relation.inverseCardinality) {
+    // A member's inverse matches its own variant of the carrier, not any row with this key.
+    const member = relation.variant
+      ? { type: relation.variant, is: self }
+      : undefined;
+    const match =
+      relation.inverseCardinality === "many"
+        ? { some: member ?? self }
+        : (member ?? { is: self });
+    return [{ target, where: { [relation.inverse]: match } }];
   }
   if (relation.owner && relation.fields.length > 0) {
-    return Object.fromEntries(
+    const where = Object.fromEntries(
       relation.references.map((reference, index) => [
         reference,
         row[relation.fields[index]!],
       ])
     );
+    return [{ target, where }];
   }
   return undefined;
 }

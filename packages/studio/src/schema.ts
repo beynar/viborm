@@ -55,6 +55,17 @@ export interface StudioRelation {
   /** The partner slot on the target, when the relation is ordinary. */
   readonly inverse?: string;
   readonly inverseCardinality?: "one" | "many";
+  /** A polymorphic carrier's variants: each name, the model it reaches, and that model's inverse slot. */
+  readonly variants?: readonly StudioVariant[];
+  /** The inverse of a polymorphic carrier: the variant this model is a member under. */
+  readonly variant?: string;
+}
+
+export interface StudioVariant {
+  readonly name: string;
+  readonly target: string;
+  readonly inverse?: string;
+  readonly inverseCardinality?: "one" | "many";
 }
 
 export interface StudioModel {
@@ -238,23 +249,30 @@ function describeRelation(
       fields: [],
       references: [],
       ...partnerOf(edge.carrier),
+      variant: resolved.member.variant,
     };
   }
-  return {
-    name: field,
-    cardinality,
-    targets: edge.members.map((member) =>
-      named(
+  const variants = edge.members.map(
+    (member): StudioVariant => ({
+      name: member.variant,
+      target: named(
         "targetModel" in member
           ? member.targetModel
           : member.topology.target.model
-      )
-    ),
+      ),
+      ...(member.inverse ? partnerOf(member.inverse) : {}),
+    })
+  );
+  return {
+    name: field,
+    cardinality,
+    targets: variants.map((variant) => variant.target),
     storage: "variant",
     // The carrier's type and id columns are private storage, not model fields.
     owner: false,
     fields: [],
     references: [],
+    variants,
   };
 }
 

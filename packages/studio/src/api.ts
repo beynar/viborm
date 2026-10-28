@@ -338,20 +338,25 @@ function selection(
   models: ReadonlyMap<string, StudioModel>
 ): Record<string, unknown> {
   const select = scalarSelection(model);
-  for (const relation of model.relations) {
-    const target = models.get(relation.targets[0]!);
-    if (
-      relation.cardinality !== "one" ||
-      relation.storage === "variant" ||
-      !target?.key
-    ) {
-      continue;
-    }
-    select[relation.name] = {
+  const keyOf = (target: StudioModel | undefined) =>
+    target?.key && {
       select: Object.fromEntries(
         target.key.fields.map((field) => [field, true])
       ),
     };
+  for (const relation of model.relations) {
+    if (relation.cardinality !== "one") continue;
+    // A polymorphic to-one reads `{ type, data }`: each variant's key, under its name
+    // (every target of one has a scalar primary key, or the client refuses the schema).
+    const reached = relation.variants
+      ? Object.fromEntries(
+          relation.variants.map((variant) => [
+            variant.name,
+            keyOf(models.get(variant.target)),
+          ])
+        )
+      : keyOf(models.get(relation.targets[0]!));
+    if (reached) select[relation.name] = reached;
   }
   const counted = model.relations.filter(
     (relation) => relation.cardinality === "many"
