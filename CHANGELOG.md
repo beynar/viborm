@@ -36,8 +36,10 @@ through your own client, in a new package, `@viborm/studio`.
     together in one transaction of the client, all or none, a refused one
     named with the client's own message;
   - an "Aa" toggle that ignores case in search and text conditions;
-  - a query page: a read (`findMany`, `count`, `groupBy`...) in JSON, run
-    through the client, with its answer, its time and the SQL it ran;
+  - a query page: a read built with pickers (conditions, order, page,
+    columns, related rows; counts, sums, averages and extremes, per group),
+    run through the client as it is built, with its rows, the SQL it ran and
+    the call to write in the application;
   - a banner when the database differs from the schema: what `viborm push`
     would change (a dry run) and its SQL, red when it would lose data;
   - ⌘K to go to a model, a view or a row by its key; ⌘S saves, ⌘Z undoes.

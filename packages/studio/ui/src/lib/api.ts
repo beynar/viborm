@@ -12,7 +12,7 @@ export type {
   StudioDrift,
   StudioStatement,
 } from "../../../src/api";
-export { QUERY_OPERATIONS, type QueryOperation } from "../../../src/query";
+export type { QueryOperation } from "../../../src/query";
 export type {
   StudioEdge,
   StudioField,

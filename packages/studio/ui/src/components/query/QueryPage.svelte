@@ -3,13 +3,16 @@ import { Alert } from "entasis/alert";
 import { Button } from "entasis/button";
 import { Code } from "entasis/code";
 import { arrowSquareOutIcon } from "entasis/icons/arrowSquareOut";
-import { playIcon } from "entasis/icons/play";
+import { arrowsClockwiseIcon } from "entasis/icons/arrowsClockwise";
+import { plusIcon } from "entasis/icons/plus";
+import { xIcon } from "entasis/icons/x";
+import { NumberInput } from "entasis/number-input";
 import { type PageShellApi, setPageShell } from "entasis/page-shell";
 import { SegmentedControl } from "entasis/segmented-control";
 import { Select } from "entasis/select";
+import { TextInput } from "entasis/text-input";
 import { untrack } from "svelte";
 import {
-  QUERY_OPERATIONS,
   type QueryOperation,
   runQuery,
   type Scope,
@@ -17,10 +20,27 @@ import {
   type StudioStatement,
 } from "../../lib/api";
 import { fillPage } from "../../lib/fill";
+import { MODEL_ICON } from "../../lib/model-icons";
+import {
+  AGGREGATE_LABELS,
+  type Aggregate,
+  aggregatable,
+  argsOf,
+  codeOf,
+  emptyDraft,
+  type QueryDraft,
+  scalarFields,
+  tableOf,
+  uniqueFields,
+  whereOf,
+} from "../../lib/query-builder";
+import { cellText, display } from "../../lib/values";
+import FilterGroup from "../data/FilterGroup.svelte";
 
-// One read written by hand, as the application would write it — a delegate's operation and its arguments in JSON —
-// run through the project's own client: its answer, how long it took, and the SQL it ran. The arguments written
-// for each model and operation are kept for the tab's life, so going back finds them.
+// A read built with pickers, as the application would write it: what to read (the rows' own filter, an order, a
+// page, columns and relations) or what to compute (counts, sums, averages, extremes, per group). It runs through
+// the project's client as it changes; the page shows the rows, the JSON, the SQL the client ran and the call to
+// write in the application. What was built for each model is kept for the tab's life.
 let {
   schema,
   navigate,
@@ -31,115 +51,138 @@ let {
 
 setPageShell({ title: "Query", subtitle });
 
-const DRAFTS_KEY = `viborm-studio:query:${untrack(() => schema.project)}`;
+const KEPT = `viborm-studio:query-builder:${untrack(() => schema.project)}`;
 const HIDDEN_LABEL = {
   header: { base: "!absolute sr-only" },
   label: { base: "sr-only" },
 };
+const OPERATIONS: {
+  value: QueryOperation;
+  label: string;
+  description: string;
+}[] = [
+  { value: "findMany", label: "Find rows", description: "findMany" },
+  { value: "findFirst", label: "Find the first row", description: "findFirst" },
+  {
+    value: "findUnique",
+    label: "Find one row by a unique column",
+    description: "findUnique",
+  },
+  { value: "count", label: "Count rows", description: "count" },
+  {
+    value: "aggregate",
+    label: "Compute over the rows",
+    description: "aggregate",
+  },
+  { value: "groupBy", label: "Compute per group", description: "groupBy" },
+];
+const AGGREGATES = (Object.keys(AGGREGATE_LABELS) as Aggregate[]).map(
+  (value) => ({ value, label: AGGREGATE_LABELS[value] })
+);
 
-/** What a first query of an operation reads, on a model. */
-function starter(model: string, operation: QueryOperation): string {
-  const first = schema.models
-    .find((candidate) => candidate.name === model)
-    ?.fields.find((field) => !field.list);
-  const args: Record<string, unknown> = {
-    findMany: { where: {}, take: 20 },
-    findFirst: { where: {} },
-    findUnique: { where: {} },
-    count: { where: {} },
-    aggregate: { _count: true },
-    groupBy: { by: first ? [first.name] : [], _count: true },
-  }[operation];
-  return JSON.stringify(args, null, 2);
-}
-
-function keptDrafts(): {
+// The page is keyed on the schema's revision: it opens on the models it was given.
+const models = untrack(() => schema.models);
+function keptState(): {
   model?: string;
   operation?: QueryOperation;
-  texts: Record<string, string>;
+  drafts?: Record<string, QueryDraft>;
 } {
   try {
-    const kept = JSON.parse(sessionStorage.getItem(DRAFTS_KEY) ?? "{}");
-    return { texts: {}, ...kept };
+    return JSON.parse(sessionStorage.getItem(KEPT) ?? "{}");
   } catch {
-    return { texts: {} };
+    return {};
   }
 }
-const kept = keptDrafts();
-// The page is keyed on the schema's revision: it opens on the models it was given.
-const opening = untrack(() => schema.models);
-let model = $state(
-  opening.some((candidate) => candidate.name === kept.model)
+const kept = keptState();
+let modelName = $state(
+  models.some((candidate) => candidate.name === kept.model)
     ? kept.model!
-    : (opening[0]?.name ?? "")
+    : (models[0]?.name ?? "")
 );
 let operation = $state<QueryOperation>(kept.operation ?? "findMany");
-let texts = $state<Record<string, string>>(kept.texts);
-const draftKey = $derived(`${model}.${operation}`);
-const text = $derived(texts[draftKey] ?? starter(model, operation));
+const drafts = $state<Record<string, QueryDraft>>(
+  Object.fromEntries(
+    models.map((entry) => [
+      entry.name,
+      kept.drafts?.[entry.name] ?? emptyDraft(entry),
+    ])
+  )
+);
 $effect(() => {
   sessionStorage.setItem(
-    DRAFTS_KEY,
-    JSON.stringify({ model, operation, texts })
+    KEPT,
+    JSON.stringify({ model: modelName, operation, drafts })
   );
 });
 
-let editor = $state<HTMLTextAreaElement>();
+const model = $derived(models.find((entry) => entry.name === modelName)!);
+const draft = $derived(drafts[modelName]!);
+const reads = $derived(
+  operation === "findMany" ||
+    operation === "findFirst" ||
+    operation === "findUnique"
+);
+const computes = $derived(operation === "aggregate" || operation === "groupBy");
+const pages = $derived(
+  operation === "findMany" ||
+    operation === "findFirst" ||
+    operation === "groupBy"
+);
+
+/** The arguments built, or why they cannot be yet. */
+const built = $derived.by<{ args?: Record<string, unknown>; error?: string }>(
+  () => {
+    if (!model) return { error: "This schema has no model" };
+    try {
+      return { args: argsOf(model, models, operation, draft) };
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+);
+
 let running = $state(false);
 let answer = $state.raw<{
   result: unknown;
   duration: number;
   statements: StudioStatement[];
   model: string;
-  where?: Record<string, unknown>;
 }>();
 let failure = $state<string>();
-let tab = $state<"result" | "sql">("result");
-
-/** The arguments as JSON, or what is wrong with them. */
-const parsed = $derived.by<{ args?: unknown; error?: string }>(() => {
-  try {
-    return { args: JSON.parse(text.trim() || "{}") };
-  } catch (error) {
-    return { error: error instanceof Error ? error.message : String(error) };
-  }
-});
+let tab = $state<"table" | "json" | "sql" | "code">("table");
+let asked = 0;
 
 async function run() {
-  if (parsed.error !== undefined || running) return;
+  const { args } = built;
+  if (!args) return;
+  asked += 1;
+  const ask = asked;
+  const read = modelName;
   running = true;
-  failure = undefined;
   try {
-    const { args } = parsed;
-    const where =
-      typeof args === "object" && args !== null && "where" in args
-        ? (args.where as Record<string, unknown>)
-        : undefined;
-    answer = {
-      ...(await runQuery(model, operation, args)),
-      model,
-      ...(where && Object.keys(where).length ? { where } : {}),
-    };
+    const answered = await runQuery(read, operation, args);
+    if (ask !== asked) return;
+    answer = { ...answered, model: read };
+    failure = undefined;
   } catch (error) {
+    if (ask !== asked) return;
     failure = error instanceof Error ? error.message : String(error);
   } finally {
-    running = false;
+    if (ask === asked) running = false;
   }
 }
 
-/** A field's name written where the caret is, quoted as a key. */
-function insert(name: string) {
-  if (!editor) return;
-  const { selectionStart, selectionEnd, value } = editor;
-  const written = `"${name}": `;
-  texts[draftKey] =
-    value.slice(0, selectionStart) + written + value.slice(selectionEnd);
-  const caret = selectionStart + written.length;
-  requestAnimationFrame(() => {
-    editor?.focus();
-    editor?.setSelectionRange(caret, caret);
-  });
-}
+// The query runs again a moment after it changes: what is built shows what it reads.
+const signature = $derived(
+  built.args
+    ? `${modelName}.${operation}${JSON.stringify(built.args)}`
+    : undefined
+);
+$effect(() => {
+  if (signature === undefined) return;
+  const timer = setTimeout(() => untrack(run), 350);
+  return () => clearTimeout(timer);
+});
 
 function keys(event: KeyboardEvent) {
   if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
@@ -148,17 +191,50 @@ function keys(event: KeyboardEvent) {
   }
 }
 
-const current = $derived(
-  schema.models.find((candidate) => candidate.name === model)
+const nextId = (entries: readonly { id: number }[]) =>
+  Math.max(0, ...entries.map((entry) => entry.id)) + 1;
+
+const fieldItems = (fields: readonly { name: string }[]) =>
+  fields.map((field) => ({ value: field.name, label: field.name }));
+/** What an order may follow: a column; for groups, a column they share. */
+const sortItems = $derived(
+  fieldItems(
+    scalarFields(model).filter(
+      (field) => operation !== "groupBy" || draft.by.includes(field.name)
+    )
+  )
 );
-const names = $derived([
-  ...(current?.fields.map((field) => field.name) ?? []),
-  ...(current?.relations.map((relation) => relation.name) ?? []),
-]);
+
+/** The filter of the rows read, to open them in their table. */
+const openable = $derived.by(() => {
+  const listed =
+    operation === "findMany" ||
+    operation === "findFirst" ||
+    operation === "count";
+  if (!(answer && listed)) return undefined;
+  try {
+    return whereOf(model, models, draft);
+  } catch {
+    return undefined;
+  }
+});
+
+const table = $derived(tableOf(answer?.result));
+const answeredModel = $derived(
+  models.find((entry) => entry.name === answer?.model)
+);
+function cell(column: string, value: unknown): string {
+  if (Array.isArray(value))
+    return `${value.length} ${value.length === 1 ? "row" : "rows"}`;
+  const field = answeredModel?.fields.find((entry) => entry.name === column);
+  if (field && (typeof value !== "object" || value === null))
+    return cellText(field, value);
+  return display(value);
+}
 const counted = $derived(
-  Array.isArray(answer?.result)
-    ? `${answer.result.length} ${answer.result.length === 1 ? "row" : "rows"}`
-    : undefined
+  typeof answer?.result === "number"
+    ? undefined
+    : `${table.rows.length} ${table.rows.length === 1 ? "row" : "rows"}`
 );
 const sql = $derived(
   (answer?.statements ?? [])
@@ -168,56 +244,188 @@ const sql = $derived(
     )
     .join("\n\n")
 );
+const code = $derived(
+  built.args ? codeOf(modelName, operation, built.args) : ""
+);
+
+function chooseFunction(
+  computed: QueryDraft["computed"][number],
+  value: string | null
+) {
+  if (!value) return;
+  const fn = value as Aggregate;
+  computed.fn = fn;
+  // A sum, an average or an extreme reads a column the function takes.
+  if (!aggregatable(model, fn).some((field) => field.name === computed.field))
+    computed.field =
+      fn === "_count" ? "" : (aggregatable(model, fn)[0]?.name ?? "");
+}
 </script>
 
+<svelte:window onkeydown={keys} />
+
 {#snippet subtitle(_page: PageShellApi)}
-  A read through your client, with the SQL it ran
+  Build a read with pickers: it runs through your client as you go
 {/snippet}
 
-<section class="grid grid-rows-[auto_minmax(0,1fr)] gap-3 p-4" aria-label="Query" {@attach fillPage}>
-  <div class="grid gap-2">
-    <div class="flex flex-wrap items-center gap-2">
-      <div class="w-48"><Select size="small" label="Model" theme={HIDDEN_LABEL} items={schema.models.map(entry => ({ value: entry.name, label: entry.name }))} value={model} onValueChange={value => value && (model = value)} /></div>
-      <div class="w-36"><Select size="small" label="Operation" theme={HIDDEN_LABEL} items={QUERY_OPERATIONS.map(value => ({ value, label: value }))} value={operation} onValueChange={value => value && (operation = value as QueryOperation)} /></div>
-      <Button size="small" color="primary" prefix={playIcon} loading={running} disabled={parsed.error !== undefined} onclick={run}>Run <span class="text-[11px] opacity-70">⌘↵</span></Button>
-      {#if texts[draftKey] !== undefined}
-        <Button size="small" variant="ghost" onclick={() => delete texts[draftKey]}>Reset</Button>
-      {/if}
+{#snippet heading(text: string)}
+  <h3 class="m-0 text-[11px] font-semibold tracking-wide text-neutral/55 uppercase">{text}</h3>
+{/snippet}
+
+<section class="grid grid-cols-[minmax(30rem,36rem)_minmax(0,1fr)] gap-4 p-4" aria-label="Query" {@attach fillPage}>
+  <!-- What to read: the model, the operation, then what that operation takes. -->
+  <aside class="grid min-h-0 content-start gap-5 overflow-auto rounded-lg border border-neutral-muted bg-surface p-4" aria-label="The query">
+    <div class="grid gap-2">
+      {@render heading('Read')}
+      <Select size="small" label="Model" theme={HIDDEN_LABEL} items={models.map(entry => ({ value: entry.name, label: entry.name, icon: MODEL_ICON[entry.icon] }))} value={modelName} onValueChange={value => value && (modelName = value)} />
+      <Select size="small" label="Operation" theme={HIDDEN_LABEL} items={OPERATIONS} value={operation} onValueChange={value => value && (operation = value as QueryOperation)} />
     </div>
-    <label class="sr-only" for="query-args">The arguments of {model}.{operation}, in JSON</label>
-    <textarea id="query-args" bind:this={editor} class="min-h-36 w-full resize-y rounded-md border border-neutral-muted bg-surface p-3 font-mono text-[13px] leading-5 outline-none focus:border-primary" spellcheck="false" value={text} oninput={event => (texts[draftKey] = event.currentTarget.value)} onkeydown={keys}></textarea>
-    <div class="flex flex-wrap items-center gap-1 text-[12px] text-neutral/60">
-      {#if parsed.error !== undefined}
-        <span class="text-danger">Not JSON: {parsed.error}</span>
-      {:else}
-        <span class="mr-1">Insert</span>
-        {#each names as name (name)}
-          <button type="button" class="rounded border border-neutral-muted px-1.5 py-0.5 font-mono text-[11px] hover:bg-neutral-muted" onclick={() => insert(name)}>{name}</button>
-        {/each}
-      {/if}
-    </div>
-  </div>
-  <div class="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-2">
-    {#if failure}
-      <div class="row-span-2"><Alert color="danger" variant="soft">{#snippet title()}The client refused the query{/snippet}{#snippet description()}<span class="whitespace-pre-wrap">{failure}</span>{/snippet}</Alert></div>
-    {:else if answer}
-      <div class="flex flex-wrap items-center gap-3">
-        <SegmentedControl size="small" label="What to show" items={[{ value: 'result', label: 'Result' }, { value: 'sql', label: `SQL · ${answer.statements.length}` }]} bind:value={tab} />
-        <span class="text-[12px] text-neutral/60">{counted ? `${counted} · ` : ''}{answer.duration} ms · {answer.statements.length === 1 ? 'one statement' : `${answer.statements.length} statements`}</span>
-        {#if answer.where}
-          {@const { model: read, where } = answer}
-          <Button class="ml-auto" size="small" variant="outline" prefix={arrowSquareOutIcon} onclick={() => navigate(read, { where, label: 'Query' })}>Open these rows</Button>
-        {/if}
+
+    {#if operation === 'groupBy'}
+      <div class="grid gap-2">
+        {@render heading('Group by')}
+        <Select size="small" multiple label="Columns the groups share" theme={HIDDEN_LABEL} placeholder="Choose columns" items={fieldItems(scalarFields(model))} value={draft.by} onValueChange={value => (draft.by = value ?? [])} />
       </div>
-      <div class="min-h-0 overflow-auto rounded-lg">
-        {#if tab === 'result'}
-          <Code language="json" code={JSON.stringify(answer.result, null, 2)} />
+    {/if}
+
+    {#if operation === 'findUnique'}
+      <div class="grid gap-2">
+        {@render heading('Find by')}
+        {#if uniqueFields(model).length}
+          <div class="flex gap-2">
+            <div class="w-40 shrink-0"><Select size="small" label="Unique column" theme={HIDDEN_LABEL} items={fieldItems(uniqueFields(model))} value={draft.key.field} onValueChange={value => value && (draft.key.field = value)} /></div>
+            <div class="min-w-0 flex-1"><TextInput size="small" label="Value" theme={HIDDEN_LABEL} placeholder="value" value={draft.key.value} onValueChange={value => (draft.key.value = value ?? '')} /></div>
+          </div>
         {:else}
-          <Code language="sql" code={sql || '-- No statement ran.'} wrap />
+          <p class="m-0 text-[13px] text-neutral/60">{model.name} has no single unique column: find its rows with “Find the first row”.</p>
         {/if}
       </div>
     {:else}
-      <p class="row-span-2 m-0 text-[13px] text-neutral/60">Write the arguments as you would pass them to <code class="font-mono">client.{model}.{operation}()</code>, then run. Only reads run here.</p>
+      <div class="grid gap-2">
+        {@render heading('Where')}
+        {#key modelName}
+          <FilterGroup {model} {models} bind:conditions={draft.conditions} bind:combinator={draft.combinator} />
+        {/key}
+      </div>
     {/if}
+
+    {#if computes}
+      <div class="grid gap-2">
+        {@render heading('Compute')}
+        {#each draft.computed as computed (computed.id)}
+          <div class="flex items-center gap-2">
+            <div class="w-32 shrink-0"><Select size="small" label="Function" theme={HIDDEN_LABEL} items={AGGREGATES} value={computed.fn} onValueChange={value => chooseFunction(computed, value)} /></div>
+            <div class="min-w-0 flex-1"><Select size="small" label="Of" theme={HIDDEN_LABEL} items={[...(computed.fn === '_count' ? [{ value: '', label: 'rows' }] : []), ...fieldItems(aggregatable(model, computed.fn))]} value={computed.field} onValueChange={value => (computed.field = value ?? '')} /></div>
+            <Button size="small" variant="ghost" squared label="Remove the value" prefix={xIcon} onclick={() => (draft.computed = draft.computed.filter(entry => entry.id !== computed.id))} />
+          </div>
+        {/each}
+        <div><Button size="small" variant="outline" prefix={plusIcon} onclick={() => draft.computed.push({ id: nextId(draft.computed), fn: '_count', field: '' })}>Value</Button></div>
+      </div>
+    {/if}
+
+    {#if pages}
+      <div class="grid gap-2">
+        {@render heading('Order by')}
+        {#each draft.sort as sort (sort.id)}
+          <div class="flex items-center gap-2">
+            <div class="min-w-0 flex-1"><Select size="small" label="Column" theme={HIDDEN_LABEL} placeholder="Column" items={sortItems} value={sort.field} onValueChange={value => (sort.field = value ?? '')} /></div>
+            <SegmentedControl size="small" label="Direction" items={[{ value: 'asc', label: '↑ asc' }, { value: 'desc', label: '↓ desc' }]} value={sort.desc ? 'desc' : 'asc'} onValueChange={value => (sort.desc = value === 'desc')} />
+            <Button size="small" variant="ghost" squared label="Remove the order" prefix={xIcon} onclick={() => (draft.sort = draft.sort.filter(entry => entry.id !== sort.id))} />
+          </div>
+        {/each}
+        <div><Button size="small" variant="outline" prefix={plusIcon} disabled={sortItems.length === 0} onclick={() => draft.sort.push({ id: nextId(draft.sort), field: sortItems[0]?.value ?? '', desc: false })}>Order</Button></div>
+      </div>
+
+      <div class="grid gap-2">
+        {@render heading(operation === 'findFirst' ? 'Skip' : 'Page')}
+        <div class="flex gap-2">
+          {#if operation !== 'findFirst'}
+            <div class="min-w-0 flex-1"><NumberInput size="small" label="Take" min={0} placeholder="every row" value={draft.take} onValueChange={value => (draft.take = value ?? null)} /></div>
+          {/if}
+          <div class="min-w-0 flex-1"><NumberInput size="small" label="Skip" min={0} placeholder="none" value={draft.skip} onValueChange={value => (draft.skip = value ?? null)} /></div>
+        </div>
+      </div>
+    {/if}
+
+    {#if reads}
+      <div class="grid gap-2">
+        {@render heading('Return')}
+        <Select size="small" multiple label="Columns" placeholder="Every column" items={fieldItems(model.fields)} value={draft.columns} onValueChange={value => (draft.columns = value ?? [])} />
+        {#if model.relations.length}
+          <Select size="small" multiple label="With related rows" placeholder="No relation" items={fieldItems(model.relations)} value={draft.include} onValueChange={value => (draft.include = value ?? [])} />
+        {/if}
+      </div>
+    {/if}
+
+    <div class="flex items-center gap-2 border-t border-neutral-muted pt-3">
+      <Button size="small" variant="ghost" onclick={() => (drafts[modelName] = emptyDraft(model))}>Reset</Button>
+      <span class="ml-auto text-[12px] text-neutral/50">Runs as you build · ⌘↵ runs again</span>
+    </div>
+  </aside>
+
+  <!-- What it read. -->
+  <div class="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3">
+    <div class="flex flex-wrap items-center gap-3">
+      <SegmentedControl size="small" label="What to show" items={[{ value: 'table', label: 'Result' }, { value: 'json', label: 'JSON' }, { value: 'sql', label: `SQL${answer ? ` · ${answer.statements.length}` : ''}` }, { value: 'code', label: 'Code' }]} bind:value={tab} />
+      {#if answer}
+        <span class="text-[12px] text-neutral/60">{counted ? `${counted} · ` : ''}{answer.duration} ms</span>
+      {/if}
+      <div class="ml-auto flex items-center gap-2">
+        {#if openable}
+          {@const where = openable}
+          <Button size="small" variant="outline" prefix={arrowSquareOutIcon} onclick={() => navigate(modelName, { where, label: 'Query' })}>Open these rows</Button>
+        {/if}
+        <Button size="small" variant="ghost" prefix={arrowsClockwiseIcon} loading={running} disabled={!built.args} onclick={run}>Run again</Button>
+      </div>
+    </div>
+    <div class="grid min-h-0 content-start gap-3 overflow-auto">
+      <!-- A result the latest query did not replace shows faded under its error. -->
+      {#if built.error}
+        <Alert color="warning" variant="soft">{#snippet title()}Not ready to run{/snippet}{#snippet description()}{built.error}{/snippet}</Alert>
+      {/if}
+      {#if failure}
+        <Alert color="danger" variant="soft">{#snippet title()}The client refused the query{/snippet}{#snippet description()}<span class="whitespace-pre-wrap">{failure}</span>{/snippet}</Alert>
+      {/if}
+      <div class={['grid content-start gap-3 transition-opacity', (failure || built.error) && tab !== 'code' && 'opacity-45']}>
+      {#if tab === 'code'}
+        <Code language="ts" code={code || '// Not ready to run'} />
+      {:else if !answer}
+        <p class="m-0 text-[13px] text-neutral/60">{running ? 'Reading…' : 'Choose what to read: it runs as you build it.'}</p>
+      {:else if tab === 'sql'}
+        <Code language="sql" code={sql || '-- No statement ran.'} wrap />
+      {:else if tab === 'json'}
+        <Code language="json" code={JSON.stringify(answer.result, null, 2)} />
+      {:else if typeof answer.result === 'number'}
+        <div class="grid justify-items-start gap-1 rounded-lg border border-neutral-muted bg-surface p-6">
+          <span class="text-4xl font-semibold tabular-nums">{answer.result}</span>
+          <span class="text-[13px] text-neutral/60">{answer.result === 1 ? 'row matches' : 'rows match'}</span>
+        </div>
+      {:else if table.rows.length === 0}
+        <p class="m-0 text-[13px] text-neutral/60">No row.</p>
+      {:else}
+        <div class="overflow-auto rounded-lg border border-neutral-muted bg-surface">
+          <table class="w-full border-collapse text-[13px]">
+            <thead class="sticky top-0 bg-surface-floating">
+              <tr>
+                {#each table.columns as column (column)}
+                  <th class="border-b border-neutral-muted px-3 py-2 text-left font-medium whitespace-nowrap">{column}</th>
+                {/each}
+              </tr>
+            </thead>
+            <tbody>
+              {#each table.rows as row, index (index)}
+                <tr class="hover:bg-neutral-muted/40">
+                  {#each table.columns as column (column)}
+                    {@const value = row[column]}
+                    <td class={['max-w-[22rem] truncate border-b border-neutral-muted px-3 py-1.5 whitespace-nowrap', value === null && 'text-neutral/40', typeof value === 'number' && 'text-right tabular-nums']} title={cell(column, value)}>{value === undefined ? '' : cell(column, value)}</td>
+                  {/each}
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {/if}
+      </div>
+    </div>
   </div>
 </section>

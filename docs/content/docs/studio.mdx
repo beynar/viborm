@@ -74,11 +74,13 @@ read from the config's own directory.
   them. A save writes every change in one transaction of your client: all of
   them, or none, and a refused one is named with the client's message. The
   stack survives a reload of the page. ⌘S saves, ⌘Z drops the last change.
-- **Query**: a read written as your application writes it (`findMany`,
-  `findFirst`, `findUnique`, `count`, `aggregate`, `groupBy` and their
-  arguments in JSON) runs through your client; the page shows its answer, its
-  time and the SQL it ran, and opens the rows a `where` reaches in their
-  table. Only reads run there.
+- **Query**: a read built with pickers, no JSON to write. Find rows (the
+  table's own conditions, through relations too, an order, a page, the
+  columns and related rows to return), find one by a unique column, count
+  them, or compute counts, sums, averages and extremes over them or per
+  group. It runs through your client as you build it; the page shows the
+  rows, the JSON, the SQL it ran and the call to write in your application,
+  and opens the rows it found in their table. Only reads run there.
 - **Drift**: the studio asks your client what `viborm push` would change
   (a dry run, nothing applied) when it opens and on each reload. When the
   database differs from the schema, a banner lists the changes and their SQL,
