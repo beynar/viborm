@@ -31,6 +31,7 @@ import { type PageShellApi, setPageShell } from "entasis/page-shell";
 import { Pagination } from "entasis/pagination";
 import { Popover } from "entasis/popover";
 import { Select } from "entasis/select";
+import { Skeleton } from "entasis/skeleton";
 import { Switch } from "entasis/switch";
 import { TextInput } from "entasis/text-input";
 import { TimeInput } from "entasis/time-input";
@@ -474,6 +475,16 @@ const columns = $derived<DataTableColumn<Row>[]>([
   })),
 ]);
 
+const loadingColumns = $derived(
+  columns.filter((column) => tableState?.columnVisibility[column.id] !== false)
+);
+const loadingRightColumns = $derived(
+  loadingColumns.filter((column) =>
+    tableState?.columnPinning.right.includes(column.id)
+  )
+);
+const showingSkeleton = $derived(loading && shown.length === 0 && !failure);
+
 // A view opens the table as it was saved: its order, page size and widths, its search, then its filter applied.
 if (initial) {
   tableState = createDataTableState(
@@ -911,6 +922,11 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
         root: { base: 'absolute inset-0 gap-0' },
         viewport: { base: 'min-h-0 flex-1 rounded-none border-0' },
         cellContent: { base: 'min-w-0 w-full truncate' },
+        // Inherit the table's actual tracks, including resized columns and its flexible spacer.
+        ...(showingSkeleton ? {
+          stateCell: { base: 'grid-cols-subgrid' },
+          stateContent: { base: 'static col-span-full w-auto grid-cols-subgrid place-items-stretch p-0' },
+        } : {}),
         // The table fills the page, open below: its last row keeps its rule (entasis drops it, for a framed table).
         row: { base: 'last:!border-b' },
         // A row's related rows, on a recessed ground: their own padding, so they stay on the table's left as it
@@ -919,6 +935,25 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
         detailCell: { base: 'min-w-0 overflow-visible p-0', density: { compact: 'p-0', normal: 'p-0', comfortable: 'p-0' } },
       }}
     >
+      {#snippet loadingContent()}
+        <div class="col-span-full grid grid-cols-subgrid" aria-label="Loading rows">
+          {#each Array.from({ length: 6 }, (_, index) => index) as index (index)}
+            <div class="col-span-full grid grid-cols-subgrid border-b border-neutral-muted" aria-hidden="true">
+              {#if keyed && !readonly}{@render loadingCell(true)}{/if}
+              {#each loadingColumns.filter(column => !loadingRightColumns.includes(column)) as column (column.id)}
+                {@render loadingCell()}
+              {/each}
+              <!-- Entasis inserts a flexible track before the right-pinned columns and row actions. -->
+              <div></div>
+              {#each loadingRightColumns as column (column.id)}
+                {@render loadingCell()}
+              {/each}
+              {@render loadingCell(true)}
+            </div>
+          {/each}
+        </div>
+      {/snippet}
+
       <!-- A column the client does not let a row change says so: a lock, and why on hover. -->
       {#snippet header({ column, renderDefault })}
         {@const field = fieldsByName.get(column.id)}
@@ -1012,6 +1047,14 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
       {/snippet}
     </DataTable>
 </section>
+
+{#snippet loadingCell(square = false)}
+  <div class="min-h-row-sm min-w-0 px-sm py-xs">
+    <div class="flex h-control-sm items-center" class:justify-center={square}>
+      <Skeleton class={square ? 'size-4' : 'h-4 w-3/5 max-w-28'} />
+    </div>
+  </div>
+{/snippet}
 
 {#if editing}
   {#key editing}
