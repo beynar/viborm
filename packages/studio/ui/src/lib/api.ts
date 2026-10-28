@@ -1,9 +1,18 @@
 // The studio API, as the app calls it. Its types are the server's own.
-import type { StudioDescription } from "../../../src/api";
+import type {
+  StudioDescription,
+  StudioDrift,
+  StudioStatement,
+} from "../../../src/api";
 import type { StudioField, StudioModel } from "../../../src/schema";
 import { parseDraft } from "./values";
 
-export type { StudioDescription } from "../../../src/api";
+export type {
+  StudioDescription,
+  StudioDrift,
+  StudioStatement,
+} from "../../../src/api";
+export { QUERY_OPERATIONS, type QueryOperation } from "../../../src/query";
 export type {
   StudioEdge,
   StudioField,
@@ -65,6 +74,17 @@ export const readRows = (
     take: number;
   }
 ) => call<{ rows: Row[]; total: number }>(at(model, "rows"), query);
+
+/** How the database stands against the schema: what `viborm push` would do to it. */
+export const checkDrift = () => call<StudioDrift>("/drift");
+
+/** One read through the client, as the query page writes it: its answer, its time and the SQL it ran. */
+export const runQuery = (model: string, operation: string, args: unknown) =>
+  call<{
+    result: unknown;
+    duration: number;
+    statements: StudioStatement[];
+  }>("/query", { model, operation, args });
 
 /** What the studio keeps for the page, per project: its views and the diagram's layout. */
 export const readStored = async (name: "views" | "layout") =>

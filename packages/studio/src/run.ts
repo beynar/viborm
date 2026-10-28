@@ -7,10 +7,11 @@
 
 import { spawn } from "node:child_process";
 import { dirname, relative, resolve } from "node:path";
-import { createStudioApi, type StudioStore } from "./api";
+import { createStudioApi, type StudioDrift, type StudioStatement } from "./api";
 import {
   findConfig,
   type Importer,
+  importFromProject,
   type LoadedProject,
   loadProject,
   watchFiles,
@@ -43,6 +44,8 @@ export interface RunStudioOptions {
   readonly stopped?: Promise<void>;
   /** Where each project's views and layout are kept; `~/.viborm/studio` by default. */
   readonly storeDir?: string;
+  /** How a module of the project's own `viborm` is imported; from beside its config by default. */
+  readonly projectModule?: (specifier: string) => Promise<unknown>;
 }
 
 export async function runStudio(options: RunStudioOptions): Promise<void> {
@@ -78,8 +81,13 @@ export async function runStudio(options: RunStudioOptions): Promise<void> {
     found.path,
     (name) => server.broadcast("store", { name })
   );
+  // The project's own migrations and instrumentation: what `viborm push` would do, and the SQL a query runs.
+  const fromProject =
+    options.projectModule ??
+    ((specifier: string) => importFromProject(found!.path, specifier));
+  const tools = { store, ...projectTools(fromProject) };
   const serving = (loaded: LoadedProject) =>
-    studioApiOf(loaded, found!.path, options.readonly === true, store);
+    studioApiOf(loaded, found!.path, options.readonly === true, tools);
   let api = serving(project);
   const server = await listen(options, (request) => api.handle(request));
   print(
@@ -132,7 +140,10 @@ const studioApiOf = (
   project: LoadedProject,
   path: string,
   readonly: boolean,
-  store: StudioStore
+  tools: Pick<
+    Parameters<typeof createStudioApi>[0],
+    "store" | "drift" | "trace"
+  >
 ) =>
   createStudioApi({
     client: project.config.client,
@@ -140,8 +151,71 @@ const studioApiOf = (
     dialect: String(Reflect.get(project.config.driver, "dialect")),
     readonly,
     project: path,
-    store,
+    ...tools,
   });
+
+type Migrations = {
+  createMigrationClient(client: object): {
+    push(options: { dryRun: true }): Promise<{
+      outcome: "planned" | "noop";
+      destructive: boolean;
+      operations: readonly { label: string; risk: string }[];
+      statements: readonly { sql: string }[];
+    }>;
+  };
+};
+type Instrumentation = {
+  instrumentation(options: {
+    logging: {
+      query: (event: StudioStatement) => void;
+      includeSql: true;
+      includeParams: true;
+    };
+  }): unknown;
+};
+
+/** What the studio asks of the project's own `viborm`: a dry-run push, and the SQL each statement runs. */
+function projectTools(fromProject: (specifier: string) => Promise<unknown>) {
+  return {
+    async drift(client: object): Promise<StudioDrift> {
+      const { createMigrationClient } = (await fromProject(
+        "viborm/migrations"
+      )) as Migrations;
+      const preview = await createMigrationClient(client).push({
+        dryRun: true,
+      });
+      if (preview.outcome === "noop") return { state: "in-sync" };
+      return {
+        state: "drift",
+        destructive: preview.destructive,
+        operations: preview.operations.map(({ label, risk }) => ({
+          label,
+          risk,
+        })),
+        statements: preview.statements.map(({ sql }) => sql),
+      };
+    },
+    async trace(client: object, report: (statement: StudioStatement) => void) {
+      const { instrumentation } = (await fromProject(
+        "viborm/instrumentation"
+      )) as Instrumentation;
+      const extend = Reflect.get(client, "$extends") as (
+        extension: unknown
+      ) => object;
+      return extend.call(
+        client,
+        instrumentation({
+          logging: {
+            query: ({ sql, params, duration }) =>
+              report({ sql, params, duration }),
+            includeSql: true,
+            includeParams: true,
+          },
+        })
+      );
+    },
+  };
+}
 
 async function listen(
   options: RunStudioOptions,

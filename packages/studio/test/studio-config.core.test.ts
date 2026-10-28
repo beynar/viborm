@@ -6,7 +6,12 @@ import {
   writeConfigFixture,
 } from "@tests/contracts/public-client/cli/_harness";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { findConfig, loadProject, watchFiles } from "../src/config";
+import {
+  findConfig,
+  importFromProject,
+  loadProject,
+  watchFiles,
+} from "../src/config";
 
 let project: TempProject;
 
@@ -92,6 +97,31 @@ describe("loading the config", () => {
     expect(imported).toEqual([config]);
     expect(loaded.files).toEqual([config]);
     await fresh.config.client.$disconnect();
+  });
+});
+
+describe("the project's own modules", () => {
+  test("are resolved from beside its config", async () => {
+    mkdirSync(join(project.dir, "node_modules", "viborm-probe"), {
+      recursive: true,
+    });
+    writeFileSync(
+      join(project.dir, "node_modules", "viborm-probe", "package.json"),
+      JSON.stringify({
+        name: "viborm-probe",
+        type: "module",
+        exports: "./index.js",
+      })
+    );
+    writeFileSync(
+      join(project.dir, "node_modules", "viborm-probe", "index.js"),
+      "export const from = 'the project';\n"
+    );
+    const module = (await importFromProject(
+      join(project.dir, "viborm.config.ts"),
+      "viborm-probe"
+    )) as { from: string };
+    expect(module.from).toBe("the project");
   });
 });
 

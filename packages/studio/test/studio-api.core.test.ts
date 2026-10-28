@@ -378,6 +378,106 @@ describe("editing", () => {
   });
 });
 
+describe("the database against the schema", () => {
+  const compared = (drift?: () => Promise<never>) =>
+    createStudioApi({
+      client,
+      models: schema,
+      dialect: "sqlite",
+      ...(drift ? { drift } : {}),
+    }).handle({ method: "GET", path: "/drift", body: undefined });
+
+  test("says how they stand, or why it cannot tell", async () => {
+    expect((await compared()).body).toMatchObject({ state: "unknown" });
+    expect(
+      (
+        await createStudioApi({
+          client,
+          models: schema,
+          dialect: "sqlite",
+          drift: async () => ({ state: "in-sync" }),
+        }).handle({ method: "GET", path: "/drift", body: undefined })
+      ).body
+    ).toEqual({ state: "in-sync" });
+    expect(
+      (await compared(() => Promise.reject(new Error("ambiguous rename")))).body
+    ).toEqual({ state: "unknown", reason: "ambiguous rename" });
+    expect((await compared(() => Promise.reject("no database"))).body).toEqual({
+      state: "unknown",
+      reason: "no database",
+    });
+    expect((await call("POST", "/drift")).status).toBe(405);
+  });
+});
+
+describe("the query page", () => {
+  test("a read answers, with how long it took", async () => {
+    const found = await call("POST", "/query", {
+      model: "user",
+      operation: "findMany",
+      args: { where: { name: "Ada" }, select: { email: true } },
+    });
+    expect(found.body).toMatchObject({
+      result: [{ email: "ada@example.com" }],
+      statements: [],
+    });
+    expect(typeof (found.body as { duration: number }).duration).toBe("number");
+    const none = await call("POST", "/query", {
+      model: "user",
+      operation: "findUnique",
+      args: { where: { id: 999 } },
+    });
+    expect(none.body).toMatchObject({ result: null });
+    const counted = await call("POST", "/query", {
+      model: "tag",
+      operation: "count",
+    });
+    expect(typeof (counted.body as { result: number }).result).toBe("number");
+  });
+
+  test("a traced client says each statement it ran", async () => {
+    const traced = createStudioApi({
+      client,
+      models: schema,
+      dialect: "sqlite",
+      trace: async (inner, report) => {
+        report({ sql: "SELECT 1", params: [], duration: 1 });
+        return inner;
+      },
+    });
+    const answer = await traced.handle({
+      method: "POST",
+      path: "/query",
+      body: { model: "tag", operation: "count" },
+    });
+    expect(answer.body).toMatchObject({
+      statements: [{ sql: "SELECT 1", params: [], duration: 1 }],
+    });
+  });
+
+  test("only reads, of a known model, with object args", async () => {
+    for (const [body, code] of [
+      [[], "invalid_body"],
+      [{ model: "nope", operation: "count" }, "unknown_model"],
+      [{ model: 3, operation: "count" }, "unknown_model"],
+      [{ model: "user", operation: "deleteMany" }, "invalid_operation"],
+      [{ model: "user", operation: "count", args: [] }, "invalid_args"],
+    ] as const) {
+      expect(errorCode(await call("POST", "/query", body))).toBe(code);
+    }
+    expect(
+      errorCode(
+        await call("POST", "/query", {
+          model: "user",
+          operation: "findMany",
+          args: { where: { nmae: "x" } },
+        })
+      )
+    ).toBe("V4001");
+    expect((await call("GET", "/query")).status).toBe(405);
+  });
+});
+
 describe("what the page remembers", () => {
   const kept = new Map<string, unknown>();
   const remembering = createStudioApi({
@@ -387,7 +487,9 @@ describe("what the page remembers", () => {
     readonly: true,
     store: {
       read: async (name) => kept.get(name),
-      write: async (name, value) => void kept.set(name, value),
+      write: async (name, value) => {
+        kept.set(name, value);
+      },
     },
   });
   const ask = (method: string, path: string, body?: unknown) =>

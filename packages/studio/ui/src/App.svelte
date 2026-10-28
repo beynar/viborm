@@ -9,17 +9,26 @@ import { graphIcon } from "entasis/icons/graph";
 import { magnifyingGlassIcon } from "entasis/icons/magnifyingGlass";
 import { sidebarSimpleIcon } from "entasis/icons/sidebarSimple";
 import { tableIcon } from "entasis/icons/table";
+import { terminalWindowIcon } from "entasis/icons/terminalWindow";
 import { trashIcon } from "entasis/icons/trash";
 import type { SidebarApi } from "entasis/sidebar";
 import { Theme } from "entasis/theme";
 import { Toaster, toast } from "entasis/toast";
 import { onMount } from "svelte";
+import DriftBanner from "./components/DriftBanner.svelte";
 import ChangesBar from "./components/data/ChangesBar.svelte";
 import RowsView from "./components/data/RowsView.svelte";
 import Palette from "./components/Palette.svelte";
+import QueryPage from "./components/query/QueryPage.svelte";
 import SchemaDiagram from "./components/schema/SchemaDiagram.svelte";
 import ThemeToggle from "./components/ThemeToggle.svelte";
-import { loadSchema, type Scope, type StudioDescription } from "./lib/api";
+import {
+  checkDrift,
+  loadSchema,
+  type Scope,
+  type StudioDescription,
+  type StudioDrift,
+} from "./lib/api";
 import { Changes } from "./lib/changes.svelte";
 import { type SavedView, Views } from "./lib/views.svelte";
 
@@ -38,6 +47,22 @@ let failure = $state<string>();
 let hash = $state(location.hash);
 /** Bumped each time the server reloads the config: the open page reads again. */
 let revision = $state(0);
+/** How the database stands against the schema, checked when it loads and reloads. */
+let drift = $state<StudioDrift>();
+let checking = $state(false);
+async function check() {
+  checking = true;
+  try {
+    drift = await checkDrift();
+  } catch (error) {
+    drift = {
+      state: "unknown",
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    checking = false;
+  }
+}
 
 onMount(() => {
   // Back, forward or a typed URL tear the page down under a focused field, which
@@ -55,6 +80,7 @@ onMount(() => {
       views = new Views(loaded.project);
       views.load();
       changes = new Changes(loaded.project);
+      check();
     })
     .catch(
       (error) =>
@@ -67,6 +93,7 @@ onMount(() => {
       schema = await loadSchema();
       revision += 1;
       toast.success({ title: "Schema reloaded" });
+      check();
     } catch (error) {
       toast.danger({
         title: "The schema could not be read",
@@ -93,10 +120,12 @@ onMount(() => {
 
 type Route =
   | { view: "schema" }
+  | { view: "query" }
   | { view: "data"; model: string; scope?: Scope; saved?: string };
 const route = $derived.by<Route>(() => {
   const [path = "", query = ""] = hash.slice(1).split("?");
   const parts = path.split("/").filter(Boolean);
+  if (parts[0] === "query") return { view: "query" };
   if (parts[0] !== "data" || !parts[1]) return { view: "schema" };
   const encoded = new URLSearchParams(query).get("scope");
   let scope: Scope | undefined;
@@ -167,6 +196,12 @@ const sidebar = $derived<AppShellSidebarProps>({
           href: "#/schema",
           icon: graphIcon,
           isActive: route.view === "schema",
+        },
+        {
+          label: "Query",
+          href: "#/query",
+          icon: terminalWindowIcon,
+          isActive: route.view === "query",
         },
       ],
     },
@@ -249,14 +284,19 @@ const sidebar = $derived<AppShellSidebarProps>({
         <p class="m-0 p-6 text-danger">The studio could not read the schema: {failure}</p>
       {:else if !schema}
         <p class="m-0 p-6 text-neutral/60">Loading the schema…</p>
-      {:else if route.view === 'schema'}
-        <SchemaDiagram {schema} />
-      {:else if current}
-        {#key `${hash}#${revision}`}
-          <RowsView model={current} models={schema.models} readonly={schema.readonly} scope={opened?.scope ?? route.scope} view={opened} views={views!} changes={changes!} openView={view => (location.hash = viewHref(view))} {navigate} />
-        {/key}
       {:else}
-        <p class="m-0 p-6 text-neutral/60">No model named “{route.model}”.</p>
+        {#if drift?.state === 'drift'}{#key drift}<DriftBanner {drift} {checking} {check} />{/key}{/if}
+        {#if route.view === 'schema'}
+          <SchemaDiagram {schema} />
+        {:else if route.view === 'query'}
+          {#key revision}<QueryPage {schema} {navigate} />{/key}
+        {:else if current}
+          {#key `${hash}#${revision}`}
+            <RowsView model={current} models={schema.models} readonly={schema.readonly} scope={opened?.scope ?? route.scope} view={opened} views={views!} changes={changes!} openView={view => (location.hash = viewHref(view))} {navigate} />
+          {/key}
+        {:else}
+          <p class="m-0 p-6 text-neutral/60">No model named “{route.model}”.</p>
+        {/if}
       {/if}
       {#if changes}<ChangesBar {changes} />{/if}
     </AppShell>

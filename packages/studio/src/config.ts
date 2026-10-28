@@ -131,6 +131,14 @@ export async function loadProject(
   return { config, files: [...files] };
 }
 
+/** A module of the project's own `viborm` (its migrations, its instrumentation), resolved from beside its config. */
+export function importFromProject(
+  configPath: string,
+  specifier: string
+): Promise<unknown> {
+  return createJiti(configPath, { interopDefault: true }).import(specifier);
+}
+
 /**
  * Call `changed` once a burst of edits to these files settles. Each file's
  * directory is watched rather than the file, so an editor's save-by-rename is

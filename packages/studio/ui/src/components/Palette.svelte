@@ -6,6 +6,7 @@ import { graphIcon } from "entasis/icons/graph";
 import { magnifyingGlassIcon } from "entasis/icons/magnifyingGlass";
 import { moonIcon } from "entasis/icons/moon";
 import { tableIcon } from "entasis/icons/table";
+import { terminalWindowIcon } from "entasis/icons/terminalWindow";
 import { xIcon } from "entasis/icons/x";
 import { useTheme } from "entasis/theme";
 import type { Scope, StudioDescription } from "../lib/api";
@@ -32,12 +33,13 @@ let {
   go: (hash: string) => void;
 } = $props();
 
+const SPACES = /\s+/;
 const theme = useTheme();
 let search = $state("");
 
 /** "user 7": a model and its one key's value, typed. */
 const byKey = $derived.by(() => {
-  const [name, ...rest] = search.trim().split(/\s+/);
+  const [name, ...rest] = search.trim().split(SPACES);
   const typed = rest.join(" ");
   const model = schema.models.find(
     (candidate) => candidate.name.toLowerCase() === name?.toLowerCase()
@@ -74,6 +76,13 @@ const items = $derived.by<CommandGroup[]>(() => {
     heading: "Go to",
     items: [
       { value: "go:#/schema", label: "Schema", icon: graphIcon },
+      {
+        value: "go:#/query",
+        label: "Query",
+        description: "A read through the client, with its SQL",
+        icon: terminalWindowIcon,
+        keywords: ["sql", "findMany", "playground"],
+      },
       ...schema.models.map((model) => ({
         value: `model:${model.name}`,
         label: model.name,

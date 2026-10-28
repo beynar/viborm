@@ -11,6 +11,7 @@
  */
 
 import type { Model } from "@src/schema/model";
+import { QUERY_OPERATIONS } from "./query";
 import { describeSchema, type StudioModel, type StudioSchema } from "./schema";
 import { encodeJson } from "./server";
 
@@ -55,6 +56,34 @@ export interface StudioApiOptions {
   readonly project?: string;
   /** Where the page keeps what it remembers of the project (its views, the diagram's layout); none, it keeps it itself. */
   readonly store?: StudioStore;
+  /** How the database stands against the schema, for this client. */
+  readonly drift?: (client: object) => Promise<StudioDrift>;
+  /** The client, extended to report each statement it runs; without it, a query runs untraced. */
+  readonly trace?: (
+    client: object,
+    report: (statement: StudioStatement) => void
+  ) => Promise<object>;
+}
+
+/** How the database stands against the schema: what `viborm push` would do to it, as the project's migrations say. */
+export type StudioDrift =
+  | { readonly state: "in-sync" }
+  | {
+      readonly state: "drift";
+      readonly destructive: boolean;
+      readonly operations: readonly {
+        readonly label: string;
+        readonly risk: string;
+      }[];
+      readonly statements: readonly string[];
+    }
+  | { readonly state: "unknown"; readonly reason: string };
+
+/** One statement a query ran, as the project's instrumentation reports it. */
+export interface StudioStatement {
+  readonly sql?: string;
+  readonly params?: readonly unknown[];
+  readonly duration?: number;
 }
 
 /** What the page remembers of a project, by name, kept by the studio rather than the browser. */
@@ -120,6 +149,14 @@ export function createStudioApi(options: StudioApiOptions) {
     }
     const stored = STORE_ROUTE.exec(request.path);
     if (stored) return keep(stored[1] as StoredName, request);
+    if (request.path === "/drift") {
+      if (request.method !== "GET") throw methodNotAllowed();
+      return drift();
+    }
+    if (request.path === "/query") {
+      if (request.method !== "POST") throw methodNotAllowed();
+      return query(request.body);
+    }
     const match = ROUTE.exec(request.path);
     if (!match) throw new Refusal(404, "not_found", "Unknown studio route");
     if (request.method !== "POST") throw methodNotAllowed();
@@ -136,6 +173,69 @@ export function createStudioApi(options: StudioApiOptions) {
     return match[2] === "rows"
       ? readRows(model, delegate, body, select(model))
       : exportRows(model, delegate, body);
+  }
+
+  /** The database against the schema; a check that cannot be made says why rather than failing the page. */
+  async function drift(): Promise<StudioDrift> {
+    if (!options.drift) {
+      return {
+        state: "unknown",
+        reason: "This studio does not compare the database with the schema.",
+      };
+    }
+    try {
+      return await options.drift(options.client);
+    } catch (error) {
+      return {
+        state: "unknown",
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /** One read, as written on the query page: its answer, how long it took, and the statements it ran. */
+  async function query(body: unknown) {
+    if (!isRecord(body)) {
+      throw new Refusal(400, "invalid_body", "The body must be a JSON object");
+    }
+    const model =
+      typeof body.model === "string" ? byName.get(body.model) : undefined;
+    if (!model) {
+      throw new Refusal(
+        404,
+        "unknown_model",
+        `Unknown model "${String(body.model)}"`
+      );
+    }
+    const operation = QUERY_OPERATIONS.find((name) => name === body.operation);
+    if (!operation) {
+      throw new Refusal(
+        400,
+        "invalid_operation",
+        `The query page reads: ${QUERY_OPERATIONS.join(", ")}`
+      );
+    }
+    const args = body.args ?? {};
+    if (!isRecord(args)) {
+      throw new Refusal(400, "invalid_args", "args must be an object");
+    }
+    const statements: StudioStatement[] = [];
+    const client = options.trace
+      ? await options.trace(options.client, (statement) =>
+          statements.push(statement)
+        )
+      : options.client;
+    const delegate = Reflect.get(client, model.name) as Record<
+      string,
+      (args: unknown) => Promise<unknown>
+    >;
+    const started = performance.now();
+    const result = await delegate[operation]!(args);
+    return {
+      result: result ?? null,
+      duration: Math.round(performance.now() - started),
+      statements,
+    };
   }
 
   /** What the page remembers, read (GET) or kept (POST `{ value }`), even by a read-only studio: it is not the data. */
