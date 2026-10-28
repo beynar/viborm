@@ -478,7 +478,7 @@ function indexFix(
     sql: `CREATE INDEX ${quote(context.dialect, name)} ON ${tableSql(context, table)} (${list});`,
     ...(mixed
       ? {
-          note: "The order mixes directions: the index must hold them, which VibORM's .index() cannot declare. Write it in a migration.",
+          note: "Mixed directions require a SQL migration.",
         }
       : {}),
   };
@@ -742,9 +742,9 @@ export function adviseOn(plan: PlanTree, context: PlanContext): PlanAdvice[] {
       const severity = node.actual ? severityOf(visited!) : "info";
       const isCorrelated = correlated(node);
       const repeated = parallel
-        ? ` It ran in ${loops} parallel workers.`
+        ? ` ${loops} parallel workers.`
         : loops > 1
-          ? ` It ran ${loops.toLocaleString("en-US")} times, once per row of the plan above it.`
+          ? ` ${loops.toLocaleString("en-US")} runs.`
           : "";
       const stopped =
         visited !== undefined &&
@@ -752,17 +752,17 @@ export function adviseOn(plan: PlanTree, context: PlanContext): PlanAdvice[] {
         node.actual &&
         cutByLimit(node) &&
         visited < size / 2
-          ? ` It stopped once the page was full, after ${formatRows(visited)} of the ${formatRows(size)} rows.`
+          ? ` Stopped at LIMIT (${formatRows(visited)}/${formatRows(size)} rows).`
           : "";
       const counted =
         visited === undefined
-          ? `uses a scan of "${table}" (rows visited are unknown)`
+          ? "Scan planned; row count unknown"
           : node.actual
-            ? `reads ${formatRows(visited)} rows of "${table}"${kept === undefined ? "" : ` to keep ${formatRows(kept)}`}`
-            : `plans a scan of "${table}", which holds about ${formatRows(visited)} rows; rows visited are not measured`;
+            ? `${formatRows(visited)} rows scanned${kept === undefined ? "" : ` · ${formatRows(kept)} kept`}`
+            : `Scan planned (~${formatRows(visited)} table rows); reads unmeasured`;
       const smallNote =
         severity === "info" && size !== undefined && size < 5000
-          ? ` "${table}" holds ${formatRows(size)} rows: a full scan costs little today, and the index pays off as it grows.`
+          ? ` Small table (${formatRows(size)} rows); indexing may not help yet.`
           : "";
       const keptShare =
         visited && kept !== undefined ? kept / visited : undefined;
@@ -792,7 +792,7 @@ export function adviseOn(plan: PlanTree, context: PlanContext): PlanAdvice[] {
           : [];
       const correlationNote =
         correlation.length > 0
-          ? ` Each run looks for the rows of one ${correlation.map((entry) => entry.column).join(", ")}: the index begins with it.`
+          ? ` Index starts with ${correlation.map((entry) => entry.column).join(", ")} for each lookup.`
           : "";
       if (
         pageTerms.length > 0 &&
@@ -814,7 +814,7 @@ export function adviseOn(plan: PlanTree, context: PlanContext): PlanAdvice[] {
             id: `page-${node.id}`,
             severity,
             title: `Index "${table}" on ${columns.map((entry) => `"${entry.column}"${entry.desc ? " DESC" : ""}`).join(", ")} for this page`,
-            detail: `This ${counted}${sort ? `, then sorts them by ${pageTerms.map((term) => `${term.column}${term.desc ? " DESC" : ""}`).join(", ")}` : `, in ${pageTerms.map((term) => term.column).join(", ")} order,`} to return the first rows.${repeated}${stopped}${correlationNote} An index on these columns hands over only the rows that match, already in that order: the database reads the page and stops.${rest ? " The other conditions are checked as it reads." : ""}${smallNote}`,
+            detail: `${counted}.${repeated}${stopped}${correlationNote} Index supports filtering and page order.${rest ? " Other filters still apply." : ""}${smallNote}`,
             nodes: sort ? [node.id, sort.node.id] : [node.id],
             fix: indexFix(context, table, columns),
           });
@@ -839,7 +839,7 @@ export function adviseOn(plan: PlanTree, context: PlanContext): PlanAdvice[] {
             id: `scan-${node.id}`,
             severity: "info",
             title: `Full scan of "${table}": the filter keeps most rows`,
-            detail: `This ${counted}.${repeated} The filter keeps ${Math.round(keptShare * 100)}% of them: reading the table in order is cheaper than an index would be.`,
+            detail: `${counted}.${repeated} Keeps ${Math.round(keptShare * 100)}%; a scan may be cheaper.`,
             nodes: [node.id],
           });
         } else if (leading && covering(table, columns)) {
@@ -847,11 +847,11 @@ export function adviseOn(plan: PlanTree, context: PlanContext): PlanAdvice[] {
             id: `scan-${node.id}`,
             severity,
             title: `Full scan of "${table}" despite the index ${leading.name}`,
-            detail: `This ${counted}.${repeated} The index ${leading.name} begins with ${columns.map((entry) => `"${entry.column}"`).join(", ")}, yet the planner read the table: a cast or a function on the column, a type that differs from the column's, or statistics that predict too many rows keep it from the index.`,
+            detail: `${counted}.${repeated} Refresh statistics and check filter compatibility.`,
             nodes: [node.id],
             fix: {
               sql: ANALYZE_SQL(context, table),
-              note: "Fresh statistics first; if the plan stays, compare the condition with the column's type.",
+              note: "If unchanged, check casts and column types.",
             },
           });
         } else {
@@ -859,7 +859,7 @@ export function adviseOn(plan: PlanTree, context: PlanContext): PlanAdvice[] {
             id: `scan-${node.id}`,
             severity,
             title: `Index "${table}" on ${columns.map((entry) => `"${entry.column}"`).join(", ")}`,
-            detail: `This ${counted}.${repeated}${stopped}${correlationNote}${leading ? ` The index ${leading.name} begins with "${columns[0]!.column}" but not with the rest.` : ""} An index on these columns lets the database find those rows without reading the others.${multi.length > 0 ? ` ${multi.map((entry) => `"${entry.column}"`).join(", ")} takes several values: the index looks each one up.` : ""}${smallNote}`,
+            detail: `${counted}.${repeated}${stopped}${correlationNote} Index narrows the scan.${leading ? ` Extends ${leading.name}.` : ""}${multi.length > 0 ? ` Multiple lookups for ${multi.map((entry) => `"${entry.column}"`).join(", ")}.` : ""}${smallNote}`,
             nodes: [node.id],
             fix: indexFix(context, table, columns),
           });
@@ -877,21 +877,21 @@ export function adviseOn(plan: PlanTree, context: PlanContext): PlanAdvice[] {
             predicate.kind === "suffix"
               ? `"${predicate.column}" is searched by its end`
               : `"${predicate.column}" is searched for anywhere in the text`,
-          detail: `A search inside the text cannot use an ordinary index on "${predicate.column}": this ${counted} to test each.${repeated}`,
+          detail: `A standard b-tree cannot accelerate this search. ${counted}.${repeated}`,
           nodes: [node.id],
           fix:
             context.dialect === "postgresql"
               ? {
                   sql: `CREATE EXTENSION IF NOT EXISTS pg_trgm;\nCREATE INDEX ${quote(context.dialect, `${table}_${predicate.column}_trgm_idx`)} ON ${tableSql(context, table)} USING gin (${quote(context.dialect, predicate.column)} gin_trgm_ops);`,
-                  note: "A trigram index serves LIKE '%…%' and ILIKE. VibORM's .index() cannot name the operator class: write it in a migration.",
+                  note: "Trigrams support LIKE/ILIKE. Requires a SQL migration.",
                 }
               : context.dialect === "mysql"
                 ? {
                     sql: `CREATE FULLTEXT INDEX ${quote(context.dialect, `${table}_${predicate.column}_ft`)} ON ${tableSql(context, table)} (${quote(context.dialect, predicate.column)});`,
-                    note: "A full-text index serves MATCH … AGAINST, not LOCATE or LIKE: the search changes with it.",
+                    note: "Requires MATCH … AGAINST; does not accelerate LIKE/LOCATE.",
                   }
                 : {
-                    note: "SQLite indexes no substring: an FTS5 table is the way to search inside text.",
+                    note: "Consider FTS5; search semantics differ.",
                   },
         });
       }
@@ -903,11 +903,11 @@ export function adviseOn(plan: PlanTree, context: PlanContext): PlanAdvice[] {
             id: `prefix-${node.id}-${predicate.column}`,
             severity,
             title: `"${predicate.column}" is searched by its start`,
-            detail: `LIKE 'abc%' uses a b-tree only under the C collation or with a pattern operator class: this ${counted}.`,
+            detail: `Prefix search needs C collation or text_pattern_ops. ${counted}.`,
             nodes: [node.id],
             fix: {
               sql: `CREATE INDEX ${quote(context.dialect, `${table}_${predicate.column}_pattern_idx`)} ON ${tableSql(context, table)} (${quote(context.dialect, predicate.column)} text_pattern_ops);`,
-              note: "VibORM's .index() cannot name the operator class: write it in a migration.",
+              note: "Requires a SQL migration.",
             },
           });
         }
@@ -934,7 +934,7 @@ export function adviseOn(plan: PlanTree, context: PlanContext): PlanAdvice[] {
           id: `group-${node.id}`,
           severity: "info",
           title: `Plans to group "${groupTable}" in a temporary b-tree`,
-          detail: `The table holds ${formatRows(rows)} rows; SQLite does not report how many this operation reads. It gathers the groups by ${terms.map((term) => term.column).join(", ")} in a b-tree of its own. An index in that order hands the rows over grouped already.`,
+          detail: `Index avoids the temporary b-tree. ~${formatRows(rows)} table rows; reads unmeasured.`,
           nodes: [node.id],
           fix: indexFix(
             context,
@@ -963,7 +963,7 @@ export function adviseOn(plan: PlanTree, context: PlanContext): PlanAdvice[] {
           severity: "warning",
           title: `The planner expected ${formatRows(expected)} rows from "${table}", ${formatRows(came)} came`,
           detail:
-            "A plan built on a count this far off may join and sort the wrong way. Fresh statistics usually set it right; if they do not, the columns compared together are correlated, and extended statistics tell the planner.",
+            "Refresh statistics; consider extended statistics if estimates stay inaccurate.",
           nodes: [node.id],
           fix: { sql: ANALYZE_SQL(context, table) },
         });
@@ -977,11 +977,11 @@ export function adviseOn(plan: PlanTree, context: PlanContext): PlanAdvice[] {
         id: `hash-${node.id}`,
         severity: "warning",
         title: "The hash table spilled to disk",
-        detail: `It was built in ${batches} batches: it did not fit in memory (work_mem).`,
+        detail: `${batches} batches; exceeded work_mem.`,
         nodes: [node.id],
         fix: {
           sql: "SET work_mem = '64MB';",
-          note: "For this session; or join fewer rows: filter before the join.",
+          note: "Session setting. Alternatively, filter before joining.",
         },
       });
     }
@@ -996,7 +996,7 @@ export function adviseOn(plan: PlanTree, context: PlanContext): PlanAdvice[] {
         id: `heap-${node.id}`,
         severity: "info",
         title: `The index-only scan of "${table}" still read the table`,
-        detail: `${formatRows(heapFetches)} rows were checked in the table: its visibility map is out of date.`,
+        detail: `${formatRows(heapFetches)} heap fetches; refresh the visibility map.`,
         nodes: [node.id],
         fix: { sql: `VACUUM ${tableSql(context, table)};` },
       });
@@ -1007,7 +1007,7 @@ export function adviseOn(plan: PlanTree, context: PlanContext): PlanAdvice[] {
         id: `lossy-${node.id}`,
         severity: "info",
         title: "The bitmap was too large for memory",
-        detail: `${lossy} pages were rechecked row by row (work_mem).`,
+        detail: `${lossy} pages rechecked; increase work_mem.`,
         nodes: [node.id],
         fix: { sql: "SET work_mem = '64MB';", note: "For this session." },
       });
@@ -1022,13 +1022,13 @@ export function adviseOn(plan: PlanTree, context: PlanContext): PlanAdvice[] {
       id: `spill-${node.id}`,
       severity: "critical",
       title: "The sort spilled to disk",
-      detail: `Sorting ${formatRows(rows)} rows did not fit in memory: ${factOf(node, "Sort Space Used") ?? "?"} kB went to disk.`,
+      detail: `${formatRows(rows)} rows · ${factOf(node, "Sort Space Used") ?? "?"} kB on disk.`,
       nodes: [node.id],
       fix: {
         ...(context.dialect === "postgresql"
           ? { sql: "SET work_mem = '64MB';" }
           : {}),
-        note: "More memory for sorts, or an index in the order asked so there is nothing to sort.",
+        note: "Increase sort memory or index the sort columns.",
       },
     });
   }
@@ -1059,7 +1059,7 @@ export function adviseOn(plan: PlanTree, context: PlanContext): PlanAdvice[] {
       id: `sort-${sort.node.id}`,
       severity: severityOf(sort.rows ?? 0) === "critical" ? "warning" : "info",
       title: `${plan.analyzed ? "Sorted" : "Plans to sort"} ${sort.rows === undefined ? "rows" : `${formatRows(sort.rows)}${plan.analyzed ? "" : " estimated"} rows`} of "${sort.table}" by ${sort.terms.map((term) => `${term.column}${term.desc ? " DESC" : ""}`).join(", ")}`,
-      detail: `The database sorts the rows itself${correlation.length > 0 ? `, once for each ${correlation.map((entry) => entry.column).join(", ")}` : ""}.${plan.analyzed ? "" : " Counts, when present, are estimates per invocation; total work is not measured."}${sort.limited ? " The query asks for a page of them: an index in this order lets it read the first rows and stop." : " An index in this order hands them over already sorted."}`,
+      detail: `${sort.limited ? "Index avoids sorting before pagination." : "Index provides sorted rows."}${correlation.length > 0 ? ` Repeated per ${correlation.map((entry) => entry.column).join(", ")}.` : ""}${plan.analyzed ? "" : " Estimates per invocation; work unmeasured."}`,
       nodes: [sort.node.id],
       fix: indexFix(context, sort.table, columns),
     });
@@ -1074,7 +1074,7 @@ export function adviseOn(plan: PlanTree, context: PlanContext): PlanAdvice[] {
       id: "cold",
       severity: "info",
       title: "Most pages came from disk",
-      detail: `${formatRows(read)} pages were read, ${formatRows(hit)} found in memory: run it again to see it warm, and give the database more shared memory if it stays cold.`,
+      detail: `${formatRows(read)} disk reads · ${formatRows(hit)} cache hits. Rerun to check warm-cache performance.`,
       nodes: [plan.root.id],
     });
   }
@@ -1088,7 +1088,7 @@ export function adviseOn(plan: PlanTree, context: PlanContext): PlanAdvice[] {
       id: "planning",
       severity: "info",
       title: "Planning took longer than running",
-      detail: `${plan.planningTime.toFixed(1)} ms to plan, ${plan.executionTime.toFixed(1)} ms to run: a statement this cheap gains from being prepared once.`,
+      detail: `${plan.planningTime.toFixed(1)} ms planning · ${plan.executionTime.toFixed(1)} ms execution. Consider a prepared statement.`,
       nodes: [plan.root.id],
     });
   }

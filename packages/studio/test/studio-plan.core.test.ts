@@ -304,7 +304,7 @@ describe("review regressions", () => {
       tree,
       context("postgresql", "SELECT * FROM orders AS q0")
     );
-    expect(advice[0]?.detail).toContain('"status" takes several values');
+    expect(advice[0]?.detail).toContain('Multiple lookups for "status"');
     expect(advice[0]?.fix?.sql).toContain('("status")');
   });
 
@@ -805,7 +805,7 @@ describe("advice", () => {
         scanTree({ ...removed, "Actual Loops": 4 }),
         context("postgresql", sql)
       )[0]!.detail
-    ).toContain("ran 4 times");
+    ).toContain("4 runs");
     // Small: say so.
     expect(
       adviseOn(
@@ -1071,7 +1071,7 @@ describe("advice", () => {
       sorted({ "Sort Key": ["o.total"] }, { "Actual Rows": 20 }),
       context("postgresql", `${sql} LIMIT 20`)
     );
-    expect(page[0]!.detail).toContain("asks for a page");
+    expect(page[0]!.detail).toContain("Index avoids sorting before pagination");
     // Sorted already by an index there: nothing; too few rows: nothing; no key to read: nothing.
     expect(
       adviseOn(
@@ -1202,8 +1202,8 @@ describe("advice, the rarer plans", () => {
       severity: "critical",
       title: 'Index "order_items" on "orderId", "createdAt" DESC for this page',
     });
-    expect(page!.detail).toContain("ran 100 times");
-    expect(page!.detail).toContain("the rows of one orderId");
+    expect(page!.detail).toContain("100 runs");
+    expect(page!.detail).toContain("Index starts with orderId");
     // One way only: .index() says it.
     expect(page!.fix?.schema).toBeUndefined();
     expect(page!.fix?.sql).toBe(
@@ -1218,7 +1218,7 @@ describe("advice, the rarer plans", () => {
       'Index "order_items" on "orderId"',
       'Sorted 600k rows of "order_items" by createdAt DESC',
     ]);
-    expect(kept[1]!.detail).toContain("once for each orderId");
+    expect(kept[1]!.detail).toContain("Repeated per orderId");
   });
 
   test("an index read end to end for its order: the equalities first", () => {
@@ -1252,10 +1252,8 @@ describe("advice, the rarer plans", () => {
       title: 'Index "orders" on "status", "id" for this page',
       fix: { schema: '// the "order" model\n.index(["status", "id"])' },
     });
-    expect(advice!.detail).toContain("in id order");
-    expect(advice!.detail).toContain(
-      "It stopped once the page was full, after 150k of the 2.0M rows."
-    );
+    expect(advice!.detail).toContain("page order");
+    expect(advice!.detail).toContain("Stopped at LIMIT (150k/2.0M rows).");
   });
 
   test("a range after the equalities; an index there that begins with them", () => {
@@ -1283,9 +1281,7 @@ describe("advice, the rarer plans", () => {
     expect(advice).toMatchObject({
       title: 'Index "orders" on "status", "total"',
     });
-    expect(advice!.detail).toContain(
-      'The index orders_status_idx begins with "status" but not with the rest.'
-    );
+    expect(advice!.detail).toContain("Extends orders_status_idx.");
     // A partial index, or a hash, holds not what a b-tree over every row does.
     for (const held of [
       index("orders_status_idx", ["status", "total"], { partial: true }),
@@ -1313,7 +1309,7 @@ describe("advice, the rarer plans", () => {
       severity: "info",
       title: 'Index "orders" on "note"',
     });
-    expect(advice!.detail).toContain('uses a scan of "orders"');
+    expect(advice!.detail).toContain("Scan planned; row count unknown");
   });
 
   test("sorts and groupings of a few thousand rows; a sort with no table under it", () => {
@@ -1381,6 +1377,6 @@ describe("advice, the rarer plans", () => {
         }),
         context("postgresql", "SELECT 1")
       )[0]!.detail
-    ).toBe("Sorting 0 rows did not fit in memory: 10 kB went to disk.");
+    ).toBe("0 rows · 10 kB on disk.");
   });
 });

@@ -170,19 +170,18 @@ const time = (date: Date) =>
   {@const tone = SEVERITY[entry.severity]}
   <article class={['grid gap-2 rounded-lg border p-3', tone.tone]}>
     <header class="flex items-start gap-2">
-      <span class="mt-0.5 inline-flex shrink-0">{@render tone.icon({ size: 16 })}</span>
+      <span class="mt-0.5 inline-flex shrink-0" role="img" aria-label={tone.label} title={tone.label}>{@render tone.icon({ size: 16 })}</span>
       <div class="grid min-w-0 gap-0.5">
-        <span class="text-[11px] font-semibold tracking-wide uppercase opacity-80">{tone.label}</span>
         <h4 class="m-0 text-[13px] font-semibold text-neutral">{entry.title}</h4>
       </div>
       <div class="ml-auto shrink-0"><Button size="small" variant="ghost" prefix={crosshairIcon} onclick={() => show(entry.nodes)}>Show</Button></div>
     </header>
     <p class="m-0 text-[12px] leading-5 text-neutral/80">{entry.detail}</p>
     {#if entry.fix?.schema}
-      <Code language="ts" title="In the schema" code={entry.fix.schema} />
+      <Code language="ts" title="Schema" code={entry.fix.schema} />
     {/if}
     {#if entry.fix?.sql}
-      <Code language="sql" title={entry.fix.schema ? 'Or in SQL' : 'SQL'} code={entry.fix.sql} wrap />
+      <Code language="sql" title="SQL" code={entry.fix.sql} wrap />
     {/if}
     {#if entry.fix?.note}
       <p class="m-0 text-[12px] text-neutral/65">{entry.fix.note}</p>
