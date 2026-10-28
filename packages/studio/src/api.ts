@@ -247,7 +247,6 @@ export function createStudioApi(options: StudioApiOptions) {
         options.client,
         dialect,
         ran.statements,
-        schema.models,
         analyze
       ),
     };

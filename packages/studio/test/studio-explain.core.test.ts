@@ -48,7 +48,6 @@ test("PostgreSQL catalog preserves quotes in mapped table and schema names", asy
     pg,
     "postgresql",
     [{ sql: 'SELECT * FROM "tenant""east"."sales""2026" AS "q0"' }],
-    [],
     false
   );
   expect(result?.error).toBeUndefined();
@@ -69,19 +68,15 @@ test("PostgreSQL transactionless drivers refuse Analyze before replay and retain
       throw new Error("must not call interactive transactions");
     },
   };
-  const [analyzed] = await explainStatements(
-    unsupported,
-    "postgresql",
-    [{ sql: "SELECT 1" }],
-    []
-  );
+  const [analyzed] = await explainStatements(unsupported, "postgresql", [
+    { sql: "SELECT 1" },
+  ]);
   expect(analyzed?.error).toContain("Use Estimate");
   expect(pg.asked).toHaveLength(0);
   const [estimated] = await explainStatements(
     unsupported,
     "postgresql",
     [{ sql: "SELECT 1" }],
-    [],
     false
   );
   expect(estimated?.plan?.analyzed).toBe(false);
@@ -94,7 +89,7 @@ test("MySQL CTE reads put their timeout on the outer SELECT", async () => {
   ]);
   const sql =
     "WITH `SELECT` AS (SELECT 'SELECT )' AS value /* SELECT ) */), other AS (SELECT 2) SELECT * FROM `SELECT`";
-  await explainStatements(my, "mysql", [{ sql }], []);
+  await explainStatements(my, "mysql", [{ sql }]);
   expect(my.asked[0]?.sql).toBe(
     `EXPLAIN ANALYZE ${sql.replace("SELECT *", "SELECT /*+ MAX_EXECUTION_TIME(30000) */ *")}`
   );
@@ -110,7 +105,7 @@ test("dialects by the name a driver gives", () => {
   expect(dialectOf("mssql")).toBeUndefined();
 });
 
-test("PostgreSQL: the plan of the statement with its values, the catalog, the advice", async () => {
+test("PostgreSQL: the plan of the statement with its values, the catalog and metrics", async () => {
   const answers: [string, (params: unknown[]) => unknown][] = [
     ["SET LOCAL statement_timeout", () => []],
     [
@@ -164,12 +159,9 @@ test("PostgreSQL: the plan of the statement with its values, the catalog, the ad
       return run(pg);
     },
   };
-  const [explained] = await explainStatements(
-    withTransaction,
-    "postgresql",
-    [{ sql: PAGE_SQL, params: ["paid", 500, 20] }],
-    []
-  );
+  const [explained] = await explainStatements(withTransaction, "postgresql", [
+    { sql: PAGE_SQL, params: ["paid", 500, 20] },
+  ]);
   expect(transactions).toHaveLength(1);
   expect(pg.asked[0]!.sql).toBe("SET LOCAL statement_timeout = 30000");
   expect(pg.asked[1]).toEqual({
@@ -200,7 +192,8 @@ test("PostgreSQL: the plan of the statement with its values, the catalog, the ad
   expect(JSON.parse(explained!.plan!.raw)).toEqual(
     JSON.parse(fixture("pg-page.json"))
   );
-  expect(explained!.plan!.advice[0]!.title).toContain("for this page");
+  expect(explained!.plan).not.toHaveProperty("advice");
+  expect(explained!.plan!.executionTime).toBeGreaterThan(0);
   // Estimated only, by a driver that parses the JSON column: the plan, not run, no transaction.
   const parsed = client([
     [
@@ -214,7 +207,6 @@ test("PostgreSQL: the plan of the statement with its values, the catalog, the ad
     parsed,
     "postgresql",
     [{ sql: 'SELECT * FROM "orders"' }],
-    [],
     false
   );
   expect(again!.plan!.root.operation).toBe("Limit");
@@ -243,7 +235,7 @@ test("MySQL: EXPLAIN ANALYZE, its aliases named as tables, the catalog", async (
     ],
     ["information_schema.TABLES", () => [{ t: "orders", r: 199_642 }]],
   ]);
-  const [explained] = await explainStatements(my, "mysql", [{ sql }], []);
+  const [explained] = await explainStatements(my, "mysql", [{ sql }]);
   // Run again under MySQL's own time limit, as a hint.
   expect(my.asked[0]!.sql).toBe(
     `EXPLAIN ANALYZE ${sql.replace("SELECT", "SELECT /*+ MAX_EXECUTION_TIME(30000) */")}`
@@ -276,7 +268,6 @@ test("MySQL: EXPLAIN ANALYZE, its aliases named as tables, the catalog", async (
     qualified,
     "mysql",
     [{ sql: sql.replace("FROM `orders`", "FROM `tenant`.`orders`") }],
-    [],
     false
   );
   for (const entry of qualified.asked.filter((query) =>
@@ -290,7 +281,7 @@ test("MySQL: EXPLAIN ANALYZE, its aliases named as tables, the catalog", async (
     ["EXPLAIN FORMAT=TREE", () => [{ EXPLAIN: fixture("mysql-page.txt") }]],
     ["information_schema", () => []],
   ]);
-  await explainStatements(estimated, "mysql", [{ sql }], [], false);
+  await explainStatements(estimated, "mysql", [{ sql }], false);
   expect(estimated.asked[0]!.sql).toBe(`EXPLAIN FORMAT=TREE ${sql}`);
   // The scan of the statement's alias reads "orders"; a subquery's derived rows are no table.
   const scans = [
@@ -312,9 +303,9 @@ test("MySQL: EXPLAIN ANALYZE, its aliases named as tables, the catalog", async (
       },
     ],
   ]);
-  expect(
-    await explainStatements(old, "mysql", [{ sql: "SELECT 1" }], [])
-  ).toEqual([{ sql: "SELECT 1", error: "not supported" }]);
+  expect(await explainStatements(old, "mysql", [{ sql: "SELECT 1" }])).toEqual([
+    { sql: "SELECT 1", error: "not supported" },
+  ]);
   const odd = client([
     [
       "EXPLAIN",
@@ -323,7 +314,7 @@ test("MySQL: EXPLAIN ANALYZE, its aliases named as tables, the catalog", async (
       },
     ],
   ]);
-  expect(await explainStatements(odd, "mysql", [{}], [], false)).toEqual([
+  expect(await explainStatements(odd, "mysql", [{}], false)).toEqual([
     { sql: "", error: "odd" },
   ]);
   // PostgreSQL answering no row: no plan.
@@ -333,7 +324,6 @@ test("MySQL: EXPLAIN ANALYZE, its aliases named as tables, the catalog", async (
         client([["EXPLAIN", () => []]]),
         "postgresql",
         [{ sql: "SELECT 1" }],
-        [],
         false
       )
     )[0]!.error
@@ -341,8 +331,7 @@ test("MySQL: EXPLAIN ANALYZE, its aliases named as tables, the catalog", async (
   // A plan with no row: refused as such.
   const empty = client([["EXPLAIN", () => []]]);
   expect(
-    (await explainStatements(empty, "mysql", [{ sql: "SELECT 1" }], []))[0]!
-      .error
+    (await explainStatements(empty, "mysql", [{ sql: "SELECT 1" }]))[0]!.error
   ).toContain("no plan");
 });
 
@@ -364,15 +353,12 @@ test("Analyze refuses statements it cannot execute under a database timeout", as
       },
     },
   ]) {
-    const [result] = await explainStatements(
-      unsupported,
-      "postgresql",
-      [{ sql: "SELECT 1" }],
-      []
-    );
+    const [result] = await explainStatements(unsupported, "postgresql", [
+      { sql: "SELECT 1" },
+    ]);
     expect(result?.error).toContain("Use Estimate");
   }
-  const [unsupported] = await explainStatements(noReplay, "mysql", [{}], []);
+  const [unsupported] = await explainStatements(noReplay, "mysql", [{}]);
   expect(unsupported?.error).toContain("Cannot safely bound");
   expect(noReplay.asked).toHaveLength(0);
 });
@@ -406,12 +392,9 @@ test("SQLite: the plan, the statement's own time, the catalog by pragma", async 
     ["PRAGMA index_xinfo", () => [{ name: "status", key: 1, desc: 0 }]],
     ["SELECT count", () => [{ rows: 200_000 }]],
   ]);
-  const [explained] = await explainStatements(
-    lite,
-    "sqlite",
-    [{ sql, duration: 40 }],
-    []
-  );
+  const [explained] = await explainStatements(lite, "sqlite", [
+    { sql, duration: 40 },
+  ]);
   expect(explained!.plan).toMatchObject({
     analyzed: false,
     executionTime: 40,
@@ -432,10 +415,7 @@ test("SQLite: the plan, the statement's own time, the catalog by pragma", async 
     },
   });
   expect(explained!.plan!.raw.split("\n")[0]).toMatch(TAB_SEPARATED);
-  // The only index on "status" is partial: it holds not every row, so the grouping still wants one.
-  expect(explained!.plan!.advice.map((entry) => entry.title)).toContain(
-    'Plans to group "orders" in a temporary b-tree'
-  );
+  expect(explained!.plan).not.toHaveProperty("advice");
   // No time measured, a table with no count, no table read: what is known.
   const bare = client([
     [
@@ -443,12 +423,9 @@ test("SQLite: the plan, the statement's own time, the catalog by pragma", async 
       () => [{ id: 1, parent: 0, detail: "SCAN CONSTANT ROW" }],
     ],
   ]);
-  const [constant] = await explainStatements(
-    bare,
-    "sqlite",
-    [{ sql: "SELECT 1" }],
-    []
-  );
+  const [constant] = await explainStatements(bare, "sqlite", [
+    { sql: "SELECT 1" },
+  ]);
   expect(constant!.plan).toMatchObject({ indexes: {}, tableRows: {} });
   expect(constant!.plan).not.toHaveProperty("executionTime");
   const uncounted = client([
@@ -457,11 +434,8 @@ test("SQLite: the plan, the statement's own time, the catalog by pragma", async 
     ["PRAGMA index_list", () => "not rows"],
     ["SELECT count", () => []],
   ]);
-  const [counted] = await explainStatements(
-    uncounted,
-    "sqlite",
-    [{ sql: 'SELECT * FROM "t" AS "t"' }],
-    []
-  );
+  const [counted] = await explainStatements(uncounted, "sqlite", [
+    { sql: 'SELECT * FROM "t" AS "t"' },
+  ]);
   expect(counted!.plan!.tableRows).toEqual({ t: 0 });
 });

@@ -19,11 +19,7 @@ export type {
   StudioPlan,
 } from "../../../src/explain";
 export type { PlanNode } from "../../../src/plan";
-export type {
-  PlanAdvice,
-  Severity,
-  TableIndex,
-} from "../../../src/plan-advice";
+export type { TableIndex } from "../../../src/plan-catalog";
 export type { QueryOperation } from "../../../src/query";
 export type {
   StudioEdge,
@@ -99,7 +95,7 @@ export const runQuery = (model: string, operation: string, args: unknown) =>
     spans: StudioSpan[];
   }>("/query", { model, operation, args });
 
-/** A read's plan: each statement it ran, as the database explains it, with the advice the plan calls for. */
+/** A read's plan: each statement it ran, with the database's execution metrics and estimates. */
 export const explainQuery = (
   model: string,
   operation: string,

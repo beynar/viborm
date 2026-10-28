@@ -2,8 +2,7 @@
  * A read's plan, asked of the database through the client's own raw SQL: the statement the client ran, with the
  * values it bound, under PostgreSQL's `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)`, MySQL's `EXPLAIN ANALYZE` or
  * SQLite's `EXPLAIN QUERY PLAN`; or, asked to estimate only, the plan without running it. Then what the database
- * holds for the tables it reads (their columns, their indexes and what kind, how many rows), and the advice the
- * plan calls for. `ANALYZE` runs the statement once more, under a time limit: the query page runs reads only.
+ * holds for the tables it reads (their columns, indexes and row counts). `ANALYZE` runs the statement once more, under a time limit: the query page runs reads only.
  */
 
 import type { StudioStatement } from "./api";
@@ -16,18 +15,14 @@ import {
   walk,
 } from "./plan";
 import {
-  adviseOn,
   aliasesOf,
   type Dialect,
-  type PlanAdvice,
   schemasOf,
   type TableIndex,
-} from "./plan-advice";
-import type { StudioModel } from "./schema";
+} from "./plan-catalog";
 
 export interface StudioPlan extends PlanTree {
   readonly dialect: Dialect;
-  readonly advice: readonly PlanAdvice[];
   readonly indexes: Readonly<Record<string, readonly TableIndex[]>>;
   readonly columns: Readonly<Record<string, readonly string[]>>;
   readonly tableRows: Readonly<Record<string, number>>;
@@ -352,7 +347,6 @@ export async function explainStatements(
   client: object,
   dialect: Dialect,
   statements: readonly StudioStatement[],
-  models: readonly StudioModel[],
   analyze = true
 ): Promise<StudioExplained[]> {
   const raw = rawOf(client);
@@ -398,13 +392,6 @@ export async function explainStatements(
           dialect,
           ...catalog,
           raw: found.raw,
-          advice: adviseOn(tree, {
-            dialect,
-            sql,
-            params: statement.params,
-            models,
-            ...catalog,
-          }),
         },
       });
     } catch (error) {

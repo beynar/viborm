@@ -1,7 +1,7 @@
 // A plan as a graph: each operation a card, its inputs below it, the rows they hand it drawn on the line between
 // them, the thicker the more rows. A tidy tree: each card centred over the cards it reads from.
 import type { Edge, Node } from "@xyflow/svelte";
-import type { PlanAdvice, PlanNode, Severity } from "./api";
+import type { PlanNode } from "./api";
 
 export const PLAN_CARD_WIDTH = 272;
 const CARD_HEIGHT = 168;
@@ -12,8 +12,6 @@ export type PlanCardData = {
   node: PlanNode;
   /** Its own time over the statement's, 0 to 1; undefined when the plan did not run. */
   share: number | undefined;
-  /** The gravest advice about it. */
-  advised: Severity | undefined;
   /** The statement's time, to say a node's share of it. */
   total: number | undefined;
   /** An ancestor limit can stop this output early without crossing a blocking input boundary. */
@@ -41,22 +39,11 @@ export function totalTime(
   return measured > 0 ? measured : undefined;
 }
 
-const RANK: Record<Severity, number> = { critical: 0, warning: 1, info: 2 };
-
 export function planGraph(
   root: PlanNode,
-  executionTime: number | undefined,
-  advice: readonly PlanAdvice[]
+  executionTime: number | undefined
 ): { nodes: Node<PlanCardData>[]; edges: Edge[] } {
   const total = totalTime(root, executionTime);
-  const advised = new Map<string, Severity>();
-  for (const entry of advice) {
-    for (const id of entry.nodes) {
-      const before = advised.get(id);
-      if (!before || RANK[entry.severity] < RANK[before])
-        advised.set(id, entry.severity);
-    }
-  }
   const width = new Map<string, number>();
   const measure = (node: PlanNode): number => {
     const children = node.children.reduce(
@@ -90,7 +77,6 @@ export function planGraph(
           total && node.actual
             ? Math.min(1, node.actual.self / total)
             : undefined,
-        advised: advised.get(node.id),
         total,
         underLimit,
       },

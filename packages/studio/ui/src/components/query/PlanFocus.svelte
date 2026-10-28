@@ -13,17 +13,8 @@ import { untrack } from "svelte";
 import { prefersReducedMotion } from "svelte/motion";
 import { PLAN_CARD_WIDTH } from "../../lib/plan-graph";
 
-// Fit the measured plan on mount and when the canvas changes size. The explicit 100% control and advice focus
-// let the reader inspect individual operations; wheel/trackpad scrolling pans the canvas.
-let {
-  targets,
-  version,
-  root,
-}: {
-  targets: readonly string[];
-  version: number;
-  root: string;
-} = $props();
+// Fit the measured plan on mount and resize; the reader can zoom in to inspect operations.
+let { root }: { root: string } = $props();
 const flow = useSvelteFlow();
 const store = useStore();
 const measured = useNodesInitialized();
@@ -54,27 +45,6 @@ $effect(() => {
     return;
   placed = size;
   untrack(() => flow.fitView({ padding: 0.12, minZoom: 0.01, maxZoom: 1 }));
-});
-
-$effect(() => {
-  if (
-    version === 0 ||
-    targets.length === 0 ||
-    !measured.current ||
-    store.width < 1 ||
-    store.height < 1
-  )
-    return;
-  // fitView reads and updates internal node state; only the focus request and readiness should retrigger us.
-  untrack(() =>
-    flow.fitView({
-      nodes: targets.map((id) => ({ id })),
-      padding: 0.2,
-      minZoom: 1,
-      maxZoom: 1,
-      duration: prefersReducedMotion.current ? 0 : 320,
-    })
-  );
 });
 </script>
 

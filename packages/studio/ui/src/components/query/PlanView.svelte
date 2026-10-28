@@ -1,20 +1,10 @@
 <script lang="ts">
 import "@xyflow/svelte/dist/base.css";
 import { type Edge, type Node, SvelteFlow } from "@xyflow/svelte";
-import { Button } from "entasis/button";
 import { Code } from "entasis/code";
-import { crosshairIcon } from "entasis/icons/crosshair";
-import { infoIcon } from "entasis/icons/info";
-import { warningIcon } from "entasis/icons/warning";
-import { warningOctagonIcon } from "entasis/icons/warningOctagon";
 import { SegmentedControl } from "entasis/segmented-control";
 import { useTheme } from "entasis/theme";
-import type {
-  PlanAdvice,
-  PlanNode,
-  Severity,
-  StudioExplained,
-} from "../../lib/api";
+import type { PlanNode, StudioExplained } from "../../lib/api";
 import {
   compact,
   ms,
@@ -27,10 +17,7 @@ import PlanCard, { kindLabel } from "./PlanCard.svelte";
 import PlanEdge from "./PlanEdge.svelte";
 import PlanFocus from "./PlanFocus.svelte";
 
-// A read's plan, as the database ran it (ANALYZE) or would run it (an estimate): what it took (time, rows, pages in
-// memory and read), the operations as a graph, a table or the database's own text, and beside them what to do,
-// gravest first, each index fix written as the model's `.index([...])`. Choosing a piece of
-// advice brings its operations into view; choosing an operation says all the database told of it.
+// The database’s plan and metrics, with details for the selected operation.
 let {
   explained,
   loading,
@@ -58,24 +45,17 @@ let nodes = $state.raw<Node<PlanCardData>[]>([]);
 let edges = $state.raw<Edge[]>([]);
 $effect(() => {
   chosen = undefined;
-  panel = "advice";
   if (!plan) {
     nodes = [];
     edges = [];
     return;
   }
-  const graph = planGraph(plan.root, plan.executionTime, plan.advice);
+  const graph = planGraph(plan.root, plan.executionTime);
   nodes = graph.nodes;
   edges = graph.edges;
-  focus = { targets: [], version: 0 };
 });
 
-let panel = $state<"advice" | "node">("advice");
 let chosen = $state<string>();
-let focus = $state<{ targets: readonly string[]; version: number }>({
-  targets: [],
-  version: 0,
-});
 const flat = $derived.by(() => {
   const out: { node: PlanNode; depth: number }[] = [];
   const visit = (node: PlanNode, depth: number) => {
@@ -88,22 +68,9 @@ const flat = $derived.by(() => {
 const chosenNode = $derived(
   flat.find((entry) => entry.node.id === chosen)?.node
 );
-const hasAdvice = $derived((plan?.advice.length ?? 0) > 0);
-const showPanel = $derived(hasAdvice || chosenNode !== undefined);
-function choose(ids: readonly string[]) {
-  const set = new Set(ids);
-  nodes = nodes.map((node) => ({ ...node, selected: set.has(node.id) }));
-  chosen = ids[0];
-}
-function chooseNode(id: string) {
-  choose([id]);
-  panel = "node";
-}
-/** A piece of advice's operations, chosen and brought into view. */
-function show(ids: readonly string[]) {
-  choose(ids);
-  view = "graph";
-  focus = { targets: ids, version: focus.version + 1 };
+function chooseNode(id: string | undefined) {
+  nodes = nodes.map((node) => ({ ...node, selected: node.id === id }));
+  chosen = id;
 }
 
 const total = $derived(
@@ -130,32 +97,6 @@ const cache = $derived.by(() => {
   if (!buffers || buffers.hit + buffers.read === 0) return undefined;
   return { ...buffers, share: buffers.hit / (buffers.hit + buffers.read) };
 });
-const counts = $derived.by(() => {
-  const by: Record<Severity, number> = { critical: 0, warning: 0, info: 0 };
-  for (const entry of plan?.advice ?? []) by[entry.severity] += 1;
-  return by;
-});
-
-const SEVERITY: Record<
-  Severity,
-  { icon: typeof infoIcon; tone: string; label: string }
-> = {
-  critical: {
-    icon: warningOctagonIcon,
-    tone: "text-danger border-danger/40 bg-danger-muted/40",
-    label: "Slow",
-  },
-  warning: {
-    icon: warningIcon,
-    tone: "text-warning border-warning/40 bg-warning-muted/40",
-    label: "Worth a look",
-  },
-  info: {
-    icon: infoIcon,
-    tone: "text-info border-info/30 bg-info-muted/30",
-    label: "Good to know",
-  },
-};
 const indexesOf = (node: PlanNode) =>
   node.relation ? (plan?.indexes[node.relation] ?? []) : [];
 const time = (date: Date) =>
@@ -165,24 +106,6 @@ const time = (date: Date) =>
     second: "2-digit",
   });
 </script>
-
-{#snippet adviceCard(entry: PlanAdvice)}
-  {@const tone = SEVERITY[entry.severity]}
-  <article class={['grid gap-2 rounded-lg border p-3', tone.tone]}>
-    <header class="flex items-start gap-2">
-      <span class="mt-0.5 inline-flex shrink-0" role="img" aria-label={tone.label} title={tone.label}>{@render tone.icon({ size: 16 })}</span>
-      <div class="grid min-w-0 gap-0.5">
-        <h4 class="m-0 text-[13px] font-semibold text-neutral" title={entry.title}>{entry.fix?.schema ? 'Add an index' : entry.title}</h4>
-      </div>
-      <div class="ml-auto shrink-0"><Button size="small" variant="ghost" prefix={crosshairIcon} onclick={() => show(entry.nodes)}>Show</Button></div>
-    </header>
-    {#if entry.fix?.schema}
-      <Code language="ts" title="Schema" code={entry.fix.schema} />
-    {:else}
-      <p class="m-0 text-[12px] leading-5 text-neutral/80">{entry.fix?.note ?? entry.detail}</p>
-    {/if}
-  </article>
-{/snippet}
 
 {#snippet stat(label: string, value: string, hint?: string)}
   <div class="grid gap-0.5 rounded-md border border-neutral-muted bg-surface px-3 py-2" title={hint}>
@@ -229,7 +152,6 @@ const time = (date: Date) =>
           {@render stat(plan.analyzed ? 'Rows returned' : 'Rows expected', returned === undefined ? '—' : compact(returned))}
           {#if cache}{@render stat('Cache', `${Math.round(cache.share * 100)}% hit`, `${compact(cache.hit)} pages found in shared memory, ${compact(cache.read)} read from disk or the OS cache`)}{/if}
           {#if slowest?.actual}{@render stat('Slowest step', `${ms(slowest.actual.self)} · ${slowest.operation}${slowest.relation ? ` on ${slowest.relation}` : ''}`, 'The operation with the most time of its own')}{/if}
-          {#if hasAdvice}{@render stat('Advice', [counts.critical && `${counts.critical} slow`, counts.warning && `${counts.warning} to look at`, counts.info && `${counts.info} to know`].filter(Boolean).join(' · '))}{/if}
         </div>
         {#if !plan.analyzed}
           <p class="m-0 text-[12px] text-neutral/60">{plan.dialect === 'sqlite' ? 'SQLite says the plan it chose, not what each step cost: the time is the whole statement’s.' : 'An estimate: the rows are the planner’s guesses and no step is timed. Analyze to measure them.'}</p>
@@ -238,8 +160,8 @@ const time = (date: Date) =>
     </div>
 
     {#if plan}
-      <!-- The plan (graph, table or the database's text), and beside it (below on a narrow page) the advice and the chosen operation. -->
-      <div class={['grid min-h-0 gap-3', showPanel ? 'grid-rows-[minmax(26rem,1fr)_auto] @3xl:grid-cols-[minmax(0,1fr)_20rem] @3xl:grid-rows-1' : 'grid-rows-[minmax(26rem,1fr)]']}>
+      <!-- The plan (graph, table or the database's text), and beside it (below on a narrow page) the selected operation’s metrics. -->
+      <div class={['grid min-h-0 gap-3', chosenNode ? 'grid-rows-[minmax(26rem,1fr)_auto] @3xl:grid-cols-[minmax(0,1fr)_20rem] @3xl:grid-rows-1' : 'grid-rows-[minmax(26rem,1fr)]']}>
         <div class="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-2">
           <SegmentedControl size="small" label="How to show the plan" items={[{ value: 'graph', label: 'Graph' }, { value: 'table', label: 'Table' }, { value: 'raw', label: plan.dialect === 'postgresql' ? 'JSON' : 'Text' }]} bind:value={view} />
           {#if view === 'graph'}
@@ -259,9 +181,9 @@ const time = (date: Date) =>
                 nodesDraggable={false}
                 proOptions={{ hideAttribution: true }}
                 onnodeclick={({ node }) => chooseNode(node.id)}
-                onpaneclick={() => choose([])}
+                onpaneclick={() => chooseNode(undefined)}
               >
-                <PlanFocus root={plan.root.id} targets={focus.targets} version={focus.version} />
+                <PlanFocus root={plan.root.id} />
               </SvelteFlow>
               {/key}
             </div>
@@ -283,7 +205,7 @@ const time = (date: Date) =>
                   {#each flat as { node, depth } (node.id)}
                     <tr class={['cursor-pointer border-t border-neutral-muted hover:bg-neutral-muted/40', chosen === node.id && 'bg-primary/10', node.neverExecuted && 'opacity-50']} onclick={() => chooseNode(node.id)}>
                       <td class="px-3 py-1.5" style:padding-left="{12 + depth * 16}px">
-                        <span class={['font-medium', node.fullScan && 'text-danger']}>{node.operation}</span>
+                        <span class="font-medium">{node.operation}</span>
                         {#if node.relation}<span class="ml-1 font-mono text-neutral/65">{node.relation}</span>{/if}
                         {#if node.index}<span class="ml-1 font-mono text-success">{node.index}</span>{/if}
                       </td>
@@ -302,15 +224,9 @@ const time = (date: Date) =>
             <div class="min-h-0 overflow-auto"><Code language={plan.dialect === 'postgresql' ? 'json' : 'text'} title={plan.dialect === 'postgresql' ? 'EXPLAIN (FORMAT JSON)' : plan.dialect === 'mysql' ? 'EXPLAIN' : 'EXPLAIN QUERY PLAN'} code={plan.raw} /></div>
           {/if}
         </div>
-        {#if showPanel}
-        <aside class="grid min-h-0 content-start gap-2 overflow-auto @3xl:max-h-full" aria-label="Advice and the chosen operation">
-          {#if hasAdvice}
-          <SegmentedControl size="small" label="What to show" items={[{ value: 'advice', label: `Advice · ${plan.advice.length}` }, { value: 'node', label: chosenNode ? chosenNode.operation : 'Operation' }]} bind:value={panel} />
-          {/if}
-          {#if hasAdvice && panel === 'advice'}
-            {#each plan.advice as entry (entry.id)}{@render adviceCard(entry)}{/each}
-          {:else if chosenNode}
-            {@const node = chosenNode}
+        {#if chosenNode}
+          {@const node = chosenNode}
+        <aside class="grid min-h-0 content-start gap-2 overflow-auto @3xl:max-h-full" aria-label="Operation metrics">
             <div class="grid gap-3 rounded-lg border border-neutral-muted bg-surface p-3 text-[13px]">
               <div class="grid gap-0.5">
                 <span class="text-[11px] tracking-wide text-neutral/55 uppercase">{kindLabel(node) || 'Operation'}</span>
@@ -362,11 +278,7 @@ const time = (date: Date) =>
                   {/each}
                 </div>
               {/if}
-              {#each plan.advice.filter(entry => entry.nodes.includes(node.id)) as entry (entry.id)}{@render adviceCard(entry)}{/each}
             </div>
-          {:else}
-            <p class="m-0 text-[13px] text-neutral/60">Choose an operation in the plan to see all the database said of it.</p>
-          {/if}
         </aside>
         {/if}
       </div>

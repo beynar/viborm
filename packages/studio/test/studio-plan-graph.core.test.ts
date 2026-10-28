@@ -19,8 +19,7 @@ const node = (
 test("a limit may stop a streaming scan early", () => {
   const graph = planGraph(
     node("limit", "limit", [node("scan", "scan")]),
-    undefined,
-    []
+    undefined
   );
   expect(
     graph.nodes.find((entry) => entry.id === "scan")?.data.underLimit
@@ -34,8 +33,7 @@ test.each([
 ] satisfies PlanNode["kind"][])("a limit does not suppress input estimate mismatches below %s", (kind) => {
   const graph = planGraph(
     node("limit", "limit", [node("blocker", kind, [node("scan", "scan")])]),
-    undefined,
-    []
+    undefined
   );
   expect(
     graph.nodes.find((entry) => entry.id === "blocker")?.data.underLimit
@@ -50,8 +48,7 @@ test("a nested limit still stops its own input below a blocking operation", () =
     node("outer", "limit", [
       node("sort", "sort", [node("inner", "limit", [node("scan", "scan")])]),
     ]),
-    undefined,
-    []
+    undefined
   );
   expect(
     graph.nodes.find((entry) => entry.id === "inner")?.data.underLimit

@@ -3,7 +3,7 @@ import type { PlanNode } from "../../lib/api";
 
 /** The icon of an operation's kind: what it does to the rows. */
 export function kindLabel(node: PlanNode): string {
-  if (node.fullScan) return "Full scan";
+  if (node.fullScan) return "Scan";
   if (node.kind === "index") return "Index";
   return node.kind === "other"
     ? ""
@@ -28,7 +28,7 @@ import { compact, ms, PLAN_CARD_WIDTH, type PlanCardData } from "../../lib/plan-
 // One operation of a plan: what it is and what it reads (a table, an index), how long it took on its own and its
 // share of the statement's time (the bar, redder the more), the rows it handed up against those the planner
 // expected (a factor when they are far apart), how many times it ran, the pages it found in memory or read, and
-// the first thing it compares. A card the advice is about wears its colour; one the query never reached is faded.
+// the first thing it compares. An operation the query never reached is faded.
 let { data, selected }: NodeProps<Node<PlanCardData>> = $props();
 const node = $derived(data.node);
 
@@ -70,8 +70,6 @@ const table = $derived(node.relation ?? node.alias);
   class={[
     'plan-card grid gap-1.5 rounded-lg border bg-surface p-2.5 text-[12px] shadow-sm transition-[opacity,box-shadow]',
     selected ? 'border-primary ring-2 ring-primary/40' : 'border-neutral-muted',
-    !selected && data.advised === 'critical' && 'border-danger/70 ring-1 ring-danger/30',
-    !selected && data.advised === 'warning' && 'border-warning/70 ring-1 ring-warning/30',
     node.neverExecuted && 'opacity-50',
   ]}
   style:width="{PLAN_CARD_WIDTH}px"
@@ -80,7 +78,7 @@ const table = $derived(node.relation ?? node.alias);
   <Handle type="target" position={Position.Bottom} isConnectable={false} class="!opacity-0" />
 
   <div class="flex min-w-0 items-center gap-1.5">
-    <span class={['inline-flex shrink-0', node.fullScan ? 'text-danger' : node.kind === 'index' ? 'text-success' : 'text-neutral/60']}>{@render ICONS[node.kind]({ size: 14 })}</span>
+    <span class={['inline-flex shrink-0', node.kind === 'index' ? 'text-success' : 'text-neutral/60']}>{@render ICONS[node.kind]({ size: 14 })}</span>
     <span class="truncate text-[13px] font-semibold" title={node.operation}>{node.operation}</span>
     {#if node.actual}
       <span class="ml-auto shrink-0 font-mono tabular-nums" title="Its own time, its inputs' taken out">{ms(node.actual.self)}</span>
@@ -91,7 +89,7 @@ const table = $derived(node.relation ?? node.alias);
     <div class="flex min-w-0 flex-wrap items-center gap-1">
       {#if table}<span class="truncate font-mono text-neutral/80">{node.relation && node.alias && node.alias !== node.relation ? `${node.relation} ${node.alias}` : table}</span>{/if}
       {#if node.index}<span class="truncate rounded bg-success-muted px-1 font-mono text-[11px] text-success" title="Index">{node.index}</span>{/if}
-      {#if node.fullScan}<span class="rounded bg-danger-muted px-1 text-[11px] font-medium text-danger" title="A scan access path; a limit or parent operation may stop it early">scan path</span>{/if}
+      {#if node.fullScan}<span class="rounded bg-neutral-muted px-1 text-[11px] font-medium text-neutral/70" title="A scan access path; a limit or parent operation may stop it early">scan path</span>{/if}
     </div>
   {/if}
 
