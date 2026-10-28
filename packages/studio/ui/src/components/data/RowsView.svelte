@@ -78,6 +78,7 @@ import CaseToggle from "./CaseToggle.svelte";
 import FilterGroup from "./FilterGroup.svelte";
 import RelatedRows from "./RelatedRows.svelte";
 import RowDrawer from "./RowDrawer.svelte";
+import TableSkeleton from "./TableSkeleton.svelte";
 
 // One model's rows, explored as in Pyxel's `TableStudio`: a page at a time, found by words in its text columns,
 // filtered by conditions, sorted by its headers, each cell changed by an editor of its type, rows added and removed.
@@ -475,14 +476,6 @@ const columns = $derived<DataTableColumn<Row>[]>([
   })),
 ]);
 
-const loadingColumns = $derived(
-  columns.filter((column) => tableState?.columnVisibility[column.id] !== false)
-);
-const loadingRightColumns = $derived(
-  loadingColumns.filter((column) =>
-    tableState?.columnPinning.right.includes(column.id)
-  )
-);
 const showingSkeleton = $derived(loading && shown.length === 0 && !failure);
 
 // A view opens the table as it was saved: its order, page size and widths, its search, then its filter applied.
@@ -936,22 +929,7 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
       }}
     >
       {#snippet loadingContent()}
-        <div class="col-span-full grid grid-cols-subgrid" aria-label="Loading rows">
-          {#each Array.from({ length: 6 }, (_, index) => index) as index (index)}
-            <div class="col-span-full grid grid-cols-subgrid border-b border-neutral-muted" aria-hidden="true">
-              {#if keyed && !readonly}{@render loadingCell(true)}{/if}
-              {#each loadingColumns.filter(column => !loadingRightColumns.includes(column)) as column (column.id)}
-                {@render loadingCell()}
-              {/each}
-              <!-- Entasis inserts a flexible track before the right-pinned columns and row actions. -->
-              <div></div>
-              {#each loadingRightColumns as column (column.id)}
-                {@render loadingCell()}
-              {/each}
-              {@render loadingCell(true)}
-            </div>
-          {/each}
-        </div>
+        <TableSkeleton cell={loadingCell} />
       {/snippet}
 
       <!-- A column the client does not let a row change says so: a lock, and why on hover. -->
@@ -1048,12 +1026,43 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
     </DataTable>
 </section>
 
-{#snippet loadingCell(square = false)}
-  <div class="min-h-row-sm min-w-0 px-sm py-xs">
-    <div class="flex h-control-sm items-center" class:justify-center={square}>
-      <Skeleton class={square ? 'size-4' : 'h-4 w-3/5 max-w-28'} />
+{#snippet loadingCell(columnId: string | undefined, rowIndex: number)}
+  {@const column = columns.find(column => column.id === columnId)}
+  {@const field = columnId ? fieldsByName.get(columnId) : undefined}
+  {@const relation = field ? undefined : model.relations.find(relation => relation.name === columnId)}
+  {#if !column}
+    <div class="flex w-full items-center justify-center py-xs">
+      <div class="flex h-control-sm items-center justify-center">
+        <Skeleton class={columnId ? 'size-icon-sm' : 'size-4 border border-neutral-muted'} />
+      </div>
     </div>
-  </div>
+  {:else}
+    <div class="min-h-row-sm min-w-0 w-full px-sm py-xs">
+      <div class="flex h-control-sm min-w-0 items-center" class:justify-end={column.align === 'end'}>
+        {#if !field}
+          <div class="flex h-control-sm max-w-full items-center gap-sm overflow-hidden rounded-md border border-transparent px-md">
+            {#if relation?.cardinality === 'many'}
+              <Skeleton class="h-3 w-14" />
+              <Skeleton class="size-icon-sm shrink-0" />
+            {:else}
+              <Skeleton class="size-icon-sm shrink-0" />
+              <Skeleton class="h-3 w-12" />
+            {/if}
+          </div>
+        {:else if field.type === 'boolean' && !field.list}
+          <Skeleton class="h-5 w-9 rounded-full" />
+        {:else if field.type === 'enum' && !field.list}
+          <Skeleton class="h-5 w-14 max-w-full rounded-full" />
+        {:else if ['datetime', 'date', 'time'].includes(field.type) && !field.list}
+          <Skeleton class={`h-3 max-w-full font-mono text-[12px] ${field.type === 'datetime' ? 'w-[19ch]' : field.type === 'date' ? 'w-[10ch]' : 'w-[8ch]'}`} />
+        {:else if field.id || NUMERIC.has(field.type)}
+          <Skeleton class={`h-3 max-w-full ${field.id ? 'w-[3ch] font-mono text-[12px]' : field.type === 'bigint' || field.type === 'decimal' ? 'w-[12ch]' : 'w-[5ch]'}`} />
+        {:else}
+          <Skeleton class={`h-3.5 max-w-full ${['w-[76%]', 'w-[58%]', 'w-[86%]', 'w-[64%]', 'w-[72%]', 'w-[52%]'][rowIndex]}`} />
+        {/if}
+      </div>
+    </div>
+  {/if}
 {/snippet}
 
 {#if editing}
