@@ -365,6 +365,32 @@ function apply() {
     });
   }
 }
+/** The rows are narrowed: a filter applied, words searched, or a relation followed here. */
+const narrowed = $derived(
+  appliedCount > 0 || words.trim() !== "" || scope !== undefined
+);
+/** What narrows them, said: "The filter and the search leave no row." */
+const narrowedBy = $derived.by(() => {
+  const by = [
+    appliedCount > 0 && "the filter",
+    words.trim() !== "" && "the search",
+    scope && `following ${scope.label}`,
+  ].filter((part): part is string => typeof part === "string");
+  const said =
+    by.length > 1
+      ? `${by.slice(0, -1).join(", ")} and ${by.at(-1)}`
+      : (by[0] ?? "");
+  return `${said.charAt(0).toUpperCase()}${said.slice(1)} ${by.length === 1 ? "leaves" : "leave"} no row.`;
+});
+/** Every row again: the filter cleared, the search emptied, the followed relation left. */
+function resetFilters() {
+  clear();
+  clearTimeout(typing);
+  words = "";
+  api?.setGlobalFilter("");
+  if (scope) navigate(model.name);
+}
+
 function clear() {
   conditions = [];
   applied = undefined;
@@ -705,6 +731,23 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
   </div>
 {/snippet}
 
+<!-- No row to show. The table cannot tell why (the filter and a followed relation are the page's, not its own): the
+     page says it. Narrowed, nothing matches and the filters reset; else the model has no row yet. -->
+{#snippet nothing()}
+  <div class="grid justify-items-center gap-3 p-10 text-center">
+    {#if narrowed}
+      <strong>No {model.name} row matches</strong>
+      <p class="m-0 text-neutral/65">{narrowedBy}</p>
+      <Button size="small" variant="outline" prefix={xIcon} onclick={resetFilters}>Reset the filters</Button>
+    {:else}
+      <strong>No {model.name} rows yet</strong>
+      {#if !readonly}
+        <Button size="small" variant="outline" prefix={plusIcon} onclick={() => (editing = {})}>Add the first row</Button>
+      {/if}
+    {/if}
+  </div>
+{/snippet}
+
 <!-- An instant changed in its cell: its local day on a calendar, its time to the second. Each change is the draft;
      Enter or a click outside saves it, Escape leaves it. -->
 {#snippet instantEditor({ columnId, draft, setDraft, commit: done }: DataTableEditorPayload<Row>)}
@@ -876,21 +919,8 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
         </div>
       {/snippet}
 
-      {#snippet empty()}
-        <div class="grid justify-items-center gap-3 p-10 text-center">
-          <strong>No {model.name} rows yet</strong>
-          {#if !readonly}
-            <Button size="small" variant="outline" prefix={plusIcon} onclick={() => (editing = {})}>Add the first row</Button>
-          {/if}
-        </div>
-      {/snippet}
-      {#snippet noResults()}
-        <div class="grid justify-items-center gap-3 p-10 text-center">
-          <strong>No row matches</strong>
-          <p class="m-0 text-neutral/65">Change the filters or the search.</p>
-          <Button size="small" variant="outline" onclick={() => (clear(), clearTimeout(typing), (words = ''), api?.setGlobalFilter(''))}>Show every row</Button>
-        </div>
-      {/snippet}
+      {#snippet empty()}{@render nothing()}{/snippet}
+      {#snippet noResults()}{@render nothing()}{/snippet}
       {#snippet errorContent({ error })}
         <div class="grid justify-items-center gap-3 p-10 text-center">
           <strong>The rows could not be read</strong>
