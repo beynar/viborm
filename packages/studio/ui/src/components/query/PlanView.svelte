@@ -231,7 +231,7 @@ const time = (date: Date) =>
               {/key}
             </div>
           {:else if view === 'table'}
-            <div class="min-h-0 overflow-auto rounded-lg border border-neutral-muted bg-surface">
+            <div class="max-h-full min-h-0 self-start overflow-auto rounded-lg border border-neutral-muted bg-surface">
               <table class="w-full border-collapse text-[12px]">
                 <thead class="sticky top-0 bg-surface-floating text-left text-neutral/60">
                   <tr>
