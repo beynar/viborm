@@ -9,6 +9,7 @@ export const user = s.model({
   role: s.enum(["reader", "author", "admin"]).default("reader"),
   karma: s.bigInt().default(0n),
   joinedAt: s.dateTime().now(),
+  birthday: s.date().nullable(),
   profile: s.toOne(() => profile),
   posts: s.toMany(() => post),
 });
@@ -32,6 +33,7 @@ export const post = s.model({
   rating: s.decimal({ precision: 4, scale: 2 }).nullable(),
   metadata: s.json().nullable(),
   createdAt: s.dateTime().now(),
+  publishedAt: s.dateTime().nullable(),
   authorId: s.int(),
   author: s
     .toOne(() => user)

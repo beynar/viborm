@@ -165,6 +165,7 @@ function destroy() {
           <span class="inline-flex text-neutral/55">{@render TYPE_ICONS[field.type]({ size: 14 })}</span>
           <span class="font-medium">{field.name}</span>
           <span class="font-mono text-[11px] text-neutral/50">{typeLabel(field)}</span>
+          {#if !readonly && readOnly(field)}<span class="text-[11px] text-neutral/50 italic">{field.updatable ? 'generated' : 'set on create'}</span>{/if}
           {#if field.nullable && !readonly && !readOnly(field)}
             <span class="ml-auto"><Checkbox size="small" label="null" value={draft.isNull} onValueChange={value => (draft.isNull = value === true)} /></span>
           {/if}

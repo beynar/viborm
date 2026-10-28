@@ -62,6 +62,7 @@ for (const [name, role, bio, website] of people) {
       name,
       role,
       karma: BigInt(1000 * (n + 1)) * 1_000_000_007n,
+      birthday: new Date(Date.UTC(1815 + 20 * people.findIndex(([who]) => who === name), 11, 10)),
       ...(bio === null && website === null
         ? {}
         : { profile: { create: { bio, website } } }),
@@ -74,6 +75,7 @@ for (const [name, role, bio, website] of people) {
         title: `${name.split(" ")[1]} notes #${i + 1}`,
         body: `Draft ${i + 1} by ${name}.`,
         published: i % 2 === 0,
+        publishedAt: i % 2 === 0 ? new Date(Date.UTC(2026, 9, 1 + i, 9, 30)) : null,
         rating: i % 3 === 0 ? null : `${(n % 5) + 0.25}`,
         metadata: { words: 120 * (i + 1), lang: "en" },
         authorId: user.id,

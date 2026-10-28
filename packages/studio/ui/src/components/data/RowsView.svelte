@@ -20,6 +20,7 @@ import { caretDownIcon } from "entasis/icons/caretDown";
 import { downloadSimpleIcon } from "entasis/icons/downloadSimple";
 import { funnelIcon } from "entasis/icons/funnel";
 import { linkSimpleIcon } from "entasis/icons/linkSimple";
+import { lockSimpleIcon } from "entasis/icons/lockSimple";
 import { magnifyingGlassIcon } from "entasis/icons/magnifyingGlass";
 import { plusIcon } from "entasis/icons/plus";
 import { trashIcon } from "entasis/icons/trash";
@@ -793,6 +794,16 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
         detailCell: { base: 'min-w-0 overflow-visible p-0', density: { compact: 'p-0', normal: 'p-0', comfortable: 'p-0' } },
       }}
     >
+      <!-- A column the client does not let a row change says so: a lock, and why on hover. -->
+      {#snippet header({ column, renderDefault })}
+        {@const field = fieldsByName.get(column.id)}
+        {@const locked = !readonly && keyed && field !== undefined && (!field.updatable || (field.id && field.generated !== undefined))}
+        <span class="inline-flex min-w-0 items-center gap-1" title={locked ? (field?.updatable ? 'A generated key: not edited' : 'Set when the row is created: the client refuses to update it (.now())') : undefined}>
+          {@render renderDefault()}
+          {#if locked}<span class="inline-flex shrink-0 text-neutral/45">{@render lockSimpleIcon({ size: 12 })}</span>{/if}
+        </span>
+      {/snippet}
+
       {#snippet expandedContent({ row, rowId })}
         <RelatedRows {models} {model} {row} {readonly} active={opened[rowId] ?? expandableRelations[0]?.name ?? ''} onActive={name => (opened = { ...opened, [rowId]: name })} {navigate} {changes} />
       {/snippet}
