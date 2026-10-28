@@ -201,7 +201,13 @@ export interface Condition {
   field: string;
   operator: Operator;
   value: string;
+  /** A text comparison folds ASCII letters (`mode: "insensitive"`). */
+  ignoreCase?: boolean;
 }
+
+/** Whether a condition can ignore case: a comparison of a text column (a compact identifier's filter has no mode). */
+export const foldsCase = (field: StudioField, operator: Operator) =>
+  field.searchable && operator !== "isNull" && operator !== "isNotNull";
 
 /** One condition as the client's `where` spells it. */
 export function conditionWhere(
@@ -219,7 +225,11 @@ export function conditionWhere(
           .filter((entry) => entry !== "")
           .map((entry) => parseDraft(field, entry))
       : parseDraft(field, condition.value);
-  return { [field.name]: { [operator]: value } };
+  const mode =
+    condition.ignoreCase && foldsCase(field, operator)
+      ? { mode: "insensitive" }
+      : {};
+  return { [field.name]: { [operator]: value, ...mode } };
 }
 
 /** Rows one relation of one row reaches: a model, the `where` that finds them there, and the variant it went through. */

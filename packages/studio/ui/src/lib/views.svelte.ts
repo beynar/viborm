@@ -13,6 +13,8 @@ export interface SavedView {
   readonly conditions: readonly Condition[];
   readonly combinator: "AND" | "OR";
   readonly search: string;
+  /** The search folds case; absent in views saved before it could. */
+  readonly ignoreCase?: boolean;
   readonly sorting: readonly { readonly id: string; readonly desc: boolean }[];
   readonly pageSize: number;
   readonly columnSizing: Readonly<Record<string, number>>;

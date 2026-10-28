@@ -286,6 +286,17 @@ describe("browsing", () => {
       search: "7",
     });
     expect(numeric.body).toMatchObject({ total: 1, rows: [{ value: 7 }] });
+    // Case is matched unless the search ignores it.
+    const exact = await call("POST", "/models/post/rows", { search: "eng" });
+    expect(exact.body).toMatchObject({ total: 0 });
+    const folded = await call("POST", "/models/post/rows", {
+      search: "eng",
+      ignoreCase: true,
+    });
+    expect(folded.body).toMatchObject({
+      total: 1,
+      rows: [{ title: "Engines" }],
+    });
     // A ulid column is no text to search: the search leaves it out.
     const compact = await call("POST", "/models/session/rows", {
       search: "Ada",
@@ -392,6 +403,7 @@ describe("refusals", () => {
       [{ skip: 1.5 }, "invalid_skip"],
       [{ where: [] }, "invalid_where"],
       [{ search: 3 }, "invalid_search"],
+      [{ ignoreCase: "yes" }, "invalid_ignore_case"],
     ] as const) {
       const response = await call("POST", "/models/user/rows", body);
       expect([response.status, errorCode(response)]).toEqual([400, code]);

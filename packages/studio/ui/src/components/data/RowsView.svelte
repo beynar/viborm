@@ -69,6 +69,7 @@ import {
   written,
 } from "../../lib/values";
 import type { SavedView, ViewState, Views } from "../../lib/views.svelte";
+import CaseToggle from "./CaseToggle.svelte";
 import FilterGroup from "./FilterGroup.svelte";
 import RelatedRows from "./RelatedRows.svelte";
 import RowDrawer from "./RowDrawer.svelte";
@@ -166,6 +167,8 @@ $effect(() => {
 
 // The words searched, typed in the header: the table searches them once the member stops typing.
 let words = $state(initial?.search ?? "");
+/** The search folds ASCII letters ("Aa" pressed). */
+let ignoreCase = $state(initial?.ignoreCase ?? false);
 let typing: ReturnType<typeof setTimeout> | undefined;
 function search(value: string | null) {
   words = value ?? "";
@@ -206,7 +209,10 @@ const query = $derived.by(() => {
         ? { where: { AND: clauses } }
         : {}),
     ...(state?.globalFilter.trim()
-      ? { search: state.globalFilter.trim() }
+      ? {
+          search: state.globalFilter.trim(),
+          ...(ignoreCase ? { ignoreCase: true } : {}),
+        }
       : {}),
     orderBy: (state?.sorting ?? []).slice(0, 3).map((sort) => ({
       [sort.id]: sort.desc ? ("desc" as const) : ("asc" as const),
@@ -392,18 +398,28 @@ function stateOf(): ViewState {
     conditions: appliedConditions,
     combinator: appliedCombinator,
     search: words.trim(),
+    ignoreCase,
     sorting: (tableState?.sorting ?? []).map(({ id, desc }) => ({ id, desc })),
     pageSize: tableState?.pagination.pageSize ?? 50,
     columnSizing: { ...tableState?.columnSizing },
   };
 }
+/** A state as JSON whose keys are sorted at every depth, so two equal states compare equal whatever their order. */
+const canonical = (value: unknown): string =>
+  JSON.stringify(value, (_key, entry: unknown) =>
+    entry && typeof entry === "object" && !Array.isArray(entry)
+      ? Object.fromEntries(
+          Object.entries(entry).sort(([a], [b]) => a.localeCompare(b))
+        )
+      : entry
+  );
 /** The open view no longer says what the table shows: its filter, search, order, size or widths changed. */
 const unsaved = $derived.by(() => {
   if (!view) return false;
   const { id: _id, name: _name, model: _model, ...saved } = view;
   return (
-    JSON.stringify(stateOf()) !==
-    JSON.stringify({ ...saved, ...(scope ? { scope } : {}) })
+    canonical(stateOf()) !==
+    canonical({ ignoreCase: false, ...saved, ...(scope ? { scope } : {}) })
   );
 });
 let viewName = $state(untrack(() => view?.name ?? ""));
@@ -588,6 +604,7 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
     <div class="w-[200px]">
       <TextInput size="small" label="Search the text columns" theme={HIDDEN_LABEL} placeholder="Search" prefix={magnifyingGlassIcon} value={words} onValueChange={search} />
     </div>
+    <CaseToggle value={ignoreCase} onValueChange={value => (ignoreCase = value)} />
     <Button size="small" variant="ghost" squared prefix={arrowsClockwiseIcon} label="Read the rows again" onclick={() => load()} />
     <!-- The table as it is, saved as a view in the sidebar; an open view is saved again, renamed or copied. -->
     <Popover position="bottom-end" focusOnOpen="first" theme={{ popover: { base: 'w-72 p-3' } }}>

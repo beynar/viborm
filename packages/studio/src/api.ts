@@ -171,9 +171,17 @@ function queryOf(model: StudioModel, body: Record<string, unknown>) {
   if (typeof search !== "string") {
     throw new Refusal(400, "invalid_search", "search must be a string");
   }
+  const ignoreCase = body.ignoreCase ?? false;
+  if (typeof ignoreCase !== "boolean") {
+    throw new Refusal(
+      400,
+      "invalid_ignore_case",
+      "ignoreCase must be true or false"
+    );
+  }
   const where = combine(
     body.where as Record<string, unknown> | undefined,
-    searchWhere(model, search.trim())
+    searchWhere(model, search.trim(), ignoreCase)
   );
   const orderBy = withTieBreaker(model, body.orderBy);
   return { ...(where ? { where } : {}), ...(orderBy ? { orderBy } : {}) };
@@ -289,15 +297,18 @@ export function toCsv(
 }
 
 /** Free text: any text column containing the words. */
+/** The words in any text column; `ignoreCase` folds ASCII letters, as the client's `mode: "insensitive"` does everywhere. */
 function searchWhere(
   model: StudioModel,
-  search: string
+  search: string,
+  ignoreCase: boolean
 ): Record<string, unknown> | undefined {
   if (search === "") return undefined;
   const text = model.fields.filter((field) => field.searchable);
   if (text.length === 0) return undefined;
+  const mode = ignoreCase ? { mode: "insensitive" } : {};
   return {
-    OR: text.map((field) => ({ [field.name]: { contains: search } })),
+    OR: text.map((field) => ({ [field.name]: { contains: search, ...mode } })),
   };
 }
 

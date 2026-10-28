@@ -7,10 +7,12 @@ import { TextInput } from "entasis/text-input";
 import type { StudioModel } from "../../lib/api";
 import {
   type Condition,
+  foldsCase,
   OPERATOR_LABELS,
   type Operator,
   operatorsOf,
 } from "../../lib/values";
+import CaseToggle from "./CaseToggle.svelte";
 
 // The conditions being written, each a column, a comparison and a value, joined by AND or OR (Pyxel's `FilterGroup`,
 // one level). They reach the client only when applied: a half-written value is never sent.
@@ -103,6 +105,9 @@ function update(id: number, change: Partial<Condition>) {
           />
         {/if}
       </div>
+      {#if field && foldsCase(field, condition.operator)}
+        <CaseToggle value={condition.ignoreCase === true} onValueChange={value => update(condition.id, { ignoreCase: value })} />
+      {/if}
       <Button size="small" variant="ghost" squared label="Remove the condition" prefix={xIcon} onclick={() => (conditions = conditions.filter(entry => entry.id !== condition.id))} />
     </div>
   {/each}
