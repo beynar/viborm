@@ -1,0 +1,266 @@
+---
+title: Write hooks
+description: Run your code after a write commits, with the rows it wrote
+icon: webhook
+---
+
+`on()` is the official write-hook extension. You name a model and what
+happened to its rows (`create`, `update`, `delete`), and VibORM calls your
+function after the write commits, with those rows as the write left them.
+
+```ts
+import { on } from "viborm/on";
+
+const db = base.$extends(on({
+  user: {
+    update: (rows, { certainty }) => syncToMyOtherDatabase(rows),
+    delete: (rows) => removeFromSearchIndex(rows.map((row) => row.id)),
+  },
+}));
+
+await db.user.update({ where: { id: "u1" }, data: { name: "Ada" } });
+// committed, then syncToMyOtherDatabase([{ id: "u1", name: "Ada", … }])
+```
+
+The extension lives in its own entry point, so an application that does not
+import it pays nothing for it. A write no hook concerns runs exactly as it
+does without the extension: the same statements, no extra `RETURNING`
+column, no extra read.
+
+Declare the hooks inside `$extends(on({...}))`: the receiving client's schema
+then types the model names, the hook names and each hook's rows, and a
+misspelt model, hook or field is an editor error.
+
+## What a hook receives
+
+```ts
+(rows, event) => unknown
+```
+
+- `rows`: the rows the write changed, as they are after the write. For a
+  delete, as they were before it. A row has every scalar field a plain
+  `findMany` returns (see [below](#the-rows-a-hook-receives)), whatever the
+  call selected.
+- `event.model` and `event.operation`: the call that wrote them
+  (`"user"`, `"updateMany"`; `"upsert"` for either arm of an upsert).
+- `event.args`: the call's arguments, after request transforms and default
+  omit.
+- `event.certainty`: `"committed"`, or `"may-have-committed"` when the
+  provider could not confirm the commit (a connection lost while committing):
+  the write may be durable or not.
+
+A hook is called once per write, with all of that write's rows of its model.
+A write that changes no row (an `updateMany` matching nothing) calls no hook.
+
+## Which hook a write calls
+
+| Call | Hook | `rows` |
+|---|---|---|
+| `create` | `create` | the created row |
+| `createMany` | `create` | the created rows; with `skipDuplicates`, only those inserted |
+| `update` | `update` | the row after the update |
+| `updateMany` | `update` | every row it matched, after the update |
+| `upsert` | `create` when it inserted, `update` when it updated | the row after the write |
+| `delete` | `delete` | the row before the delete |
+| `deleteMany` | `delete` | every row it deleted, before the delete |
+| `delete`, `deleteMany` of a model [soft delete](/docs/extensions/soft-delete) manages | `update` | the rows after the tombstone is written; with `mode: "hard"`, `delete` and the rows before |
+| `restore`, `restoreMany` (soft delete) | `update` | the rows after the restore |
+| `connect` or `disconnect` of a relation whose foreign key the called row holds | the called row's own hook (`update`, or `create`) | that row, with its new foreign key |
+
+What never calls a hook:
+
+- **Rows written through a nested write.** In this version a hook receives
+  rows of the call's own model: `post.update({ data: { author: { update:
+  {…} } } })` calls `post.update` with the post row, never `user.update` for
+  the author. The same holds for a nested `create`,
+  `createMany`, `upsert`, `connectOrCreate`, `delete`, `deleteMany`,
+  `updateMany`, and for a `connect`, `disconnect` or `set` that moves another
+  model's foreign key.
+- **Many-to-many links.** A link row of an implicit many-to-many relation is
+  not a row of either model. Declare the join table as a model with two
+  to-one relations when you need hooks on links: its rows are then created and
+  deleted like any other.
+- **What the database does on its own**: `ON DELETE CASCADE`,
+  `ON DELETE SET NULL`, `ON UPDATE CASCADE`, triggers and generated columns
+  changed by them. VibORM never sees those rows.
+- **Raw SQL** (`$executeRaw`, `$queryRaw`).
+
+## When a hook runs
+
+**After the commit, and only then.**
+
+- A direct write calls its hooks once it has committed, and its promise
+  resolves after them.
+- Inside `$transaction(async (tx) => …)`, a write's hooks wait for the
+  outermost commit. A savepoint (`tx.$transaction(…)`) that rolls back drops
+  the hooks of its writes; one that succeeds hands them to its parent. A
+  transaction that rolls back calls none. The hooks run before the
+  `$transaction` promise resolves, in the order the writes ran.
+- In `$transaction([...])`, every member's hooks run after the commit, in
+  member order.
+- A write that fails calls no hook, even one that may have written before it
+  failed.
+
+**A hook cannot change or cancel the write.** It runs after the commit; the
+rows it receives are copies, and what it returns is ignored.
+
+**If the process dies after the commit, the hook is lost.** There is no
+outbox: a hook that must run for every committed write belongs in the same
+transaction as the write (an outbox table you write yourself, or a database
+trigger), not in a hook.
+
+## Waiting for a hook, or not
+
+VibORM awaits what a hook returns, then resolves the write. You decide what
+the write waits for:
+
+```ts
+on({
+  user: {
+    // The write resolves after the sync: a failure reaches the caller.
+    update: (rows) => syncToMyOtherDatabase(rows),
+    // The write resolves at once; the platform keeps the work alive.
+    create: (rows) => {
+      ctx.waitUntil(sendWelcomeEmails(rows));
+    },
+  },
+});
+```
+
+VibORM takes no `waitUntil` option: return the promise to wait for it, or
+hand it to your platform yourself.
+
+## When a hook fails
+
+A failing hook never undoes the write. Its error rejects the write's promise
+(inside a transaction, the `$transaction` promise) with a `QueryError` that
+says the write committed:
+
+```ts
+try {
+  await db.user.update({ where: { id }, data });
+} catch (error) {
+  if (error instanceof QueryError && error.meta.method === "on") {
+    error.meta.commitCertainty; // "committed": the row IS updated
+    error.cause; // what your hook threw
+  }
+}
+```
+
+The message names the hook (`Extension "viborm.on" hook user.update failed
+after the write committed; the write is not undone.`), `meta` carries
+`method: "on"`, the call's `model` and `operation` and `commitCertainty`, and
+`cause` is the error the hook threw. This is how every write-outcome listener
+failure is reported (see
+[Create an extension](/docs/extensions/create#wrap-logical-execution)): the
+write's promise rejects, and its error says the write committed. Inside a
+transaction it is the `$transaction` promise that rejects, with the same
+error, after the commit.
+
+When one write's hooks and the [cache](/docs/extensions/cache)'s invalidation
+both fail, the error is an `AggregateError` holding both.
+
+## Request-scoped values (Cloudflare Workers)
+
+A hook often needs something that only exists during a request, such as the
+Worker's `ctx` for `ctx.waitUntil()`. Define the base client once, at module
+scope, and apply `on()` **per request**, closing over the request's values:
+
+```ts
+import { createClient } from "viborm/d1";
+import { on } from "viborm/on";
+
+const hooks = (ctx: ExecutionContext, env: Env) =>
+  on({
+    user: {
+      update: (rows) => {
+        ctx.waitUntil(env.SYNC_QUEUE.sendBatch(rows.map((body) => ({ body }))));
+      },
+    },
+  });
+
+export default {
+  async fetch(request, env, ctx) {
+    const base = createClient({ database: env.DB, schema });
+    const db = base.$extends(hooks(ctx, env));
+    await db.user.update({ where: { id: "u1" }, data: { name: "Ada" } });
+    return new Response("ok");
+  },
+} satisfies ExportedHandler<Env>;
+```
+
+The client `$extends` returns shares the base client's schema, driver and
+connection; deriving it per request costs one `$extends`. Nothing is shared
+between requests: two concurrent requests each hold their own `ctx`.
+
+Why not the other two places a request value could come from:
+
+- **A bound control** (like the permissions entry's `$as`) is a value of the
+  calls a client makes, handed to an extension's own request and query
+  handlers. A hook runs after the commit, outside every handler, and a
+  `waitUntil` is not a value a call should carry.
+- **A hook argument** would make VibORM carry your platform's request object,
+  and every runtime names it differently. A closure carries exactly what you
+  give it.
+
+When the base client already binds per request (permissions' `$as`), apply
+`on()` to the bound client: `base.$as(actor).$extends(hooks(ctx, env))`.
+
+## The rows a hook receives
+
+A row has every scalar field of the model a plain `findMany` returns from the
+schema alone (`InferDatabase<typeof schema>["user"]["Row"]`, also exported as
+`OnRow<typeof user>`), decoded as a read decodes it (`Date`, `Decimal`,
+`bigint`, JSON):
+
+- **`defaultOmit()` does not hide a field from a hook.** A default omit is
+  presentation for callers; the hook receives the row as the database holds
+  it. A field the schema itself omits (`.omit()`) is not in the row.
+- **Computed `result` fields are not attached.** Compute what you need from
+  the row.
+- **The call's `select`, `include` and `omit` do not change it.** The caller
+  still receives exactly the projection it asked for.
+- Under [permissions](/docs/extensions/permissions), a field `reads` gates is
+  in a row only where the call may read it, as in a default projection.
+
+## What a hook costs
+
+Nothing when no hook concerns the write. A write a hook concerns returns whole
+rows instead of the caller's projection, through the statements it already
+sends wherever the database can (`RETURNING`). Measured statements per call
+(provider batches on D1 and Neon HTTP), without a hook → with one; a
+transaction adds its `BEGIN` and `COMMIT`:
+
+| Call | PostgreSQL, SQLite, libSQL | D1, Neon HTTP | MySQL |
+|---|---|---|---|
+| `create`, `update`, `delete` | 1 → 1 | 1 → 1 | unchanged (2–4 statements in a transaction) |
+| `createMany` of N rows | 1 → 1 | 1 → 1 | 1 → N inserts + 1 read, in a transaction |
+| `updateMany`, `deleteMany` | 1 → 1 | 1 → 1 | 1 → 3 (lock the keys, write, read), in a transaction |
+| `upsert` | 1 → 3 statements in a transaction | 1 → 2 batches (3–4 statements) | unchanged (3–5 statements in a transaction) |
+
+- Where a write already returns its row, a hook only widens what it returns
+  to every column: no extra statement.
+- A bulk write a hook concerns returns its rows (`RETURNING`). MySQL has no
+  `RETURNING`, so there it locates the rows `FOR UPDATE`, writes them by key
+  and reads them back, in one transaction, the way a bulk write with a
+  `select` always does there. A `createMany` inserts row by row to learn each
+  generated key.
+- An `upsert` a hook concerns gives up the single `INSERT … ON CONFLICT`
+  statement for the found-or-missing form, because that statement cannot say
+  which arm it took: it reads the row, then inserts or updates it.
+
+## Composing
+
+`on()` is not a result consumer: apply it before or after any other
+extension. It sees the writes of the whole chain, including the update a soft
+delete makes of a delete and the rows a permission lets a call write (a row the
+call may not write is not written, so it calls no hook). One client carries
+one `on()`: put every hook in one call.
+
+## Not covered
+
+- Nested writes (above).
+- Hooks before a write, or hooks that change it: use a
+  [`query` handler](/docs/extensions/create#wrap-logical-execution) or
+  [`data`](/docs/extensions/create#write-fields-with-data).
+- Delivery that survives a crash: write an outbox row in the transaction.

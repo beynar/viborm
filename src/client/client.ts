@@ -48,6 +48,7 @@ import { TransactionWriteOutcomes } from "@extensions/query";
 import { applyRequestTransforms } from "@extensions/request";
 import { planResultFields } from "@extensions/result";
 import type { ResultInference } from "@extensions/result-types";
+import type { WritePlan } from "@extensions/writes";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { enableFindUniqueBatching } from "@query-engine/find-unique-batch";
 import {
@@ -738,23 +739,27 @@ export class VibORM<C extends VibORMConfig> {
     let prepareInput: PrepareOperationInput | undefined;
     const resultFields = chain?.result;
     let finishResult: ((value: unknown) => unknown) | undefined;
-    // Apply the client omit, then refuse an empty unique where, then plan
-    // the chain's computed fields.
+    const writes = isWrite ? chain?.writes : undefined;
+    let writePlan: WritePlan | undefined;
+    // Apply the client omit, then refuse an empty unique where, then widen
+    // a write to the rows its hooks receive, then plan the computed fields.
     const finish = (requestArgs: Record<string, unknown>) => {
       const omittedArgs = clientOmit
         ? applyClientOmit(model, operation, requestArgs, clientOmit)
         : requestArgs;
       assertNonEmptyUniqueWhere(modelNameStr, operation, omittedArgs);
-      if (resultFields === undefined) return omittedArgs;
-      const planned = planResultFields(
+      writePlan = writes?.plan(model, operation, omittedArgs, chain!);
+      const planned = writePlan?.args ?? omittedArgs;
+      if (resultFields === undefined) return planned;
+      const fields = planResultFields(
         resultFields,
         this.#relations,
         model,
         operation,
-        omittedArgs
+        planned
       );
-      finishResult = planned?.finish;
-      return planned?.args ?? omittedArgs;
+      finishResult = fields?.finish;
+      return fields?.args ?? planned;
     };
 
     if (
@@ -788,17 +793,23 @@ export class VibORM<C extends VibORMConfig> {
     const prepareWriteOutcomeRegistration:
       | PrepareWriteOutcomeRegistration
       | undefined =
-      officialCache === undefined || !isWrite
+      (officialCache === undefined && writes === undefined) || !isWrite
         ? undefined
-        : (context, controls) =>
-            officialCacheRuntime().prepareMutationCacheWriteOutcome(
-              officialCache.driver,
-              modelNameStr,
-              operation,
-              officialCacheRuntime().readMutationCacheOptions(controls),
-              context,
-              officialCache.scope
-            );
+        : (context, controls) => {
+            const cached =
+              officialCache &&
+              officialCacheRuntime().prepareMutationCacheWriteOutcome(
+                officialCache.driver,
+                modelNameStr,
+                operation,
+                officialCacheRuntime().readMutationCacheOptions(controls),
+                context,
+                officialCache.scope
+              );
+            return writePlan
+              ? writePlan.register(context, controls, cached)
+              : cached;
+          };
 
     // Engine handles OrThrow suffix internally. Routing to the V2 operation is
     // decided lazily — before any I/O — for the whole payload. A cached read
@@ -807,14 +818,18 @@ export class VibORM<C extends VibORMConfig> {
       model,
       operation,
       operationArgs,
-      resultFields === undefined
+      resultFields === undefined && writes === undefined
         ? officialReadCache
           ? { skipSpan: true }
           : undefined
         : {
             ...(officialReadCache ? { skipSpan: true } : {}),
             finishResult: (value) =>
-              finishResult === undefined ? value : finishResult(value),
+              writePlan
+                ? writePlan.finish(value, finishResult)
+                : finishResult === undefined
+                  ? value
+                  : finishResult(value),
           },
       prepareInput,
       prepareWriteOutcomeRegistration
@@ -1060,6 +1075,7 @@ export class VibORM<C extends VibORMConfig> {
       const outcomes =
         chain?.hasQueryHandlers ||
         chain?.hasCache ||
+        chain?.writes ||
         (chain?.observe.length ?? 0) > 0
           ? new TransactionWriteOutcomes()
           : undefined;

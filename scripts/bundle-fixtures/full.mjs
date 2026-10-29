@@ -1,6 +1,6 @@
 // Fixture (d) — everything public: root entry, schema, validation, cache,
-// instrumentation, soft delete, permissions, adapters, sql, the pg driver, and the
-// migrations entry.
+// instrumentation, soft delete, permissions, write hooks, adapters, sql, the pg
+// driver, and the migrations entry.
 
 export * as adapters from "../../dist/adapters.mjs";
 export * as cacheMemory from "../../dist/cache/memory.mjs";
@@ -12,6 +12,7 @@ export * from "../../dist/index.mjs";
 export * as instrumentation from "../../dist/instrumentation.mjs";
 export * as migrationsFs from "../../dist/migrations/storage/fs.mjs";
 export * as migrations from "../../dist/migrations.mjs";
+export * as on from "../../dist/on.mjs";
 export * as permissions from "../../dist/permissions.mjs";
 export * as pg from "../../dist/pg.mjs";
 export * as schemaJson from "../../dist/schema/json.mjs";

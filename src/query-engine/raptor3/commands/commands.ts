@@ -9,6 +9,7 @@ import {
 import type { AnyModel } from "@schema/model";
 import { createFailureError } from "../../batch-error-attribution";
 import type { PreparedGuardFailure } from "../../types";
+import { writeSinks } from "../../write-sinks";
 import type { OperationContext } from "../shared/operation-context";
 import {
   InvalidScalarResult,
@@ -2018,7 +2019,8 @@ export class Commands {
   ): PhysicalPlan | undefined {
     const ctx = this.context;
     const capabilities = ctx.driver.adapter.capabilities;
-    if (!ctx.preparesBatch && ctx.scope?.rows.stamps !== undefined)
+    const sink = writeSinks.get(ctx.attribution);
+    if (!ctx.preparesBatch && (sink || ctx.scope?.rows.stamps !== undefined))
       return undefined;
     if (args.targetWhere || args.setWhere) return undefined;
     if (!capabilities.supportsReturning) return undefined;
@@ -2083,7 +2085,7 @@ export class Commands {
       fields.every((field) =>
         ctx.queries.namesUpdate(model, field, updates[field])
       );
-    if (spelled)
+    if (spelled && !sink)
       return {
         single: true,
         run: () =>
@@ -2100,6 +2102,7 @@ export class Commands {
       run: async () => {
         const rows = await ctx.planningLocate(lookup.query(), model);
         const captured = rows[0];
+        sink?.upserted(!captured);
         if (!captured) return missing();
         // The row the unlocked probe found is updated only while it is still
         // a candidate: one hidden since then is the other's race, not found.

@@ -12,5 +12,6 @@ export default defineMeta({
     "omit",
     "soft-delete",
     "permissions",
+    "on",
   ],
 });

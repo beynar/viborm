@@ -353,6 +353,18 @@ remain unchanged.
 `tests/package/permissions-consumer-smoke.mjs` runs §1.1 and the blog from the
 packed package.
 
+The official `on()` (`src/on/index.ts`, entry `viborm/on`) is authenticated
+by identity like the cache: its `query` is the plan function core recognizes
+(`src/extensions/writes.ts`) and keeps out of the chain's handlers. For each
+write a hook concerns, the client asks it once for a plan: the arguments
+widened to whole rows (the caller's `select` moved to `include`, a bulk write
+given `omit: {}`), the value cut back to the caller's projection, and the
+write's one registration on the `TransactionWriteOutcomes` rail (after the
+cache's), so hooks run after the outermost commit and never after a rollback.
+A write no hook concerns is planned as written. Raptor 3 reports only a root
+upsert's arm, through `src/query-engine/write-sinks.ts` (keyed by the
+operation's attribution); nested writes report nothing.
+
 `cache()` produces a namespace-free DEFINITION; the client composition root
 binds it to the concrete driver, deriving one scope from the private snapshot
 revision, the cache `version`, the dialect, and `adapter.namespace`. The

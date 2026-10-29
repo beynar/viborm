@@ -140,7 +140,8 @@ export function executeArrayTransaction(
 
 /**
  * Each member's value as its caller receives it: a chain that computes
- * result fields finishes every member's rows once the array has settled.
+ * result fields or runs write hooks finishes every member once the array
+ * has settled.
  * The members are read before the run, which writes its values over them.
  */
 function finishArrayResults(
@@ -148,15 +149,18 @@ function finishArrayResults(
   engine: QueryEngine,
   run: () => Promise<unknown[]>
 ): Promise<unknown[]> {
-  if (engine.extensionChain?.result === undefined) return run();
+  const chain = engine.extensionChain;
+  if (chain?.result === undefined && chain?.writes === undefined) return run();
   const members = [...operations] as object[];
-  return run().then((values) =>
-    values.map((value, index) => {
-      const operation = members[index]!;
+  return run().then(async (values) => {
+    // One member at a time: a member's write hooks run in member order.
+    for (const [index, operation] of members.entries()) {
       const owner = transactionOperationOwner(operation);
-      return owner.finishResult ? owner.finishResult(operation, value) : value;
-    })
-  );
+      if (owner.finishResult)
+        values[index] = await owner.finishResult(operation, values[index]);
+    }
+    return values;
+  });
 }
 
 /**
@@ -189,7 +193,10 @@ function canRequireInterceptedArray(engine: QueryEngine): boolean {
   const chain = engine.extensionChain;
   return (
     chain !== undefined &&
-    (chain.hasRequestHandlers || chain.hasQueryHandlers || chain.hasCache)
+    (chain.hasRequestHandlers ||
+      chain.hasQueryHandlers ||
+      chain.hasCache ||
+      chain.writes !== undefined)
   );
 }
 

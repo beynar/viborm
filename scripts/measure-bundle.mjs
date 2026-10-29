@@ -252,6 +252,8 @@ const PACKAGE_FIXTURES = [
   ["soft-delete-entry", "soft-delete-entry.mjs"],
   ["pg-permissions", "pg-permissions.mjs"],
   ["permissions-entry", "permissions-entry.mjs"],
+  ["pg-on", "pg-on.mjs"],
+  ["on-entry", "on-entry.mjs"],
   ["d1-worker", "d1-worker.mjs", WORKER_OPTIONS],
   ["pg-migrations-worker", "pg-migrations-worker.mjs", WORKER_OPTIONS],
 ];

@@ -2660,11 +2660,12 @@ export class OperationContext {
       let count = 0;
       for (const [index, row] of members.entries()) {
         const columns = Object.keys(row);
+        // A skipped duplicate inserts nothing and locates nothing.
         const statement = this.#insertStatement(
           model,
           columns,
           [row],
-          false,
+          skipDuplicates && !recoverableSkip,
           placed
         );
         const context = this.statementContext(model, this.operation);
@@ -2695,7 +2696,7 @@ export class OperationContext {
             row
           );
         }
-        if (!response) continue;
+        if (!response?.rowCount) continue;
         count += response.rowCount;
         if (!identityPlans) continue;
         const generated = identityPlans[index];

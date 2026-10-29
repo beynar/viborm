@@ -76,9 +76,10 @@ rewriting queries.
 
 ## Official extensions
 
-Official extensions use the same composition language. Cache, instrumentation
-and default omit retain private access to the core facts they need; soft delete
-and Permissions are built only from the public capabilities above:
+Official extensions use the same composition language. Cache, instrumentation,
+default omit and write hooks retain private access to the core facts they
+need; soft delete and Permissions are built only from the public capabilities
+above:
 
 <CardGroup>
   <Card
@@ -105,6 +106,11 @@ and Permissions are built only from the public capabilities above:
     title="Permissions"
     href="/docs/extensions/permissions">
     One predicate per model and action, judged in the statement that reads or writes
+  </Card>
+  <Card
+    title="Write hooks"
+    href="/docs/extensions/on">
+    Your code after a write commits, with the rows it wrote
   </Card>
 </CardGroup>
 
