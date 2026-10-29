@@ -3,6 +3,9 @@ import { Button } from "entasis/button";
 import { caretRightIcon } from "entasis/icons/caretRight";
 import { xIcon } from "entasis/icons/x";
 import { Select } from "entasis/select";
+import { cubicOut } from "svelte/easing";
+import { prefersReducedMotion } from "svelte/motion";
+import { slide } from "svelte/transition";
 import type { StudioModel } from "../../lib/api";
 import {
   changeSelection,
@@ -61,6 +64,11 @@ const frames = $derived.by(() => {
   return out;
 });
 const current = $derived(frames.at(-1)!);
+const branchKey = $derived(JSON.stringify(path.slice(0, frames.length - 1)));
+const motion = $derived({
+  duration: prefersReducedMotion.current ? 0 : 180,
+  easing: cubicOut,
+});
 $effect(() => {
   // Resetting the builder or removing an ancestor also returns its editor to the surviving branch.
   if (path.length >= frames.length) path = path.slice(0, frames.length - 1);
@@ -91,25 +99,34 @@ function open(relation: string, variant?: string) {
 }
 </script>
 
-<div class="grid min-w-0 gap-3" aria-label="Returned fields">
+<div class="grid min-w-0" aria-label="Returned fields">
   {#if path.length}
+    <div class="min-w-0 pb-3" transition:slide={{ ...motion, axis: 'y' }}>
     <nav class="flex min-w-0 flex-wrap items-center gap-1" aria-label="Selection path">
-      {#each frames as frame, index (index)}
+      {#each frames as frame, index (JSON.stringify(path.slice(0, index)))}
+        <span class="flex min-w-0 max-w-full items-center gap-1" transition:slide={{ ...motion, axis: 'x' }}>
         {#if index > 0}<span class="text-neutral/40" aria-hidden="true">{@render caretRightIcon({ size: 11 })}</span>{/if}
         <button type="button" class={['max-w-full truncate rounded px-1 py-0.5 text-[12px] hover:bg-neutral-muted/50', index === frames.length - 1 ? 'text-neutral' : 'text-neutral/60']} aria-current={index === frames.length - 1 ? 'location' : undefined} title={frame.label} onclick={() => (path = path.slice(0, index))}>{frame.label}</button>
+        </span>
       {/each}
     </nav>
+    </div>
   {/if}
 
+  <div class="min-w-0 pb-3">
   <Select size="small" multiple label="Columns" placeholder="Every column" items={current.model.fields.map((field) => ({ value: field.name, label: field.name }))} value={current.selection.columns} onValueChange={value => update({ ...current.selection, columns: value ?? [] })} />
+  </div>
   {#if current.model.relations.length}
+    <div class="min-w-0 pb-3" transition:slide={{ ...motion, axis: 'y' }}>
     <Select size="small" multiple label="With related rows" placeholder="No relation" items={current.model.relations.map((relation) => ({ value: relation.name, label: relation.name }))} value={selected} onValueChange={value => chooseRelations(value ?? [])} />
+    </div>
   {/if}
 
-  {#each current.selection.include as entry (relationName(entry))}
+  {#each current.selection.include as entry (JSON.stringify([branchKey, relationName(entry)]))}
     {@const name = relationName(entry)}
     {@const relation = current.model.relations.find((item) => item.name === name)}
     {@const branch = relationSelection(entry)}
+    <div class="min-w-0 pb-3" transition:slide={{ ...motion, axis: 'y' }}>
     <div class="min-w-0 rounded-md border border-neutral-muted">
       <div class="flex min-w-0 items-center gap-1 p-1">
         {#if relation && !relation.variants?.length}
@@ -137,6 +154,7 @@ function open(relation: string, variant?: string) {
           {/each}
         </div>
       {/if}
+    </div>
     </div>
   {/each}
 </div>
