@@ -826,6 +826,13 @@ export interface DatabaseAdapter {
     /** RETURNING clause (PG/SQLite) or empty (MySQL) */
     returning: (columns: Sql) => Sql;
     /**
+     * A `RETURNING` expression true where an `INSERT … ON CONFLICT DO UPDATE`
+     * inserted its row rather than updated it (PostgreSQL: `xmax = 0`).
+     * Absent where the statement cannot say: an upsert that must report its
+     * arm then reads the row first.
+     */
+    upserted?: Sql;
+    /**
      * ON CONFLICT / ON DUPLICATE KEY
      * @param target - Conflict target columns (e.g., "id")
      * @param action - Action to take (e.g., UPDATE SET ...)

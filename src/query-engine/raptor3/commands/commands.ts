@@ -14,6 +14,7 @@ import type { OperationContext } from "../shared/operation-context";
 import {
   InvalidScalarResult,
   type PreparedSelector,
+  returningSafeProjection,
   type SelectorFacts,
 } from "../shared/query";
 import {
@@ -2019,8 +2020,14 @@ export class Commands {
   ): PhysicalPlan | undefined {
     const ctx = this.context;
     const capabilities = ctx.driver.adapter.capabilities;
+    // A root upsert a hook concerns reports its arm: the fold can only where
+    // the adapter marks an inserted row.
     const sink = writeSinks.get(ctx.attribution);
-    if (!ctx.preparesBatch && (sink || ctx.scope?.rows.stamps !== undefined))
+    const marked =
+      !sink ||
+      (capabilities.supportsTargetedUpsert &&
+        ctx.driver.adapter.mutations.upserted !== undefined);
+    if (!ctx.preparesBatch && (!marked || ctx.scope?.rows.stamps !== undefined))
       return undefined;
     if (args.targetWhere || args.setWhere) return undefined;
     if (!capabilities.supportsReturning) return undefined;
@@ -2085,15 +2092,23 @@ export class Commands {
       fields.every((field) =>
         ctx.queries.namesUpdate(model, field, updates[field])
       );
-    if (spelled && !sink)
+    if (spelled && marked && (!sink || returningSafeProjection(projection)))
       return {
         single: true,
         run: () =>
-          ctx.upsertOne(model, values, updates, key!.fields, projection, () => {
-            throw new TypeError(
-              "INSERT … ON CONFLICT did not produce the required record"
-            );
-          }),
+          ctx.upsertOne(
+            model,
+            values,
+            updates,
+            key!.fields,
+            projection,
+            () => {
+              throw new TypeError(
+                "INSERT … ON CONFLICT did not produce the required record"
+              );
+            },
+            sink?.upserted
+          ),
       };
     if (!ctx.preparesBatch) return undefined;
     // The locate read precedes the arm, so this form is never one statement.

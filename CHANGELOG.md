@@ -33,9 +33,10 @@ Versioning.
     whose `meta.commitCertainty` says it committed and whose `cause` is the
     hook's error.
   - A write no hook concerns runs exactly as before. One a hook concerns
-    returns whole rows through its own `RETURNING`; on MySQL, a `createMany`,
-    `updateMany` or `deleteMany` it concerns locates and re-reads its rows
-    (see the docs' cost table).
+    returns whole rows through its own `RETURNING` (on PostgreSQL an upsert
+    stays one `INSERT … ON CONFLICT`); on MySQL, a `createMany`, `updateMany`
+    or `deleteMany` it concerns reads its rows in the same transaction, and
+    on SQLite an upsert reads its row first (see the docs' cost table).
   - Rows written through a nested write, many-to-many links, database
     cascades and raw SQL call no hook.
 
@@ -48,6 +49,12 @@ Versioning.
 
 ### Changed
 
+- **MySQL: fewer statements for writes that return rows without `RETURNING`.**
+  `createMany({ select })` whose rows all carry their keys inserts them in one
+  statement and reads them back in one (it was one INSERT per row);
+  `delete` and `deleteMany({ select })` with a scalar `select` naming the key
+  lock and read their rows in one `SELECT … FOR UPDATE` (it was a key capture
+  then a read).
 - **`mode: "insensitive"` ignores letter case the way the database does.** It
   used to fold `A`-`Z` only, identically everywhere, with a `TRANSLATE` on
   PostgreSQL and 26 nested `REPLACE` calls on MySQL. It now uses each

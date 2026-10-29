@@ -474,6 +474,72 @@ export function runOnBehavior(provider: OnProvider): void {
         expect(await base.post.count()).toBe(2);
       });
 
+      test("what a hook costs: an upsert keeps its one statement where the adapter marks an inserted row; without RETURNING a bulk write reads its rows in one statement", async () => {
+        const base = await openOnFixture(
+          provider.createDriver(),
+          provider.sync
+        );
+        opened.push(base);
+        const plain = statementLog(base);
+        const hooked = statementLog(base);
+        const { calls, hooks } = recorder();
+        const db = hooked.client.$extends(on(hooks)) as typeof plain.client;
+        const count = async (
+          log: { texts: string[] },
+          write: () => Promise<unknown>
+        ) => {
+          const before = log.texts.length;
+          await write();
+          return log.texts.length - before;
+        };
+        const adapter = base.$driver.adapter;
+        const upsert = (client: typeof plain.client, id: string) =>
+          client.post.upsert({
+            where: { id },
+            create: { id, title: "t", authorId: "u1" },
+            update: { views: 1 },
+          });
+        const upserts = [
+          await count(hooked, () => upsert(db, "p1")),
+          await count(hooked, () => upsert(db, "p7")),
+        ];
+        expect(calls.map((call) => call.hook)).toEqual([
+          "post.update",
+          "post.create",
+        ]);
+        if (
+          adapter.mutations.upserted !== undefined &&
+          adapter.capabilities.supportsTargetedUpsert
+        )
+          expect(upserts).toEqual([
+            await count(plain, () => upsert(plain.client, "p1")),
+            await count(plain, () => upsert(plain.client, "p8")),
+          ]);
+        if (adapter.capabilities.supportsReturning) return;
+        // MySQL's shape: N rows with known keys are one INSERT and one read;
+        // a delete locks and reads its rows in one statement, then deletes.
+        expect(
+          await count(hooked, () =>
+            db.post.createMany({
+              data: [post("m1", "u2"), post("m2", "u2"), post("m3", "u2")],
+            })
+          )
+        ).toBe(2);
+        expect(
+          await count(hooked, () =>
+            db.post.deleteMany({ where: { authorId: "u2" } })
+          )
+        ).toBe(2);
+        expect(
+          await count(plain, () =>
+            plain.client.post.delete({
+              where: { id: "p2" },
+              select: { id: true, title: true },
+            })
+          )
+        ).toBe(2);
+      });
+
       test("zero cost: a write no hook concerns sends exactly the statements it sends without the extension", async () => {
         const base = await openOnFixture(
           provider.createDriver(),
