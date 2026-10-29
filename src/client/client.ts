@@ -741,25 +741,28 @@ export class VibORM<C extends VibORMConfig> {
     let finishResult: ((value: unknown) => unknown) | undefined;
     const writes = isWrite ? chain?.writes : undefined;
     let writePlan: WritePlan | undefined;
-    // Apply the client omit, then refuse an empty unique where, then widen
-    // a write to the rows its hooks receive, then plan the computed fields.
+    // Apply the client omit, then refuse an empty unique where, then plan
+    // the chain's computed fields, then widen a write to the rows its hooks
+    // receive.
     const finish = (requestArgs: Record<string, unknown>) => {
       const omittedArgs = clientOmit
         ? applyClientOmit(model, operation, requestArgs, clientOmit)
         : requestArgs;
       assertNonEmptyUniqueWhere(modelNameStr, operation, omittedArgs);
-      writePlan = writes?.plan(model, operation, omittedArgs, chain!);
-      const planned = writePlan?.args ?? omittedArgs;
-      if (resultFields === undefined) return planned;
-      const fields = planResultFields(
-        resultFields,
-        this.#relations,
-        model,
-        operation,
-        planned
-      );
-      finishResult = fields?.finish;
-      return fields?.args ?? planned;
+      let planned = omittedArgs;
+      if (resultFields !== undefined) {
+        const fields = planResultFields(
+          resultFields,
+          this.#relations,
+          model,
+          operation,
+          omittedArgs
+        );
+        finishResult = fields?.finish;
+        planned = fields?.args ?? omittedArgs;
+      }
+      writePlan = writes?.plan(model, operation, planned, chain!, omittedArgs);
+      return writePlan?.args ?? planned;
     };
 
     if (
@@ -824,6 +827,10 @@ export class VibORM<C extends VibORMConfig> {
           : undefined
         : {
             ...(officialReadCache ? { skipSpan: true } : {}),
+            ...(writes && {
+              takeResult: (value: unknown, settle?: true) =>
+                writePlan ? writePlan.take(value, settle) : value,
+            }),
             finishResult: (value) =>
               writePlan
                 ? writePlan.finish(value, finishResult)

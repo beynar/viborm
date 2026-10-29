@@ -13,10 +13,14 @@
 // a transaction, never after a rollback.
 
 import type { OperationResult } from "../client/exports"; // public today
-import { QueryError } from "../errors";
+import { ClientInitializationError, QueryError } from "../errors";
 import type { ResolvedExtensionChain } from "../extensions/chain";
 import type { WriteOutcome } from "../extensions/query";
-import { registerOfficialWrites, type WritePlan } from "../extensions/writes";
+import {
+  OFFICIAL_ON_NAME,
+  registerOfficialWrites,
+  type WritePlan,
+} from "../extensions/writes";
 import type {
   AnyModel,
   ClientSchema,
@@ -27,7 +31,7 @@ import type {
 } from "../index";
 import { writeSinks } from "../query-engine/write-sinks";
 
-const NAME = "viborm.on";
+const NAME = OFFICIAL_ON_NAME;
 
 /** What a hook is named after: what happened to the rows it receives. */
 export type OnKind = "create" | "update" | "delete";
@@ -92,11 +96,31 @@ export type OnHooks<C extends VibORMConfig = VibORMConfig> =
     : {
         readonly [M in keyof ClientSchema<C>]?: {
           readonly [K in OnKind]?: OnHook<
-            OnRow<ClientSchema<C>[M]>,
+            HookRow<OnRow<ClientSchema<C>[M]>, GatedFields<C, M>>,
             keyof ClientSchema<C> & string
           >;
         };
       };
+
+/**
+ * The fields a `rows` extension's `reads` gates on a model: the client omits
+ * them as `boolean` (a `defaultOmit()` field is `true`), and a row carries one
+ * only where the call may read it.
+ */
+type GatedFields<C, M> = C extends { readonly omit: infer Omit }
+  ? M extends keyof Omit
+    ? {
+        [K in keyof Omit[M]]: boolean extends Omit[M][K] ? K : never;
+      }[keyof Omit[M]]
+    : never
+  : never;
+
+/** A model's row with its read-gated fields optional. */
+type HookRow<Row, Gated> = [Gated] extends [never]
+  ? Row
+  : { [K in keyof Row as K extends Gated ? never : K]: Row[K] } & {
+      [K in keyof Row as K extends Gated ? K : never]?: Row[K];
+    };
 
 /** An unbound declaration: applies to any client, which it returns. */
 export type OnExtension = <
@@ -110,6 +134,8 @@ type RuntimeHooks = Readonly<
   Record<string, Readonly<Partial<Record<OnKind, RuntimeHook>>> | undefined>
 >;
 type Row = Record<string, unknown>;
+
+const HOOK_KINDS: ReadonlySet<string> = new Set(["create", "update", "delete"]);
 
 /** The kind each root operation reports; `upsert` is decided by its arm. */
 const KINDS: Readonly<Record<string, OnKind | "upsert">> = {
@@ -152,12 +178,28 @@ export function on(hooks: RuntimeHooks) {
     model: AnyModel,
     operation: string,
     args: Row,
-    chain: ResolvedExtensionChain
-  ) => plan(own, model, operation, args, chain);
+    chain: ResolvedExtensionChain,
+    callArgs: Row
+  ) => plan(own, model, operation, args, chain, callArgs);
   registerOfficialWrites(writes, { plan: writes });
   const definition = Object.freeze({ name: NAME, query: writes });
-  return (base: { $extends(definition: object): unknown }) =>
-    base.$extends(definition);
+  return (base: { $schema: object; $extends(definition: object): unknown }) => {
+    // Refused when applied, never after a write commits: an unknown model or
+    // hook name, or a hook that is no function, would otherwise run nothing.
+    for (const [model, modelHooks] of Object.entries(own)) {
+      if (!Object.hasOwn(base.$schema, model))
+        refuse(`names unknown model "${model}"`);
+      for (const [kind, hook] of Object.entries(modelHooks ?? {}))
+        if (
+          !HOOK_KINDS.has(kind) ||
+          (hook !== undefined && typeof hook !== "function")
+        )
+          refuse(
+            `${model}.${kind} must be a create, update or delete function`
+          );
+    }
+    return base.$extends(definition);
+  };
 }
 
 function plan(
@@ -165,7 +207,8 @@ function plan(
   model: AnyModel,
   operation: string,
   args: Row,
-  chain: ResolvedExtensionChain
+  chain: ResolvedExtensionChain,
+  callArgs: Row
 ): WritePlan | undefined {
   const name = model["~"].names.ts!;
   const modelHooks = hooks[name];
@@ -186,6 +229,12 @@ function plan(
         : (["delete", "update"] as const);
   if (either.every((candidate) => modelHooks[candidate] === undefined))
     return undefined;
+  // The event's own copy: neither the caller nor a hook changes the other's.
+  const eventArgs = detached(callArgs) as Row;
+  // An upsert whose update writes nothing (a `data` stamp included) leaves a
+  // found row as it was: no hook.
+  const keeps =
+    kind === "upsert" && Object.keys(args.update as Row).length === 0;
 
   const { scalars, relations } = model["~"].state;
   const isScalar = (key: string) => Object.hasOwn(scalars, key);
@@ -228,16 +277,16 @@ function plan(
     Object.freeze({
       model: name,
       operation: operation as OnOperation,
-      args,
+      args: eventArgs,
       certainty: certainty!,
     });
   const hookOf = () => {
     const hookKind =
       kind === "upsert"
-        ? created === undefined
-          ? undefined
-          : created
-            ? "create"
+        ? created
+          ? "create"
+          : created === undefined || keeps
+            ? undefined
             : "update"
         : kind;
     const hook = hookKind && modelHooks[hookKind];
@@ -277,21 +326,23 @@ function plan(
 
   return {
     args: widened,
-    finish(value, then) {
+    take(value, settle) {
       const written = Array.isArray(value) ? value : [value];
       rows = [];
-      for (const row of written)
-        if (row !== null && typeof row === "object") {
-          const copy: Row = {};
-          for (const key of Object.keys(row))
-            if (isScalar(key)) copy[key] = (row as Row)[key];
-          rows.push(copy);
-        }
-      let result = then ? then(value) : value;
-      if (returnsRows) {
-        if (Array.isArray(result)) for (const row of result) narrow(row);
-        else narrow(result as Row);
-      } else result = { count: written.length };
+      for (const row of written) {
+        const copy: Row = {};
+        for (const key of Object.keys(row as Row))
+          if (isScalar(key)) copy[key] = detached((row as Row)[key]);
+        rows.push(copy);
+      }
+      const result = returnsRows ? value : { count: written.length };
+      if (returnsRows) for (const row of written) narrow(row as Row);
+      return settle && certainty !== undefined
+        ? deliver().then(() => result)
+        : result;
+    },
+    finish(value, then) {
+      const result = then ? then(value) : value;
       return certainty === undefined ? result : deliver().then(() => result);
     },
     register(context, controls, cached) {
@@ -324,6 +375,29 @@ function plan(
       });
     },
   };
+}
+
+/**
+ * A copy of a value a hook could change under the caller (or the caller
+ * under a hook): dates, lists, JSON objects and bytes. A class instance (a
+ * `Decimal`) is immutable and shared.
+ */
+function detached(value: unknown): unknown {
+  if (value === null || typeof value !== "object") return value;
+  if (value instanceof Date) return new Date(value.getTime());
+  if (Array.isArray(value)) return value.map(detached);
+  if (value instanceof Uint8Array) return value.slice();
+  if (Object.getPrototypeOf(value) !== Object.prototype) return value;
+  const copy: Row = {};
+  for (const key of Object.keys(value))
+    copy[key] = detached((value as Row)[key]);
+  return copy;
+}
+
+function refuse(problem: string): never {
+  throw new ClientInitializationError(`Extension "${NAME}" ${problem}.`, {
+    meta: { extension: NAME },
+  });
 }
 
 const AFTER = {

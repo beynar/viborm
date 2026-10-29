@@ -2020,14 +2020,14 @@ export class Commands {
   ): PhysicalPlan | undefined {
     const ctx = this.context;
     const capabilities = ctx.driver.adapter.capabilities;
-    // A root upsert a hook concerns reports its arm: the fold can only where
-    // the adapter marks an inserted row.
+    // A root upsert a hook concerns reports its arm: the fold says it through
+    // the adapter's marker, or else through a probe of its key in the same
+    // unit; an insert a policy judges keeps the found-or-missing form.
     const sink = writeSinks.get(ctx.attribution);
-    const marked =
-      !sink ||
-      (capabilities.supportsTargetedUpsert &&
-        ctx.driver.adapter.mutations.upserted !== undefined);
-    if (!ctx.preparesBatch && (!marked || ctx.scope?.rows.stamps !== undefined))
+    const probes =
+      sink !== undefined && ctx.driver.adapter.mutations.upserted === undefined;
+    const folds = !(probes && ctx.queries.domain?.produced(model));
+    if (!ctx.preparesBatch && (!folds || ctx.scope?.rows.stamps !== undefined))
       return undefined;
     if (args.targetWhere || args.setWhere) return undefined;
     if (!capabilities.supportsReturning) return undefined;
@@ -2092,9 +2092,9 @@ export class Commands {
       fields.every((field) =>
         ctx.queries.namesUpdate(model, field, updates[field])
       );
-    if (spelled && marked && (!sink || returningSafeProjection(projection)))
+    if (spelled && folds && (!sink || returningSafeProjection(projection)))
       return {
-        single: true,
+        single: !probes,
         run: () =>
           ctx.upsertOne(
             model,
@@ -2107,7 +2107,8 @@ export class Commands {
                 "INSERT … ON CONFLICT did not produce the required record"
               );
             },
-            sink?.upserted
+            sink?.upserted,
+            probes ? lookup.query() : undefined
           ),
       };
     if (!ctx.preparesBatch) return undefined;

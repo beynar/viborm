@@ -11,9 +11,10 @@
 
 import { defaultOmit } from "@src/client/exports";
 import { PGliteDriver } from "@src/drivers/pglite";
-import { createClient, s } from "@src/index";
+import { createClient, defineExtension, s } from "@src/index";
 import { type OnEvent, type OnOperation, type OnRow, on } from "@src/on";
 import { softDelete } from "@src/soft-delete";
+import { v } from "@src/validation";
 import { expectTypeOf } from "vitest";
 
 type Equal<Left, Right> =
@@ -203,3 +204,34 @@ base.$extends(on({ user: { update: logAll }, post: { delete: logAll } }));
 type _Event = Expect<
   Equal<keyof OnEvent, "model" | "operation" | "args" | "certainty">
 >;
+
+// A field a `rows` extension's `reads` gates is optional in a hook's row: the
+// row carries it only where the call may read it. A default omit stays.
+const gating = base.$extends(
+  defineExtension({
+    name: "gating",
+    controls: { viewer: { schema: v.string() } },
+    rows: {
+      control: "as",
+      default: "default",
+      models: { post: { default: {} } },
+      verbs: {
+        post: {
+          predicates: { own: { authorId: { control: "viewer" } } },
+          reads: { title: "own" },
+        },
+      },
+    },
+  } as const)
+);
+gating.$extends(
+  on({
+    post: {
+      update: (rows) => {
+        expectTypeOf(rows[0]!).toEqualTypeOf<
+          Omit<PostRow, "title"> & { title?: string }
+        >();
+      },
+    },
+  })
+);

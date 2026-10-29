@@ -33,10 +33,11 @@ Versioning.
     whose `meta.commitCertainty` says it committed and whose `cause` is the
     hook's error.
   - A write no hook concerns runs exactly as before. One a hook concerns
-    returns whole rows through its own `RETURNING` (on PostgreSQL an upsert
-    stays one `INSERT … ON CONFLICT`); on MySQL, a `createMany`, `updateMany`
-    or `deleteMany` it concerns reads its rows in the same transaction, and
-    on SQLite an upsert reads its row first (see the docs' cost table).
+    returns whole rows through its own `RETURNING` (an upsert stays one
+    atomic `INSERT … ON CONFLICT`, which reports its arm through `xmax = 0`
+    on PostgreSQL and a probe of its key in the same unit on SQLite); on
+    MySQL, a `createMany`, `updateMany` or `deleteMany` it concerns reads its
+    rows in the same transaction (see the docs' cost table).
   - Rows written through a nested write, many-to-many links, database
     cascades and raw SQL call no hook.
 

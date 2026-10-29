@@ -153,12 +153,27 @@ function finishArrayResults(
   if (chain?.result === undefined && chain?.writes === undefined) return run();
   const members = [...operations] as object[];
   return run().then(async (values) => {
-    // One member at a time: a member's write hooks run in member order.
+    // One member at a time: a member's write hooks run in member order, and
+    // one failing does not keep the next from running.
+    const failures: unknown[] = [];
     for (const [index, operation] of members.entries()) {
       const owner = transactionOperationOwner(operation);
-      if (owner.finishResult)
-        values[index] = await owner.finishResult(operation, values[index]);
+      try {
+        if (owner.finishResult)
+          values[index] = await owner.finishResult(operation, values[index]);
+      } catch (failure) {
+        failures.push(failure);
+      }
     }
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1)
+      throw new AggregateError(
+        failures,
+        "Several array members failed after commit.",
+        {
+          cause: failures[0],
+        }
+      );
     return values;
   });
 }

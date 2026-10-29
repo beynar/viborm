@@ -46,7 +46,11 @@ import {
   type RowsBinding,
   undeclaredControlReferencesOf,
 } from "./rows";
-import { officialWritesOf, type WritesCapability } from "./writes";
+import {
+  OFFICIAL_ON_NAME,
+  officialWritesOf,
+  type WritesCapability,
+} from "./writes";
 
 /** The fixed name admission reserves for the official instrumentation extension. */
 export const OFFICIAL_INSTRUMENTATION_NAME = "viborm.instrumentation";
@@ -543,6 +547,15 @@ export function appendResolvedExtension(
     );
   }
   const incomingWrites = officialWritesOf(definition.query);
+  assertOfficialExtensionAdmission({
+    definitionName: definition.name,
+    officialName: OFFICIAL_ON_NAME,
+    label: "on",
+    hasIdentity: incomingWrites !== undefined,
+    isAlreadyPresent: chain?.writes !== undefined,
+    duplicateMessage:
+      "The official on extension is already present on this client.",
+  });
   const effectiveDefinition =
     incomingCache === undefined
       ? incomingDefaultOmit === undefined

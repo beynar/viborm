@@ -269,10 +269,10 @@ reads a relation is first materialized in a derived table there.
   delete). MySQL's `ON DUPLICATE KEY UPDATE` fires on any unique key, which
   could silently update a row the call never named, so MySQL always probes.
 - **An upsert a [write hook](/docs/extensions/on) concerns** must say which arm
-  it took. On PostgreSQL the fold still serves it: its `RETURNING` carries
-  `xmax = 0`, true for an inserted row. SQLite's statement cannot say, so
-  there such an upsert takes the probe instead (3 statements in a transaction,
-  2 batches on D1).
+  it took, and keeps the fold. On PostgreSQL its `RETURNING` carries
+  `xmax = 0`, true for an inserted row. SQLite's statement cannot say, so a
+  probe of the key goes just before it, in the same transaction (in the same
+  batch on D1): 2 statements.
 - **The probe.** Where the upsert is not folded (and for `connectOrCreate`), a
   probe decides between update and create. On PostgreSQL it reads
   `FOR UPDATE`: a miss locks nothing there, and a hit holds the row, so the

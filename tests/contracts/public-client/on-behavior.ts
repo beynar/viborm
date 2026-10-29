@@ -4,7 +4,7 @@ import type { Sql } from "@sql";
 import { MemoryCache } from "@src/cache/drivers/memory";
 import { cache } from "@src/cache/exports";
 import { defaultOmit } from "@src/client/default-omit-extension";
-import { createClient, s } from "@src/index";
+import { createClient, Decimal, defineExtension, s } from "@src/index";
 import { type OnEvent, on } from "@src/on";
 import { permissions } from "@src/permissions";
 import { softDelete } from "@src/soft-delete";
@@ -29,12 +29,14 @@ export function onSchema() {
     email: s.string().unique(),
     name: s.string(),
     passwordHash: s.string().default("x"),
+    avatar: s.blob().nullable(),
     posts: s.toMany(() => post).name("author"),
   });
   const post = s.model({
     id: s.string().id(),
     title: s.string(),
     views: s.int().default(0),
+    price: s.decimal({ precision: 10, scale: 2 }).nullable(),
     authorId: s.string(),
     author: s
       .toOne(() => user)
@@ -51,17 +53,20 @@ const ADA = {
   email: "ada@example.com",
   name: "Ada",
   passwordHash: "x",
+  avatar: null,
 };
 const BOB = {
   id: "u2",
   email: "bob@example.com",
   name: "Bob",
   passwordHash: "x",
+  avatar: null,
 };
 const post = (id: string, authorId: string, views = 0) => ({
   id,
   title: `title ${id}`,
   views,
+  price: null,
   authorId,
   deletedAt: null,
 });
@@ -177,6 +182,7 @@ export function runOnBehavior(provider: OnProvider): void {
                 email: "cy@example.com",
                 name: "Cy",
                 passwordHash: "x",
+                avatar: null,
               },
             ],
             event: {
@@ -289,6 +295,7 @@ export function runOnBehavior(provider: OnProvider): void {
                 email: "nine@example.com",
                 name: "Nine",
                 passwordHash: "x",
+                avatar: null,
               },
             ],
           ],
@@ -784,6 +791,346 @@ export function runOnBehavior(provider: OnProvider): void {
       });
     });
 
+    describe("adversarial review", () => {
+      test("an upsert inside $transaction([...]) calls its arm's hook on every driver", async () => {
+        const { db, calls } = await open();
+        await db.$transaction([
+          db.user.upsert({
+            where: { id: "u9" },
+            create: { id: "u9", email: "nine@example.com", name: "Nine" },
+            update: { name: "never" },
+          }),
+          db.user.upsert({
+            where: { id: "u1" },
+            create: { id: "u1", email: "never@example.com", name: "never" },
+            update: { name: "Ada L." },
+          }),
+        ]);
+        expect(
+          calls.map((call) => [call.hook, call.rows.map((row) => row.id)])
+        ).toEqual([
+          ["user.create", ["u9"]],
+          ["user.update", ["u1"]],
+        ]);
+      });
+
+      test("another extension's query handler sees the call's own value, never the hook's whole rows", async () => {
+        const base = await openOnFixture(
+          provider.createDriver(),
+          provider.sync
+        );
+        opened.push(base);
+        const seen: unknown[] = [];
+        const { calls, hooks } = recorder();
+        const noting = defineExtension({
+          name: "noting",
+          async query({ proceed }) {
+            const value = await proceed();
+            seen.push(structuredClone(value));
+            return value;
+          },
+        });
+        for (const db of [
+          base.$extends(on(hooks)).$extends(noting),
+          base.$extends(noting).$extends(on(hooks)),
+        ]) {
+          seen.length = 0;
+          await db.post.updateMany({
+            where: { authorId: "u1" },
+            data: { views: 3 },
+          });
+          await db.user.update({
+            where: { id: "u2" },
+            data: { name: "Bobby" },
+            select: { id: true },
+          });
+          expect(seen).toEqual([{ count: 2 }, { id: "u2" }]);
+        }
+        expect(calls.map((call) => call.hook)).toEqual([
+          "post.update",
+          "user.update",
+          "post.update",
+          "user.update",
+        ]);
+      });
+
+      test("in $transaction([...]), one member's failing hook does not keep the next member's from running", async () => {
+        const base = await openOnFixture(
+          provider.createDriver(),
+          provider.sync
+        );
+        opened.push(base);
+        const ran: string[] = [];
+        const db = base.$extends(
+          on({
+            post: {
+              update: (rows) => {
+                ran.push(String(rows[0]!.id));
+                if (rows[0]!.id === "p1") throw new Error("p1 down");
+              },
+            },
+          })
+        );
+        const error = await failure(
+          db.$transaction([
+            db.post.update({ where: { id: "p1" }, data: { views: 1 } }),
+            db.post.update({ where: { id: "p2" }, data: { views: 2 } }),
+          ])
+        );
+        expect(error).toBeInstanceOf(QueryError);
+        expect(ran).toEqual(["p1", "p2"]);
+      });
+
+      test("a hook's rows and event are copies: neither the caller nor the hook changes the other's", async () => {
+        const base = await openOnFixture(
+          provider.createDriver(),
+          provider.sync
+        );
+        opened.push(base);
+        if (!base.$driver.supportsTransactions) return;
+        const received: Record<string, unknown>[] = [];
+        let eventArgs: Record<string, unknown> | undefined;
+        const db = base.$extends(
+          on({
+            post: {
+              update: (rows, event) => {
+                received.push(...rows);
+                eventArgs = event.args as Record<string, unknown>;
+                (event.args as { data: { views: number } }).data.views = 999;
+              },
+            },
+          })
+        );
+        const args = {
+          where: { id: "p1" },
+          data: { views: 5, deletedAt: new Date("2026-01-01T00:00:00.000Z") },
+        };
+        await db.$transaction(async (tx) => {
+          const row = await tx.post.update(args);
+          row.deletedAt?.setUTCFullYear(1999);
+          args.where.id = "changed";
+        });
+        expect(args.data.views).toBe(5);
+        expect((received[0]!.deletedAt as Date).toISOString()).toBe(
+          "2026-01-01T00:00:00.000Z"
+        );
+        expect(eventArgs).toMatchObject({ where: { id: "p1" } });
+      });
+
+      test("concurrent upserts of one new key a hook concerns all succeed: one create, the rest updates", async () => {
+        const { db, calls } = await open();
+        const upsert = (name: string) =>
+          db.user.upsert({
+            where: { id: "u7" },
+            create: { id: "u7", email: "seven@example.com", name },
+            update: { name },
+          });
+        const settled = await Promise.allSettled([
+          upsert("a"),
+          upsert("b"),
+          upsert("c"),
+        ]);
+        expect(settled.map((each) => each.status)).toEqual([
+          "fulfilled",
+          "fulfilled",
+          "fulfilled",
+        ]);
+        expect(calls.map((call) => call.hook).sort()).toEqual([
+          "user.create",
+          "user.update",
+          "user.update",
+        ]);
+      });
+
+      test("bytes in a hook's rows are its own copy", async () => {
+        const base = await openOnFixture(
+          provider.createDriver(),
+          provider.sync
+        );
+        opened.push(base);
+        const received: Record<string, unknown>[] = [];
+        const db = base.$extends(
+          on({
+            user: {
+              update: (rows) => {
+                received.push(...rows);
+              },
+              delete: undefined,
+            },
+            post: undefined,
+          })
+        );
+        const updated = await db.user.update({
+          where: { id: "u1" },
+          data: { avatar: new Uint8Array([1, 2, 3]) },
+        });
+        updated.avatar![0] = 9;
+        expect([...(received[0]!.avatar as Uint8Array)]).toEqual([1, 2, 3]);
+      });
+
+      test("a Decimal in a hook's rows and event.args is the same immutable value", async () => {
+        const { db, calls } = await open();
+        const price = new Decimal("1.50");
+        await db.post.update({ where: { id: "p1" }, data: { price } });
+        const row = calls[0]!.rows[0]!;
+        expect(row.price).toBeInstanceOf(Decimal);
+        expect(String(row.price)).toBe("1.5");
+        expect(
+          (calls[0]!.event.args as { data: { price: Decimal } }).data.price
+        ).toBe(price);
+      });
+
+      test("an empty upsert update writes nothing, a data stamp included, and calls no hook", async () => {
+        const base = await openOnFixture(
+          provider.createDriver(),
+          provider.sync
+        );
+        opened.push(base);
+        const { calls, hooks } = recorder();
+        const db = base
+          .$extends({
+            name: "stamp",
+            data: { models: { user: { update: { name: "stamped" } } } },
+          })
+          .$extends(on(hooks));
+        await db.user.upsert({
+          where: { id: "u1" },
+          create: { id: "u1", email: "never@example.com", name: "never" },
+          update: {},
+        });
+        expect(calls).toEqual([]);
+        expect(
+          (await base.user.findUniqueOrThrow({ where: { id: "u1" } })).name
+        ).toBe("Ada");
+      });
+
+      test("an upsert whose update writes nothing calls no hook on the row it found", async () => {
+        const { db, calls } = await open();
+        await db.user.upsert({
+          where: { id: "u1" },
+          create: { id: "u1", email: "never@example.com", name: "never" },
+          update: {},
+        });
+        expect(calls).toEqual([]);
+      });
+
+      test("a handler that throws after a committed write does not lose the hook", async () => {
+        const base = await openOnFixture(
+          provider.createDriver(),
+          provider.sync
+        );
+        opened.push(base);
+        const { calls, hooks } = recorder();
+        const late = new Error("after proceed");
+        const db = base.$extends(on(hooks)).$extends(
+          defineExtension({
+            name: "late",
+            async query({ proceed }) {
+              await proceed();
+              throw late;
+            },
+          })
+        );
+        expect(
+          await failure(
+            db.post.update({ where: { id: "p1" }, data: { views: 42 } })
+          )
+        ).toBe(late);
+        expect(calls.map((call) => call.hook)).toEqual(["post.update"]);
+      });
+
+      test("two failing hooks in one callback transaction: an AggregateError of their QueryErrors", async () => {
+        const base = await openOnFixture(
+          provider.createDriver(),
+          provider.sync
+        );
+        opened.push(base);
+        if (!base.$driver.supportsTransactions) return;
+        const db = base.$extends(
+          on({
+            post: {
+              update: () => {
+                throw new Error("down");
+              },
+            },
+          })
+        );
+        const error = await failure(
+          db.$transaction(async (tx) => {
+            await tx.post.update({ where: { id: "p1" }, data: { views: 1 } });
+            await tx.post.update({ where: { id: "p2" }, data: { views: 1 } });
+          })
+        );
+        expect(error).toBeInstanceOf(AggregateError);
+        const errors = (error as AggregateError).errors;
+        expect(errors).toHaveLength(2);
+        for (const each of errors) {
+          expect(each).toBeInstanceOf(QueryError);
+          expect((each as QueryError).meta.method).toBe("on");
+        }
+      });
+
+      test("the official name is reserved, and a second on() is refused under any name", async () => {
+        const { base, db } = await open();
+        expect(() =>
+          base.$extends({
+            name: "viborm.on",
+            statement: (s: { statement: Sql }) => s.statement,
+          })
+        ).toThrow(ClientInitializationError);
+        const second = on({ user: { update: () => undefined } }) as unknown as (
+          b: object
+        ) => unknown;
+        let definition: { name: string; query: unknown } | undefined;
+        second({
+          $schema: base.$schema,
+          $extends: (value: { name: string; query: unknown }) => {
+            definition = value;
+          },
+        });
+        expect(() =>
+          db.$extends({ ...definition!, name: "renamed" } as never)
+        ).toThrow(ClientInitializationError);
+      });
+
+      test("zero cost in a failed $transaction([...]) of writes no hook concerns: the same error as without on()", async () => {
+        const base = await openOnFixture(
+          provider.createDriver(),
+          provider.sync
+        );
+        opened.push(base);
+        const db = base.$extends(on({ user: { delete: () => undefined } }));
+        const run = (client: typeof base) =>
+          failure(
+            client.$transaction([
+              client.post.update({ where: { id: "p1" }, data: { views: 9 } }),
+              client.post.update({ where: { id: "none" }, data: { views: 9 } }),
+            ])
+          );
+        const plain = (await run(base)) as NotFoundError;
+        const hooked = (await run(db as typeof base)) as NotFoundError;
+        expect(hooked).toBeInstanceOf(NotFoundError);
+        expect({ ...hooked.meta, correlationId: undefined }).toEqual({
+          ...plain.meta,
+          correlationId: undefined,
+        });
+      });
+
+      test("a declaration naming an unknown model or hook, or a hook that is no function, is refused when applied", async () => {
+        const { base } = await open();
+        // Untyped JavaScript: the declaration's own types refuse all three.
+        const loose = on as unknown as (hooks: object) => (b: Base) => Base;
+        for (const hooks of [
+          { usr: { update: () => undefined } },
+          { user: { updated: () => undefined } },
+          { user: { update: "sync" } },
+        ])
+          expect(() => base.$extends(loose(hooks))).toThrow(
+            ClientInitializationError
+          );
+      });
+    });
+
     describe("interplay", () => {
       test("defaultOmit hides a field from the caller, never from the hook", async () => {
         const base = await openOnFixture(
@@ -807,6 +1154,7 @@ export function runOnBehavior(provider: OnProvider): void {
           id: "u1",
           email: "ada@example.com",
           name: "Ada L.",
+          avatar: null,
         });
         expect(calls[0]!.rows).toEqual([{ ...ADA, name: "Ada L." }]);
       });

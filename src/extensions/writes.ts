@@ -15,8 +15,14 @@ export interface WritePlan {
   /** The arguments the engine runs: the caller's, widened to whole rows. */
   readonly args: Record<string, unknown>;
   /**
-   * The caller's value from the engine's, then `then` (the chain's computed
-   * fields) over it; a promise when hooks run before the write resolves.
+   * The engine's value, before any extension sees it: the hook's rows taken,
+   * the value cut back to the call's own projection. `settle`: where the
+   * write has already committed, run the hooks first (a promise then).
+   */
+  take(value: unknown, settle?: true): unknown;
+  /**
+   * The caller's last step: `then` (the chain's computed fields) over the
+   * value, after the hooks when the commit came first (a promise then).
    */
   finish(value: unknown, then?: (value: unknown) => unknown): unknown;
   /**
@@ -36,9 +42,14 @@ export interface WritesCapability {
     model: AnyModel,
     operation: string,
     args: Record<string, unknown>,
-    chain: ResolvedExtensionChain
+    chain: ResolvedExtensionChain,
+    /** The call's arguments before computed fields are planned. */
+    callArgs: Record<string, unknown>
   ): WritePlan | undefined;
 }
+
+/** The fixed name admission reserves for the official `on` extension. */
+export const OFFICIAL_ON_NAME = "viborm.on";
 
 const capabilities = new WeakMap<object, WritesCapability>();
 

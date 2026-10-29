@@ -363,10 +363,13 @@ write's one registration on the `TransactionWriteOutcomes` rail (after the
 cache's), so hooks run after the outermost commit and never after a rollback.
 A write no hook concerns is planned as written. Raptor 3 reports only a root
 upsert's arm, through `src/query-engine/write-sinks.ts` (keyed by the
-operation's attribution): its `INSERT … ON CONFLICT` fold returns the
-adapter's `mutations.upserted` marker (PostgreSQL's `xmax = 0`) beside the
-row, and where an adapter has none the upsert takes its found-or-missing form;
-nested writes report nothing.
+operation's attribution, registered before any planning): its
+`INSERT … ON CONFLICT` fold returns the adapter's `mutations.upserted` marker
+(PostgreSQL's `xmax = 0`) beside the row, and where an adapter has none a
+probe of the key rides the same unit just before it; nested writes report
+nothing. The client cuts a hooked write's value back to the call's own
+projection (`takeResult`) before any extension sees it, so query handlers
+never see the hook's whole rows.
 
 `cache()` produces a namespace-free DEFINITION; the client composition root
 binds it to the concrete driver, deriving one scope from the private snapshot

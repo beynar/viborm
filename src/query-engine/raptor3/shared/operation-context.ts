@@ -2541,8 +2541,11 @@ export class OperationContext {
       count: (response) => response.rows.length,
     };
   }
-  /** Complete one set mutation through its single count/projection tail. */
-  /** `marked`: a column the statement returns beside a scalar projection, read off each row. */
+  /**
+   * Complete one set mutation through its single count/projection tail.
+   * `marked`: a column the statement returns beside a scalar projection,
+   * read off each row.
+   */
   #completeSetMutation(
     model: AnyModel,
     statement: Sql,
@@ -2861,7 +2864,8 @@ export class OperationContext {
     target: readonly string[],
     projection?: PreparedProjection,
     single?: () => Error,
-    upserted?: (created: boolean) => void
+    upserted?: (created: boolean) => void,
+    found?: Query
   ): Promise<unknown> {
     const q = this.queries;
     const adapter = this.driver.adapter;
@@ -2888,6 +2892,37 @@ export class OperationContext {
         )
       )
     );
+    const judged = placed && { model, refusal: this.#forbidden };
+    // Without a marker, the arm is the probe of the key the statement
+    // conflicts on, read in the same unit just before it.
+    if (found)
+      return this.setMutations(
+        [
+          {
+            sql: found.sql,
+            context: this.statementContext(model, this.operation),
+          },
+          {
+            sql: this.#answering(
+              model,
+              sql`${insert} ${conflict}`,
+              projection!
+            ),
+            context: this.statementContext(model, this.operation),
+          },
+        ],
+        ([probe, written]) => {
+          upserted!(probe!.rows.length === 0);
+          return this.published(
+            this.publishedProjection(
+              projection!.shape,
+              written!.rows.map(record)
+            ),
+            single
+          );
+        },
+        judged
+      );
     const marker = upserted && adapter.mutations.upserted;
     // The arm the statement took rides its RETURNING beside the row.
     const flag = "__viborm_inserted";
@@ -2896,9 +2931,9 @@ export class OperationContext {
       sql`${insert} ${conflict}`,
       projection,
       single,
-      placed && { model, refusal: this.#forbidden },
+      judged,
       marker && {
-        column: sql`${marker} AS ${adapter.identifiers.escape(flag)}`,
+        column: adapter.identifiers.aliased(marker, flag),
         read: (row) => {
           upserted!(row[flag] === true);
           delete row[flag];

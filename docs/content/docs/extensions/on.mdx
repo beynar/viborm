@@ -60,12 +60,12 @@ A write that changes no row (an `updateMany` matching nothing) calls no hook.
 | `createMany` | `create` | the created rows; with `skipDuplicates`, only those inserted |
 | `update` | `update` | the row after the update |
 | `updateMany` | `update` | every row it matched, after the update |
-| `upsert` | `create` when it inserted, `update` when it updated | the row after the write |
+| `upsert` | `create` when it inserted, `update` when it updated (an empty `update: {}` writes nothing and calls no hook) | the row after the write |
 | `delete` | `delete` | the row before the delete |
 | `deleteMany` | `delete` | every row it deleted, before the delete |
 | `delete`, `deleteMany` of a model [soft delete](/docs/extensions/soft-delete) manages | `update` | the rows after the tombstone is written; with `mode: "hard"`, `delete` and the rows before |
 | `restore`, `restoreMany` (soft delete) | `update` | the rows after the restore |
-| `connect` or `disconnect` of a relation whose foreign key the called row holds | the called row's own hook (`update`, or `create`) | that row, with its new foreign key |
+| `connect` or `disconnect` of a relation whose foreign key the called row holds | the called row's own hook (`update`, or `create`) | that row, with its new foreign key (a polymorphic relation's columns are not in the row, see [below](#the-rows-a-hook-receives)) |
 
 What never calls a hook:
 
@@ -102,7 +102,9 @@ What never calls a hook:
   failed.
 
 **A hook cannot change or cancel the write.** It runs after the commit; the
-rows it receives are copies, and what it returns is ignored.
+rows and the `event.args` it receives are its own copies (neither the caller
+nor the hook changes what the other holds), and what it returns is only
+awaited.
 
 **If the process dies after the commit, the hook is lost.** There is no
 outbox: a hook that must run for every committed write belongs in the same
@@ -153,45 +155,66 @@ after the write committed; the write is not undone.`), `meta` carries
 `cause` is the error the hook threw. This is how every write-outcome listener
 failure is reported (see
 [Create an extension](/docs/extensions/create#wrap-logical-execution)): the
-write's promise rejects, and its error says the write committed. Inside a
-transaction it is the `$transaction` promise that rejects, with the same
-error, after the commit.
+write's promise rejects, and its error says the write committed.
 
-When one write's hooks and the [cache](/docs/extensions/cache)'s invalidation
-both fail, the error is an `AggregateError` holding both.
+- **Inside a transaction** it is the `$transaction` promise that rejects,
+  after the commit. Every hook still runs: one failure rejects with its
+  `QueryError`; several reject with an `AggregateError` whose `errors` are
+  those `QueryError`s.
+- **In `$transaction([...])`** likewise: every member's hooks run, in member
+  order, and the failures reject the array, alone or in an `AggregateError`.
+- When one write's hooks and the [cache](/docs/extensions/cache)'s
+  invalidation both fail, the error is an `AggregateError` holding both.
+- A [`query` handler](/docs/extensions/create#wrap-logical-execution) that
+  throws after its write committed does not lose the hook: it has already run.
+
+Check `error.meta?.method === "on"` on the error and, for an
+`AggregateError`, on each of its `errors`.
 
 ## Request-scoped values (Cloudflare Workers)
 
 A hook often needs something that only exists during a request, such as the
-Worker's `ctx` for `ctx.waitUntil()`. Define the base client once, at module
-scope, and apply `on()` **per request**, closing over the request's values:
+Worker's `ctx` for `ctx.waitUntil()`. Apply `on()` **per request**, inside a
+function that takes the client, so the client's schema still types the hooks
+and the hooks close over the request's values:
 
 ```ts
 import { createClient } from "viborm/d1";
 import { on } from "viborm/on";
 
-const hooks = (ctx: ExecutionContext, env: Env) =>
-  on({
-    user: {
-      update: (rows) => {
-        ctx.waitUntil(env.SYNC_QUEUE.sendBatch(rows.map((body) => ({ body }))));
+// D1's binding exists only in the request's env: build the client there.
+const database = (env: Env) => createClient({ database: env.DB, schema });
+type Database = ReturnType<typeof database>;
+
+// `db.$extends(on(...))` inside: rows, models and hooks are typed from `db`.
+const withHooks = (db: Database, ctx: ExecutionContext, env: Env) =>
+  db.$extends(
+    on({
+      user: {
+        update: (rows) => {
+          ctx.waitUntil(env.SYNC_QUEUE.sendBatch(rows.map((body) => ({ body }))));
+        },
       },
-    },
-  });
+    })
+  );
 
 export default {
   async fetch(request, env, ctx) {
-    const base = createClient({ database: env.DB, schema });
-    const db = base.$extends(hooks(ctx, env));
+    const db = withHooks(database(env), ctx, env);
     await db.user.update({ where: { id: "u1" }, data: { name: "Ada" } });
     return new Response("ok");
   },
 } satisfies ExportedHandler<Env>;
 ```
 
-The client `$extends` returns shares the base client's schema, driver and
+The client `$extends` returns shares its base client's schema, driver and
 connection; deriving it per request costs one `$extends`. Nothing is shared
 between requests: two concurrent requests each hold their own `ctx`.
+
+A declaration made apart from any client (`const hooks = (ctx) => on({...})`)
+also works, but nothing types it: any model name and plain records. Keep the
+`$extends(on(...))` call where the client is in scope, as above, to keep the
+editor's checks.
 
 Why not the other two places a request value could come from:
 
@@ -204,7 +227,7 @@ Why not the other two places a request value could come from:
   give it.
 
 When the base client already binds per request (permissions' `$as`), apply
-`on()` to the bound client: `base.$as(actor).$extends(hooks(ctx, env))`.
+`on()` to the bound client: `withHooks(base.$as(actor), ctx, env)`.
 
 ## The rows a hook receives
 
@@ -221,7 +244,11 @@ schema alone (`InferDatabase<typeof schema>["user"]["Row"]`, also exported as
 - **The call's `select`, `include` and `omit` do not change it.** The caller
   still receives exactly the projection it asked for.
 - Under [permissions](/docs/extensions/permissions), a field `reads` gates is
-  in a row only where the call may read it, as in a default projection.
+  in a row only where the call may read it, as in a default projection; its
+  type in a hook's row is optional.
+- **A polymorphic relation's columns are not in the row**, as they are not in
+  a default projection: a hook cannot see which variant a row now points to.
+  Read the relation itself when you need it.
 
 ## What a hook costs
 
@@ -237,7 +264,7 @@ transaction adds its `BEGIN` and `COMMIT`:
 | `createMany` of N rows | 1 → 1 | 1 → 1 | 1 → 1 | 1 → 2 (one INSERT, one read) in a transaction |
 | `updateMany` | 1 → 1 | 1 → 1 | 1 → 1 | 1 → 3 (lock the keys, write, read) in a transaction |
 | `deleteMany` | 1 → 1 | 1 → 1 | 1 → 1 | 1 → 2 (lock and read, delete) in a transaction |
-| `upsert` | 1 → 1 | 1 → 3 in a transaction | 1 → 2 batches | unchanged (3–5 in a transaction) |
+| `upsert` | 1 → 1 | 1 → 2 in a transaction | 1 → 2 in one batch | unchanged (3–5 in a transaction) |
 
 - Where a write already returns its row, a hook only widens what it returns
   to every column: no extra statement.
@@ -249,18 +276,28 @@ transaction adds its `BEGIN` and `COMMIT`:
   `skipDuplicates`, to learn which rows it inserted); a `deleteMany` locks and
   reads its rows in one `SELECT … FOR UPDATE`; an `updateMany` locks their
   keys, writes them and reads them back.
-- An `upsert` reports which arm it took. On PostgreSQL its single
-  `INSERT … ON CONFLICT` statement says so in its `RETURNING` (`xmax = 0`).
-  SQLite's cannot, so there an upsert a hook concerns reads the row first,
-  then inserts or updates it.
+- An `upsert` reports which arm it took and stays one atomic
+  `INSERT … ON CONFLICT`. On PostgreSQL its `RETURNING` says so (`xmax = 0`).
+  SQLite's statement cannot, so a probe of the key goes just before it, in the
+  same transaction (in the same batch on D1). On a PostgreSQL **partitioned or
+  foreign table**, PostgreSQL cannot return `xmax`: an upsert a hook concerns
+  fails there, so do not hook upserts of such a table.
 
 ## Composing
 
 `on()` is not a result consumer: apply it before or after any other
 extension. It sees the writes of the whole chain, including the update a soft
 delete makes of a delete and the rows a permission lets a call write (a row the
-call may not write is not written, so it calls no hook). One client carries
-one `on()`: put every hook in one call.
+call may not write is not written, so it calls no hook). Every other
+extension's `query` handler sees the call's own value, exactly what the caller
+asked for, never the whole rows the hook receives.
+
+One client carries one `on()`: put every hook in one call. The declaration is
+checked when it is applied: a model the schema lacks, a hook name other than
+`create`, `update` and `delete`, or a hook that is no function is a
+`ClientInitializationError` there. To name a hooked client's type, use
+`typeof` (`ExtendedClient` takes object definitions, not a factory such as
+`on()`).
 
 ## Not covered
 
