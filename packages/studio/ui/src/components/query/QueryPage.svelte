@@ -177,7 +177,7 @@ const unsaved = $derived(
         code: saved.code,
       })
 );
-let queryName = $state(untrack(() => saved?.name ?? ""));
+let queryName = $derived(saved?.name ?? "");
 let pickedIcon = $state<ModelIcon>();
 const queryIcon = $derived(pickedIcon ?? saved?.icon);
 let choosingIcon = $state(false);

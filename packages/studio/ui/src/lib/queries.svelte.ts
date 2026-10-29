@@ -56,6 +56,18 @@ export class Queries extends SavedItems<SavedQuery> {
     );
   }
 
+  rename(id: string, name: string): Promise<void> {
+    const trimmed = name.trim();
+    if (!trimmed) return Promise.reject(new Error("Enter a query name."));
+    return this.change((list) => {
+      if (!list.some((query) => query.id === id))
+        throw new Error("This query no longer exists.");
+      return list.map((query) =>
+        query.id === id ? { ...query, name: trimmed } : query
+      );
+    });
+  }
+
   setIcon(id: string, icon: ModelIcon): Promise<void> {
     return this.change((list) =>
       list.map((query) => (query.id === id ? { ...query, icon } : query))

@@ -10,9 +10,11 @@ import { databaseIcon } from "entasis/icons/database";
 import { graphIcon } from "entasis/icons/graph";
 import { imageSquareIcon } from "entasis/icons/imageSquare";
 import { magnifyingGlassIcon } from "entasis/icons/magnifyingGlass";
+import { pencilSimpleIcon } from "entasis/icons/pencilSimple";
 import { sidebarSimpleIcon } from "entasis/icons/sidebarSimple";
 import { terminalWindowIcon } from "entasis/icons/terminalWindow";
 import { trashIcon } from "entasis/icons/trash";
+import { Popover } from "entasis/popover";
 import type { SidebarApi } from "entasis/sidebar";
 import { Theme } from "entasis/theme";
 import { Toaster, toast } from "entasis/toast";
@@ -171,6 +173,60 @@ async function chooseIcon(target: IconTarget, icon: ModelIcon) {
   }
 }
 
+let renaming = $state<{ id: string; name: string; anchor: HTMLElement }>();
+let renameBusy = $state(false);
+let renameError = $state("");
+
+function beginRename(query: SavedQuery) {
+  if (renameBusy) return;
+  const row = Array.from(
+    document.querySelectorAll("a.studio-saved-query")
+  ).find((element) => element.getAttribute("href") === queryHref(query));
+  const anchor = row?.querySelector(".studio-sidebar-label");
+  if (!(anchor instanceof HTMLElement)) return;
+  renameError = "";
+  renaming = { id: query.id, name: query.name, anchor };
+}
+function queryFromTarget(target: EventTarget | null) {
+  if (!(target instanceof Element)) return;
+  const row = target.closest("a.studio-saved-query");
+  return queries?.list.find(
+    (query) => queryHref(query) === row?.getAttribute("href")
+  );
+}
+function renameOnDoubleClick(event: MouseEvent) {
+  const query = queryFromTarget(event.target);
+  if (!query) return;
+  event.preventDefault();
+  beginRename(query);
+}
+function renameOnKey(event: KeyboardEvent) {
+  if (event.key !== "F2") return;
+  const query = queryFromTarget(event.target);
+  if (!query) return;
+  event.preventDefault();
+  beginRename(query);
+}
+async function saveRename() {
+  const edit = renaming;
+  if (!(edit && queries) || renameBusy) return;
+  const name = edit.name.trim();
+  if (!name) {
+    renameError = "Enter a query name.";
+    return;
+  }
+  renameBusy = true;
+  renameError = "";
+  try {
+    await queries.rename(edit.id, name);
+    if (renaming === edit) renaming = undefined;
+  } catch (error) {
+    renameError = error instanceof Error ? error.message : String(error);
+  } finally {
+    renameBusy = false;
+  }
+}
+
 async function duplicateQuery(query: SavedQuery) {
   if (!queries) return;
   try {
@@ -241,6 +297,8 @@ async function removeQuery(query: SavedQuery) {
 const sidebar = $derived<AppShellSidebarProps>({
   collapsible: "icon",
   theme: {
+    menuLabel: { base: "studio-sidebar-label" },
+    menuButton: { base: "[&>svg]:translate-y-px" },
     header: { base: "group-data-[collapsible=icon]:py-md" },
     footer: { base: "group-data-[collapsible=icon]:py-md" },
   },
@@ -284,6 +342,7 @@ const sidebar = $derived<AppShellSidebarProps>({
             label: "Queries",
             items: queries.list.map((query) => ({
               label: query.name,
+              class: "studio-saved-query",
               href: queryHref(query),
               icon: query.icon ? MODEL_ICON[query.icon] : terminalWindowIcon,
               badge: query.code === undefined ? query.model : "Code",
@@ -296,6 +355,12 @@ const sidebar = $derived<AppShellSidebarProps>({
                     title: "Change icon",
                     prefix: imageSquareIcon,
                     onclick: () => (iconFor = { kind: "query", item: query }),
+                  },
+                  {
+                    type: "option" as const,
+                    title: "Rename",
+                    prefix: pencilSimpleIcon,
+                    onclick: () => beginRename(query),
                   },
                   {
                     type: "option" as const,
@@ -394,6 +459,8 @@ const sidebar = $derived<AppShellSidebarProps>({
   </div>
 {/snippet}
 
+<svelte:document ondblclick={renameOnDoubleClick} onkeydown={renameOnKey} />
+
 <Theme>
   {#snippet children()}
     <AppShell variant="inset" {sidebar} contentPadding="none" contentWidth="full" title="VibORM Studio">
@@ -409,6 +476,26 @@ const sidebar = $derived<AppShellSidebarProps>({
     </AppShell>
     {#if schema}
       <Palette bind:open={paletteOpen} {schema} {views} {queries} {changes} navigate={navigateModel} />
+    {/if}
+    {#if renaming}
+      <Popover defaultOpen trigger={false} ref={renaming.anchor} label="Rename query" focusOnOpen="first" fitTrigger
+        theme={{ popover: { base: 'bg-surface rounded-sm shadow-none', size: { normal: 'w-full max-w-none p-0' } } }}
+        positionPanel={({ reference }) => { const box = reference.getBoundingClientRect(); return { x: box.x - 4, y: box.y - 4, minWidth: Math.max(120, box.width + 8) }; }}
+        onOpenChange={(open, details) => {
+          if (open) return;
+          if (renameBusy) { details.cancel(); return; }
+          if (details.reason === 'escape-key' || details.reason === 'trigger-unmount') { renaming = undefined; return; }
+          details.cancel(); saveRename();
+        }}>
+        {#snippet children()}
+          {#if renaming}
+            <form class="grid" onsubmit={event => { event.preventDefault(); saveRename(); }}>
+              <input aria-label="Query name" aria-invalid={!!renameError} aria-describedby={renameError ? 'query-rename-error' : undefined} class="h-7 w-full min-w-0 rounded-sm border border-neutral-muted bg-surface px-1 text-[14px] leading-5 text-neutral outline-none focus:border-primary" bind:value={renaming.name} readonly={renameBusy} onfocus={event => event.currentTarget.select()} />
+              {#if renameError}<span id="query-rename-error" role="alert" class="px-1 py-1 text-[12px] text-danger">{renameError}</span>{/if}
+            </form>
+          {/if}
+        {/snippet}
+      </Popover>
     {/if}
     <!-- Bottom right: the changes bar holds the bottom centre. -->
     <Toaster position="bottom-right" />
