@@ -186,7 +186,7 @@ const setValue = (id: number, value: string) => update(id, { value });
   {/if}
   {#each conditions as entry, index (entry.id)}
     {#if index > 0}
-      <span class="w-fit rounded-sm bg-neutral-muted/40 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-neutral/70">{joinLabel}</span>
+      <span class="-my-1 w-fit rounded-sm bg-neutral-muted/40 px-1 text-[9px] leading-3 font-semibold tracking-wide text-neutral/70">{joinLabel}</span>
     {/if}
     {#if isGroup(entry)}
       <div class="min-w-0 rounded-md border border-neutral-muted bg-neutral-muted/20 p-2">
