@@ -66,7 +66,9 @@ the studio on `http://127.0.0.1:5577` and opens it.
 - **Saved queries:** save the code or the model, operation and builder settings under a
   name and an icon. Reopen them from the sidebar or ⌘K, update or rename them, or use
   Save as new to keep a copy. Queries share the views' per-project storage and
-  sync across open Studio pages. Deleting a saved query leaves database rows alone.
+  sync across open Studio pages. The sidebar's Duplicate action copies a saved query
+  or view, including its icon and settings, under a fresh name and opens the copy.
+  Deleting a saved query leaves database rows alone.
 - **Plan:** PostgreSQL and MySQL execution plans as a Svelte Flow graph, a
   compact table or the raw database response. Inspect node timing, estimated
   and actual rows, index access and PostgreSQL buffers. Analyze captures the read and runs each statement

@@ -62,6 +62,12 @@ export class Queries extends SavedItems<SavedQuery> {
     );
   }
 
+  duplicate(id: string): Promise<string> {
+    return this.duplicateItem(id, (item) =>
+      structuredClone($state.snapshot(item))
+    );
+  }
+
   remove(id: string): Promise<void> {
     return this.change((list) => list.filter((query) => query.id !== id));
   }

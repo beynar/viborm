@@ -85,6 +85,12 @@ export class Views extends SavedItems<SavedView> {
     );
   }
 
+  duplicate(id: string): Promise<string> {
+    return this.duplicateItem(id, (item) =>
+      structuredClone($state.snapshot(item))
+    );
+  }
+
   remove(id: string): Promise<void> {
     return this.change((list) => list.filter((view) => view.id !== id));
   }

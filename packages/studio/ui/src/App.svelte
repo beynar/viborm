@@ -5,6 +5,7 @@ import { Chip } from "entasis/chip";
 import { Confirmation, confirmation } from "entasis/confirmation";
 import { Dialog } from "entasis/dialog";
 import { bookmarkSimpleIcon } from "entasis/icons/bookmarkSimple";
+import { copyIcon } from "entasis/icons/copy";
 import { databaseIcon } from "entasis/icons/database";
 import { graphIcon } from "entasis/icons/graph";
 import { imageSquareIcon } from "entasis/icons/imageSquare";
@@ -40,6 +41,8 @@ import {
   isActive,
   modelHref,
   navigateModel,
+  openQuery,
+  openView,
   p,
   queryHref,
   viewHref,
@@ -168,6 +171,31 @@ async function chooseIcon(target: IconTarget, icon: ModelIcon) {
   }
 }
 
+async function duplicateQuery(query: SavedQuery) {
+  if (!queries) return;
+  try {
+    const id = await queries.duplicate(query.id);
+    await openQuery({ id });
+  } catch (error) {
+    toast.danger({
+      title: `The query “${query.name}” could not be duplicated`,
+      description: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+async function duplicateView(view: SavedView) {
+  if (!views) return;
+  try {
+    const id = await views.duplicate(view.id);
+    await openView({ id, model: view.model });
+  } catch (error) {
+    toast.danger({
+      title: `The view “${view.name}” could not be duplicated`,
+      description: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 async function removeView(view: SavedView) {
   const { confirmed } = await confirmation({
     title: `Delete the view “${view.name}”?`,
@@ -271,6 +299,12 @@ const sidebar = $derived<AppShellSidebarProps>({
                   },
                   {
                     type: "option" as const,
+                    title: "Duplicate",
+                    prefix: copyIcon,
+                    onclick: () => duplicateQuery(query),
+                  },
+                  {
+                    type: "option" as const,
                     title: "Delete query",
                     prefix: trashIcon,
                     color: "danger" as const,
@@ -303,6 +337,12 @@ const sidebar = $derived<AppShellSidebarProps>({
                     title: "Change icon",
                     prefix: imageSquareIcon,
                     onclick: () => (iconFor = { kind: "view", item: view }),
+                  },
+                  {
+                    type: "option" as const,
+                    title: "Duplicate",
+                    prefix: copyIcon,
+                    onclick: () => duplicateView(view),
                   },
                   {
                     type: "option" as const,

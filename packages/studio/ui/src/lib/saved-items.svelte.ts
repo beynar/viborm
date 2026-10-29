@@ -1,7 +1,9 @@
 // Named project items share persistence, browser migration and write ordering.
 import { keepStored, readStored } from "./api";
 
-export class SavedItems<Item extends { readonly id: string }> {
+export class SavedItems<
+  Item extends { readonly id: string; readonly name: string },
+> {
   list = $state<Item[]>([]);
   /** The items the studio keeps were read (or it keeps none): an address naming one can find it. */
   loaded = $state(false);
@@ -45,6 +47,26 @@ export class SavedItems<Item extends { readonly id: string }> {
     } catch {
       return [];
     }
+  }
+
+  /** Copy the saved snapshot, with a fresh identity and an unused name, in write order. */
+  protected async duplicateItem(
+    id: string,
+    clone: (item: Item) => Item
+  ): Promise<string> {
+    const copyId = crypto.randomUUID();
+    await this.change((list) => {
+      const source = list.find((item) => item.id === id);
+      if (!source) throw new Error("This saved item no longer exists.");
+      const base = `${source.name} (copy)`;
+      let name = base;
+      let number = 2;
+      while (list.some((item) => item.name === name))
+        name = `${base} ${number++}`;
+      const copy = clone(source);
+      return [...list, { ...copy, id: copyId, name }];
+    });
+    return copyId;
   }
 
   /**
