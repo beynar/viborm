@@ -9,6 +9,10 @@ import { SegmentedControl } from "entasis/segmented-control";
 import { Select } from "entasis/select";
 import { TextInput } from "entasis/text-input";
 import { TimeInput } from "entasis/time-input";
+import { flip } from "svelte/animate";
+import { cubicOut } from "svelte/easing";
+import { prefersReducedMotion } from "svelte/motion";
+import { fade } from "svelte/transition";
 import type { StudioModel } from "../../lib/api";
 import {
   COMBINATORS,
@@ -57,6 +61,16 @@ let {
   onRemove?: () => void;
 } = $props();
 const MAX_DEPTH = 2;
+const motion = $derived({
+  duration: prefersReducedMotion.current ? 0 : 180,
+  easing: cubicOut,
+});
+// The optional logic header and conditions share one keyed layout, so rows also
+// FLIP when the header appears or disappears. Null represents that header only.
+const blocks = $derived<(FilterEntry | null)[]>([
+  ...(conditions.length > 1 || combinator !== "AND" || depth > 0 ? [null] : []),
+  ...conditions,
+]);
 
 // The label is read by assistive technology only: its header leaves the layout too, so no empty row spaces the control.
 const HIDDEN_LABEL = {
@@ -169,21 +183,17 @@ const setValue = (id: number, value: string) => update(id, { value });
 
 <!-- A container query lays each condition out for the room it has: one line in the rows' filter, the value on a
      line of its own in the query's narrower sidebar. -->
-<div class="@container grid gap-2">
-  <!-- How the group's conditions join; a group says it always, the top only once it is more than one condition. -->
-  {#if conditions.length > 1 || combinator !== 'AND' || depth > 0}
+<div class="@container relative grid gap-2">
+  {#each blocks as entry (entry?.id ?? 'logic')}
+    <div class="min-w-0" animate:flip={motion} transition:fade={motion}>
+    {#if entry === null}
     <div class="flex items-center gap-2 text-[13px] text-neutral/70">
       <SegmentedControl size="small" variant="pill" theme={{ root: { base: 'p-0.5' }, item: { size: { small: 'h-5 px-2 text-[10px]' } } }} label="Which conditions must hold" items={COMBINATORS} bind:value={combinator} />
       {#if onRemove}
         <div class="ml-auto"><Button size="small" variant="ghost" squared label="Remove the group" prefix={xIcon} onclick={onRemove} /></div>
       {/if}
     </div>
-  {/if}
-  {#if conditions.length === 0}
-    <p class="m-0 text-[13px] text-neutral/70">{depth === 0 ? 'No condition: every row shows.' : 'No condition in this group yet.'}</p>
-  {/if}
-  {#each conditions as entry (entry.id)}
-    {#if isGroup(entry)}
+    {:else if isGroup(entry)}
       <div class="min-w-0 rounded-md border border-neutral-muted bg-neutral-muted/20 p-2">
         <FilterGroup {model} {models} bind:conditions={entry.conditions} bind:combinator={entry.combinator} depth={depth + 1} onRemove={() => remove(entry.id)} />
       </div>
@@ -235,7 +245,11 @@ const setValue = (id: number, value: string) => update(id, { value });
       </div>
     </div>
     {/if}
+    </div>
   {/each}
+  {#if conditions.length === 0}
+    <p class="m-0 text-[13px] text-neutral/70">{depth === 0 ? 'No condition: every row shows.' : 'No condition in this group yet.'}</p>
+  {/if}
   <div class="flex gap-2">
     <Button size="small" variant="outline" prefix={plusIcon} disabled={columns.length === 0} onclick={add}>Condition</Button>
     {#if depth < MAX_DEPTH}
