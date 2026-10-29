@@ -196,11 +196,11 @@ where: {
 - `mode` governs `string_contains`, `string_starts_with` and
   `string_ends_with` only. `equals`, `not` and the `array_*` operators compare
   whole JSON values rather than text, so folding them would mean nothing.
-- The fold is **ASCII `A`-`Z` only**, on every database — the same portable
-  contract the string scalars use, so JSON and scalar filters agree with each
-  other and never depend on a database's locale or ICU build. `"ÉCL"` still
-  matches `"Éclair"` (`É` is outside `A`-`Z` and stays exact); `"écl"` does
-  not.
+- Case is folded the way the database does natively, exactly as for string
+  scalars, so JSON and scalar filters agree with each other. `"ÉCL"` matches
+  `"Éclair"` everywhere; `"écl"` matches it where the database folds `É`
+  (PostgreSQL with a libc or ICU locale, MySQL) and not on SQLite. See
+  [String filters](/docs/client/filtering/string).
 - Wildcards stay literal under the fold: `%` and `_` have no special meaning.
 - A nested `not` inherits the mode, and may override it in either direction —
   `not: { string_contains: "x", mode: "default" }` really does restore exact

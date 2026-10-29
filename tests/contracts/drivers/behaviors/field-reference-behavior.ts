@@ -2,6 +2,7 @@ import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { createModelFieldRefs } from "@schema/field-ref";
 import { defineContract } from "@tests/contracts/contract";
+import { foldsNonAscii } from "@tests/fixtures/case-folding";
 import { fieldRefSchema } from "@tests/fixtures/field-ref-schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type { OperandCtx } from "@validation/primitives/operand";
@@ -315,15 +316,17 @@ export function runFieldReferenceBehavior({
         ).toEqual(["beloved", "even", "hot"]);
       });
 
-      test("insensitive mode folds ASCII only", async () => {
-        // Portable insensitive mode is an ASCII A-Z fold, deliberately not the
-        // provider's Unicode-aware collation: 'É' and 'é' stay distinct on
-        // every dialect, including MySQL, whose accent-insensitive default
-        // collation would otherwise call them equal.
+      test("insensitive mode folds case as the database does, never accents", async () => {
+        // 'É' and 'é' match where the database's own LOWER folds 'É'.
         await addPost("accented", "École", "école");
+        // Accents always count, even on MySQL, whose accent-insensitive
+        // default collation would otherwise call these equal.
+        await addPost("unaccented", "Ecole", "école");
         expect(
           await postIds({ title: { equals: slugRef(), mode: "insensitive" } })
-        ).toEqual(["matching"]);
+        ).toEqual(
+          (await foldsNonAscii(db())) ? ["accented", "matching"] : ["matching"]
+        );
       });
     });
 
