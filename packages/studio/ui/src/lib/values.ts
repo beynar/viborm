@@ -357,9 +357,9 @@ function comparisonWhere(field: StudioField, condition: Condition): Where {
 
 /** How a group's conditions join: all of them (AND), any (OR), or none (NOT). */
 export const COMBINATORS = [
-  { value: "AND", label: "all" },
-  { value: "OR", label: "any" },
-  { value: "NOT", label: "none" },
+  { value: "AND", label: "AND" },
+  { value: "OR", label: "OR" },
+  { value: "NOT", label: "NONE" },
 ] as const;
 export type Combinator = (typeof COMBINATORS)[number]["value"];
 

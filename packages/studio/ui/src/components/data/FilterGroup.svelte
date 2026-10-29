@@ -56,6 +56,9 @@ let {
   onRemove?: () => void;
 } = $props();
 const MAX_DEPTH = 2;
+const joinLabel = $derived(
+  COMBINATORS.find((entry) => entry.value === combinator)?.label
+);
 
 // The label is read by assistive technology only: its header leaves the layout too, so no empty row spaces the control.
 const HIDDEN_LABEL = {
@@ -172,9 +175,7 @@ const setValue = (id: number, value: string) => update(id, { value });
   <!-- How the group's conditions join; a group says it always, the top only once it is more than one condition. -->
   {#if conditions.length > 1 || combinator !== 'AND' || depth > 0}
     <div class="flex items-center gap-2 text-[13px] text-neutral/70">
-      Match
       <div class="w-24"><Select size="small" label="Which conditions must hold" theme={HIDDEN_LABEL} items={COMBINATORS} value={combinator} onValueChange={value => (combinator = COMBINATORS.find(entry => entry.value === value)?.value ?? 'AND')} /></div>
-      of the conditions
       {#if onRemove}
         <div class="ml-auto"><Button size="small" variant="ghost" squared label="Remove the group" prefix={xIcon} onclick={onRemove} /></div>
       {/if}
@@ -183,9 +184,12 @@ const setValue = (id: number, value: string) => update(id, { value });
   {#if conditions.length === 0}
     <p class="m-0 text-[13px] text-neutral/70">{depth === 0 ? 'No condition: every row shows.' : 'No condition in this group yet.'}</p>
   {/if}
-  {#each conditions as entry (entry.id)}
+  {#each conditions as entry, index (entry.id)}
+    {#if index > 0}
+      <span class="w-fit rounded-sm bg-neutral-muted/40 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-neutral/70">{joinLabel}</span>
+    {/if}
     {#if isGroup(entry)}
-      <div class={['rounded-md border border-neutral-muted bg-neutral-muted/20 p-2', conditions.length > 1 && 'ml-2']}>
+      <div class="min-w-0 rounded-md border border-neutral-muted bg-neutral-muted/20 p-2">
         <FilterGroup {model} {models} bind:conditions={entry.conditions} bind:combinator={entry.combinator} depth={depth + 1} onRemove={() => remove(entry.id)} />
       </div>
     {:else}
@@ -194,7 +198,7 @@ const setValue = (id: number, value: string) => update(id, { value });
     {@const field = column?.field}
     {@const operators = field ? operatorsOf(field) : []}
     {@const listed = condition.operator === 'in'}
-    <div class={['flex flex-wrap items-center gap-2', conditions.length > 1 && 'border-l-2 border-neutral-muted pl-2']}>
+    <div class="flex flex-wrap items-center gap-2">
       {#if column?.via?.relation.cardinality === 'many'}
         <!-- Through a to-many relation: whether any, every or no related row matches. -->
         <div class="w-[5.5rem] shrink-0"><Select size="small" label="Which related rows" theme={HIDDEN_LABEL} items={QUANTIFIERS} value={condition.via?.quantifier ?? 'some'} onValueChange={value => value && condition.via && update(condition.id, { via: { ...condition.via, quantifier: value as Quantifier } })} /></div>
