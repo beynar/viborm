@@ -7,8 +7,8 @@ import type { StudioEdge, StudioModel, StudioSchema } from "./api";
 export const CARD_WIDTH = 280;
 export const CARD_HEADER = 44;
 export const CARD_ROW = 28;
-const COLUMN_GAP = 140;
-const ROW_GAP = 48;
+const COLUMN_GAP = 220;
+const ROW_GAP = 96;
 
 export const cardHeight = (model: StudioModel) =>
   CARD_HEADER +

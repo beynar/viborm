@@ -48,6 +48,16 @@ installed from the packed tarball, `pg` and `better-sqlite3`.
    VibORM documents, does not, so a SQLite user would have to switch their
    config to `viborm/bun-sqlite` to use the binary.
 
+## Query-code update (2026-10-28)
+
+The code editor bundles the existing TypeScript dependency to parse one read
+call without evaluating JavaScript. It remains entirely in Studio: the Node
+CLI is 8.24 MB uncompressed / 1.56 MB gzipped (excluding the frontend).
+The updated darwin-arm64 bytecode executable builds at 110.61 MB, loads the
+external PostgreSQL project, and executes `client.customer.count()`. A warm
+start to `/api/schema` measured 148 ms; the first launch was not measured
+reliably. The original table above records the earlier build.
+
 ## Recommendation
 
 Ship `npx @viborm/studio` and do not distribute the binary. It saves ~65 ms of

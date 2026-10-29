@@ -23,6 +23,16 @@ export const TYPE_LABELS: Record<StudioField["type"], string> = {
 export const typeLabel = (field: StudioField) =>
   `${TYPE_LABELS[field.type]}${field.list ? "[]" : ""}${field.nullable ? "?" : ""}`;
 
+const DIGITS = /^(-?\d+)(\.\d+)?$/;
+const THOUSANDS = /\B(?=(\d{3})+(?!\d))/g;
+/** A number (or a bigint's or a decimal's text) with its thousands apart, to read: 8 500 000 059 500. */
+export function grouped(value: unknown): string {
+  const text = typeof value === "number" ? String(value) : display(value);
+  const parts = DIGITS.exec(text);
+  if (!parts) return text;
+  return `${parts[1]!.replace(THOUSANDS, "\u202f")}${parts[2] ?? ""}`;
+}
+
 /** A cell's text. */
 export function display(value: unknown): string {
   if (value === null) return "null";
@@ -38,21 +48,112 @@ export const editsAsJson = (field: StudioField) =>
   field.type === "point" ||
   field.type === "vector";
 
-/** A value as its editor shows it. */
+/** A value as its editor shows it: a calendar date as its day, a time of day to the second. */
 export function draftOf(field: StudioField, value: unknown): string {
   if (value === null || value === undefined) return "";
   if (editsAsJson(field)) return JSON.stringify(value, null, 2);
+  if (field.type === "date" && !field.list) return dayText(value);
+  if (field.type === "time" && !field.list) return timeText(value);
   return String(value);
+}
+
+// Times as a person reads and picks them. An instant is shown and picked in the browser's own zone, and written
+// back as an ISO instant; a calendar date is its stored day (the API spells it as that day's UTC midnight), and a
+// time of day has no zone. The pickers hold local `Date`s and seconds since midnight.
+const pad = (value: number, width = 2) => String(value).padStart(width, "0");
+const dayOfDate = (date: Date) =>
+  `${pad(date.getFullYear(), 4)}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+
+/** An instant in the browser's zone, to the second; anything else as it came. */
+export function instantText(value: unknown): string {
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return `${dayOfDate(date)} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+/** A value as a read-only cell says it: instants in the browser's zone, days and times as the table shows them. */
+export function cellText(field: StudioField, value: unknown): string {
+  if (value === null || value === undefined || field.list)
+    return display(value);
+  if (field.type === "datetime") return instantText(value);
+  if (field.type === "date") return dayText(value);
+  if (field.type === "time") return timeText(value);
+  return display(value);
+}
+
+/** A calendar date's day, `YYYY-MM-DD`. */
+export const dayText = (value: unknown) => String(value).slice(0, 10);
+/** A time of day to the second, `HH:mm:ss`. */
+export const timeText = (value: unknown) => String(value).slice(0, 8);
+
+/** A stored day as the calendar's local date, and a picked date as the day to store. */
+export function dayToDate(day: string): Date | null {
+  const [year, month, date] = day.split("-").map(Number);
+  return year && month && date ? new Date(year, month - 1, date) : null;
+}
+export const dateToDay = (date: Date) => dayOfDate(date);
+
+/** `HH:mm:ss` as seconds since midnight, and back. */
+export function timeToSeconds(time: string): number | null {
+  const [hours, minutes, seconds = 0] = time.split(":").map(Number);
+  return Number.isFinite(hours) && Number.isFinite(minutes)
+    ? hours! * 3600 + minutes! * 60 + Math.floor(seconds)
+    : null;
+}
+const FRACTION = /\.\d+$/;
+/**
+ * The pickers show whole seconds: a time or an instant written from one keeps the fraction of a second it held
+ * (`previous`) while its whole seconds stay the same, so moving an instant to another day changes nothing else.
+ */
+export function secondsToTime(seconds: number, previous = ""): string {
+  const fraction =
+    timeToSeconds(previous) === seconds ? FRACTION.exec(previous)?.[0] : "";
+  return `${pad(Math.floor(seconds / 3600))}:${pad(Math.floor(seconds / 60) % 60)}:${pad(seconds % 60)}${fraction ?? ""}`;
+}
+
+/** An ISO instant as the local day and the seconds into it, and back. */
+export function instantParts(
+  instant: string
+): { day: Date; seconds: number } | null {
+  const date = new Date(instant);
+  if (!instant || Number.isNaN(date.getTime())) return null;
+  return {
+    day: new Date(date.getFullYear(), date.getMonth(), date.getDate()),
+    seconds:
+      date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds(),
+  };
+}
+export function instantOf(day: Date, seconds: number, previous = ""): string {
+  const millis =
+    instantParts(previous)?.seconds === seconds
+      ? new Date(previous).getMilliseconds()
+      : 0;
+  return new Date(
+    day.getFullYear(),
+    day.getMonth(),
+    day.getDate(),
+    0,
+    0,
+    seconds,
+    millis
+  ).toISOString();
 }
 
 /**
  * A draft typed back into the value the API takes. Throws a readable message
  * when the text cannot be one; everything else is the client's to refuse.
  */
+export function parseJson(text: string): unknown {
+  return JSON.parse(text, (_key, value: unknown) => {
+    if (typeof value === "number" && !Number.isFinite(value))
+      throw new Error("JSON numbers must be finite");
+    return value;
+  });
+}
+
 export function parseDraft(field: StudioField, draft: string): unknown {
   if (editsAsJson(field)) {
     try {
-      return JSON.parse(draft);
+      return parseJson(draft);
     } catch {
       throw new Error(`${field.name}: not valid JSON`);
     }
@@ -67,6 +168,8 @@ export function parseDraft(field: StudioField, draft: string): unknown {
       return number;
     }
     case "boolean":
+      if (draft !== "true" && draft !== "false")
+        throw new Error(`${field.name}: expected true or false`);
       return draft === "true";
     case "bigint":
     case "decimal":
@@ -142,13 +245,98 @@ export interface Condition {
   field: string;
   operator: Operator;
   value: string;
+  /** A text comparison folds ASCII letters (`mode: "insensitive"`). */
+  ignoreCase?: boolean;
+  /** A column of a related model: the relation followed (and its variant), and for a to-many which rows must match. */
+  via?: Via;
 }
 
-/** One condition as the client's `where` spells it. */
+export interface Via {
+  relation: string;
+  variant?: string;
+  quantifier?: Quantifier;
+}
+
+export type Quantifier = "some" | "every" | "none";
+export const QUANTIFIER_LABELS: Record<Quantifier, string> = {
+  some: "any",
+  every: "every",
+  none: "no",
+};
+
+/** A column a condition can compare: one of the model's, or one level away through a relation. */
+export interface FilterColumn {
+  /** The condition's own spelling of it: `email`, `author.email`, `commentable(post).title`. */
+  readonly key: string;
+  readonly field: StudioField;
+  readonly via?: {
+    readonly relation: StudioRelation;
+    readonly variant?: string;
+  };
+}
+
+/** Every column the model's filter can compare: its own, then its relations' (each variant of a polymorphic one). */
+export function filterColumns(
+  model: StudioModel,
+  models: readonly StudioModel[]
+): FilterColumn[] {
+  const own = model.fields
+    .filter((field) => operatorsOf(field).length > 0)
+    .map((field) => ({ key: field.name, field }));
+  const reached = model.relations.flatMap((relation) => {
+    const targets = relation.variants
+      ? relation.variants.map((variant) => ({
+          name: variant.target,
+          variant: variant.name,
+        }))
+      : [{ name: relation.targets[0]!, variant: undefined }];
+    return targets.flatMap(({ name, variant }) => {
+      const target = models.find((candidate) => candidate.name === name);
+      return (target?.fields ?? [])
+        .filter((field) => operatorsOf(field).length > 0)
+        .map((field) => ({
+          key: `${relation.name}${variant ? `(${variant})` : ""}.${field.name}`,
+          field,
+          via: { relation, ...(variant ? { variant } : {}) },
+        }));
+    });
+  });
+  return [...own, ...reached];
+}
+
+/** The column a condition compares, found again by its key and its relation. */
+export const columnOf = (
+  columns: readonly FilterColumn[],
+  condition: Condition
+) => columns.find((column) => column.key === condition.field);
+
+/** Whether a condition can ignore case: a comparison of a text column (a compact identifier's filter has no mode). */
+export const foldsCase = (field: StudioField, operator: Operator) =>
+  field.searchable && operator !== "isNull" && operator !== "isNotNull";
+
+/**
+ * A condition as the client filters: the column's comparison, wrapped in the
+ * relation it goes through (`is` for a to-one, its quantifier for a to-many,
+ * the variant's `{ type, is }` for a polymorphic one).
+ */
 export function conditionWhere(
-  field: StudioField,
+  column: FilterColumn,
   condition: Condition
 ): Where {
+  const inner = comparisonWhere(column.field, condition);
+  const via = column.via;
+  if (!via) return inner;
+  const { relation, variant } = via;
+  const matched = variant ? { type: variant, is: inner } : inner;
+  if (relation.cardinality === "many") {
+    return {
+      [relation.name]: { [condition.via?.quantifier ?? "some"]: matched },
+    };
+  }
+  return { [relation.name]: variant ? matched : { is: inner } };
+}
+
+function comparisonWhere(field: StudioField, condition: Condition): Where {
   const { operator } = condition;
   if (operator === "isNull") return { [field.name]: null };
   if (operator === "isNotNull") return { [field.name]: { not: null } };
@@ -160,7 +348,77 @@ export function conditionWhere(
           .filter((entry) => entry !== "")
           .map((entry) => parseDraft(field, entry))
       : parseDraft(field, condition.value);
-  return { [field.name]: { [operator]: value } };
+  const mode =
+    condition.ignoreCase && foldsCase(field, operator)
+      ? { mode: "insensitive" }
+      : {};
+  return { [field.name]: { [operator]: value, ...mode } };
+}
+
+/** How a group's conditions join: all of them (AND), any (OR), or none (NOT). */
+export const COMBINATORS = [
+  { value: "AND", label: "AND" },
+  { value: "OR", label: "OR" },
+  { value: "NOT", label: "NONE" },
+] as const;
+export type Combinator = (typeof COMBINATORS)[number]["value"];
+
+/** Conditions joined their own way inside another group: `a AND (b OR NOT (c))`. */
+export interface ConditionGroup {
+  id: number;
+  group: true;
+  combinator: Combinator;
+  conditions: FilterEntry[];
+}
+export type FilterEntry = Condition | ConditionGroup;
+export const isGroup = (entry: FilterEntry): entry is ConditionGroup =>
+  "group" in entry;
+
+/**
+ * A condition still waiting for its value, left out until it has one: an empty value a text column cannot be
+ * compared with (a text column can: `name = ""` finds the empty names), or an empty list.
+ */
+const waiting = (condition: Condition, field: StudioField) =>
+  condition.value.trim() === "" &&
+  condition.operator !== "isNull" &&
+  condition.operator !== "isNotNull" &&
+  (condition.operator === "in" || field.type !== "string");
+
+/**
+ * Conditions and groups as one `where`, and how many conditions it holds: a group that holds none (only
+ * conditions waiting for their value, or nothing) is left out. Throws the reason a value cannot be read.
+ */
+export function filterWhere(
+  model: StudioModel,
+  models: readonly StudioModel[],
+  entries: readonly FilterEntry[],
+  combinator: Combinator
+): { where: Where | undefined; count: number } {
+  const columns = filterColumns(model, models);
+  const join = (
+    group: readonly FilterEntry[],
+    joined: Combinator
+  ): { where: Where | undefined; count: number } => {
+    let count = 0;
+    const clauses = group.flatMap((entry): Where[] => {
+      if (isGroup(entry)) {
+        const inner = join(entry.conditions, entry.combinator);
+        count += inner.count;
+        return inner.where ? [inner.where] : [];
+      }
+      const column = columnOf(columns, entry);
+      if (!column || waiting(entry, column.field)) return [];
+      count += 1;
+      return [conditionWhere(column, entry)];
+    });
+    if (clauses.length === 0) return { where: undefined, count };
+    if (joined === "NOT") return { where: { NOT: clauses }, count };
+    return {
+      where: clauses.length === 1 ? clauses[0] : { [joined]: clauses },
+      count,
+    };
+  };
+  return join(entries, combinator);
 }
 
 /** Rows one relation of one row reaches: a model, the `where` that finds them there, and the variant it went through. */
@@ -266,6 +524,9 @@ export function relatedScopes(
 export function editable(field: StudioField, value: unknown): unknown {
   if (value === null || value === undefined) return "";
   if (editsAsJson(field)) return JSON.stringify(value);
+  // The calendar editor holds a local date.
+  if (field.type === "date") return dayToDate(dayText(value));
+  if (field.type === "time") return timeText(value);
   if (
     field.type === "int" ||
     field.type === "number" ||
@@ -287,5 +548,6 @@ export function written(field: StudioField, value: unknown): unknown {
     return field.nullable ? null : field.type === "string" ? "" : null;
   }
   if (typeof value === "number" || typeof value === "boolean") return value;
+  if (value instanceof Date) return dateToDay(value);
   return parseDraft(field, String(value));
 }

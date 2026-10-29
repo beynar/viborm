@@ -94,6 +94,15 @@ afterAll(() => server.close());
 describe("the studio server", () => {
   test("listens on 127.0.0.1 and serves the app with a locked-down policy", async () => {
     expect(server.url).toBe(`http://127.0.0.1:${port}`);
+    for (const path of [
+      "/schema",
+      "/data/profile",
+      "/data/user?view=saved",
+      "/query/saved",
+    ]) {
+      const deepLink = await send({ path });
+      expect([deepLink.status, deepLink.text]).toEqual([200, HTML]);
+    }
     const page = await send({ path: "/schema/anything" });
     expect(page.status).toBe(200);
     expect(page.text).toBe(HTML);

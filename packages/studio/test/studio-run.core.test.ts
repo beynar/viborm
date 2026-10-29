@@ -26,9 +26,21 @@ const SQLITE3 = pathToFileURL(
   join(SOURCE_ROOT, "drivers/sqlite3/index.ts")
 ).href;
 const SCHEMA = pathToFileURL(join(SOURCE_ROOT, "schema/index.ts")).href;
+const MIGRATIONS = pathToFileURL(join(SOURCE_ROOT, "migrations/index.ts")).href;
+const MIGRATIONS_SQLITE = pathToFileURL(
+  join(SOURCE_ROOT, "migrations/dialects/sqlite.ts")
+).href;
+const INSTRUMENTATION = pathToFileURL(
+  join(SOURCE_ROOT, "instrumentation/exports.ts")
+).href;
+/** The project's own `viborm` migrations, as this repository's sources. */
+const projectModule = (_specifier: string) =>
+  import(MIGRATIONS) as Promise<unknown>;
 const HTML = "<!doctype html><title>VibORM Studio</title>";
 const SERVING = /http:\/\/127\.0\.0\.1:\d+/;
 const WATCHING = /Watching \d+ files/;
+const SELECT_COUNT = /SELECT COUNT/i;
+const CREATE_TABLE = /CREATE TABLE/i;
 const HOW_TO_CONFIGURE =
   /No VibORM config found[\s\S]*export default defineConfig\(\{ client \}\)/;
 
@@ -84,6 +96,8 @@ const options = (overrides: Partial<Parameters<typeof runStudio>[0]> = {}) => ({
   watch: false,
   print: (line: string) => output.push(line),
   stopped,
+  // Never the user's own home.
+  storeDir: join(project.dir, ".store"),
   ...overrides,
 });
 
@@ -125,6 +139,10 @@ describe("viborm-studio", () => {
     });
     expect(printed()).toContain("Config: viborm.config.ts");
     expect(printed()).toContain("(sqlite, 1 models)");
+    // No `viborm` beside this config to compare with: the page is told why, not failed.
+    expect(await (await fetch(`${url}/api/drift`)).json()).toMatchObject({
+      state: "unknown",
+    });
     stop();
     await running;
     await expect(fetch(url)).rejects.toThrow();
@@ -174,15 +192,112 @@ describe("viborm-studio", () => {
     await running;
   });
 
+  test("views and layout are kept per project, and every page is told", async () => {
+    writeProject(project.dir, NOTE);
+    const running = runStudio(options());
+    const url = await serving();
+    const events = await fetch(`${url}/api/events`);
+    const reader = events.body!.getReader();
+    const kept = await fetch(`${url}/api/store/views`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ value: [{ id: "a", name: "Mine" }] }),
+    });
+    expect(kept.status).toBe(200);
+    let received = "";
+    while (!received.includes("event: store")) {
+      received += new TextDecoder().decode((await reader.read()).value);
+    }
+    expect(received).toContain('data: {"name":"views"}');
+    expect(await (await fetch(`${url}/api/store/views`)).json()).toEqual({
+      value: [{ id: "a", name: "Mine" }],
+    });
+    await reader.cancel();
+    stop();
+    await running;
+  });
+
+  test("the database is compared with the schema, and a query says its SQL", async () => {
+    writeProject(project.dir, NOTE);
+    // This config pushes its schema as it loads: the database matches it.
+    writeFileSync(
+      join(project.dir, "viborm.config.ts"),
+      `import { createClient } from ${JSON.stringify(SQLITE3)};
+import { createMigrationClient } from ${JSON.stringify(MIGRATIONS)};
+import ${JSON.stringify(MIGRATIONS_SQLITE)};
+import { instrumentation } from ${JSON.stringify(INSTRUMENTATION)};
+import { schema } from "./schema";
+export const client = createClient({ schema, dataDir: ":memory:" });
+await createMigrationClient(client).push();
+// The instrumentation of the very \`viborm\` the client is made of, as a project's own import resolves it.
+Reflect.set(globalThis, "__studioInstrumentation", { instrumentation });
+export default { client };
+`
+    );
+    const running = runStudio(
+      options({
+        projectModule: (specifier) =>
+          specifier === "viborm/instrumentation"
+            ? Promise.resolve(
+                Reflect.get(globalThis, "__studioInstrumentation")
+              )
+            : projectModule(specifier),
+      })
+    );
+    const url = await serving();
+    expect(await (await fetch(`${url}/api/drift`)).json()).toEqual({
+      state: "in-sync",
+    });
+    const queried = await (
+      await fetch(`${url}/api/query`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: "note", operation: "count", args: {} }),
+      })
+    ).json();
+    expect(queried, JSON.stringify(queried)).toMatchObject({ result: 0 });
+    expect(queried.statements[0].sql).toMatch(SELECT_COUNT);
+    // The instrumentation's spans: the operation, and the statement it ran inside it.
+    const operation = queried.spans.find(
+      (span: { name: string }) => span.name === "viborm.operation"
+    );
+    expect(operation).toBeDefined();
+    expect(
+      queried.spans.some(
+        (span: { name: string; parent?: number }) =>
+          span.name === "viborm.execute" && span.parent === operation.id
+      ),
+      JSON.stringify(queried.spans)
+    ).toBe(true);
+    stop();
+    await running;
+  });
+
+  test("a database behind its schema says what push would do", async () => {
+    writeProject(project.dir, NOTE);
+    const running = runStudio(options({ projectModule }));
+    const url = await serving();
+    const drift = await (await fetch(`${url}/api/drift`)).json();
+    expect(drift).toMatchObject({ state: "drift", destructive: false });
+    expect(drift.operations.length).toBeGreaterThan(0);
+    expect(drift.statements.join("\n")).toMatch(CREATE_TABLE);
+    stop();
+    await running;
+  });
+
   test("read-only says so and refuses writes", async () => {
     writeProject(project.dir, NOTE);
     const running = runStudio(options({ readonly: true }));
     const url = await serving();
     expect(printed()).toContain("(sqlite, 1 models, read-only)");
-    const refused = await fetch(`${url}/api/models/note/create`, {
+    const refused = await fetch(`${url}/api/changes`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ data: { id: 1, text: "x" } }),
+      body: JSON.stringify({
+        changes: [
+          { model: "note", action: "create", data: { id: 1, text: "x" } },
+        ],
+      }),
     });
     expect(refused.status).toBe(403);
     stop();
@@ -192,7 +307,10 @@ describe("viborm-studio", () => {
   test("an explicit config is read relative to the working directory", async () => {
     mkdirSync(join(project.dir, "db"));
     writeProject(join(project.dir, "db"), NOTE);
-    const running = runStudio(options({ config: "db/viborm.config.ts" }));
+    // The default store, under the home, which this test never writes to.
+    const running = runStudio(
+      options({ config: "db/viborm.config.ts", storeDir: undefined })
+    );
     await serving();
     expect(printed()).toContain(`Config: ${join("db", "viborm.config.ts")}`);
     expect(process.cwd().endsWith("db")).toBe(true);

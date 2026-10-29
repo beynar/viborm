@@ -1,0 +1,6 @@
+-> Table scan on <temporary>  (actual time=40.6..40.6 rows=1 loops=1)
+    -> Aggregate using temporary table  (actual time=40.6..40.6 rows=1 loops=1)
+        -> Nested loop inner join  (cost=27880 rows=22180) (actual time=0.0452..39.2 rows=4000 loops=1)
+            -> Filter: (o.note like '%gift%')  (cost=20116 rows=22180) (actual time=0.0382..34.2 rows=4000 loops=1)
+                -> Table scan on o  (cost=20116 rows=199642) (actual time=0.0245..30.3 rows=200000 loops=1)
+            -> Single-row index lookup on c using PRIMARY (id=o.customerId)  (cost=0.25 rows=1) (actual time=0.00116..0.00118 rows=1 loops=4000)

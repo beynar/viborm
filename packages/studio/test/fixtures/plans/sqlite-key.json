@@ -1,0 +1,8 @@
+[
+  {
+    "id": 2,
+    "parent": 0,
+    "notused": 33,
+    "detail": "SEARCH q1 USING INTEGER PRIMARY KEY (rowid=?)"
+  }
+]

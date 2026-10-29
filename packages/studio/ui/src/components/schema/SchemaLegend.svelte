@@ -6,7 +6,7 @@ import { keyIcon } from "entasis/icons/key";
 import { linkSimpleIcon } from "entasis/icons/linkSimple";
 import { Popover } from "entasis/popover";
 import { END_LABELS, type End } from "../../lib/diagram";
-import { TYPE_ICONS } from "../../lib/icons";
+import { TYPE_COLORS, TYPE_ICONS } from "../../lib/icons";
 import { TYPE_LABELS } from "../../lib/values";
 import SchemaMarkers from "./SchemaMarkers.svelte";
 
@@ -39,7 +39,7 @@ const TYPES = Object.entries(TYPE_ICONS).filter(
       <h3>Types</h3>
       <ul class="two">
         {#each TYPES as [type, icon] (type)}
-          <li><span class="glyph">{@render icon({ size: 14 })}</span>{TYPE_LABELS[type]}</li>
+          <li><span class={["glyph", TYPE_COLORS[type]]}>{@render icon({ size: 14 })}</span>{TYPE_LABELS[type]}</li>
         {/each}
       </ul>
     </section>
@@ -78,7 +78,7 @@ const TYPES = Object.entries(TYPE_ICONS).filter(
   ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
   ul.two { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 12px; }
   li { display: flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; }
-  .glyph { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; height: 16px; color: color-mix(in oklab, var(--color-neutral) 55%, transparent); }
+  .glyph { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; height: 16px; }
   .glyph.link { color: var(--color-link); }
   .glyph.optional { font-size: 13px; font-weight: 600; }
   .line { flex: none; width: 64px; height: 20px; overflow: visible; }

@@ -13,21 +13,25 @@ export type TableData = {
 
 <script lang="ts">
   import { Handle, type Node, type NodeProps, Position } from '@xyflow/svelte'
-  import { arrowRightIcon } from 'entasis/icons/arrowRight'
   import { fingerprintIcon } from 'entasis/icons/fingerprint'
   import { keyIcon } from 'entasis/icons/key'
   import { linkSimpleIcon } from 'entasis/icons/linkSimple'
-  import { tableIcon } from 'entasis/icons/table'
   import { tooltip } from 'entasis/tooltip'
   import { CARD_HEADER, CARD_ROW, CARD_WIDTH, columnAnchor, handleOf, relationAnchor } from '../../lib/diagram'
-  import { TYPE_ICONS } from '../../lib/icons'
+  import { TYPE_COLORS, TYPE_ICONS } from '../../lib/icons'
+  import { MODEL_ICON } from '../../lib/model-icons'
   import { TYPE_LABELS } from '../../lib/values'
+  import { modelHref } from '../../router'
+  import { useFocus } from './focus.svelte'
 
   // One model of the diagram, after Pyxel's: its name (a link to its rows), then a row per column — its key (a key), a
   // column that holds a key of another model (a link), its type's icon, its name, a « ? » when a row may leave it
   // empty, a fingerprint when no two rows share its value — then a row per relation. Each row a line meets has an
   // anchor on each side (`RelationEdge`).
   let { data }: NodeProps<Node<TableData>> = $props()
+  const focus = useFocus()
+  /** Chosen, reached by the chosen relation, beside the chosen model, or faded behind them. */
+  const tone = $derived(focus.card(data.model.name))
 </script>
 
 {#snippet anchors(anchor: string)}
@@ -41,10 +45,10 @@ export type TableData = {
   {/if}
 {/snippet}
 
-<div class="card" style:width="{CARD_WIDTH}px" style:--header="{CARD_HEADER}px" style:--row="{CARD_ROW}px">
+<div class={['card', tone]} style:width="{CARD_WIDTH}px" style:--header="{CARD_HEADER}px" style:--row="{CARD_ROW}px">
   <header>
-    <span class="icon" aria-hidden="true">{@render tableIcon({ size: 16 })}</span>
-    <a class="name nodrag" href="#/data/{encodeURIComponent(data.model.name)}">{data.model.name}</a>
+    <span class="icon" aria-hidden="true">{@render MODEL_ICON[data.model.icon]({ size: 16 })}</span>
+    <a class="name nodrag" href={modelHref(data.model.name)}>{data.model.name}</a>
     {#if data.model.table !== data.model.name}
       <span class="table" {@attach tooltip({ content: 'The table in the database' })}>{data.model.table}</span>
     {/if}
@@ -61,7 +65,7 @@ export type TableData = {
             <span {@attach tooltip({ content: `Holds a key of ${target}` })}>{@render linkSimpleIcon({ size: 14 })}</span>
           {/if}
         </span>
-        <span class="type" {@attach tooltip({ content: TYPE_LABELS[field.type] })}>{@render TYPE_ICONS[field.type]({ size: 14 })}</span>
+        <span class={["type", TYPE_COLORS[field.type]]} {@attach tooltip({ content: TYPE_LABELS[field.type] })}>{@render TYPE_ICONS[field.type]({ size: 14 })}</span>
         <span class="field">{field.name}{#if field.list}<span class="optional">[]</span>{/if}{#if field.nullable}<span class="optional" {@attach tooltip({ content: 'Nullable' })}>?</span>{/if}</span>
         {#if field.unique && !field.id}
           <span class="unique" {@attach tooltip({ content: 'Unique: no two rows hold the same value' })}>{@render fingerprintIcon({ size: 14 })}</span>
@@ -73,11 +77,14 @@ export type TableData = {
   {#if data.model.relations.length > 0}
     <ul class="relations">
       {#each data.model.relations as relation (relation.name)}
-        <li>
+        {@const chosen = focus.model === data.model.name && focus.relation === relation.name}
+        <!-- A relation chosen lights its own lines and the cards it reaches. -->
+        <li class:chosen data-relation={relation.name}>
           {@render anchors(relationAnchor(relation.name))}
-          <span class="mark">{@render arrowRightIcon({ size: 14 })}</span>
-          <span class="field">{relation.name}</span>
-          <span class="label">{relation.targets.join(' | ')}{relation.cardinality === 'many' ? '[]' : ''}</span>
+          <button type="button" class="relation nodrag" aria-pressed={chosen} title="Show where {relation.name} leads" onclick={() => focus.chooseRelation(data.model.name, relation.name)}>
+            <span class="field">{relation.name}</span>
+            <span class="label">{relation.targets.join(' | ')}{relation.cardinality === 'many' ? '[]' : ''}</span>
+          </button>
         </li>
       {/each}
     </ul>
@@ -91,7 +98,17 @@ export type TableData = {
     background: var(--color-surface);
     font-size: 13px;
     line-height: 18px;
+    cursor: pointer;
+    transition: opacity 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
   }
+  /* The model chosen, the cards its relation reaches, and the rest, faded behind them. */
+  .card.chosen { border-color: var(--color-link); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-link) 22%, transparent); }
+  .card.reached { border-color: color-mix(in oklab, var(--color-link) 70%, transparent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-link) 14%, transparent); }
+  .card.faded { opacity: 0.35; }
+  .relation { all: unset; display: flex; flex: 1; align-items: center; gap: 6px; min-width: 0; height: 100%; cursor: pointer; }
+  .relation:focus-visible { outline: 2px solid var(--color-link); outline-offset: -2px; border-radius: 4px; }
+  .relations li:hover { background: color-mix(in oklab, var(--color-neutral) 5%, transparent); }
+  .relations li.chosen { color: var(--color-link); background: color-mix(in oklab, var(--color-link) 9%, transparent); }
   header {
     display: flex;
     align-items: center;
@@ -110,8 +127,7 @@ export type TableData = {
   li.key { font-weight: 600; }
   .relations li { color: color-mix(in oklab, var(--color-neutral) 60%, transparent); font-style: italic; }
   .mark { display: inline-flex; width: 14px; color: var(--color-link); }
-  .relations .mark { color: inherit; }
-  .type { display: inline-flex; color: color-mix(in oklab, var(--color-neutral) 55%, transparent); }
+  .type { display: inline-flex; }
   .field { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .optional { margin-left: 2px; color: color-mix(in oklab, var(--color-neutral) 45%, transparent); font-weight: 400; }
   .unique { display: inline-flex; color: var(--color-link); }
