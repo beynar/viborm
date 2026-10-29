@@ -77,6 +77,28 @@ const flat = $derived.by(() => {
   if (plan) visit(plan.root, 0);
   return out;
 });
+// Plan timings have no start offsets: these bars compare work, not a timeline.
+const tableMetric = $derived(
+  flat.some(({ node }) => node.actual)
+    ? "time"
+    : flat.some(({ node }) => node.estimate?.cost !== undefined)
+      ? "cost"
+      : undefined
+);
+const tableValue = (node: PlanNode) =>
+  tableMetric === "time" ? node.actual?.self : node.estimate?.cost;
+const tableMaximum = $derived(
+  flat.reduce((max, { node }) => Math.max(max, tableValue(node) ?? 0), 0)
+);
+const tableFormat = (value: number) =>
+  tableMetric === "time"
+    ? ms(value)
+    : value.toLocaleString("en-US", { maximumSignificantDigits: 4 });
+const tableColumns = $derived(
+  tableMetric
+    ? "grid min-w-[30rem] grid-cols-[minmax(14rem,2fr)_minmax(6rem,3fr)_6rem]"
+    : "grid grid-cols-1"
+);
 const chosenNode = $derived(
   flat.find((entry) => entry.node.id === chosen)?.node
 );
@@ -233,36 +255,49 @@ const time = (date: Date) =>
             </div>
           {:else if view === 'table'}
             <div role="tabpanel" id="{viewTabsId}-panel-1" aria-labelledby="{viewTabsId}-tab-1" tabindex="0" class="max-h-full min-h-0 self-start overflow-auto rounded-lg border border-neutral-muted bg-surface">
-              <table class="w-full border-collapse text-[12px]">
-                <thead class="sticky top-0 bg-surface-floating text-left text-neutral/60">
-                  <tr>
-                    <th class="px-3 py-2 font-medium">Operation</th>
-                    <th class="px-3 py-2 text-right font-medium">Own</th>
-                    <th class="px-3 py-2 text-right font-medium">Total</th>
-                    <th class="px-3 py-2 text-right font-medium">Rows</th>
-                    <th class="px-3 py-2 text-right font-medium">Expected</th>
-                    <th class="px-3 py-2 text-right font-medium">Loops</th>
-                    <th class="px-3 py-2 text-right font-medium">Hit / read</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {#each flat as { node, depth } (node.id)}
-                    <tr class={['cursor-pointer border-t border-neutral-muted hover:bg-neutral-muted/40', selected.has(node.id) && 'bg-primary/10', node.neverExecuted && 'opacity-50']} onclick={() => chooseNode(node.id, sidebar)}>
-                      <td class="px-3 py-1.5" style:padding-left="{12 + depth * 16}px">
-                        <span class="font-medium">{node.operation}</span>
-                        {#if node.relation}<span class="ml-1 font-mono text-neutral/65">{node.relation}</span>{/if}
-                        {#if node.index}<span class="ml-1 font-mono text-success">{node.index}</span>{/if}
-                      </td>
-                      <td class="px-3 py-1.5 text-right font-mono tabular-nums">{node.actual ? ms(node.actual.self) : ''}</td>
-                      <td class="px-3 py-1.5 text-right font-mono tabular-nums">{node.actual ? ms(node.actual.time) : ''}</td>
-                      <td class="px-3 py-1.5 text-right font-mono tabular-nums">{node.actual ? compact(node.actual.rows) : ''}</td>
-                      <td class="px-3 py-1.5 text-right font-mono tabular-nums text-neutral/60">{node.estimate?.rows === undefined ? '' : compact(node.estimate.rows)}</td>
-                      <td class="px-3 py-1.5 text-right font-mono tabular-nums">{node.actual && node.actual.loops > 1 ? compact(node.actual.loops) : ''}</td>
-                      <td class="px-3 py-1.5 text-right font-mono tabular-nums">{node.buffers ? `${compact(node.buffers.hit)} / ${compact(node.buffers.read)}` : ''}</td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
+              <div class={[tableColumns, 'sticky top-0 z-10 items-center border-b border-neutral-muted bg-surface-floating px-3 py-2 text-[11px] text-neutral/55']}>
+                <span>Operation</span>
+                {#if tableMetric}
+                  <div class="flex justify-between gap-2 font-mono tabular-nums" aria-hidden="true">
+                    <span>{tableFormat(0)}</span>
+                    <span>{tableFormat(tableMaximum / 2)}</span>
+                    <span>{tableFormat(tableMaximum)}</span>
+                  </div>
+                  <span class="text-right" title={tableMetric === 'time' ? 'Time spent by this operation, excluding its inputs' : 'Estimated cost including inputs, in planner units—not milliseconds'}>{tableMetric === 'time' ? 'Own time' : 'Est. cost'}</span>
+                {/if}
+              </div>
+              {#each flat as { node, depth } (node.id)}
+                {@const value = tableValue(node)}
+                {@const width = tableMaximum > 0 && value !== undefined ? value / tableMaximum * 100 : 0}
+                <button
+                  type="button"
+                  class={[tableColumns, 'w-full items-center border-b border-neutral-muted px-3 py-2 text-left text-[12px] last:border-b-0 hover:bg-neutral-muted/40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary', selected.has(node.id) && 'bg-neutral-muted/60', node.neverExecuted && 'opacity-50']}
+                  aria-pressed={selected.has(node.id)}
+                  onclick={() => chooseNode(node.id, sidebar)}
+                >
+                  <span class="flex min-w-0 items-start gap-1.5 pr-3" style:padding-left="{depth * 16}px">
+                    {#if depth > 0}<span class="text-neutral/35" aria-hidden="true">└</span>{/if}
+                    <span class="grid min-w-0 gap-0.5">
+                      <span class="truncate font-medium" title={node.operation}>{node.operation}</span>
+                      {#if node.relation || node.alias || node.index}
+                        <span class="truncate font-mono text-[11px] text-neutral/60" title={[node.relation ?? node.alias, node.index].filter(Boolean).join(' · ')}>
+                          {node.relation ?? node.alias ?? ''}{#if node.index}<span class="ml-1 text-success">{node.index}</span>{/if}
+                        </span>
+                      {/if}
+                      {#if node.neverExecuted}<span class="text-[11px] text-neutral/60">Never executed</span>{/if}
+                    </span>
+                  </span>
+                  {#if tableMetric}
+                    <span class="relative block h-7" aria-hidden="true">
+                      <span class="absolute inset-y-0 left-1/2 border-l border-neutral-muted"></span>
+                      {#if width > 0 && !node.neverExecuted}
+                        <span class={['absolute top-1/2 left-0 h-3 -translate-y-1/2 rounded-sm', tableMetric === 'time' ? 'bg-success/70' : 'bg-neutral/35']} style:width="{width}%"></span>
+                      {/if}
+                    </span>
+                    <span class="pl-2 text-right font-mono tabular-nums">{value === undefined || node.neverExecuted ? '—' : tableFormat(value)}</span>
+                  {/if}
+                </button>
+              {/each}
             </div>
           {:else}
             <div role="tabpanel" id="{viewTabsId}-panel-2" aria-labelledby="{viewTabsId}-tab-2" tabindex="0" class="min-h-0 overflow-auto"><Code language={plan.dialect === 'postgresql' ? 'json' : 'text'} title={plan.dialect === 'postgresql' ? 'EXPLAIN (FORMAT JSON)' : plan.dialect === 'mysql' ? 'EXPLAIN' : 'EXPLAIN QUERY PLAN'} code={plan.raw} /></div>
