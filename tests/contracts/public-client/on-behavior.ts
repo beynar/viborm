@@ -11,7 +11,7 @@ import { softDelete } from "@src/soft-delete";
 import { v } from "@src/validation";
 import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 /**
  * `viborm/on` end to end, through public entry points only, on a real
@@ -418,25 +418,39 @@ export function runOnBehavior(provider: OnProvider): void {
         expect(order).toEqual(["hook", "resolved"]);
       });
 
-      test("a failing hook rejects the write with a QueryError that says it committed; the row stays", async () => {
+      test("a failing hook never fails its write: onError receives a QueryError that says it committed", async () => {
         const base = await openOnFixture(
           provider.createDriver(),
           provider.sync
         );
         opened.push(base);
         const cause = new Error("sync is down");
+        const reported: [QueryError, OnEvent][] = [];
         const db = base.$extends(
-          on({
-            post: {
-              update: () => {
-                throw cause;
+          on(
+            {
+              post: {
+                update: () => {
+                  throw cause;
+                },
               },
             },
+            {
+              onError: (error, event) => {
+                reported.push([error, event]);
+              },
+            }
+          )
+        );
+        expect(
+          await db.post.update({
+            where: { id: "p1" },
+            data: { views: 2 },
+            select: { views: true },
           })
-        );
-        const error = await failure(
-          db.post.update({ where: { id: "p1" }, data: { views: 2 } })
-        );
+        ).toEqual({ views: 2 });
+        expect(reported).toHaveLength(1);
+        const [error, event] = reported[0]!;
         expect(error).toBeInstanceOf(QueryError);
         expect(error).toMatchObject({
           cause,
@@ -447,38 +461,51 @@ export function runOnBehavior(provider: OnProvider): void {
             commitCertainty: "committed",
           },
         });
-        expect((error as Error).message).toContain("post.update");
-        expect(
-          (
-            await base.post.findUniqueOrThrow({
-              where: { id: "p1" },
-              select: { views: true },
-            })
-          ).views
-        ).toBe(2);
+        expect(error.message).toContain("post.update");
+        expect(event).toMatchObject({ model: "post", operation: "update" });
       });
 
-      test("a hook that throws something other than an Error still says the write committed", async () => {
+      test("without onError a failing hook goes to console.error; an onError that throws does too; the write resolves", async () => {
         const base = await openOnFixture(
           provider.createDriver(),
           provider.sync
         );
         opened.push(base);
-        const db = base.$extends(
-          on({
+        const logged: unknown[][] = [];
+        const spy = vi.spyOn(console, "error").mockImplementation((...args) => {
+          logged.push(args);
+        });
+        try {
+          const failing = {
             post: {
               delete: () => {
                 // biome-ignore lint/style/useThrowOnlyError: a hook that throws a non-Error is the case under test.
                 throw "offline";
               },
             },
-          })
-        );
-        const error = await failure(db.post.delete({ where: { id: "p3" } }));
-        expect(error).toBeInstanceOf(QueryError);
-        expect((error as QueryError).cause).toEqual(new Error("offline"));
-        expect((error as QueryError).meta.commitCertainty).toBe("committed");
-        expect(await base.post.count()).toBe(2);
+          };
+          await base.$extends(on(failing)).post.delete({ where: { id: "p3" } });
+          expect(logged).toHaveLength(1);
+          expect(logged[0]![0]).toBeInstanceOf(QueryError);
+          expect((logged[0]![0] as QueryError).cause).toEqual(
+            new Error("offline")
+          );
+          const broken = new Error("reporter down");
+          await base
+            .$extends(
+              on(failing, {
+                onError: () => {
+                  throw broken;
+                },
+              })
+            )
+            .post.delete({ where: { id: "p2" } });
+          expect(logged).toHaveLength(2);
+          expect(logged[1]![1]).toBe(broken);
+        } finally {
+          spy.mockRestore();
+        }
+        expect(await base.post.count()).toBe(1);
       });
 
       test("what a hook costs: an upsert keeps its one statement where the adapter marks an inserted row; without RETURNING a bulk write reads its rows in one statement", async () => {
@@ -636,39 +663,41 @@ export function runOnBehavior(provider: OnProvider): void {
     });
 
     describe("transactions", () => {
-      test("a hook failing after a transaction commits rejects the transaction; its writes stay", async () => {
+      test("a hook failing after a transaction commits never fails the transaction", async () => {
         const base = await openOnFixture(
           provider.createDriver(),
           provider.sync
         );
         opened.push(base);
         if (!base.$driver.supportsTransactions) return;
+        const reported: QueryError[] = [];
         const db = base.$extends(
-          on({
-            post: {
-              update: () => {
-                throw new Error("down");
+          on(
+            {
+              post: {
+                update: () => {
+                  throw new Error("down");
+                },
               },
             },
-          })
+            {
+              onError: (error) => {
+                reported.push(error);
+              },
+            }
+          )
         );
-        const error = await failure(
-          db.$transaction(async (tx) => {
-            await tx.post.update({ where: { id: "p1" }, data: { views: 9 } });
-          })
-        );
-        expect(error).toBeInstanceOf(QueryError);
-        expect(error).toMatchObject({
-          meta: { method: "on", commitCertainty: "committed" },
-        });
         expect(
-          (
-            await base.post.findUniqueOrThrow({
-              where: { id: "p1" },
-              select: { views: true },
-            })
-          ).views
-        ).toBe(9);
+          await db.$transaction(async (tx) => {
+            await tx.post.update({ where: { id: "p1" }, data: { views: 9 } });
+            await tx.post.update({ where: { id: "p2" }, data: { views: 9 } });
+            return "done";
+          })
+        ).toBe("done");
+        expect(reported.map((error) => error.meta)).toMatchObject([
+          { method: "on", commitCertainty: "committed" },
+          { method: "on", commitCertainty: "committed" },
+        ]);
       });
 
       test("$transaction([...]) runs one member's hooks after another's", async () => {
@@ -854,31 +883,37 @@ export function runOnBehavior(provider: OnProvider): void {
         ]);
       });
 
-      test("in $transaction([...]), one member's failing hook does not keep the next member's from running", async () => {
+      test("in $transaction([...]), one member's failing hook neither fails the array nor keeps the next member's from running", async () => {
         const base = await openOnFixture(
           provider.createDriver(),
           provider.sync
         );
         opened.push(base);
         const ran: string[] = [];
+        const reported: QueryError[] = [];
         const db = base.$extends(
-          on({
-            post: {
-              update: (rows) => {
-                ran.push(String(rows[0]!.id));
-                if (rows[0]!.id === "p1") throw new Error("p1 down");
+          on(
+            {
+              post: {
+                update: (rows) => {
+                  ran.push(String(rows[0]!.id));
+                  if (rows[0]!.id === "p1") throw new Error("p1 down");
+                },
               },
             },
-          })
+            {
+              onError: (error) => {
+                reported.push(error);
+              },
+            }
+          )
         );
-        const error = await failure(
-          db.$transaction([
-            db.post.update({ where: { id: "p1" }, data: { views: 1 } }),
-            db.post.update({ where: { id: "p2" }, data: { views: 2 } }),
-          ])
-        );
-        expect(error).toBeInstanceOf(QueryError);
+        await db.$transaction([
+          db.post.update({ where: { id: "p1" }, data: { views: 1 } }),
+          db.post.update({ where: { id: "p2" }, data: { views: 2 } }),
+        ]);
         expect(ran).toEqual(["p1", "p2"]);
+        expect(reported).toHaveLength(1);
       });
 
       test("a hook's rows and event are copies: neither the caller nor the hook changes the other's", async () => {
@@ -1039,35 +1074,10 @@ export function runOnBehavior(provider: OnProvider): void {
         expect(calls.map((call) => call.hook)).toEqual(["post.update"]);
       });
 
-      test("two failing hooks in one callback transaction: an AggregateError of their QueryErrors", async () => {
-        const base = await openOnFixture(
-          provider.createDriver(),
-          provider.sync
-        );
-        opened.push(base);
-        if (!base.$driver.supportsTransactions) return;
-        const db = base.$extends(
-          on({
-            post: {
-              update: () => {
-                throw new Error("down");
-              },
-            },
-          })
-        );
-        const error = await failure(
-          db.$transaction(async (tx) => {
-            await tx.post.update({ where: { id: "p1" }, data: { views: 1 } });
-            await tx.post.update({ where: { id: "p2" }, data: { views: 1 } });
-          })
-        );
-        expect(error).toBeInstanceOf(AggregateError);
-        const errors = (error as AggregateError).errors;
-        expect(errors).toHaveLength(2);
-        for (const each of errors) {
-          expect(each).toBeInstanceOf(QueryError);
-          expect((each as QueryError).meta.method).toBe("on");
-        }
+      test("onError that is no function is refused at once", () => {
+        expect(() =>
+          on({}, { onError: "log" as unknown as () => undefined })
+        ).toThrow(ClientInitializationError);
       });
 
       test("the official name is reserved, and a second on() is refused under any name", async () => {
@@ -1186,7 +1196,7 @@ export function runOnBehavior(provider: OnProvider): void {
         expect(calls[0]!.rows).toEqual([{ ...BOB, name: "Bobby" }]);
       });
 
-      test("cache: the write invalidates, then its hooks run; both failures are kept", async () => {
+      test("cache: the write invalidates, then its hooks run; the cache's failure keeps its own boundary", async () => {
         const base = await openOnFixture(
           provider.createDriver(),
           provider.sync
@@ -1226,21 +1236,32 @@ export function runOnBehavior(provider: OnProvider): void {
           "post.update",
         ]);
 
-        const failingDriver = new FailingCache();
-        const both = base.$extends(cache({ driver: failingDriver })).$extends(
-          on({
-            post: {
-              update: () => {
-                throw new Error("hook down");
+        // Both failing: the cache's failure fails the write, as without `on`;
+        // the hook's goes to onError.
+        const reported: QueryError[] = [];
+        const both = base
+          .$extends(cache({ driver: new FailingCache() }))
+          .$extends(
+            on(
+              {
+                post: {
+                  update: () => {
+                    throw new Error("hook down");
+                  },
+                },
               },
-            },
-          })
-        );
+              {
+                onError: (error) => {
+                  reported.push(error);
+                },
+              }
+            )
+          );
         const error = await failure(
           both.post.update({ where: { id: "p2" }, data: { views: 1 } })
         );
-        expect(error).toBeInstanceOf(AggregateError);
-        expect((error as AggregateError).errors).toHaveLength(2);
+        expect((error as Error).name).toBe("CacheConfigurationError");
+        expect(reported).toHaveLength(1);
       });
 
       test("soft delete: a delete is an update of the marker; a hard delete is a delete", async () => {

@@ -122,6 +122,16 @@ type HookRow<Row, Gated> = [Gated] extends [never]
       [K in keyof Row as K extends Gated ? K : never]?: Row[K];
     };
 
+/**
+ * Where a failing hook is reported. A hook never fails its write: the write
+ * committed, so its promise resolves, and the hook's failure comes here as a
+ * `QueryError` (`meta.method: "on"`, `meta.commitCertainty`, `cause` the
+ * hook's own error). Without `onError`, it goes to `console.error`.
+ */
+export interface OnOptions<Model extends string = string> {
+  readonly onError?: (error: QueryError, event: OnEvent<Model>) => unknown;
+}
+
 /** An unbound declaration: applies to any client, which it returns. */
 export type OnExtension = <
   Base extends { $extends(...args: never[]): unknown },
@@ -164,14 +174,27 @@ export function on<
   C extends VibORMConfig = VibORMConfig,
   X extends ExtensionState = ExtensionState,
 >(
-  hooks: OnHooks<NoInfer<C>>
+  hooks: OnHooks<NoInfer<C>>,
+  options?: OnOptions<keyof ClientSchema<NoInfer<C>> & string>
 ): string extends keyof ClientSchema<C>
   ? OnExtension
   : (
       base: ClientTypeState<C, X> & NoInfer<VibORMClient<C, X>>
     ) => VibORMClient<C, X>;
-export function on(hooks: RuntimeHooks) {
+export function on(hooks: RuntimeHooks, options?: OnOptions) {
   const own: RuntimeHooks = Object.freeze({ ...hooks });
+  const onError = options?.onError;
+  if (onError !== undefined && typeof onError !== "function")
+    refuse("onError must be a function");
+  /** A failing hook's report: never a failure of the write itself. */
+  const report = async (error: QueryError, event: OnEvent) => {
+    try {
+      if (onError) await onError(error, event);
+      else console.error(error);
+    } catch (thrown) {
+      console.error(error, thrown);
+    }
+  };
   // The plan is also the definition's `query`, which identifies it: core
   // recognizes it and keeps it out of the chain's handlers.
   const writes = (
@@ -180,7 +203,7 @@ export function on(hooks: RuntimeHooks) {
     args: Row,
     chain: ResolvedExtensionChain,
     callArgs: Row
-  ) => plan(own, model, operation, args, chain, callArgs);
+  ) => plan(own, report, model, operation, args, chain, callArgs);
   registerOfficialWrites(writes, { plan: writes });
   const definition = Object.freeze({ name: NAME, query: writes });
   return (base: { $schema: object; $extends(definition: object): unknown }) => {
@@ -204,6 +227,7 @@ export function on(hooks: RuntimeHooks) {
 
 function plan(
   hooks: RuntimeHooks,
+  report: (error: QueryError, event: OnEvent) => Promise<void>,
   model: AnyModel,
   operation: string,
   args: Row,
@@ -303,25 +327,13 @@ function plan(
     const held = invalidation;
     invalidation = undefined;
     const found = hookOf();
-    let failure: unknown;
-    let failed = false;
-    if (found && rows.length > 0)
-      try {
-        await runHook(found[0], rows, event(), found[1]);
-      } catch (error) {
-        failed = true;
-        failure = error;
-      }
-    if (held === undefined) {
-      if (failed) throw failure;
-      return;
+    if (found && rows.length > 0) {
+      const happened = event();
+      const failure = await runHook(found[0], rows, happened, found[1]);
+      if (failure) await report(failure, happened);
     }
-    if (!failed) throw held.failure;
-    throw new AggregateError(
-      [held.failure, failure],
-      "Cache invalidation and a write hook both failed.",
-      { cause: held.failure }
-    );
+    // The cache's own failure keeps its own boundary, as without `on`.
+    if (held !== undefined) throw held.failure;
   };
 
   return {
@@ -405,14 +417,16 @@ const AFTER = {
   "may-have-committed": "may have committed",
 } as const;
 
+/** Run one hook; its failure, if any, as the error reported for it. */
 async function runHook(
   hook: RuntimeHook,
   rows: Row[],
   event: OnEvent,
   label: string
-): Promise<void> {
+): Promise<QueryError | undefined> {
   try {
     await hook(Object.freeze(rows), event);
+    return undefined;
   } catch (thrown) {
     const cause = thrown instanceof Error ? thrown : new Error(String(thrown));
     const error = new QueryError(
@@ -434,6 +448,6 @@ async function runHook(
       configurable: true,
       writable: true,
     });
-    throw error;
+    return error;
   }
 }

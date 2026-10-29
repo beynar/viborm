@@ -11,6 +11,7 @@
 
 import { defaultOmit } from "@src/client/exports";
 import { PGliteDriver } from "@src/drivers/pglite";
+import type { QueryError } from "@src/errors";
 import { createClient, defineExtension, s } from "@src/index";
 import { type OnEvent, type OnOperation, type OnRow, on } from "@src/on";
 import { softDelete } from "@src/soft-delete";
@@ -234,4 +235,21 @@ gating.$extends(
       },
     },
   })
+);
+
+// onError: the reported QueryError and the event, typed from the client.
+base.$extends(
+  on(
+    { user: { update: () => undefined } },
+    {
+      onError: (error, event) => {
+        expectTypeOf(error).toEqualTypeOf<QueryError>();
+        expectTypeOf(event.model).toEqualTypeOf<"user" | "post">();
+      },
+    }
+  )
+);
+base.$extends(
+  // @ts-expect-error - "onFailure" is not an option
+  on({ user: { update: () => undefined } }, { onFailure: () => undefined })
 );

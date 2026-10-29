@@ -29,9 +29,11 @@ Versioning.
     (`"committed"` or `"may-have-committed"`).
   - VibORM awaits what a hook returns before the write resolves: return the
     promise to wait for it, or pass it to `ctx.waitUntil()` yourself. A
-    failing hook never undoes the write: the write rejects with a `QueryError`
-    whose `meta.commitCertainty` says it committed and whose `cause` is the
-    hook's error.
+    failing hook never fails its write: the write committed and resolves, and
+    the failure goes to `on(hooks, { onError })` as a `QueryError` whose
+    `meta.commitCertainty` says it committed and whose `cause` is the hook's
+    error (to `console.error` without `onError`). A retry never writes twice
+    because of a hook.
   - A write no hook concerns runs exactly as before. One a hook concerns
     returns whole rows through its own `RETURNING` (an upsert stays one
     atomic `INSERT … ON CONFLICT`, which reports its arm through `xmax = 0`

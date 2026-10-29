@@ -119,7 +119,7 @@ the write waits for:
 ```ts
 on({
   user: {
-    // The write resolves after the sync: a failure reaches the caller.
+    // The write resolves after the sync (a failure goes to `onError`).
     update: (rows) => syncToMyOtherDatabase(rows),
     // The write resolves at once; the platform keeps the work alive.
     create: (rows) => {
@@ -134,42 +134,41 @@ hand it to your platform yourself.
 
 ## When a hook fails
 
-A failing hook never undoes the write. Its error rejects the write's promise
-(inside a transaction, the `$transaction` promise) with a `QueryError` that
-says the write committed:
+**A failing hook never fails its write.** The write committed, so its promise
+resolves with its value, inside a transaction and in `$transaction([...])`
+too. Code that retries a failed write never writes it twice because of a
+hook. The hook's failure goes to `onError`, the second argument of `on()`:
 
 ```ts
-try {
-  await db.user.update({ where: { id }, data });
-} catch (error) {
-  if (error instanceof QueryError && error.meta.method === "on") {
-    error.meta.commitCertainty; // "committed": the row IS updated
-    error.cause; // what your hook threw
-  }
-}
+const db = base.$extends(
+  on(
+    { user: { update: (rows) => syncToMyOtherDatabase(rows) } },
+    {
+      onError: (error, event) => {
+        error.meta.commitCertainty; // "committed": the row IS updated
+        error.cause; // what your hook threw
+        return reportToMyErrorTracker(error, event.args);
+      },
+    }
+  )
+);
 ```
 
-The message names the hook (`Extension "viborm.on" hook user.update failed
-after the write committed; the write is not undone.`), `meta` carries
-`method: "on"`, the call's `model` and `operation` and `commitCertainty`, and
-`cause` is the error the hook threw. This is how every write-outcome listener
-failure is reported (see
-[Create an extension](/docs/extensions/create#wrap-logical-execution)): the
-write's promise rejects, and its error says the write committed.
-
-- **Inside a transaction** it is the `$transaction` promise that rejects,
-  after the commit. Every hook still runs: one failure rejects with its
-  `QueryError`; several reject with an `AggregateError` whose `errors` are
-  those `QueryError`s.
-- **In `$transaction([...])`** likewise: every member's hooks run, in member
-  order, and the failures reject the array, alone or in an `AggregateError`.
-- When one write's hooks and the [cache](/docs/extensions/cache)'s
-  invalidation both fail, the error is an `AggregateError` holding both.
+- `error` is a `QueryError` naming the hook (`Extension "viborm.on" hook
+  user.update failed after the write committed; the write is not undone.`),
+  with `meta.method: "on"`, the call's `model` and `operation`, and
+  `commitCertainty`; `cause` is the error the hook threw. `event` is the
+  hook's own event.
+- VibORM awaits what `onError` returns before the write resolves, like a
+  hook's own promise.
+- Without `onError`, the failure goes to `console.error`, and so does an
+  `onError` that throws. Neither ever fails the write.
+- Every hook runs: in a transaction or an array, one hook failing does not
+  keep the next from running; each failure is reported on its own.
+- The [cache](/docs/extensions/cache)'s own invalidation failure is not a
+  hook's: it still fails the write, as it does without `on()`.
 - A [`query` handler](/docs/extensions/create#wrap-logical-execution) that
   throws after its write committed does not lose the hook: it has already run.
-
-Check `error.meta?.method === "on"` on the error and, for an
-`AggregateError`, on each of its `errors`.
 
 ## Request-scoped values (Cloudflare Workers)
 
