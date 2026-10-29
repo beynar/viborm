@@ -96,8 +96,8 @@ const tableFormat = (value: number) =>
     : value.toLocaleString("en-US", { maximumSignificantDigits: 4 });
 const tableColumns = $derived(
   tableMetric
-    ? "grid min-w-[30rem] grid-cols-[minmax(14rem,2fr)_minmax(6rem,3fr)_4rem_4rem]"
-    : "grid min-w-[24rem] grid-cols-[minmax(14rem,1fr)_4rem_4rem]"
+    ? "grid min-w-[34rem] grid-cols-[minmax(14rem,2fr)_minmax(6rem,3fr)_6rem_6rem]"
+    : "grid min-w-[28rem] grid-cols-[minmax(14rem,1fr)_6rem_6rem]"
 );
 const chosenNode = $derived(
   flat.find((entry) => entry.node.id === chosen)?.node
@@ -260,8 +260,8 @@ const time = (date: Date) =>
                 {#if tableMetric}
                   <span title={tableMetric === 'time' ? 'Time spent by this operation, excluding its inputs' : 'Estimated cost including inputs, in planner units—not milliseconds'}>{tableMetric === 'time' ? 'Own time' : 'Est. cost'}</span>
                 {/if}
-                <span class="text-right" title={plan.analyzed ? 'Rows returned per loop' : 'Rows expected by the planner'}>{plan.analyzed ? 'Rows' : 'Est. rows'}</span>
-                <span class="text-right" title="Pages found in shared memory, including inputs">Hit</span>
+                <span class="text-right" title={plan.analyzed ? 'Rows returned per loop' : 'Rows expected by the planner'}>{plan.analyzed ? 'Rows / Est.' : 'Est. rows'}</span>
+                <span class="text-right" title="Pages found in shared memory / pages read (disk or OS cache), including inputs">Hit / Read</span>
               </div>
               {#each flat as { node, depth } (node.id)}
                 {@const rowCount = node.actual?.rows ?? (plan.analyzed ? undefined : node.estimate?.rows)}
@@ -277,7 +277,12 @@ const time = (date: Date) =>
                   <span class="flex min-w-0 items-start gap-1.5 pr-3" style:padding-left="{depth * 16}px">
                     {#if depth > 0}<span class="text-neutral/35" aria-hidden="true">└</span>{/if}
                     <span class="grid min-w-0 gap-0.5">
-                      <span class="truncate font-medium" title={node.operation}>{node.operation}</span>
+                      <span class="flex min-w-0 items-center gap-1.5">
+                        <span class="truncate font-medium" title={node.operation}>{node.operation}</span>
+                        {#if node.actual && node.actual.loops > 1 && !node.neverExecuted}
+                          <span class="shrink-0 rounded bg-neutral-muted/60 px-1 font-mono text-[10px] text-neutral/65" title={node.actual.parallel ? 'Workers' : 'Loops'}>×{compact(node.actual.loops)}<span class="sr-only">{node.actual.parallel ? ' workers' : ' loops'}</span></span>
+                        {/if}
+                      </span>
                       {#if node.relation || node.alias || node.index}
                         <span class="truncate font-mono text-[11px] text-neutral/60" title={[node.relation ?? node.alias, node.index].filter(Boolean).join(' · ')}>
                           {node.relation ?? node.alias ?? ''}{#if node.index}<span class="ml-1 text-success">{node.index}</span>{/if}
@@ -296,11 +301,16 @@ const time = (date: Date) =>
                       <span class="absolute inset-y-0 grid max-w-full items-center overflow-hidden px-1 whitespace-nowrap" style:left="max(0px, calc({width}% - {metricLabel.length}ch - 0.5rem))">{metricLabel}</span>
                     </span>
                   {/if}
-                  <span class="pl-2 text-right font-mono tabular-nums" title={plan.analyzed ? 'Rows returned per loop' : 'Rows expected by the planner'}>
+                  <span class="pl-2 text-right font-mono text-[11px] whitespace-nowrap tabular-nums" title={plan.analyzed ? 'Rows returned per loop' : 'Rows expected by the planner'}>
                     <span class="sr-only">{plan.analyzed ? 'Rows per loop: ' : 'Estimated rows: '}</span>{rowCount === undefined || node.neverExecuted ? '—' : compact(rowCount)}
+                    {#if plan.analyzed}
+                      <span class="text-neutral/55"><span class="mx-1" aria-hidden="true">/</span><span class="sr-only">; estimated rows: </span>{node.estimate?.rows === undefined ? '—' : compact(node.estimate.rows)}</span>
+                    {/if}
                   </span>
-                  <span class="pl-2 text-right font-mono tabular-nums" title="Pages found in shared memory, including inputs">
-                    <span class="sr-only">Buffer hits: </span>{node.buffers === undefined || node.neverExecuted ? '—' : compact(node.buffers.hit)}
+                  <span class="pl-2 text-right font-mono text-[11px] whitespace-nowrap tabular-nums" title="Pages found in shared memory / pages read (disk or OS cache), including inputs">
+                    {#if node.buffers && !node.neverExecuted}
+                      <span class="sr-only">Buffer hits: </span>{compact(node.buffers.hit)}<span class="mx-1 text-neutral/55" aria-hidden="true">/</span><span class="sr-only">; pages read: </span>{compact(node.buffers.read)}
+                    {:else}—{/if}
                   </span>
                 </button>
               {/each}
