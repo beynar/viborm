@@ -7,6 +7,7 @@ import { arrowsClockwiseIcon } from "entasis/icons/arrowsClockwise";
 import { bookmarkSimpleIcon } from "entasis/icons/bookmarkSimple";
 import { plusIcon } from "entasis/icons/plus";
 import { sidebarSimpleIcon } from "entasis/icons/sidebarSimple";
+import { terminalWindowIcon } from "entasis/icons/terminalWindow";
 import { xIcon } from "entasis/icons/x";
 import { NumberInput } from "entasis/number-input";
 import { type PageShellApi, setPageShell } from "entasis/page-shell";
@@ -19,6 +20,7 @@ import { TextArea } from "entasis/text-area";
 import { TextInput } from "entasis/text-input";
 import { toast } from "entasis/toast";
 import { untrack } from "svelte";
+import type { ModelIcon } from "../../../../src/icons";
 import {
   explainQuery,
   type QueryOperation,
@@ -50,6 +52,7 @@ import { prettySql } from "../../lib/sql";
 import { cellText, display, grouped } from "../../lib/values";
 import { openQuery } from "../../router";
 import FilterGroup from "../data/FilterGroup.svelte";
+import IconPicker from "../IconPicker.svelte";
 import PlanView from "./PlanView.svelte";
 import ResultTable from "./ResultTable.svelte";
 import TraceView from "./TraceView.svelte";
@@ -174,14 +177,19 @@ const unsaved = $derived(
       })
 );
 let queryName = $state(untrack(() => saved?.name ?? ""));
+let pickedIcon = $state<ModelIcon>();
+const queryIcon = $derived(pickedIcon ?? saved?.icon);
+let choosingIcon = $state(false);
 let saving = $state(false);
 async function saveQuery(asNew: boolean, close: () => void) {
   const name = queryName.trim();
   if (!name || saving) return;
   saving = true;
   try {
-    if (saved && !asNew) await queries.update(saved.id, name, stateOf());
-    else await openQuery(await queries.create(name, stateOf()));
+    if (saved && !asNew)
+      await queries.update(saved.id, name, stateOf(), pickedIcon);
+    else await openQuery(await queries.create(name, stateOf(), queryIcon));
+    pickedIcon = undefined;
     close();
     toast.success({ title: `The query “${name}” was saved` });
   } catch (error) {
@@ -584,7 +592,13 @@ function chooseFunction(
           {/snippet}
           {#snippet children(popover)}
             <form class="grid gap-3" onsubmit={event => { event.preventDefault(); saveQuery(false, popover.close) }}>
-              <TextInput size="small" label="Query name" value={queryName} onValueChange={value => (queryName = value ?? '')} />
+              <div class="flex items-center gap-2">
+                <Button type="button" size="small" variant={choosingIcon ? 'soft' : 'outline'} squared prefix={queryIcon ? MODEL_ICON[queryIcon] : terminalWindowIcon} label="The query's icon" onclick={() => (choosingIcon = !choosingIcon)} />
+                <div class="min-w-0 flex-1"><TextInput size="small" label="Query name" theme={HIDDEN_LABEL} placeholder="Query name" value={queryName} onValueChange={value => (queryName = value ?? '')} /></div>
+              </div>
+              {#if choosingIcon}
+                <IconPicker value={queryIcon} onValueChange={icon => ((pickedIcon = icon), (choosingIcon = false))} />
+              {/if}
               <div class="flex justify-end gap-2">
                 {#if saved}<Button type="button" size="small" variant="ghost" disabled={!queryName.trim() || saving} onclick={() => saveQuery(true, popover.close)}>Save as new</Button>{/if}
                 <Button size="small" color="primary" type="submit" loading={saving} disabled={!queryName.trim()}>Save</Button>

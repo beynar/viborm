@@ -60,7 +60,7 @@ the studio on `http://127.0.0.1:5577` and opens it.
   as data, never evaluated: variables, functions, imports and mutations are
   refused. No setup or client import is needed.
 - **Saved queries:** save the code or the model, operation and builder settings under a
-  name. Reopen them from the sidebar or ⌘K, update or rename them, or use
+  name and an icon. Reopen them from the sidebar or ⌘K, update or rename them, or use
   Save as new to keep a copy. Queries share the views' per-project storage and
   sync across open Studio pages. Deleting a saved query leaves database rows alone.
 - **Plan:** PostgreSQL and MySQL execution plans as a Svelte Flow graph, a

@@ -4,7 +4,7 @@ import { TextInput } from "entasis/text-input";
 import { ICON_RULES, MODEL_ICONS, type ModelIcon } from "../../../src/icons";
 import { MODEL_ICON } from "../lib/model-icons";
 
-// The icons a model or a view may be shown with, found by their name or by the words that call for them
+// The icons a saved view or query may be shown with, found by their name or by the words that call for them
 // (`money`, `invoice`, `team`): a grid to choose one from, the one chosen marked.
 let {
   value,

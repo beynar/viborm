@@ -1,3 +1,4 @@
+import type { ModelIcon } from "../../../src/icons";
 import type { QueryOperation } from "./api";
 import type { QueryDraft } from "./query-builder";
 import { SavedItems } from "./saved-items.svelte";
@@ -13,6 +14,7 @@ export interface QueryState {
 export interface SavedQuery extends QueryState {
   readonly id: string;
   readonly name: string;
+  readonly icon?: ModelIcon;
 }
 
 export class Queries extends SavedItems<SavedQuery> {
@@ -24,17 +26,39 @@ export class Queries extends SavedItems<SavedQuery> {
     return this.list.find((query) => query.id === id);
   }
 
-  async create(name: string, state: QueryState): Promise<SavedQuery> {
-    const query = { ...state, id: crypto.randomUUID(), name };
+  async create(
+    name: string,
+    state: QueryState,
+    icon?: ModelIcon
+  ): Promise<SavedQuery> {
+    const query = {
+      ...state,
+      id: crypto.randomUUID(),
+      name,
+      ...(icon ? { icon } : {}),
+    };
     await this.change((list) => [...list, query]);
     return query;
   }
 
-  update(id: string, name: string, state: QueryState): Promise<void> {
+  update(
+    id: string,
+    name: string,
+    state: QueryState,
+    icon?: ModelIcon
+  ): Promise<void> {
     return this.change((list) =>
       list.map((query) =>
-        query.id === id ? { ...query, ...state, name } : query
+        query.id === id
+          ? { ...query, ...state, name, ...(icon ? { icon } : {}) }
+          : query
       )
+    );
+  }
+
+  setIcon(id: string, icon: ModelIcon): Promise<void> {
+    return this.change((list) =>
+      list.map((query) => (query.id === id ? { ...query, icon } : query))
     );
   }
 

@@ -151,15 +151,18 @@ const listed = $derived(
   )
 );
 
-/** The view whose icon is being chosen, from its menu in the sidebar. */
-let iconFor = $state<SavedView>();
-async function chooseIcon(view: SavedView, icon: ModelIcon) {
+type IconTarget =
+  | { kind: "view"; item: SavedView }
+  | { kind: "query"; item: SavedQuery };
+let iconFor = $state<IconTarget>();
+async function chooseIcon(target: IconTarget, icon: ModelIcon) {
   try {
-    await views?.setIcon(view.id, icon);
+    const collection = target.kind === "view" ? views : queries;
+    await collection?.setIcon(target.item.id, icon);
     iconFor = undefined;
   } catch (error) {
     toast.danger({
-      title: `The icon of “${view.name}” could not be kept`,
+      title: `The icon of “${target.item.name}” could not be kept`,
       description: error instanceof Error ? error.message : String(error),
     });
   }
@@ -254,12 +257,18 @@ const sidebar = $derived<AppShellSidebarProps>({
             items: queries.list.map((query) => ({
               label: query.name,
               href: queryHref(query),
-              icon: terminalWindowIcon,
+              icon: query.icon ? MODEL_ICON[query.icon] : terminalWindowIcon,
               badge: query.code === undefined ? query.model : "Code",
               isActive: isActive("/query/:id", { id: query.id }),
               action: {
                 label: `Actions for the query ${query.name}`,
                 menu: [
+                  {
+                    type: "option" as const,
+                    title: "Change icon",
+                    prefix: imageSquareIcon,
+                    onclick: () => (iconFor = { kind: "query", item: query }),
+                  },
                   {
                     type: "option" as const,
                     title: "Delete query",
@@ -293,7 +302,7 @@ const sidebar = $derived<AppShellSidebarProps>({
                     type: "option" as const,
                     title: "Change icon",
                     prefix: imageSquareIcon,
-                    onclick: () => (iconFor = view),
+                    onclick: () => (iconFor = { kind: "view", item: view }),
                   },
                   {
                     type: "option" as const,
@@ -364,12 +373,12 @@ const sidebar = $derived<AppShellSidebarProps>({
     <!-- Bottom right: the changes bar holds the bottom centre. -->
     <Toaster position="bottom-right" />
     <Confirmation />
-    <!-- A view's icon, chosen from its menu in the sidebar. -->
-    <Dialog open={iconFor !== undefined} onOpenChange={open => { if (!open) iconFor = undefined; }} size="small" title={iconFor ? `The icon of “${iconFor.name}”` : ''} description="Shown beside the view in the sidebar and in ⌘K.">
+    <!-- Saved item icons share the same picker and persistence feedback. -->
+    <Dialog open={iconFor !== undefined} onOpenChange={open => { if (!open) iconFor = undefined; }} size="small" title={iconFor ? `The icon of “${iconFor.item.name}”` : ''} description="Shown in the sidebar and in ⌘K.">
       {#snippet children()}
         {#if iconFor}
-          {@const view = iconFor}
-          <IconPicker value={view.icon} onValueChange={icon => chooseIcon(view, icon)} />
+          {@const target = iconFor}
+          <IconPicker value={target.item.icon} onValueChange={icon => chooseIcon(target, icon)} />
         {/if}
       {/snippet}
     </Dialog>

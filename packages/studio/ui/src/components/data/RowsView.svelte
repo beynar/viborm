@@ -719,6 +719,7 @@ async function saveView(asNew: boolean, close: () => void) {
       openView(await views.create(name, model.name, stateOf(), viewIcon));
       toast.success({ title: `The view “${name}” was added to the sidebar` });
     }
+    pickedIcon = undefined;
     close();
   } catch (error) {
     toast.danger({

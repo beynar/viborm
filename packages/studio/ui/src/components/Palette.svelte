@@ -97,7 +97,7 @@ const items = $derived.by<CommandGroup[]>(() => {
           query.code === undefined
             ? `Query on ${query.model}`
             : "VibORM code query",
-        icon: terminalWindowIcon,
+        icon: query.icon ? MODEL_ICON[query.icon] : terminalWindowIcon,
         keywords: [query.model, "query"],
       })),
       ...(views?.list ?? [])
