@@ -1,9 +1,27 @@
 // The studio API, as the app calls it. Its types are the server's own.
-import type { StudioDescription } from "../../../src/api";
+import type {
+  StoredName,
+  StudioDescription,
+  StudioDrift,
+  StudioSpan,
+  StudioStatement,
+} from "../../../src/api";
 import type { StudioField, StudioModel } from "../../../src/schema";
 import { parseDraft } from "./values";
 
-export type { StudioDescription } from "../../../src/api";
+export type {
+  StudioDescription,
+  StudioDrift,
+  StudioSpan,
+  StudioStatement,
+} from "../../../src/api";
+export type {
+  StudioExplained,
+  StudioPlan,
+} from "../../../src/explain";
+export type { PlanNode } from "../../../src/plan";
+export type { TableIndex } from "../../../src/plan-catalog";
+export type { QueryOperation } from "../../../src/query";
 export type {
   StudioEdge,
   StudioField,
@@ -23,14 +41,17 @@ export type Scope = { where: Where; label: string };
 /** A refusal the API answered with: the client's own code and message. */
 export class StudioError extends Error {
   readonly code: string;
-  constructor(code: string, message: string) {
+  /** The change a save stopped at, by its place in the list. */
+  readonly at?: number;
+  constructor(code: string, message: string, at?: number) {
     super(message);
     this.code = code;
+    if (at !== undefined) this.at = at;
   }
 }
 
 async function call<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(`./api${path}`, {
+  const response = await fetch(`/api${path}`, {
     method: body === undefined ? "GET" : "POST",
     headers: body === undefined ? {} : { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -40,7 +61,8 @@ async function call<T>(path: string, body?: unknown): Promise<T> {
     const error = answer?.error ?? {};
     throw new StudioError(
       error.code ?? String(response.status),
-      error.message ?? response.statusText
+      error.message ?? response.statusText,
+      typeof error.at === "number" ? error.at : undefined
     );
   }
   return answer as T;
@@ -62,14 +84,42 @@ export const readRows = (
   }
 ) => call<{ rows: Row[]; total: number }>(at(model, "rows"), query);
 
-export const createRow = (model: string, data: Row) =>
-  call<{ row: Row }>(at(model, "create"), { data });
+/** How the database stands against the schema: what `viborm push` would do to it. */
+export const checkDrift = () => call<StudioDrift>("/drift");
 
-export const updateRow = (model: string, key: Row, data: Row) =>
-  call<{ row: Row }>(at(model, "update"), { key, data });
+/** One read through the client, as the query page writes it: its answer, its time and the SQL it ran. */
+interface QueryAnswer {
+  model: string;
+  operation: import("../../../src/query").QueryOperation;
+  result: unknown;
+  duration: number;
+  statements: StudioStatement[];
+  spans: StudioSpan[];
+}
 
-export const deleteRow = (model: string, key: Row) =>
-  call<{ row: Row }>(at(model, "delete"), { key });
+type QueryInput =
+  | { code: string }
+  | { model: string; operation: string; args: unknown };
+
+export const runQuery = (input: QueryInput) =>
+  call<QueryAnswer>("/query", input);
+export const explainQuery = (input: QueryInput, analyze: boolean) =>
+  call<
+    QueryAnswer & {
+      analyze: boolean;
+      explained: import("../../../src/explain").StudioExplained[];
+    }
+  >("/explain", { ...input, analyze });
+
+/** What the studio keeps for the page, per project: its views and the diagram's layout. */
+export const readStored = async (name: StoredName) =>
+  (await call<{ value: unknown }>(`/store/${name}`)).value;
+export const keepStored = (name: StoredName, value: unknown) =>
+  call<{ kept: string }>(`/store/${name}`, { value });
+
+/** The stacked changes, written in one transaction: all of them, or none. */
+export const saveChanges = (changes: readonly unknown[]) =>
+  call<{ saved: number }>("/changes", { changes });
 
 /** The values of a row's key, which update and delete address it by. */
 export const keyOf = (model: StudioModel, row: Row): Row | undefined =>
@@ -80,10 +130,15 @@ export const keyOf = (model: StudioModel, row: Row): Row | undefined =>
 /** Download every row a page's filter, search and order reach, as a file. */
 export async function exportRows(
   model: string,
-  query: { where?: Where; search?: string; orderBy?: OrderBy[] },
+  query: {
+    where?: Where;
+    search?: string;
+    orderBy?: OrderBy[];
+    columns?: readonly string[];
+  },
   format: "csv" | "json"
 ): Promise<void> {
-  const response = await fetch(`./api${at(model, "export")}`, {
+  const response = await fetch(`/api${at(model, "export")}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ ...query, format }),

@@ -518,6 +518,22 @@ Client uses types:     orm.user.findMany({ where: { name: ... }})  // Fully type
 | Add logging level | [instrumentation/](src/instrumentation/AGENTS.md) | Update `types.ts`, `logger.ts` |
 | Change VibORM Studio | `packages/studio/` (`@viborm/studio`: `src/` server, API, config discovery and watching; `ui/` Svelte app) | Reads and writes only through the loaded client; bundles VibORM internals from `src/`, so its version follows `viborm`'s; no `viborm` source imports it (`packages/studio/test/studio-boundary.core.test.ts`) |
 
+Studio's project store keeps `views`, `queries`, and `layout` independently in
+one file. Saved views and queries share `ui/src/lib/saved-items.svelte.ts` for
+loading, browser migration, and ordered persistence; their content and actions
+remain in their respective collection classes. Saved query URLs use `/query/<id>`.
+`ui/src/router.ts` owns typed routes and link/navigation helpers through
+`sv-router`. `App.svelte` is the persistent layout; route pages read its
+project state through `lib/studio-context.ts`. API and event URLs are root-relative.
+`lib/legacy-url.ts` upgrades old hash bookmarks before the router mounts.
+Query code is one read call parsed by `src/query-code.ts` into the existing
+model/operation/args API; never evaluate it as JavaScript. Code runs explicitly,
+and saved queries retain their source. The builder keeps its automatic reads.
+The builder's `lib/query-builder.ts` owns the saved projection tree and its
+translation to client arguments; retain legacy relation-name strings as all-column
+selections. `SelectionEditor.svelte` navigates that finite tree, including independent
+polymorphic target selections, without traversing the schema's cyclic graph.
+
 ---
 
 ## Invisible Knowledge (Things Code Doesn't Show)

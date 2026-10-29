@@ -1,5 +1,10 @@
+import { Router } from "sv-router";
 import { mount } from "svelte";
-import App from "./App.svelte";
+import { legacyPath } from "./lib/legacy-url";
+import "./router";
 import "./app.css";
 
-mount(App, { target: document.getElementById("app")! });
+const upgraded = legacyPath(new URL(location.href));
+if (upgraded) history.replaceState(history.state, "", upgraded);
+
+mount(Router, { target: document.getElementById("app")! });

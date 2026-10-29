@@ -3,13 +3,15 @@ import { Alert } from "entasis/alert";
 import { Button } from "entasis/button";
 import { Checkbox } from "entasis/checkbox";
 import { Combobox } from "entasis/combobox";
-import { confirmation } from "entasis/confirmation";
+import { DateInput } from "entasis/date-input";
 import { Dialog } from "entasis/dialog";
 import { trashIcon } from "entasis/icons/trash";
+import { NumberInput } from "entasis/number-input";
 import { Select } from "entasis/select";
 import { Switch } from "entasis/switch";
 import { TextArea } from "entasis/text-area";
 import { TextInput } from "entasis/text-input";
+import { TimeInput } from "entasis/time-input";
 import { untrack } from "svelte";
 import {
   foreignKeyOf,
@@ -18,8 +20,19 @@ import {
   type StudioField,
   type StudioModel,
 } from "../../lib/api";
-import { TYPE_ICONS } from "../../lib/icons";
-import { draftOf, editsAsJson, parseDraft, typeLabel } from "../../lib/values";
+import { TYPE_COLORS, TYPE_ICONS } from "../../lib/icons";
+import {
+  dateToDay,
+  dayToDate,
+  draftOf,
+  editsAsJson,
+  instantOf,
+  instantParts,
+  parseDraft,
+  secondsToTime,
+  timeToSeconds,
+  typeLabel,
+} from "../../lib/values";
 
 // One row in a drawer over the table's right side: every column as an editor of its type, and a null switch where a
 // column may be empty. A new row sends what was written and leaves the rest to the schema's defaults and generators;
@@ -29,6 +42,7 @@ let {
   models,
   readonly = false,
   row,
+  seed,
   save,
   remove,
   close,
@@ -40,17 +54,21 @@ let {
   readonly?: boolean;
   /** The row edited; absent for a new one. */
   row?: Row;
-  save: (data: Row) => Promise<void>;
-  remove?: () => Promise<void>;
+  /** Initial scalar values for a new row, without treating it as an update. */
+  seed?: Row;
+  /** Stacks the row's changes (or the new row) with the changes to save. */
+  save: (data: Row) => void;
+  /** Stacks the row's deletion. */
+  remove?: () => void;
   close: () => void;
 } = $props();
 
 type Draft = { text: string; isNull: boolean };
 const initial = (field: StudioField): Draft =>
-  row
+  row || seed
     ? {
-        text: draftOf(field, row[field.name]),
-        isNull: row[field.name] === null,
+        text: draftOf(field, (row ?? seed)?.[field.name]),
+        isNull: (row ?? seed)?.[field.name] === null,
       }
     : { text: "", isNull: false };
 // The drawer is keyed on its row (`RowsView`): its drafts start from the row it opened with.
@@ -62,7 +80,6 @@ let drafts = $state<Record<string, Draft>>(
   )
 );
 let failure = $state<string>();
-let busy = $state(false);
 let open = $state(true);
 
 // The label is read by assistive technology only: its header leaves the layout too, so no empty row spaces the control.
@@ -70,8 +87,18 @@ const HIDDEN_LABEL = {
   header: { base: "!absolute sr-only" },
   label: { base: "sr-only" },
 };
+/** The actions at the drawer's foot: pinned to its bottom edge, in view however long the row. */
+const DRAWER = {
+  // No padding under the foot: what scrolls behind it would show there.
+  content: { base: "pb-0" },
+  footer: {
+    base: "sticky bottom-0 mt-auto border-t border-neutral-muted bg-surface-floating py-md",
+  },
+};
+/** A field an existing row keeps: its generated key, or a `.now()` creation timestamp. */
 const readOnly = (field: StudioField) =>
-  row !== undefined && field.id && field.generated !== undefined;
+  row !== undefined &&
+  (!field.updatable || (field.id && field.generated !== undefined));
 const hint = (field: StudioField) =>
   field.generated
     ? `generated (${field.generated})`
@@ -97,7 +124,8 @@ function dataOf(): Row {
     } else if (
       !draft.isNull &&
       draft.text === "" &&
-      (field.optional || field.type !== "string")
+      (field.optional || field.type !== "string") &&
+      !(seed && Object.hasOwn(seed, field.name))
     ) {
       continue;
     }
@@ -106,38 +134,19 @@ function dataOf(): Row {
   return data;
 }
 
-async function submit() {
+function submit() {
   failure = undefined;
-  busy = true;
   try {
-    await save(dataOf());
+    save(dataOf());
     open = false;
   } catch (error) {
     failure = error instanceof Error ? error.message : String(error);
-  } finally {
-    busy = false;
   }
 }
 
-async function destroy() {
-  if (!remove) return;
-  const { confirmed } = await confirmation({
-    title: `Delete this ${model.name}?`,
-    description: "The row is deleted through your client. It cannot be undone.",
-    confirm: { text: "Delete", color: "danger" },
-    cancel: "Cancel",
-  });
-  if (!confirmed) return;
-  failure = undefined;
-  busy = true;
-  try {
-    await remove();
-    open = false;
-  } catch (error) {
-    failure = error instanceof Error ? error.message : String(error);
-  } finally {
-    busy = false;
-  }
+function destroy() {
+  remove?.();
+  open = false;
 }
 </script>
 
@@ -145,8 +154,9 @@ async function destroy() {
   bind:open
   type="drawerRight"
   title={row ? `${model.name} ${keyText}` : `New ${model.name}`}
-  description={readonly ? 'The studio is read-only.' : row ? 'Changed columns are saved through your client.' : 'Left empty, a column takes its default.'}
+  description={readonly ? 'The studio is read-only.' : row ? 'Changed columns join the changes to save.' : 'Left empty, a column takes its default. The row joins the changes to save.'}
   onAfterClose={close}
+  theme={DRAWER}
 >
   {#if failure}
     <div class="mb-4">
@@ -165,9 +175,10 @@ async function destroy() {
       {@const pointed = foreignKeyOf(model, models, field)}
       <div class="grid gap-1.5">
         <div class="flex items-center gap-2 text-[13px]">
-          <span class="inline-flex text-neutral/55">{@render TYPE_ICONS[field.type]({ size: 14 })}</span>
+          <span class={["inline-flex", TYPE_COLORS[field.type]]}>{@render TYPE_ICONS[field.type]({ size: 14 })}</span>
           <span class="font-medium">{field.name}</span>
           <span class="font-mono text-[11px] text-neutral/50">{typeLabel(field)}</span>
+          {#if !readonly && readOnly(field)}<span class="text-[11px] text-neutral/50 italic">{field.updatable ? 'generated' : 'set on create'}</span>{/if}
           {#if field.nullable && !readonly && !readOnly(field)}
             <span class="ml-auto"><Checkbox size="small" label="null" value={draft.isNull} onValueChange={value => (draft.isNull = value === true)} /></span>
           {/if}
@@ -204,6 +215,20 @@ async function destroy() {
             value={draft.text || null}
             onValueChange={value => (draft.text = value ?? '')}
           />
+        {:else if field.type === 'datetime' && !field.list}
+          <!-- An instant: its day on a calendar and its time, in the browser's zone; stored as an ISO instant. -->
+          {@const parts = instantParts(draft.text)}
+          <div class="flex items-center gap-2">
+            <div class="min-w-0 flex-1"><DateInput size="small" label="{field.name}, day" theme={HIDDEN_LABEL} {disabled} readOnly={readonly} format="yyyy/mm/dd" closeOnSelect value={parts?.day ?? null} onValueChange={day => (draft.text = day ? instantOf(day, parts?.seconds ?? 0, draft.text) : '')} /></div>
+            <div class="w-36 shrink-0"><TimeInput size="small" label="{field.name}, time" theme={HIDDEN_LABEL} {disabled} readOnly={readonly} format="HH:MM:SS" as="secondSinceMidnight" value={parts?.seconds ?? null} onValueChange={seconds => (draft.text = instantOf(parts?.day ?? new Date(), seconds ?? 0, draft.text))} /></div>
+            {#if !readonly && !disabled}<Button size="small" variant="ghost" type="button" onclick={() => (draft.text = new Date().toISOString())}>Now</Button>{/if}
+          </div>
+        {:else if field.type === 'date' && !field.list}
+          <DateInput size="small" label={field.name} theme={HIDDEN_LABEL} {disabled} readOnly={readonly} format="yyyy/mm/dd" closeOnSelect value={dayToDate(draft.text)} onValueChange={day => (draft.text = day ? dateToDay(day) : '')} />
+        {:else if field.type === 'time' && !field.list}
+          <TimeInput size="small" label={field.name} theme={HIDDEN_LABEL} {disabled} readOnly={readonly} format="HH:MM:SS" as="secondSinceMidnight" value={timeToSeconds(draft.text)} onValueChange={seconds => (draft.text = seconds === null ? '' : secondsToTime(seconds, draft.text))} />
+        {:else if (field.type === 'int' || field.type === 'number') && !field.list}
+          <NumberInput size="small" label={field.name} theme={HIDDEN_LABEL} {disabled} readOnly={readonly} {placeholder} step={field.type === 'int' ? 1 : 0.1} value={draft.text === '' ? null : Number(draft.text)} onValueChange={value => (draft.text = value === null || value === undefined ? '' : String(value))} />
         {:else if editsAsJson(field) || field.type === 'blob'}
           <TextArea size="small" label={field.name} theme={HIDDEN_LABEL} {disabled} readOnly={readonly} rows={4} placeholder={placeholder || (readonly ? '' : field.type === 'blob' ? 'base64' : 'JSON')} value={draft.text} onValueChange={value => (draft.text = value ?? '')} />
         {:else}
@@ -213,14 +238,14 @@ async function destroy() {
     {/each}
   </form>
   {#snippet footer()}
-    <div class="flex w-full items-center gap-2 border-t border-neutral-muted pt-4">
-      {#if remove && !readonly}<Button variant="soft" color="danger" prefix={trashIcon} disabled={busy} onclick={destroy}>Delete</Button>{/if}
+    <div class="flex w-full items-center gap-2">
+      {#if remove && !readonly}<Button variant="soft" color="danger" prefix={trashIcon} onclick={destroy}>Delete</Button>{/if}
       <span class="flex-1"></span>
       {#if readonly}
         <Button variant="ghost" onclick={() => (open = false)}>Close</Button>
       {:else}
         <Button variant="ghost" onclick={() => (open = false)}>Cancel</Button>
-        <Button color="primary" loading={busy} onclick={() => submit()}>{row ? 'Save' : 'Create'}</Button>
+        <Button color="primary" onclick={() => submit()}>{row ? 'Done' : 'Add the row'}</Button>
       {/if}
     </div>
   {/snippet}

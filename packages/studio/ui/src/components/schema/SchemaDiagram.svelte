@@ -5,12 +5,18 @@ import {
   type Edge,
   type Node,
   SvelteFlow,
+  ViewportPortal,
 } from "@xyflow/svelte";
 import { Button } from "entasis/button";
 import { arrowCounterClockwiseIcon } from "entasis/icons/arrowCounterClockwise";
 import { type PageShellApi, setPageShell } from "entasis/page-shell";
 import { untrack } from "svelte";
-import type { StudioDescription, StudioSchema } from "../../lib/api";
+import {
+  keepStored,
+  readStored,
+  type StudioDescription,
+  type StudioSchema,
+} from "../../lib/api";
 import {
   CARD_WIDTH,
   END_LABELS,
@@ -20,7 +26,10 @@ import {
   schemaLayout,
 } from "../../lib/diagram";
 import { fillPage } from "../../lib/fill";
+import { provideFocus, SchemaFocus } from "./focus.svelte";
 import RelationEdge from "./RelationEdge.svelte";
+import SchemaExport from "./SchemaExport.svelte";
+import SchemaFind from "./SchemaFind.svelte";
 import SchemaLegend from "./SchemaLegend.svelte";
 import SchemaMarkers from "./SchemaMarkers.svelte";
 import SchemaZoom from "./SchemaZoom.svelte";
@@ -41,38 +50,72 @@ const FIT = { padding: 0.15, minZoom: 0.5, maxZoom: 1 };
 const NO_MODE = "" as ColorMode;
 
 const links = $derived(linksOf(schema));
+/** The model (or relation) put forward, the rest faded: a card or a relation row clicked; the pane or Escape lets go. */
+const focus = provideFocus(new SchemaFocus(() => links));
 
 // The page's header: its title, what the schema holds, and the legend.
 setPageShell({ title: "Schema", subtitle, headerActions });
 
 /**
- * Where the member moved each card, kept in the browser per project (the
- * config's path makes the key, which no reload changes: a model added later
- * joins the saved layout), so the diagram opens as it was left.
+ * Where the member moved each card, kept by the studio per project (`~/.viborm/studio`, whatever its port), so the
+ * diagram opens as it was left; a layout the browser kept before moves there once. Nothing is kept until the kept
+ * layout is read: the cards' first places are the schema's own, not the member's.
  */
 const LAYOUT_KEY = `viborm-studio:layout:${untrack(() => schema.project)}`;
-function savedLayout(): Record<string, { x: number; y: number }> {
+let held = $state.raw<Record<string, { x: number; y: number }>>({});
+/** The kept layout is read; the studio keeps it, or the browser does. */
+let loaded = false;
+let keptByStudio = false;
+const isLayout = (
+  value: unknown
+): value is Record<string, { x: number; y: number }> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+function localLayout() {
   try {
-    return JSON.parse(localStorage.getItem(LAYOUT_KEY) ?? "{}");
+    const kept: unknown = JSON.parse(localStorage.getItem(LAYOUT_KEY) ?? "{}");
+    return isLayout(kept) ? kept : {};
   } catch {
     return {};
   }
 }
+$effect(() => {
+  untrack(async () => {
+    try {
+      const kept = await readStored("layout");
+      const local = localLayout();
+      held = isLayout(kept) ? kept : local;
+      if (!isLayout(kept) && Object.keys(local).length)
+        await keepStored("layout", local);
+      keptByStudio = true;
+      localStorage.removeItem(LAYOUT_KEY);
+    } catch {
+      held = localLayout();
+    }
+    nodes = nodes.map((node) => ({
+      ...node,
+      position: held[node.id] ?? node.position,
+    }));
+    loaded = true;
+  });
+});
+const savedLayout = () => held;
 let saving: ReturnType<typeof setTimeout> | undefined;
 function saveLayout(current: readonly Node<TableData>[]) {
+  if (!loaded) return;
   clearTimeout(saving);
   saving = setTimeout(() => {
-    localStorage.setItem(
-      LAYOUT_KEY,
-      JSON.stringify(
-        Object.fromEntries(current.map((node) => [node.id, node.position]))
-      )
-    );
+    held = Object.fromEntries(current.map((node) => [node.id, node.position]));
+    if (keptByStudio) keepStored("layout", held).catch(() => undefined);
+    else localStorage.setItem(LAYOUT_KEY, JSON.stringify(held));
   }, 300);
 }
 /** The diagram as the schema lays it out: every card back to its column. */
 function resetLayout() {
-  localStorage.removeItem(LAYOUT_KEY);
+  // A move still waiting to be kept would write its places over the reset.
+  clearTimeout(saving);
+  held = {};
+  if (keptByStudio) keepStored("layout", {}).catch(() => undefined);
+  else localStorage.removeItem(LAYOUT_KEY);
   const at = schemaLayout(schema);
   nodes = nodes.map((node) => ({
     ...node,
@@ -163,8 +206,9 @@ const edges = $derived.by<Edge<{ link: Link; markers: string }>[]>(() => {
   <SchemaLegend />
 {/snippet}
 
+<svelte:window onkeydown={event => event.key === 'Escape' && focus.model && focus.clear()} />
+
 <div class="schema" {@attach fillPage}>
-  <SchemaMarkers id={markers} />
   <SvelteFlow
     bind:nodes
     {edges}
@@ -178,8 +222,18 @@ const edges = $derived.by<Edge<{ link: Link; markers: string }>[]>(() => {
     nodesConnectable={false}
     elementsSelectable={false}
     proOptions={{ hideAttribution: true }}
+    onnodeclick={({ node, event }) => {
+      // A relation row chooses its relation itself (`TableNode`); the model's name is a link to its rows.
+      if (event.target instanceof Element && event.target.closest('[data-relation], a')) return
+      focus.chooseModel(node.id)
+    }}
+    onpaneclick={() => focus.clear()}
   >
+    <!-- Inside the viewport, so an export of it keeps the lines' ends. -->
+    <ViewportPortal target="back"><SchemaMarkers id={markers} /></ViewportPortal>
     <SchemaZoom fit={FIT} />
+    <SchemaFind {schema} />
+    <SchemaExport name="schema-{schema.dialect}" />
   </SvelteFlow>
 </div>
 

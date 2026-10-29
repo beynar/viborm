@@ -221,7 +221,7 @@
     "test:raptor3:seeds": "node scripts/run-raptor3.mjs g1-seeds",
     "test:raptor3:transport": "node scripts/run-raptor3.mjs g1-transport",
     "test:raptor3:transport:seeds": "node scripts/run-raptor3.mjs g1-transport-seeds",
-    "test:core": "node scripts/run-vitest-safe.mjs --sequential-shards=4 run --workspace vitest.workspace.ts --project='layer-*'",
+    "test:core": "node scripts/run-vitest-safe.mjs --sequential-shards=2 run --workspace vitest.workspace.ts --project='layer-*'",
     "test:all": "node scripts/run-credential-free-tests.mjs",
     "test:watch": "node scripts/run-vitest-safe.mjs --workspace vitest.workspace.ts --project='layer-*'",
     "test:ui": "node scripts/run-vitest-safe.mjs --ui --workspace vitest.workspace.ts --project='layer-*'",

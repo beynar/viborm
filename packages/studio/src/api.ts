@@ -11,6 +11,10 @@
  */
 
 import type { Model } from "@src/schema/model";
+import { writeDelimited } from "./delimited";
+import { dialectOf, explainStatements } from "./explain";
+import { QUERY_OPERATIONS } from "./query";
+import { parseQueryCode } from "./query-code";
 import { describeSchema, type StudioModel, type StudioSchema } from "./schema";
 import { encodeJson } from "./server";
 
@@ -53,13 +57,81 @@ export interface StudioApiOptions {
   readonly readonly?: boolean;
   /** The config's path, which a reload keeps. */
   readonly project?: string;
+  /** Where the page keeps what it remembers of the project (its views, the diagram's layout); none, it keeps it itself. */
+  readonly store?: StudioStore;
+  /** How the database stands against the schema, for this client. */
+  readonly drift?: (client: object) => Promise<StudioDrift>;
+  /** The client, extended to report each statement it runs and each span it opens; without it, a query runs untraced. */
+  readonly trace?: (
+    client: object,
+    report: StudioTraceReport
+  ) => Promise<object>;
 }
 
+/** How the database stands against the schema: what `viborm push` would do to it, as the project's migrations say. */
+export type StudioDrift =
+  | { readonly state: "in-sync" }
+  | {
+      readonly state: "drift";
+      readonly destructive: boolean;
+      readonly operations: readonly {
+        readonly label: string;
+        readonly risk: string;
+      }[];
+      readonly statements: readonly string[];
+    }
+  | { readonly state: "unknown"; readonly reason: string };
+
+/** One statement a query ran, as the project's instrumentation reports it. */
+export interface StudioStatement {
+  readonly sql?: string;
+  readonly params?: readonly unknown[];
+  readonly duration?: number;
+}
+
+/** One span the project's instrumentation opened while a query ran. */
+export interface StudioSpan {
+  readonly id: number;
+  /** The span it ran inside. */
+  readonly parent?: number;
+  readonly name: string;
+  /** When it started, in milliseconds: from the query's start once the API answers. */
+  readonly start: number;
+  readonly duration: number;
+  readonly attributes: Readonly<Record<string, string | number | boolean>>;
+  readonly error?: string;
+}
+
+/** Where a traced client reports what a query did. */
+export interface StudioTraceReport {
+  statement(statement: StudioStatement): void;
+  span(span: StudioSpan): void;
+}
+
+/** What the page remembers of a project, by name, kept by the studio rather than the browser. */
+export interface StudioStore {
+  read(name: StoredName): Promise<unknown>;
+  write(name: StoredName, value: unknown): Promise<void>;
+}
+export type StoredName = "views" | "queries" | "layout";
+const STORE_ROUTE = /^\/store\/(views|queries|layout)$/;
+
+/** The most changes one save sends. */
+export const MAX_CHANGES = 1000;
 /** The largest page one request may read. */
 export const MAX_PAGE_SIZE = 500;
 /** The most rows one export writes. */
 export const MAX_EXPORT_ROWS = 100_000;
 const DEFAULT_PAGE_SIZE = 50;
+
+/** One change of a save, refused or failed: which one, by its place in the list. */
+class ChangeFailure extends Error {
+  readonly at: number;
+  constructor(at: number, cause: unknown) {
+    super("A change failed", { cause });
+    this.at = at;
+  }
+}
 
 class Refusal extends Error {
   readonly status: number;
@@ -74,7 +146,7 @@ class Refusal extends Error {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const ROUTE = /^\/models\/([^/]+)\/(rows|export|create|update|delete)$/;
+const ROUTE = /^\/models\/([^/]+)\/(rows|export)$/;
 
 export function createStudioApi(options: StudioApiOptions) {
   const schema: StudioDescription = {
@@ -93,6 +165,24 @@ export function createStudioApi(options: StudioApiOptions) {
       if (request.method !== "GET") throw methodNotAllowed();
       return schema;
     }
+    if (request.path === "/changes") {
+      if (request.method !== "POST") throw methodNotAllowed();
+      return saveChanges(request.body);
+    }
+    const stored = STORE_ROUTE.exec(request.path);
+    if (stored) return keep(stored[1] as StoredName, request);
+    if (request.path === "/drift") {
+      if (request.method !== "GET") throw methodNotAllowed();
+      return drift();
+    }
+    if (request.path === "/query") {
+      if (request.method !== "POST") throw methodNotAllowed();
+      return query(request.body);
+    }
+    if (request.path === "/explain") {
+      if (request.method !== "POST") throw methodNotAllowed();
+      return explain(request.body);
+    }
     const match = ROUTE.exec(request.path);
     if (!match) throw new Refusal(404, "not_found", "Unknown studio route");
     if (request.method !== "POST") throw methodNotAllowed();
@@ -106,41 +196,246 @@ export function createStudioApi(options: StudioApiOptions) {
       throw new Refusal(400, "invalid_body", "The body must be a JSON object");
     }
     const delegate = delegateOf(model);
-    const action = match[2]!;
-    if (schema.readonly && action !== "rows" && action !== "export") {
+    return match[2] === "rows"
+      ? readRows(model, delegate, body, select(model))
+      : exportRows(model, delegate, body);
+  }
+
+  /** The database against the schema; a check that cannot be made says why rather than failing the page. */
+  async function drift(): Promise<StudioDrift> {
+    if (!options.drift) {
+      return {
+        state: "unknown",
+        reason: "This studio does not compare the database with the schema.",
+      };
+    }
+    try {
+      return await options.drift(options.client);
+    } catch (error) {
+      return {
+        state: "unknown",
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * A read's plan: the read runs traced, so the statements it ran are known with the values they bound, then the
+   * database explains each (`explainStatements`).
+   */
+  async function explain(body: unknown) {
+    const dialect = dialectOf(options.dialect);
+    if (!(options.trace && dialect)) {
+      throw new Refusal(
+        501,
+        "no_explain",
+        "This studio cannot explain a query: it needs the project's instrumentation and a SQL database it knows."
+      );
+    }
+    if (
+      isRecord(body) &&
+      body.analyze !== undefined &&
+      typeof body.analyze !== "boolean"
+    ) {
+      throw new Refusal(400, "invalid_analyze", "analyze must be a boolean");
+    }
+    const ran = await query(body);
+    // `analyze: false` asks the plan only: the statement does not run again.
+    const analyze = !(isRecord(body) && body.analyze === false);
+    return {
+      ...ran,
+      analyze,
+      explained: await explainStatements(
+        options.client,
+        dialect,
+        ran.statements,
+        analyze
+      ),
+    };
+  }
+
+  /** One read, as written on the query page: its answer, how long it took, and the statements it ran. */
+  async function query(body: unknown) {
+    if (!isRecord(body)) {
+      throw new Refusal(400, "invalid_body", "The body must be a JSON object");
+    }
+    let input = body;
+    if ("code" in input) {
+      try {
+        input = { ...parseQueryCode(input.code) };
+      } catch (error) {
+        throw new Refusal(
+          400,
+          "invalid_query_code",
+          error instanceof Error ? error.message : String(error)
+        );
+      }
+    }
+    const model =
+      typeof input.model === "string" ? byName.get(input.model) : undefined;
+    if (!model) {
+      throw new Refusal(
+        404,
+        "unknown_model",
+        `Unknown model "${String(input.model)}"`
+      );
+    }
+    const operation = QUERY_OPERATIONS.find((name) => name === input.operation);
+    if (!operation) {
+      throw new Refusal(
+        400,
+        "invalid_operation",
+        `The query page reads: ${QUERY_OPERATIONS.join(", ")}`
+      );
+    }
+    const args = input.args ?? {};
+    if (!isRecord(args)) {
+      throw new Refusal(400, "invalid_args", "args must be an object");
+    }
+    const statements: StudioStatement[] = [];
+    const spans: StudioSpan[] = [];
+    const client = options.trace
+      ? await options.trace(options.client, {
+          statement: (statement) => statements.push(statement),
+          span: (span) => spans.push(span),
+        })
+      : options.client;
+    const delegate = Reflect.get(client, model.name) as Record<
+      string,
+      (args: unknown) => Promise<unknown>
+    >;
+    const started = performance.now();
+    const result = await delegate[operation]!(args);
+    const duration = Math.round(performance.now() - started);
+    // The instrumentation ends the operation's span once its promise settled, a few microtasks after this await:
+    // one turn of the loop and every span the query opened has ended.
+    if (options.trace) await new Promise((resolve) => setImmediate(resolve));
+    const at = (time: number) => Math.round(time * 100) / 100;
+    return {
+      model: model.name,
+      operation,
+      result: result ?? null,
+      duration,
+      statements,
+      // In the order they started, from the query's start.
+      spans: spans
+        .map((span) => ({
+          ...span,
+          start: at(span.start - started),
+          duration: at(span.duration),
+        }))
+        .sort((left, right) => left.start - right.start),
+    };
+  }
+
+  /** What the page remembers, read (GET) or kept (POST `{ value }`), even by a read-only studio: it is not the data. */
+  async function keep(name: StoredName, request: StudioRequest) {
+    const { store } = options;
+    if (!store) {
+      throw new Refusal(
+        404,
+        "no_store",
+        "This studio keeps nothing: the page does"
+      );
+    }
+    if (request.method === "GET")
+      return { value: (await store.read(name)) ?? null };
+    if (request.method !== "POST") throw methodNotAllowed();
+    if (!(isRecord(request.body) && "value" in request.body)) {
+      throw new Refusal(400, "invalid_body", "Send { value }");
+    }
+    await store.write(name, request.body.value);
+    return { kept: name };
+  }
+
+  /**
+   * The changes the member stacked, written in their order in one transaction
+   * of the client: every one of them, or none. Each is checked before any is
+   * written; a failure names the change by its place in the list (`at`).
+   */
+  async function saveChanges(body: unknown) {
+    if (schema.readonly) {
       throw new Refusal(
         403,
         "read_only",
         "The studio was started with --readonly: it does not write"
       );
     }
-    switch (action) {
-      case "rows":
-        return readRows(model, delegate, body, select(model));
-      case "export":
-        return exportRows(model, delegate, body);
+    const changes = isRecord(body) ? body.changes : undefined;
+    if (!Array.isArray(changes) || changes.length > MAX_CHANGES) {
+      throw new Refusal(
+        400,
+        "invalid_changes",
+        `changes must be a list of at most ${MAX_CHANGES} changes`
+      );
+    }
+    const planned = changes.map((change, at) => {
+      try {
+        return planChange(change);
+      } catch (error) {
+        throw new ChangeFailure(at, error);
+      }
+    });
+    const transaction = Reflect.get(options.client, "$transaction") as (
+      run: (tx: object) => Promise<void>
+    ) => Promise<void>;
+    await transaction.call(options.client, async (tx) => {
+      for (const [at, change] of planned.entries()) {
+        const delegate = Reflect.get(tx, change.model.name) as ModelDelegate;
+        try {
+          await delegate[change.action]({
+            ...change.args,
+            select: scalarSelection(change.model),
+          });
+        } catch (error) {
+          throw new ChangeFailure(at, error);
+        }
+      }
+    });
+    return { saved: planned.length };
+  }
+
+  function planChange(change: unknown) {
+    if (!isRecord(change)) {
+      throw new Refusal(400, "invalid_change", "A change must be an object");
+    }
+    const model =
+      typeof change.model === "string" ? byName.get(change.model) : undefined;
+    if (!model) {
+      throw new Refusal(
+        404,
+        "unknown_model",
+        `Unknown model "${String(change.model)}"`
+      );
+    }
+    switch (change.action) {
       case "create":
         return {
-          row: await delegate.create({
-            data: decodeData(model, body.data),
-            select: select(model),
-          }),
+          model,
+          action: "create" as const,
+          args: { data: decodeData(model, change.data) },
         };
       case "update":
         return {
-          row: await delegate.update({
-            where: uniqueWhere(model, body.key),
-            data: decodeData(model, body.data),
-            select: select(model),
-          }),
+          model,
+          action: "update" as const,
+          args: {
+            where: uniqueWhere(model, change.key),
+            data: decodeData(model, change.data),
+          },
+        };
+      case "delete":
+        return {
+          model,
+          action: "delete" as const,
+          args: { where: uniqueWhere(model, change.key) },
         };
       default:
-        return {
-          row: await delegate.delete({
-            where: uniqueWhere(model, body.key),
-            select: scalarSelection(model),
-          }),
-        };
+        throw new Refusal(
+          400,
+          "invalid_action",
+          'A change\'s action is "create", "update" or "delete"'
+        );
     }
   }
 
@@ -171,9 +466,17 @@ function queryOf(model: StudioModel, body: Record<string, unknown>) {
   if (typeof search !== "string") {
     throw new Refusal(400, "invalid_search", "search must be a string");
   }
+  const ignoreCase = body.ignoreCase ?? false;
+  if (typeof ignoreCase !== "boolean") {
+    throw new Refusal(
+      400,
+      "invalid_ignore_case",
+      "ignoreCase must be true or false"
+    );
+  }
   const where = combine(
     body.where as Record<string, unknown> | undefined,
-    searchWhere(model, search.trim())
+    searchWhere(model, search.trim(), ignoreCase)
   );
   const orderBy = withTieBreaker(model, body.orderBy);
   return { ...(where ? { where } : {}), ...(orderBy ? { orderBy } : {}) };
@@ -231,8 +534,23 @@ async function exportRows(
   if (format !== "csv" && format !== "json") {
     throw new Refusal(400, "invalid_format", 'format must be "csv" or "json"');
   }
+  const names = model.fields.map((field) => field.name);
+  const columns = body.columns ?? names;
+  if (
+    !(Array.isArray(columns) && columns.length) ||
+    columns.some(
+      (column) => typeof column !== "string" || !names.includes(column)
+    ) ||
+    new Set(columns).size !== columns.length
+  )
+    throw new Refusal(
+      400,
+      "invalid_columns",
+      "columns must name distinct scalar fields"
+    );
+  const picked: string[] = columns;
   const query = queryOf(model, body);
-  const select = scalarSelection(model);
+  const select = Object.fromEntries(picked.map((name) => [name, true]));
   const rows: Record<string, unknown>[] = [];
   for (;;) {
     // The last page asks for one row past the ceiling: only that row refuses.
@@ -255,49 +573,42 @@ async function exportRows(
   }
   return format === "json"
     ? new FileAnswer(encodeJson(rows), `${model.name}.json`, "application/json")
-    : new FileAnswer(
-        toCsv(
-          model.fields.map((field) => field.name),
-          rows
-        ),
-        `${model.name}.csv`,
-        "text/csv"
-      );
+    : new FileAnswer(toCsv(picked, rows), `${model.name}.csv`, "text/csv");
 }
 
-const CSV_QUOTED = /[",\r\n]|^\s|\s$/;
-
-/** RFC 4180 CSV: a header, then a line per row; structures as JSON, bytes as base64. */
+/** Normalize client values once, then use the same lossless CSV vocabulary as page exports. */
 export function toCsv(
   columns: readonly string[],
   rows: readonly Record<string, unknown>[]
 ): string {
-  const cell = (value: unknown): string => {
-    if (value === null || value === undefined) return "";
-    // A value as its JSON reads (a Decimal, a Date, bytes as base64), a structure as JSON.
-    const json: unknown = JSON.parse(encodeJson(value));
-    const text =
-      typeof json === "object" && json !== null
-        ? JSON.stringify(json)
-        : String(json);
-    return CSV_QUOTED.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
-  };
-  return [
-    columns.map(cell).join(","),
-    ...rows.map((row) => columns.map((column) => cell(row[column])).join(",")),
-  ].join("\r\n");
+  const normalized = rows.map((row) =>
+    Object.fromEntries(
+      columns.map((column) => {
+        const value = row[column];
+        // Dates, decimals, bigints and bytes use the API's existing JSON representation.
+        return [
+          column,
+          value === undefined ? value : JSON.parse(encodeJson(value)),
+        ];
+      })
+    )
+  );
+  return writeDelimited(columns, normalized);
 }
 
 /** Free text: any text column containing the words. */
+/** The words in any text column; `ignoreCase` folds ASCII letters, as the client's `mode: "insensitive"` does everywhere. */
 function searchWhere(
   model: StudioModel,
-  search: string
+  search: string,
+  ignoreCase: boolean
 ): Record<string, unknown> | undefined {
   if (search === "") return undefined;
   const text = model.fields.filter((field) => field.searchable);
   if (text.length === 0) return undefined;
+  const mode = ignoreCase ? { mode: "insensitive" } : {};
   return {
-    OR: text.map((field) => ({ [field.name]: { contains: search } })),
+    OR: text.map((field) => ({ [field.name]: { contains: search, ...mode } })),
   };
 }
 
@@ -428,6 +739,11 @@ function decodeData(model: StudioModel, data: unknown) {
  * its class: the client may come from the application's own copy of VibORM.
  */
 function failure(error: unknown): StudioResponse {
+  if (error instanceof ChangeFailure) {
+    const { status, body } = failure(error.cause);
+    const { error: said } = body as { error: Record<string, unknown> };
+    return { status, body: { error: { ...said, at: error.at } } };
+  }
   if (error instanceof Refusal) {
     return {
       status: error.status,

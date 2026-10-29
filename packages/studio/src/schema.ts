@@ -20,6 +20,7 @@ import type {
 import { resolvedEdges } from "@src/schema/validation/relation-resolution";
 import { resolveSchemaOrThrow } from "@src/schema/validation/validator";
 import { isCompactIdFormat } from "@src/validation/primitives/id-codec";
+import { guessIcon, type ModelIcon } from "./icons";
 
 export interface StudioField {
   readonly name: string;
@@ -37,6 +38,8 @@ export interface StudioField {
   readonly searchable: boolean;
   /** A create may leave it out: a default, a generator, or nullable. */
   readonly optional: boolean;
+  /** An update may write it: not a `.now()` creation timestamp, which the client keeps insert-only. */
+  readonly updatable: boolean;
   /** The generator that fills it (`increment`, `uuid`, `now`, `updatedAt`, …). */
   readonly generated?: string;
   readonly enumValues?: readonly string[];
@@ -59,6 +62,11 @@ export interface StudioRelation {
   readonly variants?: readonly StudioVariant[];
   /** The inverse of a polymorphic carrier: the variant this model is a member under. */
   readonly variant?: string;
+  /**
+   * A polymorphic membership may be let go: always in a collection (its junction), only when the to-one carrier is
+   * `.optional()` for a row-held one and its inverse.
+   */
+  readonly clearable?: boolean;
 }
 
 export interface StudioVariant {
@@ -71,6 +79,8 @@ export interface StudioVariant {
 export interface StudioModel {
   readonly name: string;
   readonly table: string;
+  /** The icon the studio shows it with, guessed from its names and its shape (`guessIcon`). */
+  readonly icon: ModelIcon;
   /** The primary key, which update and delete address one row by; absent, the model is read-only. */
   readonly key?: { readonly name?: string; readonly fields: readonly string[] };
   readonly fields: readonly StudioField[];
@@ -165,6 +175,7 @@ function describeModel(
       id: scalarState.isId || (catalog.rowKey?.fields.includes(field) ?? false),
       unique: scalarState.isUnique,
       searchable: searchable(scalarState),
+      updatable: generator !== "now",
       optional:
         scalarState.hasDefault ||
         generated !== undefined ||
@@ -179,7 +190,7 @@ function describeModel(
     // A resolved schema resolves every slot of every model.
     return [describeRelation(field, model, slots!.get(field)!, named)];
   });
-  return {
+  const described = {
     name,
     table: getModelSqlName(model),
     ...(key
@@ -193,6 +204,7 @@ function describeModel(
     fields,
     relations,
   };
+  return { ...described, icon: guessIcon(described) };
 }
 
 function describeRelation(
@@ -250,6 +262,7 @@ function describeRelation(
       references: [],
       ...partnerOf(edge.carrier),
       variant: resolved.member.variant,
+      clearable: clearable(edge.carrier),
     };
   }
   const variants = edge.members.map(
@@ -273,7 +286,14 @@ function describeRelation(
     fields: [],
     references: [],
     variants,
+    clearable: clearable(edge.carrier),
   };
+}
+
+/** A collection's memberships always come apart; a to-one carrier's only when it is `.optional()`. */
+function clearable(carrier: RelationSlot): boolean {
+  const state = carrier.source["~"].state.relations[carrier.field]!["~"].state;
+  return state.cardinality === "many" || state.optional === true;
 }
 
 const partnerOf = (slot: RelationSlot) => ({

@@ -44,6 +44,8 @@ export default defineConfig({
   root,
   base: "./",
   plugins: [tailwindcss(), svelte(), inlineAssets()],
+  // The embedded production HTML is output, not another development entry.
+  optimizeDeps: { entries: [resolve(root, "index.html")] },
   build: {
     outDir,
     emptyOutDir: true,
@@ -51,6 +53,11 @@ export default defineConfig({
     cssCodeSplit: false,
     modulePreload: false,
     reportCompressedSize: false,
+    rolldownOptions: {
+      // An entasis icon module makes each weight with `icon(...)`: marked pure, the weights the app never renders
+      // are dropped (the models' icons would otherwise bring six each).
+      treeshake: { manualPureFunctions: ["icon"] },
+    },
   },
   server: {
     host: "127.0.0.1",

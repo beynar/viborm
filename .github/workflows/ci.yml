@@ -447,15 +447,22 @@ jobs:
           --workspace vitest.workspace.ts
           --project=provider-bun
 
-      # The D1 project as two runs, each under its own wall: the permissions
-      # suites alone took 110-235 s of the one run's 300 s (main: 264 s in
-      # all, and a slow runner passed it).
+      # Keep the entry suite apart from the other permissions contracts: together
+      # they can exceed the 300 s wall on a slow runner. Resource limits stay fixed.
+      - name: Run D1 permissions entry contracts
+        run: >-
+          node scripts/run-vitest-safe.mjs run
+          --workspace vitest.workspace.ts
+          --project=provider-d1
+          tests/providers/workers/d1-permissions-entry.test.ts
+
       - name: Run D1 permissions contracts
         run: >-
           node scripts/run-vitest-safe.mjs run
           --workspace vitest.workspace.ts
           --project=provider-d1
           tests/providers/workers/d1-permissions
+          --exclude 'tests/providers/workers/d1-permissions-entry.test.ts'
 
       - name: Run D1 contracts
         run: >-
