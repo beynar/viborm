@@ -81,34 +81,22 @@ import {
 import { arrayLiteralText } from "./array-literal";
 
 const quoteIdent = createIdentifierQuoter('"');
-/** The string a bare bound parameter carries: `${value}` and nothing else. */
-function boundString(value: Sql): string | undefined {
-  const [head, tail, extra] = value.strings;
-  const [bound] = value.values;
-  return head === "" && tail === "" && extra === undefined
-    ? typeof bound === "string"
-      ? bound
-      : undefined
-    : undefined;
-}
-
 /**
  * The `LIKE` pattern matching `value` literally where `kind` says. A plain
- * string is escaped here and bound as the finished pattern; any other operand
- * (a column, a JSON path) is escaped by the server, as text.
+ * string (a bare bound parameter) is escaped here and bound as the finished
+ * pattern; any other operand (a column, a JSON path) is escaped by the server.
  */
 function postgresLikePattern(kind: TextMatch, value: Sql): Sql {
-  const literal = boundString(value);
-  if (literal !== undefined) {
-    const escaped = escapeLikeLiteral(literal);
-    if (kind === "startsWith") return sql`${`${escaped}%`}`;
-    return kind === "endsWith" ? sql`${`%${escaped}`}` : sql`${`%${escaped}%`}`;
-  }
-  const escaped = sql`REPLACE(REPLACE(REPLACE(CAST(${value} AS TEXT), CHR(92), CHR(92) || CHR(92)), '%', CHR(92) || '%'), '_', CHR(92) || '_')`;
-  if (kind === "startsWith") return sql`(${escaped} || '%')`;
-  return kind === "endsWith"
-    ? sql`('%' || ${escaped})`
-    : sql`('%' || ${escaped} || '%')`;
+  const head = kind === "startsWith" ? "" : "%";
+  const tail = kind === "endsWith" ? "" : "%";
+  const [literal, other] = value.values;
+  if (
+    value.strings.join("") === "" &&
+    typeof literal === "string" &&
+    other === undefined
+  )
+    return sql`${head + escapeLikeLiteral(literal) + tail}`;
+  return sql`(${sql.raw(head && "'%' || ")}REPLACE(REPLACE(REPLACE(CAST(${value} AS TEXT), CHR(92), CHR(92) || CHR(92)), '%', CHR(92) || '%'), '_', CHR(92) || '_')${sql.raw(tail && " || '%'")})`;
 }
 function postgresJsonObject(pairs: [string, Sql][]): Sql {
   if (pairs.length === 0) return sql.raw`'{}'::json`;

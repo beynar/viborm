@@ -5556,38 +5556,20 @@ export class Queries {
           : a.operators.in(column, list);
       }
       case "contains":
-        return insensitive
-          ? a.operators.insensitiveText(
-              "contains",
-              source,
-              raw(operand!),
-              nativeType
-            )
-          : a.operators.containsText(column, bind(operand!));
       case "startsWith":
+      case "endsWith":
         if (insensitive)
           return a.operators.insensitiveText(
-            "startsWith",
+            operator,
             source,
             raw(operand!),
             nativeType
           );
-        return operand!.kind === "value" && typeof operand!.value === "string"
-          ? a.operators.startsWithPrefix(
-              column,
-              operand!.value,
-              scalar?.physical.scalar["~"].nativeType
-            )
-          : a.operators.startsWithText(column, bind(operand!));
-      case "endsWith":
-        return insensitive
-          ? a.operators.insensitiveText(
-              "endsWith",
-              source,
-              raw(operand!),
-              nativeType
-            )
-          : a.operators.endsWithText(column, bind(operand!));
+        return operator === "startsWith" &&
+          operand!.kind === "value" &&
+          typeof operand!.value === "string"
+          ? a.operators.startsWithPrefix(column, operand!.value, nativeType)
+          : a.operators[`${operator}Text`](column, bind(operand!));
       case "has":
         return predicate.value === null
           ? a.literals.false()
