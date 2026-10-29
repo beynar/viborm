@@ -209,6 +209,9 @@ async function removeQuery(query: SavedQuery) {
 }
 const sidebar = $derived<AppShellSidebarProps>({
   collapsible: "icon",
+  theme: {
+    footer: { base: "group-data-[collapsible=icon]:py-md" },
+  },
   items: [
     {
       items: [
@@ -332,9 +335,9 @@ const sidebar = $derived<AppShellSidebarProps>({
   {/if}
 {/snippet}
 
-{#snippet sidebarFooter(sidebar: SidebarApi)}
-  <!-- The theme, light or dark; centred in the rail when the sidebar is folded to its icons. -->
-  <div class={['flex items-center gap-1', !(sidebar.open || sidebar.isMobile) && 'flex-col justify-center']}>
+{#snippet sidebarFooter()}
+  <!-- Keep the same rail geometry while the surrounding sidebar changes width. -->
+  <div class="flex w-8 shrink-0 flex-col items-center gap-1">
     <ThemeToggle />
     <KeyboardShortcuts />
   </div>
