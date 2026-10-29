@@ -5,8 +5,57 @@ Versioning.
 
 ## Unreleased
 
+### Added
+
+- **`viborm/on`: hooks that run after a write commits.** Name a model and what
+  happened to its rows (`create`, `update`, `delete`), and VibORM calls your
+  function after the commit, with the rows as the write left them (as they
+  were before, for a delete):
+
+  ```ts
+  import { on } from "viborm/on";
+
+  const db = base.$extends(on({
+    user: { update: (rows, { certainty }) => syncToMyOtherDatabase(rows) },
+  }));
+  ```
+
+  - Every root write calls them: `create`, `createMany`, `update`,
+    `updateMany`, `upsert` (its arm decides `create` or `update`), `delete`,
+    `deleteMany`. A soft delete is an `update` of the marker.
+  - Inside a transaction, hooks wait for the outermost commit and are dropped
+    on rollback, savepoints included; `$transaction([...])` runs them after the
+    commit, member by member. Each hook receives `certainty`
+    (`"committed"` or `"may-have-committed"`).
+  - VibORM awaits what a hook returns before the write resolves: return the
+    promise to wait for it, or pass it to `ctx.waitUntil()` yourself. A
+    failing hook never undoes the write: the write rejects with a `QueryError`
+    whose `meta.commitCertainty` says it committed and whose `cause` is the
+    hook's error.
+  - A write no hook concerns runs exactly as before. One a hook concerns
+    returns whole rows through its own `RETURNING` (an upsert stays one
+    atomic `INSERT … ON CONFLICT`, which reports its arm through `xmax = 0`
+    on PostgreSQL and a probe of its key in the same unit on SQLite); on
+    MySQL, a `createMany`, `updateMany` or `deleteMany` it concerns reads its
+    rows in the same transaction (see the docs' cost table).
+  - Rows written through a nested write, many-to-many links, database
+    cascades and raw SQL call no hook.
+
+### Fixed
+
+- **`createMany({ skipDuplicates: true, select })` without `RETURNING`
+  (MySQL)** inserted each row without skipping duplicates, so a duplicate
+  failed with a unique-constraint error instead of being skipped. It now skips
+  it, counts only the rows inserted and returns only those.
+
 ### Changed
 
+- **MySQL: fewer statements for writes that return rows without `RETURNING`.**
+  `createMany({ select })` whose rows all carry their keys inserts them in one
+  statement and reads them back in one (it was one INSERT per row);
+  `delete` and `deleteMany({ select })` with a scalar `select` naming the key
+  lock and read their rows in one `SELECT … FOR UPDATE` (it was a key capture
+  then a read).
 - **`mode: "insensitive"` ignores letter case the way the database does.** It
   used to fold `A`-`Z` only, identically everywhere, with a `TRANSLATE` on
   PostgreSQL and 26 nested `REPLACE` calls on MySQL. It now uses each

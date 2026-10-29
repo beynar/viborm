@@ -728,6 +728,19 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
     ],
     []
   ),
+  "./on": surface(
+    ["on"],
+    [
+      "OnEvent",
+      "OnExtension",
+      "OnHook",
+      "OnHooks",
+      "OnKind",
+      "OnOperation",
+      "OnRow",
+    ],
+    []
+  ),
   "./adapters": surface(
     [
       "MySQLAdapter",

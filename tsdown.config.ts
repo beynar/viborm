@@ -76,6 +76,10 @@ const runtime = {
     // (one `ClientInitializationError` class), unlike soft delete.
     permissions: "./src/permissions/index.ts",
 
+    // Write hooks (viborm/on): the official `on` extension, carried by
+    // identity like the cache, so it shares the root's chunks.
+    on: "./src/on/index.ts",
+
     // Adapters (internal, but exposed for advanced usage)
     adapters: "./src/adapters/index.ts",
 

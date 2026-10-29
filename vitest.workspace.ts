@@ -183,6 +183,7 @@ export default defineWorkspace([
         "tests/contracts/public-client/official-cache-extension.core.test.ts",
         "tests/contracts/public-client/official-instrumentation-extension.core.test.ts",
         "tests/contracts/public-client/soft-delete.core.test.ts",
+        "tests/contracts/public-client/on.core.test.ts",
         "tests/contracts/public-client/extension-bound-views.core.test.ts",
         "tests/contracts/public-client/extension-composition.core.test.ts",
         "tests/contracts/public-client/extension-evidence.core.test.ts",

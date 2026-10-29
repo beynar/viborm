@@ -282,7 +282,11 @@ export class PendingOperation<T>
         return (
           requestNeedsObservedCoordination ||
           (queryHandlers !== undefined && queryHandlers.length > 0) ||
-          operation.#prepareWriteOutcomeRegistration !== undefined
+          // A listener resolved as absent (a write no hook concerns) asks
+          // for none; one not resolved yet is assumed.
+          (operation.#prepareWriteOutcomeRegistration !== undefined &&
+            (!operation.#writeOutcomeRegistrationResolved ||
+              operation.#writeOutcomeRegistration !== undefined))
         );
       },
       prepareAdmission: (operation, phase = "input") => {
@@ -383,8 +387,18 @@ export class PendingOperation<T>
           ? operation.#options.finishResult(value)
           : value,
       prepare: (operation) => operation.#resolveSinglePackage()?.queries[0],
-      prepareBatch: (operation) =>
-        operation.#resolveRouted().prepareBatch(operation.#context.attribution),
+      prepareBatch: async (operation) => {
+        const prepared = await operation
+          .#resolveRouted()
+          .prepareBatch(operation.#context.attribution);
+        const take = operation.#options.takeResult;
+        return take && prepared
+          ? {
+              ...prepared,
+              parseResult: (results) => take(prepared.parseResult(results)),
+            }
+          : prepared;
+      },
       parseResult: (operation, raw) => {
         const single = operation.#resolveSinglePackage();
         if (!single) {
@@ -392,7 +406,9 @@ export class PendingOperation<T>
             `Operation '${operation.#operation}' on model '${operation.#modelName}' publishes no single driver result to parse.`
           );
         }
-        return single.parseResult([raw]);
+        const take = operation.#options.takeResult;
+        const value = single.parseResult([raw]);
+        return take ? take(value) : value;
       },
       observeBatchPhase: (operation, driver, execute) =>
         observeTransactionBatchPhase(
@@ -537,6 +553,9 @@ export class PendingOperation<T>
       );
     }
     const args = this.#resolveArgs();
+    // A package-owned listener may tell the engine what to report while it
+    // plans (a write hook's upsert arm): it exists before any planning.
+    this.#resolveWriteOutcomeRegistration();
     const routed = this.#route.operation(
       this.#model,
       String(this.#options.originalOperation),
@@ -789,14 +808,17 @@ export class PendingOperation<T>
     committedWriteSegment?: CommittedWriteSegmentNotification,
     writeMayBeVisible?: WriteMayBeVisibleNotification
   ): Promise<T> {
-    if (this.#deferredExecution) {
-      return this.#deferredExecution(
-        driverOverride,
-        committedWriteSegment,
-        writeMayBeVisible
-      );
-    }
-    return this.#run(driverOverride, committedWriteSegment, writeMayBeVisible);
+    const value = this.#deferredExecution
+      ? this.#deferredExecution(
+          driverOverride,
+          committedWriteSegment,
+          writeMayBeVisible
+        )
+      : this.#run(driverOverride, committedWriteSegment, writeMayBeVisible);
+    const take = this.#options.takeResult;
+    // Here, unlike an array member's parser, the hooks of a write that has
+    // already committed may run before any extension sees the value.
+    return take ? value.then((result) => take(result, true) as T) : value;
   }
 
   /**

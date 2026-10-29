@@ -43,6 +43,7 @@ export const extensionCoverageTests = Object.freeze([
   "tests/contracts/public-client/official-cache-extension.core.test.ts",
   "tests/contracts/public-client/official-instrumentation-extension.core.test.ts",
   "tests/contracts/public-client/soft-delete.core.test.ts",
+  "tests/contracts/public-client/on.core.test.ts",
   "tests/contracts/public-client/extension-bound-views.core.test.ts",
   "tests/contracts/public-client/extension-composition.core.test.ts",
   "tests/contracts/public-client/extension-evidence.core.test.ts",
@@ -122,11 +123,16 @@ const definitions = [
     id: "extensions",
     label: "extensions",
     target: 100,
-    // The official soft-delete and permissions extensions: definitions over the
-    // capabilities this subsystem owns, measured by the same lane. They own
-    // their directories, so a file the permissions entry gains is measured at 100%
+    // The official soft-delete, permissions and `on` extensions: definitions
+    // over the capabilities this subsystem owns, measured by the same lane.
+    // They own their directories, so a file an entry gains is measured at 100%
     // from its first line instead of failing the ownership audit unowned.
-    roots: ["src/extensions/", "src/permissions/", "src/soft-delete/"],
+    roots: [
+      "src/extensions/",
+      "src/on/",
+      "src/permissions/",
+      "src/soft-delete/",
+    ],
     projects: ["coverage-extensions"],
     tests: extensionCoverageTests,
     // The complete Permissions oracle sweeps need their own bounded process each.

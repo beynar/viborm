@@ -615,6 +615,9 @@ export class PostgresAdapter implements DatabaseAdapter {
     ...createMutationCommands(),
 
     returning: (columns: Sql): Sql => sql`RETURNING ${columns}`,
+    // An inserted row version has no deleting transaction yet; the row an
+    // ON CONFLICT update rewrote carries the updating one.
+    upserted: sql.raw("(xmax = 0)"),
 
     ...createOnConflictBuilders(),
   };

@@ -109,6 +109,12 @@ export interface PrepareOptions {
    * fields), applied once, after every extension and the cache have run.
    */
   finishResult?: (value: unknown) => unknown;
+  /**
+   * The client's first step on the engine's value, before any extension sees
+   * it: a write hook's rows taken and the value cut back to the call's own
+   * projection.
+   */
+  takeResult?: (value: unknown, settle?: true) => unknown;
 }
 
 /**

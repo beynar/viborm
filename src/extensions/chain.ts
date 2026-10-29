@@ -46,6 +46,11 @@ import {
   type RowsBinding,
   undeclaredControlReferencesOf,
 } from "./rows";
+import {
+  OFFICIAL_ON_NAME,
+  officialWritesOf,
+  type WritesCapability,
+} from "./writes";
 
 /** The fixed name admission reserves for the official instrumentation extension. */
 export const OFFICIAL_INSTRUMENTATION_NAME = "viborm.instrumentation";
@@ -139,6 +144,8 @@ export interface ResolvedExtensionChain {
   readonly callRows?: RowsBinding;
   /** Per model, every extension's computed fields, in chain order. */
   readonly result?: ResolvedResultFields;
+  /** The official `on` extension's writes, when the chain carries it. */
+  readonly writes?: WritesCapability;
   readonly extensions: readonly ResolvedExtension[];
   readonly hasCache: boolean;
   readonly hasRequestHandlers: boolean;
@@ -427,11 +434,15 @@ function asOfficialCacheDefinition(
   });
 }
 
-function stripOfficialDefaultOmitRequest(
-  definition: RuntimeExtensionDefinition
+/**
+ * An official extension's member that is its identity rather than a handler
+ * (default omit's `request`, `on`'s `query`) leaves the chain's handlers.
+ */
+function withoutIdentity(
+  definition: RuntimeExtensionDefinition,
+  member: "request" | "query"
 ): RuntimeExtensionDefinition {
-  const { request: _officialDefaultOmitRequest, ...ordinaryDefinition } =
-    definition;
+  const { [member]: _identity, ...ordinaryDefinition } = definition;
   return Object.freeze(ordinaryDefinition);
 }
 
@@ -535,11 +546,23 @@ export function appendResolvedExtension(
       definition.name
     );
   }
+  const incomingWrites = officialWritesOf(definition.query);
+  assertOfficialExtensionAdmission({
+    definitionName: definition.name,
+    officialName: OFFICIAL_ON_NAME,
+    label: "on",
+    hasIdentity: incomingWrites !== undefined,
+    isAlreadyPresent: chain?.writes !== undefined,
+    duplicateMessage:
+      "The official on extension is already present on this client.",
+  });
   const effectiveDefinition =
     incomingCache === undefined
       ? incomingDefaultOmit === undefined
-        ? definition
-        : stripOfficialDefaultOmitRequest(definition)
+        ? incomingWrites === undefined
+          ? definition
+          : withoutIdentity(definition, "query")
+        : withoutIdentity(definition, "request")
       : asOfficialCacheDefinition(definition);
   const declaredControls =
     effectiveDefinition.controls === undefined &&
@@ -642,6 +665,7 @@ export function appendResolvedExtension(
           effectiveDefinition.result,
           schema
         );
+  const writes = incomingWrites ?? chain?.writes;
   const resolvedChain = Object.freeze({
     ...(controls === undefined ? {} : { controls }),
     ...(rows === undefined ? {} : { rows }),
@@ -649,6 +673,7 @@ export function appendResolvedExtension(
     ...(data === undefined ? {} : { data }),
     ...(callRows === undefined ? {} : { callRows }),
     ...(result === undefined ? {} : { result }),
+    ...(writes === undefined ? {} : { writes }),
     extensions,
     hasCache: incomingCache !== undefined || chain?.hasCache === true,
     hasRequestHandlers: hasCompiledHandlers(request),

@@ -9,10 +9,12 @@ import {
 import type { AnyModel } from "@schema/model";
 import { createFailureError } from "../../batch-error-attribution";
 import type { PreparedGuardFailure } from "../../types";
+import { writeSinks } from "../../write-sinks";
 import type { OperationContext } from "../shared/operation-context";
 import {
   InvalidScalarResult,
   type PreparedSelector,
+  returningSafeProjection,
   type SelectorFacts,
 } from "../shared/query";
 import {
@@ -2018,7 +2020,14 @@ export class Commands {
   ): PhysicalPlan | undefined {
     const ctx = this.context;
     const capabilities = ctx.driver.adapter.capabilities;
-    if (!ctx.preparesBatch && ctx.scope?.rows.stamps !== undefined)
+    // A root upsert a hook concerns reports its arm: the fold says it through
+    // the adapter's marker, or else through a probe of its key in the same
+    // unit; an insert a policy judges keeps the found-or-missing form.
+    const sink = writeSinks.get(ctx.attribution);
+    const probes =
+      sink !== undefined && ctx.driver.adapter.mutations.upserted === undefined;
+    const folds = !(probes && ctx.queries.domain?.produced(model));
+    if (!ctx.preparesBatch && (!folds || ctx.scope?.rows.stamps !== undefined))
       return undefined;
     if (args.targetWhere || args.setWhere) return undefined;
     if (!capabilities.supportsReturning) return undefined;
@@ -2083,15 +2092,24 @@ export class Commands {
       fields.every((field) =>
         ctx.queries.namesUpdate(model, field, updates[field])
       );
-    if (spelled)
+    if (spelled && folds && (!sink || returningSafeProjection(projection)))
       return {
-        single: true,
+        single: !probes,
         run: () =>
-          ctx.upsertOne(model, values, updates, key!.fields, projection, () => {
-            throw new TypeError(
-              "INSERT … ON CONFLICT did not produce the required record"
-            );
-          }),
+          ctx.upsertOne(
+            model,
+            values,
+            updates,
+            key!.fields,
+            projection,
+            () => {
+              throw new TypeError(
+                "INSERT … ON CONFLICT did not produce the required record"
+              );
+            },
+            sink?.upserted,
+            probes ? lookup.query() : undefined
+          ),
       };
     if (!ctx.preparesBatch) return undefined;
     // The locate read precedes the arm, so this form is never one statement.
@@ -2100,6 +2118,7 @@ export class Commands {
       run: async () => {
         const rows = await ctx.planningLocate(lookup.query(), model);
         const captured = rows[0];
+        sink?.upserted(!captured);
         if (!captured) return missing();
         // The row the unlocked probe found is updated only while it is still
         // a candidate: one hidden since then is the other's race, not found.

@@ -102,7 +102,7 @@ function assertWorkerSafeBuiltGraph(exportNames) {
 }
 
 // `viborm/permissions` governs a Worker's client too: its graph is held to the same rule.
-assertWorkerSafeBuiltGraph([".", "./schema", "./d1", "./permissions"]);
+assertWorkerSafeBuiltGraph([".", "./schema", "./d1", "./permissions", "./on"]);
 
 function requireRuntimeFunction(exportName, member) {
   const namespace = runtimeExports.get(exportName);
@@ -352,6 +352,7 @@ if (
     `Export ./permissions must raise the root's ClientInitializationError for a policy naming no schema model, got ${permissionsRefusal?.constructor?.name ?? "no refusal"}`
   );
 }
+requireRuntimeFunction("./on", "on");
 requireRuntimeFunction("./soft-delete", "softDelete");
 // `viborm/soft-delete` is built from public capabilities only: it reaches the
 // client through the `$extends` of the client it receives, so its runtime

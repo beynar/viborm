@@ -2504,12 +2504,13 @@ export class OperationContext {
   #answering(
     model: AnyModel,
     statement: Sql,
-    projection: PreparedProjection
+    projection: PreparedProjection,
+    extra: Sql[] = []
   ): Sql {
     const a = this.driver.adapter;
     if (returningSafeProjection(projection))
       return sql`${statement} ${a.mutations.returning(
-        sql.join(this.queries.lowerProjection(projection), ", ")
+        sql.join([...this.queries.lowerProjection(projection), ...extra], ", ")
       )}`;
     const { answer } = this.#overWrite(model, projection);
     if (!a.capabilities.supportsCteWithMutations)
@@ -2540,31 +2541,35 @@ export class OperationContext {
       count: (response) => response.rows.length,
     };
   }
-  /** Complete one set mutation through its single count/projection tail. */
+  /**
+   * Complete one set mutation through its single count/projection tail.
+   * `marked`: a column the statement returns beside a scalar projection,
+   * read off each row.
+   */
   #completeSetMutation(
     model: AnyModel,
     statement: Sql,
     projection?: PreparedProjection,
     single?: () => Error,
-    judged?: JudgedWrite
+    judged?: JudgedWrite,
+    marked?: { readonly column: Sql; readonly read: (row: Input) => void }
   ): Promise<unknown> {
     const counted = projection ? undefined : this.#counted(statement);
     const output = projection
-      ? this.#answering(model, statement, projection)
+      ? this.#answering(model, statement, projection, marked && [marked.column])
       : counted!.statement;
     return this.#setMutation(
       output,
       this.statementContext(model, this.operation),
-      (result) =>
-        projection
-          ? this.published(
-              this.publishedProjection(
-                projection.shape,
-                result.rows.map(record)
-              ),
-              single
-            )
-          : { count: counted!.count(result) },
+      (result) => {
+        if (!projection) return { count: counted!.count(result) };
+        const rows = result.rows.map(record);
+        if (marked) for (const row of rows) marked.read(row);
+        return this.published(
+          this.publishedProjection(projection.shape, rows),
+          single
+        );
+      },
       judged
     );
   }
@@ -2633,9 +2638,20 @@ export class OperationContext {
     const recoverableSkip =
       skipDuplicates &&
       adapter.mutations.skipDuplicatesStrategy === "recoverableUniqueError";
+    // Without RETURNING, rows whose keys are all known before the INSERT are
+    // inserted together and read back by those keys; a generated key, or a
+    // duplicate that may be skipped, needs each row's own statement.
+    const rereads =
+      projection !== undefined &&
+      !adapter.capabilities.supportsReturning &&
+      !skipDuplicates &&
+      this.#ownership !== "batch-preparation" &&
+      rows.every((row) =>
+        this.schema.keys(model).every((key) => row[key] !== undefined)
+      );
     if (
       recoverableSkip ||
-      (projection && !adapter.capabilities.supportsReturning)
+      (projection && !adapter.capabilities.supportsReturning && !rereads)
     ) {
       if (this.#ownership === "batch-preparation")
         throw this.incompletePreparation;
@@ -2660,11 +2676,12 @@ export class OperationContext {
       let count = 0;
       for (const [index, row] of members.entries()) {
         const columns = Object.keys(row);
+        // A skipped duplicate inserts nothing and locates nothing.
         const statement = this.#insertStatement(
           model,
           columns,
           [row],
-          false,
+          skipDuplicates && !recoverableSkip,
           placed
         );
         const context = this.statementContext(model, this.operation);
@@ -2695,7 +2712,7 @@ export class OperationContext {
             row
           );
         }
-        if (!response) continue;
+        if (!response?.rowCount) continue;
         count += response.rowCount;
         if (!identityPlans) continue;
         const generated = identityPlans[index];
@@ -2718,9 +2735,10 @@ export class OperationContext {
     }
     // A relation projection reaches here only where the write's own statement
     // answers it (`Commands.rootCreate`, one row): each statement answers.
-    const returning = projection
-      ? (mutation: Sql) => this.#answering(model, mutation, projection)
-      : undefined;
+    const returning =
+      projection && !rereads
+        ? (mutation: Sql) => this.#answering(model, mutation, projection)
+        : undefined;
     const groups: { readonly columns: string[]; readonly rows: Input[] }[] = [];
     for (const row of rows) {
       const columns = Object.keys(row);
@@ -2791,7 +2809,7 @@ export class OperationContext {
               : undefined,
         });
     }
-    return this.setMutations(
+    const inserted = this.setMutations(
       statements,
       (results) => {
         const written = results.reduce(
@@ -2800,7 +2818,7 @@ export class OperationContext {
         );
         // Triggers may legitimately suppress rows. The provider's affected count
         // is the completed write's answer, never a reason to fail after commit.
-        if (!projection) return { count: written };
+        if (!projection || rereads) return { count: written };
         const raw: Input[] = [];
         for (const result of results) raw.push(...result.rows.map(record));
         // A grouped insert split by the provider's bind budget answers in
@@ -2812,6 +2830,15 @@ export class OperationContext {
         );
       },
       judged
+    );
+    if (!rereads) return inserted;
+    await inserted;
+    return this.finishTerminals(
+      this.seriesQueries(
+        projection,
+        rows.map((row) => this.schema.identity(model, row))
+      ),
+      (published) => this.published(published, single)
     );
   }
   /**
@@ -2836,7 +2863,9 @@ export class OperationContext {
     updates: Input,
     target: readonly string[],
     projection?: PreparedProjection,
-    single?: () => Error
+    single?: () => Error,
+    upserted?: (created: boolean) => void,
+    found?: Query
   ): Promise<unknown> {
     const q = this.queries;
     const adapter = this.driver.adapter;
@@ -2863,12 +2892,53 @@ export class OperationContext {
         )
       )
     );
+    const judged = placed && { model, refusal: this.#forbidden };
+    // Without a marker, the arm is the probe of the key the statement
+    // conflicts on, read in the same unit just before it.
+    if (found)
+      return this.setMutations(
+        [
+          {
+            sql: found.sql,
+            context: this.statementContext(model, this.operation),
+          },
+          {
+            sql: this.#answering(
+              model,
+              sql`${insert} ${conflict}`,
+              projection!
+            ),
+            context: this.statementContext(model, this.operation),
+          },
+        ],
+        ([probe, written]) => {
+          upserted!(probe!.rows.length === 0);
+          return this.published(
+            this.publishedProjection(
+              projection!.shape,
+              written!.rows.map(record)
+            ),
+            single
+          );
+        },
+        judged
+      );
+    const marker = upserted && adapter.mutations.upserted;
+    // The arm the statement took rides its RETURNING beside the row.
+    const flag = "__viborm_inserted";
     return this.#completeSetMutation(
       model,
       sql`${insert} ${conflict}`,
       projection,
       single,
-      placed && { model, refusal: this.#forbidden }
+      judged,
+      marker && {
+        column: adapter.identifiers.aliased(marker, flag),
+        read: (row) => {
+          upserted!(row[flag] === true);
+          delete row[flag];
+        },
+      }
     );
   }
   async updateMany(
@@ -2979,15 +3049,21 @@ export class OperationContext {
     // removal, under the same locked capture the non-returning branch owns,
     // unless the write's own statement can read it (`answersInStatement`).
     if (projection && !this.answersInStatement(model, projection, "delete")) {
+      const rows: Input[] = [];
+      // A scalar projection naming every key is captured and read in ONE
+      // locked statement; any other is read by the captured keys.
+      const captured = returningSafeProjection(projection) && projection;
       const identities = await this.captureMutationIdentities(
         model,
         selector,
-        limit
+        limit,
+        captured,
+        rows
       );
+      if (rows.length < identities.length)
+        for (const query of this.seriesQueries(projection, identities))
+          rows.push(...(await this.read(query, false, false, model)));
       if (identities.length === 0) return this.published([], single);
-      const rows: Input[] = [];
-      for (const query of this.seriesQueries(projection, identities))
-        rows.push(...(await this.read(query, false, false, model)));
       await this.#capturedMutation(
         model,
         selector,
@@ -3009,19 +3085,29 @@ export class OperationContext {
   private async captureMutationIdentities(
     model: AnyModel,
     selector: PreparedSelector,
-    limit: number | undefined
+    limit: number | undefined,
+    projection?: PreparedProjection | false,
+    read?: Input[]
   ): Promise<Input[]> {
     if (this.#ownership === "batch-preparation")
       throw this.incompletePreparation;
     const keys = this.schema.keys(model);
+    // A projection naming every key is the capture itself on an interactive
+    // session: its rows land in `read`, read under the same lock.
+    const whole =
+      projection &&
+      !this.usesBatch &&
+      keys.every((key) => projection.fields.some((f) => f.name === key));
     const query = this.queries.select(
       model,
       {
-        select: Object.fromEntries(keys.map((field) => [field, true])),
+        ...(whole
+          ? {}
+          : { select: Object.fromEntries(keys.map((field) => [field, true])) }),
         take: limit,
       },
       undefined,
-      { selector, forUpdate: !this.usesBatch }
+      { selector, forUpdate: !this.usesBatch, ...(whole && { projection }) }
     );
     // An interactive session takes `FOR UPDATE`, so the ROWS IT CAPTURED
     // cannot change underneath it until the mutation. A row that JOINS the
@@ -3034,6 +3120,13 @@ export class OperationContext {
     // batch — and the premises {@link requireCapturedSet} states inside the
     // MUTATION's batch are what protect it there. No lock is claimed where
     // none exists.
+    if (whole) {
+      const response = await this.answer(query, false, model);
+      read!.push(...this.queries.decodeProjection(query.shape, response.rows));
+      return this.queries
+        .decodeQuery(query, response.rows, true)
+        .map((row) => this.schema.identity(model, row));
+    }
     const rows = this.usesBatch
       ? await this.flush(query)
       : await this.read(query, true, false, model);

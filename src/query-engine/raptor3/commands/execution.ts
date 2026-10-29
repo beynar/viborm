@@ -15,6 +15,7 @@ import {
   normalizedBindParameterLimit,
 } from "../../bind-budget";
 import type { PreparedGuardFailure } from "../../types";
+import { writeSinks } from "../../write-sinks";
 import {
   type Member,
   type MembershipParent,
@@ -1714,6 +1715,10 @@ export class CommandExecution {
         const captured = attempt.rows.get(command.lookup);
         const found = this.commands.choiceArm(occurrence, "found");
         const missing = this.commands.choiceArm(occurrence, "missing");
+        // A root upsert says which arm wrote its row; a skipped one says none.
+        const sink = occurrence.parent
+          ? undefined
+          : writeSinks.get(ctx.attribution);
         if (captured) {
           if (command.conditions?.probes.length && found) {
             found.command.fields.activate();
@@ -1745,6 +1750,7 @@ export class CommandExecution {
               attempt.retained.add(command.lookup);
             }
           }
+          sink?.upserted(false);
           const confirmationFailure = this.#mutationConfirmationFailure(
             command,
             requirement,
@@ -1776,6 +1782,7 @@ export class CommandExecution {
               await this.folded(command, occurrence.parent?.command, current)
             );
         } else if (missing) {
+          sink?.upserted(true);
           attempt.missingChoices.set(missing.command.fields, command);
           await this.run(missing, member);
           attempt.bind(
