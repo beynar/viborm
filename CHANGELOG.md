@@ -20,26 +20,29 @@ Versioning.
   }));
   ```
 
-  - Every root write calls them: `create`, `createMany`, `update`,
-    `updateMany`, `upsert` (its arm decides `create` or `update`), `delete`,
-    `deleteMany`. A soft delete is an `update` of the marker.
+  - Every write calls them: `create`, `createMany`, `update`, `updateMany`,
+    `upsert` (its arm decides `create` or `update`), `delete`, `deleteMany`,
+    and every nested write of the same kinds, with the nested model's rows
+    (a nested `connect` or `disconnect` is an `update` of the row whose
+    foreign key moved). A soft delete is an `update` of the marker.
   - Inside a transaction, hooks wait for the outermost commit and are dropped
     on rollback, savepoints included; `$transaction([...])` runs them after the
     commit, member by member. Each hook receives `certainty`
     (`"committed"` or `"may-have-committed"`).
   - VibORM awaits what a hook returns before the write resolves: return the
     promise to wait for it, or pass it to `ctx.waitUntil()` yourself. A
-    failing hook never undoes the write: the write rejects with a `QueryError`
-    whose `meta.commitCertainty` says it committed and whose `cause` is the
-    hook's error.
+    failing hook never fails its write: the write committed and resolves, and
+    the failure goes to `on(hooks, { onError })` as a `QueryError` whose
+    `meta.commitCertainty` says it committed and whose `cause` is the hook's
+    error (to `console.error` without `onError`). A retry never writes twice
+    because of a hook.
   - A write no hook concerns runs exactly as before. One a hook concerns
     returns whole rows through its own `RETURNING` (an upsert stays one
     atomic `INSERT … ON CONFLICT`, which reports its arm through `xmax = 0`
     on PostgreSQL and a probe of its key in the same unit on SQLite); on
     MySQL, a `createMany`, `updateMany` or `deleteMany` it concerns reads its
     rows in the same transaction (see the docs' cost table).
-  - Rows written through a nested write, many-to-many links, database
-    cascades and raw SQL call no hook.
+  - Many-to-many links, database cascades and raw SQL call no hook.
 
 ### Fixed
 

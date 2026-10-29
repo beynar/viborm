@@ -46,6 +46,7 @@ import type {
   PreparedBatchOperation,
   PreparedGuardFailure,
 } from "../../types";
+import { type WriteKind, writeSinks } from "../../write-sinks";
 import {
   GatedFieldRefusal,
   InvalidScalarResult,
@@ -309,6 +310,14 @@ export class OperationContext {
   #continuationList: Continuation[] | undefined;
   /** The captured junction slots this attempt has already vacated ({@link link}). */
   #vacatedMemberships: SpentSlots | undefined;
+  /** The rows write hooks wait for on the batch route ({@link captureRows}). */
+  #captures:
+    | {
+        readonly statement: BatchQuery;
+        readonly read: { readonly shape: ProjectionShape };
+        readonly take: (rows: Input[]) => void;
+      }[]
+    | undefined;
   /** Generated-output continuations declared so far; none until one is. */
   get #continuationCount(): number {
     return this.#continuationList?.length ?? 0;
@@ -1830,6 +1839,7 @@ export class OperationContext {
         ? this.#answered(retainWriteOutcomeFailure(error, held.failure))
         : error;
     }
+    this.#takeCaptures(statements, responses);
     return responses.slice(guards.length);
   }
   /**
@@ -2101,6 +2111,64 @@ export class OperationContext {
   isIncompletePreparation(error: unknown): boolean {
     return error === this.incompletePreparation;
   }
+  /**
+   * A write hook wants the rows a nested write `kind`s on `model`
+   * ({@link WriteSink}): read them in this operation's own unit — at once on
+   * the interactive route, queued beside the write on the batch route and
+   * decoded with its batch's answer. `change`: what the write itself sets on
+   * rows read before it (a cleared foreign key). Nothing where no hook wants
+   * them.
+   */
+  async captureRows(
+    model: AnyModel,
+    kind: WriteKind,
+    where: { readonly identity?: Input; readonly condition?: Sql },
+    change?: Input
+  ): Promise<void> {
+    const sink = writeSinks.get(this.attribution);
+    const name = model["~"].names.ts!;
+    if (!sink?.wants(name, kind)) return;
+    const q = this.queries;
+    const read = q.select(model, {}, undefined, {
+      ...where,
+      projection: q.prepareProjection(model, {}),
+    });
+    const take = (rows: Input[]) =>
+      sink.wrote(
+        name,
+        kind,
+        change ? rows.map((row) => ({ ...row, ...change })) : rows
+      );
+    if (!this.usesBatch)
+      return take(await this.read(read, false, false, model));
+    (this.#captures ??= []).push({
+      statement: this.#queue(
+        read.sql,
+        this.statementContext(model, this.operation)
+      ),
+      read,
+      take,
+    });
+  }
+  /** The captures among `statements`, each decoded from its own answer. */
+  #takeCaptures(
+    statements: readonly BatchQuery[],
+    results: readonly QueryResult<unknown>[]
+  ): void {
+    const captures = this.#captures;
+    if (captures === undefined) return;
+    this.#captures = captures.filter((capture) => {
+      const at = statements.indexOf(capture.statement);
+      if (at === -1) return true;
+      capture.take(
+        this.queries.decodeProjection(
+          capture.read.shape,
+          results[at]!.rows.map(record)
+        )
+      );
+      return false;
+    });
+  }
   preparedBatch(): PreparedBatchOperation<unknown> | undefined {
     const parse = this.#preparedParser;
     if (parse === undefined) return undefined;
@@ -2118,6 +2186,7 @@ export class OperationContext {
         : {}),
       parseResult: (results) => {
         try {
+          this.#takeCaptures(this.queued, results);
           return parse(results);
         } catch (error) {
           throw this.failure(error, "result");
@@ -4343,6 +4412,12 @@ export class OperationContext {
     );
     // Each row it unlinks produces a row without the link, judged at what
     // judged its link (R4).
+    await this.captureRows(
+      edge.target,
+      "update",
+      { condition: unlinked() },
+      cleared
+    );
     let produced: Sql | undefined;
     const statement = q.sharing(() => {
       produced = this.#produce(
@@ -4558,13 +4633,30 @@ export class OperationContext {
           )
         : a.mutations.delete(q.table(model), where);
     });
+    // Members a write hook wants come back from the statement itself: after
+    // an update, before a delete (`Relations` captures them one by one where
+    // the adapter has no RETURNING).
+    const kind = values ? "update" : "delete";
+    const name = model["~"].names.ts!;
+    const sink = writeSinks.get(this.attribution);
+    const projection = sink?.wants(name, kind)
+      ? q.prepareProjection(model, {})
+      : undefined;
     await this.#effect(
-      statement,
+      projection
+        ? sql`${statement} ${a.mutations.returning(
+            sql.join(q.lowerProjection(projection), ", ")
+          )}`
+        : statement,
       this.statementContext(model, values ? "updateMany" : "deleteMany"),
       member,
       produced
         ? { model, refusal: nestedRefusal("updateMany", edge.name) }
-        : undefined
+        : undefined,
+      projection && {
+        shape: projection.shape,
+        take: (rows) => sink!.wrote(name, kind, rows),
+      }
     );
   }
   async delete(model: AnyModel, row: Input, member: Member): Promise<void> {
@@ -4581,14 +4673,27 @@ export class OperationContext {
     statement: Sql,
     context: QueryExecutionContext,
     member: Member,
-    judged?: JudgedWrite
+    judged?: JudgedWrite,
+    returned?: {
+      readonly shape: ProjectionShape;
+      readonly take: (rows: Input[]) => void;
+    }
   ): Promise<void> {
-    if (this.usesBatch) this.#queueJudged(statement, context, member, judged);
-    else
-      await this.dispatch(1, false, () =>
-        this.#judging(judged, () =>
-          this.#transport._execute(statement, context)
-        )
-      );
+    if (this.usesBatch) {
+      const queued = this.#queueJudged(statement, context, member, judged);
+      if (returned)
+        (this.#captures ??= []).push({
+          statement: queued,
+          read: returned,
+          take: returned.take,
+        });
+      return;
+    }
+    const response = await this.dispatch(1, false, () =>
+      this.#judging(judged, () => this.#transport._execute(statement, context))
+    );
+    returned?.take(
+      this.queries.decodeProjection(returned.shape, response.rows.map(record))
+    );
   }
 }

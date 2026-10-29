@@ -407,6 +407,14 @@ export class Commands {
     };
     if (incoming)
       this.assignMembership(incoming.edge, command.fields, incoming.source);
+    // A write hook reads a created row back by its key.
+    if (
+      writeSinks
+        .get(this.context.attribution)
+        ?.wants(model["~"].names.ts!, "create")
+    )
+      for (const field of this.context.schema.keys(model))
+        command.fields.field(field);
     this.#relations(command, admitted, raw);
     return command;
   }
@@ -2023,7 +2031,12 @@ export class Commands {
     // A root upsert a hook concerns reports its arm: the fold says it through
     // the adapter's marker, or else through a probe of its key in the same
     // unit; an insert a policy judges keeps the found-or-missing form.
-    const sink = writeSinks.get(ctx.attribution);
+    const name = model["~"].names.ts!;
+    const reporting = writeSinks.get(ctx.attribution);
+    const sink =
+      reporting?.wants(name, "create") || reporting?.wants(name, "update")
+        ? reporting
+        : undefined;
     const probes =
       sink !== undefined && ctx.driver.adapter.mutations.upserted === undefined;
     const folds = !(probes && ctx.queries.domain?.produced(model));

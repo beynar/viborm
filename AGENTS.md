@@ -361,15 +361,23 @@ widened to whole rows (the caller's `select` moved to `include`, a bulk write
 given `omit: {}`), the value cut back to the caller's projection, and the
 write's one registration on the `TransactionWriteOutcomes` rail (after the
 cache's), so hooks run after the outermost commit and never after a rollback.
-A write no hook concerns is planned as written. Raptor 3 reports only a root
-upsert's arm, through `src/query-engine/write-sinks.ts` (keyed by the
-operation's attribution, registered before any planning): its
+A write no hook concerns is planned as written. Raptor 3 reports to the
+write's sink, `src/query-engine/write-sinks.ts` (keyed by the operation's
+attribution, registered before any planning). A root upsert reports its arm:
+its
 `INSERT … ON CONFLICT` fold returns the adapter's `mutations.upserted` marker
 (PostgreSQL's `xmax = 0`) beside the row, and where an adapter has none a
-probe of the key rides the same unit just before it; nested writes report
-nothing. The client cuts a hooked write's value back to the call's own
-projection (`takeResult`) before any extension sees it, so query handlers
-never see the hook's whole rows.
+probe of the key rides the same unit just before it. Nested writes report
+through the same sink: where it `wants` a model, `OperationContext.captureRows`
+reads each written row by key (before a delete; a cleared foreign key's rows
+before, reported cleared) in the operation's own unit — at once on the
+interactive route, queued in the same batch and decoded with its answer on
+the batch route — and a nested `updateMany`/`deleteMany` returns its rows from
+its own `RETURNING` (members captured one by one where there is none). The
+client cuts a hooked write's value back to the call's own projection
+(`takeResult`) before any extension sees it, so query handlers never see the
+hook's whole rows. A failing hook never fails its write: its error goes to
+`on(hooks, { onError })`, else `console.error`.
 
 `cache()` produces a namespace-free DEFINITION; the client composition root
 binds it to the concrete driver, deriving one scope from the private snapshot

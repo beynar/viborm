@@ -122,6 +122,16 @@ type HookRow<Row, Gated> = [Gated] extends [never]
       [K in keyof Row as K extends Gated ? K : never]?: Row[K];
     };
 
+/**
+ * Where a failing hook is reported. A hook never fails its write: the write
+ * committed, so its promise resolves, and the hook's failure comes here as a
+ * `QueryError` (`meta.method: "on"`, `meta.commitCertainty`, `cause` the
+ * hook's own error). Without `onError`, it goes to `console.error`.
+ */
+export interface OnOptions<Model extends string = string> {
+  readonly onError?: (error: QueryError, event: OnEvent<Model>) => unknown;
+}
+
 /** An unbound declaration: applies to any client, which it returns. */
 export type OnExtension = <
   Base extends { $extends(...args: never[]): unknown },
@@ -164,14 +174,27 @@ export function on<
   C extends VibORMConfig = VibORMConfig,
   X extends ExtensionState = ExtensionState,
 >(
-  hooks: OnHooks<NoInfer<C>>
+  hooks: OnHooks<NoInfer<C>>,
+  options?: OnOptions<keyof ClientSchema<NoInfer<C>> & string>
 ): string extends keyof ClientSchema<C>
   ? OnExtension
   : (
       base: ClientTypeState<C, X> & NoInfer<VibORMClient<C, X>>
     ) => VibORMClient<C, X>;
-export function on(hooks: RuntimeHooks) {
+export function on(hooks: RuntimeHooks, options?: OnOptions) {
   const own: RuntimeHooks = Object.freeze({ ...hooks });
+  const onError = options?.onError;
+  if (onError !== undefined && typeof onError !== "function")
+    refuse("onError must be a function");
+  /** A failing hook's report: never a failure of the write itself. */
+  const report = async (error: QueryError, event: OnEvent) => {
+    try {
+      if (onError) await onError(error, event);
+      else console.error(error);
+    } catch (thrown) {
+      console.error(error, thrown);
+    }
+  };
   // The plan is also the definition's `query`, which identifies it: core
   // recognizes it and keeps it out of the chain's handlers.
   const writes = (
@@ -180,7 +203,7 @@ export function on(hooks: RuntimeHooks) {
     args: Row,
     chain: ResolvedExtensionChain,
     callArgs: Row
-  ) => plan(own, model, operation, args, chain, callArgs);
+  ) => plan(own, report, model, operation, args, chain, callArgs);
   registerOfficialWrites(writes, { plan: writes });
   const definition = Object.freeze({ name: NAME, query: writes });
   return (base: { $schema: object; $extends(definition: object): unknown }) => {
@@ -204,6 +227,7 @@ export function on(hooks: RuntimeHooks) {
 
 function plan(
   hooks: RuntimeHooks,
+  report: (error: QueryError, event: OnEvent) => Promise<void>,
   model: AnyModel,
   operation: string,
   args: Row,
@@ -211,8 +235,8 @@ function plan(
   callArgs: Row
 ): WritePlan | undefined {
   const name = model["~"].names.ts!;
-  const modelHooks = hooks[name];
-  if (modelHooks === undefined) return undefined;
+  const modelHooks = hooks[name] ?? {};
+  const { scalars, relations } = model["~"].state;
   // Core plans only writes, and every write has a kind.
   let kind = KINDS[operation]!;
   // A delete of a model `deletion` manages leaves a tombstone, an update,
@@ -227,8 +251,11 @@ function plan(
       : removeWhen === undefined
         ? ([kind] as const)
         : (["delete", "update"] as const);
-  if (either.every((candidate) => modelHooks[candidate] === undefined))
-    return undefined;
+  // The call's own rows, where a hook wants them; and the rows its nested
+  // writes reach, where its payload names a relation (the engine reports
+  // only those of a model a hook wants: `wants` below).
+  const root = either.some((candidate) => modelHooks[candidate] !== undefined);
+  if (!(root || writesRelation(args, relations))) return undefined;
   // The event's own copy: neither the caller nor a hook changes the other's.
   const eventArgs = detached(callArgs) as Row;
   // An upsert whose update writes nothing (a `data` stamp included) leaves a
@@ -236,7 +263,6 @@ function plan(
   const keeps =
     kind === "upsert" && Object.keys(args.update as Row).length === 0;
 
-  const { scalars, relations } = model["~"].state;
   const isScalar = (key: string) => Object.hasOwn(scalars, key);
   const bulk = operation.endsWith("Many");
   const { select, omit, ...rest } = args as {
@@ -259,13 +285,16 @@ function plan(
   }
   // A bulk write returns rows only with a projection: `omit: {}` is all.
   if (bulk) widened.omit = {};
+  // The rows nested writes wrote, per model and kind, in write order.
+  const nested: { model: string; kind: OnKind; rows: Row[] }[] = [];
   /** Cut one row back to what the call asked for. */
   const narrow = (row: Row) => {
     for (const key of Object.keys(row))
       if ((select !== undefined && !select[key]) || omit?.[key] === true)
         delete row[key];
   };
-  const returnsRows = !bulk || select !== undefined || omit !== undefined;
+  const returnsRows =
+    !(root && bulk) || select !== undefined || omit !== undefined;
 
   let rows: Row[] | undefined;
   let created: boolean | undefined;
@@ -289,7 +318,7 @@ function plan(
             ? undefined
             : "update"
         : kind;
-    const hook = hookKind && modelHooks[hookKind];
+    const hook = root && hookKind && modelHooks[hookKind];
     return hook && ([hook, `${name}.${hookKind}`] as const);
   };
   /**
@@ -303,31 +332,27 @@ function plan(
     const held = invalidation;
     invalidation = undefined;
     const found = hookOf();
-    let failure: unknown;
-    let failed = false;
-    if (found && rows.length > 0)
-      try {
-        await runHook(found[0], rows, event(), found[1]);
-      } catch (error) {
-        failed = true;
-        failure = error;
-      }
-    if (held === undefined) {
-      if (failed) throw failure;
-      return;
+    const runs: [RuntimeHook, Row[], string][] = found
+      ? [[found[0], rows, found[1]]]
+      : [];
+    for (const group of nested) {
+      const hook = hooks[group.model]?.[group.kind];
+      if (hook) runs.push([hook, group.rows, `${group.model}.${group.kind}`]);
     }
-    if (!failed) throw held.failure;
-    throw new AggregateError(
-      [held.failure, failure],
-      "Cache invalidation and a write hook both failed.",
-      { cause: held.failure }
-    );
+    for (const [hook, written, label] of runs) {
+      if (written.length === 0) continue;
+      const happened = event();
+      const failure = await runHook(hook, written, happened, label);
+      if (failure) await report(failure, happened);
+    }
+    // The cache's own failure keeps its own boundary, as without `on`.
+    if (held !== undefined) throw held.failure;
   };
 
   return {
-    args: widened,
+    args: root ? widened : args,
     take(value, settle) {
-      const written = Array.isArray(value) ? value : [value];
+      const written = root ? (Array.isArray(value) ? value : [value]) : [];
       rows = [];
       for (const row of written) {
         const copy: Row = {};
@@ -353,12 +378,19 @@ function plan(
         )
       )
         kind = "update";
-      if (kind === "upsert")
-        writeSinks.set(context, {
-          upserted: (arm) => {
-            created = arm;
-          },
-        });
+      writeSinks.set(context, {
+        upserted: (arm) => {
+          created = arm;
+        },
+        wants: (model, written) => hooks[model]?.[written] !== undefined,
+        wrote: (model, written, read) => {
+          const group =
+            nested.find(
+              (each) => each.model === model && each.kind === written
+            ) ?? nested[nested.push({ model, kind: written, rows: [] }) - 1]!;
+          for (const row of read) group.rows.push(row as Row);
+        },
+      });
       return Object.freeze({
         extension: NAME,
         failurePolicy: "boundary-owned",
@@ -375,6 +407,19 @@ function plan(
       });
     },
   };
+}
+
+/** Does a write's payload name a relation of its model: a nested write? */
+function writesRelation(args: Row, relations: object): boolean {
+  for (const payload of [args.data, args.create, args.update])
+    for (const row of Array.isArray(payload) ? payload : [payload])
+      if (
+        row !== null &&
+        typeof row === "object" &&
+        Object.keys(row).some((key) => Object.hasOwn(relations, key))
+      )
+        return true;
+  return false;
 }
 
 /**
@@ -405,14 +450,16 @@ const AFTER = {
   "may-have-committed": "may have committed",
 } as const;
 
+/** Run one hook; its failure, if any, as the error reported for it. */
 async function runHook(
   hook: RuntimeHook,
   rows: Row[],
   event: OnEvent,
   label: string
-): Promise<void> {
+): Promise<QueryError | undefined> {
   try {
     await hook(Object.freeze(rows), event);
+    return undefined;
   } catch (thrown) {
     const cause = thrown instanceof Error ? thrown : new Error(String(thrown));
     const error = new QueryError(
@@ -434,6 +481,6 @@ async function runHook(
       configurable: true,
       writable: true,
     });
-    throw error;
+    return error;
   }
 }

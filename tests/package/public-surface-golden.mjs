@@ -737,6 +737,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "OnHooks",
       "OnKind",
       "OnOperation",
+      "OnOptions",
       "OnRow",
     ],
     []
