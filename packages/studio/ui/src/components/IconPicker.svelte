@@ -1,7 +1,7 @@
 <script lang="ts">
 import { magnifyingGlassIcon } from "entasis/icons/magnifyingGlass";
 import { TextInput } from "entasis/text-input";
-import { ICON_RULES, MODEL_ICONS, type ModelIcon } from "../../../src/icons";
+import { ICON_OPTIONS, MODEL_ICONS, type ModelIcon } from "../../../src/icons";
 import { MODEL_ICON } from "../lib/model-icons";
 
 // The icons a saved view or query may be shown with, found by their name or by the words that call for them
@@ -20,9 +20,9 @@ const HIDDEN_LABEL = {
 };
 /** Each icon's name and the words that call for it, to search. */
 const WORDS = new Map<ModelIcon, string>(
-  MODEL_ICONS.map((icon) => [
+  ICON_OPTIONS.map(([icon, words]) => [
     icon,
-    `${icon.toLowerCase()} ${ICON_RULES.find(([named]) => named === icon)?.[1].replaceAll("|", " ") ?? ""}`,
+    `${icon.toLowerCase()} ${words.replaceAll("|", " ")}`,
   ])
 );
 
