@@ -266,6 +266,7 @@ const time = (date: Date) =>
               {#each flat as { node, depth } (node.id)}
                 {@const rowCount = node.actual?.rows ?? (plan.analyzed ? undefined : node.estimate?.rows)}
                 {@const value = tableValue(node)}
+                {@const metricLabel = value === undefined || node.neverExecuted ? '—' : tableFormat(value)}
                 {@const width = tableMaximum > 0 && value !== undefined ? value / tableMaximum * 100 : 0}
                 <button
                   type="button"
@@ -286,14 +287,13 @@ const time = (date: Date) =>
                     </span>
                   </span>
                   {#if tableMetric}
-                    <span class="grid gap-1">
-                      <span class="text-right font-mono text-[11px] tabular-nums">{value === undefined || node.neverExecuted ? '—' : tableFormat(value)}</span>
-                      <span class="relative block h-3" aria-hidden="true">
-                        <span class="absolute inset-y-0 left-1/2 border-l border-neutral-muted"></span>
-                        {#if width > 0 && !node.neverExecuted}
-                          <span class={['absolute inset-y-0 left-0 rounded-sm', tableMetric === 'time' ? 'bg-success/70' : 'bg-neutral/35']} style:width="{width}%"></span>
-                        {/if}
-                      </span>
+                    <span class="relative block h-4 font-mono text-[9px] tabular-nums" title={metricLabel}>
+                      <span class="absolute inset-y-0 left-1/2 border-l border-neutral-muted" aria-hidden="true"></span>
+                      {#if width > 0 && !node.neverExecuted}
+                        <span class={['absolute inset-y-0 left-0 rounded-sm', tableMetric === 'time' ? 'bg-success/70' : 'bg-neutral/35']} style:width="{width}%" aria-hidden="true"></span>
+                      {/if}
+                      <!-- Keep the true bar length; labels on very short bars stop at the track's left edge. -->
+                      <span class="absolute inset-y-0 grid max-w-full items-center overflow-hidden px-1 whitespace-nowrap" style:left="max(0px, calc({width}% - {metricLabel.length}ch - 0.5rem))">{metricLabel}</span>
                     </span>
                   {/if}
                   <span class="pl-2 text-right font-mono tabular-nums" title={plan.analyzed ? 'Rows returned per loop' : 'Rows expected by the planner'}>
