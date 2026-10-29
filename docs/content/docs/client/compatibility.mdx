@@ -282,9 +282,9 @@ it. Write `is: { NOT: P }` to drop it. See
 
 Enum sorting follows declaration order on PostgreSQL/MySQL and text order on
 SQLite. Ordinary string ordering and aggregates follow the column/database
-collation; JSON-path string comparisons use code-point ordering. Portable
-`mode: "insensitive"` folds ASCII letters for equality, patterns and ranges;
-it is not locale-aware Unicode case folding.
+collation; JSON-path string comparisons use code-point ordering.
+`mode: "insensitive"` ignores letter case for equality, patterns and ranges the
+way each database does natively; see the difference below.
 
 JSON equality ignores object property order. SQLite array containment compares
 complete members structurally; PostgreSQL/MySQL also support native partial-object
@@ -295,9 +295,11 @@ containment. See [JSON filters](/docs/client/filtering/json).
 The API is provider-agnostic. Remaining differences are limited to features
 whose underlying data model is not shared by every database:
 
-Portable string `mode: "insensitive"` folds ASCII `A`-`Z` only on every
-database. Non-ASCII code points remain exact, so behavior does not depend on a
-database's locale or ICU installation.
+String `mode: "insensitive"` ignores letter case with each database's own
+`LOWER`/`ILIKE`, so whether a non-ASCII letter such as `É` folds depends on the
+database: PostgreSQL with a libc or ICU locale and MySQL fold it; SQLite,
+libSQL, D1 and a `C`-locale PostgreSQL fold `A`-`Z` only. Accents are never
+folded. See [String filters](/docs/client/filtering/string#mode-case-sensitivity).
 
 | Behavior | Difference |
 |----------|-----------|

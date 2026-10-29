@@ -3,6 +3,32 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## Unreleased
+
+### Changed
+
+- **`mode: "insensitive"` ignores letter case the way the database does.** It
+  used to fold `A`-`Z` only, identically everywhere, with a `TRANSLATE` on
+  PostgreSQL and 26 nested `REPLACE` calls on MySQL. It now uses each
+  database's own case folding:
+  - PostgreSQL: `ILIKE` for `contains`/`startsWith`/`endsWith`, on the bare
+    column so a trigram index serves it, and `LOWER(column) = LOWER(value)`
+    for equality, `in`, `not` and ranges;
+  - MySQL: `LOWER` on both sides, compared as bytes;
+  - SQLite, libSQL, D1: `lower`, as before.
+
+  **Results can differ between databases for non-ASCII letters.** `"école"`
+  now matches `"École"` on MySQL and on PostgreSQL with a libc or ICU locale
+  (the `initdb` default). It still doesn't on SQLite (whose `lower()` folds
+  `A`-`Z` only) or on a `C`-locale PostgreSQL such as PGlite. Accents are
+  never folded: `"ecole"` matches `"École"` nowhere. JSON-path string filters
+  and field references follow the same rule.
+- **PostgreSQL binds a plain search string as one escaped pattern.**
+  `contains`, `startsWith` and `endsWith` with a string escape `%`, `_` and
+  `\` before binding (`"title" LIKE $1`, `$1 = '%50\%%'`) instead of
+  escaping it in SQL with three nested `REPLACE` calls. A column or JSON-path
+  operand is still escaped by the server.
+
 ## 1.6.0 — 2026-10-28
 
 VibORM Studio: the schema as a diagram, and the rows to browse and edit

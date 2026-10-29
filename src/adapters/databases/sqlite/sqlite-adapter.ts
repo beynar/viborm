@@ -25,6 +25,7 @@ import {
   type DatabaseAdapter,
   type GeoPointSql,
   installGeoPointSql,
+  type TextMatch,
 } from "../../database-adapter";
 import {
   BATCH_REFS_TABLE,
@@ -424,6 +425,10 @@ const SQLITE_OPERATORS = {
     sql`substr(${column}, 1, length(${value})) COLLATE BINARY = ${value}`,
   endsWithText: (column: Sql, value: Sql): Sql =>
     sql`substr(${column}, length(${column}) - length(${value}) + 1) COLLATE BINARY = ${value}`,
+  // SQLite's own `lower` folds ASCII only, unless the ICU extension replaced it.
+  insensitiveText(kind: TextMatch, column: Sql, value: Sql): Sql {
+    return this[`${kind}Text`](sql`lower(${column})`, sql`lower(${value})`);
+  },
   // GLOB, not LIKE — and this is the one place the "portable escaped LIKE"
   // premise of Decision 7.3 does not survive contact with SQLite. Both of
   // SQLite's LIKE-optimization preconditions fail here: an ESCAPE clause
@@ -469,7 +474,7 @@ const SQLITE_EXPRESSIONS = {
   ...createCommonExpressions(),
 
   // SQLite lower() intentionally provides the portable ASCII-only contract.
-  asciiCaseFold: (expr: Sql): Sql => sql`lower(${expr})`,
+  caseFold: (expr: Sql): Sql => sql`lower(${expr})`,
   caseSensitiveText: (expr: Sql): Sql => sql`${expr} COLLATE BINARY`,
 
   concat: (...parts: Sql[]): Sql => {
@@ -619,6 +624,10 @@ const SQLITE_JSON = {
   // the code-point ordering contract explicit alongside PG's COLLATE "C"
   stringAtPath: (column: Sql, path: string[]): Sql =>
     sql`((CASE WHEN json_type(${jsonExtract(column, path)}) = 'text' THEN ${jsonExtractText(column, path)} END) COLLATE BINARY)`,
+  // `lower` folds the same way under any collation, so the pin can stay.
+  foldableStringAtPath(column: Sql, path: string[]): Sql {
+    return this.stringAtPath(column, path);
+  },
 
   contains: (target: Sql, value: Sql): Sql =>
     sql`(json_type(${target}) = 'array' AND NOT EXISTS (SELECT 1 FROM json_each(${value}) AS required WHERE NOT EXISTS (SELECT 1 FROM json_each(${target}) AS candidate WHERE ${sqliteJsonEquals(sql`${target} -> candidate.fullkey`, sql`${value} -> required.fullkey`)})))`,

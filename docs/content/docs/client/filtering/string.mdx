@@ -60,9 +60,23 @@ where: { name: { contains: "alice", mode: "insensitive" } }
 
 `mode: "insensitive"` applies to `equals`, `not`, `in`, `notIn`, `contains`, `startsWith`, and `endsWith`.
 
-Insensitive mode folds ASCII `A`-`Z` only. Non-ASCII code points remain exact
-on every database, which keeps the result independent of provider collations
-and optional Unicode/ICU extensions.
+Insensitive mode ignores letter case the way the database itself does, with
+its own `LOWER` (and `ILIKE` on PostgreSQL for `contains`, `startsWith` and
+`endsWith`). Only case is ignored: accents and every other difference still
+count, so `"ecole"` never matches `"École"`.
+
+Which letters have a case is the database's answer, so a non-ASCII letter can
+match differently from one database to another:
+
+| Database | `"école"` matches `"École"` |
+|----------|-----------------------------|
+| PostgreSQL with a libc or ICU locale (`en_US.UTF-8`, the `initdb` default) | Yes |
+| PostgreSQL with the `C` locale (PGlite) | No: only `A`-`Z` fold |
+| MySQL / MariaDB (`utf8mb4`) | Yes |
+| SQLite, libSQL, D1 | No: SQLite's `lower()` folds `A`-`Z` only, unless the ICU extension is loaded |
+
+On PostgreSQL the pattern filters keep the column bare, so a trigram index on it
+(`CREATE INDEX … USING gin (title gin_trgm_ops)`) serves them.
 
 Default string equality, membership, and substring filters are case-sensitive
 on every supported database, independent of its default collation.
