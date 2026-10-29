@@ -374,11 +374,11 @@ const sidebar = $derived<AppShellSidebarProps>({
     <Toaster position="bottom-right" />
     <Confirmation />
     <!-- Saved item icons share the same picker and persistence feedback. -->
-    <Dialog open={iconFor !== undefined} onOpenChange={open => { if (!open) iconFor = undefined; }} size="small" title={iconFor ? `The icon of “${iconFor.item.name}”` : ''} description="Shown in the sidebar and in ⌘K.">
+    <Dialog open={iconFor !== undefined} onOpenChange={open => { if (!open) iconFor = undefined; }} size="normal" title={iconFor ? `The icon of “${iconFor.item.name}”` : ''} description="Shown in the sidebar and in ⌘K.">
       {#snippet children()}
         {#if iconFor}
           {@const target = iconFor}
-          <IconPicker value={target.item.icon} onValueChange={icon => chooseIcon(target, icon)} />
+          <IconPicker expanded value={target.item.icon} onValueChange={icon => chooseIcon(target, icon)} />
         {/if}
       {/snippet}
     </Dialog>

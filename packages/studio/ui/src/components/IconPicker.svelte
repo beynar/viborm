@@ -9,9 +9,11 @@ import { MODEL_ICON } from "../lib/model-icons";
 let {
   value,
   onValueChange,
+  expanded = false,
 }: {
   value: ModelIcon | undefined;
   onValueChange: (icon: ModelIcon) => void;
+  expanded?: boolean;
 } = $props();
 
 const HIDDEN_LABEL = {
@@ -40,7 +42,7 @@ const shown = $derived.by(() => {
 
 <div class="grid gap-2">
   <TextInput size="small" label="Find an icon" theme={HIDDEN_LABEL} placeholder="Find an icon: money, team, invoice…" prefix={magnifyingGlassIcon} value={search} onValueChange={next => (search = next ?? '')} />
-  <div class="grid max-h-56 grid-cols-[repeat(auto-fill,minmax(2rem,1fr))] gap-1 overflow-auto p-0.5" role="listbox" aria-label="Icons">
+  <div class={['grid grid-cols-[repeat(auto-fill,minmax(2rem,1fr))] gap-1 overflow-auto p-0.5', expanded ? 'max-h-[min(24rem,calc(100dvh-14rem))]' : 'max-h-56']} role="listbox" aria-label="Icons">
     {#each shown as icon (icon)}
       <button type="button" role="option" aria-selected={value === icon} title={icon} class={['grid size-8 place-items-center rounded-md text-neutral/75 hover:bg-neutral-muted hover:text-neutral focus-visible:outline-2 focus-visible:outline-primary', value === icon && 'bg-primary/15 text-primary ring-1 ring-primary/50']} onclick={() => onValueChange(icon)}>
         {@render MODEL_ICON[icon]({ size: 16 })}
