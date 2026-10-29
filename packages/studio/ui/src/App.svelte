@@ -210,6 +210,7 @@ async function removeQuery(query: SavedQuery) {
 const sidebar = $derived<AppShellSidebarProps>({
   collapsible: "icon",
   theme: {
+    header: { base: "group-data-[collapsible=icon]:py-md" },
     footer: { base: "group-data-[collapsible=icon]:py-md" },
   },
   items: [
@@ -316,23 +317,24 @@ const sidebar = $derived<AppShellSidebarProps>({
 <!-- The studio's name and the database it speaks to, the sidebar's fold beside them. Folded to its icons, the
      sidebar shows the database's icon, which turns into the unfold button under the pointer or the keyboard. -->
 {#snippet brand(sidebar: SidebarApi)}
-  {#if sidebar.open || sidebar.isMobile}
-    <div class="flex items-start gap-2 px-2 py-1">
-      <span class="mt-0.5 inline-flex shrink-0">{@render databaseIcon({ size: 18 })}</span>
+  {@const expanded = sidebar.open || sidebar.isMobile}
+  <div class="flex h-12 items-start gap-2 overflow-hidden">
+    <div class="group/brand relative grid size-8 shrink-0 place-items-center">
+      <span class={['inline-flex transition-opacity', !expanded && 'group-focus-within/brand:opacity-0 group-hover/brand:opacity-0']}>{@render databaseIcon({ size: 18 })}</span>
+      {#if !expanded}
+        <span class="absolute inset-0 grid place-items-center opacity-0 transition-opacity group-focus-within/brand:opacity-100 group-hover/brand:opacity-100">
+          <Button size="small" variant="ghost" squared prefix={sidebarSimpleIcon} label="Expand the sidebar" onclick={sidebar.toggle} />
+        </span>
+      {/if}
+    </div>
+    <div class={['flex min-w-0 flex-1 items-start gap-2 pt-1 transition-opacity duration-normal', !expanded && 'pointer-events-none opacity-0']} inert={!expanded} aria-hidden={!expanded}>
       <div class="grid min-w-0 flex-1 gap-1">
         <span class="truncate text-[14px] leading-5 font-semibold">VibORM Studio</span>
         {#if schema}<span><Chip size="small" variant="soft">{schema.dialect}</Chip></span>{/if}
       </div>
       <Button size="small" variant="ghost" squared prefix={sidebarSimpleIcon} label="Collapse the sidebar" onclick={sidebar.toggle} />
     </div>
-  {:else}
-    <div class="group/brand relative mx-auto grid size-8 place-items-center">
-      <span class="inline-flex transition-opacity group-focus-within/brand:opacity-0 group-hover/brand:opacity-0">{@render databaseIcon({ size: 18 })}</span>
-      <span class="absolute inset-0 grid place-items-center opacity-0 transition-opacity group-focus-within/brand:opacity-100 group-hover/brand:opacity-100">
-        <Button size="small" variant="ghost" squared prefix={sidebarSimpleIcon} label="Expand the sidebar" onclick={sidebar.toggle} />
-      </span>
-    </div>
-  {/if}
+  </div>
 {/snippet}
 
 {#snippet sidebarFooter()}
