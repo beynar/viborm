@@ -122,6 +122,7 @@ const columns = $derived<DataTableColumn<Row>[]>(
     header: column.label,
     accessor: (row: Row) => row[column.id],
     sortable: column.kind !== "relation" && column.field?.type !== "json",
+    reorderable: false,
     resizable: true,
     width: widthOf(column),
     ...(isNumber(column)

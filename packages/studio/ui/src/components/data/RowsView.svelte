@@ -594,9 +594,9 @@ const columns = $derived<DataTableColumn<Row>[]>([
     ...(field.type === "date" || field.type === "time"
       ? { minWidth: 150 }
       : {}),
-    // Hidden, moved, resized or pinned from its header; a view keeps where.
+    // Hidden, resized or pinned from its header; a view keeps where.
     hideable: true,
-    reorderable: true,
+    reorderable: false,
     resizable: true,
     pinnable: true,
     ...(NUMERIC.has(field.type)
@@ -611,7 +611,7 @@ const columns = $derived<DataTableColumn<Row>[]>([
     sortable: false,
     width: 150,
     hideable: true,
-    reorderable: true,
+    reorderable: false,
     resizable: true,
     pinnable: true,
   })),
