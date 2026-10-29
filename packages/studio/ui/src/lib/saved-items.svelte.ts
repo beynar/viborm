@@ -49,6 +49,19 @@ export class SavedItems<
     }
   }
 
+  /** Rename only the saved item, preserving its content and queued changes. */
+  rename(id: string, name: string): Promise<void> {
+    const trimmed = name.trim();
+    if (!trimmed) return Promise.reject(new Error("Enter a name."));
+    return this.change((list) => {
+      if (!list.some((item) => item.id === id))
+        throw new Error("This saved item no longer exists.");
+      return list.map((item) =>
+        item.id === id ? { ...item, name: trimmed } : item
+      );
+    });
+  }
+
   /** Copy the saved snapshot, with a fresh identity and an unused name, in write order. */
   protected async duplicateItem(
     id: string,

@@ -156,11 +156,11 @@ const listed = $derived(
   )
 );
 
-type IconTarget =
+type SavedItemTarget =
   | { kind: "view"; item: SavedView }
   | { kind: "query"; item: SavedQuery };
-let iconFor = $state<IconTarget>();
-async function chooseIcon(target: IconTarget, icon: ModelIcon) {
+let iconFor = $state<SavedItemTarget>();
+async function chooseIcon(target: SavedItemTarget, icon: ModelIcon) {
   try {
     const collection = target.kind === "view" ? views : queries;
     await collection?.setIcon(target.item.id, icon);
@@ -173,52 +173,70 @@ async function chooseIcon(target: IconTarget, icon: ModelIcon) {
   }
 }
 
-let renaming = $state<{ id: string; name: string; anchor: HTMLElement }>();
+let renaming = $state<{
+  kind: "query" | "view";
+  id: string;
+  name: string;
+  anchor: HTMLElement;
+}>();
 let renameBusy = $state(false);
 let renameError = $state("");
 
-function beginRename(query: SavedQuery) {
+function beginRename(target: SavedItemTarget) {
   if (renameBusy) return;
-  const row = Array.from(
-    document.querySelectorAll("a.studio-saved-query")
-  ).find((element) => element.getAttribute("href") === queryHref(query));
+  const href =
+    target.kind === "query" ? queryHref(target.item) : viewHref(target.item);
+  const row = Array.from(document.querySelectorAll("a.studio-saved-item")).find(
+    (element) => element.getAttribute("href") === href
+  );
   const anchor = row?.querySelector(".studio-sidebar-label");
   if (!(anchor instanceof HTMLElement)) return;
   renameError = "";
-  renaming = { id: query.id, name: query.name, anchor };
+  renaming = {
+    kind: target.kind,
+    id: target.item.id,
+    name: target.item.name,
+    anchor,
+  };
 }
-function queryFromTarget(target: EventTarget | null) {
+function savedItemFromTarget(
+  target: EventTarget | null
+): SavedItemTarget | undefined {
   if (!(target instanceof Element)) return;
-  const row = target.closest("a.studio-saved-query");
-  return queries?.list.find(
-    (query) => queryHref(query) === row?.getAttribute("href")
-  );
+  const href = target.closest("a.studio-saved-item")?.getAttribute("href");
+  if (!href) return;
+  const query = queries?.list.find((item) => queryHref(item) === href);
+  if (query) return { kind: "query", item: query };
+  const view = views?.list.find((item) => viewHref(item) === href);
+  if (view) return { kind: "view", item: view };
 }
 function renameOnDoubleClick(event: MouseEvent) {
-  const query = queryFromTarget(event.target);
-  if (!query) return;
+  const target = savedItemFromTarget(event.target);
+  if (!target) return;
   event.preventDefault();
-  beginRename(query);
+  beginRename(target);
 }
 function renameOnKey(event: KeyboardEvent) {
   if (event.key !== "F2") return;
-  const query = queryFromTarget(event.target);
-  if (!query) return;
+  const target = savedItemFromTarget(event.target);
+  if (!target) return;
   event.preventDefault();
-  beginRename(query);
+  beginRename(target);
 }
 async function saveRename() {
   const edit = renaming;
-  if (!(edit && queries) || renameBusy) return;
+  if (!edit || renameBusy) return;
+  const collection = edit.kind === "query" ? queries : views;
+  if (!collection) return;
   const name = edit.name.trim();
   if (!name) {
-    renameError = "Enter a query name.";
+    renameError = `Enter a ${edit.kind} name.`;
     return;
   }
   renameBusy = true;
   renameError = "";
   try {
-    await queries.rename(edit.id, name);
+    await collection.rename(edit.id, name);
     if (renaming === edit) renaming = undefined;
   } catch (error) {
     renameError = error instanceof Error ? error.message : String(error);
@@ -342,7 +360,7 @@ const sidebar = $derived<AppShellSidebarProps>({
             label: "Queries",
             items: queries.list.map((query) => ({
               label: query.name,
-              class: "studio-saved-query",
+              class: "studio-saved-item",
               href: queryHref(query),
               icon: query.icon ? MODEL_ICON[query.icon] : terminalWindowIcon,
               badge: query.code === undefined ? query.model : "Code",
@@ -360,7 +378,7 @@ const sidebar = $derived<AppShellSidebarProps>({
                     type: "option" as const,
                     title: "Rename",
                     prefix: pencilSimpleIcon,
-                    onclick: () => beginRename(query),
+                    onclick: () => beginRename({ kind: "query", item: query }),
                   },
                   {
                     type: "option" as const,
@@ -387,6 +405,7 @@ const sidebar = $derived<AppShellSidebarProps>({
             label: "Views",
             items: listed.map((view) => ({
               label: view.name,
+              class: "studio-saved-item",
               href: viewHref(view),
               icon: view.icon ? MODEL_ICON[view.icon] : bookmarkSimpleIcon,
               badge: view.model,
@@ -402,6 +421,12 @@ const sidebar = $derived<AppShellSidebarProps>({
                     title: "Change icon",
                     prefix: imageSquareIcon,
                     onclick: () => (iconFor = { kind: "view", item: view }),
+                  },
+                  {
+                    type: "option" as const,
+                    title: "Rename",
+                    prefix: pencilSimpleIcon,
+                    onclick: () => beginRename({ kind: "view", item: view }),
                   },
                   {
                     type: "option" as const,
@@ -478,7 +503,7 @@ const sidebar = $derived<AppShellSidebarProps>({
       <Palette bind:open={paletteOpen} {schema} {views} {queries} {changes} navigate={navigateModel} />
     {/if}
     {#if renaming}
-      <Popover defaultOpen trigger={false} ref={renaming.anchor} label="Rename query" focusOnOpen="first" fitTrigger
+      <Popover defaultOpen trigger={false} ref={renaming.anchor} label={`Rename ${renaming.kind}`} focusOnOpen="first" fitTrigger
         theme={{ popover: { base: 'bg-surface rounded-sm shadow-none', size: { normal: 'w-full max-w-none p-0' } } }}
         positionPanel={({ reference }) => { const box = reference.getBoundingClientRect(); return { x: box.x - 4, y: box.y - 4, minWidth: Math.max(120, box.width + 8) }; }}
         onOpenChange={(open, details) => {
@@ -490,8 +515,8 @@ const sidebar = $derived<AppShellSidebarProps>({
         {#snippet children()}
           {#if renaming}
             <form class="grid" onsubmit={event => { event.preventDefault(); saveRename(); }}>
-              <input aria-label="Query name" aria-invalid={!!renameError} aria-describedby={renameError ? 'query-rename-error' : undefined} class="h-7 w-full min-w-0 rounded-sm border border-neutral-muted bg-surface px-1 text-[14px] leading-5 text-neutral outline-none focus:border-primary" bind:value={renaming.name} readonly={renameBusy} onfocus={event => event.currentTarget.select()} />
-              {#if renameError}<span id="query-rename-error" role="alert" class="px-1 py-1 text-[12px] text-danger">{renameError}</span>{/if}
+              <input aria-label={renaming.kind === "query" ? "Query name" : "View name"} aria-invalid={!!renameError} aria-describedby={renameError ? 'saved-item-rename-error' : undefined} class="h-7 w-full min-w-0 rounded-sm border border-neutral-muted bg-surface px-1 text-[14px] leading-5 text-neutral outline-none focus:border-primary" bind:value={renaming.name} readonly={renameBusy} onfocus={event => event.currentTarget.select()} />
+              {#if renameError}<span id="saved-item-rename-error" role="alert" class="px-1 py-1 text-[12px] text-danger">{renameError}</span>{/if}
             </form>
           {/if}
         {/snippet}

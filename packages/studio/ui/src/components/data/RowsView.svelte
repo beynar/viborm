@@ -703,7 +703,7 @@ const unsaved = $derived.by(() => {
     canonical({ ignoreCase: false, ...saved, ...(scope ? { scope } : {}) })
   );
 });
-let viewName = $state(untrack(() => view?.name ?? ""));
+let viewName = $derived(view?.name ?? "");
 /** The icon chosen in the form; until one is, the view keeps its own (changed from the sidebar too). */
 let pickedIcon = $state<ModelIcon>();
 const viewIcon = $derived(pickedIcon ?? view?.icon);
