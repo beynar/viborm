@@ -42,15 +42,19 @@ misspelt model, hook or field is an editor error.
   `findMany` returns (see [below](#the-rows-a-hook-receives)), whatever the
   call selected.
 - `event.model` and `event.operation`: the call that wrote them
-  (`"user"`, `"updateMany"`; `"upsert"` for either arm of an upsert).
+  (`"user"`, `"updateMany"`; `"upsert"` for either arm of an upsert). For
+  rows a nested write wrote, the root call's: a `user.update` hook called by
+  `post.update({ data: { author: { update: {…} } } })` receives
+  `model: "post"`, `operation: "update"`.
 - `event.args`: the call's arguments, after request transforms and default
   omit.
 - `event.certainty`: `"committed"`, or `"may-have-committed"` when the
   provider could not confirm the commit (a connection lost while committing):
   the write may be durable or not.
 
-A hook is called once per write, with all of that write's rows of its model.
-A write that changes no row (an `updateMany` matching nothing) calls no hook.
+A hook is called once per call, with all of the rows of its model that call
+wrote, its own and its nested writes' alike. A write that changes no row (an
+`updateMany` matching nothing) calls no hook.
 
 ## Which hook a write calls
 
@@ -67,15 +71,24 @@ A write that changes no row (an `updateMany` matching nothing) calls no hook.
 | `restore`, `restoreMany` (soft delete) | `update` | the rows after the restore |
 | `connect` or `disconnect` of a relation whose foreign key the called row holds | the called row's own hook (`update`, or `create`) | that row, with its new foreign key (a polymorphic relation's columns are not in the row, see [below](#the-rows-a-hook-receives)) |
 
+Nested writes call the hooks of the model they write, with the same mapping:
+
+| Nested write | Hook of the nested model | `rows` |
+|---|---|---|
+| `create`, `createMany` | `create` | the created rows |
+| `update`, `updateMany` | `update` | the rows after the write |
+| `upsert`, `connectOrCreate` | `create` when it created, `update` when it updated (an `upsert` whose `update` writes nothing calls none; a `connectOrCreate` that connects a row whose foreign key it moves calls `update`) | the row after the write |
+| `connect` (the nested row holds the foreign key) | `update` | the row with its new foreign key |
+| `disconnect`, `set` (rows whose foreign key is cleared) | `update` | each row with the foreign key cleared |
+| `delete`, `deleteMany` | `delete` | the rows before the delete |
+| `delete`, `deleteMany` of a model soft delete manages | `update` | the rows after the tombstone is written |
+
+A nested `connect` or `disconnect` whose foreign key the parent row holds
+changes the parent row, which is the call's own row or a nested one: its hook
+says so.
+
 What never calls a hook:
 
-- **Rows written through a nested write.** In this version a hook receives
-  rows of the call's own model: `post.update({ data: { author: { update:
-  {…} } } })` calls `post.update` with the post row, never `user.update` for
-  the author. The same holds for a nested `create`,
-  `createMany`, `upsert`, `connectOrCreate`, `delete`, `deleteMany`,
-  `updateMany`, and for a `connect`, `disconnect` or `set` that moves another
-  model's foreign key.
 - **Many-to-many links.** A link row of an implicit many-to-many relation is
   not a row of either model. Declare the join table as a model with two
   to-one relations when you need hooks on links: its rows are then created and
@@ -275,6 +288,13 @@ transaction adds its `BEGIN` and `COMMIT`:
   `skipDuplicates`, to learn which rows it inserted); a `deleteMany` locks and
   reads its rows in one `SELECT … FOR UPDATE`; an `updateMany` locks their
   keys, writes them and reads them back.
+- **A nested write** a hook concerns reads back each row it writes, by key,
+  in the same transaction (in the same batch on D1 and Neon HTTP: no extra
+  round trip): one statement more per nested `create`, `update`, `upsert`,
+  `connect`, `disconnect` and `delete`. A nested `updateMany` or `deleteMany`
+  returns its rows from its own statement (`RETURNING`, no extra statement);
+  on MySQL it locates its rows and writes and reads each one. A nested write
+  of a model no hook names reads nothing.
 - An `upsert` reports which arm it took and stays one atomic
   `INSERT … ON CONFLICT`. On PostgreSQL its `RETURNING` says so (`xmax = 0`).
   SQLite's statement cannot, so a probe of the key goes just before it, in the
@@ -300,7 +320,6 @@ checked when it is applied: a model the schema lacks, a hook name other than
 
 ## Not covered
 
-- Nested writes (above).
 - Hooks before a write, or hooks that change it: use a
   [`query` handler](/docs/extensions/create#wrap-logical-execution) or
   [`data`](/docs/extensions/create#write-fields-with-data).

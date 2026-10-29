@@ -31,6 +31,7 @@ export function onSchema() {
     passwordHash: s.string().default("x"),
     avatar: s.blob().nullable(),
     posts: s.toMany(() => post).name("author"),
+    edited: s.toMany(() => post).name("editor"),
   });
   const post = s.model({
     id: s.string().id(),
@@ -42,6 +43,12 @@ export function onSchema() {
       .toOne(() => user)
       .name("author")
       .fields("authorId")
+      .references("id"),
+    editorId: s.string().nullable(),
+    editor: s
+      .toOne(() => user)
+      .name("editor")
+      .fields("editorId")
       .references("id"),
     deletedAt: s.dateTime().nullable(),
   });
@@ -68,6 +75,7 @@ const post = (id: string, authorId: string, views = 0) => ({
   views,
   price: null,
   authorId,
+  editorId: null,
   deletedAt: null,
 });
 
@@ -350,8 +358,8 @@ export function runOnBehavior(provider: OnProvider): void {
         ]);
       });
 
-      test("a nested write calls the root row's hook, never the nested model's", async () => {
-        const { db, base, calls } = await open();
+      test("nested writes call the nested model's hooks with its rows, the root call's event", async () => {
+        const { db, calls } = await open();
         await db.post.update({
           where: { id: "p1" },
           data: { title: "t", author: { update: { name: "Ada L." } } },
@@ -364,24 +372,23 @@ export function runOnBehavior(provider: OnProvider): void {
             posts: { create: [{ id: "p9", title: "nine" }] },
           },
         });
-        expect(calls.map((call) => call.hook)).toEqual([
-          "post.update",
-          "user.create",
+        expect(
+          calls.map((call) => [
+            call.hook,
+            call.rows.map((row) => row.id),
+            call.event.model,
+            call.event.operation,
+          ])
+        ).toEqual([
+          ["post.update", ["p1"], "post", "update"],
+          ["user.update", ["u1"], "post", "update"],
+          ["user.create", ["u5"], "user", "create"],
+          ["post.create", ["p9"], "user", "create"],
         ]);
-        expect(calls[0]!.rows).toEqual([{ ...post("p1", "u1"), title: "t" }]);
-        // The nested rows were written all the same.
-        expect(
-          await base.user.findUniqueOrThrow({
-            where: { id: "u1" },
-            select: { name: true },
-          })
-        ).toEqual({ name: "Ada L." });
-        expect(
-          await base.post.findUniqueOrThrow({
-            where: { id: "p9" },
-            select: { authorId: true },
-          })
-        ).toEqual({ authorId: "u5" });
+        expect(calls[1]!.rows).toEqual([{ ...ADA, name: "Ada L." }]);
+        expect(calls[3]!.rows).toEqual([
+          { ...post("p9", "u5"), title: "nine" },
+        ]);
       });
 
       test("a write that fails calls no hook", async () => {
@@ -816,6 +823,229 @@ export function runOnBehavior(provider: OnProvider): void {
         expect(calls.map((call) => [call.hook, call.rows])).toEqual([
           ["post.update", [post("p1", "u1", 5)]],
           ["post.delete", [post("p3", "u2")]],
+        ]);
+      });
+    });
+
+    describe("nested writes", () => {
+      // Groups in the order the engine wrote them, compared by hook name.
+      const hooksOf = (calls: Call[]) =>
+        calls
+          .map((call) => [call.hook, byId(call.rows)] as const)
+          .sort(([left], [right]) => left.localeCompare(right));
+
+      test("nested create, createMany, update and upsert: each row as its write left it", async () => {
+        const { db, calls } = await open();
+        await db.user.update({
+          where: { id: "u1" },
+          data: {
+            posts: {
+              create: [{ id: "p7", title: "seven" }],
+              createMany: { data: [{ id: "p8", title: "eight" }] },
+              update: { where: { id: "p1" }, data: { views: 11 } },
+              upsert: [
+                {
+                  where: { id: "p2" },
+                  create: { id: "p2", title: "never" },
+                  update: { views: 22 },
+                },
+                {
+                  where: { id: "p9" },
+                  create: { id: "p9", title: "nine" },
+                  update: { views: 99 },
+                },
+              ],
+            },
+          },
+        });
+        const created = calls.filter((call) => call.hook === "post.create");
+        const updated = calls.filter((call) => call.hook === "post.update");
+        expect(created).toHaveLength(1);
+        expect(updated).toHaveLength(1);
+        expect(byId(created[0]!.rows)).toEqual([
+          { ...post("p7", "u1"), title: "seven" },
+          { ...post("p8", "u1"), title: "eight" },
+          { ...post("p9", "u1"), title: "nine" },
+        ]);
+        expect(byId(updated[0]!.rows)).toEqual([
+          post("p1", "u1", 11),
+          post("p2", "u1", 22),
+        ]);
+        expect(calls.find((call) => call.hook === "user.update")!.rows).toEqual(
+          [ADA]
+        );
+      });
+
+      test("connect, connectOrCreate, disconnect and set: the rows whose foreign key moved", async () => {
+        const { db, calls } = await open();
+        await db.user.update({
+          where: { id: "u1" },
+          data: {
+            posts: {
+              connect: [{ id: "p3" }],
+              connectOrCreate: {
+                where: { id: "p6" },
+                create: { id: "p6", title: "six" },
+              },
+            },
+            edited: { connect: [{ id: "p1" }, { id: "p2" }] },
+          },
+        });
+        expect(hooksOf(calls)).toEqual([
+          ["post.create", [{ ...post("p6", "u1"), title: "six" }]],
+          [
+            "post.update",
+            [
+              { ...post("p1", "u1"), editorId: "u1" },
+              { ...post("p2", "u1"), editorId: "u1" },
+              post("p3", "u1"),
+            ],
+          ],
+          ["user.update", [ADA]],
+        ]);
+        calls.length = 0;
+        await db.user.update({
+          where: { id: "u2" },
+          data: {
+            posts: {
+              connectOrCreate: {
+                where: { id: "p6" },
+                create: { id: "p6", title: "never" },
+              },
+            },
+          },
+        });
+        expect(
+          calls
+            .filter((call) => call.hook.startsWith("post."))
+            .map((call) => [call.hook, byId(call.rows)])
+        ).toEqual([["post.update", [{ ...post("p6", "u2"), title: "six" }]]]);
+        calls.length = 0;
+        await db.user.update({
+          where: { id: "u1" },
+          data: { edited: { disconnect: [{ id: "p1" }] } },
+        });
+        await db.user.update({
+          where: { id: "u1" },
+          data: { edited: { set: [] } },
+        });
+        expect(
+          calls
+            .filter((call) => call.hook === "post.update")
+            .map((call) => byId(call.rows))
+        ).toEqual([[post("p1", "u1")], [post("p2", "u1")]]);
+      });
+
+      test("nested delete and deleteMany: the rows as they were before; updateMany: after", async () => {
+        const { db, calls } = await open();
+        await db.user.update({
+          where: { id: "u1" },
+          data: {
+            posts: {
+              updateMany: { where: { id: "p2" }, data: { views: 5 } },
+              delete: [{ id: "p1" }],
+            },
+          },
+        });
+        await db.user.update({
+          where: { id: "u2" },
+          data: { posts: { deleteMany: { authorId: "u2" } } },
+        });
+        expect(hooksOf(calls)).toEqual([
+          ["post.delete", [post("p1", "u1")]],
+          ["post.delete", [post("p3", "u2")]],
+          ["post.update", [post("p2", "u1", 5)]],
+          ["user.update", [ADA]],
+          ["user.update", [BOB]],
+        ]);
+      });
+
+      test("a nested soft delete is an update of the marker", async () => {
+        const base = await openOnFixture(
+          provider.createDriver(),
+          provider.sync
+        );
+        opened.push(base);
+        const { calls, hooks } = recorder();
+        const db = softDelete({ models: { post: { deletedAt: "deletedAt" } } })(
+          base
+        ).$extends(on(hooks));
+        await db.user.update({
+          where: { id: "u2" },
+          data: { posts: { delete: [{ id: "p3" }] } },
+        });
+        const updated = calls.find((call) => call.hook === "post.update")!;
+        expect(updated.rows.map((row) => row.id)).toEqual(["p3"]);
+        expect(updated.rows[0]!.deletedAt).toBeInstanceOf(Date);
+        expect(calls.some((call) => call.hook === "post.delete")).toBe(false);
+      });
+
+      test("only the nested models a hook names are read: a root no hook names stays as it was", async () => {
+        const base = await openOnFixture(
+          provider.createDriver(),
+          provider.sync
+        );
+        opened.push(base);
+        const plain = statementLog(base);
+        const hooked = statementLog(base);
+        const seen: string[] = [];
+        const db = hooked.client.$extends(
+          on({
+            post: {
+              create: (rows) => {
+                seen.push(...rows.map((row) => String(row.id)));
+              },
+            },
+          })
+        ) as typeof plain.client;
+        const write = (client: typeof plain.client, id: string) =>
+          client.user.update({
+            where: { id: "u1" },
+            data: {
+              name: id,
+              posts: { update: { where: { id: "p1" }, data: { views: 3 } } },
+            },
+          });
+        await write(plain.client, "a");
+        await write(db, "b");
+        expect(hooked.texts).toEqual(plain.texts);
+        await db.user.update({
+          where: { id: "u1" },
+          data: { posts: { create: [{ id: "p7", title: "seven" }] } },
+        });
+        expect(seen).toEqual(["p7"]);
+      });
+
+      test("inside a rolled back transaction, nested rows call no hook; in $transaction([...]) they do after the commit", async () => {
+        const { base, db, calls } = await open();
+        if (base.$driver.supportsTransactions) {
+          await failure(
+            db.$transaction(async (tx) => {
+              await tx.user.update({
+                where: { id: "u1" },
+                data: {
+                  posts: {
+                    update: { where: { id: "p1" }, data: { views: 1 } },
+                  },
+                },
+              });
+              throw new Error("roll back");
+            })
+          );
+          expect(calls).toEqual([]);
+        }
+        // A batch-only driver batches no nested write in an array, hooks or
+        // not (`TransactionError`, as without `on()`).
+        if (!base.$driver.supportsTransactions) return;
+        await db.$transaction([
+          db.user.update({
+            where: { id: "u2" },
+            data: { posts: { create: [{ id: "p7", title: "seven" }] } },
+          }),
+        ]);
+        expect(hooksOf(calls)).toEqual([
+          ["post.create", [{ ...post("p7", "u2"), title: "seven" }]],
+          ["user.update", [BOB]],
         ]);
       });
     });

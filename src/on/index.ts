@@ -235,8 +235,8 @@ function plan(
   callArgs: Row
 ): WritePlan | undefined {
   const name = model["~"].names.ts!;
-  const modelHooks = hooks[name];
-  if (modelHooks === undefined) return undefined;
+  const modelHooks = hooks[name] ?? {};
+  const { scalars, relations } = model["~"].state;
   // Core plans only writes, and every write has a kind.
   let kind = KINDS[operation]!;
   // A delete of a model `deletion` manages leaves a tombstone, an update,
@@ -251,8 +251,11 @@ function plan(
       : removeWhen === undefined
         ? ([kind] as const)
         : (["delete", "update"] as const);
-  if (either.every((candidate) => modelHooks[candidate] === undefined))
-    return undefined;
+  // The call's own rows, where a hook wants them; and the rows its nested
+  // writes reach, where its payload names a relation (the engine reports
+  // only those of a model a hook wants: `wants` below).
+  const root = either.some((candidate) => modelHooks[candidate] !== undefined);
+  if (!(root || writesRelation(args, relations))) return undefined;
   // The event's own copy: neither the caller nor a hook changes the other's.
   const eventArgs = detached(callArgs) as Row;
   // An upsert whose update writes nothing (a `data` stamp included) leaves a
@@ -260,7 +263,6 @@ function plan(
   const keeps =
     kind === "upsert" && Object.keys(args.update as Row).length === 0;
 
-  const { scalars, relations } = model["~"].state;
   const isScalar = (key: string) => Object.hasOwn(scalars, key);
   const bulk = operation.endsWith("Many");
   const { select, omit, ...rest } = args as {
@@ -283,13 +285,16 @@ function plan(
   }
   // A bulk write returns rows only with a projection: `omit: {}` is all.
   if (bulk) widened.omit = {};
+  // The rows nested writes wrote, per model and kind, in write order.
+  const nested: { model: string; kind: OnKind; rows: Row[] }[] = [];
   /** Cut one row back to what the call asked for. */
   const narrow = (row: Row) => {
     for (const key of Object.keys(row))
       if ((select !== undefined && !select[key]) || omit?.[key] === true)
         delete row[key];
   };
-  const returnsRows = !bulk || select !== undefined || omit !== undefined;
+  const returnsRows =
+    !(root && bulk) || select !== undefined || omit !== undefined;
 
   let rows: Row[] | undefined;
   let created: boolean | undefined;
@@ -313,7 +318,7 @@ function plan(
             ? undefined
             : "update"
         : kind;
-    const hook = hookKind && modelHooks[hookKind];
+    const hook = root && hookKind && modelHooks[hookKind];
     return hook && ([hook, `${name}.${hookKind}`] as const);
   };
   /**
@@ -327,9 +332,17 @@ function plan(
     const held = invalidation;
     invalidation = undefined;
     const found = hookOf();
-    if (found && rows.length > 0) {
+    const runs: [RuntimeHook, Row[], string][] = found
+      ? [[found[0], rows, found[1]]]
+      : [];
+    for (const group of nested) {
+      const hook = hooks[group.model]?.[group.kind];
+      if (hook) runs.push([hook, group.rows, `${group.model}.${group.kind}`]);
+    }
+    for (const [hook, written, label] of runs) {
+      if (written.length === 0) continue;
       const happened = event();
-      const failure = await runHook(found[0], rows, happened, found[1]);
+      const failure = await runHook(hook, written, happened, label);
       if (failure) await report(failure, happened);
     }
     // The cache's own failure keeps its own boundary, as without `on`.
@@ -337,9 +350,9 @@ function plan(
   };
 
   return {
-    args: widened,
+    args: root ? widened : args,
     take(value, settle) {
-      const written = Array.isArray(value) ? value : [value];
+      const written = root ? (Array.isArray(value) ? value : [value]) : [];
       rows = [];
       for (const row of written) {
         const copy: Row = {};
@@ -365,12 +378,19 @@ function plan(
         )
       )
         kind = "update";
-      if (kind === "upsert")
-        writeSinks.set(context, {
-          upserted: (arm) => {
-            created = arm;
-          },
-        });
+      writeSinks.set(context, {
+        upserted: (arm) => {
+          created = arm;
+        },
+        wants: (model, written) => hooks[model]?.[written] !== undefined,
+        wrote: (model, written, read) => {
+          const group =
+            nested.find(
+              (each) => each.model === model && each.kind === written
+            ) ?? nested[nested.push({ model, kind: written, rows: [] }) - 1]!;
+          for (const row of read) group.rows.push(row as Row);
+        },
+      });
       return Object.freeze({
         extension: NAME,
         failurePolicy: "boundary-owned",
@@ -387,6 +407,19 @@ function plan(
       });
     },
   };
+}
+
+/** Does a write's payload name a relation of its model: a nested write? */
+function writesRelation(args: Row, relations: object): boolean {
+  for (const payload of [args.data, args.create, args.update])
+    for (const row of Array.isArray(payload) ? payload : [payload])
+      if (
+        row !== null &&
+        typeof row === "object" &&
+        Object.keys(row).some((key) => Object.hasOwn(relations, key))
+      )
+        return true;
+  return false;
 }
 
 /**

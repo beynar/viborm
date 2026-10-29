@@ -20,9 +20,11 @@ Versioning.
   }));
   ```
 
-  - Every root write calls them: `create`, `createMany`, `update`,
-    `updateMany`, `upsert` (its arm decides `create` or `update`), `delete`,
-    `deleteMany`. A soft delete is an `update` of the marker.
+  - Every write calls them: `create`, `createMany`, `update`, `updateMany`,
+    `upsert` (its arm decides `create` or `update`), `delete`, `deleteMany`,
+    and every nested write of the same kinds, with the nested model's rows
+    (a nested `connect` or `disconnect` is an `update` of the row whose
+    foreign key moved). A soft delete is an `update` of the marker.
   - Inside a transaction, hooks wait for the outermost commit and are dropped
     on rollback, savepoints included; `$transaction([...])` runs them after the
     commit, member by member. Each hook receives `certainty`
@@ -40,8 +42,7 @@ Versioning.
     on PostgreSQL and a probe of its key in the same unit on SQLite); on
     MySQL, a `createMany`, `updateMany` or `deleteMany` it concerns reads its
     rows in the same transaction (see the docs' cost table).
-  - Rows written through a nested write, many-to-many links, database
-    cascades and raw SQL call no hook.
+  - Many-to-many links, database cascades and raw SQL call no hook.
 
 ### Fixed
 

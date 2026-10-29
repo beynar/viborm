@@ -1,5 +1,6 @@
 import { NestedWriteError } from "@errors";
 import type { ResolvedSlot } from "@schema/validation/relation-resolution";
+import { writeSinks } from "../../write-sinks";
 import { unreachable } from "../shared/invariant";
 import type { PreparedSelector, SelectorFacts } from "../shared/query";
 import { entries, type Input, record } from "../shared/schema";
@@ -846,7 +847,19 @@ export class RelationBody {
                 )
           );
           const data = tombstone ? tombstone.admitted : record(input.data);
+          // Members a write hook wants come back from the set statement's
+          // RETURNING; without one, they are captured and written one by one
+          // (the series below), each read.
+          const wanted =
+            !context.driver.adapter.capabilities.supportsReturning &&
+            writeSinks
+              .get(context.attribution)
+              ?.wants(
+                edge.target["~"].names.ts!,
+                verb === "updateMany" || tombstone ? "update" : "delete"
+              );
           if (
+            !wanted &&
             edge.kind === "reference" &&
             (verb === "deleteMany" ||
               !context.schema.namesRelation(edge.target, data))

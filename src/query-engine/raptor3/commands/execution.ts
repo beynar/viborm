@@ -1192,13 +1192,16 @@ export class CommandExecution {
     member: Member
   ): Promise<number> {
     if (this.context.usesBatch) return 0;
+    const sink = writeSinks.get(this.context.attribution);
     const run: [CommandOccurrence<Choose>, CommandOccurrence<RecordCommand>][] =
       [];
     let shared: Input | undefined;
     for (const sibling of children.slice(index)) {
       if (sibling.placement !== "after") break;
       const found = this.#updatesAlone(sibling);
-      if (!found) break;
+      // A row a write hook wants is moved by its own record, then read back.
+      if (!found || sink?.wants(found.command.model["~"].names.ts!, "update"))
+        break;
       found.command.fields.activate();
       const written = this.stored(found.command.fields);
       // One statement writes one assignment: the run ends where the model or
@@ -1550,6 +1553,24 @@ export class CommandExecution {
             answer
           );
         attempt.bind(command.fields, written);
+        // A nested row a write hook wants, as this write left it: never the
+        // root's (the call's own value carries it), never an update that
+        // wrote nothing.
+        const series =
+          occurrence.role === "member" ? occurrence.parent?.command : undefined;
+        if (
+          (command.origin ??
+            command.located?.origin ??
+            (series?.kind === "selectedSeries"
+              ? series.series.selection.origin
+              : undefined)) &&
+          (!command.located || Object.keys(values).length > 0)
+        )
+          await ctx.captureRows(
+            command.model,
+            command.located ? "update" : "create",
+            { identity: this.identity(command.fields) }
+          );
         // Every capture still runs before every effect, and the reason is
         // MEASURED, not stylistic: a capture flushes
         // (`OperationContext.captureSeries` → `flush`), and on the batch route a
@@ -1855,10 +1876,16 @@ export class CommandExecution {
         const row = attempt.rows.get(command.located);
         if (!row) return;
         const model = command.located.model;
-        // A tombstone updates the row it located, by identity, and keeps it.
-        if (command.values)
+        const identity = { identity: ctx.schema.identity(model, row) };
+        // A tombstone updates the row it located, by identity, and keeps it;
+        // a write hook reads it after, a removed row before.
+        if (command.values) {
           await ctx.update(model, row, command.values, member, "delete");
-        else await ctx.delete(model, row, member);
+          await ctx.captureRows(model, "update", identity);
+        } else {
+          await ctx.captureRows(model, "delete", identity);
+          await ctx.delete(model, row, member);
+        }
         return;
       }
       case "set": {
@@ -1960,6 +1987,13 @@ export class CommandExecution {
     records: CommandOccurrence<RecordCommand>[]
   ): Promise<number | undefined> {
     const [first] = records;
+    // Rows a write hook wants are inserted one by one, each read back.
+    if (
+      writeSinks
+        .get(this.context.attribution)
+        ?.wants(first!.command.model["~"].names.ts!, "create")
+    )
+      return Promise.resolve(undefined);
     return this.context.insertMany(
       first!.command.model,
       () => {
