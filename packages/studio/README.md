@@ -51,6 +51,10 @@ the studio on `http://127.0.0.1:5577` and opens it.
   you build it, with its rows, the SQL it ran, its trace (spans on a
   waterfall, database time against VibORM time) and the code to write. SQL is
   formatted in the database's dialect, with timing and bound values above it.
+  Configure each selected relation to choose its columns and further relations;
+  the breadcrumb returns to a parent without narrowing controls at deeper levels.
+  Polymorphic relations configure each target separately. Saved queries retain
+  the whole selection tree; older queries still include every related column.
 - **Query code:** switch the query sidebar to Code and paste a single call,
   such as `await client.user.findMany({ where: { active: true } })`. Run it
   with Run or ⌘/Ctrl+Enter; typing does not execute it. Result, SQL, Trace and

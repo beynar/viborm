@@ -511,6 +511,10 @@ project state through `lib/studio-context.ts`. API and event URLs are root-relat
 Query code is one read call parsed by `src/query-code.ts` into the existing
 model/operation/args API; never evaluate it as JavaScript. Code runs explicitly,
 and saved queries retain their source. The builder keeps its automatic reads.
+The builder's `lib/query-builder.ts` owns the saved projection tree and its
+translation to client arguments; retain legacy relation-name strings as all-column
+selections. `SelectionEditor.svelte` navigates that finite tree, including independent
+polymorphic target selections, without traversing the schema's cyclic graph.
 
 ---
 

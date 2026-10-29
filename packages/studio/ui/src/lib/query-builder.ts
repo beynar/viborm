@@ -34,16 +34,126 @@ export interface Sort {
   desc: boolean;
 }
 
-export interface QueryDraft {
+/** One finite selection tree. A string is the original saved-query spelling: include every column. */
+export interface QuerySelection {
+  columns: string[];
+  include: (string | RelationSelection)[];
+}
+
+export interface RelationSelection extends QuerySelection {
+  name: string;
+  /** Each polymorphic target has its own selection. Unconfigured targets keep all columns. */
+  variants?: Record<string, QuerySelection>;
+}
+
+export interface SelectionStep {
+  relation: string;
+  variant?: string;
+}
+
+export const emptySelection = (): QuerySelection => ({
+  columns: [],
+  include: [],
+});
+export const relationName = (relation: string | RelationSelection) =>
+  typeof relation === "string" ? relation : relation.name;
+export const relationSelection = (
+  relation: string | RelationSelection
+): RelationSelection =>
+  typeof relation === "string"
+    ? { name: relation, ...emptySelection() }
+    : relation;
+export const variantSelection = (
+  relation: RelationSelection,
+  name: string
+): QuerySelection =>
+  relation.variants && Object.hasOwn(relation.variants, name)
+    ? relation.variants[name]!
+    : emptySelection();
+
+/** Change only the selected branch; a legacy relation becomes configurable on its first edit. */
+export function changeSelection(
+  selection: QuerySelection,
+  path: readonly SelectionStep[],
+  next: QuerySelection
+): QuerySelection {
+  const [step, ...rest] = path;
+  if (!step) return next;
+  return {
+    ...selection,
+    include: selection.include.map((entry) => {
+      if (relationName(entry) !== step.relation) return entry;
+      const relation = relationSelection(entry);
+      if (step.variant !== undefined) {
+        return {
+          ...relation,
+          variants: {
+            ...relation.variants,
+            [step.variant]: changeSelection(
+              variantSelection(relation, step.variant),
+              rest,
+              next
+            ),
+          },
+        };
+      }
+      return { ...relation, ...changeSelection(relation, rest, next) };
+    }),
+  };
+}
+
+/** `select` and `include` are mutually exclusive at each level, including variant bodies. */
+export function selectionArgs(
+  selection: QuerySelection,
+  model: StudioModel | undefined,
+  models: readonly StudioModel[]
+): Record<string, unknown> {
+  const related = Object.fromEntries(
+    selection.include.map((entry) => {
+      if (typeof entry === "string") return [entry, true];
+      const relation = model?.relations.find(
+        (item) => item.name === entry.name
+      );
+      const target = (name: string | undefined) =>
+        models.find((item) => item.name === name);
+      let args: Record<string, unknown>;
+      if (entry.variants && Object.keys(entry.variants).length) {
+        if (!relation?.variants?.length)
+          throw new Error(`Unknown variant relation: ${entry.name}`);
+        const variants = Object.fromEntries(
+          relation.variants.map((variant) => [
+            variant.name,
+            selectionArgs(
+              variantSelection(entry, variant.name),
+              target(variant.target),
+              models
+            ),
+          ])
+        );
+        // To-one slots take named projections directly; collections have a variants envelope.
+        args = relation.cardinality === "many" ? { variants } : variants;
+      } else {
+        args = selectionArgs(entry, target(relation?.targets[0]), models);
+      }
+      return [entry.name, Object.keys(args).length ? args : true];
+    })
+  );
+  if (selection.columns.length)
+    return {
+      select: {
+        ...Object.fromEntries(selection.columns.map((name) => [name, true])),
+        ...related,
+      },
+    };
+  return selection.include.length ? { include: related } : {};
+}
+
+export interface QueryDraft extends QuerySelection {
   conditions: FilterEntry[];
   combinator: Combinator;
   sort: Sort[];
   take: number | null;
   skip: number | null;
-  /** The columns read; none chosen, every one. */
-  columns: string[];
-  /** The relations read with each row. */
-  include: string[];
   /** `findUnique`: the unique column and its value. */
   key: { field: string; value: string };
   /** `groupBy`: the columns a group shares. */
@@ -160,17 +270,7 @@ export function argsOf(
     : {};
   const taken = draft.take === null ? {} : { take: draft.take };
   const skipped = draft.skip === null ? {} : { skip: draft.skip };
-  const related = Object.fromEntries(draft.include.map((name) => [name, true]));
-  const shaped = draft.columns.length
-    ? {
-        select: {
-          ...Object.fromEntries(draft.columns.map((name) => [name, true])),
-          ...related,
-        },
-      }
-    : draft.include.length
-      ? { include: related }
-      : {};
+  const shaped = selectionArgs(draft, model, models);
   switch (operation) {
     case "findMany":
       return { ...filtering(), ...ordered, ...taken, ...skipped, ...shaped };

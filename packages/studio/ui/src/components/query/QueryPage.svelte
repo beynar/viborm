@@ -55,6 +55,7 @@ import FilterGroup from "../data/FilterGroup.svelte";
 import IconPicker from "../IconPicker.svelte";
 import PlanView from "./PlanView.svelte";
 import ResultTable from "./ResultTable.svelte";
+import SelectionEditor from "./SelectionEditor.svelte";
 import TraceView from "./TraceView.svelte";
 
 // A read built with pickers, as the application would write it: what to read (the rows' own filter, an order, a
@@ -264,8 +265,6 @@ let explained = $state.raw<{
 let planMode = $state<"analyze" | "estimate">("analyze");
 let explaining = $state(false);
 let explainFailure = $state<string>();
-/** The query's sidebar open; folded away, the result takes the page. */
-let editing = $state(true);
 
 const input = $derived(
   inputMode === "code"
@@ -436,6 +435,21 @@ function chooseFunction(
     computed.field =
       fn === "_count" ? "" : (aggregatable(model, fn)[0]?.name ?? "");
 }
+// Entasis recreates the sidebar at its mobile breakpoint. Blur before that DOM removal:
+// its field's synchronous focusout must not update state during Svelte's render.
+function settleQueryFocus(element: HTMLElement, sidebar: SidebarApi) {
+  let mobile = untrack(() => sidebar.isMobile);
+  const resize = () => {
+    const next = sidebar.isMobile;
+    if (next === mobile) return;
+    mobile = next;
+    const focused = document.activeElement;
+    if (focused instanceof HTMLElement && element.contains(focused))
+      focused.blur();
+  };
+  window.addEventListener("resize", resize);
+  return () => window.removeEventListener("resize", resize);
+}
 </script>
 
 <svelte:window onkeydown={keys} />
@@ -462,17 +476,17 @@ function chooseFunction(
     edgeReveal={false}
     width="26rem"
     resizable={{ minWidth: '20rem', maxWidth: '44rem', storageKey: 'viborm-studio:query-sidebar' }}
-    bind:open={editing}
     content={queryPane}
+    footer={inputMode === "builder" ? queryFooter : undefined}
     theme={{ panel: { base: 'bg-surface' } }}
   >
-    {#snippet children()}{@render resultPane()}{/snippet}
+    {#snippet children(sidebar)}{@render resultPane(sidebar)}{/snippet}
   </Sidebar>
 </section>
 
-{#snippet queryPane(_sidebar: SidebarApi)}
+{#snippet queryPane(sidebar: SidebarApi)}
   <!-- What to read: the model, the operation, then what that operation takes. -->
-  <div class="grid content-start gap-5 p-4">
+  <div class="grid content-start gap-5 p-4" {@attach element => settleQueryFocus(element, sidebar)}>
     <Tabbar id={editorTabsId} controlsPanels size="small" label="Query input" items={[{ value: 'builder', label: 'Builder' }, { value: 'code', label: 'Code' }]} value={inputMode} onValueChange={({ value }) => chooseInputMode(value)} />
     {#if inputMode === 'code'}
       <div role="tabpanel" id="{editorTabsId}-panel-1" aria-labelledby="{editorTabsId}-tab-1" tabindex="0" class="grid gap-3">
@@ -556,28 +570,29 @@ function chooseFunction(
     {#if reads}
       <div class="grid gap-2">
         {@render heading('Return')}
-        <Select size="small" multiple label="Columns" placeholder="Every column" items={fieldItems(model.fields)} value={draft.columns} onValueChange={value => (draft.columns = value ?? [])} />
-        {#if model.relations.length}
-          <Select size="small" multiple label="With related rows" placeholder="No relation" items={fieldItems(model.relations)} value={draft.include} onValueChange={value => (draft.include = value ?? [])} />
-        {/if}
+        {#key model.name}
+          <SelectionEditor {model} {models} selection={draft} onChange={value => { drafts[modelName] = { ...draft, ...value }; }} />
+        {/key}
       </div>
     {/if}
-
-    <div class="flex items-center gap-2 border-t border-neutral-muted pt-3">
-      <Button size="small" variant="ghost" onclick={() => (drafts[modelName] = emptyDraft(model))}>Reset</Button>
-      <span class="ml-auto text-[12px] text-neutral/50">Runs as you build · ⌘↵ runs again</span>
-    </div>
     </div>
     {/if}
   </div>
 {/snippet}
 
-{#snippet resultPane()}
+{#snippet queryFooter(_sidebar: SidebarApi)}
+  <div class="flex flex-wrap items-center gap-2 border-t border-neutral-muted px-3 py-2">
+    <Button size="small" variant="ghost" onclick={() => { drafts[modelName] = emptyDraft(model); }}>Reset</Button>
+    <span class="ml-auto text-[11px] text-neutral/50">Runs as you build · ⌘↵ runs again</span>
+  </div>
+{/snippet}
+
+{#snippet resultPane(sidebar: SidebarApi)}
 
   <!-- What it read. -->
   <div class="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3 p-4">
     <div class="flex flex-wrap items-center gap-3">
-      <Button size="small" variant="ghost" squared prefix={sidebarSimpleIcon} label={editing ? 'Hide the query: the result takes the page' : 'Show the query'} onclick={() => (editing = !editing)} />
+      <Button size="small" variant="ghost" squared prefix={sidebarSimpleIcon} label={(sidebar.isMobile ? sidebar.openMobile : sidebar.open) ? 'Hide the query: the result takes the page' : 'Show the query'} onclick={sidebar.toggle} />
       <Tabbar id={resultTabsId} controlsPanels size="small" label="What to show" items={resultTabs} bind:value={tab} />
       {#if inputMode === 'code' && answer && answer.signature !== signature}<span class="text-[12px] text-neutral/60">Edited · Run to refresh</span>{/if}
       {#if answer}

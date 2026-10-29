@@ -13,6 +13,11 @@ import {
 // biome-ignore lint/performance/noNamespaceImport: The failure-boundary test spies on the parser module.
 import * as queryCode from "../src/query-code";
 import { describeSchema } from "../src/schema";
+import {
+  argsOf,
+  emptyDraft,
+  type QueryDraft,
+} from "../ui/src/lib/query-builder";
 import { importedRows } from "../ui/src/lib/table-data";
 
 // One schema with each relation shape the studio draws and follows:
@@ -435,6 +440,49 @@ describe("the query page", () => {
       parser.mockRestore();
     }
   });
+  test("builder selections read multiple relations and nested columns through the client", async () => {
+    const models = api.schema.models;
+    const model = models.find((entry) => entry.name === "user")!;
+    const draft: QueryDraft = {
+      ...emptyDraft(model),
+      conditions: [{ id: 1, field: "name", operator: "equals", value: "Ada" }],
+      columns: ["email"],
+      include: [
+        {
+          name: "posts",
+          columns: ["title"],
+          include: [
+            { name: "author", columns: ["name"], include: [] },
+            { name: "tags", columns: ["label"], include: [] },
+          ],
+        },
+        { name: "sessions", columns: ["token"], include: [] },
+      ],
+    };
+    const response = await call("POST", "/query", {
+      model: "user",
+      operation: "findMany",
+      args: argsOf(model, models, "findMany", draft),
+    });
+    expect(response.status).toBe(200);
+    if (!response.body || typeof response.body !== "object")
+      throw new Error("Missing query result");
+    expect(Reflect.get(response.body, "result")).toEqual([
+      {
+        email: "ada@example.com",
+        posts: [
+          {
+            title: "Engines",
+            author: { name: "Ada" },
+            tags: [{ label: "math" }, { label: "history" }],
+          },
+          { title: "Notes", author: { name: "Ada" }, tags: [] },
+        ],
+        sessions: [],
+      },
+    ]);
+  });
+
   test("code queries share client validation, relation reads and read-only admission", async () => {
     const response = await call("POST", "/query", {
       code: "await client.user.findMany({ where: { name: 'Ada' }, select: { email: true, posts: { where: { title: 'Engines' }, select: { title: true } } } });",
@@ -1057,6 +1105,59 @@ describe("variant relations", () => {
     expect((await read("shelf")).body).toMatchObject({
       rows: [{ id: 1, _count: { items: 2 } }],
     });
+    // The builder must respect the different to-one and collection projection contracts.
+    for (const [modelName, relationName] of [
+      ["comment", "subject"],
+      ["shelf", "items"],
+    ]) {
+      const model = described.models.find((item) => item.name === modelName)!;
+      const draft: QueryDraft = {
+        ...emptyDraft(model),
+        columns: ["id"],
+        include: [
+          {
+            name: relationName!,
+            columns: [],
+            include: [],
+            variants: {
+              article: {
+                columns: ["id"],
+                include: [{ name: "comments", columns: ["id"], include: [] }],
+              },
+            },
+          },
+        ],
+      };
+      const response = await api.handle({
+        method: "POST",
+        path: "/query",
+        body: {
+          model: modelName,
+          operation: "findMany",
+          args: argsOf(model, described.models, "findMany", draft),
+        },
+      });
+      expect(response.status).toBe(200);
+      const articleResult = {
+        type: "article",
+        data: { id: 1, comments: [{ id: 2 }] },
+      };
+      const videoResult = { type: "video", data: { id: 1 } };
+      expect(response.body).toMatchObject({
+        result:
+          modelName === "comment"
+            ? [
+                { id: 1, subject: videoResult },
+                { id: 2, subject: articleResult },
+              ]
+            : [
+                {
+                  id: 1,
+                  items: expect.arrayContaining([articleResult, videoResult]),
+                },
+              ],
+      });
+    }
   });
 
   test("each member is an edge from its carrier", () => {

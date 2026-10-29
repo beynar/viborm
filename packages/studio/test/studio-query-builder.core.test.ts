@@ -4,10 +4,13 @@ import {
   aggregatable,
   aggregateOf,
   argsOf,
+  changeSelection,
   codeOf,
   computedColumn,
   emptyDraft,
   type QueryDraft,
+  type QuerySelection,
+  selectionArgs,
   tableOf,
 } from "../ui/src/lib/query-builder";
 import { type Condition, filterWhere, grouped } from "../ui/src/lib/values";
@@ -334,4 +337,119 @@ test("groups join their conditions their own way: all, any or none, nested", () 
     count: 0,
     where: undefined,
   });
+});
+
+test("each relation and its descendants choose their own columns without changing siblings", () => {
+  const original: QuerySelection = {
+    columns: ["email"],
+    include: ["posts", "profile"],
+  };
+  const withAuthor = changeSelection(original, [{ relation: "posts" }], {
+    columns: ["title"],
+    include: ["author"],
+  });
+  const nested = changeSelection(
+    withAuthor,
+    [{ relation: "posts" }, { relation: "author" }],
+    {
+      columns: ["name"],
+      include: [{ name: "profile", columns: ["bio"], include: [] }],
+    }
+  );
+  expect(original).toEqual({
+    columns: ["email"],
+    include: ["posts", "profile"],
+  });
+  expect(selectionArgs(nested, user, models)).toEqual({
+    select: {
+      email: true,
+      posts: {
+        select: {
+          title: true,
+          author: {
+            select: { name: true, profile: { select: { bio: true } } },
+          },
+        },
+      },
+      profile: true,
+    },
+  });
+  // Persistence needs no migration: both old strings and configured branches survive JSON.
+  expect(
+    selectionArgs(JSON.parse(JSON.stringify(nested)), user, models)
+  ).toEqual(selectionArgs(nested, user, models));
+  expect(selectionArgs({ ...nested, columns: [] }, user, models)).toEqual({
+    include: {
+      posts: {
+        select: {
+          title: true,
+          author: {
+            select: { name: true, profile: { select: { bio: true } } },
+          },
+        },
+      },
+      profile: true,
+    },
+  });
+});
+
+test("polymorphic targets keep independent selections and nested relations", () => {
+  const original: QuerySelection = { columns: [], include: ["subject"] };
+  const post = changeSelection(
+    original,
+    [{ relation: "subject", variant: "post" }],
+    {
+      columns: ["title"],
+      include: [{ name: "author", columns: ["email"], include: [] }],
+    }
+  );
+  const both = changeSelection(
+    post,
+    [{ relation: "subject", variant: "user" }],
+    {
+      columns: ["name"],
+      include: [],
+    }
+  );
+  const carrier: StudioModel = {
+    ...user,
+    relations: [
+      {
+        ...user.relations[0]!,
+        name: "subject",
+        cardinality: "one",
+        variants: [
+          { name: "post", target: "post" },
+          { name: "user", target: "user" },
+        ],
+      },
+    ],
+  };
+  const projections = {
+    post: { select: { title: true, author: { select: { email: true } } } },
+    user: { select: { name: true } },
+  };
+  expect(selectionArgs(both, carrier, models)).toEqual({
+    include: { subject: projections },
+  });
+  expect(selectionArgs(post, carrier, models)).toEqual({
+    include: { subject: { post: projections.post, user: {} } },
+  });
+  const collection: StudioModel = {
+    ...carrier,
+    relations: [{ ...carrier.relations[0]!, cardinality: "many" }],
+  };
+  expect(selectionArgs(both, collection, models)).toEqual({
+    include: { subject: { variants: projections } },
+  });
+});
+
+test("a finite selection can follow a cyclic schema deeply without a builder depth limit", () => {
+  let selection: QuerySelection = { columns: ["id"], include: [] };
+  let expected: Record<string, unknown> = { select: { id: true } };
+  for (let depth = 0; depth < 40; depth += 1) {
+    selection = { columns: ["id"], include: [{ name: "next", ...selection }] };
+    expected = { select: { id: true, next: expected } };
+  }
+  expect(selectionArgs(selection, user, models)).toEqual(expected);
 });
