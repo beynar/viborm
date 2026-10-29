@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { writeDelimited } from "../src/delimited";
 import type { StudioField, StudioModel } from "../src/schema";
 import {
   cellText,
@@ -8,7 +9,6 @@ import {
   pastedRows,
   readDelimited,
   textValue,
-  writeDelimited,
 } from "../ui/src/lib/table-data";
 
 const field = (

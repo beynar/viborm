@@ -1133,6 +1133,56 @@ describe("to-one relations", () => {
 });
 
 describe("export", () => {
+  test("all-rows CSV preserves null, empty text and literal markers when imported and saved", async () => {
+    const record = s.model({
+      id: s.int().id().increment(),
+      note: s.string().nullable(),
+      count: s.int().nullable(),
+    });
+    const models = { record };
+    const db = createClient({
+      schema: models,
+      driver: createInMemorySQLite3Driver(),
+    });
+    try {
+      await syncLiveSchema(db);
+      const notes = [null, "", "\\N", "\\\\path", 'line\n"two",three'];
+      for (const note of notes)
+        await db.record.create({ data: { note, count: null } });
+      const local = createStudioApi({ client: db, models, dialect: "sqlite" });
+      const exported = await local.handle({
+        method: "POST",
+        path: "/models/record/export",
+        body: { format: "csv", orderBy: { id: "asc" } },
+      });
+      expect(exported.status).toBe(200);
+      const model = describeSchema(models, "sqlite").models[0]!;
+      const imported = importedRows(model, String(exported.body), "csv");
+      expect(imported).toEqual(notes.map((note) => ({ note, count: null })));
+      const saved = await local.handle({
+        method: "POST",
+        path: "/changes",
+        body: {
+          changes: imported.map((data) => ({
+            model: "record",
+            action: "create",
+            data,
+          })),
+        },
+      });
+      expect(saved).toEqual({ status: 200, body: { saved: notes.length } });
+      expect(
+        await db.record.findMany({
+          where: { id: { gt: notes.length } },
+          orderBy: { id: "asc" },
+          select: { note: true, count: true },
+        })
+      ).toEqual(imported);
+    } finally {
+      await db.$disconnect();
+    }
+  });
+
   test("exports only requested scalar columns in the requested CSV order", async () => {
     const response = await call("POST", "/models/user/export", {
       format: "csv",
@@ -1223,6 +1273,7 @@ describe("export", () => {
   });
 
   test("CSV quotes what needs quoting and spells every type as text", () => {
+    expect(toCsv(["missing"], [{}])).toBe("missing\r\n");
     expect(
       toCsv(
         ["a", "b", "c", "d", "e", "f"],
@@ -1238,7 +1289,7 @@ describe("export", () => {
         ]
       )
     ).toBe(
-      'a,b,c,d,e,f\r\n"say ""hi"", twice",,1970-01-01T00:00:00.000Z,"{""n"":""1""}",AAEC," padded"'
+      'a,b,c,d,e,f\r\n"say ""hi"", twice",\\N,1970-01-01T00:00:00.000Z,"{""n"":""1""}",AAEC," padded"'
     );
   });
 });

@@ -111,16 +111,17 @@ fields and relations are refused. Omit a field to use its default; generated
 values are omitted unless **Use new generated values** is unchecked. JSON
 bigints and decimals must be strings to keep their exact value.
 
-CSV/TSV imports and selection/page downloads use `\N` for null, an empty cell
+All CSV/TSV exports and imports use `\N` for null, an empty cell
 for an empty string, and a doubled initial backslash for literal backslashes.
 Quoted cells can contain separators, quotes and line breaks. Clipboard paste
 has no header and starts at the focused cell; it must fit the loaded rows and
 visible editable columns. Native text editors keep their normal clipboard.
 
-The existing **All filtered rows** CSV export keeps its conventional empty
-null cells for compatibility; use JSON for a lossless export/import round trip.
-The export reads the database, while selection/page downloads include staged
-cell values. Neither operation writes data.
+**All filtered rows** reads the database, while selection/page downloads include
+staged cell values. Both use the same null and escaping conventions; neither
+operation writes data. Older full CSV exports used empty cells for both null
+and empty text, so their original nulls cannot be inferred. Re-export from
+Studio or use JSON when transferring those rows.
 
 The [comparison with Prisma and Drizzle](COMPETITIVE_REVIEW.md) records the
 implemented improvements and the remaining product differences.

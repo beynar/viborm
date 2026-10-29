@@ -11,6 +11,7 @@
  */
 
 import type { Model } from "@src/schema/model";
+import { writeDelimited } from "./delimited";
 import { dialectOf, explainStatements } from "./explain";
 import { QUERY_OPERATIONS } from "./query";
 import { parseQueryCode } from "./query-code";
@@ -575,27 +576,24 @@ async function exportRows(
     : new FileAnswer(toCsv(picked, rows), `${model.name}.csv`, "text/csv");
 }
 
-const CSV_QUOTED = /[",\r\n]|^\s|\s$/;
-
-/** RFC 4180 CSV: a header, then a line per row; structures as JSON, bytes as base64. */
+/** Normalize client values once, then use the same lossless CSV vocabulary as page exports. */
 export function toCsv(
   columns: readonly string[],
   rows: readonly Record<string, unknown>[]
 ): string {
-  const cell = (value: unknown): string => {
-    if (value === null || value === undefined) return "";
-    // A value as its JSON reads (a Decimal, a Date, bytes as base64), a structure as JSON.
-    const json: unknown = JSON.parse(encodeJson(value));
-    const text =
-      typeof json === "object" && json !== null
-        ? JSON.stringify(json)
-        : String(json);
-    return CSV_QUOTED.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
-  };
-  return [
-    columns.map(cell).join(","),
-    ...rows.map((row) => columns.map((column) => cell(row[column])).join(",")),
-  ].join("\r\n");
+  const normalized = rows.map((row) =>
+    Object.fromEntries(
+      columns.map((column) => {
+        const value = row[column];
+        // Dates, decimals, bigints and bytes use the API's existing JSON representation.
+        return [
+          column,
+          value === undefined ? value : JSON.parse(encodeJson(value)),
+        ];
+      })
+    )
+  );
+  return writeDelimited(columns, normalized);
 }
 
 /** Free text: any text column containing the words. */

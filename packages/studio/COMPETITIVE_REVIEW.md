@@ -66,11 +66,12 @@ specified in the README; JSON is the lossless transfer format.
 
 ## Verification
 
-- 565 Studio tests passed, including malformed imports, exact numeric strings,
+- 566 Studio tests passed, including malformed imports, exact numeric strings,
   null/empty/backslash round trips, rectangular-paste refusal, duplicate-field
   policy, export projection/order and invalid export columns. Isolated SQLite
   integration also verifies imported defaults, exact bigints, null/empty values
-  and rollback of an invalid batch.
+  and rollback of an invalid batch. Full CSV export/import/save also preserves
+  nulls separately from empty text and literal null markers.
 - Studio server coverage remains 100% of statements, branches, functions and
   lines. This does not measure UI interaction coverage.
 - Chromium against the PostgreSQL demo: repeated edits of one cell undo

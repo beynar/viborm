@@ -1,3 +1,4 @@
+import { writeDelimited } from "../../../src/delimited";
 import type { Row, StudioField, StudioModel } from "./api";
 import { draftOf, parseDraft, parseJson } from "./values";
 
@@ -5,7 +6,6 @@ export type DataFormat = "csv" | "json" | "tsv";
 export const IMPORT_LIMIT = 500;
 export const IMPORT_BYTES = 512 * 1024;
 const BOM = /^\uFEFF/;
-const QUOTED_CELL = /["\r\n]|^\s|\s$/;
 
 /** Quoted separators, line breaks and escaped quotes are data, not new cells. */
 export function readDelimited(text: string, separator = ","): string[][] {
@@ -65,31 +65,6 @@ export function textValue(field: StudioField, text: string): unknown {
   if (field.type === "int" && !field.list && !Number.isSafeInteger(value))
     throw new Error(`${field.name}: expected a safe integer`);
   return value;
-}
-
-export function writeDelimited(
-  columns: readonly string[],
-  rows: readonly Row[],
-  separator = ",",
-  headers = true
-): string {
-  const quote = (text: string) =>
-    text === "" || text.includes(separator) || QUOTED_CELL.test(text)
-      ? `"${text.replaceAll('"', '""')}"`
-      : text;
-  const cell = (value: unknown) => {
-    if (value === null) return "\\N";
-    if (value === undefined) return "";
-    const text =
-      typeof value === "object" ? JSON.stringify(value) : String(value);
-    return quote(text.startsWith("\\") ? `\\${text}` : text);
-  };
-  return [
-    ...(headers ? [columns.map(quote).join(separator)] : []),
-    ...rows.map((row) =>
-      columns.map((column) => cell(row[column])).join(separator)
-    ),
-  ].join("\r\n");
 }
 
 export function projectRows(
