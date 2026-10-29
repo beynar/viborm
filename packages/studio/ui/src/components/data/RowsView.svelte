@@ -62,6 +62,7 @@ import {
   duplicateData,
   pastedRows,
 } from "../../lib/table-data";
+import { TABLE_FOCUS } from "../../lib/table-theme";
 import {
   type Combinator,
   dayText,
@@ -95,7 +96,7 @@ import TableSkeleton from "./TableSkeleton.svelte";
 // filtered by conditions, sorted by its headers, each cell changed by an editor of its type, rows added and removed.
 // Everything is read and written through the application's client (`/api`): the table shows only what it answered.
 let {
-  model,
+  model: suppliedModel,
   models,
   readonly = false,
   scope,
@@ -118,6 +119,9 @@ let {
   changes: Changes;
   navigate: (model: string, scope?: Scope) => void;
 } = $props();
+// DataRoute keys this view by route and schema revision. Keep its model until
+// teardown: route params can change before retained header/cell effects unmount.
+const model = untrack(() => suppliedModel);
 /** The view as the page opened it: the page starts from it, then the member changes what they like. */
 const initial = untrack(() => view);
 
@@ -842,27 +846,26 @@ const heldKey = (relation: StudioRelation, row: Row) =>
 // The page's header and footer are the page shell's: this page fills them. The shell may render them once more
 // as the page leaves, after the route moved on: they read the model the page opened with, which a page keeps
 // (App keys a page on its route).
-const pageModel = untrack(() => model);
 setPageShell({ title, subtitle, headerActions: controls, footer: pages });
 </script>
 
 <!-- The page's header: the model, its rows, the relation followed here; then what changes the rows. -->
 {#snippet title(_page: PageShellApi)}
   <span class="inline-flex items-center gap-2">
-    <span class="inline-flex text-neutral/60" aria-hidden="true">{@render MODEL_ICON[pageModel.icon]({ size: 16 })}</span>
-    {pageModel.name}
+    <span class="inline-flex text-neutral/60" aria-hidden="true">{@render MODEL_ICON[model.icon]({ size: 16 })}</span>
+    {model.name}
     {#if view}
       <Chip size="small" variant="soft">{view.name}</Chip>
     {/if}
     {#if scope && !view}
       <Chip size="small" variant="soft">{scope.label}</Chip>
-      <Button size="small" variant="ghost" squared label="Show every {pageModel.name} row" prefix={xIcon} onclick={() => navigate(pageModel.name)} />
+      <Button size="small" variant="ghost" squared label="Show every {model.name} row" prefix={xIcon} onclick={() => navigate(model.name)} />
     {/if}
   </span>
 {/snippet}
 
 {#snippet subtitle(_page: PageShellApi)}
-  {total} {total === 1 ? 'row' : 'rows'} · {pageModel.table}
+  {total} {total === 1 ? 'row' : 'rows'} · {model.table}
 {/snippet}
 
 {#snippet controls(_page: PageShellApi)}
@@ -885,7 +888,7 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
       {/snippet}
       {#snippet children(popover)}
         <div class="grid gap-3">
-          <FilterGroup model={pageModel} {models} bind:conditions bind:combinator />
+          <FilterGroup model={model} {models} bind:conditions bind:combinator />
           <div class="flex justify-end gap-2">
             {#if appliedCount || conditions.length}<Button size="small" variant="ghost" onclick={() => (clear(), popover.close())}>Clear</Button>{/if}
             <Button size="small" color="primary" onclick={() => (apply(), popover.close())}>Apply</Button>
@@ -1028,7 +1031,7 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
         </div>
       </div>
       {#if api.totalPages > 1}
-        <Pagination totalPages={api.totalPages} value={page} size="small" controlVariant="ghost" siblingCount={1} label="Pages of {pageModel.name}" onValueChange={value => api?.setPage(value)} />
+        <Pagination totalPages={api.totalPages} value={page} size="small" controlVariant="ghost" siblingCount={1} label="Pages of {model.name}" onValueChange={value => api?.setPage(value)} />
       {/if}
     {/if}
   </div>
@@ -1061,6 +1064,7 @@ setPageShell({ title, subtitle, headerActions: controls, footer: pages });
       bind:state={tableState}
       bind:api
       theme={{
+        ...TABLE_FOCUS,
         root: { base: 'relative min-h-0 flex-1 gap-0' },
         viewport: { base: 'min-h-0 flex-1 rounded-none border-0' },
         cellContent: { base: 'min-w-0 w-full truncate' },

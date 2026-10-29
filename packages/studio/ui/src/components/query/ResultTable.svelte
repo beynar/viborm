@@ -9,6 +9,7 @@ import type { Attachment } from "svelte/attachments";
 import type { StudioField, StudioModel, StudioRelation } from "../../lib/api";
 import { TYPE_COLORS, TYPE_ICONS } from "../../lib/icons";
 import { computedColumn } from "../../lib/query-builder";
+import { TABLE_FOCUS } from "../../lib/table-theme";
 import {
   dayText,
   display,
@@ -269,6 +270,7 @@ const FRAMED = $derived(
     canExpand={holds}
     theme={{
       ...FRAMED,
+      ...TABLE_FOCUS,
       cellContent: { base: 'min-w-0 w-full truncate' },
       detailRow: { base: 'grid min-w-full border-b border-neutral-muted bg-surface-recessed' },
       detailCell: { base: 'min-w-0 overflow-visible p-0', density: { compact: 'p-0', normal: 'p-0', comfortable: 'p-0' } },
