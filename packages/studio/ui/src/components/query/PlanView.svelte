@@ -96,8 +96,8 @@ const tableFormat = (value: number) =>
     : value.toLocaleString("en-US", { maximumSignificantDigits: 4 });
 const tableColumns = $derived(
   tableMetric
-    ? "grid min-w-[30rem] grid-cols-[minmax(14rem,2fr)_minmax(6rem,3fr)_6rem]"
-    : "grid grid-cols-1"
+    ? "grid min-w-[30rem] grid-cols-[minmax(14rem,2fr)_minmax(6rem,3fr)_4rem_4rem]"
+    : "grid min-w-[24rem] grid-cols-[minmax(14rem,1fr)_4rem_4rem]"
 );
 const chosenNode = $derived(
   flat.find((entry) => entry.node.id === chosen)?.node
@@ -258,15 +258,13 @@ const time = (date: Date) =>
               <div class={[tableColumns, 'sticky top-0 z-10 items-center border-b border-neutral-muted bg-surface-floating px-3 py-2 text-[11px] text-neutral/55']}>
                 <span>Operation</span>
                 {#if tableMetric}
-                  <div class="flex justify-between gap-2 font-mono tabular-nums" aria-hidden="true">
-                    <span>{tableFormat(0)}</span>
-                    <span>{tableFormat(tableMaximum / 2)}</span>
-                    <span>{tableFormat(tableMaximum)}</span>
-                  </div>
-                  <span class="text-right" title={tableMetric === 'time' ? 'Time spent by this operation, excluding its inputs' : 'Estimated cost including inputs, in planner units—not milliseconds'}>{tableMetric === 'time' ? 'Own time' : 'Est. cost'}</span>
+                  <span title={tableMetric === 'time' ? 'Time spent by this operation, excluding its inputs' : 'Estimated cost including inputs, in planner units—not milliseconds'}>{tableMetric === 'time' ? 'Own time' : 'Est. cost'}</span>
                 {/if}
+                <span class="text-right" title={plan.analyzed ? 'Rows returned per loop' : 'Rows expected by the planner'}>{plan.analyzed ? 'Rows' : 'Est. rows'}</span>
+                <span class="text-right" title="Pages found in shared memory, including inputs">Hit</span>
               </div>
               {#each flat as { node, depth } (node.id)}
+                {@const rowCount = node.actual?.rows ?? (plan.analyzed ? undefined : node.estimate?.rows)}
                 {@const value = tableValue(node)}
                 {@const width = tableMaximum > 0 && value !== undefined ? value / tableMaximum * 100 : 0}
                 <button
@@ -288,14 +286,22 @@ const time = (date: Date) =>
                     </span>
                   </span>
                   {#if tableMetric}
-                    <span class="relative block h-7" aria-hidden="true">
-                      <span class="absolute inset-y-0 left-1/2 border-l border-neutral-muted"></span>
-                      {#if width > 0 && !node.neverExecuted}
-                        <span class={['absolute top-1/2 left-0 h-3 -translate-y-1/2 rounded-sm', tableMetric === 'time' ? 'bg-success/70' : 'bg-neutral/35']} style:width="{width}%"></span>
-                      {/if}
+                    <span class="grid gap-1">
+                      <span class="text-right font-mono text-[11px] tabular-nums">{value === undefined || node.neverExecuted ? '—' : tableFormat(value)}</span>
+                      <span class="relative block h-3" aria-hidden="true">
+                        <span class="absolute inset-y-0 left-1/2 border-l border-neutral-muted"></span>
+                        {#if width > 0 && !node.neverExecuted}
+                          <span class={['absolute inset-y-0 left-0 rounded-sm', tableMetric === 'time' ? 'bg-success/70' : 'bg-neutral/35']} style:width="{width}%"></span>
+                        {/if}
+                      </span>
                     </span>
-                    <span class="pl-2 text-right font-mono tabular-nums">{value === undefined || node.neverExecuted ? '—' : tableFormat(value)}</span>
                   {/if}
+                  <span class="pl-2 text-right font-mono tabular-nums" title={plan.analyzed ? 'Rows returned per loop' : 'Rows expected by the planner'}>
+                    <span class="sr-only">{plan.analyzed ? 'Rows per loop: ' : 'Estimated rows: '}</span>{rowCount === undefined || node.neverExecuted ? '—' : compact(rowCount)}
+                  </span>
+                  <span class="pl-2 text-right font-mono tabular-nums" title="Pages found in shared memory, including inputs">
+                    <span class="sr-only">Buffer hits: </span>{node.buffers === undefined || node.neverExecuted ? '—' : compact(node.buffers.hit)}
+                  </span>
                 </button>
               {/each}
             </div>
