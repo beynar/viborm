@@ -1,7 +1,11 @@
 import type { ArithmeticTarget } from "@adapters/adapter-core-types";
 import { assembleAdapterSelect } from "@adapters/adapter-internals";
 import type { QueryParts } from "@adapters/adapter-query-parts";
-import type { DatabaseAdapter, GeoPointSql } from "@adapters/database-adapter";
+import type {
+  DatabaseAdapter,
+  GeoPointSql,
+  TextMatch,
+} from "@adapters/database-adapter";
 import type { DriverResultParser } from "@drivers/exports";
 import {
   FeatureNotSupportedError,
@@ -5363,10 +5367,14 @@ export class Queries {
             pattern || insensitive
           )
         : expression;
+    const nativeType = scalar?.physical.scalar["~"].nativeType;
+    // The database's own case fold, compared exactly: case is the one
+    // difference `mode: "insensitive"` ignores, and which letters have a case
+    // is the database's answer.
     const folded =
       text && insensitive
         ? a.expressions.caseSensitiveText(
-            a.expressions.asciiCaseFold(exact(column))
+            a.expressions.caseFold(column, nativeType)
           )
         : column;
     /**
@@ -5389,23 +5397,19 @@ export class Queries {
       exact(
         spelledAsText(member) ? a.expressions.cast(column, "text") : column
       );
-    const bind = (member: BoundOperand, fold = false): Sql => {
+    /** An operand as it stands: neither folded nor compared exactly. */
+    const raw = (member: BoundOperand): Sql => {
       if (member.kind === "field") {
         const reference = this.#preparedColumn(
           member.scalar,
           member.up === undefined ? alias : this.#outerAlias(member.up, alias)
         );
-        const comparable = spelledAsText(member)
+        return spelledAsText(member)
           ? a.expressions.cast(reference, "text")
           : reference;
-        return fold
-          ? a.expressions.caseSensitiveText(
-              a.expressions.asciiCaseFold(exact(comparable, member.scalar))
-            )
-          : exact(comparable, member.scalar);
       }
-      if (member.kind === "sql") {
-        const expression = this.value(
+      if (member.kind === "sql")
+        return this.value(
           new Sql(
             member.strings,
             member.operands.map((slot) =>
@@ -5415,13 +5419,22 @@ export class Queries {
             )
           )
         );
-        return fold ? a.expressions.asciiCaseFold(expression) : expression;
-      }
-      const literal =
-        scalar && !counted
-          ? this.#targetValue(target, scalar, member.value, id)
-          : this.value(member.value);
-      return fold ? a.expressions.asciiCaseFold(literal) : literal;
+      return scalar && !counted
+        ? this.#targetValue(target, scalar, member.value, id)
+        : this.value(member.value);
+    };
+    const bind = (member: BoundOperand, fold = false): Sql => {
+      const operand = raw(member);
+      if (member.kind !== "field")
+        return fold ? a.expressions.caseFold(operand) : operand;
+      return fold
+        ? a.expressions.caseSensitiveText(
+            a.expressions.caseFold(
+              operand,
+              member.scalar.physical.scalar["~"].nativeType
+            )
+          )
+        : exact(operand, member.scalar);
     };
     switch (operator) {
       case "equals": {
@@ -5467,11 +5480,14 @@ export class Queries {
             )
               ? exact(column)
               : column,
+          source: column,
           folded,
           insensitive,
           text,
           exact,
           bind,
+          raw,
+          nativeType,
           state,
         });
     }
@@ -5484,19 +5500,26 @@ export class Queries {
     predicate: BoundOperation,
     {
       column,
+      source,
       folded,
       insensitive,
       text,
       exact,
       bind,
+      raw,
+      nativeType,
       state,
     }: {
       column: Sql;
+      /** The target before any case-sensitivity wrapping. */
+      source: Sql;
       folded: Sql;
       insensitive: boolean;
       text: boolean;
       exact: (expression: Sql) => Sql;
       bind: (member: BoundOperand, fold?: boolean) => Sql;
+      raw: (member: BoundOperand) => Sql;
+      nativeType: NativeTypeDeclaration | undefined;
       state: ScalarStateOf | undefined;
     }
   ): Sql {
@@ -5534,11 +5557,21 @@ export class Queries {
       }
       case "contains":
         return insensitive
-          ? a.operators.containsText(folded, bind(operand!, true))
+          ? a.operators.insensitiveText(
+              "contains",
+              source,
+              raw(operand!),
+              nativeType
+            )
           : a.operators.containsText(column, bind(operand!));
       case "startsWith":
         if (insensitive)
-          return a.operators.startsWithText(folded, bind(operand!, true));
+          return a.operators.insensitiveText(
+            "startsWith",
+            source,
+            raw(operand!),
+            nativeType
+          );
         return operand!.kind === "value" && typeof operand!.value === "string"
           ? a.operators.startsWithPrefix(
               column,
@@ -5548,7 +5581,12 @@ export class Queries {
           : a.operators.startsWithText(column, bind(operand!));
       case "endsWith":
         return insensitive
-          ? a.operators.endsWithText(folded, bind(operand!, true))
+          ? a.operators.insensitiveText(
+              "endsWith",
+              source,
+              raw(operand!),
+              nativeType
+            )
           : a.operators.endsWithText(column, bind(operand!));
       case "has":
         return predicate.value === null
@@ -5725,12 +5763,19 @@ export class Queries {
     ];
     const value = predicate.value;
     const target = a.json.extract(column, path);
-    const fold = (expression: Sql) =>
-      predicate.insensitive
-        ? a.expressions.asciiCaseFold(expression)
-        : expression;
-    const textTarget = () => fold(a.json.stringAtPath(column, path));
-    const textValue = (member: unknown) => fold(a.literals.value(member));
+    const text = (kind: TextMatch, member: unknown): Sql => {
+      const operand = a.literals.value(member);
+      return predicate.insensitive
+        ? a.operators.insensitiveText(
+            kind,
+            a.json.foldableStringAtPath(column, path),
+            operand
+          )
+        : a.operators[`${kind}Text`](
+            a.json.stringAtPath(column, path),
+            operand
+          );
+    };
     switch (predicate.operator) {
       case "equals": {
         const sentinel = jsonNullKindOf(value);
@@ -5759,11 +5804,11 @@ export class Queries {
         );
       }
       case "string_contains":
-        return a.operators.containsText(textTarget(), textValue(value));
+        return text("contains", value);
       case "string_starts_with":
-        return a.operators.startsWithText(textTarget(), textValue(value));
+        return text("startsWith", value);
       case "string_ends_with":
-        return a.operators.endsWithText(textTarget(), textValue(value));
+        return text("endsWith", value);
       case "array_contains":
         return a.json.contains(
           target,

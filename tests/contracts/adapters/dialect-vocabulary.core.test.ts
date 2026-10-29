@@ -477,11 +477,38 @@ describe("dialect physical SQL vocabulary", () => {
         adapter.operators.containsText(column, value),
         adapter.operators.startsWithText(column, value),
         adapter.operators.endsWithText(column, value),
+        adapter.operators.insensitiveText("contains", column, value),
+        adapter.operators.insensitiveText("startsWith", column, value),
+        adapter.operators.insensitiveText("endsWith", column, value),
         adapter.operators.startsWithPrefix(column, "A%_\\"),
         adapter.operators.exactTextEq(column, value),
         adapter.operators.exactTextIn(column, sql`(${"A"}, ${"B"})`),
       ]);
     }
+
+    // PostgreSQL escapes a plain string here and binds the finished pattern;
+    // only an operand the server computes is escaped in SQL.
+    const contains = postgres.operators.containsText(column, value);
+    expect(contains.toStatement()).toBe("name LIKE ? ESCAPE '\\'");
+    expect(contains.values).toEqual(["%A\\%\\_\\\\%"]);
+    const folded = postgres.operators.insensitiveText(
+      "endsWith",
+      column,
+      value
+    );
+    expect(folded.toStatement()).toBe("name ILIKE ? ESCAPE '\\'");
+    expect(folded.values).toEqual(["%A\\%\\_\\\\"]);
+    expect(
+      postgres.operators
+        .insensitiveText("startsWith", column, sql.raw`other`)
+        .toStatement()
+    ).toContain("REPLACE(REPLACE(REPLACE(CAST(other AS TEXT)");
+    expect(
+      mysql.operators.insensitiveText("contains", column, value).toStatement()
+    ).toBe("LOCATE(BINARY LOWER(?), BINARY LOWER(name)) > 0");
+    expect(
+      sqlite.operators.insensitiveText("contains", column, value).toStatement()
+    ).toBe("instr(lower(name), lower(?)) > 0");
 
     expect(postgres.operators.startsWithPrefix(column, "A%_\\").values).toEqual(
       ["A\\%\\_\\\\%"]
@@ -501,7 +528,7 @@ describe("dialect physical SQL vocabulary", () => {
       expect(adapter.expressions.concat(only)).toBe(only);
       expectComposable([
         adapter.expressions.concat(sql`${1}`, sql`${2}`),
-        adapter.expressions.asciiCaseFold(sql.raw`name`),
+        adapter.expressions.caseFold(sql.raw`name`),
         adapter.expressions.caseSensitiveText(sql.raw`name`),
         adapter.expressions.greatest(sql`${1}`, sql`${2}`),
         adapter.expressions.least(sql`${1}`, sql`${2}`),

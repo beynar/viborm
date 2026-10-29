@@ -656,13 +656,14 @@ describe("filtering an identifier column", () => {
 
   test("a SUBSTRING operand binds as the fragment it is, never as a value", () => {
     // `contains: "tz4a"` asks about part of a cuid, not about a cuid; only a
-    // text-stored domain can be asked at all.
+    // text-stored domain can be asked at all. PostgreSQL binds the fragment as
+    // its finished `LIKE` pattern.
     expect(
       build(pg, user, "findMany", {
         where: { slug: { contains: "tz4a" } },
         select: { id: true },
       }).values
-    ).toEqual(["tz4a"]);
+    ).toEqual(["%tz4a%"]);
     // The whole value still binds as a domain value on the same field.
     expect(
       build(pg, user, "findMany", {

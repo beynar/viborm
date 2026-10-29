@@ -81,6 +81,9 @@ export function installGeoPointSql(
  * then composes them into complete queries. The adapter never
  * needs to understand query semantics - just SQL syntax.
  */
+/** The three substring filters, as `insensitiveText` names them. */
+export type TextMatch = "contains" | "startsWith" | "endsWith";
+
 export interface DatabaseAdapter {
   /**
    * NAMESPACE
@@ -226,6 +229,22 @@ export interface DatabaseAdapter {
     startsWithText: (column: Sql, value: Sql) => Sql;
     endsWithText: (column: Sql, value: Sql) => Sql;
     /**
+     * The same three predicates under `mode: "insensitive"`: letter case is
+     * ignored the way THIS database folds it (its own `LOWER`/`ILIKE`), so the
+     * answer for a non-ASCII letter follows the database and its locale.
+     * Accents and every other difference still count.
+     *
+     * Both operands arrive raw: neither folded nor wrapped in
+     * `caseSensitiveText`. A plain string `value` is a bare bound parameter,
+     * which an adapter matching with `LIKE` escapes client-side.
+     */
+    insensitiveText: (
+      kind: TextMatch,
+      column: Sql,
+      value: Sql,
+      nativeType?: NativeTypeDeclaration
+    ) => Sql;
+    /**
      * `startsWithText` for a plain string operand, spelled so the dialect's
      * planner can turn it into an index range.
      *
@@ -338,8 +357,14 @@ export interface DatabaseAdapter {
     concat: (...parts: Sql[]) => Sql;
     upper: (expr: Sql) => Sql;
     lower: (expr: Sql) => Sql;
-    /** Fold ASCII A-Z to a-z without provider-native Unicode case folding. */
-    asciiCaseFold: (expr: Sql) => Sql;
+    /**
+     * Fold letter case the way this database does natively (its own `LOWER`),
+     * for `mode: "insensitive"` equality, membership and ranges. The caller
+     * compares the result under `caseSensitiveText`, so case is the only
+     * difference it ignores. `expr` arrives raw, never wrapped in
+     * `caseSensitiveText`, with the native type of the column it reads.
+     */
+    caseFold: (expr: Sql, nativeType?: NativeTypeDeclaration) => Sql;
     /** Force exact text comparison semantics independent of column/database collation. */
     caseSensitiveText: (
       expr: Sql,
@@ -522,6 +547,13 @@ export interface DatabaseAdapter {
      * JSON lt/lte/gt/gte with string operands.
      */
     stringAtPath: (column: Sql, path: string[]) => Sql;
+    /**
+     * `stringAtPath` in the database's own text type and collation, for
+     * `mode: "insensitive"`: the byte-ordered pin stops a database folding
+     * case (`LOWER`/`ILIKE` under PG `COLLATE "C"` fold `A`-`Z` only, and
+     * MySQL's `LOWER` leaves a binary string as it is).
+     */
+    foldableStringAtPath: (column: Sql, path: string[]) => Sql;
     /**
      * JSON array containment: target is an array containing every element
      * of the candidate JSON array value (PG @>, MySQL JSON_CONTAINS,

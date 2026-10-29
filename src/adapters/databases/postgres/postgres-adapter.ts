@@ -32,6 +32,7 @@ import {
   type DatabaseAdapter,
   type GeoPointSql,
   installGeoPointSql,
+  type TextMatch,
 } from "../../database-adapter";
 import { createOnConflictBatchRefs } from "../../shared/batch-refs";
 import {
@@ -80,11 +81,34 @@ import {
 import { arrayLiteralText } from "./array-literal";
 
 const quoteIdent = createIdentifierQuoter('"');
-function postgresLikeLiteral(value: Sql): Sql {
-  return sql`REPLACE(REPLACE(REPLACE(${value}, CHR(92), CHR(92) || CHR(92)), '%', CHR(92) || '%'), '_', CHR(92) || '_')`;
+/** The string a bare bound parameter carries: `${value}` and nothing else. */
+function boundString(value: Sql): string | undefined {
+  const [head, tail, extra] = value.strings;
+  const [bound] = value.values;
+  return head === "" && tail === "" && extra === undefined
+    ? typeof bound === "string"
+      ? bound
+      : undefined
+    : undefined;
 }
-function postgresAsciiCaseFold(expr: Sql): Sql {
-  return sql`TRANSLATE(${expr}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')`;
+
+/**
+ * The `LIKE` pattern matching `value` literally where `kind` says. A plain
+ * string is escaped here and bound as the finished pattern; any other operand
+ * (a column, a JSON path) is escaped by the server, as text.
+ */
+function postgresLikePattern(kind: TextMatch, value: Sql): Sql {
+  const literal = boundString(value);
+  if (literal !== undefined) {
+    const escaped = escapeLikeLiteral(literal);
+    if (kind === "startsWith") return sql`${`${escaped}%`}`;
+    return kind === "endsWith" ? sql`${`%${escaped}`}` : sql`${`%${escaped}%`}`;
+  }
+  const escaped = sql`REPLACE(REPLACE(REPLACE(CAST(${value} AS TEXT), CHR(92), CHR(92) || CHR(92)), '%', CHR(92) || '%'), '_', CHR(92) || '_')`;
+  if (kind === "startsWith") return sql`(${escaped} || '%')`;
+  return kind === "endsWith"
+    ? sql`('%' || ${escaped})`
+    : sql`('%' || ${escaped} || '%')`;
 }
 function postgresJsonObject(pairs: [string, Sql][]): Sql {
   if (pairs.length === 0) return sql.raw`'{}'::json`;
@@ -265,15 +289,25 @@ export class PostgresAdapter implements DatabaseAdapter {
     notLike: (column: Sql, pattern: Sql): Sql =>
       sql`${column} NOT LIKE ${pattern} ESCAPE '\\'`,
     ilike: (column: Sql, pattern: Sql): Sql =>
-      sql`${postgresAsciiCaseFold(column)} LIKE ${postgresAsciiCaseFold(pattern)} ESCAPE '\\'`,
+      sql`${column} ILIKE ${pattern} ESCAPE '\\'`,
     notIlike: (column: Sql, pattern: Sql): Sql =>
-      sql`${postgresAsciiCaseFold(column)} NOT LIKE ${postgresAsciiCaseFold(pattern)} ESCAPE '\\'`,
+      sql`${column} NOT ILIKE ${pattern} ESCAPE '\\'`,
     containsText: (column: Sql, value: Sql): Sql =>
-      sql`${column} LIKE ('%' || ${postgresLikeLiteral(value)} || '%') ESCAPE '\\'`,
+      sql`${column} LIKE ${postgresLikePattern("contains", value)} ESCAPE '\\'`,
     startsWithText: (column: Sql, value: Sql): Sql =>
-      sql`${column} LIKE (${postgresLikeLiteral(value)} || '%') ESCAPE '\\'`,
+      sql`${column} LIKE ${postgresLikePattern("startsWith", value)} ESCAPE '\\'`,
     endsWithText: (column: Sql, value: Sql): Sql =>
-      sql`${column} LIKE ('%' || ${postgresLikeLiteral(value)}) ESCAPE '\\'`,
+      sql`${column} LIKE ${postgresLikePattern("endsWith", value)} ESCAPE '\\'`,
+    // `ILIKE` folds case as the column's collation does: every letter on a
+    // libc or ICU locale, ASCII only on a `C` one. On the bare column, so a
+    // trigram index on it serves the filter.
+    insensitiveText: (
+      kind: TextMatch,
+      column: Sql,
+      value: Sql,
+      nativeType?: NativeTypeDeclaration
+    ): Sql =>
+      sql`${this.expressions.caseSensitiveText(column, nativeType, true)} ILIKE ${postgresLikePattern(kind, value)} ESCAPE '\\'`,
     // PostgreSQL is the one dialect where the escaped LIKE spelling is both
     // exact and index-usable, so it stands alone here: `LIKE` is case- and
     // accent-sensitive natively, which is the contract `startsWithText` holds,
@@ -361,7 +395,8 @@ export class PostgresAdapter implements DatabaseAdapter {
         ? sql`CAST(${expr} AS TEXT)`
         : expr;
     },
-    asciiCaseFold: postgresAsciiCaseFold,
+    caseFold: (expr: Sql, nativeType?: NativeTypeDeclaration): Sql =>
+      sql`LOWER(${this.expressions.caseSensitiveText(expr, nativeType, true)})`,
 
     concat: (...parts: Sql[]): Sql => {
       if (parts.length === 0) return sql.raw`''`;
@@ -454,7 +489,9 @@ export class PostgresAdapter implements DatabaseAdapter {
     // collation (en_US.UTF-8 and friends) orders 'a' before 'B', which would
     // make < / > disagree with MySQL and SQLite
     stringAtPath: (column: Sql, path: string[]): Sql =>
-      sql`((CASE WHEN jsonb_typeof((${column})::jsonb#>${path}::text[]) = 'string' THEN (${column})::jsonb#>>${path}::text[] END) COLLATE "C")`,
+      sql`(${this.json.foldableStringAtPath(column, path)} COLLATE "C")`,
+    foldableStringAtPath: (column: Sql, path: string[]): Sql =>
+      sql`(CASE WHEN jsonb_typeof((${column})::jsonb#>${path}::text[]) = 'string' THEN (${column})::jsonb#>>${path}::text[] END)`,
 
     contains: (target: Sql, value: Sql): Sql =>
       sql`(${target})::jsonb @> ${value}`,
