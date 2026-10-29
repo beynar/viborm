@@ -173,7 +173,7 @@ const setValue = (id: number, value: string) => update(id, { value });
   <!-- How the group's conditions join; a group says it always, the top only once it is more than one condition. -->
   {#if conditions.length > 1 || combinator !== 'AND' || depth > 0}
     <div class="flex items-center gap-2 text-[13px] text-neutral/70">
-      <SegmentedControl size="small" label="Which conditions must hold" items={COMBINATORS} bind:value={combinator} />
+      <SegmentedControl size="small" variant="pill" theme={{ root: { base: 'p-0.5' }, item: { size: { small: 'h-5 px-2 text-[10px]' } } }} label="Which conditions must hold" items={COMBINATORS} bind:value={combinator} />
       {#if onRemove}
         <div class="ml-auto"><Button size="small" variant="ghost" squared label="Remove the group" prefix={xIcon} onclick={onRemove} /></div>
       {/if}
