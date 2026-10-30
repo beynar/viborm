@@ -40,6 +40,7 @@ import {
 import type {
   ColumnDef,
   DiffOperation,
+  EnumDependentCheck,
   IndexDef,
   SchemaSnapshot,
   TableDef,
@@ -315,6 +316,56 @@ function readsAddedValue(
     }
   }
   return false;
+}
+
+/**
+ * The CHECK constraints of the estate's tables on a column of each named enum
+ * or of its array, one row per enum and constraint. `type` is the enum as this
+ * session's deparse spells it, read beside the definition so the two agree.
+ */
+const ENUM_DEPENDENT_CHECKS_QUERY = `SELECT t.typname AS "enumName", c.relname AS "tableName", con.conname AS name, pg_catalog.pg_get_constraintdef(con.oid) AS definition, pg_catalog.format_type(t.oid, NULL) AS type
+FROM pg_catalog.pg_type t
+JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+JOIN pg_catalog.pg_class c ON c.relnamespace = n.oid
+JOIN pg_catalog.pg_constraint con ON con.conrelid = c.oid AND con.contype = 'c'
+WHERE n.nspname = $1 AND t.typtype = 'e' AND t.typname = ANY($2::text[])
+  AND EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a WHERE a.attrelid = con.conrelid AND a.attnum = ANY(con.conkey) AND a.atttypid IN (t.oid, t.typarray))
+ORDER BY t.typname, c.relname, con.conname`;
+
+/**
+ * The values of an enum a deparsed definition names as constants: PostgreSQL
+ * writes each as `'label'::type`, or `'{…}'::type[]` for an array, with `'`
+ * doubled and `type` spelled as `format_type` does in the same session. A
+ * double-quoted identifier is skipped whole, so a quote inside one starts no
+ * literal. An array literal this reader cannot read names nothing here; its
+ * re-addition then fails inside the recreation's transaction.
+ */
+function enumValuesNamed(definition: string, type: string): string[] {
+  const cast = `::${type}`;
+  const values = new Set<string>();
+  let cursor = 0;
+  while (cursor < definition.length) {
+    const quote = definition[cursor];
+    if (quote !== "'" && quote !== '"') {
+      cursor++;
+      continue;
+    }
+    let body = "";
+    for (cursor++; cursor < definition.length; cursor++) {
+      if (definition[cursor] !== quote) body += definition[cursor];
+      else if (definition[cursor + 1] === quote) body += definition[++cursor];
+      else break;
+    }
+    cursor++;
+    if (quote === '"' || !definition.startsWith(cast, cursor)) continue;
+    const array = definition.startsWith("[]", cursor + cast.length);
+    const end = cursor + cast.length + (array ? 2 : 0);
+    if (IDENTIFIER_PART.test(definition[end] ?? "")) continue;
+    for (const value of array ? (readArrayLiteralText(body) ?? []) : [body])
+      if (value !== null) values.add(value);
+    cursor = end;
+  }
+  return [...values];
 }
 
 export class PostgresMigrationDriver extends MigrationDriver {
@@ -1460,6 +1511,28 @@ export class PostgresMigrationDriver extends MigrationDriver {
     };
   }
 
+  override async readEnumDependentChecks(
+    enumNames: readonly string[],
+    executeRaw: RawExecutor
+  ): Promise<
+    ReadonlyArray<EnumDependentCheck & { readonly enumName: string }>
+  > {
+    const result = await executeRaw<{
+      enumName: string;
+      tableName: string;
+      name: string;
+      definition: string;
+      type: string;
+    }>(ENUM_DEPENDENT_CHECKS_QUERY, [
+      this.requireEstateNamespace(),
+      arrayLiteralText(enumNames),
+    ]);
+    return result.rows.map(({ type, ...check }) => ({
+      ...check,
+      values: enumValuesNamed(check.definition, type),
+    }));
+  }
+
   // No CASCADE here or on the inherited table drop (§6.1). PostgreSQL's
   // default RESTRICT is the containment boundary: a dependant this estate does
   // not own aborts the operation instead of being deleted with it.
@@ -1522,6 +1595,14 @@ export class PostgresMigrationDriver extends MigrationDriver {
         `Cannot alter enum "${enumName}" without its full destination values`,
         VibORMErrorCode.MIGRATION_INVALID_STATE
       );
+    // `TYPE text` re-parses every CHECK on the column, and one comparing it to
+    // a label then has no operator (42883): each is dropped first and added
+    // back, same name and definition, once the columns are the enum again.
+    const checks = this.recreatedEnumChecks(op, context);
+    for (const { tableName, name } of checks)
+      statements.push(
+        `ALTER TABLE ${this.qualify(tableName)} DROP CONSTRAINT ${this.escapeIdentifier(name)}`
+      );
     for (const { tableName, columnName } of dependentColumns ?? []) {
       const column = physicalContext.currentSchema?.tables
         .find((table) => table.name === tableName)
@@ -1558,7 +1639,63 @@ export class PostgresMigrationDriver extends MigrationDriver {
           `ALTER TABLE ${reference} SET DEFAULT ${column.default}`
         );
     }
+    for (const { tableName, name, definition } of checks)
+      statements.push(
+        `ALTER TABLE ${this.qualify(tableName)} ADD CONSTRAINT ${this.escapeIdentifier(name)} ${definition}`
+      );
     return statements;
+  }
+
+  /**
+   * The live CHECKs a recreation drops and adds back, refused before any
+   * effect where the addition cannot be the constraint that was dropped: its
+   * definition names a value the new type no longer has, or an earlier rename
+   * in this batch moved the table or a column its definition, read before the
+   * rename, still names.
+   */
+  private recreatedEnumChecks(
+    op: AlterEnumOperation,
+    context: DDLContext
+  ): readonly EnumDependentCheck[] {
+    const checks = op.dependentChecks ?? [];
+    for (const check of checks) {
+      const removed = check.values.find((value) =>
+        op.removeValues?.includes(value)
+      );
+      if (removed !== undefined)
+        throw new MigrationError(
+          `CHECK constraint "${check.name}" on "${check.tableName}" names the value '${removed}', which this change removes from enum "${op.enumName}", so it cannot be added back once the type is recreated. Drop the constraint or rewrite it without '${removed}', then push again. No migration effects were executed.`,
+          VibORMErrorCode.MIGRATION_INVALID_STATE,
+          {
+            meta: {
+              table: check.tableName,
+              constraint: check.name,
+              enum: op.enumName,
+              value: removed,
+            },
+          }
+        );
+      const renamed = context.precedingOperations?.some(
+        (preceding) =>
+          (preceding.type === "renameTable" &&
+            preceding.from === check.tableName) ||
+          (preceding.type === "renameColumn" &&
+            preceding.tableName === check.tableName)
+      );
+      if (renamed)
+        throw new MigrationError(
+          `CHECK constraint "${check.name}" on "${check.tableName}" must be dropped and added back around the recreation of enum "${op.enumName}", but this push renames "${check.tableName}" or one of its columns first, and the definition was read before that rename. Push the rename on its own, then the enum change. No migration effects were executed.`,
+          VibORMErrorCode.MIGRATION_INVALID_STATE,
+          {
+            meta: {
+              table: check.tableName,
+              constraint: check.name,
+              enum: op.enumName,
+            },
+          }
+        );
+    }
+    return checks;
   }
 
   /**

@@ -26,6 +26,7 @@ import {
 import type {
   ColumnDef,
   DiffOperation,
+  EnumDependentCheck,
   MigrationTarget,
   ReferentialAction,
   SchemaSnapshot,
@@ -288,6 +289,18 @@ export abstract class MigrationDriver {
       statements: readonly string[]
     ) => Promise<ReadonlyArray<{ rows: T[] }>>
   ): Promise<ReadonlyArray<string | undefined>>;
+
+  /**
+   * The CHECK constraints on the columns of each named enum, read from the
+   * live catalog for `push`: a schema snapshot models none, and an enum
+   * recreation must drop and re-add them around its text conversion. Optional,
+   * and implemented only by PostgreSQL, the one dialect that recreates a type
+   * under its columns.
+   */
+  readEnumDependentChecks?(
+    enumNames: readonly string[],
+    executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>
+  ): Promise<ReadonlyArray<EnumDependentCheck & { readonly enumName: string }>>;
 
   /**
    * The live managed schema's fingerprint in one statement, where this

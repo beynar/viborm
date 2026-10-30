@@ -30,6 +30,7 @@ import type {
   VibORMConfig,
 } from "../index";
 import { writeSinks } from "../query-engine/write-sinks";
+import type { AnyRelation } from "../schema/relation";
 
 const NAME = OFFICIAL_ON_NAME;
 
@@ -255,7 +256,14 @@ function plan(
   // writes reach, where its payload names a relation (the engine reports
   // only those of a model a hook wants: `wants` below).
   const root = either.some((candidate) => modelHooks[candidate] !== undefined);
-  if (!(root || writesRelation(args, relations))) return undefined;
+  if (
+    !(
+      root ||
+      (writesRelation(args, relations) &&
+        [...reachable(model)].some((other) => hooks[other] !== undefined))
+    )
+  )
+    return undefined;
   // The event's own copy: neither the caller nor a hook changes the other's.
   const eventArgs = detached(callArgs) as Row;
   // An upsert whose update writes nothing (a `data` stamp included) leaves a
@@ -420,6 +428,41 @@ function writesRelation(args: Row, relations: object): boolean {
       )
         return true;
   return false;
+}
+
+const reached = new WeakMap<AnyModel, ReadonlySet<string>>();
+
+/**
+ * The models a nested write from `model` can write, itself included: every
+ * model its relations reach, transitively, every variant of a polymorphic
+ * one. A payload that names a relation concerns no hook unless one of them
+ * has one.
+ */
+function reachable(model: AnyModel): ReadonlySet<string> {
+  const known = reached.get(model);
+  if (known !== undefined) return known;
+  const names = new Set<string>();
+  const seen = new Set<AnyModel>([model]);
+  const pending = [model];
+  for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+    names.add(next["~"].names.ts!);
+    for (const relation of Object.values(
+      next["~"].state.relations
+    ) as AnyRelation[]) {
+      const internal = relation["~"];
+      const { target } = internal.state;
+      const variants =
+        target.kind === "variants" ? Object.keys(target.entries) : [undefined];
+      for (const variant of variants) {
+        const found = internal.settleTarget(variant) as AnyModel;
+        if (seen.has(found)) continue;
+        seen.add(found);
+        pending.push(found);
+      }
+    }
+  }
+  reached.set(model, names);
+  return names;
 }
 
 /**

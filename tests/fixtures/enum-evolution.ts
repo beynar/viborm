@@ -9,6 +9,7 @@
 
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
+import { VibORMErrorCode } from "@errors";
 import { createMigrationClient, MemoryEstateStorage } from "@migrations";
 import type { ResolveChange } from "@migrations/types";
 import { s } from "@schema";
@@ -65,6 +66,19 @@ function taggedTickets<const V extends readonly [string, ...string[]]>(
   };
 }
 
+/** Items whose `kind` a hand-written CHECK reads (#85). */
+function items(values: readonly [string, ...string[]]) {
+  return {
+    item: s
+      .model({
+        id: s.int().id(),
+        kind: s.enum([...values]).name("kind"),
+        note: s.string().nullable(),
+      })
+      .map("items"),
+  };
+}
+
 /** Tickets whose `resolution` is text or the enum, and an optional partial index. */
 function resolvedTickets(
   values: readonly [string, ...string[]],
@@ -102,6 +116,7 @@ async function estate(open: OpenEnumEvolutionNamespace, label: string) {
   const table = `"${namespace}"."tickets"`;
   const type = `"${namespace}"."ticket_status"`;
   return {
+    namespace,
     driver,
     table,
     type,
@@ -128,6 +143,33 @@ async function estate(open: OpenEnumEvolutionNamespace, label: string) {
       ).map((row) => row.enumlabel),
   };
 }
+
+/** The CHECKs, rows and `kind` labels of an estate's `items` table. */
+function itemReads(db: Awaited<ReturnType<typeof estate>>, table: string) {
+  return {
+    constraints: () =>
+      db.query<{ name: string; validated: boolean }>(
+        "SELECT con.conname AS name, con.convalidated AS validated FROM pg_constraint con JOIN pg_class c ON c.oid = con.conrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname = 'items' AND con.contype = 'c' ORDER BY con.conname",
+        db.namespace
+      ),
+    rows: () =>
+      db.query<{ id: number; kind: string; note: string | null }>(
+        `SELECT "id", "kind"::text AS "kind", "note" FROM ${table} ORDER BY "id"`
+      ),
+    labels: async () =>
+      (
+        await db.query<{ label: string }>(
+          "SELECT e.enumlabel AS label FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid JOIN pg_namespace n ON n.oid = t.typnamespace WHERE n.nspname = $1 AND t.typname = 'kind' ORDER BY e.enumsortorder",
+          db.namespace
+        )
+      ).map((row) => row.label),
+  };
+}
+
+const CHECK_ADDED_UNVALIDATED =
+  /^ALTER TABLE .+ ADD CONSTRAINT "Not a legacy, unchecked" CHECK \(.+\) NOT VALID$/;
+const CHECK_ADDED =
+  /^ALTER TABLE .+ ADD CONSTRAINT "note_of_a" CHECK \(.+\)\)$/;
 
 export function enumEvolutionTests(open: OpenEnumEvolutionNamespace): void {
   test("push adds values in place, past a dependent view, and recreates only for removal, reorder or same-batch use", async () => {
@@ -370,6 +412,133 @@ export function enumEvolutionTests(open: OpenEnumEvolutionNamespace): void {
         `INSERT INTO ${db.table} ("title", "updatedAt") VALUES ('defaulted', now()) RETURNING "tags"::text`
       )
     ).toEqual([{ tags: "{bug}" }]);
+  });
+
+  test("a recreation keeps the CHECK constraints on its columns: name, definition, validation and enforcement", async () => {
+    const db = await estate(open, "checks");
+    const table = `"${db.namespace}"."items"`;
+    await syncLiveSchema(
+      createClient({ schema: items(["a", "b"]), driver: db.driver })
+    );
+    await db.exec(
+      `INSERT INTO ${table} VALUES (1, 'b', 'kept'), (2, 'b', NULL), (3, 'b', 'legacy')`
+    );
+    await db.exec(
+      `ALTER TABLE ${table} ADD CONSTRAINT "note_of_a" CHECK ("kind" <> 'a' OR "note" IS NOT NULL)`
+    );
+    // Row 3 breaks this one once it is 'a': only NOT VALID adds it back.
+    await db.exec(
+      `ALTER TABLE ${table} ADD CONSTRAINT "Not a legacy, unchecked" CHECK ("kind" <> 'a' OR "note" <> 'legacy') NOT VALID`
+    );
+    const { constraints, rows, labels } = itemReads(db, table);
+    const migrations = createMigrationClient(
+      createClient({ schema: items(["a"]), driver: db.driver })
+    );
+    const preview = () =>
+      migrations.push({
+        dryRun: true,
+        resolve: (change: ResolveChange) =>
+          change.type === "enumValueRemoval"
+            ? change.mapValues({ b: "a" })
+            : change.reject(),
+      });
+
+    // The preview drops each CHECK before the text conversion and adds it
+    // back, as the catalog deparses it, after the cast back.
+    const planned = (await preview()).statements.map(({ sql }) => sql);
+    const position = (prefix: string) =>
+      planned.findIndex((sql) => sql.startsWith(prefix));
+    expect(planned.filter((sql) => sql.includes(" CONSTRAINT "))).toEqual([
+      `ALTER TABLE ${table} DROP CONSTRAINT "Not a legacy, unchecked"`,
+      `ALTER TABLE ${table} DROP CONSTRAINT "note_of_a"`,
+      expect.stringMatching(CHECK_ADDED_UNVALIDATED),
+      expect.stringMatching(CHECK_ADDED),
+    ]);
+    expect(position(`ALTER TABLE ${table} DROP CONSTRAINT`)).toBeLessThan(
+      position(`ALTER TABLE ${table} ALTER COLUMN "kind" TYPE text`)
+    );
+    expect(
+      position(
+        `ALTER TABLE ${table} ALTER COLUMN "kind" TYPE "${db.namespace}"."kind"`
+      )
+    ).toBeLessThan(position(`ALTER TABLE ${table} ADD CONSTRAINT`));
+
+    // Row 2 becomes ('a', NULL), which note_of_a refuses: the whole
+    // recreation rolls back, the CHECKs and the removed value included.
+    await expect(
+      migrations.push({ consent: (await preview()).consent })
+    ).rejects.toThrow();
+    expect(await labels()).toEqual(["a", "b"]);
+    expect(await rows()).toEqual([
+      { id: 1, kind: "b", note: "kept" },
+      { id: 2, kind: "b", note: null },
+      { id: 3, kind: "b", note: "legacy" },
+    ]);
+    expect(await constraints()).toEqual([
+      { name: "Not a legacy, unchecked", validated: false },
+      { name: "note_of_a", validated: true },
+    ]);
+
+    await db.exec(`UPDATE ${table} SET "note" = 'filled' WHERE "id" = 2`);
+    expect(
+      (await migrations.push({ consent: (await preview()).consent })).outcome
+    ).toBe("applied");
+    expect(await labels()).toEqual(["a"]);
+    expect(await rows()).toEqual([
+      { id: 1, kind: "a", note: "kept" },
+      { id: 2, kind: "a", note: "filled" },
+      { id: 3, kind: "a", note: "legacy" },
+    ]);
+    // The same names, the unvalidated one still unvalidated, both enforced.
+    expect(await constraints()).toEqual([
+      { name: "Not a legacy, unchecked", validated: false },
+      { name: "note_of_a", validated: true },
+    ]);
+    for (const note of ["NULL", "'legacy'"])
+      await expect(
+        db.exec(`INSERT INTO ${table} VALUES (4, 'a', ${note})`)
+      ).rejects.toMatchObject({ code: VibORMErrorCode.CHECK_CONSTRAINT });
+    expect(await rows()).toHaveLength(3);
+    expect(
+      (
+        await syncLiveSchema(
+          createClient({ schema: items(["a"]), driver: db.driver })
+        )
+      ).outcome
+    ).toBe("noop");
+  });
+
+  test("a CHECK naming a value the change removes is refused before any effect", async () => {
+    const db = await estate(open, "checks_refused");
+    const table = `"${db.namespace}"."items"`;
+    await syncLiveSchema(
+      createClient({ schema: items(["a", "b", "c"]), driver: db.driver })
+    );
+    await db.exec(
+      `ALTER TABLE ${table} ADD CONSTRAINT "never_b" CHECK ("kind" <> 'b')`
+    );
+    await db.exec(`INSERT INTO ${table} VALUES (1, 'c', NULL)`);
+    const { constraints, rows, labels } = itemReads(db, table);
+    const migrations = createMigrationClient(
+      createClient({ schema: items(["a", "c"]), driver: db.driver })
+    );
+    const resolve = (change: ResolveChange) =>
+      change.type === "enumValueRemoval"
+        ? change.mapValues({ b: "a" })
+        : change.reject();
+    const refusal = {
+      code: VibORMErrorCode.MIGRATION_INVALID_STATE,
+      message: expect.stringContaining(
+        `CHECK constraint "never_b" on "items" names the value 'b'`
+      ),
+    };
+    await expect(
+      migrations.push({ dryRun: true, resolve })
+    ).rejects.toMatchObject(refusal);
+    await expect(migrations.push({ resolve })).rejects.toMatchObject(refusal);
+    expect(await labels()).toEqual(["a", "b", "c"]);
+    expect(await rows()).toEqual([{ id: 1, kind: "c", note: null }]);
+    expect(await constraints()).toEqual([{ name: "never_b", validated: true }]);
   });
 
   test("generate and apply add values in place and commit them before a later migration uses them", async () => {
