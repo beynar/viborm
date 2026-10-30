@@ -174,6 +174,23 @@ export interface EnumDef {
   values: string[];
 }
 
+/**
+ * A CHECK constraint on a column a PostgreSQL enum recreation converts.
+ *
+ * A schema snapshot models no CHECK, so only `push` knows one: it reads it from
+ * the live catalog while planning. The recreation drops it before its columns
+ * become text, where PostgreSQL would re-parse it against the wrong type, and
+ * adds it back under the same name once they are the enum again.
+ */
+export interface EnumDependentCheck {
+  tableName: string;
+  name: string;
+  /** `pg_get_constraintdef`: `NOT VALID` included when it was never validated. */
+  definition: string;
+  /** The enum values its definition names as constants. */
+  values: string[];
+}
+
 // =============================================================================
 // DIFF OPERATIONS (resolved, ready to execute)
 // =============================================================================
@@ -231,6 +248,11 @@ export type DiffOperation =
       dependentColumns?:
         | Array<{ tableName: string; columnName: string }>
         | undefined;
+      /**
+       * The live CHECK constraints on those columns (PostgreSQL push only;
+       * offline generation cannot see them and leaves this unset).
+       */
+      dependentChecks?: EnumDependentCheck[] | undefined;
       /**
        * Global replacement values for removed enum values.
        * Used as fallback when no column-specific mapping exists.

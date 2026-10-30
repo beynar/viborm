@@ -147,7 +147,11 @@ export async function buildPushPlan(
       relations
     );
     current = planned.currentSchema;
-    operations = planned.operations;
+    operations = await withEnumDependentChecks(
+      producer,
+      command,
+      planned.operations
+    );
   }
   if (!options.forceReset)
     for (const operation of operations) {
@@ -374,6 +378,40 @@ function withoutControlTables(snapshot: SchemaSnapshot): SchemaSnapshot {
         table.name !== CONTROL_TABLES.state && table.name !== CONTROL_TABLES.log
     ),
   };
+}
+
+/**
+ * A schema snapshot models no CHECK constraint, so the ones on the columns an
+ * enum change converts are read from the live catalog here and closed into its
+ * operation: the preview shows their DROP and ADD, the plan hash covers them,
+ * and the locked replan reads them again, so one added or changed after the
+ * preview refuses its consent.
+ */
+async function withEnumDependentChecks(
+  producer: AnyDriver,
+  command: BoundMigrationDriver,
+  operations: readonly DiffOperation[]
+): Promise<readonly DiffOperation[]> {
+  const enumNames = operations.flatMap((operation) =>
+    operation.type === "alterEnum" && operation.dependentColumns
+      ? [operation.enumName]
+      : []
+  );
+  if (!command.readEnumDependentChecks || enumNames.length === 0)
+    return operations;
+  const checks = await command.readEnumDependentChecks(
+    enumNames,
+    (sql, params) => producer._executeRaw(sql, params)
+  );
+  return operations.map((operation) => {
+    if (operation.type !== "alterEnum") return operation;
+    const dependentChecks = checks.flatMap(({ enumName, ...check }) =>
+      enumName === operation.enumName ? [check] : []
+    );
+    return dependentChecks.length === 0
+      ? operation
+      : { ...operation, dependentChecks };
+  });
 }
 
 /** The live name of a desired table: an accepted rename still reads the old one. */

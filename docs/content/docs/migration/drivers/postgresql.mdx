@@ -71,9 +71,18 @@ the same transaction refuses its added values until they commit.
 Removing or reordering values replaces the type in one transaction: dependent
 columns are cast through text, defaults are dropped first and restored after,
 and every table using the enum is rewritten. Any replacement (a removal, a
-reorder, or a new value used in the same migration) is blocked by a view, rule,
-CHECK constraint or partial-index predicate over such a column; drop it first
-and recreate it afterwards.
+reorder, or a new value used in the same migration) is blocked by a view, rule
+or partial-index predicate over such a column; drop it first and recreate it
+afterwards.
+
+`push` keeps the CHECK constraints on those columns: it reads them from the
+database, drops them before the columns become text and adds them back once
+they are the enum again, under the same name and definition (`NOT VALID`
+included), in the same transaction. The preview shows both statements. A CHECK
+naming a value being removed cannot come back, so the plan is refused, naming
+the constraint: drop or rewrite it first. `generate` reads no database and
+cannot see a CHECK, so a generated replacement is still blocked by one; drop
+it before applying and recreate it afterwards.
 
 Removed values require explicit per-column mappings, including nullable columns.
 `useNull()` is a deliberate decision. Enum arrays preserve their order and NULL

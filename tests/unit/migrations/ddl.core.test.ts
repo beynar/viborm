@@ -2,15 +2,19 @@
  * PostgreSQL DDL Generation Tests
  */
 
+import { VibORMErrorCode } from "@errors";
+import { getMigrationDriver } from "@migrations/drivers";
 import { postgresMigrationDriver } from "@src/migrations/drivers/postgres";
-import type { DiffOperation } from "@src/migrations/types";
+import type { DiffOperation, EnumDependentCheck } from "@src/migrations/types";
 import type { ScalarState, ScalarType } from "@src/schema/scalars/common";
-import { ddlContext } from "@tests/unit/migrations/_estate";
+import { ddlContext, pgEstateDriver } from "@tests/unit/migrations/_estate";
 import { describe, expect, it } from "vitest";
 
 // =============================================================================
 // HELPERS
 // =============================================================================
+
+const RENAME_FIRST = /Push the rename on its own, then the enum change/;
 
 function generateDDL(op: DiffOperation): string {
   return postgresMigrationDriver.generateDDL(op, ddlContext("artifact"));
@@ -793,6 +797,159 @@ describe("PostgreSQL DDL Generation", () => {
       // Planning requires complete per-column consent; this low-level DDL
       // remains atomic and the final enum cast refuses an unmapped stored value.
       expect(ddl).toContain('TYPE "status" USING "status"::"status"');
+    });
+
+    describe("dependent CHECK constraints", () => {
+      const note: EnumDependentCheck = {
+        tableName: "items",
+        name: "note_of_a",
+        definition: `CHECK (((kind <> 'a'::kind) OR (note IS NOT NULL)))`,
+        values: ["a"],
+      };
+      const unchecked: EnumDependentCheck = {
+        tableName: "items",
+        name: "Unchecked",
+        definition: `CHECK ((kind = ANY (ARRAY['a'::kind, 'c'::kind]))) NOT VALID`,
+        values: ["a", "c"],
+      };
+      const removal = (
+        dependentChecks: EnumDependentCheck[]
+      ): DiffOperation => ({
+        type: "alterEnum",
+        enumName: "kind",
+        removeValues: ["b"],
+        newValues: ["a", "c"],
+        dependentColumns: [{ tableName: "items", columnName: "kind" }],
+        valueReplacements: { b: "a" },
+        dependentChecks,
+      });
+
+      it("drops each before the text conversion and adds it back, as read, after the cast back", () => {
+        const statements = postgresMigrationDriver.compileStatements(
+          removal([note, unchecked]),
+          ddlContext("live", {
+            currentSchema: {
+              tables: [
+                {
+                  name: "items",
+                  columns: [
+                    { name: "kind", type: "kind", nullable: false },
+                    { name: "note", type: "text", nullable: true },
+                  ],
+                  indexes: [],
+                  foreignKeys: [],
+                  uniqueConstraints: [],
+                },
+              ],
+              enums: [{ name: "kind", values: ["a", "b", "c"] }],
+            },
+          })
+        );
+        expect(statements).toEqual([
+          'ALTER TABLE "items" DROP CONSTRAINT "note_of_a"',
+          'ALTER TABLE "items" DROP CONSTRAINT "Unchecked"',
+          'ALTER TABLE "items" ALTER COLUMN "kind" TYPE text USING "kind"::text',
+          `UPDATE "items" SET "kind" = 'a' WHERE "kind" = 'b'`,
+          'DROP TYPE "kind"',
+          "CREATE TYPE \"kind\" AS ENUM ('a', 'c')",
+          'ALTER TABLE "items" ALTER COLUMN "kind" TYPE "kind" USING "kind"::"kind"',
+          `ALTER TABLE "items" ADD CONSTRAINT "note_of_a" CHECK (((kind <> 'a'::kind) OR (note IS NOT NULL)))`,
+          `ALTER TABLE "items" ADD CONSTRAINT "Unchecked" CHECK ((kind = ANY (ARRAY['a'::kind, 'c'::kind]))) NOT VALID`,
+        ]);
+      });
+
+      it("leaves them alone when values are only added in place", () => {
+        expect(
+          generateDDL({
+            type: "alterEnum",
+            enumName: "kind",
+            addValues: ["d"],
+            newValues: ["a", "b", "c", "d"],
+            dependentColumns: [{ tableName: "items", columnName: "kind" }],
+            dependentChecks: [note],
+          })
+        ).toBe(`ALTER TYPE "kind" ADD VALUE 'd'`);
+      });
+
+      it("refuses one naming a removed value, naming the constraint", () => {
+        const names = { ...note, values: ["a", "b"] };
+        expect(() => generateDDL(removal([names]))).toThrow(
+          expect.objectContaining({
+            code: VibORMErrorCode.MIGRATION_INVALID_STATE,
+            message: expect.stringContaining(
+              `CHECK constraint "note_of_a" on "items" names the value 'b'`
+            ),
+          })
+        );
+      });
+
+      it("refuses one whose table or columns an earlier rename in the batch moved", () => {
+        for (const preceding of [
+          { type: "renameTable", from: "items", to: "things" },
+          {
+            type: "renameColumn",
+            tableName: "items",
+            from: "note",
+            to: "remark",
+          },
+        ] satisfies DiffOperation[])
+          expect(() =>
+            postgresMigrationDriver.compileStatements(
+              removal([note]),
+              ddlContext("live", { precedingOperations: [preceding] })
+            )
+          ).toThrow(RENAME_FIRST);
+      });
+
+      it("reads the values a deparsed definition names as constants of the enum", async () => {
+        const rows = [
+          [
+            "scalar",
+            `CHECK (((kind <> 'a'::billing.kind) OR (note IS NOT NULL)))`,
+          ],
+          [
+            "list",
+            `CHECK ((kind = ANY (ARRAY['a'::billing.kind, 'it''s'::billing.kind])))`,
+          ],
+          ["array", `CHECK ((tags @> '{b,"c d"}'::billing.kind[]))`],
+          // Text, another type, and a label inside a quoted identifier name none.
+          ["text", `CHECK (((kind)::text <> 'x'::text))`],
+          ["other", `CHECK ((other <> 'y'::billing.kindred))`],
+          ["quoted", `CHECK (("it's 'z'::billing.kind" IS NOT NULL))`],
+        ].map(([name, definition]) => ({
+          enumName: "kind",
+          tableName: "items",
+          name,
+          definition,
+          type: "billing.kind",
+        }));
+        const seen: unknown[][] = [];
+        const checks = await getMigrationDriver(
+          pgEstateDriver("billing")
+        ).readEnumDependentChecks?.(
+          ["kind"],
+          async <T>(_: string, params?: unknown[]) => {
+            seen.push(params ?? []);
+            return { rows: rows as T[] };
+          }
+        );
+        expect(seen).toEqual([["billing", '{"kind"}']]);
+        expect(checks?.map(({ name, values }) => [name, values])).toEqual([
+          ["scalar", ["a"]],
+          ["list", ["a", "it's"]],
+          ["array", ["b", "c d"]],
+          ["text", []],
+          ["other", []],
+          ["quoted", []],
+        ]);
+        expect(checks?.[0]).toEqual({
+          enumName: "kind",
+          tableName: "items",
+          name: "scalar",
+          definition: rows[0]?.definition,
+          values: ["a"],
+        });
+      });
     });
 
     it("should not add warning when all values have replacements", () => {

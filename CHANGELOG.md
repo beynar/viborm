@@ -97,6 +97,17 @@ hooks that run after a write commits, root and nested writes alike.
   (MySQL)** inserted each row without skipping duplicates, so a duplicate
   failed with a unique-constraint error instead of being skipped. It now skips
   it, counts only the rows inserted and returns only those.
+- **PostgreSQL `push` removing an enum value no longer fails on a CHECK
+  constraint of its column (#85).** A CHECK you added by hand that compares
+  the column to a value (`CHECK ("kind" <> 'a' OR "note" IS NOT NULL)`) made
+  the type replacement fail with SQLSTATE 42883. Push now reads the CHECK
+  constraints on the columns it converts, drops them before the conversion
+  and adds them back, under the same name and definition (`NOT VALID` kept),
+  once the column is the enum again, in the same transaction; the preview
+  shows both statements and its consent covers them. A CHECK naming the value
+  being removed is refused while planning, naming the constraint. `generate`
+  cannot see CHECKs (it reads no database), so a generated migration does not
+  carry them: drop such a constraint around it by hand.
 
 ### Changed
 
