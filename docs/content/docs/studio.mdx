@@ -31,6 +31,13 @@ The config loads as every `viborm` command loads it: the project's `.env`,
 then the client its config exports. Relative paths in it (a SQLite file, say)
 read from the config's own directory.
 
+An embedded database opens in the studio's own process. With PGlite, give the
+client a `dataDir` (`createClient({ schema, dataDir: "./pglite-data" })`):
+without one, the studio opens an empty in-memory database, not your
+application's. And stop your application before you open the studio on the
+same `dataDir`: PGlite serves one process, and two processes on one data
+directory can corrupt it.
+
 ## What it shows
 
 - **The schema**: each model's columns with their types, nullability,

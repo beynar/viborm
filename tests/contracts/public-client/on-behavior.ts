@@ -936,6 +936,46 @@ export function runOnBehavior(provider: OnProvider): void {
         ).toEqual([[post("p1", "u1")], [post("p2", "u1")]]);
       });
 
+      test("an unlink reads the rows a hook wants under the lock the session's other reads take", async () => {
+        const base = await openOnFixture(
+          provider.createDriver(),
+          provider.sync
+        );
+        opened.push(base);
+        const { client, texts } = statementLog(base);
+        const updated: unknown[] = [];
+        const db = client.$extends(
+          on({
+            post: {
+              update: (rows) => {
+                updated.push(...rows);
+              },
+            },
+          })
+        );
+        await db.user.update({
+          where: { id: "u1" },
+          data: { edited: { connect: [{ id: "p1" }] } },
+        });
+        texts.length = 0;
+        updated.length = 0;
+        await db.user.update({
+          where: { id: "u1" },
+          data: { edited: { set: [] } },
+        });
+        expect(updated).toEqual([post("p1", "u1")]);
+        // The rows are read before the UPDATE that clears their key: where
+        // the session locks (its read of the user), they are read locked too.
+        const unlink = texts.findIndex((text) => text.startsWith("UPDATE"));
+        const read = texts
+          .slice(0, unlink)
+          .reverse()
+          .find((text) => text.startsWith("SELECT") && text.includes("post"));
+        expect(read?.endsWith("FOR UPDATE")).toBe(
+          texts[0]!.endsWith("FOR UPDATE")
+        );
+      });
+
       test("nested delete and deleteMany: the rows as they were before; updateMany: after", async () => {
         const { db, calls } = await open();
         await db.user.update({

@@ -2116,8 +2116,9 @@ export class OperationContext {
    * ({@link WriteSink}): read them in this operation's own unit — at once on
    * the interactive route, queued beside the write on the batch route and
    * decoded with its batch's answer. `change`: what the write itself sets on
-   * rows read before it (a cleared foreign key). Nothing where no hook wants
-   * them.
+   * rows read before it (a cleared foreign key); an interactive session reads
+   * those `FOR UPDATE`, so they cannot change before the write. Nothing where
+   * no hook wants them.
    */
   async captureRows(
     model: AnyModel,
@@ -2131,6 +2132,7 @@ export class OperationContext {
     const q = this.queries;
     const read = q.select(model, {}, undefined, {
       ...where,
+      forUpdate: change !== undefined && !this.usesBatch,
       projection: q.prepareProjection(model, {}),
     });
     const take = (rows: Input[]) =>
