@@ -158,7 +158,10 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   // so SQLite refuses a rebuild that would lose a trigger or view.
   // engine-06 (1.2.0): push reads each to-one polymorphic slot once
   // (`LIMIT 1`) for an undeclared stored value, on the handed producer.
-  "src/migrations/push-plan.ts executeRaw 5",
+  // #85 (1.6.0): an enum recreation reads the CHECK constraints on the
+  // columns it converts, one catalog query on the handed producer (the
+  // pinned session under the lock), so it can drop and re-add them.
+  "src/migrations/push-plan.ts executeRaw 6",
   "src/migrations/push/planner.ts executeRaw 2",
   // The added catalog probe uses the pinned producer and bound probe parameters.
   "src/migrations/reset-v1.ts executeRaw 3",
