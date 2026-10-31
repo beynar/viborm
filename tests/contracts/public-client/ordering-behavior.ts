@@ -11,7 +11,7 @@ import {
 } from "@errors";
 import { s } from "@schema";
 import { Sql } from "@sql";
-import { isKey, ordering, orderingKey } from "@src/ordering";
+import { isKey, keyBetween, ordering, orderingKey } from "@src/ordering";
 import { describe, expect, test } from "vitest";
 
 const column = s.model({
@@ -147,6 +147,38 @@ export function describeOrdering(
       });
       expect(statements).toHaveLength(update);
       expect(updated.title).toBe("c2");
+    });
+
+    test("a move with a key the caller computed writes it, nothing read first", async () => {
+      const db = await setup();
+      for (const title of ["a", "b", "c"])
+        await db.card.create({ data: { id: title, columnId: "c1", title } });
+      await db.card.create({ data: { id: "x", columnId: "c2", title: "x" } });
+      const [a, b] = await db.card.findMany({ where: { columnId: "c1" } });
+      statements.length = 0;
+      const key = keyBetween(a.rank, b.rank);
+      const moved = await db.card.move({ where: { id: "c" }, key });
+      expect(statements).toHaveLength(update);
+      expect(moved.rank).toBe(key);
+      expect(await listOf(db, "c1")).toEqual(["a", "c", "b"]);
+      // Into another list, with `to`.
+      const [last] = await db.card.findMany({
+        where: { columnId: "c2" },
+        orderBy: { rank: "desc" },
+        take: 1,
+      });
+      await db.card.move({
+        where: { id: "a" },
+        key: keyBetween(last.rank, null),
+        to: { columnId: "c2" },
+      });
+      expect(await listOf(db, "c2")).toEqual(["x", "a"]);
+      await expect(
+        db.card.move({ where: { id: "b" }, key: "abc" })
+      ).rejects.toThrow(ValidationError);
+      await expect(
+        db.card.move({ where: { id: "nope" }, key })
+      ).rejects.toThrow(NotFoundError);
     });
 
     test("createMany keeps the array's order, per list", async () => {

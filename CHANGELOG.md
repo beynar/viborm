@@ -29,6 +29,8 @@ Versioning.
     PostgreSQL, SQLite, libSQL and D1 (MySQL reads the neighbours first).
     The key alone is written where the row stays in its list. It respaces a
     list by itself when a gap is used up or neighbours tie.
+    `move({ where, key, to? })` writes a key the caller computed with
+    `keyBetween`, reading nothing: one `update`.
   - `rekey({ where, orderBy })` respaces whole lists, hidden members
     included, in one statement (more where the driver bounds a statement's
     values), the lists named through the caller's view. It is how an

@@ -743,7 +743,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
     []
   ),
   "./ordering": surface(
-    ["MAX_KEY_LENGTH", "isKey", "ordering", "orderingKey"],
+    ["MAX_KEY_LENGTH", "isKey", "keyBetween", "ordering", "orderingKey"],
     ["MovePlacement", "OrderingConfig", "OrderingModel"],
     []
   ),

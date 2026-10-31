@@ -608,3 +608,19 @@ Owner: five statements per move on MySQL is too many.
   (126 ms vs 206 ms).
 - **Tests.** Every provider asserts the statements a move within a list and
   an update take: 1 and 1, on MySQL 5 and 3.
+
+## 19. `move` with a key the caller computed (2026-10-31)
+
+Owner: document a way around the statements by computing the key on the
+caller's side and passing it to `move`.
+
+- `move({ where, key, to? })`: `key` is a placement of its own, exclusive
+  with `after`, `before`, `first` and `last` in the type and at runtime;
+  `to` may join it. It is written as given in one `update` (refused unless
+  `isKey`), nothing read first: 1 statement, 3 on MySQL, and no subquery
+  lock.
+- `keyBetween` is exported again (1.2 kB alone in a bundle); `keysBetween`
+  stays internal.
+- Documented: the key lands where its value puts it among the keys as they
+  are, so a neighbour moved or a list respaced since the caller's read
+  places the row there, not next to the cards the caller saw.

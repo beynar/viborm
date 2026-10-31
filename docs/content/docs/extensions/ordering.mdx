@@ -152,6 +152,32 @@ respaces the list (as `rekey` does, below), then places the row.
 
 Two moves of one row at the same moment: the last write wins.
 
+### With a key you computed
+
+Where the caller already has the neighbours (a board rendered with its
+cards' keys), it can compute the key itself and hand it to `move`, which
+writes it and reads nothing: one `update`, so 1 statement on PostgreSQL,
+SQLite, libSQL and D1, and 3 on MySQL (lock, write, read back) with no
+subquery to contend on.
+
+```ts
+import { keyBetween } from "viborm/ordering";
+
+// The keys of the cards around the drop, as the board shows them.
+const key = keyBetween(above?.rank ?? null, below?.rank ?? null);
+await db.card.move({ where: { id }, key });                             // same column
+await db.card.move({ where: { id }, key, to: { columnId: doneId } });  // another column
+```
+
+The key is placed where its value puts it, whatever happened since the
+neighbours were read: if another writer moved one of them, or a respace
+gave the list new keys, the row lands among the keys as they are now, not
+next to the cards the caller saw. `keyBetween` throws where `lower` is not
+below `upper` (tied neighbours), and a key can outgrow `MAX_KEY_LENGTH`
+(check `isKey`): place the row with an anchor then, which respaces. With
+`orderingKey`, a key of 10^8 or more is refused. A key that is not one is a
+`ValidationError`, `key` with `after` or `before` too.
+
 Errors: a missing or hidden row or anchor, or a write your permissions
 refuse (as `update` refuses it), is a `NotFoundError` (its message says
 `move` or `move anchor`); no placement,
@@ -206,7 +232,9 @@ collation. Letters would not do: Czech sorts `ch` after `h`, Danish sorts
 `aa` after `z`. A collation with numeric ordering (ICU `kn-true`) is the one
 exception.
 
-`isKey(value)` tells whether a value is a key.
+`keyBetween(lower, upper)` (`null` for an open end) computes a key between
+two, for [`move` with a key](#with-a-key-you-computed); `isKey(value)` tells
+whether a value is a key.
 
 Each generated key holds a random part, so two writers placing into one gap
 at the same moment get distinct keys. A tie (equal keys) is still possible

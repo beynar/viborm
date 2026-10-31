@@ -33,7 +33,7 @@ import { AppendKey } from "./append";
 import { between, Computed, jitter, spellings } from "./between";
 import { isKey, keyBetween } from "./keys";
 
-export { isKey, MAX_KEY_LENGTH } from "./keys";
+export { isKey, keyBetween, MAX_KEY_LENGTH } from "./keys";
 
 /**
  * A Standard Schema validator for a key field: `rank:
@@ -155,7 +155,7 @@ function admit(schema: Schema, config: OrderingConfig): readonly Ordered[] {
 // move and rekey
 // ---------------------------------------------------------------------------
 
-const PLACEMENTS = ["after", "before", "first", "last"] as const;
+const PLACEMENTS = ["after", "before", "first", "last", "key"] as const;
 
 // Two values of one list field: a Date by its instant, else by text (a
 // bigint read back as a number names the same list).
@@ -473,6 +473,7 @@ function methods(ordered: Ordered, engine: () => Engine) {
         before,
         first,
         last,
+        key: given,
         to,
         select,
         include,
@@ -481,9 +482,17 @@ function methods(ordered: Ordered, engine: () => Engine) {
       } = args as Record<string, unknown> & { where: Row };
       const chosen = PLACEMENTS.filter((option) => args[option] !== undefined);
       if (chosen.length > 1 || (chosen.length === 0 && to === undefined))
-        invalid(name, "give exactly one of after, before, first, last, or to.");
+        invalid(
+          name,
+          "give exactly one of after, before, first, last, key, or to."
+        );
       if (to !== undefined && (after !== undefined || before !== undefined))
-        invalid(name, "to goes with first or last, not with after or before.");
+        invalid(
+          name,
+          "to goes with first, last or key, not with after or before."
+        );
+      if (given !== undefined && !isKey(given))
+        invalid(name, "key takes an ordering key (isKey, keyBetween).");
       if (
         (first !== undefined && first !== true) ||
         (last !== undefined && last !== true)
@@ -503,6 +512,21 @@ function methods(ordered: Ordered, engine: () => Engine) {
         ...(include === undefined ? {} : { include }),
         ...(omit === undefined ? {} : { omit }),
       };
+      // A key the caller computed (`keyBetween` over the neighbours it
+      // shows): written as given, in one update, nothing read first.
+      if (given !== undefined)
+        try {
+          return await delegate.update!({
+            ...controls,
+            where,
+            data: { [key]: given, ...((to as Row | undefined) ?? {}) },
+            ...projection,
+          });
+        } catch (error) {
+          throw error instanceof NotFoundError
+            ? new NotFoundError(name, "move")
+            : error;
+        }
       const recognised = named(where);
       const fields = Object.keys(recognised);
       const isMoved = (row: Row) =>
@@ -768,19 +792,22 @@ export type MovePlacement<
   K extends keyof Config,
 > =
   | ({ readonly after: Unique<C, K> } & None<
-      "before" | "first" | "last" | "to"
+      "before" | "first" | "last" | "key" | "to"
     >)
   | ({ readonly before: Unique<C, K> } & None<
-      "after" | "first" | "last" | "to"
+      "after" | "first" | "last" | "key" | "to"
     >)
   | ({ readonly first: true; readonly to?: ListOf<M, Config, K> } & None<
-      "after" | "before" | "last"
+      "after" | "before" | "last" | "key"
     >)
   | ({ readonly last: true; readonly to?: ListOf<M, Config, K> } & None<
-      "after" | "before" | "first"
+      "after" | "before" | "first" | "key"
+    >)
+  | ({ readonly key: string; readonly to?: ListOf<M, Config, K> } & None<
+      "after" | "before" | "first" | "last"
     >)
   | ({ readonly to: ListOf<M, Config, K> } & None<
-      "after" | "before" | "first" | "last"
+      "after" | "before" | "first" | "last" | "key"
     >);
 type MoveArgs<
   M,

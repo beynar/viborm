@@ -10,7 +10,7 @@
 
 import { PGliteDriver } from "@src/drivers/pglite";
 import { createClient, s } from "@src/index";
-import { ordering, orderingKey } from "@src/ordering";
+import { keyBetween, ordering, orderingKey } from "@src/ordering";
 import { expectTypeOf } from "vitest";
 
 const column = s.model({
@@ -62,6 +62,15 @@ export async function probes() {
   await db.card.move({ where: { id: "a" }, to: { column: "c2" } });
   // @ts-expect-error columnId is a string
   await db.card.move({ where: { id: "a" }, to: { columnId: 5 } });
+  // A key the caller computed, in its list or another.
+  await db.card.move({ where: { id: "a" }, key: keyBetween(null, null) });
+  await db.card.move({
+    where: { id: "a" },
+    key: keyBetween(null, null),
+    to: { columnId: "c2" },
+  });
+  // @ts-expect-error a key is a placement of its own
+  await db.card.move({ where: { id: "a" }, key: "15", after: { id: "b" } });
   // One placement.
   // @ts-expect-error after and before together
   await db.card.move({
