@@ -3,6 +3,43 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## Unreleased
+
+### Added
+
+- **`viborm/ordering`**: user-defined order for the members of a list
+  (cards in kanban columns), `ordering({ card: { key: "rank", within:
+  ["columnId"] } })(client)`.
+  - Keys are decimal fractional keys: digit strings, so they sort the same
+    under every collation that orders digits as digits (letters do not:
+    Czech `ch`, Danish `aa`; measured on 89 ICU locales). No column
+    collation, no migration.
+  - Reads of an ordered model without `orderBy` come back in list order, at
+    the root and in to-many relation reads at any depth.
+  - A row created without its key goes last of its list, on every create
+    path (nested creates, `createMany` in array order, `upsert`,
+    `connectOrCreate`). The INSERT computes the key from the list's last
+    key: no read first, on PostgreSQL, SQLite, libSQL, PGlite and D1. On
+    MySQL, where that statement deadlocks under concurrent appends, a
+    plain read of the last key comes first.
+  - `move({ where, after | before | first | last | to })` writes one row,
+    through the client (permissions, soft delete, `updatedAt`, write hooks
+    apply), guarded against a concurrent move of the same row; it respaces
+    a list by itself when a gap is used up or neighbours tie.
+  - `rekey({ where, orderBy })` respaces lists in one transaction: how an
+    existing table adopts the extension.
+  - `orderingKey`, a validator for the key field; `keyBetween`,
+    `keysBetween` and `isKey` compute keys in the browser as the server
+    does.
+- **The `order` extension capability**: `order: { models: { card: [{ rank:
+  "asc" }] } }` gives a model the order its reads take when the caller gives
+  no `orderBy`: root `findMany`/`findFirst`, to-many relation reads at any
+  depth, and paged `count`/`aggregate` windows. An explicit `orderBy`
+  replaces it; cached reads are keyed on it.
+- A model method factory receives the client scope after its delegate:
+  `model: { post(delegate, scope) { … } }`, the same scope a client factory
+  receives.
+
 ## 1.6.0 — 2026-10-30
 
 VibORM Studio: the schema as a diagram, and the rows to browse and edit

@@ -1,0 +1,158 @@
+---
+title: Ordering
+description: Keep the members of a list in the order you choose, and move one by writing one row
+icon: list-ordered
+---
+
+`ordering()` is the official extension for user-defined order: cards in the
+columns of a kanban, tracks in a playlist, items of a checklist. Each member
+holds a key, reads come back in key order, a new member goes last of its
+list, and `move` places a member anywhere by writing that one row.
+
+```ts
+import { ordering, orderingKey } from "viborm/ordering";
+
+const card = s.model({
+  id: s.string().id().ulid(),
+  columnId: s.string(),
+  rank: s.string().schema(orderingKey),
+  title: s.string(),
+  column: s.toOne(() => column).fields("columnId").references("id"),
+}).index(["columnId", "rank", "id"]);
+
+const db = ordering({ card: { key: "rank", within: ["columnId"] } })(base);
+
+await db.card.create({ data: { columnId, title: "Write the docs" } }); // last of its column
+await db.card.move({ where: { id }, after: { id: otherId } });
+await db.card.move({ where: { id }, to: { columnId: doneId } });       // last of another column
+await db.column.findMany({ include: { cards: true } });                // cards in their order
+```
+
+The extension lives in its own entry point, so an application that does not
+import it pays nothing for it.
+
+## Configuration
+
+`ordering({ [model]: { key, within } })`:
+
+- `key`: a required string field with no default. The extension writes it.
+- `within`: the fields whose values name a list (`["columnId"]`: one list
+  per column). A `NULL` value is a list of its own. Leave it out for one list
+  holding every row of the model.
+
+The model needs a primary or unique key. Declare the index
+`(within…, key, id)`: every ordered read is a range of it.
+
+`orderingKey` is a validator for the key field: with it, a write that sets
+the key to something that is not one (in a nested write too) is refused with
+a `ValidationError`. It is optional, and recommended.
+
+## Reads
+
+A read of an ordered model that gives no `orderBy` is sorted by the list's
+fields, then the key, then the model's key: a root `findMany` or `findFirst`,
+a to-many relation read at any depth (`include`, `select`, recursive), and
+the rows a paged `count` or `aggregate` counts. An explicit `orderBy`
+replaces it; `orderBy: []` reads in key order. `findUnique` and `groupBy` are
+not sorted.
+
+## Creates
+
+A row created without its key goes last of its list, on every create path:
+`create`, `createMany` (which keeps the array's order within each list),
+nested creates, `upsert`'s create branch and `connectOrCreate`'s. A key you
+write is used as is.
+
+The key is computed by the INSERT itself, from the last key of its list: a
+create sends the statements it sends without the extension. Two creates into
+one list at the same moment both go after every member that was there; which
+of the two comes first is arbitrary.
+
+On MySQL, that INSERT would deadlock under concurrent creates into one list
+(its read of the list takes shared locks), so a create first reads the last
+key of its list with a plain read that locks nothing: one more statement per
+create. Inside an array transaction, which cannot read before writing, MySQL
+uses the one-statement form, and two such transactions appending to one list
+at the same moment can deadlock: retry the one that fails.
+
+## `move`
+
+```ts
+await db.card.move({ where: { id }, after: { id: otherId } });
+await db.card.move({ where: { id }, before: { id: otherId } });
+await db.card.move({ where: { id }, first: true });
+await db.card.move({ where: { id }, last: true });
+await db.card.move({ where: { id }, to: { columnId: doneId } });              // last of that list
+await db.card.move({ where: { id }, to: { columnId: doneId }, first: true });
+```
+
+- `where` names the row; `after` and `before` name the anchor, both with the
+  model's unique inputs. With an anchor, the row joins the anchor's list.
+- `to` names another list by its `within` fields, with `first` or `last`
+  (`last` when alone).
+- `select`, `include` and `omit` shape the result, as `update`'s do; `move`
+  returns what `update` returns.
+- Moving a row to where it already is writes nothing.
+
+A move reads the row and the anchor's neighbour (through your extensions, so
+a soft-deleted or forbidden row is neither moved nor an anchor), then
+updates the row through the client: its `updatedAt`, validation, permissions
+and [write hooks](/docs/extensions/on) apply as to any `update`. The update
+is guarded on the row as read: if another writer moved it meanwhile, the
+move reads again (three attempts, then a `QueryError`). If the anchor moves
+between the read and the write, the row lands where the anchor was.
+
+A key gains about half a digit each time a member is placed into the same
+gap, so many moves into one spot grow keys. When a move's gap is used up
+(its key would pass 64 digits) or its neighbours tie, the move respaces the
+list in one transaction, then places the row.
+
+Errors: a missing or hidden row or anchor is a `NotFoundError`; no placement,
+two placements, `to` with an anchor, or a row as its own anchor is a
+`ValidationError`.
+
+`move` runs when it is awaited. It cannot be a member of an array
+transaction (`$transaction([...])`), which refuses it before it reads
+anything. Inside an interactive transaction (`$transaction(async (tx) =>
+…)`), `tx.card.move(…)` runs in it.
+
+## `rekey`
+
+```ts
+await db.card.rekey({ where: { columnId } });                            // respace
+await db.card.rekey({ where: { columnId }, orderBy: { createdAt: "asc" } }); // reorder
+```
+
+`rekey` gives every row of the lists `where` matches fresh, evenly spaced
+keys in their current order, or in `orderBy` within each list, in one
+transaction. It returns `{ count }`.
+
+It is how an existing table adopts the extension: add the key field with any
+constant value, deploy, then `rekey` each list in the order it should have.
+
+## Keys
+
+A key is a string of digits: an integer part that carries its own length,
+then a fraction. Comparing two keys as strings compares their values under
+every collation that orders digits as digits, so the column needs no special
+collation. Letters would not do: Czech sorts `ch` after `h`, Danish sorts
+`aa` after `z`. A collation with numeric ordering (ICU `kn-true`) is the one
+exception.
+
+`keyBetween(lower, upper)` (with `null` for an open end) and
+`keysBetween(lower, upper, n)` compute keys in the browser as the server
+does: a client can place a card at once and send its key with the write.
+`isKey(value)` tells whether a value is a key.
+
+Each generated key holds a random part, so two writers placing into one gap
+at the same moment get distinct keys. A tie (equal keys) is still possible
+with keys you write yourself; reads stay ordered (by the model's key among
+equals), and `move` respaces a list when it needs a gap between two tied
+members.
+
+## Applying it with other extensions
+
+`ordering(config)` applies two steps: `ordering(config).keys` (the default
+order and the appended keys) and `ordering(config).methods` (`move` and
+`rekey`). Apply them apart when another entry's steps go between them, every
+`keys`-like step (soft delete's `rows`, for one) first.

@@ -1,5 +1,5 @@
-import type { Sql } from "@sql";
 import type { AnyModel } from "@schema/model";
+import type { Sql } from "@sql";
 import type { Queries } from "./query";
 import type { Input } from "./schema";
 

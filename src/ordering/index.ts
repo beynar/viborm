@@ -7,9 +7,15 @@
 // existing table adopts the extension, and how a list whose keys have grown
 // too long, or tie, is repaired (`move` does it on its own when it must).
 
-import { ClientInitializationError, NotFoundError, QueryError } from "../errors";
-import { ValidationError } from "../errors/validation";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { OperationPayload } from "../client/exports"; // public today
+import {
+  ClientInitializationError,
+  NotFoundError,
+  QueryError,
+} from "../errors";
+import { ValidationError } from "../errors/validation";
+import type { OrderTerm } from "../extensions/controls";
 import type {
   ClientSchema,
   ClientTypeState,
@@ -18,9 +24,7 @@ import type {
   VibORMClient,
   VibORMConfig,
 } from "../index";
-import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { getModelKeyCatalog } from "../schema/model/keys";
-import type { OrderTerm } from "../extensions/controls";
 import { AppendKey } from "./append";
 import { isKey, keyBetween, keysBetween } from "./keys";
 
@@ -63,12 +67,14 @@ type Schema = VibORMConfig["schema"];
 type AnyModel = Schema[string];
 type Names<Config extends OrderingConfig> = keyof Config & string;
 type Row = Readonly<Record<string, unknown>>;
-type Delegate = Readonly<Record<string, (args: object) => PromiseLike<unknown>>>;
+type Delegate = Readonly<
+  Record<string, (args: object) => PromiseLike<unknown>>
+>;
 interface Scope {
   readonly $schema: Schema;
-  readonly $transaction: (operations: readonly PromiseLike<unknown>[]) => Promise<
-    readonly unknown[]
-  >;
+  readonly $transaction: (
+    operations: readonly PromiseLike<unknown>[]
+  ) => Promise<readonly unknown[]>;
   readonly [model: string]: unknown;
 }
 
@@ -129,13 +135,6 @@ function admit(schema: Schema, config: OrderingConfig): readonly Ordered[] {
 // move and rekey
 // ---------------------------------------------------------------------------
 
-type Placement =
-  | { readonly after: Row }
-  | { readonly before: Row }
-  | { readonly first: true; readonly to?: Row }
-  | { readonly last: true; readonly to?: Row }
-  | { readonly to: Row };
-
 const PLACEMENTS = ["after", "before", "first", "last"] as const;
 
 const same = (left: unknown, right: unknown) =>
@@ -164,7 +163,9 @@ async function respace(
 ): Promise<number> {
   const lists = new Map<string, Row[]>();
   for (const row of rows) {
-    const list = JSON.stringify(ordered.within.map((field) => String(row[field])));
+    const list = JSON.stringify(
+      ordered.within.map((field) => String(row[field]))
+    );
     const members = lists.get(list) ?? [];
     members.push(row);
     lists.set(list, members);
@@ -200,14 +201,27 @@ function methods(ordered: Ordered) {
       }) as Promise<Row[]>;
 
     async function place(args: Readonly<Record<string, unknown>>) {
-      const { where, after, before, first, last, to, select, include, omit, ...controls } =
-        args as Record<string, unknown> & { where: Row };
+      const {
+        where,
+        after,
+        before,
+        first,
+        last,
+        to,
+        select,
+        include,
+        omit,
+        ...controls
+      } = args as Record<string, unknown> & { where: Row };
       const chosen = PLACEMENTS.filter((option) => args[option] !== undefined);
       if (chosen.length > 1 || (chosen.length === 0 && to === undefined))
         invalid(name, "give exactly one of after, before, first, last, or to.");
       if (to !== undefined && (after !== undefined || before !== undefined))
         invalid(name, "to goes with first or last, not with after or before.");
-      if ((first !== undefined && first !== true) || (last !== undefined && last !== true))
+      if (
+        (first !== undefined && first !== true) ||
+        (last !== undefined && last !== true)
+      )
         invalid(name, "first and last take true.");
       if (to !== undefined) {
         const fields = Object.keys(to as Row);
@@ -218,7 +232,10 @@ function methods(ordered: Ordered) {
           invalid(name, `to names the list's fields: ${within.join(", ")}.`);
       }
       const anchor = (after ?? before) as Row | undefined;
-      if (anchor !== undefined && JSON.stringify(anchor) === JSON.stringify(where))
+      if (
+        anchor !== undefined &&
+        JSON.stringify(anchor) === JSON.stringify(where)
+      )
         invalid(name, "a row cannot be placed next to itself.");
       const projection = {
         ...(select === undefined ? {} : { select }),
@@ -231,8 +248,7 @@ function methods(ordered: Ordered) {
           where,
           select: selection,
         })) as Row | null;
-        if (moved === null)
-          throw new NotFoundError(name, "move");
+        if (moved === null) throw new NotFoundError(name, "move");
         let group: Row;
         let low: string | null;
         let high: string | null;
@@ -247,10 +263,11 @@ function methods(ordered: Ordered) {
             select: selection,
           })) as Row[];
           const found = rows.find((row) =>
-            Object.entries(anchor).every(([field, value]) => same(row[field], value))
+            Object.entries(anchor).every(([field, value]) =>
+              same(row[field], value)
+            )
           );
-          if (found === undefined)
-            throw new NotFoundError(name, "move");
+          if (found === undefined) throw new NotFoundError(name, "move");
           group = fieldsOf(within, found);
           const other = rows.find((row) => row !== found);
           const neighbour =
@@ -287,13 +304,23 @@ function methods(ordered: Ordered) {
           (low !== null && high !== null && !(low < high))
         ) {
           // Tied or malformed neighbours: the list is respaced, then read again.
-          await respace(ordered, scope, delegate, await members(group, controls));
+          await respace(
+            ordered,
+            scope,
+            delegate,
+            await members(group, controls)
+          );
           continue;
         }
         const next = keyBetween(low, high);
         if (!isKey(next)) {
           // The gap has been split too often: its list is respaced.
-          await respace(ordered, scope, delegate, await members(group, controls));
+          await respace(
+            ordered,
+            scope,
+            delegate,
+            await members(group, controls)
+          );
           continue;
         }
         try {
@@ -321,14 +348,14 @@ function methods(ordered: Ordered) {
     const lazily = <T>(run: () => Promise<T>): PromiseLike<T> => {
       let started: Promise<T> | undefined;
       return {
-        // biome-ignore lint/suspicious/noThenProperty: a lazy thenable by design
         then: (onFulfilled, onRejected) =>
           (started ??= run()).then(onFulfilled, onRejected),
       };
     };
 
     return {
-      move: (args: Readonly<Record<string, unknown>>) => lazily(() => place(args)),
+      move: (args: Readonly<Record<string, unknown>>) =>
+        lazily(() => place(args)),
       rekey: (args: Readonly<Record<string, unknown>> = {}) =>
         lazily(async () => {
           const { where, orderBy, ...controls } = args;
@@ -375,12 +402,9 @@ export type MovePlacement<C extends VibORMConfig, K> =
 type MoveArgs<C extends VibORMConfig, K> = Projection<C, K> & {
   readonly where: Unique<C, K>;
 } & MovePlacement<C, K>;
-type FindArg<
-  C extends VibORMConfig,
-  K,
-  P extends string,
-> = NonNullable<ModelArgs<C, K, "findMany">>[P &
-  keyof NonNullable<ModelArgs<C, K, "findMany">>];
+type FindArg<C extends VibORMConfig, K, P extends string> = NonNullable<
+  ModelArgs<C, K, "findMany">
+>[P & keyof NonNullable<ModelArgs<C, K, "findMany">>];
 type RekeyArgs<C extends VibORMConfig, K> = {
   readonly where?: FindArg<C, K, "where">;
   readonly orderBy?: FindArg<C, K, "orderBy">;
@@ -391,7 +415,10 @@ type OrderingModels<
   C extends VibORMConfig,
   Config extends OrderingConfig,
 > = {
-  readonly [K in Names<Config>]: (delegate: never, scope: never) => {
+  readonly [K in Names<Config>]: (
+    delegate: never,
+    scope: never
+  ) => {
     move<A extends MoveArgs<C, K>>(
       args: A
     ): PromiseLike<ExtendedOperationResult<M, K, "update", A>>;
@@ -466,7 +493,10 @@ type Keyed<Config extends OrderingConfig, Base> = Base extends ClientTypeState<
     ? ReturnType<typeof keysStep<Config, C, X>>
     : never
   : never;
-type Movable<Config extends OrderingConfig, Base> = Base extends ClientTypeState<
+type Movable<
+  Config extends OrderingConfig,
+  Base,
+> = Base extends ClientTypeState<
   infer C extends Governed<Config>,
   infer X extends ExtensionState
 >

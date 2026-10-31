@@ -4,10 +4,14 @@
  * database with `schema` pushed, and runs `describeOrdering`.
  */
 
-import { ClientInitializationError, NotFoundError, ValidationError } from "@errors";
+import {
+  ClientInitializationError,
+  NotFoundError,
+  ValidationError,
+} from "@errors";
+import { s } from "@schema";
 import { Sql } from "@sql";
 import { isKey, ordering, orderingKey } from "@src/ordering";
-import { s } from "@schema";
 import { describe, expect, test } from "vitest";
 
 const column = s.model({
@@ -20,7 +24,10 @@ const card = s.model({
   columnId: s.string().nullable(),
   rank: s.string().schema(orderingKey),
   title: s.string(),
-  column: s.toOne(() => column).fields("columnId").references("id"),
+  column: s
+    .toOne(() => column)
+    .fields("columnId")
+    .references("id"),
 });
 
 export const schema = { column, card };
@@ -57,12 +64,14 @@ export function describeOrdering(
         return statement;
       },
     });
-    // biome-ignore lint/suspicious/noExplicitAny: the test drives the extended client dynamically
-    const db = ordering({ card: { key: "rank", within: ["columnId"] } })(counted as any) as any;
+    const db = ordering({ card: { key: "rank", within: ["columnId"] } })(
+      counted as any
+    ) as any;
     await db.column.createMany({ data: [{ id: "c1" }, { id: "c2" }] });
     return db;
   };
-  const titles = (rows: readonly { title: string }[]) => rows.map((row) => row.title);
+  const titles = (rows: readonly { title: string }[]) =>
+    rows.map((row) => row.title);
   const listOf = async (db: any, columnId: string | null) =>
     titles(await db.card.findMany({ where: { columnId } }));
 
@@ -74,7 +83,9 @@ export function describeOrdering(
       await db.card.create({ data: { id: "x", columnId: "c2", title: "x" } });
       expect(await listOf(db, "c1")).toEqual(["a", "b", "c"]);
       expect(await listOf(db, "c2")).toEqual(["x"]);
-      const ranks = (await db.card.findMany()).map((row: { rank: string }) => row.rank);
+      const ranks = (await db.card.findMany()).map(
+        (row: { rank: string }) => row.rank
+      );
       expect(ranks.every(isKey)).toBe(true);
     });
 
@@ -90,7 +101,9 @@ export function describeOrdering(
 
     test("createMany keeps the array's order, per list", async () => {
       const db = await setup();
-      await db.card.create({ data: { id: "first", columnId: "c1", title: "first" } });
+      await db.card.create({
+        data: { id: "first", columnId: "c1", title: "first" },
+      });
       await db.card.createMany({
         data: [
           { id: "m1", columnId: "c1", title: "m1" },
@@ -130,13 +143,19 @@ export function describeOrdering(
 
     test("concurrent appends to one list all land, after the list, with distinct keys", async () => {
       const db = await setup();
-      await db.card.create({ data: { id: "first", columnId: "c1", title: "first" } });
+      await db.card.create({
+        data: { id: "first", columnId: "c1", title: "first" },
+      });
       await Promise.all(
         Array.from({ length: 4 }, (_, writer) =>
           (async () => {
             for (let index = 0; index < 10; index++)
               await db.card.create({
-                data: { id: `w${writer}-${index}`, columnId: "c1", title: `w${writer}-${index}` },
+                data: {
+                  id: `w${writer}-${index}`,
+                  columnId: "c1",
+                  title: `w${writer}-${index}`,
+                },
               });
           })()
         )
@@ -144,11 +163,17 @@ export function describeOrdering(
       const rows = await db.card.findMany({ where: { columnId: "c1" } });
       expect(rows).toHaveLength(41);
       expect(rows[0].title).toBe("first");
-      expect(new Set(rows.map((row: { rank: string }) => row.rank)).size).toBe(41);
+      expect(new Set(rows.map((row: { rank: string }) => row.rank)).size).toBe(
+        41
+      );
       // Each writer's own appends keep their order.
       for (let writer = 0; writer < 4; writer++) {
-        const mine = titles(rows).filter((title) => title.startsWith(`w${writer}-`));
-        expect(mine).toEqual(Array.from({ length: 10 }, (_, index) => `w${writer}-${index}`));
+        const mine = titles(rows).filter((title) =>
+          title.startsWith(`w${writer}-`)
+        );
+        expect(mine).toEqual(
+          Array.from({ length: 10 }, (_, index) => `w${writer}-${index}`)
+        );
       }
     });
 
@@ -195,12 +220,15 @@ export function describeOrdering(
       const db = await setup();
       await db.card.create({ data: { id: "a", columnId: "c1", title: "a" } });
       await db.card.create({ data: { id: "b", columnId: "c1", title: "b" } });
-      const supports = (db.$driver as { supportsTransactions?: boolean })?.supportsTransactions;
+      const supports = (db.$driver as { supportsTransactions?: boolean })
+        ?.supportsTransactions;
       if (supports === false) return;
       await expect(
         db.$transaction(async (tx: typeof db) => {
           await tx.card.move({ where: { id: "a" }, last: true });
-          expect(titles(await tx.card.findMany({ where: { columnId: "c1" } }))).toEqual(["b", "a"]);
+          expect(
+            titles(await tx.card.findMany({ where: { columnId: "c1" } }))
+          ).toEqual(["b", "a"]);
           throw new Error("roll back");
         })
       ).rejects.toThrow("roll back");
@@ -226,14 +254,18 @@ export function describeOrdering(
     test("a written key that is not one is refused", async () => {
       const db = await setup();
       await expect(
-        db.card.create({ data: { id: "a", columnId: "c1", title: "a", rank: "abc" } })
+        db.card.create({
+          data: { id: "a", columnId: "c1", title: "a", rank: "abc" },
+        })
       ).rejects.toThrow(ValidationError);
       await db.card.create({ data: { id: "a", columnId: "c1", title: "a" } });
       await expect(
         db.card.update({ where: { id: "a" }, data: { rank: { set: "150" } } })
       ).rejects.toThrow(ValidationError);
       await expect(
-        db.card.createMany({ data: [{ id: "b", columnId: "c1", title: "b", rank: "x" }] })
+        db.card.createMany({
+          data: [{ id: "b", columnId: "c1", title: "b", rank: "x" }],
+        })
       ).rejects.toThrow(ValidationError);
       await expect(
         db.card.upsert({
@@ -249,7 +281,9 @@ export function describeOrdering(
         })
       ).rejects.toThrow(ValidationError);
       await db.card.update({ where: { id: "a" }, data: { rank: "155" } });
-      expect((await db.card.findUnique({ where: { id: "a" } })).rank).toBe("155");
+      expect((await db.card.findUnique({ where: { id: "a" } })).rank).toBe(
+        "155"
+      );
     });
 
     test("move: after, before, first, last, within a list", async () => {
@@ -277,7 +311,11 @@ export function describeOrdering(
       expect(await listOf(db, "c2")).toEqual(["x", "a", "y"]);
       await db.card.move({ where: { id: "y" }, to: { columnId: "c1" } });
       expect(await listOf(db, "c1")).toEqual(["b", "y"]);
-      await db.card.move({ where: { id: "x" }, to: { columnId: "c1" }, first: true });
+      await db.card.move({
+        where: { id: "x" },
+        to: { columnId: "c1" },
+        first: true,
+      });
       expect(await listOf(db, "c1")).toEqual(["x", "b", "y"]);
       expect(await listOf(db, "c2")).toEqual(["a"]);
     });
@@ -288,22 +326,26 @@ export function describeOrdering(
         await db.card.create({ data: { id: title, columnId: "c1", title } });
       const before = (await db.card.findUnique({ where: { id: "b" } })).rank;
       await db.card.move({ where: { id: "b" }, after: { id: "a" } });
-      expect((await db.card.findUnique({ where: { id: "b" } })).rank).toBe(before);
+      expect((await db.card.findUnique({ where: { id: "b" } })).rank).toBe(
+        before
+      );
     });
 
     test("move refuses a missing row or anchor, itself, and no placement", async () => {
       const db = await setup();
       await db.card.create({ data: { id: "a", columnId: "c1", title: "a" } });
-      await expect(db.card.move({ where: { id: "nope" }, first: true })).rejects.toThrow(
-        NotFoundError
-      );
+      await expect(
+        db.card.move({ where: { id: "nope" }, first: true })
+      ).rejects.toThrow(NotFoundError);
       await expect(
         db.card.move({ where: { id: "a" }, after: { id: "nope" } })
       ).rejects.toThrow(NotFoundError);
-      await expect(db.card.move({ where: { id: "a" }, after: { id: "a" } })).rejects.toThrow(
+      await expect(
+        db.card.move({ where: { id: "a" }, after: { id: "a" } })
+      ).rejects.toThrow(ValidationError);
+      await expect(db.card.move({ where: { id: "a" } })).rejects.toThrow(
         ValidationError
       );
-      await expect(db.card.move({ where: { id: "a" } })).rejects.toThrow(ValidationError);
       await expect(
         db.card.move({ where: { id: "a" }, first: true, last: true })
       ).rejects.toThrow(ValidationError);
@@ -326,7 +368,9 @@ export function describeOrdering(
       for (const title of ["a", "b"])
         await db.card.create({ data: { id: title, columnId: "c1", title } });
       for (let index = 0; index < 150; index++) {
-        await db.card.create({ data: { id: `m${index}`, columnId: "c1", title: `m${index}` } });
+        await db.card.create({
+          data: { id: `m${index}`, columnId: "c1", title: `m${index}` },
+        });
         await db.card.move({ where: { id: `m${index}` }, after: { id: "a" } });
       }
       const list = await listOf(db, "c1");
@@ -337,6 +381,37 @@ export function describeOrdering(
         (row: { rank: string }) => row.rank
       );
       expect(ranks.every(isKey)).toBe(true);
+    });
+
+    test("rekey inside an interactive transaction runs in it", async () => {
+      const db = await setup();
+      const supports = (db.$driver as { supportsTransactions?: boolean })
+        ?.supportsTransactions;
+      if (supports === false) return;
+      for (const title of ["b", "a"])
+        await db.card.create({
+          data: { id: title, columnId: "c1", title, rank: "15" },
+        });
+      await expect(
+        db.$transaction(async (tx: typeof db) => {
+          await tx.card.rekey({
+            where: { columnId: "c1" },
+            orderBy: { title: "desc" },
+          });
+          throw new Error("roll back");
+        })
+      ).rejects.toThrow("roll back");
+      const ranks = (await db.card.findMany({ where: { columnId: "c1" } })).map(
+        (row: { rank: string }) => row.rank
+      );
+      expect(ranks).toEqual(["15", "15"]);
+      await db.$transaction(async (tx: typeof db) => {
+        await tx.card.rekey({
+          where: { columnId: "c1" },
+          orderBy: { title: "desc" },
+        });
+      });
+      expect(await listOf(db, "c1")).toEqual(["b", "a"]);
     });
 
     test("rekey gives a list fresh keys in its order, or in another", async () => {
@@ -359,19 +434,28 @@ export function describeOrdering(
   });
 }
 
-export function describeOrderingAdmission(open: () => Promise<{ client: Base }>) {
+export function describeOrderingAdmission(
+  open: () => Promise<{ client: Base }>
+) {
   describe("ordering: configuration", () => {
     test.each([
       ["an unknown model", { nope: { key: "rank" } }],
       ["an unknown key field", { card: { key: "nope" } }],
       ["a key that is not a string", { card: { key: "id" } }],
-      ["a key in its list's fields", { card: { key: "rank", within: ["rank"] } }],
+      [
+        "a key in its list's fields",
+        { card: { key: "rank", within: ["rank"] } },
+      ],
       ["an unknown list field", { card: { key: "rank", within: ["nope"] } }],
-      ["a list field twice", { card: { key: "rank", within: ["columnId", "columnId"] } }],
+      [
+        "a list field twice",
+        { card: { key: "rank", within: ["columnId", "columnId"] } },
+      ],
     ])("refuses %s", async (_, config) => {
       const { client } = await open();
-      // biome-ignore lint/suspicious/noExplicitAny: invalid configurations on purpose
-      expect(() => ordering(config as any)(client as any)).toThrow(ClientInitializationError);
+      expect(() => ordering(config as any)(client as any)).toThrow(
+        ClientInitializationError
+      );
     });
   });
 }

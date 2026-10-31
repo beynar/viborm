@@ -22,7 +22,10 @@ const card = s.model({
   columnId: s.string(),
   rank: s.string().schema(orderingKey),
   title: s.string(),
-  column: s.toOne(() => column).fields("columnId").references("id"),
+  column: s
+    .toOne(() => column)
+    .fields("columnId")
+    .references("id"),
 });
 const schema = { column, card };
 
@@ -54,7 +57,11 @@ export async function probes() {
   });
   expectTypeOf(picked).toEqualTypeOf<{ title: string }>();
   await db.card.move({ where: { id: "a" }, to: { columnId: "c2" } });
-  await db.card.move({ where: { id: "a" }, last: true, to: { columnId: "c2" } });
+  await db.card.move({
+    where: { id: "a" },
+    last: true,
+    to: { columnId: "c2" },
+  });
   // @ts-expect-error the moved row is named by a unique input
   await db.card.move({ where: { nope: "a" }, first: true });
   // @ts-expect-error the anchor is named by a unique input

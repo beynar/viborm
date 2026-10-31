@@ -742,6 +742,18 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
     ],
     []
   ),
+  "./ordering": surface(
+    [
+      "MAX_KEY_LENGTH",
+      "isKey",
+      "keyBetween",
+      "keysBetween",
+      "ordering",
+      "orderingKey",
+    ],
+    ["MovePlacement", "OrderingConfig", "OrderingModel"],
+    []
+  ),
   "./adapters": surface(
     [
       "MySQLAdapter",

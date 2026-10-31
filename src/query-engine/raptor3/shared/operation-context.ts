@@ -47,6 +47,7 @@ import type {
   PreparedGuardFailure,
 } from "../../types";
 import { type WriteKind, writeSinks } from "../../write-sinks";
+import { InsertValue } from "./insert-value";
 import {
   GatedFieldRefusal,
   InvalidScalarResult,
@@ -61,7 +62,6 @@ import {
   returningSafeProjection,
   wholeValue,
 } from "./query";
-import { InsertValue } from "./insert-value";
 import type { CallScope, RowJudgement } from "./row-scope";
 import {
   type EngineSchema,
@@ -2722,7 +2722,7 @@ export class OperationContext {
    */
   async createMany(
     model: AnyModel,
-    rows: Input[],
+    given: Input[],
     projection?: PreparedProjection,
     skipDuplicates = false,
     single?: () => Error,
@@ -2735,12 +2735,12 @@ export class OperationContext {
     // insert for createMany." there (`assertBatchPreparable`). The mode is the
     // fact, and this is the owner that holds it — admission cannot, because the
     // same payload is admitted on both routes.
-    if (rows.length === 0) {
+    if (given.length === 0) {
       if (this.#ownership === "batch-preparation")
         throw new QueryEngineError("No data to insert for createMany.");
       return this.emptyBulkResult(projection);
     }
-    rows = await this.#computed(model, rows);
+    const rows = await this.#computed(model, given);
     const q = this.queries;
     const adapter = this.driver.adapter;
     const placed = this.#produced(model);
@@ -2969,7 +2969,7 @@ export class OperationContext {
    */
   async upsertOne(
     model: AnyModel,
-    row: Input,
+    given: Input,
     updates: Input,
     target: readonly string[],
     projection?: PreparedProjection,
@@ -2979,7 +2979,7 @@ export class OperationContext {
   ): Promise<unknown> {
     const q = this.queries;
     const adapter = this.driver.adapter;
-    row = (await this.#computed(model, [row]))[0]!;
+    const row = (await this.#computed(model, [given]))[0]!;
     const columns = Object.keys(row);
     const placed = this.#produced(model);
     const insert = this.#insertStatement(model, columns, [row], false, placed);
@@ -3536,7 +3536,7 @@ export class OperationContext {
   }
   async insert(
     model: AnyModel,
-    values: Input,
+    given: Input,
     demanded: ReadonlySet<string>,
     member: Member,
     operation = "create",
@@ -3547,7 +3547,7 @@ export class OperationContext {
   ): Promise<Input> {
     const q = this.queries;
     const adapter = this.driver.adapter;
-    values = (await this.#computed(model, [values]))[0]!;
+    const values = (await this.#computed(model, [given]))[0]!;
     const fields = Object.keys(values);
     const placed = this.#produced(model);
     const judged = placed && { model, refusal: refusal ?? this.#forbidden };

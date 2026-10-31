@@ -17,12 +17,18 @@ import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 describe("PGlite Driver", () => {
   describeOrdering("PGlite", async () => {
-    const client = createClient({ schema, driver: createInMemoryPGliteDriver() });
+    const client = createClient({
+      schema,
+      driver: createInMemoryPGliteDriver(),
+    });
     await syncLiveSchema(client);
     return { client };
   });
   describeOrdering("PGlite batch-only", async () => {
-    const client = createClient({ schema, driver: new BatchOnlyPGliteDriver() });
+    const client = createClient({
+      schema,
+      driver: new BatchOnlyPGliteDriver(),
+    });
     await syncLiveSchema(client);
     return { client };
   });

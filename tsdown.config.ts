@@ -79,6 +79,8 @@ const runtime = {
     // Write hooks (viborm/on): the official `on` extension, carried by
     // identity like the cache, so it shares the root's chunks.
     on: "./src/on/index.ts",
+    // List order (viborm/ordering): the official ordering extension.
+    ordering: "./src/ordering/index.ts",
 
     // Adapters (internal, but exposed for advanced usage)
     adapters: "./src/adapters/index.ts",

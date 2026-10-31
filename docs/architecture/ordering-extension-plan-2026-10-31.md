@@ -416,3 +416,43 @@ As `viborm/on` (#124), plus what round 1 found missing:
 | `move` API gaps (Opus) | Unique inputs, `to` alone, no-op, per-call controls (5) |
 | Trello/Linear/Figma claim unverified (both) | Removed; semantics stated directly (5) |
 | Packaging list incomplete (Opus) | Completed (9) |
+
+## 13. As implemented (2026-10-31)
+
+Where the implementation departs from v2, and why:
+
+- **Appends (4.2, 4.2b).** No pre-pass in the pending operation: the
+  extension's `data` create stamp is an `InsertValue`
+  (`raptor3/shared/insert-value.ts`), kept out of create admission by
+  `Commands.stamp` and computed by `OperationContext.#computed` on every
+  INSERT path (`insert`, `insertMany`, the upsert fold) once the rows are
+  final. So every create path (nested, `createMany`, `upsert`,
+  `connectOrCreate`, array transactions, the batch route) is covered by one
+  seam, and a create is one statement on PostgreSQL, PGlite, SQLite, libSQL
+  and D1 (tested by statement count). MySQL reads the last key inside the
+  operation with a consistent read (no lock): one more statement than a
+  create without the extension (3 instead of 2, MySQL already re-reads the
+  created row). In batch preparation (array transactions) MySQL falls back
+  to the one-statement form; documented with its deadlock risk.
+- **Validation (2.6).** Not through `request` (its errors reach the caller
+  wrapped and redacted): `orderingKey`, a Standard Schema validator the key
+  field declares (`s.string().schema(orderingKey)`), checks every write,
+  nested ones included, with a real `ValidationError`.
+- **`move` reads (5).** Through the public delegate: the row (`findUnique`),
+  then the anchor and its neighbour in one `findMany` with `cursor` and
+  `take: ±2` under the default order (or `findFirst` for an end). The bound
+  is therefore visibility-filtered, not physical: placement is correct among
+  the rows the caller sees. The update is guarded on the row's observed key
+  and list (`where: { …unique, rank, columnId }`), retried 3 times. 3 round
+  trips (2 reads, 1 write).
+- **Respacing (2.5).** A tie or a key past 64 digits respaces the whole list
+  (`rekey`'s path, one array transaction of updates), not just the run.
+- **Transactions.** Model factories now receive the client scope as their
+  second argument (`model: { card(delegate, scope) {…} }`), which `rekey` and
+  respacing use for `$transaction`. `move` and `rekey` return lazy thenables:
+  an array transaction refuses them before any statement (tested).
+- **4.6.** Group changes outside `move` keep the row's key (decision §11.1
+  applied as recommended).
+- **Measured.** pg application +670 B (198.85 kB), D1 +730 B (197.8 kB);
+  `viborm/ordering` entry 11.94 kB; pg application with ordering 203.01 kB.
+  Same-gap growth ≈0.6 digit per insert; 2,000 appends stay ≤ 11 characters.

@@ -21,7 +21,10 @@ describe("libSQL Driver", () => {
     });
     const { sql } = await syncLiveSchema(planner, { dryRun: true });
     await planner.$disconnect();
-    const client = createClient({ schema, driver: createInMemoryLibSQLDriver() });
+    const client = createClient({
+      schema,
+      driver: createInMemoryLibSQLDriver(),
+    });
     for (const statement of sql) await client.$executeRawUnsafe(statement);
     return { client };
   });

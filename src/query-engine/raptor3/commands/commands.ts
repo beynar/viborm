@@ -10,6 +10,7 @@ import type { AnyModel } from "@schema/model";
 import { createFailureError } from "../../batch-error-attribution";
 import type { PreparedGuardFailure } from "../../types";
 import { writeSinks } from "../../write-sinks";
+import { InsertValue } from "../shared/insert-value";
 import type { OperationContext } from "../shared/operation-context";
 import {
   InvalidScalarResult,
@@ -17,7 +18,6 @@ import {
   returningSafeProjection,
   type SelectorFacts,
 } from "../shared/query";
-import { InsertValue } from "../shared/insert-value";
 import {
   type ModelStamps,
   Parameter,

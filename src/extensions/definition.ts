@@ -479,66 +479,56 @@ export function normalizeExtensionDefinition(
 
 /**
  * `order`, read once: per model, the terms its reads take when the caller
- * gives no `orderBy`. Each term names one scalar field, `"asc"` or `"desc"`.
- * Against a schema, the model must have a row key (its reads end with it, so
- * the order is total) and each field must be one of its scalars that orders
- * as a value (not a list, JSON, vector or point).
+ * gives no `orderBy`, each `{ field: "asc" | "desc" }`. Against a schema, the
+ * model must have a row key (its reads end with it, so the order is total)
+ * and each field must be one of its scalars that orders as a value (not a
+ * list, JSON, vector or point).
  */
 function admitOrder(
   value: unknown,
   schema: Schema | undefined,
   name: string
 ): OrderContribution {
-  const refuse = (message: string): never =>
-    extensionError(`Extension "${name}" ${message}`, name);
-  if (!isRecord(value)) refuse("order must be an object.");
-  const models = readOwn(value as Record<string, unknown>, "models", name);
-  if (!isRecord(models)) refuse("order.models must be an object.");
+  const models = isRecord(value) ? readOwn(value, "models", name) : undefined;
   const admitted: Record<string, readonly OrderTerm[]> = {};
-  for (const modelName of readOwnKeys(
-    models as Record<string, unknown>,
-    name
-  )) {
-    if (
-      typeof modelName !== "string" ||
-      (schema !== undefined && !Object.hasOwn(schema, modelName))
-    )
-      refuse(`order names unknown model "${String(modelName)}".`);
-    const key = modelName as string;
-    const model = schema?.[key];
-    if (model !== undefined && getModelKeyCatalog(model).rowKey === undefined)
-      refuse(`order.${key} needs a model with a primary or unique key.`);
-    const entry = readOwn(models as Record<string, unknown>, key, name);
+  for (const key of isRecord(models) ? readOwnKeys(models, name) : [""]) {
+    const model = schema?.[key as string];
+    const entry = isRecord(models)
+      ? readOwn(models, key as string, name)
+      : undefined;
     const terms = Array.isArray(entry) ? entry : [entry];
-    if (terms.length === 0) refuse(`order.${key} must name a field.`);
-    admitted[key] = Object.freeze(
-      terms.map((term) => {
-        if (!isRecord(term)) refuse(`order.${key} terms must be objects.`);
-        const fields = readOwnKeys(term as Record<string, unknown>, name);
+    const valid =
+      typeof key === "string" &&
+      (schema === undefined ||
+        (model !== undefined &&
+          getModelKeyCatalog(model).rowKey !== undefined)) &&
+      terms.length > 0 &&
+      terms.every((term) => {
+        const fields = isRecord(term) ? readOwnKeys(term, name) : [];
         const field = fields[0];
-        if (fields.length !== 1 || typeof field !== "string")
-          refuse(`order.${key} terms name one field each.`);
-        const direction = readOwn(
-          term as Record<string, unknown>,
-          field as string,
-          name
+        const direction = isRecord(term) ? term[field as string] : undefined;
+        const state =
+          typeof field === "string" &&
+          model !== undefined &&
+          Object.hasOwn(model["~"].state.scalars, field)
+            ? model["~"].state.scalars[field]!["~"].state
+            : undefined;
+        return (
+          fields.length === 1 &&
+          (direction === "asc" || direction === "desc") &&
+          (schema === undefined ||
+            (state !== undefined &&
+              !state.array &&
+              !UNORDERED_SCALARS.has(state.type)))
         );
-        if (direction !== "asc" && direction !== "desc")
-          refuse(`order.${key}.${String(field)} must be "asc" or "desc".`);
-        const scalar =
-          model === undefined
-            ? undefined
-            : Object.hasOwn(model["~"].state.scalars, field as string)
-              ? model["~"].state.scalars[field as string]
-              : refuse(`order.${key} names unknown field "${String(field)}".`);
-        const state = scalar?.["~"].state;
-        if (
-          state !== undefined &&
-          (state.array || UNORDERED_SCALARS.has(state.type))
-        )
-          refuse(`order.${key}.${String(field)} does not order as a value.`);
-        return Object.freeze({ [field as string]: direction }) as OrderTerm;
-      })
+      });
+    if (!valid)
+      extensionError(
+        `Extension "${name}" order${isRecord(models) ? `.${String(key)}` : ""} must map a model with a key to { field: "asc" | "desc" } terms over its ordered scalars.`,
+        name
+      );
+    admitted[key as string] = Object.freeze(
+      terms.map((term) => Object.freeze({ ...(term as OrderTerm) }))
     );
   }
   return Object.freeze({ models: Object.freeze(admitted) });

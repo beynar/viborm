@@ -86,11 +86,7 @@ export class AppendKey extends InsertValue {
    * (1-based): integer max(last, -1) + step with a random fraction, as
    * `keysBetween(last, null, …)` computes it.
    */
-  #expression(
-    context: InsertValueContext,
-    last: Sql,
-    step: number
-  ): Sql {
+  #expression(context: InsertValueContext, last: Sql, step: number): Sql {
     const first = sql.raw(String(step - 1));
     const next = sql.raw(String(step));
     switch (context.dialect) {

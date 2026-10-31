@@ -379,6 +379,25 @@ client cuts a hooked write's value back to the call's own projection
 hook's whole rows. A failing hook never fails its write: its error goes to
 `on(hooks, { onError })`, else `console.error`.
 
+The official `ordering()` (`src/ordering/`, entry `viborm/ordering`; plan
+`docs/architecture/ordering-extension-plan-2026-10-31.md`) is two ordinary
+extensions plus one engine seam. Its `keys` step declares the generic `order`
+capability (a model's default `orderBy`, threaded as `RowDomain.order` with
+the call's row facts and applied by `Queries.#ordered` at root
+`findMany`/`findFirst`, `#prepareRelationProjection` for to-many edges, and
+paged aggregate windows; never in `#page`, whose internal selects keep key
+order; keyed into cached reads by `cacheKeyOf`) and a `data` create stamp that
+is an `InsertValue` (`raptor3/shared/insert-value.ts`): `Commands.stamp` keeps
+it out of create admission, and every INSERT path of `OperationContext`
+(`insert`, `insertMany`, the upsert fold) asks it, through `#computed`, for its
+values once the rows are final (incoming foreign keys assigned). `AppendKey`
+answers with one SQL expression per row over `MAX(key)` of the row's list
+(PostgreSQL, SQLite), or, on MySQL outside batch preparation, with keys it
+computes after one consistent read (the one-statement form deadlocks under
+concurrent appends there). Its `methods` step adds `move` and `rekey` from
+the delegate and the client scope a model factory now receives; both are lazy
+thenables, so an array transaction refuses them before any statement.
+
 `cache()` produces a namespace-free DEFINITION; the client composition root
 binds it to the concrete driver, deriving one scope from the private snapshot
 revision, the cache `version`, the dialect, and `adapter.namespace`. The
@@ -524,6 +543,7 @@ Client uses types:     orm.user.findMany({ where: { name: ... }})  // Fully type
 | Add cache invalidation option | [cache/](src/cache/AGENTS.md) | Update `schema.ts` |
 | Add tracing span/attribute | [instrumentation/](src/instrumentation/AGENTS.md) | Update `spans.ts`, `presentation.ts`; core only publishes neutral facts |
 | Add logging level | [instrumentation/](src/instrumentation/AGENTS.md) | Update `types.ts`, `logger.ts` |
+| Change list ordering | `src/ordering/` (`keys.ts` decimal keys, `append.ts` per-dialect appends, `index.ts` config, `move`, `rekey`); `order` capability in `src/extensions/definition.ts` + `query.ts`; `InsertValue` seam in `raptor3/shared/insert-value.ts` | Keys stay digits only (collation-proof); appends go through `InsertValue`, never a read in `Commands`; `tests/contracts/public-client/ordering*.ts`, `extension-order.core.test.ts`, provider `*-ordering.test.ts` |
 | Change VibORM Studio | `packages/studio/` (`@viborm/studio`: `src/` server, API, config discovery and watching; `ui/` Svelte app) | Reads and writes only through the loaded client; bundles VibORM internals from `src/`, so its version follows `viborm`'s; no `viborm` source imports it (`packages/studio/test/studio-boundary.core.test.ts`) |
 
 Studio's project store keeps `views`, `queries`, and `layout` independently in
