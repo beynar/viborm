@@ -95,14 +95,23 @@ export function readMutationCacheOptions(
  * pair of those arguments and the admitted controls, which no base key can
  * spell (its arguments are always an object), and, on a chain with `rows`,
  * those declarations themselves, since the same control value selects
- * different rows under different declarations. A control value that is not
+ * different rows under different declarations; on a chain with `order`, the
+ * triple of a tag, that key and the orders. A control value that is not
  * plain data has no canonical form: `undefined` bypasses the cache.
  */
 export function cacheKeyOf(
   args: Record<string, unknown>,
   controls: AdmittedControls | undefined,
-  rows: ResolvedExtensionChain["rows"]
+  rows: ResolvedExtensionChain["rows"],
+  order?: ResolvedExtensionChain["order"]
 ): unknown {
+  // A chain's default orders decide which rows a read returns and in what
+  // order, for its root model and every model it projects: they key every
+  // entry, so two chains that order differently never share one.
+  if (order !== undefined) {
+    const key = cacheKeyOf(args, controls, rows);
+    return key === undefined ? undefined : ["order", key, order];
+  }
   if (controls === undefined) return args;
   // Only values admission fixed key a cache entry: the rows the read's SQL
   // binds were bound from those same values (`snapshotControlValue` in controls.ts).

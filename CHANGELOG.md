@@ -3,6 +3,57 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## 1.7.0 — 2026-11-01
+
+`viborm/ordering`: the members of a list (cards in kanban columns) in the
+order you choose, read back in that order, appended by their INSERT and
+moved by one UPDATE that computes the new key. On MySQL, an `update` takes
+one statement fewer.
+
+### Added
+
+- **`viborm/ordering`**: user-defined order for the members of a list
+  (cards in kanban columns), `ordering({ card: { key: "rank", within:
+  ["columnId"] } })(client)`.
+  - Keys are decimal fractional keys: digit strings, so they sort the same
+    under every collation that orders digits as digits (letters do not:
+    Czech `ch`, Danish `aa`; measured on 89 ICU locales). No column
+    collation, no migration.
+  - Reads of an ordered model without `orderBy` come back in list order, at
+    the root and in to-many relation reads at any depth.
+  - A row created without its key goes last of its list, on every create
+    path (nested creates, `createMany` in array order, `upsert`,
+    `connectOrCreate`). The INSERT computes the key from the list's last
+    key: no read first, on PostgreSQL, SQLite, libSQL, PGlite and D1. On
+    MySQL, where that statement deadlocks under concurrent appends, a
+    plain read of the last key comes first.
+  - `move({ where, after | before | first | last | to })` is one `update`
+    through the client (permissions, soft delete, `updatedAt`, write hooks
+    apply), the new key computed by the UPDATE from the keys around the
+    row's place: one statement within a list, two into another, on
+    PostgreSQL, SQLite, libSQL and D1 (MySQL reads the neighbours first).
+    The key alone is written where the row stays in its list. It respaces a
+    list by itself when a gap is used up or neighbours tie.
+    `move({ where, key, to? })` writes a key the caller computed with
+    `keyBetween`, reading nothing: one `update`.
+  - `rekey({ where, orderBy })` respaces whole lists, hidden members
+    included, in one statement (more where the driver bounds a statement's
+    values), the lists named through the caller's view. It is how an
+    existing table adopts the extension: the key field may default to a
+    literal (`s.string().default("")`).
+  - `orderingKey`, a validator for the key field (keys below 10^8, so an
+    append always fits); `isKey` tells whether a value is a key.
+- **The `order` extension capability**: `order: { models: { card: [{ rank:
+  "asc" }] } }` gives a model the order its reads take when the caller gives
+  no `orderBy`: root `findMany`/`findFirst`, to-many relation reads at any
+  depth, and paged `count`/`aggregate` windows. An explicit `orderBy`
+  replaces it; cached reads are keyed on it.
+- On MySQL, an `update` reads its result back with the read that confirms
+  its write: 3 statements instead of 4 (lock, write, read).
+- A model method factory receives the client scope after its delegate:
+  `model: { post(delegate, scope) { … } }`, the same scope a client factory
+  receives.
+
 ## 1.6.0 — 2026-10-30
 
 VibORM Studio: the schema as a diagram, and the rows to browse and edit

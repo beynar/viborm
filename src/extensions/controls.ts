@@ -186,6 +186,23 @@ export type DataContribution = {
   };
 };
 
+/** One `order` term: a scalar field and its direction. */
+export type OrderTerm = { readonly [field: string]: "asc" | "desc" };
+
+/**
+ * Per model, the order its reads take when the caller gives no `orderBy`: a
+ * root `findMany` or `findFirst`, a to-many relation read at any depth
+ * (`include`, `select`, recursive), and the window of a paged aggregate. An
+ * explicit `orderBy` replaces it (`orderBy: []` reads in key order). The
+ * model's key always ends the order. A later extension's entry for a model
+ * replaces an earlier one's.
+ */
+export type OrderContribution = {
+  readonly models: {
+    readonly [model: string]: OrderTerm | readonly OrderTerm[];
+  };
+};
+
 // =============================================================================
 // CONTROL STATE: what a chain's controls add to each (model, operation)
 // =============================================================================

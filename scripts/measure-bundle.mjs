@@ -254,6 +254,8 @@ const PACKAGE_FIXTURES = [
   ["permissions-entry", "permissions-entry.mjs"],
   ["pg-on", "pg-on.mjs"],
   ["on-entry", "on-entry.mjs"],
+  ["pg-ordering", "pg-ordering.mjs"],
+  ["ordering-entry", "ordering-entry.mjs"],
   ["d1-worker", "d1-worker.mjs", WORKER_OPTIONS],
   ["pg-migrations-worker", "pg-migrations-worker.mjs", WORKER_OPTIONS],
 ];

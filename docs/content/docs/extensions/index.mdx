@@ -48,9 +48,9 @@ not create a second extension chain or bypass its admission rules.
   </Card>
 </CardGroup>
 
-## The eleven capabilities
+## The twelve capabilities
 
-An extension has one name and any subset of eleven capabilities:
+An extension has one name and any subset of twelve capabilities:
 
 | Capability | Boundary | Authority |
 |---|---|---|
@@ -64,22 +64,23 @@ An extension has one name and any subset of eleven capabilities:
 | `rows` | Which rows an operation sees | Row filters per model, chosen per call by one argument, with the call's values |
 | `deletion` | What a delete does | Turn a delete of a model into an update with fixed data and the call's time |
 | `data` | Fields every create and update writes | Fixed values or the call's values, written where the caller left the field out |
+| `order` | The order a model's reads take | Per model, the `orderBy` its reads take when the caller gives none |
 | `result` | The rows an operation returns | Fields computed from each row's `needs`, selectable and omittable by name |
 
 These are one extension language, not one universal hook. Request transforms
 are synchronous. Query interceptors are asynchronous and authoritative.
 Statement transforms are trusted low-level SQL rewrites. Observers are
 protected and failure-contained. Client and model factories change the static
-surface. `controls`, `rows`, `deletion` and `data` are plain data: core applies them at
+surface. `controls`, `rows`, `deletion`, `data` and `order` are plain data: core applies them at
 every place they concern, so an extension declares what it wants instead of
 rewriting queries.
 
 ## Official extensions
 
 Official extensions use the same composition language. Cache, instrumentation,
-default omit and write hooks retain private access to the core facts they
-need; soft delete and Permissions are built only from the public capabilities
-above:
+default omit, write hooks and ordering retain private access to the core facts
+they need; soft delete and Permissions are built only from the public
+capabilities above:
 
 <CardGroup>
   <Card
@@ -111,6 +112,11 @@ above:
     title="Write hooks"
     href="/docs/extensions/on">
     Your code after a write commits, with the rows it wrote
+  </Card>
+  <Card
+    title="Ordering"
+    href="/docs/extensions/ordering">
+    The order of a list's members, a move writing one row
   </Card>
 </CardGroup>
 

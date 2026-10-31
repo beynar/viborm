@@ -138,6 +138,11 @@ export interface ResolvedExtensionChain {
   /** Per model, every extension's `data` fields: a later one wins a field. */
   readonly data?: Readonly<Record<string, ModelStamps>>;
   /**
+   * Per model, the order its reads take when the caller gives none: a later
+   * extension's entry replaces an earlier one's. Also a cached read's key.
+   */
+  readonly order?: Readonly<Record<string, readonly Input[]>>;
+  /**
    * Derived from `rows`, `deletion` and `data`: what each call's controls
    * resolve to.
    */
@@ -652,10 +657,23 @@ export function appendResolvedExtension(
   // The binding reads `required` from the controls, already appended: a
   // filter names only controls its own or an earlier extension declares, so
   // a later definition that declares only controls changes nothing it binds.
+  const order =
+    effectiveDefinition.order === undefined
+      ? chain?.order
+      : Object.freeze({
+          ...chain?.order,
+          // Admission left each entry a frozen array of terms.
+          ...(effectiveDefinition.order.models as Readonly<
+            Record<string, readonly Input[]>
+          >),
+        });
   const callRows =
-    rows === chain?.rows && deletion === chain?.deletion && data === chain?.data
+    rows === chain?.rows &&
+    deletion === chain?.deletion &&
+    data === chain?.data &&
+    order === chain?.order
       ? chain?.callRows
-      : bindRows(rows, deletion, data, controls);
+      : bindRows(rows, deletion, data, controls, order);
   const result =
     effectiveDefinition.result === undefined
       ? chain?.result
@@ -671,6 +689,7 @@ export function appendResolvedExtension(
     ...(rows === undefined ? {} : { rows }),
     ...(deletion === undefined ? {} : { deletion }),
     ...(data === undefined ? {} : { data }),
+    ...(order === undefined ? {} : { order }),
     ...(callRows === undefined ? {} : { callRows }),
     ...(result === undefined ? {} : { result }),
     ...(writes === undefined ? {} : { writes }),

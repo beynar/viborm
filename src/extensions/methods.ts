@@ -490,10 +490,15 @@ function invokeFactory(
   factory: RuntimeExtensionMethodFunction,
   argument: unknown,
   label: string,
-  extension: string
+  extension: string,
+  scope?: unknown
 ): unknown {
   try {
-    return Reflect.apply(factory, undefined, [argument]);
+    return Reflect.apply(
+      factory,
+      undefined,
+      scope === undefined ? [argument] : [argument, scope]
+    );
   } catch (cause) {
     throw new ClientInitializationError(
       `Extension "${extension}" ${label} factory failed.`,
@@ -592,7 +597,10 @@ export function bindExtensionMethods(
                       factory,
                       Reflect.get(scopeOf(), model),
                       label,
-                      name
+                      name,
+                      // The client scope, as a client factory receives it:
+                      // what a model method needs beyond its own delegate.
+                      scopeOf()
                     ),
                     label,
                     name

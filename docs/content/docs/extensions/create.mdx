@@ -60,6 +60,7 @@ deliberately small so the query protocol is visible.
 | Hide rows from every query | `rows` | Filters per model, chosen per call, with the call's values |
 | Change what a delete does | `deletion` | An update with fixed data and the call's time |
 | Supply defaults on creates and updates | `data` | Fixed values or control values; explicit caller data wins |
+| Order a model's reads by default | `order` | `orderBy` terms per model; an explicit `orderBy` wins |
 | Add fields computed from a row | `result` | `needs` and `compute` per field; on every row of the model a call returns |
 
 Do not put every concern into `query`. Each capability exposes only the facts
@@ -108,9 +109,10 @@ await db.$postCount();
 await db.post.findPublished();
 ```
 
-The factories receive the client or delegate for the current scope. Use that
-supplied value so the methods also work inside callback and nested
-transactions. Capturing an unrelated root client in the extension closure
+The factories receive the client or delegate for the current scope (a model
+factory receives the delegate, then the client scope a client factory
+receives: `model: { post(delegate, scope) { … } }`). Use that supplied value
+so the methods also work inside callback and nested transactions. Capturing an unrelated root client in the extension closure
 deliberately escapes that transaction scope.
 
 Definition normalization runs when the extension is applied, and the client
@@ -822,6 +824,37 @@ Both capabilities together make an optimistic lock: the row is filtered on the
 version the call expects, and every update moves the version on. The
 [recipes](/docs/extensions/recipes) give it in full, with tenancy and audit
 stamping.
+
+## Order reads with `order`
+
+`order.models` gives a model the order its reads take when the caller gives
+no `orderBy`:
+
+```ts
+const byRank = defineExtension<typeof schema>()({
+  name: "by-rank",
+  order: { models: { card: [{ columnId: "asc" }, { rank: "asc" }] } },
+});
+```
+
+- It applies to a root `findMany` and `findFirst` (a negative `take` reads
+  from its end), a to-many relation read at any depth (`include`, `select`,
+  recursive), and the window of a paged `count` or `aggregate` (`take`,
+  `skip`, `cursor`), so the rows a page counts are the rows it reads. A
+  `cursor` pages through it.
+- An explicit `orderBy` replaces it, whole; `orderBy: []` reads in key order.
+  `findUnique`, `groupBy` and unpaged aggregates are not ordered by it.
+- The model's key always ends the order, so equal values read in a stable
+  order.
+- Each term names one scalar field, `"asc"` or `"desc"`: not a relation, a
+  list, JSON, a vector or a point. The model must have a primary or unique
+  key. `$extends()` refuses anything else with a `ClientInitializationError`.
+- A later extension's entry for a model replaces an earlier one's. Cached
+  reads are keyed on the chain's orders, so two clients that order a model
+  differently never share a cached entry.
+
+The official [ordering](/docs/extensions/ordering) extension declares its
+lists' order this way.
 
 ## Compute fields with `result`
 

@@ -4,6 +4,7 @@ import { NotFoundError } from "@errors";
 import type { Sql } from "@sql";
 import { baseOperation } from "../../routed-operations";
 import type { PreparedBatchOperation } from "../../types";
+import { renderers } from "../shared/insert-value";
 import {
   type ExecutionBinding,
   OperationContext,
@@ -388,6 +389,9 @@ export function createCommandEngine(config: EngineConfig) {
   // `baseDriver.adapter`), so the statement and shape prepared here are valid for
   // every binding of this driver's lineage.
   const queries = sharedQueries(config);
+  let byAdapter = renderers.get(config.schema);
+  if (!byAdapter) renderers.set(config.schema, (byAdapter = new WeakMap()));
+  byAdapter.set(config.driver.adapter, queries);
   const { schema } = queries;
   const prepare = (
     modelName: string,

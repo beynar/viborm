@@ -4,6 +4,7 @@ import type { Operations, Schema } from "@client/types";
 import type { AnyDriver } from "@drivers/exports";
 import { ClientInitializationError } from "@errors";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
+import { getModelKeyCatalog } from "@schema/model/keys";
 import type { SchemaRegistryLookup } from "@validation/types";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { errorCause } from "../errors/diagnostic-safety";
@@ -12,6 +13,8 @@ import type {
   ControlsContribution,
   DataContribution,
   DeletionContribution,
+  OrderContribution,
+  OrderTerm,
   RowsContribution,
 } from "./controls";
 import type {
@@ -60,6 +63,7 @@ export interface RuntimeExtensionDefinition {
   readonly rows?: RowsContribution;
   readonly deletion?: DeletionContribution;
   readonly data?: DataContribution;
+  readonly order?: OrderContribution;
   readonly result?: RuntimeResultContribution;
 }
 
@@ -75,6 +79,7 @@ export type ExtensionDefinitionInput = Readonly<Record<string, unknown>> & {
   readonly rows?: RowsContribution;
   readonly deletion?: DeletionContribution;
   readonly data?: DataContribution;
+  readonly order?: OrderContribution;
 };
 
 const DEFINITION_KEYS = new Set([
@@ -89,6 +94,7 @@ const DEFINITION_KEYS = new Set([
   "rows",
   "deletion",
   "data",
+  "order",
   "result",
 ]);
 
@@ -449,6 +455,10 @@ export function normalizeExtensionDefinition(
     schema && value.rows
       ? admitRows(value.rows, schema, name, registry)
       : value.rows;
+  const order =
+    value.order === undefined
+      ? undefined
+      : admitOrder(value.order, schema, name);
 
   return Object.freeze({
     name,
@@ -462,9 +472,68 @@ export function normalizeExtensionDefinition(
     ...(rows ? { rows } : {}),
     ...(deletion ? { deletion } : {}),
     ...(data ? { data } : {}),
+    ...(order ? { order } : {}),
     ...(result ? { result } : {}),
   });
 }
+
+/**
+ * `order`, read once: per model, the terms its reads take when the caller
+ * gives no `orderBy`, each `{ field: "asc" | "desc" }`. Against a schema, the
+ * model must have a row key (its reads end with it, so the order is total)
+ * and each field must be one of its scalars that orders as a value (not a
+ * list, JSON, vector or point).
+ */
+function admitOrder(
+  value: unknown,
+  schema: Schema | undefined,
+  name: string
+): OrderContribution {
+  const models = isRecord(value) ? readOwn(value, "models", name) : undefined;
+  const admitted: Record<string, readonly OrderTerm[]> = {};
+  for (const key of isRecord(models) ? readOwnKeys(models, name) : [""]) {
+    const model = schema?.[key as string];
+    const entry = isRecord(models)
+      ? readOwn(models, key as string, name)
+      : undefined;
+    const terms = Array.isArray(entry) ? entry : [entry];
+    const valid =
+      typeof key === "string" &&
+      (schema === undefined ||
+        (model !== undefined &&
+          getModelKeyCatalog(model).rowKey !== undefined)) &&
+      terms.length > 0 &&
+      terms.every((term) => {
+        const fields = isRecord(term) ? readOwnKeys(term, name) : [];
+        const field = fields[0];
+        const direction = isRecord(term) ? term[field as string] : undefined;
+        const state =
+          typeof field === "string" &&
+          model !== undefined &&
+          Object.hasOwn(model["~"].state.scalars, field)
+            ? model["~"].state.scalars[field]!["~"].state
+            : undefined;
+        return (
+          fields.length === 1 &&
+          (direction === "asc" || direction === "desc") &&
+          (schema === undefined ||
+            (state !== undefined &&
+              !state.array &&
+              !UNORDERED_SCALARS.has(state.type)))
+        );
+      });
+    if (!valid)
+      extensionError(
+        `Extension "${name}" order${isRecord(models) ? `.${String(key)}` : ""} must map a model with a key to { field: "asc" | "desc" } terms over its ordered scalars.`,
+        name
+      );
+    admitted[key as string] = Object.freeze(
+      terms.map((term) => Object.freeze({ ...(term as OrderTerm) }))
+    );
+  }
+  return Object.freeze({ models: Object.freeze(admitted) });
+}
+const UNORDERED_SCALARS = new Set(["json", "vector", "point", "blob"]);
 
 type ExtensionConfig<S extends Schema> = {
   readonly schema: S;
@@ -476,8 +545,8 @@ type ExtensionConfig<S extends Schema> = {
  * it extends (`(delegate: M[K & keyof M]) => …`, generic over that client) is
  * compared in either direction rather than only contravariantly.
  */
-type ModelMethodFactory<Delegate> = {
-  factory(delegate: Delegate): ExtensionMethodRecord;
+type ModelMethodFactory<Delegate, Scope> = {
+  factory(delegate: Delegate, scope: Scope): ExtensionMethodRecord;
 }["factory"];
 
 /**
@@ -492,7 +561,8 @@ type ModelFactoryTable<
   X extends ExtensionStateConstraint,
 > = {
   readonly [ModelName in keyof ClientSchema<C>]: ModelMethodFactory<
-    ExtensionModelDelegate<C, X, ModelName>
+    ExtensionModelDelegate<C, X, ModelName>,
+    ExtensionClientScope<C, X>
   >;
 };
 
@@ -516,7 +586,8 @@ export type ContextualExtensionDefinition<
   readonly model?: unknown extends Self
     ? {
         readonly [ModelName in keyof ClientSchema<C>]?: ModelMethodFactory<
-          ExtensionModelDelegate<C, X, ModelName>
+          ExtensionModelDelegate<C, X, ModelName>,
+          ExtensionClientScope<C, X>
         >;
       }
     : {
@@ -540,6 +611,7 @@ type ExtensionMembers<
   readonly rows?: RowsContribution;
   readonly deletion?: DeletionContribution;
   readonly data?: DataContribution;
+  readonly order?: OrderContribution;
   readonly client?: (
     scope: ExtensionClientScope<C, X>
   ) => ExtensionMethodRecord;
@@ -638,7 +710,7 @@ type ComponentMapGuard<
 type PolicyModelsGuard<
   Definition,
   S extends Schema,
-  Key extends "data" | "rows" | "deletion",
+  Key extends "data" | "rows" | "deletion" | "order",
 > = Definition extends {
   readonly [K in Key]: { readonly models: infer Models };
 }
@@ -662,6 +734,7 @@ export type ExactExtensionDefinition<
   PolicyModelsGuard<Definition, C["schema"], "data"> &
   PolicyModelsGuard<Definition, C["schema"], "rows"> &
   PolicyModelsGuard<Definition, C["schema"], "deletion"> &
+  PolicyModelsGuard<Definition, C["schema"], "order"> &
   ExtensionMethodDefinitionGuard<Definition, C, X>;
 
 // The definition is inferred from its declaration, never from a receiving

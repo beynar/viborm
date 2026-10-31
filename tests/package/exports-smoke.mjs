@@ -102,7 +102,14 @@ function assertWorkerSafeBuiltGraph(exportNames) {
 }
 
 // `viborm/permissions` governs a Worker's client too: its graph is held to the same rule.
-assertWorkerSafeBuiltGraph([".", "./schema", "./d1", "./permissions", "./on"]);
+assertWorkerSafeBuiltGraph([
+  ".",
+  "./schema",
+  "./d1",
+  "./permissions",
+  "./on",
+  "./ordering",
+]);
 
 function requireRuntimeFunction(exportName, member) {
   const namespace = runtimeExports.get(exportName);

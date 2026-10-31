@@ -47,6 +47,7 @@ import type {
   PreparedGuardFailure,
 } from "../../types";
 import { type WriteKind, writeSinks } from "../../write-sinks";
+import { InsertValue } from "./insert-value";
 import {
   GatedFieldRefusal,
   InvalidScalarResult,
@@ -2404,6 +2405,49 @@ export class OperationContext {
    * `judged` create reads its rows from their own values under their
    * placement (R4, {@link Queries.producedSource}), in the same statement.
    */
+  /**
+   * `rows`, each {@link InsertValue} its stamps left replaced by what it
+   * computes for these rows, now that every other value is final; `rows`
+   * itself when none holds one.
+   */
+  async #computed(model: AnyModel, rows: Input[]): Promise<Input[]> {
+    let computed: Input[] | undefined;
+    const fields = new Map<string, { value: InsertValue; at: number[] }>();
+    for (const [index, row] of rows.entries())
+      for (const [field, value] of Object.entries(row))
+        if (value instanceof InsertValue) {
+          const entry = fields.get(field) ?? { value, at: [] };
+          entry.at.push(index);
+          fields.set(field, entry);
+        }
+    for (const [field, { value, at }] of fields) {
+      computed ??= rows.map((row) => ({ ...row }));
+      const values = await value.compute(
+        {
+          model,
+          rows: computed,
+          field,
+          queries: this.queries,
+          dialect: this.driver.dialect,
+          ...(this.#ownership !== "batch-preparation" && {
+            read: async (statement: Sql) =>
+              (await this.answer({ sql: statement } as Query, false, model))
+                .rows,
+          }),
+        },
+        at
+      );
+      for (const [position, index] of at.entries())
+        computed[index]![field] = values[position];
+    }
+    return computed ?? rows;
+  }
+  /** An update's `values`, each InsertValue replaced by its expression. */
+  async #settled(model: AnyModel, given: Input): Promise<Input> {
+    return Object.values(given).some((value) => value instanceof InsertValue)
+      ? (await this.#computed(model, [given]))[0]!
+      : given;
+  }
   #insertStatement(
     model: AnyModel,
     columns: readonly string[],
@@ -2481,6 +2525,17 @@ export class OperationContext {
    *
    * `written`: an UPDATE's assignments; absent for an INSERT and a DELETE.
    */
+  /**
+   * May a root UPDATE without RETURNING answer `projection` from the read
+   * that confirms it ({@link update})? Its columns alone, as a RETURNING's.
+   */
+  answersAfterUpdate(projection: PreparedProjection): boolean {
+    return (
+      !(this.usesBatch || this.driver.adapter.capabilities.supportsReturning) &&
+      returningSafeProjection(projection) &&
+      !refusesWhileDecoding(projection)
+    );
+  }
   answersInStatement(
     model: AnyModel,
     projection: PreparedProjection,
@@ -2684,7 +2739,7 @@ export class OperationContext {
    */
   async createMany(
     model: AnyModel,
-    rows: Input[],
+    given: Input[],
     projection?: PreparedProjection,
     skipDuplicates = false,
     single?: () => Error,
@@ -2697,11 +2752,12 @@ export class OperationContext {
     // insert for createMany." there (`assertBatchPreparable`). The mode is the
     // fact, and this is the owner that holds it — admission cannot, because the
     // same payload is admitted on both routes.
-    if (rows.length === 0) {
+    if (given.length === 0) {
       if (this.#ownership === "batch-preparation")
         throw new QueryEngineError("No data to insert for createMany.");
       return this.emptyBulkResult(projection);
     }
+    const rows = await this.#computed(model, given);
     const q = this.queries;
     const adapter = this.driver.adapter;
     const placed = this.#produced(model);
@@ -2930,7 +2986,7 @@ export class OperationContext {
    */
   async upsertOne(
     model: AnyModel,
-    row: Input,
+    given: Input,
     updates: Input,
     target: readonly string[],
     projection?: PreparedProjection,
@@ -2940,6 +2996,7 @@ export class OperationContext {
   ): Promise<unknown> {
     const q = this.queries;
     const adapter = this.driver.adapter;
+    const row = (await this.#computed(model, [given]))[0]!;
     const columns = Object.keys(row);
     const placed = this.#produced(model);
     const insert = this.#insertStatement(model, columns, [row], false, placed);
@@ -3015,11 +3072,12 @@ export class OperationContext {
   async updateMany(
     model: AnyModel,
     selector: PreparedSelector,
-    values: Input,
+    given: Input,
     limit?: number,
     projection?: PreparedProjection,
     single?: () => Error
   ): Promise<unknown> {
+    const values = await this.#settled(model, given);
     const q = this.queries;
     const adapter = this.driver.adapter;
     const assignments = this.#updateAssignments(model, values);
@@ -3496,7 +3554,7 @@ export class OperationContext {
   }
   async insert(
     model: AnyModel,
-    values: Input,
+    given: Input,
     demanded: ReadonlySet<string>,
     member: Member,
     operation = "create",
@@ -3507,6 +3565,7 @@ export class OperationContext {
   ): Promise<Input> {
     const q = this.queries;
     const adapter = this.driver.adapter;
+    const values = (await this.#computed(model, [given]))[0]!;
     const fields = Object.keys(values);
     const placed = this.#produced(model);
     const judged = placed && { model, refusal: refusal ?? this.#forbidden };
@@ -3523,8 +3582,17 @@ export class OperationContext {
       placed && this.usesBatch && fields.length > 0
         ? q.producedSource(model, fields, [values], placed)
         : undefined;
+    // A field an InsertValue computed in SQL holds its generating expression:
+    // a consumer reads the stored value, from RETURNING on this route, by the
+    // row's key on the batch route, never the expression evaluated again.
+    const computed = Object.keys(given).filter(
+      (field) =>
+        given[field] instanceof InsertValue && values[field] instanceof Sql
+    );
     const produced = [...demanded].filter(
-      (field) => values[field] === undefined
+      (field) =>
+        values[field] === undefined ||
+        (!this.usesBatch && computed.includes(field))
     );
     const context = this.statementContext(model, operation);
     if (!this.usesBatch) {
@@ -3585,10 +3653,9 @@ export class OperationContext {
       if (produced.length && producedValues === undefined)
         throw new TypeError("INSERT did not produce the required record");
       if (answer) answer.row = response.rows[0];
-      return {
-        ...values,
-        ...producedValues,
-      };
+      const written: Input = { ...values };
+      for (const field of computed) delete written[field];
+      return { ...written, ...producedValues };
     }
     // The row this one is a MEMBER of, re-pinned in every segment AFTER the one
     // that writes it. A membership correlates BY VALUE, so once another row
@@ -3618,6 +3685,27 @@ export class OperationContext {
           ),
       });
     const published: Input = { ...values };
+    for (const field of computed) {
+      delete published[field];
+      if (!demanded.has(field)) continue;
+      const keys = this.schema.keys(model);
+      if (
+        keys.some(
+          (key) => values[key] === undefined || values[key] instanceof Sql
+        )
+      )
+        throw new UnsupportedOperationError(
+          `Cannot read '${model["~"].names.ts!}.${field}' back in this batch: the row's key is generated by the database.`
+        );
+      published[field] =
+        sql`(SELECT ${q.column(model, field)} FROM ${q.table(model)} WHERE ${sql.join(
+          keys.map(
+            (key) =>
+              sql`${q.column(model, key)} = ${q.fieldValue(model, key, values[key])}`
+          ),
+          " AND "
+        )})`;
+    }
     if (produced.length) {
       const references = getAdapterInternals(adapter).batchRefs;
       const insertIdField = this.#insertIdField(model, produced);
@@ -3745,13 +3833,14 @@ export class OperationContext {
   async updateLocated(
     model: AnyModel,
     selector: PreparedSelector,
-    values: Input,
+    given: Input,
     projection: PreparedProjection,
     missing: () => Error,
     operation = "update",
     refusal?: PreparedGuardFailure,
     answer?: StatementAnswer
   ): Promise<Input> {
+    const values = await this.#settled(model, given);
     const q = this.queries;
     const adapter = this.driver.adapter;
     let produced: Sql | undefined;
@@ -3804,7 +3893,7 @@ export class OperationContext {
   async update(
     model: AnyModel,
     current: Input,
-    values: Input,
+    given: Input,
     member: Member,
     operation = "update",
     demanded: ReadonlySet<string> = new Set(),
@@ -3813,7 +3902,13 @@ export class OperationContext {
     refusal?: PreparedGuardFailure,
     answer?: StatementAnswer
   ): Promise<Input> {
-    if (Object.keys(values).length === 0) return {};
+    if (Object.keys(given).length === 0) return {};
+    // A field an InsertValue computes holds its expression, read back after
+    // the write, never published as the expression.
+    const computed = Object.keys(given).filter(
+      (field) => given[field] instanceof InsertValue
+    );
+    const values = await this.#settled(model, given);
     const q = this.queries;
     const adapter = this.driver.adapter;
     const identity = this.schema.identity(model, current);
@@ -3845,7 +3940,7 @@ export class OperationContext {
         // the same value the row's own write submits. Only an OPERATION
         // (`{ increment: 2 }`) has a value that exists after the provider
         // computes it, and only that value has to travel through the scratch.
-        if (wholeValue(value)) continue;
+        if (wholeValue(value) && !computed.includes(field)) continue;
         const state = physicalField(this.schema, model, field).scalar["~"]
           .state;
         // R-D3 (Arnaud, 2026-09-15) gave the batch-only publication gap a
@@ -3856,7 +3951,7 @@ export class OperationContext {
         // states that fact when the observation is flushed — this operation
         // requires dynamic execution (D-46), the array owner's control-flow
         // value, not a refusal the caller sees.
-        if (state.type !== "int") {
+        if (state.type !== "int" || computed.includes(field)) {
           observed.push(field);
           continue;
         }
@@ -3908,16 +4003,54 @@ export class OperationContext {
       ? { model, refusal: refusal ?? this.#updateRefusal(model, judgement) }
       : undefined;
     const context = this.statementContext(model, operation);
-    if (!this.usesBatch && demanded.size) {
+    const returns = adapter.capabilities.supportsReturning;
+    if (!this.usesBatch && (demanded.size || (answer && !returns))) {
       const fields = [...demanded];
       const select = Object.fromEntries(fields.map((field) => [field, true]));
       const projection = q.prepareProjection(model, { select }, true);
-      if (!adapter.capabilities.supportsReturning) {
+      if (!returns) {
         await this.dispatch(1, false, () =>
           this.#judging(judged, () =>
             this.#transport._execute(statement, context)
           )
         );
+        if (answer) {
+          // The read below answers the operation's result too, with the
+          // columns a RETURNING would have carried: no read after it.
+          const response = await this.answer(
+            {
+              sql: assembleAdapterSelect(adapter, {
+                columns: sql.join(
+                  this.#returned([
+                    answer.projection,
+                    fields.length > 0 ? projection : undefined,
+                  ]),
+                  ", "
+                ),
+                from: q.table(model),
+                where: q.lowerIdentity(
+                  model,
+                  this.#updatedIdentity(model, identity, values)
+                ),
+                forUpdate: true,
+              }),
+            } as Query,
+            false,
+            model
+          );
+          if (!response.rows[0])
+            throw (
+              missing?.() ??
+              new TypeError("UPDATE did not produce the required record")
+            );
+          answer.row = response.rows[0];
+          return {
+            ...published,
+            ...(fields.length > 0
+              ? q.decodeProjection(projection.shape, response.rows, true)[0]
+              : {}),
+          };
+        }
         // This read answers "which row did the UPDATE just write?", and only a
         // CURRENT read can: under REPEATABLE READ a consistent read answers
         // from the snapshot this transaction opened plus its OWN changes, so a
