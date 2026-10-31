@@ -109,22 +109,40 @@ await db.card.move({ where: { id }, to: { columnId: doneId }, first: true });
   returns what `update` returns.
 - Moving a row to where it already is writes nothing.
 
-A move reads the row and the anchor's neighbour (through your extensions, so
-a soft-deleted or forbidden row is neither moved nor an anchor; where a list
-field is nullable, the anchor itself first, so the read of its neighbour
-stays within its list), then updates the row through the client: its `updatedAt`, validation, permissions
-and [write hooks](/docs/extensions/on) apply as to any `update`. The update
-is guarded on the row as read: if another writer moved it meanwhile, the
-move reads again (three attempts, then a `QueryError`). If the anchor moves
-between the read and the write, the row lands where the anchor was.
+A move reads, then writes through the client: `updatedAt`, validation,
+permissions and [write hooks](/docs/extensions/on) apply as to any `update`.
+
+- **The read:** the anchor and its neighbours, in one statement, through
+  your extensions (a soft-deleted or forbidden row is not an anchor). With
+  `to`, the two rows at that end of the list; `first` or `last` alone read
+  the row's own list first. Where a list field is nullable, the anchor is
+  read first, so the read of its neighbours stays within its list.
+- **The write:** the moved row is not read. Its key alone is written where
+  it is already in the target list, so a reorder needs no permission on the
+  list fields; where it is not, an `update` writes the key and the list.
+
+| `move` | Statements (PostgreSQL, SQLite, libSQL, D1) |
+|---|---|
+| after / before, within the list | 2 |
+| after / before, into another list | 3 |
+| `to` another list | 2 |
+| `first` / `last` of its own list | 3 |
+| already in place (nothing written) | 2 |
+
+A nullable list field adds one read to `after`/`before`. On MySQL, the write
+is an `update`, which takes 4 statements there.
+
+Two moves of one row at the same moment: the last write wins. If the anchor
+moves between the read and the write, the row lands where the anchor was.
 
 A key gains about half a digit each time a member is placed into the same
 gap, so many moves into one spot grow keys. When a move's gap is used up
 (its key would pass 64 digits) or its neighbours tie, the move respaces the
 list (as `rekey` does, below), then places the row.
 
-Errors: a missing or hidden row or anchor is a `NotFoundError` (its message
-says `move` or `move anchor`); no placement,
+Errors: a missing or hidden row or anchor, or a write your permissions
+refuse (as `update` refuses it), is a `NotFoundError` (its message says
+`move` or `move anchor`); no placement,
 two placements, `to` with an anchor, or a row as its own anchor is a
 `ValidationError`.
 

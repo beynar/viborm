@@ -11,6 +11,7 @@ import { cache } from "@cache/extension";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { BatchQuery, QueryResult } from "@drivers/types";
+import { NotFoundError } from "@errors";
 import { s } from "@schema";
 import { Sql } from "@sql";
 import { on } from "@src/on";
@@ -654,5 +655,124 @@ describe("ordering review 2", () => {
       "a",
       "c",
     ]);
+  });
+});
+
+const ticket = s.model({
+  id: s.int().id().increment(),
+  lane: s.string(),
+  rank: s.string().schema(orderingKey),
+  title: s.string(),
+});
+
+describe("ordering: what a move sends", () => {
+  const openTickets = async () => {
+    const client = createClient({
+      schema: { ticket },
+      driver: createInMemorySQLite3Driver(),
+    }) as any;
+    await syncLiveSchema(client);
+    return client;
+  };
+
+  test("one read and one write; a change of list one write more", async () => {
+    const seen: string[] = [];
+    const client = await openTickets();
+    const db = ordering({ ticket: { key: "rank", within: ["lane"] } })(
+      client.$extends({
+        name: "count",
+        statement: ({ statement }: { statement: Sql }) => {
+          seen.push(Sql.peek(statement).strings.join("?"));
+          return statement;
+        },
+      })
+    ) as any;
+    for (const [lane, title] of [
+      ["a", "1"],
+      ["a", "2"],
+      ["a", "3"],
+      ["b", "4"],
+    ])
+      await db.ticket.create({ data: { lane, title } });
+    const sent = async (call: () => Promise<unknown>) => {
+      seen.length = 0;
+      await call();
+      return seen.length;
+    };
+    const lanes = async () =>
+      Object.fromEntries(
+        await Promise.all(
+          ["a", "b"].map(async (lane) => [
+            lane,
+            titles(await db.ticket.findMany({ where: { lane } })),
+          ])
+        )
+      );
+    // Within its list: the anchor's window, then the key.
+    expect(
+      await sent(() => db.ticket.move({ where: { id: 1 }, after: { id: 2 } }))
+    ).toBe(2);
+    // Already there: the window, then the row read back.
+    expect(
+      await sent(() => db.ticket.move({ where: { id: 1 }, after: { id: 2 } }))
+    ).toBe(2);
+    // Into another list at an anchor: the key-only write finds no row there.
+    expect(
+      await sent(() => db.ticket.move({ where: { id: 3 }, before: { id: 4 } }))
+    ).toBe(3);
+    // To another list's end: the move is tried first.
+    expect(
+      await sent(() => db.ticket.move({ where: { id: 2 }, to: { lane: "b" } }))
+    ).toBe(2);
+    // First of its own list: the row's list is read.
+    expect(
+      await sent(() => db.ticket.move({ where: { id: 4 }, first: true }))
+    ).toBe(3);
+    expect(await lanes()).toEqual({ a: ["1"], b: ["4", "3", "2"] });
+  });
+
+  test("a reorder within a list writes the key alone: no permission on the list field", async () => {
+    const client = await openTickets();
+    const order = ordering({ ticket: { key: "rank", within: ["lane"] } });
+    const db = order.methods(
+      (order.keys(client) as any).$extends(
+        permissions({
+          actor: v.object({ admin: v.boolean() }),
+          models: {
+            ticket: {
+              read: true,
+              create: true,
+              update: true,
+              transfer: { actor: { admin: true } },
+              fields: { lane: { write: "transfer" } },
+            },
+          },
+        } as any)
+      )
+    ) as any;
+    const user = db.$as({ admin: false });
+    for (const [lane, title] of [
+      ["a", "1"],
+      ["a", "2"],
+      ["b", "3"],
+    ])
+      await user.ticket.create({ data: { lane, title } });
+    await user.ticket.move({ where: { id: 1 }, after: { id: 2 } });
+    expect(
+      titles(await user.ticket.findMany({ where: { lane: "a" } }))
+    ).toEqual(["2", "1"]);
+    await expect(
+      user.ticket.move({ where: { id: 1 }, after: { id: 3 } })
+    ).rejects.toThrow(NotFoundError); // as update refuses: the row is not one it may write
+    expect(
+      titles(await user.ticket.findMany({ where: { lane: "a" } }))
+    ).toEqual(["2", "1"]);
+    await db.$as({ admin: true }).ticket.move({
+      where: { id: 1 },
+      after: { id: 3 },
+    });
+    expect(
+      titles(await user.ticket.findMany({ where: { lane: "b" } }))
+    ).toEqual(["3", "1"]);
   });
 });

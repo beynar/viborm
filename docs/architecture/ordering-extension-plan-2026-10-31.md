@@ -514,3 +514,30 @@ Not done, for a later round:
   re-read (3 → 2).
 - **Batch moves** for multi-select drags.
 - **Typed config.** `key`/`within` are checked at startup, not at compile time.
+
+## 16. `move` in two statements (2026-10-31)
+
+The owner found three statements per move (six on MySQL) too many. A move no
+longer reads the row it moves:
+
+- **The read:** one statement, the anchor's window (or the two rows at a
+  list's end). The moved row is recognised among the rows read by the fields
+  its `where` names, a compound selector's included.
+- **The write:** its key alone, on `{ ...where, ...list }`, where the row is
+  already in the target list. The list fields are never written on a reorder,
+  so a field permission on them (`fields.columnId.write`) still allows
+  reordering within a column. Where that matches no row, a second `update`
+  writes the key and the list. `to` tries the change of list first.
+- **No-op:** detected from the window. The row already next to the anchor, or
+  at that end, is read back in its projection without a write.
+- **Given up:** the guard on the row's key as read. Two moves of one row at
+  once: the last write wins (each still lands between real neighbours).
+  Attempts now bound only the respace loop.
+
+Statements on PostgreSQL, SQLite, libSQL and D1: within a list 2 (was 3),
+into another list 3, `to` 2, `first`/`last` of its own list 3, no-op 2.
+
+MySQL: 5 statements (was 6). The rest is the engine's MySQL `update`, which
+takes 4 statements for any update (`SELECT`, `UPDATE`, `SELECT … FOR UPDATE`,
+`SELECT`), against 1 for `updateMany`. That belongs to the engine and every
+MySQL user, not to this extension.

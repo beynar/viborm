@@ -24,8 +24,10 @@ Versioning.
     plain read of the last key comes first.
   - `move({ where, after | before | first | last | to })` writes one row,
     through the client (permissions, soft delete, `updatedAt`, write hooks
-    apply), guarded against a concurrent move of the same row; it respaces
-    a list by itself when a gap is used up or neighbours tie.
+    apply): one read of the anchor's neighbours and one `update` within a
+    list (2 statements; 3 into another list), the key alone written where
+    the row stays in its list. It respaces a list by itself when a gap is
+    used up or neighbours tie.
   - `rekey({ where, orderBy })` respaces whole lists, hidden members
     included, in one statement (more where the driver bounds a statement's
     values), the lists named through the caller's view. It is how an

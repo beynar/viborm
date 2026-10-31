@@ -307,8 +307,28 @@ function methods(ordered: Ordered, engine: () => Engine) {
   const selection = Object.fromEntries(
     [...identity, ...within, key].map((field) => [field, true])
   );
-  const sameRow = (left: Row, right: Row) =>
-    identity.every((field) => same(left[field], right[field]));
+  /** The fields `where` names with a value (a compound selector's too): how
+   * the moved row is recognised among rows read, without reading it. */
+  const named = (where: Row): Row => {
+    const fields: Record<string, unknown> = {};
+    const take = (field: string, value: unknown) => {
+      if (
+        Object.hasOwn(scalars, field) &&
+        (value === null || value instanceof Date || typeof value !== "object")
+      )
+        fields[field] = value;
+    };
+    for (const [field, value] of Object.entries(where))
+      if (Object.hasOwn(scalars, field)) take(field, value);
+      // A compound selector's fields; never a logical operator's.
+      else if (
+        value !== null &&
+        typeof value === "object" &&
+        !["AND", "OR", "NOT"].includes(field)
+      )
+        for (const [inner, part] of Object.entries(value)) take(inner, part);
+    return fields;
+  };
   return (delegate: Delegate, scope: Scope) => {
     async function place(args: Readonly<Record<string, unknown>>) {
       const {
@@ -347,30 +367,43 @@ function methods(ordered: Ordered, engine: () => Engine) {
         ...(include === undefined ? {} : { include }),
         ...(omit === undefined ? {} : { omit }),
       };
+      const recognised = named(where);
+      const fields = Object.keys(recognised);
+      const isMoved = (row: Row) =>
+        fields.length > 0 &&
+        fields.every((field) => same(row[field], recognised[field]));
+      const reading = {
+        ...selection,
+        ...Object.fromEntries(fields.map((field) => [field, true])),
+      };
+      const inPlace = async () => {
+        const row = await delegate.findUnique!({
+          ...controls,
+          where,
+          ...projection,
+        });
+        if (row === null) throw new NotFoundError(name, "move");
+        return row;
+      };
       for (let attempt = 1; ; attempt++) {
         if (attempt > MOVE_ATTEMPTS)
           throw new QueryError(
             `${name}.move: the list kept changing under concurrent writes; try again.`
           );
-        const moved = (await delegate.findUnique!({
-          ...controls,
-          where,
-          select: selection,
-        })) as Row | null;
-        if (moved === null) throw new NotFoundError(name, "move");
         let group: Row;
         let low: string | null;
         let high: string | null;
+        // Whether the row is known to be in `group` already.
+        let home = within.length === 0;
         if (anchor !== undefined) {
           // The anchor and the rows after (or before) it in the list's order
-          // (the `order` capability): the anchor first (or last), the moved
-          // row skipped where it is the neighbour.
-          const take = after === undefined ? -3 : 3;
+          // (the `order` capability), the moved row recognised among them.
+          // The moved row itself is not read.
           const at = open
             ? ((await delegate.findUnique!({
                 ...controls,
                 where: anchor,
-                select: selection,
+                select: reading,
               })) as Row | null)
             : undefined;
           const rows =
@@ -380,46 +413,55 @@ function methods(ordered: Ordered, engine: () => Engine) {
                   ...controls,
                   ...(at && { where: fieldsOf(within, at), orderBy: keyOrder }),
                   cursor: anchor,
-                  take,
-                  select: selection,
+                  take: after === undefined ? -3 : 3,
+                  select: reading,
                 })) as Row[]);
           const found = after === undefined ? rows.at(-1) : rows[0];
           if (found === undefined) throw new NotFoundError(name, "move anchor");
-          if (sameRow(found, moved))
+          if (isMoved(found))
             invalid(name, "a row cannot be placed next to itself.");
           group = fieldsOf(within, found);
           const others = (
             after === undefined ? rows.slice(0, -1).reverse() : rows.slice(1)
-          ).filter((row) => !sameRow(row, moved));
-          const other = others[0];
+          ).filter((row) =>
+            within.every((field) => same(row[field], found[field]))
+          );
+          // Already the anchor's neighbour on that side: nothing to write.
+          if (others[0] !== undefined && isMoved(others[0])) return inPlace();
           const neighbour =
-            other !== undefined &&
-            within.every((field) => same(other[field], found[field]))
-              ? (other[key] as string)
-              : null;
+            (others.find((row) => !isMoved(row))?.[key] as
+              | string
+              | undefined) ?? null;
           [low, high] =
             after === undefined
               ? [neighbour, found[key] as string]
               : [found[key] as string, neighbour];
         } else {
-          group = (to as Row | undefined) ?? fieldsOf(within, moved);
-          const end = (await delegate.findFirst!({
+          if (to === undefined && within.length > 0) {
+            // First or last of its own list: the one read of the row.
+            const moved = (await delegate.findUnique!({
+              ...controls,
+              where,
+              select: selection,
+            })) as Row | null;
+            if (moved === null) throw new NotFoundError(name, "move");
+            group = fieldsOf(within, moved);
+            home = true;
+          } else group = (to as Row | undefined) ?? {};
+          // The list's two rows at that end, the moved row recognised.
+          const rows = (await delegate.findMany!({
             ...controls,
-            where: { AND: [group, { NOT: fieldsOf(identity, moved) }] },
-            ...(first === true ? {} : { take: -1 }),
-            select: selection,
-          })) as Row | null;
-          const bound = (end?.[key] as string | undefined) ?? null;
+            where: group,
+            take: first === true ? 2 : -2,
+            select: reading,
+          })) as Row[];
+          const ends = first === true ? rows : [...rows].reverse();
+          if (ends[0] !== undefined && isMoved(ends[0])) return inPlace();
+          const bound =
+            (ends.find((row) => !isMoved(row))?.[key] as string | undefined) ??
+            null;
           [low, high] = first === true ? [null, bound] : [bound, null];
         }
-        const current = moved[key] as string;
-        const stays = within.every((field) => same(moved[field], group[field]));
-        if (
-          stays &&
-          (low === null || low < current) &&
-          (high === null || current < high)
-        )
-          return delegate.findUnique!({ ...controls, where, ...projection });
         let next: string | undefined;
         try {
           if (
@@ -442,18 +484,36 @@ function methods(ordered: Ordered, engine: () => Engine) {
           );
           continue;
         }
-        try {
-          return await delegate.update!({
-            ...controls,
-            // Guarded on the row as read: a row another writer moved since
-            // is read again.
-            where: { ...where, [key]: current, ...fieldsOf(within, moved) },
-            data: { [key]: next, ...(stays ? {} : group) },
-            ...projection,
-          });
-        } catch (error) {
-          if (!(error instanceof NotFoundError)) throw error;
-        }
+        // The row's list is not read: its key alone is written where the row
+        // is in `group` already (so a reorder needs no permission on the list
+        // fields), else the key and the list. `to` tries the move first.
+        const stay = { where: { ...where, ...group }, data: { [key]: next } };
+        const join = (guarded: boolean) => ({
+          where: guarded
+            ? {
+                ...where,
+                NOT:
+                  where.NOT === undefined ? group : [where.NOT, group].flat(),
+              }
+            : where,
+          data: { [key]: next, ...group },
+        });
+        const writes = home
+          ? [{ where, data: { [key]: next } }]
+          : to === undefined
+            ? [stay, join(false)]
+            : [join(true), stay];
+        for (const write of writes)
+          try {
+            return await delegate.update!({
+              ...controls,
+              ...write,
+              ...projection,
+            });
+          } catch (error) {
+            if (!(error instanceof NotFoundError)) throw error;
+          }
+        throw new NotFoundError(name, "move");
       }
     }
 
