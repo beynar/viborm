@@ -5,6 +5,7 @@
  */
 
 import { ClientInitializationError, NotFoundError, ValidationError } from "@errors";
+import { Sql } from "@sql";
 import { isKey, ordering } from "@src/ordering";
 import { s } from "@schema";
 import { describe, expect, test } from "vitest";
@@ -31,12 +32,31 @@ type Base = {
 
 export function describeOrdering(
   label: string,
-  open: () => Promise<{ client: Base; close?: () => Promise<void> }>
+  open: () => Promise<{ client: Base; close?: () => Promise<void> }>,
+  /** Statements one create sends: the INSERT alone, where it returns its
+   * row and computes its key (MySQL reads the last key first). */
+  createStatements = 1
 ) {
+  const statements: string[] = [];
+  // One database per run, emptied before each test.
+  let opened: ReturnType<typeof open> | undefined;
   const setup = async () => {
-    const { client } = await open();
+    const { client } = await (opened ??= open());
+    const base = client as unknown as {
+      card: { deleteMany(args?: object): Promise<unknown> };
+      column: { deleteMany(args?: object): Promise<unknown> };
+    };
+    await base.card.deleteMany();
+    await base.column.deleteMany();
+    const counted = (client as { $extends: (definition: object) => Base }).$extends({
+      name: "count-statements",
+      statement: ({ statement }: { statement: Sql }) => {
+        statements.push(Sql.peek(statement).strings.join("?"));
+        return statement;
+      },
+    });
     // biome-ignore lint/suspicious/noExplicitAny: the test drives the extended client dynamically
-    const db = ordering({ card: { key: "rank", within: ["columnId"] } })(client as any) as any;
+    const db = ordering({ card: { key: "rank", within: ["columnId"] } })(counted as any) as any;
     await db.column.createMany({ data: [{ id: "c1" }, { id: "c2" }] });
     return db;
   };
@@ -54,6 +74,16 @@ export function describeOrdering(
       expect(await listOf(db, "c2")).toEqual(["x"]);
       const ranks = (await db.card.findMany()).map((row: { rank: string }) => row.rank);
       expect(ranks.every(isKey)).toBe(true);
+    });
+
+    test("a create computes its key in its own statement (a read first on MySQL)", async () => {
+      const db = await setup();
+      await db.card.create({ data: { id: "a", columnId: "c1", title: "a" } });
+      statements.length = 0;
+      await db.card.create({ data: { id: "b", columnId: "c1", title: "b" } });
+      expect(statements).toHaveLength(createStatements);
+      expect(statements.join(" ")).toContain("MAX(");
+      expect(await listOf(db, "c1")).toEqual(["a", "b"]);
     });
 
     test("createMany keeps the array's order, per list", async () => {
@@ -94,6 +124,85 @@ export function describeOrdering(
         include: { cards: true },
       });
       expect(titles(found.cards)).toEqual(["p", "q", "r"]);
+    });
+
+    test("concurrent appends to one list all land, after the list, with distinct keys", async () => {
+      const db = await setup();
+      await db.card.create({ data: { id: "first", columnId: "c1", title: "first" } });
+      await Promise.all(
+        Array.from({ length: 4 }, (_, writer) =>
+          (async () => {
+            for (let index = 0; index < 10; index++)
+              await db.card.create({
+                data: { id: `w${writer}-${index}`, columnId: "c1", title: `w${writer}-${index}` },
+              });
+          })()
+        )
+      );
+      const rows = await db.card.findMany({ where: { columnId: "c1" } });
+      expect(rows).toHaveLength(41);
+      expect(rows[0].title).toBe("first");
+      expect(new Set(rows.map((row: { rank: string }) => row.rank)).size).toBe(41);
+      // Each writer's own appends keep their order.
+      for (let writer = 0; writer < 4; writer++) {
+        const mine = titles(rows).filter((title) => title.startsWith(`w${writer}-`));
+        expect(mine).toEqual(Array.from({ length: 10 }, (_, index) => `w${writer}-${index}`));
+      }
+    });
+
+    test("upsert's create branch and connectOrCreate's create append", async () => {
+      const db = await setup();
+      await db.card.create({ data: { id: "a", columnId: "c1", title: "a" } });
+      await db.card.upsert({
+        where: { id: "b" },
+        create: { id: "b", columnId: "c1", title: "b" },
+        update: { title: "b2" },
+      });
+      await db.card.upsert({
+        where: { id: "a" },
+        create: { id: "a", columnId: "c1", title: "never" },
+        update: { title: "a2" },
+      });
+      await db.column.update({
+        where: { id: "c1" },
+        data: {
+          cards: {
+            connectOrCreate: {
+              where: { id: "c" },
+              create: { id: "c", title: "c" },
+            },
+          },
+        },
+      });
+      expect(await listOf(db, "c1")).toEqual(["a2", "b", "c"]);
+    });
+
+    test("move is refused in an array transaction before anything runs", async () => {
+      const db = await setup();
+      await db.card.create({ data: { id: "a", columnId: "c1", title: "a" } });
+      await db.card.create({ data: { id: "b", columnId: "c1", title: "b" } });
+      statements.length = 0;
+      await expect(
+        db.$transaction([db.card.move({ where: { id: "a" }, last: true })])
+      ).rejects.toThrow();
+      expect(statements).toEqual([]);
+      expect(await listOf(db, "c1")).toEqual(["a", "b"]);
+    });
+
+    test("move inside an interactive transaction runs in it", async () => {
+      const db = await setup();
+      await db.card.create({ data: { id: "a", columnId: "c1", title: "a" } });
+      await db.card.create({ data: { id: "b", columnId: "c1", title: "b" } });
+      const supports = (db.$driver as { supportsTransactions?: boolean })?.supportsTransactions;
+      if (supports === false) return;
+      await expect(
+        db.$transaction(async (tx: typeof db) => {
+          await tx.card.move({ where: { id: "a" }, last: true });
+          expect(titles(await tx.card.findMany({ where: { columnId: "c1" } }))).toEqual(["b", "a"]);
+          throw new Error("roll back");
+        })
+      ).rejects.toThrow("roll back");
+      expect(await listOf(db, "c1")).toEqual(["a", "b"]);
     });
 
     test("a NULL list is a list", async () => {
