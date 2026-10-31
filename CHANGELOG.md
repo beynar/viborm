@@ -26,8 +26,9 @@ Versioning.
     through the client (permissions, soft delete, `updatedAt`, write hooks
     apply), guarded against a concurrent move of the same row; it respaces
     a list by itself when a gap is used up or neighbours tie.
-  - `rekey({ where, orderBy })` respaces lists in one transaction: how an
-    existing table adopts the extension.
+  - `rekey({ where, orderBy })` respaces whole lists, hidden members
+    included, in one statement: how an existing table adopts the extension
+    (backfill the key with `""`).
   - `orderingKey`, a validator for the key field; `keyBetween`,
     `keysBetween` and `isKey` compute keys in the browser as the server
     does.

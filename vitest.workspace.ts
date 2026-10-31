@@ -188,6 +188,8 @@ export default defineWorkspace([
         "tests/contracts/public-client/extension-order.core.test.ts",
         "tests/contracts/public-client/ordering.core.test.ts",
         "tests/contracts/public-client/ordering-append.core.test.ts",
+        "tests/contracts/public-client/ordering-composition.core.test.ts",
+        "tests/contracts/public-client/ordering-identity.core.test.ts",
         "tests/contracts/public-client/extension-bound-views.core.test.ts",
         "tests/contracts/public-client/extension-composition.core.test.ts",
         "tests/contracts/public-client/extension-evidence.core.test.ts",

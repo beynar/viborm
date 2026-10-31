@@ -397,6 +397,10 @@ computes after one consistent read (the one-statement form deadlocks under
 concurrent appends there). Its `methods` step adds `move` and `rekey` from
 the delegate and the client scope a model factory now receives; both are lazy
 thenables, so an array transaction refuses them before any statement.
+Respacing (`rekey`, and `move` on a tie or a used-up gap) is one raw UPDATE
+per call through the scope's `$executeRaw`, over whole physical lists
+(`ROW_NUMBER() OVER (PARTITION BY list …)`), each row matched by its key as
+read so a concurrent move keeps its result.
 
 `cache()` produces a namespace-free DEFINITION; the client composition root
 binds it to the concrete driver, deriving one scope from the private snapshot

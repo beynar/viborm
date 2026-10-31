@@ -456,3 +456,26 @@ Where the implementation departs from v2, and why:
 - **Measured.** pg application +670 B (198.85 kB), D1 +730 B (197.8 kB);
   `viborm/ordering` entry 11.94 kB; pg application with ordering 203.01 kB.
   Same-gap growth ≈0.6 digit per insert; 2,000 appends stay ≤ 11 characters.
+
+## 14. Adversarial review of the code (PR #127, 2026-10-31)
+
+Opus and GPT-6.1 Sol, independently, on 4ce86bc. Fixed in the PR:
+
+| Finding (reviewer) | Fix |
+|---|---|
+| Respacing rewrote only the visible rows, so hidden rows and rows outside `rekey`'s `where` interleaved (both) | Respacing is one UPDATE per call over whole physical lists (`ROW_NUMBER() OVER (PARTITION BY list ORDER BY key, id)`), lists named by the rows `where` matches |
+| Respacing sent 2 statements per row, too many for D1's per-invocation limit (Opus) | One statement per call, whatever the list's length |
+| Respacing overwrote a row moved concurrently (Sol) | Each row is matched by key, list and its key as read: a row moved meanwhile keeps its new key |
+| Respacing dropped per-call controls (Sol) | Only the read of the lists takes them; the UPDATE is maintenance |
+| A computed key was published as its SQL expression, so a nested foreign key to it re-evaluated it (Sol) | Interactive route reads it back with RETURNING; batch route publishes a read of the stored row by its key |
+| `move` with a compound unique input, or an anchor named by a secondary unique field, failed (Sol) | Rows are identified by their row key once read; the anchor is found by position in the cursor read; the moved row is skipped by identity |
+| Adoption: a backfilled constant broke creates differently per dialect (Opus) | The append's MAX only reads digit strings; MySQL's JS path reads only the integer of a malformed last value (`keysAfter`). Documented backfill: `""` |
+| Docs said MySQL array transactions use the one-statement form (Opus) | Corrected: MySQL always reads first |
+| `move` loop unbounded on respace paths; overflow threw RangeError (Opus) | Every pass counts toward 3 attempts; an overflow respaces |
+| Random digits biased (byte % 10) (Opus) | Rejection sampling |
+| Lazy thenable had no catch/finally (Opus) | Added |
+
+Accepted, not fixed: a `createMany` split into several statements by a bind
+budget numbers each statement's rows from the start of the call, so integers
+skip ahead (3,000 rows under D1's budget end at integer 46,499; order intact;
+the 10^9 cap is far).

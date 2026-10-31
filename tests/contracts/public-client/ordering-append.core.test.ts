@@ -4,7 +4,6 @@
  * provider files run them for real (`tests/providers/**\/*-ordering.test.ts`).
  */
 
-import { QueryError } from "@errors";
 import type { InsertValueContext } from "@query-engine/raptor3/shared/insert-value";
 import { type Sql, sql } from "@sql";
 import { AppendKey } from "@src/ordering/append";
@@ -74,14 +73,17 @@ describe("ordering appends", () => {
     expect(other!.startsWith("10")).toBe(true);
   });
 
-  test("mysql with a read refuses a last key that is not one", async () => {
+  test("mysql with a read: a last value that is no key gives its integer, else the start", async () => {
     const append = new AppendKey([]);
-    await expect(
-      append.compute(
-        context("mysql", [{}], async () => [{ g0: "abc" }]),
+    const appended = async (last: string) =>
+      (await append.compute(
+        context("mysql", [{}], async () => [{ g0: last }]),
         [0]
-      )
-    ).rejects.toThrow(QueryError);
+      )) as string[];
+    expect((await appended("250"))[0]!.startsWith("251")).toBe(true);
+    expect((await appended("2a"))[0]!.startsWith("10")).toBe(true);
+    expect((await appended("089"))[0]!.startsWith("10")).toBe(true);
+    expect((await appended("2500"))[0]!.startsWith("251")).toBe(true);
   });
 
   test("a list named by values the engine produces as SQL is one list per value", async () => {

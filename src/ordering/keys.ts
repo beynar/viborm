@@ -92,13 +92,20 @@ function encode(value: bigint): string {
   return `0${9 - digits.length}${body.padStart(digits.length, "0")}`;
 }
 
-/** A uniform random bigint in [0, span). */
+/** A uniform random bigint in [0, span): one digit per byte below 250. */
 function random(span: bigint): bigint {
-  const digits = span.toString().length + 6;
-  const bytes = new Uint8Array(digits);
-  crypto.getRandomValues(bytes);
+  const wanted = span.toString().length + 6;
   let drawn = 0n;
-  for (const byte of bytes) drawn = drawn * TEN + BigInt(byte % 10);
+  let digits = 0;
+  while (digits < wanted) {
+    const bytes = new Uint8Array(wanted - digits + 4);
+    crypto.getRandomValues(bytes);
+    for (const byte of bytes)
+      if (byte < 250 && digits < wanted) {
+        drawn = drawn * TEN + BigInt(byte % 10);
+        digits += 1;
+      }
+  }
   return drawn % span;
 }
 
@@ -200,6 +207,24 @@ export function keysBetween(
     keys.push(integer + fraction);
   }
   return keys;
+}
+
+/**
+ * `count` keys after `last`, as `keysBetween(last, null, count)`, where
+ * `last` may be any digit string the list's largest value is (a backfilled
+ * constant, a key a write left malformed): only its integer is read, as the
+ * SQL append reads it.
+ */
+export function keysAfter(last: string | null, count: number): string[] {
+  if (last === null || isKey(last as unknown))
+    return keysBetween(last, null, count);
+  const length = Number(last[0]);
+  const integer = last.slice(1, 1 + length);
+  return keysBetween(
+    last[0] === "0" || !DIGITS.test(integer) ? null : encode(BigInt(integer)),
+    null,
+    count
+  );
 }
 
 /** One key strictly between `lower` and `upper` (`null`: an open end). */

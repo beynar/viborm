@@ -30,7 +30,15 @@ const card = s.model({
     .references("id"),
 });
 
-export const schema = { column, card };
+/** A table that adopts the extension: its key has no validator yet, and
+ * its rows hold a backfilled constant. */
+const legacy = s.model({
+  id: s.string().id(),
+  rank: s.string(),
+  title: s.string(),
+});
+
+export const schema = { column, card, legacy };
 
 type Base = {
   $extends: (...args: never[]) => unknown;
@@ -45,6 +53,7 @@ export function describeOrdering(
   createStatements = 1
 ) {
   const statements: string[] = [];
+  let base_: any;
   // One database per run, emptied before each test.
   let opened: ReturnType<typeof open> | undefined;
   const setup = async () => {
@@ -55,6 +64,11 @@ export function describeOrdering(
     };
     await base.card.deleteMany();
     await base.column.deleteMany();
+    await (
+      client as unknown as {
+        legacy: { deleteMany(args?: object): Promise<unknown> };
+      }
+    ).legacy.deleteMany();
     const counted = (
       client as unknown as { $extends: (definition: object) => Base }
     ).$extends({
@@ -64,9 +78,11 @@ export function describeOrdering(
         return statement;
       },
     });
-    const db = ordering({ card: { key: "rank", within: ["columnId"] } })(
-      counted as any
-    ) as any;
+    const db = ordering({
+      card: { key: "rank", within: ["columnId"] },
+      legacy: { key: "rank" },
+    })(counted as any) as any;
+    base_ = client as any;
     await db.column.createMany({ data: [{ id: "c1" }, { id: "c2" }] });
     return db;
   };
@@ -284,6 +300,48 @@ export function describeOrdering(
       expect((await db.card.findUnique({ where: { id: "a" } })).rank).toBe(
         "155"
       );
+    });
+
+    test("a table adopting the extension: appends go after its backfilled rows, rekey orders them", async () => {
+      const db = await setup();
+      await base_.legacy.createMany({
+        data: [
+          { id: "c", title: "c", rank: "" },
+          { id: "a", title: "a", rank: "" },
+          { id: "b", title: "b", rank: "" },
+        ],
+      });
+      await db.legacy.create({ data: { id: "n1", title: "n1" } });
+      await db.legacy.create({ data: { id: "n2", title: "n2" } });
+      expect(titles(await db.legacy.findMany()).slice(-2)).toEqual([
+        "n1",
+        "n2",
+      ]);
+      const { count } = await db.legacy.rekey({ orderBy: { title: "asc" } });
+      expect(count).toBe(5);
+      expect(titles(await db.legacy.findMany())).toEqual([
+        "a",
+        "b",
+        "c",
+        "n1",
+        "n2",
+      ]);
+      const ranks = (await db.legacy.findMany()).map(
+        (row: { rank: string }) => row.rank
+      );
+      expect(ranks.every(isKey)).toBe(true);
+    });
+
+    test("rekey of part of a list respaces the whole list, in its order", async () => {
+      const db = await setup();
+      for (const title of ["a", "b", "c", "d"])
+        await db.card.create({ data: { id: title, columnId: "c1", title } });
+      statements.length = 0;
+      const { count } = await db.card.rekey({ where: { id: "c" } });
+      expect(count).toBe(4);
+      // One statement reads the lists, one respaces them.
+      expect(statements).toHaveLength(2);
+      expect(await listOf(db, "c1")).toEqual(["a", "b", "c", "d"]);
     });
 
     test("move: after, before, first, last, within a list", async () => {

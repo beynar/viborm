@@ -11,18 +11,17 @@
 // read of the group takes shared next-key locks under REPEATABLE READ: 321
 // of 600 appends failed with 1213 on four writers, measured), so the maximum
 // is read first by a plain consistent read, which locks nothing, and the
-// keys are computed here. Inside an array transaction, which cannot read
-// before writing, MySQL takes the one-statement form and its deadlock risk.
+// keys are computed here. Every MySQL driver runs array transactions
+// interactively, so this read always happens there; the MySQL expression
+// below serves a driver that could not read first.
 
-import { QueryError } from "@errors";
-import type { AnyModel } from "@schema/model";
 import { type Sql, sql } from "@sql";
 import {
   InsertValue,
   type InsertValueContext,
 } from "../query-engine/raptor3/shared/insert-value";
 import type { Input } from "../query-engine/raptor3/shared/schema";
-import { isKey, keysBetween } from "./keys";
+import { keysAfter } from "./keys";
 
 /** One group: the indexes of its rows, and its fields' values. */
 interface Group {
@@ -67,18 +66,29 @@ export class AppendKey extends InsertValue {
     this.within = Object.freeze([...within]);
   }
 
-  /** `SELECT MAX(key) FROM table WHERE group`, null-safe. */
+  /**
+   * `SELECT MAX(key) FROM table WHERE group`, null-safe, over the values
+   * that are digit strings of two digits or more: a value that is no key (a
+   * backfilled constant) is never the list's last, so an append is placed
+   * after the list's keys on every dialect and never casts a non-digit.
+   */
   #last(context: InsertValueContext, values: readonly unknown[]): Sql {
     const { model, queries: q, field } = context;
+    const key = q.column(model, field);
     const where = this.within.map((name, position) => {
       const value = values[position];
       return value === null
         ? sql`${q.column(model, name)} IS NULL`
         : sql`${q.column(model, name)} = ${q.fieldValue(model, name, value)}`;
     });
-    return sql`SELECT MAX(${q.column(model, field)}) AS k FROM ${q.table(model)}${
-      where.length === 0 ? sql.empty : sql` WHERE ${sql.join(where, " AND ")}`
-    }`;
+    where.push(
+      context.dialect === "postgresql"
+        ? sql`${key} ~ '^[0-9]{2,}$'`
+        : context.dialect === "mysql"
+          ? sql`${key} REGEXP '^[0-9]{2,}$'`
+          : sql`length(${key}) >= 2 AND ${key} NOT GLOB '*[^0-9]*'`
+    );
+    return sql`SELECT MAX(${key}) AS k FROM ${q.table(model)} WHERE ${sql.join(where, " AND ")}`;
   }
 
   /**
@@ -113,11 +123,7 @@ export class AppendKey extends InsertValue {
       const [answer] = await context.read(sql`SELECT ${sql.join(reads, ", ")}`);
       for (const [position, group] of groups.entries()) {
         const last = (answer?.[`g${position}`] ?? null) as string | null;
-        if (last !== null && !isKey(last))
-          throw new QueryError(
-            `The last ${keyOf(context.model, context.field)} of its list is not an ordering key: rekey the list.`
-          );
-        const made = keysBetween(last, null, group.at.length);
+        const made = keysAfter(last, group.at.length);
         for (const [step, index] of group.at.entries())
           keys.set(index, made[step]);
       }
@@ -131,6 +137,3 @@ export class AppendKey extends InsertValue {
     return indexes.map((index) => keys.get(index));
   }
 }
-
-const keyOf = (model: AnyModel, field: string) =>
-  `${model["~"].names.ts!}.${field}`;

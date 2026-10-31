@@ -25,8 +25,9 @@ import type {
   VibORMConfig,
 } from "../index";
 import { getModelKeyCatalog } from "../schema/model/keys";
+import { type Sql, sql } from "../sql/sql";
 import { AppendKey } from "./append";
-import { isKey, keyBetween, keysBetween } from "./keys";
+import { isKey, keyBetween } from "./keys";
 
 export { isKey, keyBetween, keysBetween, MAX_KEY_LENGTH } from "./keys";
 
@@ -71,10 +72,7 @@ type Delegate = Readonly<
   Record<string, (args: object) => PromiseLike<unknown>>
 >;
 interface Scope {
-  readonly $schema: Schema;
-  readonly $transaction: (
-    operations: readonly PromiseLike<unknown>[]
-  ) => Promise<readonly unknown[]>;
+  readonly $executeRaw: (query: Sql) => PromiseLike<number>;
   readonly [model: string]: unknown;
 }
 
@@ -89,6 +87,9 @@ interface Ordered {
   readonly within: readonly string[];
   /** The row key's fields: how one row is addressed. */
   readonly identity: readonly string[];
+  readonly model: AnyModel;
+  /** The client's dialect: respacing writes its own SQL. */
+  readonly dialect: string;
 }
 
 function refuse(message: string): never {
@@ -97,7 +98,11 @@ function refuse(message: string): never {
   });
 }
 
-function admit(schema: Schema, config: OrderingConfig): readonly Ordered[] {
+function admit(
+  schema: Schema,
+  config: OrderingConfig,
+  dialect = "sqlite"
+): readonly Ordered[] {
   return Object.entries(config).map(([name, entry]) => {
     if (!Object.hasOwn(schema, name)) refuse(`unknown model "${name}".`);
     const model = schema[name] as AnyModel;
@@ -127,7 +132,7 @@ function admit(schema: Schema, config: OrderingConfig): readonly Ordered[] {
       refuse(`${name}.within names a field twice.`);
     if (within.includes(key))
       refuse(`${name}.within cannot name the key field "${key}".`);
-    return Object.freeze({ name, key, within, identity });
+    return Object.freeze({ name, key, within, identity, model, dialect });
   });
 }
 
@@ -154,36 +159,98 @@ function invalid(model: string, message: string): never {
   ]);
 }
 
-/** Respace every list `rows` hold: fresh keys, in their current order. */
+/**
+ * Respace lists in one statement: every member of each list (hidden ones
+ * too: the statement reads the table, not the caller's view) gets the key
+ * of its rank, `10`, `11`, … in `order` (else the list's current order), a
+ * member whose key or list changed since the statement's own read keeping
+ * what it was given. `lists` names the lists by their fields' values;
+ * `undefined` respaces every list. Returns the rows rewritten.
+ */
 async function respace(
   ordered: Ordered,
   scope: Scope,
-  delegate: Delegate,
-  rows: readonly Row[]
+  lists: readonly Row[] | undefined,
+  order: readonly Readonly<Record<string, "asc" | "desc">>[] = []
 ): Promise<number> {
-  const lists = new Map<string, Row[]>();
-  for (const row of rows) {
-    const list = JSON.stringify(
-      ordered.within.map((field) => String(row[field]))
+  if (lists?.length === 0) return 0;
+  const { model, key, within, identity, dialect } = ordered;
+  const quote = (name: string) =>
+    sql.raw(
+      dialect === "mysql"
+        ? `\`${name.replaceAll("`", "``")}\``
+        : `"${name.replaceAll('"', '""')}"`
     );
-    const members = lists.get(list) ?? [];
-    members.push(row);
-    lists.set(list, members);
-  }
-  const updates: PromiseLike<unknown>[] = [];
-  for (const members of lists.values()) {
-    const keys = keysBetween(null, null, members.length);
-    for (const [index, row] of members.entries())
-      updates.push(
-        delegate.update!({
-          where: fieldsOf(ordered.identity, row),
-          data: { [ordered.key]: keys[index] },
-          select: Object.fromEntries(ordered.identity.map((f) => [f, true])),
-        })
-      );
-  }
-  if (updates.length > 0) await scope.$transaction(updates);
-  return updates.length;
+  const column = (field: string) => {
+    const scalar = model["~"].state.scalars[field]!;
+    return quote(
+      scalar["~"].names?.sql ?? scalar["~"].state.columnName ?? field
+    );
+  };
+  const table = quote(model["~"].names.sql!);
+  const at = (alias: string, field: string) =>
+    sql`${sql.raw(alias)}.${column(field)}`;
+  // A model with no list fields is one list: the whole table.
+  const filter =
+    lists === undefined || within.length === 0
+      ? sql.empty
+      : sql` WHERE ${sql.join(
+          lists.map(
+            (list) =>
+              sql`(${sql.join(
+                within.map((field) =>
+                  list[field] === null
+                    ? sql`${column(field)} IS NULL`
+                    : sql`${column(field)} = ${list[field]}`
+                ),
+                " AND "
+              )})`
+          ),
+          " OR "
+        )}`;
+  const terms = [
+    ...order.flatMap((term) =>
+      Object.entries(term).map(
+        ([field, direction]) =>
+          sql`${column(field)} ${sql.raw(direction === "desc" ? "DESC" : "ASC")}`
+      )
+    ),
+    ...(order.length === 0 ? [sql`${column(key)} ASC`] : []),
+    ...identity.map((field) => sql`${column(field)} ASC`),
+  ];
+  const partition =
+    within.length === 0
+      ? sql.empty
+      : sql`PARTITION BY ${sql.join(within.map(column), ", ")} `;
+  const ranked = sql`SELECT ${sql.join(
+    [...identity, ...within, key].map(column),
+    ", "
+  )}, ROW_NUMBER() OVER (${partition}ORDER BY ${sql.join(terms, ", ")}) - 1 AS ${sql.raw(
+    "viborm_n"
+  )} FROM ${table}${filter}`;
+  const n = sql.raw("s.viborm_n");
+  const value =
+    dialect === "postgresql"
+      ? sql`length(${n}::text)::text || ${n}::text`
+      : dialect === "mysql"
+        ? sql`CONCAT(CHAR_LENGTH(${n}), ${n})`
+        : sql`length(${n}) || ${n}`;
+  // Matched by key, and only while the row still holds the key and list read.
+  const match = sql.join(
+    [...identity, ...within, key].map((field) =>
+      within.includes(field)
+        ? sql`(${at("t", field)} = ${at("s", field)} OR (${at("t", field)} IS NULL AND ${at("s", field)} IS NULL))`
+        : sql`${at("t", field)} = ${at("s", field)}`
+    ),
+    " AND "
+  );
+  const statement =
+    dialect === "mysql"
+      ? sql`UPDATE ${table} AS t JOIN (${ranked}) AS s ON ${match} SET ${at("t", key)} = ${value}`
+      : dialect === "postgresql"
+        ? sql`UPDATE ${table} AS t SET ${column(key)} = ${value} FROM (${ranked}) AS s WHERE ${match}`
+        : sql`UPDATE ${table} AS t SET ${column(key)} = ${value} FROM (${ranked}) AS s WHERE ${match}`;
+  return Number(await scope.$executeRaw(statement));
 }
 
 function methods(ordered: Ordered) {
@@ -191,15 +258,9 @@ function methods(ordered: Ordered) {
   const selection = Object.fromEntries(
     [...identity, ...within, key].map((field) => [field, true])
   );
+  const sameRow = (left: Row, right: Row) =>
+    identity.every((field) => same(left[field], right[field]));
   return (delegate: Delegate, scope: Scope) => {
-    /** Every member of the list `group` names, in order. */
-    const members = (group: Row, controls: object) =>
-      delegate.findMany!({
-        ...controls,
-        where: group,
-        select: selection,
-      }) as Promise<Row[]>;
-
     async function place(args: Readonly<Record<string, unknown>>) {
       const {
         where,
@@ -232,17 +293,16 @@ function methods(ordered: Ordered) {
           invalid(name, `to names the list's fields: ${within.join(", ")}.`);
       }
       const anchor = (after ?? before) as Row | undefined;
-      if (
-        anchor !== undefined &&
-        JSON.stringify(anchor) === JSON.stringify(where)
-      )
-        invalid(name, "a row cannot be placed next to itself.");
       const projection = {
         ...(select === undefined ? {} : { select }),
         ...(include === undefined ? {} : { include }),
         ...(omit === undefined ? {} : { omit }),
       };
       for (let attempt = 1; ; attempt++) {
+        if (attempt > MOVE_ATTEMPTS)
+          throw new QueryError(
+            `${name}.move: the list kept changing under concurrent writes; try again.`
+          );
         const moved = (await delegate.findUnique!({
           ...controls,
           where,
@@ -253,23 +313,24 @@ function methods(ordered: Ordered) {
         let low: string | null;
         let high: string | null;
         if (anchor !== undefined) {
-          // The anchor and its neighbour on the moving side, in the list's
-          // order (the `order` capability), the moved row left out.
+          // The anchor and the rows after (or before) it in the list's order
+          // (the `order` capability): the anchor first (or last), the moved
+          // row skipped where it is the neighbour.
           const rows = (await delegate.findMany!({
             ...controls,
             cursor: anchor,
-            take: after === undefined ? -2 : 2,
-            where: { NOT: where },
+            take: after === undefined ? -3 : 3,
             select: selection,
           })) as Row[];
-          const found = rows.find((row) =>
-            Object.entries(anchor).every(([field, value]) =>
-              same(row[field], value)
-            )
-          );
+          const found = after === undefined ? rows.at(-1) : rows[0];
           if (found === undefined) throw new NotFoundError(name, "move");
+          if (sameRow(found, moved))
+            invalid(name, "a row cannot be placed next to itself.");
           group = fieldsOf(within, found);
-          const other = rows.find((row) => row !== found);
+          const others = (
+            after === undefined ? rows.slice(0, -1).reverse() : rows.slice(1)
+          ).filter((row) => !sameRow(row, moved));
+          const other = others[0];
           const neighbour =
             other !== undefined &&
             within.every((field) => same(other[field], found[field]))
@@ -283,7 +344,7 @@ function methods(ordered: Ordered) {
           group = (to as Row | undefined) ?? fieldsOf(within, moved);
           const end = (await delegate.findFirst!({
             ...controls,
-            where: { AND: [group, { NOT: where }] },
+            where: { AND: [group, { NOT: fieldsOf(identity, moved) }] },
             ...(first === true ? {} : { take: -1 }),
             select: selection,
           })) as Row | null;
@@ -298,29 +359,21 @@ function methods(ordered: Ordered) {
           (high === null || current < high)
         )
           return delegate.findUnique!({ ...controls, where, ...projection });
-        if (
-          (low !== null && !isKey(low)) ||
-          (high !== null && !isKey(high)) ||
-          (low !== null && high !== null && !(low < high))
-        ) {
-          // Tied or malformed neighbours: the list is respaced, then read again.
-          await respace(
-            ordered,
-            scope,
-            delegate,
-            await members(group, controls)
-          );
-          continue;
+        let next: string | undefined;
+        try {
+          if (
+            (low === null || isKey(low)) &&
+            (high === null || isKey(high)) &&
+            (low === null || high === null || low < high)
+          )
+            next = keyBetween(low, high);
+        } catch {
+          // An integer past 10^9: the list is respaced below.
         }
-        const next = keyBetween(low, high);
-        if (!isKey(next)) {
-          // The gap has been split too often: its list is respaced.
-          await respace(
-            ordered,
-            scope,
-            delegate,
-            await members(group, controls)
-          );
+        if (next === undefined || !isKey(next)) {
+          // Tied or malformed neighbours, or a gap split too often: the
+          // list is respaced, then read again.
+          await respace(ordered, scope, [group]);
           continue;
         }
         try {
@@ -333,23 +386,26 @@ function methods(ordered: Ordered) {
             ...projection,
           });
         } catch (error) {
-          if (!(error instanceof NotFoundError) || attempt >= MOVE_ATTEMPTS)
-            throw error instanceof NotFoundError
-              ? new QueryError(
-                  `${name}.move: the row kept moving under concurrent writes; try again.`
-                )
-              : error;
+          if (!(error instanceof NotFoundError)) throw error;
         }
       }
     }
 
     /** A lazy result: nothing runs until it is awaited, so an array
      * transaction refuses it before any statement is sent. */
-    const lazily = <T>(run: () => Promise<T>): PromiseLike<T> => {
+    const lazily = <T>(run: () => Promise<T>) => {
       let started: Promise<T> | undefined;
+      const result = () => (started ??= run());
       return {
-        then: (onFulfilled, onRejected) =>
-          (started ??= run()).then(onFulfilled, onRejected),
+        then: <A = T, B = never>(
+          onFulfilled?: ((value: T) => A | PromiseLike<A>) | null,
+          onRejected?: ((reason: unknown) => B | PromiseLike<B>) | null
+        ) => result().then(onFulfilled, onRejected),
+        catch: <B = never>(
+          onRejected?: ((reason: unknown) => B | PromiseLike<B>) | null
+        ) => result().catch(onRejected),
+        finally: (onFinally?: (() => void) | null) =>
+          result().finally(onFinally),
       };
     };
 
@@ -359,20 +415,46 @@ function methods(ordered: Ordered) {
       rekey: (args: Readonly<Record<string, unknown>> = {}) =>
         lazily(async () => {
           const { where, orderBy, ...controls } = args;
-          const rows = (await delegate.findMany!({
-            ...controls,
-            ...(where === undefined ? {} : { where }),
-            ...(orderBy === undefined
-              ? {}
-              : {
-                  orderBy: [
-                    ...within.map((field) => ({ [field]: "asc" })),
-                    ...(Array.isArray(orderBy) ? orderBy : [orderBy]),
-                  ],
-                }),
-            select: selection,
-          })) as Row[];
-          return { count: await respace(ordered, scope, delegate, rows) };
+          const order = (
+            orderBy === undefined
+              ? []
+              : Array.isArray(orderBy)
+                ? orderBy
+                : [orderBy]
+          ) as Readonly<Record<string, "asc" | "desc">>[];
+          for (const term of order)
+            for (const [field, direction] of Object.entries(term))
+              if (
+                !Object.hasOwn(ordered.model["~"].state.scalars, field) ||
+                (direction !== "asc" && direction !== "desc")
+              )
+                throw new ValidationError("update", [
+                  {
+                    path: "orderBy",
+                    message: `${name}.rekey: orderBy takes { field: "asc" | "desc" } over the model's scalar fields.`,
+                  },
+                ]);
+          // The lists the matched rows are in, each respaced whole.
+          const lists =
+            where === undefined || within.length === 0
+              ? where === undefined
+                ? undefined
+                : (await delegate.findFirst!({
+                      ...controls,
+                      where,
+                      select: selection,
+                    }))
+                  ? undefined
+                  : []
+              : ((await delegate.findMany!({
+                  ...controls,
+                  where,
+                  distinct: within,
+                  select: Object.fromEntries(
+                    within.map((field) => [field, true])
+                  ),
+                })) as Row[]);
+          return { count: await respace(ordered, scope, lists, order) };
         }),
     };
   };
@@ -471,7 +553,11 @@ function methodsStep<
   C extends Governed<Config>,
   X extends ExtensionState,
 >(config: Config, client: VibORMClient<C, X>) {
-  const admitted = admit(client.$schema, config);
+  const admitted = admit(
+    client.$schema,
+    config,
+    (client as { $driver?: { dialect?: string } }).$driver?.dialect
+  );
   const model = Object.fromEntries(
     admitted.map((ordered) => [ordered.name, methods(ordered)])
   ) as unknown as OrderingModels<VibORMClient<C, X>, C, Config>;

@@ -71,9 +71,10 @@ of the two comes first is arbitrary.
 On MySQL, that INSERT would deadlock under concurrent creates into one list
 (its read of the list takes shared locks), so a create first reads the last
 key of its list with a plain read that locks nothing: one more statement per
-create. Inside an array transaction, which cannot read before writing, MySQL
-uses the one-statement form, and two such transactions appending to one list
-at the same moment can deadlock: retry the one that fails.
+create, array transactions included.
+
+Values of the key field that are not keys (a backfilled `""`) are never a
+list's last: an append goes after the list's keys.
 
 ## `move`
 
@@ -105,7 +106,7 @@ between the read and the write, the row lands where the anchor was.
 A key gains about half a digit each time a member is placed into the same
 gap, so many moves into one spot grow keys. When a move's gap is used up
 (its key would pass 64 digits) or its neighbours tie, the move respaces the
-list in one transaction, then places the row.
+list (as `rekey` does, below), then places the row.
 
 Errors: a missing or hidden row or anchor is a `NotFoundError`; no placement,
 two placements, `to` with an anchor, or a row as its own anchor is a
@@ -123,12 +124,23 @@ await db.card.rekey({ where: { columnId } });                            // resp
 await db.card.rekey({ where: { columnId }, orderBy: { createdAt: "asc" } }); // reorder
 ```
 
-`rekey` gives every row of the lists `where` matches fresh, evenly spaced
-keys in their current order, or in `orderBy` within each list, in one
-transaction. It returns `{ count }`.
+`rekey` gives every row of the lists the rows `where` matches fresh keys
+(`10`, `11`, `12`, …) in their current order, or in `orderBy` (scalar fields,
+`"asc"` or `"desc"`) within each list. Without `where`, every list. It returns
+`{ count }`, the rows rewritten.
 
-It is how an existing table adopts the extension: add the key field with any
-constant value, deploy, then `rekey` each list in the order it should have.
+Respacing is one statement per call, and it rewrites whole lists: the rows
+`where` matches name the lists, and every member of those lists is rekeyed,
+soft-deleted and forbidden rows included, so a row that comes back later
+comes back in its place. It writes the key only, as maintenance: no
+`updatedAt`, no update hooks, no permission check on the other members. A
+member another writer moves while the statement runs keeps the key that
+writer gave it.
+
+It is how an existing table adopts the extension: add the key field with the
+value `""` (it sorts before every key, so rows created from then on go after
+the existing ones), deploy, then `rekey` each list in the order it should
+have.
 
 ## Keys
 
