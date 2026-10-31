@@ -35,3 +35,11 @@ export abstract class InsertValue {
     indexes: readonly number[]
   ): readonly unknown[] | Promise<readonly unknown[]>;
 }
+
+/**
+ * Each engine's renderer, by its schema then its driver's adapter: an
+ * official extension that writes a statement of its own (ordering's
+ * respacing) names tables and columns and binds values as the engine's
+ * queries do, without importing the engine into its entry.
+ */
+export const renderers = new WeakMap<object, WeakMap<object, Queries>>();

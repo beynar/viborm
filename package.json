@@ -465,15 +465,15 @@
       "name": "pg application + ordering",
       "path": "node_modules/.cache/viborm-size/pg-ordering.mjs",
       "gzip": true,
-      "limit": "204.2 kB",
-      "message": "The pg application with viborm/ordering applied (one ordered model, a create and a move): its difference from the pg application row is what ordering a list costs, measured 203,010 B (+4,160 B) on 2026-10-31. Limit follows OD-17: measured rounded up to 0.1 kB plus 0.3 kB. The adversarial review's fixes (2026-10-31: respacing as one statement over whole lists, rows named by identity in move, stored keys published instead of their expressions, the filtered MAX for backfilled tables) measure 203.87 kB; 203.4 kB → 204.2 kB under the same OD-17 rule."
+      "limit": "204.6 kB",
+      "message": "The pg application with viborm/ordering applied (one ordered model, a create and a move): its difference from the pg application row is what ordering a list costs, measured 203,010 B (+4,160 B) on 2026-10-31. Limit follows OD-17: measured rounded up to 0.1 kB plus 0.3 kB. The adversarial review's fixes (2026-10-31: respacing as one statement over whole lists, rows named by identity in move, stored keys published instead of their expressions, the filtered MAX for backfilled tables) measure 203.87 kB; 203.4 kB → 204.2 kB under the same OD-17 rule. The second review's fixes (2026-10-31) measure 204.22 kB; 204.2 kB → 204.6 kB under the same OD-17 rule."
     },
     {
       "name": "ordering extension entry",
       "path": "node_modules/.cache/viborm-size/ordering-entry.mjs",
       "gzip": true,
-      "limit": "12.9 kB",
-      "message": "viborm/ordering alone: ordering(), its decimal keys, the append each dialect's INSERT computes, move and rekey, with what it imports from shared chunks (the error classes it raises, the engine's insert-value base), measured 11.94 kB on 2026-10-31. Limit follows OD-17: measured rounded up to 0.1 kB plus 0.3 kB. The adversarial review's fixes (2026-10-31: respacing as one statement over whole lists, rows named by identity in move, stored keys published instead of their expressions, the filtered MAX for backfilled tables) measure 12.57 kB; 12.3 kB → 12.9 kB under the same OD-17 rule."
+      "limit": "13.2 kB",
+      "message": "viborm/ordering alone: ordering(), its decimal keys, the append each dialect's INSERT computes, move and rekey, with what it imports from shared chunks (the error classes it raises, the engine's insert-value base), measured 11.94 kB on 2026-10-31. Limit follows OD-17: measured rounded up to 0.1 kB plus 0.3 kB. The adversarial review's fixes (2026-10-31: respacing as one statement over whole lists, rows named by identity in move, stored keys published instead of their expressions, the filtered MAX for backfilled tables) measure 12.57 kB; 12.3 kB → 12.9 kB under the same OD-17 rule. The second review's fixes (2026-10-31: respacing rendered by the client's own engine, read from the engine's renderer registry, the lists named through the caller's view and chunked by the driver's bound values, typed placements) measure 12.85 kB; 12.9 kB → 13.2 kB under the same OD-17 rule."
     },
     {
       "name": "identifier generators only",

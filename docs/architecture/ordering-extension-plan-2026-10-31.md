@@ -487,7 +487,7 @@ Opus and GPT-6.1 Sol, independently, on 2f980ac. Fixed in the PR:
 | Finding (reviewer) | Fix |
 |---|---|
 | `rekey()` without `where` rewrote every list, whatever the caller could see; its count leaked hidden rows (Opus) | Lists are always named through the caller's view (`findMany` distinct on the list fields); a list with no visible row is left alone |
-| Respacing named the table without the client's namespace: on PostgreSQL with `namespace`, it rewrote a same-named table in `public` (Sol) | Respacing renders with the engine's own `Queries`, built once per client from `$schema` and `$driver`: namespace, physical column names, encodings |
+| Respacing named the table without the client's namespace: on PostgreSQL with `namespace`, it rewrote a same-named table in `public` (Sol) | Respacing renders with the client's own engine `Queries` (namespace, physical column names, encodings), read from a registry the engine fills when it is built (`renderers`, by schema then adapter, in `insert-value.ts`). Importing `Queries` into the entry instead split the shared chunks so that every application bundle grew about 0.2 kB; the registry costs them about 30 B |
 | Respacing bound list values as given, not as the column stores them (SQLite INTEGER DateTime, decimals, compact ids): no row matched (Sol) | List values bound through `Queries.fieldValue` |
 | A list field in a compound row key was selected twice: PostgreSQL 42702, MySQL 1060 (Sol) | Each column selected once |
 | Respacing bound one value per list field per list: past D1's 100 values, refused (both) | As many lists per statement as the driver's `maxBindParametersPerStatement` allows |

@@ -10,7 +10,6 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { DatabaseAdapter } from "../adapters/database-adapter";
 import type { OperationPayload } from "../client/exports"; // public today
-import type { DriverResultParser } from "../drivers/driver-instrumentation";
 import {
   ClientInitializationError,
   NotFoundError,
@@ -26,8 +25,8 @@ import type {
   VibORMClient,
   VibORMConfig,
 } from "../index";
-import { Queries } from "../query-engine/raptor3/shared/query";
-import { EngineSchema } from "../query-engine/raptor3/shared/schema";
+import { renderers } from "../query-engine/raptor3/shared/insert-value";
+import type { Queries } from "../query-engine/raptor3/shared/query";
 import { getModelKeyCatalog } from "../schema/model/keys";
 import { type Sql, sql } from "../sql/sql";
 import { AppendKey } from "./append";
@@ -85,7 +84,6 @@ interface Scope {
 interface Driver {
   readonly dialect: string;
   readonly adapter: DatabaseAdapter;
-  readonly result?: DriverResultParser;
   readonly maxBindParametersPerStatement?: number;
 }
 
@@ -196,11 +194,8 @@ function engineOf(
   return () =>
     (engine ??= {
       invalidate,
-      queries: new Queries(
-        new EngineSchema(schema),
-        driver.adapter,
-        driver.result
-      ),
+      // Registered when the client's engine was built.
+      queries: renderers.get(schema)!.get(driver.adapter)!,
       dialect: driver.dialect,
       binds: driver.maxBindParametersPerStatement,
     });
