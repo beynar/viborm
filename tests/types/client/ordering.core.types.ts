@@ -57,6 +57,26 @@ export async function probes() {
   });
   expectTypeOf(picked).toEqualTypeOf<{ title: string }>();
   await db.card.move({ where: { id: "a" }, to: { columnId: "c2" } });
+  // `to` names the list by its fields, with their types.
+  // @ts-expect-error not a list field
+  await db.card.move({ where: { id: "a" }, to: { column: "c2" } });
+  // @ts-expect-error columnId is a string
+  await db.card.move({ where: { id: "a" }, to: { columnId: 5 } });
+  // One placement.
+  // @ts-expect-error after and before together
+  await db.card.move({
+    where: { id: "a" },
+    after: { id: "b" },
+    before: { id: "c" },
+  });
+  // @ts-expect-error an anchor and first together
+  await db.card.move({ where: { id: "a" }, after: { id: "b" }, first: true });
+  // @ts-expect-error to goes with first or last, not an anchor
+  await db.card.move({
+    where: { id: "a" },
+    after: { id: "b" },
+    to: { columnId: "c2" },
+  });
   await db.card.move({
     where: { id: "a" },
     last: true,
@@ -70,6 +90,9 @@ export async function probes() {
   const { count } = await db.card.rekey({ where: { columnId: "c1" } });
   expectTypeOf(count).toEqualTypeOf<number>();
   await db.card.rekey({ orderBy: { title: "asc" } });
+  await db.card.rekey({ orderBy: [{ title: "desc" }, { id: "asc" }] });
+  // @ts-expect-error rekey orders by the model's scalar fields
+  await db.card.rekey({ orderBy: { column: "asc" } });
   // @ts-expect-error rekey's where is the model's
   await db.card.rekey({ where: { nope: 1 } });
 

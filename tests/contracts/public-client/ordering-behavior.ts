@@ -38,7 +38,17 @@ const legacy = s.model({
   title: s.string(),
 });
 
-export const schema = { column, card, legacy };
+/** A list field that is part of the model's key, and is required: an
+ * anchored move seeks through the default order. */
+const slot = s
+  .model({
+    tenant: s.string(),
+    id: s.string(),
+    rank: s.string().schema(orderingKey),
+  })
+  .id(["tenant", "id"]);
+
+export const schema = { column, card, legacy, slot };
 
 type Base = {
   $extends: (...args: never[]) => unknown;
@@ -64,11 +74,13 @@ export function describeOrdering(
     };
     await base.card.deleteMany();
     await base.column.deleteMany();
-    await (
-      client as unknown as {
-        legacy: { deleteMany(args?: object): Promise<unknown> };
-      }
-    ).legacy.deleteMany();
+    for (const name of ["legacy", "slot"] as const)
+      await (
+        client as unknown as Record<
+          typeof name,
+          { deleteMany(args?: object): Promise<unknown> }
+        >
+      )[name].deleteMany();
     const counted = (
       client as unknown as { $extends: (definition: object) => Base }
     ).$extends({
@@ -81,6 +93,7 @@ export function describeOrdering(
     const db = ordering({
       card: { key: "rank", within: ["columnId"] },
       legacy: { key: "rank" },
+      slot: { key: "rank", within: ["tenant"] },
     })(counted as any) as any;
     base_ = client as any;
     await db.column.createMany({ data: [{ id: "c1" }, { id: "c2" }] });
@@ -397,7 +410,7 @@ export function describeOrdering(
       ).rejects.toThrow(NotFoundError);
       await expect(
         db.card.move({ where: { id: "a" }, after: { id: "nope" } })
-      ).rejects.toThrow(NotFoundError);
+      ).rejects.toThrow("move anchor");
       await expect(
         db.card.move({ where: { id: "a" }, after: { id: "a" } })
       ).rejects.toThrow(ValidationError);
@@ -488,6 +501,65 @@ export function describeOrdering(
         (row: { rank: string }) => row.rank
       );
       expect(new Set(ranks).size).toBe(3);
+    });
+
+    test("rekey by another order keeps the current order among equals", async () => {
+      const db = await setup();
+      for (const [id, title] of [
+        ["a", "x"],
+        ["d", "y"],
+        ["c", "y"],
+        ["b", "y"],
+      ])
+        await db.card.create({ data: { id, columnId: "c1", title } });
+      await db.card.rekey({
+        where: { columnId: "c1" },
+        orderBy: { title: "asc" },
+      });
+      expect(
+        (await db.card.findMany({ where: { columnId: "c1" } })).map(
+          (row: { id: string }) => row.id
+        )
+      ).toEqual(["a", "d", "c", "b"]);
+    });
+
+    test("a written key of 10^8 or more is refused: appends stay possible", async () => {
+      const db = await setup();
+      await expect(
+        db.card.create({
+          data: { id: "a", columnId: "c1", title: "a", rank: "9999999999" },
+        })
+      ).rejects.toThrow(ValidationError);
+      await db.card.create({
+        data: { id: "a", columnId: "c1", title: "a", rank: "899999999" },
+      });
+      await db.card.create({ data: { id: "b", columnId: "c1", title: "b" } });
+      expect(await listOf(db, "c1")).toEqual(["a", "b"]);
+    });
+
+    test("a list field in the model's key: anchored moves and respacing", async () => {
+      const db = await setup();
+      for (const id of ["a", "b", "c"])
+        await db.slot.create({ data: { tenant: "t", id, rank: "15" } });
+      await db.slot.create({ data: { tenant: "u", id: "a" } });
+      const ids = async (tenant: string) =>
+        (await db.slot.findMany({ where: { tenant } })).map(
+          (row: { id: string }) => row.id
+        );
+      // Tied: the move respaces the list first.
+      await db.slot.move({
+        where: { tenant_id: { tenant: "t", id: "c" } },
+        after: { tenant_id: { tenant: "t", id: "a" } },
+      });
+      expect(await ids("t")).toEqual(["a", "c", "b"]);
+      await db.slot.move({
+        where: { tenant_id: { tenant: "t", id: "a" } },
+        before: { tenant_id: { tenant: "t", id: "b" } },
+      });
+      expect(await ids("t")).toEqual(["c", "a", "b"]);
+      expect((await db.slot.rekey({ orderBy: { id: "desc" } })).count).toBe(4);
+      expect(await ids("t")).toEqual(["c", "b", "a"]);
+      expect(await ids("u")).toEqual(["a"]);
     });
   });
 }

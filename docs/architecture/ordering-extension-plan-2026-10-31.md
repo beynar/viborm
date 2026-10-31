@@ -479,3 +479,38 @@ Accepted, not fixed: a `createMany` split into several statements by a bind
 budget numbers each statement's rows from the start of the call, so integers
 skip ahead (3,000 rows under D1's budget end at integer 46,499; order intact;
 the 10^9 cap is far).
+
+## 15. Adversarial review, round 2 (PR #127, 2026-10-31)
+
+Opus and GPT-6.1 Sol, independently, on 2f980ac. Fixed in the PR:
+
+| Finding (reviewer) | Fix |
+|---|---|
+| `rekey()` without `where` rewrote every list, whatever the caller could see; its count leaked hidden rows (Opus) | Lists are always named through the caller's view (`findMany` distinct on the list fields); a list with no visible row is left alone |
+| Respacing named the table without the client's namespace: on PostgreSQL with `namespace`, it rewrote a same-named table in `public` (Sol) | Respacing renders with the engine's own `Queries`, built once per client from `$schema` and `$driver`: namespace, physical column names, encodings |
+| Respacing bound list values as given, not as the column stores them (SQLite INTEGER DateTime, decimals, compact ids): no row matched (Sol) | List values bound through `Queries.fieldValue` |
+| A list field in a compound row key was selected twice: PostgreSQL 42702, MySQL 1060 (Sol) | Each column selected once |
+| Respacing bound one value per list field per list: past D1's 100 values, refused (both) | As many lists per statement as the driver's `maxBindParametersPerStatement` allows |
+| `rekey` left the official cache's reads stale (both) | `rekey` calls the client's `$invalidate("model:*")` (captured at apply time: the method scope has none) |
+| `rekey({ orderBy })` broke ties by id, scrambling equals (Opus) | The current key orders equals, then the row key |
+| A written key with a 9-digit integer part blocked every later append to its list (Opus) | `orderingKey` refuses keys of 10^8 or more |
+| `move` compared Date list values through `String()`, to the second (Opus) | Dates compared by instant |
+| An anchored `move` with a nullable list field scanned the table (the engine's cursor cannot seek past a nullable leading column; 22 ms vs 0.2 ms at 200k rows) (Opus) | With a nullable list field, the anchor is read first and its neighbours within its list, in (key, row key) order: one more statement, bounded by the list |
+| `to` and the placements were untyped; `{ after, before }` compiled (both) | `to` keyed by the `within` fields with their types; placements exclusive (`?: never`); `rekey` generic so per-call controls pass, `orderBy` limited to scalar fields |
+| `NotFoundError` did not say which row (Opus) | `move` vs `move anchor` |
+| Adoption needed two deploys: push refused a required column on a populated table, `ordering()` refused a default (Opus) | A literal string default is admitted; documented recipe `s.string().default("")`, push, `rekey`, then optionally the validator |
+| Docs: `orderBy: []`, digit backfills, client keys after a respace, unique constraint on the key, MySQL snapshot reads, "pays nothing" (both) | Corrected or added |
+
+Not fixed, documented: list fields under a case-insensitive collation (Sol:
+`"a"`/`"A"` are one list to the database, two to the extension).
+
+Not done, for a later round:
+- **The core cost of the hooks.** The pg/D1 app bundle without the extension
+  is about 0.9 kB gzip larger than on `main` (measured by Sol: pg 198,190 →
+  199,115 B). Trimming candidates: `admitOrder`, the `#computed` scan.
+- **MySQL `move` takes 6 statements** (the generic guarded update path on
+  MySQL), against 3 elsewhere.
+- **Fewer statements per `move`.** A no-op `move` could skip its final
+  re-read (3 → 2).
+- **Batch moves** for multi-select drags.
+- **Typed config.** `key`/`within` are checked at startup, not at compile time.

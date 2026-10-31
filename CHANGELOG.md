@@ -27,9 +27,12 @@ Versioning.
     apply), guarded against a concurrent move of the same row; it respaces
     a list by itself when a gap is used up or neighbours tie.
   - `rekey({ where, orderBy })` respaces whole lists, hidden members
-    included, in one statement: how an existing table adopts the extension
-    (backfill the key with `""`).
-  - `orderingKey`, a validator for the key field; `keyBetween`,
+    included, in one statement (more where the driver bounds a statement's
+    values), the lists named through the caller's view. It is how an
+    existing table adopts the extension: the key field may default to a
+    literal (`s.string().default("")`).
+  - `orderingKey`, a validator for the key field (keys below 10^8, so an
+    append always fits); `keyBetween`,
     `keysBetween` and `isKey` compute keys in the browser as the server
     does.
 - **The `order` extension capability**: `order: { models: { card: [{ rank:

@@ -28,24 +28,33 @@ await db.card.move({ where: { id }, to: { columnId: doneId } });       // last o
 await db.column.findMany({ include: { cards: true } });                // cards in their order
 ```
 
-The extension lives in its own entry point, so an application that does not
-import it pays nothing for it.
+The extension lives in its own entry point: an application that does not
+import it carries only the engine's hooks for it (under 1 kB gzipped).
 
 ## Configuration
 
 `ordering({ [model]: { key, within } })`:
 
-- `key`: a required string field with no default. The extension writes it.
+- `key`: a required string field. The extension writes it. Its default, if
+  any, is a literal string, for rows the extension did not create (see
+  adoption, under `rekey`).
 - `within`: the fields whose values name a list (`["columnId"]`: one list
   per column). A `NULL` value is a list of its own. Leave it out for one list
   holding every row of the model.
 
 The model needs a primary or unique key. Declare the index
-`(within…, key, id)`: every ordered read is a range of it.
+`(within…, key, id)`: every ordered read is a range of it. Do not declare a
+unique constraint on `(within…, key)`: respacing rewrites a list's keys in
+one statement, and the constraint would refuse it midway.
+
+`within` fields are compared as the values they hold: a list field under a
+case-insensitive collation (`"a"` and `"A"` one list to the database, two to
+the extension) is not supported.
 
 `orderingKey` is a validator for the key field: with it, a write that sets
-the key to something that is not one (in a nested write too) is refused with
-a `ValidationError`. It is optional, and recommended.
+the key to something that is not one (in a nested write too), or to a key of
+10^8 or more, is refused with a `ValidationError`. The bound leaves room to
+append after any key a client writes. It is optional, and recommended.
 
 ## Reads
 
@@ -53,8 +62,8 @@ A read of an ordered model that gives no `orderBy` is sorted by the list's
 fields, then the key, then the model's key: a root `findMany` or `findFirst`,
 a to-many relation read at any depth (`include`, `select`, recursive), and
 the rows a paged `count` or `aggregate` counts. An explicit `orderBy`
-replaces it; `orderBy: []` reads in key order. `findUnique` and `groupBy` are
-not sorted.
+replaces it; `orderBy: []` turns it off. `findUnique` and `groupBy` are not
+sorted.
 
 ## Creates
 
@@ -71,10 +80,15 @@ of the two comes first is arbitrary.
 On MySQL, that INSERT would deadlock under concurrent creates into one list
 (its read of the list takes shared locks), so a create first reads the last
 key of its list with a plain read that locks nothing: one more statement per
-create, array transactions included.
+create, array transactions included. Inside an interactive transaction under
+MySQL's default isolation (`REPEATABLE READ`), that read sees the
+transaction's snapshot: a row another transaction appended since lands after
+the created one.
 
-Values of the key field that are not keys (a backfilled `""`) are never a
-list's last: an append goes after the list's keys.
+A value of the key field with a letter in it, or empty (a backfilled `""`),
+is never a list's last: an append goes after the list's keys. A value of
+digits is read as a key, so do not backfill one (`"900"` is not a key, and
+appends would land before it).
 
 ## `move`
 
@@ -96,8 +110,9 @@ await db.card.move({ where: { id }, to: { columnId: doneId }, first: true });
 - Moving a row to where it already is writes nothing.
 
 A move reads the row and the anchor's neighbour (through your extensions, so
-a soft-deleted or forbidden row is neither moved nor an anchor), then
-updates the row through the client: its `updatedAt`, validation, permissions
+a soft-deleted or forbidden row is neither moved nor an anchor; where a list
+field is nullable, the anchor itself first, so the read of its neighbour
+stays within its list), then updates the row through the client: its `updatedAt`, validation, permissions
 and [write hooks](/docs/extensions/on) apply as to any `update`. The update
 is guarded on the row as read: if another writer moved it meanwhile, the
 move reads again (three attempts, then a `QueryError`). If the anchor moves
@@ -108,7 +123,8 @@ gap, so many moves into one spot grow keys. When a move's gap is used up
 (its key would pass 64 digits) or its neighbours tie, the move respaces the
 list (as `rekey` does, below), then places the row.
 
-Errors: a missing or hidden row or anchor is a `NotFoundError`; no placement,
+Errors: a missing or hidden row or anchor is a `NotFoundError` (its message
+says `move` or `move anchor`); no placement,
 two placements, `to` with an anchor, or a row as its own anchor is a
 `ValidationError`.
 
@@ -126,21 +142,30 @@ await db.card.rekey({ where: { columnId }, orderBy: { createdAt: "asc" } }); // 
 
 `rekey` gives every row of the lists the rows `where` matches fresh keys
 (`10`, `11`, `12`, …) in their current order, or in `orderBy` (scalar fields,
-`"asc"` or `"desc"`) within each list. Without `where`, every list. It returns
-`{ count }`, the rows rewritten.
+`"asc"` or `"desc"`, then the current order among equals) within each list.
+Without `where`, every list the caller can see. It returns `{ count }`, the
+rows rewritten.
 
-Respacing is one statement per call, and it rewrites whole lists: the rows
-`where` matches name the lists, and every member of those lists is rekeyed,
-soft-deleted and forbidden rows included, so a row that comes back later
-comes back in its place. It writes the key only, as maintenance: no
-`updatedAt`, no update hooks, no permission check on the other members. A
-member another writer moves while the statement runs keeps the key that
-writer gave it.
+`rekey` reads the lists the rows `where` matches, through your extensions (a
+list holding no row the caller can see is left alone), then respaces them
+in one statement (more where the driver bounds a statement's values, as
+D1 does: as many lists per statement as fit). It rewrites whole lists:
+every member of those lists is rekeyed, soft-deleted and forbidden rows
+included, so a row that comes back later comes back in its place. It writes
+the key only, as maintenance: no `updatedAt`, no update hooks, no permission
+check on the other members. It invalidates the [official
+cache](/docs/extensions/cache)'s entries of the model. A member another writer moves
+while the statement runs keeps the key that writer gave it.
 
-It is how an existing table adopts the extension: add the key field with the
-value `""` (it sorts before every key, so rows created from then on go after
-the existing ones), deploy, then `rekey` each list in the order it should
-have.
+It is how an existing table adopts the extension:
+
+1. Add the key field as `s.string().default("")`, and push: the existing
+   rows take `""`, which sorts before every key, so rows created from then
+   on go after them.
+2. Deploy with `ordering()` applied.
+3. `rekey` each list in the order it should have (`orderBy`).
+4. Optionally, drop the default and add `.schema(orderingKey)` (a validator
+   refuses a default that is not a key).
 
 ## Keys
 
@@ -153,8 +178,13 @@ exception.
 
 `keyBetween(lower, upper)` (with `null` for an open end) and
 `keysBetween(lower, upper, n)` compute keys in the browser as the server
-does: a client can place a card at once and send its key with the write.
-`isKey(value)` tells whether a value is a key.
+does: a client can show a dropped card in its place at once, before the
+server answers. Send the write as a `move` with an anchor, not as the key
+computed: the server reads the neighbours as they are (another writer may
+have moved one, or a respace changed every key), and `move` returns the key
+it wrote, which replaces the computed one. `keyBetween` throws when `lower`
+is not below `upper` (tied neighbours), and a key can outgrow
+`MAX_KEY_LENGTH`: `isKey(value)` tells whether a value is a key.
 
 Each generated key holds a random part, so two writers placing into one gap
 at the same moment get distinct keys. A tie (equal keys) is still possible
@@ -163,6 +193,10 @@ equals), and `move` respaces a list when it needs a gap between two tied
 members.
 
 ## Applying it with other extensions
+
+Apply `ordering()` after soft delete and permissions: a client that hides
+rows hides them from `move` and `rekey` too. A client that orders keys first
+is refused with an error that says so.
 
 `ordering(config)` applies two steps: `ordering(config).keys` (the default
 order and the appended keys) and `ordering(config).methods` (`move` and

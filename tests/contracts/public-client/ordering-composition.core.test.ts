@@ -3,9 +3,11 @@
  * and batch-only): write hooks receive stored keys, soft delete and
  * permissions, nested creates under generated parent ids, recursive reads,
  * adoption on an existing table, respacing in one statement. From the
- * adversarial review of PR #127.
+ * adversarial reviews of PR #127.
  */
 
+import { MemoryCache } from "@cache/drivers/memory";
+import { cache } from "@cache/extension";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { BatchQuery, QueryResult } from "@drivers/types";
@@ -497,5 +499,160 @@ describe("ordering review: respace statement count", () => {
     seen.length = 0;
     await db.item.rekey();
     expect(seen.length).toBeLessThan(10);
+  });
+});
+
+describe("ordering review 2", () => {
+  const counting = (client: any, seen: string[]) =>
+    client.$extends({
+      name: "count",
+      statement: ({ statement }: { statement: Sql }) => {
+        seen.push(Sql.peek(statement).strings.join("?"));
+        return statement;
+      },
+    });
+
+  test("rekey without where rewrites only the lists the caller can see", async () => {
+    const client = createClient({
+      schema: { card2 },
+      driver: createInMemorySQLite3Driver(),
+    }) as any;
+    await syncLiveSchema(client);
+    for (const [owner, title] of [
+      ["u1", "a"],
+      ["u1", "b"],
+      ["u2", "c"],
+      ["u2", "d"],
+    ])
+      await client.card2.create({ data: { owner, title, rank: "15" } });
+    const order = ordering({ card2: { key: "rank", within: ["owner"] } });
+    const governed = order.methods(
+      (order.keys(client) as any).$extends(
+        permissions({
+          actor: v.object({ userId: v.string() }),
+          models: {
+            card2: {
+              read: { owner: { actor: "userId" } },
+              update: { owner: { actor: "userId" } },
+            },
+          },
+        } as any)
+      )
+    ) as any;
+    const before = await client.card2.findMany({ where: { owner: "u2" } });
+    expect(
+      (
+        await governed.$as({ userId: "u1" }).card2.rekey({
+          orderBy: { title: "desc" },
+        })
+      ).count
+    ).toBe(2);
+    expect(await client.card2.findMany({ where: { owner: "u2" } })).toEqual(
+      before
+    );
+    expect((await governed.$as({ userId: "u3" }).card2.rekey()).count).toBe(0);
+  });
+
+  test("respacing many lists stays under the driver's bound values", async () => {
+    class Bounded extends SQLite3Driver {
+      override readonly maxBindParametersPerStatement = 3;
+    }
+    const client = createClient({
+      schema,
+      driver: new Bounded({ dataDir: ":memory:" }),
+    }) as any;
+    await syncLiveSchema(client);
+    const seen: string[] = [];
+    const db = ordering({ item: { key: "rank", within: ["boardId"] } })(
+      counting(client, seen)
+    ) as any;
+    await db.board.createMany({
+      data: Array.from({ length: 7 }, (_, i) => ({ name: `b${i}` })),
+    });
+    for (let board = 1; board <= 7; board++)
+      for (const title of ["a", "b"])
+        await db.item.create({ data: { boardId: board, title, rank: "15" } });
+    seen.length = 0;
+    const { count } = await db.item.rekey({ orderBy: { title: "desc" } });
+    expect(count).toBe(14);
+    // The lists' read, then the lists three by three.
+    expect(seen.filter((text) => text.startsWith("UPDATE"))).toHaveLength(3);
+    for (let board = 1; board <= 7; board++)
+      expect(
+        titles(await db.item.findMany({ where: { boardId: board } }))
+      ).toEqual(["b", "a"]);
+  });
+
+  test("rekey invalidates the official cache's reads of the model", async () => {
+    const pending: Promise<unknown>[] = [];
+    const client = (await open()) as any;
+    const db = ordering({ item: { key: "rank", within: ["boardId"] } })(
+      client.$extends(
+        cache({
+          driver: new MemoryCache(),
+          waitUntil: (promise: Promise<unknown>) => pending.push(promise),
+        })
+      )
+    ) as any;
+    for (const title of ["a", "b", "c"])
+      await db.item.create({ data: { title } });
+    const cached = () => db.$withCache().item.findMany();
+    expect(titles(await cached())).toEqual(["a", "b", "c"]);
+    await Promise.all(pending.splice(0));
+    await db.item.rekey({ orderBy: { title: "desc" } });
+    expect(titles(await cached())).toEqual(["c", "b", "a"]);
+  });
+
+  test("a key field may default to a literal: a populated table adopts it in one push", async () => {
+    const before = s.model({
+      id: s.int().id().increment(),
+      title: s.string(),
+    });
+    const after = s.model({
+      id: s.int().id().increment(),
+      // Not an ordering key, so no `orderingKey` until the rows are rekeyed.
+      rank: s.string().default(""),
+      title: s.string(),
+    });
+    const driver = createInMemorySQLite3Driver();
+    const old = createClient({ schema: { row: before }, driver }) as any;
+    await syncLiveSchema(old);
+    for (const title of ["y", "x"]) await old.row.create({ data: { title } });
+    const client = createClient({ schema: { row: after }, driver }) as any;
+    await syncLiveSchema(client);
+    const db = ordering({ row: { key: "rank" } })(client) as any;
+    await db.row.create({ data: { title: "z" } });
+    expect(titles(await db.row.findMany())).toEqual(["y", "x", "z"]);
+    await db.row.rekey({ orderBy: { title: "asc" } });
+    expect(titles(await db.row.findMany())).toEqual(["x", "y", "z"]);
+    // A generated default is not a literal.
+    const generated = s.model({
+      id: s.int().id().increment(),
+      rank: s.string().default(() => "10"),
+    });
+    expect(() =>
+      ordering({ row: { key: "rank" } })(
+        createClient({ schema: { row: generated }, driver }) as any
+      )
+    ).toThrow("literal string");
+  });
+
+  test("a DateTime list field compares to the millisecond", async () => {
+    const db = ordering({ item: { key: "rank", within: ["day"] } })(
+      (await open()) as any
+    ) as any;
+    const early = new Date("2026-10-31T10:00:00.000Z");
+    const late = new Date("2026-10-31T10:00:00.250Z");
+    await db.item.create({ data: { title: "a", day: early } });
+    await db.item.create({ data: { title: "b", day: late } });
+    await db.item.create({ data: { title: "c", day: late } });
+    await db.item.move({ where: { id: 1 }, after: { id: 2 } });
+    const moved = await db.item.findUnique({ where: { id: 1 } });
+    expect(moved.day.getTime()).toBe(late.getTime());
+    expect(titles(await db.item.findMany({ where: { day: late } }))).toEqual([
+      "b",
+      "a",
+      "c",
+    ]);
   });
 });
