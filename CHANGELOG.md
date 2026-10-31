@@ -3,7 +3,12 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
-## Unreleased
+## 1.7.0 — 2026-11-01
+
+`viborm/ordering`: the members of a list (cards in kanban columns) in the
+order you choose, read back in that order, appended by their INSERT and
+moved by one UPDATE that computes the new key. On MySQL, an `update` takes
+one statement fewer.
 
 ### Added
 
