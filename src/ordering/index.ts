@@ -18,12 +18,37 @@ import type {
   VibORMClient,
   VibORMConfig,
 } from "../index";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { getModelKeyCatalog } from "../schema/model/keys";
 import type { OrderTerm } from "../extensions/controls";
 import { AppendKey } from "./append";
 import { isKey, keyBetween, keysBetween } from "./keys";
 
 export { isKey, keyBetween, keysBetween, MAX_KEY_LENGTH } from "./keys";
+
+/**
+ * A Standard Schema validator for a key field: `rank:
+ * s.string().schema(orderingKey)` refuses, on every write that sets the
+ * field (nested ones too), a value that is not an ordering key. A create
+ * that leaves the field out is appended, not validated.
+ */
+export const orderingKey = Object.freeze({
+  "~standard": Object.freeze({
+    version: 1 as const,
+    vendor: "viborm",
+    validate: (value: unknown) =>
+      isKey(value)
+        ? { value }
+        : {
+            issues: [
+              {
+                message:
+                  "must be an ordering key (digits, viborm/ordering): leave it out to append, or use move",
+              },
+            ],
+          },
+  }),
+}) as StandardSchemaV1<string>;
 
 /** One ordered model: its key field, and the fields that name its list. */
 export interface OrderingModel {

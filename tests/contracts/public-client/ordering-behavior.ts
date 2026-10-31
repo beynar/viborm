@@ -6,7 +6,7 @@
 
 import { ClientInitializationError, NotFoundError, ValidationError } from "@errors";
 import { Sql } from "@sql";
-import { isKey, ordering } from "@src/ordering";
+import { isKey, ordering, orderingKey } from "@src/ordering";
 import { s } from "@schema";
 import { describe, expect, test } from "vitest";
 
@@ -18,7 +18,7 @@ const column = s.model({
 const card = s.model({
   id: s.string().id(),
   columnId: s.string().nullable(),
-  rank: s.string(),
+  rank: s.string().schema(orderingKey),
   title: s.string(),
   column: s.toOne(() => column).fields("columnId").references("id"),
 });
@@ -48,7 +48,9 @@ export function describeOrdering(
     };
     await base.card.deleteMany();
     await base.column.deleteMany();
-    const counted = (client as { $extends: (definition: object) => Base }).$extends({
+    const counted = (
+      client as unknown as { $extends: (definition: object) => Base }
+    ).$extends({
       name: "count-statements",
       statement: ({ statement }: { statement: Sql }) => {
         statements.push(Sql.peek(statement).strings.join("?"));
@@ -216,9 +218,38 @@ export function describeOrdering(
       const db = await setup();
       await db.card.create({ data: { id: "a", columnId: "c1", title: "a" } });
       await db.card.create({
-        data: { id: "z", columnId: "c1", title: "z", rank: "05" === "x" ? "" : "089" },
+        data: { id: "z", columnId: "c1", title: "z", rank: "089" },
       });
       expect(await listOf(db, "c1")).toEqual(["z", "a"]);
+    });
+
+    test("a written key that is not one is refused", async () => {
+      const db = await setup();
+      await expect(
+        db.card.create({ data: { id: "a", columnId: "c1", title: "a", rank: "abc" } })
+      ).rejects.toThrow(ValidationError);
+      await db.card.create({ data: { id: "a", columnId: "c1", title: "a" } });
+      await expect(
+        db.card.update({ where: { id: "a" }, data: { rank: { set: "150" } } })
+      ).rejects.toThrow(ValidationError);
+      await expect(
+        db.card.createMany({ data: [{ id: "b", columnId: "c1", title: "b", rank: "x" }] })
+      ).rejects.toThrow(ValidationError);
+      await expect(
+        db.card.upsert({
+          where: { id: "a" },
+          create: { id: "a", columnId: "c1", title: "a" },
+          update: { rank: "" },
+        })
+      ).rejects.toThrow(ValidationError);
+      await expect(
+        db.column.update({
+          where: { id: "c1" },
+          data: { cards: { create: { id: "n", title: "n", rank: "1a" } } },
+        })
+      ).rejects.toThrow(ValidationError);
+      await db.card.update({ where: { id: "a" }, data: { rank: "155" } });
+      expect((await db.card.findUnique({ where: { id: "a" } })).rank).toBe("155");
     });
 
     test("move: after, before, first, last, within a list", async () => {
