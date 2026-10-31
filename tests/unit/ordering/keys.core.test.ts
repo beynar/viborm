@@ -48,7 +48,18 @@ describe("ordering keys: grammar", () => {
 
   test("integer parts order as their values, across signs and lengths", () => {
     // -100, -99, -10, -9, -1, 0, 9, 10, 99, 100 through their encodings.
-    const keys = ["06900", "0701", "0790", "081", "089", "10", "19", "210", "299", "3100"];
+    const keys = [
+      "06900",
+      "0701",
+      "0790",
+      "081",
+      "089",
+      "10",
+      "19",
+      "210",
+      "299",
+      "3100",
+    ];
     expect(keys.every(isKey)).toBe(true);
     expect(ascending(keys)).toBe(true);
   });
@@ -56,7 +67,9 @@ describe("ordering keys: grammar", () => {
 
 describe("ordering keys: placement", () => {
   test("the first key of an empty list is integer 0 with a random fraction", () => {
-    const keys = new Set(Array.from({ length: 50 }, () => keyBetween(null, null)));
+    const keys = new Set(
+      Array.from({ length: 50 }, () => keyBetween(null, null))
+    );
     for (const key of keys) {
       expect(isKey(key)).toBe(true);
       expect(key.startsWith("10")).toBe(true);
@@ -128,7 +141,13 @@ describe("ordering keys: placement", () => {
   test("n keys between distant integers use the free integers", () => {
     const keys = keysBetween("10", "3100", 5);
     expect(ascending(["10", ...keys, "3100"])).toBe(true);
-    expect(keys.map((key) => key.slice(0, 2))).toEqual(["11", "12", "13", "14", "15"]);
+    expect(keys.map((key) => key.slice(0, 2))).toEqual([
+      "11",
+      "12",
+      "13",
+      "14",
+      "15",
+    ]);
   });
 
   test("n keys between adjacent integers fall under the lower one", () => {
@@ -138,7 +157,9 @@ describe("ordering keys: placement", () => {
   });
 
   test("concurrent placements into one gap almost never tie", () => {
-    const keys = new Set(Array.from({ length: 2000 }, () => keyBetween("15", "16")));
+    const keys = new Set(
+      Array.from({ length: 2000 }, () => keyBetween("15", "16"))
+    );
     expect(keys.size).toBeGreaterThanOrEqual(1995);
   });
 
@@ -153,9 +174,29 @@ describe("ordering keys: placement", () => {
 describe("ordering keys: collations", () => {
   test("keys compare under every ICU locale as they compare as bytes", () => {
     const locales = Intl.Collator.supportedLocalesOf([
-      "cs", "sk", "da", "nb", "nn", "hu", "hr", "lt", "lv", "et", "cy", "sq",
-      "az", "uz", "ha", "yo", "es-u-co-trad", "de-u-co-phonebk", "en", "fr",
-      "tr", "ja", "zh",
+      "cs",
+      "sk",
+      "da",
+      "nb",
+      "nn",
+      "hu",
+      "hr",
+      "lt",
+      "lv",
+      "et",
+      "cy",
+      "sq",
+      "az",
+      "uz",
+      "ha",
+      "yo",
+      "es-u-co-trad",
+      "de-u-co-phonebk",
+      "en",
+      "fr",
+      "tr",
+      "ja",
+      "zh",
     ]);
     const list: string[] = [];
     for (let index = 0; index < 300; index += 1) {

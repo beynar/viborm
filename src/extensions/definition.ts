@@ -4,6 +4,7 @@ import type { Operations, Schema } from "@client/types";
 import type { AnyDriver } from "@drivers/exports";
 import { ClientInitializationError } from "@errors";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
+import { getModelKeyCatalog } from "@schema/model/keys";
 import type { SchemaRegistryLookup } from "@validation/types";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { errorCause } from "../errors/diagnostic-safety";
@@ -12,6 +13,8 @@ import type {
   ControlsContribution,
   DataContribution,
   DeletionContribution,
+  OrderContribution,
+  OrderTerm,
   RowsContribution,
 } from "./controls";
 import type {
@@ -60,6 +63,7 @@ export interface RuntimeExtensionDefinition {
   readonly rows?: RowsContribution;
   readonly deletion?: DeletionContribution;
   readonly data?: DataContribution;
+  readonly order?: OrderContribution;
   readonly result?: RuntimeResultContribution;
 }
 
@@ -75,6 +79,7 @@ export type ExtensionDefinitionInput = Readonly<Record<string, unknown>> & {
   readonly rows?: RowsContribution;
   readonly deletion?: DeletionContribution;
   readonly data?: DataContribution;
+  readonly order?: OrderContribution;
 };
 
 const DEFINITION_KEYS = new Set([
@@ -89,6 +94,7 @@ const DEFINITION_KEYS = new Set([
   "rows",
   "deletion",
   "data",
+  "order",
   "result",
 ]);
 
@@ -449,6 +455,10 @@ export function normalizeExtensionDefinition(
     schema && value.rows
       ? admitRows(value.rows, schema, name, registry)
       : value.rows;
+  const order =
+    value.order === undefined
+      ? undefined
+      : admitOrder(value.order, schema, name);
 
   return Object.freeze({
     name,
@@ -462,9 +472,78 @@ export function normalizeExtensionDefinition(
     ...(rows ? { rows } : {}),
     ...(deletion ? { deletion } : {}),
     ...(data ? { data } : {}),
+    ...(order ? { order } : {}),
     ...(result ? { result } : {}),
   });
 }
+
+/**
+ * `order`, read once: per model, the terms its reads take when the caller
+ * gives no `orderBy`. Each term names one scalar field, `"asc"` or `"desc"`.
+ * Against a schema, the model must have a row key (its reads end with it, so
+ * the order is total) and each field must be one of its scalars that orders
+ * as a value (not a list, JSON, vector or point).
+ */
+function admitOrder(
+  value: unknown,
+  schema: Schema | undefined,
+  name: string
+): OrderContribution {
+  const refuse = (message: string): never =>
+    extensionError(`Extension "${name}" ${message}`, name);
+  if (!isRecord(value)) refuse("order must be an object.");
+  const models = readOwn(value as Record<string, unknown>, "models", name);
+  if (!isRecord(models)) refuse("order.models must be an object.");
+  const admitted: Record<string, readonly OrderTerm[]> = {};
+  for (const modelName of readOwnKeys(
+    models as Record<string, unknown>,
+    name
+  )) {
+    if (
+      typeof modelName !== "string" ||
+      (schema !== undefined && !Object.hasOwn(schema, modelName))
+    )
+      refuse(`order names unknown model "${String(modelName)}".`);
+    const key = modelName as string;
+    const model = schema?.[key];
+    if (model !== undefined && getModelKeyCatalog(model).rowKey === undefined)
+      refuse(`order.${key} needs a model with a primary or unique key.`);
+    const entry = readOwn(models as Record<string, unknown>, key, name);
+    const terms = Array.isArray(entry) ? entry : [entry];
+    if (terms.length === 0) refuse(`order.${key} must name a field.`);
+    admitted[key] = Object.freeze(
+      terms.map((term) => {
+        if (!isRecord(term)) refuse(`order.${key} terms must be objects.`);
+        const fields = readOwnKeys(term as Record<string, unknown>, name);
+        const field = fields[0];
+        if (fields.length !== 1 || typeof field !== "string")
+          refuse(`order.${key} terms name one field each.`);
+        const direction = readOwn(
+          term as Record<string, unknown>,
+          field as string,
+          name
+        );
+        if (direction !== "asc" && direction !== "desc")
+          refuse(`order.${key}.${String(field)} must be "asc" or "desc".`);
+        const scalar =
+          model === undefined
+            ? undefined
+            : Object.hasOwn(model["~"].state.scalars, field as string)
+              ? model["~"].state.scalars[field as string]
+              : refuse(`order.${key} names unknown field "${String(field)}".`);
+        const state = scalar?.["~"].state;
+        if (
+          state !== undefined &&
+          (state.array || UNORDERED_SCALARS.has(state.type))
+        )
+          refuse(`order.${key}.${String(field)} does not order as a value.`);
+        return Object.freeze({ [field as string]: direction }) as OrderTerm;
+      })
+    );
+  }
+  return Object.freeze({ models: Object.freeze(admitted) });
+}
+const UNORDERED_SCALARS = new Set(["json", "vector", "point", "blob"]);
 
 type ExtensionConfig<S extends Schema> = {
   readonly schema: S;
@@ -540,6 +619,7 @@ type ExtensionMembers<
   readonly rows?: RowsContribution;
   readonly deletion?: DeletionContribution;
   readonly data?: DataContribution;
+  readonly order?: OrderContribution;
   readonly client?: (
     scope: ExtensionClientScope<C, X>
   ) => ExtensionMethodRecord;
@@ -638,7 +718,7 @@ type ComponentMapGuard<
 type PolicyModelsGuard<
   Definition,
   S extends Schema,
-  Key extends "data" | "rows" | "deletion",
+  Key extends "data" | "rows" | "deletion" | "order",
 > = Definition extends {
   readonly [K in Key]: { readonly models: infer Models };
 }
@@ -662,6 +742,7 @@ export type ExactExtensionDefinition<
   PolicyModelsGuard<Definition, C["schema"], "data"> &
   PolicyModelsGuard<Definition, C["schema"], "rows"> &
   PolicyModelsGuard<Definition, C["schema"], "deletion"> &
+  PolicyModelsGuard<Definition, C["schema"], "order"> &
   ExtensionMethodDefinitionGuard<Definition, C, X>;
 
 // The definition is inferred from its declaration, never from a receiving

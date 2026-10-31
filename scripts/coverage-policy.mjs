@@ -39,6 +39,7 @@ export const extensionCoverageTests = Object.freeze([
   "tests/contracts/public-client/default-omit-extension.core.test.ts",
   "tests/contracts/public-client/extension-controls.core.test.ts",
   "tests/unit/ordering/keys.core.test.ts",
+  "tests/contracts/public-client/extension-order.core.test.ts",
   "tests/contracts/public-client/extension-deletion.core.test.ts",
   "tests/contracts/public-client/extensions-foundation.core.test.ts",
   "tests/contracts/public-client/official-cache-extension.core.test.ts",

@@ -932,7 +932,8 @@ export class VibORM<C extends VibORMConfig> {
         const key = runtime.cacheKeyOf(
           cacheResult.args,
           cacheResult.controls,
-          engine.extensionChain?.rows
+          engine.extensionChain?.rows,
+          engine.extensionChain?.order
         );
         if (key === undefined) return execute();
         return runtime.executeCachedResultOperation(

@@ -30,6 +30,7 @@ const RANDOM_DIGITS = 6;
 const MAX_INTEGER_DIGITS = 9;
 
 const DIGITS = /^\d+$/;
+const TRAILING_ZEROS = /0+$/;
 const TEN = 10n;
 
 /** The integer part of a key, and its fraction; undefined if not a key. */
@@ -107,7 +108,7 @@ function randomFraction(): string {
   return random(RANDOM_SPAN)
     .toString()
     .padStart(RANDOM_DIGITS, "0")
-    .replace(/0+$/, "");
+    .replace(TRAILING_ZEROS, "");
 }
 
 /**
@@ -138,7 +139,9 @@ function fractionsBetween(
   const keys: string[] = [];
   for (let index = 1n; index <= BigInt(count); index += 1n) {
     const at = low + slot * index - slot / 6n + random(slot / 3n);
-    keys.push(at.toString().padStart(precision, "0").replace(/0+$/, ""));
+    keys.push(
+      at.toString().padStart(precision, "0").replace(TRAILING_ZEROS, "")
+    );
   }
   return keys;
 }

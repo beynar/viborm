@@ -186,6 +186,7 @@ export default defineWorkspace([
         "tests/contracts/public-client/soft-delete.core.test.ts",
         "tests/contracts/public-client/on.core.test.ts",
         "tests/unit/ordering/keys.core.test.ts",
+        "tests/contracts/public-client/extension-order.core.test.ts",
         "tests/contracts/public-client/extension-bound-views.core.test.ts",
         "tests/contracts/public-client/extension-composition.core.test.ts",
         "tests/contracts/public-client/extension-evidence.core.test.ts",

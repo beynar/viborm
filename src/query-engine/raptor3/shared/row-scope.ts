@@ -36,6 +36,12 @@ export interface RowDomain {
    * model at a time, so they are never walked to find out.
    */
   readonly projects?: boolean;
+  /**
+   * Per model (its TS name), the order its reads take when the caller gives
+   * none (`orderBy` input, as admitted): a root `findMany`/`findFirst`, a
+   * to-many relation read at any depth, and a paged aggregate's window.
+   */
+  readonly order?: ReadonlyMap<string, readonly Input[]>;
 }
 
 /**

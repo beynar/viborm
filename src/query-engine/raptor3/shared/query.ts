@@ -2723,6 +2723,21 @@ export class Queries {
     });
     return built ? statement : undefined;
   }
+  /**
+   * The order the call's extensions give `model`'s reads when the caller
+   * states none (the `order` capability), else `undefined`.
+   */
+  #defaultOrder(model: AnyModel): Arguments["orderBy"] {
+    return this.domain?.rows.order?.get(model["~"].names.ts!) as
+      | Arguments["orderBy"]
+      | undefined;
+  }
+  /** `args`, ordered by {@link #defaultOrder} when it states no order. */
+  #ordered(model: AnyModel, args: Arguments): Arguments {
+    if (args.orderBy !== undefined) return args;
+    const orderBy = this.#defaultOrder(model);
+    return orderBy === undefined ? args : { ...args, orderBy };
+  }
   /** This view's `Queries` reading under `domain`, for `call`'s values. */
   under(domain: PreparedDomain, call?: CallScope): Queries {
     return new Queries(this.schema, this.adapter, this.#result, domain, call);
@@ -7457,7 +7472,7 @@ export class Queries {
         const take = args.take === undefined ? 1 : Math.sign(args.take);
         const query = this.select(
           model,
-          { ...args, take },
+          { ...this.#ordered(model, args), take },
           undefined,
           ROOT_CANDIDATES
         );
@@ -7470,7 +7485,12 @@ export class Queries {
       }
       case "findMany": {
         const backward = args.take !== undefined && args.take < 0;
-        const query = this.select(model, args, undefined, ROOT_CANDIDATES);
+        const query = this.select(
+          model,
+          this.#ordered(model, args),
+          undefined,
+          ROOT_CANDIDATES
+        );
         return {
           query,
           single: false,
@@ -7612,7 +7632,8 @@ export class Queries {
   ): Query {
     const a = this.adapter;
     const inner = this.#rootAlias();
-    const page = this.#page(model, args, inner, "root");
+    // The default order only decides which rows a page holds.
+    const page = this.#page(model, this.#ordered(model, args), inner, "root");
     const filter = this.lowerWhere(model, args.where, inner);
     const aggregate = (alias: string, from: Sql, where?: Sql): Query => ({
       sql: assembleAdapterSelect(a, {
@@ -8208,7 +8229,9 @@ export class Queries {
         selector: nested.where
           ? this.prepareSelector(edge.target, nested.where, false, false)
           : undefined,
-        orderBy: nested.orderBy,
+        orderBy:
+          nested.orderBy ??
+          (edge.many ? this.#defaultOrder(edge.target) : undefined),
         take: nested.take,
         skip: nested.skip,
         cursor: nested.cursor,

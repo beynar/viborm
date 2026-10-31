@@ -548,7 +548,8 @@ export function bindRows(
   rows: readonly RowsContribution[] | undefined,
   deletion: Readonly<Record<string, ResolvedDeletion>> | undefined,
   data?: Readonly<Record<string, ModelStamps>>,
-  controls?: ResolvedControls
+  controls?: ResolvedControls,
+  order?: Readonly<Record<string, readonly Input[]>>
 ): RowsBinding {
   const declared = rows ?? [];
   let stride = 1;
@@ -568,6 +569,7 @@ export function bindRows(
   });
   const domains: RowDomain[] = [];
   const verbs = modelVerbs(declared);
+  const orders = order && new Map(Object.entries(order));
   // Whether a model may project: a lazy entry may, until it is read.
   const projects = declared.some((member) =>
     Object.values(member.verbs ?? {}).some(
@@ -589,6 +591,7 @@ export function bindRows(
         root: modelDomain(declared, modes, "root"),
         related: modelDomain(declared, modes, "related"),
         ...(verbs && { verbs, projects }),
+        ...(orders && { order: orders }),
       })
     );
   }
