@@ -94,6 +94,27 @@ describe("ordering review: ordering", () => {
     expect((seen[0] as any).rank).toBe(stored[0].rank);
   });
 
+  test("on() hook receives a moved row's stored key (not its expression)", async () => {
+    const client = await open();
+    const seen: unknown[] = [];
+    const db = ordering({ item: { key: "rank", within: ["boardId"] } })(
+      (client as any).$extends(
+        on({
+          item: {
+            update: (rows: unknown[]) => {
+              seen.push(...rows);
+            },
+          },
+        } as any)
+      )
+    ) as any;
+    for (const title of ["a", "b"]) await db.item.create({ data: { title } });
+    await db.item.move({ where: { id: 1 }, after: { id: 2 } });
+    const stored = await db.item.findUnique({ where: { id: 1 } });
+    expect(seen).toHaveLength(1);
+    expect((seen[0] as any).rank).toBe(stored.rank);
+  });
+
   test("on() hook after ordering keys step", async () => {
     const client = await open();
     const seen: unknown[] = [];
@@ -658,6 +679,8 @@ describe("ordering review 2", () => {
   });
 });
 
+const MOVE_UPDATE = /^UPDATE/;
+
 const ticket = s.model({
   id: s.int().id().increment(),
   lane: s.string(),
@@ -675,7 +698,7 @@ describe("ordering: what a move sends", () => {
     return client;
   };
 
-  test("one read and one write; a change of list one write more", async () => {
+  test("one UPDATE computes the key; a change of list one UPDATE more", async () => {
     const seen: string[] = [];
     const client = await openTickets();
     const db = ordering({ ticket: { key: "rank", within: ["lane"] } })(
@@ -708,26 +731,30 @@ describe("ordering: what a move sends", () => {
           ])
         )
       );
-    // Within its list: the anchor's window, then the key.
+    // Within its list: the UPDATE computes the key from its neighbours.
     expect(
       await sent(() => db.ticket.move({ where: { id: 1 }, after: { id: 2 } }))
-    ).toBe(2);
-    // Already there: the window, then the row read back.
-    expect(
-      await sent(() => db.ticket.move({ where: { id: 1 }, after: { id: 2 } }))
-    ).toBe(2);
-    // Into another list at an anchor: the key-only write finds no row there.
+    ).toBe(1);
+    expect(seen[0]).toMatch(MOVE_UPDATE);
+    // Already there: no UPDATE matches; read, and nothing written.
+    const before = await db.ticket.findUnique({ where: { id: 1 } });
+    await db.ticket.move({ where: { id: 1 }, after: { id: 2 } });
+    expect((await db.ticket.findUnique({ where: { id: 1 } })).rank).toBe(
+      before.rank
+    );
+    // Into another list at an anchor: the key-only UPDATE matches no row
+    // there, the second writes the key and the list.
     expect(
       await sent(() => db.ticket.move({ where: { id: 3 }, before: { id: 4 } }))
-    ).toBe(3);
+    ).toBe(2);
     // To another list's end: the move is tried first.
     expect(
       await sent(() => db.ticket.move({ where: { id: 2 }, to: { lane: "b" } }))
-    ).toBe(2);
-    // First of its own list: the row's list is read.
+    ).toBe(1);
+    // First of its own list.
     expect(
       await sent(() => db.ticket.move({ where: { id: 4 }, first: true }))
-    ).toBe(3);
+    ).toBe(1);
     expect(await lanes()).toEqual({ a: ["1"], b: ["4", "3", "2"] });
   });
 

@@ -30,9 +30,10 @@ import type { Queries } from "../query-engine/raptor3/shared/query";
 import { getModelKeyCatalog } from "../schema/model/keys";
 import { type Sql, sql } from "../sql/sql";
 import { AppendKey } from "./append";
+import { between, Computed, jitter, spellings } from "./between";
 import { isKey, keyBetween } from "./keys";
 
-export { isKey, keyBetween, keysBetween, MAX_KEY_LENGTH } from "./keys";
+export { isKey, MAX_KEY_LENGTH } from "./keys";
 
 /**
  * A Standard Schema validator for a key field: `rank:
@@ -88,8 +89,10 @@ interface Driver {
 }
 
 const NAME = "viborm.ordering";
-/** Attempts of a move whose row another writer moved meanwhile. */
+/** Passes of a move's read-and-write path, respacing between them. */
 const MOVE_ATTEMPTS = 3;
+/** A move the one-statement path did not write. */
+const MISSED = Symbol("missed");
 
 /** A model's ordering facts, checked against the schema once. */
 interface Ordered {
@@ -260,8 +263,8 @@ async function respace(
       ", "
     )}, ROW_NUMBER() OVER (${partition}ORDER BY ${sql.join(terms, ", ")}) - 1 AS viborm_n FROM ${q.table(model)}${filter}`;
     return dialect === "mysql"
-      ? sql`UPDATE ${q.table(model, "t")} JOIN (${ranked}) AS s ON ${match} SET ${column(key, "t")} = ${value}`
-      : sql`UPDATE ${q.table(model, "t")} SET ${column(key)} = ${value} FROM (${ranked}) AS s WHERE ${match}`;
+      ? sql`UPDATE ${q.table(model)} AS t JOIN (${ranked}) AS s ON ${match} SET ${column(key, "t")} = ${value}`
+      : sql`UPDATE ${q.table(model)} AS t SET ${column(key)} = ${value} FROM (${ranked}) AS s WHERE ${match}`;
   };
   if (lists === undefined)
     return Number(await scope.$executeRaw(statement(sql.empty)));
@@ -329,6 +332,135 @@ function methods(ordered: Ordered, engine: () => Engine) {
         for (const [inner, part] of Object.entries(value)) take(inner, part);
     return fields;
   };
+  /**
+   * The move as one UPDATE (two where the row changes list), its key computed
+   * by the statement from the keys around its place (`between.ts`), the row
+   * written only while it is where the key was computed for: PostgreSQL and
+   * SQLite. MISSED where no write matched (a missing or tied neighbour, a
+   * gap used up, a missing row): the move then reads and respaces.
+   */
+  async function inStatement(
+    place: {
+      readonly where: Row;
+      readonly anchor: Row | undefined;
+      readonly after: boolean;
+      readonly first: boolean;
+    },
+    to: Row | undefined,
+    recognised: Row,
+    write: (guard: Sql, data: Row) => PromiseLike<unknown>
+  ): Promise<unknown> {
+    const { queries: q, dialect } = engine();
+    if (dialect !== "postgresql" && dialect !== "sqlite") return MISSED;
+    const anchored =
+      place.anchor === undefined ? undefined : named(place.anchor);
+    if (
+      Object.keys(recognised).length === 0 ||
+      (anchored !== undefined && Object.keys(anchored).length === 0)
+    )
+      return MISSED;
+    const s = spellings[dialect];
+    const table = q.table(model);
+    const column = (field: string, alias?: string) =>
+      q.column(model, field, alias);
+    const matches = (alias: string, fields: Row) =>
+      sql.join(
+        Object.entries(fields).map(([field, value]) =>
+          value === null
+            ? sql`${column(field, alias)} IS NULL`
+            : sql`${column(field, alias)} = ${q.fieldValue(model, field, value)}`
+        ),
+        " AND "
+      );
+    const of = (alias: string, fields: Row, field: string) =>
+      sql`(SELECT ${column(field, alias)} FROM ${table} AS ${sql.raw(alias)} WHERE ${matches(alias, fields)})`;
+    // The list's fields: the anchor's, `to`'s, else the row's own.
+    const listed = (field: string) =>
+      anchored !== undefined
+        ? of("a", anchored, field)
+        : to !== undefined
+          ? to[field] === null
+            ? sql`NULL`
+            : q.fieldValue(model, field, to[field])
+          : of("m", recognised, field);
+    const inList = (alias?: string) =>
+      within.length === 0
+        ? sql`1 = 1`
+        : sql.join(
+            within.map((field) => s.same(column(field, alias), listed(field))),
+            " AND "
+          );
+    const anchorKey =
+      anchored &&
+      sql`SELECT ${column(key, "a")} FROM ${table} AS a WHERE ${matches("a", anchored)} AND NOT (${matches("a", recognised)}) AND ${s.digits(column(key, "a"))}`;
+    // The nearest key on one side, in the list, the moved row aside.
+    const nearest = (aggregate: "MIN" | "MAX") =>
+      sql`SELECT ${sql.raw(aggregate)}(${column(key, "n")}) FROM ${table} AS n WHERE ${inList("n")} AND NOT (${matches("n", recognised)}) AND ${s.digits(column(key, "n"))}${
+        anchored && anchorKey
+          ? sql` AND ${column(key, "n")} ${sql.raw(aggregate === "MIN" ? ">=" : "<=")} (${anchorKey}) AND NOT (${matches("n", anchored)})`
+          : sql.empty
+      }`;
+    const none = sql`NULL`;
+    // The keys around the row's place.
+    const [lower, upper] =
+      anchorKey === undefined
+        ? place.first
+          ? [none, nearest("MIN")]
+          : [nearest("MAX"), none]
+        : place.after
+          ? [anchorKey, nearest("MIN")]
+          : [nearest("MAX"), anchorKey];
+    const computed = between(
+      s,
+      lower,
+      upper,
+      jitter(),
+      anchorKey === undefined ? undefined : place.after ? "lower" : "upper"
+    );
+    // A row of the list already there: written by no statement here, so the
+    // read path answers it unchanged.
+    const away = sql`NOT ((${lower}) IS NULL OR ${column(key)} > (${lower})) OR NOT ((${upper}) IS NULL OR ${column(key)} < (${upper}))`;
+    const guard = (condition?: Sql) =>
+      sql`CASE WHEN ${computed} IS NOT NULL${
+        condition === undefined ? sql.empty : sql` AND ${condition}`
+      } THEN ${column(key)} END`;
+    const keyed = { [key]: new Computed(computed) };
+    const attempt = async (condition: Sql | undefined, data: Row) => {
+      try {
+        return await write(guard(condition), data);
+      } catch (error) {
+        if (error instanceof NotFoundError) return MISSED;
+        throw error;
+      }
+    };
+    // Its own list, or a model of one list: the key alone.
+    if (within.length === 0 || (anchored === undefined && to === undefined))
+      return attempt(away, keyed);
+    const joined = {
+      ...keyed,
+      ...Object.fromEntries(
+        within.map((field) => [
+          field,
+          anchored === undefined ? to![field] : new Computed(listed(field)),
+        ])
+      ),
+    };
+    // The key alone while the row stays in the list (no permission on the
+    // list fields needed), else the key and the list; `to` tries the move
+    // first.
+    const outside = sql`NOT (${inList()})`;
+    const inside = sql`${inList()} AND (${away})`;
+    if (to !== undefined) {
+      const moved = await attempt(outside, joined);
+      return moved === MISSED ? attempt(inside, keyed) : moved;
+    }
+    const stayed = await attempt(inside, keyed);
+    // A list field in the row key is written by the read path, by value.
+    return stayed === MISSED &&
+      !within.some((field) => identity.includes(field))
+      ? attempt(outside, joined)
+      : stayed;
+  }
   return (delegate: Delegate, scope: Scope) => {
     async function place(args: Readonly<Record<string, unknown>>) {
       const {
@@ -385,6 +517,19 @@ function methods(ordered: Ordered, engine: () => Engine) {
         if (row === null) throw new NotFoundError(name, "move");
         return row;
       };
+      const moved = await inStatement(
+        { where, anchor, after: after !== undefined, first: first === true },
+        to as Row | undefined,
+        recognised,
+        (guard, data) =>
+          delegate.update!({
+            ...controls,
+            where: { ...where, [key]: { equals: () => guard } },
+            data,
+            ...projection,
+          })
+      );
+      if (moved !== MISSED) return moved;
       for (let attempt = 1; ; attempt++) {
         if (attempt > MOVE_ATTEMPTS)
           throw new QueryError(

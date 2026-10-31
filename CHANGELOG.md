@@ -22,21 +22,20 @@ Versioning.
     key: no read first, on PostgreSQL, SQLite, libSQL, PGlite and D1. On
     MySQL, where that statement deadlocks under concurrent appends, a
     plain read of the last key comes first.
-  - `move({ where, after | before | first | last | to })` writes one row,
+  - `move({ where, after | before | first | last | to })` is one `update`
     through the client (permissions, soft delete, `updatedAt`, write hooks
-    apply): one read of the anchor's neighbours and one `update` within a
-    list (2 statements; 3 into another list), the key alone written where
-    the row stays in its list. It respaces a list by itself when a gap is
-    used up or neighbours tie.
+    apply), the new key computed by the UPDATE from the keys around the
+    row's place: one statement within a list, two into another, on
+    PostgreSQL, SQLite, libSQL and D1 (MySQL reads the neighbours first).
+    The key alone is written where the row stays in its list. It respaces a
+    list by itself when a gap is used up or neighbours tie.
   - `rekey({ where, orderBy })` respaces whole lists, hidden members
     included, in one statement (more where the driver bounds a statement's
     values), the lists named through the caller's view. It is how an
     existing table adopts the extension: the key field may default to a
     literal (`s.string().default("")`).
   - `orderingKey`, a validator for the key field (keys below 10^8, so an
-    append always fits); `keyBetween`,
-    `keysBetween` and `isKey` compute keys in the browser as the server
-    does.
+    append always fits); `isKey` tells whether a value is a key.
 - **The `order` extension capability**: `order: { models: { card: [{ rank:
   "asc" }] } }` gives a model the order its reads take when the caller gives
   no `orderBy`: root `findMany`/`findFirst`, to-many relation reads at any

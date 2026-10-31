@@ -109,36 +109,44 @@ await db.card.move({ where: { id }, to: { columnId: doneId }, first: true });
   returns what `update` returns.
 - Moving a row to where it already is writes nothing.
 
-A move reads, then writes through the client: `updatedAt`, validation,
-permissions and [write hooks](/docs/extensions/on) apply as to any `update`.
+A move is one `update` through the client: `updatedAt`, validation,
+permissions and [write hooks](/docs/extensions/on) apply as to any update
+of the row. Its new key is computed by the UPDATE itself, from the keys
+around the row's place, read by subqueries in the same statement:
 
-- **The read:** the anchor and its neighbours, in one statement, through
-  your extensions (a soft-deleted or forbidden row is not an anchor). With
-  `to`, the two rows at that end of the list; `first` or `last` alone read
-  the row's own list first. Where a list field is nullable, the anchor is
-  read first, so the read of its neighbours stays within its list.
-- **The write:** the moved row is not read. Its key alone is written where
-  it is already in the target list, so a reorder needs no permission on the
-  list fields; where it is not, an `update` writes the key and the list.
+```sql
+UPDATE "card" SET "rank" = <a key between the anchor's and the next one's>
+WHERE "id" = $1 AND "columnId" IS NOT DISTINCT FROM <the anchor's column> …
+RETURNING …
+```
 
-| `move` | Statements (PostgreSQL, SQLite, libSQL, D1) |
+- The key alone is written while the row stays in its list, so a reorder
+  needs no permission on the list fields. Where the row is in another list,
+  a second UPDATE writes the key and the list.
+- The keys around the place are the table's: a soft-deleted or forbidden
+  row can be an anchor or a neighbour, as it is a member of its list.
+
+| `move` (PostgreSQL, PGlite, SQLite, libSQL, D1) | Statements |
 |---|---|
-| after / before, within the list | 2 |
-| after / before, into another list | 3 |
-| `to` another list | 2 |
-| `first` / `last` of its own list | 3 |
-| already in place (nothing written) | 2 |
+| after / before, within the list | 1 |
+| after / before, into another list | 2 |
+| `to` another list, `first` / `last` | 1 |
+| `first` / `last` of its own list | 1 |
 
-A nullable list field adds one read to `after`/`before`. On MySQL, the write
-is an `update`, which takes 4 statements there.
+Where no UPDATE can place the row (its neighbours tie, its gap is used up,
+the anchor or the row is missing, or it is already in place), the move reads
+the anchor's neighbours through your extensions, respaces the list if it
+must, then writes; a row already in place is not written. On MySQL, which
+refuses a subquery on the table an UPDATE writes, a move always takes that
+path: one read, then an `update` (4 statements there).
 
-Two moves of one row at the same moment: the last write wins. If the anchor
-moves between the read and the write, the row lands where the anchor was.
+The new key is any key between its neighbours: the integer after the lower
+one where the gap holds one, else the lower one extended by two random
+digits. A key grows by one or two digits each time a row is placed into the
+same gap; when a gap is used up (a key would pass 64 digits), the move
+respaces the list (as `rekey` does, below), then places the row.
 
-A key gains about half a digit each time a member is placed into the same
-gap, so many moves into one spot grow keys. When a move's gap is used up
-(its key would pass 64 digits) or its neighbours tie, the move respaces the
-list (as `rekey` does, below), then places the row.
+Two moves of one row at the same moment: the last write wins.
 
 Errors: a missing or hidden row or anchor, or a write your permissions
 refuse (as `update` refuses it), is a `NotFoundError` (its message says
@@ -194,15 +202,7 @@ collation. Letters would not do: Czech sorts `ch` after `h`, Danish sorts
 `aa` after `z`. A collation with numeric ordering (ICU `kn-true`) is the one
 exception.
 
-`keyBetween(lower, upper)` (with `null` for an open end) and
-`keysBetween(lower, upper, n)` compute keys in the browser as the server
-does: a client can show a dropped card in its place at once, before the
-server answers. Send the write as a `move` with an anchor, not as the key
-computed: the server reads the neighbours as they are (another writer may
-have moved one, or a respace changed every key), and `move` returns the key
-it wrote, which replaces the computed one. `keyBetween` throws when `lower`
-is not below `upper` (tied neighbours), and a key can outgrow
-`MAX_KEY_LENGTH`: `isKey(value)` tells whether a value is a key.
+`isKey(value)` tells whether a value is a key.
 
 Each generated key holds a random part, so two writers placing into one gap
 at the same moment get distinct keys. A tie (equal keys) is still possible

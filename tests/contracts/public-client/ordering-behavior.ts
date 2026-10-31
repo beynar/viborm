@@ -503,6 +503,66 @@ export function describeOrdering(
       expect(new Set(ranks).size).toBe(3);
     });
 
+    test("random moves keep every list in the order a model of it predicts", async () => {
+      const db = await setup();
+      // A seeded sequence: the same moves on every run and provider.
+      let seed = 127;
+      const random = (below: number) => {
+        seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
+        return seed % below;
+      };
+      const lists: Record<string, string[]> = { c1: [], c2: [] };
+      for (let index = 0; index < 12; index++) {
+        const columnId = index % 2 === 0 ? "c1" : "c2";
+        const id = `r${index}`;
+        await db.card.create({ data: { id, columnId, title: id } });
+        lists[columnId]!.push(id);
+      }
+      const where = (id: string) =>
+        Object.keys(lists).find((list) => lists[list]!.includes(id))!;
+      for (let step = 0; step < 200; step++) {
+        const ids = Object.values(lists).flat();
+        const id = ids[random(ids.length)]!;
+        const from = where(id);
+        const kind = random(6);
+        lists[from] = lists[from]!.filter((other) => other !== id);
+        if (kind < 4) {
+          const others = ids.filter((other) => other !== id);
+          const anchor = others[random(others.length)]!;
+          const target = where(anchor);
+          const at = lists[target]!.indexOf(anchor) + (kind < 2 ? 1 : 0);
+          lists[target]!.splice(at, 0, id);
+          await db.card.move({
+            where: { id },
+            ...(kind < 2
+              ? { after: { id: anchor } }
+              : { before: { id: anchor } }),
+          });
+        } else {
+          const target = random(3) === 0 ? (from === "c1" ? "c2" : "c1") : from;
+          const first = kind === 4;
+          if (first) lists[target]!.unshift(id);
+          else lists[target]!.push(id);
+          await db.card.move({
+            where: { id },
+            ...(first ? { first: true } : { last: true }),
+            ...(target === from ? {} : { to: { columnId: target } }),
+          });
+        }
+        if (step % 25 === 24 || step === 199)
+          for (const list of Object.keys(lists))
+            expect(
+              (await db.card.findMany({ where: { columnId: list } })).map(
+                (row: { id: string }) => row.id
+              )
+            ).toEqual(lists[list]);
+      }
+      const ranks = (await db.card.findMany()).map(
+        (row: { rank: string }) => row.rank
+      );
+      expect(ranks.every(isKey)).toBe(true);
+    });
+
     test("rekey by another order keeps the current order among equals", async () => {
       const db = await setup();
       for (const [id, title] of [

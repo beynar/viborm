@@ -17,6 +17,7 @@ import { createResolvedSchemaRegistry } from "@validation/builder";
 import type { NormalizedRecurrence } from "@validation/relations/recurrence";
 import type { VibSchema } from "@validation/types";
 import { isRecord } from "@validation/value-guards";
+import { InsertValue } from "./insert-value";
 import { parseValidated, upsertEnvelopeSchema } from "./parse-boundary";
 import type { Leaf, PreparedProjection } from "./query";
 import {
@@ -227,21 +228,39 @@ export class EngineSchema {
     raw: unknown
   ): Arguments {
     const schema = this.registry.getModelSchemas(model).args[operation];
+    // A value an official extension computes in the statement (`InsertValue`)
+    // is no payload: it is set aside here and written as it is.
+    const computed: Input = {};
     const input =
       operation === "update" && isRecord(raw) && isRecord(raw.data)
         ? {
             ...raw,
             data: Object.fromEntries(
-              Object.entries(raw.data).sort(([left], [right]) => {
-                const isVariant = (name: string) =>
-                  model["~"].state.relations[name]?.["~"].state.target.kind ===
-                  "variants";
-                return Number(isVariant(left)) - Number(isVariant(right));
-              })
+              Object.entries(raw.data)
+                .filter(([field, value]) => {
+                  if (!(value instanceof InsertValue)) return true;
+                  computed[field] = value;
+                  return false;
+                })
+                .sort(([left], [right]) => {
+                  const isVariant = (name: string) =>
+                    model["~"].state.relations[name]?.["~"].state.target
+                      .kind === "variants";
+                  return Number(isVariant(left)) - Number(isVariant(right));
+                })
             ),
           }
         : raw;
-    return parseValidated(schema, input, operation, "", model) as Arguments;
+    const admitted = parseValidated(
+      schema,
+      input,
+      operation,
+      "",
+      model
+    ) as Arguments;
+    return Object.keys(computed).length === 0
+      ? admitted
+      : { ...admitted, data: { ...(admitted.data as Input), ...computed } };
   }
   /**
    * Does this payload name a relation of the model? One spelling, asked by the

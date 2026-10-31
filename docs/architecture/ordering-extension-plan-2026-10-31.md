@@ -541,3 +541,42 @@ MySQL: 5 statements (was 6). The rest is the engine's MySQL `update`, which
 takes 4 statements for any update (`SELECT`, `UPDATE`, `SELECT … FOR UPDATE`,
 `SELECT`), against 1 for `updateMany`. That belongs to the engine and every
 MySQL user, not to this extension.
+
+## 17. `move` in one UPDATE (2026-10-31)
+
+Owner: "the key needs to be computed inside the update, that's it."
+
+- **Engine.** An `update`'s data may hold an `InsertValue`, the hook appends
+  already use. It is set aside from admission (`EngineSchema.#admitArguments`)
+  and replaced by its expression before the SET is built (`#settled` in
+  `update`, `updateLocated`, `updateMany`). On the batch route it is read
+  back after the write, never published as its expression.
+- **The key** (`between.ts`, PostgreSQL and SQLite): any key strictly
+  between the two around the place, read by scalar subqueries in the same
+  statement.
+  - The integer after the lower one where the gap holds one.
+  - Else the lower one extended by two random digits, behind as many zeros
+    as keep it below the upper one where the upper one extends it.
+  - NULL for tied or unordered bounds, a missing anchor, or a key past 64
+    digits.
+  - A key grows by one or two digits per placement into one gap (the JS
+    midpoint grew by about half a digit).
+- **The write.** `update({ where: { ...where, rank: { equals: () => CASE
+  WHEN <key> IS NOT NULL AND <row in the anchor's list> AND <not already in
+  place> THEN rank END } }, data: { rank: Computed(<key>) } })`. One
+  statement. On a miss (the row is in another list), a second UPDATE writes
+  the key and the list, guarded on the row being outside it. On a miss of
+  both (tie, gap used up, missing row or anchor, already in place), the read
+  path of §16 runs: reads, respace, write.
+- **Statements.** Within a list 1, into another list 2, `to` 1,
+  `first`/`last` 1. MySQL keeps the read path (it refuses a subquery on the
+  table an UPDATE writes, and its reads there lock).
+- **Given up.** Anchors and neighbours are read from the table, not through
+  the caller's extensions: a soft-deleted or forbidden row can be an anchor
+  or a neighbour.
+- **Removed.** `keyBetween` and `keysBetween` are no longer exported (owner:
+  the browser use case is not wanted). `isKey` and `MAX_KEY_LENGTH` stay.
+- **Tests.**
+  - Every provider replays a seeded 200-move model check.
+  - The statement counts are asserted on SQLite.
+  - A write hook receives a moved row's stored key.

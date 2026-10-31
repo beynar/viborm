@@ -2442,6 +2442,12 @@ export class OperationContext {
     }
     return computed ?? rows;
   }
+  /** An update's `values`, each InsertValue replaced by its expression. */
+  async #settled(model: AnyModel, given: Input): Promise<Input> {
+    return Object.values(given).some((value) => value instanceof InsertValue)
+      ? (await this.#computed(model, [given]))[0]!
+      : given;
+  }
   #insertStatement(
     model: AnyModel,
     columns: readonly string[],
@@ -3055,11 +3061,12 @@ export class OperationContext {
   async updateMany(
     model: AnyModel,
     selector: PreparedSelector,
-    values: Input,
+    given: Input,
     limit?: number,
     projection?: PreparedProjection,
     single?: () => Error
   ): Promise<unknown> {
+    const values = await this.#settled(model, given);
     const q = this.queries;
     const adapter = this.driver.adapter;
     const assignments = this.#updateAssignments(model, values);
@@ -3815,13 +3822,14 @@ export class OperationContext {
   async updateLocated(
     model: AnyModel,
     selector: PreparedSelector,
-    values: Input,
+    given: Input,
     projection: PreparedProjection,
     missing: () => Error,
     operation = "update",
     refusal?: PreparedGuardFailure,
     answer?: StatementAnswer
   ): Promise<Input> {
+    const values = await this.#settled(model, given);
     const q = this.queries;
     const adapter = this.driver.adapter;
     let produced: Sql | undefined;
@@ -3874,7 +3882,7 @@ export class OperationContext {
   async update(
     model: AnyModel,
     current: Input,
-    values: Input,
+    given: Input,
     member: Member,
     operation = "update",
     demanded: ReadonlySet<string> = new Set(),
@@ -3883,7 +3891,13 @@ export class OperationContext {
     refusal?: PreparedGuardFailure,
     answer?: StatementAnswer
   ): Promise<Input> {
-    if (Object.keys(values).length === 0) return {};
+    if (Object.keys(given).length === 0) return {};
+    // A field an InsertValue computes holds its expression, read back after
+    // the write, never published as the expression.
+    const computed = Object.keys(given).filter(
+      (field) => given[field] instanceof InsertValue
+    );
+    const values = await this.#settled(model, given);
     const q = this.queries;
     const adapter = this.driver.adapter;
     const identity = this.schema.identity(model, current);
@@ -3915,7 +3929,7 @@ export class OperationContext {
         // the same value the row's own write submits. Only an OPERATION
         // (`{ increment: 2 }`) has a value that exists after the provider
         // computes it, and only that value has to travel through the scratch.
-        if (wholeValue(value)) continue;
+        if (wholeValue(value) && !computed.includes(field)) continue;
         const state = physicalField(this.schema, model, field).scalar["~"]
           .state;
         // R-D3 (Arnaud, 2026-09-15) gave the batch-only publication gap a
@@ -3926,7 +3940,7 @@ export class OperationContext {
         // states that fact when the observation is flushed — this operation
         // requires dynamic execution (D-46), the array owner's control-flow
         // value, not a refusal the caller sees.
-        if (state.type !== "int") {
+        if (state.type !== "int" || computed.includes(field)) {
           observed.push(field);
           continue;
         }

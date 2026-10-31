@@ -27,7 +27,9 @@ export interface InsertValueContext {
  * left the field out, not admitted as data. `compute` answers one value per
  * row it is asked about (the indexes of `rows` whose field holds this
  * instance), each a plain value or an SQL expression the INSERT evaluates.
- * The official ordering extension's appended keys are the one such value.
+ * An `update`'s data may hold one too (an official extension's call, never a
+ * caller's payload): set aside from admission, its expression is the SET's.
+ * The official ordering extension's appended and moved keys are the ones.
  */
 export abstract class InsertValue {
   abstract compute(
