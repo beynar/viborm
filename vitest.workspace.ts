@@ -131,6 +131,7 @@ export default defineWorkspace([
   ]),
   layerProject("migrations", ["tests/unit/migrations/**/*.core.test.ts"]),
   layerProject("permissions", ["tests/unit/permissions/**/*.core.test.ts"]),
+  layerProject("ordering", ["tests/unit/ordering/**/*.core.test.ts"]),
   // @viborm/studio's own tests; its package lives outside tests/.
   layerProject("studio", ["packages/studio/test/**/*.core.test.ts"]),
   {
@@ -184,6 +185,7 @@ export default defineWorkspace([
         "tests/contracts/public-client/official-instrumentation-extension.core.test.ts",
         "tests/contracts/public-client/soft-delete.core.test.ts",
         "tests/contracts/public-client/on.core.test.ts",
+        "tests/unit/ordering/keys.core.test.ts",
         "tests/contracts/public-client/extension-bound-views.core.test.ts",
         "tests/contracts/public-client/extension-composition.core.test.ts",
         "tests/contracts/public-client/extension-evidence.core.test.ts",

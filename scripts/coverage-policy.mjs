@@ -38,6 +38,7 @@ export const extensionCoverageTests = Object.freeze([
   "tests/contracts/architecture/extension-system-census.core.test.ts",
   "tests/contracts/public-client/default-omit-extension.core.test.ts",
   "tests/contracts/public-client/extension-controls.core.test.ts",
+  "tests/unit/ordering/keys.core.test.ts",
   "tests/contracts/public-client/extension-deletion.core.test.ts",
   "tests/contracts/public-client/extensions-foundation.core.test.ts",
   "tests/contracts/public-client/official-cache-extension.core.test.ts",
@@ -123,13 +124,14 @@ const definitions = [
     id: "extensions",
     label: "extensions",
     target: 100,
-    // The official soft-delete, permissions and `on` extensions: definitions
+    // The official soft-delete, permissions, `on` and ordering extensions: definitions
     // over the capabilities this subsystem owns, measured by the same lane.
     // They own their directories, so a file an entry gains is measured at 100%
     // from its first line instead of failing the ownership audit unowned.
     roots: [
       "src/extensions/",
       "src/on/",
+      "src/ordering/",
       "src/permissions/",
       "src/soft-delete/",
     ],
