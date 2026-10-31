@@ -375,13 +375,12 @@ export type MovePlacement<C extends VibORMConfig, K> =
 type MoveArgs<C extends VibORMConfig, K> = Projection<C, K> & {
   readonly where: Unique<C, K>;
 } & MovePlacement<C, K>;
-type FindArg<C extends VibORMConfig, K, P extends string> = ModelArgs<
-  C,
+type FindArg<
+  C extends VibORMConfig,
   K,
-  "findMany"
-> extends { readonly [Key in P]?: infer V }
-  ? V
-  : never;
+  P extends string,
+> = NonNullable<ModelArgs<C, K, "findMany">>[P &
+  keyof NonNullable<ModelArgs<C, K, "findMany">>];
 type RekeyArgs<C extends VibORMConfig, K> = {
   readonly where?: FindArg<C, K, "where">;
   readonly orderBy?: FindArg<C, K, "orderBy">;
