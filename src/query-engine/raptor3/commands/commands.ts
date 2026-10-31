@@ -17,6 +17,7 @@ import {
   returningSafeProjection,
   type SelectorFacts,
 } from "../shared/query";
+import { InsertValue } from "../shared/insert-value";
 import {
   type ModelStamps,
   Parameter,
@@ -522,18 +523,28 @@ export class Commands {
         written.add(foreignField);
     }
     const kept: Input = {};
+    const computed: Input = {};
     for (const [field, value] of Object.entries(stamp))
-      if (raw[field] === undefined && !written.has(field))
+      if (raw[field] === undefined && !written.has(field)) {
+        // A value computed once the INSERT's rows are final is written as
+        // is: the insert asks it for its value (`InsertValue`).
+        if (value instanceof InsertValue) computed[field] = value;
         // `{ now: true }` writes the call's one instant (R7).
-        kept[field] =
-          value instanceof Parameter ? this.context.scope!.instant() : value;
+        else
+          kept[field] =
+            value instanceof Parameter ? this.context.scope!.instant() : value;
+      }
     // A create's stamps are admitted as a create admits them: a field only a
     // create takes (an insert-only timestamp) is no update field.
     const values =
       kind === "create"
         ? this.context.schema.createValues(model, kept)
         : this.context.schema.update(model, kept, true);
-    return this.context.schema.scalars(model, { ...admitted, ...values });
+    return this.context.schema.scalars(model, {
+      ...admitted,
+      ...values,
+      ...computed,
+    });
   }
   /**
    * What an update occurrence of `model` is judged at (R3): the fields the

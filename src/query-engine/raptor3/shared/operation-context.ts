@@ -61,6 +61,7 @@ import {
   returningSafeProjection,
   wholeValue,
 } from "./query";
+import { InsertValue } from "./insert-value";
 import type { CallScope, RowJudgement } from "./row-scope";
 import {
   type EngineSchema,
@@ -2404,6 +2405,43 @@ export class OperationContext {
    * `judged` create reads its rows from their own values under their
    * placement (R4, {@link Queries.producedSource}), in the same statement.
    */
+  /**
+   * `rows`, each {@link InsertValue} its stamps left replaced by what it
+   * computes for these rows, now that every other value is final; `rows`
+   * itself when none holds one.
+   */
+  async #computed(model: AnyModel, rows: Input[]): Promise<Input[]> {
+    let computed: Input[] | undefined;
+    const fields = new Map<string, { value: InsertValue; at: number[] }>();
+    for (const [index, row] of rows.entries())
+      for (const [field, value] of Object.entries(row))
+        if (value instanceof InsertValue) {
+          const entry = fields.get(field) ?? { value, at: [] };
+          entry.at.push(index);
+          fields.set(field, entry);
+        }
+    for (const [field, { value, at }] of fields) {
+      computed ??= rows.map((row) => ({ ...row }));
+      const values = await value.compute(
+        {
+          model,
+          rows: computed,
+          field,
+          queries: this.queries,
+          dialect: this.driver.dialect,
+          ...(this.#ownership !== "batch-preparation" && {
+            read: async (statement: Sql) =>
+              (await this.answer({ sql: statement } as Query, false, model))
+                .rows,
+          }),
+        },
+        at
+      );
+      for (const [position, index] of at.entries())
+        computed[index]![field] = values[position];
+    }
+    return computed ?? rows;
+  }
   #insertStatement(
     model: AnyModel,
     columns: readonly string[],
@@ -2702,6 +2740,7 @@ export class OperationContext {
         throw new QueryEngineError("No data to insert for createMany.");
       return this.emptyBulkResult(projection);
     }
+    rows = await this.#computed(model, rows);
     const q = this.queries;
     const adapter = this.driver.adapter;
     const placed = this.#produced(model);
@@ -2940,6 +2979,7 @@ export class OperationContext {
   ): Promise<unknown> {
     const q = this.queries;
     const adapter = this.driver.adapter;
+    row = (await this.#computed(model, [row]))[0]!;
     const columns = Object.keys(row);
     const placed = this.#produced(model);
     const insert = this.#insertStatement(model, columns, [row], false, placed);
@@ -3507,6 +3547,7 @@ export class OperationContext {
   ): Promise<Input> {
     const q = this.queries;
     const adapter = this.driver.adapter;
+    values = (await this.#computed(model, [values]))[0]!;
     const fields = Object.keys(values);
     const placed = this.#produced(model);
     const judged = placed && { model, refusal: refusal ?? this.#forbidden };

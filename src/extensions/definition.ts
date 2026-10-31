@@ -555,8 +555,8 @@ type ExtensionConfig<S extends Schema> = {
  * it extends (`(delegate: M[K & keyof M]) => …`, generic over that client) is
  * compared in either direction rather than only contravariantly.
  */
-type ModelMethodFactory<Delegate> = {
-  factory(delegate: Delegate): ExtensionMethodRecord;
+type ModelMethodFactory<Delegate, Scope> = {
+  factory(delegate: Delegate, scope: Scope): ExtensionMethodRecord;
 }["factory"];
 
 /**
@@ -571,7 +571,8 @@ type ModelFactoryTable<
   X extends ExtensionStateConstraint,
 > = {
   readonly [ModelName in keyof ClientSchema<C>]: ModelMethodFactory<
-    ExtensionModelDelegate<C, X, ModelName>
+    ExtensionModelDelegate<C, X, ModelName>,
+    ExtensionClientScope<C, X>
   >;
 };
 
@@ -595,7 +596,8 @@ export type ContextualExtensionDefinition<
   readonly model?: unknown extends Self
     ? {
         readonly [ModelName in keyof ClientSchema<C>]?: ModelMethodFactory<
-          ExtensionModelDelegate<C, X, ModelName>
+          ExtensionModelDelegate<C, X, ModelName>,
+          ExtensionClientScope<C, X>
         >;
       }
     : {
