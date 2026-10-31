@@ -2525,6 +2525,17 @@ export class OperationContext {
    *
    * `written`: an UPDATE's assignments; absent for an INSERT and a DELETE.
    */
+  /**
+   * May a root UPDATE without RETURNING answer `projection` from the read
+   * that confirms it ({@link update})? Its columns alone, as a RETURNING's.
+   */
+  answersAfterUpdate(projection: PreparedProjection): boolean {
+    return (
+      !(this.usesBatch || this.driver.adapter.capabilities.supportsReturning) &&
+      returningSafeProjection(projection) &&
+      !refusesWhileDecoding(projection)
+    );
+  }
   answersInStatement(
     model: AnyModel,
     projection: PreparedProjection,
@@ -3992,16 +4003,54 @@ export class OperationContext {
       ? { model, refusal: refusal ?? this.#updateRefusal(model, judgement) }
       : undefined;
     const context = this.statementContext(model, operation);
-    if (!this.usesBatch && demanded.size) {
+    const returns = adapter.capabilities.supportsReturning;
+    if (!this.usesBatch && (demanded.size || (answer && !returns))) {
       const fields = [...demanded];
       const select = Object.fromEntries(fields.map((field) => [field, true]));
       const projection = q.prepareProjection(model, { select }, true);
-      if (!adapter.capabilities.supportsReturning) {
+      if (!returns) {
         await this.dispatch(1, false, () =>
           this.#judging(judged, () =>
             this.#transport._execute(statement, context)
           )
         );
+        if (answer) {
+          // The read below answers the operation's result too, with the
+          // columns a RETURNING would have carried: no read after it.
+          const response = await this.answer(
+            {
+              sql: assembleAdapterSelect(adapter, {
+                columns: sql.join(
+                  this.#returned([
+                    answer.projection,
+                    fields.length > 0 ? projection : undefined,
+                  ]),
+                  ", "
+                ),
+                from: q.table(model),
+                where: q.lowerIdentity(
+                  model,
+                  this.#updatedIdentity(model, identity, values)
+                ),
+                forUpdate: true,
+              }),
+            } as Query,
+            false,
+            model
+          );
+          if (!response.rows[0])
+            throw (
+              missing?.() ??
+              new TypeError("UPDATE did not produce the required record")
+            );
+          answer.row = response.rows[0];
+          return {
+            ...published,
+            ...(fields.length > 0
+              ? q.decodeProjection(projection.shape, response.rows, true)[0]
+              : {}),
+          };
+        }
         // This read answers "which row did the UPDATE just write?", and only a
         // CURRENT read can: under REPEATABLE READ a consistent read answers
         // from the snapshot this transaction opened plus its OWN changes, so a

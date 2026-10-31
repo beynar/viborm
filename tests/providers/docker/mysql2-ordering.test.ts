@@ -34,6 +34,10 @@ describeIf("MySQL2 Driver", () => {
     },
     // The read of the last key, the INSERT, and the read of the created row
     // a MySQL create always takes (no RETURNING).
-    3
+    3,
+    // A move reads the anchor, then its neighbours within its list (the
+    // list field is nullable here), then updates; an update locks its row,
+    // writes it, and reads it back once (no RETURNING).
+    { move: 5, update: 3 }
   );
 });

@@ -674,11 +674,14 @@ export class CommandExecution {
     if (
       !(
         returningSafeProjection(projection) &&
-        ctx.answersInStatement(
+        (ctx.answersInStatement(
           model,
           projection,
           command.located ? "update" : "insert"
-        )
+        ) ||
+          (command.located !== undefined &&
+            (command.operation ?? "update") === "update" &&
+            ctx.answersAfterUpdate(projection)))
       )
     )
       return undefined;

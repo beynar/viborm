@@ -580,3 +580,31 @@ Owner: "the key needs to be computed inside the update, that's it."
   - Every provider replays a seeded 200-move model check.
   - The statement counts are asserted on SQLite.
   - A write hook receives a moved row's stored key.
+
+## 18. MySQL (2026-10-31)
+
+Owner: five statements per move on MySQL is too many.
+
+- **Engine: a MySQL `update` goes from 4 statements to 3.** Without
+  RETURNING it sent:
+  1. the locating `SELECT … FOR UPDATE`;
+  2. the `UPDATE`;
+  3. a confirming `SELECT … FOR UPDATE` of the demanded fields;
+  4. the terminal read of the result.
+
+  The confirming read now selects the columns a RETURNING would carry, both
+  the result's projection and the demanded fields
+  (`OperationContext.update`). Its row answers the operation as a RETURNING's
+  does. `execution.#answeredByRoot` offers that answer to a root `update` on a
+  driver without RETURNING (`answersAfterUpdate`: scalar projections that
+  refuse nothing while decoding); `answersInStatement` is untouched. The whole
+  MySQL provider suite passes (1,366 tests).
+- **`move` on MySQL keeps the read path: 4 statements** (was 6), 5 with a
+  nullable list field. The one-statement move was tried there. It works with
+  every read in a derived table, at 3 statements, but MySQL locks every row a
+  statement's subqueries read (the locating `SELECT … FOR UPDATE`, the
+  `UPDATE`'s SET). Under four writers moving cards in two lists, 37 moves of
+  240 failed with deadlock 1213; the read path had none and ran faster
+  (126 ms vs 206 ms).
+- **Tests.** Every provider asserts the statements a move within a list and
+  an update take: 1 and 1, on MySQL 5 and 3.

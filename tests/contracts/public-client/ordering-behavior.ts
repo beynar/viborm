@@ -60,7 +60,11 @@ export function describeOrdering(
   open: () => Promise<{ client: Base; close?: () => Promise<void> }>,
   /** Statements one create sends: the INSERT alone, where it returns its
    * row and computes its key (MySQL reads the last key first). */
-  createStatements = 1
+  createStatements = 1,
+  /** Statements a move within a list and a plain update send: one UPDATE
+   * each, where it computes the key and returns its row (MySQL reads the
+   * neighbours, then locks, updates and reads the row). */
+  { move = 1, update = 1 } = {}
 ) {
   const statements: string[] = [];
   let base_: any;
@@ -126,6 +130,23 @@ export function describeOrdering(
       expect(statements).toHaveLength(createStatements);
       expect(statements.join(" ")).toContain("MAX(");
       expect(await listOf(db, "c1")).toEqual(["a", "b"]);
+    });
+
+    test("a move within a list, and an update, in the statements they take", async () => {
+      const db = await setup();
+      for (const title of ["a", "b", "c"])
+        await db.card.create({ data: { id: title, columnId: "c1", title } });
+      statements.length = 0;
+      await db.card.move({ where: { id: "a" }, after: { id: "b" } });
+      expect(statements).toHaveLength(move);
+      expect(await listOf(db, "c1")).toEqual(["b", "a", "c"]);
+      statements.length = 0;
+      const updated = await db.card.update({
+        where: { id: "c" },
+        data: { title: "c2" },
+      });
+      expect(statements).toHaveLength(update);
+      expect(updated.title).toBe("c2");
     });
 
     test("createMany keeps the array's order, per list", async () => {

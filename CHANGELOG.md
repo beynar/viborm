@@ -41,6 +41,8 @@ Versioning.
   no `orderBy`: root `findMany`/`findFirst`, to-many relation reads at any
   depth, and paged `count`/`aggregate` windows. An explicit `orderBy`
   replaces it; cached reads are keyed on it.
+- On MySQL, an `update` reads its result back with the read that confirms
+  its write: 3 statements instead of 4 (lock, write, read).
 - A model method factory receives the client scope after its delegate:
   `model: { post(delegate, scope) { … } }`, the same scope a client factory
   receives.
