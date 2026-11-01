@@ -7,8 +7,9 @@
  * soft-deletable), then:
  *
  *   soft   `softDelete(config)(base)` and `base.$extends(softDelete(config))`
- *   chain  `base.$extends(tombstones.rows).$extends(policy)
- *            .$extends(tombstones.methods)`, the guide's composition
+ *   chain     `base.$extends(tombstones).$extends(policy)`, the guide's
+ *             composition (each official extension one step, any order)
+ *   reversed  `base.$extends(policy).$extends(tombstones)`
  *
  * and reads through the result: a relation the rows can hide reads `| null`,
  * `restore` narrows to its `select`, `$as`, `can` and `$access` keep each
@@ -137,7 +138,8 @@ export async function reads() {
 `;
 
 const chainSource = (
-  models
+  models,
+  order
 ) => `import { permissions } from "viborm/permissions";
 import { v } from "viborm/validation";
 import { base, tombstones } from "./schema-${models}";
@@ -151,10 +153,7 @@ const policy = permissions({
   },
 });
 
-export const db = base
-  .$extends(tombstones.rows)
-  .$extends(policy)
-  .$extends(tombstones.methods);
+export const db = ${order === "soft-first" ? "base.$extends(tombstones).$extends(policy)" : "base.$extends(policy).$extends(tombstones)"};
 
 export async function reads() {
   const call = db.$as({ userId: "u" });
@@ -168,20 +167,33 @@ export async function reads() {
   const owner: { id: string; name: string } | null = row!.owner;
   const restored = await call.m${models - 2}.restore({ where: { id: "x" }, select: { id: true } });
   const id: string = restored.id;
+  const purged = await call.m3.purge({ where: { id: "x" }, include: { owner: true } });
+  const purgedOwner: { id: string; name: string } | null = purged.owner;
+  // @ts-expect-error - the policy can hide the owner: restore's relation reads null too
+  const notNull: { id: string; name: string } = (await call.m4.restore({ where: { id: "x" }, include: { owner: true } })).owner;
   // @ts-expect-error - "bogus" is not a mode
   await call.m1.findMany({ deleted: "bogus" });
   const [held] = await call.m2.findMany({ select: { id: true, $access: true } });
   const deletable: boolean = held!.$access.delete;
-  return [same, may, owner, id, deletable];
+  return [same, may, owner, id, deletable, purgedOwner, notNull];
 }
 `;
 
 // 60 models only: the regression appeared from 10 to 25 models on every
 // checker, so 60 catches it with room to spare, and the package job keeps
-// its wall budget (one packed consumer, two programs per checker).
+// its wall budget (one packed consumer, three programs per checker).
 const programs = [60].flatMap((models) => [
   { name: `soft-${models}`, models, source: softSource(models) },
-  { name: `chain-${models}`, models, source: chainSource(models) },
+  {
+    name: `chain-${models}`,
+    models,
+    source: chainSource(models, "soft-first"),
+  },
+  {
+    name: `reversed-${models}`,
+    models,
+    source: chainSource(models, "policy-first"),
+  },
 ]);
 
 function check(checker, project) {

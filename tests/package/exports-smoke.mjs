@@ -361,19 +361,32 @@ if (
 }
 requireRuntimeFunction("./on", "on");
 requireRuntimeFunction("./soft-delete", "softDelete");
-// `viborm/soft-delete` is built from public capabilities only: it reaches the
-// client through the `$extends` of the client it receives, so its runtime
-// module imports nothing and adds only its own bytes to an application.
-staticModuleSpecifier.lastIndex = 0;
-const softDeleteImports = [
-  ...readFileSync(
-    resolve(repositoryRoot, packageJson.exports["./soft-delete"].import),
-    "utf8"
-  ).matchAll(staticModuleSpecifier),
-].map((match) => match[1]);
-if (softDeleteImports.length > 0) {
+// `viborm/soft-delete` is built from public capabilities only, and raises the
+// library's own error (a marker that is not a nullable DateTime) from the
+// root's shared chunks: an instance of the class `viborm` exports.
+let softDeleteRefusal;
+try {
+  const { s } = runtimeExports.get(".");
+  const model = s.model({ id: s.string().id(), deletedAt: s.string() });
+  runtimeExports
+    .get("./soft-delete")
+    .softDelete({ models: { model: { deletedAt: "deletedAt" } } })({
+    $schema: { model },
+    $extends: () => {
+      throw new Error("the marker is checked before the definition applies");
+    },
+  });
+} catch (error) {
+  softDeleteRefusal = error;
+}
+if (
+  !(
+    softDeleteRefusal instanceof
+    runtimeExports.get(".").ClientInitializationError
+  )
+) {
   throw new Error(
-    `Export ./soft-delete must import nothing at runtime, found ${softDeleteImports.join(", ")}`
+    `Export ./soft-delete must raise the root's ClientInitializationError for a string marker, got ${softDeleteRefusal?.constructor?.name ?? "no refusal"}: ${softDeleteRefusal?.message}`
   );
 }
 

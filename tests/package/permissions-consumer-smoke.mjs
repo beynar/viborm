@@ -238,7 +238,10 @@ const KEYED = Object.keys(actors).filter((name) => actors[name]!.key !== undefin
 const db: Loose = policy.methods(tombstones.methods(policy.rows(tombstones.rows(base)).$extends(audit)));
 
 await line("each official extension is one step, in any order: policy(tombstones(base)) and tombstones(policy(base)) read what the steps apart read", async () => {
-  const oneStep: Loose = [policy(tombstones(base)).$extends(audit), tombstones(policy(base)).$extends(audit)];
+  // Each its own binding: an array of the two would compare two whole client types.
+  const softFirst: Loose = policy(tombstones(base)).$extends(audit);
+  const policyFirst: Loose = tombstones(policy(base)).$extends(audit);
+  const oneStep: Loose[] = [softFirst, policyFirst];
   for (const name of READERS) {
     const actor = actors[name]!;
     const expected = ids(await db.$as(actor).page.findMany());
