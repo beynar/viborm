@@ -764,6 +764,43 @@ describe("ordering: what a move sends", () => {
     expect(await lanes()).toEqual({ a: ["1"], b: ["4", "3", "2"] });
   });
 
+  test("a visible anchor whose list field the caller may not read still anchors a move: its visibility is read by key alone", async () => {
+    const client = await openTickets();
+    const db = ordering({ ticket: { key: "rank", within: ["lane"] } })(
+      client.$extends(
+        permissions({
+          actor: v.object({ admin: v.boolean() }),
+          models: {
+            ticket: {
+              read: true,
+              create: true,
+              update: true,
+              audit: { actor: { admin: true } },
+              fields: { lane: { read: "audit" } },
+            },
+          },
+        } as any)
+      )
+    ) as any;
+    const user = db.$as({ admin: false });
+    for (const title of ["1", "2", "3"])
+      await user.ticket.create({ data: { lane: "a", title } });
+    await user.ticket.move({
+      where: { id: 1 },
+      after: { id: 3 },
+      select: { id: true },
+    });
+    expect(titles(await db.$as({ admin: true }).ticket.findMany())).toEqual([
+      "2",
+      "3",
+      "1",
+    ]);
+    // A hidden anchor is still a missing one.
+    await expect(
+      user.ticket.move({ where: { id: 1 }, after: { id: 99 } })
+    ).rejects.toThrow("move anchor");
+  });
+
   test("a reorder within a list writes the key alone: no permission on the list field", async () => {
     const client = await openTickets();
     const order = ordering({ ticket: { key: "rank", within: ["lane"] } });

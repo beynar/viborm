@@ -310,6 +310,9 @@ function methods(ordered: Ordered, engine: () => Engine) {
   const selection = Object.fromEntries(
     [...identity, ...within, key].map((field) => [field, true])
   );
+  /** The row key alone: whether a row is visible, reading no field a
+   * permission may gate (the key and list fields can be). */
+  const keyed = Object.fromEntries(identity.map((field) => [field, true]));
   /** The fields `where` names with a value (a compound selector's too): how
    * the moved row is recognised among rows read, without reading it. */
   const named = (where: Row): Row => {
@@ -573,7 +576,7 @@ function methods(ordered: Ordered, engine: () => Engine) {
           }),
         (at) =>
           scope[SCOPE_CHAIN_FACTS].rowsName(name)
-            ? delegate.findUnique!({ ...controls, where: at, select: reading })
+            ? delegate.findUnique!({ ...controls, where: at, select: keyed })
             : Promise.resolve(true)
       );
       if (moved !== MISSED) return moved;
