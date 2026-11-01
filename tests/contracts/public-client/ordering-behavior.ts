@@ -649,7 +649,7 @@ export function describeOrdering(
         const db = (
           before
             ? deleted(ordered((counted_ as any).$extends(hooks)) as any)
-            : deleted(ordered(counted_) as any).$extends(hooks)
+            : (deleted(ordered(counted_) as any) as any).$extends(hooks)
         ) as any;
         expect((await db.card.rekey({ where: { columnId: "c1" } })).count).toBe(
           2
