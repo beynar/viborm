@@ -158,7 +158,7 @@ describe("official default omit foundation", () => {
     );
   });
 
-  test("admits result-agnostic extensions before omit and refuses prior result consumers", () => {
+  test("admits every extension before omit: result consumers too, whose order rule is TypeScript's", () => {
     const base = extensionOnlyBase();
     const official = omission();
     const admitted = [
@@ -177,8 +177,6 @@ describe("official default omit foundation", () => {
       }),
       base.$extends(cache({ driver: new MemoryCache() })),
       base.$extends(instrumentation({ tracing: true })),
-    ];
-    const refused = [
       base.$extends({
         name: "mapped-query",
         query: {
@@ -200,11 +198,6 @@ describe("official default omit foundation", () => {
     for (const client of admitted) {
       const withDefaultOmit = applyUnsafe(client, official);
       expect(Reflect.get(withDefaultOmit, "$schema")).toBe(schema);
-    }
-    for (const client of refused) {
-      expect(() => applyUnsafe(client, official)).toThrow(
-        "The default omit extension cannot follow an extension that defines model-mapped query, client, or model behavior."
-      );
     }
     expect(base.$extends({ name: "still-usable" }).$schema).toBe(schema);
   });

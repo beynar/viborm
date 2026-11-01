@@ -155,7 +155,6 @@ export interface ResolvedExtensionChain {
   readonly hasCache: boolean;
   readonly hasRequestHandlers: boolean;
   readonly hasQueryHandlers: boolean;
-  readonly hasResultConsumers: boolean;
   readonly request: ResolvedExtensionOperationLookup;
   readonly query: ResolvedExtensionOperationLookup;
   readonly statement: readonly ResolvedExtensionHandler[];
@@ -188,6 +187,34 @@ export function lookupPlacedControls(
 }
 
 const NO_CONTROLS: readonly ResolvedControl[] = Object.freeze([]);
+
+/** Whether a `rows` member of the chain names `model`: its reads may hide rows. */
+export function rowsName(
+  chain: ResolvedExtensionChain | undefined,
+  model: string
+): boolean {
+  return (
+    chain?.rows?.some(
+      ({ models, verbs }) =>
+        Object.hasOwn(models, model) ||
+        (verbs !== undefined && Object.hasOwn(verbs, model))
+    ) === true
+  );
+}
+
+/**
+ * The internal member a method factory's scope answers: the facts of the
+ * chain the method is called through, which a factory applied earlier in
+ * that chain cannot read off the client it was given. Only official
+ * extensions that write outside the engine (`viborm/ordering`) read it.
+ */
+export const SCOPE_CHAIN_FACTS = Symbol("viborm.scopeChainFacts");
+export interface ScopeChainFacts {
+  /** {@link rowsName} on the call's chain. */
+  readonly rowsName: (model: string) => boolean;
+  /** The official cache's `$invalidate`, where the call's chain carries it. */
+  readonly invalidate: ((...keys: string[]) => Promise<void>) | undefined;
+}
 
 function resolvedHandler(
   extension: Pick<ResolvedExtension, "name">,
@@ -451,16 +478,6 @@ function withoutIdentity(
   return Object.freeze(ordinaryDefinition);
 }
 
-function consumesOperationResults(
-  definition: RuntimeExtensionDefinition
-): boolean {
-  return (
-    (definition.query !== undefined && !isFunction(definition.query)) ||
-    definition.client !== undefined ||
-    definition.model !== undefined
-  );
-}
-
 function assertOfficialExtensionAdmission(options: {
   readonly definitionName: string;
   readonly officialName: string;
@@ -518,18 +535,6 @@ export function appendResolvedExtension(
     isAlreadyPresent: false,
     duplicateMessage: `Extension "${OFFICIAL_DEFAULT_OMIT_NAME}" is already present on this client.`,
   });
-  if (incomingDefaultOmit !== undefined && chain?.hasResultConsumers === true) {
-    extensionError(
-      "The default omit extension cannot follow an extension that defines model-mapped query, client, or model behavior.",
-      definition.name
-    );
-  }
-  if (definition.rows !== undefined && chain?.hasResultConsumers === true) {
-    extensionError(
-      `Extension "${definition.name}" declares rows, which cannot follow an extension that defines model-mapped query, client, or model behavior.`,
-      definition.name
-    );
-  }
   const incomingOfficial = getTrustedProtectedObserverCapability(
     definition.observe
   );
@@ -697,9 +702,6 @@ export function appendResolvedExtension(
     hasCache: incomingCache !== undefined || chain?.hasCache === true,
     hasRequestHandlers: hasCompiledHandlers(request),
     hasQueryHandlers: hasCompiledHandlers(query),
-    hasResultConsumers:
-      chain?.hasResultConsumers === true ||
-      consumesOperationResults(effectiveDefinition),
     request,
     query,
     statement: appendFlatHandler(

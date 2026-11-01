@@ -119,10 +119,24 @@ export type HasResultConsumingExtension<X extends ExtensionStateConstraint> = [
     ? true
     : false;
 
+declare const delegateState: unique symbol;
+/**
+ * Declaration-only: the client a delegate that carries extension methods
+ * belongs to, so a method typed with a `this` parameter reads its result
+ * from the client it is called on (`DelegateOperationResult`), whatever the
+ * chain added after it. No property is installed at runtime.
+ */
+export interface DelegateState<C, X, ModelName> {
+  readonly [delegateState]?: readonly [C, X, ModelName];
+}
+
 type MethodsForModel<
+  C extends VibORMConfig,
   X extends ExtensionStateConstraint,
   ModelName extends PropertyKey,
-> = ModelName extends keyof X["models"] ? X["models"][ModelName] : NoMethods;
+> = ModelName extends keyof X["models"]
+  ? X["models"][ModelName] & DelegateState<C, X, ModelName>
+  : NoMethods;
 
 /**
  * One model's delegate after the chain's methods and controls. On a chain
@@ -146,7 +160,7 @@ export type ExtensionModelDelegate<
         X["data"],
         ModelName
       >) &
-  MethodsForModel<X, ModelName>;
+  MethodsForModel<C, X, ModelName>;
 
 /**
  * One model's delegate on a chain that declares `result`: its projecting
@@ -338,15 +352,48 @@ export type MergeModelMethods<Left extends object, Right extends object> = {
     (ModelName extends keyof Right ? Right[ModelName] : NoMethods);
 };
 
-export type ResultConsumerContextOf<Definition> = Definition extends
-  | { readonly client: unknown }
-  | { readonly model: unknown }
-  ? "result-consuming"
-  : Definition extends { readonly query: infer Query }
-    ? Query extends CallableFunction
-      ? "result-independent"
-      : "result-consuming"
-    : "result-independent";
+/**
+ * Whether a client or model factory is typed against the client it is
+ * applied to: it takes an argument typed other than `never` or `unknown`
+ * (`any` counts as typed). A factory that takes none reads nothing typed at
+ * its step, so a later `rows` or `defaultOmit` cannot make its types lie:
+ * its methods type their results from the client they are called on (a
+ * `this` parameter), and it is no result consumer.
+ */
+type ReadsTyped<Factory> = Factory extends (...args: infer Given) => unknown
+  ? true extends {
+      [Index in keyof Given]: 0 extends 1 & Given[Index]
+        ? true
+        : [Given[Index]] extends [never]
+          ? false
+          : unknown extends Given[Index]
+            ? false
+            : true;
+    }[number]
+    ? true
+    : false
+  : true;
+
+type TypedFactories<Definition> =
+  | (Definition extends { readonly client: infer Factory }
+      ? ReadsTyped<Factory>
+      : false)
+  | (Definition extends { readonly model: infer Factories }
+      ? Factories extends object
+        ? {
+            [ModelName in keyof Factories]: ReadsTyped<Factories[ModelName]>;
+          }[keyof Factories]
+        : true
+      : false);
+
+export type ResultConsumerContextOf<Definition> =
+  true extends TypedFactories<Definition>
+    ? "result-consuming"
+    : Definition extends { readonly query: infer Query }
+      ? Query extends CallableFunction
+        ? "result-independent"
+        : "result-consuming"
+      : "result-independent";
 
 /** Incoming facts keep their nominal bit derivation inside this named state. */
 export interface ExtensionContributionState<

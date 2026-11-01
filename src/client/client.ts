@@ -21,6 +21,9 @@ import {
   lookupPlacedControls,
   lookupResolvedExtensionHandlers,
   type ResolvedExtensionChain,
+  rowsName,
+  SCOPE_CHAIN_FACTS,
+  type ScopeChainFacts,
 } from "@extensions/chain";
 import { bindControls, uncacheableRead } from "@extensions/controls";
 import type {
@@ -33,6 +36,7 @@ import type {
 import {
   type AccumulatedExtensionState,
   bindExtensionMethods,
+  type DelegateState,
   type EmptyClientExtensionState,
   type EnableExtensionCache,
   type ExtensionMethods,
@@ -639,6 +643,32 @@ export type ExtendedOperationResult<
   : never;
 
 /**
+ * One operation's result on the model delegate `Delegate` it would run on,
+ * as `ExtendedOperationResult` types it for that delegate's client. A model
+ * method declared with a `this` parameter types its result with it, so the
+ * result follows every extension applied after the method's own:
+ * `restore<Self, A>(this: Self, args: A): PendingOperation<
+ * DelegateOperationResult<Self, "update", A>>`.
+ */
+export type DelegateOperationResult<
+  Delegate,
+  O extends Operations,
+  Args,
+> = Delegate extends DelegateState<
+  infer C extends VibORMConfig,
+  infer X extends ExtensionStateConstraint,
+  infer K
+>
+  ? ContextualOperationResult<
+      C,
+      K & keyof ClientSchema<C>,
+      O,
+      Args,
+      ClientRowsContext<C, X["rows"]>
+    >
+  : never;
+
+/**
  * VibORM Client
  */
 export class VibORM<C extends VibORMConfig> {
@@ -1023,8 +1053,13 @@ export class VibORM<C extends VibORMConfig> {
           clientOmit,
           transaction,
           prior,
-          (prop) =>
-            prop === "$bind"
+          (prop) => {
+            if (prop === SCOPE_CHAIN_FACTS)
+              return {
+                rowsName: (model) => rowsName(chain, model),
+                invalidate: this.#invalidator(engine),
+              } satisfies ScopeChainFacts;
+            return prop === "$bind"
               ? (values: Readonly<Record<string, unknown>>) =>
                   rebuild!(
                     engine.withBound(
@@ -1036,7 +1071,8 @@ export class VibORM<C extends VibORMConfig> {
                       )
                     )
                   )
-              : undefined
+              : undefined;
+          }
         )
       );
     if (eager) methods?.force();
@@ -1176,24 +1212,32 @@ export class VibORM<C extends VibORMConfig> {
         // protocol `ASYNC_DISPOSE` is undefined, which no property key equals, so
         // the property is absent — what missing disposal support looks like.
         if (prop === "$disconnect" || prop === ASYNC_DISPOSE) return disconnect;
-        if (prop !== "$withCache" && prop !== "$invalidate") return undefined;
+        if (prop === "$invalidate") return this.#invalidator(engine);
+        if (prop !== "$withCache") return undefined;
         const officialCache = getOfficialCacheChainCapability(chain);
         if (officialCache === undefined) return undefined;
-        if (prop === "$withCache") {
-          return (cacheConfig?: WithCacheOptions) =>
-            this.#withCache(engine, officialCache, clientOmit, cacheConfig);
-        }
-        return async (...keys: string[]) => {
-          await officialCacheRuntime().invalidateManualCache(
-            officialCache.driver,
-            keys,
-            createOperationExecutionContext("$cache", "$invalidate", chain),
-            officialCache.scope
-          );
-        };
+        return (cacheConfig?: WithCacheOptions) =>
+          this.#withCache(engine, officialCache, clientOmit, cacheConfig);
       }
     );
     return view;
+  }
+
+  /** The official cache's `$invalidate` on this engine's chain, where it is applied. */
+  #invalidator(
+    engine: QueryEngine
+  ): ((...keys: string[]) => Promise<void>) | undefined {
+    const chain = engine.extensionChain;
+    const officialCache = getOfficialCacheChainCapability(chain);
+    if (officialCache === undefined) return undefined;
+    return async (...keys: string[]) => {
+      await officialCacheRuntime().invalidateManualCache(
+        officialCache.driver,
+        keys,
+        createOperationExecutionContext("$cache", "$invalidate", chain),
+        officialCache.scope
+      );
+    };
   }
 
   /**

@@ -16,10 +16,12 @@ import {
   QueryError,
 } from "../errors";
 import { ValidationError } from "../errors/validation";
+import { SCOPE_CHAIN_FACTS, type ScopeChainFacts } from "../extensions/chain";
 import type { OrderTerm } from "../extensions/controls";
 import type {
   ClientSchema,
   ClientTypeState,
+  DelegateOperationResult,
   ExtendedOperationResult,
   ExtensionState,
   VibORMClient,
@@ -79,6 +81,8 @@ type Delegate = Readonly<
 >;
 interface Scope {
   readonly $executeRaw: (query: Sql) => PromiseLike<number>;
+  /** The chain the method is called through. */
+  readonly [SCOPE_CHAIN_FACTS]: ScopeChainFacts;
   readonly [model: string]: unknown;
 }
 /** What respacing reads off the client's driver. */
@@ -184,19 +188,12 @@ interface Engine {
   readonly queries: Queries;
   readonly dialect: string;
   readonly binds: number | undefined;
-  /** The official cache's `$invalidate`, where it is applied. */
-  readonly invalidate: ((...keys: string[]) => Promise<void>) | undefined;
 }
 
-function engineOf(
-  schema: Schema,
-  driver: Driver,
-  invalidate: Engine["invalidate"]
-): () => Engine {
+function engineOf(schema: Schema, driver: Driver): () => Engine {
   let engine: Engine | undefined;
   return () =>
     (engine ??= {
-      invalidate,
       // Registered when the client's engine was built.
       queries: renderers.get(schema)!.get(driver.adapter)!,
       dialect: driver.dialect,
@@ -348,7 +345,8 @@ function methods(ordered: Ordered, engine: () => Engine) {
     },
     to: Row | undefined,
     recognised: Row,
-    write: (guard: Sql, data: Row) => PromiseLike<unknown>
+    write: (guard: Sql, data: Row) => PromiseLike<unknown>,
+    seen: (anchor: Row) => PromiseLike<unknown>
   ): Promise<unknown> {
     const { queries: q, dialect } = engine();
     // MySQL locks every row a statement's subqueries read (the locating
@@ -363,6 +361,12 @@ function methods(ordered: Ordered, engine: () => Engine) {
       (anchored !== undefined && Object.keys(anchored).length === 0)
     )
       return MISSED;
+    // The statement reads the anchor from the table, hidden rows included:
+    // where the chain's rows can hide a row of the model, the anchor is read
+    // through the caller's view first, so a hidden anchor is a missing one
+    // and the move's outcome tells nothing of a row the caller cannot see.
+    if (place.anchor !== undefined && (await seen(place.anchor)) === null)
+      throw new NotFoundError(name, "move anchor");
     const s = spellings[dialect];
     const table = q.table(model);
     const column = (field: string, alias?: string) =>
@@ -563,7 +567,11 @@ function methods(ordered: Ordered, engine: () => Engine) {
             where: { ...where, [key]: { equals: () => guard } },
             data,
             ...projection,
-          })
+          }),
+        (at) =>
+          scope[SCOPE_CHAIN_FACTS].rowsName(name)
+            ? delegate.findUnique!({ ...controls, where: at, select: reading })
+            : Promise.resolve(true)
       );
       if (moved !== MISSED) return moved;
       for (let attempt = 1; ; attempt++) {
@@ -760,7 +768,7 @@ function methods(ordered: Ordered, engine: () => Engine) {
           if (lists?.length === 0) return { count: 0 };
           const count = await respace(ordered, engine(), scope, lists, order);
           // A raw write: the official cache's entries of the model go.
-          await engine().invalidate?.(`${name}:*`);
+          await scope[SCOPE_CHAIN_FACTS].invalidate?.(`${name}:*`);
           return { count };
         }),
     };
@@ -845,9 +853,12 @@ type OrderingModels<
     delegate: never,
     scope: never
   ) => {
-    move<A extends MoveArgs<M, C, Config, K>>(
+    // The row is typed from the delegate `move` is called on (`Self`), so it
+    // follows every extension applied after this one.
+    move<Self, A extends MoveArgs<M, C, Config, K>>(
+      this: Self,
       args: A
-    ): PromiseLike<ExtendedOperationResult<M, K, "update", A>>;
+    ): PromiseLike<DelegateOperationResult<Self, "update", A>>;
     // Generic as `move` is, so a call's controls (`deleted`, …) pass along.
     rekey<A extends RekeyArgs<M, C, K>>(
       args?: A
@@ -859,15 +870,21 @@ type Governed<Config extends OrderingConfig> = VibORMConfig & {
   readonly schema: Record<Names<Config>, AnyModel>;
 };
 
-// Step A: the default order and the appended key, before every
-// result-consuming step.
-function keysStep<
+// One definition: the default order, the appended key, and `move` and
+// `rekey`. A factory takes its delegate and scope as `never` (it reads
+// nothing typed at this step), so later steps may add `rows` or
+// `defaultOmit` freely.
+function definitionOf<
   Config extends OrderingConfig,
   C extends Governed<Config>,
   X extends ExtensionState,
->(config: Config, base: VibORMClient<C, X>) {
-  const admitted = admit(base.$schema, config);
-  return base.$extends({
+>(config: Config, client: VibORMClient<C, X>) {
+  const admitted = admit(client.$schema, config);
+  // Respacing renders with the client's driver: the scope a method is given
+  // has none.
+  const { $driver } = client as unknown as { $driver: Driver };
+  const engine = engineOf(client.$schema, $driver);
+  return {
     name: NAME,
     order: {
       models: Object.fromEntries(
@@ -891,28 +908,37 @@ function keysStep<
         };
       },
     },
-  });
+    model: Object.fromEntries(
+      admitted.map((ordered) => [ordered.name, methods(ordered, engine)])
+    ) as unknown as OrderingModels<VibORMClient<C, X>, C, Config>,
+  };
 }
 
-// Step B: move and rekey, typed against the client that carries step A.
+function apply<
+  Config extends OrderingConfig,
+  C extends Governed<Config>,
+  X extends ExtensionState,
+>(config: Config, base: VibORMClient<C, X>) {
+  return base.$extends(definitionOf(config, base));
+}
+
+// The two steps a chain written before 1.8 applies around another entry's
+// (`keys` then `methods`): the definition without its methods, and the
+// methods alone, under the name they had.
+function keysStep<
+  Config extends OrderingConfig,
+  C extends Governed<Config>,
+  X extends ExtensionState,
+>(config: Config, base: VibORMClient<C, X>) {
+  const { model: _methods, ...keys } = definitionOf(config, base);
+  return base.$extends(keys);
+}
 function methodsStep<
   Config extends OrderingConfig,
   C extends Governed<Config>,
   X extends ExtensionState,
 >(config: Config, client: VibORMClient<C, X>) {
-  // The scope a method is given has no driver and no cache: respacing
-  // renders with the client's, and invalidates its cache, read here.
-  const { $driver, $invalidate } = client as unknown as {
-    $driver: Driver;
-    $invalidate?: Engine["invalidate"];
-  };
-  const engine = engineOf(client.$schema, $driver, $invalidate);
-  const model = Object.fromEntries(
-    admit(client.$schema, config).map((ordered) => [
-      ordered.name,
-      methods(ordered, engine),
-    ])
-  ) as unknown as OrderingModels<VibORMClient<C, X>, C, Config>;
+  const { model } = definitionOf(config, client);
   return client.$extends({ name: `${NAME}.methods`, model });
 }
 
@@ -923,6 +949,17 @@ type Receiver<Config extends OrderingConfig> = ClientTypeState<
   readonly $schema: Record<Names<Config>, AnyModel>;
   readonly $extends: (...args: never[]) => unknown;
 };
+type Applied<
+  Config extends OrderingConfig,
+  Base,
+> = Base extends ClientTypeState<
+  infer C extends Governed<Config>,
+  infer X extends ExtensionState
+>
+  ? Base extends VibORMClient<C, X>
+    ? ReturnType<typeof apply<Config, C, X>>
+    : never
+  : never;
 type Keyed<Config extends OrderingConfig, Base> = Base extends ClientTypeState<
   infer C extends Governed<Config>,
   infer X extends ExtensionState
@@ -943,12 +980,12 @@ type Movable<
     : never
   : never;
 type OrderingExtension<Config extends OrderingConfig> = {
-  <Base extends Receiver<Config>>(
-    base: Base
-  ): NoInfer<Movable<Config, Keyed<Config, Base>>>;
+  <Base extends Receiver<Config>>(base: Base): NoInfer<Applied<Config, Base>>;
+  /** The default order and appended keys alone (chains written before 1.8). */
   readonly keys: <Base extends Receiver<Config>>(
     base: Base
   ) => Keyed<Config, Base>;
+  /** `move` and `rekey` alone (chains written before 1.8). */
   readonly methods: <Base extends Receiver<Config>>(
     client: Base
   ) => Movable<Config, Base>;
@@ -956,13 +993,20 @@ type OrderingExtension<Config extends OrderingConfig> = {
 
 /**
  * Order the members of lists: `client.$extends(ordering({ card: { key:
- * "rank", within: ["columnId"] } }))`. The entry is both steps; `keys` (the
- * default order and appended keys) and `methods` (`move`, `rekey`) apply
- * alone around another entry's steps, every `keys`-like step first.
+ * "rank", within: ["columnId"] } }))`. One step, applied in any order with
+ * the other extensions.
  */
 export function ordering<const Config extends OrderingConfig>(
   config: Config
 ): OrderingExtension<Config> {
+  function extend<Base extends Receiver<Config>>(
+    base: Base
+  ): NoInfer<Applied<Config, Base>>;
+  function extend<C extends Governed<Config>, X extends ExtensionState>(
+    base: VibORMClient<C, X>
+  ) {
+    return apply(config, base);
+  }
   function keys<Base extends Receiver<Config>>(base: Base): Keyed<Config, Base>;
   function keys<C extends Governed<Config>, X extends ExtensionState>(
     base: VibORMClient<C, X>
@@ -976,14 +1020,6 @@ export function ordering<const Config extends OrderingConfig>(
     client: VibORMClient<C, X>
   ) {
     return methodsStep(config, client);
-  }
-  function extend<Base extends Receiver<Config>>(
-    base: Base
-  ): NoInfer<Movable<Config, Keyed<Config, Base>>>;
-  function extend<C extends Governed<Config>, X extends ExtensionState>(
-    base: VibORMClient<C, X>
-  ) {
-    return methodsStep(config, keysStep(config, base));
   }
   return Object.assign(extend, { keys, methods: methodsOf });
 }

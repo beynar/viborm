@@ -144,10 +144,64 @@ export async function replayCompiles() {
   row?.secret satisfies string | undefined; // typed from base, not omitted
 }
 
-// The rows order guard: defaultOmit after softDelete is refused.
-export function orderGuard() {
-  // @ts-expect-error softDelete adds result-consuming methods: defaultOmit after it is refused
-  db.$extends(defaultOmit<S>()({ post: { secret: true } }));
+// The methods read nothing typed at their step: defaultOmit may follow
+// softDelete, and restore and purge type their rows from the client they
+// are called on, so they omit what it omits.
+const omittedAfter = db.$extends(defaultOmit<S>()({ post: { secret: true } }));
+export async function omissionFollows() {
+  const restored = await omittedAfter.post.restore({ where: { id: "p1" } });
+  // @ts-expect-error secret is omitted by the later defaultOmit
+  restored.secret;
+  restored.title satisfies string;
+  const purged = await omittedAfter.post.purge({ where: { id: "p1" } });
+  // @ts-expect-error purge's row is omitted too
+  purged.secret;
+}
+
+// purge and purgeMany: the model's delete arguments, tombstones only.
+export async function purgeTyped() {
+  const purged = await db.post.purge({
+    where: { id: "p1" },
+    select: { id: true },
+  });
+  type _purged = Expect<Equal<typeof purged, { id: string }>>;
+  const many = await db.post.purgeMany({
+    where: { deletedAt: { lt: cutoff } },
+  });
+  type _many = Expect<Equal<typeof many, { count: number }>>;
+  await db.post.purgeMany();
+  // @ts-expect-error purge selects tombstones itself
+  await db.post.purge({ where: { id: "p1" }, deleted: "with" });
+  // @ts-expect-error purge deletes physically itself
+  await db.post.purgeMany({ mode: "soft" });
+  // @ts-expect-error purge exists only on configured models
+  await db.user.purge({ where: { id: "u1" } });
+}
+
+// A later rows step: restore's to-one relation to a model those rows can
+// hide reads `| null`, as the client's own update does.
+const governed = db.$extends({
+  name: "test.tenancy",
+  rows: {
+    control: "tenant",
+    default: "own",
+    models: { user: { own: { root: { name: "t" }, related: { name: "t" } } } },
+  },
+});
+export async function laterRows() {
+  const restored = await governed.post.restore({
+    where: { id: "p1" },
+    include: { author: true },
+  });
+  const updated = await governed.post.update({
+    where: { id: "p1" },
+    data: {},
+    include: { author: true },
+  });
+  type _nullable = Expect<
+    Equal<typeof restored.author, { id: string; name: string } | null>
+  >;
+  type _asUpdate = Expect<Equal<typeof restored, typeof updated>>;
 }
 
 // Placement: `deleted` on every candidate-selecting operation of every model

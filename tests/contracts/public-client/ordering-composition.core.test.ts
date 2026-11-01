@@ -605,24 +605,30 @@ describe("ordering review 2", () => {
       ).toEqual(["b", "a"]);
   });
 
-  test("rekey invalidates the official cache's reads of the model", async () => {
+  test.each([
+    "before",
+    "after",
+  ])("rekey invalidates the official cache's reads of the model, the cache applied %s ordering", async (place) => {
     const pending: Promise<unknown>[] = [];
     const client = (await open()) as any;
-    const db = ordering({ item: { key: "rank", within: ["boardId"] } })(
-      client.$extends(
+    const order = ordering({ item: { key: "rank", within: ["boardId"] } });
+    const cached = (target: any) =>
+      target.$extends(
         cache({
           driver: new MemoryCache(),
           waitUntil: (promise: Promise<unknown>) => pending.push(promise),
         })
-      )
+      );
+    const db = (
+      place === "before" ? order(cached(client)) : cached(order(client))
     ) as any;
     for (const title of ["a", "b", "c"])
       await db.item.create({ data: { title } });
-    const cached = () => db.$withCache().item.findMany();
-    expect(titles(await cached())).toEqual(["a", "b", "c"]);
+    const read = () => db.$withCache().item.findMany();
+    expect(titles(await read())).toEqual(["a", "b", "c"]);
     await Promise.all(pending.splice(0));
     await db.item.rekey({ orderBy: { title: "desc" } });
-    expect(titles(await cached())).toEqual(["c", "b", "a"]);
+    expect(titles(await read())).toEqual(["c", "b", "a"]);
   });
 
   test("a key field may default to a literal: a populated table adopts it in one push", async () => {

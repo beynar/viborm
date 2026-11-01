@@ -12,6 +12,9 @@ import {
 import { s } from "@schema";
 import { Sql } from "@sql";
 import { isKey, keyBetween, ordering, orderingKey } from "@src/ordering";
+import { permissions } from "@src/permissions";
+import { softDelete } from "@src/soft-delete";
+import { v } from "@validation";
 import { describe, expect, test } from "vitest";
 
 const column = s.model({
@@ -24,6 +27,10 @@ const card = s.model({
   columnId: s.string().nullable(),
   rank: s.string().schema(orderingKey),
   title: s.string(),
+  /** Who may see the card, where a test applies permissions. */
+  owner: s.string().nullable(),
+  /** The soft-delete marker, where a test applies soft delete. */
+  deletedAt: s.dateTime().nullable(),
   column: s
     .toOne(() => column)
     .fields("columnId")
@@ -68,6 +75,7 @@ export function describeOrdering(
 ) {
   const statements: string[] = [];
   let base_: any;
+  let counted_: any;
   // One database per run, emptied before each test.
   let opened: ReturnType<typeof open> | undefined;
   const setup = async () => {
@@ -100,6 +108,7 @@ export function describeOrdering(
       slot: { key: "rank", within: ["tenant"] },
     })(counted as any) as any;
     base_ = client as any;
+    counted_ = counted;
     await db.column.createMany({ data: [{ id: "c1" }, { id: "c2" }] });
     return db;
   };
@@ -473,6 +482,73 @@ export function describeOrdering(
       await expect(
         db.card.move({ where: { id: "a" }, first: true, last: true })
       ).rejects.toThrow(ValidationError);
+    });
+
+    // The one-statement move reads its anchor from the table: under rows
+    // that hide it, the anchor is read through the caller's view first (one
+    // statement more, on the governed model only), so a hidden anchor is
+    // refused as a missing one, and nothing is written.
+    test("a hidden anchor is a missing one, under permissions or soft delete, applied before or after ordering", async () => {
+      const db = await setup();
+      for (const [id, owner] of [
+        ["a", "u1"],
+        ["b", "u1"],
+        ["h", "u2"],
+        ["t", "u1"],
+      ] as const)
+        await db.card.create({
+          data: { id, columnId: "c1", title: id, owner },
+        });
+      await base_.card.update({
+        where: { id: "t" },
+        data: { deletedAt: new Date("2026-01-01T00:00:00.000Z") },
+      });
+      const ranks = async () =>
+        (await base_.card.findMany({ select: { id: true, rank: true } })).map(
+          (row: { id: string; rank: string }) => `${row.id}:${row.rank}`
+        );
+      const order = ordering({ card: { key: "rank", within: ["columnId"] } });
+      const policy = permissions({
+        actor: v.object({ userId: v.string() }),
+        models: {
+          card: {
+            read: { owner: { actor: "userId" } },
+            update: { owner: { actor: "userId" } },
+          },
+        },
+      } as any);
+      const tombs = softDelete({
+        models: { card: { deletedAt: "deletedAt" } },
+      });
+      // The anchor read: one statement more where the move is one UPDATE.
+      const governedMove = move === 1 ? 2 : move;
+      const viaPolicy = [
+        policy(order(counted_) as any),
+        order(policy(counted_) as any),
+      ].map((chain: any) => chain.$as({ userId: "u1" }));
+      const viaTombs = [
+        tombs(order(counted_) as any),
+        order(tombs(counted_) as any),
+      ];
+      for (const governed of [...viaPolicy, ...viaTombs] as any[]) {
+        const before = await ranks();
+        for (const hidden of ["nope", viaPolicy.includes(governed) ? "h" : "t"])
+          await expect(
+            governed.card.move({ where: { id: "a" }, after: { id: hidden } })
+          ).rejects.toThrow("move anchor");
+        expect(await ranks()).toEqual(before);
+        statements.length = 0;
+        await governed.card.move({ where: { id: "b" }, before: { id: "a" } });
+        expect(statements).toHaveLength(governedMove);
+        await governed.card.move({ where: { id: "a" }, before: { id: "b" } });
+      }
+      // Soft delete's `deleted: "with"` shows the tombstone: it anchors.
+      await (viaTombs[0] as any).card.move({
+        where: { id: "a" },
+        after: { id: "t" },
+        deleted: "with",
+      });
+      expect(await listOf(db, "c1")).toEqual(["b", "h", "t", "a"]);
     });
 
     test("ties are respaced when a move needs a gap between them", async () => {
