@@ -1,8 +1,9 @@
 /**
  * pg Driver Tests - viborm/ordering's respacing under a concurrent writer,
  * on two real connections: a member another transaction moves while
- * rekey's UPDATE waits on its row keeps the place that transaction gave it
- * (PostgreSQL re-reads the row it waited on, and the UPDATE ranks it there).
+ * rekey's UPDATE waits on its row keeps the key that transaction gave it
+ * (the UPDATE writes a row only while it holds the key it was ranked with),
+ * and the others are respaced around where it was.
  *
  * NOTE: These tests require a running PostgreSQL database.
  */
@@ -30,7 +31,7 @@ describeIf("pg Driver: ordering races", () => {
   test.each([
     ["last", "19", ["a", "c", "b"]],
     ["first", "0899", ["b", "a", "c"]],
-  ] as const)("a member moved %s while rekey waits on its row keeps that place", async (_place, rank, order) => {
+  ] as const)("a member moved %s while rekey waits on its row keeps that key", async (_place, rank, order) => {
     const base = createClient({
       schema: { lane },
       driver: new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
@@ -54,17 +55,18 @@ describeIf("pg Driver: ordering races", () => {
         await held;
       });
       await pause(150);
-      const rekeyed = db.lane.rekey();
+      // `rekey` is lazy: `then` starts it now, while the rival holds b.
+      const rekeyed = db.lane.rekey().then((result: unknown) => result);
       // rekey's UPDATE waits on b's row.
       await pause(400);
       release();
       await rival;
-      await rekeyed;
+      expect(await rekeyed).toEqual({ count: 2 });
       expect(
         (await db.lane.findMany()).map((row: { id: string }) => row.id)
       ).toEqual(order);
-      for (const row of await base.lane.findMany())
-        expect(row.rank.length).toBeLessThanOrEqual(2);
+      const b = await base.lane.findUniqueOrThrow({ where: { id: "b" } });
+      expect(b.rank).toBe(rank);
     } finally {
       await base.$disconnect();
     }

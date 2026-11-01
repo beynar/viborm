@@ -47,7 +47,7 @@ import type {
   PreparedGuardFailure,
 } from "../../types";
 import { type WriteKind, writeSinks } from "../../write-sinks";
-import { InsertValue } from "./insert-value";
+import { InsertValue, JoinedValue } from "./insert-value";
 import {
   GatedFieldRefusal,
   InvalidScalarResult,
@@ -3146,17 +3146,27 @@ export class OperationContext {
       );
     }
     this.#packagedPresence(model, selector, single);
+    // A value read from a table the UPDATE joins (`JoinedValue`).
+    const joined = Object.values(given).find(
+      (value): value is JoinedValue => value instanceof JoinedValue
+    );
     let where: Sql | undefined;
     const statement = q.sharing(() => {
       where = produced(selector, limit);
       const limited = where
         ? { where }
         : q.lowerMutationLimit(model, selector, limit);
-      const mutation = adapter.mutations.update(
-        q.table(model),
-        sql.join(assignments, ", "),
-        limited.where
-      );
+      const sets = sql.join(assignments, ", ");
+      const join = joined?.join(q, model["~"].names.sql!);
+      const mutation = join
+        ? adapter.mutations.updateFrom(
+            q.table(model),
+            sets,
+            q.settleRows(join.source),
+            join.on,
+            limited.where
+          )
+        : adapter.mutations.update(q.table(model), sets, limited.where);
       return limited.suffix ? sql`${mutation} ${limited.suffix}` : mutation;
     });
     return this.#completeSetMutation(

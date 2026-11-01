@@ -2975,21 +2975,34 @@ export class Queries {
    */
   value(value: unknown): Sql {
     return value instanceof Sql
-      ? callerText(this.#settleRows(value))
+      ? callerText(this.settleRows(value))
       : this.adapter.literals.value(value);
   }
   /**
    * A caller's fragment with every {@link RowsOf} in it settled to this
-   * call's root domain at its alias (under its judgement, where it states
-   * one): a read an extension writes takes the rows the call may see, or
-   * write, as every read here does.
+   * call's root domain at its alias (under its judgement, and its `where`,
+   * where it states them): a read an extension writes takes the rows the
+   * call may see, or write, as every read here does.
    */
-  #settleRows(fragment: Sql): Sql {
+  settleRows(fragment: Sql): Sql {
     Sql.each(fragment, (node) => {
       if (!(node instanceof RowsOf)) return;
-      const domain = this.domainOf(node.model, "root", node.judgement);
+      const { model } = node;
+      const domain = this.domainOf(model, "root", node.judgement);
+      // A `where` the extension passes on is admitted as a `findMany`'s.
+      const named =
+        node.where === undefined
+          ? domain
+          : this.andSelectors(model, [
+              ...(domain ? [domain] : []),
+              this.prepareSelector(
+                model,
+                this.schema.admit(model, "findMany", { where: node.where })
+                  .where
+              ),
+            ]);
       node.settle(
-        (domain && this.lowerSelector(domain, node.alias)) ?? sql.raw("1 = 1")
+        (named && this.lowerSelector(named, node.alias)) ?? sql.raw("1 = 1")
       );
     });
     return fragment;
@@ -3023,7 +3036,7 @@ export class Queries {
     const a = this.adapter;
     const state = scalar["~"].state;
     if (value instanceof Sql) {
-      const fragment = callerText(this.#settleRows(value));
+      const fragment = callerText(this.settleRows(value));
       return state.type === "decimal" && state.array !== true
         ? a.expressions.decimalCast(fragment, state.decimal)
         : fragment;

@@ -821,6 +821,18 @@ export interface DatabaseAdapter {
     insertDefault: (table: Sql) => Sql;
     /** UPDATE table SET ... WHERE ... */
     update: (table: Sql, sets: Sql, where?: Sql) => Sql;
+    /**
+     * UPDATE table SET ... from `source` (a derived table, aliased) joined
+     * `on` the row written, WHERE ...: `UPDATE … FROM` (PostgreSQL, SQLite),
+     * `UPDATE … JOIN` (MySQL).
+     */
+    updateFrom: (
+      table: Sql,
+      sets: Sql,
+      source: Sql,
+      on: Sql,
+      where?: Sql
+    ) => Sql;
     /** DELETE FROM table WHERE ... */
     delete: (table: Sql, where?: Sql) => Sql;
     /** RETURNING clause (PG/SQLite) or empty (MySQL) */

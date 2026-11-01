@@ -685,11 +685,11 @@ describe("ordering review 2", () => {
     seen.length = 0;
     const { count } = await db.item.rekey({ orderBy: { title: "desc" } });
     expect(count).toBe(14);
-    // The lists' read, then as many lists per UPDATE as half its bound
-    // values allow: each list is bound three times, so three per statement
-    // here, and no statement past the driver's 20.
+    // One UPDATE for every list: it binds no list's values, so the driver's
+    // bound values never limit how many lists it respaces.
     const updates = seen.filter((text) => text.startsWith("UPDATE"));
-    expect(updates).toHaveLength(3);
+    expect(seen).toHaveLength(1);
+    expect(updates).toHaveLength(1);
     for (const update of updates)
       expect(update.split("?").length - 1).toBeLessThanOrEqual(20);
     for (let board = 1; board <= 7; board++)

@@ -9,7 +9,7 @@
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { DatabaseAdapter } from "../adapters/database-adapter";
-import type { OperationPayload } from "../client/exports"; // public today
+import type { OperationPayload, OperationResult } from "../client/exports"; // public today
 import {
   ClientInitializationError,
   NotFoundError,
@@ -21,14 +21,12 @@ import type {
   ClientSchema,
   ClientTypeState,
   DelegateOperationResult,
-  ExtendedOperationResult,
   ExtensionState,
   VibORMClient,
   VibORMConfig,
 } from "../index";
 import {
-  InsertValue,
-  type InsertValueContext,
+  JoinedValue,
   renderers,
 } from "../query-engine/raptor3/shared/insert-value";
 import type { Queries } from "../query-engine/raptor3/shared/query";
@@ -38,7 +36,7 @@ import { getModelKeyCatalog } from "../schema/model/keys";
 import { type Sql, sql } from "../sql/sql";
 import { AppendKey } from "./append";
 import { between, Computed, jitter, spellings } from "./between";
-import { isKey, keyBetween, keysBetween } from "./keys";
+import { isKey, keyBetween } from "./keys";
 
 export { isKey, keyBetween, MAX_KEY_LENGTH } from "./keys";
 
@@ -186,7 +184,6 @@ function invalid(model: string, message: string): never {
 interface Engine {
   readonly queries: Queries;
   readonly dialect: string;
-  readonly binds: number | undefined;
 }
 
 function engineOf(schema: Schema, driver: Driver): () => Engine {
@@ -196,97 +193,15 @@ function engineOf(schema: Schema, driver: Driver): () => Engine {
       // Registered when the client's engine was built.
       queries: renderers.get(schema)!.get(driver.adapter)!,
       dialect: driver.dialect,
-      binds: driver.maxBindParametersPerStatement,
     });
 }
 
-/** A delegate's write and read, as respacing calls them. */
+/** A delegate's write, as respacing calls it. */
 interface Writes {
   readonly updateMany: (args: object) => PromiseLike<unknown>;
-  readonly findMany: (args: object) => PromiseLike<unknown>;
 }
 
-/**
- * The members of the lists `filter` names (all, with `sql.empty`), one row
- * each, in their current order, with what respacing reads of them:
- * identity (`i0…`), list (`w0…`), key (`k`), order terms (`o0…`), whether the
- * call sees it (`v`, from `visible`, the call's `RowsOf`), and, by list: the
- * keys of the members it does not see around it (`lo`, `hi`), how many of
- * those precede it (`seg`), its rank among the members it sees in the
- * current order (`slot`) and in `order` (`pick`).
- */
-function membership(
-  ordered: Ordered,
-  q: Queries,
-  visible: Sql,
-  filter: Sql,
-  order: readonly Readonly<Record<string, "asc" | "desc">>[]
-): Sql {
-  const { model, key, within, identity } = ordered;
-  const terms = order.flatMap((term) => Object.entries(term));
-  const named = (prefix: string, count: number) =>
-    Array.from({ length: count }, (_, at) => sql.raw(`p.${prefix}${at}`));
-  const ids = named("i", identity.length);
-  const lists = named("w", within.length);
-  const byList = (...more: Sql[]) =>
-    lists.length + more.length === 0
-      ? sql.empty
-      : sql`PARTITION BY ${sql.join([...lists, ...more], ", ")} `;
-  const current = sql.join([sql.raw("p.k"), ...ids], ", ");
-  const v = sql.raw("p.v");
-  const members = sql`SELECT ${sql.join(
-    [
-      ...identity.map(
-        (field, at) =>
-          sql`${q.column(model, field, "s")} AS ${sql.raw(`i${at}`)}`
-      ),
-      ...within.map(
-        (field, at) =>
-          sql`${q.column(model, field, "s")} AS ${sql.raw(`w${at}`)}`
-      ),
-      sql`${q.column(model, key, "s")} AS k`,
-      ...terms.map(
-        ([field], at) =>
-          sql`${q.column(model, field, "s")} AS ${sql.raw(`o${at}`)}`
-      ),
-      sql`(CASE WHEN ${visible} THEN 1 ELSE 0 END) AS v`,
-    ],
-    ", "
-  )} FROM ${q.table(model, "s")}${filter}`;
-  const picked = [
-    ...terms.map(
-      ([, direction], at) =>
-        sql`${sql.raw(`p.o${at}`)} ${sql.raw(direction === "desc" ? "DESC" : "ASC")}`
-    ),
-    current,
-  ];
-  return sql`SELECT p.*, SUM(1 - ${v}) OVER (${byList()}ORDER BY ${current} ROWS UNBOUNDED PRECEDING) AS seg, MAX(CASE WHEN ${v} = 0 THEN p.k END) OVER (${byList()}ORDER BY ${current} ROWS UNBOUNDED PRECEDING) AS lo, MIN(CASE WHEN ${v} = 0 THEN p.k END) OVER (${byList()}ORDER BY ${current} ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) AS hi, ROW_NUMBER() OVER (${byList(v)}ORDER BY ${current}) AS slot, ROW_NUMBER() OVER (${byList(v)}ORDER BY ${sql.join(picked, ", ")}) AS pick FROM (${members}) AS p`;
-}
-
-/** The members `filter` names, as `list`'s values bind them on `s`. */
-function listFilter(
-  ordered: Ordered,
-  q: Queries,
-  chunk: readonly Row[] | undefined
-): Sql {
-  const { model, within } = ordered;
-  return chunk === undefined
-    ? sql.empty
-    : sql` WHERE ${sql.join(
-        chunk.map(
-          (list) =>
-            sql`(${sql.join(
-              within.map((field) =>
-                list[field] === null
-                  ? sql`${q.column(model, field, "s")} IS NULL`
-                  : sql`${q.column(model, field, "s")} = ${q.fieldValue(model, field, list[field])}`
-              ),
-              " AND "
-            )})`
-        ),
-        " OR "
-      )}`;
-}
+type Order = readonly Readonly<Record<string, "asc" | "desc">>[];
 
 /**
  * The members respacing may rewrite: those the call may update by writing
@@ -296,224 +211,164 @@ function listFilter(
 const movable = (key: string): RowJudgement =>
   Object.freeze({ verb: "update", writes: Object.freeze([key]) });
 
-/** The key of rank `n` (from 0) in a list nobody hides a member of. */
-const rankKey = (n: number) => `${String(n).length}${n}`;
-
 /**
- * Respacing on MySQL, which refuses a subquery on the table an UPDATE
- * writes: the members are read in the operation (the call's domain
- * settled), their keys computed here as the PostgreSQL and SQLite UPDATE
- * computes them, and written by key, each only while it holds the key and
- * list read.
+ * Respacing's keys, read from a derived table the `updateMany` joins (one
+ * statement, the table read once before any row changes, on every
+ * dialect). Over the lists holding a member the call sees that `where`
+ * matches (every list, without it), each member is ranked in the list's
+ * current order; the members the call may update by writing the key are
+ * movable, the others fixed. A movable member takes a short key between the
+ * keys of the fixed ones around the place it takes (its own place, or with
+ * `order` the place of the movable member of that rank), `10`, `11`, … where
+ * the list has none; a fixed member whose key is not a key bounds nothing.
+ * A row is written only while it holds the key it was ranked with, so a
+ * member another writer moved meanwhile keeps that writer's key.
  */
-class Respaced extends InsertValue {
+class Respace extends JoinedValue {
   readonly #ordered: Ordered;
-  readonly #chunk: readonly Row[] | undefined;
-  readonly #order: readonly Readonly<Record<string, "asc" | "desc">>[];
-  constructor(
-    ordered: Ordered,
-    chunk: readonly Row[] | undefined,
-    order: readonly Readonly<Record<string, "asc" | "desc">>[]
-  ) {
+  readonly #dialect: "postgresql" | "sqlite" | "mysql";
+  readonly #where: unknown;
+  readonly #order: Order;
+  constructor(ordered: Ordered, dialect: string, where: unknown, order: Order) {
     super();
     this.#ordered = ordered;
-    this.#chunk = chunk;
+    this.#dialect = dialect as "postgresql" | "sqlite" | "mysql";
+    this.#where = where;
     this.#order = order;
   }
-  async compute(context: InsertValueContext): Promise<readonly unknown[]> {
-    const ordered = this.#ordered;
-    const { model, key, within, identity } = ordered;
-    const q = context.queries;
-    const rows = (await context.read!(
-      membership(
-        ordered,
-        q,
-        q.value(new RowsOf(model, "s", movable(key))),
-        listFilter(ordered, q, this.#chunk),
-        this.#order
-      )
-    )) as Row[];
-    const listOf = (row: Row) =>
-      JSON.stringify(within.map((_, at) => row[`w${at}`] ?? null));
-    // Per list: the keys of the slots its visible members hold.
-    const slots = new Map<string, string[]>();
-    const lists = new Map<string, Row[]>();
-    for (const row of rows)
-      if (Number(row.v) === 1)
-        lists.set(listOf(row), [...(lists.get(listOf(row)) ?? []), row]);
-    for (const [list, members] of lists) {
-      members.sort((a, b) => Number(a.slot) - Number(b.slot));
-      const hides = rows.some(
-        (row) => listOf(row) === list && Number(row.v) === 0
-      );
-      const keys: string[] = [];
-      for (let at = 0; at < members.length; ) {
-        const seg = Number(members[at]!.seg);
-        let end = at;
-        while (end < members.length && Number(members[end]!.seg) === seg) end++;
-        const lo = (members[at]!.lo as string | null) ?? null;
-        const hi = (members[at]!.hi as string | null) ?? null;
-        if (hides) {
-          let between: string[] | undefined;
-          try {
-            between = keysBetween(lo, hi, end - at);
-          } catch {
-            between = undefined; // tied hidden bounds: the slot keeps its key
-          }
-          for (let slot = at; slot < end; slot++)
-            keys.push(
-              between?.[slot - at] && isKey(between[slot - at])
-                ? between[slot - at]!
-                : String(members[slot]!.k)
-            );
-        } else for (let slot = at; slot < end; slot++) keys.push(rankKey(slot));
-        at = end;
-      }
-      slots.set(list, keys);
-    }
-    const arms: Sql[] = [];
-    for (const [list, members] of lists)
-      for (const row of members) {
-        const next = slots.get(list)![Number(row.pick) - 1]!;
-        const held = [
-          ...identity.map((field, at) => [field, row[`i${at}`]] as const),
-          ...within.map((field, at) => [field, row[`w${at}`] ?? null] as const),
-          [key, row.k] as const,
-        ].map(([field, value]) =>
-          value === null
-            ? sql`${q.column(model, field)} IS NULL`
-            : sql`${q.column(model, field)} = ${q.fieldValue(model, field, value)}`
-        );
-        arms.push(
-          sql`WHEN ${sql.join(held, " AND ")} THEN ${q.fieldValue(model, key, next)}`
-        );
-      }
-    return [
-      arms.length === 0
-        ? q.column(model, key)
-        : sql`CASE ${sql.join(arms, " ")} ELSE ${q.column(model, key)} END`,
-    ];
+  compute(): readonly unknown[] {
+    return [sql.raw("r.nk")];
   }
-}
-
-/** A delegate's write, as respacing calls it. */
-interface Writes {
-  readonly updateMany: (args: object) => PromiseLike<unknown>;
+  join(q: Queries, target: string): { source: Sql; on: Sql } {
+    const { model, key, within, identity } = this.#ordered;
+    const s = spellings[this.#dialect];
+    const terms = this.#order.flatMap((term) => Object.entries(term));
+    const column = (field: string, alias?: string) =>
+      q.column(model, field, alias);
+    const at = (alias: string, prefix: string, count: number) =>
+      Array.from({ length: count }, (_, n) =>
+        sql.raw(`${alias}.${prefix}${n}`)
+      );
+    const ids = (alias: string) => at(alias, "i", identity.length);
+    const lists = (alias: string) => at(alias, "w", within.length);
+    const byList = (alias: string, ...more: Sql[]) =>
+      within.length + more.length === 0
+        ? sql.empty
+        : sql`PARTITION BY ${sql.join([...lists(alias), ...more], ", ")} `;
+    const current = (alias: string) =>
+      sql.join([sql.raw(`${alias}.k`), ...ids(alias)], ", ");
+    // The lists respaced: those holding a member the call sees `where` matches.
+    const seen = new RowsOf(model, "w", undefined, this.#where);
+    const named =
+      within.length > 0
+        ? sql`EXISTS (SELECT 1 FROM ${q.table(model, "w")} WHERE ${sql.join(
+            within.map((field) =>
+              s.same(column(field, "w"), column(field, "s"))
+            ),
+            " AND "
+          )} AND ${seen})`
+        : this.#where === undefined
+          ? sql`1 = 1`
+          : sql`EXISTS (SELECT 1 FROM ${q.table(model, "w")} WHERE ${seen})`;
+    const members = sql`SELECT ${sql.join(
+      [
+        ...identity.map(
+          (field, n) => sql`${column(field, "s")} AS ${sql.raw(`i${n}`)}`
+        ),
+        ...within.map(
+          (field, n) => sql`${column(field, "s")} AS ${sql.raw(`w${n}`)}`
+        ),
+        sql`${column(key, "s")} AS k`,
+        ...terms.map(
+          ([field], n) => sql`${column(field, "s")} AS ${sql.raw(`o${n}`)}`
+        ),
+        sql`(CASE WHEN ${new RowsOf(model, "s", movable(key))} THEN 1 ELSE 0 END) AS v`,
+      ],
+      ", "
+    )} FROM ${q.table(model, "s")} WHERE ${named}`;
+    const bound = sql`(p.v = 0 AND ${s.digits(sql.raw("p.k"))})`;
+    const picked = [
+      ...terms.map(
+        ([, direction], n) =>
+          sql`${sql.raw(`p.o${n}`)} ${sql.raw(direction === "desc" ? "DESC" : "ASC")}`
+      ),
+      current("p"),
+    ];
+    const v = sql.raw("p.v");
+    // The members after each, as a growing frame: MySQL rescans a frame that
+    // ends at UNBOUNDED FOLLOWING for each row.
+    const backwards = sql.join(
+      [sql.raw("p.k DESC"), ...ids("p").map((id) => sql`${id} DESC`)],
+      ", "
+    );
+    const ranked = sql`SELECT p.*, SUM(CASE WHEN ${bound} THEN 1 ELSE 0 END) OVER (${byList("p")}ORDER BY ${current("p")} ROWS UNBOUNDED PRECEDING) AS seg, MAX(CASE WHEN ${bound} THEN p.k END) OVER (${byList("p")}ORDER BY ${current("p")} ROWS UNBOUNDED PRECEDING) AS lo, MIN(CASE WHEN ${bound} THEN p.k END) OVER (${byList("p")}ORDER BY ${backwards} ROWS UNBOUNDED PRECEDING) AS hi, ROW_NUMBER() OVER (${byList("p", v)}ORDER BY ${current("p")}) AS slot, ROW_NUMBER() OVER (${byList("p", v)}ORDER BY ${sql.join(picked, ", ")}) AS pick FROM (${members}) AS p`;
+    const segment = sql.join([...lists("q"), sql.raw("q.seg")], ", ");
+    const movables = sql`SELECT q.*, ROW_NUMBER() OVER (PARTITION BY ${segment} ORDER BY ${current("q")}) AS r, COUNT(*) OVER (PARTITION BY ${segment}) AS cnt FROM (${ranked}) AS q WHERE q.v = 1`;
+    // A place's key: its rank among the movable members between two fixed
+    // keys, fixed width, the last digit not zero.
+    const keyOf = (alias: string) => {
+      const g = (name: string) => sql.raw(`${alias}.${name}`);
+      const n = sql`(${g("slot")} - 1)`;
+      return sql`CASE WHEN ${g("lo")} IS NULL AND ${g("hi")} IS NULL THEN ${s.concat(
+        s.text(sql`length(${s.text(n)})`),
+        s.text(n)
+      )} ELSE ${between(
+        s,
+        g("lo"),
+        g("hi"),
+        s.concat(
+          s.pad(s.text(g("r")), sql`length(${s.text(g("cnt"))})`),
+          sql`'1'`
+        )
+      )} END`;
+    };
+    const keyed =
+      terms.length === 0
+        ? sql`SELECT ${sql.join(ids("g"), ", ")}, g.k, ${keyOf("g")} AS nk FROM (${movables}) AS g`
+        : sql`WITH g AS (${movables}) SELECT ${sql.join(ids("m"), ", ")}, m.k, ${keyOf("t")} AS nk FROM g AS t JOIN g AS m ON ${sql.join(
+            [
+              ...within.map((_, n) =>
+                s.same(sql.raw(`t.w${n}`), sql.raw(`m.w${n}`))
+              ),
+              sql`t.slot = m.pick`,
+            ],
+            " AND "
+          )}`;
+    return {
+      source: sql`(${keyed}) AS r`,
+      on: sql.join(
+        [
+          ...identity.map(
+            (field, n) => sql`${sql.raw(`r.i${n}`)} = ${column(field, target)}`
+          ),
+          sql`${column(key, target)} = r.k`,
+          sql`r.nk IS NOT NULL`,
+        ],
+        " AND "
+      ),
+    };
+  }
 }
 
 /**
- * Respace lists through the client, by `updateMany`, so every extension
- * applies (rows, permissions, hooks, the cache) and `updatedAt` is
- * refreshed. The members the caller sees take short keys in their order (in
- * `order` first, where given), each between the keys of the members it does
- * not see around it, which are not written: every viewer reads the list in
- * the order it had, the caller's members re-sorted among the places they
- * held. A list the caller sees whole gets `10`, `11`, …. A member another
- * writer moved meanwhile keeps what that writer gave it. `lists` names the
- * lists by their fields' values (one statement per as many lists as the
- * driver's bound values allow); `undefined` respaces the table, one list.
+ * Respace through the client: one `updateMany` of the lists' members the
+ * call may update, its keys a {@link Respace}, so every extension applies
+ * (rows, permissions, hooks, the cache) and `updatedAt` is refreshed.
  * Returns the rows rewritten.
  */
 async function respace(
   ordered: Ordered,
-  { queries: q, dialect, binds }: Engine,
+  dialect: string,
   writes: Writes,
   controls: Row,
-  lists: readonly Row[] | undefined,
-  order: readonly Readonly<Record<string, "asc" | "desc">>[] = []
+  where: unknown,
+  order: Order = []
 ): Promise<number> {
-  const { model, key, within, identity } = ordered;
-  const target = model["~"].names.sql!;
-  const column = (field: string, alias?: string) =>
-    q.column(model, field, alias);
-  const chunks: (readonly Row[] | undefined)[] = [];
-  if (lists === undefined) chunks.push(undefined);
-  else {
-    // A list's values are bound three times (the rows written, and the
-    // members read twice); half the driver's bound values are left to the
-    // call's own filters, which the call settles.
-    const per = Math.max(1, within.length * 3);
-    const size =
-      binds === undefined
-        ? lists.length
-        : Math.max(1, Math.floor(binds / 2 / per));
-    for (let at = 0; at < lists.length; at += size)
-      chunks.push(lists.slice(at, at + size));
-  }
-  const listWhere = (chunk: readonly Row[] | undefined) =>
-    chunk === undefined
-      ? []
-      : [{ OR: chunk.map((list) => fieldsOf(within, list)) }];
-  let count = 0;
-  for (const chunk of chunks) {
-    let value: unknown;
-    if (dialect === "mysql") value = new Respaced(ordered, chunk, order);
-    else {
-      const s = spellings[dialect as "postgresql" | "sqlite"];
-      const rows = membership(
-        ordered,
-        q,
-        new RowsOf(model, "s", movable(key)),
-        listFilter(ordered, q, chunk),
-        order
-      );
-      const g = (name: string) => sql.raw(`g.${name}`);
-      const text = (x: Sql) => sql`CAST(${x} AS TEXT)`;
-      const n = sql`(${g("slot")} - 1)`;
-      const ranked =
-        dialect === "postgresql"
-          ? sql`length(${n}::text)::text || ${n}::text`
-          : sql`length(${n}) || ${n}`;
-      // Fixed width within a segment, the last digit not zero.
-      const suffix = sql`${s.pad(text(g("r")), sql`length(${text(g("cnt"))})`)} || '1'`;
-      const segment = sql.join(
-        [...within.map((_, at) => sql.raw(`q.w${at}`)), sql.raw("q.seg")],
-        ", "
-      );
-      const current = sql.join(
-        [sql.raw("q.k"), ...identity.map((_, at) => sql.raw(`q.i${at}`))],
-        ", "
-      );
-      const visibleRanks = sql`SELECT q.*, ROW_NUMBER() OVER (PARTITION BY ${segment} ORDER BY ${current}) AS r, COUNT(*) OVER (PARTITION BY ${segment}) AS cnt FROM (${rows}) AS q WHERE q.v = 1`;
-      const slotted = sql`SELECT g.*, CASE WHEN g.lo IS NULL AND g.hi IS NULL THEN ${ranked} ELSE ${between(s, g("lo"), g("hi"), suffix)} END AS nk FROM (${visibleRanks}) AS g`;
-      const sameList = within.map((_, at) =>
-        s.same(sql.raw(`k.w${at}`), sql.raw(`m.w${at}`))
-      );
-      // Each written row's new key, from one map computed once (an
-      // uncorrelated subquery): SQLite's subqueries see the rows its UPDATE
-      // already rewrote, so no rank may be read per row. The map is keyed by
-      // the row's identity, spelled the same on both sides.
-      const spelled = (fields: readonly Sql[]) =>
-        dialect === "postgresql"
-          ? sql`json_build_array(${sql.join(fields, ", ")})::text`
-          : sql`'k' || ${sql.join(
-              fields.map((field) => sql`hex(${field})`),
-              " || '_' || "
-            )}`;
-      const of = (alias: string) =>
-        identity.map((_, at) => sql.raw(`${alias}.i${at}`));
-      const own = spelled(identity.map((field) => column(field, target)));
-      const pairs = sql`FROM (${slotted}) AS k, (${visibleRanks}) AS m WHERE ${sql.join(
-        [...sameList, sql`k.slot = m.pick`],
-        " AND "
-      )}`;
-      // PostgreSQL re-reads a row it waited on (a member another writer
-      // moved meanwhile) and ranks it where that writer put it; SQLite has
-      // no concurrent writer within a statement.
-      const map =
-        dialect === "postgresql"
-          ? sql`((SELECT json_object_agg(${spelled(of("m"))}, k.nk) ${pairs}) ->> ${own})`
-          : sql`json_extract((SELECT json_group_object(${spelled(of("m"))}, k.nk) ${pairs}), '$.' || ${own})`;
-      value = new Computed(sql`COALESCE(${map}, ${column(key, target)})`);
-    }
-    const written = (await writes.updateMany({
-      ...controls,
-      where: { AND: listWhere(chunk) },
-      data: { [key]: value },
-    })) as { count: number };
-    count += written.count;
-  }
-  return count;
+  const written = (await writes.updateMany({
+    ...controls,
+    data: { [ordered.key]: new Respace(ordered, dialect, where, order) },
+  })) as { count: number };
+  return written.count;
 }
 
 function methods(ordered: Ordered, engine: () => Engine) {
@@ -885,10 +740,10 @@ function methods(ordered: Ordered, engine: () => Engine) {
           // list is respaced, then read again.
           await respace(
             ordered,
-            engine(),
+            engine().dialect,
             delegate as unknown as Writes,
             controls,
-            within.length === 0 ? undefined : [group]
+            within.length === 0 ? undefined : group
           );
           continue;
         }
@@ -968,29 +823,14 @@ function methods(ordered: Ordered, engine: () => Engine) {
                     message: `${name}.rekey: orderBy takes { field: "asc" | "desc" } over the model's scalar fields.`,
                   },
                 ]);
-          // The lists the matched rows are in, each respaced whole: named
-          // through the caller's view, so a list it cannot see is never
-          // rewritten. Without list fields, the table is the one list.
-          const read = { ...controls, ...(where !== undefined && { where }) };
-          const lists =
-            within.length === 0
-              ? (await delegate.findFirst!({ ...read, select: selection }))
-                ? undefined
-                : []
-              : ((await delegate.findMany!({
-                  ...read,
-                  distinct: within,
-                  select: Object.fromEntries(
-                    within.map((field) => [field, true])
-                  ),
-                })) as Row[]);
-          if (lists?.length === 0) return { count: 0 };
+          // The lists the matched rows are in, each respaced: named by the
+          // UPDATE itself, through the caller's view (`Respace`).
           const count = await respace(
             ordered,
-            engine(),
+            engine().dialect,
             delegate as unknown as Writes,
             controls,
-            lists,
+            where,
             order
           );
           return { count };
@@ -1014,19 +854,30 @@ type Projection<C extends VibORMConfig, K> = Omit<
   "where" | "data"
 >;
 /** A row of model `K` of client `M`, as an `update` returns it. */
-type RowOf<M, K> = ExtendedOperationResult<M, K, "update", object>;
+// The schema's own: a list's fields and the order's are inputs, whatever a
+// `defaultOmit` presents.
+type RowOf<C extends VibORMConfig, K> = OperationResult<
+  "update",
+  ClientSchema<C>[K & keyof ClientSchema<C>],
+  object
+>;
 type WithinOf<
   Config extends OrderingConfig,
   K extends keyof Config,
 > = Config[K]["within"] extends readonly (infer F extends string)[] ? F : never;
 /** A list, by the values of its fields. */
-type ListOf<M, Config extends OrderingConfig, K extends keyof Config> = {
-  readonly [F in WithinOf<Config, K>]: RowOf<M, K>[F & keyof RowOf<M, K>];
+type ListOf<
+  C extends VibORMConfig,
+  Config extends OrderingConfig,
+  K extends keyof Config,
+> = {
+  readonly [F in WithinOf<Config, K>]: RowOf<C, K>[F & keyof RowOf<C, K>];
 };
 type None<Keys extends string> = { readonly [P in Keys]?: never };
-/** Where `move` puts the row: exactly one of these. */
+/** Where `move` puts the row: exactly one of these. (The client type, the
+ * first parameter, is no longer read: kept so 1.7.0 spellings compile.) */
 export type MovePlacement<
-  M,
+  _M,
   C extends VibORMConfig,
   Config extends OrderingConfig,
   K extends keyof Config,
@@ -1037,16 +888,16 @@ export type MovePlacement<
   | ({ readonly before: Unique<C, K> } & None<
       "after" | "first" | "last" | "key" | "to"
     >)
-  | ({ readonly first: true; readonly to?: ListOf<M, Config, K> } & None<
+  | ({ readonly first: true; readonly to?: ListOf<C, Config, K> } & None<
       "after" | "before" | "last" | "key"
     >)
-  | ({ readonly last: true; readonly to?: ListOf<M, Config, K> } & None<
+  | ({ readonly last: true; readonly to?: ListOf<C, Config, K> } & None<
       "after" | "before" | "first" | "key"
     >)
-  | ({ readonly key: string; readonly to?: ListOf<M, Config, K> } & None<
+  | ({ readonly key: string; readonly to?: ListOf<C, Config, K> } & None<
       "after" | "before" | "first" | "last"
     >)
-  | ({ readonly to: ListOf<M, Config, K> } & None<
+  | ({ readonly to: ListOf<C, Config, K> } & None<
       "after" | "before" | "first" | "last" | "key"
     >);
 type MoveArgs<
@@ -1060,12 +911,12 @@ type MoveArgs<
 type FindArg<C extends VibORMConfig, K, P extends string> = NonNullable<
   ModelArgs<C, K, "findMany">
 >[P & keyof NonNullable<ModelArgs<C, K, "findMany">>];
-type RekeyOrder<M, K> = {
-  readonly [F in keyof RowOf<M, K>]?: "asc" | "desc";
+type RekeyOrder<C extends VibORMConfig, K> = {
+  readonly [F in keyof RowOf<C, K>]?: "asc" | "desc";
 };
-type RekeyArgs<M, C extends VibORMConfig, K> = {
+type RekeyArgs<C extends VibORMConfig, K> = {
   readonly where?: FindArg<C, K, "where">;
-  readonly orderBy?: RekeyOrder<M, K> | readonly RekeyOrder<M, K>[];
+  readonly orderBy?: RekeyOrder<C, K> | readonly RekeyOrder<C, K>[];
 };
 
 type OrderingModels<
@@ -1084,9 +935,7 @@ type OrderingModels<
       args: A
     ): PromiseLike<DelegateOperationResult<Self, "update", A>>;
     // Generic as `move` is, so a call's controls (`deleted`, …) pass along.
-    rekey<A extends RekeyArgs<M, C, K>>(
-      args?: A
-    ): PromiseLike<{ count: number }>;
+    rekey<A extends RekeyArgs<C, K>>(args?: A): PromiseLike<{ count: number }>;
   };
 };
 

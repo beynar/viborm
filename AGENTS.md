@@ -417,18 +417,20 @@ every extension applies to it as to any read, and rendered elsewhere its
 text is not SQL. So a move is still one UPDATE under soft delete or
 permissions (a hidden anchor is a missing one, a hidden member no
 neighbour). Respacing (`rekey`, and `move` on a tie or a used-up gap) is one
-`updateMany` through the delegate per chunk of lists, its key an
-`InsertValue`: on PostgreSQL and SQLite one uncorrelated subquery ranks the
-lists' members (window functions over the table, the call's `RowsOf` under
-the update judgement of the key marking the members it may write) and maps
-each to a short key between the keys of the others around the place it
-takes, so every viewer keeps the order and no other row is written;
-uncorrelated because SQLite's subqueries see the rows its UPDATE already
-rewrote, and PostgreSQL re-reads a row it waited on, so a member moved
-meanwhile is ranked where its writer put it. MySQL, which refuses a subquery
-on the table an UPDATE writes, reads the same ranks in the operation and
-writes a `CASE` arm per member, each only while it holds the key it was
-read with.
+`updateMany` through the delegate, its key a `JoinedValue`
+(`raptor3/shared/insert-value.ts`): a derived table ranking the lists'
+members (window functions over the table, the call's `RowsOf` under the
+update judgement of the key marking the members it may write, a `RowsOf`
+under the call's admitted `where` naming the lists) maps each to a short key
+between the keys of the others around the place it takes, so every viewer
+keeps the order and no other row is written. The UPDATE joins it
+(`adapter.mutations.updateFrom`: `UPDATE … FROM` on PostgreSQL and SQLite,
+`UPDATE … JOIN` on MySQL, which materializes it), never a correlated
+subquery, because SQLite's subqueries see the rows its UPDATE already
+rewrote. A row is written only while it holds the key it was ranked with,
+so a member moved meanwhile keeps its writer's key. Running window frames
+only (`UNBOUNDED PRECEDING`, the upper bound read backwards): a frame that
+ends at `UNBOUNDED FOLLOWING` is rescanned per row, quadratic in a list.
 
 `cache()` produces a namespace-free DEFINITION; the client composition root
 binds it to the concrete driver, deriving one scope from the private snapshot

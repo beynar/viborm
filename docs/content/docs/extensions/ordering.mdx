@@ -209,11 +209,10 @@ await db.card.rekey({ where: { columnId }, orderBy: { createdAt: "asc" } }); // 
 Without `where`, every list the caller can see. It returns `{ count }`, the
 rows rewritten.
 
-`rekey` reads the lists the rows `where` matches, through your extensions (a
-list holding no row the caller can see is left alone), then respaces them
-with one `updateMany` through the client (more where the driver bounds a
-statement's values, as D1 does: as many lists per statement as fit; MySQL
-reads the members first). Every extension applies to it as to any update:
+`rekey` is one `updateMany` through the client, one statement on every
+database: the UPDATE ranks the lists' members itself (a list holding no row
+the caller can see `where` matches is left alone) and binds no value per
+member. Every extension applies to it as to any update:
 the rows written are those the caller may see and update, write hooks run,
 `updatedAt` is refreshed, and the [official cache](/docs/extensions/cache)
 is invalidated as after any write.
@@ -224,9 +223,9 @@ it may update take short keys between the keys of the others around them:
 whoever sees the whole list reads it in the order it had. With `orderBy`, the
 caller's members are re-sorted among the places they held, never past a
 member it cannot write. A list the caller may write whole gets `10`, `11`,
-`12`, …. A member another writer moves while the statement runs keeps the
-place that writer gave it (PostgreSQL re-reads the row it waited on; MySQL
-writes a member only while it holds the key it was read with). Soft delete's
+`12`, …. A member is written only while it holds the key it was ranked
+with, so one another writer moves while the statement runs keeps the key
+that writer gave it. Soft delete's
 tombstones are members it does not see unless the call says
 `deleted: "with"`.
 

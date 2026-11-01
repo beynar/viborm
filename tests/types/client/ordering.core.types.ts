@@ -83,6 +83,12 @@ export async function probes() {
   const bare = await omitted.card.move({ where: { id: "a" }, first: true });
   // @ts-expect-error title is omitted by the later defaultOmit
   bare.title;
+  // A list field omitted before ordering is applied is still named by `to`:
+  // destinations are inputs, not presented rows.
+  const omittedFirst = ordering({
+    card: { key: "rank", within: ["columnId"] },
+  })(base.$extends(defaultOmit<typeof schema>()({ card: { columnId: true } })));
+  await omittedFirst.card.move({ where: { id: "a" }, to: { columnId: "c2" } });
   // `to` names the list by its fields, with their types.
   // @ts-expect-error not a list field
   await db.card.move({ where: { id: "a" }, to: { column: "c2" } });

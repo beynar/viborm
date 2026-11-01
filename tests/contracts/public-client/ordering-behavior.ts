@@ -43,6 +43,8 @@ const legacy = s.model({
   id: s.string().id(),
   rank: s.string(),
   title: s.string(),
+  /** The soft-delete marker, where a test applies soft delete. */
+  deletedAt: s.dateTime().nullable(),
 });
 
 /** A list field that is part of the model's key, and is required: an
@@ -71,9 +73,7 @@ export function describeOrdering(
   /** Statements a move within a list and a plain update send: one UPDATE
    * each, where it computes the key and returns its row (MySQL reads the
    * neighbours, then locks, updates and reads the row). */
-  /** …and a rekey: the read of its lists and one UPDATE (MySQL reads the
-   * members first: it refuses a subquery on the table an UPDATE writes). */
-  { move = 1, update = 1, rekey = 2 } = {}
+  { move = 1, update = 1 } = {}
 ) {
   const statements: string[] = [];
   let base_: any;
@@ -409,6 +409,28 @@ export function describeOrdering(
       expect(ranks.every(isKey)).toBe(true);
     });
 
+    test("adopting with a member the caller cannot see: its backfilled key bounds nothing, the others get keys", async () => {
+      await setup();
+      for (const id of ["x", "y", "z"])
+        await base_.legacy.create({ data: { id, rank: "", title: id } });
+      await base_.legacy.update({
+        where: { id: "y" },
+        data: { deletedAt: new Date("2026-01-01T00:00:00.000Z") },
+      });
+      const governed = softDelete({
+        models: { legacy: { deletedAt: "deletedAt" } },
+      })(ordering({ legacy: { key: "rank" } })(counted_ as any) as any) as any;
+      expect(await governed.legacy.rekey()).toEqual({ count: 2 });
+      const ranks = Object.fromEntries(
+        (await base_.legacy.findMany({ select: { id: true, rank: true } })).map(
+          (row: { id: string; rank: string }) => [row.id, row.rank]
+        )
+      );
+      expect(ranks.y).toBe("");
+      expect([isKey(ranks.x), isKey(ranks.z)]).toEqual([true, true]);
+      expect(titles(await governed.legacy.findMany())).toEqual(["x", "z"]);
+    });
+
     test("rekey of part of a list respaces the whole list, in its order", async () => {
       const db = await setup();
       for (const title of ["a", "b", "c", "d"])
@@ -416,9 +438,8 @@ export function describeOrdering(
       statements.length = 0;
       const { count } = await db.card.rekey({ where: { id: "c" } });
       expect(count).toBe(4);
-      // One statement reads the lists, one respaces them (MySQL: and one
-      // reads their members).
-      expect(statements).toHaveLength(rekey);
+      // One UPDATE names the lists and respaces them, on every dialect.
+      expect(statements).toHaveLength(1);
       expect(await listOf(db, "c1")).toEqual(["a", "b", "c", "d"]);
     });
 

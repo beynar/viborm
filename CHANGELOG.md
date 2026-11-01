@@ -37,9 +37,9 @@ anchor; a MySQL soft delete takes one statement fewer.
   whole list reads it in the order it had (1.7.0 rewrote whole lists,
   hidden members included). With `orderBy`, the caller's members are
   re-sorted among the places they held. A member moved meanwhile keeps the
-  place its writer gave it. Statements: unchanged on
-  PostgreSQL and SQLite (the lists' read and one UPDATE); MySQL reads the
-  members first.
+  key its writer gave it. It is one statement on every database (1.7.0
+  read the lists first, and MySQL wrote a `CASE` arm per member): the
+  UPDATE ranks the members in a derived table it joins.
 - A soft delete behind `restrict` children on MySQL sends 4 statements, not
   5: the lock before the live-child check is the capture of the rows' keys,
   and the write no longer locks them again. PostgreSQL keeps its 3 (lock,

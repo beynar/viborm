@@ -34,7 +34,10 @@ type NumericSetOperations = Pick<
   "assign" | "increment" | "decrement"
 >;
 
-type MutationCommands = Pick<DatabaseAdapter["mutations"], "update" | "delete">;
+type MutationCommands = Pick<
+  DatabaseAdapter["mutations"],
+  "update" | "updateFrom" | "delete"
+>;
 
 export const createRawSql = (): DatabaseAdapter["raw"] => {
   return (sqlString: string): Sql => sql.raw(sqlString);
@@ -231,6 +234,10 @@ export const createMutationCommands = (): MutationCommands => ({
     }
     return sql`UPDATE ${table} SET ${sets}`;
   },
+  updateFrom: (table, sets, source, on, where) =>
+    sql`UPDATE ${table} SET ${sets} FROM ${source} WHERE (${on})${
+      where ? sql` AND (${where})` : sql.empty
+    }`,
   delete: (table: Sql, where?: Sql): Sql => {
     if (where) {
       return sql`DELETE FROM ${table} WHERE ${where}`;
