@@ -222,6 +222,7 @@ export const stillDelegate: typeof db.post = cachedAfter.post;
 declare function overloaded(delegate: (typeof base)["post"]): {
   first: () => unknown;
 };
+// biome-ignore lint/style/useUnifiedTypeSignatures: the overloads are the case under test
 declare function overloaded(): { first: () => unknown };
 export function overloadIsConsumer() {
   const tools = base.$extends({
