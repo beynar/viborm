@@ -3,7 +3,7 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
-## Unreleased
+## 1.8.0 — 2026-11-02
 
 Soft delete and ordering are one `$extends` each, applied in any order with
 permissions, `on`, the cache, `defaultOmit` and your own extensions. Soft
