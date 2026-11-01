@@ -322,6 +322,13 @@ export async function openDeletionFixture(driver: AnyDriver) {
 export interface DeletionCapabilityProvider {
   readonly name: string;
   readonly createDriver: () => AnyDriver;
+  /**
+   * The statements a soft delete of a post (restrict children, none live)
+   * sends: where rows lock, the lock, then the live-child check, then the
+   * tombstone; without RETURNING the lock is the capture of the rows' keys,
+   * and the result is read after the tombstone.
+   */
+  readonly restrictedDelete: number;
 }
 
 export function runDeletionCapabilityBehavior(
@@ -343,6 +350,27 @@ export function runDeletionCapabilityBehavior(
     const pause = () => new Promise((resolve) => setTimeout(resolve, 5));
     const physicalDeletes = () =>
       statements.filter((statement) => DELETE_STATEMENT.test(statement.sql));
+
+    test("a soft delete behind restrict children: the lock, the check, the tombstone, in that order, nothing locked twice", async () => {
+      const { db } = context;
+      statements.length = 0;
+      expect(
+        await db.post.delete({ where: { id: 14 }, select: { id: true } })
+      ).toEqual({ id: 14 });
+      expect(statements).toHaveLength(provider.restrictedDelete);
+      const tombstone = statements.findIndex((statement) =>
+        UPDATE_STATEMENT.test(statement.sql)
+      );
+      const check = statements.findIndex((statement) =>
+        statement.sql.includes("EXISTS")
+      );
+      expect(check).toBeGreaterThanOrEqual(0);
+      expect(check).toBeLessThan(tombstone);
+      expect(
+        statements.filter((statement) => statement.sql.includes("FOR UPDATE"))
+          .length
+      ).toBeLessThanOrEqual(2);
+    });
 
     test("a root delete tombstones the row and returns its post-image; a repeat is NotFound", async () => {
       const { base, db } = context;

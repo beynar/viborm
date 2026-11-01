@@ -21,5 +21,6 @@ describeIf("pg Driver", () => {
   runDeletionCapabilityBehavior({
     name: "pg",
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+    restrictedDelete: 3,
   });
 });

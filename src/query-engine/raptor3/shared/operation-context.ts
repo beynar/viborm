@@ -3069,13 +3069,18 @@ export class OperationContext {
       }
     );
   }
+  /**
+   * @param captured The keys of the rows to write, already read under lock
+   * by the caller: the capture this update would otherwise take.
+   */
   async updateMany(
     model: AnyModel,
     selector: PreparedSelector,
     given: Input,
     limit?: number,
     projection?: PreparedProjection,
-    single?: () => Error
+    single?: () => Error,
+    captured?: readonly Input[]
   ): Promise<unknown> {
     const values = await this.#settled(model, given);
     const q = this.queries;
@@ -3102,13 +3107,11 @@ export class OperationContext {
       projection &&
       !this.answersInStatement(model, projection, "update", values)
     ) {
-      const identities = await this.captureMutationIdentities(
-        model,
-        selector,
-        limit
-      );
+      const identities =
+        captured ??
+        (await this.captureMutationIdentities(model, selector, limit));
       if (identities.length === 0) return this.published([], single);
-      const captured = produced(
+      const judgedTarget = produced(
         q.andSelectors(model, [
           selector,
           q.includeIdentities(model, identities),
@@ -3123,13 +3126,13 @@ export class OperationContext {
           adapter.mutations.update(
             q.table(model),
             sql.join(assignments, ", "),
-            captured ?? target
+            judgedTarget ?? target
           ),
         // A delete that writes a tombstone still answers as a delete.
         this.operation === "delete" || this.operation === "deleteMany"
           ? "deleteMany"
           : "updateMany",
-        captured && judged
+        judgedTarget && judged
       );
       return this.finishTerminals(
         this.seriesQueries(
