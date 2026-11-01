@@ -427,8 +427,11 @@ keeps the order and no other row is written. The UPDATE joins it
 (`adapter.mutations.updateFrom`: `UPDATE … FROM` on PostgreSQL and SQLite,
 `UPDATE … JOIN` on MySQL, which materializes it), never a correlated
 subquery, because SQLite's subqueries see the rows its UPDATE already
-rewrote. A row is written only while it holds the key it was ranked with,
-so a member moved meanwhile keeps its writer's key. Running window frames
+rewrote. A row is written only while it holds the list and the key it was
+ranked with, so a member moved meanwhile stays where its writer put it. An
+`updateMany` that captures its rows first (no RETURNING, as on MySQL under
+an `on` hook) captures, and claims in a batch's premises, only the rows the
+join names (`condition` of `Queries.select`, a function of the root alias). Running window frames
 only (`UNBOUNDED PRECEDING`, the upper bound read backwards): a frame that
 ends at `UNBOUNDED FOLLOWING` is rescanned per row, quadratic in a list.
 

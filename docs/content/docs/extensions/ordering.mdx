@@ -223,9 +223,9 @@ it may update take short keys between the keys of the others around them:
 whoever sees the whole list reads it in the order it had. With `orderBy`, the
 caller's members are re-sorted among the places they held, never past a
 member it cannot write. A list the caller may write whole gets `10`, `11`,
-`12`, …. A member is written only while it holds the key it was ranked
-with, so one another writer moves while the statement runs keeps the key
-that writer gave it. Soft delete's
+`12`, …. A member is written only while it holds the list and the key it
+was ranked with, so one another writer moves while the statement runs stays
+where that writer put it. Soft delete's
 tombstones are members it does not see unless the call says
 `deleted: "with"`.
 

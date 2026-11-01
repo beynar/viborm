@@ -3100,6 +3100,24 @@ export class OperationContext {
       model,
       refusal: this.#updateRefusal(model, selector.judgement),
     };
+    // A value read from a table the UPDATE joins (`JoinedValue`): only the
+    // rows the join names are written, so only they are captured.
+    const joined = Object.values(given).find(
+      (value): value is JoinedValue => value instanceof JoinedValue
+    );
+    const write = (where: Sql | undefined) => {
+      const sets = sql.join(assignments, ", ");
+      const join = joined?.join(q, model["~"].names.sql!);
+      return join
+        ? adapter.mutations.updateFrom(
+            q.table(model),
+            sets,
+            q.settleRows(join.source),
+            join.on,
+            where
+          )
+        : adapter.mutations.update(q.table(model), sets, where);
+    };
     // A relation carrier reads other rows, which no RETURNING can carry: the
     // post-image is re-read by identity, as without RETURNING, unless the
     // write's own statement can read them (`answersInStatement`).
@@ -3107,9 +3125,24 @@ export class OperationContext {
       projection &&
       !this.answersInStatement(model, projection, "update", values)
     ) {
+      const named =
+        joined &&
+        ((alias: string) => {
+          const join = joined.join(q, alias);
+          return q.settleRows(
+            sql`EXISTS (SELECT 1 FROM ${join.source} WHERE ${join.on})`
+          );
+        });
       const identities =
         captured ??
-        (await this.captureMutationIdentities(model, selector, limit));
+        (await this.captureMutationIdentities(
+          model,
+          selector,
+          limit,
+          undefined,
+          undefined,
+          named
+        ));
       if (identities.length === 0) return this.published([], single);
       const judgedTarget = produced(
         q.andSelectors(model, [
@@ -3122,17 +3155,13 @@ export class OperationContext {
         selector,
         identities,
         limit,
-        (target) =>
-          adapter.mutations.update(
-            q.table(model),
-            sql.join(assignments, ", "),
-            judgedTarget ?? target
-          ),
+        (target) => write(judgedTarget ?? target),
         // A delete that writes a tombstone still answers as a delete.
         this.operation === "delete" || this.operation === "deleteMany"
           ? "deleteMany"
           : "updateMany",
-        judgedTarget && judged
+        judgedTarget && judged,
+        named
       );
       return this.finishTerminals(
         this.seriesQueries(
@@ -3146,27 +3175,13 @@ export class OperationContext {
       );
     }
     this.#packagedPresence(model, selector, single);
-    // A value read from a table the UPDATE joins (`JoinedValue`).
-    const joined = Object.values(given).find(
-      (value): value is JoinedValue => value instanceof JoinedValue
-    );
     let where: Sql | undefined;
     const statement = q.sharing(() => {
       where = produced(selector, limit);
       const limited = where
         ? { where }
         : q.lowerMutationLimit(model, selector, limit);
-      const sets = sql.join(assignments, ", ");
-      const join = joined?.join(q, model["~"].names.sql!);
-      const mutation = join
-        ? adapter.mutations.updateFrom(
-            q.table(model),
-            sets,
-            q.settleRows(join.source),
-            join.on,
-            limited.where
-          )
-        : adapter.mutations.update(q.table(model), sets, limited.where);
+      const mutation = write(limited.where);
       return limited.suffix ? sql`${mutation} ${limited.suffix}` : mutation;
     });
     return this.#completeSetMutation(
@@ -3229,7 +3244,8 @@ export class OperationContext {
     selector: PreparedSelector,
     limit: number | undefined,
     projection?: PreparedProjection | false,
-    read?: Input[]
+    read?: Input[],
+    condition?: (alias: string) => Sql
   ): Promise<Input[]> {
     if (this.#ownership === "batch-preparation")
       throw this.incompletePreparation;
@@ -3249,7 +3265,12 @@ export class OperationContext {
         take: limit,
       },
       undefined,
-      { selector, forUpdate: !this.usesBatch, ...(whole && { projection }) }
+      {
+        selector,
+        condition,
+        forUpdate: !this.usesBatch,
+        ...(whole && { projection }),
+      }
     );
     // An interactive session takes `FOR UPDATE`, so the ROWS IT CAPTURED
     // cannot change underneath it until the mutation. A row that JOINS the
@@ -3299,13 +3320,18 @@ export class OperationContext {
     selector: PreparedSelector,
     identities: readonly Input[],
     limit: number | undefined,
-    changed: () => Error
+    changed: () => Error,
+    condition?: (alias: string) => Sql
   ): Promise<void> {
     if (!this.usesBatch) return;
     const q = this.queries;
     for (const identity of identities)
       this.requirePresent(
-        q.select(model, { take: 1 }, undefined, { selector, identity }),
+        q.select(model, { take: 1 }, undefined, {
+          selector,
+          identity,
+          condition,
+        }),
         changed()
       );
     // A LIMITED capture took one valid slice of the selection; another row
@@ -3318,6 +3344,7 @@ export class OperationContext {
           selector,
           q.excludeIdentities(model, identities),
         ]),
+        condition,
       }),
       changed()
     );
@@ -3368,14 +3395,22 @@ export class OperationContext {
     limit: number | undefined,
     mutation: (target: Sql | undefined) => Sql,
     verb: "updateMany" | "deleteMany",
-    judged?: JudgedWrite
+    judged?: JudgedWrite,
+    condition?: (alias: string) => Sql
   ): Promise<void> {
     const changed = () =>
       new TransactionError(
         `${verb} selected-row cardinality changed during its locked mutation.`,
         { meta: this.#errorMeta }
       );
-    await this.requireCapturedSet(model, selector, identities, limit, changed);
+    await this.requireCapturedSet(
+      model,
+      selector,
+      identities,
+      limit,
+      changed,
+      condition
+    );
     const { statement, count } = this.#counted(
       this.queries.sharing(() =>
         mutation(this.capturedTarget(model, selector, identities))

@@ -11,6 +11,7 @@ import {
 } from "@errors";
 import { s } from "@schema";
 import { Sql } from "@sql";
+import { on } from "@src/on";
 import { isKey, keyBetween, ordering, orderingKey } from "@src/ordering";
 import { permissions } from "@src/permissions";
 import { softDelete } from "@src/soft-delete";
@@ -616,6 +617,53 @@ export function describeOrdering(
         orderBy: { title: "desc" },
       });
       expect(await whole()).toEqual(["d", "t", "c", "a"]);
+    });
+
+    test("rekey under an update hook writes, and reports, the rows it rekeys alone (on before or after ordering)", async () => {
+      for (const before of [true, false]) {
+        await setup();
+        for (const [id, columnId, rank] of [
+          ["a", "c1", "0812345678"],
+          ["t", "c1", "0899"],
+          ["c", "c1", "08990000001"],
+          ["x", "c2", "0812"],
+        ] as const)
+          await base_.card.create({ data: { id, columnId, title: id, rank } });
+        await base_.card.update({
+          where: { id: "t" },
+          data: { deletedAt: new Date("2026-01-01T00:00:00.000Z") },
+        });
+        const seen: string[] = [];
+        const hooks = on({
+          card: {
+            update: (rows: readonly { id: string }[]) => {
+              seen.push(...rows.map((row) => row.id));
+            },
+          },
+        } as any);
+        const ordered = (client: any) =>
+          ordering({ card: { key: "rank", within: ["columnId"] } })(client);
+        const deleted = softDelete({
+          models: { card: { deletedAt: "deletedAt" } },
+        });
+        const db = (
+          before
+            ? deleted(ordered((counted_ as any).$extends(hooks)) as any)
+            : deleted(ordered(counted_) as any).$extends(hooks)
+        ) as any;
+        expect((await db.card.rekey({ where: { columnId: "c1" } })).count).toBe(
+          2
+        );
+        expect(seen.sort()).toEqual(["a", "c"]);
+        const ranks = Object.fromEntries(
+          (await base_.card.findMany({ select: { id: true, rank: true } })).map(
+            (row: { id: string; rank: string }) => [row.id, row.rank]
+          )
+        );
+        expect([ranks.t, ranks.x]).toEqual(["0899", "0812"]);
+        expect(ranks.a.length).toBeLessThan(10);
+        expect(ranks.a < ranks.t && ranks.t < ranks.c).toBe(true);
+      }
     });
 
     test("a rows extension declared through verbs alone governs move too", async () => {

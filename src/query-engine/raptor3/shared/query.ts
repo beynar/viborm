@@ -378,7 +378,8 @@ export interface Query {
 }
 /** What a {@link Queries.select} takes beyond its arguments. */
 interface SelectControls {
-  condition?: Sql;
+  /** More of the root row's filter (a function: of its alias). */
+  condition?: Sql | ((alias: string) => Sql);
   forUpdate?: boolean;
   identity?: Input;
   projection?: PreparedProjection;
@@ -7440,7 +7441,7 @@ export class Queries {
     filter: Sql | undefined,
     unless: Sql | undefined,
     cursor: Sql | undefined,
-    controls: { condition?: Sql; identity?: Input }
+    controls: Pick<SelectControls, "condition" | "identity">
   ): Sql | undefined {
     const where: Sql[] = [];
     if (membership)
@@ -7454,7 +7455,11 @@ export class Queries {
     if (cursor) where.push(cursor);
     if (controls.identity)
       where.push(this.lowerIdentity(model, controls.identity, alias));
-    if (controls.condition) where.push(controls.condition);
+    const { condition } = controls;
+    if (condition)
+      where.push(
+        typeof condition === "function" ? condition(alias) : condition
+      );
     return where.length === 0
       ? undefined
       : this.adapter.operators.and(...where);

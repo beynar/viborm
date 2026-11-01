@@ -221,8 +221,9 @@ const movable = (key: string): RowJudgement =>
  * keys of the fixed ones around the place it takes (its own place, or with
  * `order` the place of the movable member of that rank), `10`, `11`, … where
  * the list has none; a fixed member whose key is not a key bounds nothing.
- * A row is written only while it holds the key it was ranked with, so a
- * member another writer moved meanwhile keeps that writer's key.
+ * A row is written only while it holds the list and the key it was ranked
+ * with, so a member another writer moved meanwhile keeps that writer's
+ * place.
  */
 class Respace extends JoinedValue {
   readonly #ordered: Ordered;
@@ -324,8 +325,8 @@ class Respace extends JoinedValue {
     };
     const keyed =
       terms.length === 0
-        ? sql`SELECT ${sql.join(ids("g"), ", ")}, g.k, ${keyOf("g")} AS nk FROM (${movables}) AS g`
-        : sql`WITH g AS (${movables}) SELECT ${sql.join(ids("m"), ", ")}, m.k, ${keyOf("t")} AS nk FROM g AS t JOIN g AS m ON ${sql.join(
+        ? sql`SELECT ${sql.join([...ids("g"), ...lists("g")], ", ")}, g.k, ${keyOf("g")} AS nk FROM (${movables}) AS g`
+        : sql`WITH g AS (${movables}) SELECT ${sql.join([...ids("m"), ...lists("m")], ", ")}, m.k, ${keyOf("t")} AS nk FROM g AS t JOIN g AS m ON ${sql.join(
             [
               ...within.map((_, n) =>
                 s.same(sql.raw(`t.w${n}`), sql.raw(`m.w${n}`))
@@ -340,6 +341,10 @@ class Respace extends JoinedValue {
         [
           ...identity.map(
             (field, n) => sql`${sql.raw(`r.i${n}`)} = ${column(field, target)}`
+          ),
+          // Still in the list and at the key it was ranked with.
+          ...within.map((field, n) =>
+            s.same(sql.raw(`r.w${n}`), column(field, target))
           ),
           sql`${column(key, target)} = r.k`,
           sql`r.nk IS NOT NULL`,
