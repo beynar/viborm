@@ -419,13 +419,16 @@ permissions (a hidden anchor is a missing one, a hidden member no
 neighbour). Respacing (`rekey`, and `move` on a tie or a used-up gap) is one
 `updateMany` through the delegate per chunk of lists, its key an
 `InsertValue`: on PostgreSQL and SQLite one uncorrelated subquery ranks the
-lists' members (window functions over the table, the call's `RowsOf` marking
-the visible ones) and maps each visible member to a short key between the
-hidden keys around the place it takes, so every viewer keeps the order and
-no hidden row is written; uncorrelated because SQLite's subqueries see the
-rows its UPDATE already rewrote. MySQL, which refuses a subquery on the
-table an UPDATE writes, reads the same ranks in the operation and writes a
-`CASE`. Each row is written only while it holds the key it was read with.
+lists' members (window functions over the table, the call's `RowsOf` under
+the update judgement of the key marking the members it may write) and maps
+each to a short key between the keys of the others around the place it
+takes, so every viewer keeps the order and no other row is written;
+uncorrelated because SQLite's subqueries see the rows its UPDATE already
+rewrote, and PostgreSQL re-reads a row it waited on, so a member moved
+meanwhile is ranked where its writer put it. MySQL, which refuses a subquery
+on the table an UPDATE writes, reads the same ranks in the operation and
+writes a `CASE` arm per member, each only while it holds the key it was
+read with.
 
 `cache()` produces a namespace-free DEFINITION; the client composition root
 binds it to the concrete driver, deriving one scope from the private snapshot

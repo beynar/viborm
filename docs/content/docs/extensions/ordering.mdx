@@ -219,13 +219,20 @@ the rows written are those the caller may see and update, write hooks run,
 is invalidated as after any write.
 
 A list's order is shared, so `rekey` never moves a member the caller cannot
-see, nor writes it. The members it sees take short keys between the keys of
-the hidden ones around them: whoever sees the whole list reads it in the
-order it had. With `orderBy`, the caller's members are re-sorted among the
-places they held, never past a member it cannot see. A list the caller sees
-whole gets `10`, `11`, `12`, …. A member another writer moves while the
-statement runs keeps the key that writer gave it. Soft delete's tombstones
-are members it does not see unless the call says `deleted: "with"`.
+write (hidden from it, or seen and not writable), nor writes it. The members
+it may update take short keys between the keys of the others around them:
+whoever sees the whole list reads it in the order it had. With `orderBy`, the
+caller's members are re-sorted among the places they held, never past a
+member it cannot write. A list the caller may write whole gets `10`, `11`,
+`12`, …. A member another writer moves while the statement runs keeps the
+place that writer gave it (PostgreSQL re-reads the row it waited on; MySQL
+writes a member only while it holds the key it was read with). Soft delete's
+tombstones are members it does not see unless the call says
+`deleted: "with"`.
+
+The new keys sit between the keys of the members the caller cannot see, so
+their digits show where such members are in the list, never which rows they
+are or what they hold.
 
 It is how an existing table adopts the extension:
 

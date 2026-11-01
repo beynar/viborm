@@ -32,11 +32,12 @@ anchor; a MySQL soft delete takes one statement fewer.
 - **`rekey` (and a move's respacing) is an `updateMany` through the client**,
   no longer a raw UPDATE: rows, permissions, write hooks, `updatedAt` and the
   cache apply as to any update, whichever order the extensions came in. It
-  writes only the members the caller may see and update, each with a short
-  key between the keys of the hidden members around it, so whoever sees the
+  writes only the members the caller may update, each with a short key
+  between the keys of the other members around it, so whoever sees the
   whole list reads it in the order it had (1.7.0 rewrote whole lists,
   hidden members included). With `orderBy`, the caller's members are
-  re-sorted among the places they held. Statements: unchanged on
+  re-sorted among the places they held. A member moved meanwhile keeps the
+  place its writer gave it. Statements: unchanged on
   PostgreSQL and SQLite (the lists' read and one UPDATE); MySQL reads the
   members first.
 - A soft delete behind `restrict` children on MySQL sends 4 statements, not

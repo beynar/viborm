@@ -2980,13 +2980,14 @@ export class Queries {
   }
   /**
    * A caller's fragment with every {@link RowsOf} in it settled to this
-   * call's root domain at its alias: a read an extension writes takes the
-   * rows the call may see, as every read here does.
+   * call's root domain at its alias (under its judgement, where it states
+   * one): a read an extension writes takes the rows the call may see, or
+   * write, as every read here does.
    */
   #settleRows(fragment: Sql): Sql {
     Sql.each(fragment, (node) => {
       if (!(node instanceof RowsOf)) return;
-      const domain = this.domainOf(node.model, "root");
+      const domain = this.domainOf(node.model, "root", node.judgement);
       node.settle(
         (domain && this.lowerSelector(domain, node.alias)) ?? sql.raw("1 = 1")
       );

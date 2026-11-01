@@ -1715,7 +1715,9 @@ internal accessors, so it is versioned with the core it ships in.
   `move` and `rekey` are not: their reads of anchors, neighbours and list
   members take the caller's filters, a hidden anchor is refused as a missing
   one, a key depends on visible rows alone, and `rekey` writes only rows the
-  caller may update, around the hidden ones.
+  caller may update, around the others. The keys `rekey` writes sit between
+  the hidden members' keys, so they show where hidden members are in a
+  list, never which.
 - **Credential policy.** The live-credential example accepts either a session
   or a key. Bind one credential per request, or write a different predicate
   if your authentication contract requires another combination.

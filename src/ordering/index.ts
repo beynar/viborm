@@ -32,6 +32,7 @@ import {
   renderers,
 } from "../query-engine/raptor3/shared/insert-value";
 import type { Queries } from "../query-engine/raptor3/shared/query";
+import type { RowJudgement } from "../query-engine/raptor3/shared/row-scope";
 import { RowsOf } from "../query-engine/raptor3/shared/rows-of";
 import { getModelKeyCatalog } from "../schema/model/keys";
 import { type Sql, sql } from "../sql/sql";
@@ -287,6 +288,14 @@ function listFilter(
       )}`;
 }
 
+/**
+ * The members respacing may rewrite: those the call may update by writing
+ * the key, the rows its `updateMany` writes. Every other member (hidden, or
+ * seen and not writable) holds its place and its key.
+ */
+const movable = (key: string): RowJudgement =>
+  Object.freeze({ verb: "update", writes: Object.freeze([key]) });
+
 /** The key of rank `n` (from 0) in a list nobody hides a member of. */
 const rankKey = (n: number) => `${String(n).length}${n}`;
 
@@ -319,7 +328,7 @@ class Respaced extends InsertValue {
       membership(
         ordered,
         q,
-        q.value(new RowsOf(model, "s")),
+        q.value(new RowsOf(model, "s", movable(key))),
         listFilter(ordered, q, this.#chunk),
         this.#order
       )
@@ -421,12 +430,13 @@ async function respace(
   if (lists === undefined) chunks.push(undefined);
   else {
     // A list's values are bound three times (the rows written, and the
-    // members read twice).
+    // members read twice); half the driver's bound values are left to the
+    // call's own filters, which the call settles.
     const per = Math.max(1, within.length * 3);
     const size =
       binds === undefined
         ? lists.length
-        : Math.max(1, Math.floor((binds - 8) / per));
+        : Math.max(1, Math.floor(binds / 2 / per));
     for (let at = 0; at < lists.length; at += size)
       chunks.push(lists.slice(at, at + size));
   }
@@ -437,14 +447,13 @@ async function respace(
   let count = 0;
   for (const chunk of chunks) {
     let value: unknown;
-    let guard: Row[] = [];
     if (dialect === "mysql") value = new Respaced(ordered, chunk, order);
     else {
       const s = spellings[dialect as "postgresql" | "sqlite"];
       const rows = membership(
         ordered,
         q,
-        new RowsOf(model, "s"),
+        new RowsOf(model, "s", movable(key)),
         listFilter(ordered, q, chunk),
         order
       );
@@ -488,31 +497,18 @@ async function respace(
         [...sameList, sql`k.slot = m.pick`],
         " AND "
       )}`;
-      const next =
+      // PostgreSQL re-reads a row it waited on (a member another writer
+      // moved meanwhile) and ranks it where that writer put it; SQLite has
+      // no concurrent writer within a statement.
+      const map =
         dialect === "postgresql"
           ? sql`((SELECT json_object_agg(${spelled(of("m"))}, k.nk) ${pairs}) ->> ${own})`
           : sql`json_extract((SELECT json_group_object(${spelled(of("m"))}, k.nk) ${pairs}), '$.' || ${own})`;
-      value = new Computed(sql`COALESCE(${next}, ${column(key, target)})`);
-      // The key the row holds as the statement reads it: a member another
-      // writer moved meanwhile no longer matches, and keeps its key.
-      guard = [
-        {
-          [key]: {
-            equals: () =>
-              sql`(SELECT ${column(key, "x")} FROM ${q.table(model)} AS x WHERE ${sql.join(
-                identity.map(
-                  (field) =>
-                    sql`${column(field, "x")} = ${column(field, target)}`
-                ),
-                " AND "
-              )})`,
-          },
-        },
-      ];
+      value = new Computed(sql`COALESCE(${map}, ${column(key, target)})`);
     }
     const written = (await writes.updateMany({
       ...controls,
-      where: { AND: [...listWhere(chunk), ...guard] },
+      where: { AND: listWhere(chunk) },
       data: { [key]: value },
     })) as { count: number };
     count += written.count;

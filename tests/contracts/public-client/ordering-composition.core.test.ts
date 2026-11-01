@@ -626,9 +626,46 @@ describe("ordering review 2", () => {
     expect(await all()).toEqual(["D", "B", "C", "A"]);
   });
 
+  test("rekey moves only the members the caller may update: one it reads and may not write holds its place", async () => {
+    const shared = s.model({
+      id: s.int().id().increment(),
+      locked: s.boolean(),
+      rank: s.string().schema(orderingKey),
+      title: s.string(),
+    });
+    const client = createClient({
+      schema: { shared },
+      driver: createInMemorySQLite3Driver(),
+    }) as any;
+    await syncLiveSchema(client);
+    for (const [title, locked, rank] of [
+      ["A", false, "10"],
+      // Sorted first by title, desc: ranked as movable, it would take A's place.
+      ["Z", true, "11"],
+      ["C", false, "12"],
+    ] as const)
+      await client.shared.create({ data: { title, locked, rank } });
+    const governed = ordering({ shared: { key: "rank" } })(
+      client.$extends(
+        permissions({
+          actor: v.object({ userId: v.string() }),
+          models: { shared: { read: true, update: { locked: false } } },
+        } as any)
+      )
+    ) as any;
+    const everyone = ordering({ shared: { key: "rank" } })(client) as any;
+    await governed
+      .$as({ userId: "u1" })
+      .shared.rekey({ orderBy: { title: "desc" } });
+    // C and A trade the places they held; Z, read-only, stays between them.
+    expect(titles(await everyone.shared.findMany())).toEqual(["C", "Z", "A"]);
+    const z = await client.shared.findFirst({ where: { title: "Z" } });
+    expect(z.rank).toBe("11");
+  });
+
   test("respacing many lists stays under the driver's bound values", async () => {
     class Bounded extends SQLite3Driver {
-      override readonly maxBindParametersPerStatement = 3;
+      override readonly maxBindParametersPerStatement = 20;
     }
     const client = createClient({
       schema,
@@ -648,13 +685,13 @@ describe("ordering review 2", () => {
     seen.length = 0;
     const { count } = await db.item.rekey({ orderBy: { title: "desc" } });
     expect(count).toBe(14);
-    // The lists' read, then as many lists per UPDATE as its bound values
-    // allow: each list is bound three times (the rows written, and the
-    // members read twice), so one here, and no statement past the driver's 3.
+    // The lists' read, then as many lists per UPDATE as half its bound
+    // values allow: each list is bound three times, so three per statement
+    // here, and no statement past the driver's 20.
     const updates = seen.filter((text) => text.startsWith("UPDATE"));
-    expect(updates).toHaveLength(7);
+    expect(updates).toHaveLength(3);
     for (const update of updates)
-      expect(update.split("?").length - 1).toBeLessThanOrEqual(3);
+      expect(update.split("?").length - 1).toBeLessThanOrEqual(20);
     for (let board = 1; board <= 7; board++)
       expect(
         titles(await db.item.findMany({ where: { boardId: board } }))
