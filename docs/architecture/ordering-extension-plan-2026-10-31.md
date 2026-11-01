@@ -624,3 +624,26 @@ caller's side and passing it to `move`.
 - Documented: the key lands where its value puts it among the keys as they
   are, so a neighbour moved or a list respaced since the caller's read
   places the row there, not next to the cards the caller saw.
+
+## 20. The one-UPDATE move's plan on PostgreSQL (2026-11-01)
+
+`main`'s CI after the 1.7.0 merge: the 200-move model check timed out on
+PostgreSQL (20–30 s, against 0.7 s on MySQL). A move cost 27 ms on a 4-row
+table: 16 ms planning and 15 ms executing.
+
+- **Cause:** our SQL, not the database. The 37 subqueries the statement
+  spells became 1,962 InitPlans and 290 scans. PostgreSQL flattens the
+  derived tables the key expression reads its bounds through, copying each
+  bound's subquery into every reference to `lo`, `hi`, `il` and `ih`, nested
+  copies included.
+- **Fix:** each derived table ends in `OFFSET 0` (`Spelling.fence`;
+  SQLite's planner did not copy them). The plan has 24 InitPlans; a move
+  takes 2.5 ms on the small table.
+- **Fix:** the list comparison used `IS NOT DISTINCT FROM`, which no index
+  serves, so every move scanned the table. A required list field now
+  compares with `=`, and a nullable one with `(a = b OR (a IS NULL AND b IS
+  NULL))`. `to`'s known values use `=` or `IS NULL`, since a bare `$n IS
+  NULL` has no type in PostgreSQL (42P18).
+- **Result** at 20,000 rows in 200 lists: 1.3 ms per move with a required
+  list field and 2.0 ms with a nullable one, with no Seq Scan and 0.1–0.2 ms
+  of execution. The model check takes 0.35–0.45 s on PostgreSQL.

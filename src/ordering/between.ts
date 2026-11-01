@@ -28,15 +28,20 @@ export interface Spelling {
   readonly small: (value: Sql) => Sql;
   readonly big: (value: Sql) => Sql;
   readonly pad: (text: Sql, length: Sql) => Sql;
+  /** Ends a derived table its outer query must not flatten (PostgreSQL
+   * would copy its subqueries into every reference to its columns). */
+  readonly fence: Sql;
 }
 
 export const spellings: Readonly<Record<"postgresql" | "sqlite", Spelling>> = {
   postgresql: {
-    same: (a, b) => sql`${a} IS NOT DISTINCT FROM ${b}`,
+    // Not IS NOT DISTINCT FROM, which no index serves.
+    same: (a, b) => sql`(${a} = ${b} OR (${a} IS NULL AND ${b} IS NULL))`,
     digits: (key) => sql`${key} ~ '^[0-9]{2,}$'`,
     small: (value) => sql`CAST(${value} AS integer)`,
     big: (value) => sql`CAST(${value} AS bigint)`,
     pad: (text, length) => sql`lpad(${text}, ${length}, '0')`,
+    fence: sql` OFFSET 0`,
   },
   sqlite: {
     same: (a, b) => sql`${a} IS ${b}`,
@@ -44,6 +49,7 @@ export const spellings: Readonly<Record<"postgresql" | "sqlite", Spelling>> = {
     small: (value) => sql`CAST(${value} AS INTEGER)`,
     big: (value) => sql`CAST(${value} AS INTEGER)`,
     pad: (text, length) => sql`substr('000000000' || ${text}, -(${length}))`,
+    fence: sql.empty,
   },
 };
 
@@ -69,7 +75,7 @@ function encoded(s: Spelling, value: Sql): Sql {
   )} || ${text(n)} ELSE '0' || ${text(sql`9 - ${width}`)} || ${s.pad(
     text(sql`${s.big(sql`substr(${POWERS}, 1, ${width} + 1)`)} + ${n}`),
     width
-  )} END FROM (SELECT ${value} AS n) AS e)`;
+  )} END FROM (SELECT ${value} AS n${s.fence}) AS e)`;
 }
 
 /**
@@ -108,7 +114,7 @@ export function between(
     WHEN substr(${hi}, 1, length(${lo})) = ${lo} THEN ${lo} || substr(${ZEROS}, 1, ${zeros}) || ${r}
     ELSE ${lo} || ${r}
   END`;
-  return sql`(SELECT CASE WHEN length(d.k) <= ${sql.raw(String(MAX_KEY_LENGTH))} THEN d.k END FROM (SELECT ${key} AS k FROM (SELECT b.lo, b.hi, ${decoded(s, sql.raw("b.lo"))} AS il, ${decoded(s, sql.raw("b.hi"))} AS ih FROM (SELECT (${lower}) AS lo, (${upper}) AS hi) AS b) AS c) AS d)`;
+  return sql`(SELECT CASE WHEN length(d.k) <= ${sql.raw(String(MAX_KEY_LENGTH))} THEN d.k END FROM (SELECT ${key} AS k FROM (SELECT b.lo, b.hi, ${decoded(s, sql.raw("b.lo"))} AS il, ${decoded(s, sql.raw("b.hi"))} AS ih FROM (SELECT (${lower}) AS lo, (${upper}) AS hi${s.fence}) AS b${s.fence}) AS c${s.fence}) AS d)`;
 }
 
 /** Two random digits, the last not zero: a moved key's random part. */

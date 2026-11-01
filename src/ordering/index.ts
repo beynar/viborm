@@ -387,11 +387,19 @@ function methods(ordered: Ordered, engine: () => Engine) {
             ? sql`NULL`
             : q.fieldValue(model, field, to[field])
           : of("m", recognised, field);
+    // A required list field compares with `=`; a nullable one NULL-safely.
     const inList = (alias?: string) =>
       within.length === 0
         ? sql`1 = 1`
         : sql.join(
-            within.map((field) => s.same(column(field, alias), listed(field))),
+            within.map((field) =>
+              // `to` names the list by value: no NULL to compare safely.
+              to !== undefined && anchored === undefined && to[field] === null
+                ? sql`${column(field, alias)} IS NULL`
+                : scalars[field]!["~"].state.nullable && to === undefined
+                  ? s.same(column(field, alias), listed(field))
+                  : sql`${column(field, alias)} = ${listed(field)}`
+            ),
             " AND "
           );
     const anchorKey =
