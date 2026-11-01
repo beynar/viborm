@@ -18,7 +18,12 @@ import { MemoryCache } from "@src/cache/drivers/memory";
 import { cache } from "@src/cache/exports";
 import { defaultOmit } from "@src/client/exports";
 import { PGliteDriver } from "@src/drivers/pglite";
-import { createClient, type ExtendedOperationResult, s } from "@src/index";
+import {
+  createClient,
+  type DelegateOperationResult,
+  type ExtendedOperationResult,
+  s,
+} from "@src/index";
 import { softDelete } from "@src/soft-delete";
 
 type Equal<Left, Right> =
@@ -199,6 +204,32 @@ export async function laterResult() {
   type _replaced = Expect<Equal<typeof restored.title, number>>;
   type _asUpdate = Expect<Equal<typeof restored, typeof updated>>;
 }
+// Computed fields reach rows only: a count, an existence test, an aggregate
+// and a bulk write keep their shapes.
+type ComputedPost = (typeof computed)["post"];
+type _count = Expect<
+  Equal<DelegateOperationResult<ComputedPost, "count", object>, number>
+>;
+type _exist = Expect<
+  Equal<DelegateOperationResult<ComputedPost, "exist", object>, boolean>
+>;
+type _aggregate = Expect<
+  Equal<
+    DelegateOperationResult<ComputedPost, "aggregate", { _count: true }>,
+    ExtendedOperationResult<
+      typeof computed,
+      "post",
+      "aggregate",
+      { _count: true }
+    >
+  >
+>;
+type _bulk = Expect<
+  Equal<
+    DelegateOperationResult<ComputedPost, "updateMany", object>,
+    { count: number }
+  >
+>;
 
 // Called off its delegate, a method's result is `unknown`: using it is a
 // type error, never a silent `never`.

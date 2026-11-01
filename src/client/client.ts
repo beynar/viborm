@@ -114,6 +114,7 @@ import type {
   CachedClient,
   Client,
   ClientRowsContext,
+  ComputedOperation,
   ComputedResultContext,
   ContextualOperationResult,
   Operations,
@@ -666,12 +667,15 @@ export type DelegateOperationResult<
 >
   ? [keyof Result] extends [never]
     ? DelegateRow<C, Rows, K & keyof ClientSchema<C>, O, Args>
-    : WithComputedResult<
-        DelegateRow<C, Rows, K & keyof ClientSchema<C>, O, Args>,
-        ClientSchema<C>[K & keyof ClientSchema<C>],
-        Args,
-        ComputedResultContext<Result, ClientSchema<C>, K>
-      >
+    : // Computed fields reach the rows an operation returns, nothing else.
+      O extends Exclude<Operations, ComputedOperation>
+      ? DelegateRow<C, Rows, K & keyof ClientSchema<C>, O, Args>
+      : WithComputedResult<
+          DelegateRow<C, Rows, K & keyof ClientSchema<C>, O, Args>,
+          ClientSchema<C>[K & keyof ClientSchema<C>],
+          Args,
+          ComputedResultContext<Result, ClientSchema<C>, K>
+        >
   : // Called off a delegate (a destructured method): nothing to read the
     // result from, and `unknown` makes using it a type error.
     unknown;
