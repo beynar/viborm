@@ -438,10 +438,11 @@ await db.project.findMany({ archived: "only" }); // archived projects
   own definition is not seen: declare `rows` in an earlier `$extends` step.
 - A client with `rows` keys its cached reads on the declarations, so it never
   shares a cache entry with a client without them.
-- Apply an extension with `rows` before any extension that adds model-mapped
-  `query` handlers or `client`/`model` methods: after one, the application is
-  refused, as `defaultOmit()` is. An entry that has both offers them as two
-  steps, applied with every `rows` step first ([compose](#rows-steps-first)).
+- An extension with `rows` may follow any other: its rows apply to every
+  call of the chain, methods' calls included. TypeScript refuses it only
+  after a factory typed against the client it extends, whose types it would
+  make lie, as it refuses `defaultOmit()` there
+  ([compose](#methods-typed-from-the-client-they-are-called-on)).
 - `rows` decides which rows are visible. It is not authorization by itself:
   any caller can choose another mode or pass another value, unless that value
   is a `bound`, `required` control (as [`viborm/permissions`](/docs/extensions/permissions)'s
@@ -998,25 +999,57 @@ const db = client
   .$extends(postTools);
 ```
 
-### Rows steps first
+### Methods typed from the client they are called on
 
-An extension that declares `rows` cannot follow one that adds methods, since
-those were typed against rows that the later step would hide. An entry with
-both, as the official soft delete, is two steps as well as one:
-`softDelete(config).rows` (its controls, `rows` and `deletion`) and
-`softDelete(config).methods` (`restore`). Apply every `rows` step of the
-chain, then the methods:
+Every extension's `rows`, `defaultOmit` and the rest apply to every call,
+methods' calls included, whatever the order of the chain: a method runs
+through the whole chain of the client it is called on.
+
+Only its **types** can fall behind. A factory that takes its delegate (or
+scope) typed, `(delegate) => …`, is typed against the client it extends: a
+later `rows` step can make a to-one relation it reads `null`, and a later
+`defaultOmit` can drop a field it reads. So TypeScript refuses a `rows` or
+`defaultOmit` step after such a factory (the result is `never`); the
+runtime does not.
+
+A factory that reads nothing typed, taking its delegate as `never` (or no
+argument), may be followed by anything. Type each method's result from the
+delegate it is called on with a `this` parameter and
+`DelegateOperationResult`:
 
 ```ts
-const tombstones = softDelete({ models: { post: { deletedAt: "deletedAt" } } });
+import type { DelegateOperationResult, PendingOperation } from "viborm";
 
-const db = tombstones.methods(tombstones.rows(client).$extends(tenancy));
+type Archive = {
+  archive<Self, A extends { where: { id: string } }>(
+    this: Self,
+    args: A
+  ): PendingOperation<DelegateOperationResult<Self, "update", A>>;
+};
+
+const archiving = {
+  name: "archive",
+  model: {
+    post: (delegate: never): Archive => {
+      const { update } = delegate as {
+        update: (args: object) => PendingOperation<never>;
+      };
+      return {
+        archive: (args) => update({ ...args, data: { archived: true } }),
+      };
+    },
+  },
+};
 ```
 
+`db.post.archive(…)` then returns what `db.post.update(…)` returns on that
+client, after every extension applied later. The official soft delete,
+ordering and permissions are written this way, so each is one step,
+applied in any order.
+
 A method that binds a control belongs to the extension that declares it
-(`$bind` takes no other's), so an entry whose `rows` step declares a bound
-control carries that method there, and that step is the last `rows` step of
-the chain.
+(`$bind` takes no other's), so an entry whose `rows` declare a bound control
+carries that method in the same definition.
 
 ### Name the complete client type
 

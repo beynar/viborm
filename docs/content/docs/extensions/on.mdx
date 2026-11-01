@@ -304,8 +304,7 @@ transaction adds its `BEGIN` and `COMMIT`:
 
 ## Composing
 
-`on()` is not a result consumer: apply it before or after any other
-extension. It sees the writes of the whole chain, including the update a soft
+Apply `on()` before or after any other extension. It sees the writes of the whole chain, including the update a soft
 delete makes of a delete and the rows a permission lets a call write (a row the
 call may not write is not written, so it calls no hook). Every other
 extension's `query` handler sees the call's own value, exactly what the caller

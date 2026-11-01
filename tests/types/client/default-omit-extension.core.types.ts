@@ -181,13 +181,23 @@ const priorMappedQuery = base.$extends({
     },
   },
 });
+// Factories typed against the client they extend: their results' types
+// would lie under a later omit. Blind ones (no typed argument) would not.
 const priorClient = base.$extends({
   name: "prior-client",
-  client: () => ({ $prior: () => true }),
+  client: (scope) => ({ $prior: () => scope.user !== undefined }),
 });
 const priorModel = base.$extends({
   name: "prior-model",
-  model: { user: () => ({ prior: () => true }) },
+  model: { user: (delegate) => ({ prior: () => delegate.findFirst() }) },
+});
+const priorBlindClient = base.$extends({
+  name: "prior-blind-client",
+  client: () => ({ $prior: () => true }),
+});
+const priorBlindModel = base.$extends({
+  name: "prior-blind-model",
+  model: { user: (_delegate: never) => ({ prior: () => true }) },
 });
 const priorStatement = base.$extends({
   name: "prior-statement",
@@ -208,6 +218,8 @@ priorMappedQuery.$extends(official);
 priorClient.$extends(official);
 // @ts-expect-error - a prior model method captured the unomitted result contract
 priorModel.$extends(official);
+priorBlindClient.$extends(official);
+priorBlindModel.$extends(official);
 priorStatement.$extends(official);
 priorObserve.$extends(official);
 priorCache.$extends(official);

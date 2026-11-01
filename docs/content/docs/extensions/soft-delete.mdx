@@ -38,31 +38,37 @@ await db.user.findMany({ include: { posts: true } }); // each user's live posts
 await db.post.findMany({ deleted: "only" });          // recycle bin
 await db.post.delete({ where: { id: "p1" } });        // tombstones p1, returns it
 await db.post.restore({ where: { id: "p1" }, select: { id: true } }); // { id }
+await db.post.purge({ where: { id: "p1" } });         // removes the tombstone
 ```
 
 `softDelete(config)` returns a client factory accepted by `$extends()`. Direct
 application with `softDelete(config)(base)` also works. The original client is
 unchanged: keep it for maintenance work that must see every row.
 
-Apply `defaultOmit()` and any other extension that declares `rows` before
-`softDelete()`: the `restore` methods it adds are model methods, and neither
-may follow those. The [cache](#caching) can go on either side.
+### With other extensions
 
-When a `rows` extension must come after soft delete's own (one whose filters
-should see only live rows), apply soft delete's two steps apart:
-`softDelete(config).rows` declares its controls, `rows` and `deletion`, and
-`softDelete(config).methods` adds `restore` to the client it is given. Every
-`rows` step goes first:
+`softDelete()` is one step, applied in any order with the other extensions:
+[permissions](/docs/extensions/permissions#11-with-soft-delete-and-other-extensions),
+[ordering](/docs/extensions/ordering), [`on`](/docs/extensions/on), the
+[cache](#caching), `defaultOmit()` and your own `rows` extensions.
 
 ```ts
-const tombstones = softDelete({ models: { post: { deletedAt: "deletedAt" } } });
 const db = base
-  .$extends(tombstones.rows)
-  .$extends(tenancy)
-  .$extends(tombstones.methods);
+  .$extends(softDelete({ models: { post: { deletedAt: "deletedAt" } } }))
+  .$extends(permissions(policy))
+  .$extends(defaultOmit<typeof schema>()({ post: { secret: true } }));
 ```
 
-`softDelete(config)(base)` is `tombstones.methods(tombstones.rows(base))`.
+Every extension's rows apply to every call, whichever came first: a row must
+pass all of them. The `restore` and `purge` methods type their result from
+the client you call them on, so an extension applied after soft delete
+shapes it too: a later `defaultOmit` leaves its fields out, and a later
+`rows` extension types a to-one relation it can hide as `| null`.
+
+A chain written before 1.8 applied the two steps apart,
+`softDelete(config).rows` and `softDelete(config).methods`, around other
+extensions. That chain still works, and needs no change; one `$extends` does
+the same.
 
 ## Configuration
 
@@ -72,11 +78,10 @@ const db = base
 | `models.<model>.deletedBy` | Optional. A scalar field that receives `actor` on delete and is cleared on restore. |
 | `actor` | Optional. The value written into `deletedBy`. Without it, `deletedBy` is written `null`. |
 
-Names are checked when the extension is applied: a model the schema lacks or a
-field the model lacks is refused there with a `ClientInitializationError`
-(`V1004`). Field types are not checked: a `deletedAt` that names a field of
-another type, such as a string, is accepted, and the first delete fails with
-a `ValidationError` (`V4001`). TypeScript flags a misspelt member in your
+Both are checked when the extension is applied, with a
+`ClientInitializationError`: a model the schema lacks, a field the model
+lacks (`V1004`), and a `deletedAt` that is not a nullable `DateTime`
+(`s.dateTime().nullable()`). TypeScript flags a misspelt member in your
 editor.
 
 ### One actor per client, one actor per transaction
@@ -90,8 +95,8 @@ function clientFor(session: Session) {
 }
 ```
 
-Deriving costs two `$extends` calls, about 11 µs (an estimate: two derived
-clients at about 5.5 µs each, from one measurement). A transaction client has
+Deriving costs one `$extends` call, about 5.5 µs (from one measurement of a
+derived client). A transaction client has
 no `$extends`, so **one transaction has one actor**: derive the client with the
 right actor before calling `$transaction`, and use a separate transaction for a
 different actor.
@@ -262,27 +267,35 @@ await db.post.restoreMany({ where: { deletedAt: { gte: since } } });
 - Restoring a row whose unique key a live row now holds fails with
   `UniqueConstraintError`; inside a transaction the transaction rolls back.
 
-## Purging: `mode: "hard"`
+## Purging: `purge` and `purgeMany`
 
-`mode: "hard"` on `delete` or `deleteMany` of a configured model deletes
-physically, with the database's own referential actions. TypeScript flags
-`mode` on any other model or operation.
+`purge` and `purgeMany` exist on the configured models. They take the
+model's own `delete`/`deleteMany` arguments, select **tombstones only**, and
+delete them physically, with the database's own referential actions:
 
 ```ts
-await db.post.deleteMany({
-  where: { deletedAt: { lt: cutoff } },
-  deleted: "only",
-  mode: "hard",
-});
+await db.post.purgeMany({ where: { deletedAt: { lt: cutoff } } }); // { count }
+await db.post.purge({ where: { id: "p1" }, select: { id: true } }); // { id }
 ```
 
+- A live row is never purged: `purge` of a live row is `NotFoundError`, and
+  `purgeMany` does not count it, whatever its `where` says.
+- The result is narrowed like `delete`'s: `select` and `include` shape it.
+- TypeScript flags `deleted` and `mode` on them: they set both themselves.
+- Under [permissions](/docs/extensions/permissions), a purge is a delete: it
+  needs the delete action.
+
+### `mode: "hard"`
+
+`mode: "hard"` on `delete` or `deleteMany` of a configured model also deletes
+physically. It is what `purge` is built on, and it keeps working as before.
+TypeScript flags `mode` on any other model or operation.
+
 :::warning
-**A purge says `deleted: "only"`.** `mode: "hard"` keeps the live default.
-Without `deleted: "only"`, the purge above deletes nothing (live rows have no
-`deletedAt`). Filtered on `createdAt` instead,
-`deleteMany({ where: { createdAt: { lt: cutoff } }, mode: "hard" })` deletes
-old **live** posts and keeps every tombstone. VibORM does not refuse either
-call.
+**`mode: "hard"` keeps the live default**: it deletes **live** rows unless
+the call also says `deleted: "only"`. `deleteMany({ where: { createdAt: {
+lt: cutoff } }, mode: "hard" })` deletes old live posts and keeps every
+tombstone. Use `purge` and `purgeMany` to remove tombstones.
 :::
 
 ## Unique keys
@@ -313,6 +326,38 @@ const user = s
 conflict. Restore first, or pass `deleted: "with"` to `upsert` to update the
 tombstone as it is.
 
+## Indexes
+
+Every read of a configured model adds `deletedAt IS NULL` to its `WHERE`
+(`IS NOT NULL` under `deleted: "only"`), including the reads of related rows
+and the live-child check of a delete. Index for it:
+
+- **PostgreSQL and SQLite:** give the indexes your reads use a partial
+  index over live rows, `where: '"deletedAt" IS NULL'`. It is smaller than a
+  full index and serves exactly the default reads:
+
+  ```ts
+  const post = s
+    .model({
+      id: s.string().id(),
+      authorId: s.string(),
+      createdAt: s.dateTime(),
+      deletedAt: s.dateTime().nullable(),
+      // …
+    })
+    .index(["authorId", "createdAt"], { where: '"deletedAt" IS NULL' });
+  ```
+
+  A recycle bin read often enough to matter (`deleted: "only"`) needs its own
+  index, for instance `.index(["deletedAt"], { where: '"deletedAt" IS NOT NULL' })`.
+- **MySQL** has no partial index (the declaration is refused there). Put the
+  marker in the composite indexes your reads use, after the columns they
+  filter on by equality: `.index(["authorId", "deletedAt", "createdAt"])`.
+
+The foreign keys that children hold toward a configured model are what the
+live-child check of a delete reads: index them as you would for the
+database's own `restrict`.
+
 ## Caching
 
 With the official [cache](/docs/extensions/cache), a cached read is keyed on
@@ -324,7 +369,8 @@ a durable write, including entries for other models that include the deleted row
 as after a hard delete. Automatic invalidation is enabled by default; opting out
 requires manual invalidation. The cache works in either
 order: `softDelete(config)(client.$extends(cache(…)))` or
-`softDelete(config)(client).$extends(cache(…))`.
+`softDelete(config)(client).$extends(cache(…))`, and so does a purge's
+invalidation, as any delete's.
 
 ## Adopting soft delete
 

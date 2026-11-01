@@ -1,7 +1,7 @@
 import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
 import { createClient } from "@drivers/sqlite3";
-import { ClientInitializationError, ForbiddenError } from "@errors";
+import { ForbiddenError } from "@errors";
 import { s } from "@schema";
 import { createModelFieldRefs } from "@schema/field-ref";
 import { permissions, type Rule } from "@src/permissions";
@@ -229,20 +229,24 @@ test("$extends applies Permissions with actor isolation, methods and transaction
     );
     expect(await base.post.count()).toBe(2);
 
-    // Factories still append through the existing chain admission boundary.
+    // Rows may follow a method: its calls run through the whole chain. Only
+    // TypeScript refuses it, after a factory typed against its client.
     const consumer = base.$extends({
       name: "consumer",
-      client: () => ({ $ready: () => true }),
+      client: (scope) => ({
+        $ready: async () => (await scope.post.count()) > 0,
+      }),
     });
-    expect(() =>
-      consumer.$extends(
-        // @ts-expect-error - exercise the runtime refusal for invalid ordering
-        permissions({
-          actor: v.object({ userId: v.string() }),
-          models: { post: { read: {} } },
-        })
-      )
-    ).toThrow(ClientInitializationError);
+    const late = consumer.$extends(
+      // @ts-expect-error - rows after a factory typed against its client
+      permissions({
+        actor: v.object({ userId: v.string() }),
+        models: { post: { read: { authorId: { actor: "userId" } } } },
+      })
+    ) as unknown as {
+      $as(actor: { userId: string }): { $ready(): Promise<boolean> };
+    };
+    expect(await late.$as({ userId: "nobody" }).$ready()).toBe(false);
   } finally {
     await base.$disconnect();
   }

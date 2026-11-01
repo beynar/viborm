@@ -121,8 +121,8 @@ export type HasResultConsumingExtension<X extends ExtensionStateConstraint> = [
 
 declare const delegateState: unique symbol;
 /**
- * Declaration-only: the client a delegate that carries extension methods
- * belongs to, so a method typed with a `this` parameter reads its result
+ * Declaration-only: the client a delegate of a chain that adds model
+ * methods belongs to, so a method typed with a `this` parameter reads its result
  * from the client it is called on (`DelegateOperationResult`), whatever the
  * chain added after it. No property is installed at runtime.
  */
@@ -131,12 +131,22 @@ export interface DelegateState<C, X, ModelName> {
 }
 
 type MethodsForModel<
+  X extends ExtensionStateConstraint,
+  ModelName extends PropertyKey,
+> = ModelName extends keyof X["models"] ? X["models"][ModelName] : NoMethods;
+
+/**
+ * The link, on every delegate of a chain that adds model methods: decided by
+ * the extension state alone, so a client generic over its schema without
+ * them (the empty state) compares as before.
+ */
+type DelegateLink<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
   ModelName extends PropertyKey,
-> = ModelName extends keyof X["models"]
-  ? X["models"][ModelName] & DelegateState<C, X, ModelName>
-  : NoMethods;
+> = [keyof X["models"]] extends [never]
+  ? unknown
+  : DelegateState<C, X, ModelName>;
 
 /**
  * One model's delegate after the chain's methods and controls. On a chain
@@ -160,7 +170,8 @@ export type ExtensionModelDelegate<
         X["data"],
         ModelName
       >) &
-  MethodsForModel<C, X, ModelName>;
+  MethodsForModel<X, ModelName> &
+  DelegateLink<C, X, ModelName>;
 
 /**
  * One model's delegate on a chain that declares `result`: its projecting

@@ -1056,25 +1056,25 @@ These choices belong to the application; Permissions supplies no authentication 
 
 ## 11. With soft delete and other extensions
 
-Extensions combine by intersection: a row must pass every one of them.
-Apply every `rows` step first, `permissions`'s last among them, then the `methods`
-steps:
+Extensions combine by intersection: a row must pass every one of them. Each
+official extension is one step, applied in any order:
 
 ```ts
 import { softDelete } from "viborm/soft-delete";
 
-const tombstones = softDelete({ models: { document: { deletedAt: "deletedAt" } } });
 const db = base
-  .$extends(tombstones.rows)
-  .$extends(policy)
-  .$extends(tombstones.methods);
+  .$extends(softDelete({ models: { document: { deletedAt: "deletedAt" } } }))
+  .$extends(policy);
+// or base.$extends(policy).$extends(softDelete(…)): the same client
 ```
 
 - A deleted grant, membership or team member grants nothing.
-- A soft delete is a delete: it needs the delete action, and so does writing
-  `deletedAt` by hand or restoring a row.
-- `base.$extends(tombstones).$extends(policy)` is refused with a `ClientInitializationError`
-  naming the order.
+- A soft delete is a delete: it needs the delete action, and so do writing
+  `deletedAt` by hand, restoring a row and purging a tombstone.
+- `restore` and `purge` are typed from the governed client: a to-one relation
+  the policy can hide reads `| null` in their results, whatever the order.
+- A chain written before 1.8, `base.$extends(tombstones.rows).$extends(policy)
+  .$extends(tombstones.methods)`, still works unchanged.
 
 An extension applied after `permissions` can read the bound actor:
 `{ control: "actor", path: "userId" }` in a `data` stamp writes the caller's
@@ -1711,7 +1711,13 @@ internal accessors, so it is versioned with the core it ships in.
   `createMany({ skipDuplicates })` counts, `connectOrCreate` choosing its arm,
   a visible foreign key whose include reads `null`, and a polymorphic arm
   each reveal that a row exists, never its content. **Include the tenant
-  column in every unique key.**
+  column in every unique key.** [Ordering](/docs/extensions/ordering)'s
+  `move` is not one: it reads its anchor (`after`, `before`) through the
+  caller's view, so a hidden anchor is refused as a missing one. The key a
+  move computes sits between the anchor and the nearest key of its list,
+  hidden members included, so its digits can hint that a hidden member is
+  near, never which row it is or what it holds; `rekey` respaces whole
+  lists, hidden members too.
 - **Credential policy.** The live-credential example accepts either a session
   or a key. Bind one credential per request, or write a different predicate
   if your authentication contract requires another combination.
