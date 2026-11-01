@@ -71,7 +71,9 @@ export function describeOrdering(
   /** Statements a move within a list and a plain update send: one UPDATE
    * each, where it computes the key and returns its row (MySQL reads the
    * neighbours, then locks, updates and reads the row). */
-  { move = 1, update = 1 } = {}
+  /** …and a rekey: the read of its lists and one UPDATE (MySQL reads the
+   * members first: it refuses a subquery on the table an UPDATE writes). */
+  { move = 1, update = 1, rekey = 2 } = {}
 ) {
   const statements: string[] = [];
   let base_: any;
@@ -414,8 +416,9 @@ export function describeOrdering(
       statements.length = 0;
       const { count } = await db.card.rekey({ where: { id: "c" } });
       expect(count).toBe(4);
-      // One statement reads the lists, one respaces them.
-      expect(statements).toHaveLength(2);
+      // One statement reads the lists, one respaces them (MySQL: and one
+      // reads their members).
+      expect(statements).toHaveLength(rekey);
       expect(await listOf(db, "c1")).toEqual(["a", "b", "c", "d"]);
     });
 
@@ -523,7 +526,7 @@ export function describeOrdering(
       });
       // The read path: the anchor (its list may be NULL), its window, the
       // UPDATE; MySQL takes it ungoverned too.
-      const governedMove = move === 1 ? 3 : move;
+      const governedMove = move;
       const viaPolicy = [
         policy(order(counted_) as any),
         order(policy(counted_) as any),
@@ -551,6 +554,47 @@ export function describeOrdering(
         deleted: "with",
       });
       expect(await listOf(db, "c1")).toEqual(["b", "h", "t", "a"]);
+    });
+
+    test("rekey rewrites the members the caller sees around those it does not: every viewer keeps the order, the hidden ones are not written", async () => {
+      const db = await setup();
+      // A visibility-blind respace would give a, c, d 10, 12, 13, all after t.
+      for (const [id, rank] of [
+        ["a", "0812345678"],
+        ["t", "0899"],
+        ["c", "08990000001"],
+        ["d", "08990000002"],
+      ] as const)
+        await db.card.create({ data: { id, columnId: "c1", title: id, rank } });
+      await base_.card.update({
+        where: { id: "t" },
+        data: { deletedAt: new Date("2026-01-01T00:00:00.000Z") },
+      });
+      const governed = softDelete({
+        models: { card: { deletedAt: "deletedAt" } },
+      })(db as any) as any;
+      const whole = async () =>
+        titles(await governed.card.findMany({ deleted: "with" }));
+      expect(await whole()).toEqual(["a", "t", "c", "d"]);
+      expect(
+        (await governed.card.rekey({ where: { columnId: "c1" } })).count
+      ).toBe(3);
+      expect(await whole()).toEqual(["a", "t", "c", "d"]);
+      const ranks = Object.fromEntries(
+        (await base_.card.findMany({ select: { id: true, rank: true } })).map(
+          (row: { id: string; rank: string }) => [row.id, row.rank]
+        )
+      );
+      expect(ranks.t).toBe("0899");
+      // Shorter than the keys the moves had grown.
+      for (const id of ["a", "c", "d"])
+        expect(ranks[id].length).toBeLessThan(10);
+      // Re-sorted, the visible members trade the places they held.
+      await governed.card.rekey({
+        where: { columnId: "c1" },
+        orderBy: { title: "desc" },
+      });
+      expect(await whole()).toEqual(["d", "t", "c", "a"]);
     });
 
     test("a rows extension declared through verbs alone governs move too", async () => {

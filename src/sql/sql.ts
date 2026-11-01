@@ -138,6 +138,16 @@ export class Sql {
     return { runs, values };
   }
 
+  /**
+   * Visit `fragment` and every fragment composed into it, outermost first.
+   * A flattened fragment holds no fragment any more: only its own visit.
+   */
+  static each(fragment: Sql, visit: (node: Sql) => void): void {
+    visit(fragment);
+    for (const child of fragment.rawValues)
+      if (child instanceof Sql) Sql.each(child, visit);
+  }
+
   /** `slot`'s text replaced by `content`'s (see {@link SqlSlot.settle}). */
   protected static fill(slot: Sql, content: Sql): void {
     slot.rawStrings = ["", ""];

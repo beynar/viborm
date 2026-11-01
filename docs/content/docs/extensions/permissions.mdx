@@ -1712,10 +1712,10 @@ internal accessors, so it is versioned with the core it ships in.
   a visible foreign key whose include reads `null`, and a polymorphic arm
   each reveal that a row exists, never its content. **Include the tenant
   column in every unique key.** [Ordering](/docs/extensions/ordering)'s
-  `move` is not one: on a governed model it reads its anchor and neighbours
-  through the caller's view, so a hidden anchor is refused as a missing one
-  and its key depends on visible rows alone. `rekey` respaces whole lists,
-  hidden members too, and its `{ count }` counts them.
+  `move` and `rekey` are not: their reads of anchors, neighbours and list
+  members take the caller's filters, a hidden anchor is refused as a missing
+  one, a key depends on visible rows alone, and `rekey` writes only rows the
+  caller may update, around the hidden ones.
 - **Credential policy.** The live-credential example accepts either a session
   or a key. Bind one credential per request, or write a different predicate
   if your authentication contract requires another combination.

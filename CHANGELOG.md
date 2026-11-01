@@ -29,8 +29,16 @@ anchor; a MySQL soft delete takes one statement fewer.
   and `.methods` still work, for chains written before.
 - **`ordering(config)`** is one definition too; `move`'s result is typed from
   the client it is called on. `ordering(c).keys` and `.methods` still work.
-  `rekey` invalidates the official cache of the client it is called on, also
-  when the cache is applied after ordering (it was read at application).
+- **`rekey` (and a move's respacing) is an `updateMany` through the client**,
+  no longer a raw UPDATE: rows, permissions, write hooks, `updatedAt` and the
+  cache apply as to any update, whichever order the extensions came in. It
+  writes only the members the caller may see and update, each with a short
+  key between the keys of the hidden members around it, so whoever sees the
+  whole list reads it in the order it had (1.7.0 rewrote whole lists,
+  hidden members included). With `orderBy`, the caller's members are
+  re-sorted among the places they held. Statements: unchanged on
+  PostgreSQL and SQLite (the lists' read and one UPDATE); MySQL reads the
+  members first.
 - A soft delete behind `restrict` children on MySQL sends 4 statements, not
   5: the lock before the live-child check is the capture of the rows' keys,
   and the write no longer locks them again. PostgreSQL keeps its 3 (lock,
@@ -49,14 +57,13 @@ anchor; a MySQL soft delete takes one statement fewer.
 
 ### Fixed
 
-- **Ordering: `move` was an existence oracle under `rows`.** Its one-UPDATE
-  path read the anchor and neighbours from the table, so `move({ after: {
-  id } })` succeeded for a hidden row and failed for a missing one, and the
-  key it wrote showed whether a list held hidden members. Where an extension
-  declares `rows` on the model (in its modes or its verbs: permissions,
-  soft delete, your own), the move takes its read path through the
-  caller's view (2 to 4 statements, those models only): a hidden anchor is a
-  `NotFoundError`, as a missing one is, and the key depends on visible rows
+- **Ordering: `move` was an existence oracle under `rows`.** Its one UPDATE
+  read the anchor and neighbours from the table, so `move({ after: { id } })`
+  succeeded for a hidden row and failed for a missing one, and the key it
+  wrote showed whether a list held hidden members. Its subqueries now take
+  the caller's row filters, as every read of the engine does (a `RowsOf`
+  node the operation settles): still one statement, a hidden anchor is a
+  `NotFoundError` as a missing one is, and the key depends on visible rows
   alone.
 - **Soft delete checks its marker when applied.** A `deletedAt` that is not
   a nullable `DateTime` is a `ClientInitializationError` naming the field; a

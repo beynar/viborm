@@ -123,15 +123,15 @@ RETURNING …
 - The key alone is written while the row stays in its list, so a reorder
   needs no permission on the list fields. Where the row is in another list,
   a second UPDATE writes the key and the list.
-- Where an extension declares rows over the model ([soft
+- The anchor and the neighbours are read as the caller sees them, in the
+  same statement: where an extension hides rows of the model ([soft
   delete](/docs/extensions/soft-delete),
-  [permissions](/docs/extensions/permissions), your own), the UPDATE could
-  read rows the caller cannot see, so the move takes the read path below
-  instead: it reads the anchor and its neighbours through the client, a
-  hidden anchor is a `NotFoundError` as a missing one is, and the key it
-  writes depends on the rows the caller sees alone. It then needs read
-  access to the key and list fields (a permission that read-gates them
-  refuses the move, as any read naming them).
+  [permissions](/docs/extensions/permissions), your own), the UPDATE's
+  subqueries take those rows' filters, as every read does. A hidden anchor
+  is a `NotFoundError`, as a missing one is, and a hidden member is no
+  neighbour: the key a move writes depends on the rows the caller sees
+  alone. A read-gated field still anchors: a field gate shapes what a call
+  returns, not what the engine reads.
 
 | `move` (PostgreSQL, PGlite, SQLite, libSQL, D1) | Statements |
 |---|---|
@@ -139,7 +139,6 @@ RETURNING …
 | after / before, into another list | 2 |
 | `to` another list, `first` / `last` | 1 |
 | `first` / `last` of its own list | 1 |
-| under `rows` on the model (the read path) | 2 to 4 |
 
 Where no UPDATE can place the row (its neighbours tie, its gap is used up,
 the anchor or the row is missing, or it is already in place), the move reads
@@ -212,14 +211,21 @@ rows rewritten.
 
 `rekey` reads the lists the rows `where` matches, through your extensions (a
 list holding no row the caller can see is left alone), then respaces them
-in one statement (more where the driver bounds a statement's values, as
-D1 does: as many lists per statement as fit). It rewrites whole lists:
-every member of those lists is rekeyed, soft-deleted and forbidden rows
-included, so a row that comes back later comes back in its place. It writes
-the key only, as maintenance: no `updatedAt`, no update hooks, no permission
-check on the other members. It invalidates the [official
-cache](/docs/extensions/cache)'s entries of the model. A member another writer moves
-while the statement runs keeps the key that writer gave it.
+with one `updateMany` through the client (more where the driver bounds a
+statement's values, as D1 does: as many lists per statement as fit; MySQL
+reads the members first). Every extension applies to it as to any update:
+the rows written are those the caller may see and update, write hooks run,
+`updatedAt` is refreshed, and the [official cache](/docs/extensions/cache)
+is invalidated as after any write.
+
+A list's order is shared, so `rekey` never moves a member the caller cannot
+see, nor writes it. The members it sees take short keys between the keys of
+the hidden ones around them: whoever sees the whole list reads it in the
+order it had. With `orderBy`, the caller's members are re-sorted among the
+places they held, never past a member it cannot see. A list the caller sees
+whole gets `10`, `11`, `12`, …. A member another writer moves while the
+statement runs keeps the key that writer gave it. Soft delete's tombstones
+are members it does not see unless the call says `deleted: "with"`.
 
 It is how an existing table adopts the extension:
 
@@ -254,17 +260,12 @@ members.
 
 `ordering()` is one step, applied in any order with soft delete, permissions,
 the cache, `on` and `defaultOmit()`: a client that hides rows hides them from
-`move` and `rekey` whichever came first, `rekey` invalidates the cache of the
-client it is called on, and `move`'s result is typed from that client (a
+`move` and `rekey` whichever came first, both are writes of that client
+(hooks, cache), and `move`'s result is typed from that client (a
 later `defaultOmit` leaves its fields out; a later `rows` extension types a
 to-one relation it can hide as `| null`; computed `result` fields are
 added). Called off its delegate (`const { move } = db.card`), the result is
 typed `unknown`.
-
-`rekey` inside an interactive transaction invalidates the cache when it
-runs, before the transaction commits: a read between the two can cache the
-old order again until its entry expires. Rekey outside a transaction, or
-invalidate after the commit.
 
 A chain written before 1.8 applied two steps apart, `ordering(config).keys`
 (the default order and the appended keys) and `ordering(config).methods`

@@ -232,7 +232,9 @@ export class EngineSchema {
     // is no payload: it is set aside here and written as it is.
     const computed: Input = {};
     const input =
-      operation === "update" && isRecord(raw) && isRecord(raw.data)
+      (operation === "update" || operation === "updateMany") &&
+      isRecord(raw) &&
+      isRecord(raw.data)
         ? {
             ...raw,
             data: Object.fromEntries(

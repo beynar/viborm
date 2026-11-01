@@ -38,6 +38,7 @@ describeIf("MySQL2 Driver", () => {
     // A move reads the anchor, then its neighbours within its list (the
     // list field is nullable here), then updates; an update locks its row,
     // writes it, and reads it back once (no RETURNING).
-    { move: 5, update: 3 }
+    // A rekey reads its lists, then their members, then updates.
+    { move: 5, update: 3, rekey: 3 }
   );
 });

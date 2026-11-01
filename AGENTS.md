@@ -261,10 +261,7 @@ statement is built;
 `chain.ts` owns the one resolved chain,
 handler lookup, the chain's one control name space (one declaration per
 control name; a definition's references to an earlier extension's controls)
-and placed controls, one `deletion` entry per model, and `rowsName`/
-`SCOPE_CHAIN_FACTS` (whether the call's chain declares `rows` on a model, and
-its cache invalidator, read off a method factory's scope by
-`viborm/ordering` only). There is no runtime order guard: every method runs
+and placed controls, and one `deletion` entry per model. There is no runtime order guard: every method runs
 through the whole chain of the client it is called on, so the order rule
 is TypeScript's alone (`methods.ts`, `ResultConsumerContextOf`: a client or
 model factory taking a typed argument is a result consumer, and `rows` or
@@ -410,16 +407,25 @@ computes after one consistent read (the one-statement form deadlocks under
 concurrent appends there). Its methods add `move` and `rekey` from
 the delegate and the client scope a model factory now receives; both are lazy
 thenables, so an array transaction refuses them before any statement.
-Respacing (`rekey`, and `move` on a tie or a used-up gap) is one raw UPDATE
-per call through the scope's `$executeRaw`, over whole physical lists
-(`ROW_NUMBER() OVER (PARTITION BY list …)`), each row matched by its key as
-read so a concurrent move keeps its result. Where the call's chain declares
-`rows` on the model, in its modes or its verbs (`SCOPE_CHAIN_FACTS.rowsName`),
-the move skips the one-UPDATE path (whose subqueries read hidden rows) and
-takes its read path through the delegate: a hidden anchor is a missing one
-and the key depends on visible rows alone (no existence oracle; governed
-models only); `rekey` invalidates the call's chain's cache
-(`SCOPE_CHAIN_FACTS.invalidate`).
+Ordering writes no SQL past the client. The SQL it writes (the move's
+subqueries, respacing's ranks) reads `model AS alias` beside a `RowsOf`
+(`raptor3/shared/rows-of.ts`), which the operation's `Queries` settles to the
+call's root domain at that alias when it lowers the caller's fragment
+(`Queries.#settleRows`, in `value` and `#scalarValue`; `#prepareOperand`
+peeks a caller's `Sql` rather than flattening it, so the node survives):
+every extension applies to it as to any read, and rendered elsewhere its
+text is not SQL. So a move is still one UPDATE under soft delete or
+permissions (a hidden anchor is a missing one, a hidden member no
+neighbour). Respacing (`rekey`, and `move` on a tie or a used-up gap) is one
+`updateMany` through the delegate per chunk of lists, its key an
+`InsertValue`: on PostgreSQL and SQLite one uncorrelated subquery ranks the
+lists' members (window functions over the table, the call's `RowsOf` marking
+the visible ones) and maps each visible member to a short key between the
+hidden keys around the place it takes, so every viewer keeps the order and
+no hidden row is written; uncorrelated because SQLite's subqueries see the
+rows its UPDATE already rewrote. MySQL, which refuses a subquery on the
+table an UPDATE writes, reads the same ranks in the operation and writes a
+`CASE`. Each row is written only while it holds the key it was read with.
 
 `cache()` produces a namespace-free DEFINITION; the client composition root
 binds it to the concrete driver, deriving one scope from the private snapshot

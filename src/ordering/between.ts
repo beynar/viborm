@@ -82,20 +82,22 @@ function encoded(s: Spelling, value: Sql): Sql {
  * A key strictly between `lower` and `upper` (SQL scalars, NULL an open
  * end), with `jitter` (two digits, the last not zero) as its random part;
  * NULL where none is computed: tied or unordered bounds, a malformed one, an
- * anchor (`required`) that is missing, a key past MAX_KEY_LENGTH.
+ * anchor (`required`) that is missing, a key past MAX_KEY_LENGTH. `jitter`
+ * may be an expression (respacing's rank digits, fixed width, the last
+ * not zero).
  */
 export function between(
   s: Spelling,
   lower: Sql,
   upper: Sql,
-  jitter: string,
+  jitter: string | Sql,
   required?: "lower" | "upper"
 ): Sql {
   const lo = sql.raw("c.lo");
   const hi = sql.raw("c.hi");
   const il = sql.raw("c.il");
   const ih = sql.raw("c.ih");
-  const r = sql`${jitter}`;
+  const r = typeof jitter === "string" ? sql`${jitter}` : jitter;
   const rest = sql`substr(${hi}, length(${lo}) + 1)`;
   const zeros = sql`length(${rest}) - length(ltrim(${rest}, '0')) + 1`;
   const missing =

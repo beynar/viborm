@@ -21,7 +21,6 @@ import {
   lookupPlacedControls,
   lookupResolvedExtensionHandlers,
   type ResolvedExtensionChain,
-  rowsName,
 } from "@extensions/chain";
 import { bindControls, uncacheableRead } from "@extensions/controls";
 import type {
@@ -50,10 +49,6 @@ import { TransactionWriteOutcomes } from "@extensions/query";
 import { applyRequestTransforms } from "@extensions/request";
 import { planResultFields } from "@extensions/result";
 import type { ResultInference } from "@extensions/result-types";
-import {
-  SCOPE_CHAIN_FACTS,
-  type ScopeChainFacts,
-} from "@extensions/scope-facts";
 import type { WritePlan } from "@extensions/writes";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { enableFindUniqueBatching } from "@query-engine/find-unique-batch";
@@ -1072,13 +1067,8 @@ export class VibORM<C extends VibORMConfig> {
           clientOmit,
           transaction,
           prior,
-          (prop) => {
-            if (prop === SCOPE_CHAIN_FACTS)
-              return {
-                rowsName: (model) => rowsName(chain, model),
-                invalidate: this.#invalidator(engine),
-              } satisfies ScopeChainFacts;
-            return prop === "$bind"
+          (prop) =>
+            prop === "$bind"
               ? (values: Readonly<Record<string, unknown>>) =>
                   rebuild!(
                     engine.withBound(
@@ -1090,8 +1080,7 @@ export class VibORM<C extends VibORMConfig> {
                       )
                     )
                   )
-              : undefined;
-          }
+              : undefined
         )
       );
     if (eager) methods?.force();
@@ -1231,32 +1220,24 @@ export class VibORM<C extends VibORMConfig> {
         // protocol `ASYNC_DISPOSE` is undefined, which no property key equals, so
         // the property is absent — what missing disposal support looks like.
         if (prop === "$disconnect" || prop === ASYNC_DISPOSE) return disconnect;
-        if (prop === "$invalidate") return this.#invalidator(engine);
-        if (prop !== "$withCache") return undefined;
+        if (prop !== "$withCache" && prop !== "$invalidate") return undefined;
         const officialCache = getOfficialCacheChainCapability(chain);
         if (officialCache === undefined) return undefined;
-        return (cacheConfig?: WithCacheOptions) =>
-          this.#withCache(engine, officialCache, clientOmit, cacheConfig);
+        if (prop === "$withCache") {
+          return (cacheConfig?: WithCacheOptions) =>
+            this.#withCache(engine, officialCache, clientOmit, cacheConfig);
+        }
+        return async (...keys: string[]) => {
+          await officialCacheRuntime().invalidateManualCache(
+            officialCache.driver,
+            keys,
+            createOperationExecutionContext("$cache", "$invalidate", chain),
+            officialCache.scope
+          );
+        };
       }
     );
     return view;
-  }
-
-  /** The official cache's `$invalidate` on this engine's chain, where it is applied. */
-  #invalidator(
-    engine: QueryEngine
-  ): ((...keys: string[]) => Promise<void>) | undefined {
-    const chain = engine.extensionChain;
-    const officialCache = getOfficialCacheChainCapability(chain);
-    if (officialCache === undefined) return undefined;
-    return async (...keys: string[]) => {
-      await officialCacheRuntime().invalidateManualCache(
-        officialCache.driver,
-        keys,
-        createOperationExecutionContext("$cache", "$invalidate", chain),
-        officialCache.scope
-      );
-    };
   }
 
   /**

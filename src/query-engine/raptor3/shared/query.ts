@@ -105,6 +105,7 @@ import {
   type RowJudgement,
   type RowPurpose,
 } from "./row-scope";
+import { RowsOf } from "./rows-of";
 import {
   type Arguments,
   type EngineSchema,
@@ -2974,8 +2975,23 @@ export class Queries {
    */
   value(value: unknown): Sql {
     return value instanceof Sql
-      ? callerText(value)
+      ? callerText(this.#settleRows(value))
       : this.adapter.literals.value(value);
+  }
+  /**
+   * A caller's fragment with every {@link RowsOf} in it settled to this
+   * call's root domain at its alias: a read an extension writes takes the
+   * rows the call may see, as every read here does.
+   */
+  #settleRows(fragment: Sql): Sql {
+    Sql.each(fragment, (node) => {
+      if (!(node instanceof RowsOf)) return;
+      const domain = this.domainOf(node.model, "root");
+      node.settle(
+        (domain && this.lowerSelector(domain, node.alias)) ?? sql.raw("1 = 1")
+      );
+    });
+    return fragment;
   }
   /**
    * The one destination-aware operand owner: filters, cursors, order operands,
@@ -3006,7 +3022,7 @@ export class Queries {
     const a = this.adapter;
     const state = scalar["~"].state;
     if (value instanceof Sql) {
-      const fragment = callerText(value);
+      const fragment = callerText(this.#settleRows(value));
       return state.type === "decimal" && state.array !== true
         ? a.expressions.decimalCast(fragment, state.decimal)
         : fragment;
@@ -4789,7 +4805,10 @@ export class Queries {
       return this.#prepareFieldOperand(owner, value);
     }
     if (!(value instanceof Sql)) return { kind: "value", value };
-    const operands = value.values.map((member) => {
+    // Peeked, not flattened: the fragment keeps the nodes it is composed of
+    // (a `RowsOf` its lowering settles).
+    const flat = Sql.peek(value);
+    const operands = flat.values.map((member) => {
       if (isFieldRef(member)) return this.#prepareFieldOperand(owner, member);
       // A token is executable only in a flat interpolation slot. An object
       // parameter stays data; never turn a hidden token into provider data.
@@ -4815,7 +4834,7 @@ export class Queries {
       return { kind: "value", value: member } as const;
     });
     return operands.some((member) => member.kind === "field")
-      ? { kind: "sql", strings: [...value.strings], operands: freeze(operands) }
+      ? { kind: "sql", strings: [...flat.strings], operands: freeze(operands) }
       : { kind: "value", value };
   }
   /** A field-reference operand, out of line: most operands are values. */

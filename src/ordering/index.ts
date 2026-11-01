@@ -17,10 +17,6 @@ import {
 } from "../errors";
 import { ValidationError } from "../errors/validation";
 import type { OrderTerm } from "../extensions/controls";
-import {
-  SCOPE_CHAIN_FACTS,
-  type ScopeChainFacts,
-} from "../extensions/scope-facts";
 import type {
   ClientSchema,
   ClientTypeState,
@@ -30,13 +26,18 @@ import type {
   VibORMClient,
   VibORMConfig,
 } from "../index";
-import { renderers } from "../query-engine/raptor3/shared/insert-value";
+import {
+  InsertValue,
+  type InsertValueContext,
+  renderers,
+} from "../query-engine/raptor3/shared/insert-value";
 import type { Queries } from "../query-engine/raptor3/shared/query";
+import { RowsOf } from "../query-engine/raptor3/shared/rows-of";
 import { getModelKeyCatalog } from "../schema/model/keys";
 import { type Sql, sql } from "../sql/sql";
 import { AppendKey } from "./append";
 import { between, Computed, jitter, spellings } from "./between";
-import { isKey, keyBetween } from "./keys";
+import { isKey, keyBetween, keysBetween } from "./keys";
 
 export { isKey, keyBetween, MAX_KEY_LENGTH } from "./keys";
 
@@ -82,12 +83,6 @@ type Row = Readonly<Record<string, unknown>>;
 type Delegate = Readonly<
   Record<string, (args: object) => PromiseLike<unknown>>
 >;
-interface Scope {
-  readonly $executeRaw: (query: Sql) => PromiseLike<number>;
-  /** The chain the method is called through. */
-  readonly [SCOPE_CHAIN_FACTS]: ScopeChainFacts;
-  readonly [model: string]: unknown;
-}
 /** What respacing reads off the client's driver. */
 interface Driver {
   readonly dialect: string;
@@ -204,96 +199,323 @@ function engineOf(schema: Schema, driver: Driver): () => Engine {
     });
 }
 
+/** A delegate's write and read, as respacing calls them. */
+interface Writes {
+  readonly updateMany: (args: object) => PromiseLike<unknown>;
+  readonly findMany: (args: object) => PromiseLike<unknown>;
+}
+
 /**
- * Respace lists: every member of each list (hidden ones too: the statement
- * reads the table, not the caller's view) gets the key of its rank, `10`,
- * `11`, … in `order` then the list's current order, a member whose key or
- * list changed since the statement's own read keeping what it was given.
- * `lists` names the lists by their fields' values (one statement per as
- * many lists as the driver's bound values allow); `undefined` respaces the
- * whole table, one list. Returns the rows rewritten.
+ * The members of the lists `filter` names (all, with `sql.empty`), one row
+ * each, in their current order, with what respacing reads of them:
+ * identity (`i0…`), list (`w0…`), key (`k`), order terms (`o0…`), whether the
+ * call sees it (`v`, from `visible`, the call's `RowsOf`), and, by list: the
+ * keys of the members it does not see around it (`lo`, `hi`), how many of
+ * those precede it (`seg`), its rank among the members it sees in the
+ * current order (`slot`) and in `order` (`pick`).
+ */
+function membership(
+  ordered: Ordered,
+  q: Queries,
+  visible: Sql,
+  filter: Sql,
+  order: readonly Readonly<Record<string, "asc" | "desc">>[]
+): Sql {
+  const { model, key, within, identity } = ordered;
+  const terms = order.flatMap((term) => Object.entries(term));
+  const named = (prefix: string, count: number) =>
+    Array.from({ length: count }, (_, at) => sql.raw(`p.${prefix}${at}`));
+  const ids = named("i", identity.length);
+  const lists = named("w", within.length);
+  const byList = (...more: Sql[]) =>
+    lists.length + more.length === 0
+      ? sql.empty
+      : sql`PARTITION BY ${sql.join([...lists, ...more], ", ")} `;
+  const current = sql.join([sql.raw("p.k"), ...ids], ", ");
+  const v = sql.raw("p.v");
+  const members = sql`SELECT ${sql.join(
+    [
+      ...identity.map(
+        (field, at) =>
+          sql`${q.column(model, field, "s")} AS ${sql.raw(`i${at}`)}`
+      ),
+      ...within.map(
+        (field, at) =>
+          sql`${q.column(model, field, "s")} AS ${sql.raw(`w${at}`)}`
+      ),
+      sql`${q.column(model, key, "s")} AS k`,
+      ...terms.map(
+        ([field], at) =>
+          sql`${q.column(model, field, "s")} AS ${sql.raw(`o${at}`)}`
+      ),
+      sql`(CASE WHEN ${visible} THEN 1 ELSE 0 END) AS v`,
+    ],
+    ", "
+  )} FROM ${q.table(model, "s")}${filter}`;
+  const picked = [
+    ...terms.map(
+      ([, direction], at) =>
+        sql`${sql.raw(`p.o${at}`)} ${sql.raw(direction === "desc" ? "DESC" : "ASC")}`
+    ),
+    current,
+  ];
+  return sql`SELECT p.*, SUM(1 - ${v}) OVER (${byList()}ORDER BY ${current} ROWS UNBOUNDED PRECEDING) AS seg, MAX(CASE WHEN ${v} = 0 THEN p.k END) OVER (${byList()}ORDER BY ${current} ROWS UNBOUNDED PRECEDING) AS lo, MIN(CASE WHEN ${v} = 0 THEN p.k END) OVER (${byList()}ORDER BY ${current} ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) AS hi, ROW_NUMBER() OVER (${byList(v)}ORDER BY ${current}) AS slot, ROW_NUMBER() OVER (${byList(v)}ORDER BY ${sql.join(picked, ", ")}) AS pick FROM (${members}) AS p`;
+}
+
+/** The members `filter` names, as `list`'s values bind them on `s`. */
+function listFilter(
+  ordered: Ordered,
+  q: Queries,
+  chunk: readonly Row[] | undefined
+): Sql {
+  const { model, within } = ordered;
+  return chunk === undefined
+    ? sql.empty
+    : sql` WHERE ${sql.join(
+        chunk.map(
+          (list) =>
+            sql`(${sql.join(
+              within.map((field) =>
+                list[field] === null
+                  ? sql`${q.column(model, field, "s")} IS NULL`
+                  : sql`${q.column(model, field, "s")} = ${q.fieldValue(model, field, list[field])}`
+              ),
+              " AND "
+            )})`
+        ),
+        " OR "
+      )}`;
+}
+
+/** The key of rank `n` (from 0) in a list nobody hides a member of. */
+const rankKey = (n: number) => `${String(n).length}${n}`;
+
+/**
+ * Respacing on MySQL, which refuses a subquery on the table an UPDATE
+ * writes: the members are read in the operation (the call's domain
+ * settled), their keys computed here as the PostgreSQL and SQLite UPDATE
+ * computes them, and written by key, each only while it holds the key and
+ * list read.
+ */
+class Respaced extends InsertValue {
+  readonly #ordered: Ordered;
+  readonly #chunk: readonly Row[] | undefined;
+  readonly #order: readonly Readonly<Record<string, "asc" | "desc">>[];
+  constructor(
+    ordered: Ordered,
+    chunk: readonly Row[] | undefined,
+    order: readonly Readonly<Record<string, "asc" | "desc">>[]
+  ) {
+    super();
+    this.#ordered = ordered;
+    this.#chunk = chunk;
+    this.#order = order;
+  }
+  async compute(context: InsertValueContext): Promise<readonly unknown[]> {
+    const ordered = this.#ordered;
+    const { model, key, within, identity } = ordered;
+    const q = context.queries;
+    const rows = (await context.read!(
+      membership(
+        ordered,
+        q,
+        q.value(new RowsOf(model, "s")),
+        listFilter(ordered, q, this.#chunk),
+        this.#order
+      )
+    )) as Row[];
+    const listOf = (row: Row) =>
+      JSON.stringify(within.map((_, at) => row[`w${at}`] ?? null));
+    // Per list: the keys of the slots its visible members hold.
+    const slots = new Map<string, string[]>();
+    const lists = new Map<string, Row[]>();
+    for (const row of rows)
+      if (Number(row.v) === 1)
+        lists.set(listOf(row), [...(lists.get(listOf(row)) ?? []), row]);
+    for (const [list, members] of lists) {
+      members.sort((a, b) => Number(a.slot) - Number(b.slot));
+      const hides = rows.some(
+        (row) => listOf(row) === list && Number(row.v) === 0
+      );
+      const keys: string[] = [];
+      for (let at = 0; at < members.length; ) {
+        const seg = Number(members[at]!.seg);
+        let end = at;
+        while (end < members.length && Number(members[end]!.seg) === seg) end++;
+        const lo = (members[at]!.lo as string | null) ?? null;
+        const hi = (members[at]!.hi as string | null) ?? null;
+        if (hides) {
+          let between: string[] | undefined;
+          try {
+            between = keysBetween(lo, hi, end - at);
+          } catch {
+            between = undefined; // tied hidden bounds: the slot keeps its key
+          }
+          for (let slot = at; slot < end; slot++)
+            keys.push(
+              between?.[slot - at] && isKey(between[slot - at])
+                ? between[slot - at]!
+                : String(members[slot]!.k)
+            );
+        } else for (let slot = at; slot < end; slot++) keys.push(rankKey(slot));
+        at = end;
+      }
+      slots.set(list, keys);
+    }
+    const arms: Sql[] = [];
+    for (const [list, members] of lists)
+      for (const row of members) {
+        const next = slots.get(list)![Number(row.pick) - 1]!;
+        const held = [
+          ...identity.map((field, at) => [field, row[`i${at}`]] as const),
+          ...within.map((field, at) => [field, row[`w${at}`] ?? null] as const),
+          [key, row.k] as const,
+        ].map(([field, value]) =>
+          value === null
+            ? sql`${q.column(model, field)} IS NULL`
+            : sql`${q.column(model, field)} = ${q.fieldValue(model, field, value)}`
+        );
+        arms.push(
+          sql`WHEN ${sql.join(held, " AND ")} THEN ${q.fieldValue(model, key, next)}`
+        );
+      }
+    return [
+      arms.length === 0
+        ? q.column(model, key)
+        : sql`CASE ${sql.join(arms, " ")} ELSE ${q.column(model, key)} END`,
+    ];
+  }
+}
+
+/** A delegate's write, as respacing calls it. */
+interface Writes {
+  readonly updateMany: (args: object) => PromiseLike<unknown>;
+}
+
+/**
+ * Respace lists through the client, by `updateMany`, so every extension
+ * applies (rows, permissions, hooks, the cache) and `updatedAt` is
+ * refreshed. The members the caller sees take short keys in their order (in
+ * `order` first, where given), each between the keys of the members it does
+ * not see around it, which are not written: every viewer reads the list in
+ * the order it had, the caller's members re-sorted among the places they
+ * held. A list the caller sees whole gets `10`, `11`, …. A member another
+ * writer moved meanwhile keeps what that writer gave it. `lists` names the
+ * lists by their fields' values (one statement per as many lists as the
+ * driver's bound values allow); `undefined` respaces the table, one list.
+ * Returns the rows rewritten.
  */
 async function respace(
   ordered: Ordered,
   { queries: q, dialect, binds }: Engine,
-  scope: Scope,
+  writes: Writes,
+  controls: Row,
   lists: readonly Row[] | undefined,
   order: readonly Readonly<Record<string, "asc" | "desc">>[] = []
 ): Promise<number> {
   const { model, key, within, identity } = ordered;
+  const target = model["~"].names.sql!;
   const column = (field: string, alias?: string) =>
     q.column(model, field, alias);
-  // Selected once each: a list field may be part of the model's key.
-  const fields = [...new Set([...identity, ...within, key])];
-  const terms = [
-    ...order.flatMap((term) =>
-      Object.entries(term).map(
-        ([field, direction]) =>
-          sql`${column(field)} ${sql.raw(direction === "desc" ? "DESC" : "ASC")}`
-      )
-    ),
-    ...[key, ...identity].map((field) => sql`${column(field)} ASC`),
-  ];
-  const partition =
-    within.length === 0
-      ? sql.empty
-      : sql`PARTITION BY ${sql.join(
-          within.map((field) => column(field)),
-          ", "
-        )} `;
-  const n = sql.raw("s.viborm_n");
-  const value =
-    dialect === "postgresql"
-      ? sql`length(${n}::text)::text || ${n}::text`
-      : dialect === "mysql"
-        ? sql`CONCAT(CHAR_LENGTH(${n}), ${n})`
-        : sql`length(${n}) || ${n}`;
-  // Matched by key, and only while the row still holds the key and list read.
-  const match = sql.join(
-    fields.map((field) =>
-      within.includes(field)
-        ? sql`(${column(field, "t")} = ${column(field, "s")} OR (${column(field, "t")} IS NULL AND ${column(field, "s")} IS NULL))`
-        : sql`${column(field, "t")} = ${column(field, "s")}`
-    ),
-    " AND "
-  );
-  const statement = (filter: Sql) => {
-    const ranked = sql`SELECT ${sql.join(
-      fields.map((field) => column(field)),
-      ", "
-    )}, ROW_NUMBER() OVER (${partition}ORDER BY ${sql.join(terms, ", ")}) - 1 AS viborm_n FROM ${q.table(model)}${filter}`;
-    return dialect === "mysql"
-      ? sql`UPDATE ${q.table(model)} AS t JOIN (${ranked}) AS s ON ${match} SET ${column(key, "t")} = ${value}`
-      : sql`UPDATE ${q.table(model)} AS t SET ${column(key)} = ${value} FROM (${ranked}) AS s WHERE ${match}`;
-  };
-  if (lists === undefined)
-    return Number(await scope.$executeRaw(statement(sql.empty)));
-  // Each list by its fields' values, bound as the engine binds them.
-  const conditions = lists.map(
-    (list) =>
-      sql`(${sql.join(
-        within.map((field) =>
-          list[field] === null
-            ? sql`${column(field)} IS NULL`
-            : sql`${column(field)} = ${q.fieldValue(model, field, list[field])}`
-        ),
-        " AND "
-      )})`
-  );
+  const chunks: (readonly Row[] | undefined)[] = [];
+  if (lists === undefined) chunks.push(undefined);
+  else {
+    // A list's values are bound three times (the rows written, and the
+    // members read twice).
+    const per = Math.max(1, within.length * 3);
+    const size =
+      binds === undefined
+        ? lists.length
+        : Math.max(1, Math.floor((binds - 8) / per));
+    for (let at = 0; at < lists.length; at += size)
+      chunks.push(lists.slice(at, at + size));
+  }
+  const listWhere = (chunk: readonly Row[] | undefined) =>
+    chunk === undefined
+      ? []
+      : [{ OR: chunk.map((list) => fieldsOf(within, list)) }];
   let count = 0;
-  for (let at = 0; at < conditions.length; ) {
-    const chunk: Sql[] = [];
-    let bound = 0;
-    for (; at < conditions.length; at++) {
-      const size = conditions[at]!.values.length;
-      if (chunk.length > 0 && binds !== undefined && bound + size > binds)
-        break;
-      chunk.push(conditions[at]!);
-      bound += size;
+  for (const chunk of chunks) {
+    let value: unknown;
+    let guard: Row[] = [];
+    if (dialect === "mysql") value = new Respaced(ordered, chunk, order);
+    else {
+      const s = spellings[dialect as "postgresql" | "sqlite"];
+      const rows = membership(
+        ordered,
+        q,
+        new RowsOf(model, "s"),
+        listFilter(ordered, q, chunk),
+        order
+      );
+      const g = (name: string) => sql.raw(`g.${name}`);
+      const text = (x: Sql) => sql`CAST(${x} AS TEXT)`;
+      const n = sql`(${g("slot")} - 1)`;
+      const ranked =
+        dialect === "postgresql"
+          ? sql`length(${n}::text)::text || ${n}::text`
+          : sql`length(${n}) || ${n}`;
+      // Fixed width within a segment, the last digit not zero.
+      const suffix = sql`${s.pad(text(g("r")), sql`length(${text(g("cnt"))})`)} || '1'`;
+      const segment = sql.join(
+        [...within.map((_, at) => sql.raw(`q.w${at}`)), sql.raw("q.seg")],
+        ", "
+      );
+      const current = sql.join(
+        [sql.raw("q.k"), ...identity.map((_, at) => sql.raw(`q.i${at}`))],
+        ", "
+      );
+      const visibleRanks = sql`SELECT q.*, ROW_NUMBER() OVER (PARTITION BY ${segment} ORDER BY ${current}) AS r, COUNT(*) OVER (PARTITION BY ${segment}) AS cnt FROM (${rows}) AS q WHERE q.v = 1`;
+      const slotted = sql`SELECT g.*, CASE WHEN g.lo IS NULL AND g.hi IS NULL THEN ${ranked} ELSE ${between(s, g("lo"), g("hi"), suffix)} END AS nk FROM (${visibleRanks}) AS g`;
+      const sameList = within.map((_, at) =>
+        s.same(sql.raw(`k.w${at}`), sql.raw(`m.w${at}`))
+      );
+      // Each written row's new key, from one map computed once (an
+      // uncorrelated subquery): SQLite's subqueries see the rows its UPDATE
+      // already rewrote, so no rank may be read per row. The map is keyed by
+      // the row's identity, spelled the same on both sides.
+      const spelled = (fields: readonly Sql[]) =>
+        dialect === "postgresql"
+          ? sql`json_build_array(${sql.join(fields, ", ")})::text`
+          : sql`'k' || ${sql.join(
+              fields.map((field) => sql`hex(${field})`),
+              " || '_' || "
+            )}`;
+      const of = (alias: string) =>
+        identity.map((_, at) => sql.raw(`${alias}.i${at}`));
+      const own = spelled(identity.map((field) => column(field, target)));
+      const pairs = sql`FROM (${slotted}) AS k, (${visibleRanks}) AS m WHERE ${sql.join(
+        [...sameList, sql`k.slot = m.pick`],
+        " AND "
+      )}`;
+      const next =
+        dialect === "postgresql"
+          ? sql`((SELECT json_object_agg(${spelled(of("m"))}, k.nk) ${pairs}) ->> ${own})`
+          : sql`json_extract((SELECT json_group_object(${spelled(of("m"))}, k.nk) ${pairs}), '$.' || ${own})`;
+      value = new Computed(sql`COALESCE(${next}, ${column(key, target)})`);
+      // The key the row holds as the statement reads it: a member another
+      // writer moved meanwhile no longer matches, and keeps its key.
+      guard = [
+        {
+          [key]: {
+            equals: () =>
+              sql`(SELECT ${column(key, "x")} FROM ${q.table(model)} AS x WHERE ${sql.join(
+                identity.map(
+                  (field) =>
+                    sql`${column(field, "x")} = ${column(field, target)}`
+                ),
+                " AND "
+              )})`,
+          },
+        },
+      ];
     }
-    count += Number(
-      await scope.$executeRaw(statement(sql` WHERE ${sql.join(chunk, " OR ")}`))
-    );
+    const written = (await writes.updateMany({
+      ...controls,
+      where: { AND: [...listWhere(chunk), ...guard] },
+      data: { [key]: value },
+    })) as { count: number };
+    count += written.count;
   }
   return count;
 }
@@ -348,16 +570,9 @@ function methods(ordered: Ordered, engine: () => Engine) {
     },
     to: Row | undefined,
     recognised: Row,
-    write: (guard: Sql, data: Row) => PromiseLike<unknown>,
-    governed: boolean
+    write: (guard: Sql, data: Row) => PromiseLike<unknown>
   ): Promise<unknown> {
     const { queries: q, dialect } = engine();
-    // The statement reads the anchor and the neighbours from the table,
-    // hidden rows included: where the chain's rows can hide a row of the
-    // model, the move reads them through the caller's view instead (the
-    // read path), so its outcome and the key it writes tell nothing of a
-    // row the caller cannot see.
-    if (governed) return MISSED;
     // MySQL locks every row a statement's subqueries read (the locating
     // SELECT … FOR UPDATE and the UPDATE alike): concurrent moves into one
     // list deadlocked 37 times in 240 there (measured), none on the read
@@ -383,8 +598,16 @@ function methods(ordered: Ordered, engine: () => Engine) {
         ),
         " AND "
       );
+    // The anchor and the neighbours are read as the caller sees them: each
+    // read takes the call's row domain (`RowsOf`), as every read of the
+    // engine does, so a hidden anchor is a missing one and a hidden member
+    // is no neighbour. The moved row is the UPDATE's own target, which the
+    // UPDATE reads under that domain already.
+    const seen = (alias: string) => new RowsOf(model, alias);
     const of = (alias: string, fields: Row, field: string) =>
-      sql`(SELECT ${column(field, alias)} FROM ${table} AS ${sql.raw(alias)} WHERE ${matches(alias, fields)})`;
+      sql`(SELECT ${column(field, alias)} FROM ${table} AS ${sql.raw(alias)} WHERE ${matches(alias, fields)}${
+        alias === "a" ? sql` AND ${seen("a")}` : sql.empty
+      })`;
     // The list's fields: the anchor's, `to`'s, else the row's own.
     const listed = (field: string) =>
       anchored !== undefined
@@ -411,10 +634,10 @@ function methods(ordered: Ordered, engine: () => Engine) {
           );
     const anchorKey =
       anchored &&
-      sql`SELECT ${column(key, "a")} FROM ${table} AS a WHERE ${matches("a", anchored)} AND NOT (${matches("a", recognised)}) AND ${s.digits(column(key, "a"))}`;
+      sql`SELECT ${column(key, "a")} FROM ${table} AS a WHERE ${matches("a", anchored)} AND NOT (${matches("a", recognised)}) AND ${s.digits(column(key, "a"))} AND ${seen("a")}`;
     // The nearest key on one side, in the list, the moved row aside.
     const nearest = (aggregate: "MIN" | "MAX") =>
-      sql`SELECT ${sql.raw(aggregate)}(${column(key, "n")}) FROM ${table} AS n WHERE ${inList("n")} AND NOT (${matches("n", recognised)}) AND ${s.digits(column(key, "n"))}${
+      sql`SELECT ${sql.raw(aggregate)}(${column(key, "n")}) FROM ${table} AS n WHERE ${inList("n")} AND NOT (${matches("n", recognised)}) AND ${s.digits(column(key, "n"))} AND ${seen("n")}${
         anchored && anchorKey
           ? sql` AND ${column(key, "n")} ${sql.raw(aggregate === "MIN" ? ">=" : "<=")} (${anchorKey}) AND NOT (${matches("n", anchored)})`
           : sql.empty
@@ -480,7 +703,7 @@ function methods(ordered: Ordered, engine: () => Engine) {
       ? attempt(outside, joined)
       : stayed;
   }
-  return (delegate: Delegate, scope: Scope) => {
+  return (delegate: Delegate) => {
     async function place(args: Readonly<Record<string, unknown>>) {
       const {
         where,
@@ -570,8 +793,7 @@ function methods(ordered: Ordered, engine: () => Engine) {
             where: { ...where, [key]: { equals: () => guard } },
             data,
             ...projection,
-          }),
-        scope[SCOPE_CHAIN_FACTS].rowsName(name)
+          })
       );
       if (moved !== MISSED) return moved;
       for (let attempt = 1; ; attempt++) {
@@ -668,7 +890,8 @@ function methods(ordered: Ordered, engine: () => Engine) {
           await respace(
             ordered,
             engine(),
-            scope,
+            delegate as unknown as Writes,
+            controls,
             within.length === 0 ? undefined : [group]
           );
           continue;
@@ -766,9 +989,14 @@ function methods(ordered: Ordered, engine: () => Engine) {
                   ),
                 })) as Row[]);
           if (lists?.length === 0) return { count: 0 };
-          const count = await respace(ordered, engine(), scope, lists, order);
-          // A raw write: the official cache's entries of the model go.
-          await scope[SCOPE_CHAIN_FACTS].invalidate?.(`${name}:*`);
+          const count = await respace(
+            ordered,
+            engine(),
+            delegate as unknown as Writes,
+            controls,
+            lists,
+            order
+          );
           return { count };
         }),
     };
