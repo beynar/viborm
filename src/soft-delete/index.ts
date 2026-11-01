@@ -58,7 +58,8 @@ type NoExtra<A, R> = A & Record<Exclude<keyof A, keyof R>, never>; // flags data
 // Each result is typed from the delegate the method is called on (`Self`),
 // so it follows every extension applied after this one: a later `rows`
 // step types a to-one relation `| null`, a later `defaultOmit` drops a
-// field. A type alias, not an interface: a method record.
+// field. Called off its delegate (destructured), its result is `unknown`:
+// using it is a type error, not a silent `never`. A type alias, not an interface: a method record.
 type Methods<C extends VibORMConfig, K> = {
   restore<Self, A extends RestoreArgs<C, K, "update">>(
     this: Self,

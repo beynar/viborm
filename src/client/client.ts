@@ -114,9 +114,11 @@ import type {
   CachedClient,
   Client,
   ClientRowsContext,
+  ComputedResultContext,
   ContextualOperationResult,
   Operations,
   Schema,
+  WithComputedResult,
 } from "./types";
 
 export type {
@@ -658,17 +660,28 @@ export type DelegateOperationResult<
   Args,
 > = Delegate extends DelegateState<
   infer C extends VibORMConfig,
-  infer X extends ExtensionStateConstraint,
+  infer Rows extends string,
+  infer Result extends object,
   infer K
 >
-  ? ContextualOperationResult<
-      C,
-      K & keyof ClientSchema<C>,
-      O,
-      Args,
-      ClientRowsContext<C, X["rows"]>
-    >
-  : never;
+  ? [keyof Result] extends [never]
+    ? DelegateRow<C, Rows, K & keyof ClientSchema<C>, O, Args>
+    : WithComputedResult<
+        DelegateRow<C, Rows, K & keyof ClientSchema<C>, O, Args>,
+        ClientSchema<C>[K & keyof ClientSchema<C>],
+        Args,
+        ComputedResultContext<Result, ClientSchema<C>, K>
+      >
+  : // Called off a delegate (a destructured method): nothing to read the
+    // result from, and `unknown` makes using it a type error.
+    unknown;
+type DelegateRow<
+  C extends VibORMConfig,
+  Rows extends string,
+  K extends keyof ClientSchema<C>,
+  O extends Operations,
+  Args,
+> = ContextualOperationResult<C, K, O, Args, ClientRowsContext<C, Rows>>;
 
 /**
  * VibORM Client

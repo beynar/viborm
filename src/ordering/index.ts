@@ -310,9 +310,6 @@ function methods(ordered: Ordered, engine: () => Engine) {
   const selection = Object.fromEntries(
     [...identity, ...within, key].map((field) => [field, true])
   );
-  /** The row key alone: whether a row is visible, reading no field a
-   * permission may gate (the key and list fields can be). */
-  const keyed = Object.fromEntries(identity.map((field) => [field, true]));
   /** The fields `where` names with a value (a compound selector's too): how
    * the moved row is recognised among rows read, without reading it. */
   const named = (where: Row): Row => {
@@ -352,9 +349,15 @@ function methods(ordered: Ordered, engine: () => Engine) {
     to: Row | undefined,
     recognised: Row,
     write: (guard: Sql, data: Row) => PromiseLike<unknown>,
-    seen: (anchor: Row) => PromiseLike<unknown>
+    governed: boolean
   ): Promise<unknown> {
     const { queries: q, dialect } = engine();
+    // The statement reads the anchor and the neighbours from the table,
+    // hidden rows included: where the chain's rows can hide a row of the
+    // model, the move reads them through the caller's view instead (the
+    // read path), so its outcome and the key it writes tell nothing of a
+    // row the caller cannot see.
+    if (governed) return MISSED;
     // MySQL locks every row a statement's subqueries read (the locating
     // SELECT … FOR UPDATE and the UPDATE alike): concurrent moves into one
     // list deadlocked 37 times in 240 there (measured), none on the read
@@ -367,12 +370,6 @@ function methods(ordered: Ordered, engine: () => Engine) {
       (anchored !== undefined && Object.keys(anchored).length === 0)
     )
       return MISSED;
-    // The statement reads the anchor from the table, hidden rows included:
-    // where the chain's rows can hide a row of the model, the anchor is read
-    // through the caller's view first, so a hidden anchor is a missing one
-    // and the move's outcome tells nothing of a row the caller cannot see.
-    if (place.anchor !== undefined && (await seen(place.anchor)) === null)
-      throw new NotFoundError(name, "move anchor");
     const s = spellings[dialect];
     const table = q.table(model);
     const column = (field: string, alias?: string) =>
@@ -574,10 +571,7 @@ function methods(ordered: Ordered, engine: () => Engine) {
             data,
             ...projection,
           }),
-        (at) =>
-          scope[SCOPE_CHAIN_FACTS].rowsName(name)
-            ? delegate.findUnique!({ ...controls, where: at, select: keyed })
-            : Promise.resolve(true)
+        scope[SCOPE_CHAIN_FACTS].rowsName(name)
       );
       if (moved !== MISSED) return moved;
       for (let attempt = 1; ; attempt++) {

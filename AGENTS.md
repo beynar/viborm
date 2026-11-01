@@ -414,10 +414,12 @@ Respacing (`rekey`, and `move` on a tie or a used-up gap) is one raw UPDATE
 per call through the scope's `$executeRaw`, over whole physical lists
 (`ROW_NUMBER() OVER (PARTITION BY list …)`), each row matched by its key as
 read so a concurrent move keeps its result. Where the call's chain declares
-`rows` on the model (`SCOPE_CHAIN_FACTS.rowsName`), the one-UPDATE move reads
-its anchor through the delegate first, so a hidden anchor is a missing one
-(no existence oracle; one statement more, governed models only); `rekey`
-invalidates the call's chain's cache (`SCOPE_CHAIN_FACTS.invalidate`).
+`rows` on the model, in its modes or its verbs (`SCOPE_CHAIN_FACTS.rowsName`),
+the move skips the one-UPDATE path (whose subqueries read hidden rows) and
+takes its read path through the delegate: a hidden anchor is a missing one
+and the key depends on visible rows alone (no existence oracle; governed
+models only); `rekey` invalidates the call's chain's cache
+(`SCOPE_CHAIN_FACTS.invalidate`).
 
 `cache()` produces a namespace-free DEFINITION; the client composition root
 binds it to the concrete driver, deriving one scope from the private snapshot

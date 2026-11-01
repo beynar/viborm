@@ -178,6 +178,60 @@ export async function purgeTyped() {
   await db.user.purge({ where: { id: "u1" } });
 }
 
+// A later `result` step: restore's rows carry its computed fields, typed as
+// the client's own update types them, a replaced scalar included.
+const computed = db.$extends({
+  name: "test.computed",
+  result: {
+    post: {
+      shout: {
+        needs: { title: true },
+        compute: (post) => post.title.toUpperCase(),
+      },
+      title: { needs: { title: true }, compute: (post) => post.title.length },
+    },
+  },
+});
+export async function laterResult() {
+  const restored = await computed.post.restore({ where: { id: "p1" } });
+  const updated = await computed.post.update({ where: { id: "p1" }, data: {} });
+  type _shout = Expect<Equal<typeof restored.shout, string>>;
+  type _replaced = Expect<Equal<typeof restored.title, number>>;
+  type _asUpdate = Expect<Equal<typeof restored, typeof updated>>;
+}
+
+// Called off its delegate, a method's result is `unknown`: using it is a
+// type error, never a silent `never`.
+export async function destructured() {
+  const { restore } = db.post;
+  const row = await restore({ where: { id: "p1" } });
+  type _unknown = Expect<Equal<typeof row, unknown>>;
+  // @ts-expect-error nothing is known of a result read off its delegate
+  row.title;
+}
+
+// The cache after soft delete keeps the client assignable to the one before.
+const cachedAfter = db.$extends(
+  cache({ driver: new MemoryCache(), waitUntil: (_promise) => undefined })
+);
+export const stillDb: typeof db = cachedAfter;
+export const stillDelegate: typeof db.post = cachedAfter.post;
+
+// A factory overloaded to hide its typed delegate is still a result consumer:
+// the omit after it is refused.
+declare function overloaded(delegate: (typeof base)["post"]): {
+  first: () => unknown;
+};
+declare function overloaded(): { first: () => unknown };
+export function overloadIsConsumer() {
+  const tools = base.$extends({
+    name: "test.overloaded",
+    model: { post: overloaded },
+  });
+  // @ts-expect-error an overload taking the typed delegate reads results
+  tools.$extends(defaultOmit<S>()({ post: { secret: true } }));
+}
+
 // A later rows step: restore's to-one relation to a model those rows can
 // hide reads `| null`, as the client's own update does.
 const governed = db.$extends({

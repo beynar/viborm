@@ -34,7 +34,8 @@ anchor; a MySQL soft delete takes one statement fewer.
 - A soft delete behind `restrict` children on MySQL sends 4 statements, not
   5: the lock before the live-child check is the capture of the rows' keys,
   and the write no longer locks them again. PostgreSQL keeps its 3 (lock,
-  check, `UPDATE … RETURNING`), in the same order.
+  check, `UPDATE … RETURNING`), in the same order; a PostgreSQL delete whose
+  result RETURNING cannot carry (a relation `include`) also goes from 5 to 4.
 
 ### Added
 
@@ -43,16 +44,20 @@ anchor; a MySQL soft delete takes one statement fewer.
   `NotFoundError`). `mode: "hard"` keeps working.
 - **`DelegateOperationResult<Self, Operation, Args>`**: a model method
   declared with a `this` parameter types its result from the delegate it is
-  called on, after every extension applied later.
+  called on, after every extension applied later (computed `result` fields
+  included; `unknown` when called off its delegate).
 
 ### Fixed
 
 - **Ordering: `move` was an existence oracle under `rows`.** Its one-UPDATE
-  path read the anchor from the table, so `move({ after: { id } })` succeeded
-  for a hidden row and failed for a missing one. Where an extension
-  declares `rows` on the model (permissions, soft delete), the anchor is
-  read through the caller's view first (one statement more, on those models
-  only) and a hidden anchor is a `NotFoundError`, as a missing one is.
+  path read the anchor and neighbours from the table, so `move({ after: {
+  id } })` succeeded for a hidden row and failed for a missing one, and the
+  key it wrote showed whether a list held hidden members. Where an extension
+  declares `rows` on the model (in its modes or its verbs: permissions,
+  soft delete, your own), the move takes its read path through the
+  caller's view (2 to 4 statements, those models only): a hidden anchor is a
+  `NotFoundError`, as a missing one is, and the key depends on visible rows
+  alone.
 - **Soft delete checks its marker when applied.** A `deletedAt` that is not
   a nullable `DateTime` is a `ClientInitializationError` naming the field; a
   string marker was accepted and failed at the first delete, a required one

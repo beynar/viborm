@@ -424,10 +424,12 @@ representation or runner in `src/client/`, `src/query-engine/`, or
   promise never controls the application.
 - Client/model factories add typed methods to the derived scope.
 
-The default-omit extension can follow request, statement, observe, a global
-polymorphic query function, and official cache/instrumentation. It cannot follow
-a schema-mapped query or client/model factory whose result types were fixed
-before omission.
+The default-omit extension (and `rows`) may follow any extension at runtime: a
+method runs through the whole chain it is called on. TypeScript refuses it
+after a schema-mapped query or a client/model factory typed against the client
+it extends (one of its signatures takes a typed argument), whose result types
+were fixed before omission; a factory taking `never`, `unknown` or nothing types
+its methods' results from their delegate (`DelegateOperationResult`).
 
 ## Caching integration
 

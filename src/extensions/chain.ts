@@ -188,13 +188,21 @@ export function lookupPlacedControls(
 
 const NO_CONTROLS: readonly ResolvedControl[] = Object.freeze([]);
 
-/** Whether a `rows` member of the chain names `model`: its reads may hide rows. */
+/**
+ * Whether a `rows` member of the chain names `model`, in its modes or its
+ * verbs (a member may hide rows through `verbs.<model>.read` alone): its
+ * reads may hide rows.
+ */
 export function rowsName(
   chain: ResolvedExtensionChain | undefined,
   model: string
 ): boolean {
   return (
-    chain?.rows?.some(({ models }) => Object.hasOwn(models, model)) === true
+    chain?.rows?.some(
+      ({ models, verbs }) =>
+        Object.hasOwn(models, model) ||
+        (verbs !== undefined && Object.hasOwn(verbs, model))
+    ) === true
   );
 }
 

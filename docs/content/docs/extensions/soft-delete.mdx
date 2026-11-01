@@ -38,6 +38,7 @@ await db.user.findMany({ include: { posts: true } }); // each user's live posts
 await db.post.findMany({ deleted: "only" });          // recycle bin
 await db.post.delete({ where: { id: "p1" } });        // tombstones p1, returns it
 await db.post.restore({ where: { id: "p1" }, select: { id: true } }); // { id }
+await db.post.delete({ where: { id: "p1" } });        // a tombstone again
 await db.post.purge({ where: { id: "p1" } });         // removes the tombstone
 ```
 

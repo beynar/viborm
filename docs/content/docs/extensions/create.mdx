@@ -1043,7 +1043,10 @@ const archiving = {
 ```
 
 `db.post.archive(…)` then returns what `db.post.update(…)` returns on that
-client, after every extension applied later. The official soft delete,
+client, after every extension applied later, computed `result` fields
+included. Called off its delegate (`const { archive } = db.post`), its
+result is `unknown`. TypeScript reads an overloaded factory by its last four
+signatures: one that takes a typed argument in any of them is a consumer. The official soft delete,
 ordering and permissions are written this way, so each is one step,
 applied in any order.
 

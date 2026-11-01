@@ -484,10 +484,11 @@ export function describeOrdering(
       ).rejects.toThrow(ValidationError);
     });
 
-    // The one-statement move reads its anchor from the table: under rows
-    // that hide it, the anchor is read through the caller's view first (one
-    // statement more, on the governed model only), so a hidden anchor is
-    // refused as a missing one, and nothing is written.
+    // The one-statement move reads its anchor and neighbours from the
+    // table: under rows that can hide a row of the model, the move reads
+    // them through the caller's view (the read path) instead, so a hidden
+    // anchor is refused as a missing one, nothing is written, and the key
+    // it writes depends on visible rows alone.
     test("a hidden anchor is a missing one, under permissions or soft delete, applied before or after ordering", async () => {
       const db = await setup();
       for (const [id, owner] of [
@@ -520,8 +521,9 @@ export function describeOrdering(
       const tombs = softDelete({
         models: { card: { deletedAt: "deletedAt" } },
       });
-      // The anchor read: one statement more where the move is one UPDATE.
-      const governedMove = move === 1 ? 2 : move;
+      // The read path: the anchor (its list may be NULL), its window, the
+      // UPDATE; MySQL takes it ungoverned too.
+      const governedMove = move === 1 ? 3 : move;
       const viaPolicy = [
         policy(order(counted_) as any),
         order(policy(counted_) as any),
@@ -549,6 +551,75 @@ export function describeOrdering(
         deleted: "with",
       });
       expect(await listOf(db, "c1")).toEqual(["b", "h", "t", "a"]);
+    });
+
+    test("a rows extension declared through verbs alone governs move too", async () => {
+      const db = await setup();
+      for (const [id, owner] of [
+        ["a", "u1"],
+        ["h", "u2"],
+      ] as const)
+        await db.card.create({
+          data: { id, columnId: "c1", title: id, owner },
+        });
+      const governed = (
+        ordering({ card: { key: "rank", within: ["columnId"] } })(
+          (counted_ as any).$extends({
+            name: "test.owner",
+            rows: {
+              control: "owner",
+              default: "mine",
+              models: {},
+              verbs: {
+                card: {
+                  predicates: { mine: { owner: "u1" } },
+                  read: "mine",
+                  update: "mine",
+                },
+              },
+            },
+          })
+        ) as any
+      ).card;
+      expect(
+        (await governed.findMany()).map((row: { id: string }) => row.id)
+      ).toEqual(["a"]);
+
+      for (const hidden of ["h", "nope"])
+        await expect(
+          governed.move({ where: { id: "a" }, after: { id: hidden } })
+        ).rejects.toThrow("move anchor");
+    });
+
+    test("a move into a list whose members are all hidden keys as into an empty one", async () => {
+      const db = await setup();
+      for (const [id, columnId] of [
+        ["a", "c1"],
+        ["b", "c1"],
+        ["t", "c2"],
+      ] as const)
+        await db.card.create({ data: { id, columnId, title: id } });
+      await base_.card.update({
+        where: { id: "t" },
+        data: { deletedAt: new Date("2026-01-01T00:00:00.000Z") },
+      });
+      const governed = (
+        softDelete({ models: { card: { deletedAt: "deletedAt" } } })(
+          ordering({ card: { key: "rank", within: ["columnId"] } })(
+            counted_ as any
+          ) as any
+        ) as any
+      ).card;
+      await base_.column.create({ data: { id: "c3" } });
+      const into = async (id: string, columnId: string) =>
+        (await governed.move({ where: { id }, first: true, to: { columnId } }))
+          .rank as string;
+      // Each from no visible member: the same integer part, whatever the
+      // hidden members' keys (the random fraction differs). Read from the
+      // table, the first would go below the hidden member's key ("0…").
+      const hidden = await into("a", "c2");
+      const empty = await into("b", "c3");
+      expect(hidden.slice(0, 2)).toBe(empty.slice(0, 2));
     });
 
     test("ties are respaced when a move needs a gap between them", async () => {
