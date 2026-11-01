@@ -275,8 +275,8 @@ type _schemaOnly = Expect<Equal<SchemaOnly["post"], PostRow>>;
 
 // A model-mapped query handler applied to a rows client reads that client's
 // result context: `proceed()` says `| null` where the runtime can read null.
-// On the base client it stays precise. (`rows` cannot follow such a handler,
-// so no later extension changes what it sees.)
+// On the base client it stays precise. (TypeScript refuses `rows` after
+// such a handler, so no later extension changes what it sees.)
 type QueryHandlers<Client> =
   Client extends VibORMClient<infer C, infer X>
     ? Exclude<

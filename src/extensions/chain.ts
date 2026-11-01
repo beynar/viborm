@@ -194,11 +194,7 @@ export function rowsName(
   model: string
 ): boolean {
   return (
-    chain?.rows?.some(
-      ({ models, verbs }) =>
-        Object.hasOwn(models, model) ||
-        (verbs !== undefined && Object.hasOwn(verbs, model))
-    ) === true
+    chain?.rows?.some(({ models }) => Object.hasOwn(models, model)) === true
   );
 }
 

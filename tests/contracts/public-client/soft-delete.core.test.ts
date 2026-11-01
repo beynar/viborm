@@ -102,6 +102,12 @@ describe("SQLite3: viborm/soft-delete configuration branches", () => {
     expect(() =>
       softDelete({ models: { model: { deletedAt: "marker" } } })(base)
     ).not.toThrow();
+    // A model the schema lacks is core's refusal too.
+    expect(() =>
+      softDelete({ models: { nope: { deletedAt: "deletedAt" } } })(
+        base as never
+      )
+    ).toThrow(ClientInitializationError);
     // A field the model lacks is core's refusal, as before.
     expect(() =>
       softDelete({ models: { model: { deletedAt: "missing" } } })(base)
