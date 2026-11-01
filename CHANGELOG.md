@@ -3,6 +3,66 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## Unreleased
+
+Soft delete and ordering are one `$extends` each, applied in any order with
+permissions, `on`, the cache, `defaultOmit` and your own extensions. Soft
+delete gains `purge` and `purgeMany`; `move` no longer reveals a hidden
+anchor; a MySQL soft delete takes one statement fewer.
+
+### Changed
+
+- **The chain no longer refuses `rows` or `defaultOmit` after an extension
+  with methods or model-mapped `query` handlers.** Every method already runs
+  through the whole chain of the client it is called on; the rule only ever
+  protected types, so it is now TypeScript's alone: `rows` or `defaultOmit`
+  after a client or model factory that takes a typed argument types as
+  `never`. A factory that takes its delegate as `never` (or `unknown`, or no
+  argument) reads nothing typed at its step and may be followed by anything.
+  The two `ClientInitializationError`s ("declares rows, which cannot
+  follow…", "The default omit extension cannot follow…") are gone.
+- **`softDelete(config)`** is one definition: `db.$extends(softDelete(c))`
+  composes with `permissions` in either order, and `defaultOmit` may follow
+  it. `restore` (and `purge`) type their result from the client they are
+  called on, so a later `rows` step types a to-one relation it can hide as
+  `| null` and a later `defaultOmit` drops its fields. `softDelete(c).rows`
+  and `.methods` still work, for chains written before.
+- **`ordering(config)`** is one definition too; `move`'s result is typed from
+  the client it is called on. `ordering(c).keys` and `.methods` still work.
+  `rekey` invalidates the official cache of the client it is called on, also
+  when the cache is applied after ordering (it was read at application).
+- A soft delete behind `restrict` children on MySQL sends 4 statements, not
+  5: the lock before the live-child check is the capture of the rows' keys,
+  and the write no longer locks them again. PostgreSQL keeps its 3 (lock,
+  check, `UPDATE … RETURNING`), in the same order.
+
+### Added
+
+- **`purge` and `purgeMany`** on soft-deleted models: tombstones only,
+  deleted physically. A live row is never purged (`purge` of one is
+  `NotFoundError`). `mode: "hard"` keeps working.
+- **`DelegateOperationResult<Self, Operation, Args>`**: a model method
+  declared with a `this` parameter types its result from the delegate it is
+  called on, after every extension applied later.
+
+### Fixed
+
+- **Ordering: `move` was an existence oracle under `rows`.** Its one-UPDATE
+  path read the anchor from the table, so `move({ after: { id } })` succeeded
+  for a hidden row and failed for a missing one. Where an extension
+  declares `rows` on the model (permissions, soft delete), the anchor is
+  read through the caller's view first (one statement more, on those models
+  only) and a hidden anchor is a `NotFoundError`, as a missing one is.
+- **Soft delete checks its marker when applied.** A `deletedAt` that is not
+  a nullable `DateTime` is a `ClientInitializationError` naming the field; a
+  string marker was accepted and failed at the first delete, a required one
+  was refused with an unclear message.
+
+### Documentation
+
+- Soft delete: indexes for the marker (partial indexes over live rows on
+  PostgreSQL and SQLite, the marker in composite indexes on MySQL).
+
 ## 1.7.0 — 2026-11-01
 
 `viborm/ordering`: the members of a list (cards in kanban columns) in the

@@ -16,8 +16,11 @@ import {
   QueryError,
 } from "../errors";
 import { ValidationError } from "../errors/validation";
-import { SCOPE_CHAIN_FACTS, type ScopeChainFacts } from "../extensions/chain";
 import type { OrderTerm } from "../extensions/controls";
+import {
+  SCOPE_CHAIN_FACTS,
+  type ScopeChainFacts,
+} from "../extensions/scope-facts";
 import type {
   ClientSchema,
   ClientTypeState,

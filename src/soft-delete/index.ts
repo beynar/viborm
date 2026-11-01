@@ -1,15 +1,15 @@
 // viborm/soft-delete: the entire extension.
 
 import type { OperationPayload } from "../client/exports"; // public today
-import {
-  ClientInitializationError,
-  type ClientSchema,
-  type ClientTypeState,
-  type DelegateOperationResult,
-  type ExtensionState,
-  type PendingOperation,
-  type VibORMClient,
-  type VibORMConfig,
+import { ClientInitializationError } from "../errors"; // viborm's own class
+import type {
+  ClientSchema,
+  ClientTypeState,
+  DelegateOperationResult,
+  ExtensionState,
+  PendingOperation,
+  VibORMClient,
+  VibORMConfig,
 } from "../index";
 
 export interface SoftDeleteModel {

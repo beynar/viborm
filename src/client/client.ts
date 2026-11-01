@@ -22,8 +22,6 @@ import {
   lookupResolvedExtensionHandlers,
   type ResolvedExtensionChain,
   rowsName,
-  SCOPE_CHAIN_FACTS,
-  type ScopeChainFacts,
 } from "@extensions/chain";
 import { bindControls, uncacheableRead } from "@extensions/controls";
 import type {
@@ -52,6 +50,10 @@ import { TransactionWriteOutcomes } from "@extensions/query";
 import { applyRequestTransforms } from "@extensions/request";
 import { planResultFields } from "@extensions/result";
 import type { ResultInference } from "@extensions/result-types";
+import {
+  SCOPE_CHAIN_FACTS,
+  type ScopeChainFacts,
+} from "@extensions/scope-facts";
 import type { WritePlan } from "@extensions/writes";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { enableFindUniqueBatching } from "@query-engine/find-unique-batch";

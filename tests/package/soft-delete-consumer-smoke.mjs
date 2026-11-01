@@ -35,6 +35,9 @@ const IMPORT_SPECIFIER = /^import\b[^;]*?\bfrom\s*"([^"]+)"/gm;
 const PUBLIC_SPELLING = new Map([
   ["../index", "viborm"],
   ["../client/exports", "viborm/client"],
+  // The error class viborm exports, imported where viborm defines it so the
+  // entry shares the root's chunk (one class, as permissions does).
+  ["../errors", "viborm"],
 ]);
 
 /** The shipped definition, its imports spelled as a consumer spells them. */

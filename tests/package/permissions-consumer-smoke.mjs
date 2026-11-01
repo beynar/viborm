@@ -235,12 +235,19 @@ const pick = (actor: Actor, model: GovernedModel, inside: string, outside?: stri
 const READERS = ["u01", "u03", "u04", "u05", "u20", "u22", "u42", "u56"];
 const KEYED = Object.keys(actors).filter((name) => actors[name]!.key !== undefined);
 
-await line("policy(tombstones(base)).$extends(audit) is refused: every rows step goes first (§11.2 F6)", async () => {
-  // @ts-expect-error - rows after result-consuming methods are also refused statically
-  const got = await outcome(async () => policy(tombstones(base)).$extends(audit));
-  return got === ClientInitializationError.name ? undefined : got;
-});
 const db: Loose = policy.methods(tombstones.methods(policy.rows(tombstones.rows(base)).$extends(audit)));
+
+await line("each official extension is one step, in any order: policy(tombstones(base)) and tombstones(policy(base)) read what the steps apart read", async () => {
+  const oneStep: Loose = [policy(tombstones(base)).$extends(audit), tombstones(policy(base)).$extends(audit)];
+  for (const name of READERS) {
+    const actor = actors[name]!;
+    const expected = ids(await db.$as(actor).page.findMany());
+    for (const client of oneStep) {
+      const failure = differs(ids(await client.$as(actor).page.findMany()), expected);
+      if (failure) return name + ": " + failure;
+    }
+  }
+});
 
 await line("page.findMany({ include: { group: true } }): pages the actor views; a hidden group reads null", async () => {
   for (const name of READERS) {
