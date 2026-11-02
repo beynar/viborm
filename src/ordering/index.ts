@@ -37,9 +37,9 @@ import { getModelKeyCatalog } from "../schema/model/keys";
 import { type Sql, sql } from "../sql/sql";
 import { AppendKey } from "./append";
 import { between, Computed, jitter, spellings } from "./between";
-import { isKey, keyBetween } from "./keys";
+import { isKeyFormat, keyBetween } from "./keys";
 
-export { isKey, keyBetween, MAX_KEY_LENGTH } from "./keys";
+export { isKey, isKeyFormat, keyBetween, MAX_KEY_LENGTH } from "./keys";
 
 /**
  * A Standard Schema validator for a key field: `rank:
@@ -54,7 +54,7 @@ export const orderingKey = Object.freeze({
     // An integer part of 10^8 or more is refused: appends go past the last
     // key, and 9×10^8 of them stay possible after any written one.
     validate: (value: unknown) =>
-      isKey(value) && value[0] !== "9"
+      isKeyFormat(value) && value[0] !== "9"
         ? { value }
         : {
             issues: [
@@ -69,7 +69,8 @@ export const orderingKey = Object.freeze({
 
 /** One ordered model: its key field, and the fields that name its list. */
 export interface OrderingModel {
-  /** A required string field with no default: the member's key. */
+  /** A required string field: the member's key. A literal default only
+   * serves rows written without the extension. */
   readonly key: string;
   /** Scalar fields whose values name a list; none: one list. */
   readonly within?: readonly string[];
@@ -651,8 +652,8 @@ function methods(ordered: Ordered, engine: () => Engine) {
           name,
           "to goes with first, last or key, not with after or before."
         );
-      if (given !== undefined && !isKey(given))
-        invalid(name, "key takes an ordering key (isKey, keyBetween).");
+      if (given !== undefined && !isKeyFormat(given))
+        invalid(name, "key takes an ordering key (isKeyFormat, keyBetween).");
       if (
         (first !== undefined && first !== true) ||
         (last !== undefined && last !== true)
@@ -842,15 +843,15 @@ function methods(ordered: Ordered, engine: () => Engine) {
         let next: string | undefined;
         try {
           if (
-            (low === null || isKey(low)) &&
-            (high === null || isKey(high)) &&
+            (low === null || isKeyFormat(low)) &&
+            (high === null || isKeyFormat(high)) &&
             (low === null || high === null || low < high)
           )
             next = keyBetween(low, high);
         } catch {
           // An integer past 10^9: the list is respaced below.
         }
-        if (next === undefined || !isKey(next)) {
+        if (next === undefined || !isKeyFormat(next)) {
           // Tied or malformed neighbours, or a gap split too often: the
           // list is respaced, then read again.
           await respace(
@@ -1207,13 +1208,30 @@ type OrderingExtension<Config extends OrderingConfig> = {
 };
 
 /**
- * Order the members of lists: `client.$extends(ordering({ card: { key:
- * "rank", within: ["columnId"] } }))`. One step, applied in any order with
- * the other extensions.
+ * Order the members of lists: `client.$extends(ordering({ models: { card: {
+ * key: "rank", within: ["columnId"] } } }))`. One step, applied in any order
+ * with the other extensions.
  */
+export function ordering<const Config extends OrderingConfig>(config: {
+  readonly models: Config;
+}): OrderingExtension<Config>;
+/** @deprecated Since 1.9.1: `ordering({ models: { … } })`, as `softDelete` and `permissions` take theirs. */
 export function ordering<const Config extends OrderingConfig>(
   config: Config
+): OrderingExtension<Config>;
+export function ordering<const Config extends OrderingConfig>(
+  given: Config | { readonly models: Config }
 ): OrderingExtension<Config> {
+  // `{ models }`, or before 1.9.1 the models themselves: a model's entry
+  // holds strings (`key`), never only entries.
+  const { models } = given as { readonly models?: unknown };
+  const config = (
+    Object.keys(given).length === 1 &&
+    isRecord(models) &&
+    Object.values(models).every(isRecord)
+      ? models
+      : given
+  ) as Config;
   function extend<Base extends Receiver<Config>>(
     base: Base
   ): NoInfer<Applied<Config, Base>>;

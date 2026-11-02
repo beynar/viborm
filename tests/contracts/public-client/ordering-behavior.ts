@@ -12,7 +12,13 @@ import {
 import { s } from "@schema";
 import { Sql } from "@sql";
 import { on } from "@src/on";
-import { isKey, keyBetween, ordering, orderingKey } from "@src/ordering";
+import {
+  isKey,
+  isKeyFormat,
+  keyBetween,
+  ordering,
+  orderingKey,
+} from "@src/ordering";
 import { permissions } from "@src/permissions";
 import { softDelete } from "@src/soft-delete";
 import { v } from "@validation";
@@ -112,9 +118,11 @@ export function describeOrdering(
       },
     });
     const db = ordering({
-      card: { key: "rank", within: ["columnId"] },
-      legacy: { key: "rank" },
-      slot: { key: "rank", within: ["tenant"] },
+      models: {
+        card: { key: "rank", within: ["columnId"] },
+        legacy: { key: "rank" },
+        slot: { key: "rank", within: ["tenant"] },
+      },
     })(counted as any) as any;
     base_ = client as any;
     counted_ = counted;
@@ -137,7 +145,7 @@ export function describeOrdering(
       const ranks = (await db.card.findMany()).map(
         (row: { rank: string }) => row.rank
       );
-      expect(ranks.every(isKey)).toBe(true);
+      expect(ranks.every(isKeyFormat)).toBe(true);
     });
 
     test("a create computes its key in its own statement (a read first on MySQL)", async () => {
@@ -380,7 +388,7 @@ export function describeOrdering(
       const ranks = (await db.card.findMany()).map(
         (row: { rank: string }) => row.rank
       );
-      expect(ranks.every(isKey)).toBe(true);
+      expect(ranks.every(isKeyFormat)).toBe(true);
     });
 
     test("ordering's own writes leave updatedAt() as stored, but a field data names", async () => {
@@ -565,7 +573,7 @@ export function describeOrdering(
       const ranks = (await db.legacy.findMany()).map(
         (row: { rank: string }) => row.rank
       );
-      expect(ranks.every(isKey)).toBe(true);
+      expect(ranks.every(isKeyFormat)).toBe(true);
     });
 
     test("adopting with a member the caller cannot see: its backfilled key bounds nothing, the others get keys", async () => {
@@ -1007,7 +1015,7 @@ export function describeOrdering(
       const ranks = (await db.card.findMany({ where: { columnId: "c1" } })).map(
         (row: { rank: string }) => row.rank
       );
-      expect(ranks.every(isKey)).toBe(true);
+      expect(ranks.every(isKeyFormat)).toBe(true);
     });
 
     test("rekey inside an interactive transaction runs in it", async () => {
@@ -1116,7 +1124,7 @@ export function describeOrdering(
       const ranks = (await db.card.findMany()).map(
         (row: { rank: string }) => row.rank
       );
-      expect(ranks.every(isKey)).toBe(true);
+      expect(ranks.every(isKeyFormat)).toBe(true);
     });
 
     test("rekey by another order keeps the current order among equals", async () => {
@@ -1202,6 +1210,26 @@ export function describeOrderingAdmission(
       expect(() => ordering(config as any)(client as any)).toThrow(
         ClientInitializationError
       );
+      // The same models under `models`, the form since 1.9.1.
+      expect(() => ordering({ models: config } as any)(client as any)).toThrow(
+        ClientInitializationError
+      );
+    });
+
+    test("takes its models under `models`, or as the whole argument (before 1.9.1)", async () => {
+      const { client } = await open();
+      for (const config of [
+        { models: { card: { key: "rank", within: ["columnId"] } } },
+        { card: { key: "rank", within: ["columnId"] } },
+      ])
+        expect(
+          typeof (ordering(config as any)(client as any) as any).card.move
+        ).toBe("function");
+      // A model named `models` is a model: its entry holds `key`.
+      expect(() =>
+        ordering({ models: { key: "rank" } } as any)(client as any)
+      ).toThrow('"models"');
+      expect(isKey).toBe(isKeyFormat);
     });
   });
 }

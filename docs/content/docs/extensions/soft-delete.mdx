@@ -31,7 +31,7 @@ const post = s.model({
 
 const db = base.$extends(softDelete({
   models: { post: { deletedAt: "deletedAt", deletedBy: "deletedById" } },
-  actor: session.userId,
+  actorId: session.userId,
 }));
 
 await db.user.findMany({ include: { posts: true } }); // each user's live posts
@@ -76,8 +76,8 @@ the same.
 | Option | Meaning |
 |---|---|
 | `models.<model>.deletedAt` | A `DateTime` field of that model. `null` means live; a delete writes the call's time into it. Make it `.nullable()`. |
-| `models.<model>.deletedBy` | Optional. A scalar field that receives `actor` on delete and is cleared on restore. |
-| `actor` | Optional. The value written into `deletedBy`. Without it, `deletedBy` is written `null`. |
+| `models.<model>.deletedBy` | Optional. A scalar field that receives `actorId` on delete and is cleared on restore. |
+| `actorId` | Optional. The value written into `deletedBy`. Without it, `deletedBy` is written `null`. Before 1.9.1 it was named `actor`, which still works (deprecated); giving both is refused. |
 
 Both are checked when the extension is applied, with a
 `ClientInitializationError`: a model the schema lacks, a field the model
@@ -87,12 +87,12 @@ editor.
 
 ### One actor per client, one actor per transaction
 
-`actor` is fixed for the client `softDelete()` returns. For a per-request actor,
+`actorId` is fixed for the client `softDelete()` returns. For a per-request actor,
 derive one client per request:
 
 ```ts
 function clientFor(session: Session) {
-  return softDelete({ models, actor: session.userId })(base);
+  return softDelete({ models, actorId: session.userId })(base);
 }
 ```
 

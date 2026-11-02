@@ -35,6 +35,22 @@ Versioning.
   (`NotFoundError`), not the row after it. On that path the condition holds
   when the anchor is read, not inside the UPDATE.
 
+### Changed
+
+Three names that said less than they meant, from an audit of the API added
+since 1.6.0. Each former spelling still works, typed `@deprecated`; the
+docs use the new one.
+
+- **`softDelete({ actorId })`**, formerly `actor`: the value a delete writes
+  into `deletedBy`, fixed per client. `actor` is what `permissions` calls
+  the request's actor schema, a different thing. Giving both is refused.
+- **`ordering({ models: { card: { key, within } } })`**, as `softDelete`
+  and `permissions` take their models. `ordering({ card: … })` still works.
+- **`isKeyFormat(value)`**, formerly `isKey`: whether a value is written as
+  a key, as every key a list holds is. `orderingKey` also refuses a write
+  setting a key of 10^8 or more, so a value `isKeyFormat` accepts may still
+  be refused as written data.
+
 ## 1.9.0 — 2026-11-02
 
 A policy declares the tenant its calls stay in, and its cost stops growing

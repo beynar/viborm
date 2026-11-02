@@ -20,7 +20,7 @@ const card = s.model({
   column: s.toOne(() => column).fields("columnId").references("id"),
 }).index(["columnId", "rank", "id"]);
 
-const db = ordering({ card: { key: "rank", within: ["columnId"] } })(base);
+const db = ordering({ models: { card: { key: "rank", within: ["columnId"] } } })(base);
 
 await db.card.create({ data: { columnId, title: "Write the docs" } }); // last of its column
 await db.card.move({ where: { id }, after: { id: otherId } });
@@ -33,7 +33,9 @@ import it carries only the engine's hooks for it (under 1 kB gzipped).
 
 ## Configuration
 
-`ordering({ [model]: { key, within } })`:
+`ordering({ models: { [model]: { key, within } } })`, as `softDelete` and
+`permissions` take their models (before 1.9.1 the models were the whole
+argument, `ordering({ card: … })`, which still works, deprecated):
 
 - `key`: a required string field. The extension writes it. Its default, if
   any, is a literal string, for rows the extension did not create (see
@@ -125,7 +127,7 @@ column and its place in one move, one statement, by `data`:
 
 ```ts
 // One order for the board and every other view of the table.
-ordering({ card: { key: "rank" } });
+ordering({ models: { card: { key: "rank" } } });
 await db.card.move({ where: { id }, after: { id: neighbourId }, data: { columnId } });
 ```
 
@@ -204,7 +206,7 @@ neighbours were read: if another writer moved one of them, or a respace
 gave the list new keys, the row lands among the keys as they are now, not
 next to the cards the caller saw. `keyBetween` throws where `lower` is not
 below `upper` (tied neighbours), and a key can outgrow `MAX_KEY_LENGTH`
-(check `isKey`): place the row with an anchor then, which respaces. With
+(check `isKeyFormat`): place the row with an anchor then, which respaces. With
 `orderingKey`, a key of 10^8 or more is refused. A key that is not one is a
 `ValidationError`, `key` with `after` or `before` too.
 
@@ -279,8 +281,10 @@ collation. Letters would not do: Czech sorts `ch` after `h`, Danish sorts
 exception.
 
 `keyBetween(lower, upper)` (`null` for an open end) computes a key between
-two, for [`move` with a key](#with-a-key-you-computed); `isKey(value)` tells
-whether a value is a key.
+two, for [`move` with a key](#with-a-key-you-computed); `isKeyFormat(value)`
+tells whether a value is written as a key, as every key a list holds is
+(`orderingKey` also refuses a write setting a key of 10^8 or more). It was
+named `isKey` before 1.9.1, which still works (deprecated).
 
 Each generated key holds a random part, so two writers placing into one gap
 at the same moment get distinct keys. A tie (equal keys) is still possible
