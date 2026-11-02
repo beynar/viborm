@@ -33,7 +33,6 @@ import type { Queries } from "../query-engine/raptor3/shared/query";
 import type { RowJudgement } from "../query-engine/raptor3/shared/row-scope";
 import { RowsOf } from "../query-engine/raptor3/shared/rows-of";
 import { getModelKeyCatalog } from "../schema/model/keys";
-import { isPlainRecord } from "../schema/relation/terminal";
 import { type Sql, sql } from "../sql/sql";
 import { AppendKey } from "./append";
 import { between, Computed, jitter, spellings } from "./between";
@@ -97,6 +96,12 @@ const MOVE_ATTEMPTS = 3;
 const MISSED = Symbol("missed");
 
 /** A model's ordering facts, checked against the schema once. */
+/** A plain object: what `data` is, as an update's data. */
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" &&
+  value !== null &&
+  [Object.prototype, null].includes(Object.getPrototypeOf(value));
+
 /** `value`'s own `key`, where `value` is an object. */
 const own = (value: unknown, key: string): unknown =>
   typeof value === "object" && value !== null
@@ -637,13 +642,13 @@ function methods(ordered: Ordered, engine: () => Engine) {
         )
           invalid(name, `to names the list's fields: ${within.join(", ")}.`);
       }
-      if (data !== undefined && (!isPlainRecord(data) || places(data)))
+      if (data !== undefined && (!isRecord(data) || places(data)))
         invalid(
           name,
           `data writes other fields than the key${within.length === 0 ? "" : " and the list's (to)"}: ${placing.join(", ")}.`
         );
       // What the call writes beside the key, in the same UPDATE.
-      const extra: Row = isPlainRecord(data) ? data : {};
+      const extra: Row = isRecord(data) ? data : {};
       const anchor = (after ?? before) as Row | undefined;
       const projection = {
         ...(select === undefined ? {} : { select }),
