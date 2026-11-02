@@ -642,7 +642,6 @@ function modesOf(models: { readonly [model: string]: DeclaredModel }) {
       mode !== model.read && {
         root: Object.hasOwn(model.modes, mode) ? model.modes[mode]! : FALSE,
       }),
-    ...(model.related !== undefined && { related: model.related }),
   });
   return Object.fromEntries(
     Object.entries(models).map(([name, model]) => [
@@ -652,12 +651,12 @@ function modesOf(models: { readonly [model: string]: DeclaredModel }) {
   );
 }
 
-/** The tenant the policy's own sets stay in (`tenant`): its related rows' bound. */
+/** The tenant the policy's own whole-table sets stay in (`tenant`). */
 function boundOf(models: { readonly [model: string]: DeclaredModel }) {
-  const bound = Object.entries(models).flatMap(([name, model]) =>
-    model.related === undefined ? [] : [[name, model.related] as const]
-  );
-  return bound.length === 0 ? {} : { bound: Object.fromEntries(bound) };
+  const bound: Record<string, Where> = {};
+  for (const [name, model] of Object.entries(models))
+    if (model.bound !== undefined) bound[name] = model.bound;
+  return Object.keys(bound).length === 0 ? {} : { bound };
 }
 
 /** Whether `name` has a self relation holding its key: what `acyclic` may name. */

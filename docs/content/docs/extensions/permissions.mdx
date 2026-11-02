@@ -1706,18 +1706,15 @@ const policy = permissions({
 });
 ```
 
-On every model with a scalar `organizationId`:
-
-- a row of another organization is absent from every relation the call
-  reads (an `include`, a `select`, a relation filter of its `where`), as a
-  soft-deleted row is;
-- inside the policy's own rules, a set the statement computes over the
-  whole table (a repeated body; on a driver that bounds the relations of a
-  statement, such as PlanetScale's Neki, a walk computed as a set) holds the
-  actor's organization's rows only, where a test reads it positively:
-  `some` or `is`, outside a `NOT`, and not in what a `none`, `every` or
-  `isNot` ranges over. The rule's other reads, and the bodies of `$exists`,
-  read rows as they are.
+Inside the policy's own rules, on every model with a scalar
+`organizationId`, a set the statement computes over the whole table (a
+repeated body; on a driver that bounds the relations of a statement, such
+as PlanetScale's Neki, a walk computed as a set) then holds the actor's
+organization's rows only, where a test reads it positively: `some` or `is`,
+outside a `NOT`, and not in what a `none`, `every` or `isNot` ranges over.
+Nothing else changes: the rows a call reads through a relation, a relation
+a rule reads row by row, the set an `$exists` body is, and every other
+extension's predicates read rows as they are.
 
 With `tenant`, the measurements above became 11 ms and 200 ms.
 
@@ -1727,13 +1724,15 @@ answers without `tenant`. Where one does not (a grant written in another
 organization than its page's, a team of another organization reached
 through a person's memberships), a rule may read fewer rows than without
 `tenant`, depending on how the statement computes them, and never more:
-`tenant` only takes access away.
+`tenant` only takes access away. Declare `actor` as a required path of the
+actor schema: an actor without it reads every bounded set as empty.
 
-A model whose rows a call reads beyond the actor's organization is left out
-with `except`: a person's memberships of every organization they belong to,
-and a model whose rows may belong to no organization (a shared catalogue
-whose `organizationId` is `null`, or a sentinel value), which `tenant` would
-otherwise hide as another organization's:
+A model whose rows a rule reads beyond the actor's organization is left out
+with `except`: a person's memberships of every organization they belong to
+(an organization switcher's rule), and a model whose rows may belong to no
+organization (a shared catalogue whose `organizationId` is `null`, or a
+sentinel value), which `tenant` would otherwise drop from a rule's sets as
+another organization's:
 
 ```ts
 tenant: {

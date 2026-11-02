@@ -2171,16 +2171,16 @@ describe("a policy's tenant", () => {
       schema
     ).declared;
 
-  test("bounds the related rows of every model holding the field, in every mode, but the excepted ones", () => {
+  test("bounds the sets of every model holding the field, but the excepted ones", () => {
     const models = declared({ ...TENANT, except: ["member"] });
     const bound = {
       organizationId: { control: "actor", path: "organizationId" },
     };
-    expect(models.page!.related).toEqual(bound);
-    expect(models.team!.related).toEqual(bound);
-    expect(models.member!.related).toBeUndefined();
-    expect(models.organization!.related).toBeUndefined();
-    expect(models.user!.related).toBeUndefined();
+    expect(models.page!.bound).toEqual(bound);
+    expect(models.team!.bound).toEqual(bound);
+    expect(models.member!.bound).toBeUndefined();
+    expect(models.organization!.bound).toBeUndefined();
+    expect(models.user!.bound).toBeUndefined();
   });
 
   test("refuses what it cannot read", () => {

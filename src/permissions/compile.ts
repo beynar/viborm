@@ -94,12 +94,12 @@ export interface PermissionsConfig {
   readonly cache?: "allow";
   /**
    * The tenant a governed call stays in: on every model with a scalar
-   * `field` but the ones `except` names, a row whose `field` is not the
-   * actor's `actor` path is absent from every relation the call reads, and
-   * from every set a rule's positive test computes over a whole table (the
-   * rule's own relations otherwise read rows as they are). `except` names
-   * the models whose rows a call reads beyond the actor's tenant: a person's
-   * memberships of other organisations.
+   * `field` but the ones `except` names, a set the policy's rules compute
+   * over a whole table, where a positive test reads it, holds only the rows
+   * whose `field` is the actor's `actor` path (`rows.bound`). Nothing else
+   * reads differently. `except` names the models whose rows a rule reads
+   * beyond the actor's tenant: a person's memberships of other
+   * organizations, a shared catalogue.
    */
   readonly tenant?: {
     readonly field: string;
@@ -517,8 +517,8 @@ export interface DeclaredModel {
   readonly update?: string;
   readonly delete?: string;
   readonly modes: { readonly [mode: string]: string };
-  /** The rows a relation reaches, in every mode: the tenant's (`tenant`). */
-  readonly related?: Where;
+  /** What the policy's own whole-table sets of this model hold (`tenant`). */
+  readonly bound?: Where;
 }
 
 /**
@@ -2024,7 +2024,7 @@ export function policyCompiler(
             name,
             bound === undefined
               ? UNLISTED
-              : Object.freeze({ ...UNLISTED, related: bound }),
+              : Object.freeze({ ...UNLISTED, bound }),
           ];
         const { read, update, delete: remove, modes } = known;
         return [
@@ -2034,7 +2034,7 @@ export function policyCompiler(
             ...(update !== undefined && { update }),
             ...(remove !== undefined && { delete: remove }),
             modes,
-            ...(bound !== undefined && { related: bound }),
+            ...(bound !== undefined && { bound }),
           }),
         ];
       })

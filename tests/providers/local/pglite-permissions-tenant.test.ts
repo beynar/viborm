@@ -1,11 +1,12 @@
 /**
- * PGlite Driver Tests — a policy's `tenant`: the rows of another tenant are
- * absent from every relation a governed call reads, and inside the policy's
- * own rules a set PostgreSQL computes over a whole table (a shared body, a
- * reaching set) holds only the actor's tenant, where a test reads it
- * positively. On data that keeps every relation inside one tenant (the
- * acceptance estate) the policy answers what it answers without `tenant`; on
- * data that does not, `tenant` only ever takes access away.
+ * PGlite Driver Tests — a policy's `tenant`: inside the policy's own rules,
+ * a set PostgreSQL computes over a whole table (a shared body, a reaching
+ * set) holds only the actor's tenant, where a test reads it positively
+ * (`rows.bound`). Nothing else changes: the rows a call reads through a
+ * relation, and every other extension's predicates. On data that keeps every
+ * relation inside one tenant (the acceptance estate) the policy answers what
+ * it answers without `tenant`; on data that does not, `tenant` only ever
+ * takes access away.
  */
 
 import { createClient } from "@client/client";
@@ -302,7 +303,7 @@ describe("PGlite: a policy's tenant on rows that cross tenants", () => {
     expect(within.map((row) => row.id)).toEqual(["granted-elsewhere"]);
   });
 
-  test("a relation the caller reads holds the actor's tenant only", async () => {
+  test("a relation the caller reads is the same with and without it", async () => {
     const open = (tenant?: typeof TENANT) =>
       permissions({
         actor: v.object({ userId: v.string(), organizationId: v.string() }),
@@ -330,14 +331,7 @@ describe("PGlite: a policy's tenant on rows that cross tenants", () => {
       { id: "granted-elsewhere", grants: [{ id: "g1" }] },
       { id: "revoked-elsewhere", grants: [{ id: "g2" }, { id: "g3" }] },
     ]);
-    expect(await pages(TENANT)).toEqual([
-      { id: "granted-elsewhere", grants: [] },
-      { id: "revoked-elsewhere", grants: [{ id: "g2" }] },
-    ]);
-    // A model it excepts is read beyond the actor's tenant.
-    expect(await pages({ ...TENANT, except: ["grant"] })).toEqual(
-      await pages()
-    );
+    expect(await pages(TENANT)).toEqual(await pages());
   });
 });
 
@@ -432,6 +426,176 @@ describe("PGlite: a policy's tenant beside another extension's related rows", ()
           .page!.findMany({ select: { id: true, $access: true } }),
         tenant === undefined ? "without tenant" : "with tenant"
       ).toEqual([]);
+    }
+  });
+});
+
+describe("PGlite: rows.bound, the capability tenant is built on", () => {
+  const page = s.model({ id: s.string().id(), grants: s.toMany(() => grant) });
+  const grant = s.model({
+    id: s.string().id(),
+    tenant: s.string(),
+    pageId: s.string(),
+    page: s
+      .toOne(() => page)
+      .fields("pageId")
+      .references("id"),
+    userId: s.string(),
+  });
+  const schema = { page, grant };
+  const open = () => createClient({ schema, driver: new PGliteDriver({}) });
+  let base: ReturnType<typeof open>;
+  const granted = { grants: { some: { userId: { control: "user" } } } };
+  // `tenant` is read by `bound` alone; `granted` repeats, so the statement
+  // computes it once, as a set.
+  const sharing = (bound: {
+    readonly [model: string]: Readonly<Record<string, unknown>>;
+  }) =>
+    defineExtension({
+      name: "sharing",
+      controls: {
+        user: { schema: v.string(), required: true },
+        tenant: { schema: v.string() },
+      },
+      rows: {
+        control: "as",
+        default: "default",
+        models: { page: { default: {} } },
+        verbs: {
+          page: {
+            predicates: {
+              seen: {
+                OR: [
+                  { AND: [granted, { id: { not: "x" } }] },
+                  { AND: [granted, { id: { not: "y" } }] },
+                ],
+              },
+            },
+            read: "seen",
+          },
+        },
+        bound,
+      },
+    });
+
+  beforeAll(async () => {
+    base = open();
+    await syncLiveSchema(base);
+    await base.page.create({ data: { id: "p" } });
+    await base.grant.create({
+      data: { id: "g", tenant: "b", pageId: "p", userId: "ada" },
+    });
+  }, 120_000);
+  afterAll(async () => {
+    await base?.$disconnect();
+  });
+
+  test("a bound that alone reads a control bounds the sets with the call's value", async () => {
+    const statements: string[] = [];
+    const recorded = base.$extends({
+      name: "statements",
+      statement(context) {
+        statements.push(context.statement.toStatement());
+        return context.statement;
+      },
+    });
+    const db = recorded.$extends(
+      sharing({ grant: { tenant: { control: "tenant" } } }) as never
+    ) as unknown as Record<string, Delegate>;
+    const pages = (args: object) =>
+      db.page!.findMany({ ...args, select: { id: true } });
+    expect(await pages({ user: "ada" })).toEqual([{ id: "p" }]);
+    expect(await pages({ user: "ada", tenant: "b" })).toEqual([{ id: "p" }]);
+    statements.length = 0;
+    expect(await pages({ user: "ada", tenant: "a" })).toEqual([]);
+    expect(partsOf(statements.at(-1)!).bodies.join(" ")).toContain(
+      '"tenant" = '
+    );
+  });
+
+  test("a bound naming an undeclared control is refused when applied", () => {
+    expect(() =>
+      base.$extends(
+        sharing({ grant: { tenant: { control: "nope" } } }) as never
+      )
+    ).toThrow('references undeclared control "nope"');
+  });
+});
+
+describe("PGlite: a policy's tenant beside another extension's negative test", () => {
+  const page = s.model({
+    id: s.string().id(),
+    organizationId: s.string(),
+    blocks: s.toMany(() => block),
+  });
+  const block = s.model({
+    id: s.string().id(),
+    organizationId: s.string(),
+    pageId: s.string(),
+    page: s
+      .toOne(() => page)
+      .fields("pageId")
+      .references("id"),
+    active: s.boolean(),
+  });
+  const schema = { page, block };
+  const open = () => createClient({ schema, driver: new PGliteDriver({}) });
+  let base: ReturnType<typeof open>;
+  // Another layer: a page with an active block is hidden from every caller.
+  const blocklist = defineExtension({
+    name: "blocklist",
+    rows: {
+      control: "blocklist",
+      default: "on",
+      models: {
+        page: { on: { root: { blocks: { none: { active: true } } } } },
+      },
+    },
+  });
+  const policyOf = (tenant?: typeof TENANT) =>
+    permissions({
+      actor: v.object({ userId: v.string(), organizationId: v.string() }),
+      levels: ["read", "update"],
+      ...(tenant === undefined ? {} : { tenant }),
+      models: {
+        page: {
+          mandatory: { organizationId: { actor: "organizationId" } },
+          read: true,
+          update: true,
+        },
+        block: { read: true },
+      },
+    });
+
+  beforeAll(async () => {
+    base = open();
+    await syncLiveSchema(base);
+    await base.page.create({ data: { id: "p", organizationId: "a" } });
+    // An active block written in another organization than its page's.
+    await base.block.create({
+      data: { id: "b", organizationId: "b", pageId: "p", active: true },
+    });
+  }, 120_000);
+  afterAll(async () => {
+    await base?.$disconnect();
+  });
+
+  test("it reads every tenant's rows, with tenant as without", async () => {
+    for (const tenant of [undefined, TENANT]) {
+      const as = (
+        policyOf(tenant)(base.$extends(blocklist) as never) as unknown as {
+          $as(
+            actor: unknown
+          ): Record<
+            string,
+            Delegate & { updateMany(args: object): Promise<{ count: number }> }
+          >;
+        }
+      ).$as({ userId: "ada", organizationId: "a" });
+      expect(await as.page!.findMany({ select: { id: true } })).toEqual([]);
+      expect(
+        await as.page!.updateMany({ data: {}, where: { id: "p" } })
+      ).toEqual({ count: 0 });
     }
   });
 });
