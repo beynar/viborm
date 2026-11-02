@@ -17,6 +17,7 @@
 import { ClientInitializationError } from "../errors";
 import type { RowsVerbs } from "../extensions/controls";
 import type { VibORMConfig } from "../index";
+import { boundingRelated } from "../query-engine/raptor3/shared/row-scope";
 import { type ActorContract, actorContract, refuse } from "./actor";
 import { FALSE, type PolicyModel, type Rule, type Where } from "./rules";
 
@@ -92,6 +93,20 @@ export interface PermissionsConfig {
    * session reaches it only after its TTL. Refused when absent.
    */
   readonly cache?: "allow";
+  /**
+   * The tenant a governed call stays in: on every model with a scalar
+   * `field` but the ones `except` names, a row whose `field` is not the
+   * actor's `actor` path is absent from every relation the call reads, and
+   * from every set a rule's positive test computes over a whole table (the
+   * rule's own relations otherwise read rows as they are). `except` names
+   * the models whose rows a call reads beyond the actor's tenant: a person's
+   * memberships of other organisations.
+   */
+  readonly tenant?: {
+    readonly field: string;
+    readonly actor: string;
+    readonly except?: readonly string[];
+  };
 }
 
 /**
@@ -147,6 +162,7 @@ const CONFIG_KEYS = new Set([
   "mandatory",
   "models",
   "cache",
+  "tenant",
 ]);
 const FIELD_KEYS = new Set(["read", "write"]);
 
@@ -502,6 +518,8 @@ export interface DeclaredModel {
   readonly update?: string;
   readonly delete?: string;
   readonly modes: { readonly [mode: string]: string };
+  /** The rows a relation reaches, in every mode: the tenant's (`tenant`). */
+  readonly related?: Where;
 }
 
 /**
@@ -738,6 +756,44 @@ export function policyCompiler(
       refuse(
         `${at} reads actor path "${read}", which the actor schema does not declare`
       );
+  };
+  /** Each model's tenant bound (`tenant`), checked once: undefined where the model has no such field. */
+  const tenantOf = (
+    tenant: PermissionsConfig["tenant"]
+  ): ((name: string) => Where | undefined) => {
+    if (tenant === undefined) return () => undefined;
+    const except = tenant?.except ?? [];
+    if (
+      !isRecord(tenant) ||
+      typeof tenant.field !== "string" ||
+      typeof tenant.actor !== "string" ||
+      !Array.isArray(except) ||
+      except.some((name) => typeof name !== "string") ||
+      Object.keys(tenant).some(
+        (key) => key !== "field" && key !== "actor" && key !== "except"
+      )
+    )
+      refuse(
+        "tenant is { field, actor, except? }: the scalar field that names a row's tenant, the actor path that names the caller's, and the models read beyond it"
+      );
+    path("tenant.actor", tenant.actor);
+    const holds = (name: string) =>
+      Object.hasOwn(stateOf(name).scalars, tenant.field);
+    if (!Object.keys(schema).some(holds))
+      refuse(
+        `tenant.field: no model of the schema has a scalar field "${tenant.field}"`
+      );
+    for (const name of except)
+      if (!(Object.hasOwn(schema, name) && holds(name)))
+        refuse(
+          `tenant.except names ${name}, which is not a model of the schema with a scalar field "${tenant.field}"`
+        );
+    const bound: Where = Object.freeze({
+      [tenant.field]: Object.freeze({ control: "actor", path: tenant.actor }),
+    });
+    boundingRelated.add(bound);
+    return (name) =>
+      holds(name) && !except.includes(name) ? bound : undefined;
   };
   /** A value position: the actor's fields as values, checked. */
   const value = (at: string, input: unknown): unknown => {
@@ -1959,11 +2015,19 @@ export function policyCompiler(
       )
     )
   );
+  const related = tenantOf(config.tenant);
   const declared = Object.freeze(
     Object.fromEntries(
       Object.keys(schema).map((name) => {
         const known = declarations.get(name);
-        if (known === undefined) return [name, UNLISTED];
+        const bound = related(name);
+        if (known === undefined)
+          return [
+            name,
+            bound === undefined
+              ? UNLISTED
+              : Object.freeze({ ...UNLISTED, related: bound }),
+          ];
         const { read, update, delete: remove, modes } = known;
         return [
           name,
@@ -1972,6 +2036,7 @@ export function policyCompiler(
             ...(update !== undefined && { update }),
             ...(remove !== undefined && { delete: remove }),
             modes,
+            ...(bound !== undefined && { related: bound }),
           }),
         ];
       })

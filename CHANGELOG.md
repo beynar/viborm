@@ -3,6 +3,32 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## 1.9.0 — 2026-11-02
+
+A policy declares the tenant its calls stay in, and its cost stops growing
+with every other tenant of the database.
+
+### Added
+
+- **`permissions({ tenant: { field, actor, except? } })`.** On every model
+  with the scalar `field` (but the ones `except` names), a row whose `field`
+  is not the actor's `actor` path is absent from every relation a governed
+  call reads, as a soft-deleted row is, and from every set a rule's
+  positive test computes over a whole table: a body the statement repeats,
+  and, on a driver that bounds relations per statement (Neki), a walk
+  computed as a set. Without it, those sets read every tenant's rows: "the
+  teams the actor belongs to", "the grants that name them", "the documents
+  they may read". Measured on a 40-model production policy at 500
+  organizations of 60 members (PostgreSQL 18): the sidebar's read 1,152 →
+  11 ms, a document list 7.8 s → 200 ms, a team list 8.4 s → 124 ms,
+  opening a page 1,013 → 5 ms; at 5 organizations, unchanged. Where every
+  row of such a model a rule reads is the actor's tenant's, the policy
+  answers what it answered; where one is not, `tenant` only takes access
+  away: what a negative test (`none`, `every`, `isNot`, `NOT`) reads, or
+  ranges over, is never bounded. Checked when the policy is applied:
+  `actor` a path of the actor schema (also in its type), `field` a scalar
+  of some model, each `except` a model holding it.
+
 ## 1.8.0 — 2026-11-02
 
 Soft delete and ordering are one `$extends` each, applied in any order with

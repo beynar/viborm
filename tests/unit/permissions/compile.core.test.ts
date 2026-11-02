@@ -14,7 +14,11 @@ import {
   permissions,
   type Rule,
 } from "@src/permissions";
-import { compilePolicy, evidenceOf } from "@src/permissions/compile";
+import {
+  compilePolicy,
+  evidenceOf,
+  policyCompiler,
+} from "@src/permissions/compile";
 import { v } from "@src/validation";
 import { schema } from "@tests/package/fixtures/permissions-app/schema";
 import {
@@ -2151,5 +2155,60 @@ describe("coverage low value", () => {
           .models.page!.predicates.read
       ).toEqual({ OR: [expectedWide, expectedNarrow] });
     }
+  });
+});
+
+describe("a policy's tenant", () => {
+  const TENANT = { field: "organizationId", actor: "organizationId" };
+  const declared = (tenant: object) =>
+    policyCompiler(
+      {
+        actor: Actor,
+        levels: LEVELS,
+        tenant,
+        models: { page: { read: {} } },
+      } as PermissionsConfig,
+      schema
+    ).declared;
+
+  test("bounds the related rows of every model holding the field, in every mode, but the excepted ones", () => {
+    const models = declared({ ...TENANT, except: ["member"] });
+    const bound = {
+      organizationId: { control: "actor", path: "organizationId" },
+    };
+    expect(models.page!.related).toEqual(bound);
+    expect(models.team!.related).toEqual(bound);
+    expect(models.member!.related).toBeUndefined();
+    expect(models.organization!.related).toBeUndefined();
+    expect(models.user!.related).toBeUndefined();
+  });
+
+  test("refuses what it cannot read", () => {
+    const refusal = (tenant: unknown) =>
+      refusalOf(() =>
+        compile({
+          levels: LEVELS,
+          tenant,
+          models: { page: { read: {} } },
+        } as never)
+      );
+    const shape = "tenant is { field, actor, except? }";
+    expect(refusal("organizationId")).toContain(shape);
+    expect(refusal({ field: "organizationId" })).toContain(shape);
+    expect(refusal({ ...TENANT, model: "page" })).toContain(shape);
+    expect(refusal({ ...TENANT, except: "member" })).toContain(shape);
+    expect(refusal({ ...TENANT, actor: "orgId" })).toContain(
+      'tenant.actor reads actor path "orgId", which the actor schema does not declare'
+    );
+    expect(refusal({ ...TENANT, field: "tenantId" })).toContain(
+      'tenant.field: no model of the schema has a scalar field "tenantId"'
+    );
+    expect(refusal({ ...TENANT, except: ["membr"] })).toContain(
+      "tenant.except names membr, which is not a model of the schema"
+    );
+    expect(refusal({ ...TENANT, except: ["user"] })).toContain(
+      "tenant.except names user, which is not a model of the schema with a scalar field"
+    );
+    expect(refusal(TENANT)).toBe("no refusal");
   });
 });

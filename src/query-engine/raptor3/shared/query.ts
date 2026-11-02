@@ -93,6 +93,7 @@ import {
 } from "./identifier";
 import { unreachable } from "./invariant";
 import {
+  boundingRelated,
   type CallScope,
   type CallValues,
   Condition,
@@ -1937,6 +1938,37 @@ export class PreparedDomain {
       prepared = this.#prepareSelector(model, purpose, excluded, judged, key);
     return prepared ?? undefined;
   }
+  /**
+   * What the `excluded` layers' bounding `where` of `model`'s related rows
+   * states ({@link boundingRelated}), a layer each: inside its own
+   * predicates a layer reads nothing of itself, but a set the statement
+   * computes over a whole table (a shared body, a reaching set) still holds
+   * only the rows it would reach from a row the layer admits. `undefined`
+   * where none states one.
+   */
+  bound(
+    model: AnyModel,
+    excluded: readonly number[]
+  ): PreparedSelector | undefined {
+    const name = model["~"].names.ts!;
+    const inputs = this.rows.related.get(name);
+    // The first that bounds: a bound left out only leaves a set wider.
+    const layer = excluded.find((at) => {
+      const input = inputs?.[at];
+      return input !== undefined && boundingRelated.has(input);
+    });
+    if (layer === undefined) return undefined;
+    return memo(this.#bounds, `${name} ${layer}`, () => {
+      const input = inputs![layer]!;
+      const part = memo(this.#inputs, input, () =>
+        this.#queries.prepareSelector(model, input)
+      );
+      return part.predicate === undefined
+        ? part
+        : freeze({ ...part, predicate: layerOf(layer, name, part.predicate) });
+    });
+  }
+  readonly #bounds = new Map<string, PreparedSelector>();
   /** {@link selector}'s answer, prepared once per key. */
   #prepareSelector(
     model: AnyModel,
@@ -2772,6 +2804,39 @@ export class Queries {
   ): PreparedSelector | undefined {
     const scope = this.#scope(model, purpose, judgement);
     return scope && !this.#drops(scope.predicate) ? scope : undefined;
+  }
+  /**
+   * The rows a set computed over `model`'s whole table may hold while a
+   * layer's predicates lower here: what its own `where` of related rows
+   * states ({@link PreparedDomain.bound}), at `alias`. Rows reached through
+   * a relation from a row it admits need none: they are such rows already.
+   */
+  #setBound(model: AnyModel, alias: string): readonly Sql[] {
+    const bound = this.#boundOf(model);
+    const lowered = bound && this.lowerSelector(bound, alias);
+    return lowered ? [lowered] : [];
+  }
+  /** {@link setBound}'s selector, where one applies here. */
+  #boundOf(model: AnyModel): PreparedSelector | undefined {
+    const excluded = this.#excluded;
+    return excluded === undefined || excluded.length === 0 || this.#negative
+      ? undefined
+      : this.domain?.bound(model, excluded);
+  }
+  /**
+   * Whether what lowers here stands negated (under a `NOT`, a `none`, an
+   * `isNot`, an `unless`): a set bounded there would hold fewer rows, and
+   * its negation more, so none is ({@link setBound}).
+   */
+  #negative = false;
+  /** `lower` with the polarity of what it lowers turned over. */
+  #opposite<T>(lower: () => T): T {
+    this.#negative = !this.#negative;
+    try {
+      return lower();
+    } finally {
+      this.#negative = !this.#negative;
+    }
   }
   /** Whether a layer's predicates are lowering here. */
   get #lowersLayer(): boolean {
@@ -5246,7 +5311,9 @@ export class Queries {
           (arms) => a.operators.or(...arms)
         );
       case "not":
-        return a.operators.not(this.#apart(predicate.predicate, alias));
+        return a.operators.not(
+          this.#opposite(() => this.#apart(predicate.predicate, alias))
+        );
       case "always":
         return predicate.value ? a.literals.true() : a.literals.false();
       case "condition":
@@ -5934,10 +6001,14 @@ export class Queries {
     if (joinable) parent!.escaped = false;
     this.#frames.push(frame);
     let nested: Sql | undefined;
+    const body = predicate.predicate;
     try {
-      nested = predicate.predicate
-        ? this.#lowerPredicate(predicate.predicate, childAlias)
-        : undefined;
+      nested =
+        body === undefined
+          ? undefined
+          : predicate.quantifier === "none" || predicate.quantifier === "isNot"
+            ? this.#opposite(() => this.#lowerPredicate(body, childAlias))
+            : this.#lowerPredicate(body, childAlias);
     } finally {
       this.#frames.pop();
     }
@@ -5971,50 +6042,56 @@ export class Queries {
       ? [predicate.quantifier === "every" ? a.operators.not(nested) : nested]
       : [];
     const quantified = this.#quantified(predicate);
-    if (closure) {
-      // The walk is this EXISTS's OWN `WITH`, never wrapped in a derived table
-      // or a LATERAL: MySQL answers every outer row from one evaluation of a
-      // wrapped correlated recursive CTE wherever the EXISTS is not flattened.
-      // The walk owns membership and visibility; the reader joins by key.
-      const { cte, cteName, walk, childColumns } = this.#walk(
-        edge,
-        parentAlias ?? "",
-        closure
-      );
-      const query = sql`${cte} ${a.subqueries.existsCheck(
-        sql`${a.identifiers.aliased(a.identifiers.escape(cteName), walk)} ${a.joins.inner(
-          this.table(edge.target, childAlias),
-          this.#sameRow(
-            edge.target,
-            childAlias,
-            childColumns.map((name) => a.identifiers.column(walk, name))
-          )
-        )}${this.#attachPoint(childAlias)}`,
-        a.operators.and(...stated)
-      )}`;
-      // Admission refuses a `$row` across a recursive relation: what the
-      // walk states reads no row above the one it reaches.
-      return this.#sharedWalk(
+    // What the quantifier ranges over (membership, the related domain, a
+    // walk's hops) stands negated where it does not hold (`none`, `every`,
+    // `isNot`): fewer rows there make the test hold more often.
+    const range = (): Sql => {
+      if (closure) {
+        // The walk is this EXISTS's OWN `WITH`, never wrapped in a derived table
+        // or a LATERAL: MySQL answers every outer row from one evaluation of a
+        // wrapped correlated recursive CTE wherever the EXISTS is not flattened.
+        // The walk owns membership and visibility; the reader joins by key.
+        const { cte, cteName, walk, childColumns } = this.#walk(
+          edge,
+          parentAlias ?? "",
+          closure
+        );
+        const query = sql`${cte} ${a.subqueries.existsCheck(
+          sql`${a.identifiers.aliased(a.identifiers.escape(cteName), walk)} ${a.joins.inner(
+            this.table(edge.target, childAlias),
+            this.#sameRow(
+              edge.target,
+              childAlias,
+              childColumns.map((name) => a.identifiers.column(walk, name))
+            )
+          )}${this.#attachPoint(childAlias)}`,
+          a.operators.and(...stated)
+        )}`;
+        // Admission refuses a `$row` across a recursive relation: what the
+        // walk states reads no row above the one it reaches.
+        return this.#sharedWalk(
+          edge,
+          parentAlias ?? "",
+          childAlias,
+          closure,
+          stated,
+          query,
+          quantified
+        );
+      }
+      return this.#relationExists(
         edge,
         parentAlias ?? "",
         childAlias,
-        closure,
+        predicate.unscoped === undefined,
         stated,
-        query,
-        quantified
+        quantified,
+        predicate.predicate !== undefined && readsRelation(predicate.predicate),
+        frame.escaped,
+        frame.joins
       );
-    }
-    return this.#relationExists(
-      edge,
-      parentAlias ?? "",
-      childAlias,
-      predicate.unscoped === undefined,
-      stated,
-      quantified,
-      predicate.predicate !== undefined && readsRelation(predicate.predicate),
-      frame.escaped,
-      frame.joins
-    );
+    };
+    return quantified.holds ? range() : this.#opposite(range);
   }
   /** How `predicate`'s quantifier tests its relation's subquery. */
   #quantified(
@@ -6145,7 +6222,10 @@ export class Queries {
         ", "
       ),
       from: this.#attached(edge.target, child),
-      where: a.operators.and(...conditions),
+      where: a.operators.and(
+        ...conditions,
+        ...(quantified.holds ? this.#setBound(edge.target, child) : [])
+      ),
     });
     const key = sharedKey(query);
     let body = shared.byKey.get(key);
@@ -6225,13 +6305,16 @@ export class Queries {
       )
     )
       return inline;
-    const key = sharedKey(walk);
+    // A set a positive test reads may be bounded, one a negative test reads
+    // never is ({@link setBound}): the two are not one set.
+    const bounded = quantified.holds && this.#boundOf(model) !== undefined;
+    const key = `${sharedKey(walk)}${bounded ? " bounded" : ""}`;
     let body = shared.byKey.get(key);
     if (body === undefined) {
       const name = `__shared_${shared.order.length}`;
       body = {
         name,
-        query: this.#reachingSet(name, edge, child, closure, stated),
+        query: this.#reachingSet(name, edge, child, closure, stated, bounded),
         correlated: false,
         recursive: true,
         slots: [],
@@ -6284,7 +6367,8 @@ export class Queries {
     edge: Membership,
     child: string,
     closure: Closure,
-    stated: readonly Sql[]
+    stated: readonly Sql[],
+    bounded: boolean
   ): Sql {
     const a = this.adapter;
     const model = edge.source;
@@ -6299,6 +6383,8 @@ export class Queries {
       domain ? [this.lowerSelector(domain, alias)!] : [];
     const conditions = (all: readonly Sql[]) =>
       all.length === 0 ? undefined : a.operators.and(...all);
+    const bound = (alias: string) =>
+      bounded ? this.#setBound(model, alias) : [];
     let anchor: Sql;
     if (self)
       anchor = assembleAdapterSelect(a, {
@@ -6310,11 +6396,13 @@ export class Queries {
           ", "
         ),
         from: this.#attached(model, child),
-        where: conditions(stated),
+        where: conditions([...stated, ...bound(child)]),
       });
     else {
-      const first = this.#predecessor(edge, (field) =>
-        this.column(model, field, child)
+      const first = this.#predecessor(
+        edge,
+        (field) => this.column(model, field, child),
+        bound
       );
       anchor = assembleAdapterSelect(a, {
         columns: sql.join(
@@ -6336,10 +6424,13 @@ export class Queries {
       domain !== undefined || !this.#joinsPredecessor(edge)
         ? this.alias()
         : undefined;
-    const before = this.#predecessor(edge, (field) =>
-      reached === undefined
-        ? carried(keyColumns[keys.indexOf(field)]!)
-        : this.column(model, field, reached)
+    const before = this.#predecessor(
+      edge,
+      (field) =>
+        reached === undefined
+          ? carried(keyColumns[keys.indexOf(field)]!)
+          : this.column(model, field, reached),
+      bound
     );
     const recursive = assembleAdapterSelect(a, {
       columns: sql.join(
@@ -6417,7 +6508,8 @@ export class Queries {
    */
   #predecessor(
     edge: Membership,
-    into: CarriedRow
+    into: CarriedRow,
+    bound: (row: string) => readonly Sql[] = () => []
   ): { readonly key: readonly Sql[]; readonly joins: readonly Sql[] } {
     const a = this.adapter;
     const model = edge.source;
@@ -6454,7 +6546,8 @@ export class Queries {
                   this.column(model, pair.source, row),
                   into(pair.target)
                 )
-              )
+              ),
+              ...bound(row)
             )
           ),
         ],
@@ -6488,7 +6581,8 @@ export class Queries {
         a.joins.inner(
           this.table(model, row),
           a.operators.and(
-            ...this.junctionSideConditions(edge.sourceSide, link, row)
+            ...this.junctionSideConditions(edge.sourceSide, link, row),
+            ...bound(row)
           )
         ),
       ],
@@ -7388,7 +7482,8 @@ export class Queries {
       controls.unless &&
       a.operators.not(
         a.expressions.coalesce(
-          this.lowerSelector(controls.unless, alias) ?? a.literals.true(),
+          this.#opposite(() => this.lowerSelector(controls.unless!, alias)) ??
+            a.literals.true(),
           a.literals.false()
         )
       );
@@ -8787,7 +8882,9 @@ export class Queries {
     const counted = edges.map((edge) => {
       const childAlias = this.alias();
       const filter = selector
-        ? this.lowerSelector(selector, childAlias)!
+        ? negated
+          ? this.#opposite(() => this.lowerSelector(selector, childAlias)!)
+          : this.lowerSelector(selector, childAlias)!
         : undefined;
       return a.subqueries.scalar(
         assembleAdapterSelect(a, {

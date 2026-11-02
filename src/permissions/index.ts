@@ -207,12 +207,24 @@ type ConditionPaths<T> = T extends object
       }[RequiredKeys<T> & string]
   : never;
 
+type TenantActorPath<Config> = Config extends {
+  readonly tenant: { readonly actor: infer Path extends string };
+}
+  ? Path
+  : never;
 type UnknownActorPaths<Config extends PermissionsConfig> = Exclude<
-  SpelledActorPaths<Config["models"] | Config["mandatory"]>,
+  | SpelledActorPaths<Config["models"] | Config["mandatory"]>
+  | TenantActorPath<Config>,
   ActorPaths<InferOutput<Config["actor"]>>
 >;
 
-type ConfigKey = "actor" | "levels" | "mandatory" | "models" | "cache";
+type ConfigKey =
+  | "actor"
+  | "levels"
+  | "mandatory"
+  | "models"
+  | "cache"
+  | "tenant";
 
 /** `unknown` when the declaration's names agree; else a member naming the first disagreement. */
 type DeclarationCheck<Config extends PermissionsConfig> = [
@@ -625,12 +637,13 @@ function modesOf(models: { readonly [model: string]: DeclaredModel }) {
       Object.values(models).flatMap((model) => Object.keys(model.modes))
     ),
   ];
-  const narrowing = (model: DeclaredModel, mode: string) => {
-    if (mode === DEFAULT_MODE || mode === model.read) return {};
-    return {
-      root: Object.hasOwn(model.modes, mode) ? model.modes[mode]! : FALSE,
-    };
-  };
+  const narrowing = (model: DeclaredModel, mode: string) => ({
+    ...(mode !== DEFAULT_MODE &&
+      mode !== model.read && {
+        root: Object.hasOwn(model.modes, mode) ? model.modes[mode]! : FALSE,
+      }),
+    ...(model.related !== undefined && { related: model.related }),
+  });
   return Object.fromEntries(
     Object.entries(models).map(([name, model]) => [
       name,
