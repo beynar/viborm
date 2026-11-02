@@ -1537,7 +1537,17 @@ interface SharedBody {
     readonly use: Sql;
     /** Absent for an `$exists`, which reads no row's column. */
     readonly test?: SetTest;
+    /** A walk's: the relation body it is lowered in, if any. */
+    readonly within?: Enclosing;
   }[];
+}
+/**
+ * The relation body a walk is lowered in, once the statement knows whether
+ * that body is shared (`body`): a walk read inside a set computed over its
+ * whole table is computed as a set too ({@link sharingBodies}).
+ */
+interface Enclosing {
+  body?: SharedBody;
 }
 /**
  * The row columns a placed body's use compares with its key set's `k`
@@ -2319,9 +2329,21 @@ export class Queries {
     } finally {
       this.#shared = undefined;
     }
+    // A walk read only inside sets computed over their whole table (repeated
+    // relation bodies) is computed once as a set too, from the rows it
+    // reaches back: its walk per row of each would read the whole table.
+    const lifted = new Set(
+      shared.order.filter(
+        (body) =>
+          body.recursive === true &&
+          body.slots.every(
+            ({ within }) => (within?.body?.slots.length ?? 0) > 1
+          )
+      )
+    );
     const repeated: SharedBody[] = [];
     for (const body of shared.order)
-      if (body.slots.length > 1) repeated.push(body);
+      if (body.slots.length > 1 || lifted.has(body)) repeated.push(body);
       else body.slots[0]!.slot.settle(body.slots[0]!.inline);
     const walks = repeated.filter((body) => body.recursive === true);
     const budget = this.adapter.capabilities.relationsPerStatement;
@@ -2329,13 +2351,13 @@ export class Queries {
       reaching: ReadonlySet<SharedBody>,
       flagged: FlagChoice = () => []
     ) => this.#settled(statement, shared, repeated, reaching, flagged);
-    let query = settle(new Set());
+    let query = settle(lifted);
     if (budget === undefined) return query;
     let count = relations(query);
     if (count <= budget) return query;
     // Walks first, those saving the most relations, until the estimate fits;
     // then key sets joined, the largest saving first, until it does.
-    const reaching = new Set<SharedBody>();
+    const reaching = new Set<SharedBody>(lifted);
     for (const { body, saves } of this.#rankedWalks(query, walks)) {
       if (count <= budget) break;
       reaching.add(body);
@@ -2382,12 +2404,15 @@ export class Queries {
     // A relation body is inlined where it reads no other shared body: a
     // nested one, inlined into every use of every body that reads it,
     // multiplies the plan (a 40-model policy's `can`: 9.8 s materialized,
-    // 113 s inlined, 11 s inlining the leaves only).
+    // 113 s inlined, 11 s inlining the leaves only). A reaching set is not
+    // one: recursive, it is computed once wherever it is read.
     // By the slots a stated body settled to, not by text: a table may be
     // named like a body. The same pass finds the aliases each body joins
     // flags after ({@link flagging}).
     const uses = new Set<Sql>(
-      stated.flatMap((body) => body.slots.map((placed) => placed.slot))
+      stated.flatMap((body) =>
+        body.recursive === true ? [] : body.slots.map((placed) => placed.slot)
+      )
     );
     const attached = new Map<Sql, string>();
     for (const [alias, slots] of shared.attach)
@@ -2838,6 +2863,8 @@ export class Queries {
   }
   /** How many read gates are lowering here: none of their sets is bounded. */
   #unbounded = 0;
+  /** The relation bodies lowering here, innermost last ({@link Enclosing}). */
+  readonly #enclosing: Enclosing[] = [];
   /**
    * Whether what lowers here stands negated (under a `NOT`, a `none`, an
    * `isNot`, an `unless`): a set bounded there would hold fewer rows, and
@@ -6017,6 +6044,8 @@ export class Queries {
     this.#frames.push(frame);
     let nested: Sql | undefined;
     const body = predicate.predicate;
+    const enclosing: Enclosing = {};
+    this.#enclosing.push(enclosing);
     try {
       nested =
         body === undefined
@@ -6025,6 +6054,7 @@ export class Queries {
             ? this.#opposite(() => this.#lowerPredicate(body, childAlias))
             : this.#lowerPredicate(body, childAlias);
     } finally {
+      this.#enclosing.pop();
       this.#frames.pop();
     }
     if (joinable) {
@@ -6103,7 +6133,8 @@ export class Queries {
         quantified,
         predicate.predicate !== undefined && readsRelation(predicate.predicate),
         frame.escaped,
-        frame.joins
+        frame.joins,
+        enclosing
       );
     };
     return quantified.holds ? range() : this.#opposite(range);
@@ -6186,7 +6217,8 @@ export class Queries {
     quantified: Quantified,
     deeper = false,
     correlatedAbove = false,
-    joins: readonly Sql[] = []
+    joins: readonly Sql[] = [],
+    enclosing?: Enclosing
   ): Sql {
     const a = this.adapter;
     const junctions = a.capabilities.joinsJunctionFilters;
@@ -6254,6 +6286,7 @@ export class Queries {
       shared.byKey.set(key, body);
       shared.order.push(body);
     }
+    if (enclosing !== undefined) enclosing.body = body;
     const { name } = body;
     const use = quantified.of(
       a.subqueries.existsCheck(
@@ -6364,6 +6397,7 @@ export class Queries {
         columns: keys.map((field) => this.columnName(model, field)),
         holds: quantified.holds,
       },
+      within: this.#enclosing.at(-1),
     });
     return slot;
   }
