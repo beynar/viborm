@@ -221,7 +221,20 @@ slots (`#settled`) and recounting: first the walks it repeats become members,
 those saving the most relations first (`#rankedWalks`, an estimate by place),
 until the estimate fits; then key sets are joined (below), the largest saving
 first; an estimate still short takes the most compact form, every repeated
-walk a member and every set joined. Each step costs plans (a reaching set is
+walk a member and every set joined. Without a bound, one walk leaves its
+place too: a walk to the few rows a call value names (`anchored`: an
+equality of a parameter with an indexed plain column, as a conjunct, through
+`some`/`is`, or in every arm of an `OR`; the walk itself `some`/`is`), read
+only inside repeated bodies, none of which holds a walk left in place, is
+its reaching set from the start (`lifted`): "the teams the actor belongs to"
+is read back from the actor's memberships once, not walked per grant row of
+each body (a 40-model policy at 500 organizations: a page opened in 1.4 s →
+89 ms, 2.0 → 0.8 ms under a tenant bound). Any other walk stays in its body,
+read by the outer row's key: a broad one as a set holds most of its table
+(0.03 ms in place, 76 ms as a set over 30,000 rows), and a lifted one makes
+its body materialized, so a walk beside it would run once per row of it.
+The guess is the schema's, not the data's: an indexed column most rows share
+one value of is read as selective. Each step costs plans (a reaching set is
 computed for its whole table; a joined flag member is read again per row of
 a correlated subquery where the test it replaces was hashed once), so a
 statement that fits pays none of them, and plain PostgreSQL states no bound. A walk escalated is its REACHING

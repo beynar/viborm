@@ -886,6 +886,68 @@ function callReads(
   }
 }
 /**
+ * Is `field` a column of one of `model`'s indexes or keys: one the schema
+ * expects reads to select by, so few rows hold one value of it?
+ */
+function indexed(model: AnyModel, field: string): boolean {
+  return (
+    getModelKeyCatalog(model).addressableKeys.some(({ fields }) =>
+      fields.includes(field)
+    ) ||
+    model["~"].state.indexes.some(
+      ({ fields, options }) =>
+        options?.type !== "fulltext" &&
+        options?.type !== "spatial" &&
+        (fields as readonly string[]).includes(field)
+    )
+  );
+}
+/**
+ * Does `predicate` hold only of the few rows a call value names (the actor's
+ * memberships): an equality of a call value with an indexed plain column
+ * ({@link indexed}; not a boolean, JSON, point, vector or list, not
+ * case-insensitive), as a conjunct, through `some`/`is` relations, or in
+ * every arm of an `OR`; never under `NOT`. A guess from the schema, not from
+ * the data: a call value most rows hold is read as few.
+ */
+function anchored(predicate: PreparedPredicate | undefined): boolean {
+  switch (predicate?.kind) {
+    case "and":
+      return predicate.predicates.some(anchored);
+    case "or":
+      return predicate.predicates.every(anchored);
+    case "layer":
+      return anchored(predicate.predicate);
+    case "relation":
+      return (
+        (predicate.quantifier === "some" || predicate.quantifier === "is") &&
+        anchored(predicate.predicate)
+      );
+    case "operation": {
+      const { target } = predicate;
+      if (
+        predicate.operator !== "equals" ||
+        predicate.insensitive === true ||
+        !(
+          predicate.value instanceof Parameter ||
+          predicate.operand?.kind === "parameter"
+        ) ||
+        target.kind !== "column" ||
+        target.path !== undefined
+      )
+        return false;
+      const { model, field, physical } = target.scalar;
+      const { type, array } = physical.scalar["~"].state;
+      return (
+        !(array || ["boolean", "json", "point", "vector"].includes(type)) &&
+        indexed(model, field)
+      );
+    }
+    default:
+      return false;
+  }
+}
+/**
  * An `OR` whose every arm is one value equality on the same plain column, as
  * that column's `in` (platform-15): the same three-valued answer, so a long
  * chain binds as the one list `in` binds instead of one arm per expression
@@ -1531,13 +1593,25 @@ interface SharedBody {
    * once by every database, so it states no form.
    */
   readonly recursive?: true;
+  /** A walk to rows a call value names ({@link anchored}). */
+  readonly anchored?: true;
   readonly slots: {
     readonly slot: SqlSlot;
     readonly inline: Sql;
     readonly use: Sql;
     /** Absent for an `$exists`, which reads no row's column. */
     readonly test?: SetTest;
+    /** A walk's: the relation body it is lowered in, if any. */
+    readonly within?: Enclosing;
   }[];
+}
+/**
+ * The relation body a walk is lowered in, once the statement knows whether
+ * that body is shared (`body`): a walk read inside a set computed over its
+ * whole table is computed as a set too ({@link sharingBodies}).
+ */
+interface Enclosing {
+  body?: SharedBody;
 }
 /**
  * The row columns a placed body's use compares with its key set's `k`
@@ -2319,9 +2393,38 @@ export class Queries {
     } finally {
       this.#shared = undefined;
     }
+    // A walk to the few rows a call value names (the actor's memberships,
+    // {@link anchored}), read only inside repeated bodies, is computed once
+    // as a set, from those rows back up: in place it walks once per row each
+    // body reads. Any other walk stays in its body, read by the outer row's
+    // key. A body a lifted walk is read in reads a shared body, so it is
+    // computed over its whole table ({@link settled}): one also holding a
+    // walk left in place lifts none, which would walk once per row of it.
+    const lifted = new Set(
+      shared.order.filter(
+        (body) =>
+          body.anchored === true &&
+          body.slots.every(
+            ({ within }) => (within?.body?.slots.length ?? 0) > 1
+          )
+      )
+    );
+    for (let size = -1; size !== lifted.size; ) {
+      size = lifted.size;
+      for (const walk of shared.order)
+        if (walk.recursive === true && !lifted.has(walk))
+          for (const { within } of walk.slots)
+            for (const other of lifted)
+              if (
+                other.slots.some(
+                  (placed) => placed.within?.body === within?.body
+                )
+              )
+                lifted.delete(other);
+    }
     const repeated: SharedBody[] = [];
     for (const body of shared.order)
-      if (body.slots.length > 1) repeated.push(body);
+      if (body.slots.length > 1 || lifted.has(body)) repeated.push(body);
       else body.slots[0]!.slot.settle(body.slots[0]!.inline);
     const walks = repeated.filter((body) => body.recursive === true);
     const budget = this.adapter.capabilities.relationsPerStatement;
@@ -2329,13 +2432,13 @@ export class Queries {
       reaching: ReadonlySet<SharedBody>,
       flagged: FlagChoice = () => []
     ) => this.#settled(statement, shared, repeated, reaching, flagged);
-    let query = settle(new Set());
+    let query = settle(lifted);
     if (budget === undefined) return query;
     let count = relations(query);
     if (count <= budget) return query;
     // Walks first, those saving the most relations, until the estimate fits;
     // then key sets joined, the largest saving first, until it does.
-    const reaching = new Set<SharedBody>();
+    const reaching = new Set<SharedBody>(lifted);
     for (const { body, saves } of this.#rankedWalks(query, walks)) {
       if (count <= budget) break;
       reaching.add(body);
@@ -2838,6 +2941,8 @@ export class Queries {
   }
   /** How many read gates are lowering here: none of their sets is bounded. */
   #unbounded = 0;
+  /** The relation bodies lowering here, innermost last ({@link Enclosing}). */
+  readonly #enclosing: Enclosing[] = [];
   /**
    * Whether what lowers here stands negated (under a `NOT`, a `none`, an
    * `isNot`, an `unless`): a set bounded there would hold fewer rows, and
@@ -6017,6 +6122,8 @@ export class Queries {
     this.#frames.push(frame);
     let nested: Sql | undefined;
     const body = predicate.predicate;
+    const enclosing: Enclosing = {};
+    this.#enclosing.push(enclosing);
     try {
       nested =
         body === undefined
@@ -6025,6 +6132,7 @@ export class Queries {
             ? this.#opposite(() => this.#lowerPredicate(body, childAlias))
             : this.#lowerPredicate(body, childAlias);
     } finally {
+      this.#enclosing.pop();
       this.#frames.pop();
     }
     if (joinable) {
@@ -6091,7 +6199,11 @@ export class Queries {
           closure,
           stated,
           query,
-          quantified
+          quantified,
+          // A walk `every` judges reaches back from the rows its predicate
+          // does not hold of: never few.
+          (predicate.quantifier === "some" || predicate.quantifier === "is") &&
+            anchored(predicate.predicate)
         );
       }
       return this.#relationExists(
@@ -6103,7 +6215,8 @@ export class Queries {
         quantified,
         predicate.predicate !== undefined && readsRelation(predicate.predicate),
         frame.escaped,
-        frame.joins
+        frame.joins,
+        enclosing
       );
     };
     return quantified.holds ? range() : this.#opposite(range);
@@ -6186,7 +6299,8 @@ export class Queries {
     quantified: Quantified,
     deeper = false,
     correlatedAbove = false,
-    joins: readonly Sql[] = []
+    joins: readonly Sql[] = [],
+    enclosing?: Enclosing
   ): Sql {
     const a = this.adapter;
     const junctions = a.capabilities.joinsJunctionFilters;
@@ -6254,6 +6368,7 @@ export class Queries {
       shared.byKey.set(key, body);
       shared.order.push(body);
     }
+    if (enclosing !== undefined) enclosing.body = body;
     const { name } = body;
     const use = quantified.of(
       a.subqueries.existsCheck(
@@ -6304,7 +6419,8 @@ export class Queries {
     closure: Closure,
     stated: readonly Sql[],
     walk: Sql,
-    quantified: Quantified
+    quantified: Quantified,
+    seeded: boolean
   ): Sql {
     const a = this.adapter;
     const shared = this.#shared;
@@ -6335,6 +6451,7 @@ export class Queries {
         query: this.#reachingSet(name, edge, child, closure, stated, bounded),
         correlated: false,
         recursive: true,
+        ...(seeded && { anchored: true as const }),
         slots: [],
       };
       shared.byKey.set(key, body);
@@ -6364,6 +6481,7 @@ export class Queries {
         columns: keys.map((field) => this.columnName(model, field)),
         holds: quantified.holds,
       },
+      within: this.#enclosing.at(-1),
     });
     return slot;
   }
