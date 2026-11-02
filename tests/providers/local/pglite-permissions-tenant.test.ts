@@ -16,12 +16,8 @@ import { s } from "@schema";
 import { permissions } from "@src/permissions";
 import { softDelete } from "@src/soft-delete/index";
 import { v } from "@src/validation";
-import {
-  createPermissionsAppClient,
-  loadPermissionsSeed,
-  type PermissionsAppClient,
-} from "@tests/contracts/public-client/permissions-app-behavior";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { loadPermissionsSeed } from "@tests/contracts/public-client/permissions-app-behavior";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import {
   GOVERNED_MODELS,
   TOMBSTONED_MODELS,
@@ -29,7 +25,7 @@ import {
 import { schema } from "@tests/package/fixtures/permissions-app/schema";
 import { actors } from "@tests/package/fixtures/permissions-app/seed";
 import { policy } from "@tests/types/permissions/acceptance-policy";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test } from "vitest";
 
 type Row = Record<string, unknown>;
 type Delegate = {
@@ -115,14 +111,14 @@ function partsOf(statement: string): { bodies: string[]; main: string } {
 const tenantTests = (text: string) => (text.match(TENANT_TESTS) ?? []).length;
 
 describe("PGlite: a policy's tenant on the acceptance estate", () => {
-  let base: PermissionsAppClient;
+  const family = usePGliteSchemaFamily(schema);
+  let base: ReturnType<typeof family>["client"];
   let plain: Governed;
   let bounded: Governed;
   const statements: string[] = [];
 
-  beforeAll(async () => {
-    base = createPermissionsAppClient(new PGliteDriver({}));
-    await syncLiveSchema(base);
+  beforeEach(async () => {
+    base = family().client;
     await loadPermissionsSeed(base);
     const recorded = base.$extends({
       name: "statements",
@@ -138,9 +134,6 @@ describe("PGlite: a policy's tenant on the acceptance estate", () => {
       tombstones.methods(tenanted.rows(tombstones.rows(recorded)))
     ) as unknown as Governed;
   }, 300_000);
-  afterAll(async () => {
-    await base?.$disconnect();
-  });
 
   test("every governed model answers the same rows and $access with and without it", async () => {
     for (const name of JUDGED) {
@@ -238,12 +231,11 @@ describe("PGlite: a policy's tenant on rows that cross tenants", () => {
         grant: { read: {} },
       },
     });
-  const open = () => createClient({ schema, driver: new PGliteDriver({}) });
-  let base: ReturnType<typeof open>;
+  const family = usePGliteSchemaFamily(schema);
+  let base: ReturnType<typeof family>["client"];
 
-  beforeAll(async () => {
-    base = open();
-    await syncLiveSchema(base);
+  beforeEach(async () => {
+    base = family().client;
     await base.page.createMany({
       data: [
         { id: "granted-elsewhere", organizationId: "a" },
@@ -277,9 +269,6 @@ describe("PGlite: a policy's tenant on rows that cross tenants", () => {
         },
       ],
     });
-  }, 120_000);
-  afterAll(async () => {
-    await base?.$disconnect();
   });
 
   test("it never grants what the policy without it refuses", async () => {
@@ -364,8 +353,8 @@ describe("PGlite: a policy's tenant beside another extension's related rows", ()
     revoked: s.boolean(),
   });
   const schema = { page, team, grant };
-  const open = () => createClient({ schema, driver: new PGliteDriver({}) });
-  let base: ReturnType<typeof open>;
+  const family = usePGliteSchemaFamily(schema);
+  let base: ReturnType<typeof family>["client"];
   // Another layer: a grant of an archived team is no grant. Inside the
   // policy's rules it is the range every grant quantifier reads, its own
   // `team is` body a set wherever two rules repeat it.
@@ -393,9 +382,8 @@ describe("PGlite: a policy's tenant beside another extension's related rows", ()
       },
     });
 
-  beforeAll(async () => {
-    base = open();
-    await syncLiveSchema(base);
+  beforeEach(async () => {
+    base = family().client;
     await base.page.create({ data: { id: "p", organizationId: "a" } });
     // The revoked grant's team is another organization's: a relation that
     // crosses tenants, inside the range of a negative test.
@@ -411,9 +399,6 @@ describe("PGlite: a policy's tenant beside another extension's related rows", ()
         revoked: true,
       },
     });
-  }, 120_000);
-  afterAll(async () => {
-    await base?.$disconnect();
   });
 
   test("the range of a negative test is never narrowed by the bound", async () => {
@@ -444,8 +429,8 @@ describe("PGlite: rows.bound, the capability tenant is built on", () => {
     userId: s.string(),
   });
   const schema = { page, grant };
-  const open = () => createClient({ schema, driver: new PGliteDriver({}) });
-  let base: ReturnType<typeof open>;
+  const family = usePGliteSchemaFamily(schema);
+  let base: ReturnType<typeof family>["client"];
   const granted = { grants: { some: { userId: { control: "user" } } } };
   // `tenant` is read by `bound` alone; `granted` repeats, so the statement
   // computes it once, as a set.
@@ -479,16 +464,12 @@ describe("PGlite: rows.bound, the capability tenant is built on", () => {
       },
     });
 
-  beforeAll(async () => {
-    base = open();
-    await syncLiveSchema(base);
+  beforeEach(async () => {
+    base = family().client;
     await base.page.create({ data: { id: "p" } });
     await base.grant.create({
       data: { id: "g", tenant: "b", pageId: "p", userId: "ada" },
     });
-  }, 120_000);
-  afterAll(async () => {
-    await base?.$disconnect();
   });
 
   test("a bound that alone reads a control bounds the sets with the call's value", async () => {
@@ -540,8 +521,8 @@ describe("PGlite: a policy's tenant beside another extension's negative test", (
     active: s.boolean(),
   });
   const schema = { page, block };
-  const open = () => createClient({ schema, driver: new PGliteDriver({}) });
-  let base: ReturnType<typeof open>;
+  const family = usePGliteSchemaFamily(schema);
+  let base: ReturnType<typeof family>["client"];
   // Another layer: a page with an active block is hidden from every caller.
   const blocklist = defineExtension({
     name: "blocklist",
@@ -568,17 +549,13 @@ describe("PGlite: a policy's tenant beside another extension's negative test", (
       },
     });
 
-  beforeAll(async () => {
-    base = open();
-    await syncLiveSchema(base);
+  beforeEach(async () => {
+    base = family().client;
     await base.page.create({ data: { id: "p", organizationId: "a" } });
     // An active block written in another organization than its page's.
     await base.block.create({
       data: { id: "b", organizationId: "b", pageId: "p", active: true },
     });
-  }, 120_000);
-  afterAll(async () => {
-    await base?.$disconnect();
   });
 
   test("it reads every tenant's rows, with tenant as without", async () => {
@@ -601,150 +578,149 @@ describe("PGlite: a policy's tenant beside another extension's negative test", (
   });
 });
 
-describe("PGlite: a policy's tenant, reviewed (GPT-6.1 Sol)", () => {
-  const recorder = (into: string[]) => ({
-    name: "statements",
-    statement(context: { statement: { toStatement(): string } }) {
-      into.push(context.statement.toStatement());
-      return context.statement;
-    },
-  });
+// Reviewed by GPT-6.1 Sol: each reproduced, then fixed.
+const recorder = (into: string[]) => ({
+  name: "statements",
+  statement(context: { statement: { toStatement(): string } }) {
+    into.push(context.statement.toStatement());
+    return context.statement;
+  },
+});
 
-  test("a read-gated field is masked where its gate holds, with tenant as without", async () => {
-    const page = s.model({
-      id: s.string().id(),
-      organizationId: s.string(),
-      secret: s.string(),
-      grants: s.toMany(() => grant),
-    });
-    const grant = s.model({
-      id: s.string().id(),
-      organizationId: s.string(),
-      pageId: s.string(),
-      page: s
-        .toOne(() => page)
-        .fields("pageId")
-        .references("id"),
-      revoked: s.boolean(),
-    });
-    const base = createClient({
-      schema: { page, grant },
-      driver: new PGliteDriver({}),
-    });
-    try {
-      await syncLiveSchema(base);
-      await base.page.create({
-        data: { id: "p", organizationId: "a", secret: "s3cret" },
-      });
-      // A revoked grant of another organization closes the gate.
-      await base.grant.create({
-        data: { id: "g", organizationId: "b", pageId: "p", revoked: true },
-      });
-      const run = async (tenant?: typeof TENANT) =>
-        (
-          permissions({
-            actor: v.object({ organizationId: v.string() }),
-            ...(tenant === undefined ? {} : { tenant }),
-            models: {
-              page: {
-                actions: { read: [], see: ["read"] },
-                read: true,
-                see: { NOT: { grants: { some: { revoked: true } } } },
-                fields: { secret: { read: "see" } },
-              },
-              grant: { read: true },
-            },
-          })(base as never) as unknown as Governed
-        )
-          .$as({ organizationId: "a" })
-          .page!.findMany({
-            // A negated test over the gated field: an oracle for its value
-            // wherever the gate opens.
-            where: {
-              AND: [{ secret: { not: "guess" } }, { secret: { not: "other" } }],
-            },
-            select: { id: true, $access: true },
-          });
-      expect(await run()).toEqual([]);
-      expect(await run(TENANT)).toEqual([]);
-    } finally {
-      await base.$disconnect();
-    }
+describe("PGlite: a policy's tenant and a read-gated field", () => {
+  const page = s.model({
+    id: s.string().id(),
+    organizationId: s.string(),
+    secret: s.string(),
+    grants: s.toMany(() => grant),
   });
+  const grant = s.model({
+    id: s.string().id(),
+    organizationId: s.string(),
+    pageId: s.string(),
+    page: s
+      .toOne(() => page)
+      .fields("pageId")
+      .references("id"),
+    revoked: s.boolean(),
+  });
+  const family = usePGliteSchemaFamily({ page, grant });
 
-  test("a policy compiled when applied (a Date in a rule) bounds its sets too", async () => {
-    const parent = s.model({
-      id: s.string().id(),
-      organizationId: s.string(),
-      createdAt: s.dateTime(),
-      grants: s.toMany(() => share),
+  test("the field is masked where its gate holds, with tenant as without", async () => {
+    const base = family().client;
+    await base.page.create({
+      data: { id: "p", organizationId: "a", secret: "s3cret" },
     });
-    const share = s.model({
-      id: s.string().id(),
-      organizationId: s.string(),
-      parentId: s.string(),
-      parent: s
-        .toOne(() => parent)
-        .fields("parentId")
-        .references("id"),
-      userId: s.string(),
+    // A revoked grant of another organization closes the gate.
+    await base.grant.create({
+      data: { id: "g", organizationId: "b", pageId: "p", revoked: true },
     });
-    const base = createClient({
-      schema: { parent, share },
-      driver: new PGliteDriver({}),
-    });
-    try {
-      await syncLiveSchema(base);
-      const statements: string[] = [];
-      const granted = {
-        grants: { some: { userId: { actor: "userId" } } },
-      } as const;
-      const db = permissions({
-        actor: v.object({ userId: v.string(), organizationId: v.string() }),
-        tenant: TENANT,
-        levels: ["read", "update"],
-        models: {
-          parent: {
-            // A Date: the declaration cannot be copied, so it compiles when
-            // applied.
-            read: {
-              createdAt: { lt: new Date("2100-01-01T00:00:00Z") },
-              ...granted,
+    const run = async (tenant?: typeof TENANT) =>
+      (
+        permissions({
+          actor: v.object({ organizationId: v.string() }),
+          ...(tenant === undefined ? {} : { tenant }),
+          models: {
+            page: {
+              actions: { read: [], see: ["read"] },
+              read: true,
+              see: { NOT: { grants: { some: { revoked: true } } } },
+              fields: { secret: { read: "see" } },
             },
-            update: { ...granted, id: { not: "-" } },
+            grant: { read: true },
           },
-          share: { read: true },
-        },
-      })(
-        base.$extends(recorder(statements) as never) as never
-      ) as unknown as Governed;
-      await db
-        .$as({ userId: "ada", organizationId: "a" })
-        .parent!.findMany({ select: { id: true, $access: true } });
-      expect(partsOf(statements.at(-1)!).bodies.join(" ")).toMatch(TENANT_TEST);
-    } finally {
-      await base.$disconnect();
-    }
+        })(base as never) as unknown as Governed
+      )
+        .$as({ organizationId: "a" })
+        .page!.findMany({
+          // A negated test over the gated field: an oracle for its value
+          // wherever the gate opens.
+          where: {
+            AND: [{ secret: { not: "guess" } }, { secret: { not: "other" } }],
+          },
+          select: { id: true, $access: true },
+        });
+    expect(await run()).toEqual([]);
+    expect(await run(TENANT)).toEqual([]);
   });
+});
 
-  test("a reaching set over a relation keyed by the row's own key is bounded", async () => {
-    const node = s.model({
-      id: s.string().id(),
-      organizationId: s.string(),
-      parentId: s.string().nullable(),
-      parent: s
-        .toOne(() => node)
-        .fields("parentId")
-        .references("id"),
-      children: s.toMany(() => node),
-    });
-    // A relation budget of 1: every repeated walk becomes a reaching set.
+describe("PGlite: a policy's tenant compiled when applied", () => {
+  const parent = s.model({
+    id: s.string().id(),
+    organizationId: s.string(),
+    createdAt: s.dateTime(),
+    grants: s.toMany(() => share),
+  });
+  const share = s.model({
+    id: s.string().id(),
+    organizationId: s.string(),
+    parentId: s.string(),
+    parent: s
+      .toOne(() => parent)
+      .fields("parentId")
+      .references("id"),
+    userId: s.string(),
+  });
+  const family = usePGliteSchemaFamily({ parent, share });
+
+  test("a Date in a rule still bounds the policy's sets", async () => {
+    const statements: string[] = [];
+    const granted = {
+      grants: { some: { userId: { actor: "userId" } } },
+    } as const;
+    const db = permissions({
+      actor: v.object({ userId: v.string(), organizationId: v.string() }),
+      tenant: TENANT,
+      levels: ["read", "update"],
+      models: {
+        parent: {
+          // A Date: the declaration cannot be copied, so it compiles when
+          // applied.
+          read: {
+            createdAt: { lt: new Date("2100-01-01T00:00:00Z") },
+            ...granted,
+          },
+          update: { ...granted, id: { not: "-" } },
+        },
+        share: { read: true },
+      },
+    })(
+      family().client.$extends(recorder(statements) as never) as never
+    ) as unknown as Governed;
+    await db
+      .$as({ userId: "ada", organizationId: "a" })
+      .parent!.findMany({ select: { id: true, $access: true } });
+    expect(partsOf(statements.at(-1)!).bodies.join(" ")).toMatch(TENANT_TEST);
+  });
+});
+
+describe("PGlite: a policy's tenant on a walk keyed by the row's own key", () => {
+  const node = s.model({
+    id: s.string().id(),
+    organizationId: s.string(),
+    parentId: s.string().nullable(),
+    parent: s
+      .toOne(() => node)
+      .fields("parentId")
+      .references("id"),
+    children: s.toMany(() => node),
+  });
+  const family = usePGliteSchemaFamily({ node });
+
+  test("its reaching set is bounded", async () => {
+    // A relation budget of 1, over the file's database: every repeated walk
+    // becomes a reaching set.
+    const { database, namespace } = family();
     const base = createClient({
       schema: { node },
-      driver: new PGliteDriver({ relationsPerStatement: 1 }),
+      driver: new PGliteDriver({
+        client: database,
+        namespace,
+        relationsPerStatement: 1,
+      }),
     });
     try {
-      await syncLiveSchema(base);
       await base.node.create({ data: { id: "p", organizationId: "a" } });
       await base.node.create({
         data: { id: "foreign", organizationId: "b", parentId: "p" },
