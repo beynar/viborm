@@ -26,6 +26,7 @@ import type {
   VibORMConfig,
 } from "../index";
 import {
+  type InsertValueContext,
   JoinedValue,
   renderers,
   Stored,
@@ -250,6 +251,13 @@ const movable = (key: string): RowJudgement =>
  * with, so a member another writer moved meanwhile keeps that writer's
  * place.
  */
+/**
+ * A column of respacing's joined table: named `0viborm_…`, which no schema
+ * identifier can be (they start with a letter or `_`).
+ */
+const joined = (q: Queries, name: string): Sql =>
+  q.adapter.identifiers.column("r", `0viborm_${name}`);
+
 class Respace extends JoinedValue {
   readonly #ordered: Ordered;
   readonly #dialect: "postgresql" | "sqlite" | "mysql";
@@ -262,8 +270,8 @@ class Respace extends JoinedValue {
     this.#where = where;
     this.#order = order;
   }
-  compute(): readonly unknown[] {
-    return [sql.raw("r.nk")];
+  compute({ queries }: InsertValueContext): readonly unknown[] {
+    return [joined(queries, "nk")];
   }
   join(q: Queries, target: string): { source: Sql; on: Sql } {
     const { model, key, within, identity } = this.#ordered;
@@ -360,19 +368,34 @@ class Respace extends JoinedValue {
             ],
             " AND "
           )}`;
+    // Its columns, named as no column of the model can be (`joined`): the
+    // UPDATE's own columns stay unambiguous beside them.
+    const names = [
+      ...identity.map((_, n) => `i${n}`),
+      ...within.map((_, n) => `w${n}`),
+      "k",
+      "nk",
+    ];
+    const source = sql`SELECT ${sql.join(
+      names.map((name) =>
+        q.adapter.identifiers.aliased(sql.raw(`x.${name}`), `0viborm_${name}`)
+      ),
+      ", "
+    )} FROM (${keyed}) AS x`;
+    const r = (name: string) => joined(q, name);
     return {
-      source: sql`(${keyed}) AS r`,
+      source: sql`(${source}) AS r`,
       on: sql.join(
         [
           ...identity.map(
-            (field, n) => sql`${sql.raw(`r.i${n}`)} = ${column(field, target)}`
+            (field, n) => sql`${r(`i${n}`)} = ${column(field, target)}`
           ),
           // Still in the list and at the key it was ranked with.
           ...within.map((field, n) =>
-            s.same(sql.raw(`r.w${n}`), column(field, target))
+            s.same(r(`w${n}`), column(field, target))
           ),
-          sql`${column(key, target)} = r.k`,
-          sql`r.nk IS NOT NULL`,
+          sql`${column(key, target)} = ${r("k")}`,
+          sql`${r("nk")} IS NOT NULL`,
         ],
         " AND "
       ),
@@ -408,33 +431,12 @@ function methods(ordered: Ordered, engine: () => Engine) {
   const { name, key, within, identity, model } = ordered;
   const scalars = model["~"].state.scalars;
   const stored = storedOf(model);
-  /** An anchor's unique selector, a cursor, and the rest of it: a
-   * condition the anchor must hold (`{ id, columnId }`). */
-  const split = (anchor: Row): { cursor: Row; holds?: Row } => {
-    for (const { name: selector = undefined, fields } of getModelKeyCatalog(
-      model
-    ).addressableKeys) {
-      const field = selector ?? fields[0]!;
-      if (anchor[field] === undefined) continue;
-      const { [field]: value, ...holds } = anchor;
-      return Object.keys(holds).length === 0
-        ? { cursor: anchor }
-        : { cursor: { [field]: value }, holds };
-    }
-    return { cursor: anchor };
-  };
-  /** The scalar fields a selector names, compound members included. */
-  const selected = (selector: Row): Row =>
-    Object.fromEntries(
-      Object.entries(selector).flatMap(([field, value]) =>
-        Object.hasOwn(scalars, field)
-          ? [[field, true]]
-          : Object.keys(isRecord(value) ? value : {}).map((inner) => [
-              inner,
-              true,
-            ])
-      )
-    );
+  /** A row read with its key: the unique selector naming it, a cursor. */
+  const rowKey = getModelKeyCatalog(model).rowKey!;
+  const selectorOf = (row: Row): Row =>
+    rowKey.name === undefined
+      ? { [rowKey.fields[0]!]: row[rowKey.fields[0]!] }
+      : { [rowKey.name]: fieldsOf(rowKey.fields, row) };
   // A nullable list field: the engine's cursor over the default order cannot
   // seek past it, so the anchor's neighbours are read within its list.
   const open = within.some((field) => scalars[field]!["~"].state.nullable);
@@ -520,6 +522,10 @@ function methods(ordered: Ordered, engine: () => Engine) {
         ),
         " AND "
       );
+    // Not that row: where a field it names is NULL in another row, the
+    // match is unknown there, and that row is still another one.
+    const other = (alias: string, fields: Row) =>
+      sql`NOT COALESCE((${matches(alias, fields)}), 1 = 0)`;
     // The anchor and the neighbours are read as the caller sees them: each
     // read takes the call's row domain (`RowsOf`), as every read of the
     // engine does, so a hidden anchor is a missing one and a hidden member
@@ -556,12 +562,12 @@ function methods(ordered: Ordered, engine: () => Engine) {
           );
     const anchorKey =
       anchored &&
-      sql`SELECT ${column(key, "a")} FROM ${table} AS a WHERE ${matches("a", anchored)} AND NOT (${matches("a", recognised)}) AND ${s.digits(column(key, "a"))} AND ${seen("a")}`;
+      sql`SELECT ${column(key, "a")} FROM ${table} AS a WHERE ${matches("a", anchored)} AND ${other("a", recognised)} AND ${s.digits(column(key, "a"))} AND ${seen("a")}`;
     // The nearest key on one side, in the list, the moved row aside.
     const nearest = (aggregate: "MIN" | "MAX") =>
-      sql`SELECT ${sql.raw(aggregate)}(${column(key, "n")}) FROM ${table} AS n WHERE ${inList("n")} AND NOT (${matches("n", recognised)}) AND ${s.digits(column(key, "n"))} AND ${seen("n")}${
+      sql`SELECT ${sql.raw(aggregate)}(${column(key, "n")}) FROM ${table} AS n WHERE ${inList("n")} AND ${other("n", recognised)} AND ${s.digits(column(key, "n"))} AND ${seen("n")}${
         anchored && anchorKey
-          ? sql` AND ${column(key, "n")} ${sql.raw(aggregate === "MIN" ? ">=" : "<=")} (${anchorKey}) AND NOT (${matches("n", anchored)})`
+          ? sql` AND ${column(key, "n")} ${sql.raw(aggregate === "MIN" ? ">=" : "<=")} (${anchorKey}) AND ${other("n", anchored)}`
           : sql.empty
       }`;
     const none = sql`NULL`;
@@ -586,7 +592,7 @@ function methods(ordered: Ordered, engine: () => Engine) {
     const away = sql`NOT ((${lower}) IS NULL OR ${column(key)} > (${lower})) OR NOT ((${upper}) IS NULL OR ${column(key)} < (${upper}))`;
     const guard = (condition?: Sql) =>
       sql`CASE WHEN ${computed} IS NOT NULL${
-        condition === undefined ? sql.empty : sql` AND ${condition}`
+        condition === undefined ? sql.empty : sql` AND (${condition})`
       } THEN ${column(key)} END`;
     const keyed = { [key]: new Computed(computed) };
     const attempt = async (condition: Sql | undefined, data: Row) => {
@@ -668,7 +674,12 @@ function methods(ordered: Ordered, engine: () => Engine) {
           invalid(name, `to names the list's fields: ${within.join(", ")}.`);
       }
       // Read once: the copy is what is checked and written.
-      const extra: Row = isRecord(data) ? { ...data } : {};
+      // A field given `undefined` is left out, as in any update.
+      const extra: Row = isRecord(data)
+        ? Object.fromEntries(
+            Object.entries(data).filter(([, value]) => value !== undefined)
+          )
+        : {};
       if (data !== undefined && (!isRecord(data) || places(extra)))
         invalid(
           name,
@@ -760,42 +771,28 @@ function methods(ordered: Ordered, engine: () => Engine) {
           // The anchor and the rows after (or before) it in the list's order
           // (the `order` capability), the moved row recognised among them.
           // The moved row itself is not read.
-          const at = open
-            ? ((await delegate.findUnique!({
-                ...controls,
-                where: anchor,
-                select: reading,
-              })) as Row | null)
-            : undefined;
-          const { cursor, holds } = split(anchor);
-          const conditions = [
-            ...(at ? [fieldsOf(within, at)] : []),
-            ...(holds ? [holds] : []),
-          ];
+          // The anchor itself, by all it states, where the cursor cannot
+          // carry it: a nullable list field, or a condition beside its key.
+          const at =
+            open || Object.keys(anchor).length > 1
+              ? ((await delegate.findUnique!({
+                  ...controls,
+                  where: anchor,
+                  select: reading,
+                })) as Row | null)
+              : undefined;
           const rows =
             at === null
               ? []
               : ((await delegate.findMany!({
                   ...controls,
-                  ...(conditions.length > 0 && { where: { AND: conditions } }),
-                  ...(at && { orderBy: keyOrder }),
-                  cursor,
+                  ...(at && { where: fieldsOf(within, at), orderBy: keyOrder }),
+                  cursor: at ? selectorOf(at) : anchor,
                   take: after === undefined ? -3 : 3,
-                  select: holds ? { ...reading, ...selected(cursor) } : reading,
+                  select: reading,
                 })) as Row[]);
           const found = after === undefined ? rows.at(-1) : rows[0];
-          // The cursor's row is the anchor only where it holds the rest.
-          const isAnchor = (row: Row) =>
-            Object.entries(cursor).every(([field, value]) =>
-              Object.hasOwn(scalars, field)
-                ? same(row[field], value)
-                : isRecord(value) &&
-                  Object.entries(value).every(([inner, part]) =>
-                    same(row[inner], part)
-                  )
-            );
-          if (found === undefined || (holds && !isAnchor(found)))
-            throw new NotFoundError(name, "move anchor");
+          if (found === undefined) throw new NotFoundError(name, "move anchor");
           if (isMoved(found))
             invalid(name, "a row cannot be placed next to itself.");
           group = fieldsOf(within, found);
@@ -1212,6 +1209,7 @@ type OrderingExtension<Config extends OrderingConfig> = {
  * key: "rank", within: ["columnId"] } } }))`. One step, applied in any order
  * with the other extensions.
  */
+// biome-ignore lint/style/useUnifiedTypeSignatures: the former form is its own signature so that it alone is @deprecated.
 export function ordering<const Config extends OrderingConfig>(config: {
   readonly models: Config;
 }): OrderingExtension<Config>;

@@ -47,7 +47,7 @@ import type {
   PreparedGuardFailure,
 } from "../../types";
 import { type WriteKind, writeSinks } from "../../write-sinks";
-import { InsertValue, JoinedValue } from "./insert-value";
+import { InsertValue, JoinedValue, Stored } from "./insert-value";
 import {
   GatedFieldRefusal,
   InvalidScalarResult,
@@ -2442,11 +2442,23 @@ export class OperationContext {
     }
     return computed ?? rows;
   }
-  /** An update's `values`, each InsertValue replaced by its expression. */
+  /**
+   * An update's `values`, each InsertValue replaced by its expression, a
+   * field kept as stored (`Stored`) left out.
+   */
   async #settled(model: AnyModel, given: Input): Promise<Input> {
-    return Object.values(given).some((value) => value instanceof InsertValue)
-      ? (await this.#computed(model, [given]))[0]!
+    const written = Object.values(given).some(
+      (value) => value instanceof Stored
+    )
+      ? Object.fromEntries(
+          Object.entries(given).filter(
+            ([, value]) => !(value instanceof Stored)
+          )
+        )
       : given;
+    return Object.values(written).some((value) => value instanceof InsertValue)
+      ? (await this.#computed(model, [written]))[0]!
+      : written;
   }
   #insertStatement(
     model: AnyModel,

@@ -40,8 +40,11 @@ const card = s.model({
   owner: s.string().nullable(),
   /** The soft-delete marker, where a test applies soft delete. */
   deletedAt: s.dateTime().nullable(),
-  /** When the card was last changed: placing it is no change. */
-  editedAt: s.dateTime().updatedAt(),
+  /** When the card was last changed: placing it is no change. Its column
+   * is named as respacing's derived table names its key (`k`). */
+  editedAt: s.dateTime().updatedAt().map("k"),
+  /** A unique DateTime: an anchor named by it. */
+  due: s.dateTime().nullable().unique(),
   column: s
     .toOne(() => column)
     .fields("columnId")
@@ -424,6 +427,13 @@ export function describeOrdering(
       await db.card.rekey({ where: { columnId: "c1" } });
       expect(await stamps()).toEqual(before);
       expect(await listOf(db, "c1")).toEqual(["d2", "a", "c"]);
+      // A field data gives `undefined` is left out, as in any update.
+      await db.card.move({
+        where: { id: "c" },
+        first: true,
+        data: { editedAt: undefined },
+      });
+      expect((await stamps()).c).toBe(before.c);
       // A field data names is written as named.
       const at = new Date("2030-01-01T00:00:00.000Z");
       await db.card.move({
@@ -911,6 +921,69 @@ export function describeOrdering(
       expect(
         (await db.legacy.findMany()).map((row: { id: string }) => row.id)
       ).toEqual(["x", "y", "w"]);
+    });
+
+    test("an anchor's condition picks the anchor, not its neighbours (tied keys: the read path)", async () => {
+      const db = await setup();
+      const day = new Date("2026-11-01T00:00:00.000Z");
+      for (const title of ["a", "b", "c", "d"])
+        await db.card.create({
+          data: {
+            id: title,
+            columnId: "c1",
+            title,
+            ...(title === "a" && { due: day }),
+          },
+        });
+      await base_.card.updateMany({ data: { rank: "15" } });
+      await db.card.move({
+        where: { id: "d" },
+        after: { id: "a", title: "a" },
+      });
+      expect(await listOf(db, "c1")).toEqual(["a", "d", "b", "c"]);
+      await db.card.move({
+        where: { id: "a" },
+        before: { id: "c", title: "c" },
+      });
+      expect(await listOf(db, "c1")).toEqual(["d", "b", "a", "c"]);
+      // A unique DateTime anchor, as an ISO string, with its list.
+      await db.card.move({
+        where: { id: "c" },
+        after: { due: day.toISOString(), columnId: "c1" },
+      });
+      expect(await listOf(db, "c1")).toEqual(["d", "b", "a", "c"]);
+      statements.length = 0;
+      await db.card.move({
+        where: { id: "d" },
+        after: { due: day.toISOString(), columnId: "c1" },
+      });
+      if (process.env.DBG)
+        console.log(
+          "DBG",
+          JSON.stringify(statements, null, 1),
+          JSON.stringify(
+            await db.card.findMany({
+              where: { columnId: "c1" },
+              select: { id: true, rank: true, due: true },
+            })
+          )
+        );
+      expect(await listOf(db, "c1")).toEqual(["b", "a", "d", "c"]);
+    });
+
+    test("tied keys in a model of one list: a move respaces, never writes a NULL key", async () => {
+      const db = await setup();
+      for (const id of ["x", "y", "z"])
+        await db.legacy.create({ data: { id, title: id } });
+      await base_.legacy.updateMany({ data: { rank: "15" } });
+      await db.legacy.move({ where: { id: "z" }, after: { id: "x" } });
+      expect(
+        (await db.legacy.findMany()).map((row: { id: string }) => row.id)
+      ).toEqual(["x", "z", "y"]);
+      await db.legacy.move({ where: { id: "y" }, first: true });
+      expect(
+        (await db.legacy.findMany()).map((row: { id: string }) => row.id)
+      ).toEqual(["y", "x", "z"]);
     });
 
     test("an updatedAt() field kept as stored is no field the move writes", async () => {

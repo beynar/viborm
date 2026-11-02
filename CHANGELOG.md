@@ -22,18 +22,33 @@ Versioning.
   refreshed the moved row's `updatedAt()` fields, and a respace (`rekey`,
   or a move whose gap was used up) every row of the list, rows nobody
   edited included: a row placed elsewhere is not a row changed. `move`,
-  `rekey` and respacing now write each such field to itself, unless a
-  move's `data` writes it, and a model's `verbs` do not judge them as
-  written (an internal `Stored` update value). An app that kept the date
+  `rekey` and respacing now leave such fields out of their UPDATE, unless
+  a move's `data` writes one (a field `data` gives `undefined` is left
+  out, as in any update), and a model's `verbs` do not judge them as
+  written. An app that kept the date
   by locking and reading the row before `move` can drop that read.
 - **An anchor's other fields work on every move path.** `after: { id,
   groupId }` was accepted where the move is one statement, but a move that
   reads first (MySQL, a used-up gap, a row already in place) passed the
   whole anchor as a `cursor` and failed (`V4001 cursor.groupId: Unknown
-  key`). The cursor now takes the anchor's unique selector, the other
-  fields are a condition, and a cursor row that fails them is no anchor
-  (`NotFoundError`), not the row after it. On that path the condition holds
-  when the anchor is read, not inside the UPDATE.
+  key`). That path now reads the anchor by all it states (`NotFoundError`
+  where it no longer holds them), then its neighbours from the anchor's own
+  key. On that path the condition holds when the anchor is read, not inside
+  the UPDATE.
+- **A move next to an anchor named by a nullable field lands next to it.**
+  The one-statement move told the anchor and the moved row apart from the
+  other members by the fields their selectors name; a member holding `NULL`
+  in one of them dropped out of the neighbours, and the row could land past
+  them (an anchor `{ due, columnId }` among rows without `due`).
+- **Tied keys in a model of one list (or a `first` / `last` move) never
+  write a `NULL` key.** The one-statement move's guard lost its parentheses
+  (`AND` over `OR`): where its key could not be computed between two tied
+  keys, it wrote `NULL` (`NotNullConstraintError`) instead of respacing.
+  Since 1.7.0.
+- **A model with a column named `k`, `nk`, `i0` or `w0` can be respaced.**
+  Respacing's joined table named its columns so; under a write hook (its
+  `RETURNING`) PostgreSQL refused the column as ambiguous. They are now
+  named as no schema identifier can be.
 
 ### Changed
 

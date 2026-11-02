@@ -40,17 +40,14 @@ export abstract class InsertValue {
 
 /**
  * An update value keeping the field as stored (an official extension's
- * call, never a caller's payload): the SET writes the column to itself, so
- * no generated update value (`updatedAt()`) replaces it, and the write is
- * not judged as writing the field. Ordering's own writes place a row; they
- * do not change it.
+ * call, never a caller's payload): set aside at admission as any
+ * `InsertValue`, so no generated update value (`updatedAt()`) replaces it,
+ * then left out of the SET, and not judged as a field the write writes.
+ * Ordering's own writes place a row; they do not change it.
  */
 export class Stored extends InsertValue {
-  compute(
-    { queries, model, field }: InsertValueContext,
-    indexes: readonly number[]
-  ): readonly unknown[] {
-    return indexes.map(() => queries.column(model, field));
+  compute(): never {
+    throw new Error("Stored is no value: the update leaves its field out");
   }
 }
 
