@@ -950,6 +950,13 @@ export type MovePlacement<
   | ({ readonly to: ListOf<C, Config, K> } & None<
       "after" | "before" | "first" | "last" | "key"
     >);
+/** The model's own scalar fields, as declared (an omitted one included). */
+type ScalarsOf<C extends VibORMConfig, K> = ClientSchema<C>[K &
+  keyof ClientSchema<C>] extends {
+  readonly "~": { readonly state: { readonly scalars: infer S } };
+}
+  ? keyof S
+  : never;
 type UpdateData<C extends VibORMConfig, K> = NonNullable<
   NonNullable<ModelArgs<C, K, "update">>["data"]
 >;
@@ -962,7 +969,7 @@ type MoveData<
   K extends keyof Config,
 > = {
   readonly [F in Exclude<
-    keyof RowOf<C, K> & keyof UpdateData<C, K>,
+    ScalarsOf<C, K> & keyof UpdateData<C, K>,
     Config[K]["key"] | WithinOf<Config, K>
   >]?: UpdateData<C, K>[F];
 } & None<Config[K]["key"] | WithinOf<Config, K>>;
