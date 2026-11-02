@@ -583,7 +583,7 @@ export const RESULT_DECODER_NATIVE_COUNTS = Object.freeze({
   "tests/raptor3/result-decoder-lists-native.test.ts": 4,
 });
 export const RQ01_SQLITE_COUNTS = Object.freeze({
-  "tests/raptor3/recursive-query/provider-sql-sqlite.test.ts": 17,
+  "tests/raptor3/recursive-query/provider-sql-sqlite.test.ts": 18,
 });
 export const RQ01_SQLITE_TESTS = Object.freeze(Object.keys(RQ01_SQLITE_COUNTS));
 export const RQ05_CACHE_COUNTS = Object.freeze({
@@ -608,7 +608,7 @@ export const RQ06_NATIVE_COUNTS = Object.freeze({
   "tests/raptor3/recursive-query/campaign-native.test.ts": 4,
 });
 export const RQ01_PGLITE_COUNTS = Object.freeze({
-  "tests/raptor3/recursive-query/provider-sql-pglite.test.ts": 16,
+  "tests/raptor3/recursive-query/provider-sql-pglite.test.ts": 17,
 });
 export const RQ01_PGLITE_TESTS = Object.freeze(Object.keys(RQ01_PGLITE_COUNTS));
 export const RQ01_NATIVE_COUNTS = Object.freeze({

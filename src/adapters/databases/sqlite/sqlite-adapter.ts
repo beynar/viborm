@@ -837,6 +837,7 @@ const SQLITE_CAPABILITIES = {
   supportsMutationRowLimit: false,
   supportsRowLocks: false,
   joinsJunctionFilters: true,
+  aggregatesGroupsInOrder: true,
 };
 
 const SQLITE_RESULT: AdapterResultParser = {
