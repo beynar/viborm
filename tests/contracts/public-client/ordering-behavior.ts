@@ -20,6 +20,8 @@ import { describe, expect, test } from "vitest";
 
 const column = s.model({
   id: s.string().id(),
+  /** A field an upsert's update writes on a model the extension orders not. */
+  name: s.string().nullable(),
   cards: s.toMany(() => card),
 });
 
@@ -32,6 +34,8 @@ const card = s.model({
   owner: s.string().nullable(),
   /** The soft-delete marker, where a test applies soft delete. */
   deletedAt: s.dateTime().nullable(),
+  /** When the card was last changed: placing it is no change. */
+  editedAt: s.dateTime().updatedAt(),
   column: s
     .toOne(() => column)
     .fields("columnId")
@@ -73,8 +77,10 @@ export function describeOrdering(
   createStatements = 1,
   /** Statements a move within a list and a plain update send: one UPDATE
    * each, where it computes the key and returns its row (MySQL reads the
-   * neighbours, then locks, updates and reads the row). */
-  { move = 1, update = 1 } = {}
+   * neighbours, then locks, updates and reads the row). Four upserts, on an
+   * unordered model then an ordered one, each creating then updating: one
+   * INSERT … ON CONFLICT each, where the adapter returns its row. */
+  { move = 1, update = 1, upsert = [1, 1, 1, 1] } = {}
 ) {
   const statements: string[] = [];
   let base_: any;
@@ -339,6 +345,88 @@ export function describeOrdering(
           Array.from({ length: 10 }, (_, index) => `w${writer}-${index}`)
         );
       }
+    });
+
+    test("an upsert folds into one statement, on an ordered model and on another (where it returns its row)", async () => {
+      const db = await setup();
+      await db.card.create({ data: { id: "a", columnId: "c1", title: "a" } });
+      const counts: number[] = [];
+      for (const id of ["c3", "c3"]) {
+        statements.length = 0;
+        await db.column.upsert({
+          where: { id },
+          create: { id, name: "new" },
+          update: { name: "again" },
+        });
+        counts.push(statements.length);
+      }
+      for (const [id, title] of [
+        ["b", "b"],
+        ["b", "b2"],
+      ] as const) {
+        statements.length = 0;
+        await db.card.upsert({
+          where: { id },
+          create: { id, columnId: "c1", title },
+          update: { title },
+        });
+        counts.push(statements.length);
+      }
+      expect(counts).toEqual(upsert);
+      expect((await db.column.findUnique({ where: { id: "c3" } })).name).toBe(
+        "again"
+      );
+      expect(await listOf(db, "c1")).toEqual(["a", "b2"]);
+      const ranks = (await db.card.findMany()).map(
+        (row: { rank: string }) => row.rank
+      );
+      expect(ranks.every(isKey)).toBe(true);
+    });
+
+    test("ordering's own writes leave updatedAt() as stored, but a field data names", async () => {
+      const db = await setup();
+      for (const title of ["a", "b", "c", "d"])
+        await db.card.create({ data: { id: title, columnId: "c1", title } });
+      const stamps = async () =>
+        Object.fromEntries(
+          (await db.card.findMany()).map(
+            (row: { id: string; editedAt: Date }) => [
+              row.id,
+              row.editedAt.getTime(),
+            ]
+          )
+        );
+      const before = await stamps();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      // In its list, to another list, at a key the caller gives, and with
+      // data beside the key: placed, not changed.
+      await db.card.move({ where: { id: "a" }, after: { id: "b" } });
+      await db.card.move({
+        where: { id: "b" },
+        to: { columnId: "c2" },
+        first: true,
+      });
+      await db.card.move({ where: { id: "c" }, key: "155" });
+      await db.card.move({
+        where: { id: "d" },
+        first: true,
+        data: { title: "d2" },
+      });
+      // A whole list respaced.
+      await db.card.rekey({ where: { columnId: "c1" } });
+      expect(await stamps()).toEqual(before);
+      expect(await listOf(db, "c1")).toEqual(["d2", "a", "c"]);
+      // A field data names is written as named.
+      const at = new Date("2030-01-01T00:00:00.000Z");
+      await db.card.move({
+        where: { id: "a" },
+        first: true,
+        data: { editedAt: at },
+      });
+      expect((await stamps()).a).toBe(at.getTime());
+      // A plain update still refreshes it.
+      await db.card.update({ where: { id: "c" }, data: { title: "c2" } });
+      expect((await stamps()).c).toBeGreaterThan(before.c!);
     });
 
     test("upsert's create branch and connectOrCreate's create append", async () => {
@@ -772,6 +860,48 @@ export function describeOrdering(
         await expect(
           governed.move({ where: { id: "a" }, after: { id: hidden } })
         ).rejects.toThrow("move anchor");
+    });
+
+    test("an updatedAt() field kept as stored is no field the move writes", async () => {
+      const db = await setup();
+      for (const id of ["a", "b"])
+        await db.card.create({ data: { id, columnId: "c1", title: id } });
+      // Writing editedAt takes no row; every other write takes any.
+      const governed = (
+        ordering({ card: { key: "rank", within: ["columnId"] } })(
+          (counted_ as any).$extends({
+            name: "test.edited",
+            rows: {
+              control: "edited",
+              default: "on",
+              models: {},
+              verbs: {
+                card: {
+                  predicates: { any: {}, none: { id: "-" } },
+                  read: "any",
+                  update: "any",
+                  writes: { editedAt: "none" },
+                },
+              },
+            },
+          })
+        ) as any
+      ).card;
+      await governed.move({ where: { id: "a" }, after: { id: "b" } });
+      await governed.move({
+        where: { id: "b" },
+        to: { columnId: "c2" },
+        first: true,
+      });
+      expect(await governed.rekey()).toEqual({ count: 2 });
+      expect(await listOf(db, "c1")).toEqual(["a"]);
+      await expect(
+        governed.move({
+          where: { id: "a" },
+          first: true,
+          data: { editedAt: new Date() },
+        })
+      ).rejects.toThrow(NotFoundError);
     });
 
     test("a move into a list whose members are all hidden keys as into an empty one", async () => {

@@ -28,10 +28,12 @@ import type {
 import {
   JoinedValue,
   renderers,
+  Stored,
 } from "../query-engine/raptor3/shared/insert-value";
 import type { Queries } from "../query-engine/raptor3/shared/query";
 import type { RowJudgement } from "../query-engine/raptor3/shared/row-scope";
 import { RowsOf } from "../query-engine/raptor3/shared/rows-of";
+import { APPENDED } from "../schema/appended";
 import { getModelKeyCatalog } from "../schema/model/keys";
 import { type Sql, sql } from "../sql/sql";
 import { AppendKey } from "./append";
@@ -44,9 +46,11 @@ export { isKey, keyBetween, MAX_KEY_LENGTH } from "./keys";
  * A Standard Schema validator for a key field: `rank:
  * s.string().schema(orderingKey)` refuses, on every write that sets the
  * field (nested ones too), a value that is not an ordering key. A create
- * that leaves the field out is appended, not validated.
+ * that leaves the field out is appended, not validated
+ * (`validateOperationPayload` too: {@link APPENDED}).
  */
 export const orderingKey = Object.freeze({
+  [APPENDED]: true,
   "~standard": Object.freeze({
     version: 1 as const,
     vendor: "viborm",
@@ -110,6 +114,23 @@ interface Ordered {
   readonly identity: readonly string[];
   readonly model: AnyModel;
 }
+
+/**
+ * The model's `updatedAt()` fields, each kept as stored ({@link Stored}):
+ * ordering's own writes (move, respace, rekey) place a row, they do not
+ * change it. A field a move's `data` names is written as named.
+ */
+const storedOf = (model: AnyModel): Row => {
+  const scalars = model["~"].state.scalars;
+  return Object.fromEntries(
+    Object.keys(scalars)
+      .filter((field) => {
+        const { autoGenerate, array } = scalars[field]!["~"].state;
+        return autoGenerate?.kind === "updatedAt" && !array;
+      })
+      .map((field) => [field, new Stored()])
+  );
+};
 
 function refuse(message: string): never {
   throw new ClientInitializationError(`ordering: ${message}`, {
@@ -364,7 +385,7 @@ class Respace extends JoinedValue {
 /**
  * Respace through the client: one `updateMany` of the lists' members the
  * call may update, its keys a {@link Respace}, so every extension applies
- * (rows, permissions, hooks, the cache) and `updatedAt` is refreshed.
+ * (rows, permissions, hooks, the cache); `updatedAt` stays as stored.
  * Returns the rows rewritten.
  */
 async function respace(
@@ -377,7 +398,10 @@ async function respace(
 ): Promise<number> {
   const written = (await writes.updateMany({
     ...controls,
-    data: { [ordered.key]: new Respace(ordered, dialect, where, order) },
+    data: {
+      ...storedOf(ordered.model),
+      [ordered.key]: new Respace(ordered, dialect, where, order),
+    },
   })) as { count: number };
   return written.count;
 }
@@ -385,6 +409,7 @@ async function respace(
 function methods(ordered: Ordered, engine: () => Engine) {
   const { name, key, within, identity, model } = ordered;
   const scalars = model["~"].state.scalars;
+  const stored = storedOf(model);
   // A nullable list field: the engine's cursor over the default order cannot
   // seek past it, so the anchor's neighbours are read within its list.
   const open = within.some((field) => scalars[field]!["~"].state.nullable);
@@ -624,6 +649,8 @@ function methods(ordered: Ordered, engine: () => Engine) {
           name,
           `data writes the model's own fields beside the key: not ${placing.join(", ")}${within.length === 0 ? "" : " (to moves the row between lists)"}, nor a relation.`
         );
+      // What every write of the move writes beside its key and list.
+      const writing: Row = { ...stored, ...extra };
       const anchor = (after ?? before) as Row | undefined;
       const projection = {
         ...(select === undefined ? {} : { select }),
@@ -638,7 +665,7 @@ function methods(ordered: Ordered, engine: () => Engine) {
             ...controls,
             where,
             data: {
-              ...extra,
+              ...writing,
               [key]: given,
               ...((to as Row | undefined) ?? {}),
             },
@@ -665,7 +692,7 @@ function methods(ordered: Ordered, engine: () => Engine) {
             return await delegate.update!({
               ...controls,
               where,
-              data: extra,
+              data: writing,
               ...projection,
             });
           } catch (error) {
@@ -689,7 +716,7 @@ function methods(ordered: Ordered, engine: () => Engine) {
           delegate.update!({
             ...controls,
             where: { ...where, [key]: { equals: () => guard } },
-            data: { ...extra, ...data },
+            data: { ...writing, ...data },
             ...projection,
           })
       );
@@ -799,7 +826,7 @@ function methods(ordered: Ordered, engine: () => Engine) {
         // fields), else the key and the list. `to` tries the move first.
         const stay = {
           where: { ...where, ...group },
-          data: { ...extra, [key]: next },
+          data: { ...writing, [key]: next },
         };
         const join = (guarded: boolean) => ({
           where: guarded
@@ -809,10 +836,10 @@ function methods(ordered: Ordered, engine: () => Engine) {
                   where.NOT === undefined ? group : [where.NOT, group].flat(),
               }
             : where,
-          data: { ...extra, [key]: next, ...group },
+          data: { ...writing, [key]: next, ...group },
         });
         const writes = home
-          ? [{ where, data: { ...extra, [key]: next } }]
+          ? [{ where, data: { ...writing, [key]: next } }]
           : to === undefined
             ? [stay, join(false)]
             : [join(true), stay];

@@ -3,6 +3,37 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## 1.9.1 — 2026-11-02
+
+### Fixed
+
+- **An upsert is one `INSERT … ON CONFLICT` again under `ordering()`.**
+  A client with any extension writing values (a `data` stamp, the
+  ordering key's append) took the emulated upsert on **every** model, the
+  ones the extension never writes too: a locating read, then the INSERT or
+  the UPDATE, then a read (3–5 statements, in a transaction). An upsert now
+  folds into one statement wherever it did without the extension, and on
+  an ordered model too: its appended key is computed in the INSERT, as a
+  create's is. A model whose extension writes a value the call admits (a
+  stamped constant, an update stamp) keeps the emulated path, so that
+  value is still admitted only by the arm that writes it. MySQL, which
+  has no `RETURNING`, never folds and is unchanged.
+- **Ordering's own writes leave `updatedAt()` as stored.** A `move`
+  refreshed the moved row's `updatedAt()` fields, and a respace (`rekey`,
+  or a move whose gap was used up) every row of the list, rows nobody
+  edited included: a row placed elsewhere is not a row changed. `move`,
+  `rekey` and respacing now write each such field to itself, unless a
+  move's `data` writes it, and a model's `verbs` do not judge them as
+  written (an internal `Stored` update value). An app that kept the date
+  by locking and reading the row before `move` can drop that read.
+- **`validateOperationPayload` checks a create as the ordered client takes
+  it.** A create that left out a field validated by `orderingKey` was given
+  the field's default and refused it (an adoption default of `""`), though
+  the client appends a key there. The field left out is now left out, in
+  nested creates and an upsert's `create` too; a key the payload states is
+  still validated. A client without `ordering()` still refuses the default
+  when it writes it.
+
 ## 1.9.0 — 2026-11-02
 
 A policy declares the tenant its calls stay in, and its cost stops growing

@@ -4,12 +4,14 @@ import {
   ROUTED_OPERATIONS,
 } from "@query-engine/routed-operations";
 import type { Operation } from "@query-engine/types";
+import { isAppended } from "@schema/appended";
 import { hydrateSchemaNames } from "@schema/hydration";
 import { resolveSchemaOrThrow } from "@schema/validation";
 import {
   createResolvedSchemaRegistry,
   createSchemaRegistry,
 } from "@validation/builder";
+import { parseProviding } from "@validation/primitives/object";
 import type {
   OperationPayloadSchema,
   Operations,
@@ -103,11 +105,40 @@ export function validateOperationPayload(
     requireIdentifier(operation, "operation")
   );
   const registry = createSchemaRegistry(schema);
-  return registry.validate(
-    validatedModelName,
-    baseOperation(validatedOperation),
-    payload ?? {}
-  );
+  const validate = () =>
+    registry.validate(
+      validatedModelName,
+      baseOperation(validatedOperation),
+      payload ?? {}
+    );
+  // A field an extension appends (`orderingKey`), left out of a create, is
+  // provided as its client provides it: its default is neither filled nor
+  // validated.
+  const appended = appendedFields(schema);
+  return appended.size === 0
+    ? validate()
+    : parseProviding(
+        (model, field) => appended.get(model)?.has(field) === true,
+        validate
+      );
+}
+
+/** Each model's fields whose validator an extension appends, by TS name. */
+function appendedFields(schema: Schema): Map<string, Set<string>> {
+  const appended = new Map<string, Set<string>>();
+  for (const [name, model] of Object.entries(schema))
+    for (const [field, value] of Object.entries(model["~"].state.shape))
+      if (
+        isAppended(
+          (value as { "~"?: { state?: { schema?: unknown } } })["~"]?.state
+            ?.schema
+        )
+      ) {
+        let fields = appended.get(name);
+        if (fields === undefined) appended.set(name, (fields = new Set()));
+        fields.add(field);
+      }
+  return appended;
 }
 
 /**

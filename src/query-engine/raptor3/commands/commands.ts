@@ -10,7 +10,7 @@ import type { AnyModel } from "@schema/model";
 import { createFailureError } from "../../batch-error-attribution";
 import type { PreparedGuardFailure } from "../../types";
 import { writeSinks } from "../../write-sinks";
-import { InsertValue } from "../shared/insert-value";
+import { InsertValue, Stored } from "../shared/insert-value";
 import type { OperationContext } from "../shared/operation-context";
 import {
   InvalidScalarResult,
@@ -571,7 +571,8 @@ export class Commands {
     const writes: string[] = [];
     const slots = this.context.schema.index.get(model)!;
     for (const [field, value] of Object.entries(raw)) {
-      if (value === undefined) continue;
+      // A field kept as stored is not written (`Stored`).
+      if (value === undefined || value instanceof Stored) continue;
       const edge = slots.get(field)?.edge;
       if (edge === undefined) {
         writes.push(field);
@@ -2044,8 +2045,11 @@ export class Commands {
    * premise). Both need scalar arms, a non-empty update naming no key of the
    * model and a RETURNING-safe projection on a RETURNING adapter; everything
    * else keeps the conditional form and, on this route, its existing answer.
-   * The targeted fold serves the live route too. Stamped writes retain their
-   * existing route, keeping stamp admission with the selected arm.
+   * The targeted fold serves the live route too, but for a model whose stamps
+   * admit a value: those keep their existing route, keeping stamp admission
+   * with the selected arm. A value the INSERT computes (`InsertValue`, an
+   * appended ordering key) is never admitted, and another model's stamps are
+   * not this write's.
    */
   #rootUpsert(
     model: AnyModel,
@@ -2066,8 +2070,14 @@ export class Commands {
     const probes =
       sink !== undefined && ctx.driver.adapter.mutations.upserted === undefined;
     const folds = !(probes && ctx.queries.domain?.produced(model));
-    if (!ctx.preparesBatch && (!folds || ctx.scope?.rows.stamps !== undefined))
-      return undefined;
+    const stamps = ctx.scope?.rows.stamps?.get(name);
+    const admits =
+      stamps !== undefined &&
+      (Object.keys(stamps.update ?? {}).length > 0 ||
+        Object.values(stamps.create ?? {}).some(
+          (value) => !(value instanceof InsertValue)
+        ));
+    if (!ctx.preparesBatch && (!folds || admits)) return undefined;
     if (args.targetWhere || args.setWhere) return undefined;
     if (!capabilities.supportsReturning) return undefined;
     if (

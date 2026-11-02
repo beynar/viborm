@@ -37,7 +37,9 @@ describeIf("MySQL2 Driver", () => {
     3,
     // A move reads the anchor, then its neighbours within its list (the
     // list field is nullable here), then updates; an update locks its row,
-    // writes it, and reads it back once (no RETURNING).
-    { move: 5, update: 3 }
+    // writes it, and reads it back once (no RETURNING). An upsert locates
+    // its row first: a create then inserts and reads it (the ordered one
+    // reads its list's last key too); an update locks, writes and reads it.
+    { move: 5, update: 3, upsert: [3, 5, 4, 5] }
   );
 });

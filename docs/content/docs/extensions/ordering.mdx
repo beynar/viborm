@@ -55,6 +55,8 @@ the extension) is not supported.
 the key to something that is not one (in a nested write too), or to a key of
 10^8 or more, is refused with a `ValidationError`. The bound leaves room to
 append after any key a client writes. It is optional, and recommended.
+`validateOperationPayload` reads it too: a create that leaves the key out
+passes, without the key, as the client appends one.
 
 ## Reads
 
@@ -73,7 +75,8 @@ nested creates, `upsert`'s create branch and `connectOrCreate`'s. A key you
 write is used as is.
 
 The key is computed by the INSERT itself, from the last key of its list: a
-create sends the statements it sends without the extension. Two creates into
+create sends the statements it sends without the extension, and so does an
+`upsert` (one `INSERT … ON CONFLICT` where the database returns rows). Two creates into
 one list at the same moment both go after every member that was there; which
 of the two comes first is arbitrary.
 
@@ -123,9 +126,12 @@ ordering({ card: { key: "rank" } });
 await db.card.move({ where: { id }, after: { id: neighbourId }, data: { columnId } });
 ```
 
-A move is one `update` through the client: `updatedAt`, validation,
-permissions and [write hooks](/docs/extensions/on) apply as to any update
-of the row. Its new key is computed by the UPDATE itself, from the keys
+A move is one `update` through the client: validation, permissions and
+[write hooks](/docs/extensions/on) apply as to any update of the row. A
+row placed elsewhere is not a row changed: its `updatedAt()` fields keep
+their value, unless `data` writes one, and they are no field the move
+writes when [`verbs`](/docs/extensions/create#judge-writes-with-verbs)
+judge it. Its new key is computed by the UPDATE itself, from the keys
 around the row's place, read by subqueries in the same statement:
 
 ```sql
@@ -228,8 +234,9 @@ database: the UPDATE ranks the lists' members itself (a list holding no row
 the caller can see `where` matches is left alone) and binds no value per
 member. Every extension applies to it as to any update:
 the rows written are those the caller may see and update, write hooks run,
-`updatedAt` is refreshed, and the [official cache](/docs/extensions/cache)
-is invalidated as after any write.
+and the [official cache](/docs/extensions/cache) is invalidated as after any
+write. `updatedAt()` fields keep their value, as in a move: a list
+respaced (by `rekey`, or by a move whose gap is used up) changes no row.
 
 A list's order is shared, so `rekey` never moves a member the caller cannot
 write (hidden from it, or seen and not writable), nor writes it. The members

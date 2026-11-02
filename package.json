@@ -1,6 +1,6 @@
 {
   "name": "viborm",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "description": "Type-safe ORM for PostgreSQL, MySQL, and SQLite with a Prisma-inspired API",
   "repository": {
     "type": "git",

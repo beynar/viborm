@@ -39,6 +39,22 @@ export abstract class InsertValue {
 }
 
 /**
+ * An update value keeping the field as stored (an official extension's
+ * call, never a caller's payload): the SET writes the column to itself, so
+ * no generated update value (`updatedAt()`) replaces it, and the write is
+ * not judged as writing the field. Ordering's own writes place a row; they
+ * do not change it.
+ */
+export class Stored extends InsertValue {
+  compute(
+    { queries, model, field }: InsertValueContext,
+    indexes: readonly number[]
+  ): readonly unknown[] {
+    return indexes.map(() => queries.column(model, field));
+  }
+}
+
+/**
  * An `updateMany` value read from a derived table the UPDATE joins (an
  * official extension's call, never a caller's payload): `join` answers that
  * table, aliased, and the condition matching it to the row written, over the
