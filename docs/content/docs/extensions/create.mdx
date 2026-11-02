@@ -711,7 +711,8 @@ await db.document.findMany({ user: "ada", select: { id: true, notes: true } }); 
 On PostgreSQL drivers and D1, a body your predicates repeat in one statement
 is computed once, as a set over its model's whole table, bounded only by what
 the body states. "The grants that name the caller" reads every tenant's
-grants. `bound` says, per model, what every row of such a set holds:
+grants. `bound` says, per model, what every row of such a set holds, as a
+`where` of the model's own columns (no relation):
 
 ```ts
 rows: {

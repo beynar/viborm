@@ -102,24 +102,6 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null &&
   [Object.prototype, null].includes(Object.getPrototypeOf(value));
 
-/** `value`'s own `key`, where `value` is an object. */
-const own = (value: unknown, key: string): unknown =>
-  typeof value === "object" && value !== null
-    ? Reflect.get(value, key)
-    : undefined;
-
-/** The fields a relation's own foreign key holds on its model; none for an
- * inverse relation. */
-const foreignKeyOf = (relation: unknown): readonly string[] => {
-  const fields = own(
-    own(own(own(relation, "~"), "state"), "foreignKey"),
-    "fields"
-  );
-  return Array.isArray(fields)
-    ? fields.filter((field): field is string => typeof field === "string")
-    : [];
-};
-
 interface Ordered {
   readonly name: string;
   readonly key: string;
@@ -412,23 +394,16 @@ function methods(ordered: Ordered, engine: () => Engine) {
   const selection = Object.fromEntries(
     [...identity, ...within, key].map((field) => [field, true])
   );
-  // What a move's `data` never writes: the key, the list's fields, and the
-  // relations whose foreign keys hold them (a connect changes the list, and
-  // an update of the related row may change its referenced key, cascading).
-  const placing = [
-    key,
-    ...within,
-    ...Object.entries(model["~"].state.relations).flatMap(
-      ([relation, declared]) =>
-        foreignKeyOf(declared).some(
-          (field) => field === key || within.includes(field)
-        )
-          ? [relation]
-          : []
-    ),
-  ];
+  // What a move's `data` writes: the model's own fields, never the key nor
+  // the list's, and no relation (a nested write may change the list, or a
+  // related key a foreign key cascades into it).
+  const placing = [key, ...within];
   const places = (data: Readonly<Record<string, unknown>>) =>
-    placing.some((field) => data[field] !== undefined);
+    Object.entries(data).some(
+      ([field, value]) =>
+        value !== undefined &&
+        (!Object.hasOwn(scalars, field) || placing.includes(field))
+    );
   /** The fields `where` names with a value (a compound selector's too): how
    * the moved row is recognised among rows read, without reading it. */
   const named = (where: Row): Row => {
@@ -642,13 +617,13 @@ function methods(ordered: Ordered, engine: () => Engine) {
         )
           invalid(name, `to names the list's fields: ${within.join(", ")}.`);
       }
-      if (data !== undefined && (!isRecord(data) || places(data)))
+      // Read once: the copy is what is checked and written.
+      const extra: Row = isRecord(data) ? { ...data } : {};
+      if (data !== undefined && (!isRecord(data) || places(extra)))
         invalid(
           name,
-          `data writes other fields than the key${within.length === 0 ? "" : " and the list's (to)"}: ${placing.join(", ")}.`
+          `data writes the model's own fields beside the key: not ${placing.join(", ")}${within.length === 0 ? "" : " (to moves the row between lists)"}, nor a relation.`
         );
-      // What the call writes beside the key, in the same UPDATE.
-      const extra: Row = isRecord(data) ? data : {};
       const anchor = (after ?? before) as Row | undefined;
       const projection = {
         ...(select === undefined ? {} : { select }),
@@ -975,17 +950,29 @@ export type MovePlacement<
   | ({ readonly to: ListOf<C, Config, K> } & None<
       "after" | "before" | "first" | "last" | "key"
     >);
-/** What a move writes beside the key, in the same UPDATE: an update's data,
- * but the key and the list's fields (`to` moves a row between lists). */
+/** The model's own scalar fields, as declared (an omitted one included). */
+type ScalarsOf<C extends VibORMConfig, K> = ClientSchema<C>[K &
+  keyof ClientSchema<C>] extends {
+  readonly "~": { readonly state: { readonly scalars: infer S } };
+}
+  ? keyof S
+  : never;
+type UpdateData<C extends VibORMConfig, K> = NonNullable<
+  NonNullable<ModelArgs<C, K, "update">>["data"]
+>;
+/** What a move writes beside the key, in the same UPDATE: an update's data
+ * of the model's own fields, but the key and the list's (`to` moves a row
+ * between lists), and no relation. */
 type MoveData<
   C extends VibORMConfig,
   Config extends OrderingConfig,
   K extends keyof Config,
-> = Omit<
-  NonNullable<NonNullable<ModelArgs<C, K, "update">>["data"]>,
-  Config[K]["key"] | WithinOf<Config, K>
-> &
-  None<Config[K]["key"] | WithinOf<Config, K>>;
+> = {
+  readonly [F in Exclude<
+    ScalarsOf<C, K> & keyof UpdateData<C, K>,
+    Config[K]["key"] | WithinOf<Config, K>
+  >]?: UpdateData<C, K>[F];
+} & None<Config[K]["key"] | WithinOf<Config, K>>;
 type MoveArgs<
   M,
   C extends VibORMConfig,
