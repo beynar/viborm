@@ -410,6 +410,33 @@ function methods(ordered: Ordered, engine: () => Engine) {
   const { name, key, within, identity, model } = ordered;
   const scalars = model["~"].state.scalars;
   const stored = storedOf(model);
+  /** An anchor's unique selector, a cursor, and the rest of it: a
+   * condition the anchor must hold (`{ id, columnId }`). */
+  const split = (anchor: Row): { cursor: Row; holds?: Row } => {
+    for (const { name: selector = undefined, fields } of getModelKeyCatalog(
+      model
+    ).addressableKeys) {
+      const field = selector ?? fields[0]!;
+      if (anchor[field] === undefined) continue;
+      const { [field]: value, ...holds } = anchor;
+      return Object.keys(holds).length === 0
+        ? { cursor: anchor }
+        : { cursor: { [field]: value }, holds };
+    }
+    return { cursor: anchor };
+  };
+  /** The scalar fields a selector names, compound members included. */
+  const selected = (selector: Row): Row =>
+    Object.fromEntries(
+      Object.entries(selector).flatMap(([field, value]) =>
+        Object.hasOwn(scalars, field)
+          ? [[field, true]]
+          : Object.keys(isRecord(value) ? value : {}).map((inner) => [
+              inner,
+              true,
+            ])
+      )
+    );
   // A nullable list field: the engine's cursor over the default order cannot
   // seek past it, so the anchor's neighbours are read within its list.
   const open = within.some((field) => scalars[field]!["~"].state.nullable);
@@ -742,18 +769,35 @@ function methods(ordered: Ordered, engine: () => Engine) {
                 select: reading,
               })) as Row | null)
             : undefined;
+          const { cursor, holds } = split(anchor);
+          const conditions = [
+            ...(at ? [fieldsOf(within, at)] : []),
+            ...(holds ? [holds] : []),
+          ];
           const rows =
             at === null
               ? []
               : ((await delegate.findMany!({
                   ...controls,
-                  ...(at && { where: fieldsOf(within, at), orderBy: keyOrder }),
-                  cursor: anchor,
+                  ...(conditions.length > 0 && { where: { AND: conditions } }),
+                  ...(at && { orderBy: keyOrder }),
+                  cursor,
                   take: after === undefined ? -3 : 3,
-                  select: reading,
+                  select: holds ? { ...reading, ...selected(cursor) } : reading,
                 })) as Row[]);
           const found = after === undefined ? rows.at(-1) : rows[0];
-          if (found === undefined) throw new NotFoundError(name, "move anchor");
+          // The cursor's row is the anchor only where it holds the rest.
+          const isAnchor = (row: Row) =>
+            Object.entries(cursor).every(([field, value]) =>
+              Object.hasOwn(scalars, field)
+                ? same(row[field], value)
+                : isRecord(value) &&
+                  Object.entries(value).every(([inner, part]) =>
+                    same(row[inner], part)
+                  )
+            );
+          if (found === undefined || (holds && !isAnchor(found)))
+            throw new NotFoundError(name, "move anchor");
           if (isMoved(found))
             invalid(name, "a row cannot be placed next to itself.");
           group = fieldsOf(within, found);

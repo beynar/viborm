@@ -26,6 +26,14 @@ Versioning.
   move's `data` writes it, and a model's `verbs` do not judge them as
   written (an internal `Stored` update value). An app that kept the date
   by locking and reading the row before `move` can drop that read.
+- **An anchor's other fields work on every move path.** `after: { id,
+  groupId }` was accepted where the move is one statement, but a move that
+  reads first (MySQL, a used-up gap, a row already in place) passed the
+  whole anchor as a `cursor` and failed (`V4001 cursor.groupId: Unknown
+  key`). The cursor now takes the anchor's unique selector, the other
+  fields are a condition, and a cursor row that fails them is no anchor
+  (`NotFoundError`), not the row after it. On that path the condition holds
+  when the anchor is read, not inside the UPDATE.
 - **`validateOperationPayload` checks a create as the ordered client takes
   it.** A create that left out a field validated by `orderingKey` was given
   the field's default and refused it (an adoption default of `""`), though

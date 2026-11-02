@@ -106,6 +106,11 @@ await db.card.move({ where: { id }, to: { columnId: doneId }, first: true });
 
 - `where` names the row; `after` and `before` name the anchor, both with the
   model's unique inputs. With an anchor, the row joins the anchor's list.
+  An anchor's other fields are a condition it must hold: `after: { id,
+  columnId }` is not found (`NotFoundError`) once that row has left
+  `columnId`. A move written in one statement checks it there; one that
+  reads (MySQL, a used-up gap, a row already in place) checks it on the
+  anchor it reads.
 - `to` names another list by its `within` fields, with `first` or `last`
   (`last` when alone).
 - `data` writes other fields of the row in the same UPDATE as the key, as an

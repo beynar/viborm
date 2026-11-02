@@ -862,6 +862,49 @@ export function describeOrdering(
         ).rejects.toThrow("move anchor");
     });
 
+    test("an anchor's other fields are a condition it holds, on every path", async () => {
+      const db = await setup();
+      for (const title of ["a", "b", "c"])
+        await db.card.create({ data: { id: title, columnId: "c1", title } });
+      // In place already (the read path): the anchor read by its key, its
+      // other fields a condition.
+      await db.card.move({
+        where: { id: "b" },
+        after: { id: "a", columnId: "c1" },
+      });
+      await db.card.move({
+        where: { id: "c" },
+        before: { id: "a", columnId: "c1" },
+      });
+      expect(await listOf(db, "c1")).toEqual(["c", "a", "b"]);
+      // An anchor no longer in the list its fields name is not found.
+      for (const anchor of [
+        { after: { id: "a", columnId: "c2" } },
+        { before: { id: "a", columnId: "c2" } },
+        { after: { id: "c", columnId: "c2" } },
+      ])
+        await expect(
+          db.card.move({ where: { id: "b" }, ...anchor })
+        ).rejects.toThrow("move anchor");
+      expect(await listOf(db, "c1")).toEqual(["c", "a", "b"]);
+      // A model whose list is read through the cursor (no nullable list
+      // field): the cursor takes the key, the rest is the condition.
+      for (const id of ["x", "y", "w"])
+        await db.legacy.create({ data: { id, title: id } });
+      await db.legacy.move({
+        where: { id: "y" },
+        after: { id: "x", title: "x" },
+      });
+      // The cursor's row fails the condition: the rows after it are no
+      // anchor (`y` holds it).
+      await expect(
+        db.legacy.move({ where: { id: "w" }, after: { id: "x", title: "y" } })
+      ).rejects.toThrow("move anchor");
+      expect(
+        (await db.legacy.findMany()).map((row: { id: string }) => row.id)
+      ).toEqual(["x", "y", "w"]);
+    });
+
     test("an updatedAt() field kept as stored is no field the move writes", async () => {
       const db = await setup();
       for (const id of ["a", "b"])
