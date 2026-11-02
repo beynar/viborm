@@ -41,8 +41,9 @@ export abstract class InsertValue {
 /**
  * An update value keeping the field as stored (an official extension's
  * call, never a caller's payload): set aside at admission as any
- * `InsertValue`, so no generated update value (`updatedAt()`) replaces it,
- * then left out of the SET, and not judged as a field the write writes.
+ * `InsertValue`, so no generated update value (`updatedAt()`) fills it,
+ * then dropped from the data (an update left with nothing to write is one
+ * that writes nothing), and not judged as a field the write writes.
  * Ordering's own writes place a row; they do not change it.
  */
 export class Stored extends InsertValue {

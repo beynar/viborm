@@ -971,6 +971,67 @@ export function describeOrdering(
       expect(await listOf(db, "c1")).toEqual(["b", "a", "d", "c"]);
     });
 
+    test("an anchor that changes list between the read path's two reads is followed, not replaced", async () => {
+      const db = await setup();
+      for (const title of ["a", "b", "c", "d"])
+        await db.card.create({ data: { id: title, columnId: "c1", title } });
+      const tied = await base_.card.findUnique({ where: { id: "a" } });
+      await base_.card.update({
+        where: { id: "b" },
+        data: { rank: tied.rank },
+      });
+      let raced = false;
+      const racing = db.$extends({
+        name: "test.anchor-race",
+        query: {
+          card: {
+            findMany: async ({ input, proceed }: any) => {
+              if (!raced && input.cursor) {
+                raced = true;
+                await base_.card.update({
+                  where: { id: "a" },
+                  data: { columnId: "c2" },
+                });
+              }
+              return proceed();
+            },
+          },
+        },
+      });
+      await racing.card.move({
+        where: { id: "d" },
+        after: { id: "a", title: "a" },
+      });
+      expect(raced).toBe(true);
+      expect(await listOf(db, "c2")).toEqual(["a", "d"]);
+      expect(await listOf(db, "c1")).toEqual(["b", "c"]);
+    });
+
+    test("a move whose data a request transform empties writes nothing more", async () => {
+      const db = await setup();
+      for (const title of ["a", "b"])
+        await db.card.create({ data: { id: title, columnId: "c1", title } });
+      const before = await db.card.findUnique({ where: { id: "b" } });
+      const emptied = db.$extends({
+        name: "test.drop-title",
+        request: {
+          card: {
+            update: ({ input }: any) => ({
+              data: { ...input.data, title: undefined },
+            }),
+          },
+        },
+      });
+      // Already after `a`: the move writes only its data, emptied here.
+      expect(
+        await emptied.card.move({
+          where: { id: "b" },
+          after: { id: "a", title: "a" },
+          data: { title: "ignored" },
+        })
+      ).toEqual(before);
+    });
+
     test("tied keys in a model of one list: a move respaces, never writes a NULL key", async () => {
       const db = await setup();
       for (const id of ["x", "y", "z"])

@@ -793,6 +793,14 @@ function methods(ordered: Ordered, engine: () => Engine) {
                 })) as Row[]);
           const found = after === undefined ? rows.at(-1) : rows[0];
           if (found === undefined) throw new NotFoundError(name, "move anchor");
+          // The anchor left the list it was read in before its neighbours
+          // were: the cursor's row is outside them, and the row read in its
+          // place is another one. Read again.
+          if (
+            at &&
+            !rowKey.fields.every((field) => same(found[field], at[field]))
+          )
+            continue;
           if (isMoved(found))
             invalid(name, "a row cannot be placed next to itself.");
           group = fieldsOf(within, found);

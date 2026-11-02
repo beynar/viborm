@@ -33,8 +33,9 @@ Versioning.
   whole anchor as a `cursor` and failed (`V4001 cursor.groupId: Unknown
   key`). That path now reads the anchor by all it states (`NotFoundError`
   where it no longer holds them), then its neighbours from the anchor's own
-  key. On that path the condition holds when the anchor is read, not inside
-  the UPDATE.
+  key; an anchor that changes list between the two reads is read again, not
+  replaced by the row after it. On that path the condition holds when the
+  anchor is read, not inside the UPDATE.
 - **A move next to an anchor named by a nullable field lands next to it.**
   The one-statement move told the anchor and the moved row apart from the
   other members by the fields their selectors name; a member holding `NULL`
