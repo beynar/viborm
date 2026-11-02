@@ -3,21 +3,6 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
-## Unreleased
-
-### Performance
-
-- **A walk to the actor's rows is computed once per statement.** Inside a
-  policy's repeated rules, a recursive walk to rows a call value names on an
-  indexed column (`children: { recurse, some: { members: { some: { userId:
-  { actor: "userId" } } } } }`: the teams the actor belongs to, through
-  their subteams) was walked again for every grant row each rule read. It
-  is now read back once from the actor's rows. Measured on a 40-model
-  production policy at 500 organizations (PostgreSQL 18): opening a page
-  2.0 → 0.8 ms with `tenant` (1.4 s → 89 ms without), the sidebar 5.1 → 3.1
-  ms, the file list 1.8 → 0.7 ms; at 5 organizations, unchanged. A walk to
-  rows no call value names, or one beside such a walk, stays where it was.
-
 ## 1.9.1 — 2026-11-02
 
 ### Fixed

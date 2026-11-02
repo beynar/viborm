@@ -142,25 +142,18 @@ const READS: [string, object, string][] = [
   ],
 ];
 
-// The relations each read references without a bound: its walks in place
-// but the one to the actor's teams only repeated bodies read, one reaching
-// set. The six past 256 are those a bound of 256 escalates.
+// The relations each read references with every walk in place: the six past
+// 256 are those a bound of 256 escalates.
 const PINNED_IN_PLACE = {
-  "accessGrant $access": { relations: 275, reaching: 1 },
-  "page $access": { relations: 92, reaching: 1 },
-  "page $access, group $access": { relations: 108, reaching: 1 },
-  "document $access": { relations: 177, reaching: 1 },
-  "document roots $access at three depths": { relations: 390, reaching: 1 },
-  "document roots $access at three depths, with grants": {
-    relations: 631,
-    reaching: 1,
-  },
-  "document every relation + $access": { relations: 607, reaching: 1 },
-  "page $access at three depths through group and grants": {
-    relations: 499,
-    reaching: 1,
-  },
-  "accessGrant every relation + $access": { relations: 459, reaching: 1 },
+  "accessGrant $access": 278,
+  "page $access": 95,
+  "page $access, group $access": 111,
+  "document $access": 180,
+  "document roots $access at three depths": 393,
+  "document roots $access at three depths, with grants": 634,
+  "document every relation + $access": 610,
+  "page $access at three depths through group and grants": 502,
+  "accessGrant every relation + $access": 462,
 };
 
 describe("PGlite: every $access read within Neki's 256 relations", () => {
@@ -209,37 +202,38 @@ describe("PGlite: every $access read within Neki's 256 relations", () => {
       expect(rows).toEqual(
         await inPlace.$as(actors.u02!)[model]!.findMany(args)
       );
-      // A read escalated past its unbounded form is past 256 in place.
-      const unbounded = formOf(
-        statements.reduce((a, b) => (b.length > a.length ? b : a))
-      );
-      if (forms[line]!.reaching > unbounded.reaching || forms[line]!.joined > 0)
-        expect(unbounded.relations).toBeGreaterThan(256);
+      // A read that leaves its walks' place is past 256 in place.
+      if (forms[line]!.reaching > 0) {
+        const unbounded = statements.reduce((a, b) =>
+          b.length > a.length ? b : a
+        );
+        expect(relationsOf(unbounded)).toBeGreaterThan(256);
+      }
     }
     expect(forms).toEqual({
       "accessGrant $access": {
-        relations: 248,
-        inPlace: 6,
-        reaching: 2,
+        relations: 251,
+        inPlace: 7,
+        reaching: 1,
         joined: 0,
       },
-      "page $access": { relations: 92, inPlace: 0, reaching: 1, joined: 0 },
+      "page $access": { relations: 95, inPlace: 1, reaching: 0, joined: 0 },
       "page $access, group $access": {
-        relations: 108,
-        inPlace: 0,
-        reaching: 1,
+        relations: 111,
+        inPlace: 1,
+        reaching: 0,
         joined: 0,
       },
       "document $access": {
-        relations: 177,
-        inPlace: 14,
-        reaching: 1,
+        relations: 180,
+        inPlace: 15,
+        reaching: 0,
         joined: 0,
       },
       "document roots $access at three depths": {
-        relations: 250,
-        inPlace: 9,
-        reaching: 5,
+        relations: 253,
+        inPlace: 10,
+        reaching: 4,
         joined: 0,
       },
       "document roots $access at three depths, with grants": {
@@ -268,16 +262,16 @@ describe("PGlite: every $access read within Neki's 256 relations", () => {
       },
     });
   }, 300_000);
-  test("without relationsPerStatement, a read keeps its walks in place but those only repeated bodies read, past 256 or not", async () => {
-    const relations: Record<string, { relations: number; reaching: number }> =
-      {};
+  test("without relationsPerStatement, each keeps its walks in place, past 256 or not", async () => {
+    const relations: Record<string, number> = {};
     for (const [line, args, model] of READS) {
       statements.length = 0;
       await inPlace.$as(actors.u02!)[model]!.findMany(args);
       const widest = statements.reduce((a, b) => (b.length > a.length ? b : a));
       const form = formOf(widest);
+      expect(form.reaching).toBe(0);
       expect(form.joined).toBe(0);
-      relations[line] = { relations: form.relations, reaching: form.reaching };
+      relations[line] = form.relations;
     }
     expect(relations).toEqual(PINNED_IN_PLACE);
   }, 300_000);
