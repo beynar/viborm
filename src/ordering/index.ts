@@ -44,9 +44,7 @@ export { isKey, keyBetween, MAX_KEY_LENGTH } from "./keys";
  * A Standard Schema validator for a key field: `rank:
  * s.string().schema(orderingKey)` refuses, on every write that sets the
  * field (nested ones too), a value that is not an ordering key. A create
- * that leaves the field out is appended, not validated. `""`, the literal a
- * table adopting ordering defaults to (`.default("")`, then `rekey`), is
- * accepted: a row holding it is not placed yet.
+ * that leaves the field out is appended, not validated.
  */
 export const orderingKey = Object.freeze({
   "~standard": Object.freeze({
@@ -55,7 +53,7 @@ export const orderingKey = Object.freeze({
     // An integer part of 10^8 or more is refused: appends go past the last
     // key, and 9×10^8 of them stay possible after any written one.
     validate: (value: unknown) =>
-      value === "" || (isKey(value) && value[0] !== "9")
+      isKey(value) && value[0] !== "9"
         ? { value }
         : {
             issues: [

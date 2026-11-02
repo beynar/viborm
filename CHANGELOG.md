@@ -34,15 +34,6 @@ with every other tenant of the database.
   whole table holds, where a positive test reads it. Any extension may
   state one; without it, nothing changes.
 
-### Fixed
-
-- **`orderingKey` accepts `""`**, the default the documented adoption path
-  gives the key (`s.string().default("")`, then `rekey`). A schema with both
-  was refused (`F004`, the default failing the field's validator), and one
-  built by `attachFieldSchemas` refused every create that left the key out.
-  A create through `ordering` still appends a key; `""` stays the
-  placeholder of a row not placed yet.
-
 ## 1.8.0 — 2026-11-02
 
 Soft delete and ordering are one `$extends` each, applied in any order with
