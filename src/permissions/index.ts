@@ -962,8 +962,13 @@ export function permissions<const Config extends PermissionsConfig>(
   };
   /** Every model compiled when the policy is applied: a declaration we cannot copy. */
   const eagerDefinition = (schema: Schema) => {
-    const compiled = compile(schema);
-    return definitionOf(compiled.scopes, compiled.models, verbsOf(compiled));
+    const compiler = policyCompiler(
+      config,
+      Object.freeze({ ...schema }),
+      actor
+    );
+    const compiled = compiler.policy();
+    return definitionOf(compiled.scopes, compiler.declared, verbsOf(compiled));
   };
   /**
    * The application of the policy to `schema`: kept while the declaration

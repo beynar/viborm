@@ -2814,10 +2814,15 @@ export class Queries {
   /** {@link setBound}'s selector, where one applies here. */
   #boundOf(model: AnyModel): PreparedSelector | undefined {
     const excluded = this.#excluded;
-    return excluded === undefined || excluded.length === 0 || this.#negative
+    return excluded === undefined ||
+      excluded.length === 0 ||
+      this.#negative ||
+      this.#unbounded > 0
       ? undefined
       : this.domain?.bound(model, excluded);
   }
+  /** How many read gates are lowering here: none of their sets is bounded. */
+  #unbounded = 0;
   /**
    * Whether what lowers here stands negated (under a `NOT`, a `none`, an
    * `isNot`, an `unless`): a set bounded there would hold fewer rows, and
@@ -6378,8 +6383,9 @@ export class Queries {
       domain ? [this.lowerSelector(domain, alias)!] : [];
     const conditions = (all: readonly Sql[]) =>
       all.length === 0 ? undefined : a.operators.and(...all);
-    const bound = (alias: string) =>
-      bounded ? this.#setBound(model, alias) : [];
+    const bound = bounded
+      ? (alias: string) => this.#setBound(model, alias)
+      : undefined;
     let anchor: Sql;
     if (self)
       anchor = assembleAdapterSelect(a, {
@@ -6391,7 +6397,7 @@ export class Queries {
           ", "
         ),
         from: this.#attached(model, child),
-        where: conditions([...stated, ...bound(child)]),
+        where: conditions([...stated, ...(bound?.(child) ?? [])]),
       });
     else {
       const first = this.#predecessor(
@@ -6504,14 +6510,19 @@ export class Queries {
   #predecessor(
     edge: Membership,
     into: CarriedRow,
-    bound: (row: string) => readonly Sql[] = () => []
+    bound?: (row: string) => readonly Sql[]
   ): { readonly key: readonly Sql[]; readonly joins: readonly Sql[] } {
     const a = this.adapter;
     const model = edge.source;
     const keys = this.schema.keys(model);
     if (edge.kind === "reference") {
       const sources = edge.pairs.map((pair) => pair.source);
-      if (edge.discriminator === undefined && this.#covers(sources, keys))
+      // A bounded walk joins the row its bound reads.
+      if (
+        bound === undefined &&
+        edge.discriminator === undefined &&
+        this.#covers(sources, keys)
+      )
         return {
           key: keys.map((field) =>
             into(edge.pairs[sources.indexOf(field)]!.target)
@@ -6542,7 +6553,7 @@ export class Queries {
                   into(pair.target)
                 )
               ),
-              ...bound(row)
+              ...(bound?.(row) ?? [])
             )
           ),
         ],
@@ -6558,7 +6569,7 @@ export class Queries {
     const referenced = edge.sourceSide.members.map(
       (member) => member.referencedField
     );
-    if (this.#covers(referenced, keys))
+    if (bound === undefined && this.#covers(referenced, keys))
       return {
         key: keys.map((field) =>
           a.identifiers.column(
@@ -6577,7 +6588,7 @@ export class Queries {
           this.table(model, row),
           a.operators.and(
             ...this.junctionSideConditions(edge.sourceSide, link, row),
-            ...bound(row)
+            ...(bound?.(row) ?? [])
           )
         ),
       ],
@@ -8670,12 +8681,19 @@ export class Queries {
     visible: boolean
   ): Sql | undefined {
     const held: Sql[] = [];
-    for (const [layer, read, input] of gate) {
-      const tested = input === read ? [read] : [read, input];
-      for (const where of visible ? tested.slice(1) : tested) {
-        const lowered = this.#layerHolds(model, layer, where, alias);
-        if (lowered !== undefined) held.push(lowered);
+    // A gate masks a value: neither a positive nor a negative test, so no
+    // set it reads is bounded ({@link setBound}) and it holds where it would.
+    this.#unbounded++;
+    try {
+      for (const [layer, read, input] of gate) {
+        const tested = input === read ? [read] : [read, input];
+        for (const where of visible ? tested.slice(1) : tested) {
+          const lowered = this.#layerHolds(model, layer, where, alias);
+          if (lowered !== undefined) held.push(lowered);
+        }
       }
+    } finally {
+      this.#unbounded--;
     }
     return held.length === 0 ? undefined : this.adapter.operators.and(...held);
   }

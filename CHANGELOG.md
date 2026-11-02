@@ -21,8 +21,8 @@ with every other tenant of the database.
   production policy at 500 organizations of 60 members (PostgreSQL 18):
   the sidebar's read 1,152 → 11 ms, a document list 7.8 s → 200 ms, a team
   list 8.4 s → 124 ms, opening a page 1,013 → 5 ms; at 5 organizations,
-  unchanged. Nothing else reads differently: relations a call reads, other
-  extensions' predicates. Where every row of such a model a rule reads is
+  unchanged. Nothing else reads differently: relations a call reads, a
+  field's read gate, other extensions' predicates. Where every row of such a model a rule reads is
   the actor's tenant's, the policy answers what it answered; where one is
   not, `tenant` only takes access away: what a negative test (`none`,
   `every`, `isNot`, `NOT`) reads, or ranges over, is never bounded.
