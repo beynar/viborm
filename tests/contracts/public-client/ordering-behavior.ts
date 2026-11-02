@@ -183,18 +183,18 @@ export function describeOrdering(
       });
       expect(again.rank).toBe(kept.rank);
       expect(await listOf(db, "c1")).toEqual(["b", "a!!", "c"]);
-      // The key and the list are the move's own to write, through a
-      // relation too; a field spelled `undefined` is not written.
+      // The key and the list are the move's own to write, and `data` writes
+      // no relation (an update of the column may change its key, cascading
+      // to the list); a field spelled `undefined` is not written.
       for (const data of [
         { rank: "15" },
         { columnId: "c2" },
         { column: { connect: { id: "c2" } } },
-        // An update of the column may change its key, cascading to the list.
         { column: { update: { id: "c3" } } },
       ])
         await expect(
           db.card.move({ where: { id: "a" }, first: true, data })
-        ).rejects.toThrow("data writes other fields than the key");
+        ).rejects.toThrow("data writes the model's own fields beside the key");
       expect(
         (
           await db.card.move({

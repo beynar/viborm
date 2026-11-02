@@ -616,6 +616,17 @@ export function admitRows(
   for (const [name, predicate] of Object.entries(rows.bound ?? {})) {
     if (!Object.hasOwn(schema, name))
       refuse(name, `bound.${name}`, "root", "names an unknown model");
+    // The model's own columns: a bound reads no relation, so lowering it
+    // never builds another set it would bound in turn.
+    const scalars = schema[name]!["~"].state.scalars;
+    for (const field of Object.keys(predicate ?? {}))
+      if (!Object.hasOwn(scalars, field))
+        refuse(
+          name,
+          `bound.${name}`,
+          "root",
+          `names "${field}", which is not a scalar field: a bound states the model's own columns`
+        );
     bound[name] = admit(name, `bound.${name}`, predicate);
   }
   const admitted = Object.freeze({

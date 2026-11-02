@@ -495,6 +495,12 @@ describe("PGlite: rows.bound, the capability tenant is built on", () => {
     );
   });
 
+  test("a bound reading a relation is refused when applied", () => {
+    expect(() =>
+      base.$extends(sharing({ grant: { page: { is: { id: "p" } } } }) as never)
+    ).toThrow('names "page", which is not a scalar field');
+  });
+
   test("a bound naming an undeclared control is refused when applied", () => {
     expect(() =>
       base.$extends(

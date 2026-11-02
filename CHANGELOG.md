@@ -33,10 +33,12 @@ with every other tenant of the database.
   `data` writes other fields in the same UPDATE as the key, judged as an
   update writing them. With one order for the whole table (no `within`), a
   Kanban grouped by any field changes a card's column and its place in one
-  statement. `data` never names the key nor a `within` field.
+  statement. `data` writes the model's own fields: never the key, a `within`
+  field nor a relation.
 - **`rows.bound`**, the capability `tenant` is built on: per model, a
-  `where` every row of a set an extension's own predicates compute over a
-  whole table holds, where a positive test reads it. Any extension may
+  `where` of its own columns every row of a set an extension's own
+  predicates compute over a whole table holds, where a positive test reads
+  it. Any extension may
   state one; without it, nothing changes.
 
 ### Fixed
