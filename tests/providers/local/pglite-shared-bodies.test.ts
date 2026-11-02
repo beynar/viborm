@@ -21,6 +21,9 @@ const MAPPED_LIKE_A_BODY =
 /** An `$exists` body, read once per statement: materialized. */
 const SHARED_EXISTS_BODY =
   /"__shared_\d" AS \(SELECT 1 FROM "public"\."member"/;
+/** A statement led by a reaching set: its one recursive member. */
+const LEADING_REACHING_SET = /^WITH RECURSIVE /;
+const RECURSIVE_MEMBER = /RECURSIVE/g;
 const LEADING_SHARED_RELATION_BODY =
   /^WITH "__shared_0" AS NOT MATERIALIZED \(SELECT "q\d+"\."orgId" AS "k0"/;
 
@@ -463,12 +466,12 @@ test("PGlite: a walk to the actor's rows only repeated bodies read is one reachi
     const [statement] = statements;
     if (shared && !broad) {
       // One recursive member, the reaching set, and no walk left in place.
-      expect(statement).toMatch(/^WITH RECURSIVE /);
-      expect(statement!.match(/RECURSIVE/g)).toHaveLength(1);
+      expect(statement).toMatch(LEADING_REACHING_SET);
+      expect(statement!.match(RECURSIVE_MEMBER)).toHaveLength(1);
     }
     // The broad walk stays in each body (Sol's review: 0.03 ms in place,
     // 76 ms as a set over 30,000 rows).
-    if (shared && broad) expect(statement).not.toMatch(/^WITH RECURSIVE /);
+    if (shared && broad) expect(statement).not.toMatch(LEADING_REACHING_SET);
   }
   expect(answers.slice(0, 2)).toEqual([
     [{ id: "a" }, { id: "d" }],
