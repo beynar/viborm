@@ -150,9 +150,6 @@ const payload = validateOperationPayload(schema, "post", "findMany", {
 
 `validateOperationPayload` returns the normalized payload or throws. This checks
 the schema language, not authorization or whether a driver can execute the work.
-A create that leaves out a field validated by `orderingKey` passes without it,
-as the client of [`ordering()`](/docs/extensions/ordering) appends that key: the
-field's default is neither filled nor validated.
 The thrown `ValidationError`, like one a client operation raises, names its model
 in `meta.model` and in its message (`Validation failed for post.findMany: …`).
 

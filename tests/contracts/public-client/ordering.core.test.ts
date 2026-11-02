@@ -5,12 +5,8 @@
  */
 
 import { createClient } from "@client/client";
-import { validateOperationPayload } from "@client/schema-introspection";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { BatchQuery, QueryResult } from "@drivers/types";
-import { ValidationError } from "@errors";
-import { s } from "@schema";
-import { orderingKey } from "@src/ordering";
 import {
   describeOrdering,
   describeOrderingAdmission,
@@ -19,7 +15,6 @@ import {
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type Database from "better-sqlite3";
-import { describe, expect, test } from "vitest";
 
 class BatchOnlySQLite3Driver extends SQLite3Driver {
   override readonly supportsTransactions = false;
@@ -50,62 +45,3 @@ describeOrdering(
   opening(() => new BatchOnlySQLite3Driver({ dataDir: ":memory:" }))
 );
 describeOrderingAdmission(opening(createInMemorySQLite3Driver));
-
-// `validateOperationPayload` checks a create as the ordered client admits it:
-// a key field `orderingKey` validates, left out, is the extension's to write,
-// so its default is neither filled nor refused (Pyxel's studio pre-write
-// check, 1.9.0). A key a caller states is still validated.
-describe("validateOperationPayload with orderingKey", () => {
-  const lane = s.model({
-    id: s.string().id(),
-    cards: s.toMany(() => task),
-  });
-  const task = s.model({
-    id: s.string().id(),
-    laneId: s.string().nullable(),
-    rank: s.string().default("").schema(orderingKey),
-    note: s.string().default(""),
-    lane: s
-      .toOne(() => lane)
-      .fields("laneId")
-      .references("id"),
-  });
-  const tasks = { lane, task };
-
-  test("a create leaving the key out passes, and leaves it out", () => {
-    const payload = validateOperationPayload(tasks, "task", "create", {
-      data: { id: "t" },
-    });
-    expect(payload.data.rank).toBeUndefined();
-    // A field no extension appends still takes its default.
-    expect(payload.data).toMatchObject({ id: "t", note: "" });
-  });
-
-  test("so does a nested create, and an upsert's create", () => {
-    expect(() =>
-      validateOperationPayload(tasks, "lane", "create", {
-        data: { id: "l", cards: { create: [{ id: "a" }, { id: "b" }] } },
-      })
-    ).not.toThrow();
-    expect(() =>
-      validateOperationPayload(tasks, "task", "upsert", {
-        where: { id: "t" },
-        create: { id: "t" },
-        update: {},
-      })
-    ).not.toThrow();
-  });
-
-  test("a key the caller states is still validated", () => {
-    expect(() =>
-      validateOperationPayload(tasks, "task", "create", {
-        data: { id: "t", rank: "" },
-      })
-    ).toThrow(ValidationError);
-    expect(
-      validateOperationPayload(tasks, "task", "create", {
-        data: { id: "t", rank: "15" },
-      }).data
-    ).toMatchObject({ rank: "15" });
-  });
-});

@@ -33,7 +33,6 @@ import {
 import type { Queries } from "../query-engine/raptor3/shared/query";
 import type { RowJudgement } from "../query-engine/raptor3/shared/row-scope";
 import { RowsOf } from "../query-engine/raptor3/shared/rows-of";
-import { APPENDED } from "../schema/appended";
 import { getModelKeyCatalog } from "../schema/model/keys";
 import { type Sql, sql } from "../sql/sql";
 import { AppendKey } from "./append";
@@ -46,11 +45,9 @@ export { isKey, keyBetween, MAX_KEY_LENGTH } from "./keys";
  * A Standard Schema validator for a key field: `rank:
  * s.string().schema(orderingKey)` refuses, on every write that sets the
  * field (nested ones too), a value that is not an ordering key. A create
- * that leaves the field out is appended, not validated
- * (`validateOperationPayload` too: {@link APPENDED}).
+ * that leaves the field out is appended, not validated.
  */
 export const orderingKey = Object.freeze({
-  [APPENDED]: true,
   "~standard": Object.freeze({
     version: 1 as const,
     vendor: "viborm",

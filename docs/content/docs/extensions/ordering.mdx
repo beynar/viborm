@@ -55,8 +55,6 @@ the extension) is not supported.
 the key to something that is not one (in a nested write too), or to a key of
 10^8 or more, is refused with a `ValidationError`. The bound leaves room to
 append after any key a client writes. It is optional, and recommended.
-`validateOperationPayload` reads it too: a create that leaves the key out
-passes, without the key, as the client appends one.
 
 ## Reads
 

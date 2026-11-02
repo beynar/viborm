@@ -34,13 +34,6 @@ Versioning.
   fields are a condition, and a cursor row that fails them is no anchor
   (`NotFoundError`), not the row after it. On that path the condition holds
   when the anchor is read, not inside the UPDATE.
-- **`validateOperationPayload` checks a create as the ordered client takes
-  it.** A create that left out a field validated by `orderingKey` was given
-  the field's default and refused it (an adoption default of `""`), though
-  the client appends a key there. The field left out is now left out, in
-  nested creates and an upsert's `create` too; a key the payload states is
-  still validated. A client without `ordering()` still refuses the default
-  when it writes it.
 
 ## 1.9.0 — 2026-11-02
 
