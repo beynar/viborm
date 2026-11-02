@@ -92,6 +92,16 @@ export interface DatabaseAdapterCapabilities {
    */
   boundsRecursionIterations?: boolean;
   /**
+   * Whether an aggregate grouped over a derived table ordered by its group
+   * key first reads each group's rows in that order: PostgreSQL and SQLite
+   * read the ordered rows as they come (or sort them again keeping equal
+   * keys' order). A root list's recursive projection then aggregates the
+   * facts of its whole page grouped per row; without it each row aggregates
+   * its own facts: MySQL sorts the derived table again by the group key
+   * alone, and that sort reorders equal keys. Absent: false.
+   */
+  aggregatesGroupsInOrder?: boolean;
+  /**
    * The most terms one compound `SELECT` may chain, where the transport
    * bounds it below anything the engine writes: Cloudflare D1, 5. The engine
    * nests a longer union in derived tables of at most that many. Absent:
