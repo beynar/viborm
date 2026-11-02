@@ -9,6 +9,16 @@ import { isGeneratorDefault } from "../../scalars/common";
 import type { Schema, SchemaValidationIssue } from "../types";
 import { getScalars } from "./model-members";
 
+/** The JavaScript type of a scalar's literal default, by scalar type. */
+export const LITERAL_DEFAULT_TYPES: Readonly<Record<string, string>> = {
+  string: "string",
+  enum: "string",
+  int: "number",
+  float: "number",
+  boolean: "boolean",
+  bigint: "bigint",
+};
+
 function validateFieldNames(
   modelName: string,
   model: Model<any>
@@ -174,14 +184,35 @@ export function validateFieldsSinglePass(
     if (!columnToFields.has(col)) columnToFields.set(col, []);
     columnToFields.get(col)!.push(fname);
 
+    // A field with its own validator: its default is of the field's type.
+    if (
+      st.hasDefault &&
+      st.schema !== undefined &&
+      st.type !== "json" &&
+      Object.hasOwn(LITERAL_DEFAULT_TYPES, st.type) &&
+      typeof st.default !== "function" &&
+      st.default !== null &&
+      typeof st.default !== LITERAL_DEFAULT_TYPES[st.type]
+    )
+      errors.push({
+        code: "F004",
+        message: `Default value for '${fname}' in '${name}' doesn't match type`,
+        severity: "error",
+        model: name,
+        field: fname,
+      });
     // F004: Default type match. A decimal literal crossed its complete field
     // codec when `.default()` retained it, so this downstream boundary trusts
-    // that canonical output instead of applying a custom schema twice.
+    // that canonical output instead of applying a custom schema twice. A
+    // field with its own validator (`.schema()`) has its default validated
+    // where a create takes it, beside it: one an extension's stamp replaces
+    // (an appended ordering key over `""`) is never taken, so never refused.
     if (
       st.hasDefault &&
       st.default !== undefined &&
       typeof st.default !== "function" &&
-      st.type !== "decimal"
+      st.type !== "decimal" &&
+      (st.schema === undefined || st.type === "json")
     ) {
       const jsonKind =
         st.type === "json" ? jsonNullKindOf(st.default) : undefined;

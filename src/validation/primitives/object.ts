@@ -802,11 +802,16 @@ function createObjectValidator(
         inputValueScratchIndexByName
       );
       if (inputValue === undefined) {
+        // A field the call's stamps write is theirs: neither its default nor
+        // its validator runs for a value the stamp replaces.
+        if (isProvided(provides, key)) {
+          output[key] = undefined;
+          continue;
+        }
         // Key is required (partial: false OR in atLeast) and schema doesn't accept undefined
         if (
           (!partial || requiredByAtLeast?.[i] === true) &&
-          !acceptsUndefined[i] &&
-          !isProvided(provides, key)
+          !acceptsUndefined[i]
         ) {
           issues = gathered(issues, [
             { message: `Missing required field: ${key}`, path: [key] },

@@ -8,6 +8,7 @@ import { stringifyJson } from "../../adapters/shared/standard-sql";
 
 import { jsonNullKindOf } from "@schema/json-null";
 import type { Scalar, ScalarState } from "@schema/scalars";
+import { LITERAL_DEFAULT_TYPES } from "@schema/validation/rules/model";
 import {
   type DecimalDialect,
   decimalDefaultText,
@@ -989,6 +990,15 @@ export abstract class MigrationDriver {
         VibORMErrorCode.INVALID_INPUT
       );
     const result = state.base["~standard"].validate(value);
+    // A field's own validator (`.schema()`) judges a default where a create
+    // takes it; the column still holds one of its type (an ordering key's
+    // `""`, which every create through the extension replaces).
+    if (
+      !("value" in result) &&
+      state.schema !== undefined &&
+      typeof value === LITERAL_DEFAULT_TYPES[state.type]
+    )
+      return value;
     if (!("value" in result))
       throw new MigrationError(
         `Invalid ${state.type} literal default; the declared scalar schema refused it before DDL.`,

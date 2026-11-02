@@ -340,7 +340,9 @@ describe("adversarial migration regressions", () => {
     expect(statements).toEqual(["ALTER TYPE \"Role\" ADD VALUE 'new'"]);
   });
 
-  test("literal defaults refuse failed schema admission and nonfinite transformed output", () => {
+  test("a literal default is of its column's type, whatever the field's validator says, and never nonfinite", () => {
+    // The field's own validator judges the default where a create takes it
+    // (an extension's stamp may replace it); the column still holds it.
     const refused = s
       .string()
       .schema({
@@ -361,14 +363,18 @@ describe("adversarial migration regressions", () => {
         },
       })
       .default(1);
+    const mistyped = Reflect.apply(refused.default, refused, [42]);
     const bytes = s.blob().default(new Uint8Array([1, 2]));
     for (const driver of [
       postgresMigrationDriver,
       mysqlMigrationDriver,
       sqlite3MigrationDriver,
     ]) {
-      expect(() =>
+      expect(
         driver.getDefaultExpression(refused, refused["~"].state)
+      ).toContain("bad");
+      expect(() =>
+        driver.getDefaultExpression(mistyped, mistyped["~"].state)
       ).toThrow("declared scalar schema refused");
       expect(() =>
         driver.getDefaultExpression(infinite, infinite["~"].state)

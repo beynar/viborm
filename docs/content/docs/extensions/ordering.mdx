@@ -240,8 +240,10 @@ It is how an existing table adopts the extension:
    on go after them.
 2. Deploy with `ordering()` applied.
 3. `rekey` each list in the order it should have (`orderBy`).
-4. Optionally, drop the default and add `.schema(orderingKey)` (a validator
-   refuses a default that is not a key).
+4. Optionally, add `.schema(orderingKey)`; the default may stay. A create
+   through the client appends a key, so the default `""` is never validated
+   there; a client without `ordering` takes the default, and the validator
+   refuses it, as it refuses a `""` a caller writes.
 
 ## Keys
 

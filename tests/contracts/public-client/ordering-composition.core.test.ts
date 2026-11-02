@@ -13,6 +13,7 @@ import { SQLite3Driver } from "@drivers/sqlite3";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { NotFoundError } from "@errors";
 import { s } from "@schema";
+import { attachFieldSchemas } from "@schema/json";
 import { Sql } from "@sql";
 import { on } from "@src/on";
 import { isKey, ordering, orderingKey } from "@src/ordering";
@@ -936,5 +937,45 @@ describe("ordering: what a move sends", () => {
     expect(
       titles(await user.ticket.findMany({ where: { lane: "b" } }))
     ).toEqual(["3", "1"]);
+  });
+});
+
+describe("ordering: a key with a literal default and orderingKey", () => {
+  // How an existing table adopts ordering: its rows take the literal
+  // default, then `rekey`. The validator is attached as a dynamic schema
+  // attaches it (a static `.default("").schema(orderingKey)` is refused,
+  // F004: the default fails the field's validator).
+  const schema = attachFieldSchemas(
+    {
+      adopted: s.model({
+        id: s.int().id().increment(),
+        rank: s.string().default(""),
+        title: s.string(),
+      }),
+    },
+    { "adopted.rank": orderingKey }
+  );
+
+  test("a create that leaves the key out is appended, its default never validated", async () => {
+    const client = createClient({
+      schema,
+      driver: createInMemorySQLite3Driver(),
+    }) as any;
+    await syncLiveSchema(client);
+    const db = client.$extends(ordering({ adopted: { key: "rank" } }));
+    await db.adopted.create({ data: { title: "a" } });
+    await db.adopted.createMany({ data: [{ title: "b" }, { title: "c" }] });
+    const rows = await db.adopted.findMany();
+    expect(rows.map((row: any) => row.title)).toEqual(["a", "b", "c"]);
+    for (const row of rows) expect(isKey(row.rank)).toBe(true);
+    // A key the caller writes is validated, the empty one too.
+    for (const rank of ["x", ""])
+      await expect(
+        db.adopted.create({ data: { title: "d", rank } })
+      ).rejects.toThrow("must be an ordering key");
+    // Without ordering, nothing replaces the default: it is validated.
+    await expect(
+      client.adopted.create({ data: { title: "e" } })
+    ).rejects.toThrow("must be an ordering key");
   });
 });

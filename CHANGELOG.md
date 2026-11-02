@@ -34,6 +34,21 @@ with every other tenant of the database.
   whole table holds, where a positive test reads it. Any extension may
   state one; without it, nothing changes.
 
+### Fixed
+
+- **A key with `.default("")` and `orderingKey`**, the documented adoption
+  path: a create through `ordering` that left the key out was refused, its
+  default `""` validated before the append replaced it. A field an
+  extension's stamp writes, and the caller leaves out, now takes neither
+  its default nor its validator: the stamp's value is the one written.
+
+### Changed
+
+- **A default its field's own validator (`.schema()`) refuses is no longer
+  refused when the schema is checked (`F004`) or pushed (its DDL)**, as long
+  as it has the field's type: it is validated where a create takes it, and
+  refused there, as before. One of the wrong type is still `F004`.
+
 ## 1.8.0 — 2026-11-02
 
 Soft delete and ordering are one `$extends` each, applied in any order with
