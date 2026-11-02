@@ -183,11 +183,25 @@ export function describeOrdering(
       });
       expect(again.rank).toBe(kept.rank);
       expect(await listOf(db, "c1")).toEqual(["b", "a!!", "c"]);
-      // The key and the list are the move's own to write.
-      for (const data of [{ rank: "15" }, { columnId: "c2" }])
+      // The key and the list are the move's own to write, through a
+      // relation too; a field spelled `undefined` is not written.
+      for (const data of [
+        { rank: "15" },
+        { columnId: "c2" },
+        { column: { connect: { id: "c2" } } },
+      ])
         await expect(
           db.card.move({ where: { id: "a" }, first: true, data })
         ).rejects.toThrow("data writes other fields than the key");
+      expect(
+        (
+          await db.card.move({
+            where: { id: "a" },
+            first: true,
+            data: { columnId: undefined, title: "a" },
+          })
+        ).title
+      ).toBe("a");
     });
 
     test("one order for every grouping: a card changes column with its place, in one move", async () => {

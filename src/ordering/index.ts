@@ -96,6 +96,17 @@ const MOVE_ATTEMPTS = 3;
 const MISSED = Symbol("missed");
 
 /** A model's ordering facts, checked against the schema once. */
+/** The fields a relation's own foreign key holds on its model; none for an
+ * inverse relation. */
+const foreignKeyOf = (relation: unknown): readonly string[] =>
+  (
+    relation as {
+      readonly "~": {
+        readonly state: { readonly foreignKey?: { readonly fields: string[] } };
+      };
+    }
+  )["~"].state.foreignKey?.fields ?? [];
+
 interface Ordered {
   readonly name: string;
   readonly key: string;
@@ -388,6 +399,20 @@ function methods(ordered: Ordered, engine: () => Engine) {
   const selection = Object.fromEntries(
     [...identity, ...within, key].map((field) => [field, true])
   );
+  // What a move's `data` never writes: the key, the list's fields, and the
+  // relations whose foreign keys hold them (a connect changes the list).
+  const placing = [
+    key,
+    ...within,
+    ...Object.entries(model["~"].state.relations).flatMap(
+      ([relation, declared]) =>
+        foreignKeyOf(declared).some(
+          (field) => field === key || within.includes(field)
+        )
+          ? [relation]
+          : []
+    ),
+  ];
   /** The fields `where` names with a value (a compound selector's too): how
    * the moved row is recognised among rows read, without reading it. */
   const named = (where: Row): Row => {
@@ -606,11 +631,11 @@ function methods(ordered: Ordered, engine: () => Engine) {
         (data === null ||
           typeof data !== "object" ||
           Array.isArray(data) ||
-          [key, ...within].some((field) => Object.hasOwn(data, field)))
+          placing.some((field) => (data as Row)[field] !== undefined))
       )
         invalid(
           name,
-          `data writes other fields than the key${within.length === 0 ? "" : " and the list's (to)"}: ${[key, ...within].join(", ")}.`
+          `data writes other fields than the key${within.length === 0 ? "" : " and the list's (to)"}: ${placing.join(", ")}.`
         );
       // What the call writes beside the key, in the same UPDATE.
       const extra = (data ?? {}) as Row;

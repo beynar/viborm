@@ -334,6 +334,20 @@ describe("model definition rules", () => {
       rank: Reflect.apply(scalar.default, scalar, [42]),
     });
     expect(errorCodes({ mistyped })).toContain("F004");
+    // Only a string's: an integer's scalar check still runs, and a list's
+    // default is judged whole, as before.
+    const accepting = {
+      "~standard": {
+        version: 1,
+        vendor: "test",
+        validate: (value: unknown) => ({ value: value as number }),
+      },
+    } as const;
+    const fractional = s.model({
+      id: s.string().id(),
+      count: s.int().schema(accepting).default(1.5),
+    });
+    expect(errorCodes({ fractional })).toContain("F004");
   });
 
   it("rejects an array scalar used as a single-field ID", () => {
