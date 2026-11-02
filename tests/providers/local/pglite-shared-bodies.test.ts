@@ -330,15 +330,18 @@ test("PGlite: a walk to the actor's rows only repeated bodies read is one reachi
     members: s.toMany(() => seat),
     grants: s.toMany(() => grant),
   });
-  const seat = s.model({
-    id: s.string().id(),
-    userId: s.string(),
-    teamId: s.string(),
-    team: s
-      .toOne(() => team)
-      .fields("teamId")
-      .references("id"),
-  });
+  // Reads select seats by user: the index says so.
+  const seat = s
+    .model({
+      id: s.string().id(),
+      userId: s.string(),
+      teamId: s.string(),
+      team: s
+        .toOne(() => team)
+        .fields("teamId")
+        .references("id"),
+    })
+    .index(["userId"]);
   const page = s.model({
     id: s.string().id(),
     title: s.string(),

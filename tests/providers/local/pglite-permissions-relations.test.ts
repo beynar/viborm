@@ -143,10 +143,10 @@ const READS: [string, object, string][] = [
 ];
 
 // The relations each read references without a bound: its walks in place
-// but those only repeated bodies read (the actor's teams), each one reaching
+// but the one to the actor's teams only repeated bodies read, one reaching
 // set. The six past 256 are those a bound of 256 escalates.
 const PINNED_IN_PLACE = {
-  "accessGrant $access": { relations: 271, reaching: 3 },
+  "accessGrant $access": { relations: 275, reaching: 1 },
   "page $access": { relations: 92, reaching: 1 },
   "page $access, group $access": { relations: 108, reaching: 1 },
   "document $access": { relations: 177, reaching: 1 },
@@ -218,9 +218,9 @@ describe("PGlite: every $access read within Neki's 256 relations", () => {
     }
     expect(forms).toEqual({
       "accessGrant $access": {
-        relations: 244,
-        inPlace: 4,
-        reaching: 4,
+        relations: 248,
+        inPlace: 6,
+        reaching: 2,
         joined: 0,
       },
       "page $access": { relations: 92, inPlace: 0, reaching: 1, joined: 0 },
