@@ -33,6 +33,7 @@ import type { Queries } from "../query-engine/raptor3/shared/query";
 import type { RowJudgement } from "../query-engine/raptor3/shared/row-scope";
 import { RowsOf } from "../query-engine/raptor3/shared/rows-of";
 import { getModelKeyCatalog } from "../schema/model/keys";
+import { isPlainRecord } from "../schema/relation/terminal";
 import { type Sql, sql } from "../sql/sql";
 import { AppendKey } from "./append";
 import { between, Computed, jitter, spellings } from "./between";
@@ -96,16 +97,23 @@ const MOVE_ATTEMPTS = 3;
 const MISSED = Symbol("missed");
 
 /** A model's ordering facts, checked against the schema once. */
+/** `value`'s own `key`, where `value` is an object. */
+const own = (value: unknown, key: string): unknown =>
+  typeof value === "object" && value !== null
+    ? Reflect.get(value, key)
+    : undefined;
+
 /** The fields a relation's own foreign key holds on its model; none for an
  * inverse relation. */
-const foreignKeyOf = (relation: unknown): readonly string[] =>
-  (
-    relation as {
-      readonly "~": {
-        readonly state: { readonly foreignKey?: { readonly fields: string[] } };
-      };
-    }
-  )["~"].state.foreignKey?.fields ?? [];
+const foreignKeyOf = (relation: unknown): readonly string[] => {
+  const fields = own(
+    own(own(own(relation, "~"), "state"), "foreignKey"),
+    "fields"
+  );
+  return Array.isArray(fields)
+    ? fields.filter((field): field is string => typeof field === "string")
+    : [];
+};
 
 interface Ordered {
   readonly name: string;
@@ -399,20 +407,30 @@ function methods(ordered: Ordered, engine: () => Engine) {
   const selection = Object.fromEntries(
     [...identity, ...within, key].map((field) => [field, true])
   );
-  // What a move's `data` never writes: the key, the list's fields, and the
-  // relations whose foreign keys hold them (a connect changes the list).
-  const placing = [
-    key,
-    ...within,
-    ...Object.entries(model["~"].state.relations).flatMap(
-      ([relation, declared]) =>
-        foreignKeyOf(declared).some(
-          (field) => field === key || within.includes(field)
+  // What a move's `data` never writes: the key and the list's fields, nor
+  // through the relations whose foreign keys hold them (a connect changes the
+  // list; an update of the related row alone does not).
+  const relinking = Object.entries(model["~"].state.relations).flatMap(
+    ([relation, declared]) =>
+      foreignKeyOf(declared).some(
+        (field) => field === key || within.includes(field)
+      )
+        ? [relation]
+        : []
+  );
+  const placing = [key, ...within, ...relinking];
+  const places = (data: Readonly<Record<string, unknown>>) =>
+    [key, ...within].some((field) => data[field] !== undefined) ||
+    relinking.some((relation) => {
+      const write = data[relation];
+      return (
+        write !== undefined &&
+        !(
+          isPlainRecord(write) &&
+          Object.keys(write).every((operation) => operation === "update")
         )
-          ? [relation]
-          : []
-    ),
-  ];
+      );
+    });
   /** The fields `where` names with a value (a compound selector's too): how
    * the moved row is recognised among rows read, without reading it. */
   const named = (where: Row): Row => {
@@ -626,19 +644,13 @@ function methods(ordered: Ordered, engine: () => Engine) {
         )
           invalid(name, `to names the list's fields: ${within.join(", ")}.`);
       }
-      if (
-        data !== undefined &&
-        (data === null ||
-          typeof data !== "object" ||
-          Array.isArray(data) ||
-          placing.some((field) => (data as Row)[field] !== undefined))
-      )
+      if (data !== undefined && (!isPlainRecord(data) || places(data)))
         invalid(
           name,
           `data writes other fields than the key${within.length === 0 ? "" : " and the list's (to)"}: ${placing.join(", ")}.`
         );
       // What the call writes beside the key, in the same UPDATE.
-      const extra = (data ?? {}) as Row;
+      const extra: Row = isPlainRecord(data) ? data : {};
       const anchor = (after ?? before) as Row | undefined;
       const projection = {
         ...(select === undefined ? {} : { select }),
