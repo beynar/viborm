@@ -467,7 +467,6 @@ function disclosingChain(
     hasCache: false,
     hasRequestHandlers: false,
     hasQueryHandlers: false,
-    hasResultConsumers: false,
     request: NO_HANDLERS,
     query: NO_HANDLERS,
     statement: Object.freeze([]),

@@ -155,7 +155,6 @@ export interface ResolvedExtensionChain {
   readonly hasCache: boolean;
   readonly hasRequestHandlers: boolean;
   readonly hasQueryHandlers: boolean;
-  readonly hasResultConsumers: boolean;
   readonly request: ResolvedExtensionOperationLookup;
   readonly query: ResolvedExtensionOperationLookup;
   readonly statement: readonly ResolvedExtensionHandler[];
@@ -451,16 +450,6 @@ function withoutIdentity(
   return Object.freeze(ordinaryDefinition);
 }
 
-function consumesOperationResults(
-  definition: RuntimeExtensionDefinition
-): boolean {
-  return (
-    (definition.query !== undefined && !isFunction(definition.query)) ||
-    definition.client !== undefined ||
-    definition.model !== undefined
-  );
-}
-
 function assertOfficialExtensionAdmission(options: {
   readonly definitionName: string;
   readonly officialName: string;
@@ -518,18 +507,6 @@ export function appendResolvedExtension(
     isAlreadyPresent: false,
     duplicateMessage: `Extension "${OFFICIAL_DEFAULT_OMIT_NAME}" is already present on this client.`,
   });
-  if (incomingDefaultOmit !== undefined && chain?.hasResultConsumers === true) {
-    extensionError(
-      "The default omit extension cannot follow an extension that defines model-mapped query, client, or model behavior.",
-      definition.name
-    );
-  }
-  if (definition.rows !== undefined && chain?.hasResultConsumers === true) {
-    extensionError(
-      `Extension "${definition.name}" declares rows, which cannot follow an extension that defines model-mapped query, client, or model behavior.`,
-      definition.name
-    );
-  }
   const incomingOfficial = getTrustedProtectedObserverCapability(
     definition.observe
   );
@@ -697,9 +674,6 @@ export function appendResolvedExtension(
     hasCache: incomingCache !== undefined || chain?.hasCache === true,
     hasRequestHandlers: hasCompiledHandlers(request),
     hasQueryHandlers: hasCompiledHandlers(query),
-    hasResultConsumers:
-      chain?.hasResultConsumers === true ||
-      consumesOperationResults(effectiveDefinition),
     request,
     query,
     statement: appendFlatHandler(

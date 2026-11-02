@@ -109,7 +109,7 @@ a refused value shows the client's own message. The server listens on
 
 The studio's version follows `viborm`'s: it reads the models your client
 holds, so install the release that matches your `viborm` (`@viborm/studio`
-1.7.0 requires `viborm` ~1.7.0). Full guide: https://viborm.dev/docs/studio
+1.8.0 requires `viborm` ~1.8.0). Full guide: https://viborm.dev/docs/studio
 
 ## Transferring data
 

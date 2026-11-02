@@ -1,6 +1,7 @@
 import type { AnyDriver } from "@drivers";
 import { MemoryCache } from "@src/cache/drivers/memory";
 import { cache } from "@src/cache/exports";
+import { defaultOmit } from "@src/client/exports";
 import {
   createClient,
   NotFoundError,
@@ -388,6 +389,54 @@ export function runSoftDeleteBehavior(provider: SoftDeleteProvider): void {
         mode: "hard",
       });
       expect(await physical("p4")).toBeNull();
+    });
+
+    test("purge and purgeMany delete tombstones only, physically: a live row is NotFound and never counted", async () => {
+      // p7 is the only tombstone created before the cutoff whose children
+      // are gone: purgeMany removes p3 and p7, never a live old post.
+      expect(
+        await db.post.purgeMany({ where: { createdAt: { lt: CUTOFF } } })
+      ).toEqual({ count: 2 });
+      expect(ids(await base.post.findMany(byId))).toEqual([
+        "p1",
+        "p2",
+        "p4",
+        "p5",
+        "p6",
+      ]);
+      const purged = await db.post.purge({
+        where: { id: "p4" },
+        select: { id: true, deletedAt: true },
+      });
+      expect(purged.id).toBe("p4");
+      expect(purged.deletedAt).toBeInstanceOf(Date);
+      expect(await physical("p4")).toBeNull();
+      // A live post is not a tombstone: purge refuses it as missing.
+      expect(
+        await failure(db.post.purge({ where: { id: "p1" } }))
+      ).toBeInstanceOf(NotFoundError);
+      expect(await physical("p1")).not.toBeNull();
+      expect(await db.post.purgeMany()).toEqual({ count: 0 });
+    });
+
+    test("defaultOmit after soft delete: reads, restore and purge omit what it omits", async () => {
+      const omitted = db.$extends(
+        defaultOmit<ReturnType<typeof softDeleteSchema>>()({
+          post: { slug: true },
+        })
+      );
+      const restored = await omitted.post.restore({ where: { id: "p3" } });
+      expect(restored.id).toBe("p3");
+      expect("slug" in restored).toBe(false);
+      await omitted.post.delete({ where: { id: "p3" } });
+      const purged = await omitted.post.purge({ where: { id: "p3" } });
+      expect("slug" in purged).toBe(false);
+      expect(ids(await omitted.post.findMany(byId))).toEqual([
+        "p1",
+        "p2",
+        "p5",
+        "p6",
+      ]);
     });
 
     test('the purge hazards (ruling 8): `mode: "hard"` keeps the live default', async () => {

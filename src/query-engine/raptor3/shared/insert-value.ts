@@ -39,6 +39,22 @@ export abstract class InsertValue {
 }
 
 /**
+ * An `updateMany` value read from a derived table the UPDATE joins (an
+ * official extension's call, never a caller's payload): `join` answers that
+ * table, aliased, and the condition matching it to the row written, over the
+ * target's columns qualified by `target`; `compute` answers the SET
+ * expression over the table's columns. The engine joins it (`UPDATE … FROM`,
+ * MySQL's `UPDATE … JOIN`), so one statement writes each row its own value
+ * and the source is read once, before any row changes. Respacing's keys.
+ */
+export abstract class JoinedValue extends InsertValue {
+  abstract join(
+    queries: Queries,
+    target: string
+  ): { readonly source: Sql; readonly on: Sql };
+}
+
+/**
  * Each engine's renderer, by its schema then its driver's adapter: an
  * official extension that writes a statement of its own (ordering's
  * respacing) names tables and columns and binds values as the engine's

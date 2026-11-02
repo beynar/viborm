@@ -123,8 +123,15 @@ RETURNING …
 - The key alone is written while the row stays in its list, so a reorder
   needs no permission on the list fields. Where the row is in another list,
   a second UPDATE writes the key and the list.
-- The keys around the place are the table's: a soft-deleted or forbidden
-  row can be an anchor or a neighbour, as it is a member of its list.
+- The anchor and the neighbours are read as the caller sees them, in the
+  same statement: where an extension hides rows of the model ([soft
+  delete](/docs/extensions/soft-delete),
+  [permissions](/docs/extensions/permissions), your own), the UPDATE's
+  subqueries take those rows' filters, as every read does. A hidden anchor
+  is a `NotFoundError`, as a missing one is, and a hidden member is no
+  neighbour: the key a move writes depends on the rows the caller sees
+  alone. A read-gated field still anchors: a field gate shapes what a call
+  returns, not what the engine reads.
 
 | `move` (PostgreSQL, PGlite, SQLite, libSQL, D1) | Statements |
 |---|---|
@@ -202,16 +209,29 @@ await db.card.rekey({ where: { columnId }, orderBy: { createdAt: "asc" } }); // 
 Without `where`, every list the caller can see. It returns `{ count }`, the
 rows rewritten.
 
-`rekey` reads the lists the rows `where` matches, through your extensions (a
-list holding no row the caller can see is left alone), then respaces them
-in one statement (more where the driver bounds a statement's values, as
-D1 does: as many lists per statement as fit). It rewrites whole lists:
-every member of those lists is rekeyed, soft-deleted and forbidden rows
-included, so a row that comes back later comes back in its place. It writes
-the key only, as maintenance: no `updatedAt`, no update hooks, no permission
-check on the other members. It invalidates the [official
-cache](/docs/extensions/cache)'s entries of the model. A member another writer moves
-while the statement runs keeps the key that writer gave it.
+`rekey` is one `updateMany` through the client, one statement on every
+database: the UPDATE ranks the lists' members itself (a list holding no row
+the caller can see `where` matches is left alone) and binds no value per
+member. Every extension applies to it as to any update:
+the rows written are those the caller may see and update, write hooks run,
+`updatedAt` is refreshed, and the [official cache](/docs/extensions/cache)
+is invalidated as after any write.
+
+A list's order is shared, so `rekey` never moves a member the caller cannot
+write (hidden from it, or seen and not writable), nor writes it. The members
+it may update take short keys between the keys of the others around them:
+whoever sees the whole list reads it in the order it had. With `orderBy`, the
+caller's members are re-sorted among the places they held, never past a
+member it cannot write. A list the caller may write whole gets `10`, `11`,
+`12`, …. A member is written only while it holds the list and the key it
+was ranked with, so one another writer moves while the statement runs stays
+where that writer put it. Soft delete's
+tombstones are members it does not see unless the call says
+`deleted: "with"`.
+
+The new keys sit between the keys of the members the caller cannot see, so
+their digits show where such members are in the list, never which rows they
+are or what they hold.
 
 It is how an existing table adopts the extension:
 
@@ -244,11 +264,15 @@ members.
 
 ## Applying it with other extensions
 
-Apply `ordering()` after soft delete and permissions: a client that hides
-rows hides them from `move` and `rekey` too. A client that orders keys first
-is refused with an error that says so.
+`ordering()` is one step, applied in any order with soft delete, permissions,
+the cache, `on` and `defaultOmit()`: a client that hides rows hides them from
+`move` and `rekey` whichever came first, both are writes of that client
+(hooks, cache), and `move`'s result is typed from that client (a
+later `defaultOmit` leaves its fields out; a later `rows` extension types a
+to-one relation it can hide as `| null`; computed `result` fields are
+added). Called off its delegate (`const { move } = db.card`), the result is
+typed `unknown`.
 
-`ordering(config)` applies two steps: `ordering(config).keys` (the default
-order and the appended keys) and `ordering(config).methods` (`move` and
-`rekey`). Apply them apart when another entry's steps go between them, every
-`keys`-like step (soft delete's `rows`, for one) first.
+A chain written before 1.8 applied two steps apart, `ordering(config).keys`
+(the default order and the appended keys) and `ordering(config).methods`
+(`move` and `rekey`). That chain still works unchanged.

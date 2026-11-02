@@ -18,7 +18,12 @@ import { MemoryCache } from "@src/cache/drivers/memory";
 import { cache } from "@src/cache/exports";
 import { defaultOmit } from "@src/client/exports";
 import { PGliteDriver } from "@src/drivers/pglite";
-import { createClient, type ExtendedOperationResult, s } from "@src/index";
+import {
+  createClient,
+  type DelegateOperationResult,
+  type ExtendedOperationResult,
+  s,
+} from "@src/index";
 import { softDelete } from "@src/soft-delete";
 
 type Equal<Left, Right> =
@@ -144,10 +149,145 @@ export async function replayCompiles() {
   row?.secret satisfies string | undefined; // typed from base, not omitted
 }
 
-// The rows order guard: defaultOmit after softDelete is refused.
-export function orderGuard() {
-  // @ts-expect-error softDelete adds result-consuming methods: defaultOmit after it is refused
-  db.$extends(defaultOmit<S>()({ post: { secret: true } }));
+// The methods read nothing typed at their step: defaultOmit may follow
+// softDelete, and restore and purge type their rows from the client they
+// are called on, so they omit what it omits.
+const omittedAfter = db.$extends(defaultOmit<S>()({ post: { secret: true } }));
+export async function omissionFollows() {
+  const restored = await omittedAfter.post.restore({ where: { id: "p1" } });
+  // @ts-expect-error secret is omitted by the later defaultOmit
+  restored.secret;
+  restored.title satisfies string;
+  const purged = await omittedAfter.post.purge({ where: { id: "p1" } });
+  // @ts-expect-error purge's row is omitted too
+  purged.secret;
+}
+
+// purge and purgeMany: the model's delete arguments, tombstones only.
+export async function purgeTyped() {
+  const purged = await db.post.purge({
+    where: { id: "p1" },
+    select: { id: true },
+  });
+  type _purged = Expect<Equal<typeof purged, { id: string }>>;
+  const many = await db.post.purgeMany({
+    where: { deletedAt: { lt: cutoff } },
+  });
+  type _many = Expect<Equal<typeof many, { count: number }>>;
+  await db.post.purgeMany();
+  // @ts-expect-error purge selects tombstones itself
+  await db.post.purge({ where: { id: "p1" }, deleted: "with" });
+  // @ts-expect-error purge deletes physically itself
+  await db.post.purgeMany({ mode: "soft" });
+  // @ts-expect-error purge exists only on configured models
+  await db.user.purge({ where: { id: "u1" } });
+}
+
+// A later `result` step: restore's rows carry its computed fields, typed as
+// the client's own update types them, a replaced scalar included.
+const computed = db.$extends({
+  name: "test.computed",
+  result: {
+    post: {
+      shout: {
+        needs: { title: true },
+        compute: (post) => post.title.toUpperCase(),
+      },
+      title: { needs: { title: true }, compute: (post) => post.title.length },
+    },
+  },
+});
+export async function laterResult() {
+  const restored = await computed.post.restore({ where: { id: "p1" } });
+  const updated = await computed.post.update({ where: { id: "p1" }, data: {} });
+  type _shout = Expect<Equal<typeof restored.shout, string>>;
+  type _replaced = Expect<Equal<typeof restored.title, number>>;
+  type _asUpdate = Expect<Equal<typeof restored, typeof updated>>;
+}
+// Computed fields reach rows only: a count, an existence test, an aggregate
+// and a bulk write keep their shapes.
+type ComputedPost = (typeof computed)["post"];
+type _count = Expect<
+  Equal<DelegateOperationResult<ComputedPost, "count", object>, number>
+>;
+type _exist = Expect<
+  Equal<DelegateOperationResult<ComputedPost, "exist", object>, boolean>
+>;
+type _aggregate = Expect<
+  Equal<
+    DelegateOperationResult<ComputedPost, "aggregate", { _count: true }>,
+    ExtendedOperationResult<
+      typeof computed,
+      "post",
+      "aggregate",
+      { _count: true }
+    >
+  >
+>;
+type _bulk = Expect<
+  Equal<
+    DelegateOperationResult<ComputedPost, "updateMany", object>,
+    { count: number }
+  >
+>;
+
+// Called off its delegate, a method's result is `unknown`: using it is a
+// type error, never a silent `never`.
+export async function destructured() {
+  const { restore } = db.post;
+  const row = await restore({ where: { id: "p1" } });
+  type _unknown = Expect<Equal<typeof row, unknown>>;
+  // @ts-expect-error nothing is known of a result read off its delegate
+  row.title;
+}
+
+// The cache after soft delete keeps the client assignable to the one before.
+const cachedAfter = db.$extends(
+  cache({ driver: new MemoryCache(), waitUntil: (_promise) => undefined })
+);
+export const stillDb: typeof db = cachedAfter;
+export const stillDelegate: typeof db.post = cachedAfter.post;
+
+// A factory overloaded to hide its typed delegate is still a result consumer:
+// the omit after it is refused.
+declare function overloaded(delegate: (typeof base)["post"]): {
+  first: () => unknown;
+};
+// biome-ignore lint/style/useUnifiedTypeSignatures: the overloads are the case under test
+declare function overloaded(): { first: () => unknown };
+export function overloadIsConsumer() {
+  const tools = base.$extends({
+    name: "test.overloaded",
+    model: { post: overloaded },
+  });
+  // @ts-expect-error an overload taking the typed delegate reads results
+  tools.$extends(defaultOmit<S>()({ post: { secret: true } }));
+}
+
+// A later rows step: restore's to-one relation to a model those rows can
+// hide reads `| null`, as the client's own update does.
+const governed = db.$extends({
+  name: "test.tenancy",
+  rows: {
+    control: "tenant",
+    default: "own",
+    models: { user: { own: { root: { name: "t" }, related: { name: "t" } } } },
+  },
+});
+export async function laterRows() {
+  const restored = await governed.post.restore({
+    where: { id: "p1" },
+    include: { author: true },
+  });
+  const updated = await governed.post.update({
+    where: { id: "p1" },
+    data: {},
+    include: { author: true },
+  });
+  type _nullable = Expect<
+    Equal<typeof restored.author, { id: string; name: string } | null>
+  >;
+  type _asUpdate = Expect<Equal<typeof restored, typeof updated>>;
 }
 
 // Placement: `deleted` on every candidate-selecting operation of every model

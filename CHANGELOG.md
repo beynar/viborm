@@ -3,6 +3,79 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## 1.8.0 — 2026-11-02
+
+Soft delete and ordering are one `$extends` each, applied in any order with
+permissions, `on`, the cache, `defaultOmit` and your own extensions. Soft
+delete gains `purge` and `purgeMany`; `move` no longer reveals a hidden
+anchor; a MySQL soft delete takes one statement fewer.
+
+### Changed
+
+- **The chain no longer refuses `rows` or `defaultOmit` after an extension
+  with methods or model-mapped `query` handlers.** Every method already runs
+  through the whole chain of the client it is called on; the rule only ever
+  protected types, so it is now TypeScript's alone: `rows` or `defaultOmit`
+  after a client or model factory that takes a typed argument types as
+  `never`. A factory that takes its delegate as `never` (or `unknown`, or no
+  argument) reads nothing typed at its step and may be followed by anything.
+  The two `ClientInitializationError`s ("declares rows, which cannot
+  follow…", "The default omit extension cannot follow…") are gone.
+- **`softDelete(config)`** is one definition: `db.$extends(softDelete(c))`
+  composes with `permissions` in either order, and `defaultOmit` may follow
+  it. `restore` (and `purge`) type their result from the client they are
+  called on, so a later `rows` step types a to-one relation it can hide as
+  `| null` and a later `defaultOmit` drops its fields. `softDelete(c).rows`
+  and `.methods` still work, for chains written before.
+- **`ordering(config)`** is one definition too; `move`'s result is typed from
+  the client it is called on. `ordering(c).keys` and `.methods` still work.
+- **`rekey` (and a move's respacing) is an `updateMany` through the client**,
+  no longer a raw UPDATE: rows, permissions, write hooks, `updatedAt` and the
+  cache apply as to any update, whichever order the extensions came in. It
+  writes only the members the caller may update, each with a short key
+  between the keys of the other members around it, so whoever sees the
+  whole list reads it in the order it had (1.7.0 rewrote whole lists,
+  hidden members included). With `orderBy`, the caller's members are
+  re-sorted among the places they held. A member moved meanwhile keeps the
+  key its writer gave it. It is one statement on every database (1.7.0
+  read the lists first, and MySQL wrote a `CASE` arm per member): the
+  UPDATE ranks the members in a derived table it joins.
+- A soft delete behind `restrict` children on MySQL sends 4 statements, not
+  5: the lock before the live-child check is the capture of the rows' keys,
+  and the write no longer locks them again. PostgreSQL keeps its 3 (lock,
+  check, `UPDATE … RETURNING`), in the same order; a PostgreSQL delete whose
+  result RETURNING cannot carry (a relation `include`) also goes from 5 to 4.
+
+### Added
+
+- **`purge` and `purgeMany`** on soft-deleted models: tombstones only,
+  deleted physically. A live row is never purged (`purge` of one is
+  `NotFoundError`). `mode: "hard"` keeps working.
+- **`DelegateOperationResult<Self, Operation, Args>`**: a model method
+  declared with a `this` parameter types its result from the delegate it is
+  called on, after every extension applied later (computed `result` fields
+  included; `unknown` when called off its delegate).
+
+### Fixed
+
+- **Ordering: `move` was an existence oracle under `rows`.** Its one UPDATE
+  read the anchor and neighbours from the table, so `move({ after: { id } })`
+  succeeded for a hidden row and failed for a missing one, and the key it
+  wrote showed whether a list held hidden members. Its subqueries now take
+  the caller's row filters, as every read of the engine does (a `RowsOf`
+  node the operation settles): still one statement, a hidden anchor is a
+  `NotFoundError` as a missing one is, and the key depends on visible rows
+  alone.
+- **Soft delete checks its marker when applied.** A `deletedAt` that is not
+  a nullable `DateTime` is a `ClientInitializationError` naming the field; a
+  string marker was accepted and failed at the first delete, a required one
+  was refused with an unclear message.
+
+### Documentation
+
+- Soft delete: indexes for the marker (partial indexes over live rows on
+  PostgreSQL and SQLite, the marker in composite indexes on MySQL).
+
 ## 1.7.0 — 2026-11-01
 
 `viborm/ordering`: the members of a list (cards in kanban columns) in the

@@ -11,7 +11,11 @@ import {
 } from "@errors";
 import { s } from "@schema";
 import { Sql } from "@sql";
+import { on } from "@src/on";
 import { isKey, keyBetween, ordering, orderingKey } from "@src/ordering";
+import { permissions } from "@src/permissions";
+import { softDelete } from "@src/soft-delete";
+import { v } from "@validation";
 import { describe, expect, test } from "vitest";
 
 const column = s.model({
@@ -24,6 +28,10 @@ const card = s.model({
   columnId: s.string().nullable(),
   rank: s.string().schema(orderingKey),
   title: s.string(),
+  /** Who may see the card, where a test applies permissions. */
+  owner: s.string().nullable(),
+  /** The soft-delete marker, where a test applies soft delete. */
+  deletedAt: s.dateTime().nullable(),
   column: s
     .toOne(() => column)
     .fields("columnId")
@@ -36,6 +44,8 @@ const legacy = s.model({
   id: s.string().id(),
   rank: s.string(),
   title: s.string(),
+  /** The soft-delete marker, where a test applies soft delete. */
+  deletedAt: s.dateTime().nullable(),
 });
 
 /** A list field that is part of the model's key, and is required: an
@@ -68,6 +78,7 @@ export function describeOrdering(
 ) {
   const statements: string[] = [];
   let base_: any;
+  let counted_: any;
   // One database per run, emptied before each test.
   let opened: ReturnType<typeof open> | undefined;
   const setup = async () => {
@@ -100,6 +111,7 @@ export function describeOrdering(
       slot: { key: "rank", within: ["tenant"] },
     })(counted as any) as any;
     base_ = client as any;
+    counted_ = counted;
     await db.column.createMany({ data: [{ id: "c1" }, { id: "c2" }] });
     return db;
   };
@@ -398,6 +410,28 @@ export function describeOrdering(
       expect(ranks.every(isKey)).toBe(true);
     });
 
+    test("adopting with a member the caller cannot see: its backfilled key bounds nothing, the others get keys", async () => {
+      await setup();
+      for (const id of ["x", "y", "z"])
+        await base_.legacy.create({ data: { id, rank: "", title: id } });
+      await base_.legacy.update({
+        where: { id: "y" },
+        data: { deletedAt: new Date("2026-01-01T00:00:00.000Z") },
+      });
+      const governed = softDelete({
+        models: { legacy: { deletedAt: "deletedAt" } },
+      })(ordering({ legacy: { key: "rank" } })(counted_ as any) as any) as any;
+      expect(await governed.legacy.rekey()).toEqual({ count: 2 });
+      const ranks = Object.fromEntries(
+        (await base_.legacy.findMany({ select: { id: true, rank: true } })).map(
+          (row: { id: string; rank: string }) => [row.id, row.rank]
+        )
+      );
+      expect(ranks.y).toBe("");
+      expect([isKey(ranks.x), isKey(ranks.z)]).toEqual([true, true]);
+      expect(titles(await governed.legacy.findMany())).toEqual(["x", "z"]);
+    });
+
     test("rekey of part of a list respaces the whole list, in its order", async () => {
       const db = await setup();
       for (const title of ["a", "b", "c", "d"])
@@ -405,8 +439,8 @@ export function describeOrdering(
       statements.length = 0;
       const { count } = await db.card.rekey({ where: { id: "c" } });
       expect(count).toBe(4);
-      // One statement reads the lists, one respaces them.
-      expect(statements).toHaveLength(2);
+      // One UPDATE names the lists and respaces them, on every dialect.
+      expect(statements).toHaveLength(1);
       expect(await listOf(db, "c1")).toEqual(["a", "b", "c", "d"]);
     });
 
@@ -473,6 +507,232 @@ export function describeOrdering(
       await expect(
         db.card.move({ where: { id: "a" }, first: true, last: true })
       ).rejects.toThrow(ValidationError);
+    });
+
+    // The one-statement move reads its anchor and neighbours from the
+    // table: under rows that can hide a row of the model, the move reads
+    // them through the caller's view (the read path) instead, so a hidden
+    // anchor is refused as a missing one, nothing is written, and the key
+    // it writes depends on visible rows alone.
+    test("a hidden anchor is a missing one, under permissions or soft delete, applied before or after ordering", async () => {
+      const db = await setup();
+      for (const [id, owner] of [
+        ["a", "u1"],
+        ["b", "u1"],
+        ["h", "u2"],
+        ["t", "u1"],
+      ] as const)
+        await db.card.create({
+          data: { id, columnId: "c1", title: id, owner },
+        });
+      await base_.card.update({
+        where: { id: "t" },
+        data: { deletedAt: new Date("2026-01-01T00:00:00.000Z") },
+      });
+      const ranks = async () =>
+        (await base_.card.findMany({ select: { id: true, rank: true } })).map(
+          (row: { id: string; rank: string }) => `${row.id}:${row.rank}`
+        );
+      const order = ordering({ card: { key: "rank", within: ["columnId"] } });
+      const policy = permissions({
+        actor: v.object({ userId: v.string() }),
+        models: {
+          card: {
+            read: { owner: { actor: "userId" } },
+            update: { owner: { actor: "userId" } },
+          },
+        },
+      } as any);
+      const tombs = softDelete({
+        models: { card: { deletedAt: "deletedAt" } },
+      });
+      // The read path: the anchor (its list may be NULL), its window, the
+      // UPDATE; MySQL takes it ungoverned too.
+      const governedMove = move;
+      const viaPolicy = [
+        policy(order(counted_) as any),
+        order(policy(counted_) as any),
+      ].map((chain: any) => chain.$as({ userId: "u1" }));
+      const viaTombs = [
+        tombs(order(counted_) as any),
+        order(tombs(counted_) as any),
+      ];
+      for (const governed of [...viaPolicy, ...viaTombs] as any[]) {
+        const before = await ranks();
+        for (const hidden of ["nope", viaPolicy.includes(governed) ? "h" : "t"])
+          await expect(
+            governed.card.move({ where: { id: "a" }, after: { id: hidden } })
+          ).rejects.toThrow("move anchor");
+        expect(await ranks()).toEqual(before);
+        statements.length = 0;
+        await governed.card.move({ where: { id: "b" }, before: { id: "a" } });
+        expect(statements).toHaveLength(governedMove);
+        await governed.card.move({ where: { id: "a" }, before: { id: "b" } });
+      }
+      // Soft delete's `deleted: "with"` shows the tombstone: it anchors.
+      await (viaTombs[0] as any).card.move({
+        where: { id: "a" },
+        after: { id: "t" },
+        deleted: "with",
+      });
+      expect(await listOf(db, "c1")).toEqual(["b", "h", "t", "a"]);
+    });
+
+    test("rekey rewrites the members the caller sees around those it does not: every viewer keeps the order, the hidden ones are not written", async () => {
+      const db = await setup();
+      // A visibility-blind respace would give a, c, d 10, 12, 13, all after t.
+      for (const [id, rank] of [
+        ["a", "0812345678"],
+        ["t", "0899"],
+        ["c", "08990000001"],
+        ["d", "08990000002"],
+      ] as const)
+        await db.card.create({ data: { id, columnId: "c1", title: id, rank } });
+      await base_.card.update({
+        where: { id: "t" },
+        data: { deletedAt: new Date("2026-01-01T00:00:00.000Z") },
+      });
+      const governed = softDelete({
+        models: { card: { deletedAt: "deletedAt" } },
+      })(db as any) as any;
+      const whole = async () =>
+        titles(await governed.card.findMany({ deleted: "with" }));
+      expect(await whole()).toEqual(["a", "t", "c", "d"]);
+      expect(
+        (await governed.card.rekey({ where: { columnId: "c1" } })).count
+      ).toBe(3);
+      expect(await whole()).toEqual(["a", "t", "c", "d"]);
+      const ranks = Object.fromEntries(
+        (await base_.card.findMany({ select: { id: true, rank: true } })).map(
+          (row: { id: string; rank: string }) => [row.id, row.rank]
+        )
+      );
+      expect(ranks.t).toBe("0899");
+      // Shorter than the keys the moves had grown.
+      for (const id of ["a", "c", "d"])
+        expect(ranks[id].length).toBeLessThan(10);
+      // Re-sorted, the visible members trade the places they held.
+      await governed.card.rekey({
+        where: { columnId: "c1" },
+        orderBy: { title: "desc" },
+      });
+      expect(await whole()).toEqual(["d", "t", "c", "a"]);
+    });
+
+    test("rekey under an update hook writes, and reports, the rows it rekeys alone (on before or after ordering)", async () => {
+      for (const before of [true, false]) {
+        await setup();
+        for (const [id, columnId, rank] of [
+          ["a", "c1", "0812345678"],
+          ["t", "c1", "0899"],
+          ["c", "c1", "08990000001"],
+          ["x", "c2", "0812"],
+        ] as const)
+          await base_.card.create({ data: { id, columnId, title: id, rank } });
+        await base_.card.update({
+          where: { id: "t" },
+          data: { deletedAt: new Date("2026-01-01T00:00:00.000Z") },
+        });
+        const seen: string[] = [];
+        const hooks = on({
+          card: {
+            update: (rows: readonly { id: string }[]) => {
+              seen.push(...rows.map((row) => row.id));
+            },
+          },
+        } as any);
+        const ordered = (client: any) =>
+          ordering({ card: { key: "rank", within: ["columnId"] } })(client);
+        const deleted = softDelete({
+          models: { card: { deletedAt: "deletedAt" } },
+        });
+        const db = (
+          before
+            ? deleted(ordered((counted_ as any).$extends(hooks)) as any)
+            : (deleted(ordered(counted_) as any) as any).$extends(hooks)
+        ) as any;
+        expect((await db.card.rekey({ where: { columnId: "c1" } })).count).toBe(
+          2
+        );
+        expect(seen.sort()).toEqual(["a", "c"]);
+        const ranks = Object.fromEntries(
+          (await base_.card.findMany({ select: { id: true, rank: true } })).map(
+            (row: { id: string; rank: string }) => [row.id, row.rank]
+          )
+        );
+        expect([ranks.t, ranks.x]).toEqual(["0899", "0812"]);
+        expect(ranks.a.length).toBeLessThan(10);
+        expect(ranks.a < ranks.t && ranks.t < ranks.c).toBe(true);
+      }
+    });
+
+    test("a rows extension declared through verbs alone governs move too", async () => {
+      const db = await setup();
+      for (const [id, owner] of [
+        ["a", "u1"],
+        ["h", "u2"],
+      ] as const)
+        await db.card.create({
+          data: { id, columnId: "c1", title: id, owner },
+        });
+      const governed = (
+        ordering({ card: { key: "rank", within: ["columnId"] } })(
+          (counted_ as any).$extends({
+            name: "test.owner",
+            rows: {
+              control: "owner",
+              default: "mine",
+              models: {},
+              verbs: {
+                card: {
+                  predicates: { mine: { owner: "u1" } },
+                  read: "mine",
+                  update: "mine",
+                },
+              },
+            },
+          })
+        ) as any
+      ).card;
+      expect(
+        (await governed.findMany()).map((row: { id: string }) => row.id)
+      ).toEqual(["a"]);
+
+      for (const hidden of ["h", "nope"])
+        await expect(
+          governed.move({ where: { id: "a" }, after: { id: hidden } })
+        ).rejects.toThrow("move anchor");
+    });
+
+    test("a move into a list whose members are all hidden keys as into an empty one", async () => {
+      const db = await setup();
+      for (const [id, columnId] of [
+        ["a", "c1"],
+        ["b", "c1"],
+        ["t", "c2"],
+      ] as const)
+        await db.card.create({ data: { id, columnId, title: id } });
+      await base_.card.update({
+        where: { id: "t" },
+        data: { deletedAt: new Date("2026-01-01T00:00:00.000Z") },
+      });
+      const governed = (
+        softDelete({ models: { card: { deletedAt: "deletedAt" } } })(
+          ordering({ card: { key: "rank", within: ["columnId"] } })(
+            counted_ as any
+          ) as any
+        ) as any
+      ).card;
+      await base_.column.create({ data: { id: "c3" } });
+      const into = async (id: string, columnId: string) =>
+        (await governed.move({ where: { id }, first: true, to: { columnId } }))
+          .rank as string;
+      // Each from no visible member: the same integer part, whatever the
+      // hidden members' keys (the random fraction differs). Read from the
+      // table, the first would go below the hidden member's key ("0…").
+      const hidden = await into("a", "c2");
+      const empty = await into("b", "c3");
+      expect(hidden.slice(0, 2)).toBe(empty.slice(0, 2));
     });
 
     test("ties are respaced when a move needs a gap between them", async () => {

@@ -261,8 +261,14 @@ statement is built;
 `chain.ts` owns the one resolved chain,
 handler lookup, the chain's one control name space (one declaration per
 control name; a definition's references to an earlier extension's controls)
-and placed controls, one `deletion` entry per model, and the order guard
-(`rows` after a result consumer is refused); `controls.ts` owns control
+and placed controls, and one `deletion` entry per model. There is no runtime order guard: every method runs
+through the whole chain of the client it is called on, so the order rule
+is TypeScript's alone (`methods.ts`, `ResultConsumerContextOf`: a client or
+model factory taking a typed argument is a result consumer, and `rows` or
+`defaultOmit` after one types as `never`; one taking `never`, `unknown` or
+nothing is not, and types its methods' results from their delegate through
+a `this` parameter and `DelegateOperationResult`, which reads the
+declaration-only `DelegateState` link). `controls.ts` owns control
 placement, the call's one admission (taken out of the arguments before
 request transforms, validated once, handed only to the declaring extension's
 handlers; `bound` controls only from a view's `$bind`) and the control types the model
@@ -291,8 +297,11 @@ implemented only in `src/cache/extension.ts`,
 replace their old `createClient()` config keys. The official `softDelete()`
 (`src/soft-delete/index.ts`, entry `viborm/soft-delete`) is the other kind: an
 ordinary definition built only from public exports (its imports are the files
-behind `viborm` and `viborm/client`, type-only), with no identity, no private
-fact and no runtime import; `tests/package/soft-delete-consumer-smoke.mjs`
+behind `viborm` and `viborm/client`; its one runtime import is
+`ClientInitializationError`, for the marker it checks when applied), with no
+identity and no private fact, one `$extends` in any order (its `rows` and
+`methods` steps stay for chains written before 1.8);
+`tests/package/soft-delete-consumer-smoke.mjs`
 rebuilds it from the packed package. Keep it that way: a need it cannot meet
 through the public capabilities is a capability to add, not a friend import.
 The cache's mutation `cache` argument is a declared control on writes.
@@ -380,8 +389,9 @@ hook's whole rows. A failing hook never fails its write: its error goes to
 `on(hooks, { onError })`, else `console.error`.
 
 The official `ordering()` (`src/ordering/`, entry `viborm/ordering`; plan
-`docs/architecture/ordering-extension-plan-2026-10-31.md`) is two ordinary
-extensions plus one engine seam. Its `keys` step declares the generic `order`
+`docs/architecture/ordering-extension-plan-2026-10-31.md`) is one ordinary
+definition plus one engine seam, applied in any order (its `keys` and
+`methods` steps stay for chains written before 1.8). It declares the generic `order`
 capability (a model's default `orderBy`, threaded as `RowDomain.order` with
 the call's row facts and applied by `Queries.#ordered` at root
 `findMany`/`findFirst`, `#prepareRelationProjection` for to-many edges, and
@@ -394,13 +404,36 @@ values once the rows are final (incoming foreign keys assigned). `AppendKey`
 answers with one SQL expression per row over `MAX(key)` of the row's list
 (PostgreSQL, SQLite), or, on MySQL outside batch preparation, with keys it
 computes after one consistent read (the one-statement form deadlocks under
-concurrent appends there). Its `methods` step adds `move` and `rekey` from
+concurrent appends there). Its methods add `move` and `rekey` from
 the delegate and the client scope a model factory now receives; both are lazy
 thenables, so an array transaction refuses them before any statement.
-Respacing (`rekey`, and `move` on a tie or a used-up gap) is one raw UPDATE
-per call through the scope's `$executeRaw`, over whole physical lists
-(`ROW_NUMBER() OVER (PARTITION BY list …)`), each row matched by its key as
-read so a concurrent move keeps its result.
+Ordering writes no SQL past the client. The SQL it writes (the move's
+subqueries, respacing's ranks) reads `model AS alias` beside a `RowsOf`
+(`raptor3/shared/rows-of.ts`), which the operation's `Queries` settles to the
+call's root domain at that alias when it lowers the caller's fragment
+(`Queries.#settleRows`, in `value` and `#scalarValue`; `#prepareOperand`
+peeks a caller's `Sql` rather than flattening it, so the node survives):
+every extension applies to it as to any read, and rendered elsewhere its
+text is not SQL. So a move is still one UPDATE under soft delete or
+permissions (a hidden anchor is a missing one, a hidden member no
+neighbour). Respacing (`rekey`, and `move` on a tie or a used-up gap) is one
+`updateMany` through the delegate, its key a `JoinedValue`
+(`raptor3/shared/insert-value.ts`): a derived table ranking the lists'
+members (window functions over the table, the call's `RowsOf` under the
+update judgement of the key marking the members it may write, a `RowsOf`
+under the call's admitted `where` naming the lists) maps each to a short key
+between the keys of the others around the place it takes, so every viewer
+keeps the order and no other row is written. The UPDATE joins it
+(`adapter.mutations.updateFrom`: `UPDATE … FROM` on PostgreSQL and SQLite,
+`UPDATE … JOIN` on MySQL, which materializes it), never a correlated
+subquery, because SQLite's subqueries see the rows its UPDATE already
+rewrote. A row is written only while it holds the list and the key it was
+ranked with, so a member moved meanwhile stays where its writer put it. An
+`updateMany` that captures its rows first (no RETURNING, as on MySQL under
+an `on` hook) captures, and claims in a batch's premises, only the rows the
+join names (`condition` of `Queries.select`, a function of the root alias). Running window frames
+only (`UNBOUNDED PRECEDING`, the upper bound read backwards): a frame that
+ends at `UNBOUNDED FOLLOWING` is rescanned per row, quadratic in a list.
 
 `cache()` produces a namespace-free DEFINITION; the client composition root
 binds it to the concrete driver, deriving one scope from the private snapshot

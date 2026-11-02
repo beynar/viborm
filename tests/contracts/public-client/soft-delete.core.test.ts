@@ -6,6 +6,7 @@
  * take: no actor field, and an actor field with no actor.
  */
 
+import { ClientInitializationError, createClient, s } from "@src/index";
 import { softDelete } from "@src/soft-delete";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { createNonReturningSQLite3Driver } from "@tests/providers/local/sqlite3-fixtures";
@@ -72,5 +73,46 @@ describe("SQLite3: viborm/soft-delete configuration branches", () => {
     const deleted = await marks(base);
     expect(deleted.deletedAt).toBeInstanceOf(Date);
     expect(deleted.deletedById).toBeNull();
+  });
+
+  test("the marker must be a nullable DateTime: anything else is refused when the extension is applied", () => {
+    const model = s.model({
+      id: s.string().id(),
+      required: s.dateTime(),
+      text: s.string().nullable(),
+      dates: s.dateTime().array(),
+      marker: s.dateTime().nullable(),
+    });
+    const base = createClient({
+      schema: { model },
+      driver: createInMemorySQLite3Driver(),
+    });
+    for (const field of ["required", "text", "dates"]) {
+      const apply = () =>
+        softDelete({ models: { model: { deletedAt: field } } })(base);
+      expect(apply).toThrow(ClientInitializationError);
+      expect(apply).toThrow(
+        `softDelete: model.${field} must be a nullable DateTime field`
+      );
+      // The two steps of a chain written before 1.8 check it too.
+      expect(() =>
+        softDelete({ models: { model: { deletedAt: field } } }).rows(base)
+      ).toThrow(ClientInitializationError);
+    }
+    expect(() =>
+      softDelete({ models: { model: { deletedAt: "marker" } } })(base)
+    ).not.toThrow();
+    // A model the schema lacks is core's refusal too.
+    expect(() =>
+      softDelete({ models: { nope: { deletedAt: "deletedAt" } } })(
+        base as never
+      )
+    ).toThrow(ClientInitializationError);
+    // A field the model lacks is core's refusal, as before.
+    expect(() =>
+      softDelete({ models: { model: { deletedAt: "missing" } } })(base)
+    ).toThrow(
+      'Extension "viborm.softDelete" deletion.model.at names unknown scalar.'
+    );
   });
 });

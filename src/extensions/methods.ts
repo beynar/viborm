@@ -119,10 +119,38 @@ export type HasResultConsumingExtension<X extends ExtensionStateConstraint> = [
     ? true
     : false;
 
+declare const delegateState: unique symbol;
+/**
+ * Declaration-only: what a result read on a delegate of a chain that adds
+ * model methods depends on (its client's config, the models the chain's
+ * `rows` can hide, its computed fields, the model), so a method typed with a
+ * `this` parameter reads its result from the client it is called on
+ * (`DelegateOperationResult`), whatever the chain added after it. Nothing
+ * else of the extension state: a later step that changes none of these (the
+ * cache) keeps the client assignable to the one before it. No property is
+ * installed at runtime.
+ */
+export interface DelegateState<C, Rows, Result, ModelName> {
+  readonly [delegateState]?: readonly [C, Rows, Result, ModelName];
+}
+
 type MethodsForModel<
   X extends ExtensionStateConstraint,
   ModelName extends PropertyKey,
 > = ModelName extends keyof X["models"] ? X["models"][ModelName] : NoMethods;
+
+/**
+ * The link, on every delegate of a chain that adds model methods: decided by
+ * the extension state alone, so a client generic over its schema without
+ * them (the empty state) compares as before.
+ */
+type DelegateLink<
+  C extends VibORMConfig,
+  X extends ExtensionStateConstraint,
+  ModelName extends PropertyKey,
+> = [keyof X["models"]] extends [never]
+  ? unknown
+  : DelegateState<C, X["rows"], X["result"], ModelName>;
 
 /**
  * One model's delegate after the chain's methods and controls. On a chain
@@ -146,7 +174,8 @@ export type ExtensionModelDelegate<
         X["data"],
         ModelName
       >) &
-  MethodsForModel<X, ModelName>;
+  MethodsForModel<X, ModelName> &
+  DelegateLink<C, X, ModelName>;
 
 /**
  * One model's delegate on a chain that declares `result`: its projecting
@@ -338,15 +367,64 @@ export type MergeModelMethods<Left extends object, Right extends object> = {
     (ModelName extends keyof Right ? Right[ModelName] : NoMethods);
 };
 
-export type ResultConsumerContextOf<Definition> = Definition extends
-  | { readonly client: unknown }
-  | { readonly model: unknown }
-  ? "result-consuming"
-  : Definition extends { readonly query: infer Query }
-    ? Query extends CallableFunction
-      ? "result-independent"
-      : "result-consuming"
-    : "result-independent";
+/** Whether one parameter list holds an argument typed other than `never` or `unknown` (`any` counts as typed). */
+type TypedParameters<Given extends readonly unknown[]> = true extends {
+  [Index in keyof Given]: 0 extends 1 & Given[Index]
+    ? true
+    : [Given[Index]] extends [never]
+      ? false
+      : unknown extends Given[Index]
+        ? false
+        : true;
+}[number]
+  ? true
+  : false;
+
+/**
+ * Whether a client or model factory is typed against the client it is
+ * applied to: one of its signatures takes an argument typed other than
+ * `never` or `unknown`. A factory that takes none reads nothing typed at its
+ * step, so a later `rows` or `defaultOmit` cannot make its types lie: its
+ * methods type their results from the client they are called on (a `this`
+ * parameter), and it is no result consumer. Matched against four
+ * signatures, so an overloaded factory is read by its last four (one
+ * signature repeats).
+ */
+type ReadsTyped<Factory> = Factory extends {
+  (...args: infer First): unknown;
+  (...args: infer Second): unknown;
+  (...args: infer Third): unknown;
+  (...args: infer Fourth): unknown;
+}
+  ? true extends
+      | TypedParameters<First>
+      | TypedParameters<Second>
+      | TypedParameters<Third>
+      | TypedParameters<Fourth>
+    ? true
+    : false
+  : true;
+
+type TypedFactories<Definition> =
+  | (Definition extends { readonly client: infer Factory }
+      ? ReadsTyped<Factory>
+      : false)
+  | (Definition extends { readonly model: infer Factories }
+      ? Factories extends object
+        ? {
+            [ModelName in keyof Factories]: ReadsTyped<Factories[ModelName]>;
+          }[keyof Factories]
+        : true
+      : false);
+
+export type ResultConsumerContextOf<Definition> =
+  true extends TypedFactories<Definition>
+    ? "result-consuming"
+    : Definition extends { readonly query: infer Query }
+      ? Query extends CallableFunction
+        ? "result-independent"
+        : "result-consuming"
+      : "result-independent";
 
 /** Incoming facts keep their nominal bit derivation inside this named state. */
 export interface ExtensionContributionState<

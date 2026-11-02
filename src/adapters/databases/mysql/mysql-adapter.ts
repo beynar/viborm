@@ -793,6 +793,10 @@ export class MySQLAdapter implements DatabaseAdapter {
     insertDefault: (table: Sql): Sql => sql`INSERT INTO ${table} () VALUES ()`,
 
     ...createMutationCommands(),
+    updateFrom: (table, sets, source, on, where) =>
+      sql`UPDATE ${table} JOIN ${source} ON ${on} SET ${sets}${
+        where ? sql` WHERE ${where}` : sql.empty
+      }`,
 
     // MySQL doesn't support RETURNING - returns empty
     // Use LAST_INSERT_ID() or SELECT after mutation

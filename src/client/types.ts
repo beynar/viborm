@@ -587,7 +587,7 @@ export type ComputedOperation =
   | "deleteMany";
 
 /** What a computed result type reads: the chain's fields and the schema. */
-interface ComputedResultContext<Result, S, ModelName> {
+export interface ComputedResultContext<Result, S, ModelName> {
   readonly result: Result;
   readonly schema: S;
   readonly model: ModelName;

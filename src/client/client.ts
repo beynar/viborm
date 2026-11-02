@@ -33,6 +33,7 @@ import type {
 import {
   type AccumulatedExtensionState,
   bindExtensionMethods,
+  type DelegateState,
   type EmptyClientExtensionState,
   type EnableExtensionCache,
   type ExtensionMethods,
@@ -108,9 +109,12 @@ import type {
   CachedClient,
   Client,
   ClientRowsContext,
+  ComputedOperation,
+  ComputedResultContext,
   ContextualOperationResult,
   Operations,
   Schema,
+  WithComputedResult,
 } from "./types";
 
 export type {
@@ -637,6 +641,46 @@ export type ExtendedOperationResult<
       : never
     : never
   : never;
+
+/**
+ * One operation's result on the model delegate `Delegate` it would run on,
+ * as `ExtendedOperationResult` types it for that delegate's client. A model
+ * method declared with a `this` parameter types its result with it, so the
+ * result follows every extension applied after the method's own:
+ * `restore<Self, A>(this: Self, args: A): PendingOperation<
+ * DelegateOperationResult<Self, "update", A>>`.
+ */
+export type DelegateOperationResult<
+  Delegate,
+  O extends Operations,
+  Args,
+> = Delegate extends DelegateState<
+  infer C extends VibORMConfig,
+  infer Rows extends string,
+  infer Result extends object,
+  infer K
+>
+  ? [keyof Result] extends [never]
+    ? DelegateRow<C, Rows, K & keyof ClientSchema<C>, O, Args>
+    : // Computed fields reach the rows an operation returns, nothing else.
+      O extends Exclude<Operations, ComputedOperation>
+      ? DelegateRow<C, Rows, K & keyof ClientSchema<C>, O, Args>
+      : WithComputedResult<
+          DelegateRow<C, Rows, K & keyof ClientSchema<C>, O, Args>,
+          ClientSchema<C>[K & keyof ClientSchema<C>],
+          Args,
+          ComputedResultContext<Result, ClientSchema<C>, K>
+        >
+  : // Called off a delegate (a destructured method): nothing to read the
+    // result from, and `unknown` makes using it a type error.
+    unknown;
+type DelegateRow<
+  C extends VibORMConfig,
+  Rows extends string,
+  K extends keyof ClientSchema<C>,
+  O extends Operations,
+  Args,
+> = ContextualOperationResult<C, K, O, Args, ClientRowsContext<C, Rows>>;
 
 /**
  * VibORM Client

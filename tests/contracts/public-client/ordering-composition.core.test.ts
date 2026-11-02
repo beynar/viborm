@@ -575,9 +575,97 @@ describe("ordering review 2", () => {
     expect((await governed.$as({ userId: "u3" }).card2.rekey()).count).toBe(0);
   });
 
+  test("in a list shared across visibilities, rekey rewrites the caller's members around the others: every viewer keeps the order", async () => {
+    const shared = s.model({
+      id: s.int().id().increment(),
+      owner: s.string(),
+      rank: s.string().schema(orderingKey),
+      title: s.string(),
+    });
+    const client = createClient({
+      schema: { shared },
+      driver: createInMemorySQLite3Driver(),
+    }) as any;
+    await syncLiveSchema(client);
+    // One list: A (u1), B (u2), C (u1), D (u1), keys grown long by moves.
+    // A visibility-blind respace would give A, C, D 10, 12, 13, all after B.
+    for (const [owner, title, rank] of [
+      ["u1", "A", "0812345678"],
+      ["u2", "B", "0899"],
+      ["u1", "C", "08990000001"],
+      ["u1", "D", "08990000002"],
+    ])
+      await client.shared.create({ data: { owner, title, rank } });
+    const governed = ordering({ shared: { key: "rank" } })(
+      client.$extends(
+        permissions({
+          actor: v.object({ userId: v.string() }),
+          models: {
+            shared: {
+              read: { owner: { actor: "userId" } },
+              update: { owner: { actor: "userId" } },
+            },
+          },
+        } as any)
+      )
+    ) as any;
+    // Whoever sees every card: the list in its order.
+    const everyone = ordering({ shared: { key: "rank" } })(client) as any;
+    const all = async () => titles(await everyone.shared.findMany());
+    const u1 = governed.$as({ userId: "u1" });
+    expect((await u1.shared.rekey()).count).toBe(3);
+    expect(await all()).toEqual(["A", "B", "C", "D"]);
+    // Bob's card is not written; Alice's keys are short again.
+    const rows = await client.shared.findMany();
+    expect(rows.find((row: { title: string }) => row.title === "B").rank).toBe(
+      "0899"
+    );
+    for (const row of rows) expect(row.rank.length).toBeLessThanOrEqual(6);
+    // Re-sorted, Alice's cards trade the places they held, never Bob's.
+    await u1.shared.rekey({ orderBy: { title: "desc" } });
+    expect(await all()).toEqual(["D", "B", "C", "A"]);
+  });
+
+  test("rekey moves only the members the caller may update: one it reads and may not write holds its place", async () => {
+    const shared = s.model({
+      id: s.int().id().increment(),
+      locked: s.boolean(),
+      rank: s.string().schema(orderingKey),
+      title: s.string(),
+    });
+    const client = createClient({
+      schema: { shared },
+      driver: createInMemorySQLite3Driver(),
+    }) as any;
+    await syncLiveSchema(client);
+    for (const [title, locked, rank] of [
+      ["A", false, "10"],
+      // Sorted first by title, desc: ranked as movable, it would take A's place.
+      ["Z", true, "11"],
+      ["C", false, "12"],
+    ] as const)
+      await client.shared.create({ data: { title, locked, rank } });
+    const governed = ordering({ shared: { key: "rank" } })(
+      client.$extends(
+        permissions({
+          actor: v.object({ userId: v.string() }),
+          models: { shared: { read: true, update: { locked: false } } },
+        } as any)
+      )
+    ) as any;
+    const everyone = ordering({ shared: { key: "rank" } })(client) as any;
+    await governed
+      .$as({ userId: "u1" })
+      .shared.rekey({ orderBy: { title: "desc" } });
+    // C and A trade the places they held; Z, read-only, stays between them.
+    expect(titles(await everyone.shared.findMany())).toEqual(["C", "Z", "A"]);
+    const z = await client.shared.findFirst({ where: { title: "Z" } });
+    expect(z.rank).toBe("11");
+  });
+
   test("respacing many lists stays under the driver's bound values", async () => {
     class Bounded extends SQLite3Driver {
-      override readonly maxBindParametersPerStatement = 3;
+      override readonly maxBindParametersPerStatement = 20;
     }
     const client = createClient({
       schema,
@@ -597,32 +685,43 @@ describe("ordering review 2", () => {
     seen.length = 0;
     const { count } = await db.item.rekey({ orderBy: { title: "desc" } });
     expect(count).toBe(14);
-    // The lists' read, then the lists three by three.
-    expect(seen.filter((text) => text.startsWith("UPDATE"))).toHaveLength(3);
+    // One UPDATE for every list: it binds no list's values, so the driver's
+    // bound values never limit how many lists it respaces.
+    const updates = seen.filter((text) => text.startsWith("UPDATE"));
+    expect(seen).toHaveLength(1);
+    expect(updates).toHaveLength(1);
+    for (const update of updates)
+      expect(update.split("?").length - 1).toBeLessThanOrEqual(20);
     for (let board = 1; board <= 7; board++)
       expect(
         titles(await db.item.findMany({ where: { boardId: board } }))
       ).toEqual(["b", "a"]);
   });
 
-  test("rekey invalidates the official cache's reads of the model", async () => {
+  test.each([
+    "before",
+    "after",
+  ])("rekey invalidates the official cache's reads of the model, the cache applied %s ordering", async (place) => {
     const pending: Promise<unknown>[] = [];
     const client = (await open()) as any;
-    const db = ordering({ item: { key: "rank", within: ["boardId"] } })(
-      client.$extends(
+    const order = ordering({ item: { key: "rank", within: ["boardId"] } });
+    const cached = (target: any) =>
+      target.$extends(
         cache({
           driver: new MemoryCache(),
           waitUntil: (promise: Promise<unknown>) => pending.push(promise),
         })
-      )
+      );
+    const db = (
+      place === "before" ? order(cached(client)) : cached(order(client))
     ) as any;
     for (const title of ["a", "b", "c"])
       await db.item.create({ data: { title } });
-    const cached = () => db.$withCache().item.findMany();
-    expect(titles(await cached())).toEqual(["a", "b", "c"]);
+    const read = () => db.$withCache().item.findMany();
+    expect(titles(await read())).toEqual(["a", "b", "c"]);
     await Promise.all(pending.splice(0));
     await db.item.rekey({ orderBy: { title: "desc" } });
-    expect(titles(await cached())).toEqual(["c", "b", "a"]);
+    expect(titles(await read())).toEqual(["c", "b", "a"]);
   });
 
   test("a key field may default to a literal: a populated table adopts it in one push", async () => {
@@ -756,6 +855,42 @@ describe("ordering: what a move sends", () => {
       await sent(() => db.ticket.move({ where: { id: 4 }, first: true }))
     ).toBe(1);
     expect(await lanes()).toEqual({ a: ["1"], b: ["4", "3", "2"] });
+  });
+
+  test("a visible anchor whose list field the caller may not read still anchors a move: the field gates what a call returns, not what the engine reads", async () => {
+    const client = await openTickets();
+    const db = ordering({ ticket: { key: "rank", within: ["lane"] } })(
+      client.$extends(
+        permissions({
+          actor: v.object({ admin: v.boolean() }),
+          models: {
+            ticket: {
+              read: true,
+              create: true,
+              update: true,
+              audit: { actor: { admin: true } },
+              fields: { lane: { read: "audit" } },
+            },
+          },
+        } as any)
+      )
+    ) as any;
+    const user = db.$as({ admin: false });
+    for (const title of ["1", "2", "3"])
+      await user.ticket.create({ data: { lane: "a", title } });
+    await user.ticket.move({
+      where: { id: 1 },
+      after: { id: 3 },
+      select: { id: true },
+    });
+    expect(titles(await db.$as({ admin: true }).ticket.findMany())).toEqual([
+      "2",
+      "3",
+      "1",
+    ]);
+    await expect(
+      user.ticket.move({ where: { id: 1 }, after: { id: 99 } })
+    ).rejects.toThrow("move anchor");
   });
 
   test("a reorder within a list writes the key alone: no permission on the list field", async () => {

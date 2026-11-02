@@ -68,12 +68,14 @@ const runtime = {
     instrumentation: "./src/instrumentation/exports.ts",
 
     // Soft delete (viborm/soft-delete): an extension built from public
-    // capabilities only; the root entry never imports it.
+    // capabilities only; the root entry never imports it. It raises the
+    // library's own `ClientInitializationError` (a marker that is not a
+    // nullable DateTime), so it shares the root's chunks: one class.
     "soft-delete": "./src/soft-delete/index.ts",
 
     // Permissions (viborm/permissions): an extension built from public capabilities only.
     // It raises the library's own errors, so it shares the root's chunks
-    // (one `ClientInitializationError` class), unlike soft delete.
+    // (one `ClientInitializationError` class), as soft delete does.
     permissions: "./src/permissions/index.ts",
 
     // Write hooks (viborm/on): the official `on` extension, carried by
@@ -247,18 +249,8 @@ const declarationExportKinds: Rolldown.Plugin = {
   },
 };
 
-const { "soft-delete": softDelete, ...runtimeEntries } = runtime.entry;
-
 export default defineConfig([
-  { ...runtime, entry: runtimeEntries },
-  {
-    ...runtime,
-    entry: { "soft-delete": softDelete },
-    clean: false,
-    // This type-only consumer has no runtime imports. Preserve that boundary
-    // instead of retaining a shared name-preservation helper after minification.
-    outputOptions: { keepNames: false },
-  },
+  runtime,
   {
     ...runtime,
     clean: false,

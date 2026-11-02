@@ -223,9 +223,11 @@ export const POST_G3_SELECTOR_PREPARATION_TESTS = Object.freeze(
 // (owner ruling 2026-10-02): a limited deleteMany or updateMany takes the
 // first rows by key, hard or soft (+1 on each of three drivers). Step-back
 // repair: a stamp value the caller replaces is never admitted (+1 on each of
-// three drivers).
+// three drivers). Extensions next (2026-11): a soft delete behind restrict
+// children locks once, then checks, then tombstones (+1 on each of three
+// drivers).
 export const POST_G3_DELETION_SITE_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/deletion-sites.test.ts": 108,
+  "tests/raptor3/post-prep/deletion-sites.test.ts": 111,
 });
 export const POST_G3_DELETION_SITE_TESTS = Object.freeze(
   Object.keys(POST_G3_DELETION_SITE_COUNTS)

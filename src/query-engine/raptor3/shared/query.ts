@@ -105,6 +105,7 @@ import {
   type RowJudgement,
   type RowPurpose,
 } from "./row-scope";
+import { RowsOf } from "./rows-of";
 import {
   type Arguments,
   type EngineSchema,
@@ -377,7 +378,8 @@ export interface Query {
 }
 /** What a {@link Queries.select} takes beyond its arguments. */
 interface SelectControls {
-  condition?: Sql;
+  /** More of the root row's filter (a function: of its alias). */
+  condition?: Sql | ((alias: string) => Sql);
   forUpdate?: boolean;
   identity?: Input;
   projection?: PreparedProjection;
@@ -2974,8 +2976,37 @@ export class Queries {
    */
   value(value: unknown): Sql {
     return value instanceof Sql
-      ? callerText(value)
+      ? callerText(this.settleRows(value))
       : this.adapter.literals.value(value);
+  }
+  /**
+   * A caller's fragment with every {@link RowsOf} in it settled to this
+   * call's root domain at its alias (under its judgement, and its `where`,
+   * where it states them): a read an extension writes takes the rows the
+   * call may see, or write, as every read here does.
+   */
+  settleRows(fragment: Sql): Sql {
+    Sql.each(fragment, (node) => {
+      if (!(node instanceof RowsOf)) return;
+      const { model } = node;
+      const domain = this.domainOf(model, "root", node.judgement);
+      // A `where` the extension passes on is admitted as a `findMany`'s.
+      const named =
+        node.where === undefined
+          ? domain
+          : this.andSelectors(model, [
+              ...(domain ? [domain] : []),
+              this.prepareSelector(
+                model,
+                this.schema.admit(model, "findMany", { where: node.where })
+                  .where
+              ),
+            ]);
+      node.settle(
+        (named && this.lowerSelector(named, node.alias)) ?? sql.raw("1 = 1")
+      );
+    });
+    return fragment;
   }
   /**
    * The one destination-aware operand owner: filters, cursors, order operands,
@@ -3006,7 +3037,7 @@ export class Queries {
     const a = this.adapter;
     const state = scalar["~"].state;
     if (value instanceof Sql) {
-      const fragment = callerText(value);
+      const fragment = callerText(this.settleRows(value));
       return state.type === "decimal" && state.array !== true
         ? a.expressions.decimalCast(fragment, state.decimal)
         : fragment;
@@ -4789,7 +4820,10 @@ export class Queries {
       return this.#prepareFieldOperand(owner, value);
     }
     if (!(value instanceof Sql)) return { kind: "value", value };
-    const operands = value.values.map((member) => {
+    // Peeked, not flattened: the fragment keeps the nodes it is composed of
+    // (a `RowsOf` its lowering settles).
+    const flat = Sql.peek(value);
+    const operands = flat.values.map((member) => {
       if (isFieldRef(member)) return this.#prepareFieldOperand(owner, member);
       // A token is executable only in a flat interpolation slot. An object
       // parameter stays data; never turn a hidden token into provider data.
@@ -4815,7 +4849,7 @@ export class Queries {
       return { kind: "value", value: member } as const;
     });
     return operands.some((member) => member.kind === "field")
-      ? { kind: "sql", strings: [...value.strings], operands: freeze(operands) }
+      ? { kind: "sql", strings: [...flat.strings], operands: freeze(operands) }
       : { kind: "value", value };
   }
   /** A field-reference operand, out of line: most operands are values. */
@@ -7407,7 +7441,7 @@ export class Queries {
     filter: Sql | undefined,
     unless: Sql | undefined,
     cursor: Sql | undefined,
-    controls: { condition?: Sql; identity?: Input }
+    controls: Pick<SelectControls, "condition" | "identity">
   ): Sql | undefined {
     const where: Sql[] = [];
     if (membership)
@@ -7421,7 +7455,11 @@ export class Queries {
     if (cursor) where.push(cursor);
     if (controls.identity)
       where.push(this.lowerIdentity(model, controls.identity, alias));
-    if (controls.condition) where.push(controls.condition);
+    const { condition } = controls;
+    if (condition)
+      where.push(
+        typeof condition === "function" ? condition(alias) : condition
+      );
     return where.length === 0
       ? undefined
       : this.adapter.operators.and(...where);

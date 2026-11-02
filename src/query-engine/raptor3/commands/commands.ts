@@ -1849,14 +1849,22 @@ export class Commands {
    * Measured on PostgreSQL: without the lock both interleavings of a
    * create-with-connect leave a live child under a tombstone. Without a limit
    * no key is needed, so the lock is answered as one count
-   * ({@link Queries.lockAll}), and skipped where the provider has no row lock.
+   * ({@link Queries.lockAll}), and skipped where the provider has no row lock;
+   * but where the effect captures its rows' keys under a lock anyway (it is
+   * not `single`: no RETURNING carries its result), the lock IS that
+   * capture, read here and handed to the effect, which then locks nothing
+   * again (MySQL: the lock, the check, the UPDATE and the result's read).
    */
   #unreferenced(
     candidates: PreparedSelector,
     limit: number | undefined,
     single: boolean,
     effectBinds: (rows: number) => number,
-    effect: (window: PreparedSelector, limit?: number) => Promise<unknown>
+    effect: (
+      window: PreparedSelector,
+      limit?: number,
+      captured?: readonly Input[]
+    ) => Promise<unknown>
   ): PhysicalPlan {
     const blocked = this.blocked(candidates);
     if (!blocked) return { single, run: () => effect(candidates, limit) };
@@ -1884,6 +1892,8 @@ export class Commands {
         // candidates, the first `limit` in key order (`Queries.select`).
         let taken = candidates;
         let effectLimit: number | undefined;
+        // The keys the lock read, where the effect takes exactly them.
+        let captured: readonly Input[] | undefined;
         // A batch's window is SQL beside the candidates: the write re-checks
         // both on a row a concurrent writer changed (READ COMMITTED), so the
         // window alone would take a row that no longer matches.
@@ -1892,7 +1902,7 @@ export class Commands {
             candidates,
             queries.window(candidates, limit),
           ]);
-        else if (limit !== undefined) {
+        else if (limit !== undefined || !(single || ctx.usesBatch)) {
           // The effect takes exactly the rows the lock took, still under the
           // candidates' own predicates: a lock holds the row, not the related
           // rows a filter or a row domain reads.
@@ -1922,8 +1932,13 @@ export class Commands {
                 (queries.lowerSelector(exact, "budget")?.values.length ?? 0) +
                   effectBinds(rows.length) <=
                   budget));
-          if (exact && (fits || rows.length === 0)) taken = exact;
-          else {
+          if (exact && (fits || rows.length === 0)) {
+            taken = exact;
+            // Only an effect that captures takes them (else `exact` is its
+            // window, in one statement).
+            if (!single)
+              captured = rows.map((row) => ctx.schema.identity(model, row));
+          } else if (limit !== undefined) {
             // Too long to bind as keys: the candidates up to the last locked
             // key, and the effect keeps the limit, so a row that becomes a
             // candidate below that key after the lock still cannot make the
@@ -1944,7 +1959,7 @@ export class Commands {
         if (ctx.preparesBatch)
           ctx.packageGuard(model, query.sql, "notExists", failure);
         else await ctx.requireAbsent(query, this.restrictFailure(model)());
-        return effect(taken, effectLimit);
+        return effect(taken, effectLimit, captured);
       },
     };
   }
@@ -2303,8 +2318,18 @@ export class Commands {
               .length;
           return bound;
         },
-        (window, limit) =>
-          ctx.updateMany(model, window, values, limit, projection, missing)
+        // Keys the lock captured: the candidates, written where they hold
+        // one of those keys, as the effect's own capture would.
+        (window, limit, captured) =>
+          ctx.updateMany(
+            model,
+            captured ? selector : window,
+            values,
+            limit,
+            projection,
+            missing,
+            captured
+          )
       );
     }
     if (ctx.operation === "upsert") {

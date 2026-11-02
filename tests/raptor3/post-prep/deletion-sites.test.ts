@@ -25,14 +25,17 @@ describe("the deletion capability's sites", () => {
   runDeletionCapabilityBehavior({
     name: "SQLite3",
     createDriver: createInMemorySQLite3Driver,
+    restrictedDelete: 2,
   });
   runDeletionCapabilityBehavior({
     name: "SQLite3 batch-only",
     createDriver: createBatchOnlySQLite3Driver,
+    restrictedDelete: 2,
   });
   runDeletionCapabilityBehavior({
     name: "SQLite3 without RETURNING",
     createDriver: createNonReturningSQLite3Driver,
+    restrictedDelete: 4,
   });
 });
 
