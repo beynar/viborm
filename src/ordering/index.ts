@@ -407,30 +407,23 @@ function methods(ordered: Ordered, engine: () => Engine) {
   const selection = Object.fromEntries(
     [...identity, ...within, key].map((field) => [field, true])
   );
-  // What a move's `data` never writes: the key and the list's fields, nor
-  // through the relations whose foreign keys hold them (a connect changes the
-  // list; an update of the related row alone does not).
-  const relinking = Object.entries(model["~"].state.relations).flatMap(
-    ([relation, declared]) =>
-      foreignKeyOf(declared).some(
-        (field) => field === key || within.includes(field)
-      )
-        ? [relation]
-        : []
-  );
-  const placing = [key, ...within, ...relinking];
-  const places = (data: Readonly<Record<string, unknown>>) =>
-    [key, ...within].some((field) => data[field] !== undefined) ||
-    relinking.some((relation) => {
-      const write = data[relation];
-      return (
-        write !== undefined &&
-        !(
-          isPlainRecord(write) &&
-          Object.keys(write).every((operation) => operation === "update")
+  // What a move's `data` never writes: the key, the list's fields, and the
+  // relations whose foreign keys hold them (a connect changes the list, and
+  // an update of the related row may change its referenced key, cascading).
+  const placing = [
+    key,
+    ...within,
+    ...Object.entries(model["~"].state.relations).flatMap(
+      ([relation, declared]) =>
+        foreignKeyOf(declared).some(
+          (field) => field === key || within.includes(field)
         )
-      );
-    });
+          ? [relation]
+          : []
+    ),
+  ];
+  const places = (data: Readonly<Record<string, unknown>>) =>
+    placing.some((field) => data[field] !== undefined);
   /** The fields `where` names with a value (a compound selector's too): how
    * the moved row is recognised among rows read, without reading it. */
   const named = (where: Row): Row => {

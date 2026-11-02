@@ -189,6 +189,8 @@ export function describeOrdering(
         { rank: "15" },
         { columnId: "c2" },
         { column: { connect: { id: "c2" } } },
+        // An update of the column may change its key, cascading to the list.
+        { column: { update: { id: "c3" } } },
       ])
         await expect(
           db.card.move({ where: { id: "a" }, first: true, data })
