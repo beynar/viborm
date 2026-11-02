@@ -2400,15 +2400,6 @@ export class Queries {
     // key. A body a lifted walk is read in reads a shared body, so it is
     // computed over its whole table ({@link settled}): one also holding a
     // walk left in place lifts none, which would walk once per row of it.
-    const walksIn = new Map<SharedBody, SharedBody[]>();
-    for (const body of shared.order)
-      if (body.recursive === true)
-        for (const { within } of body.slots)
-          if (within?.body !== undefined) {
-            const walks = walksIn.get(within.body) ?? [];
-            if (!walks.includes(body)) walks.push(body);
-            walksIn.set(within.body, walks);
-          }
     const lifted = new Set(
       shared.order.filter(
         (body) =>
@@ -2418,17 +2409,18 @@ export class Queries {
           )
       )
     );
-    for (let changed = true; changed; ) {
-      changed = false;
-      for (const body of lifted)
-        if (
-          body.slots.some(({ within }) =>
-            walksIn.get(within!.body!)!.some((walk) => !lifted.has(walk))
-          )
-        ) {
-          lifted.delete(body);
-          changed = true;
-        }
+    for (let size = -1; size !== lifted.size; ) {
+      size = lifted.size;
+      for (const walk of shared.order)
+        if (walk.recursive === true && !lifted.has(walk))
+          for (const { within } of walk.slots)
+            for (const other of lifted)
+              if (
+                other.slots.some(
+                  (placed) => placed.within?.body === within?.body
+                )
+              )
+                lifted.delete(other);
     }
     const repeated: SharedBody[] = [];
     for (const body of shared.order)
