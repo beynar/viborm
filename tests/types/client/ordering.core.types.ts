@@ -113,6 +113,12 @@ export async function probes() {
     // @ts-expect-error data never writes a list field: `to` moves the row
     data: { title: "t", columnId: "c2" },
   });
+  await db.card.move({
+    where: { id: "a" },
+    first: true,
+    // @ts-expect-error data writes no relation
+    data: { column: { connect: { id: "c2" } } },
+  });
   // One placement.
   // @ts-expect-error after and before together
   await db.card.move({

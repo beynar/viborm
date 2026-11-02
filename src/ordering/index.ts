@@ -950,17 +950,22 @@ export type MovePlacement<
   | ({ readonly to: ListOf<C, Config, K> } & None<
       "after" | "before" | "first" | "last" | "key"
     >);
-/** What a move writes beside the key, in the same UPDATE: an update's data,
- * but the key and the list's fields (`to` moves a row between lists). */
+type UpdateData<C extends VibORMConfig, K> = NonNullable<
+  NonNullable<ModelArgs<C, K, "update">>["data"]
+>;
+/** What a move writes beside the key, in the same UPDATE: an update's data
+ * of the model's own fields, but the key and the list's (`to` moves a row
+ * between lists), and no relation. */
 type MoveData<
   C extends VibORMConfig,
   Config extends OrderingConfig,
   K extends keyof Config,
-> = Omit<
-  NonNullable<NonNullable<ModelArgs<C, K, "update">>["data"]>,
-  Config[K]["key"] | WithinOf<Config, K>
-> &
-  None<Config[K]["key"] | WithinOf<Config, K>>;
+> = {
+  readonly [F in Exclude<
+    keyof RowOf<C, K> & keyof UpdateData<C, K>,
+    Config[K]["key"] | WithinOf<Config, K>
+  >]?: UpdateData<C, K>[F];
+} & None<Config[K]["key"] | WithinOf<Config, K>>;
 type MoveArgs<
   M,
   C extends VibORMConfig,
