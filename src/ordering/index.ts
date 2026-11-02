@@ -1205,6 +1205,21 @@ type OrderingExtension<Config extends OrderingConfig> = {
 };
 
 /**
+ * `{ models }`, or before 1.9.1 the models themselves: a model's entry holds
+ * strings (`key`), never only entries, so a model named `models` is one.
+ */
+function isEnvelope<Config extends OrderingConfig>(
+  given: Config | { readonly models: Config }
+): given is { readonly models: Config } {
+  return (
+    Object.keys(given).length === 1 &&
+    "models" in given &&
+    isRecord(given.models) &&
+    Object.values(given.models).every(isRecord)
+  );
+}
+
+/**
  * Order the members of lists: `client.$extends(ordering({ models: { card: {
  * key: "rank", within: ["columnId"] } } }))`. One step, applied in any order
  * with the other extensions.
@@ -1220,16 +1235,7 @@ export function ordering<const Config extends OrderingConfig>(
 export function ordering<const Config extends OrderingConfig>(
   given: Config | { readonly models: Config }
 ): OrderingExtension<Config> {
-  // `{ models }`, or before 1.9.1 the models themselves: a model's entry
-  // holds strings (`key`), never only entries.
-  const { models } = given as { readonly models?: unknown };
-  const config = (
-    Object.keys(given).length === 1 &&
-    isRecord(models) &&
-    Object.values(models).every(isRecord)
-      ? models
-      : given
-  ) as Config;
+  const config = isEnvelope(given) ? given.models : given;
   function extend<Base extends Receiver<Config>>(
     base: Base
   ): NoInfer<Applied<Config, Base>>;
