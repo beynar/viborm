@@ -310,3 +310,149 @@ test("PGlite: a shared relation body over a table named like a body is still NOT
   ).toEqual([{ id: "n1" }, { id: "n2" }]);
   expect(statements[0]).toMatch(MAPPED_LIKE_A_BODY);
 });
+
+// A walk read only inside repeated bodies (the teams the actor belongs to,
+// through their subteams, inside "the grants that name them") is computed
+// once as a reaching set, from the actor's memberships back up the tree:
+// in place it walks the tree once per grant of each body.
+test("PGlite: a walk only repeated bodies read is one reaching set, and answers as in place", async () => {
+  const team = s.model({
+    id: s.string().id(),
+    parentId: s.string().nullable(),
+    parent: s
+      .toOne(() => team)
+      .fields("parentId")
+      .references("id")
+      .name("tree"),
+    children: s.toMany(() => team).name("tree"),
+    members: s.toMany(() => seat),
+    grants: s.toMany(() => grant),
+  });
+  const seat = s.model({
+    id: s.string().id(),
+    userId: s.string(),
+    teamId: s.string(),
+    team: s
+      .toOne(() => team)
+      .fields("teamId")
+      .references("id"),
+  });
+  const page = s.model({
+    id: s.string().id(),
+    title: s.string(),
+    grants: s.toMany(() => grant),
+  });
+  const grant = s.model({
+    id: s.string().id(),
+    pageId: s.string(),
+    teamId: s.string(),
+    page: s
+      .toOne(() => page)
+      .fields("pageId")
+      .references("id"),
+    team: s
+      .toOne(() => team)
+      .fields("teamId")
+      .references("id"),
+  });
+  const mine = {
+    grants: {
+      some: {
+        team: {
+          is: {
+            children: {
+              recurse: { depth: false },
+              some: { members: { some: { userId: user } } },
+            },
+          },
+        },
+      },
+    },
+  };
+  const teams = defineExtension({
+    name: "teams",
+    controls: { user: { schema: v.string(), required: true } },
+    rows: {
+      control: "scope",
+      default: "all",
+      models: {},
+      verbs: {
+        page: {
+          predicates: {
+            held: {
+              OR: [
+                { AND: [mine, { title: "a" }] },
+                { AND: [mine, { title: { not: "a" } }] },
+              ],
+            },
+          },
+          read: "held",
+        },
+      },
+    },
+  });
+  const answers: unknown[] = [];
+  for (const shared of [true, false]) {
+    const driver = createInMemoryPGliteDriver();
+    driver.adapter.capabilities.sharesRelationBodies = shared;
+    const base = createClient({ schema: { team, seat, page, grant }, driver });
+    clients.push(base);
+    await syncLiveSchema(base);
+    // root ← mid ← leaf, other ← sub; ann sits in leaf, bob in sub. A
+    // team's walk reads its subteams, not itself: a grant to leaf is none
+    // of ann's.
+    await base.team.createMany({
+      data: [
+        { id: "root" },
+        { id: "mid", parentId: "root" },
+        { id: "leaf", parentId: "mid" },
+        { id: "other" },
+        { id: "sub", parentId: "other" },
+      ],
+    });
+    await base.seat.createMany({
+      data: [
+        { id: "s1", userId: "ann", teamId: "leaf" },
+        { id: "s2", userId: "bob", teamId: "sub" },
+      ],
+    });
+    await base.page.createMany({
+      data: ["a", "b", "c", "d"].map((id) => ({ id, title: id })),
+    });
+    await base.grant.createMany({
+      data: [
+        { id: "g1", pageId: "a", teamId: "root" },
+        { id: "g2", pageId: "b", teamId: "leaf" },
+        { id: "g3", pageId: "c", teamId: "other" },
+        { id: "g4", pageId: "d", teamId: "mid" },
+      ],
+    });
+    const statements: string[] = [];
+    const db = base.$extends(teams).$extends({
+      name: "statements",
+      statement(context) {
+        statements.push(context.statement.toStatement());
+        return context.statement;
+      },
+    });
+    for (const who of ["ann", "bob"])
+      answers.push(
+        await db.page.findMany({
+          user: who,
+          select: { id: true },
+          orderBy: { id: "asc" },
+        })
+      );
+    const [statement] = statements;
+    if (shared) {
+      // One recursive member, the reaching set, and no walk left in place.
+      expect(statement).toMatch(/^WITH RECURSIVE /);
+      expect(statement!.match(/RECURSIVE/g)).toHaveLength(1);
+    }
+  }
+  expect(answers.slice(0, 2)).toEqual([
+    [{ id: "a" }, { id: "d" }],
+    [{ id: "c" }],
+  ]);
+  expect(answers.slice(2)).toEqual(answers.slice(0, 2));
+});

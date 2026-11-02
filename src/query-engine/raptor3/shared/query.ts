@@ -2404,15 +2404,12 @@ export class Queries {
     // A relation body is inlined where it reads no other shared body: a
     // nested one, inlined into every use of every body that reads it,
     // multiplies the plan (a 40-model policy's `can`: 9.8 s materialized,
-    // 113 s inlined, 11 s inlining the leaves only). A reaching set is not
-    // one: recursive, it is computed once wherever it is read.
+    // 113 s inlined, 11 s inlining the leaves only).
     // By the slots a stated body settled to, not by text: a table may be
     // named like a body. The same pass finds the aliases each body joins
     // flags after ({@link flagging}).
     const uses = new Set<Sql>(
-      stated.flatMap((body) =>
-        body.recursive === true ? [] : body.slots.map((placed) => placed.slot)
-      )
+      stated.flatMap((body) => body.slots.map((placed) => placed.slot))
     );
     const attached = new Map<Sql, string>();
     for (const [alias, slots] of shared.attach)
