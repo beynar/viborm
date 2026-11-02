@@ -569,6 +569,7 @@ function methods(ordered: Ordered, engine: () => Engine) {
         last,
         key: given,
         to,
+        data,
         select,
         include,
         omit,
@@ -600,6 +601,19 @@ function methods(ordered: Ordered, engine: () => Engine) {
         )
           invalid(name, `to names the list's fields: ${within.join(", ")}.`);
       }
+      if (
+        data !== undefined &&
+        (data === null ||
+          typeof data !== "object" ||
+          Array.isArray(data) ||
+          [key, ...within].some((field) => Object.hasOwn(data, field)))
+      )
+        invalid(
+          name,
+          `data writes other fields than the key${within.length === 0 ? "" : " and the list's (to)"}: ${[key, ...within].join(", ")}.`
+        );
+      // What the call writes beside the key, in the same UPDATE.
+      const extra = (data ?? {}) as Row;
       const anchor = (after ?? before) as Row | undefined;
       const projection = {
         ...(select === undefined ? {} : { select }),
@@ -613,7 +627,11 @@ function methods(ordered: Ordered, engine: () => Engine) {
           return await delegate.update!({
             ...controls,
             where,
-            data: { [key]: given, ...((to as Row | undefined) ?? {}) },
+            data: {
+              ...extra,
+              [key]: given,
+              ...((to as Row | undefined) ?? {}),
+            },
             ...projection,
           });
         } catch (error) {
@@ -630,7 +648,21 @@ function methods(ordered: Ordered, engine: () => Engine) {
         ...selection,
         ...Object.fromEntries(fields.map((field) => [field, true])),
       };
+      // Already in place: its key stays; what `data` writes is written.
       const inPlace = async () => {
+        if (Object.keys(extra).length > 0)
+          try {
+            return await delegate.update!({
+              ...controls,
+              where,
+              data: extra,
+              ...projection,
+            });
+          } catch (error) {
+            throw error instanceof NotFoundError
+              ? new NotFoundError(name, "move")
+              : error;
+          }
         const row = await delegate.findUnique!({
           ...controls,
           where,
@@ -647,7 +679,7 @@ function methods(ordered: Ordered, engine: () => Engine) {
           delegate.update!({
             ...controls,
             where: { ...where, [key]: { equals: () => guard } },
-            data,
+            data: { ...extra, ...data },
             ...projection,
           })
       );
@@ -755,7 +787,10 @@ function methods(ordered: Ordered, engine: () => Engine) {
         // The row's list is not read: its key alone is written where the row
         // is in `group` already (so a reorder needs no permission on the list
         // fields), else the key and the list. `to` tries the move first.
-        const stay = { where: { ...where, ...group }, data: { [key]: next } };
+        const stay = {
+          where: { ...where, ...group },
+          data: { ...extra, [key]: next },
+        };
         const join = (guarded: boolean) => ({
           where: guarded
             ? {
@@ -764,10 +799,10 @@ function methods(ordered: Ordered, engine: () => Engine) {
                   where.NOT === undefined ? group : [where.NOT, group].flat(),
               }
             : where,
-          data: { [key]: next, ...group },
+          data: { ...extra, [key]: next, ...group },
         });
         const writes = home
-          ? [{ where, data: { [key]: next } }]
+          ? [{ where, data: { ...extra, [key]: next } }]
           : to === undefined
             ? [stay, join(false)]
             : [join(true), stay];
@@ -905,6 +940,16 @@ export type MovePlacement<
   | ({ readonly to: ListOf<C, Config, K> } & None<
       "after" | "before" | "first" | "last" | "key"
     >);
+/** What a move writes beside the key, in the same UPDATE: an update's data,
+ * but the key and the list's fields (`to` moves a row between lists). */
+type MoveData<
+  C extends VibORMConfig,
+  Config extends OrderingConfig,
+  K extends keyof Config,
+> = Omit<
+  NonNullable<NonNullable<ModelArgs<C, K, "update">>["data"]>,
+  Config[K]["key"] | WithinOf<Config, K>
+>;
 type MoveArgs<
   M,
   C extends VibORMConfig,
@@ -912,6 +957,7 @@ type MoveArgs<
   K extends keyof Config,
 > = Projection<C, K> & {
   readonly where: Unique<C, K>;
+  readonly data?: MoveData<C, Config, K>;
 } & MovePlacement<M, C, Config, K>;
 type FindArg<C extends VibORMConfig, K, P extends string> = NonNullable<
   ModelArgs<C, K, "findMany">

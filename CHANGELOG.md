@@ -29,6 +29,11 @@ with every other tenant of the database.
   Checked when the policy is applied: `actor` a path of the actor schema
   (also in its type), `field` a scalar of some model, each `except` a
   model holding it.
+- **`move({ where, after | before | first | last | key | to, data })`**:
+  `data` writes other fields in the same UPDATE as the key, judged as an
+  update writing them. With one order for the whole table (no `within`), a
+  Kanban grouped by any field changes a card's column and its place in one
+  statement. `data` never names the key nor a `within` field.
 - **`rows.bound`**, the capability `tenant` is built on: per model, a
   `where` every row of a set an extension's own predicates compute over a
   whole table holds, where a positive test reads it. Any extension may
