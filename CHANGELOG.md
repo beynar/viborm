@@ -28,6 +28,10 @@ with every other tenant of the database.
   ranges over, is never bounded. Checked when the policy is applied:
   `actor` a path of the actor schema (also in its type), `field` a scalar
   of some model, each `except` a model holding it.
+- **`rows.bound`**, the capability `tenant` is built on: per model, a
+  `where` every row of a set an extension's own predicates compute over a
+  whole table holds, where a positive test reads it. Any extension may
+  state one; without it, nothing changes.
 
 ## 1.8.0 — 2026-11-02
 

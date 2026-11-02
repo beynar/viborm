@@ -652,6 +652,14 @@ function modesOf(models: { readonly [model: string]: DeclaredModel }) {
   );
 }
 
+/** The tenant the policy's own sets stay in (`tenant`): its related rows' bound. */
+function boundOf(models: { readonly [model: string]: DeclaredModel }) {
+  const bound = Object.entries(models).flatMap(([name, model]) =>
+    model.related === undefined ? [] : [[name, model.related] as const]
+  );
+  return bound.length === 0 ? {} : { bound: Object.fromEntries(bound) };
+}
+
 /** Whether `name` has a self relation holding its key: what `acyclic` may name. */
 function selfKeyed(schema: Schema, name: string): boolean {
   const relations = (
@@ -894,6 +902,7 @@ export function permissions<const Config extends PermissionsConfig>(
       default: DEFAULT_MODE,
       models: modesOf(declared),
       verbs,
+      ...boundOf(declared),
     },
     query: refuseUnreachable(reachOf(config, declared)),
     client: (scope: {

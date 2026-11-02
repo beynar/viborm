@@ -1,7 +1,6 @@
 import type { Schema } from "@client/types";
 import { ClientInitializationError } from "@errors";
 import {
-  boundingRelated,
   Condition,
   type ConditionTest,
   Existence,
@@ -590,12 +589,9 @@ export function admitRows(
         const predicate = purposes[purpose];
         if (predicate === undefined) continue;
         const place = `${name}.${mode}.${purpose}`;
-        if (typeof predicate !== "string") {
-          const admitted = admit(name, place, predicate);
-          if (purpose === "related" && boundingRelated.has(predicate))
-            boundingRelated.add(admitted);
-          out[purpose] = admitted;
-        } else if (typeof own === "function")
+        if (typeof predicate !== "string")
+          out[purpose] = admit(name, place, predicate);
+        else if (typeof own === "function")
           // A lazy entry's predicate, named when its model is first needed.
           out[purpose] = resolver(() =>
             Object.hasOwn(own().predicates, predicate)
@@ -616,10 +612,17 @@ export function admitRows(
     }
     models[name] = Object.freeze(Object.fromEntries(admitted));
   }
+  const bound: Record<string, object> = {};
+  for (const [name, predicate] of Object.entries(rows.bound ?? {})) {
+    if (!Object.hasOwn(schema, name))
+      refuse(name, `bound.${name}`, "root", "names an unknown model");
+    bound[name] = admit(name, `bound.${name}`, predicate);
+  }
   const admitted = Object.freeze({
     ...rows,
     models: Object.freeze(models),
     ...(rows.verbs && { verbs: Object.freeze(verbs) }),
+    ...(rows.bound && { bound: Object.freeze(bound) }),
   }) as RowsContribution;
   if (entries) freezeAdmitted(admitted);
   if (entries && isAdmittedRows(admitted)) {

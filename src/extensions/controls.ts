@@ -96,6 +96,16 @@ export type RowsContribution = {
   readonly verbs?: {
     readonly [model: string]: RowsVerbs | (() => RowsVerbs);
   };
+  /**
+   * Per model, a `where` every row of a set this member's own predicates
+   * compute over the model's whole table holds, in every mode: what the
+   * statement shares once (a repeated body) or walks as a set (a recursive
+   * filter under a relation budget), where a positive test reads it (never
+   * under `NOT`, `none`, `every` or `isNot`). A relation those predicates
+   * read row by row is not bounded: from a row the member admits, it reaches
+   * such rows already. `permissions`' `tenant` states its tenant here.
+   */
+  readonly bound?: { readonly [model: string]: ScalarFields };
 };
 
 /**

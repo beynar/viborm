@@ -93,7 +93,6 @@ import {
 } from "./identifier";
 import { unreachable } from "./invariant";
 import {
-  boundingRelated,
   type CallScope,
   type CallValues,
   Condition,
@@ -1939,24 +1938,20 @@ export class PreparedDomain {
     return prepared ?? undefined;
   }
   /**
-   * What the `excluded` layers' bounding `where` of `model`'s related rows
-   * states ({@link boundingRelated}), a layer each: inside its own
-   * predicates a layer reads nothing of itself, but a set the statement
-   * computes over a whole table (a shared body, a reaching set) still holds
-   * only the rows it would reach from a row the layer admits. `undefined`
-   * where none states one.
+   * What an `excluded` layer states its own whole-table sets of `model` hold
+   * (`rows.bound`): inside its own predicates a layer reads nothing of
+   * itself, but a set the statement computes over a whole table (a shared
+   * body, a reaching set) still holds only what it bounds. `undefined` where
+   * none states one.
    */
   bound(
     model: AnyModel,
     excluded: readonly number[]
   ): PreparedSelector | undefined {
     const name = model["~"].names.ts!;
-    const inputs = this.rows.related.get(name);
+    const inputs = this.rows.bound?.get(name);
     // The first that bounds: a bound left out only leaves a set wider.
-    const layer = excluded.find((at) => {
-      const input = inputs?.[at];
-      return input !== undefined && boundingRelated.has(input);
-    });
+    const layer = excluded.find((at) => inputs?.[at] !== undefined);
     if (layer === undefined) return undefined;
     return memo(this.#bounds, `${name} ${layer}`, () => {
       const input = inputs![layer]!;

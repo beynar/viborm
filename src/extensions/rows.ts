@@ -361,6 +361,20 @@ function modelDomain(
   return lazyMap(built, pending);
 }
 
+/** Each member's `bound`, by model and layer; `undefined` where none states one. */
+function boundDomain(
+  rows: readonly RowsContribution[]
+): ModelDomain | undefined {
+  const bound = new Map<string, Input[]>();
+  for (const [layer, member] of rows.entries())
+    for (const [model, where] of Object.entries(member.bound ?? {})) {
+      const list = bound.get(model) ?? [];
+      list[layer] = where as Input;
+      bound.set(model, list);
+    }
+  return bound.size === 0 ? undefined : bound;
+}
+
 /** `{ OR: [] }`, false: what a verb a model's `verbs` leaves out takes. */
 const NOTHING: Input = Object.freeze({ OR: Object.freeze([]) });
 
@@ -579,6 +593,7 @@ export function bindRows(
         Object.keys(entry.reads ?? {}).length > 0
     )
   );
+  const bound = boundDomain(declared);
   for (let combination = 0; combination < stride; combination++) {
     const modes = members.map(
       (member) =>
@@ -590,6 +605,7 @@ export function bindRows(
       Object.freeze({
         root: modelDomain(declared, modes, "root"),
         related: modelDomain(declared, modes, "related"),
+        ...(bound && { bound }),
         ...(verbs && { verbs, projects }),
         ...(orders && { order: orders }),
       })

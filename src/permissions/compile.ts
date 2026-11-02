@@ -17,7 +17,6 @@
 import { ClientInitializationError } from "../errors";
 import type { RowsVerbs } from "../extensions/controls";
 import type { VibORMConfig } from "../index";
-import { boundingRelated } from "../query-engine/raptor3/shared/row-scope";
 import { type ActorContract, actorContract, refuse } from "./actor";
 import { FALSE, type PolicyModel, type Rule, type Where } from "./rules";
 
@@ -791,7 +790,6 @@ export function policyCompiler(
     const bound: Where = Object.freeze({
       [tenant.field]: Object.freeze({ control: "actor", path: tenant.actor }),
     });
-    boundingRelated.add(bound);
     return (name) =>
       holds(name) && !except.includes(name) ? bound : undefined;
   };

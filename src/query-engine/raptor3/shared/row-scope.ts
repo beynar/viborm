@@ -11,15 +11,6 @@ import type { Input } from "./schema";
  */
 export type ModelDomain = ReadonlyMap<string, readonly Input[]>;
 
-/**
- * The `related` inputs that also bound their own layer: inside its
- * predicates, a set the statement computes over a whole table and a
- * positive test reads holds only the rows they admit (`permissions`'s
- * `tenant`). Marked by the extension on the `where` it states, and by
- * admission on what it admits of it.
- */
-export const boundingRelated = new WeakSet<object>();
-
 /** Relations named on demand, among the ones that could be named. */
 export interface LazyRelations {
   readonly candidates: readonly string[];
@@ -33,6 +24,8 @@ export interface LazyRelations {
 export interface RowDomain {
   readonly root: ModelDomain;
   readonly related: ModelDomain;
+  /** What a layer's own whole-table sets hold (`rows.bound`), in every mode. */
+  readonly bound?: ModelDomain;
   /**
    * Per model (its TS name), indexed by layer as {@link ModelDomain} is, the
    * predicates of the model's verbs. A model absent here judges a write by
