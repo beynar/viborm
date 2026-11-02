@@ -938,3 +938,38 @@ describe("ordering: what a move sends", () => {
     ).toEqual(["3", "1"]);
   });
 });
+
+const adopted = s.model({
+  id: s.int().id().increment(),
+  // How an existing table adopts ordering: its rows take the literal default,
+  // then `rekey`; a create of the client appends.
+  rank: s.string().default("").schema(orderingKey),
+  title: s.string(),
+});
+
+describe("ordering: a key with a literal default and orderingKey", () => {
+  test("a create that leaves the key out is appended, never validated against the default", async () => {
+    const client = createClient({
+      schema: { adopted },
+      driver: createInMemorySQLite3Driver(),
+    });
+    await syncLiveSchema(client);
+    const db = client.$extends(ordering({ adopted: { key: "rank" } }));
+    await db.adopted.create({ data: { title: "a" } });
+    await db.adopted.createMany({ data: [{ title: "b" }, { title: "c" }] });
+    const rows = await db.adopted.findMany();
+    expect(rows.map((row) => row.title)).toEqual(["a", "b", "c"]);
+    for (const row of rows) expect(isKey(row.rank)).toBe(true);
+    // A key the caller writes is still validated; `""` is the placeholder.
+    await expect(
+      db.adopted.create({ data: { title: "d", rank: "x" } })
+    ).rejects.toThrow("must be an ordering key");
+    expect(
+      (await db.adopted.create({ data: { title: "d", rank: "" } })).rank
+    ).toBe("");
+    // The base client, without ordering, takes the default.
+    expect((await client.adopted.create({ data: { title: "e" } })).rank).toBe(
+      ""
+    );
+  });
+});
