@@ -314,8 +314,10 @@ test("PGlite: a shared relation body over a table named like a body is still NOT
 // A walk read only inside repeated bodies (the teams the actor belongs to,
 // through their subteams, inside "the grants that name them") is computed
 // once as a reaching set, from the actor's memberships back up the tree:
-// in place it walks the tree once per grant of each body.
-test("PGlite: a walk only repeated bodies read is one reaching set, and answers as in place", async () => {
+// in place it walks the tree once per grant of each body. A walk to rows no
+// call value names (any team with a member) stays in its body, read by the
+// grant's key: as a set it would hold most of the tree.
+test("PGlite: a walk to the actor's rows only repeated bodies read is one reaching set; a broad one stays in place; both answer as in place", async () => {
   const team = s.model({
     id: s.string().id(),
     parentId: s.string().nullable(),
@@ -355,44 +357,56 @@ test("PGlite: a walk only repeated bodies read is one reaching set, and answers 
       .fields("teamId")
       .references("id"),
   });
-  const mine = {
+  const reaching = (member: object) => ({
     grants: {
       some: {
         team: {
           is: {
             children: {
               recurse: { depth: false },
-              some: { members: { some: { userId: user } } },
+              some: { members: { some: member } },
             },
           },
-        },
-      },
-    },
-  };
-  const teams = defineExtension({
-    name: "teams",
-    controls: { user: { schema: v.string(), required: true } },
-    rows: {
-      control: "scope",
-      default: "all",
-      models: {},
-      verbs: {
-        page: {
-          predicates: {
-            held: {
-              OR: [
-                { AND: [mine, { title: "a" }] },
-                { AND: [mine, { title: { not: "a" } }] },
-              ],
-            },
-          },
-          read: "held",
         },
       },
     },
   });
+  const policy = (member: object) =>
+    defineExtension({
+      name: "teams",
+      controls: { user: { schema: v.string(), required: true } },
+      rows: {
+        control: "scope",
+        default: "all",
+        models: {},
+        verbs: {
+          page: {
+            predicates: {
+              held: {
+                OR: [
+                  { AND: [reaching(member), { title: "a" }] },
+                  { AND: [reaching(member), { title: { not: "a" } }] },
+                ],
+              },
+            },
+            read: "held",
+          },
+        },
+      },
+    });
   const answers: unknown[] = [];
-  for (const shared of [true, false]) {
+  for (const [shared, broad] of [
+    [true, false],
+    [false, false],
+    [true, true],
+    [false, true],
+  ] as const) {
+    // The actor's rows, as an OR whose every arm names them; or any member.
+    const teams = policy(
+      broad
+        ? { id: { not: "" } }
+        : { OR: [{ userId: user }, { AND: [{ userId: user }, { id: "-" }] }] }
+    );
     const driver = createInMemoryPGliteDriver();
     driver.adapter.capabilities.sharesRelationBodies = shared;
     const base = createClient({ schema: { team, seat, page, grant }, driver });
@@ -444,15 +458,24 @@ test("PGlite: a walk only repeated bodies read is one reaching set, and answers 
         })
       );
     const [statement] = statements;
-    if (shared) {
+    if (shared && !broad) {
       // One recursive member, the reaching set, and no walk left in place.
       expect(statement).toMatch(/^WITH RECURSIVE /);
       expect(statement!.match(/RECURSIVE/g)).toHaveLength(1);
     }
+    // The broad walk stays in each body (Sol's review: 0.03 ms in place,
+    // 76 ms as a set over 30,000 rows).
+    if (shared && broad) expect(statement).not.toMatch(/^WITH RECURSIVE /);
   }
   expect(answers.slice(0, 2)).toEqual([
     [{ id: "a" }, { id: "d" }],
     [{ id: "c" }],
   ]);
-  expect(answers.slice(2)).toEqual(answers.slice(0, 2));
+  expect(answers.slice(2, 4)).toEqual(answers.slice(0, 2));
+  // Any team with a member under it: root, mid and other hold one.
+  expect(answers.slice(4, 6)).toEqual([
+    [{ id: "a" }, { id: "c" }, { id: "d" }],
+    [{ id: "a" }, { id: "c" }, { id: "d" }],
+  ]);
+  expect(answers.slice(6)).toEqual(answers.slice(4, 6));
 });

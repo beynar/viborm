@@ -886,6 +886,35 @@ function callReads(
   }
 }
 /**
+ * Does `predicate` hold only of rows with a column equal to a call value (a
+ * conjunct, through `some`/`is` relations; every arm of an `OR`; never under
+ * `NOT`)? A walk to such rows (the actor's memberships) reaches back from a
+ * few of them.
+ */
+function anchored(predicate: PreparedPredicate | undefined): boolean {
+  switch (predicate?.kind) {
+    case "and":
+      return predicate.predicates.some(anchored);
+    case "or":
+      return predicate.predicates.every(anchored);
+    case "layer":
+      return anchored(predicate.predicate);
+    case "relation":
+      return (
+        (predicate.quantifier === "some" || predicate.quantifier === "is") &&
+        anchored(predicate.predicate)
+      );
+    case "operation":
+      return (
+        predicate.operator === "equals" &&
+        (predicate.value instanceof Parameter ||
+          predicate.operand?.kind === "parameter")
+      );
+    default:
+      return false;
+  }
+}
+/**
  * An `OR` whose every arm is one value equality on the same plain column, as
  * that column's `in` (platform-15): the same three-valued answer, so a long
  * chain binds as the one list `in` binds instead of one arm per expression
@@ -1531,6 +1560,8 @@ interface SharedBody {
    * once by every database, so it states no form.
    */
   readonly recursive?: true;
+  /** A walk to rows a call value names ({@link anchored}). */
+  readonly anchored?: true;
   readonly slots: {
     readonly slot: SqlSlot;
     readonly inline: Sql;
@@ -2329,15 +2360,37 @@ export class Queries {
     } finally {
       this.#shared = undefined;
     }
-    // A walk read only inside sets computed over their whole table (repeated
-    // relation bodies) is computed once as a set too, from the rows it
-    // reaches back: its walk per row of each would read the whole table.
+    // A walk read only inside repeated bodies is computed once as a set, from
+    // the rows it reaches back, where that is the cheaper: its rows are few
+    // (a call value names them, as the actor's memberships), or each body is
+    // computed over its whole table anyway (it reads another repeated body,
+    // so it is materialized, {@link settled}), and the walk in place would
+    // walk once per row of it. A body reading none stays inlined, read by
+    // the outer row's key, and a walk to many rows stays in it.
+    const others = new Set<Sql>(
+      shared.order.flatMap((body) =>
+        body.recursive !== true && body.slots.length > 1
+          ? body.slots.map((placed) => placed.slot)
+          : []
+      )
+    );
+    const materialized = (body: SharedBody | undefined) => {
+      if (body === undefined || body.slots.length < 2) return false;
+      let reads = false;
+      Sql.peekRuns(body.query, (node) => {
+        if (others.has(node)) reads = true;
+        return reads;
+      });
+      return reads;
+    };
     const lifted = new Set(
       shared.order.filter(
         (body) =>
           body.recursive === true &&
           body.slots.every(
-            ({ within }) => (within?.body?.slots.length ?? 0) > 1
+            ({ within }) =>
+              (within?.body?.slots.length ?? 0) > 1 &&
+              (body.anchored === true || materialized(within?.body))
           )
       )
     );
@@ -6118,7 +6171,8 @@ export class Queries {
           closure,
           stated,
           query,
-          quantified
+          quantified,
+          anchored(predicate.predicate)
         );
       }
       return this.#relationExists(
@@ -6334,7 +6388,8 @@ export class Queries {
     closure: Closure,
     stated: readonly Sql[],
     walk: Sql,
-    quantified: Quantified
+    quantified: Quantified,
+    seeded: boolean
   ): Sql {
     const a = this.adapter;
     const shared = this.#shared;
@@ -6365,6 +6420,7 @@ export class Queries {
         query: this.#reachingSet(name, edge, child, closure, stated, bounded),
         correlated: false,
         recursive: true,
+        ...(seeded && { anchored: true as const }),
         slots: [],
       };
       shared.byKey.set(key, body);
