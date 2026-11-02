@@ -2297,6 +2297,12 @@ export class Queries {
    */
   #pageWalks: PageWalks | undefined;
   readonly #sharesBodies: boolean;
+  /**
+   * No physical name resembles an alias ({@link hasAliasLikeNames}): the
+   * statement may name members of its own (shared bodies, a list's page)
+   * beside the tables and columns it reads.
+   */
+  readonly #aliasFree: boolean;
   constructor(
     schema: EngineSchema,
     adapter: DatabaseAdapter,
@@ -2310,10 +2316,11 @@ export class Queries {
     this.#result = result;
     this.domain = domain;
     this.#call = call;
+    this.#aliasFree = !(
+      resemblesAlias(adapter.namespace ?? "") || hasAliasLikeNames(schema)
+    );
     this.#sharesBodies =
-      adapter.capabilities.sharesRelationBodies === true &&
-      !resemblesAlias(adapter.namespace ?? "") &&
-      !hasAliasLikeNames(schema);
+      adapter.capabilities.sharesRelationBodies === true && this.#aliasFree;
   }
   /**
    * `build`'s statement, where the adapter shares relation bodies
@@ -7603,8 +7610,9 @@ export class Queries {
    * A root list's page walks ({@link pageWalks}), where its projection holds
    * a recursive relation at the root and the dialect aggregates each root's
    * ordered facts in order (`capabilities.aggregatesGroupsInOrder`):
-   * `undefined` for any other read, and for a distinct page, whose emulated
-   * window is not one page to seed from.
+   * `undefined` for any other read, for a distinct page, whose emulated
+   * window is not one page to seed from, and where a physical name resembles
+   * an alias (the page's own members and carried columns could shadow it).
    */
   #pageWalksOf(
     model: AnyModel,
@@ -7615,6 +7623,7 @@ export class Queries {
   ): PageWalks | undefined {
     if (
       controls.list !== true ||
+      !this.#aliasFree ||
       this.adapter.capabilities.aggregatesGroupsInOrder !== true ||
       page.distinct !== undefined ||
       !prepared.fields.some(
