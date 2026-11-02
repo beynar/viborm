@@ -3,6 +3,23 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## Unreleased
+
+### Performance
+
+- **A list's `recurse` select walks once for the whole page.** A
+  `findMany` selecting a recursive relation (`parent: { recurse: { depth:
+  false }, select: { … } }`: each document's folder chain) walked it once
+  per listed row, then aggregated that row's nodes and edges. The page is
+  now read once, one walk starts from all of its rows, and each row's facts
+  are joined back to it; its filter, order, skip and take run once, and the
+  values are unchanged. PostgreSQL 18, a 5,000-row tree: 1,040 rows with
+  their ancestors 298 → 37 ms, all 5,000 rows 1.43 s → 200 ms, two levels
+  of descendants for 1,040 rows 157 → 21 ms, a 20-row page 6.5 → 3.1 ms.
+  On PostgreSQL and SQLite (D1 included); MySQL keeps one walk per row, as
+  do a nested relation's `recurse`, a `distinct` list, `findFirst` /
+  `findUnique` and a write's answer.
+
 ## 1.9.1 — 2026-11-02
 
 ### Fixed

@@ -1349,7 +1349,8 @@ ordinary projected document per distinct node, and the edge facts ordered per
 parent by `Queries.completeOrder` — the ordinary window's one tie-break —
 packed into the private `__rq_root`/`__rq_nodes`/`__rq_edges` carrier, whose
 root is the outer row's own key (the CTE is evaluated per outer row, so it
-carries no root column). The carrier's member names are one module constant
+carries no root column; a root list's set form, below, carries one). The
+carrier's member names are one module constant
 (`RECURSIVE_CARRIER`) and every identity in it — root, node key, edge endpoint
 — is encoded by one owner (`Queries.recursiveIdentity`) from the raw key
 columns, so the texts the decoder matches agree by construction. Where
@@ -1360,6 +1361,34 @@ hand every later outer row the first row's facts; SQLite has no `LATERAL` and
 evaluates the correlated CTE per row as written, once per reader — twice per
 carrier (nodes and edges) — where PostgreSQL materializes it once per outer
 row.
+
+A root `findMany` (`ROOT_LIST`) whose projection holds a recursive slot at
+the root takes the SET form instead, where the adapter aggregates groups in
+order (`capabilities.aggregatesGroupsInOrder`: PostgreSQL, SQLite and D1):
+`Queries.pageStatement` states the page — the read's WHERE (its domain, its
+extensions' rows), cursor, order, skip and take, evaluated ONCE — as the
+statement's first `WITH` member, carrying every stored column and each
+presented order term, and the projection is lowered over the page's rows
+(`#pageWalks`, a stored row's alias). Each recursive slot of THAT alias
+walks once from every page row (`#walk`'s `from`: the first hop joins the
+page through `#step`, and every reached row carries its start row's key, so
+`UNION` ends each cycle per root and each root's facts are exactly the
+per-row walk's); its nodes and its edges are two members grouped per root,
+the edges read from a derived table ordered by root first, then parent and
+`#completeOrder`, and both LEFT JOINed to the page row by key (no row
+reached: empty facts). The carrier, `decodeRecursiveCarrier` and the cache
+codec are unchanged. The list presents the page in its own order from the
+carried terms. The page and the walk are `MATERIALIZED` where SQLite would
+inline them at every reader; an unlimited page states the adapter's
+unbounded LIMIT so MySQL never merges it. Under shared bodies the members go
+in `SharedBodies.ahead`, after the bodies they read, so the statement keeps
+one `WITH`. Everything else keeps the per-row form: a slot under a nested
+relation (its alias is not the page's), a `distinct` list, `findFirst` /
+`findUnique` (one row), a write's answer (`answersInStatement`), and MySQL,
+which sorts a grouped derived table again by the group key alone and
+reorders equal keys (RQ-06 junction seed 065 published two siblings
+swapped). `provider-sql-{sqlite,pglite}.test.ts` pin both shapes and check
+a list against its rows read alone (`runPageWalks`).
 `Queries.decodeRecursiveCarrier` validates that carrier — every bounded edge
 reachable at its recorded level, every bounded hop below the cutoff carrying
 the parent's one set of children at the next level, every fact consumed, every
