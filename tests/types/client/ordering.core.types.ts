@@ -31,7 +31,11 @@ const card = s.model({
 const schema = { column, card };
 
 const base = createClient({ schema, driver: new PGliteDriver() });
-const db = ordering({ card: { key: "rank", within: ["columnId"] } })(base);
+const db = ordering({
+  models: { card: { key: "rank", within: ["columnId"] } },
+})(base);
+// The models as the whole argument (before 1.9.1, deprecated): the same client.
+const legacy = ordering({ card: { key: "rank", within: ["columnId"] } })(base);
 
 export async function probes() {
   // The key is optional on a create: the extension appends it.
@@ -158,5 +162,8 @@ export async function probes() {
   db.column.move;
 
   // @ts-expect-error the configuration names the client's models
+  ordering({ models: { nope: { key: "rank" } } })(base);
+  // @ts-expect-error so does the form before 1.9.1
   ordering({ nope: { key: "rank" } })(base);
+  expectTypeOf(legacy.card.move).toEqualTypeOf(db.card.move);
 }

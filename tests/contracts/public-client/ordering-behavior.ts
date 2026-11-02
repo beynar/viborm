@@ -12,7 +12,13 @@ import {
 import { s } from "@schema";
 import { Sql } from "@sql";
 import { on } from "@src/on";
-import { isKey, keyBetween, ordering, orderingKey } from "@src/ordering";
+import {
+  isKey,
+  isKeyFormat,
+  keyBetween,
+  ordering,
+  orderingKey,
+} from "@src/ordering";
 import { permissions } from "@src/permissions";
 import { softDelete } from "@src/soft-delete";
 import { v } from "@validation";
@@ -20,6 +26,8 @@ import { describe, expect, test } from "vitest";
 
 const column = s.model({
   id: s.string().id(),
+  /** A field an upsert's update writes on a model the extension orders not. */
+  name: s.string().nullable(),
   cards: s.toMany(() => card),
 });
 
@@ -32,6 +40,11 @@ const card = s.model({
   owner: s.string().nullable(),
   /** The soft-delete marker, where a test applies soft delete. */
   deletedAt: s.dateTime().nullable(),
+  /** When the card was last changed: placing it is no change. Its column
+   * is named as respacing's derived table names its key (`k`). */
+  editedAt: s.dateTime().updatedAt().map("k"),
+  /** A unique DateTime: an anchor named by it. */
+  due: s.dateTime().nullable().unique(),
   column: s
     .toOne(() => column)
     .fields("columnId")
@@ -73,8 +86,10 @@ export function describeOrdering(
   createStatements = 1,
   /** Statements a move within a list and a plain update send: one UPDATE
    * each, where it computes the key and returns its row (MySQL reads the
-   * neighbours, then locks, updates and reads the row). */
-  { move = 1, update = 1 } = {}
+   * neighbours, then locks, updates and reads the row). Four upserts, on an
+   * unordered model then an ordered one, each creating then updating: one
+   * INSERT … ON CONFLICT each, where the adapter returns its row. */
+  { move = 1, update = 1, upsert = [1, 1, 1, 1] } = {}
 ) {
   const statements: string[] = [];
   let base_: any;
@@ -106,9 +121,11 @@ export function describeOrdering(
       },
     });
     const db = ordering({
-      card: { key: "rank", within: ["columnId"] },
-      legacy: { key: "rank" },
-      slot: { key: "rank", within: ["tenant"] },
+      models: {
+        card: { key: "rank", within: ["columnId"] },
+        legacy: { key: "rank" },
+        slot: { key: "rank", within: ["tenant"] },
+      },
     })(counted as any) as any;
     base_ = client as any;
     counted_ = counted;
@@ -131,7 +148,7 @@ export function describeOrdering(
       const ranks = (await db.card.findMany()).map(
         (row: { rank: string }) => row.rank
       );
-      expect(ranks.every(isKey)).toBe(true);
+      expect(ranks.every(isKeyFormat)).toBe(true);
     });
 
     test("a create computes its key in its own statement (a read first on MySQL)", async () => {
@@ -341,6 +358,95 @@ export function describeOrdering(
       }
     });
 
+    test("an upsert folds into one statement, on an ordered model and on another (where it returns its row)", async () => {
+      const db = await setup();
+      await db.card.create({ data: { id: "a", columnId: "c1", title: "a" } });
+      const counts: number[] = [];
+      for (const id of ["c3", "c3"]) {
+        statements.length = 0;
+        await db.column.upsert({
+          where: { id },
+          create: { id, name: "new" },
+          update: { name: "again" },
+        });
+        counts.push(statements.length);
+      }
+      for (const [id, title] of [
+        ["b", "b"],
+        ["b", "b2"],
+      ] as const) {
+        statements.length = 0;
+        await db.card.upsert({
+          where: { id },
+          create: { id, columnId: "c1", title },
+          update: { title },
+        });
+        counts.push(statements.length);
+      }
+      expect(counts).toEqual(upsert);
+      expect((await db.column.findUnique({ where: { id: "c3" } })).name).toBe(
+        "again"
+      );
+      expect(await listOf(db, "c1")).toEqual(["a", "b2"]);
+      const ranks = (await db.card.findMany()).map(
+        (row: { rank: string }) => row.rank
+      );
+      expect(ranks.every(isKeyFormat)).toBe(true);
+    });
+
+    test("ordering's own writes leave updatedAt() as stored, but a field data names", async () => {
+      const db = await setup();
+      for (const title of ["a", "b", "c", "d"])
+        await db.card.create({ data: { id: title, columnId: "c1", title } });
+      const stamps = async () =>
+        Object.fromEntries(
+          (await db.card.findMany()).map(
+            (row: { id: string; editedAt: Date }) => [
+              row.id,
+              row.editedAt.getTime(),
+            ]
+          )
+        );
+      const before = await stamps();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      // In its list, to another list, at a key the caller gives, and with
+      // data beside the key: placed, not changed.
+      await db.card.move({ where: { id: "a" }, after: { id: "b" } });
+      await db.card.move({
+        where: { id: "b" },
+        to: { columnId: "c2" },
+        first: true,
+      });
+      await db.card.move({ where: { id: "c" }, key: "155" });
+      await db.card.move({
+        where: { id: "d" },
+        first: true,
+        data: { title: "d2" },
+      });
+      // A whole list respaced.
+      await db.card.rekey({ where: { columnId: "c1" } });
+      expect(await stamps()).toEqual(before);
+      expect(await listOf(db, "c1")).toEqual(["d2", "a", "c"]);
+      // A field data gives `undefined` is left out, as in any update.
+      await db.card.move({
+        where: { id: "c" },
+        first: true,
+        data: { editedAt: undefined },
+      });
+      expect((await stamps()).c).toBe(before.c);
+      // A field data names is written as named.
+      const at = new Date("2030-01-01T00:00:00.000Z");
+      await db.card.move({
+        where: { id: "a" },
+        first: true,
+        data: { editedAt: at },
+      });
+      expect((await stamps()).a).toBe(at.getTime());
+      // A plain update still refreshes it.
+      await db.card.update({ where: { id: "c" }, data: { title: "c2" } });
+      expect((await stamps()).c).toBeGreaterThan(before.c!);
+    });
+
     test("upsert's create branch and connectOrCreate's create append", async () => {
       const db = await setup();
       await db.card.create({ data: { id: "a", columnId: "c1", title: "a" } });
@@ -477,7 +583,7 @@ export function describeOrdering(
       const ranks = (await db.legacy.findMany()).map(
         (row: { rank: string }) => row.rank
       );
-      expect(ranks.every(isKey)).toBe(true);
+      expect(ranks.every(isKeyFormat)).toBe(true);
     });
 
     test("adopting with a member the caller cannot see: its backfilled key bounds nothing, the others get keys", async () => {
@@ -774,6 +880,215 @@ export function describeOrdering(
         ).rejects.toThrow("move anchor");
     });
 
+    test("an anchor's other fields are a condition it holds, on every path", async () => {
+      const db = await setup();
+      for (const title of ["a", "b", "c"])
+        await db.card.create({ data: { id: title, columnId: "c1", title } });
+      // In place already (the read path): the anchor read by its key, its
+      // other fields a condition.
+      await db.card.move({
+        where: { id: "b" },
+        after: { id: "a", columnId: "c1" },
+      });
+      await db.card.move({
+        where: { id: "c" },
+        before: { id: "a", columnId: "c1" },
+      });
+      expect(await listOf(db, "c1")).toEqual(["c", "a", "b"]);
+      // An anchor no longer in the list its fields name is not found.
+      for (const anchor of [
+        { after: { id: "a", columnId: "c2" } },
+        { before: { id: "a", columnId: "c2" } },
+        { after: { id: "c", columnId: "c2" } },
+      ])
+        await expect(
+          db.card.move({ where: { id: "b" }, ...anchor })
+        ).rejects.toThrow("move anchor");
+      expect(await listOf(db, "c1")).toEqual(["c", "a", "b"]);
+      // A model whose list is read through the cursor (no nullable list
+      // field): the cursor takes the key, the rest is the condition.
+      for (const id of ["x", "y", "w"])
+        await db.legacy.create({ data: { id, title: id } });
+      await db.legacy.move({
+        where: { id: "y" },
+        after: { id: "x", title: "x" },
+      });
+      // The cursor's row fails the condition: the rows after it are no
+      // anchor (`y` holds it).
+      await expect(
+        db.legacy.move({ where: { id: "w" }, after: { id: "x", title: "y" } })
+      ).rejects.toThrow("move anchor");
+      expect(
+        (await db.legacy.findMany()).map((row: { id: string }) => row.id)
+      ).toEqual(["x", "y", "w"]);
+    });
+
+    test("an anchor's condition picks the anchor, not its neighbours (tied keys: the read path)", async () => {
+      const db = await setup();
+      const day = new Date("2026-11-01T00:00:00.000Z");
+      for (const title of ["a", "b", "c", "d"])
+        await db.card.create({
+          data: {
+            id: title,
+            columnId: "c1",
+            title,
+            ...(title === "a" && { due: day }),
+          },
+        });
+      await base_.card.updateMany({ data: { rank: "15" } });
+      await db.card.move({
+        where: { id: "d" },
+        after: { id: "a", title: "a" },
+      });
+      expect(await listOf(db, "c1")).toEqual(["a", "d", "b", "c"]);
+      await db.card.move({
+        where: { id: "a" },
+        before: { id: "c", title: "c" },
+      });
+      expect(await listOf(db, "c1")).toEqual(["d", "b", "a", "c"]);
+      // A unique DateTime anchor, as an ISO string, with its list.
+      await db.card.move({
+        where: { id: "c" },
+        after: { due: day.toISOString(), columnId: "c1" },
+      });
+      expect(await listOf(db, "c1")).toEqual(["d", "b", "a", "c"]);
+      statements.length = 0;
+      await db.card.move({
+        where: { id: "d" },
+        after: { due: day.toISOString(), columnId: "c1" },
+      });
+      if (process.env.DBG)
+        console.log(
+          "DBG",
+          JSON.stringify(statements, null, 1),
+          JSON.stringify(
+            await db.card.findMany({
+              where: { columnId: "c1" },
+              select: { id: true, rank: true, due: true },
+            })
+          )
+        );
+      expect(await listOf(db, "c1")).toEqual(["b", "a", "d", "c"]);
+    });
+
+    test("an anchor that changes list between the read path's two reads is followed, not replaced", async () => {
+      const db = await setup();
+      for (const title of ["a", "b", "c", "d"])
+        await db.card.create({ data: { id: title, columnId: "c1", title } });
+      const tied = await base_.card.findUnique({ where: { id: "a" } });
+      await base_.card.update({
+        where: { id: "b" },
+        data: { rank: tied.rank },
+      });
+      let raced = false;
+      const racing = db.$extends({
+        name: "test.anchor-race",
+        query: {
+          card: {
+            findMany: async ({ input, proceed }: any) => {
+              if (!raced && input.cursor) {
+                raced = true;
+                await base_.card.update({
+                  where: { id: "a" },
+                  data: { columnId: "c2" },
+                });
+              }
+              return proceed();
+            },
+          },
+        },
+      });
+      await racing.card.move({
+        where: { id: "d" },
+        after: { id: "a", title: "a" },
+      });
+      expect(raced).toBe(true);
+      expect(await listOf(db, "c2")).toEqual(["a", "d"]);
+      expect(await listOf(db, "c1")).toEqual(["b", "c"]);
+    });
+
+    test("a move whose data a request transform empties writes nothing more", async () => {
+      const db = await setup();
+      for (const title of ["a", "b"])
+        await db.card.create({ data: { id: title, columnId: "c1", title } });
+      const before = await db.card.findUnique({ where: { id: "b" } });
+      const emptied = db.$extends({
+        name: "test.drop-title",
+        request: {
+          card: {
+            update: ({ input }: any) => ({
+              data: { ...input.data, title: undefined },
+            }),
+          },
+        },
+      });
+      // Already after `a`: the move writes only its data, emptied here.
+      expect(
+        await emptied.card.move({
+          where: { id: "b" },
+          after: { id: "a", title: "a" },
+          data: { title: "ignored" },
+        })
+      ).toEqual(before);
+    });
+
+    test("tied keys in a model of one list: a move respaces, never writes a NULL key", async () => {
+      const db = await setup();
+      for (const id of ["x", "y", "z"])
+        await db.legacy.create({ data: { id, title: id } });
+      await base_.legacy.updateMany({ data: { rank: "15" } });
+      await db.legacy.move({ where: { id: "z" }, after: { id: "x" } });
+      expect(
+        (await db.legacy.findMany()).map((row: { id: string }) => row.id)
+      ).toEqual(["x", "z", "y"]);
+      await db.legacy.move({ where: { id: "y" }, first: true });
+      expect(
+        (await db.legacy.findMany()).map((row: { id: string }) => row.id)
+      ).toEqual(["y", "x", "z"]);
+    });
+
+    test("an updatedAt() field kept as stored is no field the move writes", async () => {
+      const db = await setup();
+      for (const id of ["a", "b"])
+        await db.card.create({ data: { id, columnId: "c1", title: id } });
+      // Writing editedAt takes no row; every other write takes any.
+      const governed = (
+        ordering({ card: { key: "rank", within: ["columnId"] } })(
+          (counted_ as any).$extends({
+            name: "test.edited",
+            rows: {
+              control: "edited",
+              default: "on",
+              models: {},
+              verbs: {
+                card: {
+                  predicates: { any: {}, none: { id: "-" } },
+                  read: "any",
+                  update: "any",
+                  writes: { editedAt: "none" },
+                },
+              },
+            },
+          })
+        ) as any
+      ).card;
+      await governed.move({ where: { id: "a" }, after: { id: "b" } });
+      await governed.move({
+        where: { id: "b" },
+        to: { columnId: "c2" },
+        first: true,
+      });
+      expect(await governed.rekey()).toEqual({ count: 2 });
+      expect(await listOf(db, "c1")).toEqual(["a"]);
+      await expect(
+        governed.move({
+          where: { id: "a" },
+          first: true,
+          data: { editedAt: new Date() },
+        })
+      ).rejects.toThrow(NotFoundError);
+    });
+
     test("a move into a list whose members are all hidden keys as into an empty one", async () => {
       const db = await setup();
       for (const [id, columnId] of [
@@ -834,7 +1149,7 @@ export function describeOrdering(
       const ranks = (await db.card.findMany({ where: { columnId: "c1" } })).map(
         (row: { rank: string }) => row.rank
       );
-      expect(ranks.every(isKey)).toBe(true);
+      expect(ranks.every(isKeyFormat)).toBe(true);
     });
 
     test("rekey inside an interactive transaction runs in it", async () => {
@@ -943,7 +1258,7 @@ export function describeOrdering(
       const ranks = (await db.card.findMany()).map(
         (row: { rank: string }) => row.rank
       );
-      expect(ranks.every(isKey)).toBe(true);
+      expect(ranks.every(isKeyFormat)).toBe(true);
     });
 
     test("rekey by another order keeps the current order among equals", async () => {
@@ -1029,6 +1344,26 @@ export function describeOrderingAdmission(
       expect(() => ordering(config as any)(client as any)).toThrow(
         ClientInitializationError
       );
+      // The same models under `models`, the form since 1.9.1.
+      expect(() => ordering({ models: config } as any)(client as any)).toThrow(
+        ClientInitializationError
+      );
+    });
+
+    test("takes its models under `models`, or as the whole argument (before 1.9.1)", async () => {
+      const { client } = await open();
+      for (const config of [
+        { models: { card: { key: "rank", within: ["columnId"] } } },
+        { card: { key: "rank", within: ["columnId"] } },
+      ])
+        expect(
+          typeof (ordering(config as any)(client as any) as any).card.move
+        ).toBe("function");
+      // A model named `models` is a model: its entry holds `key`.
+      expect(() =>
+        ordering({ models: { key: "rank" } } as any)(client as any)
+      ).toThrow('"models"');
+      expect(isKey).toBe(isKeyFormat);
     });
   });
 }

@@ -84,7 +84,7 @@ export function softDeleteSchema(partialUnique = true) {
 /** §1.1's configuration: `post` managed, the actor bound to this client. */
 export const USE_CONFIG = {
   models: { post: { deletedAt: "deletedAt", deletedBy: "deletedById" } },
-  actor: ACTOR,
+  actorId: ACTOR,
 } as const;
 
 /** The seeded database and its base client. */
@@ -552,11 +552,17 @@ export function runSoftDeleteBehavior(provider: SoftDeleteProvider): void {
     });
 
     test("the actor is bound per derived client", async () => {
-      const other = softDelete({ ...USE_CONFIG, actor: "admin-2" })(base);
+      // `actor`, its name before 1.9.1, still works.
+      const other = softDelete({ models: USE_CONFIG.models, actor: "admin-2" })(
+        base
+      );
       await db.post.delete({ where: { id: "p1" } });
       await other.post.delete({ where: { id: "p2" } });
       expect(await physical("p1")).toMatchObject({ deletedById: ACTOR });
       expect(await physical("p2")).toMatchObject({ deletedById: "admin-2" });
+      expect(() =>
+        softDelete({ ...USE_CONFIG, actor: "admin-2" })(base)
+      ).toThrow("not both actorId and actor");
     });
   });
 }

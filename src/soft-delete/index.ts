@@ -18,7 +18,10 @@ export interface SoftDeleteModel {
 }
 export interface SoftDeleteConfig {
   readonly models: Readonly<Record<string, SoftDeleteModel>>;
-  readonly actor?: string | number | bigint; // bound per derived client
+  /** What a delete writes into `deletedBy`, fixed per derived client. */
+  readonly actorId?: string | number | bigint;
+  /** `actorId`'s name before 1.9.1, still accepted (`actor` names the request's actor in `permissions`). */
+  readonly actor?: string | number | bigint;
 }
 type Schema = VibORMConfig["schema"];
 type AnyModel = Schema[string];
@@ -90,6 +93,11 @@ type Governed<Config extends SoftDeleteConfig> = VibORMConfig & {
  * field the schema lacks is left to core, which names it.
  */
 function admitMarkers(schema: Schema, config: SoftDeleteConfig): void {
+  if (config.actorId !== undefined && config.actor !== undefined)
+    throw new ClientInitializationError(
+      "softDelete: give actorId, not both actorId and actor (its former name).",
+      { meta: { extension: NAME } }
+    );
   for (const [name, { deletedAt }] of Object.entries(config.models)) {
     const scalars = Object.hasOwn(schema, name)
       ? schema[name]!["~"].state.scalars
@@ -140,7 +148,9 @@ function definitionOf<
         config,
         ({ deletedAt, deletedBy }) => ({
           at: deletedAt, // receives the call's one timestamp
-          assign: deletedBy ? { [deletedBy]: config.actor ?? null } : {},
+          assign: deletedBy
+            ? { [deletedBy]: config.actorId ?? config.actor ?? null }
+            : {},
         }),
         schema
       ),

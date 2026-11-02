@@ -26,8 +26,10 @@ import type {
   VibORMConfig,
 } from "../index";
 import {
+  type InsertValueContext,
   JoinedValue,
   renderers,
+  Stored,
 } from "../query-engine/raptor3/shared/insert-value";
 import type { Queries } from "../query-engine/raptor3/shared/query";
 import type { RowJudgement } from "../query-engine/raptor3/shared/row-scope";
@@ -36,9 +38,9 @@ import { getModelKeyCatalog } from "../schema/model/keys";
 import { type Sql, sql } from "../sql/sql";
 import { AppendKey } from "./append";
 import { between, Computed, jitter, spellings } from "./between";
-import { isKey, keyBetween } from "./keys";
+import { isKeyFormat, keyBetween } from "./keys";
 
-export { isKey, keyBetween, MAX_KEY_LENGTH } from "./keys";
+export { isKey, isKeyFormat, keyBetween, MAX_KEY_LENGTH } from "./keys";
 
 /**
  * A Standard Schema validator for a key field: `rank:
@@ -53,7 +55,7 @@ export const orderingKey = Object.freeze({
     // An integer part of 10^8 or more is refused: appends go past the last
     // key, and 9×10^8 of them stay possible after any written one.
     validate: (value: unknown) =>
-      isKey(value) && value[0] !== "9"
+      isKeyFormat(value) && value[0] !== "9"
         ? { value }
         : {
             issues: [
@@ -68,7 +70,8 @@ export const orderingKey = Object.freeze({
 
 /** One ordered model: its key field, and the fields that name its list. */
 export interface OrderingModel {
-  /** A required string field with no default: the member's key. */
+  /** A required string field: the member's key. A literal default only
+   * serves rows written without the extension. */
   readonly key: string;
   /** Scalar fields whose values name a list; none: one list. */
   readonly within?: readonly string[];
@@ -110,6 +113,23 @@ interface Ordered {
   readonly identity: readonly string[];
   readonly model: AnyModel;
 }
+
+/**
+ * The model's `updatedAt()` fields, each kept as stored ({@link Stored}):
+ * ordering's own writes (move, respace, rekey) place a row, they do not
+ * change it. A field a move's `data` names is written as named.
+ */
+const storedOf = (model: AnyModel): Row => {
+  const scalars = model["~"].state.scalars;
+  return Object.fromEntries(
+    Object.keys(scalars)
+      .filter((field) => {
+        const { autoGenerate, array } = scalars[field]!["~"].state;
+        return autoGenerate?.kind === "updatedAt" && !array;
+      })
+      .map((field) => [field, new Stored()])
+  );
+};
 
 function refuse(message: string): never {
   throw new ClientInitializationError(`ordering: ${message}`, {
@@ -231,6 +251,13 @@ const movable = (key: string): RowJudgement =>
  * with, so a member another writer moved meanwhile keeps that writer's
  * place.
  */
+/**
+ * A column of respacing's joined table: named `0viborm_…`, which no schema
+ * identifier can be (they start with a letter or `_`).
+ */
+const joined = (q: Queries, name: string): Sql =>
+  q.adapter.identifiers.column("r", `0viborm_${name}`);
+
 class Respace extends JoinedValue {
   readonly #ordered: Ordered;
   readonly #dialect: "postgresql" | "sqlite" | "mysql";
@@ -243,8 +270,8 @@ class Respace extends JoinedValue {
     this.#where = where;
     this.#order = order;
   }
-  compute(): readonly unknown[] {
-    return [sql.raw("r.nk")];
+  compute({ queries }: InsertValueContext): readonly unknown[] {
+    return [joined(queries, "nk")];
   }
   join(q: Queries, target: string): { source: Sql; on: Sql } {
     const { model, key, within, identity } = this.#ordered;
@@ -341,19 +368,34 @@ class Respace extends JoinedValue {
             ],
             " AND "
           )}`;
+    // Its columns, named as no column of the model can be (`joined`): the
+    // UPDATE's own columns stay unambiguous beside them.
+    const names = [
+      ...identity.map((_, n) => `i${n}`),
+      ...within.map((_, n) => `w${n}`),
+      "k",
+      "nk",
+    ];
+    const source = sql`SELECT ${sql.join(
+      names.map((name) =>
+        q.adapter.identifiers.aliased(sql.raw(`x.${name}`), `0viborm_${name}`)
+      ),
+      ", "
+    )} FROM (${keyed}) AS x`;
+    const r = (name: string) => joined(q, name);
     return {
-      source: sql`(${keyed}) AS r`,
+      source: sql`(${source}) AS r`,
       on: sql.join(
         [
           ...identity.map(
-            (field, n) => sql`${sql.raw(`r.i${n}`)} = ${column(field, target)}`
+            (field, n) => sql`${r(`i${n}`)} = ${column(field, target)}`
           ),
           // Still in the list and at the key it was ranked with.
           ...within.map((field, n) =>
-            s.same(sql.raw(`r.w${n}`), column(field, target))
+            s.same(r(`w${n}`), column(field, target))
           ),
-          sql`${column(key, target)} = r.k`,
-          sql`r.nk IS NOT NULL`,
+          sql`${column(key, target)} = ${r("k")}`,
+          sql`${r("nk")} IS NOT NULL`,
         ],
         " AND "
       ),
@@ -364,7 +406,7 @@ class Respace extends JoinedValue {
 /**
  * Respace through the client: one `updateMany` of the lists' members the
  * call may update, its keys a {@link Respace}, so every extension applies
- * (rows, permissions, hooks, the cache) and `updatedAt` is refreshed.
+ * (rows, permissions, hooks, the cache); `updatedAt` stays as stored.
  * Returns the rows rewritten.
  */
 async function respace(
@@ -377,7 +419,10 @@ async function respace(
 ): Promise<number> {
   const written = (await writes.updateMany({
     ...controls,
-    data: { [ordered.key]: new Respace(ordered, dialect, where, order) },
+    data: {
+      ...storedOf(ordered.model),
+      [ordered.key]: new Respace(ordered, dialect, where, order),
+    },
   })) as { count: number };
   return written.count;
 }
@@ -385,6 +430,13 @@ async function respace(
 function methods(ordered: Ordered, engine: () => Engine) {
   const { name, key, within, identity, model } = ordered;
   const scalars = model["~"].state.scalars;
+  const stored = storedOf(model);
+  /** A row read with its key: the unique selector naming it, a cursor. */
+  const rowKey = getModelKeyCatalog(model).rowKey!;
+  const selectorOf = (row: Row): Row =>
+    rowKey.name === undefined
+      ? { [rowKey.fields[0]!]: row[rowKey.fields[0]!] }
+      : { [rowKey.name]: fieldsOf(rowKey.fields, row) };
   // A nullable list field: the engine's cursor over the default order cannot
   // seek past it, so the anchor's neighbours are read within its list.
   const open = within.some((field) => scalars[field]!["~"].state.nullable);
@@ -470,6 +522,10 @@ function methods(ordered: Ordered, engine: () => Engine) {
         ),
         " AND "
       );
+    // Not that row: where a field it names is NULL in another row, the
+    // match is unknown there, and that row is still another one.
+    const other = (alias: string, fields: Row) =>
+      sql`NOT COALESCE((${matches(alias, fields)}), 1 = 0)`;
     // The anchor and the neighbours are read as the caller sees them: each
     // read takes the call's row domain (`RowsOf`), as every read of the
     // engine does, so a hidden anchor is a missing one and a hidden member
@@ -506,12 +562,12 @@ function methods(ordered: Ordered, engine: () => Engine) {
           );
     const anchorKey =
       anchored &&
-      sql`SELECT ${column(key, "a")} FROM ${table} AS a WHERE ${matches("a", anchored)} AND NOT (${matches("a", recognised)}) AND ${s.digits(column(key, "a"))} AND ${seen("a")}`;
+      sql`SELECT ${column(key, "a")} FROM ${table} AS a WHERE ${matches("a", anchored)} AND ${other("a", recognised)} AND ${s.digits(column(key, "a"))} AND ${seen("a")}`;
     // The nearest key on one side, in the list, the moved row aside.
     const nearest = (aggregate: "MIN" | "MAX") =>
-      sql`SELECT ${sql.raw(aggregate)}(${column(key, "n")}) FROM ${table} AS n WHERE ${inList("n")} AND NOT (${matches("n", recognised)}) AND ${s.digits(column(key, "n"))} AND ${seen("n")}${
+      sql`SELECT ${sql.raw(aggregate)}(${column(key, "n")}) FROM ${table} AS n WHERE ${inList("n")} AND ${other("n", recognised)} AND ${s.digits(column(key, "n"))} AND ${seen("n")}${
         anchored && anchorKey
-          ? sql` AND ${column(key, "n")} ${sql.raw(aggregate === "MIN" ? ">=" : "<=")} (${anchorKey}) AND NOT (${matches("n", anchored)})`
+          ? sql` AND ${column(key, "n")} ${sql.raw(aggregate === "MIN" ? ">=" : "<=")} (${anchorKey}) AND ${other("n", anchored)}`
           : sql.empty
       }`;
     const none = sql`NULL`;
@@ -536,7 +592,7 @@ function methods(ordered: Ordered, engine: () => Engine) {
     const away = sql`NOT ((${lower}) IS NULL OR ${column(key)} > (${lower})) OR NOT ((${upper}) IS NULL OR ${column(key)} < (${upper}))`;
     const guard = (condition?: Sql) =>
       sql`CASE WHEN ${computed} IS NOT NULL${
-        condition === undefined ? sql.empty : sql` AND ${condition}`
+        condition === undefined ? sql.empty : sql` AND (${condition})`
       } THEN ${column(key)} END`;
     const keyed = { [key]: new Computed(computed) };
     const attempt = async (condition: Sql | undefined, data: Row) => {
@@ -602,8 +658,8 @@ function methods(ordered: Ordered, engine: () => Engine) {
           name,
           "to goes with first, last or key, not with after or before."
         );
-      if (given !== undefined && !isKey(given))
-        invalid(name, "key takes an ordering key (isKey, keyBetween).");
+      if (given !== undefined && !isKeyFormat(given))
+        invalid(name, "key takes an ordering key (isKeyFormat, keyBetween).");
       if (
         (first !== undefined && first !== true) ||
         (last !== undefined && last !== true)
@@ -618,12 +674,19 @@ function methods(ordered: Ordered, engine: () => Engine) {
           invalid(name, `to names the list's fields: ${within.join(", ")}.`);
       }
       // Read once: the copy is what is checked and written.
-      const extra: Row = isRecord(data) ? { ...data } : {};
+      // A field given `undefined` is left out, as in any update.
+      const extra: Row = isRecord(data)
+        ? Object.fromEntries(
+            Object.entries(data).filter(([, value]) => value !== undefined)
+          )
+        : {};
       if (data !== undefined && (!isRecord(data) || places(extra)))
         invalid(
           name,
           `data writes the model's own fields beside the key: not ${placing.join(", ")}${within.length === 0 ? "" : " (to moves the row between lists)"}, nor a relation.`
         );
+      // What every write of the move writes beside its key and list.
+      const writing: Row = { ...stored, ...extra };
       const anchor = (after ?? before) as Row | undefined;
       const projection = {
         ...(select === undefined ? {} : { select }),
@@ -638,7 +701,7 @@ function methods(ordered: Ordered, engine: () => Engine) {
             ...controls,
             where,
             data: {
-              ...extra,
+              ...writing,
               [key]: given,
               ...((to as Row | undefined) ?? {}),
             },
@@ -665,7 +728,7 @@ function methods(ordered: Ordered, engine: () => Engine) {
             return await delegate.update!({
               ...controls,
               where,
-              data: extra,
+              data: writing,
               ...projection,
             });
           } catch (error) {
@@ -689,7 +752,7 @@ function methods(ordered: Ordered, engine: () => Engine) {
           delegate.update!({
             ...controls,
             where: { ...where, [key]: { equals: () => guard } },
-            data: { ...extra, ...data },
+            data: { ...writing, ...data },
             ...projection,
           })
       );
@@ -708,25 +771,36 @@ function methods(ordered: Ordered, engine: () => Engine) {
           // The anchor and the rows after (or before) it in the list's order
           // (the `order` capability), the moved row recognised among them.
           // The moved row itself is not read.
-          const at = open
-            ? ((await delegate.findUnique!({
-                ...controls,
-                where: anchor,
-                select: reading,
-              })) as Row | null)
-            : undefined;
+          // The anchor itself, by all it states, where the cursor cannot
+          // carry it: a nullable list field, or a condition beside its key.
+          const at =
+            open || Object.keys(anchor).length > 1
+              ? ((await delegate.findUnique!({
+                  ...controls,
+                  where: anchor,
+                  select: reading,
+                })) as Row | null)
+              : undefined;
           const rows =
             at === null
               ? []
               : ((await delegate.findMany!({
                   ...controls,
                   ...(at && { where: fieldsOf(within, at), orderBy: keyOrder }),
-                  cursor: anchor,
+                  cursor: at ? selectorOf(at) : anchor,
                   take: after === undefined ? -3 : 3,
                   select: reading,
                 })) as Row[]);
           const found = after === undefined ? rows.at(-1) : rows[0];
           if (found === undefined) throw new NotFoundError(name, "move anchor");
+          // The anchor left the list it was read in before its neighbours
+          // were: the cursor's row is outside them, and the row read in its
+          // place is another one. Read again.
+          if (
+            at &&
+            !rowKey.fields.every((field) => same(found[field], at[field]))
+          )
+            continue;
           if (isMoved(found))
             invalid(name, "a row cannot be placed next to itself.");
           group = fieldsOf(within, found);
@@ -774,15 +848,15 @@ function methods(ordered: Ordered, engine: () => Engine) {
         let next: string | undefined;
         try {
           if (
-            (low === null || isKey(low)) &&
-            (high === null || isKey(high)) &&
+            (low === null || isKeyFormat(low)) &&
+            (high === null || isKeyFormat(high)) &&
             (low === null || high === null || low < high)
           )
             next = keyBetween(low, high);
         } catch {
           // An integer past 10^9: the list is respaced below.
         }
-        if (next === undefined || !isKey(next)) {
+        if (next === undefined || !isKeyFormat(next)) {
           // Tied or malformed neighbours, or a gap split too often: the
           // list is respaced, then read again.
           await respace(
@@ -799,7 +873,7 @@ function methods(ordered: Ordered, engine: () => Engine) {
         // fields), else the key and the list. `to` tries the move first.
         const stay = {
           where: { ...where, ...group },
-          data: { ...extra, [key]: next },
+          data: { ...writing, [key]: next },
         };
         const join = (guarded: boolean) => ({
           where: guarded
@@ -809,10 +883,10 @@ function methods(ordered: Ordered, engine: () => Engine) {
                   where.NOT === undefined ? group : [where.NOT, group].flat(),
               }
             : where,
-          data: { ...extra, [key]: next, ...group },
+          data: { ...writing, [key]: next, ...group },
         });
         const writes = home
-          ? [{ where, data: { ...extra, [key]: next } }]
+          ? [{ where, data: { ...writing, [key]: next } }]
           : to === undefined
             ? [stay, join(false)]
             : [join(true), stay];
@@ -1139,13 +1213,37 @@ type OrderingExtension<Config extends OrderingConfig> = {
 };
 
 /**
- * Order the members of lists: `client.$extends(ordering({ card: { key:
- * "rank", within: ["columnId"] } }))`. One step, applied in any order with
- * the other extensions.
+ * `{ models }`, or before 1.9.1 the models themselves: a model's entry holds
+ * strings (`key`), never only entries, so a model named `models` is one.
  */
+function isEnvelope<Config extends OrderingConfig>(
+  given: Config | { readonly models: Config }
+): given is { readonly models: Config } {
+  return (
+    Object.keys(given).length === 1 &&
+    "models" in given &&
+    isRecord(given.models) &&
+    Object.values(given.models).every(isRecord)
+  );
+}
+
+/**
+ * Order the members of lists: `client.$extends(ordering({ models: { card: {
+ * key: "rank", within: ["columnId"] } } }))`. One step, applied in any order
+ * with the other extensions.
+ */
+// biome-ignore lint/style/useUnifiedTypeSignatures: one signature over both forms would infer Config from each.
+export function ordering<const Config extends OrderingConfig>(config: {
+  readonly models: Config;
+}): OrderingExtension<Config>;
+/** The models as the whole argument, the form before 1.9.1, still accepted: write `ordering({ models: { … } })`, as `softDelete` and `permissions` take theirs. */
 export function ordering<const Config extends OrderingConfig>(
   config: Config
+): OrderingExtension<Config>;
+export function ordering<const Config extends OrderingConfig>(
+  given: Config | { readonly models: Config }
 ): OrderingExtension<Config> {
+  const config = isEnvelope(given) ? given.models : given;
   function extend<Base extends Receiver<Config>>(
     base: Base
   ): NoInfer<Applied<Config, Base>>;

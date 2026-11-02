@@ -17,7 +17,7 @@ import { createResolvedSchemaRegistry } from "@validation/builder";
 import type { NormalizedRecurrence } from "@validation/relations/recurrence";
 import type { VibSchema } from "@validation/types";
 import { isRecord } from "@validation/value-guards";
-import { InsertValue } from "./insert-value";
+import { InsertValue, Stored } from "./insert-value";
 import { parseValidated, upsertEnvelopeSchema } from "./parse-boundary";
 import type { Leaf, PreparedProjection } from "./query";
 import {
@@ -229,8 +229,11 @@ export class EngineSchema {
   ): Arguments {
     const schema = this.registry.getModelSchemas(model).args[operation];
     // A value an official extension computes in the statement (`InsertValue`)
-    // is no payload: it is set aside here and written as it is.
+    // is no payload: it is set aside here and written as it is. A field kept
+    // as stored (`Stored`) is set aside too, so no generated update value
+    // (`updatedAt()`) fills it, and is then not written at all.
     const computed: Input = {};
+    const kept: string[] = [];
     const input =
       (operation === "update" || operation === "updateMany") &&
       isRecord(raw) &&
@@ -241,7 +244,8 @@ export class EngineSchema {
               Object.entries(raw.data)
                 .filter(([field, value]) => {
                   if (!(value instanceof InsertValue)) return true;
-                  computed[field] = value;
+                  if (value instanceof Stored) kept.push(field);
+                  else computed[field] = value;
                   return false;
                 })
                 .sort(([left], [right]) => {
@@ -260,9 +264,14 @@ export class EngineSchema {
       "",
       model
     ) as Arguments;
-    return Object.keys(computed).length === 0
-      ? admitted
-      : { ...admitted, data: { ...(admitted.data as Input), ...computed } };
+    if (Object.keys(computed).length === 0 && kept.length === 0)
+      return admitted;
+    const data: Record<string, unknown> = {
+      ...(admitted.data as Input),
+      ...computed,
+    };
+    for (const field of kept) delete data[field];
+    return { ...admitted, data };
   }
   /**
    * Does this payload name a relation of the model? One spelling, asked by the

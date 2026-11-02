@@ -20,7 +20,7 @@ const card = s.model({
   column: s.toOne(() => column).fields("columnId").references("id"),
 }).index(["columnId", "rank", "id"]);
 
-const db = ordering({ card: { key: "rank", within: ["columnId"] } })(base);
+const db = ordering({ models: { card: { key: "rank", within: ["columnId"] } } })(base);
 
 await db.card.create({ data: { columnId, title: "Write the docs" } }); // last of its column
 await db.card.move({ where: { id }, after: { id: otherId } });
@@ -33,7 +33,9 @@ import it carries only the engine's hooks for it (under 1 kB gzipped).
 
 ## Configuration
 
-`ordering({ [model]: { key, within } })`:
+`ordering({ models: { [model]: { key, within } } })`, as `softDelete` and
+`permissions` take their models (before 1.9.1 the models were the whole
+argument, `ordering({ card: … })`, which still works, deprecated):
 
 - `key`: a required string field. The extension writes it. Its default, if
   any, is a literal string, for rows the extension did not create (see
@@ -73,7 +75,8 @@ nested creates, `upsert`'s create branch and `connectOrCreate`'s. A key you
 write is used as is.
 
 The key is computed by the INSERT itself, from the last key of its list: a
-create sends the statements it sends without the extension. Two creates into
+create sends the statements it sends without the extension, and so does an
+`upsert` (one `INSERT … ON CONFLICT` where the database returns rows). Two creates into
 one list at the same moment both go after every member that was there; which
 of the two comes first is arbitrary.
 
@@ -103,6 +106,11 @@ await db.card.move({ where: { id }, to: { columnId: doneId }, first: true });
 
 - `where` names the row; `after` and `before` name the anchor, both with the
   model's unique inputs. With an anchor, the row joins the anchor's list.
+  An anchor's other fields are a condition it must hold: `after: { id,
+  columnId }` is not found (`NotFoundError`) once that row has left
+  `columnId`. A move written in one statement checks it there; one that
+  reads (MySQL, a used-up gap, a row already in place) checks it on the
+  anchor it reads.
 - `to` names another list by its `within` fields, with `first` or `last`
   (`last` when alone).
 - `data` writes other fields of the row in the same UPDATE as the key, as an
@@ -119,13 +127,16 @@ column and its place in one move, one statement, by `data`:
 
 ```ts
 // One order for the board and every other view of the table.
-ordering({ card: { key: "rank" } });
+ordering({ models: { card: { key: "rank" } } });
 await db.card.move({ where: { id }, after: { id: neighbourId }, data: { columnId } });
 ```
 
-A move is one `update` through the client: `updatedAt`, validation,
-permissions and [write hooks](/docs/extensions/on) apply as to any update
-of the row. Its new key is computed by the UPDATE itself, from the keys
+A move is one `update` through the client: validation, permissions and
+[write hooks](/docs/extensions/on) apply as to any update of the row. A
+row placed elsewhere is not a row changed: its `updatedAt()` fields keep
+their value, unless `data` writes one, and they are no field the move
+writes when [`verbs`](/docs/extensions/create#judge-writes-with-verbs)
+judge it. Its new key is computed by the UPDATE itself, from the keys
 around the row's place, read by subqueries in the same statement:
 
 ```sql
@@ -195,7 +206,7 @@ neighbours were read: if another writer moved one of them, or a respace
 gave the list new keys, the row lands among the keys as they are now, not
 next to the cards the caller saw. `keyBetween` throws where `lower` is not
 below `upper` (tied neighbours), and a key can outgrow `MAX_KEY_LENGTH`
-(check `isKey`): place the row with an anchor then, which respaces. With
+(check `isKeyFormat`): place the row with an anchor then, which respaces. With
 `orderingKey`, a key of 10^8 or more is refused. A key that is not one is a
 `ValidationError`, `key` with `after` or `before` too.
 
@@ -228,8 +239,9 @@ database: the UPDATE ranks the lists' members itself (a list holding no row
 the caller can see `where` matches is left alone) and binds no value per
 member. Every extension applies to it as to any update:
 the rows written are those the caller may see and update, write hooks run,
-`updatedAt` is refreshed, and the [official cache](/docs/extensions/cache)
-is invalidated as after any write.
+and the [official cache](/docs/extensions/cache) is invalidated as after any
+write. `updatedAt()` fields keep their value, as in a move: a list
+respaced (by `rekey`, or by a move whose gap is used up) changes no row.
 
 A list's order is shared, so `rekey` never moves a member the caller cannot
 write (hidden from it, or seen and not writable), nor writes it. The members
@@ -269,8 +281,10 @@ collation. Letters would not do: Czech sorts `ch` after `h`, Danish sorts
 exception.
 
 `keyBetween(lower, upper)` (`null` for an open end) computes a key between
-two, for [`move` with a key](#with-a-key-you-computed); `isKey(value)` tells
-whether a value is a key.
+two, for [`move` with a key](#with-a-key-you-computed); `isKeyFormat(value)`
+tells whether a value is written as a key, as every key a list holds is
+(`orderingKey` also refuses a write setting a key of 10^8 or more). It was
+named `isKey` before 1.9.1, which still works (deprecated).
 
 Each generated key holds a random part, so two writers placing into one gap
 at the same moment get distinct keys. A tie (equal keys) is still possible

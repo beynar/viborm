@@ -3,6 +3,70 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## 1.9.1 — 2026-11-02
+
+### Fixed
+
+- **An upsert is one `INSERT … ON CONFLICT` again under `ordering()`.**
+  A client with any extension writing values (a `data` stamp, the
+  ordering key's append) took the emulated upsert on **every** model, the
+  ones the extension never writes too: a locating read, then the INSERT or
+  the UPDATE, then a read (3–5 statements, in a transaction). An upsert now
+  folds into one statement wherever it did without the extension, and on
+  an ordered model too: its appended key is computed in the INSERT, as a
+  create's is. A model whose extension writes a value the call admits (a
+  stamped constant, an update stamp) keeps the emulated path, so that
+  value is still admitted only by the arm that writes it. MySQL, which
+  has no `RETURNING`, never folds and is unchanged.
+- **Ordering's own writes leave `updatedAt()` as stored.** A `move`
+  refreshed the moved row's `updatedAt()` fields, and a respace (`rekey`,
+  or a move whose gap was used up) every row of the list, rows nobody
+  edited included: a row placed elsewhere is not a row changed. `move`,
+  `rekey` and respacing now leave such fields out of their UPDATE, unless
+  a move's `data` writes one (a field `data` gives `undefined` is left
+  out, as in any update), and a model's `verbs` do not judge them as
+  written. An app that kept the date
+  by locking and reading the row before `move` can drop that read.
+- **An anchor's other fields work on every move path.** `after: { id,
+  groupId }` was accepted where the move is one statement, but a move that
+  reads first (MySQL, a used-up gap, a row already in place) passed the
+  whole anchor as a `cursor` and failed (`V4001 cursor.groupId: Unknown
+  key`). That path now reads the anchor by all it states (`NotFoundError`
+  where it no longer holds them), then its neighbours from the anchor's own
+  key; an anchor that changes list between the two reads is read again, not
+  replaced by the row after it. On that path the condition holds when the
+  anchor is read, not inside the UPDATE.
+- **A move next to an anchor named by a nullable field lands next to it.**
+  The one-statement move told the anchor and the moved row apart from the
+  other members by the fields their selectors name; a member holding `NULL`
+  in one of them dropped out of the neighbours, and the row could land past
+  them (an anchor `{ due, columnId }` among rows without `due`).
+- **Tied keys in a model of one list (or a `first` / `last` move) never
+  write a `NULL` key.** The one-statement move's guard lost its parentheses
+  (`AND` over `OR`): where its key could not be computed between two tied
+  keys, it wrote `NULL` (`NotNullConstraintError`) instead of respacing.
+  Since 1.7.0.
+- **A model with a column named `k`, `nk`, `i0` or `w0` can be respaced.**
+  Respacing's joined table named its columns so; under a write hook (its
+  `RETURNING`) PostgreSQL refused the column as ambiguous. They are now
+  named as no schema identifier can be.
+
+### Changed
+
+Three names that said less than they meant, from an audit of the API added
+since 1.6.0. Each former spelling still works; the docs and the type
+comments use the new one.
+
+- **`softDelete({ actorId })`**, formerly `actor`: the value a delete writes
+  into `deletedBy`, fixed per client. `actor` is what `permissions` calls
+  the request's actor schema, a different thing. Giving both is refused.
+- **`ordering({ models: { card: { key, within } } })`**, as `softDelete`
+  and `permissions` take their models. `ordering({ card: … })` still works.
+- **`isKeyFormat(value)`**, formerly `isKey`: whether a value is written as
+  a key, as every key a list holds is. `orderingKey` also refuses a write
+  setting a key of 10^8 or more, so a value `isKeyFormat` accepts may still
+  be refused as written data.
+
 ## 1.9.0 — 2026-11-02
 
 A policy declares the tenant its calls stay in, and its cost stops growing

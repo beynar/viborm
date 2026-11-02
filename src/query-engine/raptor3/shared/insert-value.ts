@@ -39,6 +39,20 @@ export abstract class InsertValue {
 }
 
 /**
+ * An update value keeping the field as stored (an official extension's
+ * call, never a caller's payload): set aside at admission as any
+ * `InsertValue`, so no generated update value (`updatedAt()`) fills it,
+ * then dropped from the data (an update left with nothing to write is one
+ * that writes nothing), and not judged as a field the write writes.
+ * Ordering's own writes place a row; they do not change it.
+ */
+export class Stored extends InsertValue {
+  compute(): never {
+    throw new Error("Stored is no value: the update leaves its field out");
+  }
+}
+
+/**
  * An `updateMany` value read from a derived table the UPDATE joins (an
  * official extension's call, never a caller's payload): `join` answers that
  * table, aliased, and the condition matching it to the row written, over the

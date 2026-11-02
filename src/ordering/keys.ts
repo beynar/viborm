@@ -55,14 +55,21 @@ function split(key: string): { integer: string; fraction: string } | undefined {
   return { integer, fraction };
 }
 
-/** Whether `value` is a key: the grammar above, at most MAX_KEY_LENGTH. */
-export function isKey(value: unknown): value is string {
+/**
+ * Whether `value` is written as a key: the grammar above, at most
+ * MAX_KEY_LENGTH. Every key a list may hold; `orderingKey` also refuses a
+ * write setting an integer part of 10^8 or more.
+ */
+export function isKeyFormat(value: unknown): value is string {
   return (
     typeof value === "string" &&
     value.length <= MAX_KEY_LENGTH &&
     split(value) !== undefined
   );
 }
+
+/** {@link isKeyFormat}'s name before 1.9.1, still accepted (a write may still refuse a key it accepts: `orderingKey`). */
+export const isKey = isKeyFormat;
 
 function parse(key: string): { value: bigint; fraction: string } {
   const parts = split(key);
@@ -164,7 +171,7 @@ function fractionsBetween(
  *   else fractions under `lower`'s integer.
  *
  * A result may exceed MAX_KEY_LENGTH once a gap has been split many times;
- * the caller checks `isKey` and respaces the neighbourhood when it does not.
+ * the caller checks `isKeyFormat` and respaces the neighbourhood when it does not.
  * Throws a RangeError when `lower` is not strictly below `upper`.
  */
 export function keysBetween(
@@ -216,7 +223,7 @@ export function keysBetween(
  * SQL append reads it.
  */
 export function keysAfter(last: string | null, count: number): string[] {
-  if (last === null || isKey(last as unknown))
+  if (last === null || isKeyFormat(last as unknown))
     return keysBetween(last, null, count);
   const length = Number(last[0]);
   const integer = last.slice(1, 1 + length);
