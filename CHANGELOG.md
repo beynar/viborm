@@ -3,6 +3,57 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## 1.9.0 — 2026-11-02
+
+A policy declares the tenant its calls stay in, and its cost stops growing
+with every other tenant of the database.
+
+### Added
+
+- **`permissions({ tenant: { field, actor, except? } })`.** Inside the
+  policy's own rules, on every model with the scalar `field` (but the ones
+  `except` names), a set computed over a whole table holds only the rows
+  whose `field` is the actor's `actor` path, where a positive test reads
+  it: a body the statement repeats, and, on a driver that bounds relations
+  per statement (Neki), a walk computed as a set. Without it, those sets
+  read every tenant's rows: "the teams the actor belongs to", "the grants
+  that name them", "the documents they may read". Measured on a 40-model
+  production policy at 500 organizations of 60 members (PostgreSQL 18):
+  the sidebar's read 1,152 → 11 ms, a document list 7.8 s → 200 ms, a team
+  list 8.4 s → 124 ms, opening a page 1,013 → 5 ms; at 5 organizations,
+  unchanged. Nothing else reads differently: relations a call reads, a
+  field's read gate, other extensions' predicates. Where every row of such a model a rule reads is
+  the actor's tenant's, the policy answers what it answered; where one is
+  not, `tenant` only takes access away: what a negative test (`none`,
+  `every`, `isNot`, `NOT`) reads, or ranges over, is never bounded.
+  Checked when the policy is applied: `actor` a path of the actor schema
+  (also in its type), `field` a scalar of some model, each `except` a
+  model holding it.
+- **`move({ where, after | before | first | last | key | to, data })`**:
+  `data` writes other fields in the same UPDATE as the key, judged as an
+  update writing them. With one order for the whole table (no `within`), a
+  Kanban grouped by any field changes a card's column and its place in one
+  statement. `data` never names the key nor a `within` field.
+- **`rows.bound`**, the capability `tenant` is built on: per model, a
+  `where` every row of a set an extension's own predicates compute over a
+  whole table holds, where a positive test reads it. Any extension may
+  state one; without it, nothing changes.
+
+### Fixed
+
+- **A key with `.default("")` and `orderingKey`**, the documented adoption
+  path: a create through `ordering` that left the key out was refused, its
+  default `""` validated before the append replaced it. A field an
+  extension's stamp writes, and the caller leaves out, now takes neither
+  its default nor its validator: the stamp's value is the one written.
+
+### Changed
+
+- **A default its field's own validator (`.schema()`) refuses is no longer
+  refused when the schema is checked (`F004`) or pushed (its DDL)**, as long
+  as it has the field's type: it is validated where a create takes it, and
+  refused there, as before. One of the wrong type is still `F004`.
+
 ## 1.8.0 — 2026-11-02
 
 Soft delete and ordering are one `$extends` each, applied in any order with

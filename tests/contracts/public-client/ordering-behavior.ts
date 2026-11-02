@@ -161,6 +161,76 @@ export function describeOrdering(
       expect(updated.title).toBe("c2");
     });
 
+    test("a move writes its data in the statements a move takes", async () => {
+      const db = await setup();
+      for (const title of ["a", "b", "c"])
+        await db.card.create({ data: { id: title, columnId: "c1", title } });
+      statements.length = 0;
+      const moved = await db.card.move({
+        where: { id: "a" },
+        after: { id: "b" },
+        data: { title: "a!" },
+      });
+      expect(statements).toHaveLength(move);
+      expect(moved.title).toBe("a!");
+      expect(await listOf(db, "c1")).toEqual(["b", "a!", "c"]);
+      // Already in place: its key stays, its data is written.
+      const kept = await db.card.findUnique({ where: { id: "a" } });
+      const again = await db.card.move({
+        where: { id: "a" },
+        after: { id: "b" },
+        data: { title: "a!!" },
+      });
+      expect(again.rank).toBe(kept.rank);
+      expect(await listOf(db, "c1")).toEqual(["b", "a!!", "c"]);
+      // The key and the list are the move's own to write, through a
+      // relation too; a field spelled `undefined` is not written.
+      for (const data of [
+        { rank: "15" },
+        { columnId: "c2" },
+        { column: { connect: { id: "c2" } } },
+        // An update of the column may change its key, cascading to the list.
+        { column: { update: { id: "c3" } } },
+      ])
+        await expect(
+          db.card.move({ where: { id: "a" }, first: true, data })
+        ).rejects.toThrow("data writes other fields than the key");
+      expect(
+        (
+          await db.card.move({
+            where: { id: "a" },
+            first: true,
+            data: { columnId: undefined, title: "a" },
+          })
+        ).title
+      ).toBe("a");
+    });
+
+    test("one order for every grouping: a card changes column with its place, in one move", async () => {
+      await setup();
+      // No `within`: the order is the table's, whatever a view groups by.
+      const db = ordering({ card: { key: "rank" } })(counted_ as any) as any;
+      for (const [id, columnId] of [
+        ["a", "c1"],
+        ["b", "c1"],
+        ["x", "c2"],
+        ["y", "c2"],
+      ] as const)
+        await db.card.create({ data: { id, columnId, title: id } });
+      statements.length = 0;
+      const moved = await db.card.move({
+        where: { id: "a" },
+        after: { id: "x" },
+        data: { columnId: "c2" },
+      });
+      expect(statements.length).toBeLessThanOrEqual(move);
+      expect(moved.columnId).toBe("c2");
+      expect(
+        titles(await db.card.findMany({ where: { columnId: "c2" } }))
+      ).toEqual(["x", "a", "y"]);
+      expect(titles(await db.card.findMany())).toEqual(["b", "x", "a", "y"]);
+    });
+
     test("a move with a key the caller computed writes it, nothing read first", async () => {
       const db = await setup();
       for (const title of ["a", "b", "c"])

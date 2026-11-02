@@ -90,6 +90,20 @@ describe("actor paths", () => {
       models: { organization: { export: { actor: { netwrk: "office" } } } },
     });
   });
+
+  test("a tenant names a path of the actor schema", () => {
+    permissions({
+      actor: Actor,
+      tenant: { field: "organizationId", actor: "organizationId" },
+      models: { page: { read: {} } },
+    });
+    // @ts-expect-error - "orgId" is not a path of the actor schema
+    permissions({
+      actor: Actor,
+      tenant: { field: "organizationId", actor: "orgId" },
+      models: { page: { read: {} } },
+    });
+  });
 });
 
 describe("action names", () => {

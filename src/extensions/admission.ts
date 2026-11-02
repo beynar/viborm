@@ -612,10 +612,17 @@ export function admitRows(
     }
     models[name] = Object.freeze(Object.fromEntries(admitted));
   }
+  const bound: Record<string, object> = {};
+  for (const [name, predicate] of Object.entries(rows.bound ?? {})) {
+    if (!Object.hasOwn(schema, name))
+      refuse(name, `bound.${name}`, "root", "names an unknown model");
+    bound[name] = admit(name, `bound.${name}`, predicate);
+  }
   const admitted = Object.freeze({
     ...rows,
     models: Object.freeze(models),
     ...(rows.verbs && { verbs: Object.freeze(verbs) }),
+    ...(rows.bound && { bound: Object.freeze(bound) }),
   }) as RowsContribution;
   if (entries) freezeAdmitted(admitted);
   if (entries && isAdmittedRows(admitted)) {

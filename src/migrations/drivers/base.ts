@@ -8,6 +8,7 @@ import { stringifyJson } from "../../adapters/shared/standard-sql";
 
 import { jsonNullKindOf } from "@schema/json-null";
 import type { Scalar, ScalarState } from "@schema/scalars";
+import { refinedStringDefault } from "@schema/validation/rules/model";
 import {
   type DecimalDialect,
   decimalDefaultText,
@@ -989,6 +990,9 @@ export abstract class MigrationDriver {
         VibORMErrorCode.INVALID_INPUT
       );
     const result = state.base["~standard"].validate(value);
+    // A string's own validator judges its default where a create takes it;
+    // the column still holds one it refuses (`refinedStringDefault`).
+    if (!("value" in result) && refinedStringDefault(state)) return value;
     if (!("value" in result))
       throw new MigrationError(
         `Invalid ${state.type} literal default; the declared scalar schema refused it before DDL.`,

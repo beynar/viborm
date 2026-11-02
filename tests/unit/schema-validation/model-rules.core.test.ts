@@ -312,6 +312,44 @@ describe("model definition rules", () => {
     expect(errorCodes({ model })).toContain("F004");
   });
 
+  it("leaves a default its field's own validator refuses to the create that takes it", () => {
+    const refusing = {
+      "~standard": {
+        version: 1,
+        vendor: "test",
+        validate: (value: unknown) =>
+          value === ""
+            ? { issues: [{ message: "not a key" }] }
+            : { value: value as string },
+      },
+    } as const;
+    const adopted = s.model({
+      id: s.string().id(),
+      rank: s.string().schema(refusing).default(""),
+    });
+    expect(errorCodes({ adopted })).not.toContain("F004");
+    const scalar = s.string().schema(refusing);
+    const mistyped = s.model({
+      id: s.string().id(),
+      rank: Reflect.apply(scalar.default, scalar, [42]),
+    });
+    expect(errorCodes({ mistyped })).toContain("F004");
+    // Only a string's: an integer's scalar check still runs, and a list's
+    // default is judged whole, as before.
+    const accepting = {
+      "~standard": {
+        version: 1,
+        vendor: "test",
+        validate: (value: unknown) => ({ value: value as number }),
+      },
+    } as const;
+    const fractional = s.model({
+      id: s.string().id(),
+      count: s.int().schema(accepting).default(1.5),
+    });
+    expect(errorCodes({ fractional })).toContain("F004");
+  });
+
   it("rejects an array scalar used as a single-field ID", () => {
     const model = s.model({ id: s.string().array().id({ generate: false }) });
 

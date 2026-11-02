@@ -105,9 +105,22 @@ await db.card.move({ where: { id }, to: { columnId: doneId }, first: true });
   model's unique inputs. With an anchor, the row joins the anchor's list.
 - `to` names another list by its `within` fields, with `first` or `last`
   (`last` when alone).
+- `data` writes other fields in the same UPDATE as the key, as an `update`'s
+  data (permissions judge the fields it writes). It never names the key, nor
+  a `within` field: `to` moves a row between lists.
 - `select`, `include` and `omit` shape the result, as `update`'s do; `move`
   returns what `update` returns.
-- Moving a row to where it already is writes nothing.
+- Moving a row to where it already is writes nothing but its `data`.
+
+A model without `within` keeps one order for the whole table, whatever a
+view groups its rows by. A Kanban grouped by a column then changes a card's
+column and its place in one move, one statement, by `data`:
+
+```ts
+// One order for the board and every other view of the table.
+ordering({ card: { key: "rank" } });
+await db.card.move({ where: { id }, after: { id: neighbourId }, data: { columnId } });
+```
 
 A move is one `update` through the client: `updatedAt`, validation,
 permissions and [write hooks](/docs/extensions/on) apply as to any update
@@ -240,8 +253,10 @@ It is how an existing table adopts the extension:
    on go after them.
 2. Deploy with `ordering()` applied.
 3. `rekey` each list in the order it should have (`orderBy`).
-4. Optionally, drop the default and add `.schema(orderingKey)` (a validator
-   refuses a default that is not a key).
+4. Optionally, add `.schema(orderingKey)`; the default may stay. A create
+   through the client appends a key, so the default `""` is never validated
+   there; a client without `ordering` takes the default, and the validator
+   refuses it, as it refuses a `""` a caller writes.
 
 ## Keys
 

@@ -1681,6 +1681,72 @@ shared ones where bodies are shared. Measured on a 40-model production policy
 governed reads 15–28 % shorter and 25–35 % faster (an `accessGrant` read:
 26.3 KB, 14.0 ms → 21.5 KB, 10.6 ms).
 
+### One tenant per call: `tenant`
+
+Where a body repeats in a statement, PostgreSQL drivers and D1 compute it
+once, as a set: "the grants that name the actor", "the teams the actor
+belongs to", "the documents the actor may read". The set is computed over
+the whole table, bounded only by what the body itself states. A grant names
+the actor by `userId`, a team by its members: nothing in either says which
+organization. So the set reads every organization's rows, and the policy's
+cost grows with the database rather than with the caller's organization.
+Measured on a 40-model production policy at 500 organizations of 60 members
+(PostgreSQL 18), the sidebar's read took 1.15 s and a document list 7.8 s,
+for an organization whose reads took 9 and 146 ms in a database of 5.
+
+When every governed call stays in the actor's organization, as a policy
+whose every model's `mandatory` holds `organizationId: { actor:
+"organizationId" }` does, say so once:
+
+```ts
+const policy = permissions({
+  actor: Actor,
+  tenant: { field: "organizationId", actor: "organizationId" },
+  models: { … },
+});
+```
+
+Inside the policy's own rules, on every model with a scalar
+`organizationId`, a set the statement computes over the whole table (a
+repeated body; on a driver that bounds the relations of a statement, such
+as PlanetScale's Neki, a walk computed as a set) then holds the actor's
+organization's rows only, where a test reads it positively: `some` or `is`,
+outside a `NOT`, and not in what a `none`, `every` or `isNot` ranges over.
+Nothing else changes: the rows a call reads through a relation, a relation
+a rule reads row by row, the set an `$exists` body is, a field's read gate
+(`fields.x.read`, which masks a value rather than testing a row), and every
+other extension's predicates read rows as they are.
+
+With `tenant`, the measurements above became 11 ms and 200 ms.
+
+Where every row of such a model that a rule reads, through any relation,
+belongs to the actor's organization, the policy answers exactly what it
+answers without `tenant`. Where one does not (a grant written in another
+organization than its page's, a team of another organization reached
+through a person's memberships), a rule may read fewer rows than without
+`tenant`, depending on how the statement computes them, and never more:
+`tenant` only takes access away. Declare `actor` as a required path of the
+actor schema: an actor without it reads every bounded set as empty.
+
+A model whose rows a rule reads beyond the actor's organization is left out
+with `except`: a person's memberships of every organization they belong to
+(an organization switcher's rule), and a model whose rows may belong to no
+organization (a shared catalogue whose `organizationId` is `null`, or a
+sentinel value), which `tenant` would otherwise drop from a rule's sets as
+another organization's:
+
+```ts
+tenant: {
+  field: "organizationId",
+  actor: "organizationId",
+  except: ["member", "integration"],
+},
+```
+
+The declaration is checked when the policy is applied: `actor` is a path of
+the actor schema, `field` a scalar field of some model, each `except` a model
+holding it.
+
 ### Size
 
 `viborm/permissions` is a separate entry point, carried only by an application

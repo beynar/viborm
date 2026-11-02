@@ -9,6 +9,23 @@ import { isGeneratorDefault } from "../../scalars/common";
 import type { Schema, SchemaValidationIssue } from "../types";
 import { getScalars } from "./model-members";
 
+/**
+ * A string field's literal string default under its own validator
+ * (`.schema()`): the column holds it whatever the validator says, and a
+ * create validates it where it takes it (an extension's stamp may replace
+ * it, as an appended ordering key replaces `""`).
+ */
+export const refinedStringDefault = (state: {
+  readonly type: string;
+  readonly array: boolean;
+  readonly schema: unknown;
+  readonly default: unknown;
+}): boolean =>
+  state.schema !== undefined &&
+  state.type === "string" &&
+  !state.array &&
+  typeof state.default === "string";
+
 function validateFieldNames(
   modelName: string,
   model: Model<any>
@@ -176,12 +193,16 @@ export function validateFieldsSinglePass(
 
     // F004: Default type match. A decimal literal crossed its complete field
     // codec when `.default()` retained it, so this downstream boundary trusts
-    // that canonical output instead of applying a custom schema twice.
+    // that canonical output instead of applying a custom schema twice. A
+    // string's default its own validator (`.schema()`) refuses is validated
+    // where a create takes it: one an extension's stamp replaces (an
+    // appended ordering key over `""`) is never taken, so never refused.
     if (
       st.hasDefault &&
       st.default !== undefined &&
       typeof st.default !== "function" &&
-      st.type !== "decimal"
+      st.type !== "decimal" &&
+      !refinedStringDefault(st)
     ) {
       const jsonKind =
         st.type === "json" ? jsonNullKindOf(st.default) : undefined;

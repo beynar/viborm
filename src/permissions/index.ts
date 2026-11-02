@@ -207,12 +207,24 @@ type ConditionPaths<T> = T extends object
       }[RequiredKeys<T> & string]
   : never;
 
+type TenantActorPath<Config> = Config extends {
+  readonly tenant: { readonly actor: infer Path extends string };
+}
+  ? Path
+  : never;
 type UnknownActorPaths<Config extends PermissionsConfig> = Exclude<
-  SpelledActorPaths<Config["models"] | Config["mandatory"]>,
+  | SpelledActorPaths<Config["models"] | Config["mandatory"]>
+  | TenantActorPath<Config>,
   ActorPaths<InferOutput<Config["actor"]>>
 >;
 
-type ConfigKey = "actor" | "levels" | "mandatory" | "models" | "cache";
+type ConfigKey =
+  | "actor"
+  | "levels"
+  | "mandatory"
+  | "models"
+  | "cache"
+  | "tenant";
 
 /** `unknown` when the declaration's names agree; else a member naming the first disagreement. */
 type DeclarationCheck<Config extends PermissionsConfig> = [
@@ -625,18 +637,26 @@ function modesOf(models: { readonly [model: string]: DeclaredModel }) {
       Object.values(models).flatMap((model) => Object.keys(model.modes))
     ),
   ];
-  const narrowing = (model: DeclaredModel, mode: string) => {
-    if (mode === DEFAULT_MODE || mode === model.read) return {};
-    return {
-      root: Object.hasOwn(model.modes, mode) ? model.modes[mode]! : FALSE,
-    };
-  };
+  const narrowing = (model: DeclaredModel, mode: string) => ({
+    ...(mode !== DEFAULT_MODE &&
+      mode !== model.read && {
+        root: Object.hasOwn(model.modes, mode) ? model.modes[mode]! : FALSE,
+      }),
+  });
   return Object.fromEntries(
     Object.entries(models).map(([name, model]) => [
       name,
       Object.fromEntries(names.map((mode) => [mode, narrowing(model, mode)])),
     ])
   );
+}
+
+/** The tenant the policy's own whole-table sets stay in (`tenant`). */
+function boundOf(models: { readonly [model: string]: DeclaredModel }) {
+  const bound: Record<string, Where> = {};
+  for (const [name, model] of Object.entries(models))
+    if (model.bound !== undefined) bound[name] = model.bound;
+  return Object.keys(bound).length === 0 ? {} : { bound };
 }
 
 /** Whether `name` has a self relation holding its key: what `acyclic` may name. */
@@ -881,6 +901,7 @@ export function permissions<const Config extends PermissionsConfig>(
       default: DEFAULT_MODE,
       models: modesOf(declared),
       verbs,
+      ...boundOf(declared),
     },
     query: refuseUnreachable(reachOf(config, declared)),
     client: (scope: {
@@ -941,8 +962,13 @@ export function permissions<const Config extends PermissionsConfig>(
   };
   /** Every model compiled when the policy is applied: a declaration we cannot copy. */
   const eagerDefinition = (schema: Schema) => {
-    const compiled = compile(schema);
-    return definitionOf(compiled.scopes, compiled.models, verbsOf(compiled));
+    const compiler = policyCompiler(
+      config,
+      Object.freeze({ ...schema }),
+      actor
+    );
+    const compiled = compiler.policy();
+    return definitionOf(compiled.scopes, compiler.declared, verbsOf(compiled));
   };
   /**
    * The application of the policy to `schema`: kept while the declaration

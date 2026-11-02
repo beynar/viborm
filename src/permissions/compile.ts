@@ -92,6 +92,20 @@ export interface PermissionsConfig {
    * session reaches it only after its TTL. Refused when absent.
    */
   readonly cache?: "allow";
+  /**
+   * The tenant a governed call stays in: on every model with a scalar
+   * `field` but the ones `except` names, a set the policy's rules compute
+   * over a whole table, where a positive test reads it, holds only the rows
+   * whose `field` is the actor's `actor` path (`rows.bound`). Nothing else
+   * reads differently. `except` names the models whose rows a rule reads
+   * beyond the actor's tenant: a person's memberships of other
+   * organizations, a shared catalogue.
+   */
+  readonly tenant?: {
+    readonly field: string;
+    readonly actor: string;
+    readonly except?: readonly string[];
+  };
 }
 
 /**
@@ -147,6 +161,7 @@ const CONFIG_KEYS = new Set([
   "mandatory",
   "models",
   "cache",
+  "tenant",
 ]);
 const FIELD_KEYS = new Set(["read", "write"]);
 
@@ -502,6 +517,8 @@ export interface DeclaredModel {
   readonly update?: string;
   readonly delete?: string;
   readonly modes: { readonly [mode: string]: string };
+  /** What the policy's own whole-table sets of this model hold (`tenant`). */
+  readonly bound?: Where;
 }
 
 /**
@@ -738,6 +755,43 @@ export function policyCompiler(
       refuse(
         `${at} reads actor path "${read}", which the actor schema does not declare`
       );
+  };
+  /** Each model's tenant bound (`tenant`), checked once: undefined where the model has no such field. */
+  const tenantOf = (
+    tenant: PermissionsConfig["tenant"]
+  ): ((name: string) => Where | undefined) => {
+    if (tenant === undefined) return () => undefined;
+    const except = tenant?.except ?? [];
+    if (
+      !isRecord(tenant) ||
+      typeof tenant.field !== "string" ||
+      typeof tenant.actor !== "string" ||
+      !Array.isArray(except) ||
+      except.some((name) => typeof name !== "string") ||
+      Object.keys(tenant).some(
+        (key) => key !== "field" && key !== "actor" && key !== "except"
+      )
+    )
+      refuse(
+        "tenant is { field, actor, except? }: the scalar field that names a row's tenant, the actor path that names the caller's, and the models read beyond it"
+      );
+    path("tenant.actor", tenant.actor);
+    const holds = (name: string) =>
+      Object.hasOwn(stateOf(name).scalars, tenant.field);
+    if (!Object.keys(schema).some(holds))
+      refuse(
+        `tenant.field: no model of the schema has a scalar field "${tenant.field}"`
+      );
+    for (const name of except)
+      if (!(Object.hasOwn(schema, name) && holds(name)))
+        refuse(
+          `tenant.except names ${name}, which is not a model of the schema with a scalar field "${tenant.field}"`
+        );
+    const bound: Where = Object.freeze({
+      [tenant.field]: Object.freeze({ control: "actor", path: tenant.actor }),
+    });
+    return (name) =>
+      holds(name) && !except.includes(name) ? bound : undefined;
   };
   /** A value position: the actor's fields as values, checked. */
   const value = (at: string, input: unknown): unknown => {
@@ -1959,11 +2013,19 @@ export function policyCompiler(
       )
     )
   );
+  const related = tenantOf(config.tenant);
   const declared = Object.freeze(
     Object.fromEntries(
       Object.keys(schema).map((name) => {
         const known = declarations.get(name);
-        if (known === undefined) return [name, UNLISTED];
+        const bound = related(name);
+        if (known === undefined)
+          return [
+            name,
+            bound === undefined
+              ? UNLISTED
+              : Object.freeze({ ...UNLISTED, bound }),
+          ];
         const { read, update, delete: remove, modes } = known;
         return [
           name,
@@ -1972,6 +2034,7 @@ export function policyCompiler(
             ...(update !== undefined && { update }),
             ...(remove !== undefined && { delete: remove }),
             modes,
+            ...(bound !== undefined && { bound }),
           }),
         ];
       })
