@@ -103,6 +103,16 @@ export async function probes() {
   });
   // @ts-expect-error a key is a placement of its own
   await db.card.move({ where: { id: "a" }, key: "15", after: { id: "b" } });
+  // `data` writes other fields beside the key, never the key nor the list.
+  await db.card.move({ where: { id: "a" }, first: true, data: { title: "t" } });
+  // @ts-expect-error data never writes the key
+  await db.card.move({ where: { id: "a" }, first: true, data: { rank: "15" } });
+  await db.card.move({
+    where: { id: "a" },
+    first: true,
+    // @ts-expect-error data never writes a list field: `to` moves the row
+    data: { title: "t", columnId: "c2" },
+  });
   // One placement.
   // @ts-expect-error after and before together
   await db.card.move({

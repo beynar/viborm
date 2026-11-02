@@ -974,7 +974,8 @@ type MoveData<
 > = Omit<
   NonNullable<NonNullable<ModelArgs<C, K, "update">>["data"]>,
   Config[K]["key"] | WithinOf<Config, K>
->;
+> &
+  None<Config[K]["key"] | WithinOf<Config, K>>;
 type MoveArgs<
   M,
   C extends VibORMConfig,
