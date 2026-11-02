@@ -53,8 +53,8 @@ Versioning.
 ### Changed
 
 Three names that said less than they meant, from an audit of the API added
-since 1.6.0. Each former spelling still works, typed `@deprecated`; the
-docs use the new one.
+since 1.6.0. Each former spelling still works; the docs and the type
+comments use the new one.
 
 - **`softDelete({ actorId })`**, formerly `actor`: the value a delete writes
   into `deletedBy`, fixed per client. `actor` is what `permissions` calls

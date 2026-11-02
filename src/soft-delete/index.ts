@@ -20,7 +20,7 @@ export interface SoftDeleteConfig {
   readonly models: Readonly<Record<string, SoftDeleteModel>>;
   /** What a delete writes into `deletedBy`, fixed per derived client. */
   readonly actorId?: string | number | bigint;
-  /** @deprecated Since 1.9.1: `actorId` (`actor` names the request's actor in `permissions`). */
+  /** `actorId`'s name before 1.9.1, still accepted (`actor` names the request's actor in `permissions`). */
   readonly actor?: string | number | bigint;
 }
 type Schema = VibORMConfig["schema"];

@@ -1209,11 +1209,11 @@ type OrderingExtension<Config extends OrderingConfig> = {
  * key: "rank", within: ["columnId"] } } }))`. One step, applied in any order
  * with the other extensions.
  */
-// biome-ignore lint/style/useUnifiedTypeSignatures: the former form is its own signature so that it alone is @deprecated.
+// biome-ignore lint/style/useUnifiedTypeSignatures: one signature over both forms would infer Config from each.
 export function ordering<const Config extends OrderingConfig>(config: {
   readonly models: Config;
 }): OrderingExtension<Config>;
-/** @deprecated Since 1.9.1: `ordering({ models: { … } })`, as `softDelete` and `permissions` take theirs. */
+/** The models as the whole argument, the form before 1.9.1, still accepted: write `ordering({ models: { … } })`, as `softDelete` and `permissions` take theirs. */
 export function ordering<const Config extends OrderingConfig>(
   config: Config
 ): OrderingExtension<Config>;

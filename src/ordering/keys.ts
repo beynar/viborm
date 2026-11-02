@@ -68,7 +68,7 @@ export function isKeyFormat(value: unknown): value is string {
   );
 }
 
-/** @deprecated Since 1.9.1: {@link isKeyFormat} (a write may still refuse it: `orderingKey`). */
+/** {@link isKeyFormat}'s name before 1.9.1, still accepted (a write may still refuse a key it accepts: `orderingKey`). */
 export const isKey = isKeyFormat;
 
 function parse(key: string): { value: bigint; fraction: string } {
