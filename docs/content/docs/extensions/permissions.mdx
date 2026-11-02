@@ -1729,11 +1729,18 @@ through a person's memberships), a rule may read fewer rows than without
 `tenant`, depending on how the statement computes them, and never more:
 `tenant` only takes access away.
 
-A model whose rows a call reads beyond the actor's organization, a person's
-memberships of every organization they belong to, is left out with `except`:
+A model whose rows a call reads beyond the actor's organization is left out
+with `except`: a person's memberships of every organization they belong to,
+and a model whose rows may belong to no organization (a shared catalogue
+whose `organizationId` is `null`, or a sentinel value), which `tenant` would
+otherwise hide as another organization's:
 
 ```ts
-tenant: { field: "organizationId", actor: "organizationId", except: ["member"] },
+tenant: {
+  field: "organizationId",
+  actor: "organizationId",
+  except: ["member", "integration"],
+},
 ```
 
 The declaration is checked when the policy is applied: `actor` is a path of
