@@ -617,13 +617,13 @@ function methods(ordered: Ordered, engine: () => Engine) {
         )
           invalid(name, `to names the list's fields: ${within.join(", ")}.`);
       }
-      if (data !== undefined && (!isRecord(data) || places(data)))
+      // Read once: the copy is what is checked and written.
+      const extra: Row = isRecord(data) ? { ...data } : {};
+      if (data !== undefined && (!isRecord(data) || places(extra)))
         invalid(
           name,
           `data writes the model's own fields beside the key: not ${placing.join(", ")}${within.length === 0 ? "" : " (to moves the row between lists)"}, nor a relation.`
         );
-      // What the call writes beside the key, in the same UPDATE.
-      const extra: Row = isRecord(data) ? data : {};
       const anchor = (after ?? before) as Row | undefined;
       const projection = {
         ...(select === undefined ? {} : { select }),

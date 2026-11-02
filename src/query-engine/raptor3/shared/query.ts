@@ -1950,20 +1950,35 @@ export class PreparedDomain {
   ): PreparedSelector | undefined {
     const name = model["~"].names.ts!;
     const inputs = this.rows.bound?.get(name);
-    // The first that bounds: a bound left out only leaves a set wider.
-    const layer = excluded.find((at) => inputs?.[at] !== undefined);
-    if (layer === undefined) return undefined;
-    return memo(this.#bounds, `${name} ${layer}`, () => {
-      const input = inputs![layer]!;
-      const part = memo(this.#inputs, input, () =>
-        this.#queries.prepareSelector(model, input)
-      );
-      return part.predicate === undefined
-        ? part
-        : freeze({ ...part, predicate: layerOf(layer, name, part.predicate) });
-    });
+    if (inputs === undefined) return undefined;
+    // Every excluded layer's: each only narrows, and one left out would let
+    // another's widen what it bounds.
+    return (
+      memo(this.#bounds, `${name} ${excluded}`, () => {
+        const parts: PreparedSelector[] = [];
+        for (const layer of excluded) {
+          const input = inputs[layer];
+          if (input === undefined) continue;
+          const part = memo(this.#inputs, input, () =>
+            this.#queries.prepareSelector(model, input)
+          );
+          parts.push(
+            part.predicate === undefined
+              ? part
+              : freeze({
+                  ...part,
+                  predicate: layerOf(layer, name, part.predicate),
+                })
+          );
+        }
+        if (parts.length === 0) return null;
+        return parts.length === 1
+          ? parts[0]!
+          : this.#queries.andSelectors(model, parts);
+      }) ?? undefined
+    );
   }
-  readonly #bounds = new Map<string, PreparedSelector>();
+  readonly #bounds = new Map<string, PreparedSelector | null>();
   /** {@link selector}'s answer, prepared once per key. */
   #prepareSelector(
     model: AnyModel,
@@ -6306,9 +6321,12 @@ export class Queries {
     )
       return inline;
     // A set a positive test reads may be bounded, one a negative test reads
-    // never is ({@link setBound}): the two are not one set.
-    const bounded = quantified.holds && this.#boundOf(model) !== undefined;
-    const key = `${sharedKey(walk)}${bounded ? " bounded" : ""}`;
+    // never is ({@link setBound}): the two, and two bounds, are not one set.
+    const bound = quantified.holds ? this.#setBound(model, child) : [];
+    const bounded = bound.length > 0;
+    const key = bounded
+      ? `${sharedKey(walk)} bounded ${sharedKey(bound[0]!)}`
+      : sharedKey(walk);
     let body = shared.byKey.get(key);
     if (body === undefined) {
       const name = `__shared_${shared.order.length}`;
