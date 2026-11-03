@@ -185,6 +185,15 @@ client.team.findMany({
     children: { recurse: { depth: false, preventCycles: true }, none: {} },
   },
 });
+// A walk its author states selective, on both topologies.
+client.document.findMany({
+  where: { parent: { recurse: { depth: false, selective: true }, some: {} } },
+});
+client.team.findMany({
+  where: {
+    children: { recurse: { depth: false, selective: true }, some: {} },
+  },
+});
 // The ordinary forms are unchanged beside the recursive one.
 client.document.findMany({
   where: {
@@ -327,6 +336,17 @@ client.document.findMany({
   where: {
     parent: { recurse: { depth: 2, depht: 3 }, some: {} },
   },
+});
+
+for (const fewRows of [true, false] as const)
+  client.document.findMany({
+    // @ts-expect-error - a filter reads its walk as a set: no fewRows
+    where: { parent: { recurse: { depth: 2, fewRows }, some: {} } },
+  });
+
+client.document.findMany({
+  // @ts-expect-error - nor an output budget
+  where: { parent: { recurse: { depth: 2, maxOccurrences: 10 }, some: {} } },
 });
 
 const misspelledRecurrence = {

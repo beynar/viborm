@@ -861,6 +861,7 @@ describe("dialect physical SQL vocabulary", () => {
       supportsMutationRowLimit: false,
       supportsRowLocks: true,
       joinsJunctionFilters: "unbounded",
+      readsNodesByKey: true,
     });
     expect(mysql.capabilities).toEqual({
       supportsReturning: false,

@@ -291,6 +291,13 @@ client.node.findMany({
   include: { children: { recurse: false } },
 });
 
+client.node.findMany({
+  include: {
+    // @ts-expect-error - a selectivity is a filter walk's, never a projection's
+    children: { recurse: { depth: false, selective: true } },
+  },
+});
+
 const parent = () =>
   client.node.findMany({ include: { parent: { recurse: true } } });
 type ParentNode = NonNullable<
@@ -388,6 +395,29 @@ client.graphNode.findMany({
 });
 client.graphNode.findMany({
   select: { linkedBy: { recurse: true, select: { id: true } } },
+});
+
+// `fewRows` states that each walk reaches few rows, on both topologies and in
+// both projections; a held boolean is a toggle.
+declare const fewRows: boolean;
+client.node.findMany({
+  select: {
+    parent: { recurse: { depth: false, fewRows: true }, select: { id: true } },
+  },
+});
+client.node.findMany({
+  include: { children: { recurse: { depth: 2, fewRows } } },
+});
+client.graphNode.findMany({
+  include: {
+    links: { recurse: { depth: false, preventCycles: true, fewRows: true } },
+  },
+});
+client.node.findMany({
+  include: {
+    // @ts-expect-error - fewRows is a boolean
+    parent: { recurse: { depth: false, fewRows: "yes" } },
+  },
 });
 
 // The field maps and cardinalities are structurally indistinguishable, but the

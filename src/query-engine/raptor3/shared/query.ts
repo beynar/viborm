@@ -510,8 +510,15 @@ type PreparedTarget =
       readonly aggregate: Aggregate;
       readonly scalar?: PreparedScalar;
     };
-/** A recursive relation filter's range ({@link PreparedPredicate}). */
-type Closure = { readonly depth: number | false; readonly self: boolean };
+/**
+ * A recursive relation filter's range ({@link PreparedPredicate}), and
+ * whether its author stated it selective ({@link NormalizedRecurrence}).
+ */
+type Closure = {
+  readonly depth: number | false;
+  readonly self: boolean;
+  readonly selective?: true;
+};
 /** A row read through columns a walk or a key set carries, by field. */
 type CarriedRow = (field: string) => Sql;
 type PreparedPredicate =
@@ -1006,6 +1013,8 @@ function mergeQuantifiers(
     readonly at: number;
     readonly head: RelationPredicate;
     readonly bodies: PreparedPredicate[];
+    /** A merged walk's seeds are every arm's: few only where each is. */
+    selective: boolean;
   }[] = [];
   for (const arm of connectiveArms(kind, arms, [])) {
     if (
@@ -1016,17 +1025,31 @@ function mergeQuantifiers(
       const group = groups.find(({ head }) => sameRange(head, arm));
       if (group) {
         group.bodies.push(arm.predicate);
+        group.selective &&= arm.closure?.selective === true;
         continue;
       }
-      groups.push({ at: merged.length, head: arm, bodies: [arm.predicate] });
+      groups.push({
+        at: merged.length,
+        head: arm,
+        bodies: [arm.predicate],
+        selective: arm.closure?.selective === true,
+      });
     }
     merged.push(arm);
   }
   let changed = false;
-  for (const { at, head, bodies } of groups) {
+  for (const { at, head, bodies, selective } of groups) {
     if (bodies.length === 1) continue;
     changed = true;
-    merged[at] = freeze({ ...head, predicate: disjunction(bodies) });
+    const { closure } = head;
+    merged[at] = freeze({
+      ...head,
+      predicate: disjunction(bodies),
+      ...(closure?.selective &&
+        !selective && {
+          closure: freeze({ depth: closure.depth, self: closure.self }),
+        }),
+    });
   }
   return changed ? merged : undefined;
 }
@@ -1531,13 +1554,29 @@ interface SharedBody {
    * once by every database, so it states no form.
    */
   readonly recursive?: true;
+  /**
+   * A walk some place states selective ({@link NormalizedRecurrence}): the
+   * same walk is the same rows wherever it is read.
+   */
+  selective?: true;
   readonly slots: {
     readonly slot: SqlSlot;
     readonly inline: Sql;
     readonly use: Sql;
     /** Absent for an `$exists`, which reads no row's column. */
     readonly test?: SetTest;
+    /** A walk's: the relation body it is lowered in, if any. */
+    readonly within?: Enclosing;
   }[];
+}
+/**
+ * The relation body a walk is lowered in, once the statement knows whether
+ * that body is shared (`body`): a selective walk read only inside sets
+ * computed over their whole tables is computed as a set too
+ * ({@link sharingBodies}).
+ */
+interface Enclosing {
+  body?: SharedBody;
 }
 /**
  * The row columns a placed body's use compares with its key set's `k`
@@ -2327,15 +2366,47 @@ export class Queries {
     const budget = this.adapter.capabilities.relationsPerStatement;
     const settle = (
       reaching: ReadonlySet<SharedBody>,
-      flagged: FlagChoice = () => []
-    ) => this.#settled(statement, shared, repeated, reaching, flagged);
-    let query = settle(new Set());
+      flagged: FlagChoice = () => [],
+      materialized?: Set<SharedBody>
+    ) =>
+      this.#settled(
+        statement,
+        shared,
+        repeated,
+        reaching,
+        flagged,
+        materialized
+      );
+    const materialized = new Set<SharedBody>();
+    let query = settle(new Set(), undefined, materialized);
+    // A walk its author states selective (the teams the actor belongs to,
+    // through their subteams), read only inside bodies computed over their
+    // whole tables, walks once per row of each in place: it is computed
+    // once as a set instead, from the few rows it reaches back from. Read in
+    // a body kept inlined (a body reading no other, or one read at a single
+    // place, which PostgreSQL inlines), it stays: lifted, it would make that
+    // body read a set, so computed over its whole table, and a keyed read
+    // would lose its index (SQLite and D1 materialize it), or it would find
+    // its seeds over their whole table where one row's walk reads a few.
+    // Lifting one changes no body's form, so it needs no bound: a statement
+    // past one starts from it.
+    const lifted = new Set(
+      walks.filter(
+        (walk) =>
+          walk.selective === true &&
+          walk.slots.every(
+            ({ within }) =>
+              within?.body !== undefined && materialized.has(within.body)
+          )
+      )
+    );
+    if (lifted.size > 0) query = settle(lifted);
     if (budget === undefined) return query;
     let count = relations(query);
     if (count <= budget) return query;
     // Walks first, those saving the most relations, until the estimate fits;
     // then key sets joined, the largest saving first, until it does.
-    const reaching = new Set<SharedBody>();
+    const reaching = new Set<SharedBody>(lifted);
     for (const { body, saves } of this.#rankedWalks(query, walks)) {
       if (count <= budget) break;
       reaching.add(body);
@@ -2362,14 +2433,17 @@ export class Queries {
   /**
    * `statement` with each repeated body stated once but walks outside
    * `reaching`, which stay in place, and the flag members `flagged` picks
-   * ({@link flagging}) joined.
+   * ({@link flagging}) joined; `materialized` collects the relation bodies
+   * it states computed over their whole tables: each reads another stated
+   * body, so is not inlined, and is read at more than one place.
    */
   #settled(
     statement: Sql,
     shared: SharedBodies,
     repeated: readonly SharedBody[],
     reaching: ReadonlySet<SharedBody>,
-    flagged: FlagChoice
+    flagged: FlagChoice,
+    materialized?: Set<SharedBody>
   ): Sql {
     const stated: SharedBody[] = [];
     for (const body of repeated)
@@ -2386,9 +2460,11 @@ export class Queries {
     // By the slots a stated body settled to, not by text: a table may be
     // named like a body. The same pass finds the aliases each body joins
     // flags after ({@link flagging}).
-    const uses = new Set<Sql>(
-      stated.flatMap((body) => body.slots.map((placed) => placed.slot))
-    );
+    const uses = new Map<Sql, SharedBody>();
+    for (const body of stated)
+      for (const placed of body.slots) uses.set(placed.slot, body);
+    // How many places the statement reads each stated body at.
+    const readers = new Map<SharedBody, number>();
     const attached = new Map<Sql, string>();
     for (const [alias, slots] of shared.attach)
       for (const slot of slots) attached.set(slot, alias);
@@ -2398,7 +2474,11 @@ export class Queries {
     const within = new Map<string, number>();
     const scan = (query: Sql, index: number, body?: SharedBody) => {
       Sql.peekRuns(query, (node) => {
-        if (body !== undefined && uses.has(node)) reads.add(body);
+        const used = uses.get(node);
+        if (used !== undefined) {
+          readers.set(used, (readers.get(used) ?? 0) + 1);
+          if (body !== undefined) reads.add(body);
+        }
         const alias = attached.get(node);
         if (alias !== undefined && !within.has(alias)) within.set(alias, index);
         return false;
@@ -2410,6 +2490,12 @@ export class Queries {
     for (const body of stated)
       for (const placed of body.slots)
         placed.slot.settle(flags.atoms.get(placed) ?? placed.use);
+    // Not inlined and read at two places or more: PostgreSQL materializes
+    // such a member (it inlines one read once), SQLite is told to.
+    if (materialized !== undefined)
+      for (const body of reads)
+        if (body.correlated && (readers.get(body) ?? 0) > 1)
+          materialized.add(body);
     const definitions = stated.flatMap((body) => [
       body.recursive
         ? { name: body.name, query: body.query, recursive: true }
@@ -2838,6 +2924,17 @@ export class Queries {
   }
   /** How many read gates are lowering here: none of their sets is bounded. */
   #unbounded = 0;
+  /** The relation bodies lowering here, innermost last ({@link Enclosing}). */
+  readonly #enclosing: Enclosing[] = [];
+  /** `lower`, read inside `enclosing`'s body ({@link Enclosing}). */
+  #inside<T>(enclosing: Enclosing, lower: () => T): T {
+    this.#enclosing.push(enclosing);
+    try {
+      return lower();
+    } finally {
+      this.#enclosing.pop();
+    }
+  }
   /**
    * Whether what lowers here stands negated (under a `NOT`, a `none`, an
    * `isNot`, an `unless`): a set bounded there would hold fewer rows, and
@@ -5060,12 +5157,14 @@ export class Queries {
       // A spelled `recurse` IS the closure form (the validation dispatcher's
       // one rule), admitted densely: its unspelled arms are `undefined` holes.
       // The assertion names the admitted shape, as `Arguments.recurse` does.
+      const recurrence = entries.recurse as NormalizedRecurrence | undefined;
       const closure: Closure | undefined =
-        entries.recurse === undefined
+        recurrence === undefined
           ? undefined
           : freeze({
-              depth: (entries.recurse as NormalizedRecurrence).depth,
+              depth: recurrence.depth,
               self: entries.self === true,
+              ...(recurrence.selective && { selective: true as const }),
             });
       const arms: [string, unknown][] = closure
         ? Object.entries(entries).filter(
@@ -6017,13 +6116,17 @@ export class Queries {
     this.#frames.push(frame);
     let nested: Sql | undefined;
     const body = predicate.predicate;
+    const enclosing: Enclosing = {};
     try {
       nested =
         body === undefined
           ? undefined
-          : predicate.quantifier === "none" || predicate.quantifier === "isNot"
-            ? this.#opposite(() => this.#lowerPredicate(body, childAlias))
-            : this.#lowerPredicate(body, childAlias);
+          : this.#inside(enclosing, () =>
+              predicate.quantifier === "none" ||
+              predicate.quantifier === "isNot"
+                ? this.#opposite(() => this.#lowerPredicate(body, childAlias))
+                : this.#lowerPredicate(body, childAlias)
+            );
     } finally {
       this.#frames.pop();
     }
@@ -6091,7 +6194,10 @@ export class Queries {
           closure,
           stated,
           query,
-          quantified
+          quantified,
+          // A walk `every` judges reaches back from the rows its predicate
+          // does not hold of: never the few its author stated.
+          closure.selective === true && predicate.quantifier !== "every"
         );
       }
       return this.#relationExists(
@@ -6101,6 +6207,7 @@ export class Queries {
         predicate.unscoped === undefined,
         stated,
         quantified,
+        enclosing,
         predicate.predicate !== undefined && readsRelation(predicate.predicate),
         frame.escaped,
         frame.joins
@@ -6184,6 +6291,7 @@ export class Queries {
     scoped: boolean,
     stated: readonly Sql[],
     quantified: Quantified,
+    enclosing: Enclosing,
     deeper = false,
     correlatedAbove = false,
     joins: readonly Sql[] = []
@@ -6197,7 +6305,11 @@ export class Queries {
         : undefined;
     const member =
       joined?.correlation ?? this.#membershipWhere(edge, child, parent);
-    const related = this.#relatedWhere(edge, child, scoped, deeper);
+    // The related domain is read in this body: a walk it holds lives where
+    // its text does.
+    const related = this.#inside(enclosing, () =>
+      this.#relatedWhere(edge, child, scoped, deeper)
+    );
     // A flag join keeps SQLite from flattening the derived table each level
     // of a nested filter reads from on D1, adding the level's height to every
     // level above it (a three-arm policy at 15 levels passes depth 100).
@@ -6254,6 +6366,7 @@ export class Queries {
       shared.byKey.set(key, body);
       shared.order.push(body);
     }
+    enclosing.body = body;
     const { name } = body;
     const use = quantified.of(
       a.subqueries.existsCheck(
@@ -6295,7 +6408,9 @@ export class Queries {
    * where `parent` reads the stored row ({@link rows}) or the walk's first
    * hop reads only its key: elsewhere (a produced row's new value, a masked
    * window) the walk keeps its place, as it does on a dialect bounding
-   * recursion iterations, whose walks stay as they were.
+   * recursion iterations, whose walks stay as they were. `selective`: its
+   * author stated the rows it reaches back from few, which may lift it from
+   * the start ({@link sharingBodies}).
    */
   #sharedWalk(
     edge: Membership,
@@ -6304,7 +6419,8 @@ export class Queries {
     closure: Closure,
     stated: readonly Sql[],
     walk: Sql,
-    quantified: Quantified
+    quantified: Quantified,
+    selective: boolean
   ): Sql {
     const a = this.adapter;
     const shared = this.#shared;
@@ -6340,6 +6456,7 @@ export class Queries {
       shared.byKey.set(key, body);
       shared.order.push(body);
     }
+    if (selective) body.selective = true;
     const { name } = body;
     const use = quantified.of(
       a.subqueries.existsCheck(
@@ -6364,6 +6481,7 @@ export class Queries {
         columns: keys.map((field) => this.columnName(model, field)),
         holds: quantified.holds,
       },
+      within: this.#enclosing.at(-1),
     });
     return slot;
   }
@@ -9409,17 +9527,34 @@ export class Queries {
       ],
       [RECURSIVE_CARRIER.row, nodeDocument],
     ]);
+    const idTable = a.subqueries.correlate(distinctIds, ids);
+    const table = this.table(model, node);
+    const sameNode = this.#sameRow(
+      model,
+      node,
+      idColumns.map((name) => a.identifiers.column(ids, name))
+    );
+    // Where the caller states each walk reaches few rows (`fewRows`), each is
+    // read by its key (`capabilities.readsNodesByKey`): joined, PostgreSQL,
+    // guessing ten rows a level, hashed the whole table once per outer row.
+    const byKey =
+      recurrence.fewRows &&
+      a.capabilities.readsNodesByKey &&
+      a.json.document(
+        a.subqueries.scalar(
+          assembleAdapterSelect(a, {
+            columns: nodeCarrier,
+            from: table,
+            where: sameNode,
+          })
+        )
+      );
     const nodes = a.subqueries.scalar(
       assembleAdapterSelect(a, {
-        columns: a.json.agg(nodeCarrier),
-        from: sql`${a.subqueries.correlate(distinctIds, ids)} ${a.joins.inner(
-          this.table(model, node),
-          this.#sameRow(
-            model,
-            node,
-            idColumns.map((name) => a.identifiers.column(ids, name))
-          )
-        )}`,
+        columns: a.json.agg(byKey || nodeCarrier),
+        from: byKey
+          ? idTable
+          : sql`${idTable} ${a.joins.inner(table, sameNode)}`,
       })
     );
 
@@ -9442,22 +9577,42 @@ export class Queries {
     const edgeCarrier = a.json.object(edgePairs);
     // Each parent's siblings in the caller's order, ties broken by the order
     // owner's one complete key — the ordinary window's tie-break, not another.
+    // An order of key columns alone is read from the walk's own: joined
+    // only to be ordered, PostgreSQL, guessing ten rows a level, hashed the
+    // whole table once per outer row. Any other term is read from the joined
+    // child, after the walk's `UNION`, never carried through it.
+    const keys = this.schema.keys(model);
+    const order = this.#completeOrder(
+      model,
+      this.#orderTerms(model, relation.arguments.orderBy, edgeChild),
+      edgeChild
+    );
+    const keyed = order.map((term) =>
+      term.field === undefined || this.#gatedHere(model, term.field)
+        ? -1
+        : keys.indexOf(term.field)
+    );
+    const joins = keyed.includes(-1);
     const siblingOrder = this.#lowerOrder(
-      this.#completeOrder(
-        model,
-        this.#orderTerms(model, relation.arguments.orderBy, edgeChild),
-        edgeChild
-      )
+      joins
+        ? order
+        : order.map((term, index) => ({
+            ...term,
+            expression: edgeColumn(childColumns[keyed[index]!]!),
+          }))
+    );
+    const walked = a.identifiers.aliased(
+      a.identifiers.escape(cteName),
+      edgeWalk
     );
     const edgePage = assembleAdapterSelect(a, {
       columns: a.identifiers.aliased(edgeCarrier, edgeCarrierName),
-      from: sql`${a.identifiers.aliased(
-        a.identifiers.escape(cteName),
-        edgeWalk
-      )} ${a.joins.inner(
-        this.table(model, edgeChild),
-        this.#sameRow(model, edgeChild, childColumns.map(edgeColumn))
-      )}`,
+      from: joins
+        ? sql`${walked} ${a.joins.inner(
+            this.table(model, edgeChild),
+            this.#sameRow(model, edgeChild, childColumns.map(edgeColumn))
+          )}`
+        : walked,
       orderBy: sql.join(
         [
           ...parentColumns.map((name) => a.orderBy.asc(edgeColumn(name))),

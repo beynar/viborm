@@ -127,6 +127,7 @@ flags; a driver may set the ones its transport decides (the last six rows).
 | `locksMissingKeys` | ❌ | ✅ | ❌ | InnoDB's gap lock on a miss: a probe whose other arm inserts reads unlocked and is confirmed under lock once it finds a row |
 | `joinsJunctionFilters` | `"unbounded"` | ❌ | ✅ | Many-to-many filters join the junction to the target (on PostgreSQL only in unbounded reads, counts and writes) |
 | `boundsRecursionIterations` | ❌ | ✅ | ❌ | A recursive filter keeps its walk in place (MySQL's `cte_max_recursion_depth`) |
+| `readsNodesByKey` | ✅ | ❌ | ❌ | A recursive projection that states `recurse.fewRows` reads each node it reached by key, where PostgreSQL would hash the whole table to join it to the walk |
 | `sharesRelationBodies` | every PostgreSQL driver | ❌ | D1 | A repeated relation-filter body is stated once in a `WITH` (`sharedRelationBodies: false` turns it off) |
 | `relationsPerStatement` | option (Neki: 256) | — | D1: 256 | Over the bound, recursive walks become reaching sets |
 | `compoundSelectTerms` | — | — | D1: 5 | Longer `UNION`s nest in derived tables |

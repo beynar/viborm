@@ -3,6 +3,57 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## 1.10.0 — 2026-11-03
+
+Recursive lists stop scanning their table once per row, and two documented
+opt-ins let an application state what only its data knows: that a walk is
+short (`fewRows`, in a select) or selective (`selective`, in a filter or a
+policy rule).
+
+### Performance
+
+- **A list's `recurse` select no longer scans its table once per row to
+  order its edges.** Reading a recursive relation (`parent: { recurse: {
+  depth: false }, select: { … } }`: each document's folder chain), each
+  listed row joined the rows its walk reached back to their table only to
+  order them; PostgreSQL, which guesses ten rows a level of a recursive
+  walk, could scan the whole table for every listed row to do it. An
+  order of key columns alone (the default) is now read from the walk
+  itself. PostgreSQL 18: 1,040 rows of a 5,000-row tree with their
+  ancestors 255 → 133 ms, a governed 100-row page of a 10,000-row tree
+  11.8 → 6.8 ms, 5,000 rows with large ancestor documents 1.27 s → 680 ms;
+  PGlite pages about 2× faster. A caller's own sibling order (`orderBy` on
+  a non-key field, a relation, a count) reads as before. The values are
+  unchanged.
+
+### Added
+
+- **`recurse: { selective: true }`: a walk you state is few is computed once
+  per statement.** Inside a policy's repeated rules, a recursive walk such as
+  "the teams the actor belongs to, through their subteams" (`children: {
+  recurse: { depth: false, selective: true }, some: { members: { some: {
+  userId: { actor: "userId" } } } } }`) was walked again for every grant row
+  each rule read. Stated `selective`, it is read back once from the actor's
+  rows wherever every body reading it is already computed over its whole
+  table. Measured on a 40-model production policy at 500 organizations
+  (PostgreSQL 18): opening a page 2.0 → 0.8 ms with `tenant` (1.4 s → 89 ms
+  without). Anywhere else (a body read by one row's key, a unique read, a
+  keyed write, SQLite's keyed reads) the walk stays in place. Nothing is
+  guessed: without the option every statement is the one 1.9.1 sent.
+- **`recurse: { fewRows: true }`: a recursive select whose walks are short
+  reads its rows by key on PostgreSQL.** State it on a `recurse` in
+  `select`/`include` when each row's walk reaches few rows of its table (a
+  document's folder chain, a category's ancestors). On every PostgreSQL
+  driver each reached row is then read by its primary key instead of
+  joining the table to the walk, which may scan the whole table for every
+  listed row. PostgreSQL 18: 1,040 rows of a
+  5,000-row tree with their ancestors 129 → 13 ms, all 5,000 558 → 68 ms,
+  a governed 100-row page of a 10,000-row tree 6.3 → 1.7 ms; PGlite lists
+  4–20× faster. On a walk that reaches most of its table it is slower (the
+  9,999 descendants of one root 1.21×), so it is never guessed. SQLite, D1
+  and MySQL accept it and ignore it. The values are the same either way;
+  unstated, the statement is unchanged. `where` filters do not take it.
+
 ## 1.9.1 — 2026-11-02
 
 ### Fixed

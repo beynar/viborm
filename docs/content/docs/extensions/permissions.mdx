@@ -678,7 +678,7 @@ const toMyTeams = {
   team: {
     is: {
       children: {
-        recurse: { depth: false },
+        recurse: { depth: false, selective: true }, // few teams hold me
         self: true,
         some: { members: { some: { userId: { actor: "userId" } } } },
       },
@@ -686,6 +686,21 @@ const toMyTeams = {
   },
 };
 ```
+
+`selective: true` says what only you know about the data: the teams the
+caller belongs to, and the teams above them, are few. A policy repeats this
+walk in every rule that reads a grant, inside bodies each statement computes
+over the whole grant table; stated selective, the walk is computed there once,
+from the caller's memberships up, instead of once per grant. On a 40-model
+policy at 500 organizations (PostgreSQL 18), opening a page went from 1.4 s
+to 89 ms (2.0 to 0.8 ms with [`tenant`](#one-tenant-per-call-tenant)). Where the walk is read by
+one row's key (a body the statement keeps inlined, a unique read through it),
+it stays in place and keeps its index. Index what `some` reads (`teamMember.userId`):
+computed once, the walk starts by finding every row it matches. Leave it out
+on a walk whose matches are many, such as "every team with a member":
+computed once, it would read most of the team table. Without it, the engine guesses nothing and nothing
+moves. It is ignored under `every`, and accepted only in a filter's
+`recurse`, never in a `select`/`include`'s.
 
 Add that predicate to the grant's recipients. These constants describe this
 application's team and grant schema:
@@ -1584,8 +1599,11 @@ transaction's members) takes 256, which on plain PostgreSQL changes only a
 statement past 256 relations, and only its plan. `viborm/bun-sql` and a pool
 you supply keep no such message: there Neki's first refusal (54000) teaches
 the driver its limit, that statement fails and the next ones fit, so set the
-option. A stated `relationsPerStatement` always wins. A statement within the bound keeps every walk in place. Only a statement past
-it changes form, as far as it needs: first each walk it repeats becomes one
+option. A stated `relationsPerStatement` always wins. A statement within the bound keeps every walk in place, but a
+[selective](#8-team-hierarchies) one read only in bodies computed over their
+whole tables, which it computes once with or without a bound (it changes no
+other part's form). Only a statement past the bound changes form, as far as it
+needs: first each walk it repeats becomes one
 `WITH` member, the keys of the rows it holds for; if still over, a row tested
 against the same shared sets several times reads them as arrays computed once
 per statement. With 256, the acceptance policy's nine `$access` reads count

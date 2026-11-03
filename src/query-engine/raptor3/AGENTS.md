@@ -221,7 +221,33 @@ slots (`#settled`) and recounting: first the walks it repeats become members,
 those saving the most relations first (`#rankedWalks`, an estimate by place),
 until the estimate fits; then key sets are joined (below), the largest saving
 first; an estimate still short takes the most compact form, every repeated
-walk a member and every set joined. Each step costs plans (a reaching set is
+walk a member and every set joined. Bound or not, one walk leaves its
+place first: a walk its author states selective (`recurse: { …, selective:
+true }` in a `where`, `Closure.selective`; never one an `every` judges, which
+reaches back from the rows its predicate does not hold of) whose every place
+is inside a body the plain settlement already computes over its whole table
+(`materialized`: a correlated body reading another stated body, so not
+hinted inlined, and read at two places or more, so PostgreSQL materializes it
+rather than inline a single read; SQLite is told `MATERIALIZED`; a related
+domain's walk is lowered inside its own body's frame, `#inside`) is its reaching set from
+the start (`lifted`): "the teams the actor belongs to" is read back from the
+actor's memberships once, not walked per row of each body (a 40-model policy
+at 500 organizations: a page opened in 1.4 s → 89 ms, 2.0 → 0.8 ms under a
+tenant bound). Lifting one changes no body's form, which is why it needs no
+bound and escalation starts from it (`#rankedWalks` ranks the others).
+Anywhere else a selective walk stays in place: lifted inside an inlined body
+it would make that body read a set, so computed over its whole table, and a
+keyed read lose its index (a unique read 0.08 → 55 ms where most rows share
+the seed; on SQLite and D1 a keyed read became a full scan), or find its seeds
+over their whole table where one row's walk reads a few (a single-read team
+body over 300,000 seats: 0.025 → 5.5 ms). Nothing is
+guessed from the schema: an indexed column may hold one value in most rows
+(#133 guessed, #134 reverted it), so a walk nobody states selective is
+exactly 1.9.1's. Two walks over one range merge whatever they state
+(`mergeQuantifiers`; split, the first runs to its end before the second may
+hold: 0.18 → 184 ms over 300,000 teams), and the merged walk is selective
+only where every arm is: its seeds are all of theirs. A selective walk is the same rows wherever
+it is read, so one place stating it states the body (`SharedBody.selective`). Each step costs plans (a reaching set is
 computed for its whole table; a joined flag member is read again per row of
 a correlated subquery where the test it replaces was hashed once), so a
 statement that fits pays none of them, and plain PostgreSQL states no bound. A walk escalated is its REACHING
@@ -1359,7 +1385,38 @@ materializes a correlated CTE that is read twice once per statement and would
 hand every later outer row the first row's facts; SQLite has no `LATERAL` and
 evaluates the correlated CTE per row as written, once per reader — twice per
 carrier (nodes and edges) — where PostgreSQL materializes it once per outer
-row.
+row. The walk carries the reached row's identity, its parent, its hop
+columns and its depth, nothing else: a value carried through the recursion
+joins `UNION`'s identity (a sort value that changes within the statement
+defeated cycle deduplication: Sol E, 2026-11-03) and widens every iteration
+(an 8 KiB sort key on SQLite 4.9×: Sol F). Each parent's siblings are ordered
+by `Queries.completeOrder` after the walk: an order of ungated key columns
+alone (the default) is read from the walk's own child columns and joins no
+table — joined only to be ordered, PostgreSQL, which guesses ten rows a level
+of a walk, could scan the whole table once per outer row — and any other term is
+read from the child joined to the walk. The node reader joins the table
+unless the caller states `recurse.fewRows` (each walk reaches few rows, a
+fact of the data no schema says) on a dialect whose planner may scan the
+whole table to join it (`capabilities.readsNodesByKey`, PostgreSQL): each node is
+then read by its key in a scalar subquery, and nothing else changes (walk,
+edges, carrier, decoder). Read by key, PostgreSQL won about 10× on a
+1,040-row list of a 5,000-row tree but lost on a walk reaching most of its
+table (9,999 descendants of one root 1.21×, PGlite 1.18–1.22×); SQLite and MySQL join by index and lost 3–17 %,
+so they ignore it. Absent, the statement is byte-identical to the unstated
+one (the provider SQL pins). An order term read by key lost on broad walks
+(PGlite 5-term order 1.6×) and is never taken: the walk carries no sort
+value (a value carried through `UNION` joins its identity).
+
+A list's recursive projection keeps one walk per row. A set form walking
+once for the whole page (a page member seeding one walk, its facts grouped
+per root and joined back; `docs/architecture/v4-set-lists-plan-2026-11-03.md`)
+was measured against it with nodes and orders read by key (2026-11-03): on
+PostgreSQL it tied where the per-row plans were sound and lost on large
+tables, where its walk and readers hash the table (1,000-row pages of a
+100,000-row tree 1.2–1.7× the per-row form; overlapping subtrees 1.47×); on
+SQLite it lost everywhere (1.1–1.4×), MySQL reorders its grouped facts, and
+it cost 0.9 kB gzip on the application bundle. Do not bring it back without
+a shape it wins.
 `Queries.decodeRecursiveCarrier` validates that carrier — every bounded edge
 reachable at its recorded level, every bounded hop below the cutoff carrying
 the parent's one set of children at the next level, every fact consumed, every
