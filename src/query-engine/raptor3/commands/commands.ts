@@ -535,11 +535,19 @@ export class Commands {
             value instanceof Parameter ? this.context.scope!.instant() : value;
       }
     // A create's stamps are admitted as a create admits them: a field only a
-    // create takes (an insert-only timestamp) is no update field.
+    // create takes (an insert-only timestamp) is no update field. An update's
+    // keep only their own fields: the update-data schema also generates the
+    // model's other update values (`updatedAt()`), which the occurrence's own
+    // admission already decided, over a caller's value or a field an
+    // extension keeps as stored.
     const values =
       kind === "create"
         ? this.context.schema.createValues(model, kept)
-        : this.context.schema.update(model, kept, true);
+        : Object.fromEntries(
+            Object.entries(this.context.schema.update(model, kept, true)).filter(
+              ([field]) => field in kept
+            )
+          );
     return this.context.schema.scalars(model, {
       ...admitted,
       ...values,
