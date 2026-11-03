@@ -85,12 +85,6 @@ describe("PostgreSQL catalog SQL holds no shape Neki refuses", () => {
         `WITH RECURSIVE r AS (SELECT s.c FROM (SELECT 1 AS c UNION SELECT 2) AS s UNION ALL SELECT ' UNION ' || c FROM r) SELECT 1`
       )
     ).toEqual([2]);
-    // A member that does not read itself is an ordinary CTE of the clause.
-    expect(
-      recursiveTermCounts(
-        "WITH RECURSIVE p AS (SELECT 1 AS c), r AS (SELECT c FROM p UNION SELECT c FROM r) SELECT 1"
-      )
-    ).toEqual([2]);
   });
 
   it("introspection names indnullsnotdistinct only where the server has it", async () => {

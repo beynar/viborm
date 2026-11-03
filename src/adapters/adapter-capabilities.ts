@@ -92,15 +92,14 @@ export interface DatabaseAdapterCapabilities {
    */
   boundsRecursionIterations?: boolean;
   /**
-   * Whether an aggregate grouped over a derived table ordered by its group
-   * key first reads each group's rows in that order: PostgreSQL and SQLite
-   * read the ordered rows as they come (or sort them again keeping equal
-   * keys' order). A root list's recursive projection then aggregates the
-   * facts of its whole page grouped per row; without it each row aggregates
-   * its own facts: MySQL sorts the derived table again by the group key
-   * alone, and that sort reorders equal keys. Absent: false.
+   * Whether a recursive projection reads each node it reached by key, in a
+   * scalar subquery, rather than joining the table to the walk: PostgreSQL,
+   * guessing ten rows a level, plans that join as a hash of the whole table,
+   * once per outer row (a 1,040-row list of a 5,000-row tree: 262 → 15 ms).
+   * SQLite joins by index, and its subquery's document would be parsed again
+   * (descendant lists 5–8 % slower). Absent: false.
    */
-  aggregatesGroupsInOrder?: boolean;
+  readsNodesByKey?: boolean;
   /**
    * The most terms one compound `SELECT` may chain, where the transport
    * bounds it below anything the engine writes: Cloudflare D1, 5. The engine

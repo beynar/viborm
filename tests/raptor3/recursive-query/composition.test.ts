@@ -1061,8 +1061,7 @@ describe("RQ-06 recursive projections composed through the shipped client", () =
     );
     // Admission and preparation of the whole array, THEN the one batch: the
     // two reads' prepared statements and the create's fold (its recursive
-    // readback included) exist before the provider sees anything. The list
-    // states its page and its walk ahead of its SELECT.
+    // readback included) exist before the provider sees anything.
     assert.deepEqual(batch.driver.timeline, [
       "admit:findMany",
       "admit:findUnique",
@@ -1070,7 +1069,7 @@ describe("RQ-06 recursive projections composed through the shipped client", () =
       "prepare:findMany",
       "prepare:findUnique",
       "batch:4",
-      "dispatch:WITH",
+      "dispatch:SELECT",
       "dispatch:SELECT",
       "dispatch:INSERT",
       "dispatch:SELECT",

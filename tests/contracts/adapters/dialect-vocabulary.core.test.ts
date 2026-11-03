@@ -245,12 +245,12 @@ describe("shared adapter SQL vocabulary", () => {
         const all = adapter.cte.recursive(
           "tree",
           sql`SELECT ${1}`,
-          sql`SELECT ${2} FROM tree`
+          sql`SELECT ${2}`
         );
         const distinct = adapter.cte.recursive(
           "tree",
           sql`SELECT ${1}`,
-          sql`SELECT ${2} FROM tree`,
+          sql`SELECT ${2}`,
           "distinct"
         );
         expect(all.toStatement()).toContain("UNION ALL");
@@ -861,7 +861,7 @@ describe("dialect physical SQL vocabulary", () => {
       supportsMutationRowLimit: false,
       supportsRowLocks: true,
       joinsJunctionFilters: "unbounded",
-      aggregatesGroupsInOrder: true,
+      readsNodesByKey: true,
     });
     expect(mysql.capabilities).toEqual({
       supportsReturning: false,
@@ -889,7 +889,6 @@ describe("dialect physical SQL vocabulary", () => {
       supportsMutationRowLimit: false,
       supportsRowLocks: false,
       joinsJunctionFilters: true,
-      aggregatesGroupsInOrder: true,
     });
   });
 });

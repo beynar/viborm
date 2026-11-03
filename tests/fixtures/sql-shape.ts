@@ -1,9 +1,8 @@
 /**
  * Two statement shapes PlanetScale's Neki refuses although PostgreSQL accepts
  * them, read from the SQL text VibORM emits:
- * - a recursive definition (one that reads itself) under `WITH RECURSIVE` of
- *   other than two top-level terms (Neki then cannot see the CTE from its
- *   recursive member, 42P01);
+ * - a `WITH RECURSIVE` definition of more than two top-level terms (Neki then
+ *   cannot see the CTE from its recursive member, 42P01);
  * - a whole-row reference to a relation (`to_jsonb(ix)`, `row_to_json(t)`,
  *   `json_agg(t)`, `(t).*`, `f(t.*)`), which Neki refuses for catalog
  *   relations (0A000 "unsupported type name").
@@ -115,10 +114,8 @@ function closing(tokens: readonly Token[], open: number): number {
 }
 
 /**
- * The number of top-level `UNION` / `UNION ALL` terms of every recursive
- * definition (one that reads itself) under a `WITH RECURSIVE`, in statement
- * order. A member that does not read itself — a list's page, a walk's
- * grouped facts — is an ordinary CTE the clause also states.
+ * The number of top-level `UNION` / `UNION ALL` terms of every definition
+ * under a `WITH RECURSIVE`, in statement order.
  */
 export function recursiveTermCounts(sql: string): number[] {
   const tokens = tokenize(sql);
@@ -130,7 +127,6 @@ export function recursiveTermCounts(sql: string): number[] {
       continue;
     let at = index + 2;
     for (;;) {
-      const name = nameOf(tokens[at]!);
       at += 1; // the CTE name
       if (isPunct(tokens[at], "(")) at = closing(tokens, at);
       if (!isWord(tokens[at], "AS")) throw new Error(`No AS in: ${sql}`);
@@ -140,15 +136,12 @@ export function recursiveTermCounts(sql: string): number[] {
       const end = closing(tokens, at);
       let terms = 1;
       let depth = 0;
-      let reads = false;
       for (let inner = at + 1; inner < end - 1; inner += 1) {
         if (isPunct(tokens[inner], "(")) depth += 1;
         else if (isPunct(tokens[inner], ")")) depth -= 1;
         else if (depth === 0 && isWord(tokens[inner], "UNION")) terms += 1;
-        if (isName(tokens[inner]) && nameOf(tokens[inner]!) === name)
-          reads = true;
       }
-      if (reads) counts.push(terms);
+      counts.push(terms);
       if (!isPunct(tokens[end], ",")) break;
       at = end + 1;
     }

@@ -3,13 +3,10 @@ import assert from "node:assert/strict";
 import type { Operations, Schema } from "@client/types";
 import { QueryEngineError } from "@errors";
 import { s } from "@schema";
-import { nekiRefusals, recursiveTermCounts } from "@tests/fixtures/sql-shape";
+import { nekiRefusals } from "@tests/fixtures/sql-shape";
 
 /** A statement carrying a recursive CTE, and the two mutation statements. */
 const RECURSIVE_CTE = /WITH RECURSIVE/;
-/** A root list's set form: its page is the statement's first member. */
-const PAGE_STATEMENT = /^WITH RECURSIVE [`"]__q0_page[`"] AS /;
-const LATERAL = /\bLATERAL\b/;
 const UPDATE_STATEMENT = /^UPDATE\b/;
 const DELETE_STATEMENT = /^DELETE\b/;
 
@@ -2370,127 +2367,6 @@ export interface CaseEngine {
     operation: Operations,
     rawArgs: unknown
   ): Promise<unknown>;
-}
-
-/**
- * Root lists whose projection holds recursive slots, over the placement
- * matrix's tables: tied sibling ranks, a hidden child, a junction cycle, two
- * slots in one list, a skipped and a backward page.
- */
-export const PAGE_WALK_CASES: readonly {
-  readonly name: string;
-  readonly args: Record<string, unknown>;
-  /** The recursive slots the projection holds: one walk each. */
-  readonly walks: number;
-}[] = Object.freeze([
-  {
-    name: "every row, ancestors to a cutoff",
-    args: {
-      orderBy: [{ rank: "desc" }],
-      select: {
-        tenant: true,
-        code: true,
-        parent: { recurse: { depth: 2 }, select: { label: true } },
-      },
-    },
-    walks: 1,
-  },
-  {
-    name: "a skipped page of descendants, filtered and ordered",
-    args: {
-      where: { visible: true },
-      orderBy: [{ label: "asc" }],
-      skip: 1,
-      take: 4,
-      select: {
-        tenant: true,
-        code: true,
-        label: true,
-        children: {
-          recurse: { depth: false },
-          where: { visible: true },
-          orderBy: [{ rank: "desc" }],
-          select: { code: true, rank: true },
-        },
-      },
-    },
-    walks: 1,
-  },
-  {
-    name: "a backward page through a junction cycle, two slots",
-    args: {
-      orderBy: [{ code: "asc" }],
-      take: -3,
-      select: {
-        tenant: true,
-        code: true,
-        neighbors: { recurse: { depth: 3 }, select: { code: true } },
-        children: { recurse: { depth: 1 }, select: { label: true } },
-      },
-    },
-    walks: 2,
-  },
-]);
-
-/**
- * Each {@link PAGE_WALK_CASES} list in ONE statement, its rows the rows the
- * per-row form answers: the list without its recursive slots gives the
- * rows and their order, and each row read alone (a `findFirst`, which walks
- * once per row) gives its recursive values. Where the dialect aggregates
- * groups in order (`setForm`), the statement is the set form: the page and
- * one walk per slot ahead of the SELECT, no walk correlated to a row.
- */
-export async function runPageWalks(
-  engine: CaseEngine,
-  observed: Pick<ObservedStatements, "statements">,
-  setForm: boolean
-): Promise<void> {
-  for (const listCase of PAGE_WALK_CASES) {
-    const start = observed.statements.length;
-    const listed = await engine.execute("node", "findMany", listCase.args);
-    const statements = observed.statements.slice(start);
-    assert.equal(statements.length, 1, `${listCase.name}: statement count`);
-    const statement = statements[0]!;
-    assert.deepEqual(nekiRefusals(statements), [], listCase.name);
-    const walks = recursiveTermCounts(statement);
-    if (setForm) {
-      assert.match(statement, PAGE_STATEMENT, listCase.name);
-      // One walk per slot, each of two terms, none correlated to a row.
-      assert.deepEqual(
-        walks,
-        Array.from({ length: listCase.walks }, () => 2),
-        listCase.name
-      );
-      assert.doesNotMatch(statement, LATERAL, listCase.name);
-    } else assert.doesNotMatch(statement, PAGE_STATEMENT, listCase.name);
-
-    const select = listCase.args.select as Record<string, unknown>;
-    const plain = Object.fromEntries(
-      Object.entries(select).filter(
-        ([, value]) => typeof value !== "object" || !("recurse" in value!)
-      )
-    );
-    const order = await engine.execute("node", "findMany", {
-      ...listCase.args,
-      select: plain,
-    });
-    assert.deepEqual(
-      (listed as Record<string, unknown>[]).map((row) =>
-        Object.fromEntries(Object.keys(plain).map((key) => [key, row[key]]))
-      ),
-      order,
-      `${listCase.name}: rows and order`
-    );
-    const alone: unknown[] = [];
-    for (const row of listed as Record<string, unknown>[])
-      alone.push(
-        await engine.execute("node", "findFirst", {
-          where: { tenant: row.tenant, code: row.code },
-          select,
-        })
-      );
-    assert.deepEqual(listed, alone, `${listCase.name}: each row as read alone`);
-  }
 }
 
 /**

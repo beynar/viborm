@@ -394,11 +394,6 @@ interface SelectControls {
    * write's `RETURNING *`, `OperationContext`'s projection over its own write).
    */
   source?: string;
-  /**
-   * The read is a root list: a recursive relation projection it holds walks
-   * once for its whole page ({@link Queries.pageWalks}).
-   */
-  list?: true;
 }
 /** One statement plus the operation's own cardinality and public shape. */
 export interface Read {
@@ -1515,7 +1510,6 @@ function reversedRows(rows: Input[]): Input[] {
 
 /** A filter read's controls: it takes the root domain's rows. */
 const ROOT_CANDIDATES = Object.freeze({ purpose: "root" as const });
-const ROOT_LIST = Object.freeze({ ...ROOT_CANDIDATES, list: true as const });
 
 /**
  * One relation filter body a statement lowers ({@link Queries.relationExists}):
@@ -1564,24 +1558,6 @@ interface SharedBodies {
   readonly byKey: Map<string, SharedBody>;
   readonly order: SharedBody[];
   readonly attach: Map<string, SqlSlot[]>;
-  /**
-   * The statement's own `WITH` members, stated after the shared bodies they
-   * may read: a list's page and its walks ({@link Queries.pageWalks}).
-   */
-  readonly ahead: WithMember[];
-}
-/** One member of a `WITH` clause, as the adapter states it. */
-type WithMember = Parameters<DatabaseAdapter["cte"]["with"]>[0][number];
-/**
- * A root list whose projection holds a recursive relation: its page, read
- * once as `name`, and what each recursive slot lowered over the page's rows
- * at `alias` adds to the statement ({@link Queries.pageWalks}).
- */
-interface PageWalks {
-  readonly name: string;
-  readonly alias: string;
-  readonly members: WithMember[];
-  readonly joins: Sql[];
 }
 /** One place a shared body was lowered at ({@link SharedBody}). */
 type PlacedBody = SharedBody["slots"][number];
@@ -2290,19 +2266,7 @@ export class Queries {
    * write's owner never reads, so its statements are never bounded.
    */
   #bounded = false;
-  /**
-   * The root list lowering here, whose recursive relation slots walk once
-   * for its whole page ({@link pageStatement}); a slot of any other row —
-   * a nested relation's, a write's answer — walks once per row.
-   */
-  #pageWalks: PageWalks | undefined;
   readonly #sharesBodies: boolean;
-  /**
-   * No physical name resembles an alias ({@link hasAliasLikeNames}): the
-   * statement may name members of its own (shared bodies, a list's page)
-   * beside the tables and columns it reads.
-   */
-  readonly #aliasFree: boolean;
   constructor(
     schema: EngineSchema,
     adapter: DatabaseAdapter,
@@ -2316,11 +2280,10 @@ export class Queries {
     this.#result = result;
     this.domain = domain;
     this.#call = call;
-    this.#aliasFree = !(
-      resemblesAlias(adapter.namespace ?? "") || hasAliasLikeNames(schema)
-    );
     this.#sharesBodies =
-      adapter.capabilities.sharesRelationBodies === true && this.#aliasFree;
+      adapter.capabilities.sharesRelationBodies === true &&
+      !resemblesAlias(adapter.namespace ?? "") &&
+      !hasAliasLikeNames(schema);
   }
   /**
    * `build`'s statement, where the adapter shares relation bodies
@@ -2348,7 +2311,6 @@ export class Queries {
       byKey: new Map(),
       order: [],
       attach: new Map(),
-      ahead: [],
     };
     this.#shared = shared;
     let statement: Sql;
@@ -2443,7 +2405,6 @@ export class Queries {
       });
     };
     for (const [index, body] of stated.entries()) scan(body.query, index, body);
-    for (const member of shared.ahead) scan(member.query, stated.length);
     scan(statement, stated.length);
     const flags = this.#flagging(shared, stated, within, flagged);
     for (const body of stated)
@@ -2459,10 +2420,9 @@ export class Queries {
           },
       ...(flags.after.get(body) ?? []),
     ]);
-    const members: WithMember[] = [...definitions, ...shared.ahead];
-    return members.length === 0
+    return definitions.length === 0
       ? statement
-      : sql`${this.adapter.cte.with(members)} ${statement}`;
+      : sql`${this.adapter.cte.with(definitions)} ${statement}`;
   }
   /**
    * `walks`, placed in `query`, by how many relations stating each as a
@@ -7182,8 +7142,6 @@ export class Queries {
     readonly distinct?: Sql;
     readonly distinctOrderBy?: Sql;
     readonly distinctOrder?: QueryParts["distinctOrder"];
-    /** The terms `orderBy` lowers, reversed where the page is. */
-    readonly presented: readonly OrderTerm[];
   } {
     const backward = args.take !== undefined && args.take < 0;
     const cursored = args.cursor !== undefined;
@@ -7206,7 +7164,6 @@ export class Queries {
     const presented = backward ? this.#reverseOrder(terms) : terms;
     const distinct = (args.distinct?.length ?? 0) > 0;
     return {
-      presented,
       orderBy: this.#lowerOrder(presented),
       joins: joins?.joins.length ? joins.joins : undefined,
       distinctOrderBy:
@@ -7529,18 +7486,11 @@ export class Queries {
       !controls.forUpdate
     );
     const prepared = controls.projection ?? this.prepareProjection(model, args);
-    const walks = this.#pageWalksOf(model, prepared, alias, page, controls);
-    let projection: Sql[];
-    this.#pageWalks = walks;
-    try {
-      projection = this.lowerProjection(
-        prepared,
-        walks?.alias ?? alias,
-        controls.purpose !== undefined
-      );
-    } finally {
-      this.#pageWalks = undefined;
-    }
+    const projection = this.lowerProjection(
+      prepared,
+      alias,
+      controls.purpose !== undefined
+    );
     const given =
       controls.selector ??
       (args.where === undefined
@@ -7561,20 +7511,6 @@ export class Queries {
           a.literals.false()
         )
       );
-    const where = this.#selectWhere(
-      model,
-      alias,
-      membership,
-      filter,
-      unless,
-      page.cursor,
-      controls
-    );
-    if (walks)
-      return {
-        sql: this.#pageStatement(model, alias, walks, projection, page, where),
-        shape: prepared.shape,
-      };
     return {
       sql: assembleAdapterSelect(this.adapter, {
         columns: sql.join(projection, ", "),
@@ -7589,7 +7525,15 @@ export class Queries {
                 alias
               ),
         joins: page.joins,
-        where,
+        where: this.#selectWhere(
+          model,
+          alias,
+          membership,
+          filter,
+          unless,
+          page.cursor,
+          controls
+        ),
         orderBy: page.orderBy,
         limit: page.limit,
         offset: page.offset,
@@ -7605,117 +7549,6 @@ export class Queries {
       }),
       shape: prepared.shape,
     };
-  }
-  /**
-   * A root list's page walks ({@link pageWalks}), where its projection holds
-   * a recursive relation at the root and the dialect aggregates each root's
-   * ordered facts in order (`capabilities.aggregatesGroupsInOrder`):
-   * `undefined` for any other read, for a distinct page, whose emulated
-   * window is not one page to seed from, and where a physical name resembles
-   * an alias (the page's own members and carried columns could shadow it).
-   */
-  #pageWalksOf(
-    model: AnyModel,
-    prepared: PreparedProjection,
-    alias: string,
-    page: { readonly distinct?: Sql },
-    controls: SelectControls
-  ): PageWalks | undefined {
-    if (
-      controls.list !== true ||
-      !this.#aliasFree ||
-      this.adapter.capabilities.aggregatesGroupsInOrder !== true ||
-      page.distinct !== undefined ||
-      !prepared.fields.some(
-        (field) => field.kind === "relation" && field.recurrence !== undefined
-      )
-    )
-      return undefined;
-    // The page carries every stored column of its rows as they stand.
-    return {
-      name: `__${alias}_page`,
-      alias: this.#rowAlias(model),
-      members: [],
-      joins: [],
-    };
-  }
-  /**
-   * A root list holding a recursive relation projection, as ONE statement
-   * over its page: the root rows the read takes — its filter, order, skip
-   * and take, each evaluated once — are a `WITH` member every stored column
-   * of them, plus each order term, is read from. Each recursive slot walks
-   * once from every row of it ({@link lowerRecursiveRelationProjection}),
-   * its facts grouped per root and joined back by key, and the page is
-   * presented in its own order from the terms it carries. One correlated
-   * walk per listed row was 40 % of a 1,040-row governed read.
-   */
-  #pageStatement(
-    model: AnyModel,
-    alias: string,
-    walks: PageWalks,
-    projection: readonly Sql[],
-    page: {
-      readonly presented: readonly OrderTerm[];
-      readonly orderBy?: Sql;
-      readonly joins?: Sql[];
-      readonly limit?: Sql;
-      readonly offset?: Sql;
-    },
-    where: Sql | undefined
-  ): Sql {
-    const a = this.adapter;
-    const order = page.presented.map((_, index) => `__${alias}_order_${index}`);
-    const rows = assembleAdapterSelect(a, {
-      columns: sql.join(
-        [
-          ...this.schema
-            .storedFields(model)
-            .map((field) =>
-              a.identifiers.aliased(
-                this.column(model, field, alias),
-                this.columnName(model, field)
-              )
-            ),
-          ...this.#aliased(
-            order,
-            page.presented.map((term) => term.expression)
-          ),
-        ],
-        ", "
-      ),
-      from: this.#attached(model, alias),
-      joins: page.joins,
-      where,
-      orderBy: page.orderBy,
-      // MySQL otherwise merges an unlimited page into both its readers, the
-      // walks' seed and the list, which would filter the table twice.
-      limit: page.limit ?? a.noLimitValue,
-      offset: page.offset,
-    });
-    const listed = walks.alias;
-    const statement = assembleAdapterSelect(a, {
-      columns: sql.join(projection, ", "),
-      from: sql`${a.identifiers.aliased(
-        a.identifiers.escape(walks.name),
-        listed
-      )}${this.#attachPoint(listed)}`,
-      joins: walks.joins,
-      orderBy: this.#lowerOrder(
-        page.presented.map((term, index) => ({
-          ...term,
-          expression: a.identifiers.column(listed, order[index]!),
-        }))
-      ),
-    });
-    // SQLite would read the page again at each use.
-    const members: WithMember[] = [
-      { name: walks.name, query: rows, inlined: false },
-      ...walks.members,
-    ];
-    if (this.#shared === undefined)
-      return sql`${a.cte.with(members)} ${statement}`;
-    this.#shared.ahead.push(...members);
-    return statement;
   }
   /** {@link select}'s conjunction, in its order; `undefined` for none. */
   #selectWhere(
@@ -7813,7 +7646,7 @@ export class Queries {
           model,
           this.#ordered(model, args),
           undefined,
-          ROOT_LIST
+          ROOT_CANDIDATES
         );
         return {
           query,
@@ -9348,12 +9181,6 @@ export class Queries {
    * recursive member as a hash join over a scan of the table, and an anchor
    * hop is an index probe (10× the acceptance fixture: an `accessGrant` read
    * 124 → 785 ms with the start row alone).
-   *
-   * A projection's walk `from` a set of start rows (a list's page, read as
-   * `parentAlias`) is seeded by all of them at once: each reached row also
-   * carries the key of the start row it was reached from, so the walk of
-   * every start row is the one it would walk alone, and `UNION` ends each
-   * cycle per start row.
    */
   #walk(
     edge: Membership,
@@ -9364,7 +9191,8 @@ export class Queries {
           readonly depth: number | false;
           readonly edges: true;
           readonly selector?: Pick<PreparedSelector, "model" | "predicate">;
-          readonly from?: Sql;
+          /** The order each reached row is read in among its siblings. */
+          readonly sorted: (alias: string) => readonly OrderTerm[];
         },
     scoped = true
   ) {
@@ -9381,10 +9209,6 @@ export class Queries {
     const childColumns = keys.map((_, index) => `__${scope}_child_${index}`);
     const depthColumn = `__${scope}_depth`;
     const selector = edges ? start.selector : undefined;
-    const from = edges ? start.from : undefined;
-    const rootColumns = from
-      ? keys.map((_, index) => `__${scope}_root_${index}`)
-      : [];
     const hop = (value: Sql) =>
       depth === false ? [] : [a.identifiers.aliased(value, depthColumn)];
     const reached = (alias: string) =>
@@ -9400,39 +9224,41 @@ export class Queries {
       ? this.#hopFields(edge).filter((field) => !keys.includes(field))
       : [];
     const hopColumns = hopFields.map((_, index) => `__${scope}_hop_${index}`);
-    const row = (alias: string) => [
-      ...this.#aliased(childColumns, this.#rowKey(model, alias)),
-      ...this.#aliased(
-        hopColumns,
-        hopFields.map((field) => this.column(model, field, alias))
-      ),
-    ];
-    // An unbounded, unfiltered walk states no WHERE rather than `WHERE TRUE`.
-    const all = (bounds: Sql[]) =>
-      bounds.length === 0 ? undefined : a.operators.and(...bounds);
+    // Each reached row carries its sibling order, so the edges are ordered
+    // without joining the rows again (`lowerRecursiveRelationProjection`).
+    const sorted = edges ? start.sorted : undefined;
+    let sortTerms: readonly OrderTerm[] = [];
+    const sortColumns = () =>
+      sortTerms.map((_, index) => `__${scope}_sort_${index}`);
+    const row = (alias: string) => {
+      sortTerms = sorted?.(alias) ?? [];
+      return [
+        ...this.#aliased(childColumns, this.#rowKey(model, alias)),
+        ...this.#aliased(
+          hopColumns,
+          hopFields.map((field) => this.column(model, field, alias))
+        ),
+        ...this.#aliased(
+          sortColumns(),
+          sortTerms.map((term) => term.expression)
+        ),
+      ];
+    };
     const anchorChild = this.alias();
     const firstHop = assembleAdapterSelect(a, {
       columns: sql.join(
         [
-          ...this.#aliased(rootColumns, this.#rowKey(model, parentAlias)),
           ...this.#aliased(parentColumns, this.#rowKey(model, parentAlias)),
           ...row(anchorChild),
           ...hop(a.expressions.cast(this.value(1), "integer")),
         ],
         ", "
       ),
-      ...(from
-        ? {
-            from: sql`${from} ${this.#step(edge, parentAlias, anchorChild, scoped)}`,
-            where: all(reached(anchorChild)),
-          }
-        : {
-            from: this.table(model, anchorChild),
-            where: a.operators.and(
-              this.correlation(edge, parentAlias, anchorChild, scoped),
-              ...reached(anchorChild)
-            ),
-          }),
+      from: this.table(model, anchorChild),
+      where: a.operators.and(
+        this.correlation(edge, parentAlias, anchorChild, scoped),
+        ...reached(anchorChild)
+      ),
     });
     const seed = self ? this.alias() : undefined;
     const anchor = seed
@@ -9482,10 +9308,12 @@ export class Queries {
       );
     }
     const next = this.alias();
+    // An unbounded, unfiltered walk states no WHERE rather than `WHERE TRUE`.
+    const all = (bounds: Sql[]) =>
+      bounds.length === 0 ? undefined : a.operators.and(...bounds);
     const recursive = assembleAdapterSelect(a, {
       columns: sql.join(
         [
-          ...this.#aliased(rootColumns, rootColumns.map(carried)),
           ...this.#aliased(parentColumns, childColumns.map(carried)),
           ...row(next),
           ...hop(a.expressions.add(carried(depthColumn), this.value(1))),
@@ -9509,16 +9337,15 @@ export class Queries {
     });
     return {
       cte: a.cte.recursive(cteName, anchor, recursive, "distinct"),
-      /** The two terms, as a `WITH` member of the statement states them. */
-      terms: a.setOperations.union(anchor, recursive),
       cteName,
       scope,
       /** The walk's own alias, free again for a reader outside the CTE. */
       walk,
-      rootColumns,
       parentColumns,
       childColumns,
       depthColumn,
+      sortTerms,
+      sortColumns: sortColumns(),
     };
   }
   /** The fields of the row it leaves that one hop of `edge` reads. */
@@ -9555,44 +9382,38 @@ export class Queries {
   ): Sql {
     const a = this.adapter;
     const model = relation.edge.target;
-    const page =
-      this.#pageWalks?.alias === parentAlias ? this.#pageWalks : undefined;
-    // A list's slot walks from every row of its page, read here.
-    const start = page ? this.alias() : parentAlias;
     const {
       cte,
-      terms,
       cteName,
       scope,
       walk,
-      rootColumns,
       parentColumns,
       childColumns,
       depthColumn,
-    } = this.#walk(relation.edge, start, {
+      sortTerms,
+      sortColumns,
+    } = this.#walk(relation.edge, parentAlias, {
       depth: recurrence.depth,
       edges: true,
       selector: relation.arguments.selector,
-      ...(page && {
-        from: a.identifiers.aliased(a.identifiers.escape(page.name), start),
-      }),
+      // Each parent's siblings in the caller's order, ties broken by the order
+      // owner's one complete key — the ordinary window's tie-break, not another.
+      sorted: (alias) =>
+        this.#completeOrder(
+          model,
+          this.#orderTerms(model, relation.arguments.orderBy, alias),
+          alias
+        ),
     });
     const walkColumn = (name: string) => a.identifiers.column(walk, name);
 
     const ids = this.alias();
     const idColumns = childColumns.map((_, index) => `__${scope}_id_${index}`);
-    // Per root, on a page: one node table per start row.
     const distinctIds = assembleAdapterSelect(a, {
-      distinct: sql.join(
-        [...rootColumns, ...childColumns].map(walkColumn),
-        ", "
-      ),
-      distinctColumnAliases: [...rootColumns, ...idColumns],
+      distinct: sql.join(childColumns.map(walkColumn), ", "),
+      distinctColumnAliases: idColumns,
       columns: sql.join(
-        [
-          ...this.#aliased(rootColumns, rootColumns.map(walkColumn)),
-          ...this.#aliased(idColumns, childColumns.map(walkColumn)),
-        ],
+        this.#aliased(idColumns, childColumns.map(walkColumn)),
         ", "
       ),
       from: a.identifiers.aliased(a.identifiers.escape(cteName), walk),
@@ -9615,64 +9436,58 @@ export class Queries {
       ],
       [RECURSIVE_CARRIER.row, nodeDocument],
     ]);
-    const idColumn = (name: string) => a.identifiers.column(ids, name);
-    const nodeRead = {
-      columns: a.json.agg(nodeCarrier),
-      from: sql`${a.subqueries.correlate(distinctIds, ids)} ${a.joins.inner(
-        this.table(model, node),
-        this.#sameRow(model, node, idColumns.map(idColumn))
-      )}`,
-    };
+    // The edges are ordered from the walk's own columns, and each node is
+    // read by its key where the planner would hash the table to join it
+    // (`capabilities.readsNodesByKey`): joined, PostgreSQL, guessing ten rows
+    // a level, hashed the whole table once per outer row.
+    const idTable = a.subqueries.correlate(distinctIds, ids);
+    const sameNode = this.#sameRow(
+      model,
+      node,
+      idColumns.map((name) => a.identifiers.column(ids, name))
+    );
+    const table = this.table(model, node);
+    const byKey =
+      a.capabilities.readsNodesByKey &&
+      a.json.document(
+        a.subqueries.scalar(
+          assembleAdapterSelect(a, {
+            columns: nodeCarrier,
+            from: table,
+            where: sameNode,
+          })
+        )
+      );
+    const nodes = a.subqueries.scalar(
+      assembleAdapterSelect(a, {
+        columns: a.json.agg(byKey || nodeCarrier),
+        from: byKey
+          ? idTable
+          : sql`${idTable} ${a.joins.inner(table, sameNode)}`,
+      })
+    );
 
     const edgeWalk = this.alias();
-    const edgeChild = this.alias();
     const edgeColumn = (name: string) => a.identifiers.column(edgeWalk, name);
-    const edgeCarrierName = `__${scope}_edge`;
-    const edgePairs: [string, Sql][] = [
-      [
-        RECURSIVE_CARRIER.parent,
-        this.#recursiveIdentity(model, parentColumns.map(edgeColumn)),
-      ],
-      [
-        RECURSIVE_CARRIER.child,
-        this.#recursiveIdentity(model, childColumns.map(edgeColumn)),
-      ],
-    ];
-    if (recurrence.depth !== false)
-      edgePairs.push([RECURSIVE_CARRIER.depth, edgeColumn(depthColumn)]);
-    const edgeCarrier = a.json.object(edgePairs);
-    // Each parent's siblings in the caller's order, ties broken by the order
-    // owner's one complete key — the ordinary window's tie-break, not another.
-    const siblingOrder = this.#lowerOrder(
-      this.#completeOrder(
-        model,
-        this.#orderTerms(model, relation.arguments.orderBy, edgeChild),
-        edgeChild
-      )
-    );
     const edgePage = assembleAdapterSelect(a, {
       columns: sql.join(
         [
-          ...this.#aliased(rootColumns, rootColumns.map(edgeColumn)),
-          a.identifiers.aliased(edgeCarrier, edgeCarrierName),
-        ],
+          ...parentColumns,
+          ...childColumns,
+          ...(recurrence.depth === false ? [] : [depthColumn]),
+        ].map(edgeColumn),
         ", "
       ),
-      from: sql`${a.identifiers.aliased(
-        a.identifiers.escape(cteName),
-        edgeWalk
-      )} ${a.joins.inner(
-        this.table(model, edgeChild),
-        this.#sameRow(model, edgeChild, childColumns.map(edgeColumn))
-      )}`,
-      // A page's roots first: each root's facts are one run of this order,
-      // which its group aggregates as it reads them.
+      from: a.identifiers.aliased(a.identifiers.escape(cteName), edgeWalk),
       orderBy: sql.join(
         [
-          ...[...rootColumns, ...parentColumns].map((name) =>
-            a.orderBy.asc(edgeColumn(name))
-          ),
-          ...(siblingOrder ? [siblingOrder] : []),
+          ...parentColumns.map((name) => a.orderBy.asc(edgeColumn(name))),
+          this.#lowerOrder(
+            sortTerms.map((term, index) => ({
+              ...term,
+              expression: edgeColumn(sortColumns[index]!),
+            }))
+          )!,
         ],
         ", "
       ),
@@ -9681,83 +9496,39 @@ export class Queries {
       limit: a.noLimitValue,
     });
     const edgePageAlias = this.alias();
-    const edgeRead = {
-      columns: a.json.agg(
-        a.json.document(a.identifiers.column(edgePageAlias, edgeCarrierName))
-      ),
-      from: a.subqueries.correlate(edgePage, edgePageAlias),
-    };
+    const factColumn = (name: string) =>
+      a.identifiers.column(edgePageAlias, name);
+    const edgePairs: [string, Sql][] = [
+      [
+        RECURSIVE_CARRIER.parent,
+        this.#recursiveIdentity(model, parentColumns.map(factColumn)),
+      ],
+      [
+        RECURSIVE_CARRIER.child,
+        this.#recursiveIdentity(model, childColumns.map(factColumn)),
+      ],
+    ];
+    if (recurrence.depth !== false)
+      edgePairs.push([RECURSIVE_CARRIER.depth, factColumn(depthColumn)]);
+    const edges = a.subqueries.scalar(
+      assembleAdapterSelect(a, {
+        columns: a.json.agg(a.json.object(edgePairs)),
+        from: a.subqueries.correlate(edgePage, edgePageAlias),
+      })
+    );
 
-    const carrier = (root: string, nodeFacts: Sql, edgeFacts: Sql) =>
+    const carrier = (nodeFacts: Sql, edgeFacts: Sql) =>
       a.json.object([
         [
           RECURSIVE_CARRIER.root,
-          this.#recursiveIdentity(model, this.#rowKey(model, root)),
+          this.#recursiveIdentity(model, this.#rowKey(model, parentAlias)),
         ],
         [RECURSIVE_CARRIER.nodes, a.json.document(nodeFacts)],
         [RECURSIVE_CARRIER.edges, a.json.document(edgeFacts)],
       ]);
-    if (page) {
-      // The walk and its two readers are members of the list's statement,
-      // each reader grouped per root and joined to the root it names. A root
-      // that reaches nothing joins neither: its facts are empty. SQLite would
-      // walk again at each reader.
-      page.members.push({
-        name: cteName,
-        query: terms,
-        recursive: true,
-        inlined: false,
-      });
-      const factsColumn = `__${scope}_facts`;
-      const facts = (
-        name: string,
-        source: string,
-        read: { readonly columns: Sql; readonly from: Sql }
-      ) => {
-        const roots = rootColumns.map((column) =>
-          a.identifiers.column(source, column)
-        );
-        page.members.push({
-          name,
-          query: assembleAdapterSelect(a, {
-            columns: sql.join(
-              [
-                ...this.#aliased(rootColumns, roots),
-                a.identifiers.aliased(read.columns, factsColumn),
-              ],
-              ", "
-            ),
-            from: read.from,
-            groupBy: sql.join(roots, ", "),
-          }),
-        });
-        const joined = this.alias();
-        page.joins.push(
-          a.joins.left(
-            a.identifiers.aliased(a.identifiers.escape(name), joined),
-            this.#sameRow(
-              model,
-              parentAlias,
-              rootColumns.map((column) => a.identifiers.column(joined, column))
-            )
-          )
-        );
-        return a.expressions.coalesce(
-          a.identifiers.column(joined, factsColumn),
-          a.json.emptyArray()
-        );
-      };
-      return carrier(
-        parentAlias,
-        facts(`${cteName}_nodes`, ids, nodeRead),
-        facts(`${cteName}_edges`, edgePageAlias, edgeRead)
-      );
-    }
-    const nodes = a.subqueries.scalar(assembleAdapterSelect(a, nodeRead));
-    const edges = a.subqueries.scalar(assembleAdapterSelect(a, edgeRead));
     if (!a.capabilities.supportsLateralJoins)
       return a.subqueries.scalar(
-        sql`${cte} ${a.clauses.select(carrier(parentAlias, nodes, edges))}`
+        sql`${cte} ${a.clauses.select(carrier(nodes, edges))}`
       );
     // MySQL materializes a correlated recursive CTE that is read twice (the
     // nodes and the edges) once for the whole statement and hands every outer
@@ -9772,7 +9543,6 @@ export class Queries {
     return a.subqueries.scalar(
       assembleAdapterSelect(a, {
         columns: carrier(
-          parentAlias,
           a.identifiers.column(facts, nodeFacts),
           a.identifiers.column(facts, edgeFacts)
         ),
