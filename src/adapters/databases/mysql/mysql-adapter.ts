@@ -453,18 +453,6 @@ export class MySQLAdapter implements DatabaseAdapter {
   operators = {
     ...createComparisonOperators(),
 
-    // Explicit ESCAPE '\' pairs with wildcard escaping in the where-builder.
-    // The literal is doubled ('\\') because MySQL's default mode treats
-    // backslash as a string-literal escape; under NO_BACKSLASH_ESCAPES it
-    // fails loudly rather than silently matching wildcards.
-    like: (column: Sql, pattern: Sql): Sql =>
-      sql`${column} LIKE ${pattern} ESCAPE '\\\\'`,
-    notLike: (column: Sql, pattern: Sql): Sql =>
-      sql`${column} NOT LIKE ${pattern} ESCAPE '\\\\'`,
-    ilike: (column: Sql, pattern: Sql): Sql =>
-      sql`BINARY ${caseFold(column)} LIKE BINARY ${caseFold(pattern)} ESCAPE '\\\\'`,
-    notIlike: (column: Sql, pattern: Sql): Sql =>
-      sql`BINARY ${caseFold(column)} NOT LIKE BINARY ${caseFold(pattern)} ESCAPE '\\\\'`,
     containsText: (column: Sql, value: Sql): Sql =>
       sql`LOCATE(BINARY ${value}, BINARY ${column}) > 0`,
     startsWithText: (column: Sql, value: Sql): Sql =>

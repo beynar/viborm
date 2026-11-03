@@ -271,15 +271,6 @@ export class PostgresAdapter implements DatabaseAdapter {
   operators = {
     ...createComparisonOperators(),
 
-    // Explicit ESCAPE '\' pairs with wildcard escaping in the where-builder
-    like: (column: Sql, pattern: Sql): Sql =>
-      sql`${column} LIKE ${pattern} ESCAPE '\\'`,
-    notLike: (column: Sql, pattern: Sql): Sql =>
-      sql`${column} NOT LIKE ${pattern} ESCAPE '\\'`,
-    ilike: (column: Sql, pattern: Sql): Sql =>
-      sql`${column} ILIKE ${pattern} ESCAPE '\\'`,
-    notIlike: (column: Sql, pattern: Sql): Sql =>
-      sql`${column} NOT ILIKE ${pattern} ESCAPE '\\'`,
     containsText: (column: Sql, value: Sql): Sql =>
       sql`${column} LIKE ${postgresLikePattern("contains", value)} ESCAPE '\\'`,
     startsWithText: (column: Sql, value: Sql): Sql =>

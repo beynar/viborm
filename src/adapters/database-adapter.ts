@@ -219,11 +219,6 @@ export interface DatabaseAdapter {
     gte: (left: Sql, right: Sql) => Sql;
 
     // Pattern matching
-    like: (column: Sql, pattern: Sql) => Sql;
-    notLike: (column: Sql, pattern: Sql) => Sql;
-    /** Case-insensitive LIKE. */
-    ilike: (column: Sql, pattern: Sql) => Sql;
-    notIlike: (column: Sql, pattern: Sql) => Sql;
     /** Case-sensitive substring predicates, independent of database collation. */
     containsText: (column: Sql, value: Sql) => Sql;
     startsWithText: (column: Sql, value: Sql) => Sql;

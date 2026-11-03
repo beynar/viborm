@@ -470,10 +470,6 @@ describe("dialect physical SQL vocabulary", () => {
 
     for (const adapter of [postgres, mysql, sqlite]) {
       expectComposable([
-        adapter.operators.like(column, value),
-        adapter.operators.notLike(column, value),
-        adapter.operators.ilike(column, value),
-        adapter.operators.notIlike(column, value),
         adapter.operators.containsText(column, value),
         adapter.operators.startsWithText(column, value),
         adapter.operators.endsWithText(column, value),
