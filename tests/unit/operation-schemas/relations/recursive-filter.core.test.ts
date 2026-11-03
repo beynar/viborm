@@ -145,7 +145,7 @@ function issueOf(result: {
 
 /** The dense admitted closure the engine reads without re-parsing. */
 const closure = (
-  recurse: { depth: number | false; cycles: string },
+  recurse: { depth: number | false; cycles: string; selective?: true },
   arms: {
     self?: boolean;
     some?: unknown;
@@ -256,6 +256,43 @@ describe("recursive filter — admission", () => {
         some: {},
       })
     ).toStrictEqual(admitted({ depth: false, cycles: "prevent" }));
+  });
+
+  test("carries a stated selectivity; an unstated or false one stays absent", () => {
+    expect(
+      parse(filters.documentParent, {
+        recurse: { depth: false, selective: true },
+        some: {},
+      })
+    ).toStrictEqual({
+      value: closure(
+        { depth: false, cycles: "reject", selective: true },
+        { some: {} }
+      ),
+    });
+    expect(
+      parse(filters.teamChildren, {
+        recurse: { depth: false, preventCycles: true, selective: true },
+        some: {},
+      })
+    ).toStrictEqual({
+      value: closure(
+        { depth: false, cycles: "prevent", selective: true },
+        { some: {} }
+      ),
+    });
+    expect(
+      parse(filters.teamChildren, {
+        recurse: { depth: 3, selective: false },
+        some: {},
+      })
+    ).toStrictEqual({
+      value: closure({ depth: 3, cycles: "prevent" }, { some: {} }),
+    });
+    expect(
+      parse(filters.documentParent, { recurse: { selective: 1 }, some: {} })
+        .issues
+    ).toBeDefined();
   });
 
   test("refuses an output budget and fewRows, which read no projection", () => {

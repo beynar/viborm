@@ -23,6 +23,18 @@ Versioning.
 
 ### Added
 
+- **`recurse: { selective: true }`: a walk you state is few is computed once
+  per statement.** Inside a policy's repeated rules, a recursive walk such as
+  "the teams the actor belongs to, through their subteams" (`children: {
+  recurse: { depth: false, selective: true }, some: { members: { some: {
+  userId: { actor: "userId" } } } } }`) was walked again for every grant row
+  each rule read. Stated `selective`, it is read back once from the actor's
+  rows wherever every body reading it is already computed over its whole
+  table. Measured on a 40-model production policy at 500 organizations
+  (PostgreSQL 18): opening a page 2.0 → 0.8 ms with `tenant` (1.4 s → 89 ms
+  without). Anywhere else (a body read by one row's key, a unique read, a
+  keyed write, SQLite's keyed reads) the walk stays in place. Nothing is
+  guessed: without the option every statement is the one 1.9.1 sent.
 - **`recurse: { fewRows: true }`: a recursive select whose walks are short
   reads its rows by key on PostgreSQL.** State it on a `recurse` in
   `select`/`include` when each row's walk reaches few rows of its table (a

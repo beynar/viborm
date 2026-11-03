@@ -291,6 +291,13 @@ client.node.findMany({
   include: { children: { recurse: false } },
 });
 
+client.node.findMany({
+  include: {
+    // @ts-expect-error - a selectivity is a filter walk's, never a projection's
+    children: { recurse: { depth: false, selective: true } },
+  },
+});
+
 const parent = () =>
   client.node.findMany({ include: { parent: { recurse: true } } });
 type ParentNode = NonNullable<

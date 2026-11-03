@@ -18,6 +18,11 @@ export interface NormalizedRecurrence {
   /** A projection's own output budget, when its caller set one. */
   readonly maxOccurrences?: number;
   /**
+   * A filter's: its author states that the rows its predicate holds of, and
+   * the rows that reach them, are few ({@link SELECTIVE}).
+   */
+  readonly selective?: true;
+  /**
    * A projection's: its caller states that each outer row's walk reaches few
    * rows of the table ({@link OUTPUT_BUDGET}).
    */
@@ -50,35 +55,38 @@ export function carriesRepeatedKey(
  * cycle it reaches. `preventCycles` is therefore refused by the bag's own type,
  * so no downstream guard has to know which topology a nested bag belongs to.
  */
-export type ForeignKeyFilterRecurse =
-  | true
-  | {
-      readonly depth?: number | false;
-      readonly preventCycles?: undefined;
-    };
+type ForeignKeyWalk = {
+  readonly depth?: number | false;
+  readonly preventCycles?: undefined;
+};
 
-export type GraphFilterRecurse =
-  | true
+type GraphWalk =
   | { readonly depth?: number; readonly preventCycles?: boolean }
   | { readonly depth: false; readonly preventCycles?: true };
 
 /**
- * A projection's bag adds the output budget and `fewRows`. A `where` filter
- * reads the closure as a set and decodes no occurrence, so it has nothing to
- * bound or read by key and refuses both keys by its own type.
+ * A projection's bag adds the output budget. A `where` filter reads the
+ * closure as a set and decodes no occurrence, so it has nothing to bound and
+ * refuses the key by its own type.
  */
 type OutputBudget = {
   readonly maxOccurrences?: number;
   readonly fewRows?: boolean;
 };
 
-export type ForeignKeyRecurse =
-  | true
-  | (Exclude<ForeignKeyFilterRecurse, true> & OutputBudget);
+/**
+ * A filter's bag adds `selective`: a fact of the data only its author knows,
+ * which a projection, decoding every occurrence, has no use for.
+ */
+type Selective = { readonly selective?: boolean };
 
-export type GraphRecurse =
-  | true
-  | (Exclude<GraphFilterRecurse, true> & OutputBudget);
+export type ForeignKeyFilterRecurse = true | (ForeignKeyWalk & Selective);
+
+export type GraphFilterRecurse = true | (GraphWalk & Selective);
+
+export type ForeignKeyRecurse = true | (ForeignKeyWalk & OutputBudget);
+
+export type GraphRecurse = true | (GraphWalk & OutputBudget);
 
 export type ForeignKeyRecurrenceSchema = V.Schema<
   ForeignKeyRecurse,
@@ -160,34 +168,48 @@ const OUTPUT_BUDGET = {
   /**
    * A fact of the data only the caller knows: each outer row's walk reaches
    * few rows of its table (a document's folder chain). Each reached row is
-   * then read by its key in the projection's node reader, where
-   * PostgreSQL, guessing ten rows a level, would hash the whole table once
-   * per outer row to join them; on a walk that reaches most of its table,
-   * that one probe per row is slower than the hash.
+   * then read by its key in the projection's node reader, where PostgreSQL,
+   * guessing ten rows a level, may scan the whole table for every outer row
+   * to join them; on a walk that reaches most of its table, that one probe
+   * per row is slower than the join.
    */
   fewRows: v.optional(v.boolean()),
 };
 
 /**
- * A spelled budget and a stated `fewRows` travel with the bag; unspelled, they
- * stay absent.
+ * A filter walk's author states that the rows its predicate holds of are
+ * few, and so are the rows that reach them (the actor's memberships, and the
+ * teams above them): where its walk is read in bodies a statement computes
+ * over their whole tables, it may be computed once, from those rows back
+ * ({@link Queries.sharingBodies}). The schema cannot say it: an indexed
+ * column may hold one value in most rows.
  */
-const withBudget = (
+const SELECTIVE = { selective: v.optional(v.boolean()) };
+
+/** A bag's options beside its depth and cycles: a projection's or a filter's. */
+type BagOptions = OutputBudget & { readonly selective?: boolean };
+
+/**
+ * A spelled budget and a stated `fewRows` or selectivity travel with the bag;
+ * unspelled, they stay absent.
+ */
+const withOptions = (
   recurrence: Pick<NormalizedRecurrence, "depth" | "cycles">,
-  options: OutputBudget
+  options: BagOptions
 ): NormalizedRecurrence => ({
   ...recurrence,
   ...(options.maxOccurrences !== undefined && {
     maxOccurrences: options.maxOccurrences,
   }),
+  ...(options.selective === true && { selective: true as const }),
   ...(options.fewRows === true && { fewRows: true as const }),
 });
 
 /** The one normalization of a foreign-key bag: it rejects every cycle. */
 const normalizeForeignKey = (
-  options: { readonly depth?: number | false } & OutputBudget
+  options: { readonly depth?: number | false } & BagOptions
 ): NormalizedRecurrence =>
-  withBudget(
+  withOptions(
     { depth: options.depth ?? DEFAULT_DEPTH, cycles: "reject" },
     options
   );
@@ -197,9 +219,9 @@ const normalizeGraph = (
   options: {
     readonly depth?: number | false;
     readonly preventCycles?: boolean;
-  } & OutputBudget
+  } & BagOptions
 ): NormalizedRecurrence =>
-  withBudget(
+  withOptions(
     {
       depth: options.depth ?? DEFAULT_DEPTH,
       cycles: options.preventCycles === false ? "allow" : "prevent",
@@ -249,12 +271,15 @@ const LANGUAGES: RecurrenceLanguages = {
   filter: {
     foreignKey: v.union([
       TRUE_FOREIGN_KEY,
-      v.coerce(foreignKeyOptions, normalizeForeignKey),
+      v.coerce(foreignKeyOptions.extend(SELECTIVE), normalizeForeignKey),
     ]),
     junction: v.union([
       TRUE_GRAPH,
       v.coerce(
-        v.union([boundedGraphOptions, exhaustiveGraphOptions]),
+        v.union([
+          boundedGraphOptions.extend(SELECTIVE),
+          exhaustiveGraphOptions.extend(SELECTIVE),
+        ]),
         normalizeGraph
       ),
     ]),

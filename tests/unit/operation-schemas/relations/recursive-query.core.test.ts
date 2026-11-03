@@ -216,6 +216,16 @@ describe("recursive relation admission", () => {
     ).toBeDefined();
   });
 
+  test("refuses a selectivity, which only a filter's walk states", () => {
+    for (const include of [
+      schemas.node.relations.children.include,
+      schemas.graphNode.relations.links.include,
+    ])
+      expect(
+        parse(include, { recurse: { depth: false, selective: true } }).issues
+      ).toBeDefined();
+  });
+
   test.each([
     0,
     -1,

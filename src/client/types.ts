@@ -1653,7 +1653,7 @@ type RecurrenceOptionKey = keyof Exclude<
   true
 >;
 
-/** A `where` filter's: no output budget, and no `fewRows`. */
+/** A `where` filter's: no output budget nor `fewRows`, and its walk's `selective`. */
 type FilterRecurrenceOptionKey = keyof Exclude<
   ForeignKeyFilterRecurse | GraphFilterRecurse,
   true
