@@ -1211,11 +1211,25 @@ function methodsStep<
   return client.$extends({ name: `${NAME}.methods`, model });
 }
 
+/**
+ * A model an entry orders, with the scalar fields the entry names (its key
+ * and its list's): a misspelled one is refused at application, as a
+ * misspelled model is. Read off the model's own scalars, one level deep.
+ */
+type OrderedModel<Fields extends string> = AnyModel & {
+  readonly "~": {
+    readonly state: { readonly scalars: Record<Fields, unknown> };
+  };
+};
 type Receiver<Config extends OrderingConfig> = ClientTypeState<
   VibORMConfig,
   ExtensionState
 > & {
-  readonly $schema: Record<Names<Config>, AnyModel>;
+  readonly $schema: {
+    readonly [M in Names<Config>]: OrderedModel<
+      Config[M]["key"] | WithinOf<Config, M>
+    >;
+  };
   readonly $extends: (...args: never[]) => unknown;
 };
 type Applied<

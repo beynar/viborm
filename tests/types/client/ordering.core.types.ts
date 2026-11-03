@@ -3,7 +3,7 @@
  * the extension appends is optional on a create (root and nested), `move`
  * and `rekey` take the model's own inputs and `move` returns what an
  * `update` with the same projection returns, and the configuration names
- * the receiving client's models.
+ * the receiving client's models and their scalar fields.
  *
  * Nothing in this file is called. Only the types matter.
  */
@@ -207,5 +207,24 @@ export async function probes() {
   ordering({ models: { nope: { key: "rank" } } })(base);
   // @ts-expect-error so does the form before 1.9.1
   ordering({ nope: { key: "rank" } })(base);
+  // And each model's scalar fields, at application (1.10 review, Sol B #2).
+  // @ts-expect-error the key is one of the model's fields
+  base.$extends(ordering({ models: { card: { key: "rnak" } } }));
+  base.$extends(
+    // @ts-expect-error so is each list field, beside a real one
+    ordering({
+      models: { card: { key: "rank", within: ["columnId", "colmnId"] } },
+    })
+  );
+  // @ts-expect-error a list field is a scalar, not a relation
+  ordering({ models: { card: { key: "rank", within: ["column"] } } })(base);
+  const heldTypo = { models: { card: { key: "rnak" } } } as const;
+  // @ts-expect-error a held configuration too
+  base.$extends(ordering(heldTypo));
+  // A configuration whose names widened to string is the runtime's to check.
+  const widened: { models: { card: { key: string } } } = {
+    models: { card: { key: "rank" } },
+  };
+  base.$extends(ordering(widened));
   expectTypeOf(legacy.card.move).toEqualTypeOf(db.card.move);
 }
