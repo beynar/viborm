@@ -10,6 +10,7 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { DatabaseAdapter } from "../adapters/database-adapter";
 import type { OperationPayload, OperationResult } from "../client/exports"; // public today
+import type { NoExtraOperationKeys } from "../client/types";
 import {
   ClientInitializationError,
   NotFoundError,
@@ -1057,6 +1058,41 @@ type MoveArgs<
   readonly where: Unique<C, K>;
   readonly data?: MoveData<C, Config, K>;
 } & MovePlacement<M, C, Config, K>;
+/** A unique selector a move spells, its keys refused as an update's `where`. */
+type SealedUnique<C extends VibORMConfig, K, Given> = NoExtraOperationKeys<
+  "update",
+  { readonly where: Given },
+  NonNullable<ModelArgs<C, K, "update">>,
+  ClientSchema<C>[K & keyof ClientSchema<C>]
+>["where"];
+/** The key `Spelled` names that `Allowed` has not. */
+type Sealed<Spelled, Allowed> = Record<
+  Exclude<keyof NonNullable<Spelled>, keyof Allowed>,
+  never
+>;
+/**
+ * A move's own keys, refused where they name nothing: `where` and the
+ * anchors as an update's `where` is, `data` and `to` against the fields they
+ * may write. `A` is inferred from the call, so every key it spells is known
+ * to `MoveArgs`; demanding `never` for the others refuses them however the
+ * argument was written. Three mapped types, not one with a conditional per
+ * key: comparing two ordered clients' `move` (two `ordering()` calls) then
+ * cost 2.5M instantiations instead of 0.1M.
+ */
+type SealedMove<
+  A,
+  C extends VibORMConfig,
+  Config extends OrderingConfig,
+  K extends keyof Config,
+> = {
+  readonly [P in keyof A & ("where" | "after" | "before")]?: SealedUnique<
+    C,
+    K,
+    A[P]
+  >;
+} & {
+  readonly [P in keyof A & "data"]?: Sealed<A[P], MoveData<C, Config, K>>;
+} & { readonly [P in keyof A & "to"]?: Sealed<A[P], ListOf<C, Config, K>> };
 type FindArg<C extends VibORMConfig, K, P extends string> = NonNullable<
   ModelArgs<C, K, "findMany">
 >[P & keyof NonNullable<ModelArgs<C, K, "findMany">>];
@@ -1083,7 +1119,7 @@ export type OrderingMethods<
     const A extends DelegateOperationArgs<Self, MoveArgs<M, C, Config, K>>,
   >(
     this: Self,
-    args: A
+    args: A & SealedMove<A, C, Config, K>
   ): PromiseLike<DelegateOperationResult<Self, "update", A>>;
   // Generic as `move` is, so a call's controls (`deleted`, …) pass along.
   rekey<A extends RekeyArgs<C, K>>(args?: A): PromiseLike<{ count: number }>;

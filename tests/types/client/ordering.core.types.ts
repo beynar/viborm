@@ -148,6 +148,48 @@ export async function probes() {
   // @ts-expect-error the anchor is named by a unique input
   await db.card.move({ where: { id: "a" }, before: { title: "b" } });
 
+  // A typo beside a real key, at each of move's own levels, fresh or held,
+  // as an update refuses it (1.10 review, Sol A F3).
+  await db.card.move({
+    where: { id: "a" },
+    first: true,
+    // @ts-expect-error data names the model's fields
+    data: { title: "t", titel: "u" },
+  });
+  const heldData = { title: "t", titel: "u" };
+  // @ts-expect-error held data names the model's fields
+  await db.card.move({ where: { id: "a" }, first: true, data: heldData });
+  // @ts-expect-error where names the model's fields
+  await db.card.move({ where: { id: "a", idd: "b" }, first: true });
+  const heldWhere = { id: "a", idd: "b" };
+  // @ts-expect-error a held where names the model's fields
+  await db.card.move({ where: heldWhere, first: true });
+  await db.card.move({
+    // @ts-expect-error one relation deeper, the target's fields
+    where: { id: "a", column: { is: { id: "c1", idd: "c2" } } },
+    first: true,
+  });
+  // @ts-expect-error after names the model's fields
+  await db.card.move({ where: { id: "a" }, after: { id: "b", idd: "c" } });
+  // @ts-expect-error before names the model's fields
+  await db.card.move({ where: { id: "a" }, before: { id: "b", idd: "c" } });
+  const heldAnchor = { id: "b", idd: "c" };
+  // @ts-expect-error a held anchor names the model's fields
+  await db.card.move({ where: { id: "a" }, after: heldAnchor });
+  await db.card.move({
+    where: { id: "a" },
+    // @ts-expect-error to names the list's fields
+    to: { columnId: "c2", columId: "c3" },
+    first: true,
+  });
+  // The projection keeps its own seal; a correct call still compiles.
+  await db.card.move({
+    where: { id: "a", column: { is: { id: "c1" } } },
+    after: { id: "b" },
+    data: { title: "t" },
+    select: { id: true, title: true },
+  });
+
   const { count } = await db.card.rekey({ where: { columnId: "c1" } });
   expectTypeOf(count).toEqualTypeOf<number>();
   await db.card.rekey({ orderBy: { title: "asc" } });
