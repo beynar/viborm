@@ -1367,11 +1367,11 @@ defeated cycle deduplication: Sol E, 2026-11-03) and widens every iteration
 by `Queries.completeOrder` after the walk: an order of ungated key columns
 alone (the default) is read from the walk's own child columns and joins no
 table — joined only to be ordered, PostgreSQL, which guesses ten rows a level
-of a walk, hashed the whole table once per outer row — and any other term is
+of a walk, could scan the whole table once per outer row — and any other term is
 read from the child joined to the walk. The node reader joins the table
 unless the caller states `recurse.fewRows` (each walk reaches few rows, a
-fact of the data no schema says) on a dialect whose planner hashes the
-table to join it (`capabilities.readsNodesByKey`, PostgreSQL): each node is
+fact of the data no schema says) on a dialect whose planner may scan the
+whole table to join it (`capabilities.readsNodesByKey`, PostgreSQL): each node is
 then read by its key in a scalar subquery, and nothing else changes (walk,
 edges, carrier, decoder). Read by key, PostgreSQL won about 10× on a
 1,040-row list of a 5,000-row tree but lost on a walk reaching most of its

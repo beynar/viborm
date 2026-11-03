@@ -12,7 +12,7 @@ Versioning.
   depth: false }, select: { … } }`: each document's folder chain), each
   listed row joined the rows its walk reached back to their table only to
   order them; PostgreSQL, which guesses ten rows a level of a recursive
-  walk, planned that join as a hash of the whole table, once per row. An
+  walk, could scan the whole table for every listed row to do it. An
   order of key columns alone (the default) is now read from the walk
   itself. PostgreSQL 18: 1,040 rows of a 5,000-row tree with their
   ancestors 255 → 133 ms, a governed 100-row page of a 10,000-row tree
@@ -28,8 +28,8 @@ Versioning.
   `select`/`include` when each row's walk reaches few rows of its table (a
   document's folder chain, a category's ancestors). On every PostgreSQL
   driver each reached row is then read by its primary key instead of
-  joining the table to the walk, which PostgreSQL plans as a hash of the
-  whole table once per listed row. PostgreSQL 18: 1,040 rows of a
+  joining the table to the walk, which may scan the whole table for every
+  listed row. PostgreSQL 18: 1,040 rows of a
   5,000-row tree with their ancestors 129 → 13 ms, all 5,000 558 → 68 ms,
   a governed 100-row page of a 10,000-row tree 6.3 → 1.7 ms; PGlite lists
   4–20× faster. On a walk that reaches most of its table it is slower (the
