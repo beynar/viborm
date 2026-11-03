@@ -451,9 +451,16 @@ declare const clientTypeState: unique symbol;
 export type ClientTypeState<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
-> = [C] extends [unknown]
-  ? { readonly [clientTypeState]?: readonly [C, X] | object }
-  : never;
+> = [C] extends [unknown] ? ClientTypeStateMember<C, X> : never;
+
+/**
+ * The metadata's one member. An interface, so an inferred client's
+ * declaration names it rather than spelling its symbol-keyed member, which a
+ * declaration file cannot name.
+ */
+export interface ClientTypeStateMember<C, X> {
+  readonly [clientTypeState]?: readonly [C, X] | object;
+}
 
 /**
  * Extended client type with utility methods
@@ -493,7 +500,7 @@ export type VibORMClient<
  * The client members no extension state removes. An interface outside the
  * `Omit` above, so a body generic over the extension state still reaches them.
  */
-interface VibORMClientMembers<
+export interface VibORMClientMembers<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
 > {
