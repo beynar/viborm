@@ -185,6 +185,15 @@ client.team.findMany({
     children: { recurse: { depth: false, preventCycles: true }, none: {} },
   },
 });
+// A walk its author states selective, on both topologies.
+client.document.findMany({
+  where: { parent: { recurse: { depth: false, selective: true }, some: {} } },
+});
+client.team.findMany({
+  where: {
+    children: { recurse: { depth: false, selective: true }, some: {} },
+  },
+});
 // The ordinary forms are unchanged beside the recursive one.
 client.document.findMany({
   where: {

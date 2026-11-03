@@ -17,6 +17,11 @@ export interface NormalizedRecurrence {
   readonly cycles: "reject" | "prevent" | "allow";
   /** A projection's own output budget, when its caller set one. */
   readonly maxOccurrences?: number;
+  /**
+   * A filter's: its author states that the rows its predicate holds of, and
+   * the rows that reach them, are few ({@link SELECTIVE}).
+   */
+  readonly selective?: true;
 }
 
 /**
@@ -45,15 +50,12 @@ export function carriesRepeatedKey(
  * cycle it reaches. `preventCycles` is therefore refused by the bag's own type,
  * so no downstream guard has to know which topology a nested bag belongs to.
  */
-type ForeignKeyFilterRecurse =
-  | true
-  | {
-      readonly depth?: number | false;
-      readonly preventCycles?: undefined;
-    };
+type ForeignKeyWalk = {
+  readonly depth?: number | false;
+  readonly preventCycles?: undefined;
+};
 
-type GraphFilterRecurse =
-  | true
+type GraphWalk =
   | { readonly depth?: number; readonly preventCycles?: boolean }
   | { readonly depth: false; readonly preventCycles?: true };
 
@@ -64,13 +66,19 @@ type GraphFilterRecurse =
  */
 type OutputBudget = { readonly maxOccurrences?: number };
 
-export type ForeignKeyRecurse =
-  | true
-  | (Exclude<ForeignKeyFilterRecurse, true> & OutputBudget);
+/**
+ * A filter's bag adds `selective`: a fact of the data only its author knows,
+ * which a projection, decoding every occurrence, has no use for.
+ */
+type Selective = { readonly selective?: boolean };
 
-export type GraphRecurse =
-  | true
-  | (Exclude<GraphFilterRecurse, true> & OutputBudget);
+export type ForeignKeyFilterRecurse = true | (ForeignKeyWalk & Selective);
+
+export type GraphFilterRecurse = true | (GraphWalk & Selective);
+
+export type ForeignKeyRecurse = true | (ForeignKeyWalk & OutputBudget);
+
+export type GraphRecurse = true | (GraphWalk & OutputBudget);
 
 export type ForeignKeyRecurrenceSchema = V.Schema<
   ForeignKeyRecurse,
@@ -151,21 +159,40 @@ const OUTPUT_BUDGET = {
   ),
 };
 
-/** A spelled budget travels with the bag; an unspelled one stays absent. */
-const withBudget = (
-  recurrence: Omit<NormalizedRecurrence, "maxOccurrences">,
-  budget: number | undefined
-): NormalizedRecurrence =>
-  budget === undefined ? recurrence : { ...recurrence, maxOccurrences: budget };
+/**
+ * A filter walk's author states that the rows its predicate holds of are
+ * few, and so are the rows that reach them (the actor's memberships, and the
+ * teams above them): where its walk is read in bodies a statement computes
+ * over their whole tables, it may be computed once, from those rows back
+ * ({@link Queries.sharingBodies}). The schema cannot say it: an indexed
+ * column may hold one value in most rows.
+ */
+const SELECTIVE = { selective: v.optional(v.boolean()) };
+
+/**
+ * A spelled budget and a stated selectivity travel with the bag; unspelled,
+ * they stay absent.
+ */
+const withOptions = (
+  recurrence: Pick<NormalizedRecurrence, "depth" | "cycles">,
+  options: { readonly maxOccurrences?: number; readonly selective?: boolean }
+): NormalizedRecurrence => ({
+  ...recurrence,
+  ...(options.maxOccurrences !== undefined && {
+    maxOccurrences: options.maxOccurrences,
+  }),
+  ...(options.selective === true && { selective: true as const }),
+});
 
 /** The one normalization of a foreign-key bag: it rejects every cycle. */
 const normalizeForeignKey = (options: {
   readonly depth?: number | false;
   readonly maxOccurrences?: number;
+  readonly selective?: boolean;
 }): NormalizedRecurrence =>
-  withBudget(
+  withOptions(
     { depth: options.depth ?? DEFAULT_DEPTH, cycles: "reject" },
-    options.maxOccurrences
+    options
   );
 
 /** The one normalization of a graph bag: prevention unless declined. */
@@ -173,13 +200,14 @@ const normalizeGraph = (options: {
   readonly depth?: number | false;
   readonly preventCycles?: boolean;
   readonly maxOccurrences?: number;
+  readonly selective?: boolean;
 }): NormalizedRecurrence =>
-  withBudget(
+  withOptions(
     {
       depth: options.depth ?? DEFAULT_DEPTH,
       cycles: options.preventCycles === false ? "allow" : "prevent",
     },
-    options.maxOccurrences
+    options
   );
 
 // `true` is the empty bag of its topology, by construction.
@@ -224,12 +252,15 @@ const LANGUAGES: RecurrenceLanguages = {
   filter: {
     foreignKey: v.union([
       TRUE_FOREIGN_KEY,
-      v.coerce(foreignKeyOptions, normalizeForeignKey),
+      v.coerce(foreignKeyOptions.extend(SELECTIVE), normalizeForeignKey),
     ]),
     junction: v.union([
       TRUE_GRAPH,
       v.coerce(
-        v.union([boundedGraphOptions, exhaustiveGraphOptions]),
+        v.union([
+          boundedGraphOptions.extend(SELECTIVE),
+          exhaustiveGraphOptions.extend(SELECTIVE),
+        ]),
         normalizeGraph
       ),
     ]),
