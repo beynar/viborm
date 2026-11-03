@@ -24,8 +24,8 @@ export interface LazyRelations {
 export interface RowDomain {
   readonly root: ModelDomain;
   readonly related: ModelDomain;
-  /** What a layer's own whole-table sets hold (`rows.bound`), in every mode. */
-  readonly bound?: ModelDomain;
+  /** What a layer's own whole-table sets hold (`rows.confine`), in every mode. */
+  readonly confine?: ModelDomain;
   /**
    * Per model (its TS name), indexed by layer as {@link ModelDomain} is, the
    * predicates of the model's verbs. A model absent here judges a write by

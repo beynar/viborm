@@ -652,11 +652,11 @@ function modesOf(models: { readonly [model: string]: DeclaredModel }) {
 }
 
 /** The tenant the policy's own whole-table sets stay in (`tenant`). */
-function boundOf(models: { readonly [model: string]: DeclaredModel }) {
-  const bound: Record<string, Where> = {};
+function confineOf(models: { readonly [model: string]: DeclaredModel }) {
+  const confine: Record<string, Where> = {};
   for (const [name, model] of Object.entries(models))
-    if (model.bound !== undefined) bound[name] = model.bound;
-  return Object.keys(bound).length === 0 ? {} : { bound };
+    if (model.bound !== undefined) confine[name] = model.bound;
+  return Object.keys(confine).length === 0 ? {} : { confine };
 }
 
 /** Whether `name` has a self relation holding its key: what `acyclic` may name. */
@@ -901,7 +901,7 @@ export function permissions<const Config extends PermissionsConfig>(
       default: DEFAULT_MODE,
       models: modesOf(declared),
       verbs,
-      ...boundOf(declared),
+      ...confineOf(declared),
     },
     query: refuseUnreachable(reachOf(config, declared)),
     client: (scope: {

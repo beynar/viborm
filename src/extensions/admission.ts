@@ -315,6 +315,15 @@ function cyclePath(
   return undefined;
 }
 
+/** The keys a definition's `rows` reads. */
+const ROWS_KEYS: ReadonlySet<string> = new Set([
+  "control",
+  "default",
+  "models",
+  "verbs",
+  "confine",
+]);
+
 /**
  * One definition's `rows` with every predicate admitted, each named predicate
  * once and a mode naming one given its admitted object: refusals are
@@ -333,6 +342,14 @@ export function admitRows(
       (scalar) => scalar["~"].state.schema === undefined
     );
   });
+  // A key `rows` does not read is refused, not dropped: `bound` (1.9, 1.10)
+  // would otherwise lose its confinement silently.
+  for (const key of Object.keys(rows))
+    if (!ROWS_KEYS.has(key))
+      throw new ClientInitializationError(
+        `Extension "${extension}" rows.${key} is not a rows key${key === "bound" ? ": it is named rows.confine since 1.11" : ""}.`,
+        { meta: { extension } }
+      );
   const reusable = native && isImmutableRows(rows);
   const entries = reusable ? Object.entries(schema) : undefined;
   /** A cached admission still holds where the schema map is the one it read. */
@@ -612,28 +629,28 @@ export function admitRows(
     }
     models[name] = Object.freeze(Object.fromEntries(admitted));
   }
-  const bound: Record<string, object> = {};
-  for (const [name, predicate] of Object.entries(rows.bound ?? {})) {
+  const confine: Record<string, object> = {};
+  for (const [name, predicate] of Object.entries(rows.confine ?? {})) {
     if (!Object.hasOwn(schema, name))
-      refuse(name, `bound.${name}`, "root", "names an unknown model");
-    // The model's own columns: a bound reads no relation, so lowering it
-    // never builds another set it would bound in turn.
+      refuse(name, `confine.${name}`, "root", "names an unknown model");
+    // The model's own columns: a confinement reads no relation, so lowering
+    // it never builds another set it would confine in turn.
     const scalars = schema[name]!["~"].state.scalars;
     for (const field of Object.keys(predicate ?? {}))
       if (!Object.hasOwn(scalars, field))
         refuse(
           name,
-          `bound.${name}`,
+          `confine.${name}`,
           "root",
-          `names "${field}", which is not a scalar field: a bound states the model's own columns`
+          `names "${field}", which is not a scalar field: a confinement states the model's own columns`
         );
-    bound[name] = admit(name, `bound.${name}`, predicate);
+    confine[name] = admit(name, `confine.${name}`, predicate);
   }
   const admitted = Object.freeze({
     ...rows,
     models: Object.freeze(models),
     ...(rows.verbs && { verbs: Object.freeze(verbs) }),
-    ...(rows.bound && { bound: Object.freeze(bound) }),
+    ...(rows.confine && { confine: Object.freeze(confine) }),
   }) as RowsContribution;
   if (entries) freezeAdmitted(admitted);
   if (entries && isAdmittedRows(admitted)) {
