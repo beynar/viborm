@@ -33,7 +33,8 @@ A recursive select reads, for every listed row, the rows its walk reaches:
 
 ```ts
 const folders = await db.folder.findMany({
-  take: 1000,
+  take: 1040,
+  orderBy: { id: "desc" },
   select: {
     name: true,
     parent: { recurse: { depth: false }, select: { name: true } }, // the folder chain
@@ -157,7 +158,11 @@ const policy = permissions({
   },
 });
 
-await db.$as({ userId: "ann" }).page.findMany({ select: { id: true, $access: true } });
+const governed = db.$extends(policy);
+
+await governed.$as({ userId: "ann" }).page.findMany({
+  select: { id: true, $access: true },
+});
 ```
 
 When a statement reads the same rule in several places, VibORM computes it
