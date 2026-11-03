@@ -3,7 +3,7 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
-## Unreleased
+## 1.11.0 — 2026-11-03
 
 Fixes from a review of every change since 1.4.2, two API names made
 single, and code nothing used removed.
