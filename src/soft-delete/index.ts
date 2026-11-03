@@ -5,6 +5,7 @@ import { ClientInitializationError } from "../errors"; // viborm's own class
 import type {
   ClientSchema,
   ClientTypeState,
+  DelegateOperationArgs,
   DelegateOperationResult,
   ExtensionState,
   PendingOperation,
@@ -63,8 +64,13 @@ type NoExtra<A, R> = A & Record<Exclude<keyof A, keyof R>, never>; // flags data
 // step types a to-one relation `| null`, a later `defaultOmit` drops a
 // field. Called off its delegate (destructured), its result is `unknown`:
 // using it is a type error, not a silent `never`. A type alias, not an interface: a method record.
-type Methods<C extends VibORMConfig, K> = {
-  restore<Self, A extends RestoreArgs<C, K, "update">>(
+// Exported so an exported client's declaration names it instead of spelling
+// its arguments out.
+export type SoftDeleteMethods<C extends VibORMConfig, K> = {
+  restore<
+    Self,
+    const A extends DelegateOperationArgs<Self, RestoreArgs<C, K, "update">>,
+  >(
     this: Self,
     args: NoExtra<A, RestoreArgs<C, K, "update">>
   ): PendingOperation<DelegateOperationResult<Self, "update", A>>;
@@ -72,7 +78,10 @@ type Methods<C extends VibORMConfig, K> = {
     this: Self,
     args: NoExtra<A, RestoreArgs<C, K, "updateMany">>
   ): PendingOperation<DelegateOperationResult<Self, "updateMany", A>>;
-  purge<Self, A extends ArgsOf<C, K, "delete">>(
+  purge<
+    Self,
+    const A extends DelegateOperationArgs<Self, ArgsOf<C, K, "delete">>,
+  >(
     this: Self,
     args: NoExtra<A, ArgsOf<C, K, "delete">>
   ): PendingOperation<DelegateOperationResult<Self, "delete", A>>;
@@ -185,7 +194,7 @@ function definitionOf<
     ) as unknown as {
       readonly [K in Names<Config> & keyof ClientSchema<C>]: (
         delegate: never
-      ) => Methods<C, K>;
+      ) => SoftDeleteMethods<C, K>;
     },
   } as const; // the literals `$extends` reads: names, modes, values
 }

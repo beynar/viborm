@@ -14,7 +14,13 @@ export {
   type StatementContext,
   type StatementHandler,
 } from "../extensions";
-export type { PlacedControl } from "../extensions/controls";
+// Named so an exported extended client's declaration can write them.
+export type {
+  DefinitionControls,
+  PlacedControl,
+  RowsVerbs,
+  StampedFields,
+} from "../extensions/controls";
 export type {
   ExtensionCacheState,
   ExtensionResultConsumerState,
@@ -28,13 +34,19 @@ export {
 } from "../query-engine/pending-operation";
 export type { IndexDefinition, IndexOptions } from "../schema/model";
 export type { ObjectSchema, VibSchema } from "../validation";
-export type { ClientTypeState, ExtendedClient } from "./client";
+export type {
+  ClientTypeState,
+  ExtendedClient,
+  ProjectedContribution,
+} from "./client";
 export { defaultOmit } from "./default-omit-extension";
-export type { RawOperation } from "./raw";
 // Result types
+export type { ProjectedModelOperations } from "./projected-types";
+export type { RawOperation } from "./raw";
 export type {
   AggregateResultType,
   BatchPayload,
+  ClientHiddenContext,
   CountResultType,
   GroupByResultType,
   InferSelectInclude,

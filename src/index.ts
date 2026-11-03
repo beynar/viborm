@@ -26,6 +26,7 @@
 
 export type {
   ClientTypeState,
+  DelegateOperationArgs,
   DelegateOperationResult,
   ExtendedClient,
   ExtendedOperationResult,
@@ -113,6 +114,7 @@ export type {
   RelationCardinality,
   RelationSlot,
   Scalar,
+  ScalarKeys,
   ScalarState,
   ScalarUpdateState,
   StringScalar,

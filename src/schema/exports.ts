@@ -28,6 +28,7 @@ export type { VectorSchema } from "../validation/primitives/vector";
 export { s } from "./index";
 // Model and scalar types for advanced usage
 export type { AnyModel, Model, ModelShape, ModelState } from "./model";
+export type { ScalarKeys } from "./model/helper";
 export type {
   InitialModelState,
   ModelInternal,
