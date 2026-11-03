@@ -105,7 +105,7 @@ export async function methodsWithoutTheKeyAreUnchanged() {
   expectTypeOf(moved).toEqualTypeOf<{ id: string }>();
   const restored = await policyLast.task.restore({ where: { id: "a" } });
   // @ts-expect-error - a key the call did not spell is absent
-  void restored.$access;
+  restored.$access;
   const many = await policyLast.task.restoreMany({ where: { title: "t" } });
   expectTypeOf(many).toEqualTypeOf<{ count: number }>();
 }
