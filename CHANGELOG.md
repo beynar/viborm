@@ -3,7 +3,12 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
-## Unreleased
+## 1.10.0 — 2026-11-03
+
+Recursive lists stop scanning their table once per row, and two documented
+opt-ins let an application state what only its data knows: that a walk is
+short (`fewRows`, in a select) or selective (`selective`, in a filter or a
+policy rule).
 
 ### Performance
 
