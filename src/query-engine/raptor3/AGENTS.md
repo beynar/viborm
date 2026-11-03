@@ -1368,11 +1368,18 @@ by `Queries.completeOrder` after the walk: an order of ungated key columns
 alone (the default) is read from the walk's own child columns and joins no
 table — joined only to be ordered, PostgreSQL, which guesses ten rows a level
 of a walk, hashed the whole table once per outer row — and any other term is
-read from the child joined to the walk. The node reader joins the table on
-every dialect: read by key in a scalar subquery, PostgreSQL won 18× on a
-1,040-row list of a 5,000-row tree but lost 14 % on a 9,999-node PGlite
-export, and an order term read by key lost on broad walks (PGlite 5-term
-order 1.6×), so neither is taken.
+read from the child joined to the walk. The node reader joins the table
+unless the caller states `recurse.fewRows` (each walk reaches few rows, a
+fact of the data no schema says) on a dialect whose planner hashes the
+table to join it (`capabilities.readsNodesByKey`, PostgreSQL): each node is
+then read by its key in a scalar subquery, and nothing else changes (walk,
+edges, carrier, decoder). Read by key, PostgreSQL won about 10× on a
+1,040-row list of a 5,000-row tree but lost on a walk reaching most of its
+table (9,999 descendants of one root 1.21×, PGlite 1.18–1.22×); SQLite and MySQL join by index and lost 3–17 %,
+so they ignore it. Absent, the statement is byte-identical to the unstated
+one (the provider SQL pins). An order term read by key lost on broad walks
+(PGlite 5-term order 1.6×) and is never taken: the walk carries no sort
+value (a value carried through `UNION` joins its identity).
 
 A list's recursive projection keeps one walk per row. A set form walking
 once for the whole page (a page member seeding one walk, its facts grouped

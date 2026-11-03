@@ -17,6 +17,11 @@ export interface NormalizedRecurrence {
   readonly cycles: "reject" | "prevent" | "allow";
   /** A projection's own output budget, when its caller set one. */
   readonly maxOccurrences?: number;
+  /**
+   * A projection's: its caller states that each outer row's walk reaches few
+   * rows of the table ({@link OUTPUT_BUDGET}).
+   */
+  readonly fewRows?: true;
 }
 
 /**
@@ -58,11 +63,14 @@ type GraphFilterRecurse =
   | { readonly depth: false; readonly preventCycles?: true };
 
 /**
- * A projection's bag adds the output budget. A `where` filter reads the
- * closure as a set and decodes no occurrence, so it has nothing to bound and
- * refuses the key by its own type.
+ * A projection's bag adds the output budget and `fewRows`. A `where` filter
+ * reads the closure as a set and decodes no occurrence, so it has nothing to
+ * bound or read by key and refuses both keys by its own type.
  */
-type OutputBudget = { readonly maxOccurrences?: number };
+type OutputBudget = {
+  readonly maxOccurrences?: number;
+  readonly fewRows?: boolean;
+};
 
 export type ForeignKeyRecurse =
   | true
@@ -149,37 +157,54 @@ const OUTPUT_BUDGET = {
         : fail("recurse.maxOccurrences must be a positive safe integer")
     )
   ),
+  /**
+   * A fact of the data only the caller knows: each outer row's walk reaches
+   * few rows of its table (a document's folder chain). Each reached row is
+   * then read by its key in the projection's node reader, where
+   * PostgreSQL, guessing ten rows a level, would hash the whole table once
+   * per outer row to join them; on a walk that reaches most of its table,
+   * that one probe per row is slower than the hash.
+   */
+  fewRows: v.optional(v.boolean()),
 };
 
-/** A spelled budget travels with the bag; an unspelled one stays absent. */
+/**
+ * A spelled budget and a stated `fewRows` travel with the bag; unspelled, they
+ * stay absent.
+ */
 const withBudget = (
-  recurrence: Omit<NormalizedRecurrence, "maxOccurrences">,
-  budget: number | undefined
-): NormalizedRecurrence =>
-  budget === undefined ? recurrence : { ...recurrence, maxOccurrences: budget };
+  recurrence: Pick<NormalizedRecurrence, "depth" | "cycles">,
+  options: OutputBudget
+): NormalizedRecurrence => ({
+  ...recurrence,
+  ...(options.maxOccurrences !== undefined && {
+    maxOccurrences: options.maxOccurrences,
+  }),
+  ...(options.fewRows === true && { fewRows: true as const }),
+});
 
 /** The one normalization of a foreign-key bag: it rejects every cycle. */
-const normalizeForeignKey = (options: {
-  readonly depth?: number | false;
-  readonly maxOccurrences?: number;
-}): NormalizedRecurrence =>
+const normalizeForeignKey = (
+  options: { readonly depth?: number | false } & OutputBudget
+): NormalizedRecurrence =>
   withBudget(
     { depth: options.depth ?? DEFAULT_DEPTH, cycles: "reject" },
-    options.maxOccurrences
+    options
   );
 
 /** The one normalization of a graph bag: prevention unless declined. */
-const normalizeGraph = (options: {
-  readonly depth?: number | false;
-  readonly preventCycles?: boolean;
-  readonly maxOccurrences?: number;
-}): NormalizedRecurrence =>
+const normalizeGraph = (
+  options: {
+    readonly depth?: number | false;
+    readonly preventCycles?: boolean;
+  } & OutputBudget
+): NormalizedRecurrence =>
   withBudget(
     {
       depth: options.depth ?? DEFAULT_DEPTH,
       cycles: options.preventCycles === false ? "allow" : "prevent",
     },
-    options.maxOccurrences
+    options
   );
 
 // `true` is the empty bag of its topology, by construction.

@@ -21,6 +21,22 @@ Versioning.
   a non-key field, a relation, a count) reads as before. The values are
   unchanged.
 
+### Added
+
+- **`recurse: { fewRows: true }`: a recursive select whose walks are short
+  reads its rows by key on PostgreSQL.** State it on a `recurse` in
+  `select`/`include` when each row's walk reaches few rows of its table (a
+  document's folder chain, a category's ancestors). On every PostgreSQL
+  driver each reached row is then read by its primary key instead of
+  joining the table to the walk, which PostgreSQL plans as a hash of the
+  whole table once per listed row. PostgreSQL 18: 1,040 rows of a
+  5,000-row tree with their ancestors 129 → 13 ms, all 5,000 558 → 68 ms,
+  a governed 100-row page of a 10,000-row tree 6.3 → 1.7 ms; PGlite lists
+  4–20× faster. On a walk that reaches most of its table it is slower (the
+  9,999 descendants of one root 1.21×), so it is never guessed. SQLite, D1
+  and MySQL accept it and ignore it. The values are the same either way;
+  unstated, the statement is unchanged. `where` filters do not take it.
+
 ## 1.9.1 — 2026-11-02
 
 ### Fixed

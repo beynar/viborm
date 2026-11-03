@@ -2342,6 +2342,53 @@ export const GRAPH_WORLD: RecursiveWorld = Object.freeze({
   groups: GRAPH_GROUPS,
 });
 
+const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null &&
+  typeof value === "object" &&
+  Object.getPrototypeOf(value) === Object.prototype;
+
+/** `args` with every projected `recurse` stating `fewRows`; filters keep theirs. */
+function withFewRows(value: unknown, fewRows: boolean): unknown {
+  if (Array.isArray(value))
+    return value.map((member) => withFewRows(member, fewRows));
+  if (!isPlainRecord(value)) return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, member]) => {
+      if (key === "where") return [key, member];
+      if (key === "recurse" && (member === true || isPlainRecord(member)))
+        return [key, { ...(member === true ? {} : member), fewRows }];
+      return [key, withFewRows(member, fewRows)];
+    })
+  );
+}
+
+/**
+ * The case with every projected `recurse` stating `fewRows`: it owes the same
+ * value, statement count and carrier, since the option may change how the
+ * reached nodes are read, never which nodes or edges a walk reaches.
+ */
+export function statingFewRows(
+  providerCase: ProviderCase,
+  fewRows = true
+): ProviderCase {
+  return {
+    ...providerCase,
+    args: withFewRows(providerCase.args, fewRows) as Record<string, unknown>,
+  };
+}
+
+/** A world whose every case states `fewRows` ({@link statingFewRows}). */
+export function fewRowsWorld(world: RecursiveWorld): RecursiveWorld {
+  return {
+    ...world,
+    name: `${world.name}, stating fewRows`,
+    groups: world.groups.map((group) => ({
+      name: `${group.name}, stating fewRows`,
+      cases: group.cases.map((providerCase) => statingFewRows(providerCase)),
+    })),
+  };
+}
+
 /** The ROOT slot's private carrier inside one provider row, parsed. */
 export function carrierOf(
   row: Record<string, unknown>,

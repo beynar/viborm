@@ -258,12 +258,10 @@ describe("recursive filter — admission", () => {
     ).toStrictEqual(admitted({ depth: false, cycles: "prevent" }));
   });
 
-  test("refuses an output budget, which a filter has nothing to bound", () => {
-    for (const filter of [filters.documentChildren, filters.teamChildren]) {
-      expect(
-        parse(filter, { recurse: { maxOccurrences: 10 }, some: {} }).issues
-      ).toBeDefined();
-    }
+  test("refuses an output budget and fewRows, which read no projection", () => {
+    for (const filter of [filters.documentChildren, filters.teamChildren])
+      for (const recurse of [{ maxOccurrences: 10 }, { fewRows: true }])
+        expect(parse(filter, { recurse, some: {} }).issues).toBeDefined();
   });
 
   test("admits the closure form inside nested relation filters and logic", () => {

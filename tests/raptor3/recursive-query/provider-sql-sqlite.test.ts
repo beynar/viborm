@@ -10,6 +10,7 @@ import {
   type ColumnType,
   columnDefinitions,
   FILTER_SQL_PINS,
+  fewRowsWorld,
   GRAPH_WORLD,
   HIERARCHY_WORLD,
   PLACEMENT_MATRIX_TABLES,
@@ -18,6 +19,7 @@ import {
   runPlacementMatrix,
   SELECT_SQL_PINS,
   sqlPins,
+  statingFewRows,
   type TableSpec,
 } from "./provider-sql-fixture";
 
@@ -95,6 +97,23 @@ describe("recursive relation provider SQL on SQLite", () => {
         await sqlPins(opened.engine, opened.driver, SELECT_SQL_PINS),
         SELECT_SQL
       );
+    } finally {
+      await opened.close();
+    }
+  });
+
+  it("ignores fewRows: the select SQL is the pinned text either way", async () => {
+    const opened = openWorld(providerSchema, PLACEMENT_MATRIX_TABLES);
+    try {
+      for (const fewRows of [true, false])
+        assert.deepEqual(
+          await sqlPins(
+            opened.engine,
+            opened.driver,
+            SELECT_SQL_PINS.map((pin) => statingFewRows(pin, fewRows))
+          ),
+          SELECT_SQL
+        );
     } finally {
       await opened.close();
     }
@@ -180,7 +199,10 @@ describe("recursive relation provider SQL on SQLite", () => {
     }
   });
 
-  for (const world of [HIERARCHY_WORLD, GRAPH_WORLD])
+  for (const world of [HIERARCHY_WORLD, GRAPH_WORLD].flatMap((owned) => [
+    owned,
+    fewRowsWorld(owned),
+  ]))
     for (const group of world.groups)
       it(group.name, async () => {
         const opened = openWorld(world.schema, world.tables);

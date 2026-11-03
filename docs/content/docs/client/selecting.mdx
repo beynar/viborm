@@ -167,6 +167,7 @@ results, `count`, `exist`, `aggregate` and `groupBy` do not take it.
 | `recurse: { depth: false }` | **exhaustive**: follow it until the data ends, within the output budget |
 | `recurse: { preventCycles: false }` | graph relations only, with a bounded depth: unfold a cycle instead of pruning it |
 | `recurse: { maxOccurrences: n }` | decode at most `n` occurrences under each outer row instead of **10,000**; combines with the forms above |
+| `recurse: { fewRows: true }` | you state that each outer row's walk reaches **few rows** of its table; on PostgreSQL its rows are then read by key (see **Few rows per walk** below); combines with the forms above |
 
 At a numeric cutoff the repeated key is **absent** from the deepest occurrence
 (that is why it is optional in the type); where the data ends before the
@@ -186,7 +187,53 @@ failure surfaces as the driver's error, never as a truncated result. On
 MySQL the error has `meta.providerErrno` 3636 (`ER_CTE_MAX_RECURSION_DEPTH`),
 and the provider's message is redacted.
 
-The same `recurse` options, except `maxOccurrences`, filter in `where`:
+### Few rows per walk
+
+`recurse: { fewRows: true }` states a fact about your data that the schema
+cannot: each row's walk reaches few rows of its table, such as a document's
+folder chain, a comment's thread above it, or two levels of a large tree.
+
+```ts
+// Each category with its ancestors: a chain of a few rows per category.
+const categories = await client.category.findMany({
+  take: 1000,
+  select: {
+    name: true,
+    parent: { recurse: { depth: false, fewRows: true }, select: { name: true } },
+  },
+});
+```
+
+On PostgreSQL (`pg`, `postgres`, PGlite, Neon and every other PostgreSQL
+driver) each row the walk reaches is then read by its primary key, instead
+of joining the table to the walk. PostgreSQL guesses that a recursive walk
+reaches ten rows a level, so for a long list it plans that join as a hash of
+the **whole table**, built again for every listed row; read by key, each row
+costs one index probe. PostgreSQL 18, a 5,000-row tree:
+
+| List | without | `fewRows: true` |
+| --- | --- | --- |
+| 1,040 rows with their ancestors | 129 ms | 13 ms |
+| all 5,000 rows with their ancestors | 558 ms | 68 ms |
+| 1,040 rows with two levels of descendants | 164 ms | 89 ms |
+| 5,000 rows with their ancestors' 4 KiB documents | 696 ms | 51 ms |
+| a governed 100-row page of a 10,000-row tree, with ancestors | 6.3 ms | 1.7 ms |
+
+On PGlite such lists are 4–20× faster.
+
+State it only when it is true. On a walk that reaches most of its table,
+one probe per reached row is slower than the hash. The 9,999 descendants
+of the root of a 10,000-row tree took 22 → 27 ms (1.21×) on PostgreSQL 18,
+and 1.18–1.22× on PGlite; the same walk ordered by a relation, 1.14×; wide
+8 KiB rows on PGlite, 1.10–1.12×. Pages of 10 to 1,000 rows of a
+100,000-row tree, where PostgreSQL already probes the index, are unchanged.
+
+SQLite (and D1) and MySQL accept `fewRows` and ignore it: they already join
+by index, and the read by key measured 3–17 % slower there. The values,
+their order and the statement count are the same with or without it, on
+every database. Without `fewRows`, nothing is guessed.
+
+The same `recurse` options, except `maxOccurrences` and `fewRows`, filter in `where`:
 `{ parent: { recurse: true, some: { … } } }` matches a row when an ancestor
 matches. A filter reads the closure as a set, so it never refuses a
 foreign-key cycle. See

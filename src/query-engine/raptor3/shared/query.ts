@@ -9409,17 +9409,34 @@ export class Queries {
       ],
       [RECURSIVE_CARRIER.row, nodeDocument],
     ]);
+    const idTable = a.subqueries.correlate(distinctIds, ids);
+    const table = this.table(model, node);
+    const sameNode = this.#sameRow(
+      model,
+      node,
+      idColumns.map((name) => a.identifiers.column(ids, name))
+    );
+    // Where the caller states each walk reaches few rows (`fewRows`), each is
+    // read by its key (`capabilities.readsNodesByKey`): joined, PostgreSQL,
+    // guessing ten rows a level, hashed the whole table once per outer row.
+    const byKey =
+      recurrence.fewRows &&
+      a.capabilities.readsNodesByKey &&
+      a.json.document(
+        a.subqueries.scalar(
+          assembleAdapterSelect(a, {
+            columns: nodeCarrier,
+            from: table,
+            where: sameNode,
+          })
+        )
+      );
     const nodes = a.subqueries.scalar(
       assembleAdapterSelect(a, {
-        columns: a.json.agg(nodeCarrier),
-        from: sql`${a.subqueries.correlate(distinctIds, ids)} ${a.joins.inner(
-          this.table(model, node),
-          this.#sameRow(
-            model,
-            node,
-            idColumns.map((name) => a.identifiers.column(ids, name))
-          )
-        )}`,
+        columns: a.json.agg(byKey || nodeCarrier),
+        from: byKey
+          ? idTable
+          : sql`${idTable} ${a.joins.inner(table, sameNode)}`,
       })
     );
 

@@ -14,6 +14,7 @@ import {
   caseOutcome,
   columnDefinitions,
   FILTER_SQL_PINS,
+  fewRowsWorld,
   GRAPH_WORLD,
   HIERARCHY_WORLD,
   ORDINARY_MUTATION_CONTROL,
@@ -24,6 +25,7 @@ import {
   providerSchema,
   type RecursiveWorld,
   SELECT_SQL_PINS,
+  statingFewRows,
   type TableSpec,
 } from "./provider-sql-fixture";
 
@@ -212,6 +214,21 @@ describe(`recursive relation provider SQL on native ${liveProvider}`, () => {
     if (liveProvider === "mysql") assert.deepEqual(pins, MYSQL_SELECT_SQL);
   }, 30_000);
 
+  it("reads nodes by key only on PostgreSQL, where a case states fewRows", async () => {
+    // `fewRows: false` is the option unstated; PostgreSQL's stated text is
+    // pinned on PGlite.
+    const absent = await nativeSqlPins(SELECT_SQL_PINS);
+    const unstated = await nativeSqlPins(
+      SELECT_SQL_PINS.map((pin) => statingFewRows(pin, false))
+    );
+    const stated = await nativeSqlPins(
+      SELECT_SQL_PINS.map((pin) => statingFewRows(pin))
+    );
+    assert.deepEqual(unstated, absent);
+    if (liveProvider === "mysql") assert.deepEqual(stated, absent);
+    else assert.notDeepEqual(stated, absent);
+  }, 60_000);
+
   it("pins the recursive filter SQL byte for byte", async () => {
     const pins = await nativeSqlPins(FILTER_SQL_PINS);
     if (liveProvider === "mysql") assert.deepEqual(pins, MYSQL_FILTER_SQL);
@@ -289,7 +306,10 @@ describe(`recursive relation provider SQL on native ${liveProvider}`, () => {
     world.assertHealthy();
   }, 30_000);
 
-  for (const world of [HIERARCHY_WORLD, GRAPH_WORLD])
+  for (const world of [HIERARCHY_WORLD, GRAPH_WORLD].flatMap((owned) => [
+    owned,
+    fewRowsWorld(owned),
+  ]))
     it(world.name, () => runWorld(world), 120_000);
 });
 
