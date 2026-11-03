@@ -544,9 +544,9 @@ export class Commands {
       kind === "create"
         ? this.context.schema.createValues(model, kept)
         : Object.fromEntries(
-            Object.entries(this.context.schema.update(model, kept, true)).filter(
-              ([field]) => field in kept
-            )
+            Object.entries(
+              this.context.schema.update(model, kept, true)
+            ).filter(([field]) => field in kept)
           );
     return this.context.schema.scalars(model, {
       ...admitted,
