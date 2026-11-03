@@ -2348,10 +2348,10 @@ const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
   Object.getPrototypeOf(value) === Object.prototype;
 
 /** `args` with every projected `recurse` stating `fewRows`; filters keep theirs. */
-function withFewRows(value: unknown, fewRows: boolean): unknown {
-  if (Array.isArray(value))
-    return value.map((member) => withFewRows(member, fewRows));
-  if (!isPlainRecord(value)) return value;
+function recordWithFewRows(
+  value: Record<string, unknown>,
+  fewRows: boolean
+): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(value).map(([key, member]) => {
       if (key === "where") return [key, member];
@@ -2360,6 +2360,12 @@ function withFewRows(value: unknown, fewRows: boolean): unknown {
       return [key, withFewRows(member, fewRows)];
     })
   );
+}
+
+function withFewRows(value: unknown, fewRows: boolean): unknown {
+  if (Array.isArray(value))
+    return value.map((member) => withFewRows(member, fewRows));
+  return isPlainRecord(value) ? recordWithFewRows(value, fewRows) : value;
 }
 
 /**
@@ -2373,7 +2379,7 @@ export function statingFewRows(
 ): ProviderCase {
   return {
     ...providerCase,
-    args: withFewRows(providerCase.args, fewRows) as Record<string, unknown>,
+    args: recordWithFewRows(providerCase.args, fewRows),
   };
 }
 
