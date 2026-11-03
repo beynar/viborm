@@ -6207,10 +6207,10 @@ export class Queries {
         predicate.unscoped === undefined,
         stated,
         quantified,
+        enclosing,
         predicate.predicate !== undefined && readsRelation(predicate.predicate),
         frame.escaped,
-        frame.joins,
-        enclosing
+        frame.joins
       );
     };
     return quantified.holds ? range() : this.#opposite(range);
@@ -6291,10 +6291,10 @@ export class Queries {
     scoped: boolean,
     stated: readonly Sql[],
     quantified: Quantified,
+    enclosing: Enclosing,
     deeper = false,
     correlatedAbove = false,
-    joins: readonly Sql[] = [],
-    enclosing: Enclosing
+    joins: readonly Sql[] = []
   ): Sql {
     const a = this.adapter;
     const junctions = a.capabilities.joinsJunctionFilters;
