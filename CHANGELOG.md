@@ -3,6 +3,42 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## Unreleased
+
+Fixes from a review of every change since 1.4.2, two API names made
+single, and code nothing used removed.
+
+### Breaking
+
+- **`rows.confine` replaces `rows.bound`** in an extension's `rows`.
+  `bound` named two things: a control set once per client
+  (`controls.<name>.bound`) and the `where` every row of a layer's
+  whole-table sets holds. The second is now `confine`. A definition still
+  writing `rows.bound` fails at `$extends`, naming `rows.confine`, rather
+  than losing its confinement. `permissions({ tenant })` is unchanged.
+- **`ordering(config).keys` and `.methods` are removed.** They were the
+  1.7 form, superseded in 1.8 by applying `ordering(config)` once, in any
+  order with the other extensions.
+
+### Fixed
+
+- **An extension's update stamp writes its own fields only.** With a
+  `data` stamp on updates (an `updatedBy`, say), the stamp's admission
+  generated `updatedAt()` again: a `move` or `rekey` refreshed the
+  timestamp ordering keeps as stored (1.9.1), and an `update` that gave
+  `updatedAt` a value had it replaced by the current time. Given none, an
+  update still generates it.
+- **A client built with `$extends(ordering(…))` or `$extends(on(…))` can
+  be exported from a file compiled with `declaration: true`.** Its
+  declaration failed with TS4023, naming a type the package did not
+  export.
+
+### Removed
+
+- The adapters' `like`, `notLike`, `ilike` and `notIlike` operators, which
+  nothing called. Text filters use `containsText`, `startsWithText`,
+  `endsWithText` and `insensitiveText`.
+
 ## 1.10.0 — 2026-11-03
 
 Recursive lists stop scanning their table once per row, and two documented
