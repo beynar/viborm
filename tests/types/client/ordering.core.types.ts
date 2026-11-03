@@ -3,7 +3,7 @@
  * the extension appends is optional on a create (root and nested), `move`
  * and `rekey` take the model's own inputs and `move` returns what an
  * `update` with the same projection returns, and the configuration names
- * the receiving client's models.
+ * the receiving client's models and their scalar fields.
  *
  * Nothing in this file is called. Only the types matter.
  */
@@ -148,6 +148,48 @@ export async function probes() {
   // @ts-expect-error the anchor is named by a unique input
   await db.card.move({ where: { id: "a" }, before: { title: "b" } });
 
+  // A typo beside a real key, at each of move's own levels, fresh or held,
+  // as an update refuses it (1.10 review, Sol A F3).
+  await db.card.move({
+    where: { id: "a" },
+    first: true,
+    // @ts-expect-error data names the model's fields
+    data: { title: "t", titel: "u" },
+  });
+  const heldData = { title: "t", titel: "u" };
+  // @ts-expect-error held data names the model's fields
+  await db.card.move({ where: { id: "a" }, first: true, data: heldData });
+  // @ts-expect-error where names the model's fields
+  await db.card.move({ where: { id: "a", idd: "b" }, first: true });
+  const heldWhere = { id: "a", idd: "b" };
+  // @ts-expect-error a held where names the model's fields
+  await db.card.move({ where: heldWhere, first: true });
+  await db.card.move({
+    // @ts-expect-error one relation deeper, the target's fields
+    where: { id: "a", column: { is: { id: "c1", idd: "c2" } } },
+    first: true,
+  });
+  // @ts-expect-error after names the model's fields
+  await db.card.move({ where: { id: "a" }, after: { id: "b", idd: "c" } });
+  // @ts-expect-error before names the model's fields
+  await db.card.move({ where: { id: "a" }, before: { id: "b", idd: "c" } });
+  const heldAnchor = { id: "b", idd: "c" };
+  // @ts-expect-error a held anchor names the model's fields
+  await db.card.move({ where: { id: "a" }, after: heldAnchor });
+  await db.card.move({
+    where: { id: "a" },
+    // @ts-expect-error to names the list's fields
+    to: { columnId: "c2", columId: "c3" },
+    first: true,
+  });
+  // The projection keeps its own seal; a correct call still compiles.
+  await db.card.move({
+    where: { id: "a", column: { is: { id: "c1" } } },
+    after: { id: "b" },
+    data: { title: "t" },
+    select: { id: true, title: true },
+  });
+
   const { count } = await db.card.rekey({ where: { columnId: "c1" } });
   expectTypeOf(count).toEqualTypeOf<number>();
   await db.card.rekey({ orderBy: { title: "asc" } });
@@ -165,5 +207,24 @@ export async function probes() {
   ordering({ models: { nope: { key: "rank" } } })(base);
   // @ts-expect-error so does the form before 1.9.1
   ordering({ nope: { key: "rank" } })(base);
+  // And each model's scalar fields, at application (1.10 review, Sol B #2).
+  // @ts-expect-error the key is one of the model's fields
+  base.$extends(ordering({ models: { card: { key: "rnak" } } }));
+  base.$extends(
+    // @ts-expect-error so is each list field, beside a real one
+    ordering({
+      models: { card: { key: "rank", within: ["columnId", "colmnId"] } },
+    })
+  );
+  // @ts-expect-error a list field is a scalar, not a relation
+  ordering({ models: { card: { key: "rank", within: ["column"] } } })(base);
+  const heldTypo = { models: { card: { key: "rnak" } } } as const;
+  // @ts-expect-error a held configuration too
+  base.$extends(ordering(heldTypo));
+  // A configuration whose names widened to string is the runtime's to check.
+  const widened: { models: { card: { key: string } } } = {
+    models: { card: { key: "rank" } },
+  };
+  base.$extends(ordering(widened));
   expectTypeOf(legacy.card.move).toEqualTypeOf(db.card.move);
 }

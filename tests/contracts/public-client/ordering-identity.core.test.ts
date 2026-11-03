@@ -160,12 +160,13 @@ test("rekey forwards required per-call controls to updates", async () => {
       { id: "b", rank: "15" },
     ],
   });
-  const keys = ordering({ card: { key: "rank" } }).keys(base);
-  const controlled = keys.$extends({
+  const controlled = base.$extends({
     name: "required-mode",
     controls: { mode: { oneOf: ["yes"], required: true } },
   });
-  const db = ordering({ card: { key: "rank" } }).methods(controlled);
+  const db = controlled.$extends(
+    ordering({ models: { card: { key: "rank" } } })
+  );
   await (db.card.rekey as (args: object) => PromiseLike<unknown>)({
     mode: "yes",
   });

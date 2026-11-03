@@ -105,8 +105,6 @@ adapter.operators.gt(left, right)      // → left > right
 adapter.operators.gte(left, right)     // → left >= right
 
 // Pattern matching
-adapter.operators.like(col, pattern)      // → col LIKE pattern
-adapter.operators.ilike(col, pattern)     // → col ILIKE pattern (PG)
 adapter.operators.containsText(col, value)   // exact literal substring
 adapter.operators.startsWithText(col, value) // exact literal prefix
 adapter.operators.endsWithText(col, value)   // exact literal suffix

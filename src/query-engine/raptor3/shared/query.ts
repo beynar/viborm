@@ -1978,7 +1978,7 @@ export class PreparedDomain {
   }
   /**
    * What an `excluded` layer states its own whole-table sets of `model` hold
-   * (`rows.bound`): inside its own predicates a layer reads nothing of
+   * (`rows.confine`): inside its own predicates a layer reads nothing of
    * itself, but a set the statement computes over a whole table (a shared
    * body, a reaching set) still holds only what it bounds. `undefined` where
    * none states one.
@@ -1988,7 +1988,7 @@ export class PreparedDomain {
     excluded: readonly number[]
   ): PreparedSelector | undefined {
     const name = model["~"].names.ts!;
-    const inputs = this.rows.bound?.get(name);
+    const inputs = this.rows.confine?.get(name);
     if (inputs === undefined) return undefined;
     // Every excluded layer's: each only narrows, and one left out would let
     // another's widen what it bounds.

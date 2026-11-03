@@ -2,7 +2,7 @@
  * PGlite Driver Tests — a policy's `tenant`: inside the policy's own rules,
  * a set PostgreSQL computes over a whole table (a shared body, a reaching
  * set) holds only the actor's tenant, where a test reads it positively
- * (`rows.bound`). Nothing else changes: the rows a call reads through a
+ * (`rows.confine`). Nothing else changes: the rows a call reads through a
  * relation, and every other extension's predicates. On data that keeps every
  * relation inside one tenant (the acceptance estate) the policy answers what
  * it answers without `tenant`; on data that does not, `tenant` only ever
@@ -416,7 +416,7 @@ describe("PGlite: a policy's tenant beside another extension's related rows", ()
   });
 });
 
-describe("PGlite: rows.bound, the capability tenant is built on", () => {
+describe("PGlite: rows.confine, the capability tenant is built on", () => {
   const page = s.model({ id: s.string().id(), grants: s.toMany(() => grant) });
   const grant = s.model({
     id: s.string().id(),
@@ -432,9 +432,9 @@ describe("PGlite: rows.bound, the capability tenant is built on", () => {
   const family = usePGliteSchemaFamily(schema);
   let base: ReturnType<typeof family>["client"];
   const granted = { grants: { some: { userId: { control: "user" } } } };
-  // `tenant` is read by `bound` alone; `granted` repeats, so the statement
+  // `tenant` is read by `confine` alone; `granted` repeats, so the statement
   // computes it once, as a set.
-  const sharing = (bound: {
+  const sharing = (confine: {
     readonly [model: string]: Readonly<Record<string, unknown>>;
   }) =>
     defineExtension({
@@ -460,7 +460,7 @@ describe("PGlite: rows.bound, the capability tenant is built on", () => {
             read: "seen",
           },
         },
-        bound,
+        confine,
       },
     });
 

@@ -3,6 +3,52 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## 1.11.0 — 2026-11-03
+
+Fixes from a review of every change since 1.4.2, two API names made
+single, and code nothing used removed.
+
+### Breaking
+
+- **`rows.confine` replaces `rows.bound`** in an extension's `rows`.
+  `bound` named two things: a control set once per client
+  (`controls.<name>.bound`) and the `where` every row of a layer's
+  whole-table sets holds. The second is now `confine`. A definition still
+  writing `rows.bound` fails at `$extends`, naming `rows.confine`, rather
+  than losing its confinement. `permissions({ tenant })` is unchanged.
+- **`ordering(config).keys` and `.methods` are removed.** They were the
+  1.7 form, superseded in 1.8 by applying `ordering(config)` once, in any
+  order with the other extensions.
+
+### Fixed
+
+- **An extension's update stamp writes its own fields only.** With a
+  `data` stamp on updates (an `updatedBy`, say), the stamp's admission
+  generated `updatedAt()` again: a `move` or `rekey` refreshed the
+  timestamp ordering keeps as stored (1.9.1), and an `update` that gave
+  `updatedAt` a value had it replaced by the current time. Given none, an
+  update still generates it.
+- **A client built with `$extends` can be exported from a file compiled
+  with `declaration: true`.** With `ordering`, `softDelete`, `permissions`
+  or `on` applied, its declaration failed (TS4023, TS2742, or TS7056 for a
+  type too long to write), or spelled every delegate out: 1.2 MB for one
+  ordered model, 4.3 MB with soft delete. It now names
+  `VibORMClient<…>`: 8 KB ordered, 10 KB with soft delete, 51 KB with
+  all four. The package exports the type names those declarations use.
+- **`move`, `restore` and `purge` type a selected `$access`.** They
+  returned it but typed their result without it; they now type it as the
+  operation they delegate to does, nested selections included.
+- **`move` refuses misspelled keys beside real ones in TypeScript**, in
+  `where`, `after`/`before`, `data` and `to`, as the runtime already did.
+- **`ordering()` refuses a misspelled `key` or `within` field in
+  TypeScript**, as it refused a misspelled model.
+
+### Removed
+
+- The adapters' `like`, `notLike`, `ilike` and `notIlike` operators, which
+  nothing called. Text filters use `containsText`, `startsWithText`,
+  `endsWithText` and `insensitiveText`.
+
 ## 1.10.0 — 2026-11-03
 
 Recursive lists stop scanning their table once per row, and two documented

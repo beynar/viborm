@@ -204,7 +204,24 @@ describe("adversarial review repros", () => {
   });
 });
 
-test("a bound reading a relation is refused when applied", async () => {
+test("rows.bound, its name before 1.11, is refused rather than dropped", () => {
+  const base = family().client;
+  expect(() =>
+    base.$extends({
+      name: "renamed-bound",
+      rows: {
+        control: "scope",
+        default: "on",
+        models: { node: { on: {} } },
+        bound: { node: { tenant: "b" } },
+      },
+    } as any)
+  ).toThrow(
+    "rows.bound is not a rows key: it is named rows.confine since 1.11"
+  );
+});
+
+test("a confine reading a relation is refused when applied", async () => {
   const base = family().client;
   expect(() =>
     base.$extends({
@@ -215,7 +232,7 @@ test("a bound reading a relation is refused when applied", async () => {
         models: {
           node: { on: { root: { children: { some: { flag: true } } } } },
         },
-        bound: { node: { parent: { is: { flag: true } } } },
+        confine: { node: { parent: { is: { flag: true } } } },
       },
     } as any)
   ).toThrow("which is not a scalar field");
@@ -290,7 +307,7 @@ describe("composed bounds", () => {
         models: {
           grant: { on: { related: { team: { is: { active: true } } } } },
         },
-        bound: { team: { tenant: "b" } },
+        confine: { team: { tenant: "b" } },
       },
     };
     const run = async (bounded: boolean) => {
@@ -360,7 +377,7 @@ test("shared reaching sets distinguish which layer bounds them", async () => {
         control: "second",
         default: "on",
         models: { node: { on: { root: { AND: [walk, walk] } } } },
-        bound: { node: { tenant: "b" } },
+        confine: { node: { tenant: "b" } },
       },
     };
     const statements: string[] = [];
@@ -404,7 +421,7 @@ test("two generic bounds do not share their different reaching sets", async () =
       control: name,
       default: "on",
       models: { node: { on: { root: { AND: [walk, walk] } } } },
-      ...(bound ? { bound: { node: { tenant: bound } } } : {}),
+      ...(bound ? { confine: { node: { tenant: bound } } } : {}),
     },
   });
   const run = async (bounded: boolean) => {

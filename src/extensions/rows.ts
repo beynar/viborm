@@ -113,7 +113,7 @@ function referencesOfRows(rows: RowsContribution): readonly string[] {
       collectReferences(mode.root, references, seen);
       collectReferences(mode.related, references, seen);
     }
-  for (const where of Object.values(rows.bound ?? {}))
+  for (const where of Object.values(rows.confine ?? {}))
     collectReferences(where, references, seen);
   // A lazy entry's references are checked when it is resolved.
   for (const entry of Object.values(rows.verbs ?? {}))
@@ -363,20 +363,20 @@ function modelDomain(
   return lazyMap(built, pending);
 }
 
-/** Each member's `bound`, by model and layer; `undefined` where none states one. */
-function boundDomain(
+/** Each member's `confine`, by model and layer; `undefined` where none states one. */
+function confineDomain(
   rows: readonly RowsContribution[]
 ): ModelDomain | undefined {
-  const bound = new Map<string, Input[]>();
+  const confine = new Map<string, Input[]>();
   for (const [layer, member] of rows.entries())
-    for (const [model, where] of Object.entries(member.bound ?? {})) {
-      const list = bound.get(model) ?? [];
+    for (const [model, where] of Object.entries(member.confine ?? {})) {
+      const list = confine.get(model) ?? [];
       list[layer] = where;
-      bound.set(model, list);
+      confine.set(model, list);
     }
-  return bound.size === 0 ? undefined : bound;
+  return confine.size === 0 ? undefined : confine;
 }
-const NO_BOUND: ModelDomain = new Map();
+const NO_CONFINE: ModelDomain = new Map();
 
 /** `{ OR: [] }`, false: what a verb a model's `verbs` leaves out takes. */
 const NOTHING: Input = Object.freeze({ OR: Object.freeze([]) });
@@ -596,7 +596,7 @@ export function bindRows(
         Object.keys(entry.reads ?? {}).length > 0
     )
   );
-  const bound = boundDomain(declared);
+  const confine = confineDomain(declared);
   for (let combination = 0; combination < stride; combination++) {
     const modes = members.map(
       (member) =>
@@ -608,7 +608,7 @@ export function bindRows(
       Object.freeze({
         root: modelDomain(declared, modes, "root"),
         related: modelDomain(declared, modes, "related"),
-        ...(bound && { bound }),
+        ...(confine && { confine }),
         ...(verbs && { verbs, projects }),
         ...(orders && { order: orders }),
       })
@@ -657,7 +657,7 @@ export function bindRows(
     );
   const reads = (domain: RowDomain) =>
     verbsRead ||
-    [domain.root, domain.related, domain.bound ?? NO_BOUND].some((models) =>
+    [domain.root, domain.related, domain.confine ?? NO_CONFINE].some((models) =>
       [...models.values()].some(readsCall)
     );
   return Object.freeze({

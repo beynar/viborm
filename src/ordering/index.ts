@@ -10,6 +10,7 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { DatabaseAdapter } from "../adapters/database-adapter";
 import type { OperationPayload, OperationResult } from "../client/exports"; // public today
+import type { NoExtraOperationKeys } from "../client/types";
 import {
   ClientInitializationError,
   NotFoundError,
@@ -20,6 +21,7 @@ import type { OrderTerm } from "../extensions/controls";
 import type {
   ClientSchema,
   ClientTypeState,
+  DelegateOperationArgs,
   DelegateOperationResult,
   ExtensionState,
   VibORMClient,
@@ -1056,6 +1058,41 @@ type MoveArgs<
   readonly where: Unique<C, K>;
   readonly data?: MoveData<C, Config, K>;
 } & MovePlacement<M, C, Config, K>;
+/** A unique selector a move spells, its keys refused as an update's `where`. */
+type SealedUnique<C extends VibORMConfig, K, Given> = NoExtraOperationKeys<
+  "update",
+  { readonly where: Given },
+  NonNullable<ModelArgs<C, K, "update">>,
+  ClientSchema<C>[K & keyof ClientSchema<C>]
+>["where"];
+/** The key `Spelled` names that `Allowed` has not. */
+type Sealed<Spelled, Allowed> = Record<
+  Exclude<keyof NonNullable<Spelled>, keyof Allowed>,
+  never
+>;
+/**
+ * A move's own keys, refused where they name nothing: `where` and the
+ * anchors as an update's `where` is, `data` and `to` against the fields they
+ * may write. `A` is inferred from the call, so every key it spells is known
+ * to `MoveArgs`; demanding `never` for the others refuses them however the
+ * argument was written. Three mapped types, not one with a conditional per
+ * key: comparing two ordered clients' `move` (two `ordering()` calls) then
+ * cost 2.5M instantiations instead of 0.1M.
+ */
+type SealedMove<
+  A,
+  C extends VibORMConfig,
+  Config extends OrderingConfig,
+  K extends keyof Config,
+> = {
+  readonly [P in keyof A & ("where" | "after" | "before")]?: SealedUnique<
+    C,
+    K,
+    A[P]
+  >;
+} & {
+  readonly [P in keyof A & "data"]?: Sealed<A[P], MoveData<C, Config, K>>;
+} & { readonly [P in keyof A & "to"]?: Sealed<A[P], ListOf<C, Config, K>> };
 type FindArg<C extends VibORMConfig, K, P extends string> = NonNullable<
   ModelArgs<C, K, "findMany">
 >[P & keyof NonNullable<ModelArgs<C, K, "findMany">>];
@@ -1067,6 +1104,26 @@ type RekeyArgs<C extends VibORMConfig, K> = {
   readonly orderBy?: RekeyOrder<C, K> | readonly RekeyOrder<C, K>[];
 };
 
+/** One ordered model's methods. Exported so an exported client's
+ * declaration names it instead of spelling its arguments out. */
+export type OrderingMethods<
+  M,
+  C extends VibORMConfig,
+  Config extends OrderingConfig,
+  K extends keyof Config,
+> = {
+  // The row is typed from the delegate `move` is called on (`Self`), so it
+  // follows every extension applied after this one.
+  move<
+    Self,
+    const A extends DelegateOperationArgs<Self, MoveArgs<M, C, Config, K>>,
+  >(
+    this: Self,
+    args: A & SealedMove<A, C, Config, K>
+  ): PromiseLike<DelegateOperationResult<Self, "update", A>>;
+  // Generic as `move` is, so a call's controls (`deleted`, …) pass along.
+  rekey<A extends RekeyArgs<C, K>>(args?: A): PromiseLike<{ count: number }>;
+};
 type OrderingModels<
   M,
   C extends VibORMConfig,
@@ -1075,16 +1132,7 @@ type OrderingModels<
   readonly [K in Names<Config>]: (
     delegate: never,
     scope: never
-  ) => {
-    // The row is typed from the delegate `move` is called on (`Self`), so it
-    // follows every extension applied after this one.
-    move<Self, A extends MoveArgs<M, C, Config, K>>(
-      this: Self,
-      args: A
-    ): PromiseLike<DelegateOperationResult<Self, "update", A>>;
-    // Generic as `move` is, so a call's controls (`deleted`, …) pass along.
-    rekey<A extends RekeyArgs<C, K>>(args?: A): PromiseLike<{ count: number }>;
-  };
+  ) => OrderingMethods<M, C, Config, K>;
 };
 
 type Governed<Config extends OrderingConfig> = VibORMConfig & {
@@ -1143,31 +1191,25 @@ function apply<
   return base.$extends(definitionOf(config, base));
 }
 
-// The two steps a chain written before 1.8 applies around another entry's
-// (`keys` then `methods`): the definition without its methods, and the
-// methods alone, under the name they had.
-function keysStep<
-  Config extends OrderingConfig,
-  C extends Governed<Config>,
-  X extends ExtensionState,
->(config: Config, base: VibORMClient<C, X>) {
-  const { model: _methods, ...keys } = definitionOf(config, base);
-  return base.$extends(keys);
-}
-function methodsStep<
-  Config extends OrderingConfig,
-  C extends Governed<Config>,
-  X extends ExtensionState,
->(config: Config, client: VibORMClient<C, X>) {
-  const { model } = definitionOf(config, client);
-  return client.$extends({ name: `${NAME}.methods`, model });
-}
-
+/**
+ * A model an entry orders, with the scalar fields the entry names (its key
+ * and its list's): a misspelled one is refused at application, as a
+ * misspelled model is. Read off the model's own scalars, one level deep.
+ */
+type OrderedModel<Fields extends string> = AnyModel & {
+  readonly "~": {
+    readonly state: { readonly scalars: Record<Fields, unknown> };
+  };
+};
 type Receiver<Config extends OrderingConfig> = ClientTypeState<
   VibORMConfig,
   ExtensionState
 > & {
-  readonly $schema: Record<Names<Config>, AnyModel>;
+  readonly $schema: {
+    readonly [M in Names<Config>]: OrderedModel<
+      Config[M]["key"] | WithinOf<Config, M>
+    >;
+  };
   readonly $extends: (...args: never[]) => unknown;
 };
 type Applied<
@@ -1181,36 +1223,11 @@ type Applied<
     ? ReturnType<typeof apply<Config, C, X>>
     : never
   : never;
-type Keyed<Config extends OrderingConfig, Base> = Base extends ClientTypeState<
-  infer C extends Governed<Config>,
-  infer X extends ExtensionState
->
-  ? Base extends VibORMClient<C, X>
-    ? ReturnType<typeof keysStep<Config, C, X>>
-    : never
-  : never;
-type Movable<
-  Config extends OrderingConfig,
-  Base,
-> = Base extends ClientTypeState<
-  infer C extends Governed<Config>,
-  infer X extends ExtensionState
->
-  ? Base extends VibORMClient<C, X>
-    ? ReturnType<typeof methodsStep<Config, C, X>>
-    : never
-  : never;
-type OrderingExtension<Config extends OrderingConfig> = {
-  <Base extends Receiver<Config>>(base: Base): NoInfer<Applied<Config, Base>>;
-  /** The default order and appended keys alone (chains written before 1.8). */
-  readonly keys: <Base extends Receiver<Config>>(
-    base: Base
-  ) => Keyed<Config, Base>;
-  /** `move` and `rekey` alone (chains written before 1.8). */
-  readonly methods: <Base extends Receiver<Config>>(
-    client: Base
-  ) => Movable<Config, Base>;
-};
+type OrderingExtension<Config extends OrderingConfig> = <
+  Base extends Receiver<Config>,
+>(
+  base: Base
+) => NoInfer<Applied<Config, Base>>;
 
 /**
  * `{ models }`, or before 1.9.1 the models themselves: a model's entry holds
@@ -1252,19 +1269,5 @@ export function ordering<const Config extends OrderingConfig>(
   ) {
     return apply(config, base);
   }
-  function keys<Base extends Receiver<Config>>(base: Base): Keyed<Config, Base>;
-  function keys<C extends Governed<Config>, X extends ExtensionState>(
-    base: VibORMClient<C, X>
-  ) {
-    return keysStep(config, base);
-  }
-  function methodsOf<Base extends Receiver<Config>>(
-    client: Base
-  ): Movable<Config, Base>;
-  function methodsOf<C extends Governed<Config>, X extends ExtensionState>(
-    client: VibORMClient<C, X>
-  ) {
-    return methodsStep(config, client);
-  }
-  return Object.assign(extend, { keys, methods: methodsOf });
+  return extend;
 }

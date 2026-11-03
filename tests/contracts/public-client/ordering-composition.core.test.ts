@@ -301,8 +301,8 @@ describe("ordering review: ordering 2", () => {
     const client = await openTask();
     const tombs = softDelete({ models: { task: { deletedAt: "deletedAt" } } });
     const order = ordering({ task: { key: "rank" } });
-    const db = order.methods(order.keys(tombs.rows(client)) as any) as any;
-    const restorable = tombs.methods(db as any) as any;
+    const db = client.$extends(tombs).$extends(order as any) as any;
+    const restorable = db;
     for (const title of ["a", "b", "c", "d", "e", "f"])
       await db.task.create({ data: { title } });
     await db.task.deleteMany({ where: { title: { in: ["a", "b", "c"] } } });
@@ -324,8 +324,8 @@ describe("ordering review: ordering 2", () => {
     const client = await openTask();
     const tombs = softDelete({ models: { task: { deletedAt: "deletedAt" } } });
     const order = ordering({ task: { key: "rank" } });
-    const db = order.methods(order.keys(tombs.rows(client)) as any) as any;
-    const restorable = tombs.methods(db as any) as any;
+    const db = client.$extends(tombs).$extends(order as any) as any;
+    const restorable = db;
     // a b c with c, d, e, f tied at "15": order by id among equals.
     for (const title of ["a", "b"]) await db.task.create({ data: { title } });
     for (const title of ["c", "d", "e"])
@@ -434,19 +434,17 @@ describe("ordering review: ordering + permissions", () => {
     }) as any;
     await syncLiveSchema(client);
     const order = ordering({ card2: { key: "rank", within: ["owner"] } });
-    const governed = order.methods(
-      (order.keys(client) as any).$extends(
-        permissions({
-          actor: v.object({ userId: v.string() }),
-          models: {
-            card2: {
-              read: { owner: { actor: "userId" } },
-              update: { owner: { actor: "userId" } },
-              create: { owner: { actor: "userId" } },
-            },
+    const governed = (client.$extends(order as any) as any).$extends(
+      permissions({
+        actor: v.object({ userId: v.string() }),
+        models: {
+          card2: {
+            read: { owner: { actor: "userId" } },
+            update: { owner: { actor: "userId" } },
+            create: { owner: { actor: "userId" } },
           },
-        } as any)
-      )
+        },
+      } as any)
     ) as any;
     const db = governed.$as({ userId: "u1" });
     for (const title of ["a", "b", "c"])
@@ -549,18 +547,16 @@ describe("ordering review 2", () => {
     ])
       await client.card2.create({ data: { owner, title, rank: "15" } });
     const order = ordering({ card2: { key: "rank", within: ["owner"] } });
-    const governed = order.methods(
-      (order.keys(client) as any).$extends(
-        permissions({
-          actor: v.object({ userId: v.string() }),
-          models: {
-            card2: {
-              read: { owner: { actor: "userId" } },
-              update: { owner: { actor: "userId" } },
-            },
+    const governed = (client.$extends(order as any) as any).$extends(
+      permissions({
+        actor: v.object({ userId: v.string() }),
+        models: {
+          card2: {
+            read: { owner: { actor: "userId" } },
+            update: { owner: { actor: "userId" } },
           },
-        } as any)
-      )
+        },
+      } as any)
     ) as any;
     const before = await client.card2.findMany({ where: { owner: "u2" } });
     expect(
@@ -897,21 +893,19 @@ describe("ordering: what a move sends", () => {
   test("a reorder within a list writes the key alone: no permission on the list field", async () => {
     const client = await openTickets();
     const order = ordering({ ticket: { key: "rank", within: ["lane"] } });
-    const db = order.methods(
-      (order.keys(client) as any).$extends(
-        permissions({
-          actor: v.object({ admin: v.boolean() }),
-          models: {
-            ticket: {
-              read: true,
-              create: true,
-              update: true,
-              transfer: { actor: { admin: true } },
-              fields: { lane: { write: "transfer" } },
-            },
+    const db = (client.$extends(order as any) as any).$extends(
+      permissions({
+        actor: v.object({ admin: v.boolean() }),
+        models: {
+          ticket: {
+            read: true,
+            create: true,
+            update: true,
+            transfer: { actor: { admin: true } },
+            fields: { lane: { write: "transfer" } },
           },
-        } as any)
-      )
+        },
+      } as any)
     ) as any;
     const user = db.$as({ admin: false });
     for (const [lane, title] of [

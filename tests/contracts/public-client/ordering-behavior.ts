@@ -447,6 +447,40 @@ export function describeOrdering(
       expect((await stamps()).c).toBeGreaterThan(before.c!);
     });
 
+    test("an extension's update stamp writes its own fields only: updatedAt() stays as stored or as given", async () => {
+      const stamped = (await setup()).$extends({
+        name: "audit",
+        data: { models: { card: { update: { owner: "stamped" } } } },
+      });
+      const at = new Date("2020-01-01T00:00:00.000Z");
+      for (const title of ["a", "b"])
+        await stamped.card.create({
+          data: { id: title, columnId: "c1", title, editedAt: at },
+        });
+      const rows = async () =>
+        (await stamped.card.findMany({ orderBy: { id: "asc" } })).map(
+          (row: { owner: string | null; editedAt: Date }) => [
+            row.owner,
+            row.editedAt.getTime(),
+          ]
+        );
+      await stamped.card.move({ where: { id: "a" }, after: { id: "b" } });
+      await stamped.card.rekey({ where: { columnId: "c1" } });
+      expect(await rows()).toEqual([
+        ["stamped", at.getTime()],
+        ["stamped", at.getTime()],
+      ]);
+      // A value the caller gives is written, not a generated one.
+      await stamped.card.update({
+        where: { id: "a" },
+        data: { title: "a2", editedAt: at },
+      });
+      expect((await rows())[0]).toEqual(["stamped", at.getTime()]);
+      // Given none, the update still generates it beside the stamp.
+      await stamped.card.update({ where: { id: "b" }, data: { title: "b2" } });
+      expect((await rows())[1]![1]).toBeGreaterThan(at.getTime());
+    });
+
     test("upsert's create branch and connectOrCreate's create append", async () => {
       const db = await setup();
       await db.card.create({ data: { id: "a", columnId: "c1", title: "a" } });

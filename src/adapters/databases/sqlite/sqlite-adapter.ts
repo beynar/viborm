@@ -410,15 +410,6 @@ const SQLITE_LITERALS = {
 const SQLITE_OPERATORS = {
   ...createComparisonOperators(),
 
-  // Explicit ESCAPE '\' pairs with wildcard escaping in the where-builder
-  like: (column: Sql, pattern: Sql): Sql =>
-    sql`${column} LIKE ${pattern} ESCAPE '\\'`,
-  notLike: (column: Sql, pattern: Sql): Sql =>
-    sql`${column} NOT LIKE ${pattern} ESCAPE '\\'`,
-  ilike: (column: Sql, pattern: Sql): Sql =>
-    sql`lower(${column}) LIKE lower(${pattern}) ESCAPE '\\'`,
-  notIlike: (column: Sql, pattern: Sql): Sql =>
-    sql`lower(${column}) NOT LIKE lower(${pattern}) ESCAPE '\\'`,
   containsText: (column: Sql, value: Sql): Sql =>
     sql`instr(${column}, ${value}) > 0`,
   startsWithText: (column: Sql, value: Sql): Sql =>

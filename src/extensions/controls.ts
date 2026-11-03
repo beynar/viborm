@@ -105,7 +105,7 @@ export type RowsContribution = {
    * read row by row is not bounded: from a row the member admits, it reaches
    * such rows already. `permissions`' `tenant` states its tenant here.
    */
-  readonly bound?: { readonly [model: string]: ScalarFields };
+  readonly confine?: { readonly [model: string]: ScalarFields };
 };
 
 /**

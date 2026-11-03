@@ -96,7 +96,7 @@ export interface PermissionsConfig {
    * The tenant a governed call stays in: on every model with a scalar
    * `field` but the ones `except` names, a set the policy's rules compute
    * over a whole table, where a positive test reads it, holds only the rows
-   * whose `field` is the actor's `actor` path (`rows.bound`). Nothing else
+   * whose `field` is the actor's `actor` path (`rows.confine`). Nothing else
    * reads differently. `except` names the models whose rows a rule reads
    * beyond the actor's tenant: a person's memberships of other
    * organizations, a shared catalogue.

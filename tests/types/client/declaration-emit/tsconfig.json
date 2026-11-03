@@ -1,0 +1,13 @@
+{
+  "extends": "../../../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "incremental": false,
+    "rootDir": "../../../..",
+    "types": ["node"]
+  },
+  "files": ["./extended-clients.ts"],
+  "include": []
+}
