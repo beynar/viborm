@@ -1,7 +1,24 @@
 # V4: set-oriented lists (plan, 2026-11-03)
 
-Status: started after V2 (#133, merged ecaa2bb5a). Release target: with V2,
-once two GPT-6.1 Sol reviews of each are clean (owner, 2026-11-03).
+Status: V2 was reverted (#134); lever 1 shipped differently from this plan
+(see "Outcome of lever 1" below). Release target: once two GPT-6.1 Sol
+reviews are clean (owner, 2026-11-03).
+
+## Outcome of lever 1 (2026-11-03)
+
+The set form below was built, reviewed (Sol: correct; slower than main on
+wide unselected columns, small pages of a large tree, overlapping subtrees,
+Neki's budget, +0.7 kB), fixed, and then removed: what made main's lists slow
+was not the per-row walk but its two readers, each rejoining the walked rows
+to their table, which PostgreSQL planned as a hash of the whole table per
+listed row (it estimates ten rows per recursion level). With the walk
+carrying each row's sibling order (edges sorted from the walk, no rejoin) and,
+on PostgreSQL, each node read by its key (`readsNodesByKey`), the per-row form
+beat the set form almost everywhere: PG 18, 5,000-row tree, 1,040 rows with
+ancestors 265 → 14 ms, all rows 1.31 s → 76 ms, a 20-row page 5.3 → 0.6 ms;
+SQLite 0.85–1.02× main on every reviewed shape; Neki 256 → 255 relations;
+about +145 B gzip. The fixed set form is kept as a patch outside the repo
+(`/tmp/v4l1/keep/set-form-fixed.patch` at the time) should a dialect need it.
 
 ## Where a governed list spends its time
 
