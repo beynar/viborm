@@ -410,20 +410,32 @@ type WhereOf<C extends VibORMConfig, K> = Exclude<
   undefined
 >["where"];
 
-/** One listed model's answers, from its own predicates, through `$access` (D8). */
-interface ModelAnswers<Action extends string, W> {
+/**
+ * One listed model's answers, from its own predicates, through `$access` (D8).
+ * Exported, and generic over the client config and model rather than over the
+ * selector, so an exported client's declaration names it instead of spelling
+ * the selector out.
+ */
+export interface ModelAnswers<
+  Action extends string,
+  C extends VibORMConfig,
+  K,
+> {
   /**
    * Whether the actor holds `action` on the one row `where` names (a unique
    * selector, as `findUnique` takes), or, for a list, each listed action,
    * each from its own predicate. A row the actor does not view holds none.
    */
-  can(action: Action, where: W): Promise<boolean>;
+  can(action: Action, where: WhereOf<C, K>): Promise<boolean>;
   can<const Asked extends readonly Action[]>(
     actions: Asked,
-    where: W
+    where: WhereOf<C, K>
   ): Promise<{ readonly [A in Asked[number]]: boolean }>;
   /** Resolves when `can` holds for every action; else `ForbiddenError`, hidden row or not. */
-  assert(action: Action | readonly Action[], where: W): Promise<void>;
+  assert(
+    action: Action | readonly Action[],
+    where: WhereOf<C, K>
+  ): Promise<void>;
 }
 
 type MethodsDefinition<
@@ -435,7 +447,7 @@ type MethodsDefinition<
     // The delegate of a client generic over its state stays deferred: untyped.
     readonly [K in Listed<Config>]: (
       delegate: never
-    ) => ModelAnswers<ActionOf<Config, K>, WhereOf<C, K>>;
+    ) => ModelAnswers<ActionOf<Config, K>, C, K>;
   };
 };
 
@@ -579,7 +591,7 @@ interface ScopeValues {
   readonly unrestricted: boolean;
   readonly allowed: readonly string[];
 }
-interface ScopeSchema {
+export interface ScopeSchema {
   readonly "~standard": {
     readonly version: 1;
     readonly vendor: string;

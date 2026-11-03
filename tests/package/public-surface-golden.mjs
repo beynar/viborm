@@ -710,7 +710,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
   ),
   "./soft-delete": surface(
     ["softDelete"],
-    ["SoftDeleteConfig", "SoftDeleteModel"],
+    ["SoftDeleteConfig", "SoftDeleteMethods", "SoftDeleteModel"],
     []
   ),
   "./permissions": surface(
@@ -720,11 +720,13 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "ActorPaths",
       "CompiledModel",
       "CompiledPolicy",
+      "ModelAnswers",
       "ModelPolicy",
       "PermissionsConfig",
       "Policy",
       "PolicyModel",
       "Rule",
+      "ScopeSchema",
       "Where",
     ],
     []
@@ -752,7 +754,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "ordering",
       "orderingKey",
     ],
-    ["MovePlacement", "OrderingConfig", "OrderingModel"],
+    ["MovePlacement", "OrderingConfig", "OrderingMethods", "OrderingModel"],
     []
   ),
   "./adapters": surface(

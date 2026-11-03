@@ -439,6 +439,17 @@ type TransactionMethod<
   ): Promise<{ [K in keyof T]: Awaited<T[K]> }>;
 };
 
+/**
+ * What a factory given to `$extends` returns: a client. A conditional, not
+ * `Result & { readonly $schema: Schema }`: inferring `Result` against an
+ * intersection rebuilds the returned client without its alias, so an exported
+ * extended client's declaration spelled every delegate out (one ordered model:
+ * 1.2 MB). Inference reaches a conditional's branch with the type as returned.
+ */
+type FactoryResult<Result> = Result extends { readonly $schema: Schema }
+  ? Result
+  : { readonly $schema: Schema };
+
 declare const clientTypeState: unique symbol;
 
 /**
@@ -555,9 +566,7 @@ export interface VibORMClientMembers<
   // Check the factory output here: constraining the client-valued default
   // eagerly expands every delegate, even when applying a plain definition.
   $extends<Result = VibORMClient<C, X>>(
-    factory: (client: NoInfer<VibORMClient<C, X>>) => Result & {
-      readonly $schema: Schema;
-    }
+    factory: (client: NoInfer<VibORMClient<C, X>>) => FactoryResult<Result>
   ): Result;
   $extends<
     const Definition extends OfficialAwareDefinition<C, X, Definition>,

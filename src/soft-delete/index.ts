@@ -63,7 +63,9 @@ type NoExtra<A, R> = A & Record<Exclude<keyof A, keyof R>, never>; // flags data
 // step types a to-one relation `| null`, a later `defaultOmit` drops a
 // field. Called off its delegate (destructured), its result is `unknown`:
 // using it is a type error, not a silent `never`. A type alias, not an interface: a method record.
-type Methods<C extends VibORMConfig, K> = {
+// Exported so an exported client's declaration names it instead of spelling
+// its arguments out.
+export type SoftDeleteMethods<C extends VibORMConfig, K> = {
   restore<Self, A extends RestoreArgs<C, K, "update">>(
     this: Self,
     args: NoExtra<A, RestoreArgs<C, K, "update">>
@@ -185,7 +187,7 @@ function definitionOf<
     ) as unknown as {
       readonly [K in Names<Config> & keyof ClientSchema<C>]: (
         delegate: never
-      ) => Methods<C, K>;
+      ) => SoftDeleteMethods<C, K>;
     },
   } as const; // the literals `$extends` reads: names, modes, values
 }

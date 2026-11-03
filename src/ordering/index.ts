@@ -1067,6 +1067,23 @@ type RekeyArgs<C extends VibORMConfig, K> = {
   readonly orderBy?: RekeyOrder<C, K> | readonly RekeyOrder<C, K>[];
 };
 
+/** One ordered model's methods. Exported so an exported client's
+ * declaration names it instead of spelling its arguments out. */
+export type OrderingMethods<
+  M,
+  C extends VibORMConfig,
+  Config extends OrderingConfig,
+  K extends keyof Config,
+> = {
+  // The row is typed from the delegate `move` is called on (`Self`), so it
+  // follows every extension applied after this one.
+  move<Self, A extends MoveArgs<M, C, Config, K>>(
+    this: Self,
+    args: A
+  ): PromiseLike<DelegateOperationResult<Self, "update", A>>;
+  // Generic as `move` is, so a call's controls (`deleted`, …) pass along.
+  rekey<A extends RekeyArgs<C, K>>(args?: A): PromiseLike<{ count: number }>;
+};
 type OrderingModels<
   M,
   C extends VibORMConfig,
@@ -1075,16 +1092,7 @@ type OrderingModels<
   readonly [K in Names<Config>]: (
     delegate: never,
     scope: never
-  ) => {
-    // The row is typed from the delegate `move` is called on (`Self`), so it
-    // follows every extension applied after this one.
-    move<Self, A extends MoveArgs<M, C, Config, K>>(
-      this: Self,
-      args: A
-    ): PromiseLike<DelegateOperationResult<Self, "update", A>>;
-    // Generic as `move` is, so a call's controls (`deleted`, …) pass along.
-    rekey<A extends RekeyArgs<C, K>>(args?: A): PromiseLike<{ count: number }>;
-  };
+  ) => OrderingMethods<M, C, Config, K>;
 };
 
 type Governed<Config extends OrderingConfig> = VibORMConfig & {
