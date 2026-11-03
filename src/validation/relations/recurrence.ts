@@ -24,7 +24,7 @@ export interface NormalizedRecurrence {
   readonly selective?: true;
   /**
    * A projection's: its caller states that each outer row's walk reaches few
-   * rows of the table ({@link OUTPUT_BUDGET}).
+   * rows of the table ({@link PROJECTION_OPTIONS}).
    */
   readonly fewRows?: true;
 }
@@ -65,11 +65,11 @@ type GraphWalk =
   | { readonly depth: false; readonly preventCycles?: true };
 
 /**
- * A projection's bag adds the output budget. A `where` filter reads the
- * closure as a set and decodes no occurrence, so it has nothing to bound and
- * refuses the key by its own type.
+ * A projection's bag adds its output budget and `fewRows`. A `where` filter
+ * reads the closure as a set and decodes no occurrence, so it has nothing to
+ * bound nor to read by key, and refuses both keys by its own type.
  */
-type OutputBudget = {
+type ProjectionOptions = {
   readonly maxOccurrences?: number;
   readonly fewRows?: boolean;
 };
@@ -84,9 +84,9 @@ export type ForeignKeyFilterRecurse = true | (ForeignKeyWalk & Selective);
 
 export type GraphFilterRecurse = true | (GraphWalk & Selective);
 
-export type ForeignKeyRecurse = true | (ForeignKeyWalk & OutputBudget);
+export type ForeignKeyRecurse = true | (ForeignKeyWalk & ProjectionOptions);
 
-export type GraphRecurse = true | (GraphWalk & OutputBudget);
+export type GraphRecurse = true | (GraphWalk & ProjectionOptions);
 
 export type ForeignKeyRecurrenceSchema = V.Schema<
   ForeignKeyRecurse,
@@ -155,9 +155,9 @@ const exhaustiveGraphOptions = v.object(
 
 /**
  * What a projection's bag adds to its filter twin: its own output budget
- * ({@link DEFAULT_MAX_OCCURRENCES}).
+ * ({@link DEFAULT_MAX_OCCURRENCES}) and `fewRows`.
  */
-const OUTPUT_BUDGET = {
+const PROJECTION_OPTIONS = {
   maxOccurrences: v.optional(
     createSchema<number, number>("integer", (value) =>
       typeof value === "number" && Number.isSafeInteger(value) && value >= 1
@@ -187,7 +187,7 @@ const OUTPUT_BUDGET = {
 const SELECTIVE = { selective: v.optional(v.boolean()) };
 
 /** A bag's options beside its depth and cycles: a projection's or a filter's. */
-type BagOptions = OutputBudget & { readonly selective?: boolean };
+type BagOptions = ProjectionOptions & { readonly selective?: boolean };
 
 /**
  * A spelled budget and a stated `fewRows` or selectivity travel with the bag;
@@ -255,14 +255,17 @@ const LANGUAGES: RecurrenceLanguages = {
   projection: {
     foreignKey: v.union([
       TRUE_FOREIGN_KEY,
-      v.coerce(foreignKeyOptions.extend(OUTPUT_BUDGET), normalizeForeignKey),
+      v.coerce(
+        foreignKeyOptions.extend(PROJECTION_OPTIONS),
+        normalizeForeignKey
+      ),
     ]),
     junction: v.union([
       TRUE_GRAPH,
       v.coerce(
         v.union([
-          boundedGraphOptions.extend(OUTPUT_BUDGET),
-          exhaustiveGraphOptions.extend(OUTPUT_BUDGET),
+          boundedGraphOptions.extend(PROJECTION_OPTIONS),
+          exhaustiveGraphOptions.extend(PROJECTION_OPTIONS),
         ]),
         normalizeGraph
       ),
