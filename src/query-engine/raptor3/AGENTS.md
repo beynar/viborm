@@ -1359,19 +1359,25 @@ materializes a correlated CTE that is read twice once per statement and would
 hand every later outer row the first row's facts; SQLite has no `LATERAL` and
 evaluates the correlated CTE per row as written, once per reader — twice per
 carrier (nodes and edges) — where PostgreSQL materializes it once per outer
-row. The edge reader never joins the table to the walk: each reached row
-carries its sibling order (`#walk`'s `sorted`, `Queries.completeOrder`), so
-the edges are ordered from the walk's own narrow columns and each edge fact
-is built as the aggregate reads it. Where the planner would hash the table
-to join it (`capabilities.readsNodesByKey`, PostgreSQL), each node is read
-by its key in a scalar subquery. Joined, PostgreSQL, which guesses ten rows a
-level of a walk, hashed the whole table once per outer row (a 1,040-row list
-of a 5,000-row tree: 265 → 14 ms).
+row. The walk carries the reached row's identity, its parent, its hop
+columns and its depth, nothing else: a value carried through the recursion
+joins `UNION`'s identity (a sort value that changes within the statement
+defeated cycle deduplication: Sol E, 2026-11-03) and widens every iteration
+(an 8 KiB sort key on SQLite 4.9×: Sol F). Each parent's siblings are ordered
+by `Queries.completeOrder` after the walk: an order of ungated key columns
+alone (the default) is read from the walk's own child columns and joins no
+table — joined only to be ordered, PostgreSQL, which guesses ten rows a level
+of a walk, hashed the whole table once per outer row — and any other term is
+read from the child joined to the walk. The node reader joins the table on
+every dialect: read by key in a scalar subquery, PostgreSQL won 18× on a
+1,040-row list of a 5,000-row tree but lost 14 % on a 9,999-node PGlite
+export, and an order term read by key lost on broad walks (PGlite 5-term
+order 1.6×), so neither is taken.
 
 A list's recursive projection keeps one walk per row. A set form walking
 once for the whole page (a page member seeding one walk, its facts grouped
 per root and joined back; `docs/architecture/v4-set-lists-plan-2026-11-03.md`)
-was measured against it once the readers were fixed (2026-11-03): on
+was measured against it with nodes and orders read by key (2026-11-03): on
 PostgreSQL it tied where the per-row plans were sound and lost on large
 tables, where its walk and readers hash the table (1,000-row pages of a
 100,000-row tree 1.2–1.7× the per-row form; overlapping subtrees 1.47×); on

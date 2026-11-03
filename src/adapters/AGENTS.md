@@ -246,12 +246,6 @@ recursive CTE past `cte_max_recursion_depth` iterations (1000 by default), so
 its recursive filters keep their walk in place, whose anchor holds the first
 hop, even where it shares bodies; a reaching set would spend one iteration
 per depth from its anchor. Absent elsewhere.
-`capabilities.readsNodesByKey` is a planner fact: PostgreSQL, which guesses
-ten rows a level of a recursive CTE, plans the join of a walk's nodes to their
-table as a hash of the whole table, once per outer row of a recursive
-projection, so it reads each node by key in a scalar subquery. SQLite joins
-by index, and a subquery's document would be parsed again there (`json()`);
-MySQL keeps the join (not measured there). Absent elsewhere.
 `capabilities.compoundSelectTerms` is a transport fact: D1 compiles SQLite
 with 5 terms per compound `SELECT` ("too many terms in compound SELECT"), so
 a flag member's union over more key sets nests in derived tables of 5.

@@ -7,19 +7,19 @@ Versioning.
 
 ### Performance
 
-- **A list's `recurse` select no longer scans its table once per row.**
-  Reading a recursive relation (`parent: { recurse: { depth: false },
-  select: { … } }`: each document's folder chain), each listed row joined
-  the rows its walk reached back to their table, twice (its nodes, and its
-  edges to order them); PostgreSQL, which guesses ten rows a level of a
-  recursive walk, planned both as a hash of the whole table, once per row.
-  The walk now carries each row's sibling order and, on PostgreSQL, each
-  node is read by its key. PostgreSQL 18, a 5,000-row tree: 1,040 rows with
-  their ancestors 265 → 14 ms, all 5,000 rows 1.31 s → 76 ms, two levels of
-  descendants for 1,040 rows 207 → 12 ms, a 20-row page 5.3 → 0.6 ms; a
-  governed 100-row page of a 10,000-row tree 12.2 → 2.1 ms; on a
-  100,000-row tree, pages of 1 to 3,000 rows 0.8–1.0×. SQLite 0–15 %
-  faster. The values are unchanged.
+- **A list's `recurse` select no longer scans its table once per row to
+  order its edges.** Reading a recursive relation (`parent: { recurse: {
+  depth: false }, select: { … } }`: each document's folder chain), each
+  listed row joined the rows its walk reached back to their table only to
+  order them; PostgreSQL, which guesses ten rows a level of a recursive
+  walk, planned that join as a hash of the whole table, once per row. An
+  order of key columns alone (the default) is now read from the walk
+  itself. PostgreSQL 18: 1,040 rows of a 5,000-row tree with their
+  ancestors 255 → 133 ms, a governed 100-row page of a 10,000-row tree
+  11.8 → 6.8 ms, 5,000 rows with large ancestor documents 1.27 s → 680 ms;
+  PGlite pages about 2× faster. A caller's own sibling order (`orderBy` on
+  a non-key field, a relation, a count) reads as before. The values are
+  unchanged.
 
 ## 1.9.1 — 2026-11-02
 

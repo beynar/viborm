@@ -92,15 +92,6 @@ export interface DatabaseAdapterCapabilities {
    */
   boundsRecursionIterations?: boolean;
   /**
-   * Whether a recursive projection reads each node it reached by key, in a
-   * scalar subquery, rather than joining the table to the walk: PostgreSQL,
-   * guessing ten rows a level, plans that join as a hash of the whole table,
-   * once per outer row (a 1,040-row list of a 5,000-row tree: 262 → 15 ms).
-   * SQLite joins by index, and its subquery's document would be parsed again
-   * (descendant lists 5–8 % slower). Absent: false.
-   */
-  readsNodesByKey?: boolean;
-  /**
    * The most terms one compound `SELECT` may chain, where the transport
    * bounds it below anything the engine writes: Cloudflare D1, 5. The engine
    * nests a longer union in derived tables of at most that many. Absent:

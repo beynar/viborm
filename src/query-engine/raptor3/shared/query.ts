@@ -9191,8 +9191,6 @@ export class Queries {
           readonly depth: number | false;
           readonly edges: true;
           readonly selector?: Pick<PreparedSelector, "model" | "predicate">;
-          /** The order each reached row is read in among its siblings. */
-          readonly sorted: (alias: string) => readonly OrderTerm[];
         },
     scoped = true
   ) {
@@ -9224,26 +9222,13 @@ export class Queries {
       ? this.#hopFields(edge).filter((field) => !keys.includes(field))
       : [];
     const hopColumns = hopFields.map((_, index) => `__${scope}_hop_${index}`);
-    // Each reached row carries its sibling order, so the edges are ordered
-    // without joining the rows again (`lowerRecursiveRelationProjection`).
-    const sorted = edges ? start.sorted : undefined;
-    let sortTerms: readonly OrderTerm[] = [];
-    const sortColumns = () =>
-      sortTerms.map((_, index) => `__${scope}_sort_${index}`);
-    const row = (alias: string) => {
-      sortTerms = sorted?.(alias) ?? [];
-      return [
-        ...this.#aliased(childColumns, this.#rowKey(model, alias)),
-        ...this.#aliased(
-          hopColumns,
-          hopFields.map((field) => this.column(model, field, alias))
-        ),
-        ...this.#aliased(
-          sortColumns(),
-          sortTerms.map((term) => term.expression)
-        ),
-      ];
-    };
+    const row = (alias: string) => [
+      ...this.#aliased(childColumns, this.#rowKey(model, alias)),
+      ...this.#aliased(
+        hopColumns,
+        hopFields.map((field) => this.column(model, field, alias))
+      ),
+    ];
     const anchorChild = this.alias();
     const firstHop = assembleAdapterSelect(a, {
       columns: sql.join(
@@ -9344,8 +9329,6 @@ export class Queries {
       parentColumns,
       childColumns,
       depthColumn,
-      sortTerms,
-      sortColumns: sortColumns(),
     };
   }
   /** The fields of the row it leaves that one hop of `edge` reads. */
@@ -9390,20 +9373,10 @@ export class Queries {
       parentColumns,
       childColumns,
       depthColumn,
-      sortTerms,
-      sortColumns,
     } = this.#walk(relation.edge, parentAlias, {
       depth: recurrence.depth,
       edges: true,
       selector: relation.arguments.selector,
-      // Each parent's siblings in the caller's order, ties broken by the order
-      // owner's one complete key — the ordinary window's tie-break, not another.
-      sorted: (alias) =>
-        this.#completeOrder(
-          model,
-          this.#orderTerms(model, relation.arguments.orderBy, alias),
-          alias
-        ),
     });
     const walkColumn = (name: string) => a.identifiers.column(walk, name);
 
@@ -9436,58 +9409,79 @@ export class Queries {
       ],
       [RECURSIVE_CARRIER.row, nodeDocument],
     ]);
-    // The edges are ordered from the walk's own columns, and each node is
-    // read by its key where the planner would hash the table to join it
-    // (`capabilities.readsNodesByKey`): joined, PostgreSQL, guessing ten rows
-    // a level, hashed the whole table once per outer row.
-    const idTable = a.subqueries.correlate(distinctIds, ids);
-    const sameNode = this.#sameRow(
-      model,
-      node,
-      idColumns.map((name) => a.identifiers.column(ids, name))
-    );
-    const table = this.table(model, node);
-    const byKey =
-      a.capabilities.readsNodesByKey &&
-      a.json.document(
-        a.subqueries.scalar(
-          assembleAdapterSelect(a, {
-            columns: nodeCarrier,
-            from: table,
-            where: sameNode,
-          })
-        )
-      );
     const nodes = a.subqueries.scalar(
       assembleAdapterSelect(a, {
-        columns: a.json.agg(byKey || nodeCarrier),
-        from: byKey
-          ? idTable
-          : sql`${idTable} ${a.joins.inner(table, sameNode)}`,
+        columns: a.json.agg(nodeCarrier),
+        from: sql`${a.subqueries.correlate(distinctIds, ids)} ${a.joins.inner(
+          this.table(model, node),
+          this.#sameRow(
+            model,
+            node,
+            idColumns.map((name) => a.identifiers.column(ids, name))
+          )
+        )}`,
       })
     );
 
     const edgeWalk = this.alias();
+    const edgeChild = this.alias();
     const edgeColumn = (name: string) => a.identifiers.column(edgeWalk, name);
+    const edgeCarrierName = `__${scope}_edge`;
+    const edgePairs: [string, Sql][] = [
+      [
+        RECURSIVE_CARRIER.parent,
+        this.#recursiveIdentity(model, parentColumns.map(edgeColumn)),
+      ],
+      [
+        RECURSIVE_CARRIER.child,
+        this.#recursiveIdentity(model, childColumns.map(edgeColumn)),
+      ],
+    ];
+    if (recurrence.depth !== false)
+      edgePairs.push([RECURSIVE_CARRIER.depth, edgeColumn(depthColumn)]);
+    const edgeCarrier = a.json.object(edgePairs);
+    // Each parent's siblings in the caller's order, ties broken by the order
+    // owner's one complete key — the ordinary window's tie-break, not another.
+    // An order of key columns alone is read from the walk's own: joined
+    // only to be ordered, PostgreSQL, guessing ten rows a level, hashed the
+    // whole table once per outer row. Any other term is read from the joined
+    // child, after the walk's `UNION`, never carried through it.
+    const keys = this.schema.keys(model);
+    const order = this.#completeOrder(
+      model,
+      this.#orderTerms(model, relation.arguments.orderBy, edgeChild),
+      edgeChild
+    );
+    const keyed = order.map((term) =>
+      term.field === undefined || this.#gatedHere(model, term.field)
+        ? -1
+        : keys.indexOf(term.field)
+    );
+    const joins = keyed.includes(-1);
+    const siblingOrder = this.#lowerOrder(
+      joins
+        ? order
+        : order.map((term, index) => ({
+            ...term,
+            expression: edgeColumn(childColumns[keyed[index]!]!),
+          }))
+    );
+    const walked = a.identifiers.aliased(
+      a.identifiers.escape(cteName),
+      edgeWalk
+    );
     const edgePage = assembleAdapterSelect(a, {
-      columns: sql.join(
-        [
-          ...parentColumns,
-          ...childColumns,
-          ...(recurrence.depth === false ? [] : [depthColumn]),
-        ].map(edgeColumn),
-        ", "
-      ),
-      from: a.identifiers.aliased(a.identifiers.escape(cteName), edgeWalk),
+      columns: a.identifiers.aliased(edgeCarrier, edgeCarrierName),
+      from: joins
+        ? sql`${walked} ${a.joins.inner(
+            this.table(model, edgeChild),
+            this.#sameRow(model, edgeChild, childColumns.map(edgeColumn))
+          )}`
+        : walked,
       orderBy: sql.join(
         [
           ...parentColumns.map((name) => a.orderBy.asc(edgeColumn(name))),
-          this.#lowerOrder(
-            sortTerms.map((term, index) => ({
-              ...term,
-              expression: edgeColumn(sortColumns[index]!),
-            }))
-          )!,
+          ...(siblingOrder ? [siblingOrder] : []),
         ],
         ", "
       ),
@@ -9496,23 +9490,11 @@ export class Queries {
       limit: a.noLimitValue,
     });
     const edgePageAlias = this.alias();
-    const factColumn = (name: string) =>
-      a.identifiers.column(edgePageAlias, name);
-    const edgePairs: [string, Sql][] = [
-      [
-        RECURSIVE_CARRIER.parent,
-        this.#recursiveIdentity(model, parentColumns.map(factColumn)),
-      ],
-      [
-        RECURSIVE_CARRIER.child,
-        this.#recursiveIdentity(model, childColumns.map(factColumn)),
-      ],
-    ];
-    if (recurrence.depth !== false)
-      edgePairs.push([RECURSIVE_CARRIER.depth, factColumn(depthColumn)]);
     const edges = a.subqueries.scalar(
       assembleAdapterSelect(a, {
-        columns: a.json.agg(a.json.object(edgePairs)),
+        columns: a.json.agg(
+          a.json.document(a.identifiers.column(edgePageAlias, edgeCarrierName))
+        ),
         from: a.subqueries.correlate(edgePage, edgePageAlias),
       })
     );

@@ -29,8 +29,7 @@ import { describe, it } from "vitest";
 
 const WITH_RECURSIVE = /WITH RECURSIVE\b/;
 const SIBLING_RANK_ASC = /"sibling_rank"\s+ASC/;
-const LABEL_CARRIED_SORT = /"display_label" AS "__q\d+_sort_\d+"/;
-const CARRIED_SORT_ASC = /"__q\d+_sort_\d+" ASC/;
+const DISPLAY_LABEL_ASC = /"display_label"\s+ASC/;
 const NOTE_POSITION_ASC = /"note_position"\s+ASC/;
 const DEPTH_REFUSAL =
   /recurse\.depth must be a positive safe integer between 1 and 1000/;
@@ -399,10 +398,10 @@ describe("G3P-05 recursive read fit through the ordinary projection", () => {
       // Representation change — the recursive CTE is now a scalar subquery inside the ordinary SELECT's relation column (recursive-query.md §3.2/§3.6), not the statement's prefix.
       assert.match(statement.sql, WITH_RECURSIVE);
       assert.match(statement.sql, SIBLING_RANK_ASC);
-      // The mapped label orders siblings as a term the walk carries (V4: the
-      // edges reader sorts the walk's columns, no rejoin of the table).
-      assert.match(statement.sql, LABEL_CARRIED_SORT);
-      assert.match(statement.sql, CARRIED_SORT_ASC);
+      // A non-key sibling order (the mapped label) is read from the child
+      // joined to the walk after its `UNION`; a key-only order would read the
+      // walk's own columns and join nothing.
+      assert.match(statement.sql, DISPLAY_LABEL_ASC);
       assert.match(statement.sql, NOTE_POSITION_ASC);
 
       const root = rows[0]!;

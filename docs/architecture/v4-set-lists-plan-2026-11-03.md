@@ -11,14 +11,22 @@ wide unselected columns, small pages of a large tree, overlapping subtrees,
 Neki's budget, +0.7 kB), fixed, and then removed: what made main's lists slow
 was not the per-row walk but its two readers, each rejoining the walked rows
 to their table, which PostgreSQL planned as a hash of the whole table per
-listed row (it estimates ten rows per recursion level). With the walk
-carrying each row's sibling order (edges sorted from the walk, no rejoin) and,
-on PostgreSQL, each node read by its key (`readsNodesByKey`), the per-row form
-beat the set form almost everywhere: PG 18, 5,000-row tree, 1,040 rows with
-ancestors 265 → 14 ms, all rows 1.31 s → 76 ms, a 20-row page 5.3 → 0.6 ms;
-SQLite 0.85–1.02× main on every reviewed shape; Neki 256 → 255 relations;
-about +145 B gzip. The fixed set form is kept as a patch outside the repo
-(`/tmp/v4l1/keep/set-form-fixed.patch` at the time) should a dialect need it.
+listed row (it estimates ten rows per recursion level). A first fix carried
+each row's sibling order through the walk and read nodes by key on
+PostgreSQL (1,040 rows with ancestors 265 → 14 ms); two reviews (Sol E, F)
+rejected it: a carried value joins `UNION`'s identity (a sort value that
+changes within the statement defeated cycle deduplication), widens every
+recursion (SQLite 8 KiB keys 4.9×), and node and order lookups by key lose
+to the join on broad walks (PGlite 9,999 descendants 1.14×, a 5-term order
+1.6×). What shipped keeps the walk narrow and the node reader joined, and
+orders edges from the walk's own columns when the order is key columns
+alone (the default), joining nothing; any other order reads the joined
+child as main does. PG 18: 1,040 rows with ancestors 255 → 133 ms, a
+governed 100-row page 11.8 → 6.8 ms; every reviewed shape on every engine
+at or below main; Neki relations equal or one fewer; +91 B (D1) / +119 B
+(pg) gzip. The gain the by-key node read had (about 9× more on that list)
+is left: it needs a plan that hashes the table once for a broad walk and
+probes it for many small ones, which no single statement shape gives.
 
 ## Where a governed list spends its time
 
