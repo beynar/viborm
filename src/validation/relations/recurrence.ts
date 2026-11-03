@@ -50,14 +50,14 @@ export function carriesRepeatedKey(
  * cycle it reaches. `preventCycles` is therefore refused by the bag's own type,
  * so no downstream guard has to know which topology a nested bag belongs to.
  */
-type ForeignKeyFilterRecurse =
+export type ForeignKeyFilterRecurse =
   | true
   | {
       readonly depth?: number | false;
       readonly preventCycles?: undefined;
     };
 
-type GraphFilterRecurse =
+export type GraphFilterRecurse =
   | true
   | { readonly depth?: number; readonly preventCycles?: boolean }
   | { readonly depth: false; readonly preventCycles?: true };

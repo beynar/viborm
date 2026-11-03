@@ -25,7 +25,9 @@ import type {
   ModelOperationOutput,
 } from "@validation/model";
 import type {
+  ForeignKeyFilterRecurse,
   ForeignKeyRecurse,
+  GraphFilterRecurse,
   GraphRecurse,
 } from "@validation/relations/recurrence";
 import type { DecimalUpdateOperationKeys } from "@validation/scalars";
@@ -1276,7 +1278,10 @@ type RelationWhereUnknownKeys<
       : QuantifiedWhereUnknownKeys<Given, R, Seen, "some" | "every" | "none">
     :
         | QuantifiedWhereUnknownKeys<Given, R, Seen, "some" | "every" | "none">
-        | MisspelledRecurrenceKeys<ValueAt<Given, "recurse">>
+        | MisspelledRecurrenceKeys<
+            ValueAt<Given, "recurse">,
+            FilterRecurrenceOptionKey
+          >
   : never; // Variant tagged filters require their existing entry discrimination.
 
 /**
@@ -1648,10 +1653,16 @@ type RecurrenceOptionKey = keyof Exclude<
   true
 >;
 
+/** A `where` filter's: no output budget, and no `fewRows`. */
+type FilterRecurrenceOptionKey = keyof Exclude<
+  ForeignKeyFilterRecurse | GraphFilterRecurse,
+  true
+>;
+
 /** The keys a caller spelled beside the real recurrence options. */
-type MisspelledRecurrenceKeys<Bag> = Exclude<
+type MisspelledRecurrenceKeys<Bag, Keys = RecurrenceOptionKey> = Exclude<
   SpelledClauseKeys<Exclude<Bag, boolean | null | undefined>>,
-  RecurrenceOptionKey
+  Keys
 >;
 
 /**

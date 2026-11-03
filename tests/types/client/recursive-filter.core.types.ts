@@ -329,6 +329,17 @@ client.document.findMany({
   },
 });
 
+for (const fewRows of [true, false] as const)
+  client.document.findMany({
+    // @ts-expect-error - a filter reads its walk as a set: no fewRows
+    where: { parent: { recurse: { depth: 2, fewRows }, some: {} } },
+  });
+
+client.document.findMany({
+  // @ts-expect-error - nor an output budget
+  where: { parent: { recurse: { depth: 2, maxOccurrences: 10 }, some: {} } },
+});
+
 const misspelledRecurrence = {
   children: { recurse: { depth: 2, depht: 3 }, some: {} },
 } as const;
