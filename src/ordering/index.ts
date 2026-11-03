@@ -1143,26 +1143,6 @@ function apply<
   return base.$extends(definitionOf(config, base));
 }
 
-// The two steps a chain written before 1.8 applies around another entry's
-// (`keys` then `methods`): the definition without its methods, and the
-// methods alone, under the name they had.
-function keysStep<
-  Config extends OrderingConfig,
-  C extends Governed<Config>,
-  X extends ExtensionState,
->(config: Config, base: VibORMClient<C, X>) {
-  const { model: _methods, ...keys } = definitionOf(config, base);
-  return base.$extends(keys);
-}
-function methodsStep<
-  Config extends OrderingConfig,
-  C extends Governed<Config>,
-  X extends ExtensionState,
->(config: Config, client: VibORMClient<C, X>) {
-  const { model } = definitionOf(config, client);
-  return client.$extends({ name: `${NAME}.methods`, model });
-}
-
 type Receiver<Config extends OrderingConfig> = ClientTypeState<
   VibORMConfig,
   ExtensionState
@@ -1181,36 +1161,11 @@ type Applied<
     ? ReturnType<typeof apply<Config, C, X>>
     : never
   : never;
-type Keyed<Config extends OrderingConfig, Base> = Base extends ClientTypeState<
-  infer C extends Governed<Config>,
-  infer X extends ExtensionState
->
-  ? Base extends VibORMClient<C, X>
-    ? ReturnType<typeof keysStep<Config, C, X>>
-    : never
-  : never;
-type Movable<
-  Config extends OrderingConfig,
-  Base,
-> = Base extends ClientTypeState<
-  infer C extends Governed<Config>,
-  infer X extends ExtensionState
->
-  ? Base extends VibORMClient<C, X>
-    ? ReturnType<typeof methodsStep<Config, C, X>>
-    : never
-  : never;
-type OrderingExtension<Config extends OrderingConfig> = {
-  <Base extends Receiver<Config>>(base: Base): NoInfer<Applied<Config, Base>>;
-  /** The default order and appended keys alone (chains written before 1.8). */
-  readonly keys: <Base extends Receiver<Config>>(
-    base: Base
-  ) => Keyed<Config, Base>;
-  /** `move` and `rekey` alone (chains written before 1.8). */
-  readonly methods: <Base extends Receiver<Config>>(
-    client: Base
-  ) => Movable<Config, Base>;
-};
+type OrderingExtension<Config extends OrderingConfig> = <
+  Base extends Receiver<Config>,
+>(
+  base: Base
+) => NoInfer<Applied<Config, Base>>;
 
 /**
  * `{ models }`, or before 1.9.1 the models themselves: a model's entry holds
@@ -1252,19 +1207,5 @@ export function ordering<const Config extends OrderingConfig>(
   ) {
     return apply(config, base);
   }
-  function keys<Base extends Receiver<Config>>(base: Base): Keyed<Config, Base>;
-  function keys<C extends Governed<Config>, X extends ExtensionState>(
-    base: VibORMClient<C, X>
-  ) {
-    return keysStep(config, base);
-  }
-  function methodsOf<Base extends Receiver<Config>>(
-    client: Base
-  ): Movable<Config, Base>;
-  function methodsOf<C extends Governed<Config>, X extends ExtensionState>(
-    client: VibORMClient<C, X>
-  ) {
-    return methodsStep(config, client);
-  }
-  return Object.assign(extend, { keys, methods: methodsOf });
+  return extend;
 }

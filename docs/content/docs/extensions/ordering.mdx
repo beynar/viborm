@@ -303,6 +303,6 @@ to-one relation it can hide as `| null`; computed `result` fields are
 added). Called off its delegate (`const { move } = db.card`), the result is
 typed `unknown`.
 
-A chain written before 1.8 applied two steps apart, `ordering(config).keys`
-(the default order and the appended keys) and `ordering(config).methods`
-(`move` and `rekey`). That chain still works unchanged.
+The two-step form of 1.7 (`ordering(config).keys`, then
+`ordering(config).methods`) was removed in 1.11: apply `ordering(config)`
+once.
