@@ -20,6 +20,7 @@ import type { OrderTerm } from "../extensions/controls";
 import type {
   ClientSchema,
   ClientTypeState,
+  DelegateOperationArgs,
   DelegateOperationResult,
   ExtensionState,
   VibORMClient,
@@ -1077,7 +1078,10 @@ export type OrderingMethods<
 > = {
   // The row is typed from the delegate `move` is called on (`Self`), so it
   // follows every extension applied after this one.
-  move<Self, A extends MoveArgs<M, C, Config, K>>(
+  move<
+    Self,
+    const A extends DelegateOperationArgs<Self, MoveArgs<M, C, Config, K>>,
+  >(
     this: Self,
     args: A
   ): PromiseLike<DelegateOperationResult<Self, "update", A>>;

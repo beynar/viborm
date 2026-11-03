@@ -95,6 +95,9 @@ import {
 } from "./omit";
 import type {
   DeclaresEvidence,
+  DelegateCallArgs,
+  DelegateProjectedArgs,
+  DelegateProjectedResult,
   GatedConfig,
   ProjectedModelOperations,
 } from "./projected-types";
@@ -659,6 +662,19 @@ export type ExtendedOperationResult<
   : never;
 
 /**
+ * One operation's arguments on the model delegate `Delegate` it would run on:
+ * `Payload`, whose `select` and `include` admit the keys that delegate's chain
+ * projects (`$access`), as the operation's own projected overloads admit
+ * them. A model method constrains its arguments with it beside
+ * `DelegateOperationResult`: `restore<Self, A extends
+ * DelegateOperationArgs<Self, RestoreArgs>>(this: Self, args: A)`.
+ */
+export type DelegateOperationArgs<Delegate, Payload> =
+  Delegate extends DelegateState<unknown, unknown, unknown, infer K>
+    ? DelegateProjectedArgs<Delegate, Payload, K>
+    : Payload;
+
+/**
  * One operation's result on the model delegate `Delegate` it would run on,
  * as `ExtendedOperationResult` types it for that delegate's client. A model
  * method declared with a `this` parameter types its result with it, so the
@@ -676,20 +692,43 @@ export type DelegateOperationResult<
   infer Result extends object,
   infer K
 >
-  ? [keyof Result] extends [never]
-    ? DelegateRow<C, Rows, K & keyof ClientSchema<C>, O, Args>
-    : // Computed fields reach the rows an operation returns, nothing else.
-      O extends Exclude<Operations, ComputedOperation>
-      ? DelegateRow<C, Rows, K & keyof ClientSchema<C>, O, Args>
-      : WithComputedResult<
-          DelegateRow<C, Rows, K & keyof ClientSchema<C>, O, Args>,
-          ClientSchema<C>[K & keyof ClientSchema<C>],
-          Args,
-          ComputedResultContext<Result, ClientSchema<C>, K>
-        >
+  ? // A key the chain projects (`$access`) reads as the operation's own
+    // projected overload reads it.
+    DelegateProjectedResult<
+      Delegate,
+      O,
+      K,
+      Args,
+      DelegateComputedRow<
+        C,
+        Rows,
+        Result,
+        K,
+        O,
+        DelegateCallArgs<Delegate, Args>
+      >
+    >
   : // Called off a delegate (a destructured method): nothing to read the
     // result from, and `unknown` makes using it a type error.
     unknown;
+type DelegateComputedRow<
+  C extends VibORMConfig,
+  Rows extends string,
+  Result extends object,
+  K,
+  O extends Operations,
+  Args,
+> = [keyof Result] extends [never]
+  ? DelegateRow<C, Rows, K & keyof ClientSchema<C>, O, Args>
+  : // Computed fields reach the rows an operation returns, nothing else.
+    O extends Exclude<Operations, ComputedOperation>
+    ? DelegateRow<C, Rows, K & keyof ClientSchema<C>, O, Args>
+    : WithComputedResult<
+        DelegateRow<C, Rows, K & keyof ClientSchema<C>, O, Args>,
+        ClientSchema<C>[K & keyof ClientSchema<C>],
+        Args,
+        ComputedResultContext<Result, ClientSchema<C>, K>
+      >;
 type DelegateRow<
   C extends VibORMConfig,
   Rows extends string,

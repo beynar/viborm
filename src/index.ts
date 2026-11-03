@@ -26,6 +26,7 @@
 
 export type {
   ClientTypeState,
+  DelegateOperationArgs,
   DelegateOperationResult,
   ExtendedClient,
   ExtendedOperationResult,

@@ -193,6 +193,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "PlacedControl",
       "VibSchema",
       "ClientExtension",
+      "DelegateOperationArgs",
       "DelegateOperationResult",
       "DiagnosticDisclosure",
       "ExtendedClient",
