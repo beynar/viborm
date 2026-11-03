@@ -28,10 +28,20 @@ single, and code nothing used removed.
   timestamp ordering keeps as stored (1.9.1), and an `update` that gave
   `updatedAt` a value had it replaced by the current time. Given none, an
   update still generates it.
-- **A client built with `$extends(ordering(…))` or `$extends(on(…))` can
-  be exported from a file compiled with `declaration: true`.** Its
-  declaration failed with TS4023, naming a type the package did not
-  export.
+- **A client built with `$extends` can be exported from a file compiled
+  with `declaration: true`.** With `ordering`, `softDelete`, `permissions`
+  or `on` applied, its declaration failed (TS4023, TS2742, or TS7056 for a
+  type too long to write), or spelled every delegate out: 1.2 MB for one
+  ordered model, 4.3 MB with soft delete. It now names
+  `VibORMClient<…>`: 8 KB ordered, 10 KB with soft delete, 51 KB with
+  all four. The package exports the type names those declarations use.
+- **`move`, `restore` and `purge` type a selected `$access`.** They
+  returned it but typed their result without it; they now type it as the
+  operation they delegate to does, nested selections included.
+- **`move` refuses misspelled keys beside real ones in TypeScript**, in
+  `where`, `after`/`before`, `data` and `to`, as the runtime already did.
+- **`ordering()` refuses a misspelled `key` or `within` field in
+  TypeScript**, as it refused a misspelled model.
 
 ### Removed
 
