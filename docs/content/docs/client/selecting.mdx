@@ -189,6 +189,9 @@ and the provider's message is redacted.
 
 ### Few rows per walk
 
+[Performance opt-ins](/docs/client/opt-ins#fewrows-each-walk-reaches-few-rows)
+shows the SQL and the plans with and without it.
+
 `recurse: { fewRows: true }` states a fact about your data that the schema
 cannot: each row's walk reaches few rows of its table, such as a document's
 folder chain, a comment's thread above it, or two levels of a large tree.

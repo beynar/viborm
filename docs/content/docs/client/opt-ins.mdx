@@ -1,0 +1,318 @@
+---
+title: Performance opt-ins
+description: Facts about your data that make some reads much faster, what each changes in the SQL, and when not to state them
+icon: gauge
+---
+
+Some reads have a faster plan that is only faster for data of a certain
+shape. Whether your data has that shape is something no schema says: an index
+tells the database which column it can probe, not how many rows hold one
+value. A walk up a folder tree reaches a handful of rows in one app and
+thousands in another.
+
+VibORM never guesses those shapes. Each faster plan is an **opt-in**: an
+option you state where you know the fact holds. Left out, the statement is
+exactly the one VibORM sends without it, byte for byte. Stated where it is
+false, the read is still correct (the rows are the same either way) but it can
+be slower, so each section below gives the cost of stating it wrongly.
+
+| Option | Where it goes | What you state | What changes | Databases |
+| --- | --- | --- | --- | --- |
+| [`recurse: { fewRows: true }`](#fewrows-each-walk-reaches-few-rows) | a `recurse` in `select` / `include` | each listed row's walk reaches few rows of its table | the rows a walk reaches are read by their key instead of joining the table | PostgreSQL drivers; ignored elsewhere |
+| [`recurse: { selective: true }`](#selective-a-walk-to-few-rows-computed-once) | a `recurse` in `where`, a permission rule | few rows match the walk's `some`, and few rows reach them | where the walk is read inside rules a statement repeats, it is computed once | PostgreSQL drivers and D1 |
+
+The SQL below is what VibORM sends to PostgreSQL (captured with the
+[`statement` hook](#check-your-own-reads), bound values as `$1`); `…` marks
+arguments shortened for reading. The plans come from `EXPLAIN ANALYZE` on PGlite, median of five runs.
+
+## `fewRows`: each walk reaches few rows
+
+### The problem
+
+A recursive select reads, for every listed row, the rows its walk reaches:
+
+```ts
+const folders = await db.folder.findMany({
+  take: 1000,
+  select: {
+    name: true,
+    parent: { recurse: { depth: false }, select: { name: true } }, // the folder chain
+  },
+});
+```
+
+For each listed folder, VibORM walks up its chain, then reads the folders it
+reached to build their JSON. Without the option it reads them with a join of
+the table to the walk. PostgreSQL cannot see how many rows a recursive walk
+returns and assumes about ten per level, so for a long list it often plans
+that join as a hash join that scans the **whole table**, and does it again
+**for every listed row**.
+
+### What you write
+
+```ts
+parent: { recurse: { depth: false, fewRows: true }, select: { name: true } },
+```
+
+### The SQL
+
+Only the reader that builds the nodes' JSON changes; the walk, the edges and
+the rest of the statement are identical.
+
+Without `fewRows`, the reached ids are **joined** to `folder`:
+
+```sql
+SELECT COALESCE(json_agg(json_build_object(…, "q6"."name")), '[]'::json)
+FROM (SELECT DISTINCT ON ("q3"."__q1_child_0") "q3"."__q1_child_0" AS "__q1_id_0"
+      FROM "__q1_recursive" AS "q3") AS "q5"
+INNER JOIN "public"."folder" AS "q6" ON "q6"."id" = "q5"."__q1_id_0"
+```
+
+With `fewRows`, each reached id is **read by its key**:
+
+```sql
+SELECT COALESCE(json_agg((
+         SELECT json_build_object(…, "q6"."name")
+         FROM "public"."folder" AS "q6"
+         WHERE "q6"."id" = "q5"."__q1_id_0"
+       )), '[]'::json)
+FROM (SELECT DISTINCT ON ("q3"."__q1_child_0") "q3"."__q1_child_0" AS "__q1_id_0"
+      FROM "__q1_recursive" AS "q3") AS "q5"
+```
+
+### The plan
+
+1,040 folders of a 5,000-folder tree, each with its ancestors (about 8 per
+folder):
+
+| | Without `fewRows` | With `fewRows` |
+| --- | --- | --- |
+| Execution | 1,019 ms | 61 ms |
+| How the reached folders are read | `Hash Join` over `Seq Scan on folder`: **1,040 loops × 5,000 rows** | `Index Scan using folder_pkey`: 8,684 loops × 1 row |
+
+```text
+Without: Hash Join (loops=1040, 983.8 ms)
+           Seq Scan on folder (loops=1040, rows=5000)
+With:    Index Scan on folder using folder_pkey (loops=8684, rows=1, 17.4 ms)
+```
+
+On native PostgreSQL 18, the same kind of list went from 129 to 13.5 ms, all
+5,000 folders with their ancestors from 558 to 68 ms, and a 100-row page under
+a permissions policy from 6.3 to 1.7 ms.
+
+### When to state it
+
+State it when each listed row's walk reaches **a few rows**: a document's
+folder chain, a category's ancestors, a comment's thread up to its root,
+a few levels of children. The number of listed rows does not matter; the
+number of rows **each** walk reaches does.
+
+Leave it out when a walk reaches **most of its table**, such as all the
+descendants of a root. One key lookup per reached row is then slower than one
+join: the 9,999 descendants of one root took 22 → 27 ms (1.21×) on PostgreSQL
+18, and 1.18–1.22× on PGlite; wide 8 KiB rows on PGlite, 1.10–1.12×. Where
+PostgreSQL already probes the index (small pages of a large tree), it
+changes little (1–2 % either way).
+
+The key lookups also raise the planner's cost estimate a little. On a server
+with JIT enabled, a statement close to `jit_above_cost` may cross it and pay
+JIT compilation; benchmark there.
+
+### Databases
+
+PostgreSQL drivers (`pg`, `postgres`, PGlite, Neon, Bun SQL) apply it. SQLite,
+D1 and MySQL accept it and ignore it: they already join by index, and the read
+by key measured 3–17 % slower there. `where` filters do not take it (a type
+error, and refused at runtime).
+
+## `selective`: a walk to few rows, computed once
+
+### The problem
+
+Permission rules often name "the teams the actor belongs to, through their
+subteams", and repeat it: every action that reads a grant to a team reads it
+again.
+
+```ts
+const myTeams = {
+  team: {
+    is: {
+      children: {
+        recurse: { depth: false },
+        self: true,
+        some: { members: { some: { userId: { actor: "userId" } } } },
+      },
+    },
+  },
+};
+
+const policy = permissions({
+  actor: v.object({ userId: v.string() }),
+  models: {
+    page: {
+      actions: { read: [], update: ["read"] },
+      read: { grants: { some: myTeams } },
+      update: { grants: { some: { level: "full", ...myTeams } } },
+    },
+  },
+});
+
+await db.$as({ userId: "ann" }).page.findMany({ select: { id: true, $access: true } });
+```
+
+When a statement reads the same rule in several places, VibORM computes it
+once, as a set over its whole table ("every team that holds me"), and each
+place tests membership in that set. To compute the set, the walk runs **once
+for every team in the table**, each time walking down that team's subteams to
+see whether one holds the actor.
+
+The useful fact is the reverse one: the actor belongs to a few teams, and few
+teams sit above them. Walking **up** from the actor's memberships finds the
+same set by visiting a handful of rows.
+
+### What you write
+
+```ts
+recurse: { depth: false, selective: true },
+```
+
+### The SQL
+
+Without `selective`, the set of teams that hold the actor walks the tree
+**inside** the team body, once per team:
+
+```sql
+WITH "__shared_0" AS NOT MATERIALIZED (            -- the actor's memberships
+  SELECT "q4"."teamId" AS "k0" FROM "public"."member" AS "q4" WHERE "q4"."userId" = $1
+), "__shared_2" AS (                               -- teams that hold the actor
+  SELECT "q2"."id" AS "k0" FROM "public"."team" AS "q2"
+  WHERE EXISTS (
+    WITH RECURSIVE "__q5_recursive" AS (            -- walked once PER TEAM
+      SELECT "q7"."__q5_child_0" FROM (SELECT "q2"."id" AS "__q5_child_0"
+        UNION SELECT "q6"."id" AS "__q5_child_0" FROM "public"."team" AS "q6"
+              WHERE "q2"."id" = "q6"."parentId") AS "q7"
+      UNION
+      SELECT "q9"."id" AS "__q5_child_0" FROM "__q5_recursive" AS "q8"
+      INNER JOIN "public"."team" AS "q9" ON "q8"."__q5_child_0" = "q9"."parentId"
+    )
+    SELECT 1 FROM "__q5_recursive" AS "q8"
+    INNER JOIN "public"."team" AS "q3" ON "q3"."id" = "q8"."__q5_child_0"
+    WHERE EXISTS (SELECT 1 FROM "__shared_0" WHERE "q3"."id" = "__shared_0"."k0")
+  )
+)
+SELECT "q0"."id", … FROM "public"."page" AS "q0" …   -- reads "__shared_2"
+```
+
+With `selective`, the walk is computed **once**, up from the actor's
+memberships, and the team body only tests it:
+
+```sql
+WITH RECURSIVE "__shared_0" AS NOT MATERIALIZED (  -- the actor's memberships
+  SELECT "q4"."teamId" AS "k0" FROM "public"."member" AS "q4" WHERE "q4"."userId" = $1
+), "__shared_1" AS (                               -- walked ONCE, upwards
+  SELECT "q3"."id" AS "k0" FROM "public"."team" AS "q3"
+  WHERE EXISTS (SELECT 1 FROM "__shared_0" WHERE "q3"."id" = "__shared_0"."k0")
+  UNION
+  SELECT "q11"."parentId" AS "k0" FROM "__shared_1" AS "q10"
+  INNER JOIN "public"."team" AS "q11" ON "q11"."id" = "q10"."k0"
+), "__shared_2" AS (                               -- teams that hold the actor
+  SELECT "q2"."id" AS "k0" FROM "public"."team" AS "q2"
+  WHERE EXISTS (SELECT 1 FROM "__shared_1" WHERE "q2"."id" = "__shared_1"."k0")
+)
+SELECT "q0"."id", … FROM "public"."page" AS "q0" …   -- unchanged
+```
+
+### The plan
+
+2,000 teams, 4,000 memberships, 5,000 grants on 1,000 pages; the actor sits
+in one team:
+
+| | Without `selective` | With `selective` |
+| --- | --- | --- |
+| Execution | 1,330 ms | 3.7 ms |
+| The team walk | `Recursive Union` **2,000 loops**, each hashing `team` (2,000 rows) | `Recursive Union` **1 loop**, 5 rows, from `member_userId_idx` |
+
+```text
+Without: Recursive Union (loops=2000, 1302.0 ms)
+           Hash Join (loops=3485)
+             Seq Scan on team (loops=3485, rows=1999)
+With:    Recursive Union (loops=1, rows=5, 1.4 ms)
+           Bitmap Index Scan using member_userId_idx (loops=1, rows=1)
+```
+
+On a 40-model production policy at 500 organizations (PostgreSQL 18),
+opening a page went from 1.4 s to 89 ms, and from 2.0 to 0.8 ms with
+[`tenant`](/docs/extensions/permissions#one-tenant-per-call-tenant).
+
+### Where it applies
+
+The walk is computed once only where every place that reads it is a rule the
+statement already computes over its whole table (a rule it repeats, as
+`$access` and policies with several actions do). Elsewhere it stays where it
+is, so a read by a unique key, a `findUnique` or a keyed update keeps its
+index. A rule read at a single place (the same policy with one action, or one
+`findMany` filter) sends the same statement with or without the option. It is
+never applied under `every`, which reaches back from the rows its predicate
+does **not** hold of, nor to a walk merged with one that does not state it.
+
+Index the columns the walk's `some` reads (`member.userId` above): computed
+once, the walk starts by finding every row they match.
+
+### When to state it
+
+State it when few rows match the walk's `some`, and few rows reach them: the
+teams one actor belongs to, the groups above one user, the folders shared with
+one person.
+
+Leave it out when the matches are many, such as "every team with a member" or
+a value most rows share. Computed once, the walk then reads most of its table:
+on SQLite, a read over 30,000 teams went from 45 to 61 ms.
+
+### Databases
+
+It applies where VibORM shares repeated rules as `WITH` members: PostgreSQL
+drivers and D1. SQLite (in process) and MySQL accept it; their statements do
+not change. It goes in a `where` (and in permission rules); a
+`select`/`include` refuses it.
+
+## Check your own reads
+
+Both options promise the same rows, so the only question is speed on your
+data. Capture the statement a read sends with the `statement` hook:
+
+```ts
+const statements: { text: string; values: unknown[] }[] = [];
+const traced = db.$extends({
+  name: "trace",
+  statement({ statement }) {
+    statements.push({ text: statement.toStatement("$n"), values: statement.values });
+    return statement;
+  },
+});
+
+await traced.folder.findMany({ /* the read */ });
+```
+
+Then run it under `EXPLAIN ANALYZE` on a copy of production data, with and
+without the option, through any PostgreSQL client (here node-postgres's
+`Pool`, connected to that copy):
+
+```ts
+import { Pool } from "pg";
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const { text, values } = statements.at(-1)!;
+const { rows } = await pool.query(`EXPLAIN (ANALYZE, BUFFERS) ${text}`, values);
+console.log(rows.map((row) => row["QUERY PLAN"]).join("\n"));
+```
+
+What to look for:
+
+- **`fewRows`**: a `Seq Scan` (or `Hash Join` over one) on the walked table
+  whose `loops` equals the number of listed rows. With the option it becomes an
+  `Index Scan` on the primary key.
+- **`selective`**: a `Recursive Union` whose `loops` equals the number of rows
+  in the walked table. With the option it runs once, from the index on the
+  column `some` reads.
+
+If neither appears, the option would not help that read: leave it out.
