@@ -121,7 +121,15 @@ subquery, nested to any depth, `_count` and polymorphic relations included.
 | Lean JSON spelling | Redundant column aliases dropped | Redundant column aliases dropped | Redundant column aliases dropped | `json_group_array(json_object(…))`, no extra `json()`/`COALESCE` | Same as SQLite |
 | Repeated relation bodies stated once in a `WITH` | ✅ `NOT MATERIALIZED` leaves | ✅ `NOT MATERIALIZED` leaves | ❌ | ❌ | ✅ `MATERIALIZED` non-leaf members |
 | Recursive projections | `LATERAL` derived table | `LATERAL` derived table | `LATERAL` derived table | Correlated CTE per reader | Correlated CTE per reader |
+| Recursive edges ordered by key read from the walk, no table rejoined | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Recursive nodes read by key (opt-in: [`fewRows`](#opt-ins-what-only-your-data-knows)) | ✅ | ✅ | ❌ (ignored) | ❌ (ignored) | ❌ (ignored) |
 
+- **Recursive edges.** A recursive projection's siblings ordered by key (the
+  default) are sorted from the walk's own columns. Joining the walked rows back
+  to their table only to order them could make PostgreSQL scan the whole table
+  for every listed row: 1,040 rows of a 5,000-row tree with their ancestors
+  went from 255 to 133 ms (1.10.0). A sibling order on a non-key field, a
+  relation or a count still joins the table.
 - **Alias trimming** makes plain PostgreSQL and MySQL reads about 9–11% shorter.
   The SQLite JSON spelling took a 9.4 MB include from 181 to 109 ms.
 - **Shared relation bodies.** A statement that repeats the same relation body
@@ -344,6 +352,32 @@ where it differs. MySQL is simulated.
 Over the 72 calls of the census, round trips went from 480 to 397 on
 PostgreSQL, 484 to 409 on SQLite, 176 to 146 on Neon HTTP and 178 to 148 on
 D1, every result identical to before.
+
+## Opt-ins: what only your data knows
+
+Some plans are faster only when the data has a shape no schema states: an
+index says which column a read can probe, not how many rows hold one value.
+VibORM never guesses those. Each is an option you state where you know it is
+true; left out, the statement is exactly the one sent without it.
+
+| Option | Where | You state | What changes | Where it applies |
+|---|---|---|---|---|
+| [`recurse: { fewRows: true }`](/docs/client/selecting#few-rows-per-walk) | `select` / `include` | each listed row's walk reaches few rows (a folder chain, a category's ancestors) | each reached row is read by its key instead of joining the table | PostgreSQL drivers; ignored elsewhere |
+| [`recurse: { selective: true }`](/docs/client/filtering/relations#recursive-filters) | `where`, permission rules | the rows the walk's `some` names, and the rows that reach them, are few (the teams the actor belongs to) | where the walk is read only inside bodies computed over their whole tables, it is computed once from those rows | PostgreSQL drivers and D1 (shared relation bodies) |
+
+Measured on PostgreSQL 18 (1.10.0):
+
+- `fewRows`: 1,040 rows of a 5,000-row tree with their ancestors 129 → 13.5 ms;
+  a governed 100-row page 6.3 → 1.7 ms. Stated on a walk that reaches most of
+  its table, it is slower (the 9,999 descendants of one root: 1.21×).
+- `selective`: opening a page under a 40-model permissions policy at 500
+  organizations 1.4 s → 89 ms (2.0 → 0.8 ms with
+  [`tenant`](/docs/extensions/permissions#one-tenant-per-call-tenant)). Stated
+  on a walk whose matches are many, it reads most of the table (on SQLite, 30,000
+  teams: 45 → 61 ms).
+
+State an option only when it holds for the data the call reads, and measure
+your own reads: each section linked above gives the trade-off in detail.
 
 ## Not optimized yet
 
