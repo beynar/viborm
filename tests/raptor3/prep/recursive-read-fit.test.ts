@@ -384,7 +384,10 @@ describe("G3P-05 recursive read fit through the ordinary projection", () => {
       // Representation change — the recursive CTE is now a scalar subquery inside the ordinary SELECT's relation column (recursive-query.md §3.2/§3.6), not the statement's prefix.
       assert.match(statement.sql, /WITH RECURSIVE\b/);
       assert.match(statement.sql, /"sibling_rank"\s+ASC/);
-      assert.match(statement.sql, /"display_label"\s+ASC/);
+      // The mapped label orders siblings as a term the walk carries (V4: the
+      // edges reader sorts the walk's columns, no rejoin of the table).
+      assert.match(statement.sql, /"display_label" AS "__q\d+_sort_\d+"/);
+      assert.match(statement.sql, /"__q\d+_sort_\d+" ASC/);
       assert.match(statement.sql, /"note_position"\s+ASC/);
 
       const root = rows[0]!;
