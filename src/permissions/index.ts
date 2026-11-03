@@ -414,12 +414,14 @@ type WhereOf<C extends VibORMConfig, K> = Exclude<
  * One listed model's answers, from its own predicates, through `$access` (D8).
  * Exported, and generic over the client config and model rather than over the
  * selector, so an exported client's declaration names it instead of spelling
- * the selector out.
+ * the selector out. `in out`: one client's answers are only ever compared with
+ * its own, and measuring the variance of a whole config cost the native
+ * compiler 50% more instantiations on the permissions consumer (316k to 473k).
  */
 export interface ModelAnswers<
   Action extends string,
-  C extends VibORMConfig,
-  K,
+  in out C extends VibORMConfig,
+  in out K,
 > {
   /**
    * Whether the actor holds `action` on the one row `where` names (a unique
