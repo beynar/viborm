@@ -58,9 +58,7 @@ export { type V, v, v as default } from "./primitives/v";
 export type { BaseVectorSchema } from "./primitives/vector";
 export type {
   InferInput,
-  InferInputShape,
   InferOutput,
-  InferOutputShape,
   ParseResult,
   Prettify,
   SchemaRegistryLookup,
