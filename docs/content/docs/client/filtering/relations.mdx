@@ -151,7 +151,9 @@ same statement as the rest of the query.
   finds every row they match. State it only when it is true: on a walk
   whose rows are many, computing it once reads most of its table (on SQLite,
   a read over 30,000 teams went from 45 to 61 ms). Without it, nothing is
-  guessed: the statement is the one 1.9.1 sent.
+  guessed: the statement is the one 1.9.1 sent. The SQL and the plans with
+  and without it are in
+  [Performance opt-ins](/docs/client/opt-ins#selective-a-walk-to-few-rows-computed-once).
 
 ## Polymorphic Relations
 

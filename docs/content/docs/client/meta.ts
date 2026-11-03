@@ -17,6 +17,7 @@ export default defineMeta({
     "omit",
     "sorting",
     "pagination",
+    "opt-ins",
     "transactions",
     "raw-sql",
     "errors",
