@@ -21,9 +21,9 @@ be slower, so each section below gives the cost of stating it wrongly.
 | [`recurse: { fewRows: true }`](#fewrows-each-walk-reaches-few-rows) | a `recurse` in `select` / `include` | each listed row's walk reaches few rows of its table | the rows a walk reaches are read by their key instead of joining the table | PostgreSQL drivers; ignored elsewhere |
 | [`recurse: { selective: true }`](#selective-a-walk-to-few-rows-computed-once) | a `recurse` in `where`, a permission rule | few rows match the walk's `some`, and few rows reach them | where the walk is read inside rules a statement repeats, it is computed once | PostgreSQL drivers and D1 |
 
-The SQL below is what VibORM sends (PostgreSQL dialect, captured with the
-[`statement` hook](#check-your-own-reads)); `…` marks arguments shortened for
-reading. The plans come from `EXPLAIN ANALYZE` on PGlite, median of five runs.
+The SQL below is what VibORM sends to PostgreSQL (captured with the
+[`statement` hook](#check-your-own-reads), bound values as `$1`); `…` marks
+arguments shortened for reading. The plans come from `EXPLAIN ANALYZE` on PGlite, median of five runs.
 
 ## `fewRows`: each walk reaches few rows
 
@@ -183,7 +183,7 @@ Without `selective`, the set of teams that hold the actor walks the tree
 
 ```sql
 WITH "__shared_0" AS NOT MATERIALIZED (            -- the actor's memberships
-  SELECT "q4"."teamId" AS "k0" FROM "public"."member" AS "q4" WHERE "q4"."userId" = ?
+  SELECT "q4"."teamId" AS "k0" FROM "public"."member" AS "q4" WHERE "q4"."userId" = $1
 ), "__shared_2" AS (                               -- teams that hold the actor
   SELECT "q2"."id" AS "k0" FROM "public"."team" AS "q2"
   WHERE EXISTS (
@@ -208,7 +208,7 @@ memberships, and the team body only tests it:
 
 ```sql
 WITH RECURSIVE "__shared_0" AS NOT MATERIALIZED (  -- the actor's memberships
-  SELECT "q4"."teamId" AS "k0" FROM "public"."member" AS "q4" WHERE "q4"."userId" = ?
+  SELECT "q4"."teamId" AS "k0" FROM "public"."member" AS "q4" WHERE "q4"."userId" = $1
 ), "__shared_1" AS (                               -- walked ONCE, upwards
   SELECT "q3"."id" AS "k0" FROM "public"."team" AS "q3"
   WHERE EXISTS (SELECT 1 FROM "__shared_0" WHERE "q3"."id" = "__shared_0"."k0")
@@ -294,11 +294,16 @@ await traced.folder.findMany({ /* the read */ });
 ```
 
 Then run it under `EXPLAIN ANALYZE` on a copy of production data, with and
-without the option:
+without the option, through any PostgreSQL client (here node-postgres's
+`Pool`, connected to that copy):
 
 ```ts
+import { Pool } from "pg";
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const { text, values } = statements.at(-1)!;
-await pg.query(`EXPLAIN (ANALYZE, BUFFERS) ${text}`, values);
+const { rows } = await pool.query(`EXPLAIN (ANALYZE, BUFFERS) ${text}`, values);
+console.log(rows.map((row) => row["QUERY PLAN"]).join("\n"));
 ```
 
 What to look for:
