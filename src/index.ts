@@ -114,6 +114,7 @@ export type {
   RelationCardinality,
   RelationSlot,
   Scalar,
+  ScalarKeys,
   ScalarState,
   ScalarUpdateState,
   StringScalar,

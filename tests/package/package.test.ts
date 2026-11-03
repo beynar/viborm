@@ -139,6 +139,10 @@ const scripts = [
     { VIBORM_COMPOSITION_CHECKERS: "tsc5,tsc6,tsc7" },
   ] as const,
   [
+    "retains public declarations for clients each official extension extends",
+    "./extended-client-declarations-smoke.mjs",
+  ],
+  [
     "retains TS5.9 public query inference for extends10",
     "./declaration-consumer-smoke.mjs",
     {
