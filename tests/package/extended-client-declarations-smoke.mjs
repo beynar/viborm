@@ -69,6 +69,13 @@ export async function use() {
 }
 `;
 
+const entries = `import type {} from "viborm";
+import type {} from "viborm/on";
+import type {} from "viborm/ordering";
+import type {} from "viborm/permissions";
+import type {} from "viborm/soft-delete";
+`;
+
 const compilers = [
   ["TS5.9", join(repositoryRoot, "node_modules/typescript/bin/tsc")],
   ["native", join(repositoryRoot, "node_modules/typescript-native/bin/tsc")],
@@ -173,6 +180,26 @@ withPackedConsumer(
         "--typeRoots",
         join(repositoryRoot, "node_modules/@types"),
         "use.ts",
+      ]);
+      // A consumer that checks its libraries reads what these entries
+      // publish: none of it may fail to compile.
+      writeFileSync(join(outDir, "entries.ts"), entries);
+      compile(compiler, outDir, [
+        "--noEmit",
+        "--strict",
+        "--target",
+        "ES2022",
+        "--module",
+        "ESNext",
+        "--moduleResolution",
+        "Bundler",
+        "--lib",
+        "ES2022,DOM,esnext.disposable",
+        "--types",
+        "node",
+        "--typeRoots",
+        join(repositoryRoot, "node_modules/@types"),
+        "entries.ts",
       ]);
       const sizes = Object.fromEntries(
         declaration

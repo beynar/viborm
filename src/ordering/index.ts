@@ -23,6 +23,7 @@ import type {
   ClientTypeState,
   DelegateOperationArgs,
   DelegateOperationResult,
+  ExtendedClient,
   ExtensionState,
   VibORMClient,
   VibORMConfig,
@@ -1187,8 +1188,14 @@ function apply<
   Config extends OrderingConfig,
   C extends Governed<Config>,
   X extends ExtensionState,
->(config: Config, base: VibORMClient<C, X>) {
-  return base.$extends(definitionOf(config, base));
+>(
+  config: Config,
+  base: VibORMClient<C, X>
+): ExtendedClient<
+  VibORMClient<C, X>,
+  readonly [ReturnType<typeof definitionOf<Config, C, X>>]
+> {
+  return base.$extends(definitionOf(config, base)) as never;
 }
 
 /**

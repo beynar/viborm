@@ -42,6 +42,8 @@ single, and code nothing used removed.
   `where`, `after`/`before`, `data` and `to`, as the runtime already did.
 - **`ordering()` refuses a misspelled `key` or `within` field in
   TypeScript**, as it refused a misspelled model.
+- **`viborm/ordering`'s published declaration compiles with
+  `skipLibCheck: false`.** It failed with TS2536; 1.10.0's failed twice.
 
 ### Removed
 
