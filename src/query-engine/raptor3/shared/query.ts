@@ -1587,8 +1587,8 @@ interface SharedBody {
     readonly slot: SqlSlot;
     readonly inline: Sql;
     readonly use: Sql;
-    /** Absent for an `$exists`, which reads no row's column. */
-    readonly test?: SetTest;
+    /** No columns for an `$exists`, which reads no row's. */
+    readonly test: SetTest;
     /** A walk's: the relation body it is lowered in, if any. */
     readonly within?: Enclosing;
   }[];
@@ -1621,6 +1621,11 @@ interface SharedBodies {
   readonly byKey: Map<string, SharedBody>;
   readonly order: SharedBody[];
   readonly attach: Map<string, SqlSlot[]>;
+  /**
+   * The statement's root read, where it joins its key sets: its alias, and
+   * its projection and `WHERE`, each place of which reads what it joins.
+   */
+  root?: { readonly alias: string; readonly scope: Sql };
 }
 /** One place a shared body was lowered at ({@link SharedBody}). */
 type PlacedBody = SharedBody["slots"][number];
@@ -2396,7 +2401,8 @@ export class Queries {
     const settle = (
       reaching: ReadonlySet<SharedBody>,
       flagged: FlagChoice = () => [],
-      materialized?: Set<SharedBody>
+      materialized?: Set<SharedBody>,
+      whole?: boolean
     ) =>
       this.#settled(
         statement,
@@ -2404,7 +2410,8 @@ export class Queries {
         repeated,
         reaching,
         flagged,
-        materialized
+        materialized,
+        whole
       );
     const materialized = new Set<SharedBody>();
     let query = settle(new Set(), undefined, materialized);
@@ -2453,11 +2460,15 @@ export class Queries {
           return true;
         });
     query = settle(reaching, largest);
+    if (relations(query) <= budget) return query;
     // An estimate counts each walk or member where the others are not: one
     // nested in another saves less. Short, the most compact form.
-    return relations(query) <= budget
+    query = settle(new Set(walks), (plans) => plans);
+    // Still over: one row, computed once, holds what the whole root read
+    // tests, and `$exists` answers join it too (Neki only refuses here).
+    return relations(query) <= budget || !this.adapter.arrays.ofRows
       ? query
-      : settle(new Set(walks), (plans) => plans);
+      : settle(new Set(walks), (plans) => plans, undefined, true);
   }
   /**
    * `statement` with each repeated body stated once but walks outside
@@ -2472,7 +2483,8 @@ export class Queries {
     repeated: readonly SharedBody[],
     reaching: ReadonlySet<SharedBody>,
     flagged: FlagChoice,
-    materialized?: Set<SharedBody>
+    materialized?: Set<SharedBody>,
+    whole?: boolean
   ): Sql {
     const stated: SharedBody[] = [];
     for (const body of repeated)
@@ -2515,7 +2527,13 @@ export class Queries {
     };
     for (const [index, body] of stated.entries()) scan(body.query, index, body);
     scan(statement, stated.length);
-    const flags = this.#flagging(shared, stated, within, flagged);
+    const flags = this.#flagging(
+      shared,
+      stated,
+      within,
+      flagged,
+      whole ? readers : undefined
+    );
     for (const body of stated)
       for (const placed of body.slots)
         placed.slot.settle(flags.atoms.get(placed) ?? placed.use);
@@ -2526,13 +2544,17 @@ export class Queries {
         if (body.correlated && (readers.get(body) ?? 0) > 1)
           materialized.add(body);
     const definitions = stated.flatMap((body) => [
-      body.recursive
-        ? { name: body.name, query: body.query, recursive: true }
-        : {
-            name: body.name,
-            query: body.query,
-            inlined: body.correlated && !reads.has(body),
-          },
+      ...(flags.held.has(body)
+        ? []
+        : body.recursive
+          ? [{ name: body.name, query: body.query, recursive: true }]
+          : [
+              {
+                name: body.name,
+                query: body.query,
+                inlined: body.correlated && !reads.has(body),
+              },
+            ]),
       ...(flags.after.get(body) ?? []),
     ]);
     return definitions.length === 0
@@ -2597,24 +2619,43 @@ export class Queries {
     shared: SharedBodies,
     repeated: readonly SharedBody[],
     within: ReadonlyMap<string, number>,
-    flagged: FlagChoice
+    flagged: FlagChoice,
+    whole?: ReadonlyMap<SharedBody, number>
   ): {
     readonly atoms: Map<PlacedBody, Sql>;
     readonly after: Map<SharedBody, FlagMember[]>;
+    readonly held: ReadonlySet<SharedBody>;
   } {
     const a = this.adapter;
     const atoms = new Map<PlacedBody, Sql>();
     const after = new Map<SharedBody, FlagMember[]>();
+    const inRow = new Set<SharedBody>();
     const order = new Map(repeated.map((body, index) => [body, index]));
     const tested = new Map<string, TestedColumns>();
+    // What `whole` joins once: each place of the root read, whatever it tests
+    // of one column or none, reads the root's row.
+    const { root } = shared;
+    const rooted = new Set<Sql>();
+    if (whole && root && within.has(root.alias))
+      Sql.peekRuns(root.scope, (node) => {
+        rooted.add(node);
+        return false;
+      });
     for (const body of repeated)
       for (const placed of body.slots) {
         const { test } = placed;
-        if (test === undefined || !within.has(test.alias)) continue;
-        const key = `${test.alias}\0${test.columns.join("\0")}`;
+        const width = test.columns.length;
+        const held = width < 2 && rooted.has(placed.slot);
+        if (!(held || within.has(test.alias)) || (width === 0 && !whole))
+          continue;
+        const key = held ? "\0" : `${test.alias}\0${test.columns.join("\0")}`;
         let group = tested.get(key);
         if (group === undefined) {
-          group = { test, bodies: [], placed: [] };
+          group = {
+            test: held ? { ...test, alias: root!.alias, columns: [] } : test,
+            bodies: [],
+            placed: [],
+          };
           tested.set(key, group);
         }
         group.placed.push([body, placed]);
@@ -2625,7 +2666,7 @@ export class Queries {
     // A one-column key set is held as an array where the dialect has one
     // (`arrays.ofRows`): one read per set, no union.
     const arrays = (width: number) =>
-      width === 1 && a.arrays.ofRows !== undefined;
+      width < 2 && a.arrays.ofRows !== undefined;
     const member = (sets: number, width: number) =>
       sets === 1 || arrays(width) ? sets : sets + 1;
     const tests = (groups: readonly TestedColumns[]) =>
@@ -2662,7 +2703,8 @@ export class Queries {
       const joined = components.filter((component) =>
         component.some(
           (other) =>
-            other.test.columns.length === group.test.columns.length &&
+            Math.max(other.test.columns.length, 1) ===
+              Math.max(group.test.columns.length, 1) &&
             other.bodies.some((body) => group.bodies.includes(body))
         )
       );
@@ -2701,11 +2743,25 @@ export class Queries {
       const name = `__shared_${named++}`;
       const last = sets.at(-1)!;
       const held = arrays(keys.length);
+      // A set only this row reads is written in it, with no member to read.
+      const own = new Set(
+        whole && held
+          ? sets.filter(
+              (body) =>
+                !body.recursive &&
+                groups
+                  .flatMap((group) => group.placed)
+                  .filter(([placedBody]) => placedBody === body).length ===
+                  whole.get(body)
+            )
+          : []
+      );
+      for (const body of own) inRow.add(body);
       after.set(last, [
         ...(after.get(last) ?? []),
         {
           name,
-          query: held ? this.#keyArrays(sets) : this.#flagSet(sets, keys),
+          query: held ? this.#keyArrays(sets, own) : this.#flagSet(sets, keys),
           inlined: false,
         },
       ]);
@@ -2732,16 +2788,23 @@ export class Queries {
         for (const [body, slot] of placed) {
           const index = sets.indexOf(body);
           if (held) {
+            const column = a.identifiers.column(flag, `f${index}`);
             // Two-valued as the EXISTS it replaces: a NULL key, or a key an
             // array holding a NULL does not hold, is not held.
-            const holds = a.expressions.coalesce(
-              a.arrays.has(
-                a.identifiers.column(flag, `f${index}`),
-                a.identifiers.column(test.alias, test.columns[0]!)
-              ),
-              a.literals.false()
-            );
-            atoms.set(slot, slot.test!.holds ? holds : a.operators.not(holds));
+            const holds =
+              slot.test.columns.length === 0
+                ? column
+                : a.expressions.coalesce(
+                    a.arrays.has(
+                      column,
+                      a.identifiers.column(
+                        slot.test.alias,
+                        slot.test.columns[0]!
+                      )
+                    ),
+                    a.literals.false()
+                  );
+            atoms.set(slot, slot.test.holds ? holds : a.operators.not(holds));
             continue;
           }
           const flagged = a.identifiers.column(
@@ -2750,7 +2813,7 @@ export class Queries {
           );
           atoms.set(
             slot,
-            slot.test!.holds
+            slot.test.holds
               ? a.operators.isNotNull(flagged)
               : a.operators.isNull(flagged)
           );
@@ -2762,25 +2825,31 @@ export class Queries {
       if (joined === undefined) continue;
       for (const slot of slots) slot.settle(sql` ${sql.join(joined, " ")}`);
     }
-    return { atoms, after };
+    return { atoms, after, held: inRow };
   }
   /**
    * One row holding each of `bodies`' one-column key sets as an array, `f<n>`
-   * for the n-th ({@link DatabaseAdapter.arrays.ofRows}): computed once per
-   * statement, each row joining it tests membership without reading a set
-   * again.
+   * for the n-th ({@link DatabaseAdapter.arrays.ofRows}), and an `$exists`
+   * body's answer as itself: computed once per statement, each row joining it
+   * tests membership without reading a set again.
    */
-  #keyArrays(bodies: readonly SharedBody[]): Sql {
+  #keyArrays(bodies: readonly SharedBody[], own: ReadonlySet<SharedBody>): Sql {
     const a = this.adapter;
     return sql`SELECT ${sql.join(
       bodies.map((body, index) =>
         a.identifiers.aliased(
-          a.arrays.ofRows!(
-            assembleAdapterSelect(a, {
-              columns: a.identifiers.column(body.name, "k0"),
-              from: memberRead(a, body.name),
-            })
-          ),
+          body.slots[0]!.test.columns.length === 0
+            ? own.has(body)
+              ? a.filters.some(body.query)
+              : body.slots[0]!.use
+            : a.arrays.ofRows!(
+                own.has(body)
+                  ? body.query
+                  : assembleAdapterSelect(a, {
+                      columns: a.identifiers.column(body.name, "k0"),
+                      from: memberRead(a, body.name),
+                    })
+              ),
           `f${index}`
         )
       ),
@@ -5505,7 +5574,7 @@ export class Queries {
       case "relation":
         return this.#lowerRelationPredicate(predicate, alias);
       case "exists":
-        return this.#lowerExists(predicate);
+        return this.#lowerExists(predicate, alias ?? "");
       case "window":
         return this.#capped(predicate.selector, predicate.limit, alias);
       case "through": {
@@ -6858,7 +6927,10 @@ export class Queries {
    * same text and values settles to one `WITH` member holding at most one row,
    * and each reads it as `EXISTS (SELECT 1 FROM <member>)`.
    */
-  #lowerExists(predicate: Extract<PreparedPredicate, { kind: "exists" }>): Sql {
+  #lowerExists(
+    predicate: Extract<PreparedPredicate, { kind: "exists" }>,
+    alias: string
+  ): Sql {
     const a = this.adapter;
     const { model } = predicate;
     const child = this.#rowAlias(model);
@@ -6908,13 +6980,17 @@ export class Queries {
       shared.byKey.set(key, body);
       shared.order.push(body);
     }
-    const use = a.subqueries.existsCheck(
-      memberRead(a, body.name),
-      a.literals.true()
+    const use = a.filters.some(
+      a.subqueries.existsCheck(memberRead(a, body.name), a.literals.true())
     );
     const slot = new SqlSlot(use);
-    body.slots.push({ slot, inline, use });
-    return a.filters.some(slot);
+    body.slots.push({
+      slot,
+      inline: a.filters.some(inline),
+      use,
+      test: { alias, columns: [], holds: true },
+    });
+    return slot;
   }
   /**
    * MySQL ERROR 1093: a subquery may not read the table its own statement is
@@ -7714,9 +7790,22 @@ export class Queries {
           a.literals.false()
         )
       );
+    const columns = sql.join(projection, ", ");
+    const where = this.#selectWhere(
+      model,
+      alias,
+      membership,
+      filter,
+      unless,
+      page.cursor,
+      controls
+    );
+    const shared = this.#shared;
+    if (shared && controls.source === undefined && !controls.forUpdate)
+      shared.root ??= { alias, scope: sql`${columns} ${where ?? sql.empty}` };
     return {
       sql: assembleAdapterSelect(this.adapter, {
-        columns: sql.join(projection, ", "),
+        columns,
         from:
           controls.source === undefined
             ? // FOR UPDATE refuses the nullable side of an outer join.
@@ -7728,15 +7817,7 @@ export class Queries {
                 alias
               ),
         joins: page.joins,
-        where: this.#selectWhere(
-          model,
-          alias,
-          membership,
-          filter,
-          unless,
-          page.cursor,
-          controls
-        ),
+        where,
         orderBy: page.orderBy,
         limit: page.limit,
         offset: page.offset,
@@ -9762,7 +9843,7 @@ export class Queries {
       ),
       from: a.identifiers.aliased(a.identifiers.escape(cteName), walk),
     });
-    const node = this.alias();
+    const node = this.#rowAlias(model);
     const nodeDocument = a.json.object(
       relation.projection.fields.map((field) => [
         field.name,

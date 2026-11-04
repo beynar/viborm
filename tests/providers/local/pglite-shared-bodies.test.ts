@@ -4,6 +4,7 @@ import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { defineExtension } from "@extensions/definition";
 import { s } from "@schema";
+import { permissions } from "@src/permissions";
 import { v } from "@src/validation";
 import { runSharedBodiesBehavior } from "@tests/contracts/public-client/shared-bodies-behavior";
 import { createInMemoryPGliteDriver } from "@tests/fixtures/drivers/pglite";
@@ -25,6 +26,9 @@ const SHARED_EXISTS_BODY =
 /** A statement led by a reaching set: its one recursive member. */
 const LEADING_REACHING_SET = /^WITH RECURSIVE /;
 const RECURSIVE_MEMBER = /RECURSIVE/g;
+/** An `$exists` answer read where it is tested, not from a joined row. */
+const EXISTS_READ = /EXISTS \(SELECT 1 FROM "__shared_\d+" WHERE TRUE\)/;
+const CROSS_JOIN = /CROSS JOIN/g;
 const LEADING_SHARED_RELATION_BODY =
   /^WITH "__shared_0" AS NOT MATERIALIZED \(SELECT "q\d+"\."orgId" AS "k0"/;
 
@@ -702,4 +706,169 @@ test("under a relation budget, only the selective walk is lifted while the state
     expect(forms[3]!.match(WALK_IN_PLACE)).toHaveLength(2);
     expect(forms[4]!.match(WALK_IN_PLACE) ?? []).toHaveLength(0);
   }
+});
+
+// Neki refuses a statement past 256 relations. A policy read past every other
+// form still reads each `$exists` answer and key set at each row testing it:
+// one row, computed once, then holds them all for the root read.
+test("past every other form, one row holds what the root read tests, with the same answers", async () => {
+  const seated = { $exists: { seat: { userId: user } } };
+  const inLeaf = { $exists: { seat: { userId: user, teamId: "leaf" } } };
+  const rule = {
+    OR: [
+      { AND: [seated, grantedTwice(walk(undefined))] },
+      { AND: [inLeaf, { title: "b" }] },
+      { AND: [{ NOT: inLeaf }, seated, { title: "c" }] },
+    ],
+  };
+  const read = (
+    db: Awaited<ReturnType<typeof teamsClient>>["db"],
+    who: string
+  ) =>
+    db.page.findMany({
+      user: who,
+      select: { id: true, grants: { select: { id: true } } },
+      orderBy: [{ grants: { _count: "desc" } }, { id: "asc" }],
+    });
+  const answers: unknown[] = [];
+  const forms: string[] = [];
+  for (const budget of [undefined, 1]) {
+    const { db, statements } = await teamsClient("PGlite", true, rule, budget);
+    for (const who of ["ann", "bob", "nobody"])
+      answers.push(await read(db, who));
+    forms.push(statements[0]!);
+    // A write's statement takes the bound too, and its own rows.
+    answers.push(
+      await db.page.updateMany({
+        user: "ann",
+        where: { title: "b" },
+        data: { title: "b" },
+      })
+    );
+    answers.push(
+      await db.page.updateMany({
+        user: "bob",
+        where: { id: "c" },
+        data: { title: "c" },
+      })
+    );
+  }
+  const half = answers.length / 2;
+  expect(answers.slice(half)).toEqual(answers.slice(0, half));
+  expect(answers[0]).not.toEqual([]);
+  expect(answers[2]).toEqual([]);
+  const root = forms[1]!.slice(forms[1]!.lastIndexOf(') SELECT "q0"'));
+  expect(forms[0]).not.toContain("CROSS JOIN");
+  expect(root.match(CROSS_JOIN)).toHaveLength(1);
+  expect(root).not.toMatch(EXISTS_READ);
+});
+
+// A recursive selection's node is a stored row: a walk from it may share its
+// reaching set whatever its hop reads, as a declared junction's tenant column.
+test("a declared junction's hop reads a column beyond the key: a walk from a selection's node still shares its set", async () => {
+  const teamParent = s
+    .model({
+      organizationId: s.string(),
+      childId: s.string(),
+      parentId: s.string(),
+      child: s
+        .toOne(() => tree)
+        .fields("organizationId", "childId")
+        .references("organizationId", "id"),
+      parent: s
+        .toOne(() => tree)
+        .fields("organizationId", "parentId")
+        .references("organizationId", "id"),
+    })
+    .id(["childId", "parentId"]);
+  const tree = s
+    .model({
+      id: s.string().id(),
+      organizationId: s.string(),
+      holder: s.string().nullable(),
+      parents: s
+        .toMany(() => tree)
+        .name("graph")
+        .through(() => teamParent)
+        .source("child")
+        .target("parent"),
+      children: s.toMany(() => tree).name("graph"),
+    })
+    .unique(["organizationId", "id"]);
+  const here = { actor: "organizationId" } as const;
+  const governed = permissions({
+    actor: v.object({ organizationId: v.string(), userId: v.string() }),
+    tenant: { field: "organizationId", actor: "organizationId" },
+    models: {
+      tree: {
+        actions: { read: [], update: ["read"] },
+        mandatory: { organizationId: here },
+        read: true,
+        update: {
+          parents: {
+            recurse: { depth: false, selective: true },
+            self: true,
+            some: { holder: { actor: "userId" } },
+          },
+        },
+      },
+      teamParent: {
+        actions: { read: [] },
+        mandatory: { organizationId: here },
+        read: true,
+      },
+    },
+  });
+  const answers: unknown[] = [];
+  const forms: string[] = [];
+  for (const budget of [undefined, 8]) {
+    const driver = createInMemoryPGliteDriver();
+    driver.adapter.capabilities.sharesRelationBodies = true;
+    driver.adapter.capabilities.relationsPerStatement = budget;
+    const base = createClient({ schema: { tree, teamParent }, driver });
+    clients.push(base);
+    await syncLiveSchema(base);
+    await base.tree.createMany({
+      data: [
+        { id: "a", organizationId: "o", holder: "ann" },
+        { id: "b", organizationId: "o" },
+        { id: "c", organizationId: "o" },
+      ],
+    });
+    await base.teamParent.createMany({
+      data: [
+        { organizationId: "o", childId: "b", parentId: "a" },
+        { organizationId: "o", childId: "c", parentId: "b" },
+      ],
+    });
+    const statements: string[] = [];
+    const db = base.$extends(governed).$extends({
+      name: "statements",
+      statement(context) {
+        statements.push(context.statement.toStatement());
+        return context.statement;
+      },
+    });
+    const row = { id: true, $access: true } as const;
+    answers.push(
+      await db.$as({ organizationId: "o", userId: "ann" }).tree.findMany({
+        where: { parents: { none: {} } },
+        select: {
+          ...row,
+          children: { select: row, recurse: { depth: false } },
+        },
+      })
+    );
+    forms.push(statements[0]!);
+  }
+  expect(answers[1]).toEqual(answers[0]);
+  expect(answers[0]).toEqual([
+    expect.objectContaining({
+      id: "a",
+      $access: { read: true, update: true },
+    }),
+  ]);
+  expect(forms[0]!.match(WALK_IN_PLACE)).toHaveLength(2);
+  expect(forms[1]).toMatch(LEADING_REACHING_SET);
+  expect(forms[1]).not.toMatch(WALK_IN_PLACE);
 });

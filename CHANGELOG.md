@@ -5,6 +5,23 @@ Versioning.
 
 ## Unreleased
 
+## 1.12.1 — 2026-11-04
+
+Two fixes for large permission reads on Neki.
+
+- A statement still past `relationsPerStatement` in its most compact form now
+  takes one more form, on PostgreSQL drivers only: one row, computed once and
+  joined at the root read, holds the key sets that read tests and its `$exists`
+  answers, a stored body joining such answers once too. Before, Neki refused
+  such a read with 54000. A real policy's two largest reads go from 394 and 474
+  relations to 238 and 245. A statement that fit its bound before keeps its form,
+  and without a bound nothing changes. This is still not a bound for every
+  policy: a larger one can stay past 256.
+- A walk from a node of a recursive selection can now share its reaching set when
+  its hop reads more than the key, as a compound declared junction's does. In
+  1.12.0 such a walk stayed in place, once per row read, and the statement counted
+  more relations than with a generated junction. Answers were right.
+
 ## 1.12.0 — 2026-11-04
 
 A model as a many-to-many's junction, with its link row readable, filterable
