@@ -1611,8 +1611,12 @@ per statement. With 256, the acceptance policy's nine `$access` reads count
 answers; the six past 256 were refused before. `page`, `page` with its group
 and `document` stay in place. `accessGrant` (278 in place) states one walk as
 a set and the root documents three levels deep (393) four; the four largest
-(462 to 634) state eight and read 23 to 42 sets as arrays. This is not a
-bound for every policy.
+(462 to 634) state eight and read 23 to 42 sets as arrays. Since 1.12.1, a
+statement still over takes a last form: one row, joined once at the root read,
+holds the sets that read tests and its `$exists` answers. A set only that row
+reads is written inside it. This is not a bound for every policy: a statement
+still over after that is sent as it is, and Neki refuses it. Asking `$access`
+only for the actions you read (`$access: ["share"]`) makes the statement smaller.
 
 ```ts
 import { createClient, PgDriver } from "viborm/pg";

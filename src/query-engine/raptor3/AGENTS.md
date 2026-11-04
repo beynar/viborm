@@ -250,7 +250,11 @@ only where every arm is: its seeds are all of theirs. A selective walk is the sa
 it is read, so one place stating it states the body (`SharedBody.selective`). Each step costs plans (a reaching set is
 computed for its whole table; a joined flag member is read again per row of
 a correlated subquery where the test it replaces was hashed once), so a
-statement that fits pays none of them, and plain PostgreSQL states no bound. A walk escalated is its REACHING
+statement that fits pays none of them, and plain PostgreSQL states no bound. Still over in its
+most compact form, a PostgreSQL statement takes `whole`: one row at the root read (`SharedBodies.root`)
+holds what its projection and `WHERE` test of one column or none, an `$exists` answer included,
+aliases of stored bodies join their `$exists` answers likewise, and a set only one row reads is
+written inside it. Only that form changes; below it, every statement keeps its text. A walk escalated is its REACHING
 SET (`#reachingSet`), the keys of the stored rows from which the walk reaches
 a row its predicate holds of, read backwards from those rows (the anchor
 states them, at depth 0 with `self`, else their predecessors at depth 1; the

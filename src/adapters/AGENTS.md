@@ -288,7 +288,9 @@ repeated recursive walks as reaching sets, then joins key sets per row, only
 as far as it needs; one within it keeps every walk in place. PostgreSQL
 holds a joined one-column key set as an array (`arrays.ofRows`, `ARRAY(…)`,
 tested by `arrays.has`), computed once per statement; a dialect without
-`ofRows` joins a flag member. D1 bounds no relations and takes 256
+`ofRows` joins a flag member. Still over, PostgreSQL's last form joins one
+row at the root read for all it tests of one column or none, `$exists`
+answers included. D1 bounds no relations and takes 256
 (`SQLiteAdapter({ relationsPerStatement })`): on better-sqlite3 no read is
 slower with it (the 10× page read three depths: 385 ms without, 260 ms
 with), and the largest reads stay well inside 100 KB. Absent, nothing
