@@ -510,6 +510,153 @@ describe("a declared model as a junction: every refusal carries its repair", () 
   });
 });
 
+describe("a declared model as a junction: its other branches", () => {
+  it("a side whose own target is unregistered is that target's refusal", () => {
+    const stray = s.model({ id: s.string().id() });
+    const schema = between(
+      ({ left, right }) =>
+        s
+          .model({
+            ...fieldsOf(left, right),
+            strayId: s.string().default("x"),
+            stray: s
+              .toOne(() => stray)
+              .fields("strayId")
+              .references("id"),
+          })
+          .id(["leftId", "rightId"]),
+      (relation) => relation.source("stray").target("right")
+    );
+    expect(errors(validateSchema(schema))).toContain("R006");
+  });
+
+  it("a side with an inverse of its own whose edge is refused says so once, there", () => {
+    const left: any = s.model({
+      id: s.string().id(),
+      rights: s
+        .toMany(() => right)
+        .through(() => link)
+        .source("left")
+        .target("right"),
+      links: s.toMany(() => link),
+    });
+    const right: any = s.model({
+      id: s.string().id(),
+      lefts: s.toMany(() => left),
+    });
+    const link: any = s
+      .model({
+        leftId: s.string(),
+        rightId: s.string(),
+        left: s
+          .toOne(() => left)
+          .fields("leftId")
+          .references("nothing"),
+        right: s
+          .toOne(() => right)
+          .fields("rightId")
+          .references("id"),
+      })
+      .id(["leftId", "rightId"]);
+    const found = errors(validateSchema({ left, right, link }));
+    expect(found.filter((code) => code === "FK002")).toHaveLength(1);
+  });
+
+  it("carries a to-one's own actions onto its side", () => {
+    const left: any = s.model({
+      id: s.string().id(),
+      rights: s.toMany(() => right).through(() => link),
+    });
+    const right: any = s.model({
+      id: s.string().id(),
+      lefts: s.toMany(() => left),
+    });
+    const link: any = s
+      .model({
+        leftId: s.string(),
+        rightId: s.string(),
+        left: s
+          .toOne(() => left)
+          .fields("leftId")
+          .references("id")
+          .onDelete("cascade")
+          .onUpdate("cascade"),
+        right: s
+          .toOne(() => right)
+          .fields("rightId")
+          .references("id"),
+      })
+      .id(["leftId", "rightId"]);
+    expect(validateSchema({ left, right, link }).errors).toEqual([]);
+  });
+
+  it("JT008: a key dropping a column one side alone holds would merge two pairs", () => {
+    const left: any = s
+      .model({
+        tenant: s.string(),
+        code: s.string(),
+        rights: s.toMany(() => right).through(() => link),
+      })
+      .id(["tenant", "code"]);
+    const right: any = s.model({
+      id: s.string().id(),
+      lefts: s.toMany(() => left),
+    });
+    // (tenant, rightId) is inside the pair's columns, yet `code` tells two links
+    // apart: `DO NOTHING` on this key would silently drop the second.
+    const link: any = s
+      .model({
+        tenant: s.string(),
+        code: s.string(),
+        rightId: s.string(),
+        left: s
+          .toOne(() => left)
+          .fields("tenant", "code")
+          .references("tenant", "code"),
+        right: s
+          .toOne(() => right)
+          .fields("rightId")
+          .references("id"),
+      })
+      .id(["tenant", "rightId"]);
+    expect(errors(validateSchema({ left, right, link }))).toEqual(["JT008"]);
+  });
+
+  it("a shared column may follow from the target side alone", () => {
+    // `left` is keyed by the pair, so only `right`'s own id names the tenant.
+    const left: any = s
+      .model({
+        org: s.string(),
+        id: s.string(),
+        rights: s.toMany(() => right).through(() => link),
+      })
+      .id(["org", "id"]);
+    const right: any = s
+      .model({
+        id: s.string().id(),
+        org: s.string(),
+        lefts: s.toMany(() => left),
+      })
+      .unique(["org", "id"]);
+    const link: any = s
+      .model({
+        org: s.string(),
+        leftId: s.string(),
+        rightId: s.string(),
+        left: s
+          .toOne(() => left)
+          .fields("org", "leftId")
+          .references("org", "id"),
+        right: s
+          .toOne(() => right)
+          .fields("org", "rightId")
+          .references("org", "id"),
+      })
+      .id(["leftId", "rightId"]);
+    expect(validateSchema({ left, right, link }).errors).toEqual([]);
+  });
+});
+
 describe("the name of the link row", () => {
   it("F001: no member takes it, so the key has one producer", () => {
     const named = s.model({

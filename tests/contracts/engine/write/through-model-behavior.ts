@@ -1120,7 +1120,8 @@ export function runThroughModelBehavior(options: {
       });
 
       test("a $through spelled undefined reads as absent, in all three places", async () => {
-        const absent = undefined as never;
+        // What a caller's `$through: stated ? { … } : undefined` holds.
+        const absent = undefined;
         await client.team.update({
           where: { id: "a" },
           data: { parents: { connect: { id: "b", $through: absent } } },
