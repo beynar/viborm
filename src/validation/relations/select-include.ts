@@ -24,6 +24,7 @@ import type { VibSchema } from "../types";
 import {
   type GetTargetSchemas,
   type JunctionSchemas,
+  junctionModelOf,
   type SchemaGetter,
   type TargetModel,
   type WhereWithLinkFilter,
@@ -120,15 +121,9 @@ const projectionWithoutAsking = (
 /** A walk has no one link row to report: a row is reached once per path. */
 const THROUGH_ON_A_WALK = v.optional(
   v.refused(
-    "$through is not available on a recurse walk: a row reached through two parents has one link row per path. Read the links through the junction model's own delegate"
+    "$through is not available on a recurse walk: a row has one link row per path. Read the links through the junction model's delegate"
   )
 );
-
-/** The declared model holding this slot's junction, where one does. */
-const junctionModelOf = (resolved: ResolvedSlot): AnyModel | undefined =>
-  resolved.edge.kind === "junction"
-    ? resolved.edge.topology.declared?.model
-    : undefined;
 
 /**
  * The target's projection as this slot reads it: its own schemas, with

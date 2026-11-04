@@ -8,7 +8,6 @@ import { type V, v } from "../primitives/v";
 import {
   type GetTargetSchemas,
   type JunctionSchemas,
-  linkWriteFor,
   type SchemaGetter,
   type WithLinkWrite,
   withLinkWrite,
@@ -181,7 +180,7 @@ export const toManyCreateFactory = <
     targetSchemas
   );
   const getCreateSchema = projection.getCreateSchema;
-  const linked = withLinkWrite(linkWriteFor(resolved, junctionSchemas));
+  const linked = withLinkWrite(resolved, junctionSchemas);
 
   const createManySchema = v.object(
     {

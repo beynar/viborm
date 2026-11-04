@@ -1,9 +1,9 @@
-// A declared model as a junction: which of its to-one relations each side reads,
-// and the facts that make a `connect` through it writable.
+// A declared model as a junction: the key that makes a `connect` through it writable.
 //
-// The relation-topology gate is the only caller. It settles the thunk, publishes
-// each side's foreign key, and hands this subowner the settled references; every
-// consumer past the gate reads the one `ResolvedJunctionTopology` it publishes.
+// The relation-topology gate is the only caller. It settles the thunk, chooses
+// each side, publishes its foreign key, and hands this subowner the settled
+// references; every consumer past the gate reads the one
+// `ResolvedJunctionTopology` it publishes.
 
 import {
   findReferenceableKey,
@@ -40,63 +40,9 @@ export function junctionIssue(
   };
 }
 
-/** One candidate relation of the junction model, settled by the gate. */
-export interface JunctionSideCandidate {
-  readonly field: string;
-  readonly target: Model<any>;
-}
-
-/**
- * The relation one side reads: the one it names, else the only candidate aimed
- * at its model. `undefined` once a refusal is reported.
- *
- * A self relation has two candidates by construction and no way to tell which
- * is which, so it states both, whatever the count of candidates.
- */
-export function chooseJunctionSide(input: {
-  readonly context: JunctionModelContext;
-  readonly side: "source" | "target";
-  readonly named: string | undefined;
-  readonly endpointModel: Model<any>;
-  readonly endpointName: string;
-  readonly selfRelation: boolean;
-  readonly candidates: readonly JunctionSideCandidate[];
-  readonly issues: SchemaValidationIssue[];
-}): string | undefined {
-  const { context, side, named, candidates, issues } = input;
-  if (named !== undefined) return named;
-  if (input.selfRelation) {
-    issues.push(
-      junctionIssue(
-        "JT006",
-        context,
-        `'${context.declaredAt}' is a self relation through '${context.modelName}', so it must state .${side}(...): two to-one relations aim at '${input.endpointName}' and nothing tells them apart`,
-        `Name the to-one relations of '${context.modelName}' with .source(...) and .target(...)`
-      )
-    );
-    return undefined;
-  }
-  const aimed = candidates.filter(
-    (candidate) => candidate.target === input.endpointModel
-  );
-  const [only] = aimed;
-  if (only && aimed.length === 1) return only.field;
-  issues.push(
-    junctionIssue(
-      "JT006",
-      context,
-      `'${context.declaredAt}' cannot choose its ${side} side: '${context.modelName}' has ${aimed.length} to-one relations aimed at '${input.endpointName}', and exactly one is required`,
-      `Name the relation with .${side}(...)`
-    )
-  );
-  return undefined;
-}
-
-/** A side's stored reference, read in the junction model's own columns. */
+/** A side's endpoint model and stored reference, read in the junction's columns. */
 export interface JunctionSideFacts {
-  readonly relation: string;
   readonly endpointModel: Model<any>;
-  readonly endpointName: string;
   readonly reference: ResolvedStoredReference;
 }
 
@@ -141,14 +87,13 @@ function pairKey(
   });
 }
 
-/** The physical key a link conflicts on, or the refusals that leave it none. */
-export function checkJunctionModel(input: {
-  readonly context: JunctionModelContext;
-  readonly source: JunctionSideFacts;
-  readonly target: JunctionSideFacts;
-  readonly issues: SchemaValidationIssue[];
-}): readonly string[] | undefined {
-  const { context, source, target, issues } = input;
+/** The physical key a link conflicts on, or the refusal that leaves it none. */
+export function checkJunctionModel(
+  context: JunctionModelContext,
+  source: JunctionSideFacts,
+  target: JunctionSideFacts,
+  issues: SchemaValidationIssue[]
+): readonly string[] | undefined {
   const { model, modelName, declaredAt } = context;
   const scalars: Record<string, Scalar> = model["~"].state.scalars;
 
@@ -163,7 +108,7 @@ export function checkJunctionModel(input: {
       junctionIssue(
         "JT008",
         context,
-        `'${modelName}' has no primary key or unique over the two sides of '${declaredAt}', so a repeated connect would not be idempotent`,
+        `'${modelName}' has no primary key or unique over the two sides of '${declaredAt}'`,
         `Declare .id([...]) or .unique([...]) on '${modelName}' over both sides' columns`
       )
     );

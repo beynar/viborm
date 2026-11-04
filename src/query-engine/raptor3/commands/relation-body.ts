@@ -35,7 +35,6 @@ import {
 import {
   type BoundMembership,
   junctionPairs,
-  linkShared,
   membershipFields,
   nestedTargetAddressesConstraint,
   type Selection,
@@ -1345,8 +1344,8 @@ export class RelationBody {
           kind: "link",
           edge,
           values: this.#linkFields(edge, source.fields, target.fields),
-          ...this.#linkShared(edge, source.fields, target.fields),
-          ...(target.linkValues && { written: target.linkValues }),
+          shared: this.#linkShared(edge, source.fields, target.fields),
+          written: target.linkValues,
           captured,
           removals,
           origin,
@@ -1369,12 +1368,12 @@ export class RelationBody {
             source.fields,
             target.missing.command.fields
           ),
-          ...this.#linkShared(
+          shared: this.#linkShared(
             edge,
             source.fields,
             target.missing.command.fields
           ),
-          ...(target.linkValues && { written: target.linkValues }),
+          written: target.linkValues,
           origin,
         },
         "after",
@@ -1459,19 +1458,26 @@ export class RelationBody {
       sink?.wants(name, "update")
     )
       throw new UnsupportedOperationError(
-        `Cannot write $through of relation '${edge.name}': this client's extensions judge or observe writes to '${name}', and a link row is written without them. Write the row through the '${name}' delegate.`
+        `Cannot write $through of relation '${edge.name}': this client's extensions judge or observe writes to '${name}'. Write the row through the '${name}' delegate.`
       );
   }
   /** A declared junction's shared columns, for the link to compare. */
   #linkShared(edge: Junction, source: Assignments, target: Assignments) {
-    if (!edge.declared) return {};
-    const shared = linkShared(
-      edge,
-      (owner, field) => owner.field(field),
-      source,
-      target
-    );
-    return shared.length > 0 ? { shared } : {};
+    if (!edge.declared) return undefined;
+    return edge.targetSide.members.flatMap((pair) => {
+      const stated = edge.sourceSide.members.find(
+        (candidate) => candidate.junctionField === pair.junctionField
+      );
+      return stated
+        ? [
+            {
+              column: pair.junctionField,
+              source: source.field(stated.referencedField),
+              target: target.field(pair.referencedField),
+            },
+          ]
+        : [];
+    });
   }
   #linkFields(
     edge: Junction,

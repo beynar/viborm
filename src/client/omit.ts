@@ -38,6 +38,7 @@ import type {
   ResolvedVariantEdge,
 } from "@schema/validation/relation-resolution";
 import { projectableScalarNames } from "@validation/model/core/projection";
+import { junctionModelOf } from "@validation/relations/helpers";
 import { isRecord as isPlainRecord } from "@validation/value-guards";
 import type { Operations } from "./types";
 
@@ -283,8 +284,7 @@ const rewriteLinkRow = (
   node: Record<string, unknown>,
   resolve: ClientOmitResolver
 ): Record<string, unknown> => {
-  if (resolved.edge.kind !== "junction") return node;
-  const model = resolved.edge.topology.declared?.model;
+  const model = junctionModelOf(resolved);
   const defaults = model && resolve.omit(model);
   if (!defaults) return node;
   const omitted = (map: unknown) => {

@@ -8597,26 +8597,20 @@ export class Queries {
    * told). `defaultOmit` is presentation, and is settled at the client.
    */
   #prepareLinkRow(edge: Membership, nested: Partial<Arguments>) {
-    if (edge.kind !== "junction" || !edge.declared)
-      return { nested, linkRow: undefined };
+    if (edge.kind !== "junction" || !edge.declared) return { nested };
     const { select, include } = nested as {
       select?: Record<string, unknown>;
       include?: Record<string, unknown>;
     };
     const asked = select?.$through ?? include?.$through;
     if (select?.$through === undefined && include?.$through === undefined)
-      return { nested, linkRow: undefined };
-    const without = (map: Record<string, unknown> | undefined) => {
-      if (!map) return {};
-      const { $through: _taken, ...rest } = map;
-      return rest;
-    };
+      return { nested };
     const rest = {
       ...nested,
-      ...(select && { select: without(select) }),
-      ...(include && { include: without(include) }),
+      ...(select && { select: withoutLinkKey(select as Input) }),
+      ...(include && { include: withoutLinkKey(include as Input) }),
     };
-    if (!asked) return { nested: rest, linkRow: undefined };
+    if (!asked) return { nested: rest };
     const model = edge.declared.model;
     const named = Object.entries(record(record(asked).select))
       .filter(([, wanted]) => wanted === true)
@@ -8682,7 +8676,7 @@ export class Queries {
     const name = model["~"].names.ts;
     if (this.#hidesRows(model, "root") || this.#hidesRows(model, "related"))
       throw new UnsupportedOperationError(
-        `Cannot ${use} $through of relation '${edge.name}': this client restricts which '${name}' rows a call may read, and a link row is one of them. Read the links through the '${name}' delegate.`
+        `Cannot ${use} $through of relation '${edge.name}': this client restricts which '${name}' rows a call may read. Read the links through the '${name}' delegate.`
       );
     const gates = this.domain?.projected(model)?.gates;
     const gated = gates && fields.find((field) => gates.has(field));
@@ -8711,15 +8705,15 @@ export class Queries {
       : taken;
     return freeze({
       edge,
-      ...(linkRow && { linkRow }),
-      ...(linkWhere && {
-        linkWhere: this.prepareSelector(
+      linkRow,
+      linkWhere:
+        linkWhere &&
+        this.prepareSelector(
           (edge as Extract<Membership, { kind: "junction" }>).declared!.model,
           linkWhere,
           false,
           false
         ),
-      }),
       arguments: freeze({
         selector: nested.where
           ? this.prepareSelector(edge.target, nested.where, false, false)

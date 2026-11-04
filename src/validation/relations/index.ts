@@ -39,7 +39,11 @@ import {
   toManyFilterFactory,
   toOneFilterFactory,
 } from "./filter";
-import type { JunctionSchemas, SchemaGetter } from "./helpers";
+import {
+  type JunctionSchemas,
+  junctionModelOf,
+  type SchemaGetter,
+} from "./helpers";
 import {
   type ToManyOrderBySchema,
   type ToOneOrderBySchema,
@@ -288,10 +292,7 @@ export const getRelationsSchemas = <Source extends AnyModel>(
     const resolved = resolvedSlotOrThrow(source, field, slots);
     builders[field] = () => {
       const targetSchemas = createSchemasGetter(relation);
-      const junctionModel =
-        resolved.edge.kind === "junction"
-          ? resolved.edge.topology.declared?.model
-          : undefined;
+      const junctionModel = junctionModelOf(resolved);
       // The registry's one way to a model's schemas, asked for this model.
       const junctionSchemas =
         junctionModel &&

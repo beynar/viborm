@@ -355,7 +355,7 @@ function validateNamedPolicies(
         const holder = junctionHolder(schema, model);
         if (holder !== undefined)
           extensionError(
-            `Extension "${name}" deletion.${modelName}: the model is the junction of '${holder}', whose hops read its rows as links, so a tombstoned link would still be followed. Delete the link with the relation's disconnect, or the row through the model's own delegate.`,
+            `Extension "${name}" deletion.${modelName}: the model is the junction of '${holder}', so a tombstoned link would still be followed. Delete the link with the relation's disconnect, or the row through its delegate.`,
             name
           );
         const at = readOwn(entry, "at", name);

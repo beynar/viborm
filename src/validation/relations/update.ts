@@ -23,7 +23,6 @@ import type { NestedCreateManySchema } from "./create";
 import {
   type GetTargetSchemas,
   type JunctionSchemas,
-  linkWriteFor,
   type SchemaGetter,
   type WithLinkWrite,
   withLinkWrite,
@@ -503,7 +502,7 @@ export const toManyUpdateFactory = <
       }
     : {};
 
-  const linked = withLinkWrite(linkWriteFor(resolved, junctionSchemas));
+  const linked = withLinkWrite(resolved, junctionSchemas);
   return v.object({
     create: () => v.singleOrArray(linked(getCreateSchema())),
     createMany: createManySchema,

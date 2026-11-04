@@ -306,7 +306,7 @@ export class CommandExecution {
       const { a, b } = this.attempt.resolve({ a: source, b: target });
       if (sameStoredValue(a, b)) continue;
       throw new NestedWriteError(
-        `Cannot link relation '${link.edge.name}': the two rows hold different values for '${column}', a column of the junction they share.`,
+        `Cannot link relation '${link.edge.name}': the two rows hold different values for '${column}'.`,
         link.edge.name,
         { meta: { field: column, relation: link.edge.name } }
       );

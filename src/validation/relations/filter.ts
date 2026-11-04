@@ -216,7 +216,7 @@ const quantifierEntries = (where: () => VibSchema<any, any>) => ({
 /** A walk reaches a row once per path, so it has no one link row to judge. */
 const LINK_FILTER_ON_A_WALK = v.optional(
   v.refused(
-    "$through cannot filter a recurse walk: a row reached through two parents has one link row per path"
+    "$through cannot filter a recurse walk: a row has one link row per path"
   )
 );
 
@@ -230,15 +230,11 @@ const recursiveFilter = <S extends RelationState, T extends SchemaGetter<S>>(
   junctionSchemas: JunctionSchemas = undefined
 ) => {
   const recurrence = recurrenceSchema(resolved, "filter");
-  let refusing: VibSchema<any, any> | undefined;
-  const where = () => {
-    const own = targetSchemas().core.where;
-    if (!junctionSchemas) return own;
-    refusing ??= (own as V.Object<any, any>).extend({
-      $through: LINK_FILTER_ON_A_WALK,
-    });
-    return refusing;
-  };
+  const where = whereWithLinkFilter(
+    () => targetSchemas().core.where,
+    junctionSchemas,
+    () => LINK_FILTER_ON_A_WALK
+  );
   return (
     recurrence &&
     v.object(

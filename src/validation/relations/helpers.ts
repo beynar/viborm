@@ -63,39 +63,60 @@ export type WhereWithLinkFilter<
   Where[" vibInferred"]["1"]
 >;
 
+/** The declared model holding a slot's junction, where one does. */
+export const junctionModelOf = (
+  resolved: ResolvedSlot
+): AnyModel | undefined =>
+  resolved.edge.kind === "junction"
+    ? resolved.edge.topology.declared?.model
+    : undefined;
+
 /**
  * A target's `where` as a slot reads it: the target's own, shared by every slot
- * reaching that model, and with `$through` beside it on a declared junction. A
- * thunk, because the target's schemas are built only once something asks.
+ * reaching that model, and with `$through` beside it on a declared junction,
+ * where a walk says `link` instead of the link row's filter. A thunk, because
+ * the target's schemas are built only once something asks.
  */
 export const whereWithLinkFilter = (
   own: () => VibSchema<any, any>,
-  junctionSchemas: JunctionSchemas
+  junctionSchemas: JunctionSchemas,
+  link: () => VibSchema<any, any> = () =>
+    v.object(
+      v.fromObject(junctionSchemas!().scalars as never, "filter").entries
+    )
 ): (() => VibSchema<any, any>) => {
   if (!junctionSchemas) return own;
   let linked: VibSchema<any, any> | undefined;
   return () => {
-    linked ??= (own() as V.Object<any, any>).extend({
-      $through: v.object(
-        v.fromObject(junctionSchemas().scalars as never, "filter").entries
-      ),
-    });
+    linked ??= (own() as V.Object<any, any>).extend({ $through: link() });
     return linked;
   };
 };
 
 /**
+ * A nested write's target with its link values beside it: whatever the target's
+ * own schema is, split on `$through` so that schema reads exactly what it reads
+ * on any other slot. The identity on a slot with no declared junction.
+ *
  * What a `$through` may write: each stated column through its own create schema
  * (`.schema()`, type conversion, a nullable's null), the columns it does not
  * state left out, so an existing link keeps them and a new one takes its
  * defaults. A member column belongs to the two sides and a relation is no
  * column, so both are refused by name.
  */
-export const linkWriteSchema = (
-  junctionSchemas: () => ModelSchemas<AnyModel>,
-  isMember: (field: string) => boolean
-): VibSchema<unknown, Record<string, unknown>> =>
-  createSchema("object", (value) => {
+export const withLinkWrite = (
+  resolved: ResolvedSlot,
+  junctionSchemas: JunctionSchemas
+) => {
+  const { edge } = resolved;
+  if (!(junctionSchemas && edge.kind === "junction"))
+    return <Schema>(schema: Schema) => schema;
+  const { source, target, declared } = edge.topology;
+  const members = new Set(
+    [...source.members, ...target.members].map((member) => member.junctionField)
+  );
+  const modelScalars = declared!.model["~"].state.scalars;
+  const link = createSchema("object", (value) => {
     if (!isRecord(value)) return fail("$through must be an object");
     const scalars = junctionSchemas().scalars as Record<
       string,
@@ -106,7 +127,7 @@ export const linkWriteSchema = (
       if (given === undefined) continue;
       if (!Object.hasOwn(scalars, field))
         return fail(`$through.${field} is not a column of the junction model`);
-      if (isMember(field))
+      if (members.has(modelScalars[field]!["~"].state.columnName ?? field))
         return fail(
           `$through.${field} is filled from the two rows the link joins, and cannot be written`
         );
@@ -122,16 +143,6 @@ export const linkWriteSchema = (
     }
     return ok(admitted);
   });
-
-/**
- * A nested write's target with its link values beside it: whatever the target's
- * own schema is, split on `$through` so that schema reads exactly what it reads
- * on any other slot. The identity on a slot with no declared junction.
- */
-export const withLinkWrite = (
-  link: VibSchema<unknown, Record<string, unknown>> | undefined
-) => {
-  if (!link) return <Schema>(schema: Schema) => schema;
   return <Schema>(schema: Schema) =>
     createSchema("object", (value) => {
       if (!(isRecord(value) && Object.hasOwn(value, "$through")))
@@ -144,24 +155,6 @@ export const withLinkWrite = (
       if (written.issues) return written;
       return ok({ ...(own.value as object), $through: written.value });
     }) as unknown as Schema;
-};
-
-/** The `$through` a slot's writes admit, where a declared model holds it. */
-export const linkWriteFor = (
-  resolved: ResolvedSlot,
-  junctionSchemas: JunctionSchemas
-): VibSchema<unknown, Record<string, unknown>> | undefined => {
-  const { edge } = resolved;
-  if (!(junctionSchemas && edge.kind === "junction")) return undefined;
-  const columns = new Set(
-    [...edge.topology.source.members, ...edge.topology.target.members].map(
-      (member) => member.junctionField
-    )
-  );
-  const scalars = edge.topology.declared!.model["~"].state.scalars;
-  return linkWriteSchema(junctionSchemas, (field) =>
-    columns.has(scalars[field]!["~"].state.columnName ?? field)
-  );
 };
 
 /**

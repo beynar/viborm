@@ -233,7 +233,7 @@ export function buildMembershipView(
     table: topology.table,
     sourceSide: forward ? topology.source : topology.target,
     targetSide: forward ? topology.target : topology.source,
-    ...(topology.declared ? { declared: topology.declared } : {}),
+    declared: topology.declared,
   };
 }
 

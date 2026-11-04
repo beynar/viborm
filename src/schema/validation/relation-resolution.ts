@@ -47,9 +47,7 @@ import { deriveIdDomains } from "./id-domains";
 import { checkStoredReference } from "./rules/fk";
 import {
   checkJunctionModel,
-  chooseJunctionSide,
   type JunctionModelContext,
-  type JunctionSideFacts,
   junctionIssue,
 } from "./rules/junction-model";
 import { getScalars } from "./rules/model-members";
@@ -1051,8 +1049,6 @@ function declaresUniqueKey(
 interface ModelJunctionPair {
   readonly first: Endpoint;
   readonly second: Endpoint;
-  readonly model: Model<any>;
-  readonly modelName: string;
   readonly context: JunctionModelContext;
   /** The to-one the FIRST endpoint hops through, and the second's. */
   readonly firstSide: Endpoint;
@@ -1063,14 +1059,8 @@ interface JunctionModelSettlement {
   readonly pairs: ReadonlyMap<Endpoint, ModelJunctionPair>;
   /** Side relations whose lack of an inverse is not an error. */
   readonly sides: ReadonlySet<Endpoint>;
-  readonly cause: Error | undefined;
+  readonly cause?: Error;
 }
-
-const NO_JUNCTION_MODELS: JunctionModelSettlement = {
-  pairs: new Map(),
-  sides: new Set(),
-  cause: undefined,
-};
 
 /**
  * Settle every `.through(() => model)` exactly once, and decide which to-one of
@@ -1089,11 +1079,6 @@ function settleJunctionModels(
   byIdentity: ReadonlyMap<unknown, RegisteredModel>,
   issues: SchemaValidationIssue[]
 ): JunctionModelSettlement {
-  const declaring = endpoints.filter(
-    (endpoint) => endpoint.node.state.junction?.model !== undefined
-  );
-  if (declaring.length === 0) return NO_JUNCTION_MODELS;
-
   const pairs = new Map<Endpoint, ModelJunctionPair>();
   const sides = new Set<Endpoint>();
   const claims = new Map<Model<any>, string>();
@@ -1110,8 +1095,9 @@ function settleJunctionModels(
     )
       sides.add(side);
   };
-  for (const endpoint of declaring) {
+  for (const endpoint of endpoints) {
     const { node } = endpoint;
+    if (node.state.junction?.model === undefined) continue;
     const holder = { holderName: node.modelName, holderField: node.field };
     let settled: unknown;
     try {
@@ -1122,7 +1108,7 @@ function settleJunctionModels(
           "JT004",
           holder,
           `Junction model getter for '${path(endpoint)}' threw: ${thrownAsError(thrown).message}`,
-          "Make the .through(...) getter return a registered model without throwing"
+          "Return a registered model from the .through(...) getter"
         )
       );
       return { pairs, sides, cause: thrownAsError(thrown) };
@@ -1134,7 +1120,7 @@ function settleJunctionModels(
           "JT004",
           holder,
           `'${path(endpoint)}' goes through a model that is not registered in the schema`,
-          "Register the junction model in the schema passed to the client"
+          "Register the junction model in the schema"
         )
       );
       continue;
@@ -1157,7 +1143,7 @@ function settleJunctionModels(
     exempt(pair.firstSide);
     exempt(pair.secondSide);
   }
-  return { pairs, sides, cause: undefined };
+  return { pairs, sides };
 }
 
 /** One declaring endpoint's pair and its two sides; refused pairs say why. */
@@ -1170,7 +1156,6 @@ function settleJunctionPair(
   issues: SchemaValidationIssue[]
 ): ModelJunctionPair | undefined {
   const { node } = endpoint;
-  const holder = { holderName: node.modelName, holderField: node.field };
   // A pair that did not pair, or a to-one declaring it, has its own diagnostic.
   const verdict = verdicts.get(endpoint);
   if (verdict?.kind !== "paired") return undefined;
@@ -1190,15 +1175,16 @@ function settleJunctionPair(
     model,
     modelName,
     declaredAt: path(endpoint),
-    ...holder,
+    holderName: node.modelName,
+    holderField: node.field,
   };
   const claimedBy = claims.get(model);
   if (claimedBy !== undefined) {
     issues.push(
       junctionIssue(
         "JT009",
-        holder,
-        `'${modelName}' is already the junction of '${claimedBy}', and one model holds one pair`,
+        context,
+        `'${modelName}' is already the junction of '${claimedBy}'`,
         `Declare a separate junction model for '${context.declaredAt}'`
       )
     );
@@ -1214,31 +1200,50 @@ function settleJunctionPair(
     issues.push(
       junctionIssue(
         "JT007",
-        holder,
+        context,
         `'${modelName}' stores a polymorphic relation, so it cannot be the junction of '${context.declaredAt}'`,
         `Remove the polymorphic relation from '${modelName}', or use it through its own delegate`
       )
     );
     return undefined;
   }
-  const candidates = held
-    .filter((candidate) => candidate.cardinality === "one")
-    .map((candidate) => ({
-      field: candidate.node.field,
-      target: candidate.target,
-    }));
   const overrides = node.state.junction!;
-  const choose = (side: "source" | "target", at: Endpoint) =>
-    chooseJunctionSide({
-      context,
-      side,
-      named: overrides[side],
-      endpointModel: at.node.slot.source,
-      endpointName: at.node.modelName,
-      selfRelation: endpoint.node.slot.source === partner.node.slot.source,
-      candidates,
-      issues,
-    });
+  const selfRelation = node.slot.source === partner.node.slot.source;
+  // The relation one side reads: the one it names, else the only candidate aimed
+  // at its model. A self relation has two candidates by construction and no way
+  // to tell which is which, so it states both, whatever the count of candidates.
+  const choose = (side: "source" | "target", at: Endpoint) => {
+    const named = overrides[side];
+    if (named !== undefined) return named;
+    const endpointName = at.node.modelName;
+    if (selfRelation) {
+      issues.push(
+        junctionIssue(
+          "JT006",
+          context,
+          `'${context.declaredAt}' is a self relation through '${modelName}', so it must state .${side}(...): two to-one relations aim at '${endpointName}'`,
+          `Name the to-one relations of '${modelName}' with .source(...) and .target(...)`
+        )
+      );
+      return undefined;
+    }
+    const aimed = held.filter(
+      (candidate) =>
+        candidate.cardinality === "one" &&
+        candidate.target === at.node.slot.source
+    );
+    const [only] = aimed;
+    if (only && aimed.length === 1) return only.node.field;
+    issues.push(
+      junctionIssue(
+        "JT006",
+        context,
+        `'${context.declaredAt}' cannot choose its ${side} side: '${modelName}' has ${aimed.length} to-one relations aimed at '${endpointName}', and exactly one is required`,
+        `Name the relation with .${side}(...)`
+      )
+    );
+    return undefined;
+  };
   const sourceName = choose("source", endpoint);
   const targetName = choose("target", partner);
   if (sourceName === undefined || targetName === undefined) return undefined;
@@ -1263,7 +1268,7 @@ function settleJunctionPair(
     issues.push(
       junctionIssue(
         "JT005",
-        holder,
+        context,
         `'${context.declaredAt}' names '${sourceName}' as both of its sides`,
         `Name two different to-one relations of '${modelName}'`
       )
@@ -1274,8 +1279,6 @@ function settleJunctionPair(
   return {
     first: firstIsDeclaring ? endpoint : partner,
     second: firstIsDeclaring ? partner : endpoint,
-    model,
-    modelName,
     context,
     firstSide: firstIsDeclaring ? source : target,
     secondSide: firstIsDeclaring ? target : source,
@@ -1304,7 +1307,7 @@ function settleSide(
         "JT005",
         context,
         `'${context.declaredAt}' names '${name}' as its ${side} side, which is not a relation of '${modelName}'`,
-        `Declare a to-one relation '${name}' on '${modelName}', or name an existing one with .${side}(...)`
+        `Declare a to-one '${name}' on '${modelName}', or name another relation with .${side}(...)`
       )
     );
     return undefined;
@@ -1318,7 +1321,7 @@ function settleSide(
       junctionIssue(
         "JT005",
         context,
-        `'${modelName}.${name}', the ${side} side of '${context.declaredAt}', must be a to-one that stores its reference with .fields(...).references(...)`,
+        `'${modelName}.${name}', the ${side} side of '${context.declaredAt}', must store its reference as a to-one`,
         `Declare '${name}' as s.toOne(...).fields(...).references(...)`
       )
     );
@@ -1344,7 +1347,7 @@ function settleSide(
       junctionIssue(
         "JT005",
         context,
-        `'${modelName}.${name}', the ${side} side of '${context.declaredAt}', stores nullable column(s) ${nullable.join(", ")}: a link names two rows`,
+        `'${modelName}.${name}', the ${side} side of '${context.declaredAt}', stores nullable column(s) ${nullable.join(", ")}`,
         `Make ${nullable.join(", ")} non-nullable`
       )
     );
@@ -1410,7 +1413,8 @@ function resolveModelJunction(
   pair: ModelJunctionPair,
   publication: Publication
 ): void {
-  const { first, second, model, modelName, context } = pair;
+  const { first, second, context } = pair;
+  const { model, modelName } = context;
   const issues = publication.issues;
   const firstReference = sideReference(pair.firstSide, first, publication);
   const secondReference = sideReference(pair.secondSide, second, publication);
@@ -1422,58 +1426,46 @@ function resolveModelJunction(
       junctionIssue(
         "JT010",
         context,
-        `'${context.declaredAt}' states a referential action, but its two foreign keys belong to '${modelName}'`,
+        `'${context.declaredAt}' states a referential action, but '${modelName}' holds its foreign keys`,
         `Move .onDelete(...) / .onUpdate(...) to the to-one relations of '${modelName}'`
       )
     );
     return;
   }
 
-  const facts = (
-    side: Endpoint,
-    at: Endpoint,
-    reference: ResolvedStoredReference
-  ): JunctionSideFacts => ({
-    relation: side.node.field,
-    endpointModel: at.node.slot.source,
-    endpointName: at.node.modelName,
-    reference,
-  });
-  const firstFacts = facts(pair.firstSide, first, firstReference);
-  const secondFacts = facts(pair.secondSide, second, secondReference);
-  const key = checkJunctionModel({
+  const key = checkJunctionModel(
     context,
-    source: firstFacts,
-    target: secondFacts,
-    issues,
-  });
+    { endpointModel: first.node.slot.source, reference: firstReference },
+    { endpointModel: second.node.slot.source, reference: secondReference },
+    issues
+  );
   if (!key) return;
 
   const side = (
-    facts: JunctionSideFacts,
-    at: Endpoint
+    token: Endpoint,
+    at: Endpoint,
+    reference: ResolvedStoredReference
   ): DeclaredJunctionSideInput => ({
     model: at.node.slot.source,
     modelName: at.node.modelName,
-    token: facts.relation,
-    fields: facts.reference.members.map(
+    token: token.node.field,
+    fields: reference.members.map(
       (member) =>
         model["~"].state.scalars[member.foreignField]!["~"].state.columnName ??
         member.foreignField
     ),
-    rowKey: facts.reference.members.map((member) => member.referencedField),
+    rowKey: reference.members.map((member) => member.referencedField),
     // A side's every column is required and RA004 refused `setNull`, so this
     // is the constraint's own action: RESTRICT unless the to-one says otherwise.
-    onDelete: (facts.reference.onDelete ??
-      "restrict") as JunctionReferentialAction,
-    ...(facts.reference.onUpdate === undefined
+    onDelete: (reference.onDelete ?? "restrict") as JunctionReferentialAction,
+    ...(reference.onUpdate === undefined
       ? {}
-      : { onUpdate: facts.reference.onUpdate as JunctionReferentialAction }),
+      : { onUpdate: reference.onUpdate as JunctionReferentialAction }),
   });
   const topology = resolveDeclaredJunctionTopology({
     table: model["~"].state.tableName ?? modelName,
-    source: side(firstFacts, first),
-    target: side(secondFacts, second),
+    source: side(pair.firstSide, first, firstReference),
+    target: side(pair.secondSide, second, secondReference),
     pairName: first.name,
     declared: { model, key },
   });
