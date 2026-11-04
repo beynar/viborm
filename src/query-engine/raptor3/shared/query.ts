@@ -8612,6 +8612,19 @@ export class Queries {
       }),
     };
   }
+  /** Whether this call's `purpose` domain of `model` can leave a row out. */
+  #hidesRows(model: AnyModel, purpose: RowPurpose): boolean {
+    const holds = (predicate: PreparedPredicate): boolean => {
+      if (predicate.kind === "layer") {
+        const resolved = this.#resolve(predicate);
+        return resolved === undefined || holds(resolved);
+      }
+      if (predicate.kind === "and") return predicate.predicates.every(holds);
+      return predicate.kind === "always" && predicate.value;
+    };
+    const domain = this.domainOf(model, purpose);
+    return domain?.predicate !== undefined && !holds(domain.predicate);
+  }
   /**
    * Whether this call's extensions judge writes to a junction model: its rows,
    * its verbs. A link is written with neither read nor judged, so a `$through`
@@ -8619,8 +8632,8 @@ export class Queries {
    */
   restrictsLinkWrite(model: AnyModel): boolean {
     return (
-      this.domainOf(model, "root") !== undefined ||
-      this.domainOf(model, "related") !== undefined ||
+      this.#hidesRows(model, "root") ||
+      this.#hidesRows(model, "related") ||
       this.domain?.rows.verbs
         ?.get(model["~"].names.ts!)
         ?.some((verbs) => verbs !== undefined) === true
@@ -8641,10 +8654,7 @@ export class Queries {
     const model = (edge as Extract<Membership, { kind: "junction" }>).declared!
       .model;
     const name = model["~"].names.ts;
-    if (
-      this.domainOf(model, "root") !== undefined ||
-      this.domainOf(model, "related") !== undefined
-    )
+    if (this.#hidesRows(model, "root") || this.#hidesRows(model, "related"))
       throw new UnsupportedOperationError(
         `Cannot ${use} $through of relation '${edge.name}': this client restricts which '${name}' rows a call may read, and a link row is one of them. Read the links through the '${name}' delegate.`
       );
