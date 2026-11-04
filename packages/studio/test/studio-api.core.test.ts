@@ -1,5 +1,6 @@
 import { createClient } from "@client/client";
 import { s } from "@schema";
+import { hydrateSchemaNames } from "@schema/hydration";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
@@ -1443,7 +1444,9 @@ describe("a declared model as the junction", () => {
       .target("parent"),
     children: s.toMany(() => team).name("graph"),
   });
-  const described = describeSchema({ team, teamParent }, "sqlite");
+  const schema = { team, teamParent };
+  hydrateSchemaNames(schema);
+  const described = describeSchema(schema, "sqlite");
   const edges = Object.fromEntries(
     described.edges.map((edge) => [edge.id, edge])
   );
