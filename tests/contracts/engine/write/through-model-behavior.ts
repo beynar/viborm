@@ -133,6 +133,8 @@ const throughWithRole = () => {
 export function runThroughModelBehavior(options: {
   readonly name: string;
   readonly createDriver: () => AnyDriver;
+  /** Where each test's storage is its own: push before every test. */
+  readonly prepare?: (client: never) => Promise<void>;
 }): void {
   describe(`${options.name} a declared model as the junction`, () => {
     const client = createClient({
@@ -159,9 +161,10 @@ export function runThroughModelBehavior(options: {
       });
 
     beforeAll(async () => {
-      await syncLiveSchema(client);
+      if (!options.prepare) await syncLiveSchema(client);
     });
     beforeEach(async () => {
+      if (options.prepare) await options.prepare(client as never);
       await client.teamParent.deleteMany({});
       await client.team.deleteMany({});
       await client.team.createMany({

@@ -80,10 +80,10 @@ export function runThroughModelGovernedBehavior(options: {
     const loose = base as any;
 
     beforeAll(async () => {
-      if (options.prepare) await options.prepare(base as never);
-      else await syncLiveSchema(base);
+      if (!options.prepare) await syncLiveSchema(base);
     });
     beforeEach(async () => {
+      if (options.prepare) await options.prepare(base as never);
       await base.teamParent.deleteMany({});
       await base.team.deleteMany({});
       await base.organization.deleteMany({});

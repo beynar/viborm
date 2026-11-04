@@ -1,6 +1,7 @@
 /** MySQL2 Driver Tests — a declared model as the junction, in its own database. */
 
 import { MySQL2Driver } from "@drivers/mysql2";
+import { runThroughModelGovernedBehavior } from "@tests/contracts/engine/query/through-model-governed-behavior";
 import { runThroughModelBehavior } from "@tests/contracts/engine/write/through-model-behavior";
 import { createMySQL2Driver, TEST_CONNECTION_STRING } from "./mysql2-fixtures";
 
@@ -21,6 +22,15 @@ describeIf("MySQL2 Driver", () => {
   });
 
   runThroughModelBehavior({
+    name: "mysql2",
+    createDriver: () =>
+      new MySQL2Driver({
+        databaseUrl: TEST_CONNECTION_STRING,
+        namespace: NAMESPACE,
+        migrationNamespaceAttestation: "non-redirecting",
+      }),
+  });
+  runThroughModelGovernedBehavior({
     name: "mysql2",
     createDriver: () =>
       new MySQL2Driver({

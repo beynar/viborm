@@ -1,6 +1,7 @@
 /** pg Driver Tests — a declared model as the junction, in its own schema. */
 
 import { PgDriver } from "@drivers/pg";
+import { runThroughModelGovernedBehavior } from "@tests/contracts/engine/query/through-model-governed-behavior";
 import { runThroughModelBehavior } from "@tests/contracts/engine/write/through-model-behavior";
 import { TEST_CONNECTION_STRING } from "./pg-fixtures";
 
@@ -21,6 +22,14 @@ describeIf("pg Driver", () => {
   });
 
   runThroughModelBehavior({
+    name: "pg",
+    createDriver: () =>
+      new PgDriver({
+        databaseUrl: TEST_CONNECTION_STRING,
+        namespace: NAMESPACE,
+      }),
+  });
+  runThroughModelGovernedBehavior({
     name: "pg",
     createDriver: () =>
       new PgDriver({

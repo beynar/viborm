@@ -2941,6 +2941,19 @@ export class Queries {
     const lowered = bound && this.lowerSelector(bound, alias);
     return lowered ? [lowered] : [];
   }
+  /**
+   * What a declared junction's link rows may hold while a layer's predicates
+   * lower here, where a positive test reads them ({@link setBound}): a link is a
+   * row of a model too, and one holding the tenant's field stays in it, so a walk
+   * reads its tenant's links rather than filtering the whole table's. A generated
+   * junction has no field to bound.
+   */
+  #linkBound(
+    edge: Extract<Membership, { kind: "junction" }>,
+    link: string
+  ): readonly Sql[] {
+    return edge.declared ? this.#setBound(edge.declared.model, link) : [];
+  }
   /** {@link setBound}'s selector, where one applies here. */
   #boundOf(model: AnyModel): PreparedSelector | undefined {
     const excluded = this.#excluded;
@@ -6758,7 +6771,8 @@ export class Queries {
     const linked = a.joins.inner(
       a.identifiers.table(edge.table, link),
       a.operators.and(
-        ...this.junctionSideConditions(edge.targetSide, link, into)
+        ...this.junctionSideConditions(edge.targetSide, link, into),
+        ...this.#linkBound(edge, link)
       )
     );
     const referenced = edge.sourceSide.members.map(
@@ -6823,7 +6837,8 @@ export class Queries {
         )
       )}`,
       correlation: a.operators.and(
-        ...this.junctionSideConditions(edge.sourceSide, link, parent)
+        ...this.junctionSideConditions(edge.sourceSide, link, parent),
+        ...this.#linkBound(edge, link)
       ),
     };
   }
@@ -7065,7 +7080,8 @@ export class Queries {
           ),
           from: a.identifiers.table(edge.table, junction),
           where: a.operators.and(
-            ...this.junctionSideConditions(edge.sourceSide, junction, source)
+            ...this.junctionSideConditions(edge.sourceSide, junction, source),
+            ...this.#linkBound(edge, junction)
           ),
         })
       )
@@ -9441,7 +9457,8 @@ export class Queries {
     return sql`${a.joins.inner(
       a.identifiers.table(edge.table, link),
       a.operators.and(
-        ...this.junctionSideConditions(edge.sourceSide, link, current)
+        ...this.junctionSideConditions(edge.sourceSide, link, current),
+        ...this.#linkBound(edge, link)
       )
     )} ${this.#junctionTarget(edge, link, next)}`;
   }
