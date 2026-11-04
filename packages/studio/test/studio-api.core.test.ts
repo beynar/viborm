@@ -1416,3 +1416,58 @@ describe("read-only", () => {
     expect([response.status, errorCode(response)]).toEqual([403, "read_only"]);
   });
 });
+
+describe("a declared model as the junction", () => {
+  const teamParent = s
+    .model({
+      childId: s.string(),
+      parentId: s.string(),
+      child: s
+        .toOne(() => team)
+        .fields("childId")
+        .references("id"),
+      parent: s
+        .toOne(() => team)
+        .fields("parentId")
+        .references("id"),
+    })
+    .id(["childId", "parentId"])
+    .map("team_parent");
+  const team = s.model({
+    id: s.string().id(),
+    parents: s
+      .toMany(() => team)
+      .name("graph")
+      .through(() => teamParent)
+      .source("child")
+      .target("parent"),
+    children: s.toMany(() => team).name("graph"),
+  });
+  const described = describeSchema({ team, teamParent }, "sqlite");
+  const edges = Object.fromEntries(
+    described.edges.map((edge) => [edge.id, edge])
+  );
+
+  test("the model is a card, and the edge names it", () => {
+    expect(described.models.map((model) => model.name).sort()).toEqual([
+      "team",
+      "teamParent",
+    ]);
+    expect(edges["team.parents"]).toMatchObject({
+      kind: "many-to-many",
+      junction: "team_parent",
+      junctionModel: "teamParent",
+    });
+  });
+
+  test("its sides are foreign keys with no inverse to name", () => {
+    expect(edges["teamParent.child"]?.to).toEqual({
+      model: "team",
+      columns: ["id"],
+    });
+    const link = described.models.find((model) => model.name === "teamParent");
+    const child = link?.relations.find((relation) => relation.name === "child");
+    expect(child).toMatchObject({ storage: "foreignKey", owner: true });
+    expect(child).not.toHaveProperty("inverse");
+  });
+});

@@ -264,6 +264,7 @@ Every structurally knowable fact is judged **at the call the author wrote** —
 | exactly one junction configuration owner | resolver | `R011` |
 | a modifier sits on a slot that may carry it | resolver | `R012` |
 | one junction table per pair | resolver | `JT001` |
+| a declared model's sides and key | resolver, `rules/junction-model.ts` | `JT004`–`JT010` |
 | a carrier's inverses agree on cardinality | resolver | `P012` |
 
 **Pairing is a graph, not a ladder.** Candidates are collected structurally, then

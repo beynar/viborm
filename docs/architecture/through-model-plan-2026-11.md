@@ -89,3 +89,39 @@ any other extension declaring `deletion`.
 6. Extensions: `deletion` refusal; `permissions({ tenant })` walks and negatives.
 7. Studio, surface golden, docs, changelog.
 8. Provider matrix; acceptance EXPLAIN ANALYZE; absent-means-identical capture.
+
+## `$through`: added by the owner mid-build
+
+`include: { parents: true }` stays the target rows. `$through` is the explicit
+way to read, filter or write the link row. It is the slot's key, mounted where a
+declared model holds the slot, so the target model's shared schemas stay as they
+are and a schema that never asks pays nothing.
+
+- **Read.** The page already reads `FROM link JOIN target` (`#memberSource`), so
+  the columns come from the row that produced each target, flat in the page and
+  an object above it. A key holds at most one row per pair, so a target is read
+  once.
+- **Filter.** The body is joined to the link (`#junctionJoin`, forced) so the
+  target's and the link's conditions test one pair, under `some`, `none` and
+  `every` alike. `mergeQuantifiers` leaves a link condition its own range.
+- **Write.** Stated columns pass each scalar's own create schema, kept apart from
+  defaults so an existing link takes only what was stated. PostgreSQL, SQLite and
+  D1: one `ON CONFLICT (key) DO UPDATE`. MySQL: the anti-join insert, then one
+  UPDATE. `set` keeps the links it retains rather than deleting them.
+- **Name.** `$` is no part of a field name (F001), so a member can never take the
+  key. `rows.verbs.*.evidence.as` refuses it for an extension's projection key.
+- **Extensions.** What a direct call on the model would hide or judge refuses
+  `$through` instead of being passed by: `rows` that can leave a row out, a read
+  gate on a named field, verbs, a stamp, a write hook. A rule that hides nothing
+  (`read: true`) admits a read. `defaultOmit` is honoured on `$through: true`.
+
+## The tenant bound on a link
+
+The first acceptance measurement read as many links through the model as through
+a generated junction (109,070 each). The correlation `link.org = row.org` changes
+what matches, not what is read. What the earlier proof had written by hand was a
+constant on each link alias, and the existing bound says the same thing:
+`#linkBound` applies `#setBound` at every hop's link alias, so it holds only while
+a layer's predicates lower and never under a negation. Measured on PGlite at 40
+organizations of 30 teams: 109,070 → 94 link rows read, same answers. Rows read,
+not time.

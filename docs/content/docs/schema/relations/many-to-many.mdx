@@ -159,6 +159,169 @@ const tag = s.model({
 `tag.posts` reads the same table with the sides swapped — `tag_id` is its source
 and `post_id` its target — without repeating a single fact.
 
+## A model as the junction
+
+When the link itself has columns (who added it, when, in which role) or a tenant,
+declare it as a model and name it with `.through(() => model)`. The model keeps
+its delegate, its own table, columns, indexes and constraints; VibORM generates no
+junction table for it. Reads, filters, `recurse` and counts on the relation work
+as on any many-to-many.
+
+```ts
+const teamParent = s
+  .model({
+    organizationId: s.string(),
+    childId: s.string(),
+    parentId: s.string(),
+    createdAt: s.dateTime().now(),
+    role: s.string().default("member"),
+    child: s
+      .toOne(() => team)
+      .fields("organizationId", "childId")
+      .references("organizationId", "id")
+      .onDelete("cascade"),
+    parent: s
+      .toOne(() => team)
+      .fields("organizationId", "parentId")
+      .references("organizationId", "id")
+      .onDelete("cascade"),
+  })
+  .id(["childId", "parentId"]);
+
+const team = s
+  .model({
+    id: s.string().id(),
+    organizationId: s.string(),
+    parents: s
+      .toMany(() => team)
+      .name("teamGraph")
+      .through(() => teamParent)
+      .source("child")
+      .target("parent"),
+    children: s.toMany(() => team).name("teamGraph"),
+  })
+  .unique(["organizationId", "id"]);
+```
+
+`.source()` and `.target()` name the model's to-one relations: `source` is the one
+pointing at the row that declares `.through()`. They may be left out when one
+to-one aims at each side; a self relation has two and must state them.
+
+Those two to-ones need no inverse on `team`, unlike every other relation of a
+schema: the collection that hops through them is their other end. Declare one if
+you want the link rows as a relation (`parentLinks: s.toMany(() => teamParent)`,
+with the same `.name()` on both), and it pairs as usual. Without an inverse,
+`teamParent.child` reads as `Team | null` in types, because the proof a to-one
+cannot be empty goes through its partner. The row is always there.
+
+| Refused when the schema is checked | Code |
+|---|---|
+| A model the schema does not register, or a getter that throws | `JT004` |
+| A side that is missing, not a to-one with `.fields().references()`, nullable, aimed at the wrong model, or both sides naming one relation | `JT005` |
+| A side it cannot choose: a self relation stating none, or several candidates | `JT006` |
+| A junction model storing a polymorphic relation | `JT007` |
+| No `.id()` or `.unique()` over the pair (see below) | `JT008` |
+| One model as the junction of two pairs | `JT009` |
+| `.onDelete()` / `.onUpdate()` beside the model: they belong on its to-ones | `JT010` |
+
+**The key.** A repeated `connect` must stay idempotent, so a key must lie inside
+the two sides' columns and hold every column one side alone contributes. It may
+leave out a column the sides share (`organizationId` above) only where that column
+follows from a side's other fields, as it does here because `team.id` is unique:
+otherwise the same pair under two organizations would be one link.
+
+**Referential actions** are the to-ones' own, so an undeclared `onDelete` is
+`restrict` here, not the `cascade` of a generated junction.
+
+**Moving a generated junction to a model** of the same table keeps the table and
+its rows: `push` adds the new columns and changes the constraints. A `NOT NULL`
+column with no default on a populated table is refused as any such column is.
+
+### Reading the link row: `$through`
+
+`include: { parents: true }` returns the target rows and nothing else. Ask for the
+link row in the relation's nested `select` or `include`:
+
+```ts
+await db.team.findMany({
+  select: {
+    id: true,
+    parents: {
+      where: { name: "core" },
+      orderBy: { name: "asc" },
+      take: 10,
+      select: { id: true, $through: { select: { createdAt: true } } },
+    },
+  },
+});
+// [{ id, parents: [{ id, $through: { createdAt } }] }]
+```
+
+`$through: true` is every scalar of the model; `{ select }` names some. The value
+is the link that produced that target, whichever parent reached it. It takes
+scalars only.
+
+### Filtering on the link row
+
+```ts
+await db.team.findMany({
+  where: {
+    parents: { some: { name: "core", $through: { role: "owner" } } },
+  },
+});
+```
+
+`$through` sits beside the target's own conditions in `some`, `none`, `every` and a
+relation's nested `where`, and both hold on **one** link and its target: a team
+with an `owner` link to one parent and a parent named `core` through another does
+not match. It takes a filter over the model's scalars, at the top level of the
+body, not inside its `AND` / `OR` / `NOT`.
+
+### Writing the link row
+
+```ts
+parents: { connect: { id: "t1", $through: { role: "owner" } } }
+parents: { create: { name: "x", $through: { role: "owner" } } }
+parents: { connectOrCreate: { where: { id }, create: { name }, $through: { role: "owner" } } }
+parents: { set: [{ id: "t1", $through: { role: "owner" } }] }
+```
+
+`$through` states the model's own scalars, through the model's own validation; the
+columns the two sides fill (`organizationId`, `childId`, `parentId`) and relations
+are refused. Every other column takes its default or generator. A required column
+with no default is legal: `$through` is then required on those verbs, in types and
+at runtime, and `upsert` and `createMany` on that relation are refused.
+
+A link that already exists takes the columns you stated and keeps the others, and
+a `connect` with no `$through` leaves it alone. `set` keeps the links it retains, so
+their other columns survive. PostgreSQL, SQLite and D1 do this in one statement
+(`ON CONFLICT (key) DO UPDATE`), MySQL in two (the insert, then an `UPDATE`).
+
+Two rows in different organizations share no link: when both sides supply a column
+(`organizationId`), rows that disagree are refused before any statement.
+
+### Extensions
+
+A hop is storage. `rows`, soft delete, write hooks and stamps on the junction model
+apply to direct calls on its delegate, not to a plain `connect` or to the walk from
+`team` to its parents. Applying `softDelete` to a junction model is refused when it
+is applied, because a tombstoned link would still be followed.
+
+`$through` is a read or a write of that model, so what a direct call would hide or
+judge is never passed by:
+
+| On the junction model | `$through` read or filter | `$through` write |
+|---|---|---|
+| `rows` or a `permissions` rule that can leave a row out | refused | refused |
+| A rule that hides nothing (`read: true`) | admitted | refused if it declares verbs |
+| A read-gated field | refused where named | n/a |
+| A `data` stamp or an `on` write hook | n/a | refused; hooks do not fire on links |
+| `defaultOmit` | honoured on `$through: true`; a stated `select` stands | n/a |
+
+With [`permissions({ tenant })`](/docs/extensions/permissions#one-tenant-per-call-tenant),
+a junction model holding the tenant's field is bound like any other: a walk in a
+positive test reads its tenant's links. A `none` or `every` is not narrowed.
+
 ## Querying Many-to-Many
 
 ```ts

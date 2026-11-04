@@ -23,7 +23,8 @@ export type ModelShape = Record<string, AnyModelField>;
  * member's type, so it cannot change what a shape infers. Each key's type is
  * its reason spelled as a string literal, so the diagnostic a caller reads
  * names it: no model member is a string, so nothing a shape can hold
- * satisfies it.
+ * satisfies it. `$through` is a selection's own key too, refused at runtime as
+ * no identifier (F001); this names the reason a caller would otherwise guess at.
  */
 export type DeclaredModelShape = ModelShape & {
   readonly _count?: "`_count` is reserved for relation counts (F010)";

@@ -41,6 +41,11 @@ column of either name, give the scalar another name and map it:
 member `tally`, and `rank: s.int().map("_distance")` the column `_distance` as
 `rank`, beside a selected distance.
 
+`$through`, a many-to-many's
+[link row](/docs/schema/relations/many-to-many#a-model-as-the-junction), is a
+selection's key as well. A member can never take it, because `$` is no part of a
+field name (`F001`).
+
 ## Table Name
 
 By default, VibORM uses the variable name. Use `.map()` to set a custom table name:

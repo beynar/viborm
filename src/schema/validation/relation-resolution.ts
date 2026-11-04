@@ -117,6 +117,12 @@ export type ResolvedRelationEdge =
       readonly owner: RelationSlot;
       readonly reference: ResolvedStoredReference;
       readonly unique: boolean;
+      /**
+       * A declared junction's side with no inverse of its own: the other
+       * endpoint is the collection that hops through it, not a pair of this
+       * edge, and that slot still resolves to the junction.
+       */
+      readonly junctionSide?: true;
     }
   | {
       readonly kind: "junction";
@@ -1376,6 +1382,7 @@ function sideReference(
     owner: side.node.slot,
     reference: check.reference,
     unique: false,
+    junctionSide: true,
   };
   publication.edges.push(edge);
   publication.slots.push({ slot: side.node.slot, edge });

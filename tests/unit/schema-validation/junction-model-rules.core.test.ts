@@ -517,3 +517,15 @@ describe("a declared model as a junction: every refusal carries its repair", () 
     expect(errors(validateSchema(schema))).toContain("FK002");
   });
 });
+
+describe("the name of the link row", () => {
+  it("F001: no member takes it, so the key has one producer", () => {
+    const named = s.model({
+      id: s.string().id(),
+      ["$through" as string]: s.string(),
+    });
+    expect(validateSchema({ named }).errors).toMatchObject([
+      { code: "F001", field: "$through" },
+    ]);
+  });
+});
