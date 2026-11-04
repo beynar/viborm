@@ -17,7 +17,8 @@ imports `defineConfig` from `"viborm/config"` (a monorepo's
 the studio on `http://127.0.0.1:5577` and opens it.
 
 - **Schema:** each model's columns with their types, nullability, primary and
-  unique keys, and each relation as a line in crow's foot notation. Click a
+  unique keys, and each relation as a line in crow's foot notation. Models
+  that join each other stand together. Click a
   model or a relation to light up what it reaches, find a model by name,
   export the diagram as PNG or SVG. Each model gets an icon guessed from its
   name.
@@ -109,7 +110,7 @@ a refused value shows the client's own message. The server listens on
 
 The studio's version follows `viborm`'s: it reads the models your client
 holds, so install the release that matches your `viborm` (`@viborm/studio`
-1.11.0 requires `viborm` ~1.11.0). Full guide: https://viborm.dev/docs/studio
+1.12.0 requires `viborm` ~1.12.0). Full guide: https://viborm.dev/docs/studio
 
 ## Transferring data
 

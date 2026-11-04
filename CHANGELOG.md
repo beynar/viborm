@@ -5,6 +5,12 @@ Versioning.
 
 ## Unreleased
 
+## 1.12.0 — 2026-11-04
+
+A model as a many-to-many's junction, with its link row readable, filterable
+and writable through `$through`. Studio's schema diagram lays itself out by what
+joins what.
+
 ### Added
 
 - **A declared model as a many-to-many's junction:**
@@ -36,6 +42,23 @@ Versioning.
 - `$through` is refused where an extension would hide or judge what it reads or
   writes (`rows`, a read gate on a named field, verbs, a stamp, a write hook).
   `defaultOmit` is honoured on `$through: true`.
+- **Studio: the schema diagram lays itself out by what joins what.** Models
+  that join each other stand together as a group, with more room between
+  groups than inside one, and the groups joined most sit side by side, on a
+  sheet about as wide as a screen. A model many others point to (a `user`, an
+  `organization`) no longer pulls the whole schema into one group or one tall
+  column, and lines run level where they can. On a 58-model schema the sheet
+  goes from 2,280 × 13,332 px to 6,480 × 4,883 px and the mean line from 4,281
+  to 1,376 px. A project that already has a kept layout keeps it until **Reset
+  layout**.
+
+### Fixed
+
+- **Studio: a line between two cards one above the other** brackets them on
+  their right, rather than crossing the card it leaves.
+- **Studio: the diagram opens on its cards.** A kept layout far from the
+  computed one opened on an empty canvas until **Fit the schema**; the view now
+  follows the cards when the kept layout is read and on **Reset layout**.
 
 ## 1.11.0 — 2026-11-03
 
