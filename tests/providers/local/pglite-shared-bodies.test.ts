@@ -716,7 +716,7 @@ test("past every other form, one row holds what the root read tests, with the sa
   const inLeaf = { $exists: { seat: { userId: user, teamId: "leaf" } } };
   const rule = {
     OR: [
-      { AND: [seated, grantedTwice(walk())] },
+      { AND: [seated, grantedTwice(walk(undefined))] },
       { AND: [inLeaf, { title: "b" }] },
       { AND: [{ NOT: inLeaf }, seated, { title: "c" }] },
     ],
@@ -795,7 +795,7 @@ test("a declared junction's hop reads a column beyond the key: a walk from a sel
       children: s.toMany(() => tree).name("graph"),
     })
     .unique(["organizationId", "id"]);
-  const here = { actor: "organizationId" };
+  const here = { actor: "organizationId" } as const;
   const governed = permissions({
     actor: v.object({ organizationId: v.string(), userId: v.string() }),
     tenant: { field: "organizationId", actor: "organizationId" },
