@@ -8613,6 +8613,20 @@ export class Queries {
     };
   }
   /**
+   * Whether this call's extensions judge writes to a junction model: its rows,
+   * its verbs. A link is written with neither read nor judged, so a `$through`
+   * write through it is refused where a direct write would have been judged.
+   */
+  restrictsLinkWrite(model: AnyModel): boolean {
+    return (
+      this.domainOf(model, "root") !== undefined ||
+      this.domainOf(model, "related") !== undefined ||
+      this.domain?.rows.verbs
+        ?.get(model["~"].names.ts!)
+        ?.some((verbs) => verbs !== undefined) === true
+    );
+  }
+  /**
    * What a direct read of the junction model would hide stays hidden from a
    * `$through` that reads it, or that tests it, which is the same disclosure one
    * row at a time. Not honoured in the statement: a target row the hop reached

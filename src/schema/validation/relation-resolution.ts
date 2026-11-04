@@ -1189,7 +1189,7 @@ function settleJunctionPair(
   if (claimedBy !== undefined) {
     issues.push(
       junctionIssue(
-        "JT010",
+        "JT009",
         holder,
         `'${modelName}' is already the junction of '${claimedBy}', and one model holds one pair`,
         `Declare a separate junction model for '${context.declaredAt}'`
@@ -1396,7 +1396,7 @@ function resolveModelJunction(
   if (overrides.onDelete !== undefined || overrides.onUpdate !== undefined) {
     issues.push(
       junctionIssue(
-        "JT011",
+        "JT010",
         context,
         `'${context.declaredAt}' states a referential action, but its two foreign keys belong to '${modelName}'`,
         `Move .onDelete(...) / .onUpdate(...) to the to-one relations of '${modelName}'`

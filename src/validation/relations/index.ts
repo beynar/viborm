@@ -121,10 +121,18 @@ const toManySchemas = <
       )
     ),
     create: v.lazy(() =>
-      toManyCreateFactory<Source, Key, S, T>(resolved, targetSchemas)
+      toManyCreateFactory<Source, Key, S, T>(
+        resolved,
+        targetSchemas,
+        junctionSchemas
+      )
     ),
     update: v.lazy(() =>
-      toManyUpdateFactory<Source, Key, S, T>(resolved, targetSchemas)
+      toManyUpdateFactory<Source, Key, S, T>(
+        resolved,
+        targetSchemas,
+        junctionSchemas
+      )
     ),
     select: v.lazy(() =>
       toManySelectFactory<Source, Key, S, T>(

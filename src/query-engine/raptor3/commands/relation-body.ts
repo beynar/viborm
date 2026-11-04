@@ -1,4 +1,4 @@
-import { NestedWriteError } from "@errors";
+import { NestedWriteError, UnsupportedOperationError } from "@errors";
 import type { ResolvedSlot } from "@schema/validation/relation-resolution";
 import { writeSinks } from "../../write-sinks";
 import { unreachable } from "../shared/invariant";
@@ -7,6 +7,7 @@ import { entries, type Input, record } from "../shared/schema";
 import {
   bindMembership,
   linkJudgement,
+  linkMembers,
   type Membership,
   storedFields,
 } from "../shared/storage";
@@ -82,6 +83,20 @@ const collectionMutationOrder = [
 type RelationVerb =
   | (typeof mutationOrder)[number]
   | (typeof collectionMutationOrder)[number];
+
+/**
+ * A nested write's entry apart from what it states of the link. `$through` was
+ * admitted only on a slot a declared model holds, so no other entry holds one.
+ */
+function takeLinkValues(
+  edge: Membership,
+  entry: Input
+): { readonly entry: Input; readonly written?: Input } {
+  if (!(edge.kind === "junction" && edge.declared && "$through" in entry))
+    return { entry };
+  const { $through, ...rest } = entry;
+  return { entry: rest, written: $through as Input };
+}
 
 /**
  * The one sentence for a nested target the plan looked for and did not find;
@@ -455,8 +470,14 @@ export class RelationBody {
       case "create":
         for (const [index, child] of entries(payload).entries()) {
           const origin = entryOrigin();
-          const target = this.#child(edge, child, entries(rawPayload)[index]!);
+          const taken = takeLinkValues(edge, child);
+          const target = this.#child(
+            edge,
+            taken.entry,
+            takeLinkValues(edge, entries(rawPayload)[index]!).entry
+          );
           target.origin = origin;
+          target.linkValues = taken.written;
           this.association(edge, target);
           this.#supply(target);
         }
@@ -491,9 +512,16 @@ export class RelationBody {
         // PROVABLY create.
         const createdTargets: ReadonlyMap<string, unknown>[] = [];
         const connectedTargets: ReadonlyMap<string, unknown>[] = [];
-        for (const [index, supplied] of entries(payload).entries()) {
+        for (const [index, entry] of entries(payload).entries()) {
           const origin = entryOrigin();
-          const source = entries(rawPayload)[index]!;
+          const { entry: supplied, written: linkValues } = takeLinkValues(
+            edge,
+            entry
+          );
+          const source = takeLinkValues(
+            edge,
+            entries(rawPayload)[index]!
+          ).entry;
           const conditional: Input =
             verb === "connect" ? { where: supplied } : supplied;
           // The child's OWN key update is judged by the same owner that judges
@@ -765,6 +793,7 @@ export class RelationBody {
           const target: Choose = {
             kind: "choose",
             model: edge.target,
+            linkValues,
             lookup,
             foundRequirement,
             missing: missing
@@ -1015,7 +1044,11 @@ export class RelationBody {
     for (const target of targets) this.association(edge, target);
   }
   #setTargets(edge: Membership, selectors: Input[], origin: Origin): Choose[] {
-    return selectors.map((where): Choose => {
+    return selectors.map((selector): Choose => {
+      const { entry: where, written: linkValues } = takeLinkValues(
+        edge,
+        selector
+      );
       const lookup = this.#commands.lookup(
         edge.target,
         {
@@ -1035,12 +1068,19 @@ export class RelationBody {
       const target: Choose = {
         kind: "choose",
         model: edge.target,
+        linkValues,
         lookup,
         fields: new Assignments(edge.target, "select"),
       };
       target.lookup.fields.select(
         this.#commands.context.schema.keys(edge.target)
       );
+      // A declared junction keeps the links it keeps, so their own columns
+      // survive, and its target side may read past the row's key.
+      if (edge.kind === "junction" && edge.declared)
+        target.lookup.fields.select(
+          edge.targetSide.members.map((pair) => pair.referencedField)
+        );
       return target;
     });
   }
@@ -1088,7 +1128,15 @@ export class RelationBody {
     } else
       this.#commands.place(
         parent,
-        { kind: "remove", edge, source: parent.fields, keep: [], origin },
+        {
+          kind: "remove",
+          edge,
+          source: parent.fields,
+          keep: edge.declared
+            ? targets.map((target) => target.lookup.fields)
+            : [],
+          origin,
+        },
         "after",
         origin
       );
@@ -1224,6 +1272,7 @@ export class RelationBody {
         );
       for (const pair of reference.pairs) source.fields.field(pair.source);
     }
+    if (edge.kind === "junction") this.#admitLink(edge, target.linkValues);
     if (edge.kind === "junction" && !premise) {
       let captured: JunctionCapture | undefined;
       const address =
@@ -1297,6 +1346,7 @@ export class RelationBody {
           edge,
           values: this.#linkFields(edge, source.fields, target.fields),
           ...this.#linkShared(edge, source.fields, target.fields),
+          ...(target.linkValues && { written: target.linkValues }),
           captured,
           removals,
           origin,
@@ -1324,6 +1374,7 @@ export class RelationBody {
             source.fields,
             target.missing.command.fields
           ),
+          ...(target.linkValues && { written: target.linkValues }),
           origin,
         },
         "after",
@@ -1374,6 +1425,42 @@ export class RelationBody {
     source: Assignments
   ): Record<string, FieldValue> {
     return source.select(membershipFields(edge));
+  }
+  /**
+   * What makes this link writable on a declared junction, before any statement:
+   * a column it cannot fill must be stated, and a `$through` is a write to that
+   * model, so what judges or observes one (`rows`, `verbs`, a stamp, a write
+   * hook) refuses it rather than being passed by. A plain link states nothing
+   * and writes nothing a rule reads: it is the hop's storage.
+   */
+  #admitLink(edge: Junction, written: Input | undefined): void {
+    const declared = edge.declared;
+    if (!declared) return;
+    const context = this.#commands.context;
+    const model = declared.model;
+    const name = model["~"].names.ts!;
+    const members = new Set(
+      linkMembers(edge).map(({ pair }) => pair.junctionField)
+    );
+    const missing = context.schema
+      .linkRequired(model, members)
+      .filter((field) => written?.[field] === undefined);
+    if (missing.length > 0)
+      throw new NestedWriteError(
+        `Cannot link relation '${edge.name}': '${name}' requires ${missing.map((field) => `$through.${field}`).join(", ")}, which a link cannot fill.`,
+        edge.name
+      );
+    if (!written) return;
+    const sink = writeSinks.get(context.attribution);
+    if (
+      context.queries.restrictsLinkWrite(model) ||
+      context.scope?.rows.stamps?.get(name) !== undefined ||
+      sink?.wants(name, "create") ||
+      sink?.wants(name, "update")
+    )
+      throw new UnsupportedOperationError(
+        `Cannot write $through of relation '${edge.name}': this client's extensions judge or observe writes to '${name}', and a link row is written without them. Write the row through the '${name}' delegate.`
+      );
   }
   /** A declared junction's shared columns, for the link to compare. */
   #linkShared(edge: Junction, source: Assignments, target: Assignments) {

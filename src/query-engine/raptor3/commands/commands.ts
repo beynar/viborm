@@ -77,6 +77,8 @@ type Junction = Extract<Membership, { kind: "junction" }>;
 export interface RecordCommand {
   kind: "record";
   model: AnyModel;
+  /** The `$through` its nested write stated, for the link it is a target of. */
+  linkValues?: Input;
   fields: Assignments;
   body: CommandOccurrence[];
   transitions: Reference[];
@@ -136,6 +138,8 @@ export interface Condition {
 export interface Choose {
   kind: "choose";
   model: AnyModel;
+  /** The `$through` its nested write stated, for the link it is a target of. */
+  linkValues?: Input;
   fields: Assignments;
   lookup: Selection;
   foundRequirement?: MembershipRequirement;
@@ -169,6 +173,8 @@ export interface Link {
   values: Record<string, FieldValue>;
   /** Checked when the values are known: two rows that disagree are no link. */
   shared?: readonly SharedLinkColumn[];
+  /** The columns a `$through` states: an existing link takes them too. */
+  written?: Input;
   captured?: JunctionCapture;
   removals?: (Removal & { edge: Junction })[];
   /** The mutation this link is an effect of (its placement's origin, kept). */

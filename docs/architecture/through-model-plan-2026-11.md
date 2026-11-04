@@ -61,9 +61,11 @@ be refused, never written with whichever side was read last.
   union of both sides' columns and hold every non-shared column. It may omit a
   shared column only where that column follows from a side's remaining fields,
   because otherwise `DO NOTHING` silently drops a link in another tenant.
-- JT009: another required column has no default.
-- JT010: one model is the junction of two pairs.
-- JT011: `.onDelete()` / `.onUpdate()` beside a model: the to-one owns the action.
+- JT009: one model is the junction of two pairs.
+- JT010: `.onDelete()` / `.onUpdate()` beside a model: the to-one owns the action.
+
+A required column with no default is legal: a write that states it through
+`$through` links it, and one that does not is refused.
 
 A shared column whose two sides reference different types gets no code of its
 own. The stored-reference check of the side it disagrees with (FK003) and the

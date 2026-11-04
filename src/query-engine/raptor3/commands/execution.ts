@@ -1200,6 +1200,7 @@ export class CommandExecution {
       else if (
         command.kind === "link" &&
         !command.captured &&
+        !command.written &&
         (edge ??= command.edge) === command.edge
       ) {
         run.push(sibling);
@@ -1901,7 +1902,8 @@ export class CommandExecution {
           command.edge,
           attempt.resolve(command.values),
           member,
-          removed ? undefined : captured
+          removed ? undefined : captured,
+          command.written
         );
         return;
       }
@@ -1914,7 +1916,9 @@ export class CommandExecution {
           command.target
             ? this.#removalTarget(command.edge, command.target)
             : undefined,
-          command.keep.map((target) => this.identity(target)),
+          command.keep.map((target) =>
+            this.#removalTarget(command.edge, target)
+          ),
           member
         );
         return;

@@ -61,6 +61,20 @@ export type ExactJunctionActions<Action> = Record<
 >;
 
 /**
+ * `.source()` / `.target()` after a declared model's `.through()` names one of
+ * its relations, which is what `$through` keeps a link's own columns apart by.
+ * On any other junction a token is only a name and the state stays as it was.
+ */
+type WithJunctionSide<State, Side extends string, Token> = State extends {
+  readonly junction: { readonly model: unknown };
+}
+  ? Replace<
+      State,
+      { readonly junction: State["junction"] & { readonly [K in Side]: Token } }
+    >
+  : State;
+
+/**
  * A model-target collection slot.
  *
  * The junction overrides are independent, meaningful facts rather than stages of
@@ -87,8 +101,12 @@ export type ModelToManyRelation<State> = {
   through<const G>(
     model: G & GetterOnly<G>
   ): ModelToManyRelation<Replace<State, { readonly junction: { readonly model: G } }>>;
-  source(token: string): ModelToManyRelation<State>;
-  target(token: string): ModelToManyRelation<State>;
+  source<const Token extends string>(
+    token: Token
+  ): ModelToManyRelation<WithJunctionSide<State, "source", Token>>;
+  target<const Token extends string>(
+    token: Token
+  ): ModelToManyRelation<WithJunctionSide<State, "target", Token>>;
   onDelete<const Action extends JunctionActionDeclaration>(
     action: Action & ExactJunctionActions<Action>
   ): ModelToManyRelation<State>;

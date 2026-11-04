@@ -131,7 +131,7 @@ type RelationName<R> =
     ? Name
     : undefined;
 
-type ForeignKeyOf<R> =
+export type ForeignKeyOf<R> =
   StateOf<R> extends {
     readonly foreignKey: infer ForeignKey extends ForeignKeyDeclaration;
   }
@@ -351,6 +351,23 @@ type DeclaredJunctionModel<R> = R extends {
 }
   ? M
   : never;
+
+/**
+ * The junction state a declaring endpoint holds, `.source()` / `.target()`
+ * names included where it states them, read from either endpoint.
+ */
+export type JunctionFactsOf<SourceModel, FieldKey, R> =
+  [DeclaredJunctionModel<R>] extends [never]
+    ? ProvenPartner<SourceModel, FieldKey, R> extends {
+        readonly "~": { readonly state: { readonly junction: infer Facts } };
+      }
+      ? Facts
+      : never
+    : R extends {
+          readonly "~": { readonly state: { readonly junction: infer Facts } };
+        }
+      ? Facts
+      : never;
 
 // =============================================================================
 // STATIC RECURSION ELIGIBILITY

@@ -11,6 +11,7 @@ import type { PendingOperation } from "@query-engine/pending-operation";
 import type { Model, ModelState } from "@schema/model";
 import type { ModelShape } from "@schema/model/helper";
 import type { AnyRelation } from "@schema/relation";
+import type { LinkWriteKeys } from "@validation/relations/helpers";
 import type {
   JunctionModelOf,
   Cardinality,
@@ -1439,12 +1440,46 @@ type NestedWriteUnknownKeys<
         RequiredSpelledKeys<Data>,
         keyof M["~"]["state"]["relations"]
       >]: TargetKind<M["~"]["state"]["relations"][K]> extends "model"
-        ? TargetWriteUnknownKeys<
-            NonNullable<ValueAt<Data, K>>,
-            GetTargetModel<M["~"]["state"]["relations"][K]>
-          >
+        ?
+            | TargetWriteUnknownKeys<
+                NonNullable<ValueAt<Data, K>>,
+                GetTargetModel<M["~"]["state"]["relations"][K]>,
+                | keyof GetTargetModel<
+                    M["~"]["state"]["relations"][K]
+                  >["~"]["state"]["shape"]
+                | ([LinkRowKey<M, K>] extends [never] ? never : "$through")
+              >
+            | LinkWriteUnknownKeys<
+                NonNullable<ValueAt<Data, K>>,
+                LinkWriteKeys<M, K, M["~"]["state"]["relations"][K]>,
+                LinkRowKey<M, K>
+              >
         : never;
     }[Extract<RequiredSpelledKeys<Data>, keyof M["~"]["state"]["relations"]>];
+
+/**
+ * The keys a nested write's `$through` names outside what the slot may write,
+ * and the key itself where the slot has no link row to write. Only the verbs
+ * that link read one, each entry walked as the caller wrote it.
+ */
+type LinkWriteUnknownKeys<Verbs, Allowed, LinkModel> =
+  ElementOf<
+    NonNullable<
+      ValueAt<
+        Verbs,
+        Extract<
+          RequiredSpelledKeys<Verbs>,
+          "connect" | "create" | "connectOrCreate" | "set"
+        >
+      >
+    >
+  > extends infer Entry
+    ? Entry extends { readonly $through: infer Written }
+      ? [LinkModel] extends [never]
+        ? "$through"
+        : Exclude<keyof Written, Allowed>
+      : never
+    : never;
 
 type TargetWriteUnknownKeys<
   Verbs,

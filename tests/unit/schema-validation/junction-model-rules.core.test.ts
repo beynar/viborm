@@ -390,27 +390,20 @@ describe("a declared model as a junction: every refusal carries its repair", () 
     expect(errors(validateSchema({ team, link }))).toEqual(["JT008"]);
   });
 
-  it("JT009: a required column with no default, naming the delegate as the repair", () => {
+  it("a required column with no default is legal: a write must state it", () => {
     const schema = between(({ left, right }) =>
       s
-        .model({ ...fieldsOf(left, right), role: s.string() })
+        .model({
+          ...fieldsOf(left, right),
+          role: s.string(),
+          token: s.string().uuid(),
+        })
         .id(["leftId", "rightId"])
     );
-    const result = validateSchema(schema);
-    expect(errors(result)).toEqual(["JT009"]);
-    expect(repairs(result)[0]).toContain("delegate");
+    expect(errors(validateSchema(schema))).toEqual([]);
   });
 
-  it("JT009: a format is not a generator", () => {
-    const schema = between(({ left, right }) =>
-      s
-        .model({ ...fieldsOf(left, right), token: s.string().uuid() })
-        .id(["leftId", "rightId"])
-    );
-    expect(errors(validateSchema(schema))).toEqual(["JT009"]);
-  });
-
-  it("JT010: one model as the junction of two pairs", () => {
+  it("JT009: one model as the junction of two pairs", () => {
     const left: any = s.model({
       id: s.string().id(),
       rights: s
@@ -430,16 +423,16 @@ describe("a declared model as a junction: every refusal carries its repair", () 
     const link: any = s
       .model(fieldsOf(left, right))
       .id(["leftId", "rightId"]);
-    expect(errors(validateSchema({ left, right, link }))).toEqual(["JT010"]);
+    expect(errors(validateSchema({ left, right, link }))).toEqual(["JT009"]);
   });
 
-  it("JT011: a referential action beside a model", () => {
+  it("JT010: a referential action beside a model", () => {
     const schema = between(
       ({ left, right }) =>
         s.model(fieldsOf(left, right)).id(["leftId", "rightId"]),
       (relation) => relation.onDelete("cascade")
     );
-    expect(errors(validateSchema(schema))).toEqual(["JT011"]);
+    expect(errors(validateSchema(schema))).toEqual(["JT010"]);
   });
 
   it("R011: both endpoints declaring the junction stays the ordinary refusal", () => {

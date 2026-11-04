@@ -5,7 +5,14 @@ import type { RelationState } from "@schema/relation/types";
 import type { ResolvedSlot } from "@schema/validation/relation-resolution";
 import { refuseDefaultOnlySkipDuplicates } from "@validation/model/args/mutation";
 import { type V, v } from "../primitives/v";
-import type { GetTargetSchemas, SchemaGetter } from "./helpers";
+import {
+  type GetTargetSchemas,
+  type JunctionSchemas,
+  linkWriteFor,
+  type SchemaGetter,
+  type WithLinkWrite,
+  withLinkWrite,
+} from "./helpers";
 import {
   nestedRelationDataProjection,
   type ProjectedCreateUpsertUpdate,
@@ -114,16 +121,25 @@ export type ToManyCreateSchema<
   S extends RelationState,
 > = V.Object<
   {
-    create: () => V.SingleOrArray<ProjectedNestedCreate<Source, Key, S>>;
+    create: () => V.SingleOrArray<
+      WithLinkWrite<ProjectedNestedCreate<Source, Key, S>, Source, Key, S>
+    >;
     createMany: NestedCreateManySchema<Source, Key, S>;
-    connect: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["whereUnique"]>;
+    connect: () => V.SingleOrArray<
+      WithLinkWrite<GetTargetSchemas<S>["core"]["whereUnique"], Source, Key, S>
+    >;
     connectOrCreate: () => V.SingleOrArray<
-      V.Object<
-        {
-          where: () => GetTargetSchemas<S>["core"]["whereUnique"];
-          create: () => ProjectedNestedCreate<Source, Key, S>;
-        },
-        { partial: false }
+      WithLinkWrite<
+        V.Object<
+          {
+            where: () => GetTargetSchemas<S>["core"]["whereUnique"];
+            create: () => ProjectedNestedCreate<Source, Key, S>;
+          },
+          { partial: false }
+        >,
+        Source,
+        Key,
+        S
       >
     >;
     // COMPATIBILITY NOTE (deliberate Prisma superset — query-engine-v2 PLAN
@@ -157,13 +173,15 @@ export const toManyCreateFactory = <
   T extends SchemaGetter<S>,
 >(
   resolved: ResolvedSlot,
-  targetSchemas: T
+  targetSchemas: T,
+  junctionSchemas: JunctionSchemas = undefined
 ): ToManyCreateSchema<Source, Key, S> => {
   const projection = nestedRelationDataProjection<S, T>(
     resolved,
     targetSchemas
   );
   const getCreateSchema = projection.getCreateSchema;
+  const linked = withLinkWrite(linkWriteFor(resolved, junctionSchemas));
 
   const createManySchema = v.object(
     {
@@ -175,17 +193,19 @@ export const toManyCreateFactory = <
 
   return v.object(
     {
-      create: () => v.singleOrArray(getCreateSchema()),
+      create: () => v.singleOrArray(linked(getCreateSchema())),
       createMany: createManySchema,
-      connect: () => v.singleOrArray(targetSchemas().core.whereUnique),
+      connect: () => v.singleOrArray(linked(targetSchemas().core.whereUnique)),
       connectOrCreate: () =>
         v.singleOrArray(
-          v.object(
-            {
-              where: () => targetSchemas().core.whereUnique,
-              create: getCreateSchema,
-            },
-            { partial: false }
+          linked(
+            v.object(
+              {
+                where: () => targetSchemas().core.whereUnique,
+                create: getCreateSchema,
+              },
+              { partial: false }
+            )
           )
         ),
       // Deliberate Prisma superset (see the type above): global-lookup,

@@ -145,34 +145,14 @@ export function checkJunctionModel(input: {
   const { context, source, target, issues } = input;
   const { model, modelName, declaredAt } = context;
   const scalars: Record<string, Scalar> = model["~"].state.scalars;
-  const before = issues.length;
 
   // A shared column whose two sides reference different types is already
   // refused by the stored-reference check of whichever side it disagrees with
-  // (FK003) or by the identifier domains, so it has no check of its own here.
-  const members = new Set(
-    [source, target].flatMap((side) =>
-      side.reference.members.map((member) => member.foreignField)
-    )
-  );
-  for (const [field, scalar] of Object.entries(scalars)) {
-    if (members.has(field)) continue;
-    // `hasDefault`, not `autoGenerate`: `s.string().uuid()` declares a format
-    // and generates nothing, and a generator that does sets both.
-    const state = scalar["~"].state;
-    if (state.hasDefault || state.nullable) continue;
-    issues.push(
-      junctionIssue(
-        "JT009",
-        context,
-        `'${modelName}.${field}' is required and has no default, so a connect through '${declaredAt}' cannot fill it`,
-        `Give '${field}' a default or make it nullable, or create the row through the '${modelName}' delegate instead of through '${declaredAt}'`
-      )
-    );
-  }
-
+  // (FK003) or by the identifier domains, so it has no check of its own here. A
+  // required column the link cannot fill is no fact of the schema: a write that
+  // states it through `$through` links it, and one that does not is refused.
   const key = pairKey(model, source, target);
-  if (!key)
+  if (!key) {
     issues.push(
       junctionIssue(
         "JT008",
@@ -181,6 +161,7 @@ export function checkJunctionModel(input: {
         `Declare .id([...]) or .unique([...]) on '${modelName}' over both sides' columns`
       )
     );
-  if (issues.length > before || !key) return undefined;
+    return undefined;
+  }
   return key.map((field) => scalars[field]!["~"].state.columnName ?? field);
 }

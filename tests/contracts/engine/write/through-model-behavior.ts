@@ -92,19 +92,59 @@ const throughWithInverses = () => {
   return { link, node };
 };
 
+/** A link with a column nothing can fill, so every write must state it. */
+const throughWithRole = () => {
+  const seat = s
+    .model({
+      roomId: s.string(),
+      guestId: s.string(),
+      role: s.string(),
+      rank: s.int().default(1),
+      joinedAt: s.dateTime().now(),
+      touchedAt: s.dateTime().updatedAt(),
+      room: s
+        .toOne(() => room)
+        .fields("roomId")
+        .references("id")
+        .onDelete("cascade"),
+      guest: s
+        .toOne(() => guest)
+        .fields("guestId")
+        .references("id")
+        .onDelete("cascade"),
+    })
+    .id(["roomId", "guestId"]);
+  const room = s.model({
+    id: s.string().id(),
+    guests: s
+      .toMany(() => guest)
+      .through(() => seat)
+      .source("room")
+      .target("guest"),
+  });
+  const guest = s.model({
+    id: s.string().id(),
+    name: s.string().default("guest"),
+    rooms: s.toMany(() => room),
+  });
+  return { seat, room, guest };
+};
+
 export function runThroughModelBehavior(options: {
   readonly name: string;
   readonly createDriver: () => AnyDriver;
 }): void {
   describe(`${options.name} a declared model as the junction`, () => {
     const client = createClient({
-      schema: throughSchema(),
+      schema: {
+        ...throughSchema(),
+        ...throughWithInverses(),
+        ...throughWithRole(),
+      },
       driver: options.createDriver(),
     });
-    const withInverses = createClient({
-      schema: throughWithInverses(),
-      driver: options.createDriver(),
-    });
+    const withInverses = client;
+    const withRole = client;
 
     const parentsOf = async (id: string) =>
       (
@@ -120,7 +160,6 @@ export function runThroughModelBehavior(options: {
 
     beforeAll(async () => {
       await syncLiveSchema(client);
-      await syncLiveSchema(withInverses);
     });
     beforeEach(async () => {
       await client.teamParent.deleteMany({});
@@ -136,7 +175,6 @@ export function runThroughModelBehavior(options: {
     });
     afterAll(async () => {
       await client.$disconnect();
-      await withInverses.$disconnect();
     });
 
     test("connect given a key fills the shared column from the located rows", async () => {
@@ -845,6 +883,221 @@ export function runThroughModelBehavior(options: {
         await expect(
           ids({ parents: { some: { $through: { nope: "x" } } } })
         ).rejects.toThrow(/Unknown key/);
+      });
+    });
+
+    describe("$through as a write", () => {
+      const seats = () =>
+        withRole.seat.findMany({ orderBy: { guestId: "asc" } });
+      beforeEach(async () => {
+        await withRole.seat.deleteMany({});
+        await withRole.guest.deleteMany({});
+        await withRole.room.deleteMany({});
+        await withRole.room.create({ data: { id: "r" } });
+        await withRole.guest.createMany({
+          data: [{ id: "g1" }, { id: "g2" }, { id: "g3" }],
+        });
+      });
+
+      test("connect writes the stated column beside the defaults", async () => {
+        await withRole.room.update({
+          where: { id: "r" },
+          data: {
+            guests: { connect: { id: "g1", $through: { role: "owner" } } },
+          },
+        });
+        expect(await seats()).toMatchObject([
+          { roomId: "r", guestId: "g1", role: "owner", rank: 1 },
+        ]);
+      });
+
+      test("create, connectOrCreate and set each take their own values", async () => {
+        await withRole.room.update({
+          where: { id: "r" },
+          data: {
+            guests: {
+              create: { id: "g4", $through: { role: "made", rank: 4 } },
+              connectOrCreate: [
+                {
+                  where: { id: "g2" },
+                  create: { id: "g2" },
+                  $through: { role: "found" },
+                },
+                {
+                  where: { id: "g5" },
+                  create: { id: "g5" },
+                  $through: { role: "new" },
+                },
+              ],
+            },
+          },
+        });
+        expect(
+          (await seats()).map((row) => [row.guestId, row.role, row.rank])
+        ).toEqual([
+          ["g2", "found", 1],
+          ["g4", "made", 4],
+          ["g5", "new", 1],
+        ]);
+        await withRole.room.update({
+          where: { id: "r" },
+          data: {
+            guests: {
+              set: [
+                { id: "g2", $through: { role: "kept" } },
+                { id: "g3", $through: { role: "added" } },
+              ],
+            },
+          },
+        });
+        expect(
+          (await seats()).map((row) => [row.guestId, row.role])
+        ).toEqual([
+          ["g2", "kept"],
+          ["g3", "added"],
+        ]);
+      });
+
+      test("a link that exists takes only the stated columns", async () => {
+        await withRole.room.update({
+          where: { id: "r" },
+          data: {
+            guests: {
+              connect: { id: "g1", $through: { role: "owner", rank: 7 } },
+            },
+          },
+        });
+        const [before] = await seats();
+        await withRole.room.update({
+          where: { id: "r" },
+          data: {
+            guests: { connect: { id: "g1", $through: { role: "editor" } } },
+          },
+        });
+        const after = await seats();
+        expect(after).toHaveLength(1);
+        expect(after[0]).toMatchObject({ role: "editor", rank: 7 });
+        expect(after[0]?.joinedAt).toEqual(before?.joinedAt);
+      });
+
+      test("set keeps a retained link's other columns", async () => {
+        await withRole.room.update({
+          where: { id: "r" },
+          data: {
+            guests: {
+              connect: [
+                { id: "g1", $through: { role: "owner", rank: 7 } },
+                { id: "g2", $through: { role: "gone" } },
+              ],
+            },
+          },
+        });
+        const [before] = await seats();
+        await withRole.room.update({
+          where: { id: "r" },
+          data: {
+            guests: { set: [{ id: "g1", $through: { role: "still" } }] },
+          },
+        });
+        const after = await seats();
+        expect(after).toHaveLength(1);
+        expect(after[0]).toMatchObject({ guestId: "g1", role: "still", rank: 7 });
+        expect(after[0]?.joinedAt).toEqual(before?.joinedAt);
+      });
+
+      test("a link without its required column is refused, on every verb", async () => {
+        const refused = /requires \$through\.role/;
+        const update = (guests: object) =>
+          withRole.room.update({
+            where: { id: "r" },
+            data: { guests: guests as never },
+          });
+        await expect(update({ connect: { id: "g1" } })).rejects.toThrow(refused);
+        await expect(update({ create: { id: "g9" } })).rejects.toThrow(refused);
+        await expect(
+          update({ connectOrCreate: { where: { id: "g9" }, create: { id: "g9" } } })
+        ).rejects.toThrow(refused);
+        await expect(update({ set: [{ id: "g1" }] })).rejects.toThrow(refused);
+        await expect(
+          update({
+            upsert: {
+              where: { id: "g9" },
+              create: { id: "g9" },
+              update: { name: "n" },
+            },
+          })
+        ).rejects.toThrow(refused);
+        await expect(
+          update({ createMany: { data: [{ id: "g9" }] } })
+        ).rejects.toThrow(refused);
+        expect(await seats()).toEqual([]);
+        expect(
+          await withRole.guest.findUnique({ where: { id: "g9" } })
+        ).toBeNull();
+      });
+
+      test("a member column, a relation and an unknown column are refused", async () => {
+        const connect = ($through: object) =>
+          withRole.room.update({
+            where: { id: "r" },
+            data: {
+              guests: { connect: { id: "g1", $through } as never },
+            },
+          });
+        await expect(
+          connect({ role: "x", guestId: "g2" })
+        ).rejects.toThrow(/filled from the two rows/);
+        await expect(connect({ role: "x", room: {} })).rejects.toThrow(
+          /not a column/
+        );
+        await expect(connect({ role: "x", nope: 1 })).rejects.toThrow(
+          /not a column/
+        );
+      });
+
+      test("values pass the model's own validation", async () => {
+        await expect(
+          withRole.room.update({
+            where: { id: "r" },
+            data: {
+              guests: {
+                connect: { id: "g1", $through: { role: 5 } } as never,
+              },
+            },
+          })
+        ).rejects.toThrow();
+        expect(await seats()).toEqual([]);
+      });
+
+      test("a plain connect beside a model whose link can fill itself stays a no-op", async () => {
+        await client.team.update({
+          where: { id: "a" },
+          data: {
+            parents: { connect: { id: "b", $through: { note: "mine" } } },
+          },
+        });
+        await client.team.update({
+          where: { id: "a" },
+          data: { parents: { connect: { id: "b" } } },
+        });
+        expect(await links()).toMatchObject([{ note: "mine" }]);
+      });
+
+      test("the write reads back through $through in its own projection", async () => {
+        const written = await withRole.room.update({
+          where: { id: "r" },
+          data: {
+            guests: { connect: { id: "g1", $through: { role: "owner" } } },
+          },
+          select: {
+            guests: {
+              select: { id: true, $through: { select: { role: true } } },
+            },
+          },
+        });
+        expect(written.guests).toEqual([
+          { id: "g1", $through: { role: "owner" } },
+        ]);
       });
     });
 
