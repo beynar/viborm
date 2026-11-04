@@ -107,6 +107,13 @@ s.toMany(() => tag)
   .onUpdate({ source: "cascade", target: "restrict" }) // or one per key
 ```
 
+`.through(() => model)` instead of a table name makes a declared model the
+junction: its own table, columns and delegate, `.source()` / `.target()` naming its
+to-one relations, and `topology.declared` on the one junction edge. A side with no
+inverse of its own publishes a foreign-key edge (`junctionSide`) whose other end is
+the collection hopping through it. The getter stays in the type state as a target's
+does, read only where a query asks for `$through`.
+
 The junction overrides are independent, meaningful facts rather than stages of
 one all-or-nothing value, so any subset may override its canonical default and
 trusted state stores `junction` only when one was declared (never `{}`).
