@@ -34,6 +34,7 @@ import {
 import {
   type BoundMembership,
   junctionPairs,
+  linkShared,
   membershipFields,
   nestedTargetAddressesConstraint,
   type Selection,
@@ -417,6 +418,11 @@ export class RelationBody {
             // A lax removal names no target: it clears whatever member the
             // slot holds at execution (at most one on a to-one edge), which is
             // the set-based clear a `Removal` without a target already is.
+            // A declared junction's target side may read past the row's key.
+            if (edge.kind === "junction" && edge.declared)
+              outgoing.fields.select(
+                edge.targetSide.members.map((pair) => pair.referencedField)
+              );
             const removal: Removal = {
               kind: "remove",
               edge,
@@ -1290,6 +1296,7 @@ export class RelationBody {
           kind: "link",
           edge,
           values: this.#linkFields(edge, source.fields, target.fields),
+          ...this.#linkShared(edge, source.fields, target.fields),
           captured,
           removals,
           origin,
@@ -1308,6 +1315,11 @@ export class RelationBody {
           kind: "link",
           edge,
           values: this.#linkFields(
+            edge,
+            source.fields,
+            target.missing.command.fields
+          ),
+          ...this.#linkShared(
             edge,
             source.fields,
             target.missing.command.fields
@@ -1362,6 +1374,17 @@ export class RelationBody {
     source: Assignments
   ): Record<string, FieldValue> {
     return source.select(membershipFields(edge));
+  }
+  /** A declared junction's shared columns, for the link to compare. */
+  #linkShared(edge: Junction, source: Assignments, target: Assignments) {
+    if (!edge.declared) return {};
+    const shared = linkShared(
+      edge,
+      (owner, field) => owner.field(field),
+      source,
+      target
+    );
+    return shared.length > 0 ? { shared } : {};
   }
   #linkFields(
     edge: Junction,

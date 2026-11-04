@@ -70,7 +70,12 @@ import {
   type Operation,
   record,
 } from "./schema";
-import { linkJudgement, type Membership, physicalField } from "./storage";
+import {
+  linkJudgement,
+  linkMembers,
+  type Membership,
+  physicalField,
+} from "./storage";
 import { type ScratchPublication, TransportAttempt } from "./transport-attempt";
 
 export type Member = object;
@@ -4263,10 +4268,7 @@ export class OperationContext {
   ): Promise<void> {
     const adapter = this.driver.adapter;
     const q = this.queries;
-    const columns = [
-      ...edge.sourceSide.members,
-      ...edge.targetSide.members,
-    ].map((pair) => pair.junctionField);
+    const columns = linkMembers(edge).map(({ pair }) => pair.junctionField);
     if (captured) {
       if (columns.every((field) => Object.is(captured[field], values[field]))) {
         return;
@@ -4348,7 +4350,7 @@ export class OperationContext {
       await this.#effect(
         adapter.mutations.insert(
           adapter.identifiers.table(edge.table),
-          columns,
+          this.#linkColumns(edge),
           { select }
         ),
         this.statementContext(edge.source, "update"),
@@ -4390,15 +4392,51 @@ export class OperationContext {
     edge: Extract<Membership, { kind: "junction" }>,
     values: Input
   ): Sql[] {
-    return [edge.sourceSide, edge.targetSide].flatMap((side) =>
-      side.members.map((pair) =>
-        this.queries.fieldValue(
-          side.model,
-          pair.referencedField,
-          values[pair.junctionField]
-        )
+    const members = linkMembers(edge).map(({ side, pair }) =>
+      this.queries.fieldValue(
+        side.model,
+        pair.referencedField,
+        values[pair.junctionField]
       )
     );
+    const declared = edge.declared;
+    if (!declared) return members;
+    const defaults = this.#linkDefaults(edge);
+    const filled = this.schema.createValues(
+      declared.model,
+      Object.fromEntries(defaults.map((field) => [field, undefined]))
+    );
+    return [
+      ...members,
+      ...defaults.map((field) =>
+        this.queries.fieldValue(declared.model, field, filled[field])
+      ),
+    ];
+  }
+  /** What {@link linkOperands} fills beyond the members: a declared model's defaults. */
+  #linkDefaults(
+    edge: Extract<Membership, { kind: "junction" }>
+  ): readonly string[] {
+    return edge.declared
+      ? this.schema.linkDefaults(
+          edge.declared.model,
+          new Set(linkMembers(edge).map(({ pair }) => pair.junctionField))
+        )
+      : [];
+  }
+  /** The columns {@link linkOperands} supplies, in its order. */
+  #linkColumns(
+    edge: Extract<Membership, { kind: "junction" }>
+  ): readonly string[] {
+    const members = linkMembers(edge).map(({ pair }) => pair.junctionField);
+    const declared = edge.declared;
+    if (!declared) return members;
+    return [
+      ...members,
+      ...this.#linkDefaults(edge).map(
+        (field) => physicalField(this.schema, declared.model, field).name
+      ),
+    ];
   }
   /** Junction rows inserted where absent, through the edge's own conflict target. */
   #linkStatement(
@@ -4406,17 +4444,16 @@ export class OperationContext {
     rows: Sql[][]
   ): Sql {
     const adapter = this.driver.adapter;
-    const columns = [
-      ...edge.sourceSide.members,
-      ...edge.targetSide.members,
-    ].map((pair) => pair.junctionField);
+    const columns = this.#linkColumns(edge);
     return sql`${adapter.mutations.insert(
       adapter.identifiers.table(edge.table),
       columns,
       rows
     )} ${adapter.mutations.onConflict(
       sql.join(
-        columns.map((column) => adapter.identifiers.escape(column)),
+        (edge.declared?.key ?? columns).map((column) =>
+          adapter.identifiers.escape(column)
+        ),
         ", "
       ),
       sql`NOTHING`

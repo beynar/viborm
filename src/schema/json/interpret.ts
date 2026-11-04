@@ -495,7 +495,7 @@ function buildModelRelation(
     relation = call(pointer(path, action), () => relation[action](value));
   }
   if (document.junction !== undefined) {
-    relation = applyJunction(relation, document.junction, path);
+    relation = applyJunction(relation, document.junction, registry, path);
   }
   return relation;
 }
@@ -526,7 +526,7 @@ function buildVariantRelation(
 }
 
 /**
- * Junction overrides are five independent modifiers, not one bag: the document
+ * Junction overrides are independent modifiers, not one bag: the document
  * nests them so `target` cannot collide with the relation's own target key, and
  * each declared key becomes the call that writes it. An action's two spellings
  * (`onDelete` / `onDeleteSides`) are the builder's two argument forms, so the
@@ -534,6 +534,7 @@ function buildVariantRelation(
  */
 const JUNCTION_MODIFIERS = [
   ["table", "through"],
+  ["model", "through"],
   ["source", "source"],
   ["target", "target"],
   ["onDelete", "onDelete"],
@@ -545,6 +546,7 @@ const JUNCTION_MODIFIERS = [
 function applyJunction(
   relation: any,
   junction: NonNullable<ModelTargetDocument["junction"]>,
+  registry: Schema,
   path: string
 ) {
   let overridden = relation;
@@ -553,7 +555,7 @@ function applyJunction(
     const value = junction[key];
     if (value === undefined) continue;
     overridden = call(pointer(junctionPath, key), () =>
-      overridden[method](value)
+      overridden[method](key === "model" ? () => registry[value as string] : value)
     );
   }
   return overridden;

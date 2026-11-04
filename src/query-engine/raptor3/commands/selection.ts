@@ -118,6 +118,8 @@ export function membershipFields(edge: Membership): string[] {
 /**
  * One junction row's columns: each present side's referenced fields, read
  * through `read` — the planned assignment, or the attempt's executed value.
+ * A column both sides supply takes the source's: the plan checks the target's
+ * against it ({@link linkShared}), so no side silently wins.
  */
 export function junctionPairs<T>(
   edge: Extract<Membership, { kind: "junction" }>,
@@ -125,15 +127,38 @@ export function junctionPairs<T>(
   source?: Assignments,
   target?: Assignments
 ): Record<string, T> {
-  const pairs: [string, T][] = [];
+  const pairs = new Map<string, T>();
   for (const [side, owner] of [
     [edge.sourceSide, source],
     [edge.targetSide, target],
   ] as const)
     if (owner)
       for (const pair of side.members)
-        pairs.push([pair.junctionField, read(owner, pair.referencedField)]);
+        if (!pairs.has(pair.junctionField))
+          pairs.set(pair.junctionField, read(owner, pair.referencedField));
   return Object.fromEntries(pairs);
+}
+/** The columns of a declared junction both rows supply, read through `read`. */
+export function linkShared<T>(
+  edge: Extract<Membership, { kind: "junction" }>,
+  read: (owner: Assignments, field: string) => T,
+  source: Assignments,
+  target: Assignments
+): readonly { column: string; source: T; target: T }[] {
+  return edge.targetSide.members.flatMap((pair) => {
+    const stated = edge.sourceSide.members.find(
+      (candidate) => candidate.junctionField === pair.junctionField
+    );
+    return stated
+      ? [
+          {
+            column: pair.junctionField,
+            source: read(source, stated.referencedField),
+            target: read(target, pair.referencedField),
+          },
+        ]
+      : [];
+  });
 }
 
 /** A prepared row selection; observations and transport values belong to execution. */

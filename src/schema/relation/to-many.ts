@@ -77,6 +77,13 @@ export type ModelToManyRelation<State> = {
     name: Name
   ): ModelToManyRelation<Replace<State, { readonly name: Name }>>;
   through(table: string): ModelToManyRelation<State>;
+  /**
+   * A declared model as the junction: its table, columns and delegate stay its
+   * own and `.source()` / `.target()` name its to-one relations. The thunk's
+   * type is deliberately not read: the junction model's own relations point
+   * back here, so naming them in the type would resolve a circular const.
+   */
+  through(model: () => any): ModelToManyRelation<State>;
   source(token: string): ModelToManyRelation<State>;
   target(token: string): ModelToManyRelation<State>;
   onDelete<const Action extends JunctionActionDeclaration>(
@@ -100,6 +107,9 @@ class ModelToMany {
     this.#internal = Object.freeze({
       state: this.#state,
       settleTarget: createTargetSettlement(() => this.#state.target.getter),
+      settleJunctionModel: createTargetSettlement(
+        () => this.#state.junction?.model
+      ),
     });
   }
 
@@ -110,11 +120,16 @@ class ModelToMany {
     });
   }
 
-  through(table: string): ModelToMany {
-    return this.#withJunction({
-      ...this.#state.junction,
-      table: normalizeJunctionToken("through", table),
-    });
+  through(junction: string | (() => any)): ModelToMany {
+    const { table, model, ...overrides } = this.#state.junction ?? {};
+    return this.#withJunction(
+      typeof junction === "function"
+        ? { ...overrides, model: junction }
+        : {
+            ...overrides,
+            table: normalizeJunctionToken("through", junction),
+          }
+    );
   }
 
   source(token: string): ModelToMany {

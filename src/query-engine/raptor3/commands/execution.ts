@@ -5,6 +5,7 @@ import {
   UniqueConstraintError,
   UnsupportedOperationError,
 } from "@errors";
+import { Sql } from "@sql";
 import {
   type AnyModel,
   getModelKeyCatalog,
@@ -140,6 +141,17 @@ function lookupsAhead(root: CommandOccurrence): Selection[] {
 type PreparedSeries = NonNullable<ReturnType<CommandAttempt["series"]["get"]>>;
 
 /** Whether two stored assignments write the same fields with the same values. */
+/** Whether two read or stated values of one column are one stored value. */
+function sameStoredValue(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  // An expression a batch's own unit computes names no value to compare, and
+  // NULL is no value: neither can be shown to agree with anything.
+  if (a === null || b === null || a instanceof Sql || b instanceof Sql)
+    return false;
+  const comparable = (value: unknown) =>
+    value instanceof Date ? value.getTime() : String(value);
+  return comparable(a) === comparable(b);
+}
 function sameValues(a: Input, b: Input): boolean {
   const keys = Object.keys(a);
   return (
@@ -258,6 +270,19 @@ export class CommandExecution {
   #membershipValues(edge: Membership, parent: Assignments): Input {
     return this.attempt.select(parent, membershipFields(edge));
   }
+  /**
+   * What names the row a removal unlinks: its identity, and on a declared
+   * junction the target side's fields, which may read past its key. A generated
+   * side is the row key, so both answers are the identity.
+   */
+  #removalTarget(edge: Membership, target: Assignments): Input {
+    return edge.kind === "junction" && edge.declared
+      ? this.attempt.select(
+          target,
+          edge.targetSide.members.map((pair) => pair.referencedField)
+        )
+      : this.identity(target);
+  }
   #linkValues(
     edge: Extract<Membership, { kind: "junction" }>,
     source?: Assignments,
@@ -269,6 +294,23 @@ export class CommandExecution {
       source,
       target
     );
+  }
+  /**
+   * Both rows of a link supply a shared column, and one column holds one value.
+   * The foreign keys would refuse most of these, but not on a provider enforcing
+   * none, and neither key says what happened: two rows that disagree are refused
+   * here, before the statement.
+   */
+  #requireAgreement(link: Link): void {
+    for (const { column, source, target } of link.shared ?? []) {
+      const { a, b } = this.attempt.resolve({ a: source, b: target });
+      if (sameStoredValue(a, b)) continue;
+      throw new NestedWriteError(
+        `Cannot link relation '${link.edge.name}': the two rows hold different values for '${column}', a column of the junction they share.`,
+        link.edge.name,
+        { meta: { field: column, relation: link.edge.name } }
+      );
+    }
   }
   async #requireTransitions(command: RecordCommand): Promise<void> {
     const ctx = this.context;
@@ -1170,7 +1212,10 @@ export class CommandExecution {
     if (!(await this.#bindHeld(run))) return 0;
     for (const choice of run)
       if (choice.command.kind === "choose") await this.run(choice, member);
-    for (const link of links) this.#entered.add(link);
+    for (const link of links) {
+      this.#requireAgreement(link.command);
+      this.#entered.add(link);
+    }
     await this.context.linkMany(
       edge!,
       links.map(({ command }) => this.attempt.resolve(command.values)),
@@ -1851,6 +1896,7 @@ export class CommandExecution {
                 matches(this.#linkValues(removal.edge, undefined, retained))
               )
           );
+        this.#requireAgreement(command);
         await ctx.link(
           command.edge,
           attempt.resolve(command.values),
@@ -1865,7 +1911,9 @@ export class CommandExecution {
           command.source
             ? this.#membershipValues(command.edge, command.source)
             : undefined,
-          command.target ? this.identity(command.target) : undefined,
+          command.target
+            ? this.#removalTarget(command.edge, command.target)
+            : undefined,
           command.keep.map((target) => this.identity(target)),
           member
         );

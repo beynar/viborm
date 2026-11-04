@@ -157,10 +157,18 @@ export interface Choose {
     matched: Error;
   };
 }
+/** A column of a declared junction both rows of a link supply. */
+export interface SharedLinkColumn {
+  readonly column: string;
+  readonly source: FieldValue;
+  readonly target: FieldValue;
+}
 export interface Link {
   kind: "link";
   edge: Junction;
   values: Record<string, FieldValue>;
+  /** Checked when the values are known: two rows that disagree are no link. */
+  shared?: readonly SharedLinkColumn[];
   captured?: JunctionCapture;
   removals?: (Removal & { edge: Junction })[];
   /** The mutation this link is an effect of (its placement's origin, kept). */

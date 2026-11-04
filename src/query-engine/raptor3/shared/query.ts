@@ -118,6 +118,7 @@ import {
 } from "./schema";
 import {
   bindMembership,
+  linkMembers,
   type Membership,
   type PhysicalField,
   physicalField,
@@ -3502,22 +3503,20 @@ export class Queries {
     alias?: string
   ): Sql {
     return this.adapter.operators.and(
-      ...[edge.sourceSide, edge.targetSide].flatMap((side) =>
-        side.members
-          .filter((pair) => Object.hasOwn(values, pair.junctionField))
-          .map((pair) =>
-            this.adapter.operators.eq(
-              alias
-                ? this.adapter.identifiers.column(alias, pair.junctionField)
-                : this.adapter.identifiers.escape(pair.junctionField),
-              this.fieldValue(
-                side.model,
-                pair.referencedField,
-                values[pair.junctionField]
-              )
+      ...linkMembers(edge)
+        .filter(({ pair }) => Object.hasOwn(values, pair.junctionField))
+        .map(({ side, pair }) =>
+          this.adapter.operators.eq(
+            alias
+              ? this.adapter.identifiers.column(alias, pair.junctionField)
+              : this.adapter.identifiers.escape(pair.junctionField),
+            this.fieldValue(
+              side.model,
+              pair.referencedField,
+              values[pair.junctionField]
             )
           )
-      )
+        )
     );
   }
   junctionSideConditions(

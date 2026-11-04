@@ -135,6 +135,14 @@ type AtLeastOne<Value> = {
  */
 export type OrdinaryJunctionOverrides = AtLeastOne<{
   readonly table?: string;
+  /**
+   * The declared model that IS the junction, as its thunk: the two overloads of
+   * `.through()` write `table` or this, never both. `any`-returning for the same
+   * reason as a relation's getter (above): a resolved return type here is
+   * circular in the mutually recursive consts a junction model always forms.
+   */
+  readonly model?: () => any;
+  /** With `model`, the to-one relations of the junction model each side reads. */
   readonly source?: string;
   readonly target?: string;
   readonly onDelete?: JunctionSideActions;
@@ -257,6 +265,8 @@ export type RelationInternal<State> = {
   readonly state: State;
   /** Variant key for a variant target; omitted for a model target. */
   readonly settleTarget: (variantKey?: string) => unknown;
+  /** The `.through(() => model)` thunk's answer, read once; a model-target collection's only. */
+  readonly settleJunctionModel?: () => unknown;
 };
 
 /** Any relation terminal, matched by its internal brand. */

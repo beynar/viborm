@@ -90,6 +90,19 @@ export interface ResolvedJunctionSide {
   readonly onUpdate?: JunctionReferentialAction;
 }
 
+/**
+ * A junction that is a model the schema declares: the model owns its table,
+ * columns, constraints and delegate, and the serializer generates nothing.
+ */
+export interface DeclaredJunctionFacts {
+  readonly model: Model<any>;
+  /**
+   * The physical columns of the model's key over the pair, in key order: the
+   * conflict target that keeps a `connect` idempotent.
+   */
+  readonly key: readonly string[];
+}
+
 export interface ResolvedJunctionTopology {
   readonly table: string;
   readonly source: ResolvedJunctionSide;
@@ -103,6 +116,8 @@ export interface ResolvedJunctionTopology {
   readonly sourceIsFirst: boolean;
   /** The agreed relation-name claim — pair-identity input for the serializer's dedupe key. */
   readonly pairName: string | undefined;
+  /** Present on a declared model's junction; absent on every generated one. */
+  readonly declared?: DeclaredJunctionFacts;
   /** `${table}_${sideToken}_fkey` via `getJunctionConstraintName`. Memoized per side. */
   foreignKeyName(side: "source" | "target"): string;
   /** `${table}_${secondToken}_idx` over the canonical SECOND side. Memoized. */
@@ -138,6 +153,35 @@ export function resolveJunctionTopology(
     target: sideFacts(input.target, groups.target),
     pairName: input.pairName,
   });
+}
+
+/** One side of a declared junction, read off its to-one's stored reference. */
+export interface DeclaredJunctionSideInput {
+  readonly model: Model<any>;
+  readonly modelName: string;
+  /** The to-one relation's field: distinct per side, and the constraint-name input. */
+  readonly token: string;
+  /** The junction model's physical columns, index-aligned with `rowKey`. */
+  readonly fields: readonly string[];
+  /** The endpoint model's referenced fields, in stored-reference order. */
+  readonly rowKey: readonly string[];
+  readonly onDelete: JunctionReferentialAction;
+  readonly onUpdate?: JunctionReferentialAction;
+}
+
+/**
+ * A declared model's junction: the columns are the model's own, so nothing is
+ * expanded and no generated-name refusal applies. Its two to-ones are distinct
+ * relations, so the equal-token refusal cannot fire.
+ */
+export function resolveDeclaredJunctionTopology(input: {
+  readonly table: string;
+  readonly source: DeclaredJunctionSideInput;
+  readonly target: DeclaredJunctionSideInput;
+  readonly pairName: string | undefined;
+  readonly declared: DeclaredJunctionFacts;
+}): ResolvedJunctionTopology {
+  return deriveJunctionTopology(input);
 }
 
 export interface VariantMemberNames {
@@ -207,6 +251,7 @@ interface JunctionTopologyFacts {
   readonly source: JunctionSideFacts;
   readonly target: JunctionSideFacts;
   readonly pairName: string | undefined;
+  readonly declared?: DeclaredJunctionFacts;
 }
 
 /**
@@ -224,7 +269,7 @@ function sideFacts(
 function deriveJunctionTopology(
   facts: JunctionTopologyFacts
 ): ResolvedJunctionTopology {
-  const { table, source, target, pairName } = facts;
+  const { table, source, target, pairName, declared } = facts;
   const sourceIsFirst = junctionSourceSideIsFirst(
     source.modelName,
     source.fields,
@@ -242,6 +287,7 @@ function deriveJunctionTopology(
     target: resolveSide(target),
     sourceIsFirst,
     pairName,
+    ...(declared ? { declared } : {}),
     foreignKeyName(side: "source" | "target"): string {
       // The SOLE guard against duplicate `${table}_${token}_fkey` names from
       // equal side tokens whose EXPANSIONS differ in arity (explicit scalar
