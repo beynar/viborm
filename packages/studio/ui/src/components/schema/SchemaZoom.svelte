@@ -14,8 +14,9 @@ import { prefersReducedMotion } from "svelte/motion";
 
 // The diagram's zoom, in its corner. Drawn inside the canvas: `useSvelteFlow` takes its commands from the store it
 // finds when it is called. And the whole diagram in view each time the canvas takes a new size: on load, once its
-// cards are measured, when the window resizes, and when a reload brings or takes away a model.
-let { fit }: { fit: FitViewOptions } = $props();
+// cards are measured, when the window resizes, when a reload brings or takes away a model, and when the cards all
+// take new places (`placed`: the kept layout read, the layout reset).
+let { fit, placed }: { fit: FitViewOptions; placed: number } = $props();
 const flow = useSvelteFlow();
 const store = useStore();
 const measured = useNodesInitialized();
@@ -23,7 +24,7 @@ const duration = () => (prefersReducedMotion.current ? 0 : 240);
 
 let fitted = "";
 $effect(() => {
-  const size = `${store.width}x${store.height}:${store.nodes.length}`;
+  const size = `${store.width}x${store.height}:${store.nodes.length}:${placed}`;
   if (
     !measured.current ||
     store.width < 1 ||

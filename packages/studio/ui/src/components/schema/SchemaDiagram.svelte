@@ -23,9 +23,9 @@ import {
   handleOf,
   type Link,
   linksOf,
-  schemaLayout,
 } from "../../lib/diagram";
 import { fillPage } from "../../lib/fill";
+import { schemaLayout } from "../../lib/schema-layout";
 import { provideFocus, SchemaFocus } from "./focus.svelte";
 import RelationEdge from "./RelationEdge.svelte";
 import SchemaExport from "./SchemaExport.svelte";
@@ -37,7 +37,7 @@ import TableNode, { type TableData } from "./TableNode.svelte";
 
 // The schema as a diagram (Svelte Flow), after Pyxel's: a card per model, its columns with their key, their links and
 // their types, then its relations; a stepped line per relation, from the columns that hold a key to the key they
-// point to, its ends in crow's foot notation. The models pointed to stand on the left. A card moves by hand.
+// point to, its ends in crow's foot notation. Models that join each other stand together. A card moves by hand.
 let { schema }: { schema: StudioDescription } = $props();
 
 const uid = $props.id();
@@ -66,6 +66,8 @@ let held = $state.raw<Record<string, { x: number; y: number }>>({});
 /** The kept layout is read; the studio keeps it, or the browser does. */
 let loaded = false;
 let keptByStudio = false;
+/** How many times every card took a new place: the view follows them (`SchemaZoom`). */
+let placed = $state(0);
 const isLayout = (
   value: unknown
 ): value is Record<string, { x: number; y: number }> =>
@@ -95,6 +97,7 @@ $effect(() => {
       ...node,
       position: held[node.id] ?? node.position,
     }));
+    placed += 1;
     loaded = true;
   });
 });
@@ -109,7 +112,7 @@ function saveLayout(current: readonly Node<TableData>[]) {
     else localStorage.setItem(LAYOUT_KEY, JSON.stringify(held));
   }, 300);
 }
-/** The diagram as the schema lays it out: every card back to its column. */
+/** The diagram as the schema lays it out: every card back to its place. */
 function resetLayout() {
   // A move still waiting to be kept would write its places over the reset.
   clearTimeout(saving);
@@ -121,6 +124,7 @@ function resetLayout() {
     ...node,
     position: at.get(node.id) ?? node.position,
   }));
+  placed += 1;
 }
 
 function laidOut(current: StudioSchema): Node<TableData>[] {
@@ -173,20 +177,27 @@ $effect.pre(() => {
 // A card moved (or the schema reloaded): where every card stands is kept.
 $effect(() => saveLayout(nodes));
 
-/** Each line leaves and meets its cards on the sides that face each other; a model pointing to itself loops on its right. */
+/**
+ * Each line leaves and meets its cards on the sides that face each other; cards one above the other have no such
+ * sides, so the line brackets them on their right, as a model pointing to itself loops.
+ */
 const edges = $derived.by<Edge<{ link: Link; markers: string }>[]>(() => {
   const x = new Map(nodes.map((node) => [node.id, node.position.x]));
   return links.map((link) => {
-    const rightward = (x.get(link.from) ?? 0) <= (x.get(link.to) ?? 0);
+    const across = (x.get(link.to) ?? 0) - (x.get(link.from) ?? 0);
+    const stacked = Math.abs(across) < CARD_WIDTH;
     return {
       id: link.id,
       type: "relation",
       source: link.from,
       target: link.to,
-      sourceHandle: handleOf(link.fromAnchor, rightward ? "right" : "left"),
+      sourceHandle: handleOf(
+        link.fromAnchor,
+        stacked || across > 0 ? "right" : "left"
+      ),
       targetHandle: handleOf(
         link.toAnchor,
-        rightward && link.from !== link.to ? "left" : "right"
+        !stacked && across > 0 ? "left" : "right"
       ),
       selectable: false,
       deletable: false,
@@ -231,7 +242,7 @@ const edges = $derived.by<Edge<{ link: Link; markers: string }>[]>(() => {
   >
     <!-- Inside the viewport, so an export of it keeps the lines' ends. -->
     <ViewportPortal target="back"><SchemaMarkers id={markers} /></ViewportPortal>
-    <SchemaZoom fit={FIT} />
+    <SchemaZoom fit={FIT} {placed} />
     <SchemaFind {schema} />
     <SchemaExport name="schema-{schema.dialect}" />
   </SvelteFlow>

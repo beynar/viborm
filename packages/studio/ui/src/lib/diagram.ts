@@ -1,14 +1,12 @@
 // What the schema diagram shows, computed here; `SchemaDiagram` draws it.
 // Each model is a card of its columns then its relations; each edge a line
 // from the columns that hold a key to the key they point to, its ends in
-// crow's foot notation. Layout and line routing follow Pyxel's diagram.
+// crow's foot notation. Where the cards stand is `schema-layout`.
 import type { StudioEdge, StudioModel, StudioSchema } from "./api";
 
 export const CARD_WIDTH = 280;
 export const CARD_HEADER = 44;
 export const CARD_ROW = 28;
-const COLUMN_GAP = 220;
-const ROW_GAP = 96;
 
 export const cardHeight = (model: StudioModel) =>
   CARD_HEADER +
@@ -74,60 +72,4 @@ export function linksOf(schema: StudioSchema): Link[] {
       };
     });
   });
-}
-
-/**
- * Where each card stands: the models pointed to on the left, each model one
- * column right of the deepest it points to; in a column, by name, one under
- * another. A loop of relations stops where it would come back.
- */
-export function schemaLayout(
-  schema: StudioSchema
-): Map<string, { x: number; y: number }> {
-  const byName = new Map(schema.models.map((model) => [model.name, model]));
-  const pointsTo = new Map<string, string[]>();
-  for (const edge of schema.edges) {
-    if (edge.kind === "many-to-many" || edge.from.model === edge.to.model) {
-      continue;
-    }
-    const targets = pointsTo.get(edge.from.model) ?? [];
-    targets.push(edge.to.model);
-    pointsTo.set(edge.from.model, targets);
-  }
-  const levels = new Map<string, number>();
-  const levelOf = (name: string, seen: ReadonlySet<string>): number => {
-    const known = levels.get(name);
-    if (known !== undefined) return known;
-    const targets = (pointsTo.get(name) ?? []).filter(
-      (target) => !seen.has(target) && byName.has(target)
-    );
-    const level =
-      targets.length > 0
-        ? 1 +
-          Math.max(
-            ...targets.map((target) =>
-              levelOf(target, new Set([...seen, name]))
-            )
-          )
-        : 0;
-    levels.set(name, level);
-    return level;
-  };
-  for (const model of schema.models) levelOf(model.name, new Set());
-  const columns = new Map<number, StudioModel[]>();
-  for (const model of [...schema.models].sort((a, b) =>
-    a.name.localeCompare(b.name)
-  )) {
-    const level = levels.get(model.name) ?? 0;
-    columns.set(level, [...(columns.get(level) ?? []), model]);
-  }
-  const at = new Map<string, { x: number; y: number }>();
-  for (const [level, column] of columns) {
-    let y = 0;
-    for (const model of column) {
-      at.set(model.name, { x: level * (CARD_WIDTH + COLUMN_GAP), y });
-      y += cardHeight(model) + ROW_GAP;
-    }
-  }
-  return at;
 }
