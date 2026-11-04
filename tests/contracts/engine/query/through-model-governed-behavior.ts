@@ -477,4 +477,150 @@ export function runThroughModelGovernedBehavior(options: {
       });
     });
   });
+
+  describe(`${options.name} a junction no other relation reaches, its tenant its own column`, () => {
+    const standalone = () => {
+      const looseLink = s
+        .model({
+          childId: s.string(),
+          parentId: s.string(),
+          organizationId: s.string().nullable(),
+          note: s.string().default("linked"),
+          child: s
+            .toOne(() => looseTeam)
+            .fields("childId")
+            .references("id")
+            .onDelete("cascade"),
+          parent: s
+            .toOne(() => looseTeam)
+            .fields("parentId")
+            .references("id")
+            .onDelete("cascade"),
+        })
+        .id(["childId", "parentId"]);
+      const looseTeam = s.model({
+        id: s.string().id(),
+        organizationId: s.string(),
+        name: s.string(),
+        __through_0: s.string().default("the team's own"),
+        parents: s
+          .toMany(() => looseTeam)
+          .name("looseGraph")
+          .through(() => looseLink)
+          .source("child")
+          .target("parent"),
+        children: s.toMany(() => looseTeam).name("looseGraph"),
+      });
+      return { looseTeam, looseLink };
+    };
+    const base = createClient({
+      schema: standalone(),
+      driver: options.createDriver(),
+    });
+    const loose = base as any;
+
+    beforeAll(async () => {
+      await syncLiveSchema(base);
+    });
+    beforeEach(async () => {
+      await base.looseLink.deleteMany({});
+      await base.looseTeam.deleteMany({});
+      await base.looseTeam.createMany({
+        data: ["a", "b", "d"].map((id) => ({
+          id,
+          organizationId: "o1",
+          name: id === "b" ? "root" : "team",
+        })),
+      });
+      await base.looseLink.createMany({
+        data: [
+          { childId: "a", parentId: "b", organizationId: "o2", note: "ab" },
+          { childId: "d", parentId: "b", organizationId: "o1", note: "db" },
+        ],
+      });
+    });
+    afterAll(async () => {
+      await base.$disconnect();
+    });
+
+    test("a hook on the junction refuses $through though no relation reaches it, and a hop still links", async () => {
+      await base.looseLink.deleteMany({});
+      const seen: string[] = [];
+      const hooked = loose.$extends(
+        (on as any)({
+          looseLink: {
+            create: () => seen.push("created"),
+            update: () => seen.push("updated"),
+          },
+        })
+      );
+      await expect(
+        hooked.looseTeam.update({
+          where: { id: "a" },
+          data: {
+            parents: {
+              connect: { id: "b", $through: { organizationId: "o1" } },
+            },
+          },
+        })
+      ).rejects.toThrow(THIS_CLIENT);
+      expect(await base.looseLink.count()).toBe(0);
+      await hooked.looseTeam.update({
+        where: { id: "a" },
+        data: { parents: { connect: { id: "b" } } },
+      });
+      expect(await base.looseLink.count()).toBe(1);
+      expect(seen).toEqual([]);
+    });
+
+    test("a tenant over a column the link's keys do not hold drops no link", async () => {
+      const governed = (except: readonly string[]) =>
+        loose
+          .$extends(
+            permissions({
+              actor: Actor,
+              tenant: {
+                field: "organizationId",
+                actor: "organizationId",
+                except,
+              },
+              models: {
+                looseTeam: {
+                  mandatory: { organizationId: { actor: "organizationId" } },
+                  read: { parents: { some: { name: "root" } } },
+                },
+                looseLink: { read: true },
+              },
+            } as never)
+          )
+          .$as({ organizationId: "o1" });
+      const ids = async (client: any) =>
+        (
+          await client.looseTeam.findMany({
+            orderBy: { id: "asc" },
+            select: { id: true },
+          })
+        ).map((team: { id: string }) => team.id);
+      expect(await ids(governed(["looseLink"]))).toEqual(["a", "d"]);
+      expect(await ids(governed([]))).toEqual(["a", "d"]);
+    });
+
+    test("a target column named as an internal alias leaves $through its own", async () => {
+      expect(
+        await base.looseTeam.findUniqueOrThrow({
+          where: { id: "a" },
+          select: {
+            parents: {
+              select: {
+                __through_0: true,
+                $through: { select: { note: true } },
+              },
+            },
+          },
+        })
+      ).toEqual({
+        parents: [{ __through_0: "the team's own", $through: { note: "ab" } }],
+      });
+    });
+  });
 }

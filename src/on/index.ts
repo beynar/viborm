@@ -435,8 +435,8 @@ const reached = new WeakMap<AnyModel, ReadonlySet<string>>();
 /**
  * The models a nested write from `model` can write, itself included: every
  * model its relations reach, transitively, every variant of a polymorphic
- * one. A payload that names a relation concerns no hook unless one of them
- * has one.
+ * one, and a declared junction. A payload that names a relation concerns no
+ * hook unless one of them has one.
  */
 function reachable(model: AnyModel): ReadonlySet<string> {
   const known = reached.get(model);
@@ -453,11 +453,15 @@ function reachable(model: AnyModel): ReadonlySet<string> {
       const { target } = internal.state;
       const variants =
         target.kind === "variants" ? Object.keys(target.entries) : [undefined];
-      for (const variant of variants) {
-        const found = internal.settleTarget(variant) as AnyModel;
-        if (seen.has(found)) continue;
-        seen.add(found);
-        pending.push(found);
+      const found = variants.map(
+        (variant) => internal.settleTarget(variant) as AnyModel
+      );
+      if (internal.state.junction?.model)
+        found.push(internal.settleJunctionModel!() as AnyModel);
+      for (const other of found) {
+        if (seen.has(other)) continue;
+        seen.add(other);
+        pending.push(other);
       }
     }
   }

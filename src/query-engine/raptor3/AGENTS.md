@@ -2823,4 +2823,5 @@ projects the link the page already joins (`#memberSource`), the filter forces th
 join so a link's and a target's conditions test one pair, and what a direct call
 would hide or judge refuses it (`#refuseHiddenLinkRow`, `restrictsLinkWrite`,
 `#admitLink`). `#linkBound` applies a model's `tenant` bound at every hop's link
-alias, under the same polarity as `#setBound`.
+alias, under the same polarity as `#setBound`, only over columns both of the
+link's keys hold: over any other, a link may disagree with the rows it joins.

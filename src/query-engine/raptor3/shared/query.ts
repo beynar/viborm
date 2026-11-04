@@ -2943,16 +2943,26 @@ export class Queries {
   }
   /**
    * What a declared junction's link rows may hold while a layer's predicates
-   * lower here, where a positive test reads them ({@link setBound}): a link is a
-   * row of a model too, and one holding the tenant's field stays in it, so a walk
-   * reads its tenant's links rather than filtering the whole table's. A generated
+   * lower here, where a positive test reads them ({@link setBound}), so a walk
+   * reads its tenant's links rather than filtering the whole table's. Only a
+   * bound over columns both of a link's keys hold: their foreign keys make them
+   * the joined rows' own, so it changes no answer. Over any other column a link
+   * may disagree with the rows it joins, and a bound would drop it. A generated
    * junction has no field to bound.
    */
   #linkBound(
     edge: Extract<Membership, { kind: "junction" }>,
     link: string
   ): readonly Sql[] {
-    return edge.declared ? this.#setBound(edge.declared.model, link) : [];
+    const model = edge.declared?.model;
+    const bound = model && this.#boundOf(model);
+    if (!bound) return [];
+    const holds = (side: typeof edge.sourceSide, field: string) =>
+      side.members.some((pair) => pair.junctionField === field);
+    for (const field of bound.facts.fields)
+      if (!(holds(edge.sourceSide, field) && holds(edge.targetSide, field)))
+        return [];
+    return this.#setBound(model, link);
   }
   /** {@link setBound}'s selector, where one applies here. */
   #boundOf(model: AnyModel): PreparedSelector | undefined {
@@ -9311,8 +9321,9 @@ export class Queries {
     const lowered = linkWhere && this.lowerSelector(linkWhere, source.link);
     // The link row is the one this page's own join reads the target through,
     // flat here and an object below: a JSON column in a page would have no
-    // equality for `DISTINCT`, and a key holds at most one row per target.
-    const linkColumn = (index: number) => `__through_${index}`;
+    // equality for `DISTINCT`, and a key holds at most one row per target. No
+    // member's name holds a `$` (F001), so none of the page's columns is this.
+    const linkColumn = (index: number) => `$through_${index}`;
     if (linkRow)
       for (const [index, field] of linkRow.fields.entries())
         child.push(
