@@ -260,8 +260,7 @@ junction table for it. Reads, filters, `recurse` and counts on the relation work
 as on any many-to-many.
 
 ```ts
-const teamParent = s
-  .model({
+const teamParent = s.model({
     organizationId: s.string(),
     childId: s.string(),
     parentId: s.string(),
@@ -280,8 +279,7 @@ const teamParent = s
   })
   .id(["childId", "parentId"]);
 
-const team = s
-  .model({
+const team = s.model({
     id: s.string().id(),
     organizationId: s.string(),
     parents: s
