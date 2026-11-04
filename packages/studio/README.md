@@ -17,7 +17,8 @@ imports `defineConfig` from `"viborm/config"` (a monorepo's
 the studio on `http://127.0.0.1:5577` and opens it.
 
 - **Schema:** each model's columns with their types, nullability, primary and
-  unique keys, and each relation as a line in crow's foot notation. Click a
+  unique keys, and each relation as a line in crow's foot notation. Models
+  that join each other stand together. Click a
   model or a relation to light up what it reaches, find a model by name,
   export the diagram as PNG or SVG. Each model gets an icon guessed from its
   name.
