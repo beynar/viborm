@@ -28,6 +28,7 @@ export type ModelShape = Record<string, AnyModelField>;
 export type DeclaredModelShape = ModelShape & {
   readonly _count?: "`_count` is reserved for relation counts (F010)";
   readonly _distance?: "`_distance` is reserved for distance results (F010)";
+  readonly $through?: "`$through` is reserved for a relation's link row (F010)";
 };
 
 export type NameFromKeys<

@@ -404,12 +404,13 @@ export function compoundConstraintsNonEmpty(
 const RESERVED_MEMBER_NAMES = {
   _count: "relation counts",
   _distance: "distance results",
+  $through: "a relation's link row, the columns of its junction model",
 } as const;
 
 /**
  * F010: a model member never takes a reserved name.
  *
- * A member named `_count` or `_distance` — a scalar, a relation or a variant
+ * A member named `_count`, `_distance` or `$through` — a scalar, a relation or a variant
  * slot — would give that output key two producers, and every reader of a
  * selection (admission, the engine's projection, the schema-only renderer,
  * the static types) then needs its own answer to which one wins. Refusing the

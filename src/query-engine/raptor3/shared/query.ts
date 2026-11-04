@@ -246,8 +246,15 @@ type RelationProjectionArguments = Pick<
 > & {
   readonly selector?: Pick<PreparedSelector, "model" | "predicate">;
 };
+/** The link row columns one relation node reads: `$through`. */
+interface PreparedLinkRow {
+  readonly model: AnyModel;
+  readonly fields: readonly string[];
+  readonly shape: Extract<ProjectionShape, { kind: "object" }>;
+}
 interface PreparedRelationProjection {
   readonly edge: Membership;
+  readonly linkRow?: PreparedLinkRow;
   readonly arguments: RelationProjectionArguments;
   readonly projection: PreparedProjection;
   readonly recurrence?: NormalizedRecurrence;
@@ -8475,7 +8482,15 @@ export class Queries {
     return freeze({
       kind: "collection",
       reversed: take !== undefined && take < 0 ? true : undefined,
-      row: nested.projection.shape,
+      row: nested.linkRow
+        ? freeze({
+            ...nested.projection.shape,
+            fields: freeze({
+              ...nested.projection.shape.fields,
+              $through: nested.linkRow.shape,
+            }),
+          })
+        : nested.projection.shape,
     });
   }
   /** A missing point/vector or a zero-norm cosine distance has no number. */
@@ -8490,15 +8505,85 @@ export class Queries {
           distance.metric === "cosine"),
     });
   }
+  /**
+   * A node's `$through`, and its arguments without it: the key is the slot's,
+   * not a field of the target its projection reads. Admission mounted it only
+   * on a slot a declared model holds, so no other slot has anything to take.
+   *
+   * It RETURNS the junction model's columns, so it is a read of that model,
+   * unlike the hop beside it. Whatever a direct read of them would hide on
+   * this client refuses the key, before any statement: a row its `rows` hide
+   * or a field a gate masks has no faithful answer in a value the hop already
+   * reached (the target row is there; the link it came through is not to be
+   * told). `defaultOmit` is presentation, and is settled at the client.
+   */
+  #prepareLinkRow(edge: Membership, nested: Partial<Arguments>) {
+    if (edge.kind !== "junction" || !edge.declared)
+      return { nested, linkRow: undefined };
+    const { select, include } = nested as {
+      select?: Record<string, unknown>;
+      include?: Record<string, unknown>;
+    };
+    const asked = select?.$through ?? include?.$through;
+    if (select?.$through === undefined && include?.$through === undefined)
+      return { nested, linkRow: undefined };
+    const without = (map: Record<string, unknown> | undefined) => {
+      if (!map) return {};
+      const { $through: _taken, ...rest } = map;
+      return rest;
+    };
+    const rest = {
+      ...nested,
+      ...(select && { select: without(select) }),
+      ...(include && { include: without(include) }),
+    };
+    if (!asked) return { nested: rest, linkRow: undefined };
+    const model = edge.declared.model;
+    const named = Object.entries(record(record(asked).select))
+      .filter(([, wanted]) => wanted === true)
+      .map(([field]) => field);
+    const name = model["~"].names.ts;
+    if (
+      this.domainOf(model, "root") !== undefined ||
+      this.domainOf(model, "related") !== undefined
+    )
+      throw new UnsupportedOperationError(
+        `Cannot read $through of relation '${edge.name}': this client restricts which '${name}' rows a call may read, and a link row is one of them. Read the links through the '${name}' delegate.`
+      );
+    const gates = this.domain?.projected(model)?.gates;
+    const gated = gates && named.find((field) => gates.has(field));
+    if (gated !== undefined)
+      throw new UnsupportedOperationError(
+        `Cannot read $through.${gated} of relation '${edge.name}': this client gates that field of '${name}'. Read it through the '${name}' delegate.`
+      );
+    return {
+      nested: rest,
+      linkRow: freeze({
+        model,
+        fields: freeze(named),
+        shape: freeze({
+          kind: "object" as const,
+          fields: freeze(
+            Object.fromEntries(
+              named.map((field) => [field, this.scalarShape(model, field)])
+            )
+          ),
+        }),
+      }),
+    };
+  }
   #prepareRelationProjection(
     edge: Membership,
     selection: unknown,
     path = ""
   ): PreparedRelationProjection {
-    const nested =
-      selection === true ? {} : (record(selection) as Partial<Arguments>);
+    const { nested, linkRow } = this.#prepareLinkRow(
+      edge,
+      selection === true ? {} : (record(selection) as Partial<Arguments>)
+    );
     return freeze({
       edge,
+      ...(linkRow && { linkRow }),
       arguments: freeze({
         selector: nested.where
           ? this.prepareSelector(edge.target, nested.where, false, false)
@@ -9083,7 +9168,7 @@ export class Queries {
     alias: string
   ): Sql {
     const a = this.adapter;
-    const { edge, arguments: nested, projection } = relation;
+    const { edge, arguments: nested, projection, linkRow } = relation;
     const childAlias = this.#rowAlias(edge.target);
     const child = this.lowerProjection(projection, childAlias, true);
     const childFields = Object.keys(projection.shape.fields);
@@ -9091,6 +9176,18 @@ export class Queries {
     // correlation scope; `take: -n` reverses the window exactly as at the root.
     const window = this.#page(edge.target, nested, childAlias, "related");
     const source = this.#memberSource(edge, alias, childAlias);
+    // The link row is the one this page's own join reads the target through,
+    // flat here and an object below: a JSON column in a page would have no
+    // equality for `DISTINCT`, and a key holds at most one row per target.
+    const linkColumn = (index: number) => `__through_${index}`;
+    if (linkRow)
+      for (const [index, field] of linkRow.fields.entries())
+        child.push(
+          a.identifiers.aliased(
+            this.projectedColumn(linkRow.model, field, source.link),
+            linkColumn(index)
+          )
+        );
     const page = assembleAdapterSelect(a, {
       columns: sql.join(child, ", "),
       from: source.from,
@@ -9128,7 +9225,10 @@ export class Queries {
             distinct: window.distinct,
             distinctOrderBy: window.distinctOrderBy,
             distinctOrder: window.distinctOrder,
-            distinctColumnAliases: projection.fields.map((field) => field.name),
+            distinctColumnAliases: [
+              ...projection.fields.map((field) => field.name),
+              ...(linkRow ? linkRow.fields.map((_, i) => linkColumn(i)) : []),
+            ],
           }
         : {}),
     });
@@ -9142,6 +9242,19 @@ export class Queries {
     ]);
     for (const gate of projection.shape.gates ?? NO_GATES)
       members.push([gate, a.identifiers.column(pageAlias, gate)]);
+    if (linkRow)
+      members.push([
+        "$through",
+        a.json.object(
+          linkRow.fields.map((field, index): [string, Sql] => [
+            field,
+            this.#carriedValue(
+              linkRow.shape.fields[field]!,
+              a.identifiers.column(pageAlias, linkColumn(index))
+            ),
+          ])
+        ),
+      ]);
     const object = a.json.object(members);
     const expression = a.subqueries.scalar(
       assembleAdapterSelect(a, {
@@ -9235,7 +9348,7 @@ export class Queries {
     edge: Membership,
     parent: string,
     child: string
-  ): { from: Sql; joins?: Sql[]; where: Sql } {
+  ): { from: Sql; joins?: Sql[]; where: Sql; link?: string } {
     if (edge.kind !== "junction")
       return {
         from: this.#attached(edge.target, child),
@@ -9243,6 +9356,7 @@ export class Queries {
       };
     const link = this.alias();
     return {
+      link,
       from: this.adapter.identifiers.table(edge.table, link),
       joins: [this.#junctionTarget(edge, link, child)],
       where: this.adapter.operators.and(

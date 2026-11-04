@@ -1090,9 +1090,21 @@ function settleJunctionModels(
   const pairs = new Map<Endpoint, ModelJunctionPair>();
   const sides = new Set<Endpoint>();
   const claims = new Map<Model<any>, string>();
+  // A to-one with nothing to pair with is expected of a junction's side, and
+  // reporting it would only distract from why that junction was refused.
+  const exempt = (side: Endpoint) => {
+    const verdict = verdicts.get(side);
+    if (
+      verdict?.kind === "missing" ||
+      (verdict?.kind === "nameMismatch" &&
+        structural
+          .get(side)!
+          .every((candidate) => verdicts.get(candidate)?.kind === "paired"))
+    )
+      sides.add(side);
+  };
   for (const endpoint of declaring) {
     const { node } = endpoint;
-    const verdict = verdicts.get(endpoint);
     const holder = { holderName: node.modelName, holderField: node.field };
     let settled: unknown;
     try {
@@ -1120,117 +1132,133 @@ function settleJunctionModels(
       );
       continue;
     }
-    if (verdict?.kind !== "paired") continue;
-    const partner = verdict.partner;
-    if (
-      endpoint.cardinality !== "many" ||
-      partner.cardinality !== "many" ||
-      partner.variant !== undefined ||
-      verdicts.get(partner)?.kind !== "paired" ||
-      // Two endpoints declaring one junction is R011's, from the ordinary path.
-      partner.node.state.junction !== undefined
-    )
-      continue;
-
-    const model = registered.model;
-    const modelName = registered.name;
-    const context: JunctionModelContext = {
-      model,
-      modelName,
-      declaredAt: path(endpoint),
-      ...holder,
-    };
-    const claimedBy = claims.get(model);
-    if (claimedBy !== undefined) {
-      issues.push(
-        junctionIssue(
-          "JT010",
-          holder,
-          `'${modelName}' is already the junction of '${claimedBy}', and one model holds one pair`,
-          `Declare a separate junction model for '${context.declaredAt}'`
-        )
-      );
+    const held = byHolder.get(registered.model) ?? [];
+    const pair = settleJunctionPair(
+      endpoint,
+      registered,
+      held,
+      verdicts,
+      claims,
+      issues
+    );
+    if (!pair) {
+      for (const candidate of held)
+        if (candidate.cardinality === "one") exempt(candidate);
       continue;
     }
-    claims.set(model, context.declaredAt);
-    const relations: Record<string, AnyRelation> = model["~"].state.relations;
-    if (
-      Object.values(relations).some(
-        (relation) => relation["~"].state.target.kind === "variants"
-      )
-    ) {
-      issues.push(
-        junctionIssue(
-          "JT007",
-          holder,
-          `'${modelName}' stores a polymorphic relation, so it cannot be the junction of '${context.declaredAt}'`,
-          `Remove the polymorphic relation from '${modelName}', or use it through its own delegate`
-        )
-      );
-      continue;
-    }
-    const held = byHolder.get(model) ?? [];
-    const candidates = held
-      .filter((candidate) => candidate.cardinality === "one")
-      .map((candidate) => ({
-        field: candidate.node.field,
-        target: candidate.target,
-      }));
-    const overrides = node.state.junction!;
-    const choose = (side: "source" | "target", at: Endpoint) =>
-      chooseJunctionSide({
-        context,
-        side,
-        named: overrides[side],
-        endpointModel: at.node.slot.source,
-        endpointName: at.node.modelName,
-        selfRelation: endpoint.node.slot.source === partner.node.slot.source,
-        candidates,
-        issues,
-      });
-    const sourceName = choose("source", endpoint);
-    const targetName = choose("target", partner);
-    if (sourceName === undefined || targetName === undefined) continue;
-    const source = settleSide(context, "source", sourceName, endpoint, held, issues);
-    const target = settleSide(context, "target", targetName, partner, held, issues);
-    if (!(source && target)) continue;
-    if (source === target) {
-      issues.push(
-        junctionIssue(
-          "JT005",
-          holder,
-          `'${context.declaredAt}' names '${sourceName}' as both of its sides`,
-          `Name two different to-one relations of '${modelName}'`
-        )
-      );
-      continue;
-    }
-    const firstIsDeclaring = endpoint.order < partner.order;
-    const first = firstIsDeclaring ? endpoint : partner;
-    const second = firstIsDeclaring ? partner : endpoint;
-    pairs.set(first, {
-      first,
-      second,
-      model,
-      modelName,
-      context,
-      firstSide: firstIsDeclaring ? source : target,
-      secondSide: firstIsDeclaring ? target : source,
-    });
-    for (const side of [source, target]) {
-      const sideVerdict = verdicts.get(side);
-      // A real inverse pairs ordinarily, and a name disagreement with a slot
-      // that pairs nowhere else is still that slot's mistake to report.
-      const free =
-        sideVerdict?.kind === "missing" ||
-        (sideVerdict?.kind === "nameMismatch" &&
-          structural
-            .get(side)!
-            .every((candidate) => verdicts.get(candidate)?.kind === "paired"));
-      if (free) sides.add(side);
-    }
+    pairs.set(pair.first, pair);
+    exempt(pair.firstSide);
+    exempt(pair.secondSide);
   }
   return { pairs, sides, cause: undefined };
+}
+
+/** One declaring endpoint's pair and its two sides; refused pairs say why. */
+function settleJunctionPair(
+  endpoint: Endpoint,
+  registered: RegisteredModel,
+  held: readonly Endpoint[],
+  verdicts: ReadonlyMap<Endpoint, Verdict>,
+  claims: Map<Model<any>, string>,
+  issues: SchemaValidationIssue[]
+): ModelJunctionPair | undefined {
+  const { node } = endpoint;
+  const holder = { holderName: node.modelName, holderField: node.field };
+  // A pair that did not pair, or a to-one declaring it, has its own diagnostic.
+  const verdict = verdicts.get(endpoint);
+  if (verdict?.kind !== "paired") return undefined;
+  const partner = verdict.partner;
+  if (
+    endpoint.cardinality !== "many" ||
+    partner.cardinality !== "many" ||
+    partner.variant !== undefined ||
+    verdicts.get(partner)?.kind !== "paired" ||
+    // Two endpoints declaring one junction is R011's, from the ordinary path.
+    partner.node.state.junction !== undefined
+  )
+    return undefined;
+
+  const { model, name: modelName } = registered;
+  const context: JunctionModelContext = {
+    model,
+    modelName,
+    declaredAt: path(endpoint),
+    ...holder,
+  };
+  const claimedBy = claims.get(model);
+  if (claimedBy !== undefined) {
+    issues.push(
+      junctionIssue(
+        "JT010",
+        holder,
+        `'${modelName}' is already the junction of '${claimedBy}', and one model holds one pair`,
+        `Declare a separate junction model for '${context.declaredAt}'`
+      )
+    );
+    return undefined;
+  }
+  claims.set(model, context.declaredAt);
+  const relations: Record<string, AnyRelation> = model["~"].state.relations;
+  if (
+    Object.values(relations).some(
+      (relation) => relation["~"].state.target.kind === "variants"
+    )
+  ) {
+    issues.push(
+      junctionIssue(
+        "JT007",
+        holder,
+        `'${modelName}' stores a polymorphic relation, so it cannot be the junction of '${context.declaredAt}'`,
+        `Remove the polymorphic relation from '${modelName}', or use it through its own delegate`
+      )
+    );
+    return undefined;
+  }
+  const candidates = held
+    .filter((candidate) => candidate.cardinality === "one")
+    .map((candidate) => ({
+      field: candidate.node.field,
+      target: candidate.target,
+    }));
+  const overrides = node.state.junction!;
+  const choose = (side: "source" | "target", at: Endpoint) =>
+    chooseJunctionSide({
+      context,
+      side,
+      named: overrides[side],
+      endpointModel: at.node.slot.source,
+      endpointName: at.node.modelName,
+      selfRelation: endpoint.node.slot.source === partner.node.slot.source,
+      candidates,
+      issues,
+    });
+  const sourceName = choose("source", endpoint);
+  const targetName = choose("target", partner);
+  if (sourceName === undefined || targetName === undefined) return undefined;
+  const source = settleSide(context, "source", sourceName, endpoint, held, issues);
+  const target = settleSide(context, "target", targetName, partner, held, issues);
+  if (!(source && target)) return undefined;
+  if (source === target) {
+    issues.push(
+      junctionIssue(
+        "JT005",
+        holder,
+        `'${context.declaredAt}' names '${sourceName}' as both of its sides`,
+        `Name two different to-one relations of '${modelName}'`
+      )
+    );
+    return undefined;
+  }
+  const firstIsDeclaring = endpoint.order < partner.order;
+  return {
+    first: firstIsDeclaring ? endpoint : partner,
+    second: firstIsDeclaring ? partner : endpoint,
+    model,
+    modelName,
+    context,
+    firstSide: firstIsDeclaring ? source : target,
+    secondSide: firstIsDeclaring ? target : source,
+  };
 }
 
 /** The endpoint of the relation a side names, proven to be a usable side. */

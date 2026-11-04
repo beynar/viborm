@@ -14,6 +14,10 @@ import {
 } from "../model/args/pagination";
 import { rejectSelectInclude } from "../model/args/select-include-exclusivity";
 import { projectableScalarNames } from "../model/core/projection";
+import {
+  getThroughSelectSchema,
+  type ThroughSelectSchema,
+} from "../model/core/select";
 import v, { type V } from "../primitives/v";
 import type { VibSchema } from "../types";
 import type { GetTargetSchemas, SchemaGetter, TargetModel } from "./helpers";
@@ -95,8 +99,68 @@ type ProjectionWithoutAsking<Schema extends V.Object<any, any>, Key> = V.Object<
     Record<Extract<Key, string>, ReturnType<typeof askingKeyRefusal>>
 >;
 
-const projectionWithoutAsking = (schema: V.Object<any, any>, key: string) =>
-  schema.extend({ [key]: askingKeyRefusal(key) });
+const projectionWithoutAsking = (
+  schema: V.Object<any, any>,
+  key: string,
+  throughModel: AnyModel | undefined
+) =>
+  schema.extend({
+    [key]: askingKeyRefusal(key),
+    ...(throughModel && { $through: THROUGH_ON_A_WALK }),
+  });
+
+/** A walk has no one link row to report: a row is reached once per path. */
+const THROUGH_ON_A_WALK = v.optional(
+  v.refused(
+    "$through is not available on a recurse walk: a row reached through two parents has one link row per path. Read the links through the junction model's own delegate"
+  )
+);
+
+/** The declared model holding this slot's junction, where one does. */
+const junctionModelOf = (resolved: ResolvedSlot): AnyModel | undefined =>
+  resolved.edge.kind === "junction"
+    ? resolved.edge.topology.declared?.model
+    : undefined;
+
+/**
+ * The target's projection as this slot reads it: its own schemas, with
+ * `$through` beside the slot's link row. The target's schemas are the model's,
+ * shared by every slot reaching it, so the key is added here and not there.
+ */
+const coreWithThrough = <Core extends ToManyNestedTargetCore>(
+  core: () => Core,
+  model: AnyModel | undefined
+): (() => Core) => {
+  if (!model) return core;
+  const through = { $through: getThroughSelectSchema(model) };
+  let select: VibSchema<any, any> | undefined;
+  let include: VibSchema<any, any> | undefined;
+  return () => {
+    const own = core();
+    return {
+      get where() {
+        return own.where;
+      },
+      get orderBy() {
+        return own.orderBy;
+      },
+      get whereUnique() {
+        return own.whereUnique;
+      },
+      get omit() {
+        return own.omit;
+      },
+      get select() {
+        select ??= (own.select as V.Object<any, any>).extend(through);
+        return select;
+      },
+      get include() {
+        include ??= (own.include as V.Object<any, any>).extend(through);
+        return include;
+      },
+    } as Core;
+  };
+};
 
 /** The clauses a to-many recursive node adds beside the shared entries. */
 type RecursiveClauses = Readonly<
@@ -117,7 +181,8 @@ const buildRecursiveNode = <S extends RelationState, T extends SchemaGetter<S>>(
   field: string,
   recurrence: RecurrenceSchema,
   targetSchemas: T,
-  collectionClauses: RecursiveClauses = {}
+  collectionClauses: RecursiveClauses = {},
+  throughModel?: AnyModel
 ) =>
   v.coerce(
     withNestedOmit(
@@ -126,9 +191,17 @@ const buildRecursiveNode = <S extends RelationState, T extends SchemaGetter<S>>(
         v.object({
           ...collectionClauses,
           select: () =>
-            projectionWithoutAsking(targetSchemas().core.select, field),
+            projectionWithoutAsking(
+              targetSchemas().core.select,
+              field,
+              throughModel
+            ),
           include: () =>
-            projectionWithoutAsking(targetSchemas().core.include, field),
+            projectionWithoutAsking(
+              targetSchemas().core.include,
+              field,
+              throughModel
+            ),
           omit: () => targetSchemas().core.omit,
           recurse: recurrence,
         })
@@ -158,7 +231,8 @@ const withRecurrence = <S extends RelationState, T extends SchemaGetter<S>>(
       resolved.slot.field,
       recurrence,
       targetSchemas,
-      collectionClauses?.()
+      collectionClauses?.(),
+      junctionModelOf(resolved)
     )
   );
 };
@@ -443,6 +517,26 @@ type ToManyRecursiveNodeSchema<
   >
 >;
 
+/**
+ * The target's core as a slot with a declared junction model reads it, and the
+ * target's own core everywhere else. `any`-compared on the getter, so nothing
+ * here resolves the junction model until a query's own selection reads it.
+ */
+type ThroughCore<S extends RelationState, Core extends ToManyNestedTargetCore> =
+  S extends { readonly junction: { readonly model: () => infer M } }
+    ? M extends AnyModel
+      ? Omit<Core, "select" | "include"> & {
+          readonly select: WithThroughKey<Core["select"], M>;
+          readonly include: WithThroughKey<Core["include"], M>;
+        }
+      : Core
+    : Core;
+
+type WithThroughKey<Schema, M extends AnyModel> =
+  Schema extends V.Object<infer Entries, infer Options>
+    ? V.Object<Entries & { $through: ThroughSelectSchema<M> }, Options>
+    : never;
+
 export type ToManyIncludeSchema<
   Source extends AnyModel,
   Key,
@@ -451,7 +545,7 @@ export type ToManyIncludeSchema<
   readonly [
     BooleanToSelect,
     ToManyNestedNodeSchema<
-      GetTargetSchemas<S>["core"],
+      ThroughCore<S, GetTargetSchemas<S>["core"]>,
       NestedDistinctSchema<S>
     >,
     ToManyRecursiveNodeSchema<Source, Key, S>,
@@ -472,7 +566,10 @@ export const toManyIncludeFactory = <
     buildToManyNestedNode({
       targetModel: getTargetModel(relation),
       label: nestedOmitLabel(relation),
-      core: () => targetSchemas().core,
+      core: coreWithThrough(
+        () => targetSchemas().core,
+        junctionModelOf(resolved)
+      ),
       scalarNames: nestedDistinctNames<S>(relation),
     }),
   ]);

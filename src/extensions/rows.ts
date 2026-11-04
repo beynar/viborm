@@ -447,6 +447,11 @@ function modelVerbs(
       if (entry === undefined) continue;
       // One projection key, one layer: a second would hide the first.
       const key = entry.evidence?.as;
+      if (key === "$through")
+        throw new ClientInitializationError(
+          `rows.verbs.${model}.evidence.as "$through" is reserved for a relation's link row.`,
+          { meta: { model } }
+        );
       if (key !== undefined && keys.has(key))
         throw new ClientInitializationError(
           `rows.verbs.${model}.evidence.as "${key}" is declared by two extensions of the chain.`,

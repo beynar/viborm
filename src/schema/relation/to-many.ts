@@ -79,11 +79,14 @@ export type ModelToManyRelation<State> = {
   through(table: string): ModelToManyRelation<State>;
   /**
    * A declared model as the junction: its table, columns and delegate stay its
-   * own and `.source()` / `.target()` name its to-one relations. The thunk's
-   * type is deliberately not read: the junction model's own relations point
-   * back here, so naming them in the type would resolve a circular const.
+   * own and `.source()` / `.target()` name its to-one relations. The getter is
+   * kept as a target's is and read only where a query asks for `$through`: the
+   * junction model's relations point back here, so `.source()` naming them in
+   * its own signature would resolve a circular const.
    */
-  through(model: () => any): ModelToManyRelation<State>;
+  through<const G>(
+    model: G & GetterOnly<G>
+  ): ModelToManyRelation<Replace<State, { readonly junction: { readonly model: G } }>>;
   source(token: string): ModelToManyRelation<State>;
   target(token: string): ModelToManyRelation<State>;
   onDelete<const Action extends JunctionActionDeclaration>(
@@ -120,11 +123,11 @@ class ModelToMany {
     });
   }
 
-  through(junction: string | (() => any)): ModelToMany {
+  through(junction: unknown): ModelToMany {
     const { table, model, ...overrides } = this.#state.junction ?? {};
     return this.#withJunction(
       typeof junction === "function"
-        ? { ...overrides, model: junction }
+        ? { ...overrides, model: junction as () => any }
         : {
             ...overrides,
             table: normalizeJunctionToken("through", junction),
