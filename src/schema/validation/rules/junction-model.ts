@@ -6,6 +6,7 @@
 // consumer past the gate reads the one `ResolvedJunctionTopology` it publishes.
 
 import { findReferenceableKey, getModelKeyCatalog, type Model } from "../../model";
+import type { Scalar } from "../../scalars/base";
 import type { ResolvedStoredReference } from "../relation-resolution";
 import type { SchemaValidationIssue } from "../types";
 
@@ -143,7 +144,7 @@ export function checkJunctionModel(input: {
 }): readonly string[] | undefined {
   const { context, source, target, issues } = input;
   const { model, modelName, declaredAt } = context;
-  const scalars = model["~"].state.scalars;
+  const scalars: Record<string, Scalar> = model["~"].state.scalars;
   const before = issues.length;
 
   // A shared column whose two sides reference different types is already

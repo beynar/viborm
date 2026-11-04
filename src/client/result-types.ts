@@ -10,6 +10,7 @@ import type { ModelShape } from "@schema/model/helper";
 import type { AnyRelation } from "@schema/relation";
 import type {
   Cardinality,
+  JunctionModelOf,
   SlotMayBeEmpty,
   TargetGetter,
   TargetKind,
@@ -1161,14 +1162,12 @@ type NodeLinkRow<Node> = NodeSelect<Node> extends {
  * A node's row beside the columns its `$through` selects of the junction model.
  * Only a node that names the key reaches the junction model's type at all.
  */
-type WithLinkRow<R extends AnyRelation, Node, Row, ClientDefaults> = [
+type WithLinkRow<Source, K, R extends AnyRelation, Node, Row, ClientDefaults> = [
   NodeLinkRow<Node>,
 ] extends [never]
   ? Row
   : NodeLinkRow<Node> extends true | object
-    ? R["~"]["state"] extends {
-        readonly junction: { readonly model: () => infer M };
-      }
+    ? JunctionModelOf<Source, K, R> extends infer M
       ? M extends Model<infer State>
         ? State extends ModelState
           ? Prettify<
@@ -1216,6 +1215,8 @@ type InferRelationNodeResult<
       R,
       Node,
       WithLinkRow<
+        SourceModelOf<S>,
+        K,
         R,
         Node,
         InferSelectInclude<

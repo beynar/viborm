@@ -12,6 +12,7 @@ import type { Model, ModelState } from "@schema/model";
 import type { ModelShape } from "@schema/model/helper";
 import type { AnyRelation } from "@schema/relation";
 import type {
+  JunctionModelOf,
   Cardinality,
   TargetKind,
   VariantEntries,
@@ -1731,9 +1732,40 @@ type RecursiveRootClause<
 type RecursiveRootMembers<Clause, M> = {
   [Key in SpelledClauseKeys<NonNullable<Clause>>]?: RecursiveNodeGuard<
     ValueAt<NonNullable<Clause>, Key>,
-    RelationTarget<M, Key>
+    RelationTarget<M, Key>,
+    LinkRowKey<M, Key>
   >;
 };
+
+/** The model a slot's `$through` reads; `never` where it has none to read. */
+type LinkRowKey<M, Key> =
+  M extends Model<any>
+    ? Key extends keyof M["~"]["state"]["relations"]
+      ? JunctionModelOf<M, Key, M["~"]["state"]["relations"][Key]>
+      : never
+    : never;
+
+/** A node's `$through`: its `select` names the junction model's scalars only. */
+type LinkRowSeal<Clause, LinkModel> = [LinkModel] extends [never]
+  ? unknown
+  : LinkModel extends Model<any>
+    ? "$through" extends keyof NonNullable<Clause>
+      ? NonNullable<Clause>["$through" & keyof NonNullable<Clause>] extends {
+          readonly select: infer Selected;
+        }
+        ? {
+            $through?: {
+              select?: {
+                [Key in Exclude<
+                  WrittenKeys<NonNullable<Selected>>,
+                  keyof LinkModel["~"]["state"]["scalars"]
+                >]?: undefined;
+              };
+            };
+          }
+        : unknown
+      : unknown
+    : unknown;
 
 /** The model a relation key targets; `never` (nothing to key) otherwise. */
 type RelationTarget<M, Key> =
@@ -1750,10 +1782,10 @@ type RelationTarget<M, Key> =
  * admit one, states nothing: the guard is for what a caller spelled, and TS
  * falls back to the payload type itself when an argument fails it.
  */
-type RecursiveNodeGuard<Node, T> = [Exclude<Node, null | undefined>] extends [
-  object,
-]
-  ? RecursiveNodeObjectGuard<Exclude<Node, null | undefined>, T>
+type RecursiveNodeGuard<Node, T, LinkKey = never> = [
+  Exclude<Node, null | undefined>,
+] extends [object]
+  ? RecursiveNodeObjectGuard<Exclude<Node, null | undefined>, T, LinkKey>
   : unknown;
 
 type ExclusiveSelection<Node> = Node extends {
@@ -1763,20 +1795,30 @@ type ExclusiveSelection<Node> = Node extends {
   ? { select?: undefined } | { include?: undefined }
   : unknown;
 
-type RecursiveNodeObjectGuard<Node, T> = ExclusiveSelection<Node> &
+type RecursiveNodeObjectGuard<Node, T, LinkKey> = ExclusiveSelection<Node> &
   ("recurse" extends keyof Node
     ? { recurse?: RecurrenceBagGuard<Node["recurse"]> }
     : unknown) &
   ("select" extends keyof Node
     ? {
         select?: RecursiveProjectionGuard<Node["select"], T> &
-          ProjectionKeySeal<Node["select"], T, "select">;
+          ProjectionKeySeal<
+            Node["select"],
+            T,
+            "select",
+            "recurse" extends keyof Node ? never : LinkKey
+          >;
       }
     : unknown) &
   ("include" extends keyof Node
     ? {
         include?: RecursiveProjectionGuard<Node["include"], T> &
-          ProjectionKeySeal<Node["include"], T, "include">;
+          ProjectionKeySeal<
+            Node["include"],
+            T,
+            "include",
+            "recurse" extends keyof Node ? never : LinkKey
+          >;
       }
     : unknown) &
   ("where" extends keyof Node
@@ -1802,7 +1844,8 @@ type RecursiveProjectionGuard<
     | boolean
     | RecursiveNodeGuard<
         ValueAt<NonNullable<Clause>, Key>,
-        RelationTarget<T, Key>
+        RelationTarget<T, Key>,
+        LinkRowKey<T, Key>
       >;
 };
 
@@ -1814,7 +1857,7 @@ type RecursiveProjectionGuard<
  * recursive node, and the recursive arm's projection carries the asking key as
  * a refused `?: undefined` member.
  */
-type ProjectionKeySeal<Clause, T, Kind extends "select" | "include"> = [
+type ProjectionKeySeal<Clause, T, Kind extends "select" | "include", LinkModel> = [
   T,
 ] extends [never]
   ? unknown
@@ -1823,9 +1866,10 @@ type ProjectionKeySeal<Clause, T, Kind extends "select" | "include"> = [
         [Key in Exclude<
           WrittenKeys<NonNullable<Clause>>,
           | "_count"
+          | ([LinkModel] extends [never] ? never : "$through")
           | keyof T["~"]["state"][Kind extends "select" ? "shape" : "relations"]
         >]?: undefined;
-      }
+      } & LinkRowSeal<Clause, LinkModel>
     : unknown;
 
 /** A model-target node's `where`, walked as the root WHERE is. */

@@ -357,8 +357,8 @@ export function runThroughModelBehavior(options: {
         where: { parentId: "b" },
         include: { child: true, parent: true },
       });
-      expect(direct.child.id).toBe("a");
-      expect(direct.parent.id).toBe("b");
+      expect(direct.child?.id).toBe("a");
+      expect(direct.parent?.id).toBe("b");
     });
 
     test("a recursive walk returns every ancestor, in projection and filter", async () => {
@@ -515,7 +515,7 @@ export function runThroughModelBehavior(options: {
 
       test("each value is the link that produced that target, under where, orderBy, take, skip", async () => {
         await seed();
-        const page = (args: object) =>
+        const page = (args: Record<string, unknown>) =>
           client.team.findUniqueOrThrow({
             where: { id: "a" },
             select: {

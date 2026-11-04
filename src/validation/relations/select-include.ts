@@ -3,6 +3,7 @@
 import type { AnyModel, ModelState } from "@schema/model";
 import type { StringKeyOf } from "@schema/model/helper";
 import type { AnyRelation } from "@schema/relation";
+import type { JunctionModelOf } from "@schema/relation/static-membership";
 import type { RelationState } from "@schema/relation/types";
 import type { ResolvedSlot } from "@schema/validation/relation-resolution";
 import { withOmitProjection } from "../model/args/omit";
@@ -519,12 +520,19 @@ type ToManyRecursiveNodeSchema<
 
 /**
  * The target's core as a slot with a declared junction model reads it, and the
- * target's own core everywhere else. `any`-compared on the getter, so nothing
- * here resolves the junction model until a query's own selection reads it.
+ * target's own core everywhere else. Nothing here resolves the junction model
+ * until a query's own selection reads this slot's `select` or `include`.
  */
-type ThroughCore<S extends RelationState, Core extends ToManyNestedTargetCore> =
-  S extends { readonly junction: { readonly model: () => infer M } }
-    ? M extends AnyModel
+type ThroughCore<Source, Key, S extends RelationState, Core> = [
+  JunctionModelOf<Source, Key, { readonly "~": { readonly state: S } }>,
+] extends [never]
+  ? Core
+  : Core extends ToManyNestedTargetCore
+    ? JunctionModelOf<
+        Source,
+        Key,
+        { readonly "~": { readonly state: S } }
+      > extends infer M extends AnyModel
       ? Omit<Core, "select" | "include"> & {
           readonly select: WithThroughKey<Core["select"], M>;
           readonly include: WithThroughKey<Core["include"], M>;
@@ -532,10 +540,18 @@ type ThroughCore<S extends RelationState, Core extends ToManyNestedTargetCore> =
       : Core
     : Core;
 
-type WithThroughKey<Schema, M extends AnyModel> =
-  Schema extends V.Object<infer Entries, infer Options>
-    ? V.Object<Entries & { $through: ThroughSelectSchema<M> }, Options>
-    : never;
+/**
+ * Reads the projection's inferred halves and never its entries: rebuilding the
+ * object from `entries` would resolve the target's relation members while one
+ * of them is being resolved, which is circular in every self relation (TS2615).
+ */
+type WithThroughKey<Schema extends VibSchema<any, any>, M extends AnyModel> =
+  VibSchema<
+    Schema[" vibInferred"]["0"] & {
+      $through?: ThroughSelectSchema<M>[" vibInferred"]["0"];
+    },
+    Schema[" vibInferred"]["1"]
+  >;
 
 export type ToManyIncludeSchema<
   Source extends AnyModel,
@@ -545,7 +561,7 @@ export type ToManyIncludeSchema<
   readonly [
     BooleanToSelect,
     ToManyNestedNodeSchema<
-      ThroughCore<S, GetTargetSchemas<S>["core"]>,
+      ThroughCore<Source, Key, S, GetTargetSchemas<S>["core"]>,
       NestedDistinctSchema<S>
     >,
     ToManyRecursiveNodeSchema<Source, Key, S>,

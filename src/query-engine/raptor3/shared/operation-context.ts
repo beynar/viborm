@@ -4425,9 +4425,7 @@ export class OperationContext {
       : [];
   }
   /** The columns {@link linkOperands} supplies, in its order. */
-  #linkColumns(
-    edge: Extract<Membership, { kind: "junction" }>
-  ): readonly string[] {
+  #linkColumns(edge: Extract<Membership, { kind: "junction" }>): string[] {
     const members = linkMembers(edge).map(({ pair }) => pair.junctionField);
     const declared = edge.declared;
     if (!declared) return members;

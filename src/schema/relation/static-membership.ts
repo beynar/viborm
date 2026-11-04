@@ -328,6 +328,30 @@ type ProvenPartner<SourceModel, FieldKey, R> =
       : never
     : never;
 
+/**
+ * The declared model holding a slot's junction, read from whichever endpoint
+ * declared it: `never` for a string `.through()`, no junction at all, and
+ * anything but a to-many slot. It stands apart from the membership because only
+ * a node that names `$through` needs it, and it reads the getter it finds, which
+ * is what the state keeping it unresolved until now is for.
+ */
+export type JunctionModelOf<SourceModel, FieldKey, R> =
+  Cardinality<R> extends "many"
+    ? DeclaredJunctionModel<R> extends infer Declared
+      ? [Declared] extends [never]
+        ? DeclaredJunctionModel<ProvenPartner<SourceModel, FieldKey, R>>
+        : Declared
+      : never
+    : never;
+
+type DeclaredJunctionModel<R> = R extends {
+  readonly "~": {
+    readonly state: { readonly junction: { readonly model: () => infer M } };
+  };
+}
+  ? M
+  : never;
+
 // =============================================================================
 // STATIC RECURSION ELIGIBILITY
 // =============================================================================
