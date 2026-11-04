@@ -319,23 +319,25 @@ export function runThroughModelGovernedBehavior(options: {
         where: { childId: "a" },
         data: { note: "visible" },
       });
-      const governed = loose.$extends(
-        permissions({
-          actor: Actor,
-          models: {
-            organization: { read: true },
-            team: {
-              read: {
-                OR: [
-                  { parents: { some: { $through: { note: "visible" } } } },
-                  { name: "root" },
-                ],
+      const governed = loose
+        .$extends(
+          permissions({
+            actor: Actor,
+            models: {
+              organization: { read: true },
+              team: {
+                read: {
+                  OR: [
+                    { parents: { some: { $through: { note: "visible" } } } },
+                    { name: "root" },
+                  ],
+                },
               },
+              teamParent: { read: { note: "visible" } },
             },
-            teamParent: { read: { note: "visible" } },
-          },
-        } as never)
-      ).$as({ organizationId: "o1" });
+          } as never)
+        )
+        .$as({ organizationId: "o1" });
       const rows = await governed.team.findMany({
         orderBy: { id: "asc" },
         select: { id: true },
@@ -357,7 +359,9 @@ export function runThroughModelGovernedBehavior(options: {
       const written = await hooked.team.update({
         where: { id: "a" },
         data: { name: "renamed" },
-        select: { parents: { select: { $through: { select: { note: true } } } } },
+        select: {
+          parents: { select: { $through: { select: { note: true } } } },
+        },
       });
       expect(written).toEqual({
         parents: [{ $through: { note: "linked" } }],

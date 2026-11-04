@@ -7,6 +7,7 @@ import { TEST_CONNECTION_STRING } from "./pg-fixtures";
 
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
 const NAMESPACE = "viborm_through_model";
+const GOVERNED_NAMESPACE = "viborm_through_model_governed";
 
 describeIf("pg Driver", () => {
   const admin = new PgDriver({ databaseUrl: TEST_CONNECTION_STRING });
@@ -14,10 +15,17 @@ describeIf("pg Driver", () => {
   beforeAll(async () => {
     await admin._executeRaw(`DROP SCHEMA IF EXISTS "${NAMESPACE}" CASCADE`);
     await admin._executeRaw(`CREATE SCHEMA "${NAMESPACE}"`);
+    await admin._executeRaw(
+      `DROP SCHEMA IF EXISTS "${GOVERNED_NAMESPACE}" CASCADE`
+    );
+    await admin._executeRaw(`CREATE SCHEMA "${GOVERNED_NAMESPACE}"`);
   });
 
   afterAll(async () => {
     await admin._executeRaw(`DROP SCHEMA IF EXISTS "${NAMESPACE}" CASCADE`);
+    await admin._executeRaw(
+      `DROP SCHEMA IF EXISTS "${GOVERNED_NAMESPACE}" CASCADE`
+    );
     await admin.disconnect();
   });
 
@@ -34,7 +42,7 @@ describeIf("pg Driver", () => {
     createDriver: () =>
       new PgDriver({
         databaseUrl: TEST_CONNECTION_STRING,
-        namespace: NAMESPACE,
+        namespace: GOVERNED_NAMESPACE,
       }),
   });
 });
