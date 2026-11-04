@@ -1235,13 +1235,27 @@ type QuantifiedWhereUnknownKeys<
   R extends AnyRelation,
   Seen,
   Q extends PropertyKey,
+  LinkModel = never,
 > = {
-  [K in Extract<SpelledClauseKeys<Given>, Q>]: WhereUnknownKeys<
-    ValueAt<Given, K>,
-    GetTargetModel<R>,
-    Seen
-  >;
+  [K in Extract<SpelledClauseKeys<Given>, Q>]:
+    | WhereUnknownKeys<
+        ValueAt<Given, K>,
+        GetTargetModel<R>,
+        Seen,
+        | WhereModelKeys<GetTargetModel<R>>
+        | ([LinkModel] extends [never] ? never : "$through")
+      >
+    | LinkFilterUnknownKeys<ValueAt<Given, K>, LinkModel>;
 }[Extract<SpelledClauseKeys<Given>, Q>];
+
+/** A `$through` filter's keys: the junction model's scalars and nothing else. */
+type LinkFilterUnknownKeys<Given, LinkModel> = [LinkModel] extends [never]
+  ? never
+  : LinkModel extends Model<any>
+    ? Given extends { readonly $through: infer Filter }
+      ? Exclude<keyof Filter, keyof LinkModel["~"]["state"]["scalars"]>
+      : never
+    : never;
 
 /**
  * The selectors among `Q` that `Given` spells with a value. The runtime reads
@@ -1264,6 +1278,7 @@ type RelationWhereUnknownKeys<
   Given,
   R extends AnyRelation,
   Seen,
+  LinkModel = never,
 > = TargetKind<R> extends "model"
   ? [DefinedSelectors<Given, "recurse">] extends [never]
     ? Cardinality<R> extends "one"
@@ -1276,7 +1291,13 @@ type RelationWhereUnknownKeys<
             | Exclude<"recurse" | "self", DefinedSelectors<Given, "self">>
           >
         : QuantifiedWhereUnknownKeys<Given, R, Seen, "is" | "isNot">
-      : QuantifiedWhereUnknownKeys<Given, R, Seen, "some" | "every" | "none">
+      : QuantifiedWhereUnknownKeys<
+          Given,
+          R,
+          Seen,
+          "some" | "every" | "none",
+          LinkModel
+        >
     :
         | QuantifiedWhereUnknownKeys<Given, R, Seen, "some" | "every" | "none">
         | MisspelledRecurrenceKeys<
@@ -1320,7 +1341,8 @@ type WhereUnknownKeys<
                         ? RelationWhereUnknownKeys<
                             NonNullable<Given[K]>,
                             M["~"]["state"]["relations"][K],
-                            Seen | readonly [Given, M]
+                            Seen | readonly [Given, M],
+                            LinkRowKey<M, K>
                           >
                         : never;
                   }[Extract<
@@ -1822,7 +1844,13 @@ type RecursiveNodeObjectGuard<Node, T, LinkKey> = ExclusiveSelection<Node> &
       }
     : unknown) &
   ("where" extends keyof Node
-    ? { where?: NodeWhereSeal<Node["where"], T> }
+    ? {
+        where?: NodeWhereSeal<
+          Node["where"],
+          T,
+          "recurse" extends keyof Node ? never : LinkKey
+        >;
+      }
     : unknown) &
   ("variants" extends keyof Node
     ? { variants?: RecursiveProjectionGuard<Node["variants"], never> }
@@ -1873,10 +1901,18 @@ type ProjectionKeySeal<Clause, T, Kind extends "select" | "include", LinkModel> 
     : unknown;
 
 /** A model-target node's `where`, walked as the root WHERE is. */
-type NodeWhereSeal<Where, T> = [T] extends [never]
+type NodeWhereSeal<Where, T, LinkModel = never> = [T] extends [never]
   ? unknown
   : T extends Model<any>
-    ? WhereUnknownKeys<NonNullable<Where>, T> extends infer Extra
+    ?
+        | WhereUnknownKeys<
+            NonNullable<Where>,
+            T,
+            never,
+            | WhereModelKeys<T>
+            | ([LinkModel] extends [never] ? never : "$through")
+          >
+        | LinkFilterUnknownKeys<NonNullable<Where>, LinkModel> extends infer Extra
       ? [Extra] extends [never]
         ? unknown
         : UnknownClauseKey<Extra>

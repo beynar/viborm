@@ -255,6 +255,8 @@ interface PreparedLinkRow {
 interface PreparedRelationProjection {
   readonly edge: Membership;
   readonly linkRow?: PreparedLinkRow;
+  /** A nested `where`'s `$through`, tested on the link this page joins. */
+  readonly linkWhere?: Pick<PreparedSelector, "model" | "predicate">;
   readonly arguments: RelationProjectionArguments;
   readonly projection: PreparedProjection;
   readonly recurrence?: NormalizedRecurrence;
@@ -600,6 +602,13 @@ type PreparedPredicate =
        * carried: a set does not depend on the paths that reach it.
        */
       readonly closure?: Closure;
+      /**
+       * `$through`: what the link row joining each target must hold, tested
+       * with the target's own conditions on that one link. A model's scalars
+       * only, so it reads no other row and no bound ever narrows it.
+       */
+      readonly link?: PreparedPredicate;
+      readonly linkFields?: readonly string[];
     }
   | {
       /** The first `limit` rows of `selector` in key order ({@link Queries.window}). */
@@ -882,6 +891,10 @@ function callReads(
       callReads(predicate.predicate, parameters, conditions);
       return;
     case "relation":
+      if (predicate.link) callReads(predicate.link, parameters, conditions);
+      if (predicate.predicate)
+        callReads(predicate.predicate, parameters, conditions);
+      return;
     case "exists":
       if (predicate.predicate)
         callReads(predicate.predicate, parameters, conditions);
@@ -989,6 +1002,9 @@ function connectiveArms(
 /** Do two quantifiers range over the same rows: edge, quantifier, scope, walk? */
 function sameRange(left: RelationPredicate, right: RelationPredicate): boolean {
   return (
+    // A body is merged over one range; a link condition belongs to its own.
+    left.link === undefined &&
+    right.link === undefined &&
     left.edge === right.edge &&
     left.quantifier === right.quantifier &&
     left.unscoped === right.unscoped &&
@@ -2187,6 +2203,11 @@ export class PreparedDomain {
   }
 }
 const NO_RELATIONS: readonly string[] = Object.freeze([]);
+/** A relation node or body without its `$through`, which belongs to the link. */
+function withoutLinkKey(map: Input): Input {
+  const { $through: _taken, ...rest } = map;
+  return rest;
+}
 
 /** The verb predicates one layer's `judgement` takes, each once. */
 function verbInputs(verbs: ModelVerbs, judgement: RowJudgement): Input[] {
@@ -5309,13 +5330,29 @@ export class Queries {
     positive = true,
     closure?: Closure
   ): PreparedPredicate {
+    const body =
+      value === null || value === undefined ? undefined : record(value);
+    const linkWhere =
+      edge.kind === "junction" && edge.declared
+        ? (body?.$through as Input | undefined)
+        : undefined;
+    const link = linkWhere && {
+      link: this.prepareSelector(
+        (edge as Extract<Membership, { kind: "junction" }>).declared!.model,
+        linkWhere,
+        false,
+        false
+      ).predicate,
+      linkFields: Object.keys(linkWhere),
+    };
     return freeze({
       kind: "relation",
       edge,
       quantifier,
+      ...link,
       predicate: this.#relationScope(
         edge,
-        value === null || value === undefined ? undefined : record(value),
+        link ? withoutLinkKey(body!) : body,
         facts,
         path,
         quantifier === "none" ||
@@ -6093,11 +6130,13 @@ export class Queries {
     const a = this.adapter;
     if (
       predicate.quantifier === "every" &&
+      predicate.link === undefined &&
       !(predicate.predicate && states(predicate.predicate))
     )
       return a.literals.true();
     const { edge, closure } = predicate;
     const childAlias = this.#rowAlias(edge.target);
+    const linkAlias = predicate.link ? this.alias() : undefined;
     // A semijoin over a plain reference: `some`/`is` with a body, neither a
     // walk nor a variant arm. Its `FROM` takes the semijoins among its
     // conjuncts that read a row above it (`joins`), and it is one of those
@@ -6135,6 +6174,14 @@ export class Queries {
             );
     } finally {
       this.#frames.pop();
+    }
+    if (predicate.link) {
+      // A policy's own rule reads what it states; a caller's filter is a test
+      // of a column a direct read of it could hide.
+      if (!this.#lowersLayer)
+        this.#refuseHiddenLinkRow(edge, predicate.linkFields!, "filter");
+      const held = this.#lowerPredicate(predicate.link, linkAlias);
+      nested = nested ? a.operators.and(nested, held) : held;
     }
     if (joinable) {
       const above = parent!.escaped;
@@ -6216,7 +6263,8 @@ export class Queries {
         enclosing,
         predicate.predicate !== undefined && readsRelation(predicate.predicate),
         frame.escaped,
-        frame.joins
+        frame.joins,
+        linkAlias
       );
     };
     return quantified.holds ? range() : this.#opposite(range);
@@ -6300,14 +6348,19 @@ export class Queries {
     enclosing: Enclosing,
     deeper = false,
     correlatedAbove = false,
-    joins: readonly Sql[] = []
+    joins: readonly Sql[] = [],
+    link?: string
   ): Sql {
     const a = this.adapter;
     const junctions = a.capabilities.joinsJunctionFilters;
+    // A `$through` condition reads the link row, so that row is joined whatever
+    // the dialect prefers: the membership's `IN` keeps it out of the body.
     const joined =
       edge.kind === "junction" &&
-      (junctions === true || (junctions === "unbounded" && !this.#bounded))
-        ? this.#junctionJoin(edge, child, parent)
+      (link !== undefined ||
+        junctions === true ||
+        (junctions === "unbounded" && !this.#bounded))
+        ? this.#junctionJoin(edge, child, parent, link)
         : undefined;
     const member =
       joined?.correlation ?? this.#membershipWhere(edge, child, parent);
@@ -6753,10 +6806,10 @@ export class Queries {
   #junctionJoin(
     edge: Extract<Membership, { kind: "junction" }>,
     child: string,
-    parent: string
+    parent: string,
+    link = this.alias()
   ): { readonly from: Sql; readonly correlation: Sql } {
     const a = this.adapter;
-    const link = this.alias();
     return {
       from: sql`${a.identifiers.table(edge.table, link)} ${a.joins.inner(
         this.table(edge.target, child),
@@ -8542,20 +8595,7 @@ export class Queries {
     const named = Object.entries(record(record(asked).select))
       .filter(([, wanted]) => wanted === true)
       .map(([field]) => field);
-    const name = model["~"].names.ts;
-    if (
-      this.domainOf(model, "root") !== undefined ||
-      this.domainOf(model, "related") !== undefined
-    )
-      throw new UnsupportedOperationError(
-        `Cannot read $through of relation '${edge.name}': this client restricts which '${name}' rows a call may read, and a link row is one of them. Read the links through the '${name}' delegate.`
-      );
-    const gates = this.domain?.projected(model)?.gates;
-    const gated = gates && named.find((field) => gates.has(field));
-    if (gated !== undefined)
-      throw new UnsupportedOperationError(
-        `Cannot read $through.${gated} of relation '${edge.name}': this client gates that field of '${name}'. Read it through the '${name}' delegate.`
-      );
+    this.#refuseHiddenLinkRow(edge, named, "read");
     return {
       nested: rest,
       linkRow: freeze({
@@ -8572,18 +8612,64 @@ export class Queries {
       }),
     };
   }
+  /**
+   * What a direct read of the junction model would hide stays hidden from a
+   * `$through` that reads it, or that tests it, which is the same disclosure one
+   * row at a time. Not honoured in the statement: a target row the hop reached
+   * has no faithful answer for a link its reader may not see, so the call is
+   * refused before any statement.
+   */
+  #refuseHiddenLinkRow(
+    edge: Membership,
+    fields: readonly string[],
+    use: "read" | "filter"
+  ): void {
+    const model = (edge as Extract<Membership, { kind: "junction" }>).declared!
+      .model;
+    const name = model["~"].names.ts;
+    if (
+      this.domainOf(model, "root") !== undefined ||
+      this.domainOf(model, "related") !== undefined
+    )
+      throw new UnsupportedOperationError(
+        `Cannot ${use} $through of relation '${edge.name}': this client restricts which '${name}' rows a call may read, and a link row is one of them. Read the links through the '${name}' delegate.`
+      );
+    const gates = this.domain?.projected(model)?.gates;
+    const gated = gates && fields.find((field) => gates.has(field));
+    if (gated !== undefined)
+      throw new UnsupportedOperationError(
+        `Cannot ${use} $through.${gated} of relation '${edge.name}': this client gates that field of '${name}'. Read it through the '${name}' delegate.`
+      );
+  }
   #prepareRelationProjection(
     edge: Membership,
     selection: unknown,
     path = ""
   ): PreparedRelationProjection {
-    const { nested, linkRow } = this.#prepareLinkRow(
+    const { nested: taken, linkRow } = this.#prepareLinkRow(
       edge,
       selection === true ? {} : (record(selection) as Partial<Arguments>)
     );
+    const linkWhere =
+      edge.kind === "junction" && edge.declared
+        ? (taken.where?.$through as Input | undefined)
+        : undefined;
+    if (linkWhere)
+      this.#refuseHiddenLinkRow(edge, Object.keys(linkWhere), "filter");
+    const nested = linkWhere
+      ? { ...taken, where: withoutLinkKey(taken.where as Input) }
+      : taken;
     return freeze({
       edge,
       ...(linkRow && { linkRow }),
+      ...(linkWhere && {
+        linkWhere: this.prepareSelector(
+          (edge as Extract<Membership, { kind: "junction" }>).declared!.model,
+          linkWhere,
+          false,
+          false
+        ),
+      }),
       arguments: freeze({
         selector: nested.where
           ? this.prepareSelector(edge.target, nested.where, false, false)
@@ -9168,7 +9254,7 @@ export class Queries {
     alias: string
   ): Sql {
     const a = this.adapter;
-    const { edge, arguments: nested, projection, linkRow } = relation;
+    const { edge, arguments: nested, projection, linkRow, linkWhere } = relation;
     const childAlias = this.#rowAlias(edge.target);
     const child = this.lowerProjection(projection, childAlias, true);
     const childFields = Object.keys(projection.shape.fields);
@@ -9176,6 +9262,7 @@ export class Queries {
     // correlation scope; `take: -n` reverses the window exactly as at the root.
     const window = this.#page(edge.target, nested, childAlias, "related");
     const source = this.#memberSource(edge, alias, childAlias);
+    const lowered = linkWhere && this.lowerSelector(linkWhere, source.link);
     // The link row is the one this page's own join reads the target through,
     // flat here and an object below: a JSON column in a page would have no
     // equality for `DISTINCT`, and a key holds at most one row per target.
@@ -9200,6 +9287,7 @@ export class Queries {
         ...(nested.selector
           ? [this.lowerSelector(nested.selector, childAlias)!]
           : []),
+        ...(lowered ? [lowered] : []),
         ...(window.cursor ? [window.cursor] : [])
       ),
       orderBy: window.orderBy,

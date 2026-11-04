@@ -21,7 +21,14 @@ import {
 } from "../model/core/select";
 import v, { type V } from "../primitives/v";
 import type { VibSchema } from "../types";
-import type { GetTargetSchemas, SchemaGetter, TargetModel } from "./helpers";
+import {
+  type GetTargetSchemas,
+  type JunctionSchemas,
+  type SchemaGetter,
+  type TargetModel,
+  type WhereWithLinkFilter,
+  whereWithLinkFilter,
+} from "./helpers";
 import {
   type RecurrenceFor,
   type RecurrenceSchema,
@@ -130,17 +137,19 @@ const junctionModelOf = (resolved: ResolvedSlot): AnyModel | undefined =>
  */
 const coreWithThrough = <Core extends ToManyNestedTargetCore>(
   core: () => Core,
-  model: AnyModel | undefined
+  model: AnyModel | undefined,
+  junctionSchemas: JunctionSchemas
 ): (() => Core) => {
   if (!model) return core;
   const through = { $through: getThroughSelectSchema(model) };
   let select: VibSchema<any, any> | undefined;
   let include: VibSchema<any, any> | undefined;
+  const where = whereWithLinkFilter(() => core().where, junctionSchemas);
   return () => {
     const own = core();
     return {
       get where() {
-        return own.where;
+        return where();
       },
       get orderBy() {
         return own.orderBy;
@@ -533,7 +542,8 @@ type ThroughCore<Source, Key, S extends RelationState, Core> = [
         Key,
         { readonly "~": { readonly state: S } }
       > extends infer M extends AnyModel
-      ? Omit<Core, "select" | "include"> & {
+      ? Omit<Core, "where" | "select" | "include"> & {
+          readonly where: WhereWithLinkFilter<Core["where"], M>;
           readonly select: WithThroughKey<Core["select"], M>;
           readonly include: WithThroughKey<Core["include"], M>;
         }
@@ -575,7 +585,8 @@ export const toManyIncludeFactory = <
 >(
   relation: AnyRelation,
   resolved: ResolvedSlot,
-  targetSchemas: T
+  targetSchemas: T,
+  junctionSchemas: JunctionSchemas = undefined
 ): ToManyIncludeSchema<Source, Key, S> => {
   const ordinary = v.union([
     booleanToSelect(relation),
@@ -584,7 +595,8 @@ export const toManyIncludeFactory = <
       label: nestedOmitLabel(relation),
       core: coreWithThrough(
         () => targetSchemas().core,
-        junctionModelOf(resolved)
+        junctionModelOf(resolved),
+        junctionSchemas
       ),
       scalarNames: nestedDistinctNames<S>(relation),
     }),

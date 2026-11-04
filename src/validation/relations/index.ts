@@ -39,7 +39,7 @@ import {
   toManyFilterFactory,
   toOneFilterFactory,
 } from "./filter";
-import type { SchemaGetter } from "./helpers";
+import type { JunctionSchemas, SchemaGetter } from "./helpers";
 import {
   type ToManyOrderBySchema,
   type ToOneOrderBySchema,
@@ -108,12 +108,17 @@ const toManySchemas = <
 >(
   relation: AnyRelation,
   resolved: ResolvedSlot,
-  targetSchemas: T
+  targetSchemas: T,
+  junctionSchemas: JunctionSchemas
 ) => {
   const state = relation["~"].state as S;
   return {
     filter: v.lazy(() =>
-      toManyFilterFactory<Source, Key, S, T>(resolved, targetSchemas)
+      toManyFilterFactory<Source, Key, S, T>(
+        resolved,
+        targetSchemas,
+        junctionSchemas
+      )
     ),
     create: v.lazy(() =>
       toManyCreateFactory<Source, Key, S, T>(resolved, targetSchemas)
@@ -122,10 +127,20 @@ const toManySchemas = <
       toManyUpdateFactory<Source, Key, S, T>(resolved, targetSchemas)
     ),
     select: v.lazy(() =>
-      toManySelectFactory<Source, Key, S, T>(relation, resolved, targetSchemas)
+      toManySelectFactory<Source, Key, S, T>(
+        relation,
+        resolved,
+        targetSchemas,
+        junctionSchemas
+      )
     ),
     include: v.lazy(() =>
-      toManyIncludeFactory<Source, Key, S, T>(relation, resolved, targetSchemas)
+      toManyIncludeFactory<Source, Key, S, T>(
+        relation,
+        resolved,
+        targetSchemas,
+        junctionSchemas
+      )
     ),
     orderBy: v.lazy(() => toManyOrderByFactory(state)),
     countFilter: v.lazy(() => countFilterFactory(state, targetSchemas)),
@@ -216,7 +231,8 @@ export const getRelationSchemas = <
 >(
   relation: AnyRelation,
   resolved: ResolvedSlot,
-  targetSchemas: T
+  targetSchemas: T,
+  junctionSchemas?: JunctionSchemas
 ) => {
   const isToMany = relation["~"].state.cardinality === "many";
   // The bundle builders are left to INFER, so the union each write family really
@@ -225,7 +241,12 @@ export const getRelationSchemas = <
   // the single seam where the two meet — the same boundary crossing this return
   // has always performed.
   return (isToMany
-    ? toManySchemas<Source, Key, S, T>(relation, resolved, targetSchemas)
+    ? toManySchemas<Source, Key, S, T>(
+        relation,
+        resolved,
+        targetSchemas,
+        junctionSchemas
+      )
     : toOneSchemas<Source, Key, S, T>(
         relation,
         resolved,
@@ -259,7 +280,22 @@ export const getRelationsSchemas = <Source extends AnyModel>(
     const resolved = resolvedSlotOrThrow(source, field, slots);
     builders[field] = () => {
       const targetSchemas = createSchemasGetter(relation);
-      return getRelationSchemas(relation, resolved, targetSchemas);
+      const junctionModel =
+        resolved.edge.kind === "junction"
+          ? resolved.edge.topology.declared?.model
+          : undefined;
+      // The registry's one way to a model's schemas, asked for this model.
+      const junctionSchemas =
+        junctionModel &&
+        (createSchemasGetter({
+          "~": { settleTarget: () => junctionModel },
+        } as unknown as AnyRelation) as unknown as JunctionSchemas);
+      return getRelationSchemas(
+        relation,
+        resolved,
+        targetSchemas,
+        junctionSchemas
+      );
     };
   }
   return lazyRecord(builders) as GetRelationsSchemas<Source>;

@@ -674,6 +674,180 @@ export function runThroughModelBehavior(options: {
       });
     });
 
+    describe("$through as a filter", () => {
+      /** a → b "keep" and a → c "drop"; b is named "x", c is named "y". */
+      const seed = async () => {
+        await client.team.update({ where: { id: "b" }, data: { name: "x" } });
+        await client.team.update({ where: { id: "c" }, data: { name: "y" } });
+        await client.team.update({
+          where: { id: "a" },
+          data: { parents: { connect: [{ id: "b" }, { id: "c" }] } },
+        });
+        await client.teamParent.update({
+          where: { childId_parentId: { childId: "a", parentId: "b" } },
+          data: { note: "keep" },
+        });
+        await client.teamParent.update({
+          where: { childId_parentId: { childId: "a", parentId: "c" } },
+          data: { note: "drop" },
+        });
+      };
+      const ids = async (where: object) =>
+        (
+          await client.team.findMany({
+            where: where as never,
+            orderBy: { id: "asc" },
+            select: { id: true },
+          })
+        ).map((team) => team.id);
+
+      test("some holds on one link and its target together", async () => {
+        await seed();
+        expect(
+          await ids({
+            parents: { some: { name: "x", $through: { note: "keep" } } },
+          })
+        ).toEqual(["a"]);
+        // Each half matches one of two links, and no link matches both.
+        expect(
+          await ids({
+            parents: { some: { name: "x", $through: { note: "drop" } } },
+          })
+        ).toEqual([]);
+        expect(
+          await ids({
+            parents: { some: { name: "y", $through: { note: "keep" } } },
+          })
+        ).toEqual([]);
+      });
+
+      test("a $through alone tests the links, on either endpoint", async () => {
+        await seed();
+        expect(
+          await ids({ parents: { some: { $through: { note: "keep" } } } })
+        ).toEqual(["a"]);
+        expect(
+          await ids({ children: { some: { $through: { note: "keep" } } } })
+        ).toEqual(["b"]);
+      });
+
+      test("none and every negate the pair, not its halves", async () => {
+        await seed();
+        expect(
+          await ids({
+            id: "a",
+            parents: { none: { name: "x", $through: { note: "drop" } } },
+          })
+        ).toEqual(["a"]);
+        expect(
+          await ids({
+            id: "a",
+            parents: { none: { name: "x", $through: { note: "keep" } } },
+          })
+        ).toEqual([]);
+        expect(
+          await ids({
+            id: "a",
+            parents: { every: { $through: { note: { in: ["keep", "drop"] } } } },
+          })
+        ).toEqual(["a"]);
+        expect(
+          await ids({
+            id: "a",
+            parents: { every: { $through: { note: "keep" } } },
+          })
+        ).toEqual([]);
+        expect(
+          await ids({
+            id: "a",
+            parents: { every: { name: "x", $through: { note: "keep" } } },
+          })
+        ).toEqual([]);
+      });
+
+      test("OR over two relation filters keeps each link condition its own", async () => {
+        await seed();
+        expect(
+          await ids({
+            id: "a",
+            OR: [
+              { parents: { some: { name: "x", $through: { note: "drop" } } } },
+              { parents: { some: { name: "y", $through: { note: "keep" } } } },
+            ],
+          })
+        ).toEqual([]);
+        expect(
+          await ids({
+            id: "a",
+            OR: [
+              { parents: { some: { name: "x", $through: { note: "drop" } } } },
+              { parents: { some: { name: "y", $through: { note: "drop" } } } },
+            ],
+          })
+        ).toEqual(["a"]);
+      });
+
+      test("a date operator converts as the column stores it", async () => {
+        await seed();
+        expect(
+          await ids({
+            parents: {
+              some: { $through: { createdAt: { gt: new Date(0) } } },
+            },
+          })
+        ).toEqual(["a"]);
+        expect(
+          await ids({
+            parents: {
+              some: {
+                $through: { createdAt: { gt: new Date("2999-01-01") } },
+              },
+            },
+          })
+        ).toEqual([]);
+      });
+
+      test("a nested where tests the link beside the target, with the read", async () => {
+        await seed();
+        const read = await client.team.findUniqueOrThrow({
+          where: { id: "a" },
+          select: {
+            parents: {
+              where: { $through: { note: "keep" } },
+              select: { id: true, $through: { select: { note: true } } },
+            },
+          },
+        });
+        expect(read.parents).toEqual([
+          { id: "b", $through: { note: "keep" } },
+        ]);
+        const empty = await client.team.findUniqueOrThrow({
+          where: { id: "a" },
+          include: {
+            parents: { where: { name: "y", $through: { note: "keep" } } },
+          },
+        });
+        expect(empty.parents).toEqual([]);
+      });
+
+      test("a walk, a relation and an unknown column are refused", async () => {
+        await expect(
+          ids({
+            parents: {
+              recurse: { depth: false },
+              some: { $through: { note: "keep" } },
+            },
+          })
+        ).rejects.toThrow(/\$through cannot filter a recurse walk/);
+        await expect(
+          ids({ parents: { some: { $through: { child: { is: {} } } } } })
+        ).rejects.toThrow(/Unknown key/);
+        await expect(
+          ids({ parents: { some: { $through: { nope: "x" } } } })
+        ).rejects.toThrow(/Unknown key/);
+      });
+    });
+
     test("a side with its own inverse pairs as usual and reads both ways", async () => {
       await withInverses.link.deleteMany({});
       await withInverses.node.deleteMany({});
