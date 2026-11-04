@@ -208,14 +208,112 @@ test("a selective walk through the model reads fewer link rows", async () => {
   expect(modelRead.rows).toBeLessThan(generatedRead.rows);
 }, 120_000);
 
-test("the Neki form, under a relation budget, answers the same", async () => {
+/** A rule read at the root and again through `children`: one body, twice. */
+const repeated = (client: any) =>
+  client.$as({ organizationId: "o17" }).team.findMany({
+    orderBy: { id: "asc" },
+    select: {
+      id: true,
+      children: { orderBy: { id: "asc" }, select: { id: true } },
+    },
+  });
+
+test("the Neki form, repeated and over budget, walks a shared set to the same answers", async () => {
   const neki = await open(
     declared(),
     ["organizationId", "childId", "parentId"],
-    { relationsPerStatement: 256 }
+    // Tight enough that this statement is over it, as a 40-model policy is
+    // over Neki's 256: the budget is what turns a repeated walk into a set.
+    { relationsPerStatement: 3 }
   );
   try {
-    expect(await answers(neki, {})).toEqual(await answers(plain, {}));
+    const statements: { sql: string; params: unknown[] }[] = [];
+    const governed = neki.client
+      .$extends({
+        name: "capture",
+        statement(context: any) {
+          statements.push({
+            sql: context.statement.toStatement("$n"),
+            params: context.statement.values,
+          });
+          return context.statement;
+        },
+      })
+      .$extends(policy({}));
+    const expected = await repeated(plain.client.$extends(policy({})));
+    expect(await repeated(governed)).toEqual(expected);
+    expect((expected as unknown[]).length).toBe(TEAMS - 1);
+    const [statement] = statements;
+    expect(statement?.sql).toContain("__shared_");
+    expect(statement?.sql).toContain("WITH RECURSIVE");
+    const [row] = await neki.raw(
+      `EXPLAIN (ANALYZE, FORMAT JSON) ${statement?.sql}`,
+      statement?.params
+    );
+    const read = linkRowsRead(row["QUERY PLAN"][0]);
+    console.info(`link rows read, shared set: ${read}`);
+    expect(read).toBeLessThan(ORGANIZATIONS * (TEAMS - 1));
+  } finally {
+    await neki.client.$disconnect();
+  }
+}, 120_000);
+
+test("$through in a statement that shares bodies keeps each target's own link", async () => {
+  const neki = await open(
+    declared(),
+    ["organizationId", "childId", "parentId"],
+    { relationsPerStatement: 3 }
+  );
+  try {
+    const governed = neki.client.$extends(
+      permissions({
+        actor: v.object({ organizationId: v.string() }),
+        tenant: { field: "organizationId", actor: "organizationId" },
+        models: {
+          team: {
+            mandatory: { organizationId: { actor: "organizationId" } },
+            read: {
+              parents: {
+                recurse: { depth: false },
+                some: { name: "root" },
+              },
+            },
+          },
+          teamParent: { read: true },
+        },
+      } as never)
+    );
+    const rows = await governed.$as({ organizationId: "o5" }).team.findMany({
+      where: { id: "o5t3" },
+      select: {
+        id: true,
+        parents: {
+          select: {
+            id: true,
+            $through: { select: { childId: true, parentId: true } },
+            children: {
+              orderBy: { id: "asc" },
+              select: { id: true, $through: { select: { childId: true } } },
+            },
+          },
+        },
+      },
+    });
+    expect(rows).toEqual([
+      {
+        id: "o5t3",
+        parents: [
+          {
+            id: "o5t1",
+            $through: { childId: "o5t3", parentId: "o5t1" },
+            children: [
+              { id: "o5t3", $through: { childId: "o5t3" } },
+              { id: "o5t4", $through: { childId: "o5t4" } },
+            ],
+          },
+        ],
+      },
+    ]);
   } finally {
     await neki.client.$disconnect();
   }

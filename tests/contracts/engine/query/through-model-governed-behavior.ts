@@ -351,6 +351,60 @@ export function runThroughModelGovernedBehavior(options: {
       await expect(filtering(governed)).rejects.toThrow(THIS_CLIENT);
     });
 
+    test("a rule's $through filter read twice in one statement holds on one link each time", async () => {
+      await base.teamParent.updateMany({
+        where: { childId: "a" },
+        data: { note: "visible" },
+      });
+      await base.team.create({
+        data: {
+          id: "c",
+          organizationId: "o1",
+          name: "root",
+          parents: { connect: { id: "b" } },
+        },
+      });
+      const governed = loose
+        .$extends(
+          permissions({
+            actor: Actor,
+            models: {
+              organization: { read: true },
+              team: {
+                read: {
+                  OR: [
+                    {
+                      parents: {
+                        some: { name: "root", $through: { note: "visible" } },
+                      },
+                    },
+                    { name: "root" },
+                  ],
+                },
+              },
+              teamParent: { read: { note: "visible" } },
+            },
+          } as never)
+        )
+        .$as({ organizationId: "o1" });
+      // `c` is a root and its link is hidden, `a` holds both on one link: the
+      // rule reads at the root, again on `children`, and again on `parents`.
+      const rows = await governed.team.findMany({
+        where: { organizationId: "o1" },
+        orderBy: { id: "asc" },
+        select: {
+          id: true,
+          children: { orderBy: { id: "asc" }, select: { id: true } },
+          parents: { orderBy: { id: "asc" }, select: { id: true } },
+        },
+      });
+      expect(rows).toEqual([
+        { id: "a", children: [], parents: [{ id: "b" }] },
+        { id: "b", children: [{ id: "a" }, { id: "c" }], parents: [] },
+        { id: "c", children: [], parents: [{ id: "b" }] },
+      ]);
+    });
+
     test("a hook on the parent model keeps $through in the caller's projection", async () => {
       const seen: unknown[] = [];
       const hooked = loose.$extends(
