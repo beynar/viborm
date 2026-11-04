@@ -138,7 +138,8 @@ export const withLinkWrite = (
         return validateSchema(schema as VibSchema, value);
       const { $through, ...rest } = value;
       const own = validateSchema(schema as VibSchema, rest);
-      if (own.issues) return own;
+      // A key spelled `undefined` reads as absent, as on every other object.
+      if (own.issues || $through === undefined) return own;
       const written = validateSchema(link, $through);
       if (written.issues) return written;
       return ok({ ...(own.value as object), $through: written.value });

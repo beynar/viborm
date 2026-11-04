@@ -1119,6 +1119,30 @@ export function runThroughModelBehavior(options: {
         expect(await links()).toMatchObject([{ note: "mine" }]);
       });
 
+      test("a $through spelled undefined reads as absent, in all three places", async () => {
+        const absent = undefined as never;
+        await client.team.update({
+          where: { id: "a" },
+          data: { parents: { connect: { id: "b", $through: absent } } },
+        });
+        expect(await links()).toMatchObject([{ note: "linked" }]);
+        expect(
+          await client.team.count({
+            where: { parents: { some: { id: "b", $through: absent } } },
+          })
+        ).toBe(1);
+        const read = await client.team.findUniqueOrThrow({
+          where: { id: "a" },
+          select: {
+            parents: {
+              where: { id: "b", $through: absent },
+              select: { id: true, $through: absent },
+            },
+          },
+        });
+        expect(read.parents).toEqual([{ id: "b" }]);
+      });
+
       test("the write reads back through $through in its own projection", async () => {
         const written = await withRole.room.update({
           where: { id: "r" },
