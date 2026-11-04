@@ -655,6 +655,122 @@ export const docsFenceCorpus: DocsFenceCase[] = [
     },
   },
   {
+    id: "relations/many-to-many.mdx#9",
+    coded: () => {
+      const teamParent = s
+        .model({
+          organizationId: s.string(),
+          childId: s.string(),
+          parentId: s.string(),
+          createdAt: s.dateTime().now(),
+          role: s.string().default("member"),
+          child: s
+            .toOne(() => team)
+            .fields("organizationId", "childId")
+            .references("organizationId", "id")
+            .onDelete("cascade"),
+          parent: s
+            .toOne(() => team)
+            .fields("organizationId", "parentId")
+            .references("organizationId", "id")
+            .onDelete("cascade"),
+        })
+        .id(["childId", "parentId"]);
+      const team = s
+        .model({
+          id: s.string().id(),
+          organizationId: s.string(),
+          parents: s
+            .toMany(() => team)
+            .name("teamGraph")
+            .through(() => teamParent)
+            .source("child")
+            .target("parent"),
+          children: s.toMany(() => team).name("teamGraph"),
+        })
+        .unique(["organizationId", "id"]);
+      return { teamParent, team };
+    },
+    document: {
+      version: 1,
+      models: {
+        teamParent: {
+          fields: {
+            organizationId: {
+              type: "string",
+            },
+            childId: {
+              type: "string",
+            },
+            parentId: {
+              type: "string",
+            },
+            createdAt: {
+              type: "datetime",
+              generate: {
+                kind: "now",
+              },
+            },
+            role: {
+              type: "string",
+              default: "member",
+            },
+            child: {
+              type: "toOne",
+              target: "team",
+              fields: ["organizationId", "childId"],
+              references: ["organizationId", "id"],
+              onDelete: "cascade",
+            },
+            parent: {
+              type: "toOne",
+              target: "team",
+              fields: ["organizationId", "parentId"],
+              references: ["organizationId", "id"],
+              onDelete: "cascade",
+            },
+          },
+          ids: [
+            {
+              fields: ["childId", "parentId"],
+            },
+          ],
+        },
+        team: {
+          fields: {
+            id: {
+              type: "string",
+              id: true,
+            },
+            organizationId: {
+              type: "string",
+            },
+            parents: {
+              type: "toMany",
+              target: "team",
+              junction: {
+                model: "teamParent",
+                source: "child",
+                target: "parent",
+              },
+              name: "teamGraph",
+            },
+            children: {
+              type: "toMany",
+              target: "team",
+              name: "teamGraph",
+            },
+          },
+          uniques: [
+            {
+              fields: ["organizationId", "id"],
+            },
+          ],
+        },
+      },
+    },
+  },
+  {
     id: "relations/many-to-one.mdx#0",
     coded: () => {
       const post = s.model({

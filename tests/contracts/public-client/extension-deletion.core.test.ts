@@ -578,3 +578,57 @@ describe("a limited soft delete takes exactly the rows it locked", () => {
     ).toEqual({ count: 995 });
   });
 });
+
+describe("a declared junction model", () => {
+  const link = s
+    .model({
+      childId: s.string(),
+      parentId: s.string(),
+      removedAt: s.dateTime().nullable(),
+      child: s
+        .toOne(() => node)
+        .fields("childId")
+        .references("id"),
+      parent: s
+        .toOne(() => node)
+        .fields("parentId")
+        .references("id"),
+    })
+    .id(["childId", "parentId"]);
+  const other = s.model({
+    id: s.string().id(),
+    removedAt: s.dateTime().nullable(),
+  });
+  const node = s.model({
+    id: s.string().id(),
+    parents: s
+      .toMany(() => node)
+      .name("graph")
+      .through(() => link)
+      .source("child")
+      .target("parent"),
+    children: s.toMany(() => node).name("graph"),
+  });
+  const client = (): any =>
+    createClient({
+      schema: { link, node, other },
+      driver: createInMemorySQLite3Driver(),
+    });
+  const deletion = (model: string) => ({
+    name: "tombstones",
+    deletion: { models: { [model]: { at: "removedAt" } } },
+  });
+
+  test("takes no `deletion`, and names the slot that hops through it", () => {
+    expect(() => client().$extends(deletion("link"))).toThrow(
+      "the model is the junction of 'node.parents'"
+    );
+  });
+
+  test("leaves every other model's `deletion` alone", () => {
+    expect(() => client().$extends(deletion("other"))).not.toThrow();
+    expect(() => client().$extends(deletion("node"))).toThrow(
+      "names unknown scalar"
+    );
+  });
+});

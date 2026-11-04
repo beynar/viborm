@@ -118,6 +118,7 @@ import {
 } from "./schema";
 import {
   bindMembership,
+  linkMembers,
   type Membership,
   type PhysicalField,
   physicalField,
@@ -245,8 +246,17 @@ type RelationProjectionArguments = Pick<
 > & {
   readonly selector?: Pick<PreparedSelector, "model" | "predicate">;
 };
+/** The link row columns one relation node reads: `$through`. */
+interface PreparedLinkRow {
+  readonly model: AnyModel;
+  readonly fields: readonly string[];
+  readonly shape: Extract<ProjectionShape, { kind: "object" }>;
+}
 interface PreparedRelationProjection {
   readonly edge: Membership;
+  readonly linkRow?: PreparedLinkRow;
+  /** A nested `where`'s `$through`, tested on the link this page joins. */
+  readonly linkWhere?: Pick<PreparedSelector, "model" | "predicate">;
   readonly arguments: RelationProjectionArguments;
   readonly projection: PreparedProjection;
   readonly recurrence?: NormalizedRecurrence;
@@ -592,6 +602,13 @@ type PreparedPredicate =
        * carried: a set does not depend on the paths that reach it.
        */
       readonly closure?: Closure;
+      /**
+       * `$through`: what the link row joining each target must hold, tested
+       * with the target's own conditions on that one link. A model's scalars
+       * only, so it reads no other row and no bound ever narrows it.
+       */
+      readonly link?: PreparedPredicate;
+      readonly linkFields?: readonly string[];
     }
   | {
       /** The first `limit` rows of `selector` in key order ({@link Queries.window}). */
@@ -874,6 +891,10 @@ function callReads(
       callReads(predicate.predicate, parameters, conditions);
       return;
     case "relation":
+      if (predicate.link) callReads(predicate.link, parameters, conditions);
+      if (predicate.predicate)
+        callReads(predicate.predicate, parameters, conditions);
+      return;
     case "exists":
       if (predicate.predicate)
         callReads(predicate.predicate, parameters, conditions);
@@ -981,6 +1002,9 @@ function connectiveArms(
 /** Do two quantifiers range over the same rows: edge, quantifier, scope, walk? */
 function sameRange(left: RelationPredicate, right: RelationPredicate): boolean {
   return (
+    // A body is merged over one range; a link condition belongs to its own.
+    left.link === undefined &&
+    right.link === undefined &&
     left.edge === right.edge &&
     left.quantifier === right.quantifier &&
     left.unscoped === right.unscoped &&
@@ -2179,6 +2203,11 @@ export class PreparedDomain {
   }
 }
 const NO_RELATIONS: readonly string[] = Object.freeze([]);
+/** A relation node or body without its `$through`, which belongs to the link. */
+function withoutLinkKey(map: Input): Input {
+  const { $through: _taken, ...rest } = map;
+  return rest;
+}
 
 /** The verb predicates one layer's `judgement` takes, each once. */
 function verbInputs(verbs: ModelVerbs, judgement: RowJudgement): Input[] {
@@ -2912,6 +2941,29 @@ export class Queries {
     const lowered = bound && this.lowerSelector(bound, alias);
     return lowered ? [lowered] : [];
   }
+  /**
+   * What a declared junction's link rows may hold while a layer's predicates
+   * lower here, where a positive test reads them ({@link setBound}), so a walk
+   * reads its tenant's links rather than filtering the whole table's. Only a
+   * bound over columns both of a link's keys hold: their foreign keys make them
+   * the joined rows' own, so it changes no answer. Over any other column a link
+   * may disagree with the rows it joins, and a bound would drop it. A generated
+   * junction has no field to bound.
+   */
+  #linkBound(
+    edge: Extract<Membership, { kind: "junction" }>,
+    link: string
+  ): readonly Sql[] {
+    const model = edge.declared?.model;
+    const bound = model && this.#boundOf(model);
+    if (!bound) return [];
+    const holds = (side: typeof edge.sourceSide, field: string) =>
+      side.members.some((pair) => pair.junctionField === field);
+    for (const field of bound.facts.fields)
+      if (!(holds(edge.sourceSide, field) && holds(edge.targetSide, field)))
+        return [];
+    return this.#setBound(model, link);
+  }
   /** {@link setBound}'s selector, where one applies here. */
   #boundOf(model: AnyModel): PreparedSelector | undefined {
     const excluded = this.#excluded;
@@ -3502,22 +3554,20 @@ export class Queries {
     alias?: string
   ): Sql {
     return this.adapter.operators.and(
-      ...[edge.sourceSide, edge.targetSide].flatMap((side) =>
-        side.members
-          .filter((pair) => Object.hasOwn(values, pair.junctionField))
-          .map((pair) =>
-            this.adapter.operators.eq(
-              alias
-                ? this.adapter.identifiers.column(alias, pair.junctionField)
-                : this.adapter.identifiers.escape(pair.junctionField),
-              this.fieldValue(
-                side.model,
-                pair.referencedField,
-                values[pair.junctionField]
-              )
+      ...linkMembers(edge)
+        .filter(({ pair }) => Object.hasOwn(values, pair.junctionField))
+        .map(({ side, pair }) =>
+          this.adapter.operators.eq(
+            alias
+              ? this.adapter.identifiers.column(alias, pair.junctionField)
+              : this.adapter.identifiers.escape(pair.junctionField),
+            this.fieldValue(
+              side.model,
+              pair.referencedField,
+              values[pair.junctionField]
             )
           )
-      )
+        )
     );
   }
   junctionSideConditions(
@@ -5303,13 +5353,29 @@ export class Queries {
     positive = true,
     closure?: Closure
   ): PreparedPredicate {
+    const body =
+      value === null || value === undefined ? undefined : record(value);
+    const linkWhere =
+      edge.kind === "junction" && edge.declared
+        ? (body?.$through as Input | undefined)
+        : undefined;
+    const link = linkWhere && {
+      link: this.prepareSelector(
+        (edge as Extract<Membership, { kind: "junction" }>).declared!.model,
+        linkWhere,
+        false,
+        false
+      ).predicate,
+      linkFields: Object.keys(linkWhere),
+    };
     return freeze({
       kind: "relation",
       edge,
       quantifier,
+      ...link,
       predicate: this.#relationScope(
         edge,
-        value === null || value === undefined ? undefined : record(value),
+        link ? withoutLinkKey(body!) : body,
         facts,
         path,
         quantifier === "none" ||
@@ -6087,11 +6153,13 @@ export class Queries {
     const a = this.adapter;
     if (
       predicate.quantifier === "every" &&
+      predicate.link === undefined &&
       !(predicate.predicate && states(predicate.predicate))
     )
       return a.literals.true();
     const { edge, closure } = predicate;
     const childAlias = this.#rowAlias(edge.target);
+    const linkAlias = predicate.link ? this.alias() : undefined;
     // A semijoin over a plain reference: `some`/`is` with a body, neither a
     // walk nor a variant arm. Its `FROM` takes the semijoins among its
     // conjuncts that read a row above it (`joins`), and it is one of those
@@ -6129,6 +6197,14 @@ export class Queries {
             );
     } finally {
       this.#frames.pop();
+    }
+    if (predicate.link) {
+      // A policy's own rule reads what it states; a caller's filter is a test
+      // of a column a direct read of it could hide.
+      if (!this.#lowersLayer)
+        this.#refuseHiddenLinkRow(edge, predicate.linkFields!, "filter");
+      const held = this.#lowerPredicate(predicate.link, linkAlias);
+      nested = nested ? a.operators.and(nested, held) : held;
     }
     if (joinable) {
       const above = parent!.escaped;
@@ -6210,7 +6286,8 @@ export class Queries {
         enclosing,
         predicate.predicate !== undefined && readsRelation(predicate.predicate),
         frame.escaped,
-        frame.joins
+        frame.joins,
+        linkAlias
       );
     };
     return quantified.holds ? range() : this.#opposite(range);
@@ -6294,14 +6371,19 @@ export class Queries {
     enclosing: Enclosing,
     deeper = false,
     correlatedAbove = false,
-    joins: readonly Sql[] = []
+    joins: readonly Sql[] = [],
+    link?: string
   ): Sql {
     const a = this.adapter;
     const junctions = a.capabilities.joinsJunctionFilters;
+    // A `$through` condition reads the link row, so that row is joined whatever
+    // the dialect prefers: the membership's `IN` keeps it out of the body.
     const joined =
       edge.kind === "junction" &&
-      (junctions === true || (junctions === "unbounded" && !this.#bounded))
-        ? this.#junctionJoin(edge, child, parent)
+      (link !== undefined ||
+        junctions === true ||
+        (junctions === "unbounded" && !this.#bounded))
+        ? this.#junctionJoin(edge, child, parent, link)
         : undefined;
     const member =
       joined?.correlation ?? this.#membershipWhere(edge, child, parent);
@@ -6699,7 +6781,8 @@ export class Queries {
     const linked = a.joins.inner(
       a.identifiers.table(edge.table, link),
       a.operators.and(
-        ...this.junctionSideConditions(edge.targetSide, link, into)
+        ...this.junctionSideConditions(edge.targetSide, link, into),
+        ...this.#linkBound(edge, link)
       )
     );
     const referenced = edge.sourceSide.members.map(
@@ -6747,10 +6830,10 @@ export class Queries {
   #junctionJoin(
     edge: Extract<Membership, { kind: "junction" }>,
     child: string,
-    parent: string
+    parent: string,
+    link = this.alias()
   ): { readonly from: Sql; readonly correlation: Sql } {
     const a = this.adapter;
-    const link = this.alias();
     return {
       from: sql`${a.identifiers.table(edge.table, link)} ${a.joins.inner(
         this.table(edge.target, child),
@@ -6764,7 +6847,8 @@ export class Queries {
         )
       )}`,
       correlation: a.operators.and(
-        ...this.junctionSideConditions(edge.sourceSide, link, parent)
+        ...this.junctionSideConditions(edge.sourceSide, link, parent),
+        ...this.#linkBound(edge, link)
       ),
     };
   }
@@ -7006,7 +7090,8 @@ export class Queries {
           ),
           from: a.identifiers.table(edge.table, junction),
           where: a.operators.and(
-            ...this.junctionSideConditions(edge.sourceSide, junction, source)
+            ...this.junctionSideConditions(edge.sourceSide, junction, source),
+            ...this.#linkBound(edge, junction)
           ),
         })
       )
@@ -8476,7 +8561,15 @@ export class Queries {
     return freeze({
       kind: "collection",
       reversed: take !== undefined && take < 0 ? true : undefined,
-      row: nested.projection.shape,
+      row: nested.linkRow
+        ? freeze({
+            ...nested.projection.shape,
+            fields: freeze({
+              ...nested.projection.shape.fields,
+              $through: nested.linkRow.shape,
+            }),
+          })
+        : nested.projection.shape,
     });
   }
   /** A missing point/vector or a zero-norm cosine distance has no number. */
@@ -8491,15 +8584,136 @@ export class Queries {
           distance.metric === "cosine"),
     });
   }
+  /**
+   * A node's `$through`, and its arguments without it: the key is the slot's,
+   * not a field of the target its projection reads. Admission mounted it only
+   * on a slot a declared model holds, so no other slot has anything to take.
+   *
+   * It RETURNS the junction model's columns, so it is a read of that model,
+   * unlike the hop beside it. Whatever a direct read of them would hide on
+   * this client refuses the key, before any statement: a row its `rows` hide
+   * or a field a gate masks has no faithful answer in a value the hop already
+   * reached (the target row is there; the link it came through is not to be
+   * told). `defaultOmit` is presentation, and is settled at the client.
+   */
+  #prepareLinkRow(edge: Membership, nested: Partial<Arguments>) {
+    if (edge.kind !== "junction" || !edge.declared) return { nested };
+    const { select, include } = nested as {
+      select?: Record<string, unknown>;
+      include?: Record<string, unknown>;
+    };
+    const asked = select?.$through ?? include?.$through;
+    if (select?.$through === undefined && include?.$through === undefined)
+      return { nested };
+    const rest = {
+      ...nested,
+      ...(select && { select: withoutLinkKey(select as Input) }),
+      ...(include && { include: withoutLinkKey(include as Input) }),
+    };
+    if (!asked) return { nested: rest };
+    const model = edge.declared.model;
+    const named = Object.entries(record(record(asked).select))
+      .filter(([, wanted]) => wanted === true)
+      .map(([field]) => field);
+    this.#refuseHiddenLinkRow(edge, named, "read");
+    return {
+      nested: rest,
+      linkRow: freeze({
+        model,
+        fields: freeze(named),
+        shape: freeze({
+          kind: "object" as const,
+          fields: freeze(
+            Object.fromEntries(
+              named.map((field) => [field, this.scalarShape(model, field)])
+            )
+          ),
+        }),
+      }),
+    };
+  }
+  /** Whether this call's `purpose` domain of `model` can leave a row out. */
+  #hidesRows(model: AnyModel, purpose: RowPurpose): boolean {
+    const holds = (predicate: PreparedPredicate): boolean => {
+      if (predicate.kind === "layer") {
+        const resolved = this.#resolve(predicate);
+        return resolved === undefined || holds(resolved);
+      }
+      if (predicate.kind === "and") return predicate.predicates.every(holds);
+      return predicate.kind === "always" && predicate.value;
+    };
+    const domain = this.domainOf(model, purpose);
+    return domain?.predicate !== undefined && !holds(domain.predicate);
+  }
+  /**
+   * Whether this call's extensions judge writes to a junction model: its rows,
+   * its verbs. A link is written with neither read nor judged, so a `$through`
+   * write through it is refused where a direct write would have been judged.
+   */
+  restrictsLinkWrite(model: AnyModel): boolean {
+    return (
+      this.#hidesRows(model, "root") ||
+      this.#hidesRows(model, "related") ||
+      this.domain?.rows.verbs
+        ?.get(model["~"].names.ts!)
+        ?.some((verbs) => verbs !== undefined) === true
+    );
+  }
+  /**
+   * What a direct read of the junction model would hide stays hidden from a
+   * `$through` that reads it, or that tests it, which is the same disclosure one
+   * row at a time. Not honoured in the statement: a target row the hop reached
+   * has no faithful answer for a link its reader may not see, so the call is
+   * refused before any statement.
+   */
+  #refuseHiddenLinkRow(
+    edge: Membership,
+    fields: readonly string[],
+    use: "read" | "filter"
+  ): void {
+    const model = (edge as Extract<Membership, { kind: "junction" }>).declared!
+      .model;
+    const name = model["~"].names.ts;
+    if (this.#hidesRows(model, "root") || this.#hidesRows(model, "related"))
+      throw new UnsupportedOperationError(
+        `Cannot ${use} $through of relation '${edge.name}': this client restricts which '${name}' rows a call may read. Read the links through the '${name}' delegate.`
+      );
+    const gates = this.domain?.projected(model)?.gates;
+    const gated = gates && fields.find((field) => gates.has(field));
+    if (gated !== undefined)
+      throw new UnsupportedOperationError(
+        `Cannot ${use} $through.${gated} of relation '${edge.name}': this client gates that field of '${name}'. Read it through the '${name}' delegate.`
+      );
+  }
   #prepareRelationProjection(
     edge: Membership,
     selection: unknown,
     path = ""
   ): PreparedRelationProjection {
-    const nested =
-      selection === true ? {} : (record(selection) as Partial<Arguments>);
+    const { nested: taken, linkRow } = this.#prepareLinkRow(
+      edge,
+      selection === true ? {} : (record(selection) as Partial<Arguments>)
+    );
+    const linkWhere =
+      edge.kind === "junction" && edge.declared
+        ? (taken.where?.$through as Input | undefined)
+        : undefined;
+    if (linkWhere)
+      this.#refuseHiddenLinkRow(edge, Object.keys(linkWhere), "filter");
+    const nested = linkWhere
+      ? { ...taken, where: withoutLinkKey(taken.where as Input) }
+      : taken;
     return freeze({
       edge,
+      linkRow,
+      linkWhere:
+        linkWhere &&
+        this.prepareSelector(
+          (edge as Extract<Membership, { kind: "junction" }>).declared!.model,
+          linkWhere,
+          false,
+          false
+        ),
       arguments: freeze({
         selector: nested.where
           ? this.prepareSelector(edge.target, nested.where, false, false)
@@ -9084,7 +9298,13 @@ export class Queries {
     alias: string
   ): Sql {
     const a = this.adapter;
-    const { edge, arguments: nested, projection } = relation;
+    const {
+      edge,
+      arguments: nested,
+      projection,
+      linkRow,
+      linkWhere,
+    } = relation;
     const childAlias = this.#rowAlias(edge.target);
     const child = this.lowerProjection(projection, childAlias, true);
     const childFields = Object.keys(projection.shape.fields);
@@ -9092,6 +9312,20 @@ export class Queries {
     // correlation scope; `take: -n` reverses the window exactly as at the root.
     const window = this.#page(edge.target, nested, childAlias, "related");
     const source = this.#memberSource(edge, alias, childAlias);
+    const lowered = linkWhere && this.lowerSelector(linkWhere, source.link);
+    // The link row is the one this page's own join reads the target through,
+    // flat here and an object below: a JSON column in a page would have no
+    // equality for `DISTINCT`, and a key holds at most one row per target. No
+    // member's name holds a `$` (F001), so none of the page's columns is this.
+    const linkColumn = (index: number) => `$through_${index}`;
+    if (linkRow)
+      for (const [index, field] of linkRow.fields.entries())
+        child.push(
+          a.identifiers.aliased(
+            this.projectedColumn(linkRow.model, field, source.link),
+            linkColumn(index)
+          )
+        );
     const page = assembleAdapterSelect(a, {
       columns: sql.join(child, ", "),
       from: source.from,
@@ -9104,6 +9338,7 @@ export class Queries {
         ...(nested.selector
           ? [this.lowerSelector(nested.selector, childAlias)!]
           : []),
+        ...(lowered ? [lowered] : []),
         ...(window.cursor ? [window.cursor] : [])
       ),
       orderBy: window.orderBy,
@@ -9129,7 +9364,10 @@ export class Queries {
             distinct: window.distinct,
             distinctOrderBy: window.distinctOrderBy,
             distinctOrder: window.distinctOrder,
-            distinctColumnAliases: projection.fields.map((field) => field.name),
+            distinctColumnAliases: [
+              ...projection.fields.map((field) => field.name),
+              ...(linkRow ? linkRow.fields.map((_, i) => linkColumn(i)) : []),
+            ],
           }
         : {}),
     });
@@ -9143,6 +9381,19 @@ export class Queries {
     ]);
     for (const gate of projection.shape.gates ?? NO_GATES)
       members.push([gate, a.identifiers.column(pageAlias, gate)]);
+    if (linkRow)
+      members.push([
+        "$through",
+        a.json.object(
+          linkRow.fields.map((field, index): [string, Sql] => [
+            field,
+            this.#carriedValue(
+              linkRow.shape.fields[field]!,
+              a.identifiers.column(pageAlias, linkColumn(index))
+            ),
+          ])
+        ),
+      ]);
     const object = a.json.object(members);
     const expression = a.subqueries.scalar(
       assembleAdapterSelect(a, {
@@ -9217,7 +9468,8 @@ export class Queries {
     return sql`${a.joins.inner(
       a.identifiers.table(edge.table, link),
       a.operators.and(
-        ...this.junctionSideConditions(edge.sourceSide, link, current)
+        ...this.junctionSideConditions(edge.sourceSide, link, current),
+        ...this.#linkBound(edge, link)
       )
     )} ${this.#junctionTarget(edge, link, next)}`;
   }
@@ -9236,7 +9488,7 @@ export class Queries {
     edge: Membership,
     parent: string,
     child: string
-  ): { from: Sql; joins?: Sql[]; where: Sql } {
+  ): { from: Sql; joins?: Sql[]; where: Sql; link?: string } {
     if (edge.kind !== "junction")
       return {
         from: this.#attached(edge.target, child),
@@ -9244,6 +9496,7 @@ export class Queries {
       };
     const link = this.alias();
     return {
+      link,
       from: this.adapter.identifiers.table(edge.table, link),
       joins: [this.#junctionTarget(edge, link, child)],
       where: this.adapter.operators.and(

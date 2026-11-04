@@ -107,6 +107,8 @@ export interface StudioEdge {
   readonly toEnd: StudioEnd;
   /** The junction table a many-to-many edge is stored in. */
   readonly junction?: string;
+  /** That table's model, where a declared model holds it: it has its own card. */
+  readonly junctionModel?: string;
 }
 
 export interface StudioSchema {
@@ -232,7 +234,8 @@ function describeRelation(
       references: owner
         ? edge.reference.members.map((member) => member.referencedField)
         : [],
-      ...partnerOf(partner),
+      // A junction's side pairs with nothing: its other end only hops through.
+      ...(edge.junctionSide ? {} : partnerOf(partner)),
     };
   }
   if (edge.kind === "junction") {
@@ -325,7 +328,7 @@ function describeEdge(
         },
         to: {
           model: named(target.source),
-          relation: target.field,
+          ...(edge.junctionSide ? {} : { relation: target.field }),
           columns: edge.reference.members.map(
             (member) => member.referencedField
           ),
@@ -360,6 +363,9 @@ function describeEdge(
         fromEnd: "zero-or-many",
         toEnd: "zero-or-many",
         junction: topology.table,
+        ...(topology.declared
+          ? { junctionModel: named(topology.declared.model) }
+          : {}),
       },
     ];
   }

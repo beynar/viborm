@@ -2807,3 +2807,21 @@ and a batch-only non-returning driver cannot resolve a single-row mutation's
 identity inside its own unit. One class (`TransactionError`), one
 `meta { driver, operation }`, the two registered sentences, and no provider
 dispatch — the position of the shipped `assertRoutedAtomicResolution`.
+
+## A declared junction and `$through`
+
+A junction a declared model holds is the same `junction` membership with
+`declared` (the model and the physical key a link conflicts on). `linkMembers` is
+the one list of a link's distinct columns: a column both sides hold is named once,
+and a link whose rows disagree on it is refused (`#requireAgreement`), never
+last-wins. A link fills the model's defaults, conflicts on `declared.key`, and a
+`$through` write updates only what it stated: one `ON CONFLICT DO UPDATE` where the
+dialect has a targeted upsert, the anti-join insert and an `UPDATE` elsewhere.
+
+`$through` is a read or a write of that model, unlike the hop beside it. The read
+projects the link the page already joins (`#memberSource`), the filter forces the
+join so a link's and a target's conditions test one pair, and what a direct call
+would hide or judge refuses it (`#refuseHiddenLinkRow`, `restrictsLinkWrite`,
+`#admitLink`). `#linkBound` applies a model's `tenant` bound at every hop's link
+alias, under the same polarity as `#setBound`, only over columns both of the
+link's keys hold: over any other, a link may disagree with the rows it joins.

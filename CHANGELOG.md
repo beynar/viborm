@@ -5,8 +5,43 @@ Versioning.
 
 ## Unreleased
 
+## 1.12.0 — 2026-11-04
+
+A model as a many-to-many's junction, with its link row readable, filterable
+and writable through `$through`. Studio's schema diagram lays itself out by what
+joins what.
+
+### Added
+
+- **A declared model as a many-to-many's junction:**
+  `s.toMany(() => team).through(() => teamParent).source("child").target("parent")`.
+  The model keeps its delegate, table, columns and constraints, and VibORM
+  generates no junction for it. Reads, filters, `recurse`, `selective`,
+  `fewRows` and counts work as on any many-to-many. Its side to-ones need no
+  inverse. Refused at schema check: `JT004`–`JT010`, each with a repair. Moving a
+  generated junction to a model of the same table keeps the table and its rows.
+- **`$through`, the link row.** Read in a nested `select` or `include` (`true`, or
+  `{ select }` of its scalars); filter beside the target's conditions in `some`,
+  `none`, `every` and a nested `where`, both holding on one link and its target;
+  write on `connect`, `create`, `connectOrCreate` and `set`. `include:
+  { parents: true }` still returns target rows only. A link that exists takes
+  the stated columns and keeps the others. Refused on a string `.through()`, on a
+  `recurse` walk, and for relations inside it. A required column with no default
+  makes `$through` required on those verbs.
+- **A governed walk reads its tenant's links.** With `permissions({ tenant })`, a
+  junction model whose two foreign keys both hold the tenant's field is bound at
+  each hop of a positive test. A tenant column outside those keys is not bound: a
+  link may disagree with the rows it joins, and a bound would change a rule's
+  answer. Measured on PGlite, 40 organizations of 30 teams: 109,070 → 94 link rows
+  read, same answers. That is rows read, not time.
+
 ### Changed
 
+- **Applying `softDelete` (or any `deletion`) to a junction model is refused** when
+  it is applied: a tombstoned link hops still follow would be wrong.
+- `$through` is refused where an extension would hide or judge what it reads or
+  writes (`rows`, a read gate on a named field, verbs, a stamp, a write hook).
+  `defaultOmit` is honoured on `$through: true`.
 - **Studio: the schema diagram lays itself out by what joins what.** Models
   that join each other stand together as a group, with more room between
   groups than inside one, and the groups joined most sit side by side, on a

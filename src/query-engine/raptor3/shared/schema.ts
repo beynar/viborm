@@ -181,6 +181,8 @@ const createQueryViews = (): QueryViews => ({
 export class EngineSchema {
   readonly index;
   readonly registry;
+  readonly #linkDefaults = new WeakMap<AnyModel, readonly string[]>();
+  readonly #linkRequired = new WeakMap<AnyModel, readonly string[]>();
   readonly #membershipViews = new WeakMap<
     AnyModel,
     Map<string, Map<string | undefined, Membership>>
@@ -536,6 +538,51 @@ export class EngineSchema {
         model
       );
     return admitted;
+  }
+  /**
+   * The fields a link through a declared junction writes beside its members:
+   * each one its own create schema fills when it is given nothing. A field
+   * whose schema answers nothing (nullable, or the database's own default)
+   * stays out of the INSERT, and the column takes what it takes for any row.
+   * Asked once per model: a junction model holds one pair (JT010).
+   */
+  /**
+   * The columns of a declared junction a link cannot fill itself: not one of its
+   * two sides', and required as a create requires them. A write must state them.
+   */
+  linkRequired(
+    model: AnyModel,
+    members: ReadonlySet<string>
+  ): readonly string[] {
+    return memo(this.#linkRequired, model, () => {
+      const scalars = model["~"].state.scalars;
+      return Object.freeze(
+        Object.keys(scalars).filter((field) => {
+          const state = scalars[field]!["~"].state;
+          return (
+            !members.has(this.physicalField(model, field).name) &&
+            state.optional !== true
+          );
+        })
+      );
+    });
+  }
+  linkDefaults(
+    model: AnyModel,
+    members: ReadonlySet<string>
+  ): readonly string[] {
+    return memo(this.#linkDefaults, model, () => {
+      const scalars = model["~"].state.scalars;
+      return Object.freeze(
+        Object.keys(scalars).filter(
+          (field) =>
+            !members.has(this.physicalField(model, field).name) &&
+            scalars[field]!["~"].state.hasDefault === true &&
+            this.createValues(model, { [field]: undefined })[field] !==
+              undefined
+        )
+      );
+    });
   }
   update(
     model: AnyModel,

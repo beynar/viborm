@@ -535,7 +535,10 @@ function serializeRelation(
           type,
           target: resolveTargetKey(state.target.getter, schema, path, issues),
         },
-        state
+        state,
+        schema,
+        path,
+        issues
       );
   if (state.name !== undefined) document.name = state.name;
   return document;
@@ -543,7 +546,10 @@ function serializeRelation(
 
 function withModelTargetFacts(
   document: ModelTargetDocument,
-  state: RelationState
+  state: RelationState,
+  schema: Schema,
+  path: string,
+  issues: DocumentIssues
 ): ModelTargetDocument {
   const foreignKey = state.foreignKey;
   if (foreignKey !== undefined) {
@@ -560,6 +566,8 @@ function withModelTargetFacts(
   if (junction !== undefined) {
     const names: JunctionNamesDocument = {};
     if (junction.table !== undefined) names.table = junction.table;
+    if (junction.model !== undefined)
+      names.model = resolveTargetKey(junction.model, schema, path, issues);
     if (junction.source !== undefined) names.source = junction.source;
     if (junction.target !== undefined) names.target = junction.target;
     const onDelete = canonicalJunctionActions(junction.onDelete);

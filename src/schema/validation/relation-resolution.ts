@@ -25,12 +25,15 @@ import {
   resolveOrdinaryJunctionNames,
 } from "../relation/helpers";
 import {
+  type DeclaredJunctionSideInput,
   type ResolvedJunctionTopology,
+  resolveDeclaredJunctionTopology,
   resolveJunctionTopology,
 } from "../relation/junction-topology";
 import type { PolymorphicStorageColumn } from "../relation/polymorphic";
 import type {
   AnyRelation,
+  JunctionReferentialAction,
   JunctionSideActions,
   ReferentialAction,
   RelationCardinality,
@@ -42,6 +45,11 @@ import type {
 import { thrownAsError } from "./error";
 import { deriveIdDomains } from "./id-domains";
 import { checkStoredReference } from "./rules/fk";
+import {
+  checkJunctionModel,
+  type JunctionModelContext,
+  junctionIssue,
+} from "./rules/junction-model";
 import { getScalars } from "./rules/model-members";
 import {
   checkVariantMemberJunctions,
@@ -107,6 +115,12 @@ export type ResolvedRelationEdge =
       readonly owner: RelationSlot;
       readonly reference: ResolvedStoredReference;
       readonly unique: boolean;
+      /**
+       * A declared junction's side with no inverse of its own: the other
+       * endpoint is the collection that hops through it, not a pair of this
+       * edge, and that slot still resolves to the junction.
+       */
+      readonly junctionSide?: true;
     }
   | {
       readonly kind: "junction";
@@ -353,7 +367,17 @@ export function resolveSchemaRelations(
     verdicts.set(endpoint, decide(endpoint, candidates));
   }
 
-  reportPairingIssues(endpoints, structural, verdicts, issues);
+  const declared = settleJunctionModels(
+    endpoints,
+    byHolder,
+    structural,
+    verdicts,
+    registration.byIdentity,
+    issues
+  );
+  if (declared.cause) return { ok: false, issues, cause: declared.cause };
+
+  reportPairingIssues(endpoints, structural, verdicts, issues, declared.sides);
 
   const publication: Publication = {
     edges: [],
@@ -361,6 +385,8 @@ export function resolveSchemaRelations(
     storedReferences: [],
     junctionTables: new Map(),
     junctionNames: [],
+    junctionModels: declared.pairs,
+    junctionSides: declared.sides,
     issues,
   };
 
@@ -383,6 +409,10 @@ export function resolveSchemaRelations(
       { slot: partner.node.slot, edge }
     );
   }
+  // After every ordinary pair, so a side with an inverse of its own has already
+  // published the foreign key its junction reads.
+  for (const pair of declared.pairs.values())
+    resolveModelJunction(pair, publication);
   reportJunctionTableClaims(publication, context, checked);
   if (!checked) {
     reportRequiredCycles(publication, registration.byIdentity);
@@ -416,6 +446,10 @@ interface Publication {
   readonly junctionTables: Map<string, string[]>;
   /** Table and reverse-index names every ordinary junction reserves. */
   readonly junctionNames: string[];
+  /** The pairs whose junction is a declared model, by their first endpoint. */
+  readonly junctionModels: ReadonlyMap<Endpoint, ModelJunctionPair>;
+  /** Their to-ones with no inverse of their own: each publishes its edge alone. */
+  readonly junctionSides: ReadonlySet<Endpoint>;
   readonly issues: SchemaValidationIssue[];
 }
 
@@ -631,9 +665,13 @@ function reportPairingIssues(
   endpoints: readonly Endpoint[],
   structural: ReadonlyMap<Endpoint, Endpoint[]>,
   verdicts: ReadonlyMap<Endpoint, Verdict>,
-  issues: SchemaValidationIssue[]
+  issues: SchemaValidationIssue[],
+  junctionSides: ReadonlySet<Endpoint>
 ): void {
   for (const endpoint of endpoints) {
+    // A declared junction's side has its partner in the slot that hops through
+    // it, so having no inverse of its own is what it is meant to look like.
+    if (junctionSides.has(endpoint)) continue;
     const verdict = verdicts.get(endpoint);
     // Both maps were filled from this same endpoint list, one entry each.
     const candidates = structural.get(endpoint)!;
@@ -784,6 +822,9 @@ function resolveJunctionEdge(
   // `configured` holds the endpoints whose junction value is set, so the sole
   // configuring endpoint's overrides are there to read.
   const configuring = configured[0];
+  // A declared model's edge waits for its sides' foreign keys, once every pair
+  // has resolved; one that cannot be resolved has already said why.
+  if (configuring?.node.state.junction?.model !== undefined) return undefined;
   const overrides =
     configuring === undefined
       ? undefined
@@ -998,6 +1039,446 @@ function declaresUniqueKey(
   fields: readonly string[]
 ): boolean {
   return findReferenceableKey(model, fields) !== undefined;
+}
+
+// =============================================================================
+// A DECLARED MODEL AS THE JUNCTION
+// =============================================================================
+
+/** One pair whose junction a model holds, oriented as its edge will be. */
+interface ModelJunctionPair {
+  readonly first: Endpoint;
+  readonly second: Endpoint;
+  readonly context: JunctionModelContext;
+  /** The to-one the FIRST endpoint hops through, and the second's. */
+  readonly firstSide: Endpoint;
+  readonly secondSide: Endpoint;
+}
+
+interface JunctionModelSettlement {
+  readonly pairs: ReadonlyMap<Endpoint, ModelJunctionPair>;
+  /** Side relations whose lack of an inverse is not an error. */
+  readonly sides: ReadonlySet<Endpoint>;
+  readonly cause?: Error;
+}
+
+/**
+ * Settle every `.through(() => model)` exactly once, and decide which to-one of
+ * that model each side reads. It runs before pairing issues are reported, because
+ * a side with no inverse of its own is the expected shape and must not be R002.
+ *
+ * A thrown thunk stops resolution like a thrown target getter. A pair whose
+ * endpoints did not pair is left to the pairing diagnostics: which slot it would
+ * have been is not known, and neither are its sides.
+ */
+function settleJunctionModels(
+  endpoints: readonly Endpoint[],
+  byHolder: ReadonlyMap<Model<any>, Endpoint[]>,
+  structural: ReadonlyMap<Endpoint, Endpoint[]>,
+  verdicts: ReadonlyMap<Endpoint, Verdict>,
+  byIdentity: ReadonlyMap<unknown, RegisteredModel>,
+  issues: SchemaValidationIssue[]
+): JunctionModelSettlement {
+  const pairs = new Map<Endpoint, ModelJunctionPair>();
+  const sides = new Set<Endpoint>();
+  const claims = new Map<Model<any>, string>();
+  // A to-one with nothing to pair with is expected of a junction's side, and
+  // reporting it would only distract from why that junction was refused.
+  const exempt = (side: Endpoint) => {
+    const verdict = verdicts.get(side);
+    if (
+      verdict?.kind === "missing" ||
+      (verdict?.kind === "nameMismatch" &&
+        structural
+          .get(side)!
+          .every((candidate) => verdicts.get(candidate)?.kind === "paired"))
+    )
+      sides.add(side);
+  };
+  for (const endpoint of endpoints) {
+    const { node } = endpoint;
+    if (node.state.junction?.model === undefined) continue;
+    const holder = { holderName: node.modelName, holderField: node.field };
+    let settled: unknown;
+    try {
+      settled = node.relation["~"].settleJunctionModel!();
+    } catch (thrown) {
+      issues.push(
+        junctionIssue(
+          "JT004",
+          holder,
+          `Junction model getter for '${path(endpoint)}' threw: ${thrownAsError(thrown).message}`,
+          "Return a registered model from the .through(...) getter"
+        )
+      );
+      return { pairs, sides, cause: thrownAsError(thrown) };
+    }
+    const registered = byIdentity.get(settled);
+    if (!registered) {
+      issues.push(
+        junctionIssue(
+          "JT004",
+          holder,
+          `'${path(endpoint)}' goes through a model that is not registered in the schema`,
+          "Register the junction model in the schema"
+        )
+      );
+      continue;
+    }
+    const held = byHolder.get(registered.model) ?? [];
+    const pair = settleJunctionPair(
+      endpoint,
+      registered,
+      held,
+      verdicts,
+      claims,
+      issues
+    );
+    if (!pair) {
+      for (const candidate of held)
+        if (candidate.cardinality === "one") exempt(candidate);
+      continue;
+    }
+    pairs.set(pair.first, pair);
+    exempt(pair.firstSide);
+    exempt(pair.secondSide);
+  }
+  return { pairs, sides };
+}
+
+/** One declaring endpoint's pair and its two sides; refused pairs say why. */
+function settleJunctionPair(
+  endpoint: Endpoint,
+  registered: RegisteredModel,
+  held: readonly Endpoint[],
+  verdicts: ReadonlyMap<Endpoint, Verdict>,
+  claims: Map<Model<any>, string>,
+  issues: SchemaValidationIssue[]
+): ModelJunctionPair | undefined {
+  const { node } = endpoint;
+  // A pair that did not pair, or a to-one declaring it, has its own diagnostic.
+  const verdict = verdicts.get(endpoint);
+  if (verdict?.kind !== "paired") return undefined;
+  const partner = verdict.partner;
+  if (
+    endpoint.cardinality !== "many" ||
+    partner.cardinality !== "many" ||
+    partner.variant !== undefined ||
+    verdicts.get(partner)?.kind !== "paired" ||
+    // Two endpoints declaring one junction is R011's, from the ordinary path.
+    partner.node.state.junction !== undefined
+  )
+    return undefined;
+
+  const { model, name: modelName } = registered;
+  const context: JunctionModelContext = {
+    model,
+    modelName,
+    declaredAt: path(endpoint),
+    holderName: node.modelName,
+    holderField: node.field,
+  };
+  const claimedBy = claims.get(model);
+  if (claimedBy !== undefined) {
+    issues.push(
+      junctionIssue(
+        "JT009",
+        context,
+        `'${modelName}' is already the junction of '${claimedBy}'`,
+        `Declare a separate junction model for '${context.declaredAt}'`
+      )
+    );
+    return undefined;
+  }
+  claims.set(model, context.declaredAt);
+  const relations: Record<string, AnyRelation> = model["~"].state.relations;
+  if (
+    Object.values(relations).some(
+      (relation) => relation["~"].state.target.kind === "variants"
+    )
+  ) {
+    issues.push(
+      junctionIssue(
+        "JT007",
+        context,
+        `'${modelName}' stores a polymorphic relation, so it cannot be the junction of '${context.declaredAt}'`,
+        `Remove the polymorphic relation from '${modelName}', or use it through its own delegate`
+      )
+    );
+    return undefined;
+  }
+  const overrides = node.state.junction!;
+  const selfRelation = node.slot.source === partner.node.slot.source;
+  // The relation one side reads: the one it names, else the only candidate aimed
+  // at its model. A self relation has two candidates by construction and no way
+  // to tell which is which, so it states both, whatever the count of candidates.
+  const choose = (side: "source" | "target", at: Endpoint) => {
+    const named = overrides[side];
+    if (named !== undefined) return named;
+    const endpointName = at.node.modelName;
+    if (selfRelation) {
+      issues.push(
+        junctionIssue(
+          "JT006",
+          context,
+          `'${context.declaredAt}' is a self relation through '${modelName}', so it must state .${side}(...): two to-one relations aim at '${endpointName}'`,
+          `Name the to-one relations of '${modelName}' with .source(...) and .target(...)`
+        )
+      );
+      return undefined;
+    }
+    const aimed = held.filter(
+      (candidate) =>
+        candidate.cardinality === "one" &&
+        candidate.target === at.node.slot.source
+    );
+    const [only] = aimed;
+    if (only && aimed.length === 1) return only.node.field;
+    issues.push(
+      junctionIssue(
+        "JT006",
+        context,
+        `'${context.declaredAt}' cannot choose its ${side} side: '${modelName}' has ${aimed.length} to-one relations aimed at '${endpointName}', and exactly one is required`,
+        `Name the relation with .${side}(...)`
+      )
+    );
+    return undefined;
+  };
+  const sourceName = choose("source", endpoint);
+  const targetName = choose("target", partner);
+  if (sourceName === undefined || targetName === undefined) return undefined;
+  const source = settleSide(
+    context,
+    "source",
+    sourceName,
+    endpoint,
+    held,
+    issues
+  );
+  const target = settleSide(
+    context,
+    "target",
+    targetName,
+    partner,
+    held,
+    issues
+  );
+  if (!(source && target)) return undefined;
+  if (source === target) {
+    issues.push(
+      junctionIssue(
+        "JT005",
+        context,
+        `'${context.declaredAt}' names '${sourceName}' as both of its sides`,
+        `Name two different to-one relations of '${modelName}'`
+      )
+    );
+    return undefined;
+  }
+  const firstIsDeclaring = endpoint.order < partner.order;
+  return {
+    first: firstIsDeclaring ? endpoint : partner,
+    second: firstIsDeclaring ? partner : endpoint,
+    context,
+    firstSide: firstIsDeclaring ? source : target,
+    secondSide: firstIsDeclaring ? target : source,
+  };
+}
+
+/** The endpoint of the relation a side names, proven to be a usable side. */
+function settleSide(
+  context: JunctionModelContext,
+  side: "source" | "target",
+  name: string,
+  at: Endpoint,
+  held: readonly Endpoint[],
+  issues: SchemaValidationIssue[]
+): Endpoint | undefined {
+  const { modelName, model } = context;
+  const relation: AnyRelation | undefined = Object.hasOwn(
+    model["~"].state.relations,
+    name
+  )
+    ? model["~"].state.relations[name]
+    : undefined;
+  if (!relation) {
+    issues.push(
+      junctionIssue(
+        "JT005",
+        context,
+        `'${context.declaredAt}' names '${name}' as its ${side} side, which is not a relation of '${modelName}'`,
+        `Declare a to-one '${name}' on '${modelName}', or name another relation with .${side}(...)`
+      )
+    );
+    return undefined;
+  }
+  const state = relation["~"].state;
+  const endpoint = held.find((candidate) => candidate.node.field === name);
+  // A registered variant carrier is JT007's, refused before any side is read.
+  // A target left unregistered is R006's, already reported.
+  if (state.cardinality !== "one" || state.foreignKey === undefined) {
+    issues.push(
+      junctionIssue(
+        "JT005",
+        context,
+        `'${modelName}.${name}', the ${side} side of '${context.declaredAt}', must store its reference as a to-one`,
+        `Declare '${name}' as s.toOne(...).fields(...).references(...)`
+      )
+    );
+    return undefined;
+  }
+  if (!endpoint) return undefined;
+  if (endpoint.target !== at.node.slot.source) {
+    issues.push(
+      junctionIssue(
+        "JT005",
+        context,
+        `'${modelName}.${name}', the ${side} side of '${context.declaredAt}', aims at '${endpoint.targetName}', but that side is '${at.node.modelName}'`,
+        `Aim '${name}' at '${at.node.modelName}', or name another relation with .${side}(...)`
+      )
+    );
+    return undefined;
+  }
+  const nullable = state.foreignKey.fields.filter(
+    (field) => model["~"].state.scalars[field]?.["~"].state.nullable === true
+  );
+  if (nullable.length > 0) {
+    issues.push(
+      junctionIssue(
+        "JT005",
+        context,
+        `'${modelName}.${name}', the ${side} side of '${context.declaredAt}', stores nullable column(s) ${nullable.join(", ")}`,
+        `Make ${nullable.join(", ")} non-nullable`
+      )
+    );
+    return undefined;
+  }
+  return endpoint;
+}
+
+/**
+ * The stored reference one side reads: its ordinary edge's when it pairs with an
+ * inverse of its own, else proven here and published as a foreign-key edge of its
+ * own, whose second endpoint is the collection that hops through it. That slot
+ * stands on the model the reference targets, so every reader of the endpoints
+ * reaches the right model, and the slot itself still resolves to the junction.
+ */
+function sideReference(
+  side: Endpoint,
+  hoppedFrom: Endpoint,
+  publication: Publication
+): ResolvedStoredReference | undefined {
+  for (const edge of publication.edges) {
+    if (edge.kind === "foreignKey" && edge.owner === side.node.slot)
+      return edge.reference;
+  }
+  // A side with an inverse whose ordinary edge did not publish said why there.
+  if (!publication.junctionSides.has(side)) return undefined;
+  const foreignKey = side.node.state.foreignKey!;
+  const check = checkStoredReference({
+    modelName: side.node.modelName,
+    model: side.node.slot.source,
+    relationName: side.node.field,
+    targetName: hoppedFrom.node.modelName,
+    target: hoppedFrom.node.slot.source,
+    foreignKey,
+  });
+  publication.issues.push(...check.issues);
+  if (declaresUniqueKey(side.node.slot.source, foreignKey.fields)) {
+    publication.issues.push(
+      uniqueCollectionKeyIssue(side, hoppedFrom, foreignKey)
+    );
+    return undefined;
+  }
+  if (!check.reference) return undefined;
+  publication.storedReferences.push({
+    owner: side.node.slot.source,
+    fields: check.reference.members.map((member) => member.foreignField),
+    unique: false,
+  });
+  const edge: ResolvedOrdinaryEdge = {
+    kind: "foreignKey",
+    endpoints: [side.node.slot, hoppedFrom.node.slot],
+    owner: side.node.slot,
+    reference: check.reference,
+    unique: false,
+    junctionSide: true,
+  };
+  publication.edges.push(edge);
+  publication.slots.push({ slot: side.node.slot, edge });
+  return check.reference;
+}
+
+function resolveModelJunction(
+  pair: ModelJunctionPair,
+  publication: Publication
+): void {
+  const { first, second, context } = pair;
+  const { model, modelName } = context;
+  const issues = publication.issues;
+  const firstReference = sideReference(pair.firstSide, first, publication);
+  const secondReference = sideReference(pair.secondSide, second, publication);
+  if (!(firstReference && secondReference)) return;
+
+  const overrides = first.node.state.junction ?? second.node.state.junction!;
+  if (overrides.onDelete !== undefined || overrides.onUpdate !== undefined) {
+    issues.push(
+      junctionIssue(
+        "JT010",
+        context,
+        `'${context.declaredAt}' states a referential action, but '${modelName}' holds its foreign keys`,
+        `Move .onDelete(...) / .onUpdate(...) to the to-one relations of '${modelName}'`
+      )
+    );
+    return;
+  }
+
+  const key = checkJunctionModel(
+    context,
+    { endpointModel: first.node.slot.source, reference: firstReference },
+    { endpointModel: second.node.slot.source, reference: secondReference },
+    issues
+  );
+  if (!key) return;
+
+  const side = (
+    token: Endpoint,
+    at: Endpoint,
+    reference: ResolvedStoredReference
+  ): DeclaredJunctionSideInput => ({
+    model: at.node.slot.source,
+    modelName: at.node.modelName,
+    token: token.node.field,
+    fields: reference.members.map(
+      (member) =>
+        model["~"].state.scalars[member.foreignField]!["~"].state.columnName ??
+        member.foreignField
+    ),
+    rowKey: reference.members.map((member) => member.referencedField),
+    // A side's every column is required and RA004 refused `setNull`, so this
+    // is the constraint's own action: RESTRICT unless the to-one says otherwise.
+    onDelete: (reference.onDelete ?? "restrict") as JunctionReferentialAction,
+    ...(reference.onUpdate === undefined
+      ? {}
+      : { onUpdate: reference.onUpdate as JunctionReferentialAction }),
+  });
+  const topology = resolveDeclaredJunctionTopology({
+    table: model["~"].state.tableName ?? modelName,
+    source: side(pair.firstSide, first, firstReference),
+    target: side(pair.secondSide, second, secondReference),
+    pairName: first.name,
+    declared: { model, key },
+  });
+  const edge: ResolvedOrdinaryEdge = {
+    kind: "junction",
+    endpoints: [first.node.slot, second.node.slot],
+    topology,
+  };
+  publication.edges.push(edge);
+  publication.slots.push(
+    { slot: first.node.slot, edge },
+    { slot: second.node.slot, edge }
+  );
 }
 
 // =============================================================================

@@ -2,7 +2,10 @@
 
 import type { AnyModel } from "@schema/model";
 import { slotMayBeEmpty } from "@schema/relation/clearability";
-import type { SlotMayBeEmpty } from "@schema/relation/static-membership";
+import type {
+  JunctionModelOf,
+  SlotMayBeEmpty,
+} from "@schema/relation/static-membership";
 import type { RelationState } from "@schema/relation/types";
 import type { ResolvedSlot } from "@schema/validation/relation-resolution";
 import { createSchema, fail, ok, validateSchema } from "../primitives/helpers";
@@ -10,7 +13,13 @@ import { writtenDepth } from "../primitives/parameter";
 import { type V, v } from "../primitives/v";
 import type { VibSchema } from "../types";
 import { isRecord } from "../value-guards";
-import type { GetTargetSchemas, SchemaGetter } from "./helpers";
+import {
+  type GetTargetSchemas,
+  type JunctionSchemas,
+  type SchemaGetter,
+  type WhereWithLinkFilter,
+  whereWithLinkFilter,
+} from "./helpers";
 import {
   type RecurrenceFor,
   recurrenceSchema,
@@ -197,14 +206,19 @@ const requireRelationQuantifier = (
       : refusal;
 };
 
-/** {@link Quantifiers}' runtime entries. */
-const quantifierEntries = <S extends RelationState>(
-  targetSchemas: SchemaGetter<S>
-) => ({
-  some: () => targetSchemas().core.where,
-  every: () => targetSchemas().core.where,
-  none: () => targetSchemas().core.where,
+/** {@link Quantifiers}' runtime entries, each the same `where`. */
+const quantifierEntries = (where: () => VibSchema<any, any>) => ({
+  some: where,
+  every: where,
+  none: where,
 });
+
+/** A walk reaches a row once per path, so it has no one link row to judge. */
+const LINK_FILTER_ON_A_WALK = v.optional(
+  v.refused(
+    "$through cannot filter a recurse walk: a row has one link row per path"
+  )
+);
 
 /**
  * The recursive filter of a slot that can recurse, or `undefined`. Its
@@ -212,16 +226,22 @@ const quantifierEntries = <S extends RelationState>(
  */
 const recursiveFilter = <S extends RelationState, T extends SchemaGetter<S>>(
   resolved: ResolvedSlot,
-  targetSchemas: T
+  targetSchemas: T,
+  junctionSchemas: JunctionSchemas = undefined
 ) => {
   const recurrence = recurrenceSchema(resolved, "filter");
+  const where = whereWithLinkFilter(
+    () => targetSchemas().core.where,
+    junctionSchemas,
+    () => LINK_FILTER_ON_A_WALK
+  );
   return (
     recurrence &&
     v.object(
       {
         recurse: writtenDepth(recurrence),
         self: v.boolean(),
-        ...quantifierEntries(targetSchemas),
+        ...quantifierEntries(where),
         is: unavailableRecursiveClause("is"),
         isNot: unavailableRecursiveClause("isNot"),
       },
@@ -317,10 +337,27 @@ export type ToManyFilterSchema<
   S extends RelationState,
 > = V.Union<
   readonly [
-    V.Object<Quantifiers<S> & NoClosure>,
+    V.Object<LinkedQuantifiers<Source, Key, S> & NoClosure>,
     RecursiveFilterSchema<Source, Key, S>,
   ]
 >;
+
+/** {@link Quantifiers} on a slot a declared model holds: each also takes `$through`. */
+type LinkedQuantifiers<Source, Key, S extends RelationState> = [
+  JunctionModelOf<Source, Key, { readonly "~": { readonly state: S } }>,
+] extends [never]
+  ? Quantifiers<S>
+  : JunctionModelOf<
+        Source,
+        Key,
+        { readonly "~": { readonly state: S } }
+      > extends infer M extends AnyModel
+    ? {
+        some: () => WhereWithLinkFilter<TargetWhereSchema<S>, M>;
+        every: () => WhereWithLinkFilter<TargetWhereSchema<S>, M>;
+        none: () => WhereWithLinkFilter<TargetWhereSchema<S>, M>;
+      }
+    : Quantifiers<S>;
 
 export const toManyFilterFactory = <
   Source extends AnyModel,
@@ -329,11 +366,14 @@ export const toManyFilterFactory = <
   T extends SchemaGetter<S>,
 >(
   resolved: ResolvedSlot,
-  targetSchemas: T
-): ToManyFilterSchema<Source, Key, S> =>
-  withRecursiveNode(
-    v.object(quantifierEntries(targetSchemas), {
+  targetSchemas: T,
+  junctionSchemas: JunctionSchemas = undefined
+): ToManyFilterSchema<Source, Key, S> => {
+  const own = () => targetSchemas().core.where;
+  return withRecursiveNode(
+    v.object(quantifierEntries(whereWithLinkFilter(own, junctionSchemas)), {
       refuse: requireRelationQuantifier(resolved, TO_MANY_QUANTIFIERS),
     }),
-    recursiveFilter(resolved, targetSchemas)
+    recursiveFilter(resolved, targetSchemas, junctionSchemas)
   ) as unknown as ToManyFilterSchema<Source, Key, S>;
+};

@@ -117,7 +117,9 @@ function stageEdges(index: ResolvedRelationIndex): {
   };
   for (const edge of resolvedEdges(index)) {
     if (edge.kind === "junction") {
-      junctions.push(edge);
+      // A declared model's table is that model's: the loop over models owns it,
+      // and each side's foreign key arrives as its own edge below.
+      if (!edge.topology.declared) junctions.push(edge);
       continue;
     }
     if (edge.kind === "foreignKey") {

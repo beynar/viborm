@@ -5,6 +5,7 @@ import type { AnyDriver } from "@drivers/exports";
 import { ClientInitializationError } from "@errors";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { getModelKeyCatalog } from "@schema/model/keys";
+import type { AnyRelation } from "@schema/relation/types";
 import type { SchemaRegistryLookup } from "@validation/types";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { errorCause } from "../errors/diagnostic-safety";
@@ -351,6 +352,12 @@ function validateNamedPolicies(
         fields(readOwn(entry, "create", name));
         fields(readOwn(entry, "update", name));
       } else {
+        const holder = junctionHolder(schema, model);
+        if (holder !== undefined)
+          extensionError(
+            `Extension "${name}" deletion.${modelName}: the model is the junction of '${holder}', so a tombstoned link would still be followed. Delete the link with the relation's disconnect, or the row through its delegate.`,
+            name
+          );
         const at = readOwn(entry, "at", name);
         if (
           at !== undefined &&
@@ -365,6 +372,22 @@ function validateNamedPolicies(
       }
     }
   }
+}
+
+/** The slot a model is the declared junction of, for a refusal to name. */
+function junctionHolder(schema: Schema, model: Schema[string]) {
+  for (const [holder, candidate] of Object.entries(schema))
+    for (const [field, relation] of Object.entries(
+      candidate["~"].state.relations
+    )) {
+      const internal = (relation as AnyRelation)["~"];
+      if (
+        internal.state.junction?.model !== undefined &&
+        internal.settleJunctionModel!() === model
+      )
+        return `${holder}.${field}`;
+    }
+  return undefined;
 }
 
 /**

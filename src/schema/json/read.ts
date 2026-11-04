@@ -143,6 +143,7 @@ const NATIVE_KEYS = ["db", "type"];
 const GENERATE_KEYS = ["kind", "prefix", "length", "implicit", "generate"];
 const JUNCTION_KEYS = [
   "table",
+  "model",
   "source",
   "target",
   "onDelete",
@@ -1404,17 +1405,24 @@ function readJunctionNode(
       issues,
       path,
       "J004",
-      "`junction` declares at least one of 'table', 'source', 'target', 'onDelete', 'onUpdate', 'onDeleteSides', 'onUpdateSides'; omit it to keep the derived defaults"
+      "`junction` declares at least one of 'table', 'model', 'source', 'target', 'onDelete', 'onUpdate', 'onDeleteSides', 'onUpdateSides'; omit it to keep the derived defaults"
     );
     return;
   }
   const names: JunctionNamesDocument = {};
-  for (const key of ["table", "source", "target"] as const) {
+  for (const key of ["table", "model", "source", "target"] as const) {
     const raw = member(node, key, path, issues);
     if (raw === undefined) continue;
     const text = asString(raw, pointer(path, key), issues, `\`${key}\``);
     if (text !== undefined) names[key] = text;
   }
+  if (names.table !== undefined && names.model !== undefined)
+    addIssue(
+      issues,
+      path,
+      "J004",
+      "`junction` names its table through 'table' or through a declared 'model', never both"
+    );
   const onDelete = readJunctionActionSpelling(node, "onDelete", path, issues);
   const onUpdate = readJunctionActionSpelling(node, "onUpdate", path, issues);
   return {
@@ -1556,6 +1564,14 @@ function resolveTargetReferences(
   if (!isRelationField(field)) return;
   if (field.target !== undefined) {
     refuseUnknownModel(document, field.target, pointer(path, "target"), issues);
+  }
+  if (field.junction?.model !== undefined) {
+    refuseUnknownModel(
+      document,
+      field.junction.model,
+      pointer(path, "junction", "model"),
+      issues
+    );
   }
   for (const [variantKey, target] of Object.entries(field.variants ?? {})) {
     refuseUnknownModel(

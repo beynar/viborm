@@ -62,7 +62,7 @@ const ends = $derived(tone === "lit" ? `${data?.markers}-lit` : data?.markers);
 />
 {#if edge?.junction}
   <EdgeLabel x={geometry[1]} y={geometry[2]}>
-    <span class={['junction', tone]} title="Junction table">{edge.junction}</span>
+    <span class={['junction', tone]} title={edge.junctionModel ? 'Junction model, drawn as its own card' : 'Junction table'}>{edge.junctionModel ?? edge.junction}</span>
   </EdgeLabel>
 {/if}
 

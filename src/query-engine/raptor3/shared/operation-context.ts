@@ -70,7 +70,12 @@ import {
   type Operation,
   record,
 } from "./schema";
-import { linkJudgement, type Membership, physicalField } from "./storage";
+import {
+  linkJudgement,
+  linkMembers,
+  type Membership,
+  physicalField,
+} from "./storage";
 import { type ScratchPublication, TransportAttempt } from "./transport-attempt";
 
 export type Member = object;
@@ -4259,14 +4264,12 @@ export class OperationContext {
     edge: Extract<Membership, { kind: "junction" }>,
     values: Input,
     member: Member,
-    captured?: Input
+    captured?: Input,
+    written?: Input
   ): Promise<void> {
     const adapter = this.driver.adapter;
     const q = this.queries;
-    const columns = [
-      ...edge.sourceSide.members,
-      ...edge.targetSide.members,
-    ].map((pair) => pair.junctionField);
+    const columns = linkMembers(edge).map(({ pair }) => pair.junctionField);
     if (captured) {
       if (columns.every((field) => Object.is(captured[field], values[field]))) {
         return;
@@ -4315,7 +4318,7 @@ export class OperationContext {
         }
       }
     }
-    const operands = this.#linkOperands(edge, values);
+    const operands = this.#linkOperands(edge, values, written);
     if (!adapter.capabilities.supportsTargetedUpsert) {
       const targetAlias = q.alias();
       const membershipAlias = q.alias();
@@ -4348,16 +4351,29 @@ export class OperationContext {
       await this.#effect(
         adapter.mutations.insert(
           adapter.identifiers.table(edge.table),
-          columns,
+          this.#linkColumns(edge, written),
           { select }
         ),
         this.statementContext(edge.source, "update"),
         member
       );
+      // No targeted conflict update here, so a link that existed takes what
+      // this call stated from a second statement, whichever one ran.
+      const sets = this.#linkUpdates(edge, written);
+      if (sets)
+        await this.#effect(
+          adapter.mutations.update(
+            adapter.identifiers.table(edge.table),
+            sets,
+            q.junctionWhere(edge, values)
+          ),
+          this.statementContext(edge.source, "update"),
+          member
+        );
       return;
     }
     await this.#effect(
-      this.#linkStatement(edge, [operands]),
+      this.#linkStatement(edge, [operands], written),
       this.statementContext(edge.source, "update"),
       member
     );
@@ -4388,38 +4404,116 @@ export class OperationContext {
   }
   #linkOperands(
     edge: Extract<Membership, { kind: "junction" }>,
-    values: Input
+    values: Input,
+    written?: Input
   ): Sql[] {
-    return [edge.sourceSide, edge.targetSide].flatMap((side) =>
-      side.members.map((pair) =>
-        this.queries.fieldValue(
-          side.model,
-          pair.referencedField,
-          values[pair.junctionField]
-        )
+    const members = linkMembers(edge).map(({ side, pair }) =>
+      this.queries.fieldValue(
+        side.model,
+        pair.referencedField,
+        values[pair.junctionField]
       )
+    );
+    const declared = edge.declared;
+    if (!declared) return members;
+    const defaults = this.#linkDefaults(edge, written);
+    const filled = this.schema.createValues(
+      declared.model,
+      Object.fromEntries(defaults.map((field) => [field, undefined]))
+    );
+    return [
+      ...members,
+      ...defaults.map((field) =>
+        this.queries.fieldValue(declared.model, field, filled[field])
+      ),
+      ...Object.keys(written ?? {}).map((field) =>
+        this.queries.fieldValue(declared.model, field, written![field])
+      ),
+    ];
+  }
+  /** The defaults {@link linkOperands} fills: a declared model's, but what's stated. */
+  #linkDefaults(
+    edge: Extract<Membership, { kind: "junction" }>,
+    written?: Input
+  ): readonly string[] {
+    const defaults = this.schema.linkDefaults(
+      edge.declared!.model,
+      new Set(linkMembers(edge).map(({ pair }) => pair.junctionField))
+    );
+    return written
+      ? defaults.filter((field) => !Object.hasOwn(written, field))
+      : defaults;
+  }
+  /** The columns {@link linkOperands} supplies, in its order. */
+  #linkColumns(
+    edge: Extract<Membership, { kind: "junction" }>,
+    written?: Input
+  ): string[] {
+    const members = linkMembers(edge).map(({ pair }) => pair.junctionField);
+    const declared = edge.declared;
+    if (!declared) return members;
+    return [
+      ...members,
+      ...[
+        ...this.#linkDefaults(edge, written),
+        ...Object.keys(written ?? {}),
+      ].map((field) => physicalField(this.schema, declared.model, field).name),
+    ];
+  }
+  /**
+   * What a link that already exists takes: the columns the call stated, and an
+   * `updatedAt()` beside them, as a direct update of the row would. Nothing,
+   * and so no statement, where the call stated nothing.
+   */
+  #linkUpdates(
+    edge: Extract<Membership, { kind: "junction" }>,
+    written: Input | undefined
+  ): Sql | undefined {
+    const declared = edge.declared;
+    if (!(declared && written) || Object.keys(written).length === 0)
+      return undefined;
+    const q = this.queries;
+    const model = declared.model;
+    const stamped = Object.keys(model["~"].state.scalars).filter(
+      (field) =>
+        model["~"].state.scalars[field]!["~"].state.autoGenerate?.kind ===
+          "updatedAt" && !Object.hasOwn(written, field)
+    );
+    const stamps = this.schema.createValues(
+      model,
+      Object.fromEntries(stamped.map((field) => [field, undefined]))
+    );
+    return sql.join(
+      Object.entries({ ...written, ...stamps }).map(([field, value]) =>
+        this.driver.adapter.set.assign(
+          q.column(model, field),
+          q.fieldValue(model, field, value)
+        )
+      ),
+      ", "
     );
   }
   /** Junction rows inserted where absent, through the edge's own conflict target. */
   #linkStatement(
     edge: Extract<Membership, { kind: "junction" }>,
-    rows: Sql[][]
+    rows: Sql[][],
+    written?: Input
   ): Sql {
     const adapter = this.driver.adapter;
-    const columns = [
-      ...edge.sourceSide.members,
-      ...edge.targetSide.members,
-    ].map((pair) => pair.junctionField);
+    const columns = this.#linkColumns(edge, written);
+    const sets = this.#linkUpdates(edge, written);
     return sql`${adapter.mutations.insert(
       adapter.identifiers.table(edge.table),
       columns,
       rows
     )} ${adapter.mutations.onConflict(
       sql.join(
-        columns.map((column) => adapter.identifiers.escape(column)),
+        (edge.declared?.key ?? columns).map((column) =>
+          adapter.identifiers.escape(column)
+        ),
         ", "
       ),
-      sql`NOTHING`
+      sets ? adapter.mutations.onConflictUpdate(sets) : sql`NOTHING`
     )}`;
   }
   async captureMembership(

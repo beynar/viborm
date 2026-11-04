@@ -118,6 +118,8 @@ export function membershipFields(edge: Membership): string[] {
 /**
  * One junction row's columns: each present side's referenced fields, read
  * through `read` — the planned assignment, or the attempt's executed value.
+ * A column both sides supply takes the source's: the plan checks the target's
+ * against it (`Link.shared`), so no side silently wins.
  */
 export function junctionPairs<T>(
   edge: Extract<Membership, { kind: "junction" }>,
@@ -125,14 +127,15 @@ export function junctionPairs<T>(
   source?: Assignments,
   target?: Assignments
 ): Record<string, T> {
-  const pairs: [string, T][] = [];
+  const pairs = new Map<string, T>();
   for (const [side, owner] of [
     [edge.sourceSide, source],
     [edge.targetSide, target],
   ] as const)
     if (owner)
       for (const pair of side.members)
-        pairs.push([pair.junctionField, read(owner, pair.referencedField)]);
+        if (!pairs.has(pair.junctionField))
+          pairs.set(pair.junctionField, read(owner, pair.referencedField));
   return Object.fromEntries(pairs);
 }
 

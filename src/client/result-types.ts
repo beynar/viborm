@@ -10,6 +10,7 @@ import type { ModelShape } from "@schema/model/helper";
 import type { AnyRelation } from "@schema/relation";
 import type {
   Cardinality,
+  JunctionModelOf,
   SlotMayBeEmpty,
   TargetGetter,
   TargetKind,
@@ -1148,6 +1149,54 @@ export type InferIncludeResult<
   } & InferRelationCountSelection<S, Include>
 >;
 
+/** What a node asks of its link row: `never` where it asks for nothing. */
+type NodeLinkRow<Node> =
+  NodeSelect<Node> extends {
+    readonly $through: infer Asked;
+  }
+    ? Asked
+    : NodeInclude<Node> extends { readonly $through: infer Asked }
+      ? Asked
+      : never;
+
+/**
+ * A node's row beside the columns its `$through` selects of the junction model.
+ * Only a node that names the key reaches the junction model's type at all.
+ */
+type WithLinkRow<
+  Source,
+  K,
+  R extends AnyRelation,
+  Node,
+  Row,
+  ClientDefaults,
+> = [NodeLinkRow<Node>] extends [never]
+  ? Row
+  : NodeLinkRow<Node> extends true | object
+    ? JunctionModelOf<Source, K, R> extends infer M
+      ? M extends Model<infer State>
+        ? State extends ModelState
+          ? Prettify<
+              Row & {
+                $through: NodeLinkRow<Node> extends true
+                  ? ApplyOmit<
+                      InferModelOutput<State>,
+                      ResolveClientOmit<M, ClientDefaults>
+                    >
+                  : InferSelectInclude<
+                      State,
+                      NodeLinkRow<Node>,
+                      NodeSelect<NodeLinkRow<Node>>,
+                      never,
+                      ClientDefaults
+                    >;
+              }
+            >
+          : Row
+        : Row
+      : Row
+    : Row;
+
 /**
  * A relation node in `select`/`include` position: `{ select }`, `{ include }`,
  * `{ omit }`, pagination-only (`{ where, take, … }`), or any combination the
@@ -1171,13 +1220,20 @@ type InferRelationNodeResult<
       K,
       R,
       Node,
-      InferSelectInclude<
-        GetTargetModelState<R>,
+      WithLinkRow<
+        SourceModelOf<S>,
+        K,
+        R,
         Node,
-        NodeSelect<Node>,
-        MergeClientOmit<
-          ResolveClientOmit<GetTargetModel<R>, ClientDefaults>,
-          NodeOmit<Node>
+        InferSelectInclude<
+          GetTargetModelState<R>,
+          Node,
+          NodeSelect<Node>,
+          MergeClientOmit<
+            ResolveClientOmit<GetTargetModel<R>, ClientDefaults>,
+            NodeOmit<Node>
+          >,
+          ClientDefaults
         >,
         ClientDefaults
       >

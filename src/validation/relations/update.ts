@@ -20,7 +20,13 @@ import { createSchema, fail, ok, validateSchema } from "../primitives/helpers";
 import v, { type V } from "../primitives/v";
 import type { VibSchema } from "../types";
 import type { NestedCreateManySchema } from "./create";
-import type { GetTargetSchemas, SchemaGetter } from "./helpers";
+import {
+  type GetTargetSchemas,
+  type JunctionSchemas,
+  type SchemaGetter,
+  type WithLinkWrite,
+  withLinkWrite,
+} from "./helpers";
 import {
   nestedRelationDataProjection,
   type ProjectedNestedCreate,
@@ -341,22 +347,33 @@ type ToManyUpdateEntries<
   Key,
   S extends RelationState,
 > = {
-  create: () => V.SingleOrArray<ProjectedNestedCreate<Source, Key, S>>;
+  create: () => V.SingleOrArray<
+    WithLinkWrite<ProjectedNestedCreate<Source, Key, S>, Source, Key, S>
+  >;
   createMany: NestedCreateManySchema<Source, Key, S>;
-  connect: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["whereUnique"]>;
+  connect: () => V.SingleOrArray<
+    WithLinkWrite<GetTargetSchemas<S>["core"]["whereUnique"], Source, Key, S>
+  >;
   delete: () => V.SingleOrArray<
     GetTargetSchemas<S>["core"]["whereUniqueExtended"]
   >;
-  connectOrCreate: V.SingleOrArray<
-    V.Object<
-      {
-        where: () => GetTargetSchemas<S>["core"]["whereUnique"];
-        create: () => ProjectedNestedCreate<Source, Key, S>;
-      },
-      { partial: false }
+  connectOrCreate: () => V.SingleOrArray<
+    WithLinkWrite<
+      V.Object<
+        {
+          where: () => GetTargetSchemas<S>["core"]["whereUnique"];
+          create: () => ProjectedNestedCreate<Source, Key, S>;
+        },
+        { partial: false }
+      >,
+      Source,
+      Key,
+      S
     >
   >;
-  set: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["whereUnique"]>;
+  set: () => V.SingleOrArray<
+    WithLinkWrite<GetTargetSchemas<S>["core"]["whereUnique"], Source, Key, S>
+  >;
   update: V.SingleOrArray<
     V.Object<
       {
@@ -414,7 +431,8 @@ export const toManyUpdateFactory = <
   T extends SchemaGetter<S>,
 >(
   resolved: ResolvedSlot,
-  targetSchemas: T
+  targetSchemas: T,
+  junctionSchemas: JunctionSchemas = undefined
 ): ToManyUpdateSchema<Source, Key, S> => {
   const projection = nestedRelationDataProjection<S, T>(
     resolved,
@@ -484,14 +502,15 @@ export const toManyUpdateFactory = <
       }
     : {};
 
+  const linked = withLinkWrite(resolved, junctionSchemas);
   return v.object({
-    create: () => v.singleOrArray(getCreateSchema()),
+    create: () => v.singleOrArray(linked(getCreateSchema())),
     createMany: createManySchema,
-    connect: () => v.singleOrArray(targetSchemas().core.whereUnique),
+    connect: () => v.singleOrArray(linked(targetSchemas().core.whereUnique)),
     ...disconnectEntry,
     delete: () => v.singleOrArray(targetSchemas().core.whereUniqueExtended),
-    connectOrCreate: v.singleOrArray(connectOrCreateSchema),
-    set: () => v.singleOrArray(targetSchemas().core.whereUnique),
+    connectOrCreate: v.singleOrArray(linked(connectOrCreateSchema)),
+    set: () => v.singleOrArray(linked(targetSchemas().core.whereUnique)),
     update: v.singleOrArray(updateSchema),
     updateMany: v.singleOrArray(updateManySchema),
     upsert: v.singleOrArray(upsertSchema),

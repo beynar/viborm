@@ -1,6 +1,10 @@
 import type { AnyModel } from "@schema/model";
 import type { ClearableMembership } from "@schema/relation/clearability";
-import type { ResolvedJunctionSide } from "@schema/relation/junction-topology";
+import type {
+  DeclaredJunctionFacts,
+  ResolvedJunctionMember,
+  ResolvedJunctionSide,
+} from "@schema/relation/junction-topology";
 import type { PolymorphicStorageColumn } from "@schema/relation/polymorphic";
 import type { RelationSlot } from "@schema/relation/types";
 import type { Scalar } from "@schema/scalars/base";
@@ -32,8 +36,35 @@ export type Membership = {
       sourceSide: ResolvedJunctionSide;
       targetSide: ResolvedJunctionSide;
       uniqueSide?: "source" | "target";
+      /** A declared model holds this junction: its key and its own columns. */
+      declared?: DeclaredJunctionFacts;
     }
 );
+
+/**
+ * One link row's stored columns, each once. A declared junction's column may
+ * serve both sides (`organizationId`), and a statement names it once; the value
+ * it holds is the source's, which {@link Link.shared} proved the target's too.
+ */
+export function linkMembers(
+  edge: Extract<Membership, { kind: "junction" }>
+): readonly {
+  readonly side: ResolvedJunctionSide;
+  readonly pair: ResolvedJunctionMember;
+}[] {
+  const seen = new Set<string>();
+  const members: {
+    side: ResolvedJunctionSide;
+    pair: ResolvedJunctionMember;
+  }[] = [];
+  for (const side of [edge.sourceSide, edge.targetSide])
+    for (const pair of side.members) {
+      if (seen.has(pair.junctionField)) continue;
+      seen.add(pair.junctionField);
+      members.push({ side, pair });
+    }
+  return members;
+}
 
 export type PhysicalField = {
   readonly name: string;
@@ -202,6 +233,7 @@ export function buildMembershipView(
     table: topology.table,
     sourceSide: forward ? topology.source : topology.target,
     targetSide: forward ? topology.target : topology.source,
+    declared: topology.declared,
   };
 }
 

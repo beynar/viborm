@@ -38,6 +38,7 @@ import type {
   ResolvedVariantEdge,
 } from "@schema/validation/relation-resolution";
 import { projectableScalarNames } from "@validation/model/core/projection";
+import { junctionModelOf } from "@validation/relations/helpers";
 import { isRecord as isPlainRecord } from "@validation/value-guards";
 import type { Operations } from "./types";
 
@@ -274,6 +275,39 @@ const mergeOmit = (
 };
 
 /**
+ * `$through: true` is the junction model's default row, so the junction model's
+ * client default applies to it as to any read of that model. An explicit
+ * `{ select }` states its columns, and stands as a stated `select` does.
+ */
+const rewriteLinkRow = (
+  resolved: ResolvedSlot,
+  node: Record<string, unknown>,
+  resolve: ClientOmitResolver
+): Record<string, unknown> => {
+  const model = junctionModelOf(resolved);
+  const defaults = model && resolve.omit(model);
+  if (!defaults) return node;
+  const omitted = (map: unknown) => {
+    if (!isPlainRecord(map) || map.$through !== true) return map;
+    return {
+      ...map,
+      $through: {
+        select: Object.fromEntries(
+          projectableScalarNames(model)
+            .filter((field) => defaults[field] !== true)
+            .map((field) => [field, true])
+        ),
+      },
+    };
+  };
+  const select = omitted(node.select);
+  const include = omitted(node.include);
+  return select === node.select && include === node.include
+    ? node
+    : { ...node, select, include };
+};
+
+/**
  * Visit the relation entries of a `select`/`include` map. A bare `true` is
  * promoted to `{ omit: … }` only when the target model has defaults — otherwise
  * the shorthand is left exactly as written, which keeps the payload (and its
@@ -319,7 +353,11 @@ const rewriteRelationMap = (
     }
     if (!isPlainRecord(value)) continue;
 
-    const rewritten = rewriteNode(target, value, resolve);
+    const rewritten = rewriteLinkRow(
+      resolved,
+      rewriteNode(target, value, resolve),
+      resolve
+    );
     if (rewritten !== value) {
       next[key] = rewritten;
       changed = true;

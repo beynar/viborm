@@ -227,6 +227,17 @@ test("a lazy entry's control references are checked against the chain where it w
   ).toEqual(["n2"]);
 });
 
+test("a projection key may not take a link row's name", async () => {
+  const db = base.$extends(
+    governed({
+      note: () => ({ ...own(), evidence: { as: "$through", names: ["own"] } }),
+    })
+  );
+  await expect(db.note!.findMany({ user: "alice" } as object)).rejects.toThrow(
+    'rows.verbs.note.evidence.as "$through" is reserved'
+  );
+});
+
 test("two extensions declaring one projection key on a model are refused when the model is first read", async () => {
   const evidence = (name: string, control?: string) =>
     governed(
