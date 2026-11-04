@@ -23,8 +23,10 @@ Versioning.
   `recurse` walk, and for relations inside it. A required column with no default
   makes `$through` required on those verbs.
 - **A governed walk reads its tenant's links.** With `permissions({ tenant })`, a
-  junction model holding the tenant's field is bound at each hop of a positive
-  test. Measured on PGlite, 40 organizations of 30 teams: 109,070 → 94 link rows
+  junction model whose two foreign keys both hold the tenant's field is bound at
+  each hop of a positive test. A tenant column outside those keys is not bound: a
+  link may disagree with the rows it joins, and a bound would change a rule's
+  answer. Measured on PGlite, 40 organizations of 30 teams: 109,070 → 94 link rows
   read, same answers. That is rows read, not time.
 
 ### Changed
