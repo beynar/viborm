@@ -7,6 +7,14 @@ import { s } from "@schema";
 import { createSchemaRegistry, parse } from "@validation";
 import { describe, expect, test } from "vitest";
 
+const AT_LEAST_ONE = /at least one truthy/;
+const UNKNOWN_KEY = /Unknown key/;
+const NO_LINK_ROW_ON_A_WALK = /not available on a recurse walk/;
+const NO_FILTER_ON_A_WALK = /cannot filter a recurse walk/;
+const NOT_AN_OBJECT = /must be an object/;
+const MEMBER_COLUMN = /filled from the two rows/;
+const NOT_A_COLUMN = /not a column/;
+
 const schema = () => {
   const link = s
     .model({
@@ -79,14 +87,14 @@ describe("reading", () => {
       issues("findMany", {
         select: { parents: { select: { $through: { select: {} } } } },
       })
-    ).toMatch(/at least one truthy/);
+    ).toMatch(AT_LEAST_ONE);
     expect(
       issues("findMany", {
         select: {
           parents: { select: { $through: { select: { child: true } } } },
         },
       })
-    ).toMatch(/Unknown key/);
+    ).toMatch(UNKNOWN_KEY);
   });
 
   test("a walk refuses it by name, in select and include", () => {
@@ -100,7 +108,7 @@ describe("reading", () => {
             },
           },
         })
-      ).toMatch(/not available on a recurse walk/);
+      ).toMatch(NO_LINK_ROW_ON_A_WALK);
   });
 
   test("a string or generated junction has no such key", () => {
@@ -108,7 +116,7 @@ describe("reading", () => {
       issues("findMany", {
         select: { tags: { select: { id: true, $through: true } } },
       })
-    ).toMatch(/Unknown key/);
+    ).toMatch(UNKNOWN_KEY);
   });
 });
 
@@ -135,7 +143,7 @@ describe("filtering", () => {
             },
           },
         })
-      ).toMatch(/cannot filter a recurse walk/);
+      ).toMatch(NO_FILTER_ON_A_WALK);
   });
 
   test("a nested where takes it, on each read of the schema", () => {
@@ -150,7 +158,7 @@ describe("filtering", () => {
       issues("findMany", {
         where: { tags: { some: { $through: { role: "o" } } } },
       })
-    ).toMatch(/Unknown key/);
+    ).toMatch(UNKNOWN_KEY);
   });
 });
 
@@ -173,11 +181,9 @@ describe("writing", () => {
   });
 
   test("a non-object, a member and an unknown column are each refused", () => {
-    expect(issues("update", connect("owner"))).toMatch(/must be an object/);
-    expect(issues("update", connect({ childId: "x" }))).toMatch(
-      /filled from the two rows/
-    );
-    expect(issues("update", connect({ nope: 1 }))).toMatch(/not a column/);
+    expect(issues("update", connect("owner"))).toMatch(NOT_AN_OBJECT);
+    expect(issues("update", connect({ childId: "x" }))).toMatch(MEMBER_COLUMN);
+    expect(issues("update", connect({ nope: 1 }))).toMatch(NOT_A_COLUMN);
     expect(issues("update", connect({ rank: "high" }))).toContain("");
   });
 
