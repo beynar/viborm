@@ -555,13 +555,15 @@ type ThroughCore<Source, Key, S extends RelationState, Core> = [
  * object from `entries` would resolve the target's relation members while one
  * of them is being resolved, which is circular in every self relation (TS2615).
  */
-type WithThroughKey<Schema extends VibSchema<any, any>, M extends AnyModel> =
-  VibSchema<
-    Schema[" vibInferred"]["0"] & {
-      $through?: ThroughSelectSchema<M>[" vibInferred"]["0"];
-    },
-    Schema[" vibInferred"]["1"]
-  >;
+type WithThroughKey<
+  Schema extends VibSchema<any, any>,
+  M extends AnyModel,
+> = VibSchema<
+  Schema[" vibInferred"]["0"] & {
+    $through?: ThroughSelectSchema<M>[" vibInferred"]["0"];
+  },
+  Schema[" vibInferred"]["1"]
+>;
 
 export type ToManyIncludeSchema<
   Source extends AnyModel,

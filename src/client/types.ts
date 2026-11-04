@@ -11,10 +11,9 @@ import type { PendingOperation } from "@query-engine/pending-operation";
 import type { Model, ModelState } from "@schema/model";
 import type { ModelShape } from "@schema/model/helper";
 import type { AnyRelation } from "@schema/relation";
-import type { LinkWriteKeys } from "@validation/relations/helpers";
 import type {
-  JunctionModelOf,
   Cardinality,
+  JunctionModelOf,
   TargetKind,
   VariantEntries,
 } from "@schema/relation/static-membership";
@@ -26,6 +25,7 @@ import type {
   ModelOperationInput,
   ModelOperationOutput,
 } from "@validation/model";
+import type { LinkWriteKeys } from "@validation/relations/helpers";
 import type {
   ForeignKeyFilterRecurse,
   ForeignKeyRecurse,
@@ -1920,9 +1920,12 @@ type RecursiveProjectionGuard<
  * recursive node, and the recursive arm's projection carries the asking key as
  * a refused `?: undefined` member.
  */
-type ProjectionKeySeal<Clause, T, Kind extends "select" | "include", LinkModel> = [
+type ProjectionKeySeal<
+  Clause,
   T,
-] extends [never]
+  Kind extends "select" | "include",
+  LinkModel,
+> = [T] extends [never]
   ? unknown
   : T extends Model<any>
     ? {
@@ -1947,7 +1950,10 @@ type NodeWhereSeal<Where, T, LinkModel = never> = [T] extends [never]
             | WhereModelKeys<T>
             | ([LinkModel] extends [never] ? never : "$through")
           >
-        | LinkFilterUnknownKeys<NonNullable<Where>, LinkModel> extends infer Extra
+        | LinkFilterUnknownKeys<
+            NonNullable<Where>,
+            LinkModel
+          > extends infer Extra
       ? [Extra] extends [never]
         ? unknown
         : UnknownClauseKey<Extra>

@@ -100,7 +100,9 @@ export type ModelToManyRelation<State> = {
    */
   through<const G>(
     model: G & GetterOnly<G>
-  ): ModelToManyRelation<Replace<State, { readonly junction: { readonly model: G } }>>;
+  ): ModelToManyRelation<
+    Replace<State, { readonly junction: { readonly model: G } }>
+  >;
   source<const Token extends string>(
     token: Token
   ): ModelToManyRelation<WithJunctionSide<State, "source", Token>>;

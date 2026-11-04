@@ -692,100 +692,82 @@ export const docsFenceCorpus: DocsFenceCase[] = [
       return { teamParent, team };
     },
     document: {
-      "version": 1,
-      "models": {
-        "teamParent": {
-          "fields": {
-            "organizationId": {
-              "type": "string"
+      version: 1,
+      models: {
+        teamParent: {
+          fields: {
+            organizationId: {
+              type: "string",
             },
-            "childId": {
-              "type": "string"
+            childId: {
+              type: "string",
             },
-            "parentId": {
-              "type": "string"
+            parentId: {
+              type: "string",
             },
-            "createdAt": {
-              "type": "datetime",
-              "generate": {
-                "kind": "now"
-              }
-            },
-            "role": {
-              "type": "string",
-              "default": "member"
-            },
-            "child": {
-              "type": "toOne",
-              "target": "team",
-              "fields": [
-                "organizationId",
-                "childId"
-              ],
-              "references": [
-                "organizationId",
-                "id"
-              ],
-              "onDelete": "cascade"
-            },
-            "parent": {
-              "type": "toOne",
-              "target": "team",
-              "fields": [
-                "organizationId",
-                "parentId"
-              ],
-              "references": [
-                "organizationId",
-                "id"
-              ],
-              "onDelete": "cascade"
-            }
-          },
-          "ids": [
-            {
-              "fields": [
-                "childId",
-                "parentId"
-              ]
-            }
-          ]
-        },
-        "team": {
-          "fields": {
-            "id": {
-              "type": "string",
-              "id": true
-            },
-            "organizationId": {
-              "type": "string"
-            },
-            "parents": {
-              "type": "toMany",
-              "target": "team",
-              "junction": {
-                "model": "teamParent",
-                "source": "child",
-                "target": "parent"
+            createdAt: {
+              type: "datetime",
+              generate: {
+                kind: "now",
               },
-              "name": "teamGraph"
             },
-            "children": {
-              "type": "toMany",
-              "target": "team",
-              "name": "teamGraph"
-            }
+            role: {
+              type: "string",
+              default: "member",
+            },
+            child: {
+              type: "toOne",
+              target: "team",
+              fields: ["organizationId", "childId"],
+              references: ["organizationId", "id"],
+              onDelete: "cascade",
+            },
+            parent: {
+              type: "toOne",
+              target: "team",
+              fields: ["organizationId", "parentId"],
+              references: ["organizationId", "id"],
+              onDelete: "cascade",
+            },
           },
-          "uniques": [
+          ids: [
             {
-              "fields": [
-                "organizationId",
-                "id"
-              ]
-            }
-          ]
-        }
-      }
+              fields: ["childId", "parentId"],
+            },
+          ],
+        },
+        team: {
+          fields: {
+            id: {
+              type: "string",
+              id: true,
+            },
+            organizationId: {
+              type: "string",
+            },
+            parents: {
+              type: "toMany",
+              target: "team",
+              junction: {
+                model: "teamParent",
+                source: "child",
+                target: "parent",
+              },
+              name: "teamGraph",
+            },
+            children: {
+              type: "toMany",
+              target: "team",
+              name: "teamGraph",
+            },
+          },
+          uniques: [
+            {
+              fields: ["organizationId", "id"],
+            },
+          ],
+        },
+      },
     },
   },
   {

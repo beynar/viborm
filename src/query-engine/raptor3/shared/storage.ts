@@ -2,8 +2,8 @@ import type { AnyModel } from "@schema/model";
 import type { ClearableMembership } from "@schema/relation/clearability";
 import type {
   DeclaredJunctionFacts,
-  ResolvedJunctionSide,
   ResolvedJunctionMember,
+  ResolvedJunctionSide,
 } from "@schema/relation/junction-topology";
 import type { PolymorphicStorageColumn } from "@schema/relation/polymorphic";
 import type { RelationSlot } from "@schema/relation/types";

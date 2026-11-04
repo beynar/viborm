@@ -4454,9 +4454,10 @@ export class OperationContext {
     if (!declared) return members;
     return [
       ...members,
-      ...[...this.#linkDefaults(edge, written), ...Object.keys(written ?? {})].map(
-        (field) => physicalField(this.schema, declared.model, field).name
-      ),
+      ...[
+        ...this.#linkDefaults(edge, written),
+        ...Object.keys(written ?? {}),
+      ].map((field) => physicalField(this.schema, declared.model, field).name),
     ];
   }
   /**

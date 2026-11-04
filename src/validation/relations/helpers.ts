@@ -209,28 +209,30 @@ type LinkWriteInput<M extends AnyModel, Members> = {
 };
 
 /** The columns one slot's `$through` may name, for the literal walk to read. */
-export type LinkWriteKeys<Source, Key, R> = JunctionModelOf<
-  Source,
-  Key,
-  R
-> extends infer M extends AnyModel
-  ? Exclude<
-      keyof M["~"]["state"]["scalars"],
-      LinkMemberFields<
-        JunctionFactsOf<Source, Key, R>,
-        M,
-        Source,
-        TargetModelOf<R>
+export type LinkWriteKeys<Source, Key, R> =
+  JunctionModelOf<Source, Key, R> extends infer M extends AnyModel
+    ? Exclude<
+        keyof M["~"]["state"]["scalars"],
+        LinkMemberFields<
+          JunctionFactsOf<Source, Key, R>,
+          M,
+          Source,
+          TargetModelOf<R>
+        >
       >
-    >
-  : never;
+    : never;
 
 /**
  * A nested write's target input on a slot a declared model holds: `$through` is
  * optional where every other column of the link can fill itself, and required
  * where one cannot. Every other slot reads its target's own schema unchanged.
  */
-export type WithLinkWrite<Schema extends VibSchema<any, any>, Source, Key, S> = [
+export type WithLinkWrite<
+  Schema extends VibSchema<any, any>,
+  Source,
+  Key,
+  S,
+> = [
   JunctionModelOf<Source, Key, { readonly "~": { readonly state: S } }>,
 ] extends [never]
   ? Schema
@@ -250,7 +252,7 @@ export type WithLinkWrite<Schema extends VibSchema<any, any>, Source, Key, S> = 
       > extends infer Written
       ? VibSchema<
           Schema[" vibInferred"]["0"] &
-            ({} extends Written
+            (Record<never, never> extends Written
               ? { $through?: Written }
               : { $through: Written }),
           Schema[" vibInferred"]["1"]

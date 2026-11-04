@@ -8,6 +8,9 @@ import { s } from "@schema";
 import { parseSchema, serializeSchema } from "@schema/json";
 import { describe, expect, it } from "vitest";
 
+const NEVER_BOTH = /never both/;
+const NOT_IN_THE_RECORD = /J006/;
+
 const declared = () => {
   const link = s
     .model({
@@ -77,7 +80,7 @@ describe("the schema document", () => {
     );
     const both = serializeSchema(declared()) as any;
     both.models.node.fields.parents.junction.table = "links";
-    expect(refusal(both).message).toMatch(/never both/);
+    expect(refusal(both).message).toMatch(NEVER_BOTH);
   });
 
   it("a through model outside the record is the serializer's J006", () => {
@@ -90,6 +93,6 @@ describe("the schema document", () => {
         .through(() => stray),
       children: s.toMany(() => node).name("graph"),
     });
-    expect(() => serializeSchema({ node })).toThrow(/J006/);
+    expect(() => serializeSchema({ node })).toThrow(NOT_IN_THE_RECORD);
   });
 });

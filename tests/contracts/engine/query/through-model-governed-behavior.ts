@@ -1,13 +1,24 @@
 import { createClient } from "@client/client";
+import { defaultOmit } from "@client/default-omit-extension";
 import type { AnyDriver } from "@drivers";
 import { s } from "@schema";
+import { on } from "@src/on";
 import { permissions } from "@src/permissions";
 import { softDelete } from "@src/soft-delete";
-import { defaultOmit } from "@client/default-omit-extension";
-import { on } from "@src/on";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { v } from "@validation/primitives/v";
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "vitest";
+
+const FIELD_GATED = /gates that field/;
+const IS_A_JUNCTION = /junction of 'team\.parents'/;
+const THIS_CLIENT = /this client/;
 
 /**
  * A hop is storage; `$through` is a read or a write of the junction model. So
@@ -111,7 +122,6 @@ export function runThroughModelGovernedBehavior(options: {
       await base.$disconnect();
     });
 
-    const REFUSED = /this client/;
     const reading = (client: any) =>
       client.team.findMany({
         select: { id: true, parents: { select: { $through: true } } },
@@ -137,11 +147,11 @@ export function runThroughModelGovernedBehavior(options: {
     test("softDelete of a junction model is refused when it is applied", () => {
       const config = { models: { teamParent: { deletedAt: "removedAt" } } };
       expect(() => loose.$extends(softDelete(config as never))).toThrow(
-        /junction of 'team\.parents'/
+        IS_A_JUNCTION
       );
       expect(() =>
         loose.$extends((softDelete(config as never) as any).rows)
-      ).toThrow(/junction of 'team\.parents'/);
+      ).toThrow(IS_A_JUNCTION);
     });
 
     test("rows apply to the delegate, leave hops alone, and refuse $through", async () => {
@@ -168,10 +178,10 @@ export function runThroughModelGovernedBehavior(options: {
       await expect(
         scoped.team.count({ where: { parents: { some: { id: "b" } } } })
       ).resolves.toBe(1);
-      await expect(reading(scoped)).rejects.toThrow(REFUSED);
-      await expect(filtering(scoped)).rejects.toThrow(REFUSED);
-      await expect(nestedFiltering(scoped)).rejects.toThrow(REFUSED);
-      await expect(writing(scoped)).rejects.toThrow(REFUSED);
+      await expect(reading(scoped)).rejects.toThrow(THIS_CLIENT);
+      await expect(filtering(scoped)).rejects.toThrow(THIS_CLIENT);
+      await expect(nestedFiltering(scoped)).rejects.toThrow(THIS_CLIENT);
+      await expect(writing(scoped)).rejects.toThrow(THIS_CLIENT);
       // The plain write is the hop's storage.
       await scoped.team.update({
         where: { id: "b" },
@@ -195,9 +205,9 @@ export function runThroughModelGovernedBehavior(options: {
         } as never)
       );
       const call = governed.$as({ organizationId: "o1" });
-      await expect(reading(call)).rejects.toThrow(REFUSED);
-      await expect(filtering(call)).rejects.toThrow(REFUSED);
-      await expect(writing(call)).rejects.toThrow(REFUSED);
+      await expect(reading(call)).rejects.toThrow(THIS_CLIENT);
+      await expect(filtering(call)).rejects.toThrow(THIS_CLIENT);
+      await expect(writing(call)).rejects.toThrow(THIS_CLIENT);
       await expect(
         call.team.findMany({ select: { id: true, parents: true } })
       ).resolves.toEqual([
@@ -231,12 +241,12 @@ export function runThroughModelGovernedBehavior(options: {
             parents: { select: { $through: { select: { secret: true } } } },
           },
         })
-      ).rejects.toThrow(/gates that field/);
+      ).rejects.toThrow(FIELD_GATED);
       await expect(
         call.team.findMany({
           where: { parents: { some: { $through: { secret: "x" } } } },
         })
-      ).rejects.toThrow(/gates that field/);
+      ).rejects.toThrow(FIELD_GATED);
       const read = await call.team.findMany({
         where: { id: "a" },
         select: {
@@ -281,7 +291,7 @@ export function runThroughModelGovernedBehavior(options: {
         data: { parents: { connect: { id: "a" } } },
       });
       expect(seen).toEqual([]);
-      await expect(writing(hooked)).rejects.toThrow(REFUSED);
+      await expect(writing(hooked)).rejects.toThrow(THIS_CLIENT);
     });
 
     test("a stamp on the junction: a hop takes none, and $through is refused", async () => {
@@ -297,7 +307,7 @@ export function runThroughModelGovernedBehavior(options: {
         where: { childId: "b" },
       });
       expect(plain?.stamp).toBeNull();
-      await expect(writing(stamped)).rejects.toThrow(REFUSED);
+      await expect(writing(stamped)).rejects.toThrow(THIS_CLIENT);
       const direct = await stamped.teamParent.create({
         data: { organizationId: "o2", childId: "y", parentId: "x" },
       });
@@ -346,12 +356,12 @@ export function runThroughModelGovernedBehavior(options: {
 
       test("the negative tests see every link, so no bound narrows them", async () => {
         const db = governed().$as({ organizationId: "o1" });
-        expect(
-          await ids(db, { parents: { none: { name: "root" } } })
-        ).toEqual(["b"]);
-        expect(
-          await ids(db, { parents: { every: { name: "root" } } })
-        ).toEqual(["a", "b"]);
+        expect(await ids(db, { parents: { none: { name: "root" } } })).toEqual([
+          "b",
+        ]);
+        expect(await ids(db, { parents: { every: { name: "root" } } })).toEqual(
+          ["a", "b"]
+        );
         expect(
           await ids(db, { parents: { none: { name: "nothing" } } })
         ).toEqual(["a", "b"]);

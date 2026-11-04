@@ -166,7 +166,9 @@ export async function filters() {
     },
   });
   await db.team.findMany({
-    select: { parents: { where: { $through: { note: "x" } }, select: { id: true } } },
+    select: {
+      parents: { where: { $through: { note: "x" } }, select: { id: true } },
+    },
   });
   await db.team.findMany({
     // @ts-expect-error a column typo beside a real column
@@ -249,12 +251,16 @@ export async function writes() {
   await seats.room.update({
     where: { id: "r" },
     // @ts-expect-error a member column is filled from the two rows
-    data: { guests: { connect: { id: "g", $through: { role: "x", guestId: "g" } } } },
+    data: {
+      guests: { connect: { id: "g", $through: { role: "x", guestId: "g" } } },
+    },
   });
   await seats.room.update({
     where: { id: "r" },
     // @ts-expect-error a typo beside a real column
-    data: { guests: { connect: { id: "g", $through: { role: "x", nope: 1 } } } },
+    data: {
+      guests: { connect: { id: "g", $through: { role: "x", nope: 1 } } },
+    },
   });
   await seats.room.update({
     where: { id: "r" },

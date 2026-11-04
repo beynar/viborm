@@ -60,9 +60,7 @@ describe("a declared model as a junction: the legal forms", () => {
       id: s.string().id(),
       lefts: s.toMany(() => left),
     });
-    const link: any = s
-      .model(fieldsOf(left, right))
-      .id(["leftId", "rightId"]);
+    const link: any = s.model(fieldsOf(left, right)).id(["leftId", "rightId"]);
     expect(validateSchema({ left, right, link }).errors).toEqual([]);
   });
 
@@ -75,9 +73,7 @@ describe("a declared model as a junction: the legal forms", () => {
       id: s.string().id(),
       lefts: s.toMany(() => left).through(() => link),
     });
-    const link: any = s
-      .model(fieldsOf(left, right))
-      .id(["leftId", "rightId"]);
+    const link: any = s.model(fieldsOf(left, right)).id(["leftId", "rightId"]);
     expect(validateSchema({ left, right, link }).errors).toEqual([]);
   });
 
@@ -420,9 +416,7 @@ describe("a declared model as a junction: every refusal carries its repair", () 
       lefts: s.toMany(() => left).name("one"),
       otherLefts: s.toMany(() => left).name("two"),
     });
-    const link: any = s
-      .model(fieldsOf(left, right))
-      .id(["leftId", "rightId"]);
+    const link: any = s.model(fieldsOf(left, right)).id(["leftId", "rightId"]);
     expect(errors(validateSchema({ left, right, link }))).toEqual(["JT009"]);
   });
 
@@ -444,20 +438,18 @@ describe("a declared model as a junction: every refusal carries its repair", () 
       id: s.string().id(),
       lefts: s.toMany(() => left).through(() => link),
     });
-    const link: any = s
-      .model(fieldsOf(left, right))
-      .id(["leftId", "rightId"]);
+    const link: any = s.model(fieldsOf(left, right)).id(["leftId", "rightId"]);
     expect(errors(validateSchema({ left, right, link }))).toEqual(["R011"]);
   });
 
   it("a shared column whose sides reference different types is the reference's refusal", () => {
-    const left: any = s.model({
-      id: s.string().id(),
-      tenant: s.string(),
-      rights: s
-        .toMany(() => right)
-        .through(() => link),
-    }).unique(["tenant", "id"]);
+    const left: any = s
+      .model({
+        id: s.string().id(),
+        tenant: s.string(),
+        rights: s.toMany(() => right).through(() => link),
+      })
+      .unique(["tenant", "id"]);
     const right: any = s
       .model({
         id: s.string().id(),

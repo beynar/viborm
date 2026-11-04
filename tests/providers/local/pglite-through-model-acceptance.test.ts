@@ -76,7 +76,10 @@ const policy = (recurse: Record<string, unknown>) =>
       team: {
         mandatory: { organizationId: { actor: "organizationId" } },
         read: {
-          parents: { recurse: { depth: false, ...recurse }, some: { name: "root" } },
+          parents: {
+            recurse: { depth: false, ...recurse },
+            some: { name: "root" },
+          },
         },
       },
     },
@@ -164,12 +167,16 @@ const answers = async (fixture: Fixture, recurse: Record<string, unknown>) => {
 test.each([
   ["the plain walk", {}],
   ["selective", { selective: true }],
-])("%s answers the same through either junction", async (_name, recurse) => {
-  const left = await answers(plain, recurse);
-  const right = await answers(model, recurse);
-  expect(right).toEqual(left);
-  expect((right[0] as unknown[]).length).toBe(TEAMS - 1);
-}, 120_000);
+])(
+  "%s answers the same through either junction",
+  async (_name, recurse) => {
+    const left = await answers(plain, recurse);
+    const right = await answers(model, recurse);
+    expect(right).toEqual(left);
+    expect((right[0] as unknown[]).length).toBe(TEAMS - 1);
+  },
+  120_000
+);
 
 test("a selective walk through the model reads fewer link rows", async () => {
   const read = async (fixture: Fixture) => {
@@ -247,7 +254,9 @@ test("counts and $through read the same links, governed by a rule that hides not
     where: { id: "o5t3" },
     select: {
       _count: { select: { parents: true } },
-      parents: { select: { id: true, $through: { select: { childId: true } } } },
+      parents: {
+        select: { id: true, $through: { select: { childId: true } } },
+      },
     },
   });
   expect(row).toEqual({

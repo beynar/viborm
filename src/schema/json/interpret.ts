@@ -555,7 +555,9 @@ function applyJunction(
     const value = junction[key];
     if (value === undefined) continue;
     overridden = call(pointer(junctionPath, key), () =>
-      overridden[method](key === "model" ? () => registry[value as string] : value)
+      overridden[method](
+        key === "model" ? () => registry[value as string] : value
+      )
     );
   }
   return overridden;

@@ -5,7 +5,11 @@
 // each side's foreign key, and hands this subowner the settled references; every
 // consumer past the gate reads the one `ResolvedJunctionTopology` it publishes.
 
-import { findReferenceableKey, getModelKeyCatalog, type Model } from "../../model";
+import {
+  findReferenceableKey,
+  getModelKeyCatalog,
+  type Model,
+} from "../../model";
 import type { Scalar } from "../../scalars/base";
 import type { ResolvedStoredReference } from "../relation-resolution";
 import type { SchemaValidationIssue } from "../types";
@@ -130,7 +134,9 @@ function pairKey(
     const omitted = [...union].filter((field) => !key.includes(field));
     if (!omitted.every((field) => shared.includes(field))) return false;
     return (
-      omitted.length === 0 || follows(omitted, source) || follows(omitted, target)
+      omitted.length === 0 ||
+      follows(omitted, source) ||
+      follows(omitted, target)
     );
   });
 }

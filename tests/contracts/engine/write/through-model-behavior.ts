@@ -3,7 +3,23 @@ import type { AnyDriver } from "@drivers";
 import { NestedWriteError } from "@errors";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "vitest";
+
+const UNKNOWN_KEY = /Unknown key/;
+const NO_FILTER_ON_A_WALK = /\$through cannot filter a recurse walk/;
+const NO_LINK_ROW_ON_A_WALK = /\$through is not available on a recurse walk/;
+const UUID = /^[0-9a-f-]{36}$/;
+const SIDES_DISAGREE = /different values for 'organization_id'/;
+const ROLE_REQUIRED = /requires \$through\.role/;
+const MEMBER_COLUMN = /filled from the two rows/;
+const NOT_A_COLUMN = /not a column/;
 
 /**
  * A junction that is a declared model, on a real database: its table, its own
@@ -194,7 +210,7 @@ export function runThroughModelBehavior(options: {
         remark: null,
       });
       expect(link?.createdAt).toBeInstanceOf(Date);
-      expect(link?.token).toMatch(/^[0-9a-f-]{36}$/);
+      expect(link?.token).toMatch(UUID);
     });
 
     test("a repeated connect is idempotent and keeps the row it found", async () => {
@@ -234,7 +250,7 @@ export function runThroughModelBehavior(options: {
           where: { id: "a" },
           data: { parents: { connect: { id: "x" } } },
         })
-      ).rejects.toThrow(/different values for 'organization_id'/);
+      ).rejects.toThrow(SIDES_DISAGREE);
       expect(await links()).toEqual([]);
     });
 
@@ -244,7 +260,7 @@ export function runThroughModelBehavior(options: {
           where: { id: "a" },
           data: { parents: { connect: [{ id: "b" }, { id: "x" }] } },
         })
-      ).rejects.toThrow(/different values for 'organization_id'/);
+      ).rejects.toThrow(SIDES_DISAGREE);
       expect(await links()).toEqual([]);
     });
 
@@ -294,7 +310,7 @@ export function runThroughModelBehavior(options: {
             parents: { create: { id: "m", organizationId: "o2" } },
           },
         })
-      ).rejects.toThrow(/different values for 'organization_id'/);
+      ).rejects.toThrow(SIDES_DISAGREE);
       expect(await links()).toEqual([]);
     });
 
@@ -325,7 +341,7 @@ export function runThroughModelBehavior(options: {
           where: { id: "a" },
           data: { parents: { set: [{ id: "x" }] } },
         })
-      ).rejects.toThrow(/different values for 'organization_id'/);
+      ).rejects.toThrow(SIDES_DISAGREE);
       expect(await parentsOf("a")).toEqual(["c"]);
     });
 
@@ -353,9 +369,7 @@ export function runThroughModelBehavior(options: {
         data: { parents: { delete: { id: "b" } } },
       });
       expect(await parentsOf("a")).toEqual(["c"]);
-      expect(
-        await client.team.findUnique({ where: { id: "b" } })
-      ).toBeNull();
+      expect(await client.team.findUnique({ where: { id: "b" } })).toBeNull();
     });
 
     test("an include returns the target rows and no junction column", async () => {
@@ -619,7 +633,9 @@ export function runThroughModelBehavior(options: {
           orderBy: { id: "asc" },
           select: {
             id: true,
-            parents: { select: { id: true, $through: { select: { note: true } } } },
+            parents: {
+              select: { id: true, $through: { select: { note: true } } },
+            },
           },
         });
         expect(rows).toEqual([
@@ -669,9 +685,7 @@ export function runThroughModelBehavior(options: {
         expect(read.parents).toEqual([
           {
             $through: { createdAt: expect.any(Date), remark: "first" },
-            parents: [
-              { id: "c", $through: { childId: "b", remark: null } },
-            ],
+            parents: [{ id: "c", $through: { childId: "b", remark: null } }],
           },
         ]);
       });
@@ -697,21 +711,21 @@ export function runThroughModelBehavior(options: {
               select: { id: true, $through: true },
             },
           })
-        ).rejects.toThrow(/\$through is not available on a recurse walk/);
+        ).rejects.toThrow(NO_LINK_ROW_ON_A_WALK);
         await expect(
           call({
             parents: {
               select: { id: true, $through: { select: { child: true } } },
             },
           })
-        ).rejects.toThrow(/Unknown key/);
+        ).rejects.toThrow(UNKNOWN_KEY);
         await expect(
           call({
             parents: {
               select: { id: true, $through: { select: { nope: true } } },
             },
           })
-        ).rejects.toThrow(/Unknown key/);
+        ).rejects.toThrow(UNKNOWN_KEY);
       });
     });
 
@@ -789,7 +803,9 @@ export function runThroughModelBehavior(options: {
         expect(
           await ids({
             id: "a",
-            parents: { every: { $through: { note: { in: ["keep", "drop"] } } } },
+            parents: {
+              every: { $through: { note: { in: ["keep", "drop"] } } },
+            },
           })
         ).toEqual(["a"]);
         expect(
@@ -859,9 +875,7 @@ export function runThroughModelBehavior(options: {
             },
           },
         });
-        expect(read.parents).toEqual([
-          { id: "b", $through: { note: "keep" } },
-        ]);
+        expect(read.parents).toEqual([{ id: "b", $through: { note: "keep" } }]);
         const empty = await client.team.findUniqueOrThrow({
           where: { id: "a" },
           include: {
@@ -879,13 +893,13 @@ export function runThroughModelBehavior(options: {
               some: { $through: { note: "keep" } },
             },
           })
-        ).rejects.toThrow(/\$through cannot filter a recurse walk/);
+        ).rejects.toThrow(NO_FILTER_ON_A_WALK);
         await expect(
           ids({ parents: { some: { $through: { child: { is: {} } } } } })
-        ).rejects.toThrow(/Unknown key/);
+        ).rejects.toThrow(UNKNOWN_KEY);
         await expect(
           ids({ parents: { some: { $through: { nope: "x" } } } })
-        ).rejects.toThrow(/Unknown key/);
+        ).rejects.toThrow(UNKNOWN_KEY);
       });
     });
 
@@ -953,9 +967,7 @@ export function runThroughModelBehavior(options: {
             },
           },
         });
-        expect(
-          (await seats()).map((row) => [row.guestId, row.role])
-        ).toEqual([
+        expect((await seats()).map((row) => [row.guestId, row.role])).toEqual([
           ["g2", "kept"],
           ["g3", "added"],
         ]);
@@ -1004,23 +1016,34 @@ export function runThroughModelBehavior(options: {
         });
         const after = await seats();
         expect(after).toHaveLength(1);
-        expect(after[0]).toMatchObject({ guestId: "g1", role: "still", rank: 7 });
+        expect(after[0]).toMatchObject({
+          guestId: "g1",
+          role: "still",
+          rank: 7,
+        });
         expect(after[0]?.joinedAt).toEqual(before?.joinedAt);
       });
 
       test("a link without its required column is refused, on every verb", async () => {
-        const refused = /requires \$through\.role/;
         const update = (guests: object) =>
           withRole.room.update({
             where: { id: "r" },
             data: { guests: guests as never },
           });
-        await expect(update({ connect: { id: "g1" } })).rejects.toThrow(refused);
-        await expect(update({ create: { id: "g9" } })).rejects.toThrow(refused);
+        await expect(update({ connect: { id: "g1" } })).rejects.toThrow(
+          ROLE_REQUIRED
+        );
+        await expect(update({ create: { id: "g9" } })).rejects.toThrow(
+          ROLE_REQUIRED
+        );
         await expect(
-          update({ connectOrCreate: { where: { id: "g9" }, create: { id: "g9" } } })
-        ).rejects.toThrow(refused);
-        await expect(update({ set: [{ id: "g1" }] })).rejects.toThrow(refused);
+          update({
+            connectOrCreate: { where: { id: "g9" }, create: { id: "g9" } },
+          })
+        ).rejects.toThrow(ROLE_REQUIRED);
+        await expect(update({ set: [{ id: "g1" }] })).rejects.toThrow(
+          ROLE_REQUIRED
+        );
         await expect(
           update({
             upsert: {
@@ -1029,10 +1052,10 @@ export function runThroughModelBehavior(options: {
               update: { name: "n" },
             },
           })
-        ).rejects.toThrow(refused);
+        ).rejects.toThrow(ROLE_REQUIRED);
         await expect(
           update({ createMany: { data: [{ id: "g9" }] } })
-        ).rejects.toThrow(refused);
+        ).rejects.toThrow(ROLE_REQUIRED);
         expect(await seats()).toEqual([]);
         expect(
           await withRole.guest.findUnique({ where: { id: "g9" } })
@@ -1047,14 +1070,14 @@ export function runThroughModelBehavior(options: {
               guests: { connect: { id: "g1", $through } as never },
             },
           });
-        await expect(
-          connect({ role: "x", guestId: "g2" })
-        ).rejects.toThrow(/filled from the two rows/);
+        await expect(connect({ role: "x", guestId: "g2" })).rejects.toThrow(
+          MEMBER_COLUMN
+        );
         await expect(connect({ role: "x", room: {} })).rejects.toThrow(
-          /not a column/
+          NOT_A_COLUMN
         );
         await expect(connect({ role: "x", nope: 1 })).rejects.toThrow(
-          /not a column/
+          NOT_A_COLUMN
         );
       });
 

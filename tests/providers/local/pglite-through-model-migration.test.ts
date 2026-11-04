@@ -11,6 +11,11 @@ import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { expect, test } from "vitest";
 
+const DROP_TABLE = /DROP TABLE/;
+const ADD_CREATED_AT = /ADD COLUMN "createdAt"/;
+const NAMES_ROLE = /role/;
+const CREATE_TABLE = /CREATE TABLE/;
+
 const generated = () => {
   const team = s.model({
     id: s.string().id(),
@@ -32,7 +37,7 @@ const declared = (
     .model({
       childId: s.string(),
       parentId: s.string(),
-      ...(extra as {}),
+      ...(extra as Record<never, never>),
       child: s
         .toOne(() => team)
         .fields("childId")
@@ -78,9 +83,11 @@ test("the move adds a column and keeps the table and its rows", async () => {
     client: pglite,
   } as never) as any;
   const plan = await createMigrationClient(client).push({ dryRun: true });
-  const text = plan.statements.map((statement: any) => statement.sql).join("\n");
-  expect(text).not.toMatch(/DROP TABLE/);
-  expect(text).toMatch(/ADD COLUMN "createdAt"/);
+  const text = plan.statements
+    .map((statement: any) => statement.sql)
+    .join("\n");
+  expect(text).not.toMatch(DROP_TABLE);
+  expect(text).toMatch(ADD_CREATED_AT);
   await syncLiveSchema(client);
   expect(await client.teamParent.findMany({})).toMatchObject([
     { childId: "a", parentId: "b", createdAt: expect.any(Date) },
@@ -101,9 +108,11 @@ test("a NOT NULL column with no default on a populated table is refused as any i
     schema: declared({ role: s.string() }),
     client: pglite,
   } as never) as any;
-  await expect(syncLiveSchema(client)).rejects.toThrow(/role/);
+  await expect(syncLiveSchema(client)).rejects.toThrow(NAMES_ROLE);
   expect(await first.team.count()).toBe(2);
-  const rows = await pglite.query(`SELECT count(*)::int AS n FROM "teamParent"`);
+  const rows = await pglite.query(
+    `SELECT count(*)::int AS n FROM "teamParent"`
+  );
   expect(rows.rows).toEqual([{ n: 1 }]);
   await first.$disconnect();
 }, 60_000);
@@ -117,7 +126,7 @@ test("a declared junction generates no table and no constraint of its own", asyn
   const plan = await createMigrationClient(client).push({ dryRun: true });
   const creates = plan.statements
     .map((statement: any) => statement.sql)
-    .filter((sql: string) => /CREATE TABLE/.test(sql));
+    .filter((sql: string) => CREATE_TABLE.test(sql));
   expect(creates).toHaveLength(2);
   await client.$disconnect();
 }, 60_000);

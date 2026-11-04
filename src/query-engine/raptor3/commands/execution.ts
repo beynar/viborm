@@ -5,12 +5,12 @@ import {
   UniqueConstraintError,
   UnsupportedOperationError,
 } from "@errors";
-import { Sql } from "@sql";
 import {
   type AnyModel,
   getModelKeyCatalog,
   type OrderedModelKey,
 } from "@schema/model";
+import { Sql } from "@sql";
 import {
   compileBindBudgetChunks,
   normalizedBindParameterLimit,

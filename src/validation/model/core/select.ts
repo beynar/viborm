@@ -332,7 +332,10 @@ export type ThroughSelectSchema<M extends AnyModel> = V.Union<
     V.Object<
       {
         select: V.Object<
-          V.FromKeys<ProjectableScalarKeys<M>[], typeof scalarSelectSchema>["entries"],
+          V.FromKeys<
+            ProjectableScalarKeys<M>[],
+            typeof scalarSelectSchema
+          >["entries"],
           SelectRefusal
         >;
       },

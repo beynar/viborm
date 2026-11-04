@@ -9294,7 +9294,13 @@ export class Queries {
     alias: string
   ): Sql {
     const a = this.adapter;
-    const { edge, arguments: nested, projection, linkRow, linkWhere } = relation;
+    const {
+      edge,
+      arguments: nested,
+      projection,
+      linkRow,
+      linkWhere,
+    } = relation;
     const childAlias = this.#rowAlias(edge.target);
     const child = this.lowerProjection(projection, childAlias, true);
     const childFields = Object.keys(projection.shape.fields);

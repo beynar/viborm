@@ -1150,21 +1150,27 @@ export type InferIncludeResult<
 >;
 
 /** What a node asks of its link row: `never` where it asks for nothing. */
-type NodeLinkRow<Node> = NodeSelect<Node> extends {
-  readonly $through: infer Asked;
-}
-  ? Asked
-  : NodeInclude<Node> extends { readonly $through: infer Asked }
+type NodeLinkRow<Node> =
+  NodeSelect<Node> extends {
+    readonly $through: infer Asked;
+  }
     ? Asked
-    : never;
+    : NodeInclude<Node> extends { readonly $through: infer Asked }
+      ? Asked
+      : never;
 
 /**
  * A node's row beside the columns its `$through` selects of the junction model.
  * Only a node that names the key reaches the junction model's type at all.
  */
-type WithLinkRow<Source, K, R extends AnyRelation, Node, Row, ClientDefaults> = [
-  NodeLinkRow<Node>,
-] extends [never]
+type WithLinkRow<
+  Source,
+  K,
+  R extends AnyRelation,
+  Node,
+  Row,
+  ClientDefaults,
+> = [NodeLinkRow<Node>] extends [never]
   ? Row
   : NodeLinkRow<Node> extends true | object
     ? JunctionModelOf<Source, K, R> extends infer M

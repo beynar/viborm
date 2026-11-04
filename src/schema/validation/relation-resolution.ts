@@ -33,8 +33,8 @@ import {
 import type { PolymorphicStorageColumn } from "../relation/polymorphic";
 import type {
   AnyRelation,
-  JunctionSideActions,
   JunctionReferentialAction,
+  JunctionSideActions,
   ReferentialAction,
   RelationCardinality,
   RelationSlot,
@@ -46,11 +46,11 @@ import { thrownAsError } from "./error";
 import { deriveIdDomains } from "./id-domains";
 import { checkStoredReference } from "./rules/fk";
 import {
-  chooseJunctionSide,
   checkJunctionModel,
-  junctionIssue,
+  chooseJunctionSide,
   type JunctionModelContext,
   type JunctionSideFacts,
+  junctionIssue,
 } from "./rules/junction-model";
 import { getScalars } from "./rules/model-members";
 import {
@@ -413,7 +413,8 @@ export function resolveSchemaRelations(
   }
   // After every ordinary pair, so a side with an inverse of its own has already
   // published the foreign key its junction reads.
-  for (const pair of declared.pairs.values()) resolveModelJunction(pair, publication);
+  for (const pair of declared.pairs.values())
+    resolveModelJunction(pair, publication);
   reportJunctionTableClaims(publication, context, checked);
   if (!checked) {
     reportRequiredCycles(publication, registration.byIdentity);
@@ -1241,8 +1242,22 @@ function settleJunctionPair(
   const sourceName = choose("source", endpoint);
   const targetName = choose("target", partner);
   if (sourceName === undefined || targetName === undefined) return undefined;
-  const source = settleSide(context, "source", sourceName, endpoint, held, issues);
-  const target = settleSide(context, "target", targetName, partner, held, issues);
+  const source = settleSide(
+    context,
+    "source",
+    sourceName,
+    endpoint,
+    held,
+    issues
+  );
+  const target = settleSide(
+    context,
+    "target",
+    targetName,
+    partner,
+    held,
+    issues
+  );
   if (!(source && target)) return undefined;
   if (source === target) {
     issues.push(
@@ -1367,7 +1382,9 @@ function sideReference(
   });
   publication.issues.push(...check.issues);
   if (declaresUniqueKey(side.node.slot.source, foreignKey.fields)) {
-    publication.issues.push(uniqueCollectionKeyIssue(side, hoppedFrom, foreignKey));
+    publication.issues.push(
+      uniqueCollectionKeyIssue(side, hoppedFrom, foreignKey)
+    );
     return undefined;
   }
   if (!check.reference) return undefined;

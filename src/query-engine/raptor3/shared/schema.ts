@@ -567,7 +567,10 @@ export class EngineSchema {
       );
     });
   }
-  linkDefaults(model: AnyModel, members: ReadonlySet<string>): readonly string[] {
+  linkDefaults(
+    model: AnyModel,
+    members: ReadonlySet<string>
+  ): readonly string[] {
     return memo(this.#linkDefaults, model, () => {
       const scalars = model["~"].state.scalars;
       return Object.freeze(
@@ -575,7 +578,8 @@ export class EngineSchema {
           (field) =>
             !members.has(this.physicalField(model, field).name) &&
             scalars[field]!["~"].state.hasDefault === true &&
-            this.createValues(model, { [field]: undefined })[field] !== undefined
+            this.createValues(model, { [field]: undefined })[field] !==
+              undefined
         )
       );
     });

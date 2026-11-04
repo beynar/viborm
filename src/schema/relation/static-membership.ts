@@ -356,18 +356,19 @@ type DeclaredJunctionModel<R> = R extends {
  * The junction state a declaring endpoint holds, `.source()` / `.target()`
  * names included where it states them, read from either endpoint.
  */
-export type JunctionFactsOf<SourceModel, FieldKey, R> =
-  [DeclaredJunctionModel<R>] extends [never]
-    ? ProvenPartner<SourceModel, FieldKey, R> extends {
+export type JunctionFactsOf<SourceModel, FieldKey, R> = [
+  DeclaredJunctionModel<R>,
+] extends [never]
+  ? ProvenPartner<SourceModel, FieldKey, R> extends {
+      readonly "~": { readonly state: { readonly junction: infer Facts } };
+    }
+    ? Facts
+    : never
+  : R extends {
         readonly "~": { readonly state: { readonly junction: infer Facts } };
       }
-      ? Facts
-      : never
-    : R extends {
-          readonly "~": { readonly state: { readonly junction: infer Facts } };
-        }
-      ? Facts
-      : never;
+    ? Facts
+    : never;
 
 // =============================================================================
 // STATIC RECURSION ELIGIBILITY
