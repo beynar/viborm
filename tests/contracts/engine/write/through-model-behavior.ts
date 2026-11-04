@@ -3,6 +3,7 @@ import type { AnyDriver } from "@drivers";
 import { NestedWriteError } from "@errors";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { minLength, pipe, string } from "valibot";
 import {
   afterAll,
   beforeAll,
@@ -114,7 +115,7 @@ const throughWithRole = () => {
     .model({
       roomId: s.string(),
       guestId: s.string(),
-      role: s.string(),
+      role: s.string().schema(pipe(string(), minLength(2))),
       rank: s.int().default(1),
       joinedAt: s.dateTime().now(),
       touchedAt: s.dateTime().updatedAt(),
@@ -1070,13 +1071,13 @@ export function runThroughModelBehavior(options: {
               guests: { connect: { id: "g1", $through } as never },
             },
           });
-        await expect(connect({ role: "x", guestId: "g2" })).rejects.toThrow(
+        await expect(connect({ role: "xx", guestId: "g2" })).rejects.toThrow(
           MEMBER_COLUMN
         );
-        await expect(connect({ role: "x", room: {} })).rejects.toThrow(
+        await expect(connect({ role: "xx", room: {} })).rejects.toThrow(
           NOT_A_COLUMN
         );
-        await expect(connect({ role: "x", nope: 1 })).rejects.toThrow(
+        await expect(connect({ role: "xx", nope: 1 })).rejects.toThrow(
           NOT_A_COLUMN
         );
       });
@@ -1089,6 +1090,15 @@ export function runThroughModelBehavior(options: {
               guests: {
                 connect: { id: "g1", $through: { role: 5 } } as never,
               },
+            },
+          })
+        ).rejects.toThrow();
+        // The column's own `.schema()`, the validator a direct create runs.
+        await expect(
+          withRole.room.update({
+            where: { id: "r" },
+            data: {
+              guests: { connect: { id: "g1", $through: { role: "x" } } },
             },
           })
         ).rejects.toThrow();

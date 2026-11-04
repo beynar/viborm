@@ -314,6 +314,57 @@ export function runThroughModelGovernedBehavior(options: {
       expect(direct.stamp).toBe("stamped");
     });
 
+    test("a policy's own rule may filter on the link row it governs", async () => {
+      await base.teamParent.updateMany({
+        where: { childId: "a" },
+        data: { note: "visible" },
+      });
+      const governed = loose.$extends(
+        permissions({
+          actor: Actor,
+          models: {
+            organization: { read: true },
+            team: {
+              read: {
+                OR: [
+                  { parents: { some: { $through: { note: "visible" } } } },
+                  { name: "root" },
+                ],
+              },
+            },
+            teamParent: { read: { note: "visible" } },
+          },
+        } as never)
+      ).$as({ organizationId: "o1" });
+      const rows = await governed.team.findMany({
+        orderBy: { id: "asc" },
+        select: { id: true },
+      });
+      expect(rows.map((row: { id: string }) => row.id)).toEqual([
+        "a",
+        "b",
+        "y",
+      ]);
+      // A caller's own filter on that model is still the oracle it refuses.
+      await expect(filtering(governed)).rejects.toThrow(THIS_CLIENT);
+    });
+
+    test("a hook on the parent model keeps $through in the caller's projection", async () => {
+      const seen: unknown[] = [];
+      const hooked = loose.$extends(
+        (on as any)({ team: { update: (event: unknown) => seen.push(event) } })
+      );
+      const written = await hooked.team.update({
+        where: { id: "a" },
+        data: { name: "renamed" },
+        select: { parents: { select: { $through: { select: { note: true } } } } },
+      });
+      expect(written).toEqual({
+        parents: [{ $through: { note: "linked" } }],
+      });
+      expect(seen).toHaveLength(1);
+    });
+
     describe("permissions({ tenant }) over a junction holding its field", () => {
       const governed = () =>
         loose.$extends(
