@@ -1,7 +1,8 @@
 # The query backend frontier
 
 Status: proposal, 2026-11-05. Steps 0 and 1 are done and step 2 is dropped. Steps 3
-to 5 exist as a prototype on the `feat/query-backend` stack, for foreign key relations.
+to 5 exist as a prototype on the `feat/query-backend` stack, for foreign key relations
+and generated many-to-many relations.
 Numbers read from `main` at `e4b09fd64` with an AST pass over the engine.
 
 ## The problem
@@ -135,7 +136,7 @@ Each step keeps SQL byte-identical and lands alone.
 | 2 | Dropped: order was not a leak (see leak 3) | `Queries.order`, which nothing called, removed |
 | 3 | The driver supplies its backend; read path behind `QueryBackend` (leaks 2 and 5) | pg and D1 bundle sizes unchanged within the size rule |
 | 4 | SurrealQL read backend as a prototype; open `Dialect` as far as it needs | public read contract, `include` latency over WebSocket |
-| 5 | Write path (leak 4): root and nested writes done for foreign keys; junctions next | full contract suite on both |
+| 5 | Write path (leak 4): root and nested writes done for foreign keys and generated junctions | full contract suite on both |
 
 Do not move the 4,100 lines of SQL lowering up front. The move is mechanical but
 conflicts with every engine change, and an interface drawn from one implementation
@@ -181,7 +182,7 @@ reads of SurrealDB and of PGlite over the same rows and compares the answers:
 scalars, order and pages, the filters on nullable fields, to-one and to-many at three
 levels, two relations to one table, and `some`, `none`, `every`, `is`, `isNot`.
 
-It refuses by name what it does not cover: junction writes, aggregates, cursors,
+It refuses by name what it does not cover: declared junctions, aggregates, cursors,
 `distinct`, junctions and variants, `recurse`, `_count`, ordering by a relation or a
 nullable field, and row domains (so soft delete and permissions).
 
@@ -217,6 +218,34 @@ writes. What the override drops, and a real backend would have to answer:
   is untested on this path.
 - **Savepoints:** a nested scope runs in its parent, so a caller that catches a failed
   write cannot continue that transaction.
+
+**Many-to-many.** A generated junction is an edge table, `TYPE RELATION IN post OUT tag
+ENFORCED`, with a unique index over `in, out`. `in` is the junction's canonical first
+side. No shared behaviour changed, and one shared member became `protected`: the seam is `Queries.junction`, `select`, `link`,
+`linkMany` and `remove`, and `Commands` already keeps a junction away from
+`mutateMembers`. A third script of 46 tests compares reads, filters, writes and deletes
+with PGlite's junction tables, including a self relation and two relations between the
+same models.
+
+| Need | Form | Measured, 5,000 posts, 500 tags, 15,000 edges |
+|---|---|---|
+| Members, ordered and limited | `->tagged->(SELECT * FROM tag ORDER BY … LIMIT n).{ … }` | 2 ms for 10 parents; 4 ms at three levels |
+| A link that may exist | `INSERT RELATION IGNORE INTO tagged [{ in, out }]` | |
+| A filter | `array::len(->tagged->(tag WHERE …)) > 0` | 61 ms over the table |
+| A record's members | `FROM $p->tagged->tag` | about 3 ms; `WHERE id IN` the same path scans, about 25 ms |
+
+Times are over HTTP with its roughly 20 ms floor subtracted, so read them as orders of
+magnitude. The answers of the read forms were checked against values computed separately.
+
+- **`RELATE` is not the form:** it refuses a pair the unique index already holds, and a
+  `connect` must not. `INSERT RELATION IGNORE` skips that pair and still refuses a
+  missing record. It relies on the index: without it, a second link is a second edge.
+- **Avoid:** `id IN (SELECT VALUE in FROM tagged WHERE out.name = …)`, over 20 s here,
+  and `(SELECT VALUE out FROM …)` as a `FROM` source, which reads no field.
+- **Not covered:** declared junctions and `$through`, variant junctions, compound keys,
+  and one statement per member for `updateMany` and `deleteMany`, as on SQL.
+- **Unproven:** `holdMember`'s read of the edge cannot fail without a concurrent write,
+  and nothing here runs one. Dropping one of its conditions fails no test.
 - A concurrent delete and insert can still leave an orphan (`viborm-evidence`):
   nothing here takes the write on the parent that would close it.
 - Unique and foreign key refusals carry no code, so the driver recognizes them by

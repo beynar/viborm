@@ -3,9 +3,10 @@
  *
  * Writes idiomatic SurrealQL from the engine's `Prepared*` descriptions, from
  * the relation and not from a translation of the SQL: a to-many is a reference
- * traversal holding its own query, `<~(SELECT * FROM post FIELD author …)`, and a
- * to-one follows its link. No alias exists: each lowering knows the row it
- * writes for. What it does not cover refuses by name rather than read wrongly.
+ * traversal holding its own query, `<~(SELECT * FROM post FIELD author …)`, a
+ * to-one follows its link, and a junction is an edge table walked as a graph,
+ * `->tagged->(SELECT * FROM tag …)`. No alias exists: each lowering knows the row
+ * it writes for. What it does not cover refuses by name rather than read wrongly.
  */
 
 import { UnsupportedOperationError } from "@errors";
@@ -30,6 +31,7 @@ import { RecordId } from "surrealdb";
 type AnyModel = PreparedProjection["model"];
 type Relation = Extract<PreparedProjectionField, { kind: "relation" }>;
 type Reference = Extract<Membership, { kind: "reference" }>;
+type Junction = Extract<Membership, { kind: "junction" }>;
 
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -147,11 +149,12 @@ export class SurrealReadBackend implements ReadBackend {
     prepared: PreparedProjection,
     args: Partial<Arguments>,
     predicate: PreparedPredicate | undefined,
-    conditions: readonly Sql[] = []
+    conditions: readonly Sql[] = [],
+    from: Sql = name(tableOf(model))
   ): Sql {
     return sql.join(
       [
-        sql`SELECT ${this.columns(prepared)} FROM ${name(tableOf(model))}`,
+        sql`SELECT ${this.columns(prepared)} FROM ${from}`,
         ...this.#clauses(model, args, predicate, conditions),
       ],
       " "
@@ -171,6 +174,8 @@ export class SurrealReadBackend implements ReadBackend {
 
   /** The target rows of `edge` for this parent, or those outside them. */
   member(edge: Membership, parent: Input, outside = false): Sql {
+    if (edge.kind === "junction")
+      return sql`id ${sql.raw(outside ? "NOT IN" : "IN")} ${this.membersOf(edge, parent)}`;
     const reached = reference(edge);
     const { source, target } = reached.pairs[0]!;
     const held = parent[source];
@@ -179,6 +184,49 @@ export class SurrealReadBackend implements ReadBackend {
     const column = name(this.#queries.columnName(reached.target, target));
     const test = sql`${column} = ${this.value(reached.target, target, held)}`;
     return outside ? sql`!(${test})` : test;
+  }
+
+  /**
+   * A generated junction as an edge table. `in` is its canonical first side, so
+   * the direction does not depend on which model declared the relation, and a
+   * self relation tells its two directions apart by it.
+   */
+  edgeOf(edge: Junction) {
+    const resolved = edge.scope.edge;
+    if (resolved.kind !== "junction" || edge.declared)
+      refuse("a variant or declared junction");
+    for (const side of [edge.sourceSide, edge.targetSide])
+      if (
+        side.members.length !== 1 ||
+        !isSingleKey(
+          this.#queries,
+          side.model,
+          side.members[0]!.referencedField
+        )
+      )
+        refuse("a junction over anything but a record's own key");
+    const { topology } = resolved;
+    const first = topology.sourceIsFirst ? topology.source : topology.target;
+    const outward = edge.sourceSide === first;
+    const arrow = outward ? "->" : "<-";
+    return {
+      table: name(edge.table),
+      near: name(outward ? "in" : "out"),
+      far: name(outward ? "out" : "in"),
+      hop: sql.raw(`${arrow}${name(edge.table).toStatement()}${arrow}`),
+    };
+  }
+
+  /** The record one side of a junction holds. */
+  end(side: Junction["sourceSide"], key: unknown): Sql {
+    return this.value(side.model, side.members[0]!.referencedField, key);
+  }
+
+  /** The path from one record to its members through an edge table. */
+  membersOf(edge: Junction, parent: Input): Sql {
+    const { hop } = this.edgeOf(edge);
+    const key = parent[edge.sourceSide.members[0]!.referencedField];
+    return sql`${this.end(edge.sourceSide, key)}${hop}${name(tableOf(edge.target))}`;
   }
 
   #clauses(
@@ -289,9 +337,14 @@ export class SurrealReadBackend implements ReadBackend {
   #relation(field: Relation): Sql {
     if (field.linkRow || field.linkWhere) refuse("$through");
     if (field.recurrence) refuse("recurse");
-    const edge = reference(field.edge);
     const { arguments: args, projection } = field;
     const members = this.#destructure(projection);
+    if (field.edge.kind === "junction") {
+      const { hop } = this.edgeOf(field.edge);
+      const target = field.edge.target;
+      return sql`${hop}(SELECT * FROM ${name(tableOf(target))} ${sql.join(this.#clauses(target, args, args.selector?.predicate), " ")})${members}`;
+    }
+    const edge = reference(field.edge);
     if (!edge.many && edge.owner === "source") {
       if (args.selector) refuse("a filter on a to-one relation");
       return sql`(${name(this.#queries.columnName(edge.source, edge.pairs[0]!.source))}${members} ?? NULL)`;
@@ -435,7 +488,7 @@ export class SurrealReadBackend implements ReadBackend {
   ): Sql {
     if (predicate.closure) refuse("recurse");
     if (predicate.link) refuse("$through");
-    const edge = reference(predicate.edge);
+    const edge = predicate.edge;
     const { quantifier } = predicate;
     const inner = predicate.predicate;
     // As the SQL lowering's EXISTS and NOT EXISTS: a body-less `is` asks that no
@@ -450,11 +503,24 @@ export class SurrealReadBackend implements ReadBackend {
 
   /** Whether a related row exists, among those the quantifier looks at. */
   #related(
-    edge: Reference,
+    relation: Membership,
     quantifier: string,
     inner: PreparedPredicate | undefined,
     path: string
   ): Sql {
+    const narrowed =
+      quantifier === "every" && inner
+        ? ({ kind: "not", predicate: inner } as const)
+        : inner;
+    if (relation.kind === "junction") {
+      if (path) refuse("a to-many filter through a to-one link");
+      const { hop } = this.edgeOf(relation);
+      const target = name(tableOf(relation.target));
+      return narrowed
+        ? sql`array::len(${hop}(${target} WHERE ${this.predicate(narrowed, true)})) > 0`
+        : sql`array::len(${hop}${target}) > 0`;
+    }
+    const edge = reference(relation);
     if (!edge.many && edge.owner === "source") {
       const link = `${path}${name(this.#queries.columnName(edge.source, edge.pairs[0]!.source)).toStatement()}`;
       return inner
@@ -462,10 +528,6 @@ export class SurrealReadBackend implements ReadBackend {
         : sql`${sql.raw(link)} != NONE`;
     }
     if (path) refuse("a to-many filter through a to-one link");
-    const narrowed =
-      quantifier === "every" && inner
-        ? ({ kind: "not", predicate: inner } as const)
-        : inner;
     return sql`array::len(${this.#traversal(edge, narrowed, { take: 1 })}) > 0`;
   }
 }

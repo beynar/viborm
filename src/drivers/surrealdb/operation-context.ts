@@ -1,10 +1,9 @@
 /**
  * PROTOTYPE: `docs/architecture/query-backend-frontier.md` step 5.
  *
- * The four root writes `Commands` folds, in SurrealQL. `Commands`, admission,
- * stamps, the envelope and decoding stay shared. A nested write reaches a method
- * this does not override, whose first adapter read refuses: this driver holds
- * no SQL.
+ * The writes `Commands` asks for, in SurrealQL. `Commands`, admission, stamps, the
+ * envelope and decoding stay shared. A method this does not override refuses at
+ * its first adapter read: this driver holds no SQL.
  */
 
 import { UnsupportedOperationError } from "@errors";
@@ -28,6 +27,7 @@ import { SurrealQueries } from "./queries";
 import { SurrealReadBackend } from "./read-backend";
 
 type AnyModel = PreparedProjection["model"];
+type Junction = Extract<Membership, { kind: "junction" }>;
 
 const ARITHMETIC: Readonly<Record<string, string>> = {
   increment: "+",
@@ -436,6 +436,52 @@ export class SurrealOperationContext extends OperationContext {
     );
   }
 
+  /** One edge, where absent: a `RELATE` refuses a pair that already exists. */
+  override async link(
+    edge: Junction,
+    values: Input,
+    _member: unknown
+  ): Promise<void> {
+    await this.linkMany(edge, [values]);
+  }
+
+  override async linkMany(
+    edge: Junction,
+    rows: readonly Input[]
+  ): Promise<void> {
+    this.#declinePreparation();
+    const { table, near, far } = this.#lowering.edgeOf(edge);
+    const end = (side: Junction["sourceSide"], values: Input) =>
+      this.#lowering.end(side, values[side.members[0]!.junctionField]);
+    const edges = rows.map(
+      (values) =>
+        sql`{ ${near}: ${end(edge.sourceSide, values)}, ${far}: ${end(edge.targetSide, values)} }`
+    );
+    await this.#written(
+      edge.source,
+      sql`INSERT RELATION IGNORE INTO ${table} [${sql.join(edges, ", ")}]`,
+      [],
+      undefined
+    );
+  }
+
+  /** Removes an edge and leaves both records. `keep` is only a declared junction's. */
+  #unlink(edge: Junction, source?: Input, target?: Input): Promise<unknown> {
+    const { table, near, far } = this.#lowering.edgeOf(edge);
+    const end = (side: Junction["sourceSide"], row: Input) =>
+      this.#lowering.end(side, row[side.members[0]!.referencedField]);
+    const conditions = [
+      ...(source ? [sql`${near} = ${end(edge.sourceSide, source)}`] : []),
+      ...(target ? [sql`${far} = ${end(edge.targetSide, target)}`] : []),
+    ];
+    return this.#written(
+      edge.source,
+      sql`DELETE ${table} WHERE ${sql.join(conditions, " AND ")}`,
+      [],
+      undefined
+    );
+  }
+
   /** Clears a relation's link: every member, one, or all but those kept. */
   override async remove(
     edge: Membership,
@@ -444,6 +490,10 @@ export class SurrealOperationContext extends OperationContext {
     keep: Input[]
   ): Promise<void> {
     this.#declinePreparation();
+    if (edge.kind === "junction") {
+      await this.#unlink(edge, source, target);
+      return;
+    }
     const model = edge.target;
     const clearability = edge.clearability;
     if (clearability.kind !== "columns") refuse("clearing this relation");
