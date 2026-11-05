@@ -796,6 +796,8 @@ export interface DatabaseAdapter {
       recursive: Sql,
       union?: "all" | "distinct"
     ) => Sql;
+    /** Whether `query` opens with its own `WITH`: a statement holds only one. */
+    opens: (query: Sql) => boolean;
   };
 
   /**
@@ -854,6 +856,12 @@ export interface DatabaseAdapter {
      *                   PostgreSQL: ... DO UPDATE SET x = y WHERE <setWhere>
      */
     onConflictUpdate: (sets: Sql, setWhere?: Sql) => Sql;
+    /**
+     * The action that leaves a row in conflict as it is. Present where the
+     * dialect has a targeted upsert (PostgreSQL, SQLite): MySQL's
+     * `ON DUPLICATE KEY UPDATE` has no such action.
+     */
+    onConflictNothing?: () => Sql;
     /**
      * Skip duplicate key errors (for createMany with skipDuplicates: true)
      * PostgreSQL/SQLite: ON CONFLICT DO NOTHING (suffix)

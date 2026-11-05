@@ -780,6 +780,20 @@ describe("dialect physical SQL vocabulary", () => {
       ),
     ]);
 
+    for (const adapter of [postgres, sqlite]) {
+      expect(adapter.mutations.onConflictNothing!().toStatement()).toBe(
+        "NOTHING"
+      );
+    }
+    expect("onConflictNothing" in mysql.mutations).toBe(false);
+    for (const adapter of [postgres, mysql, sqlite]) {
+      const member = [{ name: "m", query: sql`SELECT ${1}` }];
+      const opened = sql`${adapter.cte.with(member)} SELECT ${2}`;
+      expect(adapter.cte.opens(opened)).toBe(true);
+      expect(adapter.cte.opens(sql`  ${opened}`)).toBe(true);
+      expect(adapter.cte.opens(sql`SELECT ${1}`)).toBe(false);
+    }
+
     expect(mysql.mutations.returning(sql.raw`id`).toStatement()).toBe("");
     expect(postgres.mutations.returning(sql.raw`id`).toStatement()).toBe(
       "RETURNING id"

@@ -84,6 +84,8 @@ Every interface method MUST be implemented in postgres, mysql, AND sqlite. TypeS
 ### Rule 3: No Query Logic
 Adapters transform syntax only. Don't decide which tables to join or what conditions to apply - that's query engine's job.
 
+The other half holds too: the query engine states no SQL word. `tests/contracts/adapters/engine-sql-words.core.test.ts` reads every template, raw string and `sql.join` separator of `src/query-engine` from the AST and refuses a keyword. Punctuation and operands such as `*`, `1` or `1 = 1` are not words and stay out of its scope; see `docs/architecture/query-backend-frontier.md`.
+
 ### Rule 4: Test Across All Databases
 A change that works in PostgreSQL might break MySQL or SQLite. Always run the full test suite.
 
