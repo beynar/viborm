@@ -447,6 +447,17 @@ export interface SelectorRead {
 function rowValue(items: Sql[]): Sql {
   return items.length === 1 ? items[0]! : sql`(${sql.join(items, ", ")})`;
 }
+/** Every column of `query`, read through a derived table named `alias`. */
+export function throughDerived(
+  adapter: DatabaseAdapter,
+  query: Sql,
+  alias: string
+): Sql {
+  return assembleAdapterSelect(adapter, {
+    columns: sql.raw("*"),
+    from: adapter.subqueries.correlate(query, alias),
+  });
+}
 function newSelectorFacts(exact = true): SelectorFacts {
   return {
     fields: new Set(),
@@ -2835,26 +2846,28 @@ export class Queries {
    */
   #keyArrays(bodies: readonly SharedBody[], own: ReadonlySet<SharedBody>): Sql {
     const a = this.adapter;
-    return sql`SELECT ${sql.join(
-      bodies.map((body, index) =>
-        a.identifiers.aliased(
-          body.slots[0]!.test.columns.length === 0
-            ? own.has(body)
-              ? a.filters.some(body.query)
-              : body.slots[0]!.use
-            : a.arrays.ofRows!(
-                own.has(body)
-                  ? body.query
-                  : assembleAdapterSelect(a, {
-                      columns: a.identifiers.column(body.name, "k0"),
-                      from: memberRead(a, body.name),
-                    })
-              ),
-          `f${index}`
-        )
-      ),
-      ", "
-    )}`;
+    return a.clauses.select(
+      sql.join(
+        bodies.map((body, index) =>
+          a.identifiers.aliased(
+            body.slots[0]!.test.columns.length === 0
+              ? own.has(body)
+                ? a.filters.some(body.query)
+                : body.slots[0]!.use
+              : a.arrays.ofRows!(
+                  own.has(body)
+                    ? body.query
+                    : assembleAdapterSelect(a, {
+                        columns: a.identifiers.column(body.name, "k0"),
+                        from: memberRead(a, body.name),
+                      })
+                ),
+            `f${index}`
+          )
+        ),
+        ", "
+      )
+    );
   }
   /**
    * The keys `bodies`' sets hold, once each: with one set, its keys; with
@@ -2904,13 +2917,11 @@ export class Queries {
             ).map((chunk) =>
               chunk.length === 1
                 ? chunk[0]!
-                : assembleAdapterSelect(a, {
-                    columns: sql.raw("*"),
-                    from: a.subqueries.correlate(
-                      a.setOperations.unionAll(...chunk),
-                      this.alias()
-                    ),
-                  })
+                : throughDerived(
+                    a,
+                    a.setOperations.unionAll(...chunk),
+                    this.alias()
+                  )
             )
           );
     const held = this.alias();
@@ -4410,7 +4421,7 @@ export class Queries {
       a.subqueries.scalar(
         a.capabilities.supportsMutationTargetInSubquery
           ? set
-          : sql`SELECT * FROM ${a.subqueries.correlate(set, this.alias())}`
+          : throughDerived(a, set, this.alias())
       )
     );
   }
@@ -4699,7 +4710,7 @@ export class Queries {
       adapter.subqueries.scalar(
         adapter.capabilities.supportsMutationTargetInSubquery
           ? capped
-          : sql`SELECT * FROM ${adapter.subqueries.correlate(capped, this.alias())}`
+          : throughDerived(adapter, capped, this.alias())
       )
     );
   }
@@ -7013,10 +7024,7 @@ export class Queries {
       child["~"].names.sql !== mutationTarget
     )
       return subquery;
-    return sql`SELECT * FROM ${this.adapter.subqueries.correlate(
-      subquery,
-      this.alias()
-    )}`;
+    return throughDerived(this.adapter, subquery, this.alias());
   }
   /**
    * Does the PARENT row claim a membership in this arm?

@@ -410,6 +410,9 @@ export const createCteBuilders = (
         ${recursive}
       )`;
   },
+
+  opens: (query: Sql): boolean =>
+    Sql.peek(query).strings[0]!.trimStart().startsWith("WITH"),
 });
 
 export const createInsertStatement =
@@ -441,7 +444,7 @@ export const createInsertStatement =
  */
 export const createOnConflictBuilders = (): Pick<
   DatabaseAdapter["mutations"],
-  "onConflict" | "onConflictUpdate" | "skipDuplicates"
+  "onConflict" | "onConflictUpdate" | "onConflictNothing" | "skipDuplicates"
 > => ({
   onConflict: (target: Sql | null, action: Sql, targetWhere?: Sql): Sql => {
     if (target) {
@@ -461,6 +464,8 @@ export const createOnConflictBuilders = (): Pick<
     }
     return sql`UPDATE SET ${sets}`;
   },
+
+  onConflictNothing: (): Sql => sql`NOTHING`,
 
   // The UNTARGETED skip, and the only caller left is top-level `createMany`,
   // whose `skipDuplicates: true` means "any unique constraint". Junction
