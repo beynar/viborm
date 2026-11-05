@@ -7197,14 +7197,6 @@ export class Queries {
       )
     );
   }
-  order(
-    model: AnyModel,
-    input: Arguments["orderBy"],
-    alias: string
-  ): Sql | undefined {
-    if (!input) return undefined;
-    return this.#lowerOrder(this.#orderTerms(model, input, alias));
-  }
   #lowerOrder(terms: readonly OrderTerm[]): Sql | undefined {
     if (terms.length === 0) return undefined;
     const a = this.adapter;
