@@ -1883,6 +1883,10 @@ export class OperationContext {
     if (held) throw this.#answered(held.failure);
     return value;
   }
+  /** An INSERT a backend saw rejected without a failing statement. */
+  protected rejectInsert(error: UniqueConstraintError, producer: object): void {
+    this.#attempt.rejectedInsert = { error, producer };
+  }
   rejectedProducer(error: unknown): object | undefined {
     const rejected = this.#attemptStore?.rejectedInsert;
     return rejected && rejected.error === error ? rejected.producer : undefined;

@@ -377,6 +377,37 @@ jobs:
           --workspace vitest.workspace.ts
           --project=provider-pgbouncer
 
+  surrealdb-provider:
+    name: SurrealDB provider
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@SHA_CHECKOUT
+      - uses: pnpm/action-setup@SHA_PNPM
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+      - uses: actions/setup-node@SHA_NODE
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Start SurrealDB 4.0.0
+        run: |
+          curl -fsSL https://download.surrealdb.com/v4.0.0/surreal-v4.0.0.linux-amd64.tgz | tar xz
+          ./surreal start --user root --pass root --bind 127.0.0.1:8765 --query-timeout 20s memory &
+          for attempt in $(seq 1 30); do
+            curl -fs http://127.0.0.1:8765/health && exit 0
+            sleep 1
+          done
+          exit 1
+      - name: Run the shared contracts on SurrealDB
+        env:
+          SURREAL_TEST_URL: ws://127.0.0.1:8765/rpc
+          NODE_OPTIONS: --max-old-space-size=3072
+        run: node node_modules/vitest/vitest.mjs run --project provider-surrealdb --testTimeout=15000 --hookTimeout=20000
+
   platform-providers:
     name: Bun and D1 providers
     runs-on: ubuntu-latest

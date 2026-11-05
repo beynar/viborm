@@ -135,6 +135,9 @@ export function runPolymorphicCollectionWriteBehavior(
       const rows = await client.$queryRaw<Record<string, unknown>>(
         sql`SELECT * FROM ${tableRef(table)}`
       );
+      // An edge table holds its two records, not one column per key field.
+      if (client.$driver.dialect === "surrealql")
+        return rows.map((row) => [row.out, row.in].flat().join("/")).sort();
       return rows
         .map((row) => {
           const names = Object.keys(row);

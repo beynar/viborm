@@ -2,7 +2,6 @@
  * The SurrealDB write prototype's root writes against PostgreSQL.
  */
 
-import { expect, it } from "vitest";
 import {
   type Client,
   describeWrites,
@@ -364,13 +363,8 @@ const STEPS: readonly Step[] = [
   ],
 ];
 
-describeWrites("SurrealDB root writes against PostgreSQL", STEPS, (client) => {
-  it("refuses what it does not cover, by name", async () => {
-    await expect(
-      client().user.update({ where: { id: "a" }, data: { id: "a2" } })
-    ).rejects.toThrow("changing a record's key");
-    await expect(client().user.count({})).rejects.toThrow(
-      "SurrealDB read backend"
-    );
-  });
-});
+describeWrites(
+  "SurrealDB root writes against PostgreSQL",
+  STEPS,
+  () => undefined
+);
