@@ -24,6 +24,7 @@ import type {
   StatementFacts,
 } from "@extensions/official-facts";
 import { applyStatementTransforms } from "@extensions/statement";
+import type { OperationContext } from "@query-engine/raptor3/shared/operation-context";
 import type { Queries, ReadBackend } from "@query-engine/raptor3/shared/query";
 import type { Operation } from "@query-engine/types";
 import type { Sql } from "@sql";
@@ -266,6 +267,8 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
    * Absent, the engine's own SQL lowering does.
    */
   readBackend?(queries: Queries): ReadBackend;
+  /** What writes this driver's writes, beside {@link readBackend}. */
+  readonly operationContext?: typeof OperationContext;
   /**
    * This driver's transport assertion, or `undefined` for every driver that
    * makes none. It is never a target and never derived: only a constructor

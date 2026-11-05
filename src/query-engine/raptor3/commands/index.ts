@@ -220,7 +220,8 @@ class PreparedCommand implements PreparedOperation {
     attribution?: QueryExecutionContext,
     binding?: ExecutionBinding
   ): OperationContext {
-    return new OperationContext(
+    const Context = this.#config.driver.operationContext ?? OperationContext;
+    return new Context(
       this.#schema,
       this.#config.driver,
       this.#modelName,
@@ -233,7 +234,7 @@ class PreparedCommand implements PreparedOperation {
   }
 
   #plan(context: OperationContext): PhysicalPlan {
-    if (this.#reads !== this.#queries)
+    if (this.#reads !== this.#queries && !this.#config.driver.operationContext)
       throw new UnsupportedOperationError(
         "This driver's backend reads only: it does not support writes yet."
       );

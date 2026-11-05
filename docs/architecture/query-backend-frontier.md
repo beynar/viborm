@@ -1,7 +1,7 @@
 # The query backend frontier
 
-Status: proposal, 2026-11-05. Steps 0 and 1 are done, step 2 is dropped, and step 3
-and a read-only step 4 exist as a prototype on `feat/query-backend-reads`.
+Status: proposal, 2026-11-05. Steps 0 and 1 are done and step 2 is dropped. Steps 3
+to 5 exist as a prototype on the `feat/query-backend` stack, with root writes only.
 Numbers read from `main` at `e4b09fd64` with an AST pass over the engine.
 
 ## The problem
@@ -135,7 +135,7 @@ Each step keeps SQL byte-identical and lands alone.
 | 2 | Dropped: order was not a leak (see leak 3) | `Queries.order`, which nothing called, removed |
 | 3 | The driver supplies its backend; read path behind `QueryBackend` (leaks 2 and 5) | pg and D1 bundle sizes unchanged within the size rule |
 | 4 | SurrealQL read backend as a prototype; open `Dialect` as far as it needs | public read contract, `include` latency over WebSocket |
-| 5 | Write path (leak 4), shaped by what step 4 learned | full contract suite on both |
+| 5 | Write path (leak 4), shaped by what step 4 learned; root writes done, nested next | full contract suite on both |
 
 Do not move the 4,100 lines of SQL lowering up front. The move is mechanical but
 conflicts with every engine change, and an interface drawn from one implementation
@@ -181,9 +181,30 @@ reads of SurrealDB and of PGlite over the same rows and compares the answers:
 scalars, order and pages, the filters on nullable fields, to-one and to-many at three
 levels, two relations to one table, and `some`, `none`, `every`, `is`, `isNot`.
 
-It refuses by name what it does not cover: writes, aggregates, cursors, `distinct`,
-junctions and variants, `recurse`, `_count`, ordering by a relation or a nullable
-field, and row domains (so soft delete and permissions).
+It refuses by name what it does not cover: nested writes, aggregates, cursors,
+`distinct`, junctions and variants, `recurse`, `_count`, ordering by a relation or a
+nullable field, and row domains (so soft delete and permissions).
+
+**Writes.** `driver.operationContext` supplies a subclass of `OperationContext` that
+overrides `createMany`, `updateMany`, `deleteMany` and `upsertOne`, the four methods
+`Commands` folds a root write into. `Commands`, admission, stamps, the envelope and
+decoding are all shared. One script of 44 steps runs on SurrealDB and on PGlite and
+compares every answer, every refusal by class and code, and the rows left behind:
+create, update, delete, upsert, limits, relation filters, `onDelete`, and callback and
+array transactions.
+
+What the writes showed:
+
+- The seam held for root writes, but a subclass overriding by name is a weak contract:
+  it must also decline batch preparation, which a first version missed, so it wrote
+  outside the array transaction. Nested writes are the real test of leak 4: they call
+  `insert`, `update`, `remove`, `link` and read through `Queries.select`.
+- A concurrent delete and insert can still leave an orphan (`viborm-evidence`):
+  nothing here takes the write on the parent that would close it.
+- Unique and foreign key refusals carry no code, so the driver recognizes them by
+  sentence, which a server version could change.
+- Changing a record's key and generated keys are refused. Tables are defined by hand:
+  there is no migration driver.
 
 Building it showed the seam is small and `Prepared*` is enough for reads. It also
 showed what is still wrong:

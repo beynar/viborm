@@ -409,11 +409,4 @@ describe.skipIf(!url)("SurrealDB read prototype against PostgreSQL", () => {
     expect(() => adapter.clauses).toThrow("speaks no SQL");
     expect(() => adapter.identifiers).toThrow("speaks no SQL");
   });
-
-  it("refuses a write rather than send it SQL", async () => {
-    await expect(
-      onSurreal.user.create({ data: { id: "z", email: "z@x.io" } })
-    ).rejects.toThrow("reads only");
-    expect(await onSurreal.user.findUnique({ where: { id: "z" } })).toBeNull();
-  });
 });
