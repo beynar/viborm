@@ -12,6 +12,7 @@ import {
   UniqueConstraintError,
   UnsupportedOperationError,
 } from "@errors";
+import { dividesByZero } from "@query-engine/raptor3/shared/decimal";
 import { InsertValue } from "@query-engine/raptor3/shared/insert-value";
 import {
   OperationContext,
@@ -180,7 +181,7 @@ export class SurrealOperationContext extends OperationContext {
         }
         const sign = ARITHMETIC[operator];
         if (!sign) refuse(`the '${operator}' update`);
-        if (operator === "divide" && state?.decimal && Number(operand) === 0)
+        if (operator === "divide" && state?.decimal && dividesByZero(operand))
           throw new QueryEngineError(
             `Cannot divide decimal field '${field}' by zero.`
           );
