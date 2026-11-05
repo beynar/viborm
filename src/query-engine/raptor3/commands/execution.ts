@@ -315,7 +315,6 @@ export class CommandExecution {
   async #requireTransitions(command: RecordCommand): Promise<void> {
     const ctx = this.context;
     const q = ctx.queries;
-    const a = ctx.driver.adapter;
     for (const edge of command.transitions) {
       const before = this.#membershipValues(edge, command.located!.fields);
       const after = this.#membershipValues(edge, command.fields);
@@ -339,21 +338,6 @@ export class CommandExecution {
         edge.pairs.some((pair) => before[pair.source] === null)
       )
         continue;
-      const changed = a.operators.or(
-        ...edge.pairs.map((pair) =>
-          a.operators.not(
-            a.operators.eq(
-              q.fieldValue(command.model, pair.source, before[pair.source]),
-              q.updateValue(
-                command.model,
-                pair.source,
-                after[pair.source],
-                q.fieldValue(command.model, pair.source, before[pair.source])
-              )
-            )
-          )
-        )
-      );
       const failure = new NestedWriteError(
         `Cannot update relation '${edge.name}' with onUpdate('${edge.reference.onUpdate ?? "restrict"}') while the current relation is occupied.`,
         edge.name,
@@ -369,7 +353,15 @@ export class CommandExecution {
           edge.target,
           { take: 1 },
           { edge, parent: before },
-          { condition: changed }
+          {
+            row: {
+              kind: "keyChanges",
+              model: command.model,
+              fields: edge.pairs.map((pair) => pair.source),
+              before,
+              after,
+            },
+          }
         ),
         failure
       );
@@ -1686,8 +1678,8 @@ export class CommandExecution {
         return;
       }
       case "absent": {
-        const exclude = command.excluding.map((fields) =>
-          ctx.queries.lowerIdentity(command.model, this.identity(fields))
+        const identities = command.excluding.map((fields) =>
+          this.identity(fields)
         );
         const restrict = command.restrict;
         const locked = (selector?: PreparedSelector, take?: number) =>
@@ -1711,10 +1703,8 @@ export class CommandExecution {
             },
             {
               forUpdate: !ctx.usesBatch,
-              condition: exclude.length
-                ? ctx.driver.adapter.operators.not(
-                    ctx.driver.adapter.operators.or(...exclude)
-                  )
+              row: identities.length
+                ? { kind: "notIdentity", identities }
                 : undefined,
               selector,
             }

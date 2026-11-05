@@ -386,10 +386,26 @@ export interface Query {
     readonly missing: Error;
   };
 }
+/** A condition `commands/` asks of a read's rows, described, not spelled. */
+type RowCondition =
+  /** The row holds no value in `field`. */
+  | { readonly kind: "fieldNull"; readonly field: string }
+  /** The row is none of `identities`. */
+  | { readonly kind: "notIdentity"; readonly identities: readonly Input[] }
+  /** An update of `model` from `before` to `after` changes one of `fields`. */
+  | {
+      readonly kind: "keyChanges";
+      readonly model: AnyModel;
+      readonly fields: readonly string[];
+      readonly before: Input;
+      readonly after: Input;
+    };
 /** What a {@link Queries.select} takes beyond its arguments. */
 interface SelectControls {
   /** More of the root row's filter (a function: of its alias). */
   condition?: Sql | ((alias: string) => Sql);
+  /** More of the root row's filter, as `commands/` describes it. */
+  row?: RowCondition;
   forUpdate?: boolean;
   identity?: Input;
   projection?: PreparedProjection;
@@ -7852,7 +7868,7 @@ export class Queries {
     filter: Sql | undefined,
     unless: Sql | undefined,
     cursor: Sql | undefined,
-    controls: Pick<SelectControls, "condition" | "identity">
+    controls: Pick<SelectControls, "condition" | "identity" | "row">
   ): Sql | undefined {
     const where: Sql[] = [];
     if (membership)
@@ -7866,6 +7882,7 @@ export class Queries {
     if (cursor) where.push(cursor);
     if (controls.identity)
       where.push(this.lowerIdentity(model, controls.identity, alias));
+    if (controls.row) where.push(this.#rowCondition(model, controls.row));
     const { condition } = controls;
     if (condition)
       where.push(
@@ -7874,6 +7891,33 @@ export class Queries {
     return where.length === 0
       ? undefined
       : this.adapter.operators.and(...where);
+  }
+  #rowCondition(model: AnyModel, row: RowCondition): Sql {
+    const a = this.adapter;
+    switch (row.kind) {
+      case "fieldNull":
+        return a.operators.isNull(this.column(model, row.field));
+      case "notIdentity":
+        return a.operators.not(
+          a.operators.or(
+            ...row.identities.map((identity) =>
+              this.lowerIdentity(model, identity)
+            )
+          )
+        );
+      default:
+        return a.operators.or(
+          ...row.fields.map((field) => {
+            const held = this.fieldValue(row.model, field, row.before[field]);
+            return a.operators.not(
+              a.operators.eq(
+                held,
+                this.updateValue(row.model, field, row.after[field], held)
+              )
+            );
+          })
+        );
+    }
   }
   /**
    * Every read verb is one cardinality and shape decision over the same
