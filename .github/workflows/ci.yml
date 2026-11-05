@@ -377,6 +377,54 @@ jobs:
           --workspace vitest.workspace.ts
           --project=provider-pgbouncer
 
+  surrealdb-provider:
+    name: SurrealDB provider
+    runs-on: ubuntu-latest
+    # 15 for the shared contracts, whose local wall is about 4 minutes, + 5 for
+    # setup and starting the server.
+    timeout-minutes: 20
+    steps:
+      - name: Check out the exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/docs/architecture/raptor3-evidence/
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Start SurrealDB 4.0.0
+        run: |
+          curl -fsSL https://download.surrealdb.com/v4.0.0/surreal-v4.0.0.linux-amd64.tgz | tar xz
+          nohup ./surreal start --user root --pass root --bind 127.0.0.1:8765 --query-timeout 20s memory > surreal.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            curl -fs http://127.0.0.1:8765/health && exit 0
+            sleep 1
+          done
+          cat surreal.log
+          exit 1
+
+      - name: Run the shared contracts on SurrealDB
+        env:
+          SURREAL_TEST_URL: ws://127.0.0.1:8765/rpc
+          NODE_OPTIONS: --max-old-space-size=3072
+        run: node node_modules/vitest/vitest.mjs run --project provider-surrealdb --testTimeout=15000 --hookTimeout=20000
+
   platform-providers:
     name: Bun and D1 providers
     runs-on: ubuntu-latest

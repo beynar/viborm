@@ -228,6 +228,26 @@ export function runVectorBehavior({
 }
 
 async function seedVectorDocs(driver: AnyDriver) {
+  if (driver.dialect === "surrealql") {
+    const docs = (
+      [
+        ["exact", [1, 0, 0]],
+        ["near", [0.8, 0.2, 0]],
+        ["orthogonal", [0, 1, 0]],
+        ["opposite", [-1, 0, 0]],
+      ] as const
+    ).map(
+      ([id, embedding]) =>
+        `{ id: '${id}', collectionId: vector_behavior_collections:collection, embedding: [${embedding.join(", ")}] }`
+    );
+    await driver._executeRaw(
+      "INSERT INTO vector_behavior_collections [{ id: 'collection' }]"
+    );
+    await driver._executeRaw(
+      `INSERT INTO vector_behavior_docs [${docs.join(", ")}]`
+    );
+    return;
+  }
   await driver._executeRaw(
     `INSERT INTO "vector_behavior_collections" ("id") VALUES ($1)`,
     ["collection"]

@@ -1,8 +1,8 @@
 # The query backend frontier
 
 Status: proposal, 2026-11-05. Steps 0 and 1 are done and step 2 is dropped. Steps 3
-to 5 exist as a prototype on the `feat/query-backend` stack, for foreign key relations
-and generated many-to-many relations.
+to 5 exist as a prototype on the `feat/query-backend` stack, and the shared driver
+contracts pass on it. `recurse`, declared junctions and extensions are next.
 Numbers read from `main` at `e4b09fd64` with an AST pass over the engine.
 
 ## The problem
@@ -182,9 +182,8 @@ reads of SurrealDB and of PGlite over the same rows and compares the answers:
 scalars, order and pages, the filters on nullable fields, to-one and to-many at three
 levels, two relations to one table, and `some`, `none`, `every`, `is`, `isNot`.
 
-It refuses by name what it does not cover: declared junctions, aggregates, cursors,
-`distinct`, junctions and variants, `recurse`, `_count`, ordering by a relation or a
-nullable field, and row domains (so soft delete and permissions).
+It refuses by name what it does not cover: declared junctions, `recurse`, write hooks,
+tombstones and row domains (so soft delete and permissions).
 
 **Writes.** `driver.operationContext` supplies a subclass of `OperationContext` that
 overrides `createMany`, `updateMany`, `deleteMany` and `upsertOne`, the four methods
@@ -218,6 +217,40 @@ writes. What the override drops, and a real backend would have to answer:
   is untested on this path.
 - **Savepoints:** a nested scope runs in its parent, so a caller that catches a failed
   write cannot continue that transaction.
+
+**Parity with SQL.** The shared driver contracts run on SurrealDB unchanged, through
+`tests/providers/docker/surrealdb-contracts.test.ts`. The test fixture defines a schema
+from the migration serializer's neutral description, so `syncLiveSchema` works without
+any migration. CI runs them against a real server, in its own job. Contracts that state
+migrations, a SQL plan or a batch-only substrate do not apply. Tests a contract states
+in SQL's own words are waived by name, each with its reason, in that file.
+
+What had no direct equivalent, and how it answers:
+
+- **Keys:** a single key is the record's `id` whatever the field is called, and a
+  compound key is an array id read by position, `id[0]`. A generated integer key reads
+  a `DEFINE SEQUENCE`. A key change is a new record: the row is copied, cascading
+  references and edges follow, and the old record goes, in one statement.
+- **Aggregates:** flat aggregates inside, the public shape outside, where `having` and
+  an order read them by name. `math::sum` of nothing is 0 and SQL's is NULL, so each
+  aggregate carries how many values it saw.
+- **`distinct`:** `GROUP BY` keeps its source's order, so each tuple's first row is
+  `array::first(id)`, chosen in the caller's order. A nested one groups a parent's
+  members as a value, because a subquery past the first cannot see `$parent`.
+- **Null order:** a missing value sorts by a selected flag, as PostgreSQL places it.
+- **Conflicts:** no locks, so writers meet at commit. The loser plans again once, under
+  the operation's one recovery. `insert` with a producer is `INSERT IGNORE` and reports
+  its rejection without a failing statement, which a transaction here cannot survive.
+- **Variant relations:** the type and id columns stay plain fields. A generated variant
+  junction is one edge table per member.
+- **Geography:** `INTERSECTS` holds a polygon's boundary and not its holes. It is
+  planar: a ring crossing 180 is unwrapped past it, and edges are not great circles as
+  they are in PostGIS. `geo::distance` matched the shared boundary tests.
+
+Not yet covered: `recurse`, `$through` and declared junctions, write hooks, tombstones,
+row domains. An SQL fragment in a filter is SQL by definition, and refuses. A key is its
+public text here, so comparing it with a plain string column has an answer, where the
+other providers refuse.
 
 **Many-to-many.** A generated junction is an edge table, `TYPE RELATION IN post OUT tag
 ENFORCED`, with a unique index over `in, out`. `in` is the junction's canonical first

@@ -44,6 +44,7 @@ export const RELEASE_CI_JOBS = Object.freeze([
   "Local providers (shard 7/8)",
   "Local providers (shard 8/8)",
   "PostgreSQL and MySQL providers",
+  "SurrealDB provider",
   "Bun and D1 providers",
 ]);
 

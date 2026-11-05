@@ -393,15 +393,6 @@ describe.skipIf(!url)("SurrealDB read prototype against PostgreSQL", () => {
     expect(answered).toEqual(expected);
   });
 
-  it("refuses what it does not cover, by name", async () => {
-    await expect(onSurreal.user.count({})).rejects.toThrow(
-      "SurrealDB read backend"
-    );
-    await expect(
-      onSurreal.post.findMany({ cursor: { id: 1 }, take: 2 })
-    ).rejects.toThrow("a cursor");
-  });
-
   it("holds no SQL: reaching for any syntax refuses", () => {
     const { adapter } = new SurrealDriver(surreal);
     expect(adapter.result).toBeDefined();

@@ -10,6 +10,7 @@ import { passThroughParseResult } from "@adapters/adapter-result-parser";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import {
   ForeignKeyError,
+  TransactionError,
   UniqueConstraintError,
   UnsupportedOperationError,
 } from "@errors";
@@ -18,6 +19,7 @@ import type { Sql } from "@sql";
 import {
   DateTime,
   Decimal,
+  GeometryPoint,
   RecordId,
   type Surreal,
   type SurrealTransaction,
@@ -26,15 +28,18 @@ import {
 import { Driver, TransactionBoundDriver } from "../driver";
 import type { TransactionOptionSupport } from "../shared";
 import type { QueryExecutionContext, QueryResult } from "../types";
-import { SurrealOperationContext } from "./operation-context";
+import { isConflict, SurrealOperationContext } from "./operation-context";
 import { SurrealReadBackend } from "./read-backend";
 
 /** What decoding a row and starting a client read of an adapter, and no more. */
 const ROW_FACTS = {
   namespace: undefined,
-  geoPoint: undefined,
+  // A point's statements are this driver's own: the fact is that it holds them.
+  geoPoint: {},
   // A strategy `Commands` asks about, not syntax: `INSERT IGNORE` skips.
   mutations: { skipDuplicatesStrategy: "sql" },
+  // A widened sum asks whether it travels in parts here, and it never does.
+  aggregates: {},
   result: {
     nativeScalarPassthrough: true,
     parseResult: passThroughParseResult,
@@ -46,7 +51,7 @@ const ROW_FACTS = {
     supportsCteWithMutations: false,
     supportsFullOuterJoin: false,
     supportsLateralJoins: false,
-    supportsVector: false,
+    supportsVector: true,
     supportsUpsertWhere: false,
     supportsTargetedUpsert: true,
     supportsMutationTargetInSubquery: false,
@@ -74,11 +79,15 @@ function noSqlAdapter(): DatabaseAdapter {
 
 /** A provider value as the engine's decoders read it. */
 function plain(value: unknown): unknown {
-  if (value instanceof RecordId) return value.id;
+  if (value === undefined) return null;
+  if (value instanceof RecordId) return plain(value.id);
+  if (value instanceof GeometryPoint) return value.toJSON();
   if (value instanceof DateTime) return value.toISOString();
   if (value instanceof Decimal || value instanceof Uuid)
     return value.toString();
   if (Array.isArray(value)) return value.map(plain);
+  if (ArrayBuffer.isView(value)) return value;
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
   if (value !== null && typeof value === "object" && !(value instanceof Date)) {
     const out: Record<string, unknown> = {};
     for (const [key, member] of Object.entries(value)) out[key] = plain(member);
@@ -97,6 +106,7 @@ const REFERENCE_REFUSAL = /must conform to.*exists\(\)|ON DELETE REJECT/s;
 function refusal(error: unknown): unknown {
   const message = error instanceof Error ? error.message : String(error);
   const cause = error instanceof Error ? error : undefined;
+  if (isConflict(error)) return new TransactionError(message, { cause });
   if (UNIQUE_REFUSAL.test(message))
     return new UniqueConstraintError(message, { cause });
   if (REFERENCE_REFUSAL.test(message))
@@ -190,7 +200,8 @@ export class SurrealDriver extends Driver<
       params.map((value, index) => [`p${index + 1}`, value])
     );
     try {
-      const [rows] = await client.query<[unknown[]]>(statement, values);
+      const [result] = await client.query<[unknown]>(statement, values);
+      const rows = Array.isArray(result) ? result : [];
       return { rows: plain(rows) as T[], rowCount: rows.length };
     } catch (error) {
       throw refusal(error);
@@ -227,13 +238,18 @@ export class SurrealDriver extends Driver<
         "The SurrealDB driver has no savepoints: a transaction cannot nest."
       );
     const transaction = await client.beginTransaction();
+    let result: T;
     try {
-      const result = await fn(transaction);
-      await transaction.commit();
-      return result;
+      result = await fn(transaction);
     } catch (error) {
       await transaction.cancel().catch(() => undefined);
       throw error;
     }
+    try {
+      await transaction.commit();
+    } catch (error) {
+      throw refusal(error);
+    }
+    return result;
   }
 }

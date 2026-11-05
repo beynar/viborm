@@ -15,6 +15,7 @@ export interface ProviderDefinition {
     | "bun"
     | "docker-postgres"
     | "docker-mysql"
+    | "surreal-server"
     | "neon-credentials"
     | "planetscale-credentials"
     | "workerd";
@@ -109,6 +110,13 @@ export const PROVIDERS = [
     availability: "planetscale-credentials",
     waiverReason:
       "The dedicated PlanetScale decimal leg runs only with URL, explicit namespace, and a pre-provisioned read-only marker fixture; the shared contract remains waived because D8 forbids its effectful VibORM DDL setup.",
+  },
+  {
+    id: "surrealdb",
+    sourceFiles: providerSources("docker", "surrealdb"),
+    availability: "surreal-server",
+    waiverReason:
+      "This contract states migrations, a SQL plan or SQL text, or demands a batch-only substrate; SurrealDB has neither migrations nor a batch route yet.",
   },
   {
     id: "bun-sql",
@@ -331,6 +339,44 @@ const PROVIDER_RUNS = {
     "upsertAtomicityContract",
   ],
   d1: ["geoPointBatchContract", "geoPointContract"],
+  surrealdb: [
+    "blobFilterContract",
+    "bulkWriteLimitContract",
+    "compoundJunctionContract",
+    "compoundKeyContract",
+    "countAggregateWindowContract",
+    "createManyReturnFoldContract",
+    "cursorPaginationContract",
+    "decimalExactnessContract",
+    "distinctSkipWindowContract",
+    "fieldReferenceContract",
+    "fullScalarRoundtripContract",
+    "geoPointContract",
+    "implicitReturningContract",
+    "jsonNullSentinelContract",
+    "likeEscapeContract",
+    "listJsonFilterContract",
+    "manyToManyContract",
+    "nestedOrderByContract",
+    "nestedPaginationContract",
+    "nestedWriteAdvancedContract",
+    "nestedWriteConcurrencyContract",
+    "nestedWriteContract",
+    "nestedWriteJsonEnvelopeContract",
+    "omitContract",
+    "optionalRelationParityContract",
+    "orderingArrayCreateContract",
+    "polymorphicCollectionReadContract",
+    "polymorphicCollectionWriteContract",
+    "polymorphicRelationContract",
+    "prismaParityContract",
+    "readPathRegressionContract",
+    "relationFilterMutationContract",
+    "relationReadAggregateContract",
+    "scalarRoundtripContract",
+    "upsertAtomicityContract",
+    "vectorContract",
+  ],
   "neon-http": [],
   planetscale: [],
   "bun-sql": [],

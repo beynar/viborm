@@ -35,7 +35,7 @@ export class SurrealQueries extends Queries {
   #row(model: AnyModel, row: RowCondition): Sql {
     switch (row.kind) {
       case "fieldNull":
-        return sql.raw(`${this.columnName(model, row.field)} = NONE`);
+        return sql`${this.#lowering.physical(model, row.field)} = NONE`;
       case "notIdentity":
         return sql`!(${sql.join(
           row.identities.map(
@@ -61,7 +61,7 @@ export class SurrealQueries extends Queries {
     const where = selector.predicate
       ? sql`WHERE ${this.#lowering.predicate(selector.predicate, true)} `
       : sql.raw("");
-    return sql`(SELECT VALUE ${sql.raw(this.columnName(model, field))} FROM ${sql.raw(model["~"].names.sql!)} ${where}LIMIT 1)[0]`;
+    return sql`(SELECT VALUE ${this.#lowering.physical(model, field)} FROM ${sql.raw(model["~"].names.sql!)} ${where}LIMIT 1)[0]`;
   }
 
   /** The edge between two records, named by each side's junction field. */
@@ -72,24 +72,29 @@ export class SurrealQueries extends Queries {
       [near, edge.sourceSide],
       [far, edge.targetSide],
     ] as const) {
-      const field = side.members[0]!.junctionField;
-      if (Object.hasOwn(values, field))
+      if (Object.hasOwn(values, side.members[0]!.junctionField))
         conditions.push(
-          sql`${end} = ${this.#lowering.end(side, values[field])}`
+          sql`${end} = ${this.#lowering.end(side, (pair) => values[pair.junctionField])}`
         );
     }
-    const { junctionField, referencedField } = edge.targetSide.members[0]!;
+    const unique = edge.uniqueSide === "target";
+    const owner = unique ? edge.sourceSide : edge.targetSide;
+    const read = unique ? near : far;
+    const fields: Record<string, ReturnType<typeof this.scalarShape>> = {};
+    const columns = owner.members.map((pair, index) => {
+      fields[pair.junctionField] = this.scalarShape(
+        owner.model,
+        pair.referencedField
+      );
+      const value =
+        owner.members.length === 1
+          ? read
+          : sql`record::id(${read})[${sql.raw(String(index))}]`;
+      return sql`${value} AS ${sql.raw(pair.junctionField)}`;
+    });
     return {
-      sql: sql`SELECT ${far} AS ${sql.raw(junctionField)} FROM ${table} WHERE ${sql.join(conditions, " AND ")}`,
-      shape: {
-        kind: "object",
-        fields: {
-          [junctionField]: this.scalarShape(
-            edge.targetSide.model,
-            referencedField
-          ),
-        },
-      },
+      sql: sql`SELECT ${sql.join(columns, ", ")} FROM ${table} WHERE ${sql.join(conditions, " AND ")}`,
+      shape: { kind: "object", fields },
     };
   }
 

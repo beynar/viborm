@@ -181,6 +181,7 @@ test("CI keeps every delegated check and shallow sparse checkout", () => {
       "package",
       "local-providers",
       "docker-providers",
+      "surrealdb-provider",
       "platform-providers",
     ]
   );
@@ -196,6 +197,7 @@ test("CI keeps every delegated check and shallow sparse checkout", () => {
     ["package", "run: pnpm test:package"],
     ["docker-providers", "--project=provider-pg\n"],
     ["docker-providers", "--project=provider-pgbouncer\n"],
+    ["surrealdb-provider", "--project provider-surrealdb"],
     ["platform-providers", "--project=provider-bun"],
     ["platform-providers", "VIBORM_RECURSIVE_WHERE_CHECKERS: bun"],
     ["platform-providers", "--project=provider-d1"],

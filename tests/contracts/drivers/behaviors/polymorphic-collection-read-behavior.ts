@@ -232,6 +232,16 @@ export function runPolymorphicCollectionReadBehavior(
     ) {
       const ident = client.$driver.adapter.identifiers.escape;
       const tableRef = client.$driver.adapter.identifiers.table;
+      if (client.$driver.dialect === "surrealql") {
+        // An edge table holds two records, in the junction's canonical order.
+        const gallery = sql`type::record(${"coll_contract_galleries"}, ${galleryId})`;
+        const target = sql`type::record(${`coll_contract_${column.replace("Id", "")}s`}, ${targetId})`;
+        const galleryFirst = column > "galleryId";
+        await client.$executeRaw(
+          sql`INSERT RELATION INTO ${tableRef(table)} { in: ${galleryFirst ? gallery : target}, out: ${galleryFirst ? target : gallery} }`
+        );
+        return;
+      }
       await client.$executeRaw(
         sql`INSERT INTO ${tableRef(table)} (${ident("galleryId")}, ${ident(
           column
@@ -547,9 +557,14 @@ export function runPolymorphicCollectionReadBehavior(
       // target side is intact here, exactly as a singular inverse requires.
       const ident = client.$driver.adapter.identifiers.escape;
       const tableRef = client.$driver.adapter.identifiers.table;
-      await client.$executeRaw(
-        sql`DELETE FROM ${tableRef(ARTICLE_MEMBERS)} WHERE ${ident("galleryId")} = ${gallery.id} AND ${ident("articleId")} = ${second.id}`
-      );
+      if (client.$driver.dialect === "surrealql")
+        await client.$executeRaw(
+          sql`DELETE ${tableRef(ARTICLE_MEMBERS)} WHERE in = type::record(${"coll_contract_articles"}, ${second.id})`
+        );
+      else
+        await client.$executeRaw(
+          sql`DELETE FROM ${tableRef(ARTICLE_MEMBERS)} WHERE ${ident("galleryId")} = ${gallery.id} AND ${ident("articleId")} = ${second.id}`
+        );
       await link(client, ARTICLE_MEMBERS, late.id, "articleId", second.id);
       const unlinked = await client.article.create({
         data: { title: "orphanless", rank: 3 },
