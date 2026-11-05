@@ -345,9 +345,7 @@ export class Selection {
   unrepresentable(field: string) {
     const ctx = this.execution.context;
     return ctx.queries.select(this.model, { take: 1 }, undefined, {
-      condition: ctx.driver.adapter.operators.isNull(
-        ctx.queries.column(this.model, field)
-      ),
+      row: { kind: "fieldNull", field },
       identity: this.execution.identity(this.fields),
       projection: this.#identityProjection,
     });

@@ -1,6 +1,6 @@
 # The query backend frontier
 
-Status: proposal, 2026-11-05. Step 0 is done; nothing else below is built.
+Status: proposal, 2026-11-05. Steps 0 and 1 are done; nothing else below is built.
 Numbers read from `main` at `e4b09fd64` with an AST pass over the engine.
 
 ## The problem
@@ -88,7 +88,7 @@ not prove it for a database with no subqueries.
 
 | Part | Size | State |
 |---|---|---|
-| `commands/` | 7,800 lines | no `sql` template; 3 direct adapter calls (below) |
+| `commands/` | 7,800 lines | no `sql` template and no adapter syntax (guarded); the reads below remain |
 | `Prepared*` types | 39 types free of `Sql` and aliases | `PreparedPredicate`, `PreparedProjection`, `PreparedSelector`, `PreparedUpdate` and their parts |
 | `prepare*` methods | 20 methods, 1,046 lines | only `#prepareAggregates` touches the adapter |
 | `Queries` writing SQL | 88 methods, 4,138 lines | the SQL backend, once moved |
@@ -96,10 +96,16 @@ not prove it for a database with no subqueries.
 
 ## The leaks to close
 
-1. **`commands/` spelling a condition.** `selection.ts` `unrepresentable` and
-   `execution.ts` (the `exclude` condition) call `adapter.operators` directly.
-2. **`SelectControls.condition`** takes `Sql | (alias) => Sql`, which is what lets
-   them. It should take a prepared predicate.
+1. **`commands/` spelling a condition: closed.** Its three conditions are now
+   `SelectControls.row`, a `RowCondition` that `Queries` spells where they stood.
+   `tests/contracts/adapters/commands-state-no-syntax.core.test.ts` keeps it so.
+2. **What `commands/` still reads of a statement.** No syntax, but language:
+   bind budgets from `lowerSelector(…).values`, `updateAssignment(…).values` and
+   `query.sql.values`; `locatedValue` and `sameStoredValue`, whose deferred batch
+   value is a `Sql`; `getAdapterInternals(…).constraints` to recognize a violated
+   key; and `statement: Sql` on a prepared read's published facts.
+   `SelectControls.condition` also still takes `Sql | (alias) => Sql`, now only
+   from `OperationContext`; it goes with leak 4.
 3. **`OrderTerm` carries `Sql`.** Order has no `Prepared*` form yet.
 4. **`OperationContext` assembles statements** from `q.table` (17 calls),
    `q.column` (9), `q.alias` (3). This is the largest and least understood part.
@@ -121,9 +127,9 @@ Each step keeps SQL byte-identical and lands alone.
 | Step | Work | Proof |
 |---|---|---|
 | 0 | No SQL word in the engine | done, guard test; pg 206.65 → 206.61 kB, D1 205.49 → 205.47 kB gzip |
-| 1 | Close leaks 1 and 2 | a guard: `commands/` and `client/` import no `Sql`, `Dialect` or adapter syntax |
+| 1 | Close leak 1 | done, a guard: `commands/` states no adapter syntax |
 | 2 | Prepare the order (leak 3) | `OrderTerm` free of `Sql`; read latency measured |
-| 3 | The driver supplies its backend; read path behind `QueryBackend` (leak 5) | pg and D1 bundle sizes unchanged within the size rule |
+| 3 | The driver supplies its backend; read path behind `QueryBackend` (leaks 2 and 5) | pg and D1 bundle sizes unchanged within the size rule |
 | 4 | SurrealQL read backend as a prototype; open `Dialect` as far as it needs | public read contract, `include` latency over WebSocket |
 | 5 | Write path (leak 4), shaped by what step 4 learned | full contract suite on both |
 
