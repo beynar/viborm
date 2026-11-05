@@ -198,15 +198,66 @@ function tableStatements(
     ...table.columns
       .filter((column) => !key.includes(column.name))
       .map((column) => fieldStatement(table, column, keysOf)),
-    ...table.uniqueConstraints.map(
-      (unique) =>
-        `DEFINE INDEX OVERWRITE ${unique.name} ON ${table.name} FIELDS ${unique.columns.join(", ")} UNIQUE;`
-    ),
-    ...table.indexes.map(
-      (index) =>
-        `DEFINE INDEX OVERWRITE ${index.name} ON ${table.name} FIELDS ${index.columns.join(", ")}${index.unique ? " UNIQUE" : ""};`
-    ),
+    // An index naming the key is held by the id itself: a unique one over the
+    // whole key is implied, and the id is no field an index can name.
+    ...table.uniqueConstraints
+      .filter(
+        (unique) => !unique.columns.some((column) => key.includes(column))
+      )
+      .map(
+        (unique) =>
+          `DEFINE INDEX OVERWRITE ${unique.name} ON ${table.name} FIELDS ${unique.columns.join(", ")} UNIQUE;`
+      ),
+    ...table.indexes
+      .filter((index) => !index.columns.some((column) => key.includes(column)))
+      .map(
+        (index) =>
+          `DEFINE INDEX OVERWRITE ${index.name} ON ${table.name} FIELDS ${index.columns.join(", ")}${index.unique ? " UNIQUE" : ""};`
+      ),
   ];
+}
+
+/**
+ * A foreign key over several columns holds no record, so its action is an event
+ * on the table it names, as a server would apply it.
+ */
+function compoundKeyEvents(
+  table: TableDef,
+  keysOf: ReadonlyMap<string, readonly string[]>
+): string[] {
+  const own = keysOf.get(table.name) ?? [];
+  const held = (column: string) => {
+    const position = own.indexOf(column);
+    if (position < 0) return column;
+    return own.length === 1 ? "id" : `id[${position}]`;
+  };
+  return table.foreignKeys
+    .filter((key) => key.columns.length > 1)
+    .map((key) => {
+      const pairs = key.columns.map((column, index) => {
+        const referenced = key.referencedColumns[index]!;
+        const theirs = keysOf.get(key.referencedTable) ?? [];
+        const position = theirs.indexOf(referenced);
+        const value =
+          position < 0
+            ? `$before.${referenced}`
+            : theirs.length === 1
+              ? "record::id($before.id)"
+              : `record::id($before.id)[${position}]`;
+        return `${held(column)} = ${value}`;
+      });
+      const matching = pairs.join(" AND ");
+      const action =
+        key.onDelete === "cascade"
+          ? `DELETE ${table.name} WHERE ${matching}`
+          : key.onDelete === "setNull"
+            ? `UPDATE ${table.name} SET ${key.columns
+                .filter((column) => !own.includes(column))
+                .map((column) => `${column} = NONE`)
+                .join(", ")} WHERE ${matching}`
+            : `IF array::len(SELECT VALUE id FROM ${table.name} WHERE ${matching} LIMIT 1) > 0 { THROW 'ON DELETE REJECT: ${key.name}' }`;
+      return `DEFINE EVENT OVERWRITE ${key.name} ON ${key.referencedTable} WHEN $event = "DELETE" THEN { ${action} };`;
+    });
 }
 
 export async function defineSurrealSchema(client: {
@@ -226,8 +277,9 @@ export async function defineSurrealSchema(client: {
     ])
   );
   await (client.$driver as SurrealTestDriver).define(
-    snapshot.tables.flatMap((table) =>
-      tableStatements(table, modelTables, keysOf)
-    )
+    snapshot.tables.flatMap((table) => [
+      ...tableStatements(table, modelTables, keysOf),
+      ...compoundKeyEvents(table, keysOf),
+    ])
   );
 }

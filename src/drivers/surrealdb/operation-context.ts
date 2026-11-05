@@ -430,28 +430,14 @@ export class SurrealOperationContext extends OperationContext {
     }
     const identity = this.#lowering.identity(model, row);
     const fields = [...demanded];
-    if (Object.keys(rest).length === 0) {
-      const { response } = await this.#written(
-        model,
-        sql`SELECT * FROM ${table} WHERE ${identity}`,
-        fields,
-        answer
-      );
-      return (
-        this.queries.decodeProjection(
-          this.queries.prepareProjection(
-            model,
-            { select: Object.fromEntries(fields.map((f) => [f, true])) },
-            true
-          ).shape,
-          response.rows,
-          true
-        )[0] ?? {}
-      );
-    }
+    // A key that moved may be all there was: `UPDATE` reads what it asks back.
+    const assignments =
+      Object.keys(rest).length === 0
+        ? sql.raw("")
+        : sql`SET ${this.#assignments(model, rest)} `;
     const { response, decoded } = await this.#written(
       model,
-      sql`UPDATE ${table} SET ${this.#assignments(model, rest)} WHERE ${identity}`,
+      sql`UPDATE ${table} ${assignments}WHERE ${identity}`,
       fields,
       answer
     );
@@ -627,8 +613,18 @@ export class SurrealOperationContext extends OperationContext {
     this.#declinePreparation();
     const table = fieldName(model["~"].names.sql!);
     const fields = projection.fields.map((field) => field.name);
-    if (this.#keyChange(model, given).length > 0)
-      refuse("changing a key the write locates in its own statement");
+    if (this.#keyChange(model, given).length > 0) {
+      const result = await this.#updateKeys(
+        model,
+        selector,
+        given,
+        undefined,
+        projection,
+        missing
+      );
+      if (answer) answer.row = result as Input;
+      return result as Input;
+    }
     const { response, decoded } = await this.#written(
       model,
       sql`UPDATE ${table} SET ${this.#assignments(model, given)} ${this.#where(selector)}`,
@@ -696,8 +692,13 @@ export class SurrealOperationContext extends OperationContext {
     edge: Junction,
     values: Input,
     _member: unknown,
-    captured?: Input
+    captured?: Input,
+    written?: Input
   ): Promise<void> {
+    if (edge.declared) {
+      await this.#linkDeclared(edge, values, written);
+      return;
+    }
     if (captured) {
       const columns = linkMembers(edge).map(({ pair }) => pair.junctionField);
       if (columns.every((field) => Object.is(captured[field], values[field])))
@@ -717,11 +718,62 @@ export class SurrealOperationContext extends OperationContext {
     await this.linkMany(edge, [values]);
   }
 
+  /**
+   * A link that is a row of its model: its members from the two records, its
+   * defaults, and what the call states. One that exists takes only the stated.
+   */
+  async #linkDeclared(
+    edge: Junction,
+    values: Input,
+    written?: Input
+  ): Promise<void> {
+    this.#declinePreparation();
+    const low = this.#lowering;
+    const model = edge.declared!.model;
+    const members = linkMembers(edge).map(({ pair }) => pair.junctionField);
+    const defaults = this.schema
+      .linkDefaults(model, new Set(members))
+      .filter((field) => !(written && Object.hasOwn(written, field)));
+    const row: Input = {
+      ...Object.fromEntries(
+        members.map((column) => [low.linkFieldOf(edge, column), values[column]])
+      ),
+      ...this.schema.createValues(
+        model,
+        Object.fromEntries(defaults.map((field) => [field, undefined]))
+      ),
+      ...written,
+    };
+    const stated = Object.keys(written ?? {});
+    const table = fieldName(model["~"].names.sql!);
+    const stamped = Object.keys(model["~"].state.scalars).filter(
+      (field) =>
+        model["~"].state.scalars[field]!["~"].state.autoGenerate?.kind ===
+          "updatedAt" && !stated.includes(field)
+    );
+    const stamps = this.schema.createValues(
+      model,
+      Object.fromEntries(stamped.map((field) => [field, undefined]))
+    );
+    await this.#written(
+      model,
+      stated.length
+        ? sql`INSERT INTO ${table} ${this.#row(model, row)} ON DUPLICATE KEY UPDATE ${this.#assignments(model, { ...written, ...stamps })}`
+        : sql`INSERT IGNORE INTO ${table} [${this.#row(model, row)}]`,
+      [],
+      undefined
+    );
+  }
+
   override async linkMany(
     edge: Junction,
     rows: readonly Input[]
   ): Promise<void> {
     this.#declinePreparation();
+    if (edge.declared) {
+      for (const values of rows) await this.#linkDeclared(edge, values);
+      return;
+    }
     const { table, near, far } = this.#lowering.edgeOf(edge);
     const end = (side: Junction["sourceSide"], values: Input) =>
       this.#lowering.end(side, (pair) => values[pair.junctionField]);
@@ -732,6 +784,36 @@ export class SurrealOperationContext extends OperationContext {
     await this.#written(
       edge.source,
       sql`INSERT RELATION IGNORE INTO ${table} [${sql.join(edges, ", ")}]`,
+      [],
+      undefined
+    );
+  }
+
+  /** Removes a link's row. What it keeps is a target's fields, not its key. */
+  async #unlinkDeclared(
+    edge: Junction,
+    source: Input | undefined,
+    target: Input | undefined,
+    keep: readonly Input[]
+  ): Promise<void> {
+    const low = this.#lowering;
+    const model = edge.declared!.model;
+    const matches = (side: Junction["sourceSide"], row: Input) =>
+      sql.join(
+        side.members.map((pair) => {
+          const field = low.linkFieldOf(edge, pair.junctionField);
+          return sql`${low.physical(model, field)} = ${low.value(model, field, row[pair.referencedField])}`;
+        }),
+        " AND "
+      );
+    const conditions = [
+      ...(source ? [matches(edge.sourceSide, source)] : []),
+      ...(target ? [matches(edge.targetSide, target)] : []),
+      ...keep.map((row) => sql`!(${matches(edge.targetSide, row)})`),
+    ];
+    await this.#written(
+      model,
+      sql`DELETE ${fieldName(model["~"].names.sql!)} WHERE ${sql.join(conditions, " AND ")}`,
       [],
       undefined
     );
@@ -773,6 +855,10 @@ export class SurrealOperationContext extends OperationContext {
     keep: Input[]
   ): Promise<void> {
     this.#declinePreparation();
+    if (edge.kind === "junction" && edge.declared) {
+      await this.#unlinkDeclared(edge, source, target, keep);
+      return;
+    }
     if (edge.kind === "junction") {
       await this.#unlink(edge, (side, pair) => {
         const row = side === edge.sourceSide ? source : target;

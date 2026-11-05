@@ -40,6 +40,7 @@ import {
 } from "@tests/contracts/drivers/behaviors/scalar-roundtrip-behavior";
 import { upsertAtomicityContract } from "@tests/contracts/drivers/behaviors/upsert-atomicity-behavior";
 import { vectorContract } from "@tests/contracts/drivers/behaviors/vector-behavior";
+import { runThroughModelBehavior } from "@tests/contracts/engine/write/through-model-behavior";
 import {
   createSurrealTestDriver,
   surrealUrl,
@@ -62,18 +63,16 @@ const WAIVED: Readonly<Record<string, string>> = {
     "an edge cannot outlive its record, and the setup drops a SQL constraint",
   "a singular-inverse duplicate fails BEFORE the LIMIT":
     "the setup drops a SQL constraint to plant the duplicate",
-  "selects a distance beside a member mapped to the `_distance` column in nested and recursive nodes":
-    "`recurse` does not exist here yet",
   "an identifier against a plain string column is refused, not answered":
-    "a key here is its public text, so the comparison has an answer",
+    "a key here is its public text, so it answers; surrealdb-keys.test.ts checks that",
   "the column has the type `tally`'s map names on this dialect":
     "reads a SQL column type",
   "include resolves junction join through mapped PK columns":
-    "seeds the junction in SQL; surrealdb-junction.test.ts covers it",
+    "seeds the junction in SQL; surrealdb-keys.test.ts covers it",
   "relation filter resolves junction join through mapped PK columns":
-    "seeds the junction in SQL; surrealdb-junction.test.ts covers it",
+    "seeds the junction in SQL; surrealdb-keys.test.ts covers it",
   "every quantifier through the junction answers the same in both directions":
-    "seeds the junction in SQL; surrealdb-junction.test.ts covers it",
+    "seeds the junction in SQL; surrealdb-keys.test.ts covers it",
 };
 
 const named = {
@@ -84,6 +83,10 @@ const named = {
 } as never;
 
 describe.skipIf(!surrealUrl)("SurrealDB", () => {
+  runThroughModelBehavior({
+    name: "SurrealDB",
+    createDriver: createSurrealTestDriver,
+  } as never);
   // biome-ignore lint/style/noDoneCallback: the test's context, to skip it by name.
   beforeEach((context) => {
     if (WAIVED[context.task.name]) context.skip();
