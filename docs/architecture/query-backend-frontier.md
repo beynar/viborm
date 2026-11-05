@@ -203,7 +203,7 @@ What the writes showed:
 context overrides `insert`, `update`, `updateLocated`, `updateRows`, `mutateMembers`,
 `remove` and `delete`. `Commands`, `RelationBody` and `CommandExecution` needed no
 change: the meaning of a nested write stayed above the frontier. A second script of 31
-steps covers `connect`, `create`, `connectOrCreate`, `update`, `updateMany`, `upsert`,
+tests covers `connect`, `create`, `connectOrCreate`, `update`, `updateMany`, `upsert`,
 `disconnect`, `set`, `delete`, `deleteMany`, atomic failure and nested transactions.
 
 That answers leak 4 for the transaction route: `OperationContext` splits along record
