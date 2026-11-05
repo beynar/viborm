@@ -40,7 +40,7 @@ PreparedPredicate { kind: relation, quantifier: some, edge: user.posts, where: t
 
 sql        EXISTS (SELECT 1 FROM "post" AS "q1"
                    WHERE "q0"."id" = "q1"."authorId" AND "q1"."title" = $1)
-surrealql  count(SELECT 1 FROM post WHERE author = $parent.id AND title = $p1) > 0
+surrealql  id IN (SELECT VALUE author FROM post WHERE title = $p1)
 ```
 
 Aliases stop being an engine concept: they belong to the SQL backend, which
@@ -106,7 +106,10 @@ not prove it for a database with no subqueries.
    key; and `statement: Sql` on a prepared read's published facts.
    `SelectControls.condition` also still takes `Sql | (alias) => Sql`, now only
    from `OperationContext`; it goes with leak 4.
-3. **`OrderTerm` carries `Sql`.** Order has no `Prepared*` form yet.
+3. **Order: not a leak.** `OrderTerm` carries `Sql` but is private to `Queries`.
+   What reaches the lowering is the admitted `args.orderBy`, which holds none, and
+   a backend reads that. `#completeOrder`, the tie-break every page needs, works on
+   lowered terms; share it when a second backend needs it, not before.
 4. **`OperationContext` assembles statements** from `q.table` (17 calls),
    `q.column` (9), `q.alias` (3). This is the largest and least understood part.
 5. **Construction.** `commands/index.ts` does `new Queries` and
@@ -128,7 +131,7 @@ Each step keeps SQL byte-identical and lands alone.
 |---|---|---|
 | 0 | No SQL word in the engine | done, guard test; pg 206.65 → 206.61 kB, D1 205.49 → 205.47 kB gzip |
 | 1 | Close leak 1 | done, a guard: `commands/` states no adapter syntax |
-| 2 | Prepare the order (leak 3) | `OrderTerm` free of `Sql`; read latency measured |
+| 2 | Dropped: order was not a leak (see leak 3) | `Queries.order`, which nothing called, removed |
 | 3 | The driver supplies its backend; read path behind `QueryBackend` (leaks 2 and 5) | pg and D1 bundle sizes unchanged within the size rule |
 | 4 | SurrealQL read backend as a prototype; open `Dialect` as far as it needs | public read contract, `include` latency over WebSocket |
 | 5 | Write path (leak 4), shaped by what step 4 learned | full contract suite on both |
@@ -139,6 +142,34 @@ would only describe that implementation. Step 4 is what tests the line.
 
 **Bundle.** A SurrealQL backend lives only in its own driver entry, so a pg or D1
 application never loads it. Those two bundles are the ones that must not grow.
+
+## What SurrealQL's reads taught
+
+Measured on SurrealDB 4.0.0 over WebSocket, 20,000 users and 200,000 rows a table;
+scripts are outside the repository. A backend writes from the relation, not from a
+translation of the SQL:
+
+```surql
+SELECT id,
+  <~(SELECT * FROM post FIELD author ORDER BY rank DESC LIMIT 3).{
+    id,
+    comments: <~(SELECT * FROM comment FIELD post ORDER BY rank DESC LIMIT 2).{ id, body }
+  } AS posts
+FROM user:400..410 ORDER BY id;
+```
+
+- That form answered correctly in about 2 ms at three levels. A `$parent` subquery,
+  the SQL's direct translation, took 3.6 to 5.9 s there: past one level it drops to
+  a path that scales with the table.
+- `FIELD` is mandatory. Without it `<~` read another relation to the same table and
+  raised nothing.
+- One statement carries a deep read, so `QueryBackend` need not return a plan of
+  several statements for the shapes measured.
+- A relation filter reads back from the child where it can:
+  `SELECT VALUE author FROM post WHERE title = $p1` took 5.6 ms against 241 ms for
+  `count(SELECT … $parent …)`.
+- `<~` needs a `record` link declared `REFERENCE`, so a foreign key to another
+  unique field has no such form.
 
 ## Open questions
 
