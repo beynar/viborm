@@ -128,6 +128,8 @@ function scalarType(column: ColumnDef): string {
     return "decimal";
   if (type.includes("double") || type === "real" || type.startsWith("float"))
     return "float";
+  // SQL's `integer` is 32 bits, and a plain `int` here would hold what it refuses.
+  if (type === "integer") return "i32";
   if (type.includes("int") || type.includes("serial")) return "int";
   return "string";
 }
@@ -179,7 +181,8 @@ function namedKeyParts(table: TableDef, key: readonly string[]): string[] {
     return {
       // The name is the schema's: the driver reads a part by its position.
       name: name === "id" ? "id_part" : name,
-      type: held ? "record" : scalarType(column),
+      // A key part keeps its order in storage only as a plain `int`.
+      type: held ? "record" : scalarType(column).replace("i32", "int"),
     };
   });
   if (
@@ -252,10 +255,10 @@ function tableStatements(
 }
 
 /**
- * A foreign key over several columns holds no record, so its action is an event
- * on the table it names, as a server would apply it.
+ * A foreign key holding no record, over several columns or another unique field,
+ * has its actions as events on the table it names, as a server would apply them.
  */
-function compoundKeyEvents(
+function foreignKeyEvents(
   table: TableDef,
   keysOf: ReadonlyMap<string, readonly string[]>
 ): string[] {
@@ -266,31 +269,68 @@ function compoundKeyEvents(
     return own.length === 1 ? "id" : `id[${position}]`;
   };
   return table.foreignKeys
-    .filter((key) => key.columns.length > 1)
-    .map((key) => {
-      const pairs = key.columns.map((column, index) => {
-        const referenced = key.referencedColumns[index]!;
-        const theirs = keysOf.get(key.referencedTable) ?? [];
+    .filter(
+      (key) =>
+        key.columns.length > 1 ||
+        keysOf.get(key.referencedTable)?.join() !== key.referencedColumns.join()
+    )
+    .flatMap((key) => {
+      const theirs = keysOf.get(key.referencedTable) ?? [];
+      const read = (row: "$before" | "$after", referenced: string) => {
         const position = theirs.indexOf(referenced);
-        const value =
-          position < 0
-            ? `$before.${referenced}`
-            : theirs.length === 1
-              ? "record::id($before.id)"
-              : `record::id($before.id)[${position}]`;
-        return `${held(column)} = ${value}`;
-      });
-      const matching = pairs.join(" AND ");
-      const action =
+        if (position < 0) return `${row}.${referenced}`;
+        return theirs.length === 1
+          ? `record::id(${row}.id)`
+          : `record::id(${row}.id)[${position}]`;
+      };
+      const matching = key.columns
+        .map(
+          (column, index) =>
+            `${held(column)} = ${read("$before", key.referencedColumns[index]!)}`
+        )
+        .join(" AND ");
+      const refuse = (verb: string) =>
+        `IF array::len(SELECT VALUE id FROM ${table.name} WHERE ${matching} LIMIT 1) > 0 { THROW 'ON ${verb} REJECT: ${key.name}' }`;
+      const unset = `UPDATE ${table.name} SET ${key.columns
+        .filter((column) => !own.includes(column))
+        .map((column) => `${column} = NONE`)
+        .join(", ")} WHERE ${matching}`;
+      // A value no row holds is no reference, where `NONE` would match any unset one.
+      const named = key.referencedColumns
+        .filter((column) => !theirs.includes(column))
+        .map((column) => `$before.${column} != NONE`);
+      const onDelete =
         key.onDelete === "cascade"
           ? `DELETE ${table.name} WHERE ${matching}`
           : key.onDelete === "setNull"
-            ? `UPDATE ${table.name} SET ${key.columns
-                .filter((column) => !own.includes(column))
-                .map((column) => `${column} = NONE`)
-                .join(", ")} WHERE ${matching}`
-            : `IF array::len(SELECT VALUE id FROM ${table.name} WHERE ${matching} LIMIT 1) > 0 { THROW 'ON DELETE REJECT: ${key.name}' }`;
-      return `DEFINE EVENT OVERWRITE ${key.name} ON ${key.referencedTable} WHEN $event = "DELETE" THEN { ${action} };`;
+            ? unset
+            : refuse("DELETE");
+      const when = (event: string, ...also: readonly string[]) =>
+        [`$event = "${event}"`, ...also].join(" AND ");
+      const statements = [
+        `DEFINE EVENT OVERWRITE ${key.name} ON ${key.referencedTable} WHEN ${when("DELETE", ...named)} THEN { ${onDelete} };`,
+      ];
+      // A record's key never changes in place: a move answers for what holds it.
+      if (named.length === 0) return statements;
+      const changed = key.referencedColumns
+        .filter((column) => !theirs.includes(column))
+        .map((column) => `$before.${column} != $after.${column}`)
+        .join(" OR ");
+      const onUpdate =
+        key.onUpdate === "cascade"
+          ? `UPDATE ${table.name} SET ${key.columns
+              .map(
+                (column, index) =>
+                  `${column} = ${read("$after", key.referencedColumns[index]!)}`
+              )
+              .join(", ")} WHERE ${matching}`
+          : key.onUpdate === "setNull"
+            ? unset
+            : refuse("UPDATE");
+      return [
+        ...statements,
+        `DEFINE EVENT OVERWRITE ${key.name}_update ON ${key.referencedTable} WHEN ${when("UPDATE", ...named, `(${changed})`)} THEN { ${onUpdate} };`,
+      ];
     });
 }
 
@@ -313,7 +353,7 @@ export async function defineSurrealSchema(client: {
   await (client.$driver as SurrealTestDriver).define(
     snapshot.tables.flatMap((table) => [
       ...tableStatements(table, modelTables, keysOf),
-      ...compoundKeyEvents(table, keysOf),
+      ...foreignKeyEvents(table, keysOf),
     ])
   );
 }

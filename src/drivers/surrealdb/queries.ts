@@ -7,6 +7,7 @@
 
 import { UnsupportedOperationError } from "@errors";
 import {
+  type PreparedProjection,
   type PreparedSelector,
   Queries,
   type Query,
@@ -102,6 +103,24 @@ export class SurrealQueries extends Queries {
     return {
       sql: sql`SELECT ${sql.join(columns, ", ")} FROM ${edges}${conditions.length ? sql` WHERE ${sql.join(conditions, " AND ")}` : sql.raw("")}`,
       shape: { kind: "object", fields },
+    };
+  }
+
+  /** Rows a write named, by key, in the order it named them: a list reads so. */
+  override selectSeries(
+    prepared: PreparedProjection,
+    identities: Input[],
+    operation: "createMany" | "updateMany" = "createMany"
+  ): Query {
+    const { model } = prepared;
+    const records = sql.join(
+      identities.map((identity) => this.#lowering.recordOfRow(model, identity)),
+      ", "
+    );
+    return {
+      sql: sql`SELECT ${this.#lowering.columns(prepared)} FROM [${records}]`,
+      shape: prepared.shape,
+      expectedRows: this.seriesExpectation(model, identities.length, operation),
     };
   }
 

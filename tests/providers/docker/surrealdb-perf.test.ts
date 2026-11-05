@@ -209,6 +209,16 @@ const READS: readonly Operation[] = [
       }),
   ],
   [
+    "filter some, broad, take 1",
+    (db) =>
+      db.user.findMany({
+        where: { posts: { some: { id: { startsWith: "p" } } } },
+        take: 1,
+        orderBy: { id: "asc" },
+        select: { id: true },
+      }),
+  ],
+  [
     "filter some, to-many",
     (db, i) =>
       db.user.findMany({
@@ -597,10 +607,11 @@ it.skipIf(!(output && surrealUrl))(
           const [b0, b1] = await time(() => run(second, round));
           (round % 2 ? surreal : pg).push(a0);
           (round % 2 ? pg : surreal).push(b0);
-          if (READS.some((read) => read[0] === op) && round === 0) {
-            const left = JSON.stringify(a1);
-            if (left !== JSON.stringify(b1)) disagreements.push(op);
-          }
+          if (
+            READS.some((read) => read[0] === op) &&
+            JSON.stringify(a1) !== JSON.stringify(b1)
+          )
+            disagreements.push(`${op}, round ${round}`);
         } catch (error) {
           rows.push({
             op,
@@ -623,6 +634,8 @@ it.skipIf(!(output && surrealUrl))(
     );
     await onPg.$disconnect();
     await onSurreal.$disconnect();
-    expect(rows.length).toBeGreaterThan(0);
+    // A timing of a wrong answer, or of none, measures nothing.
+    expect(disagreements).toEqual([]);
+    expect(rows.filter((row) => "error" in row)).toEqual([]);
   }
 );
