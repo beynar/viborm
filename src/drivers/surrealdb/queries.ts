@@ -66,6 +66,7 @@ export class SurrealQueries extends Queries {
 
   /** The edge between two records, named by each side's junction field. */
   override junction(edge: Junction, values: Input): Query {
+    if (edge.declared) return this.#lowering.linkRowQuery(edge, values);
     const { table, near, far } = this.#lowering.edgeOf(edge);
     const conditions: Sql[] = [];
     for (const [end, side] of [
@@ -120,7 +121,9 @@ export class SurrealQueries extends Queries {
         : this.prepareSelector(model, args.where).predicate;
     // A path reads a record's members without scanning the table holding them.
     const path =
-      membership?.edge.kind === "junction" && !membership.outside
+      membership?.edge.kind === "junction" &&
+      !membership.edge.declared &&
+      !membership.outside
         ? this.#lowering.membersOf(membership.edge, membership.parent)
         : undefined;
     const conditions = [

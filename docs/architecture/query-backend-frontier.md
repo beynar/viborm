@@ -2,7 +2,7 @@
 
 Status: proposal, 2026-11-05. Steps 0 and 1 are done and step 2 is dropped. Steps 3
 to 5 exist as a prototype on the `feat/query-backend` stack, and the shared driver
-contracts pass on it. `recurse`, declared junctions and extensions are next.
+contracts pass on it. Extensions are next, if they are wanted before migrations.
 Numbers read from `main` at `e4b09fd64` with an AST pass over the engine.
 
 ## The problem
@@ -182,8 +182,8 @@ reads of SurrealDB and of PGlite over the same rows and compares the answers:
 scalars, order and pages, the filters on nullable fields, to-one and to-many at three
 levels, two relations to one table, and `some`, `none`, `every`, `is`, `isNot`.
 
-It refuses by name what it does not cover: declared junctions, `recurse`, write hooks,
-tombstones and row domains (so soft delete and permissions).
+It refuses by name what it does not cover: write hooks, tombstones and row domains (so
+soft delete and permissions).
 
 **Writes.** `driver.operationContext` supplies a subclass of `OperationContext` that
 overrides `createMany`, `updateMany`, `deleteMany` and `upsertOne`, the four methods
@@ -247,10 +247,23 @@ What had no direct equivalent, and how it answers:
   planar: a ring crossing 180 is unwrapped past it, and edges are not great circles as
   they are in PostGIS. `geo::distance` matched the shared boundary tests.
 
-Not yet covered: `recurse`, `$through` and declared junctions, write hooks, tombstones,
-row domains. An SQL fragment in a filter is SQL by definition, and refuses. A key is its
-public text here, so comparing it with a plain string column has an answer, where the
-other providers refuse.
+- **`recurse`:** a fold over the levels, as one value in the row. A numeric depth labels
+  each edge with its level, as the decoder expects. An exhaustive walk keeps what it has
+  seen, which ends a cycle, and refuses past 256 levels, where a SQL recursion would go on.
+- **Blocks:** a block answers with its last expression. A `RETURN` inside one leaves
+  whatever expression holds the block: `!(RETURN { ... })` answered without its negation.
+- **Declared junctions:** the link is a row of its model and not an edge, read through
+  the row's links, then the rows they name. A compound foreign key holds no record, so
+  the test fixture states its action as an event on the table it names. Migrations will
+  have to state it too.
+- **Parser depth:** the server's parser limits nesting, and each parenthesis counts. A
+  filter nesting five relations failed until a lone arm dropped its parenthesis and a
+  relation test dropped `array::len`. Fourteen levels now parse, for reads and filters,
+  on a server at its defaults. Many arms in each level will reach the limit sooner.
+
+Not yet covered: write hooks, tombstones and row domains. An SQL fragment in a filter is
+SQL by definition, and refuses. A key is its public text here, so comparing it with a
+plain string column answers from that text, where the other providers refuse.
 
 **Many-to-many.** A generated junction is an edge table, `TYPE RELATION IN post OUT tag
 ENFORCED`, with a unique index over `in, out`. `in` is the junction's canonical first

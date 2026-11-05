@@ -25,7 +25,10 @@ import type {
   Input,
   ReadOperation,
 } from "@query-engine/raptor3/shared/schema";
-import type { Membership } from "@query-engine/raptor3/shared/storage";
+import {
+  linkMembers,
+  type Membership,
+} from "@query-engine/raptor3/shared/storage";
 import { jsonNullKindOf } from "@schema/json-null";
 import { Sql, sql } from "@sql";
 import { Decimal, GeometryPoint, RecordId } from "surrealdb";
@@ -43,6 +46,8 @@ type VariantJunctionMember = Extract<
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const INDEX = /^\d+$/;
 const QUOTABLE = /^[A-Za-z0-9_]+$/;
+/** How deep an exhaustive walk goes: as deep as a SurrealDB recursion may. */
+const MAX_WALK = 256;
 
 function refuse(what: string): never {
   throw new UnsupportedOperationError(
@@ -139,11 +144,6 @@ function stored(state: ScalarFacts | undefined, value: unknown): unknown {
     default:
       return value;
   }
-}
-
-/** A record id's part as the provider holds it. */
-function plainPart(value: unknown): unknown {
-  return value;
 }
 
 function isIntegerKey(model: AnyModel, field: string): boolean {
@@ -348,15 +348,24 @@ export class SurrealReadBackend implements ReadBackend {
    * A relation by its fields alone, from a row that is `$parent` here. A variant
    * relation's id column holds the key as text, whichever model it names.
    */
-  #correlated(edge: Reference): Sql {
+  #correlated(edge: Reference, row = "$parent"): Sql {
     const q = this.#queries;
     const pairs = edge.pairs.map(({ source, target }) => {
-      const parent = sql`$parent.${this.physical(edge.source, source)}`;
-      if (!edge.discriminator)
-        return sql`${this.physical(edge.target, target)} = ${parent}`;
-      if (isSingleKey(q, edge.target, target))
+      const parent = sql`${sql.raw(row)}.${this.physical(edge.source, source)}`;
+      const column = this.physical(edge.target, target);
+      if (
+        isSingleKey(q, edge.target, target) &&
+        !this.#holdsRecord(edge.source, source)
+      )
         return sql`id = type::record(${tableOf(edge.target)}, ${keyCast(edge.target, target, parent)})`;
-      return sql`${this.physical(edge.target, target)} = ${this.#carried(edge.target, target, sql`record::id(${parent})`)}`;
+      if (
+        isSingleKey(q, edge.source, source) &&
+        !this.#holdsRecord(edge.target, target)
+      ) {
+        const key = sql`record::id(${parent})`;
+        return sql`${column} = ${edge.discriminator ? this.#carried(edge.target, target, key) : key}`;
+      }
+      return sql`${column} = ${parent}`;
     });
     const { discriminator } = edge;
     if (discriminator) {
@@ -364,7 +373,7 @@ export class SurrealReadBackend implements ReadBackend {
       const column = this.physical(owner, discriminator.field);
       pairs.push(
         discriminator.side === "source"
-          ? sql`$parent.${column} = ${discriminator.value}`
+          ? sql`${sql.raw(row)}.${column} = ${discriminator.value}`
           : sql`${column} = ${discriminator.value}`
       );
     }
@@ -711,7 +720,7 @@ export class SurrealReadBackend implements ReadBackend {
       tableOf(model),
       this.#queries
         .keyOrder(model)
-        .map((key) => plainPart(this.#part(model, key, row[key]))) as never
+        .map((key) => this.#part(model, key, row[key])) as never
     );
   }
 
@@ -735,8 +744,12 @@ export class SurrealReadBackend implements ReadBackend {
 
   /** The target rows of `edge` for this parent, or those outside them. */
   member(edge: Membership, parent: Input, outside = false): Sql {
-    if (edge.kind === "junction")
-      return sql`id ${sql.raw(outside ? "NOT IN" : "IN")} ${this.membersOf(edge, parent)}`;
+    if (edge.kind === "junction") {
+      const list = edge.declared
+        ? this.#declaredOf(edge, parent)
+        : this.membersOf(edge, parent);
+      return sql`id ${sql.raw(outside ? "NOT IN" : "IN")} ${list}`;
+    }
     const reached = reference(edge);
     const held = reached.pairs.map(({ source }) => parent[source]);
     const { discriminator } = reached;
@@ -770,7 +783,7 @@ export class SurrealReadBackend implements ReadBackend {
    */
   edgeOf(edge: Junction) {
     const resolved = edge.scope.edge;
-    if (edge.declared) refuse("a declared junction");
+    if (edge.declared) refuse("a declared junction as an edge");
     const topology =
       resolved.kind === "junction"
         ? resolved.topology
@@ -796,6 +809,88 @@ export class SurrealReadBackend implements ReadBackend {
     };
   }
 
+  /** The field of a declared junction's model that holds this column. */
+  #linkField(edge: Junction, column: string): string {
+    const model = edge.declared!.model;
+    const field = this.#queries.schema
+      .storedFields(model)
+      .find((name) => this.#queries.columnName(model, name) === column);
+    return field ?? refuse(`the link column '${column}'`);
+  }
+
+  /** Whether a field reads as a record: a key, or a link to one. */
+  #isRecord(model: AnyModel, field: string): boolean {
+    return (
+      isSingleKey(this.#queries, model, field) ||
+      this.#holdsRecord(model, field)
+    );
+  }
+
+  /** Whether a model's field holds a record rather than the key's own value. */
+  #holdsRecord(model: AnyModel, field: string): boolean {
+    const q = this.#queries;
+    return Object.keys(model["~"].state.relations).some((slot) => {
+      const { edges } = q.countedMemberships(model, slot);
+      const edge = edges[0];
+      return (
+        edges.length === 1 &&
+        edge?.kind === "reference" &&
+        edge.owner === "source" &&
+        edge.pairs.length === 1 &&
+        edge.pairs[0]!.source === field &&
+        isSingleKey(q, edge.target, edge.pairs[0]!.target)
+      );
+    });
+  }
+
+  /** This link's columns against the row a variable holds, one side of it. */
+  #linkMatch(edge: Junction, side: Junction["sourceSide"], row: string): Sql[] {
+    const link = edge.declared!.model;
+    return side.members.map((pair) => {
+      const field = this.#linkField(edge, pair.junctionField);
+      const held = sql`${sql.raw(row)}.${this.physical(side.model, pair.referencedField)}`;
+      const plainKey =
+        isSingleKey(this.#queries, side.model, pair.referencedField) &&
+        !this.#holdsRecord(link, field);
+      return sql`${this.physical(link, field)} = ${plainKey ? sql`record::id(${held})` : held}`;
+    });
+  }
+
+  /** The record of a side, read from a link row a variable or the row itself holds. */
+  #linkTarget(edge: Junction, side: Junction["sourceSide"], row: string): Sql {
+    const link = edge.declared!.model;
+    const parts = this.#queries.keyOrder(side.model).map((key) => {
+      const pair = side.members.find(
+        (member) => member.referencedField === key
+      );
+      if (!pair) refuse("a declared junction over part of a key");
+      const field = this.#linkField(edge, pair.junctionField);
+      const column = this.physical(link, field);
+      return {
+        read: row ? sql`${sql.raw(row)}.${column}` : column,
+        record: this.#holdsRecord(link, field),
+      };
+    });
+    if (parts.length === 1 && parts[0]!.record) return parts[0]!.read;
+    const key =
+      parts.length === 1
+        ? parts[0]!.read
+        : sql`[${sql.join(
+            parts.map((part) => part.read),
+            ", "
+          )}]`;
+    return sql`type::record(${tableOf(side.model)}, ${key})`;
+  }
+
+  /** A row's links through a declared junction, narrowed by the link's own filter. */
+  #links(edge: Junction, row: string, where?: PreparedPredicate): Sql {
+    const conditions = [
+      ...this.#linkMatch(edge, edge.sourceSide, row),
+      ...(where ? [this.predicate(where, true)] : []),
+    ];
+    return sql`(SELECT * FROM ${name(tableOf(edge.declared!.model))} WHERE ${sql.join(conditions, " AND ")})`;
+  }
+
   /** The record one side of a junction holds, however its key is spelled in `read`. */
   end(side: Junction["sourceSide"], read: (pair: Member) => unknown): Sql {
     if (side.members.length === 1) {
@@ -806,6 +901,43 @@ export class SurrealReadBackend implements ReadBackend {
       side.members.map((pair) => [pair.referencedField, read(pair)])
     );
     return sql`${this.recordOf(side.model, row)}`;
+  }
+
+  /** The link between two rows, named by each side's junction field. */
+  linkRowQuery(edge: Junction, values: Input): Query {
+    const link = edge.declared!.model;
+    const columns = linkMembers(edge).filter(({ pair }) =>
+      Object.hasOwn(values, pair.junctionField)
+    );
+    const fields: Record<string, unknown> = {};
+    const named = linkMembers(edge).map(({ pair }) => {
+      const field = this.#linkField(edge, pair.junctionField);
+      fields[pair.junctionField] = this.#leaf(link, field);
+      return sql`${this.physical(link, field)} AS ${sql.raw(pair.junctionField)}`;
+    });
+    const where = columns.map(({ pair }) => {
+      const field = this.#linkField(edge, pair.junctionField);
+      return sql`${this.physical(link, field)} = ${this.value(link, field, values[pair.junctionField])}`;
+    });
+    return {
+      sql: sql`SELECT ${sql.join(named, ", ")} FROM ${name(tableOf(link))} WHERE ${sql.join(where, " AND ")}`,
+      shape: { kind: "object", fields } as Query["shape"],
+    };
+  }
+
+  /** The field of a declared junction's model that a column names, for its writes. */
+  linkFieldOf(edge: Junction, column: string): string {
+    return this.#linkField(edge, column);
+  }
+
+  /** The target records of a declared junction for a parent's known values. */
+  #declaredOf(edge: Junction, parent: Input): Sql {
+    const link = edge.declared!.model;
+    const conditions = edge.sourceSide.members.map((pair) => {
+      const field = this.#linkField(edge, pair.junctionField);
+      return sql`${this.physical(link, field)} = ${this.value(link, field, parent[pair.referencedField])}`;
+    });
+    return sql`(SELECT VALUE ${this.#linkTarget(edge, edge.targetSide, "")} FROM ${name(tableOf(link))} WHERE ${sql.join(conditions, " AND ")})`;
   }
 
   /** The path from one record to its members through an edge table. */
@@ -1070,6 +1202,12 @@ export class SurrealReadBackend implements ReadBackend {
 
   /** Every member of a to-many, unfiltered, as a value. */
   #members(edge: Membership, predicate?: PreparedPredicate): Sql {
+    if (edge.kind === "junction" && edge.declared) {
+      const where = predicate
+        ? sql` WHERE id IN $linked AND ${this.predicate(predicate, true)}`
+        : sql` WHERE id IN $linked`;
+      return sql`({ LET $owner = $this; LET $linked = (SELECT VALUE ${this.#linkTarget(edge, edge.targetSide, "")} FROM ${this.#links(edge, "$owner")}); (SELECT VALUE id FROM ${name(tableOf(edge.target))}${where}) })`;
+    }
     if (edge.kind === "junction") {
       const { hop } = this.edgeOf(edge);
       const target = name(tableOf(edge.target));
@@ -1194,10 +1332,12 @@ export class SurrealReadBackend implements ReadBackend {
   }
 
   #relation(field: Relation): Sql {
-    if (field.linkRow || field.linkWhere) refuse("$through");
-    if (field.recurrence) refuse("recurse");
     const { arguments: args, projection } = field;
     const members = this.#destructure(projection);
+    if (field.edge.kind === "junction" && field.edge.declared)
+      return this.#declaredMembers(field, field.edge);
+    if (field.recurrence)
+      return this.#carrier(field.edge, args, field.recurrence.depth, members);
     if (
       this.#distinctly(field.edge.target, args.distinct as string[] | undefined)
     )
@@ -1224,6 +1364,138 @@ export class SurrealReadBackend implements ReadBackend {
     return edge.many
       ? sql`${read}${members}`
       : sql`((${read}${members})[0] ?? NULL)`;
+  }
+
+  /**
+   * A relation through a model of its own: the row's links, then the rows they
+   * name. Each row may carry the link that produced it, as `$through`.
+   */
+  #declaredMembers(field: Relation, edge: Junction): Sql {
+    const { arguments: args, projection, linkRow, linkWhere } = field;
+    const target = edge.target;
+    const link = edge.declared!.model;
+    if (field.recurrence)
+      return this.#carrier(
+        edge,
+        args,
+        field.recurrence.depth,
+        this.#destructure(projection)
+      );
+    const fields = projection.fields.map((member) => {
+      const { value, alias } = this.#field(projection.model, member);
+      return sql`${name(alias)}: ${value}`;
+    });
+    if (linkRow) {
+      const columns = linkRow.fields.map((member) => {
+        const { value, alias } = this.#field(link, {
+          kind: "scalar",
+          name: member,
+        });
+        return sql`${name(alias)}: ${value}`;
+      });
+      const named = this.#linkTarget(edge, edge.targetSide, "");
+      // The link that named this row.
+      fields.push(
+        sql`\`$through\`: ($links[WHERE ${named} = $row])[0].{ ${sql.join(columns, ", ")} }`
+      );
+    }
+    const { extras, clauses } = this.#clauses(
+      target,
+      args,
+      args.selector?.predicate,
+      [sql.raw("id IN $linked")]
+    );
+    const page = sql`(SELECT ${sql.join([sql.raw("*"), ...extras], ", ")} FROM ${name(tableOf(target))} ${sql.join(clauses, " ")})`;
+    const rows = linkRow
+      ? sql`${page}.map(|$item| { LET $row = $item.id; $item.{ ${sql.join(fields, ", ")} } })`
+      : sql`${page}.{ ${sql.join(fields, ", ")} }`;
+    const read = edge.many ? rows : sql`(${rows})[0] ?? NULL`;
+    return sql`({ LET $owner = $this; LET $links = ${this.#links(edge, "$owner", linkWhere?.predicate)}; LET $linked = (SELECT VALUE ${this.#linkTarget(edge, edge.targetSide, "")} FROM $links); ${read} })`;
+  }
+
+  /** The records one step along `edge` from the record `parent` holds, in order. */
+  #children(
+    edge: Membership,
+    parent: string,
+    args: Relation["arguments"]
+  ): Sql {
+    const predicate = args.selector?.predicate;
+    const target = edge.target;
+    const held = sql.raw(parent);
+    const narrowed = () => this.#clauses(target, args, predicate);
+    if (edge.kind === "junction" && edge.declared) {
+      const { extras, clauses } = this.#clauses(target, args, predicate, [
+        // One subquery less than `#links`: a parser counts its depth.
+        sql`id IN (SELECT VALUE ${this.#linkTarget(edge, edge.targetSide, "")} FROM ${name(tableOf(edge.declared.model))} WHERE ${sql.join(this.#linkMatch(edge, edge.sourceSide, parent), " AND ")})`,
+      ]);
+      return sql`(SELECT ${sql.join([sql.raw("*"), ...extras], ", ")} FROM ${name(tableOf(target))} ${sql.join(clauses, " ")}).id`;
+    }
+    if (edge.kind === "junction") {
+      const { hop } = this.edgeOf(edge);
+      const { extras, clauses } = narrowed();
+      return sql`${held}${hop}(SELECT ${sql.join([sql.raw("*"), ...extras], ", ")} FROM ${name(tableOf(target))} ${sql.join(clauses, " ")}).id`;
+    }
+    const reached = reference(edge);
+    if (this.#linked(reached)) {
+      if (reached.owner === "source") {
+        const link = this.physical(reached.source, reached.pairs[0]!.source);
+        return sql`(IF ${held}.${link} != NONE { [${held}.${link}] } ELSE { [] })`;
+      }
+      const { extras, clauses } = narrowed();
+      return sql`${held}<~(SELECT ${sql.join([sql.raw("*"), ...extras], ", ")} FROM ${name(tableOf(target))} FIELD ${name(this.#queries.columnName(target, reached.pairs[0]!.target))} ${sql.join(clauses, " ")}).id`;
+    }
+    const { extras, clauses } = this.#clauses(target, args, predicate, [
+      this.#correlated(reached, parent),
+    ]);
+    return sql`(SELECT ${sql.join([sql.raw("*"), ...extras], ", ")} FROM ${name(tableOf(target))} ${sql.join(clauses, " ")}).id`;
+  }
+
+  /**
+   * A breadth-first walk from a record, as one value: a fold over the levels,
+   * each the distinct records the last one reached. A numeric depth labels each
+   * edge with its level. An exhaustive one keeps what it has seen, which is what
+   * ends a cycle, and refuses past the depth SurrealDB allows a recursion rather
+   * than answer a part of the graph.
+   */
+  #walk(
+    edge: Membership,
+    args: Relation["arguments"],
+    depth: number | false,
+    root: Sql
+  ): Sql {
+    if (depth === 0) return sql.raw("{ level: [], edges: [] }");
+    const children = this.#children(edge, "$p", args);
+    if (depth !== false)
+      return sql`array::fold(array::range(1, ${sql.raw(String(depth + 1))}), { level: [${root}], edges: [] }, |$walk, $depth| { LET $pairs = array::flatten($walk.level.map(|$p| (${children}).map(|$c| { p: $p, c: $c, d: $depth }))); { level: array::distinct($pairs.c), edges: array::concat($walk.edges, $pairs) } })`;
+    return sql`array::fold(array::range(1, ${sql.raw(String(MAX_WALK + 1))}), { level: [${root}], seen: [${root}], edges: [] }, |$walk, $depth| { LET $pairs = array::flatten($walk.level.map(|$p| (${children}).map(|$c| { p: $p, c: $c }))); LET $next = array::complement(array::distinct($pairs.c), $walk.seen); { level: $next, seen: array::concat($walk.seen, $next), edges: array::concat($walk.edges, $pairs) } })`;
+  }
+
+  /** A walk's own statements in a block: `$w`, and the refusal an endless one owes. */
+  #walked(walk: Sql): Sql {
+    return sql`LET $root = $this.id; LET $w = ${walk}; IF array::len($w.level) > 0 AND $w.seen != NONE { THROW ${`A recursive read walked past ${MAX_WALK} levels.`} };`;
+  }
+
+  /** A record's key as the identity tuple the recursive decoder reads. */
+  #identityOf(model: AnyModel, record: Sql): Sql {
+    return this.#queries.keyOrder(model).length === 1
+      ? sql`[record::id(${record})]`
+      : sql`record::id(${record})`;
+  }
+
+  /** What `decodeRecursiveCarrier` reads: the root, its nodes and its edges. */
+  #carrier(
+    edge: Membership,
+    args: Relation["arguments"],
+    depth: number | false,
+    members: Sql
+  ): Sql {
+    const { source, target } = edge;
+    const walk = this.#walk(edge, args, depth, sql.raw("$root"));
+    const labelled =
+      depth === false ? sql.raw("") : sql.raw(", __rq_depth: $e.d");
+    // A block answers with its last expression: a `RETURN` in one would leave
+    // whatever expression holds the block, negations included.
+    return sql`({ ${this.#walked(walk)} { __rq_root: ${this.#identityOf(source, sql.raw("$root"))}, __rq_nodes: array::distinct($w.edges.c).map(|$n| { __rq_key: ${this.#identityOf(target, sql.raw("$n"))}, __rq_row: $n${members} }), __rq_edges: $w.edges.map(|$e| { __rq_parent: ${this.#identityOf(source, sql.raw("$e.p"))}, __rq_child: ${this.#identityOf(target, sql.raw("$e.c"))}${labelled} }) } })`;
   }
 
   /** Whether a `distinct` narrows at all: one holding the whole key does not. */
@@ -1264,7 +1536,7 @@ export class SurrealReadBackend implements ReadBackend {
       undefined,
       [sql.raw("id IN $first")]
     );
-    return sql`(RETURN { LET $all = ${sorted}; LET $first = (SELECT VALUE array::first(id) FROM (SELECT ${tuple}, id FROM $all GROUP BY ${tuple})); RETURN (SELECT ${sql.join([sql.raw("*"), ...extras], ", ")} FROM $all ${sql.join(clauses, " ")})${members}; })`;
+    return sql`({ LET $all = ${sorted}; LET $first = (SELECT VALUE array::first(id) FROM (SELECT ${tuple}, id FROM $all GROUP BY ${tuple})); (SELECT ${sql.join([sql.raw("*"), ...extras], ", ")} FROM $all ${sql.join(clauses, " ")})${members} })`;
   }
 
   /**
@@ -1303,6 +1575,9 @@ export class SurrealReadBackend implements ReadBackend {
           return sql.raw(
             (predicate.kind === "and") === positive ? "true" : "false"
           );
+        // Each parenthesis counts against the parser's depth, so one arm has none.
+        if (predicate.predicates.length === 1)
+          return this.predicate(predicate.predicates[0]!, positive, path);
         const conjunction = (predicate.kind === "and") === positive;
         return sql`(${sql.join(
           predicate.predicates.map((inner) =>
@@ -1332,7 +1607,7 @@ export class SurrealReadBackend implements ReadBackend {
     const { target, operator } = predicate;
     if (target.kind !== "column") refuse("this filter target");
     const { scalar } = target;
-    const column = sql.raw(
+    let column = sql.raw(
       `${path}${this.physical(scalar.model, scalar.field).toStatement()}`
     );
     const facts = scalar.physical.scalar["~"].state;
@@ -1353,12 +1628,15 @@ export class SurrealReadBackend implements ReadBackend {
       operand: NonNullable<typeof predicate.operand>
     ): unknown => {
       if (operand.kind === "field") {
+        const read = operand.scalar;
         const other = sql.raw(
-          `${operand.up === undefined ? path : "$parent."}${this.physical(operand.scalar.model, operand.scalar.field).toStatement()}`
+          `${operand.up === undefined ? path : "$parent."}${this.physical(read.model, read.field).toStatement()}`
         );
-        if (operand.scalar.physical.nullable)
-          guards.push(sql`${other} != NONE`);
-        return other;
+        if (read.physical.nullable) guards.push(sql`${other} != NONE`);
+        // A key is a record and a plain column its text: they compare by the text.
+        return this.#isRecord(read.model, read.field)
+          ? sql`record::id(${other})`
+          : other;
       }
       if (operand.kind !== "value") refuse(`a '${operand.kind}' operand`);
       return operand.value;
@@ -1373,6 +1651,11 @@ export class SurrealReadBackend implements ReadBackend {
       return sql`${column} ${sql.raw(positive ? "=" : "!=")} NONE`;
     const fold = (text: Sql) =>
       predicate.insensitive ? sql`string::lowercase(${text})` : text;
+    const comparedToField =
+      predicate.operand?.kind === "field" ||
+      predicate.operands?.some((operand) => operand.kind === "field");
+    if (comparedToField && this.#isRecord(scalar.model, scalar.field))
+      column = sql`record::id(${column})`;
     let test: Sql;
     if (COMPARISONS[operator]) {
       test = sql`${fold(column)} ${sql.raw(COMPARISONS[operator])} ${fold(bind(value))}`;
@@ -1643,19 +1926,76 @@ export class SurrealReadBackend implements ReadBackend {
     positive: boolean,
     path: string
   ): Sql {
-    if (predicate.closure) refuse("recurse");
-    if (predicate.link) refuse("$through");
     const edge = predicate.edge;
     const { quantifier } = predicate;
     const inner = predicate.predicate;
+    if (predicate.closure) {
+      if (path) refuse("a recursive filter through a to-one link");
+      const wanted = quantifier === "some" || quantifier === "is";
+      const found = this.#closure(edge, predicate.closure, quantifier, inner);
+      return wanted === positive ? found : sql`!(${found})`;
+    }
     // As the SQL lowering's EXISTS and NOT EXISTS: a body-less `is` asks that no
     // related row exists (`author: null`), a body-less `isNot` that one does.
     const wanted =
       quantifier === "some" ||
       (quantifier === "is" && inner !== undefined) ||
       (quantifier === "isNot" && inner === undefined);
-    const found = this.#related(edge, quantifier, inner, path);
+    const found =
+      edge.kind === "junction" && edge.declared
+        ? this.#relatedThrough(edge, quantifier, inner, predicate.link, path)
+        : this.#related(edge, quantifier, inner, path);
     return wanted === positive ? found : sql`!(${found})`;
+  }
+
+  /** Whether a link and the row it names hold what a quantifier asks, together. */
+  #relatedThrough(
+    edge: Junction,
+    quantifier: string,
+    inner: PreparedPredicate | undefined,
+    link: PreparedPredicate | undefined,
+    path: string
+  ): Sql {
+    if (path) refuse("a filter through a to-one link into a declared junction");
+    const narrowed =
+      quantifier === "every" && inner
+        ? ({ kind: "not", predicate: inner } as const)
+        : inner;
+    const named = this.#linkTarget(edge, edge.targetSide, "");
+    // `every` over a pair: no link of this row fails the link's test and the
+    // row's together. Their halves cannot answer it one after the other.
+    if (quantifier === "every" && link) {
+      const held = this.predicate(link, true, "$l.");
+      const row = inner
+        ? sql`array::len(SELECT VALUE id FROM ${name(tableOf(edge.target))} WHERE id = ${this.#linkTarget(edge, edge.targetSide, "$l")} AND ${this.predicate(inner, true)} LIMIT 1) > 0`
+        : sql.raw("true");
+      return sql`({ LET $owner = $this; array::len(${this.#links(edge, "$owner")}.filter(|$l| !(${held} AND ${row}))) > 0 })`;
+    }
+    const rows = narrowed
+      ? sql`SELECT VALUE id FROM ${name(tableOf(edge.target))} WHERE id IN $linked AND ${this.predicate(narrowed, true)} LIMIT 1`
+      : sql.raw("SELECT VALUE id FROM $linked LIMIT 1");
+    return sql`({ LET $owner = $this; LET $linked = (SELECT VALUE ${named} FROM ${this.#links(edge, "$owner", link)}); array::len(${rows}) > 0 })`;
+  }
+
+  /** Whether the rows a walk from this one reaches hold what a quantifier asks. */
+  #closure(
+    edge: Membership,
+    closure: { readonly depth: number | false; readonly self: boolean },
+    quantifier: string,
+    inner: PreparedPredicate | undefined
+  ): Sql {
+    const walk = this.#walk(edge, {} as never, closure.depth, sql.raw("$root"));
+    const narrowed =
+      quantifier === "every" && inner
+        ? ({ kind: "not", predicate: inner } as const)
+        : inner;
+    const reached = closure.self
+      ? sql.raw("array::concat([$root], $w.edges.c)")
+      : sql.raw("$w.edges.c");
+    const found = narrowed
+      ? sql`array::len(SELECT VALUE id FROM ${reached} WHERE ${this.predicate(narrowed, true)} LIMIT 1) > 0`
+      : sql`array::len(${reached}) > 0`;
+    return sql`({ ${this.#walked(walk)} ${found} })`;
   }
 
   /** Whether a related row exists, among those the quantifier looks at. */
@@ -1674,8 +2014,8 @@ export class SurrealReadBackend implements ReadBackend {
       const { hop } = this.edgeOf(relation);
       const target = name(tableOf(relation.target));
       return narrowed
-        ? sql`array::len(${hop}(${target} WHERE ${this.predicate(narrowed, true)})) > 0`
-        : sql`array::len(${hop}${target}) > 0`;
+        ? sql`${hop}(${target} WHERE ${this.predicate(narrowed, true)})`
+        : sql`${hop}${target}`;
     }
     const edge = reference(relation);
     if (!edge.many && edge.owner === "source" && this.#linked(edge)) {
@@ -1685,6 +2025,7 @@ export class SurrealReadBackend implements ReadBackend {
         : sql`${sql.raw(link)} != NONE`;
     }
     if (path) refuse("a to-many filter through a to-one link");
-    return sql`array::len(${this.#traversal(edge, narrowed, { take: 1 })}) > 0`;
+    // A non-empty list holds, in one parser level fewer than asking for its length.
+    return this.#traversal(edge, narrowed, { take: 1 });
   }
 }

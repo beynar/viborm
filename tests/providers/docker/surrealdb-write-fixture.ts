@@ -69,7 +69,22 @@ const comment = s.model({
     .references("id")
     .onDelete("cascade"),
 });
-const schema = { user, post, comment, tag };
+const node = s.model({
+  id: s.string().id(),
+  name: s.string(),
+  rank: s.int(),
+  parentId: s.string().nullable(),
+  parent: s
+    .toOne(() => node)
+    .name("tree")
+    .fields("parentId")
+    .references("id")
+    .onDelete("setNull"),
+  children: s.toMany(() => node).name("tree"),
+  links: s.toMany(() => node).name("graph"),
+  linkedFrom: s.toMany(() => node).name("graph"),
+});
+const schema = { user, post, comment, tag, node };
 
 // biome-ignore lint/suspicious/noExplicitAny: each step names its model and verb.
 export type Client = any;
@@ -117,6 +132,10 @@ export function describeWrites(
       DEFINE TABLE comment SCHEMAFULL; DEFINE FIELD body ON comment TYPE string;
       DEFINE FIELD postId ON comment TYPE record<post> REFERENCE ON DELETE CASCADE ASSERT $value.exists();
       DEFINE INDEX comment_post ON comment FIELDS postId;
+      DEFINE TABLE node SCHEMAFULL; DEFINE FIELD name ON node TYPE string; DEFINE FIELD rank ON node TYPE int;
+      DEFINE FIELD parentId ON node TYPE option<record<node>> REFERENCE ON DELETE UNSET ASSERT $value = NONE OR $value.exists();
+      DEFINE TABLE node_node_graph TYPE RELATION IN node OUT node ENFORCED SCHEMAFULL;
+      DEFINE INDEX node_node_graph_pair ON node_node_graph FIELDS in, out UNIQUE;
       DEFINE TABLE tag SCHEMAFULL; DEFINE FIELD name ON tag TYPE string; DEFINE FIELD rank ON tag TYPE int; DEFINE FIELD note ON tag TYPE option<string>;
       DEFINE TABLE post_tag_tagged TYPE RELATION IN post OUT tag ENFORCED SCHEMAFULL;
       DEFINE INDEX post_tag_tagged_pair ON post_tag_tagged FIELDS in, out UNIQUE;
