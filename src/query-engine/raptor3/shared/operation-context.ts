@@ -18,6 +18,7 @@ import type {
   BatchQuery,
   QueryExecutionContext,
   QueryResult,
+  SqlDialect,
 } from "@drivers/types";
 import {
   attachRecordSeriesProgress,
@@ -2434,7 +2435,7 @@ export class OperationContext {
           rows: computed,
           field,
           queries: this.queries,
-          dialect: this.driver.dialect,
+          dialect: this.driver.dialect as SqlDialect,
           ...(this.#ownership !== "batch-preparation" && {
             read: async (statement: Sql) =>
               (await this.answer({ sql: statement } as Query, false, model))

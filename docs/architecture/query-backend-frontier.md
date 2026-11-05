@@ -74,7 +74,7 @@ is only text. Still tied to SQL, beyond the frontier itself:
 | Coupling | Where | Needed |
 |---|---|---|
 | `adapter: DatabaseAdapter` on the driver | `src/drivers/driver.ts` | a detail of the SQL backend |
-| `Dialect`, a closed union of three | `src/drivers/types.ts`, named in 21 `schema`, 11 `migrations` and 6 `drivers` files | an open target; the largest work outside the engine |
+| `Dialect`, a closed union | `src/drivers/types.ts`; opening it broke 6 sites | done for a read-only driver; migrations still assume SQL |
 | Native types keyed `pg`, `mysql`, `sqlite` | `src/schema/scalars/native-types.ts` | a new target's key |
 | `$queryRaw` taking `Sql` | `src/client/raw.ts` | text in the backend's language |
 | Positional placeholders | `src/sql/sql.ts` | named by the backend |
@@ -188,10 +188,13 @@ field, and row domains (so soft delete and permissions).
 Building it showed the seam is small and `Prepared*` is enough for reads. It also
 showed what is still wrong:
 
-- The driver declares a `PostgresAdapter` and `"postgresql"`, because a driver must
-  and the engine decodes rows through the adapter. Its SQL never runs, but decoding
-  depends on it. This is the next coupling to cut.
-- `plain()` in the driver turns record ids and dates into what those decoders read.
+- `driver.adapter` is still typed `DatabaseAdapter`. The driver's is a proxy holding
+  the five members a read touches (`result.parseField`, `result.parseResult`,
+  `capabilities`, `namespace`, `geoPoint`) and refusing any other, behind one cast.
+  Splitting the type is what would remove the cast.
+- `"surrealql"` joins `Dialect`, and three casts to `SqlDialect` stand where only a
+  SQL driver can arrive: a migration and a write's computed values.
+- `plain()` in the driver turns record ids and dates into what the decoders read.
 - The backend finds a link's target by scanning the model's relations.
 
 ## Open questions

@@ -402,6 +402,14 @@ describe.skipIf(!url)("SurrealDB read prototype against PostgreSQL", () => {
     ).rejects.toThrow("a cursor");
   });
 
+  it("holds no SQL: reaching for any syntax refuses", () => {
+    const { adapter } = new SurrealDriver(surreal);
+    expect(adapter.result).toBeDefined();
+    expect(() => adapter.operators).toThrow("speaks no SQL");
+    expect(() => adapter.clauses).toThrow("speaks no SQL");
+    expect(() => adapter.identifiers).toThrow("speaks no SQL");
+  });
+
   it("refuses a write rather than send it SQL", async () => {
     await expect(
       onSurreal.user.create({ data: { id: "z", email: "z@x.io" } })
