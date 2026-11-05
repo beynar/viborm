@@ -11,7 +11,7 @@ import { selectManagedSnapshot } from "./target";
  * - Enum handling (capabilities.supportsNativeEnums, getEnumColumnType)
  */
 
-import type { Dialect } from "../drivers/types";
+import type { Dialect, SqlDialect } from "../drivers/types";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { hydrateSchemaNames } from "../schema/hydration";
 import {
@@ -70,7 +70,10 @@ export function assertMigrationDecimalDomainsFitProvider(
   models: Record<string, AnyModel>,
   dialect: Dialect
 ): void {
-  const refusal = findDecimalProviderLimitRefusal(models, dialect);
+  const refusal = findDecimalProviderLimitRefusal(
+    models,
+    dialect as SqlDialect
+  );
   if (refusal === undefined) return;
   throw new MigrationError(
     describeDecimalProviderLimitRefusal(refusal),
