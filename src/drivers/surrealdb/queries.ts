@@ -19,6 +19,7 @@ import { type Sql, sql } from "@sql";
 import { SurrealReadBackend } from "./read-backend";
 
 type AnyModel = Parameters<Queries["select"]>[0];
+type Junction = Extract<Membership, { kind: "junction" }>;
 
 function refuse(what: string): never {
   throw new UnsupportedOperationError(
@@ -63,6 +64,35 @@ export class SurrealQueries extends Queries {
     return sql`(SELECT VALUE ${sql.raw(this.columnName(model, field))} FROM ${sql.raw(model["~"].names.sql!)} ${where}LIMIT 1)[0]`;
   }
 
+  /** The edge between two records, named by each side's junction field. */
+  override junction(edge: Junction, values: Input): Query {
+    const { table, near, far } = this.#lowering.edgeOf(edge);
+    const conditions: Sql[] = [];
+    for (const [end, side] of [
+      [near, edge.sourceSide],
+      [far, edge.targetSide],
+    ] as const) {
+      const field = side.members[0]!.junctionField;
+      if (Object.hasOwn(values, field))
+        conditions.push(
+          sql`${end} = ${this.#lowering.end(side, values[field])}`
+        );
+    }
+    const { junctionField, referencedField } = edge.targetSide.members[0]!;
+    return {
+      sql: sql`SELECT ${far} AS ${sql.raw(junctionField)} FROM ${table} WHERE ${sql.join(conditions, " AND ")}`,
+      shape: {
+        kind: "object",
+        fields: {
+          [junctionField]: this.scalarShape(
+            edge.targetSide.model,
+            referencedField
+          ),
+        },
+      },
+    };
+  }
+
   /**
    * `forUpdate` reads as it is: SurrealDB takes no lock, and a transaction that
    * writes a row another committed fails at its own commit.
@@ -83,8 +113,13 @@ export class SurrealQueries extends Queries {
       : args.where === undefined
         ? undefined
         : this.prepareSelector(model, args.where).predicate;
+    // A path reads a record's members without scanning the table holding them.
+    const path =
+      membership?.edge.kind === "junction" && !membership.outside
+        ? this.#lowering.membersOf(membership.edge, membership.parent)
+        : undefined;
     const conditions = [
-      ...(membership
+      ...(membership && !path
         ? [
             this.#lowering.member(
               membership.edge,
@@ -104,7 +139,8 @@ export class SurrealQueries extends Queries {
         projection,
         args,
         predicate,
-        conditions
+        conditions,
+        path
       ),
       shape: projection.shape,
     };

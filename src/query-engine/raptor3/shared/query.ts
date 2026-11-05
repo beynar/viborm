@@ -3601,7 +3601,7 @@ export class Queries {
    * identity: the decoder, the cache codec and the shape readers all read its
    * fields.
    */
-  private scalarShape(model: AnyModel, field: string): Leaf {
+  protected scalarShape(model: AnyModel, field: string): Leaf {
     let leaves = this.#views.leaves.get(model);
     if (leaves === undefined) {
       leaves = new Map();
