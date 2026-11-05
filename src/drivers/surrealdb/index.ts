@@ -118,6 +118,25 @@ class SurrealTransactionDriver extends TransactionBoundDriver<
   protected override buildStatement(query: Sql): string {
     return namedStatement(query);
   }
+
+  protected override createTransactionBoundDriver(
+    tx: Surreal | SurrealTransaction,
+    context: QueryExecutionContext
+  ): SurrealTransactionDriver {
+    return new SurrealTransactionDriver(this, tx, context);
+  }
+
+  /**
+   * SurrealDB has no savepoints, and one failed statement fails its whole
+   * transaction, so a nested scope runs in the one it is in: a caller that
+   * catches a failed write cannot continue that transaction.
+   */
+  protected override transaction<T>(
+    client: Surreal | SurrealTransaction,
+    fn: (tx: Surreal | SurrealTransaction) => Promise<T>
+  ): Promise<T> {
+    return fn(client);
+  }
 }
 
 export class SurrealDriver extends Driver<

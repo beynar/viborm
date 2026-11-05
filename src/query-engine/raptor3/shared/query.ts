@@ -387,7 +387,7 @@ export interface Query {
   };
 }
 /** A condition `commands/` asks of a read's rows, described, not spelled. */
-type RowCondition =
+export type RowCondition =
   /** The row holds no value in `field`. */
   | { readonly kind: "fieldNull"; readonly field: string }
   /** The row is none of `identities`. */
@@ -401,7 +401,7 @@ type RowCondition =
       readonly after: Input;
     };
 /** What a {@link Queries.select} takes beyond its arguments. */
-interface SelectControls {
+export interface SelectControls {
   /** More of the root row's filter (a function: of its alias). */
   condition?: Sql | ((alias: string) => Sql);
   /** More of the root row's filter, as `commands/` describes it. */

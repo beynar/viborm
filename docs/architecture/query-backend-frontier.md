@@ -1,7 +1,7 @@
 # The query backend frontier
 
 Status: proposal, 2026-11-05. Steps 0 and 1 are done and step 2 is dropped. Steps 3
-to 5 exist as a prototype on the `feat/query-backend` stack, with root writes only.
+to 5 exist as a prototype on the `feat/query-backend` stack, for foreign key relations.
 Numbers read from `main` at `e4b09fd64` with an AST pass over the engine.
 
 ## The problem
@@ -135,7 +135,7 @@ Each step keeps SQL byte-identical and lands alone.
 | 2 | Dropped: order was not a leak (see leak 3) | `Queries.order`, which nothing called, removed |
 | 3 | The driver supplies its backend; read path behind `QueryBackend` (leaks 2 and 5) | pg and D1 bundle sizes unchanged within the size rule |
 | 4 | SurrealQL read backend as a prototype; open `Dialect` as far as it needs | public read contract, `include` latency over WebSocket |
-| 5 | Write path (leak 4), shaped by what step 4 learned; root writes done, nested next | full contract suite on both |
+| 5 | Write path (leak 4): root and nested writes done for foreign keys; junctions next | full contract suite on both |
 
 Do not move the 4,100 lines of SQL lowering up front. The move is mechanical but
 conflicts with every engine change, and an interface drawn from one implementation
@@ -181,7 +181,7 @@ reads of SurrealDB and of PGlite over the same rows and compares the answers:
 scalars, order and pages, the filters on nullable fields, to-one and to-many at three
 levels, two relations to one table, and `some`, `none`, `every`, `is`, `isNot`.
 
-It refuses by name what it does not cover: nested writes, aggregates, cursors,
+It refuses by name what it does not cover: junction writes, aggregates, cursors,
 `distinct`, junctions and variants, `recurse`, `_count`, ordering by a relation or a
 nullable field, and row domains (so soft delete and permissions).
 
@@ -197,8 +197,26 @@ What the writes showed:
 
 - The seam held for root writes, but a subclass overriding by name is a weak contract:
   it must also decline batch preparation, which a first version missed, so it wrote
-  outside the array transaction. Nested writes are the real test of leak 4: they call
-  `insert`, `update`, `remove`, `link` and read through `Queries.select`.
+  outside the array transaction.
+
+**Nested writes.** `SurrealQueries` overrides `select` and `locatedValue`, and the
+context overrides `insert`, `update`, `updateLocated`, `updateRows`, `mutateMembers`,
+`remove` and `delete`. `Commands`, `RelationBody` and `CommandExecution` needed no
+change: the meaning of a nested write stayed above the frontier. A second script of 31
+steps covers `connect`, `create`, `connectOrCreate`, `update`, `updateMany`, `upsert`,
+`disconnect`, `set`, `delete`, `deleteMany`, atomic failure and nested transactions.
+
+That answers leak 4 for the transaction route: `OperationContext` splits along record
+writes. What the override drops, and a real backend would have to answer:
+
+- **The batch route:** `usesBatch` is never true here, so that half of each method is
+  untouched and untested. A driver without interactive transactions would need it.
+- **Recovery:** a unique race in `connectOrCreate` no longer records `rejectedInsert`,
+  so it surfaces as the violation rather than recovering.
+- **Locks:** `forUpdate` reads as it is. What a concurrent write does to a located row
+  is untested on this path.
+- **Savepoints:** a nested scope runs in its parent, so a caller that catches a failed
+  write cannot continue that transaction.
 - A concurrent delete and insert can still leave an orphan (`viborm-evidence`):
   nothing here takes the write on the parent that would close it.
 - Unique and foreign key refusals carry no code, so the driver recognizes them by

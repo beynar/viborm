@@ -20,10 +20,11 @@ import type {
 import { firstRow, rowSet } from "@query-engine/raptor3/shared/query";
 import type {
   Arguments,
+  Input,
   ReadOperation,
 } from "@query-engine/raptor3/shared/schema";
 import type { Membership } from "@query-engine/raptor3/shared/storage";
-import { type Sql, sql } from "@sql";
+import { Sql, sql } from "@sql";
 import { RecordId } from "surrealdb";
 
 type AnyModel = PreparedProjection["model"];
@@ -90,7 +91,7 @@ export class SurrealReadBackend implements ReadBackend {
             ? undefined
             : q.prepareSelector(model, args.where, true, false);
         const query = {
-          sql: this.#statement(model, prepared, args, selector?.predicate),
+          sql: this.statement(model, prepared, args, selector?.predicate),
           shape: prepared.shape,
         };
         return {
@@ -103,7 +104,7 @@ export class SurrealReadBackend implements ReadBackend {
       case "findFirst": {
         if ((args.take ?? 1) < 0) refuse("a negative take");
         const query = {
-          sql: this.#statement(
+          sql: this.statement(
             model,
             prepared,
             { ...args, take: 1 },
@@ -120,12 +121,7 @@ export class SurrealReadBackend implements ReadBackend {
       }
       case "findMany": {
         const query = {
-          sql: this.#statement(
-            model,
-            prepared,
-            args,
-            this.#filter(model, args)
-          ),
+          sql: this.statement(model, prepared, args, this.#filter(model, args)),
           shape: prepared.shape,
         };
         return {
@@ -146,31 +142,63 @@ export class SurrealReadBackend implements ReadBackend {
       : this.#queries.prepareSelector(model, args.where).predicate;
   }
 
-  #statement(
+  statement(
     model: AnyModel,
     prepared: PreparedProjection,
-    args: Arguments,
-    predicate: PreparedPredicate | undefined
+    args: Partial<Arguments>,
+    predicate: PreparedPredicate | undefined,
+    conditions: readonly Sql[] = []
   ): Sql {
     return sql.join(
       [
         sql`SELECT ${this.columns(prepared)} FROM ${name(tableOf(model))}`,
-        ...this.#clauses(model, args, predicate),
+        ...this.#clauses(model, args, predicate, conditions),
       ],
       " "
     );
   }
 
+  /** The row `identity` names, every key field equal. */
+  identity(model: AnyModel, identity: Input): Sql {
+    return sql.join(
+      Object.entries(identity).map(
+        ([field, value]) =>
+          sql`${name(this.#queries.columnName(model, field))} = ${this.value(model, field, value)}`
+      ),
+      " AND "
+    );
+  }
+
+  /** The target rows of `edge` for this parent, or those outside them. */
+  member(edge: Membership, parent: Input, outside = false): Sql {
+    const reached = reference(edge);
+    const { source, target } = reached.pairs[0]!;
+    const held = parent[source];
+    if (held === null || held === undefined)
+      return sql.raw(outside ? "true" : "false");
+    const column = name(this.#queries.columnName(reached.target, target));
+    const test = sql`${column} = ${this.value(reached.target, target, held)}`;
+    return outside ? sql`!(${test})` : test;
+  }
+
   #clauses(
     model: AnyModel,
-    args: Pick<Arguments, "orderBy" | "take" | "skip" | "cursor" | "distinct">,
-    predicate: PreparedPredicate | undefined
+    args: Pick<
+      Partial<Arguments>,
+      "orderBy" | "take" | "skip" | "cursor" | "distinct"
+    >,
+    predicate: PreparedPredicate | undefined,
+    conditions: readonly Sql[] = []
   ): Sql[] {
     if (args.cursor !== undefined) refuse("a cursor");
     if (args.distinct?.length) refuse("distinct");
     if ((args.take ?? 0) < 0) refuse("a negative take");
     const clauses: Sql[] = [];
-    if (predicate) clauses.push(sql`WHERE ${this.predicate(predicate, true)}`);
+    const where = [
+      ...(predicate ? [this.predicate(predicate, true)] : []),
+      ...conditions,
+    ];
+    if (where.length) clauses.push(sql`WHERE ${sql.join(where, " AND ")}`);
     clauses.push(sql`ORDER BY ${this.order(model, args.orderBy)}`);
     // A bound LIMIT is what a nested read's index needs written, so both inline
     // an integer admission has already checked.
@@ -218,6 +246,12 @@ export class SurrealReadBackend implements ReadBackend {
       }),
       ", "
     );
+  }
+
+  /** One projected field, as a `SELECT` or a `RETURN` lists it. */
+  column(model: AnyModel, field: PreparedProjectionField): Sql {
+    const { value, alias } = this.#field(model, field);
+    return sql`${value} AS ${name(alias)}`;
   }
 
   #destructure(prepared: PreparedProjection): Sql {
@@ -371,6 +405,8 @@ export class SurrealReadBackend implements ReadBackend {
 
   /** A key or a link is a record: its value is bound as one, never as a string. */
   value(model: AnyModel, field: string, value: unknown): Sql {
+    // A value this statement reads for itself ({@link SurrealQueries.locatedValue}).
+    if (value instanceof Sql) return value;
     const q = this.#queries;
     if (isSingleKey(q, model, field))
       return sql`${new RecordId(tableOf(model), value as string)}`;
