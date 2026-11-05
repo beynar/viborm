@@ -7905,7 +7905,7 @@ export class Queries {
             )
           )
         );
-      case "keyChanges":
+      default:
         return a.operators.or(
           ...row.fields.map((field) => {
             const held = this.fieldValue(row.model, field, row.before[field]);
