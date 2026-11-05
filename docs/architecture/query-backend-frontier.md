@@ -261,55 +261,75 @@ What had no direct equivalent, and how it answers:
   relation test dropped `array::len`. Fourteen levels now parse, for reads and filters,
   on a server at its defaults. Many arms in each level will reach the limit sooner.
 
-Not yet covered: write hooks, tombstones and row domains. An SQL fragment in a filter is
-SQL by definition, and refuses. A key is its public text here, so comparing it with a
-plain string column answers from that text, where the other providers refuse.
-
 **Many-to-many.** A generated junction is an edge table, `TYPE RELATION IN post OUT tag
-ENFORCED`, with a unique index over `in, out`. `in` is the junction's canonical first
-side. No shared behaviour changed, and one shared member became `protected`: the seam is `Queries.junction`, `select`, `link`,
-`linkMany` and `remove`, and `Commands` already keeps a junction away from
-`mutateMembers`. A third script of 46 tests compares reads, filters, writes and deletes
-with PGlite's junction tables, including a self relation and two relations between the
-same models.
+LIGHTWEIGHT`: the edge is its pair and nothing else, so `RELATE` is idempotent with no
+index to keep. `in` is the junction's canonical first side. A singular relation needs a
+unique end, which an index holds, so its table stays a classic relation written with
+`INSERT RELATION IGNORE`. No shared behaviour changed: the seam is `Queries.junction`,
+`select`, `link`, `linkMany` and `remove`.
 
-| Need | Form | Measured, 5,000 posts, 500 tags, 15,000 edges |
+**Performance.** `tests/providers/docker/surrealdb-perf.test.ts` runs the same viborm
+calls on PostgreSQL 18 and SurrealDB 4.0 over the same rows, in alternating rounds, with
+`SURREAL_PERF` set. Both databases gave the same answer on every read. Medians in ms,
+over 100,000 posts, 100,000 comments and 10,000 users, one client on one machine:
+
+| Operation | PostgreSQL | SurrealDB |
 |---|---|---|
-| Members, ordered and limited | `->tagged->(SELECT * FROM tag ORDER BY … LIMIT n).{ … }` | 2 ms for 10 parents; 4 ms at three levels |
-| A link that may exist | `INSERT RELATION IGNORE INTO tagged [{ in, out }]` | |
-| A filter | `array::len(->tagged->(tag WHERE …)) > 0` | 61 ms over the table |
-| A record's members | `FROM $p->tagged->tag` | about 3 ms; `WHERE id IN` the same path scans, about 25 ms |
+| `findUnique` by key | 0.4 | 0.6 |
+| `findMany`, indexed filter, order, take | 0.5 | 0.6 |
+| Include to-many, take | 0.5 | 0.9 |
+| Include three levels | 1.0 | 1.3 |
+| Filter `some`, to-one | 0.5 | 0.7 |
+| Filter `some`, to-many | 19.8 | 18.7 |
+| Filter `none`, to-many | 9.6 | 25.4 |
+| Filter `some`, many-to-many | 132.9 | 1.8 |
+| Filter, two relations down | 4.7 | 16.5 |
+| Cursor page | 0.5 | 1.0 |
+| `groupBy` | 15.3 | 24.5 |
+| `distinct` | 140.8 | 251.7 |
+| `recurse`, exhaustive, 1,000 nodes | 15.5 | 28.4 |
+| `update` by key | 0.5 | 0.6 |
+| `create` | 0.6 | 4.1 |
+| `createMany`, 100 | 5.3 | 25.3 |
 
-Times are over HTTP with its roughly 20 ms floor subtracted, so read them as orders of
-magnitude. The answers of the read forms were checked against values computed separately.
+The forms behind them, each measured against the one it replaced:
 
-- **`RELATE` is not the form:** it refuses a pair the unique index already holds, and a
-  `connect` must not. `INSERT RELATION IGNORE` skips that pair and still refuses a
-  missing record. It relies on the index: without it, a second link is a second edge.
-- **Avoid:** `id IN (SELECT VALUE in FROM tagged WHERE out.name = …)`, over 20 s here,
-  and `(SELECT VALUE out FROM …)` as a `FROM` source, which reads no field.
-- **Not covered:** declared junctions and `$through`, variant junctions, compound keys,
-  and one statement per member for `updateMany` and `deleteMany`, as on SQL.
-- **Unproven:** `holdMember`'s read of the edge cannot fail without a concurrent write,
-  and nothing here runs one. Dropping one of its conditions fails no test.
-- A concurrent delete and insert can still leave an orphan (`viborm-evidence`):
-  nothing here takes the write on the parent that would close it.
-- Unique and foreign key refusals carry no code, so the driver recognizes them by
-  sentence, which a server version could change.
-- Changing a record's key and generated keys are refused. Tables are defined by hand:
-  there is no migration driver.
+- **Relation filters read the other side first.** A subquery that reads no outer row is
+  a `LET` ahead of the statement. `some` reads its rows from that list, `FROM $h0`, so it
+  fetches only them; `none` and `every` test `id NOT IN $h0`. A `WHERE` running a traversal
+  per row cost 56 ms for a to-one over 20,000 rows, and this costs 0.6 ms.
+- **Cursors seek.** `id >= $h1` walks from the key. A bare condition beside it, `$h0 AND
+  id >= $h1`, turns that into a scan, so "no such cursor" is an `IF` around the statement.
+- **Exhaustive walks recurse.** `{..+collect}` found the nodes where a fold spent 98 ms
+  on 256 levels. It stops at SurrealDB's own 256 levels, with an error.
+- **A to-one over a compound key reads its record**, `type::record(t, [a, b])`.
+- **Lists of records, not `OR`:** `UPDATE [a, b]`, since `id IN` and a list read by key.
+- **Blocks answer with their last expression**, and parentheses are kept to a minimum.
 
-Building it showed the seam is small and `Prepared*` is enough for reads. It also
-showed what is still wrong:
+Not a driver matter: `INSERT`, `CREATE` and `DELETE` cost 4.5 ms above the network whichever
+form is used, and 1.0 ms with `SURREAL_DATASTORE_SYNC=never`. That is the sync of each
+commit. PostgreSQL on this machine uses `open_datasync`, which macOS does not flush as
+far, so this gap is not a like-for-like measure of durability.
 
-- `driver.adapter` is still typed `DatabaseAdapter`. The driver's is a proxy holding
-  the five members a read touches (`result.parseField`, `result.parseResult`,
-  `capabilities`, `namespace`, `geoPoint`) and refusing any other, behind one cast.
-  Splitting the type is what would remove the cast.
-- `"surrealql"` joins `Dialect`, and three casts to `SqlDialect` stand where only a
-  SQL driver can arrive: a migration and a write's computed values.
-- `plain()` in the driver turns record ids and dates into what the decoders read.
-- The backend finds a link's target by scanning the model's relations.
+Migrations will have to state what these forms rely on:
+
+- `LIGHTWEIGHT` for a generated junction, and a classic relation with a unique index for a
+  singular one.
+- `DEFINE FIELD id ... TYPE [a: string, b: int]` for a compound key, which turns the
+  driver's `id[0]` into a key range. A part named `id` is refused, and the driver reads by
+  position, so the schema may name it anything. A `decimal` part cannot be named.
+- `REFERENCE` on every foreign key, an index on what a filter reads, and an event for a
+  compound foreign key's action.
+- `INLINE EDGES` and `INLINE REFERENCES` are not tried here. They cost each write.
+
+Not measured: declared junctions, variant relations, geography, vectors, concurrent load,
+and anything above 100,000 rows.
+
+Not yet covered: write hooks, tombstones and row domains. A row domain's `{ $row, up }`
+reads an outer row, so a filter holding one cannot be hoisted: `#holders` must learn to
+decline it when row domains arrive. An SQL fragment in a filter is SQL by definition, and
+refuses. A key is its public text here, so comparing it with a plain string column answers
+from that text, where the other providers refuse.
 
 ## Open questions
 

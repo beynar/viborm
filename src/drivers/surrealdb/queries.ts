@@ -28,8 +28,11 @@ function refuse(what: string): never {
 }
 
 export class SurrealQueries extends Queries {
+  #backend: SurrealReadBackend | undefined;
+
   get #lowering(): SurrealReadBackend {
-    return new SurrealReadBackend(this);
+    this.#backend ??= new SurrealReadBackend(this);
+    return this.#backend;
   }
 
   #row(model: AnyModel, row: RowCondition): Sql {
@@ -67,17 +70,20 @@ export class SurrealQueries extends Queries {
   /** The edge between two records, named by each side's junction field. */
   override junction(edge: Junction, values: Input): Query {
     if (edge.declared) return this.#lowering.linkRowQuery(edge, values);
-    const { table, near, far } = this.#lowering.edgeOf(edge);
-    const conditions: Sql[] = [];
-    for (const [end, side] of [
-      [near, edge.sourceSide],
-      [far, edge.targetSide],
-    ] as const) {
-      if (Object.hasOwn(values, side.members[0]!.junctionField))
-        conditions.push(
-          sql`${end} = ${this.#lowering.end(side, (pair) => values[pair.junctionField])}`
-        );
-    }
+    const { table, near, far, out } = this.#lowering.edgeOf(edge);
+    const knows = (side: Junction["sourceSide"]) =>
+      Object.hasOwn(values, side.members[0]!.junctionField);
+    const end = (side: Junction["sourceSide"]) =>
+      this.#lowering.end(side, (pair) => values[pair.junctionField]);
+    // From its source, an edge is reached along the record's own list.
+    const edges = knows(edge.sourceSide)
+      ? sql`${end(edge.sourceSide)}${out}`
+      : table;
+    const conditions = [
+      ...(knows(edge.targetSide)
+        ? [sql`${far} = ${end(edge.targetSide)}`]
+        : []),
+    ];
     const unique = edge.uniqueSide === "target";
     const owner = unique ? edge.sourceSide : edge.targetSide;
     const read = unique ? near : far;
@@ -94,7 +100,7 @@ export class SurrealQueries extends Queries {
       return sql`${value} AS ${sql.raw(pair.junctionField)}`;
     });
     return {
-      sql: sql`SELECT ${sql.join(columns, ", ")} FROM ${table} WHERE ${sql.join(conditions, " AND ")}`,
+      sql: sql`SELECT ${sql.join(columns, ", ")} FROM ${edges}${conditions.length ? sql` WHERE ${sql.join(conditions, " AND ")}` : sql.raw("")}`,
       shape: { kind: "object", fields },
     };
   }
@@ -126,7 +132,7 @@ export class SurrealQueries extends Queries {
       !membership.outside
         ? this.#lowering.membersOf(membership.edge, membership.parent)
         : undefined;
-    const conditions = [
+    const conditions = () => [
       ...(membership && !path
         ? [
             this.#lowering.member(
@@ -142,13 +148,15 @@ export class SurrealQueries extends Queries {
       ...(controls.row ? [this.#row(model, controls.row)] : []),
     ];
     return {
-      sql: this.#lowering.statement(
-        model,
-        projection,
-        args,
-        predicate,
-        conditions,
-        path
+      sql: this.#lowering.hoisted(() =>
+        this.#lowering.statement(
+          model,
+          projection,
+          args,
+          predicate,
+          conditions(),
+          path
+        )
       ),
       shape: projection.shape,
     };

@@ -97,8 +97,11 @@ export class SurrealOperationContext extends OperationContext {
     }
   }
 
+  #backend: SurrealReadBackend | undefined;
+
   get #lowering(): SurrealReadBackend {
-    return new SurrealReadBackend(this.queries);
+    this.#backend ??= new SurrealReadBackend(this.queries);
+    return this.#backend;
   }
 
   /**
@@ -278,10 +281,11 @@ export class SurrealOperationContext extends OperationContext {
         single
       );
     const assignments = this.#assignments(model, given);
-    const statement =
+    const statement = this.#lowering.hoisted(() =>
       limit === undefined
         ? sql`UPDATE ${fieldName(model["~"].names.sql!)} SET ${assignments} ${this.#where(selector)} ${this.#returning(projection)}`
-        : sql`UPDATE ${this.#target(selector, limit)} SET ${assignments} ${this.#returning(projection)}`;
+        : sql`UPDATE ${this.#target(selector, limit)} SET ${assignments} ${this.#returning(projection)}`
+    );
     return await this.#finish(model, statement, projection, single);
   }
 
@@ -336,11 +340,12 @@ export class SurrealOperationContext extends OperationContext {
     single?: () => Error
   ): Promise<unknown> {
     this.#declinePreparation();
-    const target = this.#target(selector, limit);
     if (!projection) {
       const { rows } = await this.answer(
         {
-          sql: sql`DELETE ${target} RETURN BEFORE`,
+          sql: this.#lowering.hoisted(
+            () => sql`DELETE ${this.#target(selector, limit)} RETURN BEFORE`
+          ),
           shape: { kind: "object", fields: {} },
         },
         true,
@@ -354,7 +359,7 @@ export class SurrealOperationContext extends OperationContext {
     const located =
       limit === undefined
         ? sql`LET $rows = (SELECT VALUE id FROM ${table} ${this.#where(selector)});`
-        : sql`LET $rows = ${target};`;
+        : sql`LET $rows = ${this.#target(selector, limit)};`;
     const { rows } = await this.answer(
       {
         sql: sql`RETURN { ${located} LET $answer = (SELECT ${this.#lowering.columns(projection)} FROM $rows); DELETE $rows; RETURN $answer; }`,
@@ -514,7 +519,11 @@ export class SurrealOperationContext extends OperationContext {
             const { table, near, far } = low.edgeOf(edge);
             // An edge's ends are fixed: it is related again from the new record.
             follow.push(
-              sql`FOR $other IN (SELECT VALUE ${near} FROM ${table} WHERE ${far} = $old) { INSERT RELATION IGNORE INTO ${table} [{ ${near}: $other, ${far}: $new }] };`
+              edge.uniqueSide
+                ? sql`FOR $other IN (SELECT VALUE ${near} FROM ${table} WHERE ${far} = $old) { INSERT RELATION IGNORE INTO ${table} [{ ${near}: $other, ${far}: $new }] };`
+                : near.toStatement() === "in"
+                  ? sql`FOR $other IN (SELECT VALUE ${near} FROM ${table} WHERE ${far} = $old) { RELATE $other->${table}->$new };`
+                  : sql`FOR $other IN (SELECT VALUE ${near} FROM ${table} WHERE ${far} = $old) { RELATE $new->${table}->$other };`
             );
             continue;
           }
@@ -641,17 +650,14 @@ export class SurrealOperationContext extends OperationContext {
     values: Input
   ): Promise<void> {
     this.#declinePreparation();
-    const table = fieldName(model["~"].names.sql!);
-    const rows = sql.join(
-      identities.map(
-        (identity) =>
-          sql`(${this.#lowering.identity(model, this.schema.identity(model, identity))})`
-      ),
-      " OR "
+    // A list of records reads each by key, where an `OR` of the same scans.
+    const records = sql.join(
+      identities.map((identity) => this.#lowering.recordOfRow(model, identity)),
+      ", "
     );
     await this.#written(
       model,
-      sql`UPDATE ${table} SET ${this.#assignments(model, values)} WHERE ${rows}`,
+      sql`UPDATE [${records}] SET ${this.#assignments(model, values)}`,
       [],
       undefined
     );
@@ -777,13 +783,34 @@ export class SurrealOperationContext extends OperationContext {
     const { table, near, far } = this.#lowering.edgeOf(edge);
     const end = (side: Junction["sourceSide"], values: Input) =>
       this.#lowering.end(side, (pair) => values[pair.junctionField]);
-    const edges = rows.map(
-      (values) =>
-        sql`{ ${near}: ${end(edge.sourceSide, values)}, ${far}: ${end(edge.targetSide, values)} }`
-    );
+    if (edge.uniqueSide) {
+      // A singular relation needs its index, so its edges carry a record, and a
+      // `RELATE` would refuse the pair an idempotent link must skip.
+      const edges = rows.map(
+        (values) =>
+          sql`{ ${near}: ${end(edge.sourceSide, values)}, ${far}: ${end(edge.targetSide, values)} }`
+      );
+      await this.#written(
+        edge.source,
+        sql`INSERT RELATION IGNORE INTO ${table} [${sql.join(edges, ", ")}]`,
+        [],
+        undefined
+      );
+      return;
+    }
+    // A `LIGHTWEIGHT` edge is its pair, so `RELATE` is idempotent by itself and
+    // takes one source's targets in one statement.
+    // The links of one run share their parent, so one source.
+    const source = end(edge.sourceSide, rows[0]!);
+    const targets = sql`[${sql.join(
+      rows.map((values) => end(edge.targetSide, values)),
+      ", "
+    )}]`;
     await this.#written(
       edge.source,
-      sql`INSERT RELATION IGNORE INTO ${table} [${sql.join(edges, ", ")}]`,
+      near.toStatement() === "in"
+        ? sql`RELATE (${source})->${table}->(${targets})`
+        : sql`RELATE (${targets})->${table}->(${source})`,
       [],
       undefined
     );
@@ -828,23 +855,18 @@ export class SurrealOperationContext extends OperationContext {
     ) => unknown
   ) {
     this.#declinePreparation();
-    const { table, near, far } = this.#lowering.edgeOf(edge);
-    const conditions: Sql[] = [];
-    for (const [column, side] of [
-      [near, edge.sourceSide],
-      [far, edge.targetSide],
-    ] as const) {
-      if (read(side, side.members[0]!) !== undefined)
-        conditions.push(
-          sql`${column} = ${this.#lowering.end(side, (pair) => read(side, pair))}`
-        );
-    }
-    return this.#written(
-      edge.source,
-      sql`DELETE ${table} WHERE ${sql.join(conditions, " AND ")}`,
-      [],
-      undefined
-    );
+    const { table, far, out } = this.#lowering.edgeOf(edge);
+    const end = (side: Junction["sourceSide"]) =>
+      this.#lowering.end(side, (pair) => read(side, pair));
+    const hasSource =
+      read(edge.sourceSide, edge.sourceSide.members[0]!) !== undefined;
+    const hasTarget =
+      read(edge.targetSide, edge.targetSide.members[0]!) !== undefined;
+    // From its source, an edge is reached along the record's own list.
+    const statement = hasSource
+      ? sql`DELETE ${end(edge.sourceSide)}${out}${hasTarget ? sql` WHERE ${far} = ${end(edge.targetSide)}` : sql.raw("")}`
+      : sql`DELETE ${table} WHERE ${far} = ${end(edge.targetSide)}`;
+    return this.#written(edge.source, statement, [], undefined);
   }
 
   /** Clears a relation's link: every member, one, or all but those kept. */

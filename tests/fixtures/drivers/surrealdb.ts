@@ -166,6 +166,33 @@ function fieldStatement(
   return `DEFINE FIELD OVERWRITE ${column.name} ON ${table.name} TYPE ${type} REFERENCE ON DELETE ${action} ASSERT ${assertion};`;
 }
 
+/** Parts of a compound key the types allow to be named: they scan by key range. */
+const KEY_PART_TYPES = new Set(["string", "int", "datetime", "bool"]);
+
+function namedKeyParts(table: TableDef, key: readonly string[]): string[] {
+  if (key.length < 2) return [];
+  const parts = key.map((name) => {
+    const column = table.columns.find((candidate) => candidate.name === name)!;
+    const held = table.foreignKeys.some(
+      (foreign) => foreign.columns.length === 1 && foreign.columns[0] === name
+    );
+    return {
+      // The name is the schema's: the driver reads a part by its position.
+      name: name === "id" ? "id_part" : name,
+      type: held ? "record" : scalarType(column),
+    };
+  });
+  if (
+    !parts.every(
+      (part) => part.type === "record" || KEY_PART_TYPES.has(part.type)
+    )
+  )
+    return [];
+  return [
+    `DEFINE FIELD OVERWRITE id ON ${table.name} TYPE [${parts.map((part) => `${part.name}: ${part.type}`).join(", ")}];`,
+  ];
+}
+
 function tableStatements(
   table: TableDef,
   modelTables: Set<string>,
@@ -173,25 +200,32 @@ function tableStatements(
 ): string[] {
   if (!modelTables.has(table.name)) {
     const [first, second] = table.foreignKeys;
+    // A singular relation needs a unique end, which an index holds. Any other
+    // edge is its pair alone, with nothing an edge record would add.
+    const singular = table.uniqueConstraints.flatMap((unique) => {
+      const end = [first, second].findIndex(
+        (key) => key!.columns.join() === unique.columns.join()
+      );
+      return end < 0
+        ? []
+        : [
+            `DEFINE INDEX OVERWRITE ${unique.name} ON ${table.name} FIELDS ${end === 0 ? "in" : "out"} UNIQUE;`,
+          ];
+    });
+    if (singular.length === 0)
+      return [
+        `DEFINE TABLE OVERWRITE ${table.name} TYPE RELATION IN ${first!.referencedTable} OUT ${second!.referencedTable} LIGHTWEIGHT;`,
+      ];
     return [
       `DEFINE TABLE OVERWRITE ${table.name} TYPE RELATION IN ${first!.referencedTable} OUT ${second!.referencedTable} ENFORCED SCHEMAFULL;`,
       `DEFINE INDEX OVERWRITE ${table.name}_pair ON ${table.name} FIELDS in, out UNIQUE;`,
-      // A singular relation holds one edge per record on that side.
-      ...table.uniqueConstraints.flatMap((unique) => {
-        const end = [first, second].findIndex(
-          (key) => key!.columns.join() === unique.columns.join()
-        );
-        return end < 0
-          ? []
-          : [
-              `DEFINE INDEX OVERWRITE ${unique.name} ON ${table.name} FIELDS ${end === 0 ? "in" : "out"} UNIQUE;`,
-            ];
-      }),
+      ...singular,
     ];
   }
   const key = table.primaryKey?.columns ?? [];
   return [
     `DEFINE TABLE OVERWRITE ${table.name} SCHEMAFULL;`,
+    ...namedKeyParts(table, key),
     ...(table.columns.some((column) => column.autoIncrement)
       ? [`DEFINE SEQUENCE OVERWRITE ${table.name}_seq START 1;`]
       : []),
