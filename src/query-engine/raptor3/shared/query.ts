@@ -421,6 +421,14 @@ interface SelectControls {
    */
   source?: string;
 }
+/**
+ * What writes a read in a database's language. {@link Queries} is the SQL one;
+ * a driver supplies another through `readBackend`. It takes the admitted
+ * arguments and answers one statement with its shape, and decoding stays shared.
+ */
+export interface ReadBackend {
+  read(model: AnyModel, operation: ReadOperation, args: Arguments): Read;
+}
 /** One statement plus the operation's own cardinality and public shape. */
 export interface Read {
   readonly query: Query;
@@ -558,7 +566,7 @@ type Closure = {
 };
 /** A row read through columns a walk or a key set carries, by field. */
 type CarriedRow = (field: string) => Sql;
-type PreparedPredicate =
+export type PreparedPredicate =
   | {
       readonly kind: "and" | "or";
       readonly predicates: readonly PreparedPredicate[];
@@ -1562,11 +1570,11 @@ function defaultSelection(model: AnyModel): Record<string, true> {
   return selection;
 }
 
-function rowSet(query: Query): ProjectionShape {
+export function rowSet(query: Query): ProjectionShape {
   return { kind: "collection", row: query.shape };
 }
 
-function firstRow(rows: Input[]): Input | null {
+export function firstRow(rows: Input[]): Input | null {
   return rows[0] ?? null;
 }
 
@@ -8925,7 +8933,7 @@ export class Queries {
    * is the one place that fact is stated; the `_count` projection and `_count`
    * ordering both read it here.
    */
-  private countedMemberships(
+  countedMemberships(
     model: AnyModel,
     relation: string
   ): {

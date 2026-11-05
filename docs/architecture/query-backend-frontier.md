@@ -1,6 +1,7 @@
 # The query backend frontier
 
-Status: proposal, 2026-11-05. Steps 0 and 1 are done; nothing else below is built.
+Status: proposal, 2026-11-05. Steps 0 and 1 are done, step 2 is dropped, and step 3
+and a read-only step 4 exist as a prototype on `feat/query-backend-reads`.
 Numbers read from `main` at `e4b09fd64` with an AST pass over the engine.
 
 ## The problem
@@ -170,6 +171,28 @@ FROM user:400..410 ORDER BY id;
   `count(SELECT … $parent …)`.
 - `<~` needs a `record` link declared `REFERENCE`, so a foreign key to another
   unique field has no such form.
+
+## The prototype
+
+`ReadBackend` has one method, `read(model, operation, args)`, and a driver supplies
+it through `readBackend`. `src/drivers/surrealdb` implements it over the `Prepared*`
+descriptions, without one alias, and is not a package entry. Its test asks 44 public
+reads of SurrealDB and of PGlite over the same rows and compares the answers:
+scalars, order and pages, the filters on nullable fields, to-one and to-many at three
+levels, two relations to one table, and `some`, `none`, `every`, `is`, `isNot`.
+
+It refuses by name what it does not cover: writes, aggregates, cursors, `distinct`,
+junctions and variants, `recurse`, `_count`, ordering by a relation or a nullable
+field, and row domains (so soft delete and permissions).
+
+Building it showed the seam is small and `Prepared*` is enough for reads. It also
+showed what is still wrong:
+
+- The driver declares a `PostgresAdapter` and `"postgresql"`, because a driver must
+  and the engine decodes rows through the adapter. Its SQL never runs, but decoding
+  depends on it. This is the next coupling to cut.
+- `plain()` in the driver turns record ids and dates into what those decoders read.
+- The backend finds a link's target by scanning the model's relations.
 
 ## Open questions
 

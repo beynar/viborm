@@ -1,6 +1,6 @@
 import type { Operations } from "@client/types";
 import type { QueryExecutionContext } from "@drivers/types";
-import { NotFoundError } from "@errors";
+import { NotFoundError, UnsupportedOperationError } from "@errors";
 import type { Sql } from "@sql";
 import { baseOperation } from "../../routed-operations";
 import type { PreparedBatchOperation } from "../../types";
@@ -10,7 +10,7 @@ import {
   OperationContext,
 } from "../shared/operation-context";
 import { admitProjected } from "../shared/projected";
-import type { Leaf, ProjectionShape, Read } from "../shared/query";
+import type { Leaf, ProjectionShape, Read, ReadBackend } from "../shared/query";
 import { PreparedDomain, Queries } from "../shared/query";
 import {
   type CallRows,
@@ -122,6 +122,8 @@ class PreparedCommand implements PreparedOperation {
   readonly #config: EngineConfig;
   readonly #schema: EngineSchema;
   readonly #queries: Queries;
+  /** {@link Queries} itself, unless the driver supplies another language. */
+  readonly #reads: ReadBackend;
   readonly #operation: Operation;
   readonly #model: EngineConfig["schema"][string];
   readonly #modelName: string;
@@ -136,6 +138,7 @@ class PreparedCommand implements PreparedOperation {
     config: EngineConfig,
     schema: EngineSchema,
     queries: Queries,
+    reads: ReadBackend,
     modelName: string,
     requested: Operations,
     rawArgs: unknown,
@@ -154,6 +157,7 @@ class PreparedCommand implements PreparedOperation {
     this.#config = config;
     this.#schema = schema;
     this.#queries = queries;
+    this.#reads = reads;
     this.#operation = baseOperation(requested);
     this.#model = config.schema[modelName]!;
     this.#modelName = modelName;
@@ -195,8 +199,12 @@ class PreparedCommand implements PreparedOperation {
 
   #read(): Read | undefined {
     if (!isReadOperation(this.#operation)) return undefined;
+    if (this.#scope && this.#reads !== this.#queries)
+      throw new UnsupportedOperationError(
+        "This driver's read backend does not support row domains yet."
+      );
     return (this.#prepared ??= (
-      this.#scope?.domain.reads(this.#scope) ?? this.#queries
+      this.#scope?.domain.reads(this.#scope) ?? this.#reads
     ).read(this.#model, this.#operation, this.args));
   }
 
@@ -225,6 +233,10 @@ class PreparedCommand implements PreparedOperation {
   }
 
   #plan(context: OperationContext): PhysicalPlan {
+    if (this.#reads !== this.#queries)
+      throw new UnsupportedOperationError(
+        "This driver's backend reads only: it does not support writes yet."
+      );
     return new Commands(context).plan(
       this.#model,
       this.args,
@@ -393,6 +405,7 @@ export function createCommandEngine(config: EngineConfig) {
   if (!byAdapter) renderers.set(config.schema, (byAdapter = new WeakMap()));
   byAdapter.set(config.driver.adapter, queries);
   const { schema } = queries;
+  const reads = config.driver.readBackend?.(queries) ?? queries;
   const prepare = (
     modelName: string,
     requested: Operations,
@@ -403,6 +416,7 @@ export function createCommandEngine(config: EngineConfig) {
       config,
       schema,
       queries,
+      reads,
       modelName,
       requested,
       rawArgs,
