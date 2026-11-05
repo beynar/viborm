@@ -8,25 +8,33 @@
 
 import { passThroughParseResult } from "@adapters/adapter-result-parser";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
-import { UnsupportedOperationError } from "@errors";
+import {
+  ForeignKeyError,
+  UniqueConstraintError,
+  UnsupportedOperationError,
+} from "@errors";
 import type { Queries, ReadBackend } from "@query-engine/raptor3/shared/query";
 import type { Sql } from "@sql";
-import { DateTime, Decimal, RecordId, type Surreal, Uuid } from "surrealdb";
-import { Driver } from "../driver";
 import {
-  type TransactionOptionSupport,
-  unsupportedCallbackTransactionError,
-} from "../shared";
+  DateTime,
+  Decimal,
+  RecordId,
+  type Surreal,
+  type SurrealTransaction,
+  Uuid,
+} from "surrealdb";
+import { Driver, TransactionBoundDriver } from "../driver";
+import type { TransactionOptionSupport } from "../shared";
 import type { QueryExecutionContext, QueryResult } from "../types";
+import { SurrealOperationContext } from "./operation-context";
 import { SurrealReadBackend } from "./read-backend";
 
 /** What decoding a row and starting a client read of an adapter, and no more. */
-const ROW_FACTS: Pick<
-  DatabaseAdapter,
-  "result" | "capabilities" | "namespace" | "geoPoint"
-> = {
+const ROW_FACTS = {
   namespace: undefined,
   geoPoint: undefined,
+  // A strategy `Commands` asks about, not syntax: `INSERT IGNORE` skips.
+  mutations: { skipDuplicatesStrategy: "sql" },
   result: {
     nativeScalarPassthrough: true,
     parseResult: passThroughParseResult,
@@ -34,18 +42,18 @@ const ROW_FACTS: Pick<
     parseField: (_value, _type, next) => next(),
   },
   capabilities: {
-    supportsReturning: false,
+    supportsReturning: true,
     supportsCteWithMutations: false,
     supportsFullOuterJoin: false,
     supportsLateralJoins: false,
     supportsVector: false,
     supportsUpsertWhere: false,
-    supportsTargetedUpsert: false,
+    supportsTargetedUpsert: true,
     supportsMutationTargetInSubquery: false,
     supportsMutationRowLimit: false,
     supportsRowLocks: false,
   },
-};
+} as unknown as DatabaseAdapter;
 
 /**
  * The `adapter` a driver must still declare, holding the row facts alone. Every
@@ -79,9 +87,46 @@ function plain(value: unknown): unknown {
   return value;
 }
 
-export class SurrealDriver extends Driver<Surreal, Surreal> {
+const UNIQUE_REFUSAL = /already contains|already exists/;
+const REFERENCE_REFUSAL = /must conform to.*exists\(\)|ON DELETE REJECT/s;
+
+/**
+ * A provider failure in viborm's own words. Unique and foreign key refusals
+ * carry no code here, so their sentences are the only evidence.
+ */
+function refusal(error: unknown): unknown {
+  const message = error instanceof Error ? error.message : String(error);
+  const cause = error instanceof Error ? error : undefined;
+  if (UNIQUE_REFUSAL.test(message))
+    return new UniqueConstraintError(message, { cause });
+  if (REFERENCE_REFUSAL.test(message))
+    return new ForeignKeyError(message, { cause });
+  return error;
+}
+
+/** SurrealQL names its parameters: `$p1`, as {@link SurrealDriver.execute} binds them. */
+function namedStatement(query: Sql): string {
+  return query.strings.reduce(
+    (text, next, index) => `${text}$p${index}${next}`
+  );
+}
+
+class SurrealTransactionDriver extends TransactionBoundDriver<
+  Surreal,
+  Surreal | SurrealTransaction
+> {
+  protected override buildStatement(query: Sql): string {
+    return namedStatement(query);
+  }
+}
+
+export class SurrealDriver extends Driver<
+  Surreal,
+  Surreal | SurrealTransaction
+> {
   readonly adapter = noSqlAdapter();
-  readonly supportsTransactions = false;
+  override readonly operationContext = SurrealOperationContext;
+  readonly supportsTransactions = true;
   readonly supportsBatch = false;
   readonly supportsOrderedCommittedSegments = false;
 
@@ -94,15 +139,23 @@ export class SurrealDriver extends Driver<Surreal, Surreal> {
     return new SurrealReadBackend(queries);
   }
 
-  /** SurrealQL names its parameters: `$p1`, as {@link execute} binds them. */
   protected override buildStatement(query: Sql): string {
-    return query.strings.reduce(
-      (text, next, index) => `${text}$p${index}${next}`
+    return namedStatement(query);
+  }
+
+  protected override createTransactionBoundDriver(
+    tx: Surreal | SurrealTransaction,
+    context: QueryExecutionContext
+  ): SurrealTransactionDriver {
+    return new SurrealTransactionDriver(
+      this as unknown as Driver<Surreal, Surreal | SurrealTransaction>,
+      tx,
+      context
     );
   }
 
   protected async initClient(): Promise<Surreal> {
-    return this.client!;
+    return this.client as Surreal;
   }
 
   protected async closeClient(): Promise<void> {
@@ -110,19 +163,23 @@ export class SurrealDriver extends Driver<Surreal, Surreal> {
   }
 
   protected async execute<T>(
-    client: Surreal,
+    client: Surreal | SurrealTransaction,
     statement: string,
     params: unknown[]
   ): Promise<QueryResult<T>> {
     const values = Object.fromEntries(
       params.map((value, index) => [`p${index + 1}`, value])
     );
-    const [rows] = await client.query<[unknown[]]>(statement, values);
-    return { rows: plain(rows) as T[], rowCount: rows.length };
+    try {
+      const [rows] = await client.query<[unknown[]]>(statement, values);
+      return { rows: plain(rows) as T[], rowCount: rows.length };
+    } catch (error) {
+      throw refusal(error);
+    }
   }
 
   protected executeRaw<T>(
-    client: Surreal,
+    client: Surreal | SurrealTransaction,
     statement: string,
     params: unknown[] | undefined,
     _context?: QueryExecutionContext
@@ -131,7 +188,7 @@ export class SurrealDriver extends Driver<Surreal, Surreal> {
   }
 
   protected override transactionOptionSupport(): TransactionOptionSupport {
-    const reason = "The SurrealDB prototype reads and opens no transaction.";
+    const reason = "The SurrealDB prototype takes the server's own isolation.";
     return {
       isolationLevel: "unsupported",
       isolationLevelReason: reason,
@@ -142,7 +199,22 @@ export class SurrealDriver extends Driver<Surreal, Surreal> {
     };
   }
 
-  protected transaction<T>(): Promise<T> {
-    return Promise.reject(unsupportedCallbackTransactionError(this.driverName));
+  protected async transaction<T>(
+    client: Surreal | SurrealTransaction,
+    fn: (tx: SurrealTransaction) => Promise<T>
+  ): Promise<T> {
+    if (!("beginTransaction" in client))
+      throw new UnsupportedOperationError(
+        "The SurrealDB driver has no savepoints: a transaction cannot nest."
+      );
+    const transaction = await client.beginTransaction();
+    try {
+      const result = await fn(transaction);
+      await transaction.commit();
+      return result;
+    } catch (error) {
+      await transaction.cancel().catch(() => undefined);
+      throw error;
+    }
   }
 }

@@ -401,7 +401,7 @@ export class OperationContext {
    * (`src/errors/record-series-progress.ts:26-28`) on the one path that wraps
    * it (a batch-preparation prefix flush, `commands/execution.ts:382`).
    */
-  private get incompletePreparation(): Error {
+  protected get incompletePreparation(): Error {
     return (this.#incompletePreparationSentinel ??= new Error(
       "This operation requires dynamic execution"
     ));
@@ -1199,7 +1199,7 @@ export class OperationContext {
    * the terminal boundary ({@link publishedTerminal}) sees the rows the
    * provider handed back and an internal read sees the same rows decoded.
    */
-  private async answer(
+  protected async answer(
     query: Query,
     terminal: boolean,
     model?: AnyModel
@@ -1224,7 +1224,10 @@ export class OperationContext {
    * set mutation that publishes an affected-row COUNT instead of rows is not
    * asked at all: a row count is a fact of the transport, not a result window.
    */
-  private publishedProjection(shape: ProjectionShape, rows: Input[]): Input[] {
+  protected publishedProjection(
+    shape: ProjectionShape,
+    rows: Input[]
+  ): Input[] {
     return this.queries.decodeResult(rows, this.operation, (raw) =>
       this.queries.decodeProjection(shape, raw)
     );
@@ -1924,7 +1927,7 @@ export class OperationContext {
    * one row and owns the missing-row failure. The decision is stated here, in
    * the same closure that decodes, so a packaged operation states it too.
    */
-  private published(rows: Input[], single?: () => Error): unknown {
+  protected published(rows: Input[], single?: () => Error): unknown {
     if (!single) return rows;
     const row = rows[0];
     if (!row) {

@@ -154,7 +154,7 @@ export class SurrealReadBackend implements ReadBackend {
   ): Sql {
     return sql.join(
       [
-        sql`SELECT ${this.#columns(prepared)} FROM ${name(tableOf(model))}`,
+        sql`SELECT ${this.columns(prepared)} FROM ${name(tableOf(model))}`,
         ...this.#clauses(model, args, predicate),
       ],
       " "
@@ -170,8 +170,8 @@ export class SurrealReadBackend implements ReadBackend {
     if (args.distinct?.length) refuse("distinct");
     if ((args.take ?? 0) < 0) refuse("a negative take");
     const clauses: Sql[] = [];
-    if (predicate) clauses.push(sql`WHERE ${this.#predicate(predicate, true)}`);
-    clauses.push(sql`ORDER BY ${this.#order(model, args.orderBy)}`);
+    if (predicate) clauses.push(sql`WHERE ${this.predicate(predicate, true)}`);
+    clauses.push(sql`ORDER BY ${this.order(model, args.orderBy)}`);
     // A bound LIMIT is what a nested read's index needs written, so both inline
     // an integer admission has already checked.
     if (args.take !== undefined)
@@ -182,7 +182,7 @@ export class SurrealReadBackend implements ReadBackend {
   }
 
   /** The caller's order, completed by the key: every page has one total order. */
-  #order(model: AnyModel, input: Arguments["orderBy"]): Sql {
+  order(model: AnyModel, input: Arguments["orderBy"]): Sql {
     const q = this.#queries;
     const terms: Sql[] = [];
     const ordered = new Set<string>();
@@ -210,7 +210,7 @@ export class SurrealReadBackend implements ReadBackend {
     return sql.join(terms, ", ");
   }
 
-  #columns(prepared: PreparedProjection): Sql {
+  columns(prepared: PreparedProjection): Sql {
     return sql.join(
       prepared.fields.map((field) => {
         const { value, alias } = this.#field(prepared.model, field);
@@ -289,7 +289,7 @@ export class SurrealReadBackend implements ReadBackend {
    * two values, where `age != 20` holds of a row with no age, and viborm's filters
    * read as SQL's, where neither `age = 20` nor its negation does.
    */
-  #predicate(predicate: PreparedPredicate, positive: boolean, path = ""): Sql {
+  predicate(predicate: PreparedPredicate, positive: boolean, path = ""): Sql {
     switch (predicate.kind) {
       case "and":
       case "or": {
@@ -300,13 +300,13 @@ export class SurrealReadBackend implements ReadBackend {
         const conjunction = (predicate.kind === "and") === positive;
         return sql`(${sql.join(
           predicate.predicates.map((inner) =>
-            this.#predicate(inner, positive, path)
+            this.predicate(inner, positive, path)
           ),
           conjunction ? " AND " : " OR "
         )})`;
       }
       case "not":
-        return this.#predicate(predicate.predicate, !positive, path);
+        return this.predicate(predicate.predicate, !positive, path);
       case "always":
         return sql.raw(predicate.value === positive ? "true" : "false");
       case "operation":
@@ -330,7 +330,7 @@ export class SurrealReadBackend implements ReadBackend {
       `${path}${name(this.#queries.columnName(scalar.model, scalar.field)).toStatement()}`
     );
     const bind = (value: unknown): Sql =>
-      this.#value(scalar.model, scalar.field, value);
+      this.value(scalar.model, scalar.field, value);
     const operandOf = (
       operand: NonNullable<typeof predicate.operand>
     ): unknown => {
@@ -370,7 +370,7 @@ export class SurrealReadBackend implements ReadBackend {
   }
 
   /** A key or a link is a record: its value is bound as one, never as a string. */
-  #value(model: AnyModel, field: string, value: unknown): Sql {
+  value(model: AnyModel, field: string, value: unknown): Sql {
     const q = this.#queries;
     if (isSingleKey(q, model, field))
       return sql`${new RecordId(tableOf(model), value as string)}`;
@@ -386,7 +386,10 @@ export class SurrealReadBackend implements ReadBackend {
       )
         return sql`${new RecordId(tableOf(edge.target), value as string)}`;
     }
-    return sql`${value}`;
+    // Admission hands a datetime over as text, which a `datetime` field refuses.
+    return model["~"].state.scalars[field]?.["~"].state.type === "datetime"
+      ? sql`${new Date(value as string)}`
+      : sql`${value}`;
   }
 
   #relationFilter(
@@ -419,7 +422,7 @@ export class SurrealReadBackend implements ReadBackend {
     if (!edge.many && edge.owner === "source") {
       const link = `${path}${name(this.#queries.columnName(edge.source, edge.pairs[0]!.source)).toStatement()}`;
       return inner
-        ? sql`(${sql.raw(link)} != NONE AND ${this.#predicate(inner, true, `${link}.`)})`
+        ? sql`(${sql.raw(link)} != NONE AND ${this.predicate(inner, true, `${link}.`)})`
         : sql`${sql.raw(link)} != NONE`;
     }
     if (path) refuse("a to-many filter through a to-one link");
