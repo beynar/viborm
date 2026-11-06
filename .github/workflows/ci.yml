@@ -380,9 +380,10 @@ jobs:
   surrealdb-provider:
     name: SurrealDB provider
     runs-on: ubuntu-latest
-    # 15 for the shared contracts, whose local wall is about 4 minutes, + 5 for
-    # setup and starting the server.
-    timeout-minutes: 20
+    # The shared contracts' local wall is about 18 minutes, 16 of them the
+    # permissions estate, and a CI runner takes about twice that; + 5 for setup
+    # and starting the server.
+    timeout-minutes: 45
     steps:
       - name: Check out the exact revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
