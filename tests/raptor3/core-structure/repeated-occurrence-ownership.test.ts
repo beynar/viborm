@@ -1,3 +1,4 @@
+// biome-ignore-all lint/performance/useTopLevelRegex: a regex in a test runs a handful of times.
 import assert from "node:assert/strict";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";

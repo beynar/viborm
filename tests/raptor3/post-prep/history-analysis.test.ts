@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: helpers assert for the tests that call them.
 import assert from "node:assert/strict";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import {

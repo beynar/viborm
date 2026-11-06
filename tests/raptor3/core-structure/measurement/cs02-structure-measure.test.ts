@@ -1,3 +1,5 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: helpers assert for the tests that call them.
+// biome-ignore-all lint/style/noParameterProperties: this measurement harness predates the rule.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";

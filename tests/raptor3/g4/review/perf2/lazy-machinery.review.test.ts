@@ -1,3 +1,4 @@
+// biome-ignore-all lint/performance/useTopLevelRegex: a regex in a test runs a handful of times.
 /**
  * INDEPENDENT REVIEW — G4 performance pass 2, items 1 and 4.
  *

@@ -1,3 +1,5 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: helpers assert for the tests that call them.
+// biome-ignore-all lint/performance/useTopLevelRegex: a regex in a test runs a handful of times.
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";

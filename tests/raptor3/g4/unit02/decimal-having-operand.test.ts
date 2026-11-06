@@ -1,3 +1,4 @@
+// biome-ignore-all lint/performance/useTopLevelRegex: a regex in a test runs a handful of times.
 /**
  * G4-02 author check — the decimal `having { _sum }` operand domain (§10.10).
  *
