@@ -181,7 +181,7 @@ export class SurrealMigrationDriver extends MigrationDriver {
     return IDENTIFIER.test(name) ? name : `\`${name.replaceAll("`", "\\`")}\``;
   }
 
-  override escapeValue(value: string | null | undefined): string {
+  escapeValue(value: string | null | undefined): string {
     return value == null ? "NONE" : JSON.stringify(value);
   }
 
@@ -879,6 +879,37 @@ export class SurrealMigrationDriver extends MigrationDriver {
   }
 
   generateInventoryEnums(): null {
+    return null;
+  }
+
+  override async tableHoldsRows(
+    producer: AnyDriver,
+    table: string
+  ): Promise<boolean> {
+    const populated = await producer._executeRaw(
+      `SELECT 1 AS present FROM ${this.escapeIdentifier(table)} LIMIT 1`
+    );
+    return populated.rows.length > 0;
+  }
+
+  override async undeclaredValue(
+    producer: AnyDriver,
+    table: string,
+    columnName: string,
+    declared: readonly string[]
+  ): Promise<{ readonly stored: unknown } | undefined> {
+    const column = this.escapeIdentifier(columnName);
+    const [found] = (
+      await producer._executeRaw<{ stored: unknown }>(
+        `SELECT ${column} AS stored FROM ${this.escapeIdentifier(table)} WHERE ${column} NOT IN $p1 LIMIT 1`,
+        [declared]
+      )
+    ).rows;
+    return found;
+  }
+
+  override generateDropEnumSQL(): null {
+    // An enum here is its field's assertion, which goes with the field.
     return null;
   }
 

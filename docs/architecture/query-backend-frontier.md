@@ -380,12 +380,18 @@ The SQL backend reads a `DatabaseAdapter` there, and the language-free classes c
 names.
 
 `select`, `junction` and the rest are `Sql` values, which here means text and its values: a backend
-binds them as its driver does, and `Query.sql` needs no other type. Still leaking:
+binds them as its driver does, and `Query.sql` needs no other type.
 
-- `MigrationDriver` is written for SQL: its identifiers, values and defaults are overridden,
-  `TableDef` gained a `junction` mark, and `pinned-session`, `control` and `statement-safety` are
-  reached only because the driver takes other paths around them. `push-plan` also spells two probes
-  in SQL, which read the same in SurrealQL, through a cast.
+`MigrationDriver` follows the same line. It holds the plan's mechanics and is abstract in every
+statement, including how an identifier is escaped, and the two questions `push` asks of a table:
+`tableHoldsRows` and `undeclaredValue`. `SqlMigrationDriver` holds what the SQL drivers share: how a
+value and a default are spelled, enum replacement, the column definition. Bundles did not grow.
+
+Still leaking:
+
+- `pinned-session`, `control` and `statement-safety` assume SQL. `push` goes around them through
+  `holdLock`, and `generate` and `apply` need them, which is why those stop at the history format.
+- `TableDef` gained a `junction` mark, set by the optional `markJunction`.
 - `lowerSelector`, `updateAssignment` and `lockAll` are abstract because `commands/` asks for them in
   its batch and lock paths. SurrealDB refuses them by name and never reaches them.
 - `InsertValue` hands its producers a `Queries`, and the ordering extension's own casts it to SQL.

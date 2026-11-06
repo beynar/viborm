@@ -14,7 +14,7 @@ import {
   UnsupportedOperationError,
   VibORMErrorCode,
 } from "@errors";
-import { type Sql, sql } from "@sql";
+import type { Sql } from "@sql";
 import {
   DateTime,
   Decimal,
@@ -33,26 +33,8 @@ import { SurrealOperationContext } from "./operation-context";
 import { SurrealQueries } from "./queries";
 import { isConflict, ReplayedTransaction } from "./transaction";
 
-/** What `push` probes a table with, which reads the same in both languages. */
-const PROBES = {
-  identifiers: {
-    escape: sql.raw,
-    table: sql.raw,
-    aliased: (column: Sql, alias: string) =>
-      sql`${column} AS ${sql.raw(alias)}`,
-  },
-  literals: {
-    value: (value: unknown) => sql`${value}`,
-    list: (values: readonly Sql[]) => sql`[${sql.join([...values], ", ")}]`,
-  },
-  operators: {
-    notIn: (column: Sql, list: Sql) => sql`${column} NOT IN ${list}`,
-  },
-};
-
 /** What the engine asks of any driver. */
 const FACTS: EngineFacts = {
-  ...PROBES,
   namespace: undefined,
   // A point's statements are this driver's own: the fact is that it holds them.
   geoPoint: {},
