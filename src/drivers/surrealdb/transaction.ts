@@ -18,6 +18,9 @@ import type { Surreal, SurrealTransaction } from "surrealdb";
 
 const CONFLICT = /can be retried|read or write conflict/;
 
+/** What a statement throws where a row it would leave is not permitted. */
+export const FORBIDDEN_ROW = "viborm: a row this write leaves is not permitted";
+
 /** Two transactions that met at commit, in the words SurrealDB has for it. */
 export function isConflict(error: unknown): boolean {
   return (
@@ -55,19 +58,70 @@ const asText = (answer: unknown) =>
     typeof value === "bigint" ? `${value}n` : value
   );
 
+/**
+ * A connection holds 64 open transactions and refuses the next ("Too many open
+ * transactions"), so the others wait for one to end, as they would for a pool.
+ */
+const OPEN_TRANSACTIONS = 64;
+
+class Slots {
+  #free = OPEN_TRANSACTIONS;
+  readonly #waiting: (() => void)[] = [];
+
+  async take(): Promise<void> {
+    if (this.#free > 0) {
+      this.#free -= 1;
+      return;
+    }
+    await new Promise<void>((resolve) => this.#waiting.push(resolve));
+  }
+
+  give(): void {
+    const next = this.#waiting.shift();
+    if (next) next();
+    else this.#free += 1;
+  }
+}
+
+const slotsOf = new WeakMap<Surreal, Slots>();
+
 export class ReplayedTransaction {
   readonly #client: Surreal;
+  readonly #slots: Slots;
   #open: SurrealTransaction;
+  #ended = false;
   readonly #log: Statement[] = [];
   #conflicted = false;
 
-  private constructor(client: Surreal, open: SurrealTransaction) {
+  private constructor(client: Surreal, slots: Slots, open: SurrealTransaction) {
     this.#client = client;
+    this.#slots = slots;
     this.#open = open;
   }
 
   static async begin(client: Surreal): Promise<ReplayedTransaction> {
-    return new ReplayedTransaction(client, await client.beginTransaction());
+    let slots = slotsOf.get(client);
+    if (!slots) {
+      slots = new Slots();
+      slotsOf.set(client, slots);
+    }
+    await slots.take();
+    try {
+      return new ReplayedTransaction(
+        client,
+        slots,
+        await client.beginTransaction()
+      );
+    } catch (error) {
+      slots.give();
+      throw error;
+    }
+  }
+
+  #end(): void {
+    if (this.#ended) return;
+    this.#ended = true;
+    this.#slots.give();
   }
 
   /** A concurrent write changed what it was told, whatever the caller then did. */
@@ -135,22 +189,34 @@ export class ReplayedTransaction {
 
   /** A write conflict leaves nothing applied, so the statements can run again. */
   async commit(): Promise<void> {
-    for (let attempt = 1; ; attempt++) {
-      try {
-        await this.#open.commit();
-        return;
-      } catch (error) {
-        if (!isConflict(error) || attempt === COMMITS) throw error;
+    try {
+      for (let attempt = 1; ; attempt++) {
+        try {
+          await this.#open.commit();
+          return;
+        } catch (error) {
+          if (!isConflict(error) || attempt === COMMITS) throw error;
+        }
+        // Two losers running again together would only meet again.
+        await new Promise((resolve) =>
+          setTimeout(resolve, Math.random() * 10 * attempt)
+        );
+        await this.#replay();
       }
-      // Two losers running again together would only meet again.
-      await new Promise((resolve) =>
-        setTimeout(resolve, Math.random() * 10 * attempt)
-      );
-      await this.#replay();
+    } catch (error) {
+      // A replay that found another answer leaves its transaction open.
+      await this.#open.cancel().catch(() => undefined);
+      throw error;
+    } finally {
+      this.#end();
     }
   }
 
   async cancel(): Promise<void> {
-    await this.#open.cancel();
+    try {
+      await this.#open.cancel();
+    } finally {
+      this.#end();
+    }
   }
 }

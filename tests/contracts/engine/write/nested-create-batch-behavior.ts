@@ -94,6 +94,8 @@ const SEEDED = 2000;
 export function runNestedCreateBatchBehavior(options: {
   readonly driverName: string;
   readonly createDriver: () => AnyDriver;
+  /** Whether a call's rows land in statements this suite can count. */
+  readonly countsInserts?: boolean;
 }): void {
   describe(`${options.driverName} nested create batching`, () => {
     let client: BatchClient | undefined;
@@ -279,6 +281,7 @@ export function runNestedCreateBatchBehavior(options: {
       for (const child of notes) expect(child.id).toMatch(ULID);
       // a1 and a2 are read by their own notes, so each is its own INSERT; the
       // child-free a3 and a4 share one, and a1's three notes share one.
+      if (options.countsInserts === false) return;
       expect(inserts(sent, "ncb_articles")).toHaveLength(3);
       expect(inserts(sent, "ncb_notes")).toHaveLength(2);
     });

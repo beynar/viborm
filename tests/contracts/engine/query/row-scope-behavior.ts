@@ -1093,6 +1093,15 @@ export function runRowScopeBehavior(provider: RowScopeProvider): void {
           include: { subject: true },
         })
       ).toEqual({ id: 1, subject: null });
+    });
+
+    test("an orphan link row and a malformed singular inverse fail the read", async () => {
+      const { base, db } = context;
+      const client = base;
+      const ident = (client.$driver.adapter as DatabaseAdapter).identifiers
+        .escape;
+      const table = (client.$driver.adapter as DatabaseAdapter).identifiers
+        .table;
       // A tag membership of album 1 whose tag is gone fails the read even
       // when `only` excludes the tag arm; album 2's hidden photo is not one.
       await dropConstraints(client, "album_items_tag", "f");
