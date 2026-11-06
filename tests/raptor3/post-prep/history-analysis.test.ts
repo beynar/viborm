@@ -7,12 +7,12 @@ import {
   isRecordOccurrence,
   type RecordCommand,
 } from "@query-engine/raptor3/commands/commands";
-import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
 import {
   type Arguments,
   EngineSchema,
   type Input,
 } from "@query-engine/raptor3/shared/schema";
+import { SqlOperationContext } from "@query-engine/raptor3/shared/sql-operation-context";
 import { s } from "@schema";
 import { describe, it } from "vitest";
 
@@ -41,7 +41,7 @@ function createCommands(rawData: Input): {
   const raw: Arguments = { data: rawData };
   const admitted = engineSchema.admit(historyNode, "create", raw);
   const commands = new Commands(
-    new OperationContext(engineSchema, driver, "historyNode", "create")
+    new SqlOperationContext(engineSchema, driver, "historyNode", "create")
   );
   return {
     admitted,

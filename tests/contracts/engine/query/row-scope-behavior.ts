@@ -1,3 +1,4 @@
+import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import {
@@ -366,8 +367,8 @@ async function dropConstraints(
     await client.$executeRawUnsafe("PRAGMA foreign_keys = OFF");
     return true;
   }
-  const ident = client.$driver.adapter.identifiers.escape;
-  const table = client.$driver.adapter.identifiers.table;
+  const ident = (client.$driver.adapter as DatabaseAdapter).identifiers.escape;
+  const table = (client.$driver.adapter as DatabaseAdapter).identifiers.table;
   if (dialect === "mysql") {
     for (const type of kind === "f"
       ? ["FOREIGN KEY"]
@@ -1050,8 +1051,9 @@ export function runRowScopeBehavior(provider: RowScopeProvider): void {
         "post:11",
         "post:10",
       ]);
-      const ident = base.$driver.adapter.identifiers.escape;
-      const table = base.$driver.adapter.identifiers.table;
+      const ident = (base.$driver.adapter as DatabaseAdapter).identifiers
+        .escape;
+      const table = (base.$driver.adapter as DatabaseAdapter).identifiers.table;
       await base.$executeRaw(
         sql`UPDATE ${table("stamp")} SET ${ident("subject_id")} = ${999} WHERE ${ident("id")} = ${2}`
       );
@@ -1065,8 +1067,10 @@ export function runRowScopeBehavior(provider: RowScopeProvider): void {
     test("physical integrity stays physical: a missing arm row, an orphan in an excluded arm and a duplicate singular membership still fail", async () => {
       const { base, db } = context;
       const client = base;
-      const ident = client.$driver.adapter.identifiers.escape;
-      const table = client.$driver.adapter.identifiers.table;
+      const ident = (client.$driver.adapter as DatabaseAdapter).identifiers
+        .escape;
+      const table = (client.$driver.adapter as DatabaseAdapter).identifiers
+        .table;
       // Pin 2 now claims a post that does not exist: corruption, whatever
       // the mode, where pin 1's tombstone reads null.
       await client.$executeRaw(

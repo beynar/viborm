@@ -1,3 +1,4 @@
+import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { createModelFieldRefs } from "@schema/field-ref";
@@ -697,7 +698,7 @@ export function runFieldReferenceBehavior({
     describe("SQL fragment operands", () => {
       /** An identifier quoted for the dialect the current leg is running on. */
       const ident = (name: string) =>
-        db().$driver.adapter.identifiers.escape(name);
+        (db().$driver.adapter as DatabaseAdapter).identifiers.escape(name);
 
       test("an arithmetic expression compares against the row", async () => {
         // views > likes * 2 — true only for "hot" (100 > 10).

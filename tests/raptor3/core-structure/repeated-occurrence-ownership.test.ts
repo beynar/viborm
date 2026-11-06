@@ -10,11 +10,12 @@ import {
   type RecordCommand,
   type Selection,
 } from "@query-engine/raptor3/commands/commands";
-import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
+import type { OperationContext } from "@query-engine/raptor3/shared/operation-context";
 import {
   type Arguments,
   EngineSchema,
 } from "@query-engine/raptor3/shared/schema";
+import { SqlOperationContext } from "@query-engine/raptor3/shared/sql-operation-context";
 import { s } from "@schema";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
@@ -74,7 +75,7 @@ function rootCommands(driver: SQLite3Driver): {
 } {
   const raw: Arguments = { data: { id: "root", label: "root" } };
   const admitted = engineSchema.admit(rootModel, "create", raw);
-  const context = new OperationContext(
+  const context = new SqlOperationContext(
     engineSchema,
     driver,
     "rootModel",
@@ -158,7 +159,7 @@ describe("CS-02 repeated command occurrence ownership", () => {
     };
     const admitted = schema.admit(membershipRootModel, "create", raw);
     const commands = new Commands(
-      new OperationContext(
+      new SqlOperationContext(
         schema,
         new SQLite3Driver(),
         "membershipRootModel",
@@ -466,9 +467,7 @@ describe("CS-02 repeated command occurrence ownership", () => {
       assert.equal(commands.seriesCaptureTarget(foundCapture), foundSeries);
       assert.equal(commands.seriesCaptureTarget(missingCapture), missingSeries);
       assert.deepEqual(
-        database
-          .prepare("SELECT id,label FROM cs02_repeated_containers")
-          .get(),
+        database.prepare("SELECT id,label FROM cs02_repeated_containers").get(),
         { id: "container", label: "enclosing-updated" }
       );
       assert.deepEqual(

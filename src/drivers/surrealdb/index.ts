@@ -1,15 +1,11 @@
 /**
- * PROTOTYPE, read-only: `docs/architecture/query-backend-frontier.md` step 4.
- * Not a package entry.
- *
- * Reads run through {@link SurrealReadBackend}, and this driver speaks no SQL:
- * see {@link noSqlAdapter}.
+ * A driver whose database reads SurrealQL: `docs/architecture/query-backend-frontier.md`.
+ * Not a package entry. {@link SurrealQueries} and {@link SurrealOperationContext}
+ * write its statements, and it declares only what the engine asks of any driver.
  */
 
-import { installAdapterInternals } from "@adapters/adapter-internals";
 import { passThroughParseResult } from "@adapters/adapter-result-parser";
-import { createNamedConstraintIdentities } from "@adapters/constraint-identity";
-import type { DatabaseAdapter } from "@adapters/database-adapter";
+import type { EngineFacts } from "@adapters/database-adapter";
 import {
   ForeignKeyError,
   QueryError,
@@ -18,7 +14,6 @@ import {
   UnsupportedOperationError,
   VibORMErrorCode,
 } from "@errors";
-import type { Queries, ReadBackend } from "@query-engine/raptor3/shared/query";
 import { type Sql, sql } from "@sql";
 import {
   DateTime,
@@ -35,13 +30,11 @@ import type { TransactionOptionSupport, TransactionOptions } from "../shared";
 import { createTransactionCleanupError } from "../shared/transactions";
 import type { QueryExecutionContext, QueryResult } from "../types";
 import { SurrealOperationContext } from "./operation-context";
-import { SurrealReadBackend } from "./read-backend";
+import { SurrealQueries } from "./queries";
 import { isConflict, ReplayedTransaction } from "./transaction";
 
-/** What decoding a row and starting a client read of an adapter, and no more. */
-const ROW_FACTS = {
-  namespace: undefined,
-  // Migrations probe a table with these, and they read the same in both languages.
+/** What `push` probes a table with, which reads the same in both languages. */
+const PROBES = {
   identifiers: {
     escape: sql.raw,
     table: sql.raw,
@@ -55,6 +48,12 @@ const ROW_FACTS = {
   operators: {
     notIn: (column: Sql, list: Sql) => sql`${column} NOT IN ${list}`,
   },
+};
+
+/** What the engine asks of any driver. */
+const FACTS: EngineFacts = {
+  ...PROBES,
+  namespace: undefined,
   // A point's statements are this driver's own: the fact is that it holds them.
   geoPoint: {},
   // A strategy `Commands` asks about, not syntax: `INSERT IGNORE` skips.
@@ -79,36 +78,7 @@ const ROW_FACTS = {
     supportsMutationRowLimit: false,
     supportsRowLocks: false,
   },
-} as unknown as DatabaseAdapter;
-
-/** No SQL: only a refusal's constraint names are this adapter's to answer. */
-installAdapterInternals(ROW_FACTS, {
-  // A refusal here names no constraint, so no key is ever recognised by one.
-  constraints: createNamedConstraintIdentities((table) => `${table}_pkey`),
-  select: () => noSql("select"),
-  batchRefs: {} as never,
-});
-
-function noSql(member: string): never {
-  throw new UnsupportedOperationError(
-    `The SurrealDB driver speaks no SQL: nothing may read 'adapter.${member}'.`
-  );
-}
-
-/**
- * The `adapter` a driver must still declare, holding the row facts alone. Every
- * other member is SQL syntax this database cannot read, so reaching for one
- * refuses, where a real adapter would write a statement that fails later.
- */
-function noSqlAdapter(): DatabaseAdapter {
-  return new Proxy(ROW_FACTS, {
-    get(facts, member, receiver) {
-      if (typeof member === "symbol" || member in facts)
-        return Reflect.get(facts, member, receiver);
-      return noSql(member);
-    },
-  }) as DatabaseAdapter;
-}
+};
 
 /** A provider value as the engine's decoders read it. */
 function plain(value: unknown): unknown {
@@ -227,8 +197,11 @@ export interface SurrealDriverOptions {
 }
 
 export class SurrealDriver extends Driver<Surreal, ReplayedTransaction> {
-  readonly adapter = noSqlAdapter();
-  override readonly operationContext = SurrealOperationContext;
+  readonly adapter = FACTS;
+  override readonly backend = {
+    queries: SurrealQueries,
+    context: SurrealOperationContext,
+  };
   readonly supportsTransactions = true;
   readonly supportsBatch = false;
   readonly supportsOrderedCommittedSegments = false;
@@ -274,10 +247,6 @@ export class SurrealDriver extends Driver<Surreal, ReplayedTransaction> {
         setTimeout(resolve, Math.random() * 20 * run)
       );
     }
-  }
-
-  override readBackend(queries: Queries): ReadBackend {
-    return new SurrealReadBackend(queries);
   }
 
   protected override buildStatement(query: Sql): string {
