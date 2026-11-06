@@ -1,3 +1,4 @@
+import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { errorCause } from "../errors/diagnostic-safety";
 import { isDestructiveOperation } from "./differ";
 import { formatOperation } from "./push/format";
@@ -164,7 +165,9 @@ export async function buildPushPlan(
         continue;
       const tableName = liveTableName(operations, operation.tableName);
       if (!current.tables.some((table) => table.name === tableName)) continue;
-      const reference = producer.adapter.identifiers.table(tableName);
+      const reference = (producer.adapter as DatabaseAdapter).identifiers.table(
+        tableName
+      );
       const populated = await producer._executeRaw(
         `SELECT 1 AS present FROM ${reference.toStatement()} LIMIT 1`
       );
@@ -439,7 +442,8 @@ async function refuseOrphanedDiscriminators(
   current: SchemaSnapshot,
   operations: readonly DiffOperation[]
 ): Promise<void> {
-  const { identifiers, literals, operators } = producer.adapter;
+  const { identifiers, literals, operators } =
+    producer.adapter as DatabaseAdapter;
   for (const slot of desired.polymorphicStorage ?? []) {
     if (slot.kind !== "toOne") continue;
     const tableName = liveTableName(operations, slot.ownerTable);

@@ -67,14 +67,10 @@ function fieldName(identifier: string): Sql {
 }
 
 export class SurrealOperationContext extends OperationContext {
-  constructor(...args: ConstructorParameters<typeof OperationContext>) {
-    super(...args);
-    const { adapter, result } = this.driver;
-    (this as { queries: Queries }).queries = new SurrealQueries(
-      args[0],
-      adapter,
-      result
-    );
+  protected override createQueries(
+    ...args: ConstructorParameters<typeof Queries>
+  ): Queries {
+    return new SurrealQueries(...args);
   }
 
   /**
@@ -113,6 +109,23 @@ export class SurrealOperationContext extends OperationContext {
   #writing(): void {
     if (this.preparesBatch) throw this.incompletePreparation;
     if (writeSinks.get(this.attribution)) refuse("a write a hook observes");
+  }
+
+  /** Everything here runs at once, in a transaction: nothing waits in a batch. */
+  protected override statePremise(): void {
+    refuse("a premise stated for a batch");
+  }
+
+  protected override submit(): never {
+    refuse("statements queued for a batch");
+  }
+
+  override packageGuard(): void {
+    throw this.incompletePreparation;
+  }
+
+  protected override closeScratch(): void {
+    // A scratch table is a batch's, and there is no batch here.
   }
 
   /** `RETURN` reads any row after a write, and a delete reads ahead of itself. */

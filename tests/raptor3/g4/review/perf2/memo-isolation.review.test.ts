@@ -21,8 +21,8 @@
 import assert from "node:assert/strict";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { s } from "@schema";
 import type { Sql } from "@sql";
 import { describe, it } from "vitest";
@@ -75,8 +75,8 @@ describe("review/perf2 — what the (adapter, model) memo may not share", () => 
     // The deployment shape the author did not separate: one adapter object and
     // one set of model objects, two engines over them.
     const adapter = new SQLiteAdapter();
-    const first = new Queries(new EngineSchema(schema), adapter);
-    const second = new Queries(new EngineSchema(schema), adapter);
+    const first = new SqlQueries(new EngineSchema(schema), adapter);
+    const second = new SqlQueries(new EngineSchema(schema), adapter);
 
     const mine = first.prepareProjection(schema.account, {});
     const theirs = second.prepareProjection(schema.account, {});
@@ -99,8 +99,8 @@ describe("review/perf2 — what the (adapter, model) memo may not share", () => 
     const adapter = new SQLiteAdapter();
     // One EngineSchema per client, as the engine factories build them, but the
     // WORST case for the memo: the same adapter object for both.
-    const wideQueries = new Queries(new EngineSchema(wide), adapter);
-    const narrowQueries = new Queries(new EngineSchema(narrow), adapter);
+    const wideQueries = new SqlQueries(new EngineSchema(wide), adapter);
+    const narrowQueries = new SqlQueries(new EngineSchema(narrow), adapter);
 
     assert.deepEqual(names(wideQueries.prepareProjection(wide.account, {})), [
       "id",
@@ -125,7 +125,10 @@ describe("review/perf2 — what the (adapter, model) memo may not share", () => 
 
   it("keeps a model-level .omit() out of the shared default projection", () => {
     const schema = hiddenSchema();
-    const queries = new Queries(new EngineSchema(schema), new SQLiteAdapter());
+    const queries = new SqlQueries(
+      new EngineSchema(schema),
+      new SQLiteAdapter()
+    );
     const first = queries.prepareProjection(schema.person, {});
     assert.deepEqual(names(first), ["id", "name"]);
     // The memo must answer the SAME hidden-column-free projection every time.
@@ -145,7 +148,10 @@ describe("review/perf2 — what the (adapter, model) memo may not share", () => 
 
   it("lowers one shared projection under many aliases without mutating it", () => {
     const schema = wideSchema();
-    const queries = new Queries(new EngineSchema(schema), new SQLiteAdapter());
+    const queries = new SqlQueries(
+      new EngineSchema(schema),
+      new SQLiteAdapter()
+    );
     const shared = queries.prepareProjection(schema.account, {});
     const snapshot = JSON.stringify(names(shared));
 
@@ -172,8 +178,8 @@ describe("review/perf2 — what the (adapter, model) memo may not share", () => 
   it("gives two dialects their own leaf for the same field", () => {
     const schema = wideSchema();
     const engine = new EngineSchema(schema);
-    const sqlite = new Queries(engine, new SQLiteAdapter());
-    const postgres = new Queries(engine, new PostgresAdapter());
+    const sqlite = new SqlQueries(engine, new SQLiteAdapter());
+    const postgres = new SqlQueries(engine, new PostgresAdapter());
     const mine = sqlite.prepareProjection(schema.account, {});
     const theirs = postgres.prepareProjection(schema.account, {});
     assert.notEqual(mine, theirs, "two dialects shared one projection");

@@ -29,6 +29,31 @@ function refuse(what: string): never {
 }
 
 export class SurrealQueries extends Queries {
+  override under(): Queries {
+    return refuse("row domains");
+  }
+
+  override read(
+    model: AnyModel,
+    operation: Parameters<Queries["read"]>[1],
+    args: Arguments
+  ) {
+    return this.#lowering.read(model, operation, args);
+  }
+
+  /** These spell a statement's parts, and only a statement written whole is read here. */
+  override updateAssignment(): Sql {
+    return refuse("an assignment spelled apart from its statement");
+  }
+
+  override lowerSelector(): Sql | undefined {
+    return refuse("a condition spelled apart from its statement");
+  }
+
+  override lockAll(): Query {
+    return refuse("locks");
+  }
+
   #backend: SurrealReadBackend | undefined;
 
   get #lowering(): SurrealReadBackend {
@@ -136,7 +161,6 @@ export class SurrealQueries extends Queries {
   ): Query {
     if (controls.unless) refuse("a read excluding a selector");
     if (controls.source) refuse("a read over a write's own rows");
-    if (controls.condition) refuse("a spelled condition");
     const projection =
       controls.projection ?? this.prepareProjection(model, args);
     const predicate = controls.selector

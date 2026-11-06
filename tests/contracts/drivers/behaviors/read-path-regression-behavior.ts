@@ -1,3 +1,4 @@
+import type { DatabaseAdapter } from "@adapters/database-adapter";
 import {
   createClient,
   type VibORMClient,
@@ -407,7 +408,8 @@ export function runReadPathRegressionBehavior({
         await client.tag.create({ data: { id: "t1", name: "orm" } });
         // Escape identifiers through the adapter so the seed runs on every
         // dialect (MySQL rejects double-quoted identifiers)
-        const ident = client.$driver.adapter.identifiers.escape;
+        const ident = (client.$driver.adapter as DatabaseAdapter).identifiers
+          .escape;
         await client.$executeRaw(
           sql`INSERT INTO ${ident("read_path_post_tags")} (${ident(
             "postId"
@@ -446,7 +448,8 @@ export function runReadPathRegressionBehavior({
         await client.post.create({ data: { id: "p4", title: "Mixed" } });
         await client.tag.create({ data: { id: "t2", name: "sql" } });
         await client.tag.create({ data: { id: "t3", name: "lonely" } });
-        const ident = client.$driver.adapter.identifiers.escape;
+        const ident = (client.$driver.adapter as DatabaseAdapter).identifiers
+          .escape;
         for (const [postId, tagId] of [
           ["p3", "t2"],
           ["p4", "t1"],

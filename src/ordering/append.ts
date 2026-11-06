@@ -1,3 +1,4 @@
+import type { SqlQueries } from "../query-engine/raptor3/shared/sql-queries";
 // viborm/ordering appends: the key of a row created without one, after the
 // last key of its group.
 //
@@ -73,7 +74,8 @@ export class AppendKey extends InsertValue {
    * after the list's keys on every dialect and never casts a non-digit.
    */
   #last(context: InsertValueContext, values: readonly unknown[]): Sql {
-    const { model, queries: q, field } = context;
+    const { model, field } = context;
+    const q = context.queries as SqlQueries;
     const key = q.column(model, field);
     const where = this.within.map((name, position) => {
       const value = values[position];

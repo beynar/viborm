@@ -1,4 +1,4 @@
-import { getAdapterInternals } from "@adapters/adapter-internals";
+import { adapterConstraints } from "@adapters/adapter-internals";
 import {
   NestedWriteError,
   NotFoundError,
@@ -2655,7 +2655,8 @@ export function namesKeyConstraint(
   const columns = key.fields.map((field) =>
     context.queries.columnName(model, field)
   );
-  const constraints = getAdapterInternals(context.driver.adapter).constraints;
+  const constraints = adapterConstraints(context.driver.adapter);
+  if (!constraints) return false;
   const expected = (
     key.kind === "primary"
       ? constraints.primaryKey(table, columns)

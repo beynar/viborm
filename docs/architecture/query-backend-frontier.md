@@ -365,18 +365,30 @@ answers on SurrealDB and PGlite. What stays different, each stated by a test or 
 - The shared contracts still rewrite a few raw statements in the test fixture, which spells
   SQL's `DROP TABLE` and the like.
 
-The boundary is not closed. These still leak, and a second real backend must answer them:
+**The boundary in the types.** `driver.backend` supplies two classes, and what a language must
+answer is their abstract members, so a backend that leaves one out does not compile:
 
-- `Driver` must declare a `DatabaseAdapter`, here a proxy over row facts that refuses the rest.
-- `Queries` is concrete, and `selectSeries`, `select` and `junction` are overridden by name.
+| Class | Holds | Abstract |
+|---|---|---|
+| `Queries` | descriptions (`prepare*`), filters over them, decoding | 9 members: `read`, `select`, `selectSeries`, `junction`, `locatedValue`, `under`, `lowerSelector`, `updateAssignment`, `lockAll` |
+| `OperationContext` | what a write's run is: attempts, members, recovery, publishing | the writes, and `submit`, `statePremise`, `packageGuard`, `closeScratch`, `answersInStatement`, `createQueries` |
+
+`SqlQueries` and `SqlOperationContext` are the SQL backend, the default when a driver names none.
+`driver.adapter` is typed `EngineFacts`: strategy and decoding, and nothing that spells a statement.
+The SQL backend reads a `DatabaseAdapter` there, and the language-free classes cannot. This costs
+0.72 kB on the pg and D1 bundles, because the 52 private members the split crosses became retained
+names.
+
+`select`, `junction` and the rest are `Sql` values, which here means text and its values: a backend
+binds them as its driver does, and `Query.sql` needs no other type. Still leaking:
+
 - `MigrationDriver` is written for SQL: its identifiers, values and defaults are overridden,
   `TableDef` gained a `junction` mark, and `pinned-session`, `control` and `statement-safety` are
-  reached only because the driver takes other paths around them.
-- `operationContext` is `typeof OperationContext`, and a method left out refuses at its first
-  adapter read rather than at compile time.
-- `Query.sql` is `Sql`, and `SelectControls.condition` is a fragment bearing an alias.
-- A unique refusal's recovery compares constraint identities, which this driver must install
-  and never matches: its refusals name no constraint, and a lost race recovers at commit.
+  reached only because the driver takes other paths around them. `push-plan` also spells two probes
+  in SQL, which read the same in SurrealQL, through a cast.
+- `lowerSelector`, `updateAssignment` and `lockAll` are abstract because `commands/` asks for them in
+  its batch and lock paths. SurrealDB refuses them by name and never reaches them.
+- `InsertValue` hands its producers a `Queries`, and the ordering extension's own casts it to SQL.
 
 **Migrations.** `push` works end to end: `src/migrations/drivers/surrealql` is a
 `MigrationDriver`, and the plan, its consent and hash, the diff, the attestation and the

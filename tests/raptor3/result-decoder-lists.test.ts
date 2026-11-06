@@ -39,8 +39,8 @@ import type { Dialect, DriverResultParser } from "@drivers";
 import { Driver } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { QueryEngineError, QueryError } from "@errors";
-import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { s } from "@schema";
 import { Decimal } from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -191,7 +191,7 @@ function decoderOver(
   select: Record<string, unknown>,
   parser?: DriverResultParser
 ) {
-  const queries = new Queries(new EngineSchema(schema), adapter, parser);
+  const queries = new SqlQueries(new EngineSchema(schema), adapter, parser);
   const { shape } = queries.prepareProjection(box, { select });
   return (rows: Record<string, unknown>[]) =>
     queries.decodeProjection(shape, rows);

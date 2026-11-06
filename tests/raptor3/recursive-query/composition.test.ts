@@ -68,8 +68,9 @@ import {
   ValidationError,
   VibORMError,
 } from "@errors";
-import { Queries } from "@query-engine/raptor3/shared/query";
+import type { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Database from "better-sqlite3";
@@ -297,8 +298,8 @@ function spyAdmission(driver: CompositionDriver) {
 
 /** Log every prepared read's construction on the provider's timeline. */
 function spyPreparedReads(driver: CompositionDriver) {
-  const read = Queries.prototype.read;
-  return vi.spyOn(Queries.prototype, "read").mockImplementation(function (
+  const read = SqlQueries.prototype.read;
+  return vi.spyOn(SqlQueries.prototype, "read").mockImplementation(function (
     this: Queries,
     ...args
   ) {

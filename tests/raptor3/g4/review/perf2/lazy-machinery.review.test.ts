@@ -1,3 +1,4 @@
+// biome-ignore-all lint/performance/useTopLevelRegex: a regex in a test runs a handful of times.
 /**
  * INDEPENDENT REVIEW — G4 performance pass 2, items 1 and 4.
  *
@@ -18,13 +19,14 @@
 
 import assert from "node:assert/strict";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
-import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
-import { Queries } from "@query-engine/raptor3/shared/query";
+import type { OperationContext } from "@query-engine/raptor3/shared/operation-context";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { SqlOperationContext } from "@query-engine/raptor3/shared/sql-operation-context";
+import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { s } from "@schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { afterEach, describe, it } from "vitest";
-import { createWorld, worldSchema, type World } from "../../unit02/world";
+import { createWorld, type World, worldSchema } from "../../unit02/world";
 
 /** The private field block, read by name — this is a white-box falsifier. */
 type ContextInternals = {
@@ -54,7 +56,7 @@ describe("review/perf2 — a pure read allocates no write machinery", () => {
     const open = await createWorld();
     world = open;
     const schema = new EngineSchema(worldSchema);
-    const context = new OperationContext(
+    const context = new SqlOperationContext(
       schema,
       open.driver,
       "author",
@@ -64,7 +66,9 @@ describe("review/perf2 — a pure read allocates no write machinery", () => {
       where: { id: 1 },
     });
     const value = await context.run(() =>
-      context.publish(context.queries.read(worldSchema.author, "findUnique", args))
+      context.publish(
+        context.queries.read(worldSchema.author, "findUnique", args)
+      )
     );
     assert.deepEqual(value, {
       id: 1,
@@ -74,7 +78,11 @@ describe("review/perf2 — a pure read allocates no write machinery", () => {
     });
 
     const field = internals(context);
-    assert.equal(field.attemptStore, undefined, "a read built a TransportAttempt");
+    assert.equal(
+      field.attemptStore,
+      undefined,
+      "a read built a TransportAttempt"
+    );
     assert.equal(field.committedMemberSet, undefined);
     assert.equal(field.memberAttributionMap, undefined);
     assert.equal(field.continuationList, undefined);
@@ -96,7 +104,7 @@ describe("review/perf2 — a pure read allocates no write machinery", () => {
       operation: "findUnique",
       correlationId: "review-perf2",
     };
-    const attributed = new OperationContext(
+    const attributed = new SqlOperationContext(
       schema,
       open.driver,
       "author",
@@ -124,7 +132,7 @@ describe("review/perf2 — a pure read allocates no write machinery", () => {
     const open = await createWorld();
     world = open;
     const schema = new EngineSchema(worldSchema);
-    const context = new OperationContext(
+    const context = new SqlOperationContext(
       schema,
       open.driver,
       "author",
@@ -137,7 +145,7 @@ describe("review/perf2 — a pure read allocates no write machinery", () => {
     assert.match(first as string, UUID);
     assert.equal(second, first, "the correlation id is not stable");
 
-    const other = new OperationContext(
+    const other = new SqlOperationContext(
       schema,
       open.driver,
       "author",
@@ -150,8 +158,12 @@ describe("review/perf2 — a pure read allocates no write machinery", () => {
     );
 
     // A caller that hands its own trusted context down is still the authority.
-    const caller = { model: "author", operation: "findUnique", correlationId: "given" };
-    const passed = new OperationContext(
+    const caller = {
+      model: "author",
+      operation: "findUnique",
+      correlationId: "given",
+    };
+    const passed = new SqlOperationContext(
       schema,
       open.driver,
       "author",
@@ -278,7 +290,10 @@ describe("review/perf2 — an unfrozen operand still lowers once and the same", 
       })
       .map("g4_review_perf2_operands");
     const schema = { account };
-    const queries = new Queries(new EngineSchema(schema), new SQLiteAdapter());
+    const queries = new SqlQueries(
+      new EngineSchema(schema),
+      new SQLiteAdapter()
+    );
     const labels = ["Ada", "Bo", "Cy"];
 
     const cases: Record<string, unknown> = {
