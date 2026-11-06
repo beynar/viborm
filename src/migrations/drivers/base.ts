@@ -1,4 +1,5 @@
 import { stringifyJson } from "../../adapters/shared/standard-sql";
+import type { PushTargetIdentity } from "../v1-types";
 /**
  * MigrationDriver Base Class
  *
@@ -363,6 +364,24 @@ export abstract class MigrationDriver {
   finalizeTable(table: TableDef): TableDef {
     return table;
   }
+
+  /** A generated junction, before {@link finalizeTable}. */
+  markJunction?(table: TableDef): TableDef;
+
+  /** Whether these operations, after a reset or not, cannot share a transaction. */
+  buildsApart?(operations: readonly DiffOperation[], reset?: boolean): boolean;
+
+  /** A driver's own answer to what a push targets, where it has one. */
+  pushTarget?(
+    executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>
+  ): Promise<PushTargetIdentity>;
+
+  /** A driver's own hold on a command, where no pinned session can take one. */
+  holdLock?<T>(
+    driver: AnyDriver,
+    lockWait: number,
+    run: () => Promise<T>
+  ): Promise<T>;
 
   /** The exact generated PK name used by this driver's DDL and its inverse. */
   generatedPrimaryKeyName(tableName: string, name?: string): string {

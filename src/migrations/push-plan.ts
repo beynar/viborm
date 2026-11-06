@@ -216,7 +216,7 @@ export async function buildPushPlan(
           : "safe",
     })
   );
-  const atomicity = classifyGeneratedAtomicity(command, operations);
+  const atomicity = classifyGeneratedAtomicity(command, operations, !!reset);
   const destructive =
     mode === "force-reset" ||
     reportedOperations.some((operation) => operation.risk === "destructive");
