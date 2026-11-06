@@ -566,23 +566,89 @@ describe.skipIf(!surrealUrl)("what SurrealDB has no form for", () => {
     });
   });
 
-  it("an action on a junction other than cascade refuses by name", async () => {
-    const post = s.model({
-      id: s.string().id(),
-      tags: s.toMany(() => tag).onDelete("restrict"),
+  it("a generated column beside a record's id refuses by name", async () => {
+    const db = clientOf({
+      ticket: s.model({
+        id: s.string().id(),
+        serial: s.int().unique().increment(),
+      }),
     });
-    const tag = s.model({ id: s.string().id(), posts: s.toMany(() => post) });
-    const db = clientOf({ post, tag });
     await using(db, async () => {
       await (db.$driver as { fresh(): Promise<void> }).fresh();
-      await expect(preview(db)).rejects.toThrow("a record's edges go with it");
+      await expect(preview(db)).rejects.toThrow(
+        "the generated column 'ticket.serial' beside a record's id"
+      );
     });
   });
 
-  it("a partial index refuses by name", async () => {
+  it("a partial unique index holds among the rows it names, and a second push plans nothing", async () => {
+    const item = s
+      .model({
+        id: s.string().id(),
+        org: s.string(),
+        slug: s.string(),
+        gone: s.dateTime().nullable(),
+      })
+      .index(["org", "slug"], { unique: true, where: '"gone" IS NULL' });
+    const db = clientOf({ item });
+    await using(db, async () => {
+      await (db.$driver as { fresh(): Promise<void> }).fresh();
+      await push(db);
+      expect((await preview(db)).operations).toEqual([]);
+      await db.item.create({ data: { id: "a", org: "o", slug: "s" } });
+      await db.item.create({ data: { id: "b", org: "o", slug: "t" } });
+      await db.item.create({ data: { id: "c", org: "p", slug: "s" } });
+      await expect(
+        db.item.create({ data: { id: "d", org: "o", slug: "s" } })
+      ).rejects.toMatchObject({ code: "V3001" });
+      const at = new Date();
+      await db.item.update({ where: { id: "a" }, data: { gone: at } });
+      await db.item.create({ data: { id: "d", org: "o", slug: "s" } });
+      await expect(
+        db.item.update({ where: { id: "a" }, data: { gone: null } })
+      ).rejects.toMatchObject({ code: "V3001" });
+    });
+  });
+
+  it("a partial unique index arrives on a populated table, and goes", async () => {
+    const plain = {
+      item: s.model({
+        id: s.string().id(),
+        slug: s.string(),
+        gone: s.dateTime().nullable(),
+      }),
+    };
+    const partial = {
+      item: s
+        .model({
+          id: s.string().id(),
+          slug: s.string(),
+          gone: s.dateTime().nullable(),
+        })
+        .index(["slug"], { unique: true, where: '"gone" IS NULL' }),
+    };
+    const db = clientOf(plain);
+    await using(db, async () => {
+      await (db.$driver as { fresh(): Promise<void> }).fresh();
+      await push(db);
+      await db.item.create({ data: { id: "a", slug: "s" } });
+      await db.item.create({ data: { id: "b", slug: "s", gone: new Date() } });
+      const indexed = nextVersion(partial, db);
+      await push(indexed);
+      await expect(
+        indexed.item.create({ data: { id: "c", slug: "s" } })
+      ).rejects.toMatchObject({ code: "V3001" });
+      const back = nextVersion(plain, db);
+      await push(back);
+      expect((await preview(back)).operations).toEqual([]);
+      await back.item.create({ data: { id: "c", slug: "s" } });
+    });
+  });
+
+  it("a partial index over anything but set columns refuses by name", async () => {
     const item = s
       .model({ id: s.string().id(), name: s.string() })
-      .index(["name"], { where: "name IS NOT NULL" } as never);
+      .index(["name"], { where: "lower(name) = 'a'" } as never);
     const db = clientOf({ item });
     await using(db, async () => {
       await (db.$driver as { fresh(): Promise<void> }).fresh();

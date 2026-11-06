@@ -7,6 +7,7 @@
 import { passThroughParseResult } from "@adapters/adapter-result-parser";
 import type { EngineFacts } from "@adapters/database-adapter";
 import {
+  ForbiddenError,
   ForeignKeyError,
   QueryError,
   TransactionError,
@@ -31,7 +32,7 @@ import { createTransactionCleanupError } from "../shared/transactions";
 import type { QueryExecutionContext, QueryResult } from "../types";
 import { SurrealOperationContext } from "./operation-context";
 import { SurrealQueries } from "./queries";
-import { isConflict, ReplayedTransaction } from "./transaction";
+import { FORBIDDEN_ROW, isConflict, ReplayedTransaction } from "./transaction";
 
 /** What the engine asks of any driver. */
 const FACTS: EngineFacts = {
@@ -87,7 +88,7 @@ const REFERENCE_REFUSAL =
   /must conform to.*exists\(\)|ON (?:DELETE|UPDATE) REJECT/s;
 const OUT_OF_RANGE =
   /Expected `(?:none \| )?i32` but found|must conform to.*math::abs|Cannot perform (?:addition|subtraction|multiplication) with/s;
-const TOO_DEEP = /Exceeded query recursion depth limit/;
+const TOO_DEEP = /Exceeded (?:query|expression) recursion depth limit/;
 
 /**
  * A provider failure in viborm's own words. Refusals carry no code here, so their
@@ -97,8 +98,12 @@ function refusal(error: unknown): unknown {
   const message = error instanceof Error ? error.message : String(error);
   const cause = error instanceof Error ? error : undefined;
   if (isConflict(error)) return new TransactionError(message, { cause });
+  if (message.includes(FORBIDDEN_ROW))
+    return new ForbiddenError("row", "write", { cause });
   if (UNIQUE_REFUSAL.test(message))
-    return new UniqueConstraintError(message, { cause });
+    return new UniqueConstraintError(`Unique constraint failed: ${message}`, {
+      cause,
+    });
   if (REFERENCE_REFUSAL.test(message))
     return new ForeignKeyError(message, { cause });
   if (OUT_OF_RANGE.test(message))
@@ -260,10 +265,12 @@ export class SurrealDriver extends Driver<Surreal, ReplayedTransaction> {
     );
     try {
       // The SDK's client answers the same call.
-      const [result] = await (client as ReplayedTransaction).query<[unknown]>(
+      const answers = await (client as ReplayedTransaction).query<unknown[]>(
         statement,
         values
       );
+      // What a statement holds ahead of itself answers first.
+      const result = answers.at(-1);
       const rows = Array.isArray(result) ? result : [];
       return { rows: plain(rows) as T[], rowCount: rows.length };
     } catch (error) {

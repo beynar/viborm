@@ -1051,6 +1051,47 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
     });
   });
 
+  describe("what a write leaves out of sight", () => {
+    const task = () =>
+      s.model({
+        id: s.string().id(),
+        status: s.string(),
+        owner: s.string(),
+      });
+    it("a created row a caller may not read carries no evidence", async () => {
+      await compare({ task: task() }, async (db) => {
+        const governed = db.$extends({
+          name: "evidence",
+          rows: {
+            default: "on",
+            models: { task: { on: {} } },
+            verbs: {
+              task: {
+                predicates: {
+                  seen: { status: "open" },
+                  own: { owner: "ann" },
+                },
+                read: "seen",
+                place: "own",
+                evidence: { as: "$access", names: ["seen", "own"] },
+              },
+            },
+          },
+        });
+        const created = await caught(() =>
+          governed.task.create({
+            data: { id: "a", status: "closed", owner: "ann" },
+            select: { id: true, $access: true },
+          })
+        );
+        expect(created).toEqual({
+          answer: { id: "a", $access: { seen: false, own: false } },
+        });
+        return { created, rows: await rows(db, "task") };
+      });
+    });
+  });
+
   describe("what a foreign key does when it is no field", () => {
     const seats = (action: "cascade" | "restrict" | "noAction") => {
       const seat = s
@@ -1133,6 +1174,76 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
         return { taken, other };
       });
     });
+  });
+
+  describe("a statement reads a snapshot of what it writes", () => {
+    const tree = () => {
+      const node = s.model({
+        id: s.string().id(),
+        flag: s.boolean(),
+        parentId: s.string().nullable(),
+        parent: s
+          .toOne(() => node)
+          .name("tree")
+          .fields("parentId")
+          .references("id")
+          .onDelete("setNull"),
+        children: s.toMany(() => node).name("tree"),
+      });
+      return { node };
+    };
+    const chain = async (db: any) => {
+      await db.node.create({ data: { id: "a", flag: false } });
+      await db.node.create({ data: { id: "b", flag: false, parentId: "a" } });
+      await db.node.create({ data: { id: "c", flag: false, parentId: "b" } });
+      await db.node.create({ data: { id: "d", flag: false, parentId: "c" } });
+    };
+    it("updateMany whose filter reads rows it writes", async () =>
+      compare(tree(), async (db) => {
+        await chain(db);
+        const result = await db.node.updateMany({
+          where: { parent: { is: { flag: false } } },
+          data: { flag: true },
+        });
+        return { result, rows: await rows(db, "node") };
+      }));
+    it("updateMany filtering on the rows' children", async () =>
+      compare(tree(), async (db) => {
+        await chain(db);
+        const result = await db.node.updateMany({
+          where: { children: { some: { flag: false } } },
+          data: { flag: true },
+        });
+        return { result, rows: await rows(db, "node") };
+      }));
+    it("deleteMany whose filter reads rows it deletes", async () =>
+      compare(tree(), async (db) => {
+        await chain(db);
+        const result = await db.node.deleteMany({
+          where: { children: { some: { flag: false } } },
+        });
+        return { result, rows: await rows(db, "node") };
+      }));
+    it("a nested updateMany whose filter reads its siblings", async () =>
+      compare(tree(), async (db) => {
+        await db.node.create({ data: { id: "p", flag: false } });
+        await db.node.create({ data: { id: "x", flag: false, parentId: "p" } });
+        await db.node.create({ data: { id: "y", flag: false, parentId: "p" } });
+        await db.node.update({
+          where: { id: "p" },
+          data: {
+            children: {
+              updateMany: {
+                where: {
+                  parent: { is: { children: { some: { flag: false } } } },
+                },
+                data: { flag: true },
+              },
+            },
+          },
+        });
+        return rows(db, "node");
+      }));
   });
 
   describe("transactions going back", () => {

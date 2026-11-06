@@ -7,6 +7,8 @@
 
 import { UnsupportedOperationError } from "@errors";
 import {
+  type PreparedDomain,
+  type PreparedPredicate,
   type PreparedProjection,
   type PreparedSelector,
   Queries,
@@ -14,6 +16,12 @@ import {
   type RowCondition,
   type SelectControls,
 } from "@query-engine/raptor3/shared/query";
+import type {
+  CallScope,
+  Condition,
+  Parameter,
+  RowPurpose,
+} from "@query-engine/raptor3/shared/row-scope";
 import type { Arguments, Input } from "@query-engine/raptor3/shared/schema";
 import type { Membership } from "@query-engine/raptor3/shared/storage";
 import { type Sql, sql } from "@sql";
@@ -29,8 +37,71 @@ function refuse(what: string): never {
 }
 
 export class SurrealQueries extends Queries {
-  override under(): Queries {
-    return refuse("row domains");
+  /** A caller's filter on a link row is a test of what a direct read could hide. */
+  refuseHiddenLink(
+    edge: Membership,
+    filter: { readonly linkFields?: readonly string[] }
+  ): void {
+    if (!this.lowersLayer)
+      this.refuseHiddenLinkRow(edge, filter.linkFields!, "filter");
+  }
+
+  override under(domain: PreparedDomain, call?: CallScope): Queries {
+    return new SurrealQueries(
+      this.schema,
+      this.adapter,
+      this.result,
+      domain,
+      call
+    );
+  }
+
+  /** A layer's predicate for this call, read while it lowers: `undefined` where it drops. */
+  layer(
+    node: Extract<PreparedPredicate, { kind: "layer" }>,
+    lower: (resolved: PreparedPredicate) => Sql
+  ): Sql | undefined {
+    const resolved = this.resolve(node);
+    if (resolved === undefined) return undefined;
+    const excluded = (this.excluded ??= []);
+    excluded.push(node.layer);
+    try {
+      return lower(resolved);
+    } finally {
+      excluded.pop();
+    }
+  }
+
+  /** `predicate` among the rows this call may see for `purpose`. */
+  scoped(
+    model: AnyModel,
+    predicate: PreparedPredicate | undefined,
+    purpose: RowPurpose
+  ): PreparedPredicate | undefined {
+    const scope = this.scope(model, purpose)?.predicate;
+    if (scope === undefined) return predicate;
+    return predicate === undefined
+      ? scope
+      : { kind: "and", predicates: [predicate, scope] };
+  }
+
+  /** Whether a layer's predicates are lowering here, which read every column as it is. */
+  get lowersLayer(): boolean {
+    return (this.excluded?.length ?? 0) > 0;
+  }
+
+  /** The order this call's extensions give a read that states none. */
+  orderOf(model: AnyModel): Arguments["orderBy"] {
+    return this.defaultOrder(model);
+  }
+
+  /** What a call's value is, in a domain's condition or operand. */
+  callValue(parameter: Parameter): unknown {
+    return parameter.read(this.values, this.instant);
+  }
+
+  holds(condition: Condition): boolean {
+    return condition.holds(this.values, this.instant);
   }
 
   override read(
@@ -159,15 +230,17 @@ export class SurrealQueries extends Queries {
     membership?: { edge: Membership; parent: Input; outside?: boolean },
     controls: SelectControls = {}
   ): Query {
-    if (controls.unless) refuse("a read excluding a selector");
     if (controls.source) refuse("a read over a write's own rows");
     const projection =
       controls.projection ?? this.prepareProjection(model, args);
-    const predicate = controls.selector
+    const given = controls.selector
       ? controls.selector.predicate
       : args.where === undefined
         ? undefined
         : this.prepareSelector(model, args.where).predicate;
+    const predicate = controls.purpose
+      ? this.scoped(model, given, controls.purpose)
+      : given;
     // A path reads a record's members without scanning the table holding them.
     const path =
       membership?.edge.kind === "junction" &&
@@ -187,6 +260,9 @@ export class SurrealQueries extends Queries {
         : []),
       ...(controls.identity
         ? [this.#lowering.identity(model, controls.identity)]
+        : []),
+      ...(controls.unless?.predicate
+        ? [this.#lowering.predicate(controls.unless.predicate, false)]
         : []),
       ...(controls.row ? [this.#row(model, controls.row)] : []),
     ];

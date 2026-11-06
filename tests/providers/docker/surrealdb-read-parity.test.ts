@@ -641,7 +641,7 @@ describe.skipIf(!surrealUrl)("what a server refuses", () => {
     try {
       await syncLiveSchema(db);
       let select: object = { id: true };
-      for (let depth = 0; depth < 20; depth++)
+      for (let depth = 0; depth < 80; depth++)
         select = { id: true, children: { select } };
       const failure = await db.node
         .findMany({ select })

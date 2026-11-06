@@ -117,6 +117,20 @@ export class AppendKey extends InsertValue {
   ): Promise<readonly unknown[]> {
     const groups = groupsOf(this.within, context.rows, indexes);
     const keys = new Map<number, unknown>();
+    if (context.lastKey) {
+      for (const group of groups) {
+        const list = Object.fromEntries(
+          this.within.map((field, position) => [field, group.values[position]])
+        ) as Input;
+        const made = keysAfter(
+          await context.lastKey(list, context.field),
+          group.at.length
+        );
+        for (const [step, index] of group.at.entries())
+          keys.set(index, made[step]);
+      }
+      return indexes.map((index) => keys.get(index));
+    }
     if (context.dialect === "mysql" && context.read !== undefined) {
       const reads = groups.map(
         (group, position) =>

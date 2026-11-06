@@ -2,7 +2,7 @@
 
 Status: proposal, 2026-11-05. Steps 0 and 1 are done and step 2 is dropped. Steps 3
 to 5 exist as a prototype on the `feat/query-backend` stack, and the shared driver
-contracts pass on it. Extensions are next, if they are wanted before migrations.
+contracts and the official extensions' behaviours pass on it.
 Numbers read from `main` at `e4b09fd64` with an AST pass over the engine.
 
 ## The problem
@@ -182,8 +182,7 @@ reads of SurrealDB and of PGlite over the same rows and compares the answers:
 scalars, order and pages, the filters on nullable fields, to-one and to-many at three
 levels, two relations to one table, and `some`, `none`, `every`, `is`, `isNot`.
 
-It refuses by name what it does not cover: write hooks, tombstones and row domains (so
-soft delete and permissions).
+It refuses by name what it does not cover.
 
 **Writes.** `driver.operationContext` supplies a subclass of `OperationContext` that
 overrides `createMany`, `updateMany`, `deleteMany` and `upsertOne`, the four methods
@@ -341,9 +340,59 @@ far, so this gap is not a like-for-like measure of durability.
 Not measured: declared junctions, variant relations, geography, vectors, concurrent load,
 and anything above 100,000 rows.
 
-Not yet covered: write hooks, tombstones and row domains. A row domain's `{ $row, up }`
-reads an outer row, so a filter holding one cannot be hoisted: `#holders` must learn to
-decline it when row domains arrive. A fragment in a filter is written in the database's own
+**The official extensions.** Hooks, soft delete, permissions and ordering run on SurrealDB through
+their shared behaviours in `surrealdb-extensions.test.ts` and `surrealdb-permissions.test.ts`. What
+they needed:
+
+- **Row domains.** A layer's predicate lowers like any other, with a call's values read from its
+  scope. Relation reads, relation filters, counts and cursors each read among the rows the call may
+  see, as the SQL lowering does. A read-gated field reads absent to a caller's filter, order, group
+  and aggregate on a row that does not carry it.
+- **Judged writes.** A create judges its rows before it writes, and an update judges them as it would
+  leave them, `SELECT *, value AS field`, in the same statement. So a refusal comes before a unique
+  index or a reference could object, as it does in SQL. A row is refused unless it holds, so a missing
+  value refuses. A rule that a relation stays acyclic walks the new link from each row.
+- **A statement does not read a snapshot of itself.** `UPDATE t SET x WHERE <filter>` evaluates its
+  filter row by row and sees what it has already written, where SQL reads the rows as they were. A
+  policy that reads the caller's own row stopped matching once that row was written. A bulk write
+  whose filter reads other rows finds its rows first and writes the list.
+- **Repeated subqueries.** A policy states one subquery per action it answers, and a read holding
+  `$access` states them all. The lists a statement holds ahead of itself are shared by their text and
+  values, which took one suite from 438 s to 66 s.
+- **The parser.** These statements nest deep. The server needs
+  `SURREAL_MAX_QUERY_PARSING_DEPTH=128` for the acceptance estate; below what a statement needs, the
+  read refuses by name and says so. Nothing was measured beyond that estate.
+- **Partial unique indexes.** SurrealDB has none. A computed field is the indexed value where the
+  predicate holds and `NONE` where it does not, and `NONE` is not indexed. Several columns are one text,
+  since an array is indexed member by member. Only columns set or unset can be stated; anything else
+  refuses by name. An index cannot share a transaction with rewriting its table's rows, so adding one
+  to a populated table runs statement by statement.
+- **Restricted junctions.** A record's edges go before an event could object, so `restrict` on a
+  many-to-many is the driver's, which reads them before a delete or a key change. A raw delete does
+  not hold back.
+- **Ordering.** An appended key reads the list's last key first, as on MySQL, through
+  `InsertValueContext.lastKey`. A move already reads its neighbours through the delegates. Respacing
+  reads its lists and writes each row in one statement, through `JoinedValue.plan()`; SQL's is one
+  `UPDATE ... FROM`. Keys may tie under concurrent appends, as a move handles.
+
+**Limits a suite found once it ran here.**
+
+- **A long literal beside an `IF`.** An `IF` in one block with a literal list takes about the cube of
+  its length, and the server cannot stop it: 800 rows took 6 s, 1,600 never ended and held a core past
+  a kill signal. A list a write reads is held outside the block, or bound whole.
+- **About 65,000 values in one statement** ("IR table full"). A list whose members are each one value
+  is one parameter, so 12,000 judged rows and 40,000 ids pass.
+- **64 open transactions per connection**, past which the server refuses. The rest wait, as for a pool.
+- **A record's key is not an instant or a decimal.** A key of either type is its text.
+- **A generated column beside a record's id** refuses at push. A sequence reaches only the id.
+- **A key moved through a relation**, and a key held by another key, refuse by name.
+
+What a judgement can read goes further here. A list's appended value and a sequence's next value are
+known before the write, so they are judged as any value, where SQL refuses to judge what only the
+statement computes.
+
+What stays different here: a hook's rows of a nested clear read after the write, and a statement count
+differs where a test states SQL's plan, each waived by name. A fragment in a filter is written in the database's own
 language: arithmetic and comparisons read the same in both, and a SQL subquery fails at the
 server. A key is its public text here, so comparing it with a plain string column answers
 from that text, where the other providers refuse.

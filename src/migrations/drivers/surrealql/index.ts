@@ -85,6 +85,10 @@ function refuse(what: string): never {
   );
 }
 
+const PREDICATE_AND = /\s+AND\s+/i;
+const PREDICATE_TERM = /^(?:"([^"]+)"|(\w+))\s+IS\s+(NOT\s+)?NULL$/i;
+const partialField = (index: string) => `partial_${index}`;
+
 /** What a table's comment says: the names and types a record's key does not hold. */
 type TableFacts = {
   readonly key?: readonly { readonly name: string; readonly type: string }[];
@@ -118,6 +122,12 @@ type IndexInfo = {
   readonly name: string;
   readonly cols: readonly string[];
   readonly index?: unknown;
+  readonly comment?: string;
+};
+/** What a partial index's comment says, since its fields are a computed one. */
+type PartialFacts = {
+  readonly where: string;
+  readonly columns: readonly string[];
 };
 type EventInfo = { readonly name: string; readonly comment?: string };
 type TableInfo = {
@@ -160,6 +170,16 @@ export class SurrealMigrationDriver extends MigrationDriver {
     reset?: boolean
   ): boolean {
     if (reset) return true;
+    // Its rows are rewritten first, which an index cannot share a transaction with.
+    if (
+      operations.some(
+        (operation) =>
+          operation.type === "createIndex" &&
+          operation.index.unique &&
+          operation.index.where
+      )
+    )
+      return true;
     const backfilled = new Set(
       operations.flatMap((operation) =>
         operation.type === "addColumn" &&
@@ -416,21 +436,58 @@ export class SurrealMigrationDriver extends MigrationDriver {
     table: string,
     name: string,
     columns: readonly string[],
-    unique: boolean
+    unique: boolean,
+    comment?: unknown
   ): string {
-    return `DEFINE INDEX ${this.escapeIdentifier(name)} ON ${this.escapeIdentifier(table)} FIELDS ${columns.map((column) => this.escapeIdentifier(column)).join(", ")}${unique ? " UNIQUE" : ""};`;
+    const facts =
+      comment === undefined
+        ? ""
+        : ` COMMENT ${JSON.stringify(JSON.stringify(comment))}`;
+    return `DEFINE INDEX ${this.escapeIdentifier(name)} ON ${this.escapeIdentifier(table)} FIELDS ${columns.map((column) => this.escapeIdentifier(column)).join(", ")}${unique ? " UNIQUE" : ""}${facts};`;
   }
 
-  private plainIndex(table: TableDef, index: IndexDef): string {
-    if (index.where) refuse(`the partial index '${index.name}'`);
+  /**
+   * An index with no native partial form. A unique one holds over a computed field,
+   * which is `NONE` outside the predicate and so is not indexed. An array would be
+   * indexed member by member, so several columns are one text. One that only speeds
+   * reads loses nothing by covering every row.
+   */
+  private plainIndex(
+    table: TableDef,
+    index: IndexDef,
+    populated = false
+  ): string[] {
     if (index.type && index.type !== "btree")
       refuse(`the ${index.type} index '${index.name}'`);
-    return this.index(
-      table.name,
-      index.name,
-      index.columns.map((column) => partName(table, column)),
-      index.unique
-    );
+    const columns = index.columns.map((column) => partName(table, column));
+    if (!index.where)
+      return [this.index(table.name, index.name, columns, index.unique)];
+    const condition = this.partialCondition(table, index);
+    const facts: PartialFacts = { where: index.where, columns: index.columns };
+    if (!index.unique)
+      return [this.index(table.name, index.name, columns, false, facts)];
+    const self = this.escapeIdentifier(table.name);
+    const read = columns.map((column) => this.escapeIdentifier(column));
+    const value = read.length === 1 ? read[0] : `<string>[${read.join(", ")}]`;
+    const field = partialField(index.name);
+    return [
+      `DEFINE FIELD OVERWRITE ${this.escapeIdentifier(field)} ON ${self} TYPE any VALUE IF ${condition} { ${value} } ELSE { NONE } COMMENT ${JSON.stringify(JSON.stringify({ partial: true }))};`,
+      ...(populated ? [`UPDATE ${self} RETURN NONE;`] : []),
+      this.index(table.name, index.name, [field], true, facts),
+    ];
+  }
+
+  /** A predicate SurrealDB can hold as written: columns set or unset, together. */
+  private partialCondition(table: TableDef, index: IndexDef): string {
+    return index
+      .where!.split(PREDICATE_AND)
+      .map((term) => {
+        const stated = PREDICATE_TERM.exec(term.trim());
+        if (!stated) refuse(`the partial index '${index.name}'`);
+        const column = stated![1] ?? stated![2]!;
+        return `${this.escapeIdentifier(partName(table, column))} ${stated![3] ? "!=" : "="} NONE`;
+      })
+      .join(" AND ");
   }
 
   /** The events that do what a foreign key holding no record says. */
@@ -545,13 +602,8 @@ export class SurrealMigrationDriver extends MigrationDriver {
             ),
           ];
     });
-    // A record's edges go with it and follow its key, before anything can object.
-    for (const fk of [first, second])
-      for (const action of [fk.onDelete, fk.onUpdate])
-        if (action !== undefined && action !== "cascade")
-          refuse(
-            `the action '${action}' on the junction '${table.name}': a record's edges go with it`
-          );
+    // A record's edges go with it, before anything can object, so holding one back
+    // is the engine's, which reads them before it deletes or rekeys it.
     return singular.length === 0
       ? [
           `DEFINE TABLE ${name} TYPE RELATION ${ends} LIGHTWEIGHT COMMENT ${comment};`,
@@ -588,9 +640,15 @@ export class SurrealMigrationDriver extends MigrationDriver {
       { ...table, foreignKeys: [...table.foreignKeys, ...lifted] },
       key
     );
+    // A record's id is what a sequence can make here, as what it is told at insert.
+    for (const column of table.columns)
+      if (column.autoIncrement && (key.length !== 1 || key[0] !== column.name))
+        refuse(
+          `the generated column '${table.name}.${column.name}' beside a record's id`
+        );
     const keyField =
       key.length === 1
-        ? `DEFINE FIELD id ON ${name} TYPE ${keyKind(columnOf(key[0]!).type)};`
+        ? `DEFINE FIELD id ON ${name} TYPE ${wholeKeyKind(columnOf(key[0]!).type)};`
         : parts
           ? `DEFINE FIELD id ON ${name} TYPE [${parts.map(({ part, kind }) => `${part}: ${kind}`).join(", ")}];`
           : undefined;
@@ -621,7 +679,7 @@ export class SurrealMigrationDriver extends MigrationDriver {
           true
         )
       ),
-      ...table.indexes.map((index) => this.plainIndex(table, index)),
+      ...table.indexes.flatMap((index) => this.plainIndex(table, index)),
       ...table.foreignKeys.flatMap((fk) =>
         this.holdsRecord(fk, context, table, key)
           ? []
@@ -736,12 +794,17 @@ export class SurrealMigrationDriver extends MigrationDriver {
       foreignKeys: [],
       uniqueConstraints: [],
     };
-    return [this.plainIndex(table, index)];
+    return this.plainIndex(
+      table,
+      index,
+      this.liveTable(tableName, context) !== undefined
+    );
   }
 
   generateDropIndex({ tableName, indexName }: DropIndexOperation): string[] {
     return [
       `REMOVE INDEX ${this.escapeIdentifier(indexName)} ON ${this.escapeIdentifier(tableName)};`,
+      `REMOVE FIELD IF EXISTS ${this.escapeIdentifier(partialField(indexName))} ON ${this.escapeIdentifier(tableName)};`,
     ];
   }
 
@@ -985,6 +1048,11 @@ function keyKind(type: string): string {
   return type === "i32" ? "int" : type;
 }
 
+/** A record's key cannot be an instant or a decimal, so a key that is one is its text. */
+function wholeKeyKind(type: string): string {
+  return type === "datetime" || type === "decimal" ? "string" : keyKind(type);
+}
+
 /** The names of a compound key's parts, or undefined where one cannot be named. */
 function namedKeyParts(
   table: TableDef,
@@ -1026,7 +1094,14 @@ function tableFrom(
   // A reserved word comes back as it must be written.
   const fields = info.fields
     .map((field) => ({ ...field, name: field.name.replaceAll("`", "") }))
-    .filter((field) => !(field.name === "id" || field.name.includes(".")));
+    .filter(
+      (field) =>
+        !(
+          field.name === "id" ||
+          field.name.includes(".") ||
+          parsed<{ partial?: boolean }>(field.comment).partial
+        )
+    );
   const columns: ColumnDef[] = [
     ...key.map(({ name: column, type }) => ({
       name: column,
@@ -1071,6 +1146,16 @@ function tableFrom(
   const uniqueConstraints: UniqueConstraintDef[] = [];
   const indexes: IndexDef[] = [];
   for (const index of info.indexes) {
+    const partial = parsed<Partial<PartialFacts>>(index.comment);
+    if (partial.where) {
+      indexes.push({
+        name: index.name,
+        columns: [...partial.columns!],
+        unique: index.index === "UNIQUE",
+        where: partial.where,
+      });
+      continue;
+    }
     const columns = partsBack(index.cols);
     // The differ reads a unique index and a unique constraint as one.
     if (index.index === "UNIQUE")

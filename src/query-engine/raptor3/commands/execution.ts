@@ -2656,7 +2656,12 @@ export function namesKeyConstraint(
     context.queries.columnName(model, field)
   );
   const constraints = adapterConstraints(context.driver.adapter);
-  if (!constraints) return false;
+  // A database whose refusals name no constraint says which columns it found.
+  if (!constraints)
+    return (
+      error.meta.table === table &&
+      error.meta.columns?.join() === columns.join()
+    );
   const expected = (
     key.kind === "primary"
       ? constraints.primaryKey(table, columns)
