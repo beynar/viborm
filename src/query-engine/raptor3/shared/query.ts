@@ -8345,23 +8345,31 @@ export class Queries {
         ),
       }),
       shape: prepared.shape,
-      expectedRows: {
-        count: identities.length,
-        missing:
-          operation === "createMany"
-            ? new QueryEngineError(
-                "createMany with 'select' could not read back one of the created rows at the primary key it reported. A later row in the same call moved that row's primary key; use the '{ count }' form, or write those rows in separate calls."
-              )
-            : new TransactionError(
-                "updateMany with 'select' could not read back one of the updated rows at its final primary key.",
-                {
-                  meta: {
-                    model: model["~"].names.ts ?? "unknown",
-                    operation: "updateMany",
-                  },
-                }
-              ),
-      },
+      expectedRows: this.seriesExpectation(model, identities.length, operation),
+    };
+  }
+  /** What a read-back owes its write: every row it names, or the write's refusal. */
+  protected seriesExpectation(
+    model: AnyModel,
+    count: number,
+    operation: "createMany" | "updateMany"
+  ): NonNullable<Query["expectedRows"]> {
+    return {
+      count,
+      missing:
+        operation === "createMany"
+          ? new QueryEngineError(
+              "createMany with 'select' could not read back one of the created rows at the primary key it reported. A later row in the same call moved that row's primary key; use the '{ count }' form, or write those rows in separate calls."
+            )
+          : new TransactionError(
+              "updateMany with 'select' could not read back one of the updated rows at its final primary key.",
+              {
+                meta: {
+                  model: model["~"].names.ts ?? "unknown",
+                  operation: "updateMany",
+                },
+              }
+            ),
     };
   }
   /** The `_count` member of a projection, out of line: most reads have none. */

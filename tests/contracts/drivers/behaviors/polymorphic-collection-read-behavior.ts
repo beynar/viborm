@@ -238,7 +238,7 @@ export function runPolymorphicCollectionReadBehavior(
         const target = sql`type::record(${`coll_contract_${column.replace("Id", "")}s`}, ${targetId})`;
         const galleryFirst = column > "galleryId";
         await client.$executeRaw(
-          sql`INSERT RELATION INTO ${tableRef(table)} { in: ${galleryFirst ? gallery : target}, out: ${galleryFirst ? target : gallery} }`
+          sql`RELATE (${galleryFirst ? gallery : target})->${tableRef(table)}->(${galleryFirst ? target : gallery})`
         );
         return;
       }

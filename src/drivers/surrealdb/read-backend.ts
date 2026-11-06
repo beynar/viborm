@@ -44,8 +44,14 @@ type VariantJunctionMember = Extract<
 >["members"][number];
 
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const INDEX = /^\d+$/;
+/** What a path reads as an array index, as PostgreSQL's `#>` does: `01` and `-1` too. */
+const INDEX = /^-?\d{1,9}$/;
 const QUOTABLE = /^[A-Za-z0-9_]+$/;
+/**
+ * How many rows a filter's body reads ahead of a page before it stops: past this,
+ * walking the page's own rows finds what it needs sooner than listing every holder.
+ */
+const HOLDERS_AHEAD = 1000;
 /** How deep an exhaustive walk goes: as deep as a SurrealDB recursion may. */
 const MAX_WALK = 256;
 
@@ -167,9 +173,11 @@ export function quantized(
   return sql`(math::round(${value} * ${factor}) / ${factor})`;
 }
 
-/** One step of a JSON path: an index where it reads as one. */
-function jsonStep(step: string): string {
-  return INDEX.test(step) ? `[${step}]` : `[${JSON.stringify(step)}]`;
+/** One step of a JSON path: a key, bound, or both of what a number can name. */
+function jsonStep(at: Sql, step: string): Sql {
+  return INDEX.test(step)
+    ? sql`(IF type::is_array(${at}) { array::at(${at}, ${sql.raw(String(Number(step)))}) } ELSE { ${at}[${step}] })`
+    : sql`${at}[${step}]`;
 }
 
 export class SurrealReadBackend implements ReadBackend {
@@ -179,7 +187,51 @@ export class SurrealReadBackend implements ReadBackend {
     this.#queries = queries;
   }
 
+  /** The subqueries a statement computes once, ahead of itself, while it is built. */
+  #lets: Sql[] | undefined;
+  #hoists = 0;
+  #guardsCursor = false;
+  #cursorGuard: Sql | undefined;
+  /** The relation filter a page reads by walking, with its list already too long. */
+  #walking: PreparedPredicate | undefined;
+
+  /**
+   * A statement that may compute what reads no row ahead of itself. A list held
+   * in a variable reads each of its records by key, where the same subquery in a
+   * `WHERE` is probed row by row, and it stays one statement, so one transaction.
+   */
+  hoisted(build: () => Sql): Sql {
+    if (this.#lets) return build();
+    this.#lets = [];
+    this.#hoists = 0;
+    try {
+      const body = build();
+      return this.#lets.length
+        ? sql`RETURN { ${sql.join(this.#lets, " ")} ${body} }`
+        : body;
+    } finally {
+      this.#lets = undefined;
+    }
+  }
+
+  #hoist(expression: Sql): Sql | undefined {
+    if (!this.#lets) return undefined;
+    this.#hoists += 1;
+    const variable = sql.raw(`$h${this.#hoists}`);
+    this.#lets.push(sql`LET ${variable} = ${expression};`);
+    return variable;
+  }
+
   read(model: AnyModel, operation: ReadOperation, args: Arguments): Read {
+    let read: Read | undefined;
+    const statement = this.hoisted(() => {
+      read = this.#read(model, operation, args);
+      return read.query.sql;
+    });
+    return { ...read!, query: { ...read!.query, sql: statement } };
+  }
+
+  #read(model: AnyModel, operation: ReadOperation, args: Arguments): Read {
     const q = this.#queries;
     const projected = () => q.prepareProjection(model, args);
     switch (operation) {
@@ -355,12 +407,12 @@ export class SurrealReadBackend implements ReadBackend {
       const column = this.physical(edge.target, target);
       if (
         isSingleKey(q, edge.target, target) &&
-        !this.#holdsRecord(edge.source, source)
+        !this.holdsRecord(edge.source, source)
       )
         return sql`id = type::record(${tableOf(edge.target)}, ${keyCast(edge.target, target, parent)})`;
       if (
         isSingleKey(q, edge.source, source) &&
-        !this.#holdsRecord(edge.target, target)
+        !this.holdsRecord(edge.target, target)
       ) {
         const key = sql`record::id(${parent})`;
         return sql`${column} = ${edge.discriminator ? this.#carried(edge.target, target, key) : key}`;
@@ -382,18 +434,16 @@ export class SurrealReadBackend implements ReadBackend {
 
   /** The rows an aggregate reads: the filtered table, or its page. */
   #rows(model: AnyModel, args: Arguments): Sql {
-    const predicate = this.#filter(model, args);
+    const { from, rest } = this.#driven(model, this.#filter(model, args));
     const paged =
       args.take !== undefined ||
       args.skip !== undefined ||
       args.cursor !== undefined;
     if (paged) {
-      const { extras, clauses } = this.#clauses(model, args, predicate);
-      return sql`(SELECT ${sql.join([sql.raw("*"), ...extras], ", ")} FROM ${name(tableOf(model))} ${sql.join(clauses, " ")})`;
+      const { extras, clauses } = this.#clauses(model, args, rest);
+      return sql`(SELECT ${sql.join([sql.raw("*"), ...extras], ", ")} FROM ${from} ${sql.join(clauses, " ")})`;
     }
-    return predicate
-      ? sql`${name(tableOf(model))} WHERE ${this.predicate(predicate, true)}`
-      : name(tableOf(model));
+    return rest ? sql`${from} WHERE ${this.predicate(rest, true)}` : from;
   }
 
   /**
@@ -407,8 +457,14 @@ export class SurrealReadBackend implements ReadBackend {
       inner.set(alias, sql`${expression} AS ${name(alias)}`);
       return name(alias);
     };
+    // A field that is always there has as many values as rows.
     const seen = (field: string) =>
-      flat(`__n_${field}`, sql`count(${this.physical(model, field)} != NONE)`);
+      model["~"].state.scalars[field]?.["~"].state.nullable
+        ? flat(
+            `__n_${field}`,
+            sql`count(${this.physical(model, field)} != NONE)`
+          )
+        : flat("__count__all", sql`count()`);
     const of = (aggregate: string, field: string) => {
       if (aggregate === "_count" && field === "_all")
         return flat("__count__all", sql`count()`);
@@ -454,9 +510,15 @@ export class SurrealReadBackend implements ReadBackend {
       fields[aggregate] = { kind: "object", fields: leaves };
     }
     const having = args.having
-      ? this.#having(model, args.having as Input, of, seen)
+      ? this.#having(model, args.having as Input, of, seen, true)
       : undefined;
-    const order = this.#groupOrder(model, args.orderBy, of, by);
+    const { order, flags } = this.#groupOrder(
+      model,
+      args.orderBy,
+      of,
+      seen,
+      by
+    );
     if (by.length === 0 && inner.size === 0) flat("__count__all", sql`count()`);
     const grouping = by.length
       ? sql`GROUP BY ${sql.join(
@@ -485,7 +547,7 @@ export class SurrealReadBackend implements ReadBackend {
     return {
       sql: sql.join(
         [
-          sql`SELECT ${sql.join(outer.length ? outer : [sql.raw("true AS __row")], ", ")} FROM (SELECT ${sql.join([...inner.values()], ", ")} FROM ${rows} ${grouping})`,
+          sql`SELECT ${sql.join(outer.length || flags.length ? [...outer, ...flags] : [sql.raw("true AS __row")], ", ")} FROM (SELECT ${sql.join([...inner.values()], ", ")} FROM ${rows} ${grouping})`,
           ...clauses,
         ],
         " "
@@ -518,32 +580,40 @@ export class SurrealReadBackend implements ReadBackend {
     };
   }
 
+  /**
+   * `positive` carries a negation down to each comparison, as a filter's does: an
+   * aggregate of no values is NULL, whose comparison holds neither way.
+   */
   #having(
     model: AnyModel,
     having: Input,
     of: (aggregate: string, field: string) => Sql,
-    seen: (field: string) => Sql
+    seen: (field: string) => Sql,
+    positive: boolean
   ): Sql {
     const clauses: Sql[] = [];
+    const all = positive ? " AND " : " OR ";
+    const any = positive ? " OR " : " AND ";
     for (const [key, value] of Object.entries(having)) {
       if (value === undefined) continue;
       if (key === "AND" || key === "OR" || key === "NOT") {
         const arms = [value]
           .flat()
-          .map((arm) => this.#having(model, arm as Input, of, seen));
+          .map((arm) =>
+            this.#having(
+              model,
+              arm as Input,
+              of,
+              seen,
+              positive === (key !== "NOT")
+            )
+          );
         if (arms.length === 0) {
           // An empty OR holds of nothing; an empty AND or NOT asks nothing.
-          if (key === "OR") clauses.push(sql.raw("false"));
+          if (key === "OR") clauses.push(sql.raw(positive ? "false" : "true"));
           continue;
         }
-        clauses.push(
-          key === "NOT"
-            ? sql`(${sql.join(
-                arms.map((arm) => sql`!(${arm})`),
-                " AND "
-              )})`
-            : sql`(${sql.join(arms, key === "OR" ? " OR " : " AND ")})`
-        );
+        clauses.push(sql`(${sql.join(arms, key === "OR" ? any : all)})`);
         continue;
       }
       const filter = value as Input;
@@ -554,91 +624,139 @@ export class SurrealReadBackend implements ReadBackend {
         clauses.push(
           this.predicate(
             this.#queries.prepareSelector(model, { [key]: value }).predicate!,
-            true
+            positive
           )
         );
         continue;
       }
       for (const aggregate of aggregated) {
-        const expression = of(aggregate, key);
-        const asked = filter[aggregate] as Input;
-        // An aggregate of no values is NULL, whatever `math::sum` says of them.
-        const guard = aggregate === "_count" ? undefined : seen(key);
-        if (guard && asked.equals === null) {
-          clauses.push(sql`${guard} = 0`);
-          continue;
-        }
-        const test = this.#compare(
-          model,
-          key,
-          aggregate === "_count",
-          expression,
-          asked
+        const counted = aggregate === "_count";
+        clauses.push(
+          this.#compare(
+            model,
+            key,
+            counted,
+            of(aggregate, key),
+            filter[aggregate] as Input,
+            positive,
+            counted ? undefined : seen(key)
+          )
         );
-        clauses.push(guard ? sql`(${guard} > 0 AND ${test})` : test);
       }
     }
     return clauses.length
-      ? sql`(${sql.join(clauses, " AND ")})`
-      : sql.raw("true");
+      ? sql`(${sql.join(clauses, all)})`
+      : sql.raw(positive ? "true" : "false");
   }
 
+  /** `seen`, where one is given, counts the values: none is an aggregate's NULL. */
   #compare(
     model: AnyModel,
     field: string,
     counted: boolean,
     expression: Sql,
-    filter: Input
+    filter: Input,
+    positive: boolean,
+    seen?: Sql
   ): Sql {
     const bind = (value: unknown) =>
       counted ? sql`${value}` : this.value(model, field, value);
     const given = Object.entries(filter).filter(
       ([, operand]) => operand !== undefined
     );
-    if (given.length === 0) return sql.raw("true");
+    if (given.length === 0) return sql.raw(positive ? "true" : "false");
+    const known = (test: Sql) => {
+      const asked = positive ? test : sql`!(${test})`;
+      return seen ? sql`(${seen} > 0 AND ${asked})` : asked;
+    };
     const tests = given.map(([operator, operand]) => {
+      const nested = (inner: Input, sign: boolean) =>
+        this.#compare(model, field, counted, expression, inner, sign, seen);
+      if (operator === "not") return nested({ equals: operand }, !positive);
+      if (operator === "equals" && operand === null) {
+        if (!seen) return sql.raw(positive ? "false" : "true");
+        return sql`${seen} ${sql.raw(positive ? "=" : ">")} 0`;
+      }
       if (COMPARISONS[operator])
-        return sql`${expression} ${sql.raw(COMPARISONS[operator])} ${bind(operand)}`;
-      if (operator === "not")
-        return typeof operand === "object" && operand !== null
-          ? sql`!(${this.#compare(model, field, counted, expression, operand as Input)})`
-          : sql`${expression} != ${bind(operand)}`;
-      if (operator === "in" || operator === "notIn")
-        return sql`${expression} ${sql.raw(operator === "in" ? "IN" : "NOT IN")} [${sql.join(
-          (operand as unknown[]).map(bind),
-          ", "
-        )}]`;
+        return known(
+          sql`${expression} ${sql.raw(COMPARISONS[operator])} ${bind(operand)}`
+        );
+      if (operator === "in" || operator === "notIn") {
+        const members = operand as unknown[];
+        // An empty list asks nothing of the group, so a missing value does not matter.
+        if (members.length === 0)
+          return sql.raw(
+            (operator === "notIn") === positive ? "true" : "false"
+          );
+        return known(
+          sql`${expression} ${sql.raw(operator === "in" ? "IN" : "NOT IN")} [${sql.join(members.map(bind), ", ")}]`
+        );
+      }
       return refuse(`the '${operator}' operator in a having`);
     });
-    return sql`(${sql.join(tests, " AND ")})`;
+    return sql`(${sql.join(tests, positive ? " AND " : " OR ")})`;
   }
 
+  /** A group's order, with a flag for what is NULL: as PostgreSQL, the largest. */
   #groupOrder(
-    _model: AnyModel,
+    model: AnyModel,
     input: unknown,
     of: (aggregate: string, field: string) => Sql,
+    seen: (field: string) => Sql,
     by: readonly string[]
-  ): Sql[] {
-    const terms: Sql[] = [];
-    for (const order of input === undefined ? [] : [input].flat()) {
-      for (const [key, spec] of Object.entries(order as Input)) {
+  ): { readonly order: Sql[]; readonly flags: Sql[] } {
+    const order: Sql[] = [];
+    const flags: Sql[] = [];
+    const nullable = (field: string) =>
+      model["~"].state.scalars[field]?.["~"].state.nullable === true;
+    const term = (
+      value: Sql,
+      missing: Sql | undefined,
+      sort: unknown,
+      nulls?: unknown
+    ) => {
+      if (missing) {
+        const flag = name(`__m${flags.length}`);
+        flags.push(sql`(${missing}) AS ${flag}`);
+        const first =
+          (nulls ?? (sort === "desc" ? "first" : "last")) === "first";
+        order.push(sql`${flag} ${sql.raw(first ? "DESC" : "ASC")}`);
+      }
+      order.push(sql`${value} ${sql.raw(sort === "desc" ? "DESC" : "ASC")}`);
+    };
+    for (const entry of input === undefined ? [] : [input].flat()) {
+      for (const [key, spec] of Object.entries(entry as Input)) {
         if (spec === undefined) continue;
         if (AGGREGATE_NAMES.includes(key)) {
           for (const [field, direction] of Object.entries(spec as Input))
-            terms.push(
-              sql`${of(key, field)} ${sql.raw(direction === "desc" ? "DESC" : "ASC")}`
+            term(
+              of(key, field),
+              key !== "_count" && field !== "_all" && nullable(field)
+                ? sql`${seen(field)} = 0`
+                : undefined,
+              direction
             );
           continue;
         }
-        const sort = typeof spec === "string" ? spec : (spec as Input).sort;
-        terms.push(
-          sql`${name(key)} ${sql.raw(sort === "desc" ? "DESC" : "ASC")}`
+        const { sort, nulls } = (
+          typeof spec === "string" ? { sort: spec } : spec
+        ) as Input;
+        term(
+          name(key),
+          nullable(key) ? sql`${name(key)} = NONE` : undefined,
+          sort,
+          nulls
         );
       }
     }
-    return terms.length || by.length === 0
-      ? terms
-      : by.map((field) => sql`${name(field)} ASC`);
+    if (order.length === 0)
+      for (const field of by)
+        term(
+          name(field),
+          nullable(field) ? sql`${name(field)} = NONE` : undefined,
+          "asc"
+        );
+    return { order, flags };
   }
 
   /** The key order, as a mutation limit reads it. */
@@ -664,14 +782,59 @@ export class SurrealReadBackend implements ReadBackend {
     args: Partial<Arguments>,
     predicate: PreparedPredicate | undefined,
     conditions: readonly Sql[] = [],
-    from: Sql = name(tableOf(model))
+    path?: Sql
   ): Sql {
-    const { extras, clauses } = this.#clauses(
+    if (path || args.distinct?.length)
+      return this.#page(
+        model,
+        prepared,
+        args,
+        path ?? name(tableOf(model)),
+        predicate,
+        conditions
+      );
+    const { from, rest, ahead } = this.#driven(
       model,
+      predicate,
+      args.take !== undefined
+    );
+    const listed = this.#page(model, prepared, args, from, rest, conditions);
+    if (!ahead) return listed;
+    // The list is complete or it is not, and only a read can tell. What the walk
+    // computes for itself waits in its own branch, where it may never run.
+    const lets = this.#lets;
+    const own: Sql[] = [];
+    this.#lets = own;
+    this.#walking = ahead.arm;
+    const walked = this.#page(
+      model,
+      prepared,
       args,
+      name(tableOf(model)),
       predicate,
       conditions
     );
+    this.#walking = undefined;
+    this.#lets = lets;
+    return sql`IF array::len(${ahead.rows}) < ${sql.raw(String(HOLDERS_AHEAD))} { ${listed} } ELSE { ${sql.join([...own, walked], " ")} }`;
+  }
+
+  /** One page of rows, from wherever a statement reads them. */
+  #page(
+    model: AnyModel,
+    prepared: PreparedProjection,
+    args: Partial<Arguments>,
+    from: Sql,
+    rest: PreparedPredicate | undefined,
+    conditions: readonly Sql[]
+  ): Sql {
+    this.#cursorGuard = undefined;
+    this.#guardsCursor = true;
+    const { extras, clauses } = this.#clauses(model, args, rest, conditions);
+    this.#guardsCursor = false;
+    const guard = this.#cursorGuard as Sql | undefined;
+    const guarded = (body: Sql) =>
+      guard ? sql`IF ${guard} { ${body} } ELSE { [] }` : body;
     // An alias that names another column would answer an `ORDER BY` of it, so
     // the rows are chosen under their own names and named after.
     const columns = this.#queries.schema.storedFields(model);
@@ -683,19 +846,23 @@ export class SurrealReadBackend implements ReadBackend {
       )
     );
     if (shadowed)
-      return sql`SELECT ${this.columns(prepared)} FROM (${sql.join(
+      return guarded(
+        sql`SELECT ${this.columns(prepared)} FROM (${sql.join(
+          [
+            sql`SELECT ${sql.join([sql.raw("*"), ...extras], ", ")} FROM ${from}`,
+            ...clauses,
+          ],
+          " "
+        )})`
+      );
+    return guarded(
+      sql.join(
         [
-          sql`SELECT ${sql.join([sql.raw("*"), ...extras], ", ")} FROM ${from}`,
+          sql`SELECT ${sql.join([this.columns(prepared), ...extras], ", ")} FROM ${from}`,
           ...clauses,
         ],
         " "
-      )})`;
-    return sql.join(
-      [
-        sql`SELECT ${sql.join([this.columns(prepared), ...extras], ", ")} FROM ${from}`,
-        ...clauses,
-      ],
-      " "
+      )
     );
   }
 
@@ -712,6 +879,14 @@ export class SurrealReadBackend implements ReadBackend {
       ),
       " AND "
     );
+  }
+
+  /** The record a row's key fields name, however many there are. */
+  recordOfRow(model: AnyModel, row: Input): Sql {
+    const keys = this.#queries.keyOrder(model);
+    return keys.length === 1
+      ? this.value(model, keys[0]!, row[keys[0]!])
+      : sql`${this.recordOf(model, row)}`;
   }
 
   /** A compound key's record. */
@@ -806,6 +981,10 @@ export class SurrealReadBackend implements ReadBackend {
       near: name(outward ? "in" : "out"),
       far: name(outward ? "out" : "in"),
       hop: sql.raw(`${arrow}${name(edge.table).toStatement()}${arrow}`),
+      back: sql.raw(
+        `${outward ? "<-" : "->"}${name(edge.table).toStatement()}${outward ? "<-" : "->"}`
+      ),
+      out: sql.raw(`${arrow}${name(edge.table).toStatement()}`),
     };
   }
 
@@ -821,13 +1000,12 @@ export class SurrealReadBackend implements ReadBackend {
   /** Whether a field reads as a record: a key, or a link to one. */
   #isRecord(model: AnyModel, field: string): boolean {
     return (
-      isSingleKey(this.#queries, model, field) ||
-      this.#holdsRecord(model, field)
+      isSingleKey(this.#queries, model, field) || this.holdsRecord(model, field)
     );
   }
 
   /** Whether a model's field holds a record rather than the key's own value. */
-  #holdsRecord(model: AnyModel, field: string): boolean {
+  holdsRecord(model: AnyModel, field: string): boolean {
     const q = this.#queries;
     return Object.keys(model["~"].state.relations).some((slot) => {
       const { edges } = q.countedMemberships(model, slot);
@@ -851,7 +1029,7 @@ export class SurrealReadBackend implements ReadBackend {
       const held = sql`${sql.raw(row)}.${this.physical(side.model, pair.referencedField)}`;
       const plainKey =
         isSingleKey(this.#queries, side.model, pair.referencedField) &&
-        !this.#holdsRecord(link, field);
+        !this.holdsRecord(link, field);
       return sql`${this.physical(link, field)} = ${plainKey ? sql`record::id(${held})` : held}`;
     });
   }
@@ -868,7 +1046,7 @@ export class SurrealReadBackend implements ReadBackend {
       const column = this.physical(link, field);
       return {
         read: row ? sql`${sql.raw(row)}.${column}` : column,
-        record: this.#holdsRecord(link, field),
+        record: this.holdsRecord(link, field),
       };
     });
     if (parts.length === 1 && parts[0]!.record) return parts[0]!.read;
@@ -955,7 +1133,7 @@ export class SurrealReadBackend implements ReadBackend {
     args: Pick<
       Partial<Arguments>,
       "orderBy" | "take" | "skip" | "cursor" | "distinct"
-    >,
+    > & { readonly unordered?: boolean },
     predicate: PreparedPredicate | undefined,
     conditions: readonly Sql[] = []
   ): { readonly extras: Sql[]; readonly clauses: Sql[] } {
@@ -974,25 +1152,21 @@ export class SurrealReadBackend implements ReadBackend {
     if (this.#distinctly(model, distinct)) {
       // Each tuple's row is chosen in the caller's order, whichever way this page reads.
       const chosen = this.#ordered(forward);
+      // The cursor is among what a tuple's row is chosen from, as `DISTINCT ON`
+      // reads only what its `WHERE` leaves.
       clauses.push(
-        sql`WHERE ${sql.join(
-          [
-            this.#distinct(
-              model,
-              distinct!,
-              located,
-              chosen.order,
-              chosen.extras
-            ),
-            ...cursor,
-          ],
-          " AND "
+        sql`WHERE ${this.#distinct(
+          model,
+          distinct!,
+          [...located, ...cursor],
+          chosen.order,
+          chosen.extras
         )}`
       );
     } else if (located.length + cursor.length > 0) {
       clauses.push(sql`WHERE ${sql.join([...located, ...cursor], " AND ")}`);
     }
-    clauses.push(sql`ORDER BY ${sql.join(order, ", ")}`);
+    if (!args.unordered) clauses.push(sql`ORDER BY ${sql.join(order, ", ")}`);
     // A bound LIMIT is what a nested read's index needs written, so both inline
     // an integer admission has already checked.
     if (args.take !== undefined)
@@ -1074,8 +1248,16 @@ export class SurrealReadBackend implements ReadBackend {
       this.#queries.prepareSelector(model, cursor, true, false).predicate!,
       true
     );
+    // Read once, ahead of the statement, where a statement can: in a `WHERE` these
+    // run for each row the scan passes.
+    const once = (expression: Sql) => this.#hoist(expression) ?? expression;
     const at = (expression: Sql) =>
-      sql`(SELECT VALUE ${expression} FROM ${table} WHERE ${located} LIMIT 1)[0]`;
+      once(
+        sql`(SELECT VALUE ${expression} FROM ${table} WHERE ${located} LIMIT 1)[0]`
+      );
+    const found = once(
+      sql`array::len(SELECT VALUE id FROM ${table} WHERE ${located} LIMIT 1) > 0`
+    );
     const walked = terms.flatMap((term): OrderTerm[] =>
       term.nullable
         ? [
@@ -1095,7 +1277,13 @@ export class SurrealReadBackend implements ReadBackend {
         return sql`${term.expression} ${sql.raw(term.descending ? "<=" : ">=")} ${value}`;
       return sql`(${term.expression} ${sign} ${value} OR (${term.expression} = ${value} AND ${rest}))`;
     }, undefined)!;
-    return sql`(array::len(SELECT VALUE id FROM ${table} WHERE ${located} LIMIT 1) > 0 AND ${after})`;
+    // Beside a bare condition, a seek on the key becomes a scan, so where a whole
+    // statement can answer "no such cursor", it answers ahead of its `WHERE`.
+    if (this.#guardsCursor && this.#lets) {
+      this.#cursorGuard = found;
+      return after;
+    }
+    return sql`(${found} AND ${after})`;
   }
 
   /** The caller's order, completed by the key: every page has one total order. */
@@ -1183,7 +1371,10 @@ export class SurrealReadBackend implements ReadBackend {
     if (spec._count !== undefined) {
       if (path) refuse(`ordering by a count through '${field}'`);
       return {
-        expression: sql`array::len(${this.#members(edge)})`,
+        expression: sql.join(
+          edges.map((member) => sql`array::len(${this.#members(member)})`),
+          " + "
+        ),
         named: false,
         descending: spec._count === "desc",
         nullable: false,
@@ -1215,7 +1406,7 @@ export class SurrealReadBackend implements ReadBackend {
         ? sql`${hop}(${target} WHERE ${this.predicate(predicate, true)})`
         : sql`${hop}${target}`;
     }
-    return this.#traversal(reference(edge), predicate, {});
+    return this.#traversal(reference(edge), predicate, { unordered: true });
   }
 
   columns(prepared: PreparedProjection): Sql {
@@ -1465,9 +1656,41 @@ export class SurrealReadBackend implements ReadBackend {
   ): Sql {
     if (depth === 0) return sql.raw("{ level: [], edges: [] }");
     const children = this.#children(edge, "$p", args);
+    if (depth === false) {
+      const reached = this.#reached(edge, args, root);
+      if (reached)
+        return sql`({ LET $r = ${reached}; { level: [], edges: array::flatten(array::distinct(array::concat([${root}], $r)).map(|$p| (${children}).map(|$c| { p: $p, c: $c }))) } })`;
+    }
     if (depth !== false)
       return sql`array::fold(array::range(1, ${sql.raw(String(depth + 1))}), { level: [${root}], edges: [] }, |$walk, $depth| { LET $pairs = array::flatten($walk.level.map(|$p| (${children}).map(|$c| { p: $p, c: $c, d: $depth }))); { level: array::distinct($pairs.c), edges: array::concat($walk.edges, $pairs) } })`;
     return sql`array::fold(array::range(1, ${sql.raw(String(MAX_WALK + 1))}), { level: [${root}], seen: [${root}], edges: [] }, |$walk, $depth| { LET $pairs = array::flatten($walk.level.map(|$p| (${children}).map(|$c| { p: $p, c: $c }))); LET $next = array::complement(array::distinct($pairs.c), $walk.seen); { level: $next, seen: array::concat($walk.seen, $next), edges: array::concat($walk.edges, $pairs) } })`;
+  }
+
+  /** One step along `edge` as an idiom, which a recursion can repeat. */
+  #hopIdiom(edge: Membership, args: Relation["arguments"]): Sql | undefined {
+    const target = edge.target;
+    const narrowed = () =>
+      this.#clauses(target, { unordered: true }, args.selector?.predicate)
+        .clauses;
+    if (edge.kind === "junction") {
+      if (edge.declared) return undefined;
+      return sql`${this.edgeOf(edge).hop}(SELECT * FROM ${name(tableOf(target))} ${sql.join(narrowed(), " ")}).id`;
+    }
+    const held = reference(edge);
+    if (!this.#linked(held)) return undefined;
+    if (held.owner === "source")
+      return sql`.${this.physical(held.source, held.pairs[0]!.source)}`;
+    return sql`<~(SELECT * FROM ${name(tableOf(target))} FIELD ${name(this.#queries.columnName(target, held.pairs[0]!.target))} ${sql.join(narrowed(), " ")}).id`;
+  }
+
+  /** Every record an exhaustive walk reaches, in one recursion rather than a fold. */
+  #reached(
+    edge: Membership,
+    args: Relation["arguments"],
+    root: Sql
+  ): Sql | undefined {
+    const hop = this.#hopIdiom(edge, args);
+    return hop && sql`array::distinct(${root}.{..+collect}${hop})`;
   }
 
   /** A walk's own statements in a block: `$w`, and the refusal an endless one owes. */
@@ -1530,13 +1753,42 @@ export class SurrealReadBackend implements ReadBackend {
       (args.distinct as string[]).map((field) => this.physical(target, field)),
       ", "
     );
+    const after =
+      args.cursor === undefined
+        ? sql.raw("")
+        : sql` WHERE ${this.#cursor(target, args.cursor as Input, this.#ordering(target, args).terms)}`;
     const { extras, clauses } = this.#clauses(
       target,
-      { ...args, distinct: undefined },
+      { ...args, distinct: undefined, cursor: undefined },
       undefined,
       [sql.raw("id IN $first")]
     );
-    return sql`({ LET $all = ${sorted}; LET $first = (SELECT VALUE array::first(id) FROM (SELECT ${tuple}, id FROM $all GROUP BY ${tuple})); (SELECT ${sql.join([sql.raw("*"), ...extras], ", ")} FROM $all ${sql.join(clauses, " ")})${members} })`;
+    return sql`({ LET $all = ${sorted}; LET $first = (SELECT VALUE array::first(id) FROM (SELECT ${tuple}, id FROM $all${after} GROUP BY ${tuple})); (SELECT ${sql.join([sql.raw("*"), ...extras], ", ")} FROM $all ${sql.join(clauses, " ")})${members} })`;
+  }
+
+  /**
+   * The one record a to-one's fields name, when they name its whole key: read by
+   * key, where a filter on the same fields would scan its table for each row.
+   */
+  #heldRecord(edge: Reference): Sql | undefined {
+    if (edge.many || edge.owner !== "source") return undefined;
+    const keys = this.#queries.keyOrder(edge.target);
+    const parts = keys.map((key) => {
+      const pair = edge.pairs.find(({ target }) => target === key);
+      return pair && sql`$parent.${this.physical(edge.source, pair.source)}`;
+    });
+    if (parts.some((part) => part === undefined)) return undefined;
+    const held = parts as Sql[];
+    const key =
+      held.length === 1
+        ? keyCast(edge.target, keys[0]!, held[0]!)
+        : sql`[${sql.join(held, ", ")}]`;
+    const record = sql`type::record(${tableOf(edge.target)}, ${key})`;
+    // An arm another row's type names reads nothing; an unset part names no record.
+    const { discriminator } = edge;
+    return discriminator
+      ? sql`(IF $parent.${this.physical(edge.source, discriminator.field)} = ${discriminator.value} { ${record} } ELSE { [] })`
+      : record;
   }
 
   /**
@@ -1546,10 +1798,18 @@ export class SurrealReadBackend implements ReadBackend {
   #traversal(
     edge: Reference,
     predicate: PreparedPredicate | undefined,
-    args: Pick<Arguments, "orderBy" | "take" | "skip" | "cursor" | "distinct">
+    args: Pick<
+      Partial<Arguments>,
+      "orderBy" | "take" | "skip" | "cursor" | "distinct"
+    > & { readonly unordered?: boolean }
   ): Sql {
     const target = edge.target;
     const linked = this.#linked(edge);
+    const record = linked ? undefined : this.#heldRecord(edge);
+    if (record) {
+      const { extras, clauses } = this.#clauses(target, args, predicate);
+      return sql`(SELECT ${sql.join([sql.raw("*"), ...extras], ", ")} FROM ${record} ${sql.join(clauses, " ")})`;
+    }
     const { extras, clauses } = this.#clauses(
       target,
       args,
@@ -1628,9 +1888,11 @@ export class SurrealReadBackend implements ReadBackend {
       operand: NonNullable<typeof predicate.operand>
     ): unknown => {
       if (operand.kind === "field") {
+        // Only a row domain reads an outer row, and this driver refuses those.
+        if (operand.up !== undefined) refuse("a column of an outer row");
         const read = operand.scalar;
         const other = sql.raw(
-          `${operand.up === undefined ? path : "$parent."}${this.physical(read.model, read.field).toStatement()}`
+          `${path}${this.physical(read.model, read.field).toStatement()}`
         );
         if (read.physical.nullable) guards.push(sql`${other} != NONE`);
         // A key is a record and a plain column its text: they compare by the text.
@@ -1651,20 +1913,27 @@ export class SurrealReadBackend implements ReadBackend {
       return sql`${column} ${sql.raw(positive ? "=" : "!=")} NONE`;
     const fold = (text: Sql) =>
       predicate.insensitive ? sql`string::lowercase(${text})` : text;
+    // A key or a link is a record, and its text is what a pattern or a case reads.
+    const isRecord = this.#isRecord(scalar.model, scalar.field);
+    const asText = isRecord
+      ? sql`<string>record::id(${column})`
+      : this.#queries.keyOrder(scalar.model).includes(scalar.field)
+        ? sql`<string>${column}`
+        : column;
     const comparedToField =
       predicate.operand?.kind === "field" ||
       predicate.operands?.some((operand) => operand.kind === "field");
-    if (comparedToField && this.#isRecord(scalar.model, scalar.field))
-      column = sql`record::id(${column})`;
+    if (comparedToField && isRecord) column = sql`record::id(${column})`;
+    const read = predicate.insensitive ? asText : column;
+    const compared = (member: unknown) =>
+      predicate.insensitive && isRecord
+        ? sql`string::lowercase(${member})`
+        : fold(bind(member));
     let test: Sql;
     if (COMPARISONS[operator]) {
-      test = sql`${fold(column)} ${sql.raw(COMPARISONS[operator])} ${fold(bind(value))}`;
+      test = sql`${fold(read)} ${sql.raw(COMPARISONS[operator])} ${compared(value)}`;
     } else if (FUNCTIONS[operator]) {
-      // A key is a record, and its text is what a pattern reads.
-      const read = this.#queries.keyOrder(scalar.model).includes(scalar.field)
-        ? sql`<string>record::id(${column})`
-        : column;
-      test = sql`${sql.raw(FUNCTIONS[operator])}(${fold(read)}, ${fold(sql`${value}`)})`;
+      test = sql`${sql.raw(FUNCTIONS[operator])}(${fold(asText)}, ${fold(sql`${value}`)})`;
     } else if (operator === "has") {
       if (value === null) return sql.raw(positive ? "false" : "true");
       test = sql`${column} CONTAINS ${sql`${stored({ ...facts, array: false }, value)}`}`;
@@ -1687,11 +1956,8 @@ export class SurrealReadBackend implements ReadBackend {
       // An empty list asks nothing of the row, so a missing value does not matter.
       if (list.length === 0)
         return sql.raw((operator === "notIn") === positive ? "true" : "false");
-      const bound = sql`[${sql.join(
-        list.map((member) => fold(bind(member))),
-        ", "
-      )}]`;
-      test = sql`${fold(column)} ${sql.raw(operator === "in" ? "IN" : "NOT IN")} ${bound}`;
+      const bound = sql`[${sql.join(list.map(compared), ", ")}]`;
+      test = sql`${fold(read)} ${sql.raw(operator === "in" ? "IN" : "NOT IN")} ${bound}`;
     } else {
       return refuse(`the '${operator}' operator`);
     }
@@ -1826,9 +2092,7 @@ export class SurrealReadBackend implements ReadBackend {
   ): Sql {
     const { target, operator, value, insensitive } = predicate;
     const steps = target.kind === "column" ? (target.path ?? []) : [];
-    const at = sql.raw(
-      `${column.toStatement()}${steps.map(jsonStep).join("")}`
-    );
+    const at = steps.reduce(jsonStep, column);
     const answer = (test: Sql, reads: Sql = at) =>
       positive ? test : sql`(${reads} != NONE AND !(${test}))`;
     // A value this operator cannot compare answers neither it nor its negation.
@@ -1941,11 +2205,141 @@ export class SurrealReadBackend implements ReadBackend {
       quantifier === "some" ||
       (quantifier === "is" && inner !== undefined) ||
       (quantifier === "isNot" && inner === undefined);
+    const asked =
+      quantifier === "every" && inner
+        ? ({ kind: "not", predicate: inner } as const)
+        : inner;
+    const holders =
+      !path &&
+      asked &&
+      predicate !== this.#walking &&
+      this.#holders(predicate, asked);
+    if (holders) {
+      const held = this.#hoist(holders.list(holders.rows()))!;
+      return sql`id ${sql.raw(wanted === positive ? "IN" : "NOT IN")} ${held}`;
+    }
     const found =
       edge.kind === "junction" && edge.declared
         ? this.#relatedThrough(edge, quantifier, inner, predicate.link, path)
         : this.#related(edge, quantifier, inner, path);
     return wanted === positive ? found : sql`!(${found})`;
+  }
+
+  /**
+   * The records holding a relation to the rows a body holds of, walked from those
+   * rows: a list computed once, however many rows the statement then reads. `rows`
+   * reads what each body row holds, and `list` makes those one list of records.
+   */
+  #holders(
+    filter: Extract<PreparedPredicate, { kind: "relation" }>,
+    body: PreparedPredicate
+  ):
+    | {
+        readonly rows: (limit?: number) => Sql;
+        readonly list: (rows: Sql) => Sql;
+      }
+    | undefined {
+    const edge = filter.edge;
+    if (!this.#lets || filter.closure || filter.link) return undefined;
+    const target = edge.target;
+    const distinct = (rows: Sql) => sql`array::distinct(${rows})`;
+    const flat = (rows: Sql) => sql`array::flatten(${rows})`;
+    if (edge.kind === "junction") {
+      if (edge.declared) return undefined;
+      const { back } = this.edgeOf(edge);
+      return {
+        rows: (limit) =>
+          this.#selecting(
+            target,
+            sql`${back}${name(tableOf(edge.source))}`,
+            body,
+            limit
+          ),
+        list: (rows) => distinct(flat(rows)),
+      };
+    }
+    const held = reference(edge);
+    if (!this.#linked(held)) return undefined;
+    const { source, target: holder } = held.pairs[0]!;
+    if (held.owner === "source")
+      return {
+        rows: (limit) =>
+          this.#selecting(
+            target,
+            sql`<~(${name(tableOf(held.source))} FIELD ${name(this.#queries.columnName(held.source, source))})`,
+            body,
+            limit
+          ),
+        list: flat,
+      };
+    const column = name(this.#queries.columnName(target, holder));
+    return {
+      rows: (limit) => this.#selecting(target, column, body, limit),
+      list: distinct,
+    };
+  }
+
+  /** `SELECT VALUE` over the rows a predicate holds of, driven as a statement is. */
+  #selecting(
+    model: AnyModel,
+    value: Sql,
+    body: PreparedPredicate,
+    limit?: number
+  ): Sql {
+    const { from, rest } = this.#driven(model, body);
+    return sql`(SELECT VALUE ${value} FROM ${from}${
+      rest ? sql` WHERE ${this.predicate(rest, true)}` : sql.raw("")
+    }${limit === undefined ? sql.raw("") : sql.raw(` LIMIT ${limit}`)})`;
+  }
+
+  /**
+   * Where a statement reads its rows: the table, or a relation filter's holders
+   * when every row must be one of them, which then reads only those.
+   */
+  #driven(
+    model: AnyModel,
+    predicate: PreparedPredicate | undefined,
+    paged = false
+  ): {
+    readonly from: Sql;
+    readonly rest: PreparedPredicate | undefined;
+    /** A page may need fewer rows than the list holds: read only so far ahead. */
+    readonly ahead?: { readonly rows: Sql; readonly arm: PreparedPredicate };
+  } {
+    const table = name(tableOf(model));
+    if (!(predicate && this.#lets)) return { from: table, rest: predicate };
+    const arms: PreparedPredicate[] = [];
+    const collect = (arm: PreparedPredicate) => {
+      if (arm.kind === "and") arm.predicates.forEach(collect);
+      else arms.push(arm);
+    };
+    collect(predicate);
+    for (const [index, arm] of arms.entries()) {
+      if (
+        arm.kind !== "relation" ||
+        !arm.predicate ||
+        (arm.quantifier !== "some" && arm.quantifier !== "is")
+      )
+        continue;
+      const holders = this.#holders(arm, arm.predicate);
+      if (!holders) continue;
+      const others = arms.filter((_, position) => position !== index);
+      const rest: PreparedPredicate | undefined = others.length
+        ? { kind: "and", predicates: others }
+        : undefined;
+      if (!paged)
+        return {
+          from: this.#hoist(holders.list(holders.rows()))!,
+          rest,
+        };
+      const rows = this.#hoist(holders.rows(HOLDERS_AHEAD))!;
+      return {
+        from: this.#hoist(holders.list(rows))!,
+        rest,
+        ahead: { rows, arm },
+      };
+    }
+    return { from: table, rest: predicate };
   }
 
   /** Whether a link and the row it names hold what a quantifier asks, together. */
@@ -1965,11 +2359,15 @@ export class SurrealReadBackend implements ReadBackend {
     // `every` over a pair: no link of this row fails the link's test and the
     // row's together. Their halves cannot answer it one after the other.
     if (quantifier === "every" && link) {
-      const held = this.predicate(link, true, "$l.");
-      const row = inner
-        ? sql`array::len(SELECT VALUE id FROM ${name(tableOf(edge.target))} WHERE id = ${this.#linkTarget(edge, edge.targetSide, "$l")} AND ${this.predicate(inner, true)} LIMIT 1) > 0`
-        : sql.raw("true");
-      return sql`({ LET $owner = $this; array::len(${this.#links(edge, "$owner")}.filter(|$l| !(${held} AND ${row}))) > 0 })`;
+      const fails = [
+        this.predicate(link, false, "$l."),
+        ...(inner
+          ? [
+              sql`array::len(SELECT VALUE id FROM ${name(tableOf(edge.target))} WHERE id = ${this.#linkTarget(edge, edge.targetSide, "$l")} AND ${this.predicate(inner, false)} LIMIT 1) > 0`,
+            ]
+          : []),
+      ];
+      return sql`({ LET $owner = $this; array::len(${this.#links(edge, "$owner")}.filter(|$l| ${sql.join(fails, " OR ")})) > 0 })`;
     }
     const rows = narrowed
       ? sql`SELECT VALUE id FROM ${name(tableOf(edge.target))} WHERE id IN $linked AND ${this.predicate(narrowed, true)} LIMIT 1`
@@ -1984,18 +2382,25 @@ export class SurrealReadBackend implements ReadBackend {
     quantifier: string,
     inner: PreparedPredicate | undefined
   ): Sql {
-    const walk = this.#walk(edge, {} as never, closure.depth, sql.raw("$root"));
     const narrowed =
       quantifier === "every" && inner
         ? ({ kind: "not", predicate: inner } as const)
         : inner;
+    const test = (rows: Sql) =>
+      narrowed
+        ? sql`array::len(SELECT VALUE id FROM ${rows} WHERE ${this.predicate(narrowed, true)} LIMIT 1) > 0`
+        : sql`array::len(${rows}) > 0`;
+    const recursion =
+      closure.depth === false
+        ? this.#reached(edge, {} as never, sql.raw("$root"))
+        : undefined;
+    if (recursion)
+      return sql`({ LET $root = $this.id; LET $r = ${recursion}; ${test(closure.self ? sql.raw("array::concat([$root], $r)") : sql.raw("$r"))} })`;
+    const walk = this.#walk(edge, {} as never, closure.depth, sql.raw("$root"));
     const reached = closure.self
       ? sql.raw("array::concat([$root], $w.edges.c)")
       : sql.raw("$w.edges.c");
-    const found = narrowed
-      ? sql`array::len(SELECT VALUE id FROM ${reached} WHERE ${this.predicate(narrowed, true)} LIMIT 1) > 0`
-      : sql`array::len(${reached}) > 0`;
-    return sql`({ ${this.#walked(walk)} ${found} })`;
+    return sql`({ ${this.#walked(walk)} ${test(reached)} })`;
   }
 
   /** Whether a related row exists, among those the quantifier looks at. */

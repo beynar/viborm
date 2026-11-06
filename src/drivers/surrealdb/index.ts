@@ -6,13 +6,17 @@
  * see {@link noSqlAdapter}.
  */
 
+import { installAdapterInternals } from "@adapters/adapter-internals";
 import { passThroughParseResult } from "@adapters/adapter-result-parser";
+import { createNamedConstraintIdentities } from "@adapters/constraint-identity";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import {
   ForeignKeyError,
+  QueryError,
   TransactionError,
   UniqueConstraintError,
   UnsupportedOperationError,
+  VibORMErrorCode,
 } from "@errors";
 import type { Queries, ReadBackend } from "@query-engine/raptor3/shared/query";
 import type { Sql } from "@sql";
@@ -21,6 +25,7 @@ import {
   Decimal,
   GeometryPoint,
   RecordId,
+  SizedNumber,
   type Surreal,
   type SurrealTransaction,
   Uuid,
@@ -28,7 +33,11 @@ import {
 import { Driver, TransactionBoundDriver } from "../driver";
 import type { TransactionOptionSupport } from "../shared";
 import type { QueryExecutionContext, QueryResult } from "../types";
-import { isConflict, SurrealOperationContext } from "./operation-context";
+import {
+  isConflict,
+  SurrealOperationContext,
+  WROTE_NOTHING,
+} from "./operation-context";
 import { SurrealReadBackend } from "./read-backend";
 
 /** What decoding a row and starting a client read of an adapter, and no more. */
@@ -60,6 +69,20 @@ const ROW_FACTS = {
   },
 } as unknown as DatabaseAdapter;
 
+/** No SQL: only a refusal's constraint names are this adapter's to answer. */
+installAdapterInternals(ROW_FACTS, {
+  // A refusal here names no constraint, so no key is ever recognised by one.
+  constraints: createNamedConstraintIdentities((table) => `${table}_pkey`),
+  select: () => noSql("select"),
+  batchRefs: {} as never,
+});
+
+function noSql(member: string): never {
+  throw new UnsupportedOperationError(
+    `The SurrealDB driver speaks no SQL: nothing may read 'adapter.${member}'.`
+  );
+}
+
 /**
  * The `adapter` a driver must still declare, holding the row facts alone. Every
  * other member is SQL syntax this database cannot read, so reaching for one
@@ -70,9 +93,7 @@ function noSqlAdapter(): DatabaseAdapter {
     get(facts, member, receiver) {
       if (typeof member === "symbol" || member in facts)
         return Reflect.get(facts, member, receiver);
-      throw new UnsupportedOperationError(
-        `The SurrealDB driver speaks no SQL: nothing may read 'adapter.${member}'.`
-      );
+      return noSql(member);
     },
   }) as DatabaseAdapter;
 }
@@ -85,23 +106,28 @@ function plain(value: unknown): unknown {
   if (value instanceof DateTime) return value.toISOString();
   if (value instanceof Decimal || value instanceof Uuid)
     return value.toString();
+  if (value instanceof SizedNumber) return value.value;
   if (Array.isArray(value)) return value.map(plain);
   if (ArrayBuffer.isView(value)) return value;
   if (value instanceof ArrayBuffer) return new Uint8Array(value);
   if (value !== null && typeof value === "object" && !(value instanceof Date)) {
-    const out: Record<string, unknown> = {};
-    for (const [key, member] of Object.entries(value)) out[key] = plain(member);
-    return out;
+    return Object.fromEntries(
+      Object.entries(value).map(([key, member]) => [key, plain(member)])
+    );
   }
   return value;
 }
 
 const UNIQUE_REFUSAL = /already contains|already exists/;
-const REFERENCE_REFUSAL = /must conform to.*exists\(\)|ON DELETE REJECT/s;
+const REFERENCE_REFUSAL =
+  /must conform to.*exists\(\)|ON (?:DELETE|UPDATE) REJECT/s;
+const OUT_OF_RANGE =
+  /Expected `(?:none \| )?i32` but found|must conform to.*math::abs|Cannot perform (?:addition|subtraction|multiplication) with/s;
+const TOO_DEEP = /Exceeded query recursion depth limit/;
 
 /**
- * A provider failure in viborm's own words. Unique and foreign key refusals
- * carry no code here, so their sentences are the only evidence.
+ * A provider failure in viborm's own words. Refusals carry no code here, so their
+ * sentences are the only evidence.
  */
 function refusal(error: unknown): unknown {
   const message = error instanceof Error ? error.message : String(error);
@@ -111,6 +137,16 @@ function refusal(error: unknown): unknown {
     return new UniqueConstraintError(message, { cause });
   if (REFERENCE_REFUSAL.test(message))
     return new ForeignKeyError(message, { cause });
+  if (OUT_OF_RANGE.test(message))
+    return new QueryError(message, {
+      cause,
+      code: VibORMErrorCode.QUERY_OUT_OF_RANGE,
+    });
+  if (TOO_DEEP.test(message))
+    return new UnsupportedOperationError(
+      "This statement nests deeper than the SurrealDB server parses: raise its SURREAL_MAX_QUERY_PARSING_DEPTH, or read in two steps.",
+      { cause }
+    );
   return error;
 }
 
@@ -137,15 +173,21 @@ class SurrealTransactionDriver extends TransactionBoundDriver<
   }
 
   /**
-   * SurrealDB has no savepoints, and one failed statement fails its whole
-   * transaction, so a nested scope runs in the one it is in: a caller that
-   * catches a failed write cannot continue that transaction.
+   * SurrealDB has no savepoints, so a nested scope runs in the transaction it is
+   * in, and what it wrote before failing cannot be taken back alone. Its failure
+   * is the whole transaction's: a caller that catches it cannot commit the rest.
    */
-  protected override transaction<T>(
+  protected override async transaction<T>(
     client: Surreal | SurrealTransaction,
     fn: (tx: Surreal | SurrealTransaction) => Promise<T>
   ): Promise<T> {
-    return fn(client);
+    try {
+      return await fn(client);
+    } catch (error) {
+      if (error instanceof Error && !WROTE_NOTHING.has(error))
+        this.transactionCleanupFailed(error);
+      throw error;
+    }
   }
 }
 
