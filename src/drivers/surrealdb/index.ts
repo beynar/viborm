@@ -27,18 +27,15 @@ import {
   RecordId,
   SizedNumber,
   type Surreal,
-  type SurrealTransaction,
   Uuid,
 } from "surrealdb";
 import { Driver, TransactionBoundDriver } from "../driver";
 import type { TransactionOptionSupport } from "../shared";
+import { createTransactionCleanupError } from "../shared/transactions";
 import type { QueryExecutionContext, QueryResult } from "../types";
-import {
-  isConflict,
-  SurrealOperationContext,
-  WROTE_NOTHING,
-} from "./operation-context";
+import { SurrealOperationContext } from "./operation-context";
 import { SurrealReadBackend } from "./read-backend";
+import { isConflict, ReplayedTransaction } from "./transaction";
 
 /** What decoding a row and starting a client read of an adapter, and no more. */
 const ROW_FACTS = {
@@ -173,42 +170,38 @@ function namedStatement(query: Sql): string {
 
 class SurrealTransactionDriver extends TransactionBoundDriver<
   Surreal,
-  Surreal | SurrealTransaction
+  ReplayedTransaction
 > {
   protected override buildStatement(query: Sql): string {
     return namedStatement(query);
   }
 
   protected override createTransactionBoundDriver(
-    tx: Surreal | SurrealTransaction,
+    tx: ReplayedTransaction,
     context: QueryExecutionContext
   ): SurrealTransactionDriver {
     return new SurrealTransactionDriver(this, tx, context);
   }
 
-  /**
-   * SurrealDB has no savepoints, so a nested scope runs in the transaction it is
-   * in, and what it wrote before failing cannot be taken back alone. Its failure
-   * is the whole transaction's: a caller that catches it cannot commit the rest.
-   */
+  /** A nested scope is a savepoint, which the transaction keeps for itself. */
   protected override async transaction<T>(
-    client: Surreal | SurrealTransaction,
-    fn: (tx: Surreal | SurrealTransaction) => Promise<T>
+    client: Surreal | ReplayedTransaction,
+    fn: (tx: ReplayedTransaction) => Promise<T>
   ): Promise<T> {
+    const tx = client as ReplayedTransaction;
+    const mark = tx.mark;
     try {
-      return await fn(client);
+      return await fn(tx);
     } catch (error) {
-      if (error instanceof Error && !WROTE_NOTHING.has(error))
-        this.transactionCleanupFailed(error);
+      await tx.rollbackTo(mark).catch((cleanup: unknown) => {
+        throw createTransactionCleanupError(error, [cleanup]);
+      });
       throw error;
     }
   }
 }
 
-export class SurrealDriver extends Driver<
-  Surreal,
-  Surreal | SurrealTransaction
-> {
+export class SurrealDriver extends Driver<Surreal, ReplayedTransaction> {
   readonly adapter = noSqlAdapter();
   override readonly operationContext = SurrealOperationContext;
   readonly supportsTransactions = true;
@@ -229,14 +222,10 @@ export class SurrealDriver extends Driver<
   }
 
   protected override createTransactionBoundDriver(
-    tx: Surreal | SurrealTransaction,
+    tx: ReplayedTransaction,
     context: QueryExecutionContext
   ): SurrealTransactionDriver {
-    return new SurrealTransactionDriver(
-      this as unknown as Driver<Surreal, Surreal | SurrealTransaction>,
-      tx,
-      context
-    );
+    return new SurrealTransactionDriver(this, tx, context);
   }
 
   protected async initClient(): Promise<Surreal> {
@@ -248,7 +237,7 @@ export class SurrealDriver extends Driver<
   }
 
   protected async execute<T>(
-    client: Surreal | SurrealTransaction,
+    client: Surreal | ReplayedTransaction,
     statement: string,
     params: unknown[]
   ): Promise<QueryResult<T>> {
@@ -256,7 +245,11 @@ export class SurrealDriver extends Driver<
       params.map((value, index) => [`p${index + 1}`, value])
     );
     try {
-      const [result] = await client.query<[unknown]>(statement, values);
+      // The SDK's client answers the same call.
+      const [result] = await (client as ReplayedTransaction).query<[unknown]>(
+        statement,
+        values
+      );
       const rows = Array.isArray(result) ? result : [];
       return { rows: plain(rows) as T[], rowCount: rows.length };
     } catch (error) {
@@ -265,7 +258,7 @@ export class SurrealDriver extends Driver<
   }
 
   protected executeRaw<T>(
-    client: Surreal | SurrealTransaction,
+    client: Surreal | ReplayedTransaction,
     statement: string,
     params: unknown[] | undefined,
     _context?: QueryExecutionContext
@@ -286,14 +279,10 @@ export class SurrealDriver extends Driver<
   }
 
   protected async transaction<T>(
-    client: Surreal | SurrealTransaction,
-    fn: (tx: SurrealTransaction) => Promise<T>
+    client: Surreal | ReplayedTransaction,
+    fn: (tx: ReplayedTransaction) => Promise<T>
   ): Promise<T> {
-    if (!("beginTransaction" in client))
-      throw new UnsupportedOperationError(
-        "The SurrealDB driver has no savepoints: a transaction cannot nest."
-      );
-    const transaction = await client.beginTransaction();
+    const transaction = await ReplayedTransaction.begin(client as Surreal);
     let result: T;
     try {
       result = await fn(transaction);

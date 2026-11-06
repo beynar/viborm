@@ -6,12 +6,13 @@
 
 import { createClient } from "@client/client";
 import { DbNull, JsonNull, s } from "@schema";
+import { sql } from "@sql";
 import {
   createSurrealTestDriver,
   surrealUrl,
 } from "@tests/fixtures/drivers/surrealdb";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   caught,
   compare,
@@ -1133,7 +1134,10 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
     });
   });
 
-  describe("what differs by design", () => {
+  describe("transactions going back", () => {
+    const committing = async (work: () => Promise<unknown>) => ({
+      answer: await work(),
+    });
     const within = async (scenario: (db: any) => Promise<void>) => {
       const db: any = createClient({
         schema: family("cascade", "cascade"),
@@ -1146,37 +1150,149 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
         await db.$disconnect();
       }
     };
-    it.each([
-      [
-        "a statement refused",
-        { connect: undefined, create: [{ id: "new" }, { id: "dup" }] },
-      ],
-      [
-        "a check of the engine's",
-        { connect: { id: "missing" }, create: undefined },
-      ],
-    ])("no savepoints: after %s, a caught failure still ends the transaction", async (_title, children) => {
-      await within(async (db) => {
+    const failing = {
+      "a statement refused": { create: [{ id: "new" }, { id: "dup" }] },
+      "a check of the engine's": { connect: { id: "missing" } },
+    };
+    it.each(
+      Object.entries(failing)
+    )("a caught failure leaves the rest to commit, after %s", async (_title, children) =>
+      compare(family("cascade", "cascade"), async (db) => {
         await db.child.create({ data: { id: "dup" } });
         let failure: unknown;
-        const committed = db.$transaction(async (tx: any) => {
-          await tx.parent.create({ data: { id: "before", name: "before" } });
-          await tx.parent
-            .create({ data: { id: "failed", name: "failed", children } })
-            .catch((error: unknown) => {
-              failure = error;
+        const committed = await committing(() =>
+          db.$transaction(async (tx: any) => {
+            await tx.parent.create({ data: { id: "before", name: "before" } });
+            failure = await caught(() =>
+              tx.parent.create({
+                data: { id: "failed", name: "failed", children },
+              })
+            );
+            await tx.parent.create({ data: { id: "after", name: "after" } });
+            return tx.parent.findMany({ orderBy: { id: "asc" } });
+          })
+        );
+        return {
+          committed,
+          failure,
+          parents: await rows(db, "parent"),
+          children: await rows(db, "child"),
+        };
+      }));
+    it("a failure caught as the callback's last act commits the rest", async () =>
+      compare(family("cascade", "cascade"), async (db) => {
+        const committed = await committing(() =>
+          db.$transaction(async (tx: any) => {
+            await tx.parent.create({ data: { id: "before", name: "before" } });
+            await tx.parent
+              .create({
+                data: {
+                  id: "failed",
+                  name: "failed",
+                  children: { connect: { id: "missing" } },
+                },
+              })
+              .catch(() => undefined);
+          })
+        );
+        return { committed, parents: await rows(db, "parent") };
+      }));
+    it("a nested scope takes back only its own writes, at each depth", async () =>
+      compare(family("cascade", "cascade"), async (db) => {
+        const seen = await committing(() =>
+          db.$transaction(async (tx: any) => {
+            await tx.parent.create({ data: { id: "a", name: "outer" } });
+            const inner = await caught(() =>
+              tx.$transaction(async (t2: any) => {
+                await t2.parent.create({ data: { id: "b", name: "kept" } });
+                const deepest = await caught(() =>
+                  t2.$transaction(async (t3: any) => {
+                    await t3.parent.create({ data: { id: "c", name: "gone" } });
+                    throw new TypeError("deepest");
+                  })
+                );
+                return {
+                  deepest,
+                  rows: await t2.parent.findMany({ orderBy: { id: "asc" } }),
+                };
+              })
+            );
+            const outer = await caught(() =>
+              tx.$transaction(async (t2: any) => {
+                await t2.parent.create({ data: { id: "d", name: "gone" } });
+                await t2.parent.update({
+                  where: { id: "a" },
+                  data: { name: "gone" },
+                });
+                throw new TypeError("outer");
+              })
+            );
+            await tx.parent.update({
+              where: { id: "b" },
+              data: { name: "changed" },
             });
-          await tx.parent.create({ data: { id: "after", name: "after" } });
-        });
-        await expect(committed).rejects.toMatchObject({ code: "V5001" });
-        expect(failure).toBeInstanceOf(Error);
-        expect(await rows(db, "parent")).toEqual([]);
-        expect(await rows(db, "child")).toEqual([
-          { id: "dup", parentId: null },
-        ]);
-      });
-    });
-    it("no savepoints: a skipped row keeps the operation going only if it wrote nothing", async () => {
+            return {
+              inner,
+              outer,
+              rows: await tx.parent.findMany({ orderBy: { id: "asc" } }),
+            };
+          })
+        );
+        return { seen, parents: await rows(db, "parent") };
+      }));
+    it("a scope whose only statement failed part-way leaves the rest to commit", async () =>
+      compare(simple(), async (db) => {
+        await db.user.create({ data: { id: "held", email: "held" } });
+        const answer = await committing(() =>
+          db.$transaction(async (tx: any) => {
+            await tx.user.create({ data: { id: "a", email: "a" } });
+            const scope = await caught(() =>
+              tx.$transaction((t2: any) =>
+                t2.user.create({ data: { id: "dup", email: "held" } })
+              )
+            );
+            await tx.user.create({ data: { id: "b", email: "b" } });
+            return scope;
+          })
+        );
+        return { answer, users: await rows(db, "user") };
+      }));
+    it("a statement that fails with no scope around it fails the transaction", async () =>
+      compare(simple(), async (db) => {
+        await db.user.create({ data: { id: "held", email: "held" } });
+        let next: unknown;
+        const committed = await caught(() =>
+          db.$transaction(async (tx: any) => {
+            await tx.user.create({ data: { id: "a", email: "a" } });
+            await tx.$executeRaw(sql`not a statement`).catch(() => null);
+            next = await caught(() =>
+              tx.user.create({ data: { id: "b", email: "b" } })
+            );
+          })
+        );
+        expect(committed).toMatchObject({ code: "V2001" });
+        expect(next).toMatchObject({ code: "V5001" });
+        return { committed, next, users: await rows(db, "user") };
+      }));
+    it("a scope that catches its own failure is refused when it ends", async () =>
+      compare(simple(), async (db) => {
+        const committed = await caught(() =>
+          db.$transaction(async (tx: any) => {
+            await tx.user.create({ data: { id: "a", email: "a" } });
+            const scope = await caught(() =>
+              tx.$transaction(async (t2: any) => {
+                await t2.user.create({ data: { id: "b", email: "b" } });
+                await t2.$executeRaw(sql`not a statement`).catch(() => null);
+              })
+            );
+            await tx.user.create({ data: { id: "c", email: "c" } });
+            return scope;
+          })
+        );
+        expect(committed).toMatchObject({ answer: { code: "V2001" } });
+        return { committed, users: await rows(db, "user") };
+      }));
+    it("a skipped row takes back what it wrote, and the others stay", async () => {
       const parent = s.model({
         id: s.string().id(),
         children: s.toMany(() => child),
@@ -1189,58 +1305,230 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
           .fields("parentId")
           .references("id"),
       });
-      const db: any = createClient({
-        schema: { parent, child },
-        driver: createSurrealTestDriver(),
-      });
-      try {
-        await syncLiveSchema(db);
+      await compare({ parent, child }, async (db) => {
         await db.child.create({ data: { id: "dup" } });
-        const skipped = await db.child
-          .createMany({
+        const created = await committing(() =>
+          db.child.createMany({
             data: [
-              { id: "dup", parent: { connect: { id: "absent" } } },
-              { id: "fresh" },
+              { id: "dup", parent: { create: { id: "new" } } },
+              { id: "other", parent: { create: { id: "kept" } } },
             ],
             skipDuplicates: true,
-            select: { id: true },
           })
-          .catch((error: unknown) => error);
-        expect(skipped).toBeInstanceOf(Error);
-        const written = db.child.createMany({
-          data: [
-            { id: "dup", parent: { create: { id: "new" } } },
-            { id: "other" },
-          ],
+        );
+        return {
+          created,
+          parents: await rows(db, "parent"),
+          children: await rows(db, "child"),
+        };
+      });
+    });
+    it("generated values hold across going back", async () => {
+      const row = s.model({
+        id: s.int().id().increment(),
+        name: s.string().unique(),
+        at: s.dateTime().now(),
+        changed: s.dateTime().updatedAt(),
+      });
+      await compare({ row }, async (db) => {
+        const answers = await committing(() =>
+          db.$transaction(async (tx: any) => {
+            const first = await tx.row.create({ data: { name: "a" } });
+            await tx
+              .$transaction(async (t2: any) => {
+                await t2.row.create({ data: { name: "gone" } });
+                throw new TypeError("scope");
+              })
+              .catch(() => undefined);
+            const after = await tx.row.findUnique({ where: { id: first.id } });
+            await tx.row.create({ data: { name: "b" } });
+            return JSON.stringify(after) === JSON.stringify(first);
+          })
+        );
+        return {
+          answers,
+          names: (await db.row.findMany({ orderBy: { name: "asc" } })).map(
+            (r: any) => r.name
+          ),
+        };
+      });
+    });
+    it("a key moved before a scope fails stays moved", async () =>
+      compare(family("cascade", "cascade"), async (db) => {
+        await db.parent.create({
+          data: { id: "a", name: "a", children: { create: { id: "c" } } },
+        });
+        const answer = await committing(() =>
+          db.$transaction(async (tx: any) => {
+            await tx.parent.update({ where: { id: "a" }, data: { id: "b" } });
+            await tx
+              .$transaction(async (t2: any) => {
+                await t2.parent.update({
+                  where: { id: "b" },
+                  data: { id: "gone" },
+                });
+                throw new TypeError("scope");
+              })
+              .catch(() => undefined);
+            return tx.parent.findMany();
+          })
+        );
+        return {
+          answer,
+          parents: await rows(db, "parent"),
+          children: await rows(db, "child"),
+        };
+      }));
+    it("rows written side by side hold across going back", async () =>
+      compare(simple(), async (db) => {
+        const answer = await committing(() =>
+          db.$transaction(async (tx: any) => {
+            await Promise.all(
+              ["a", "b", "c"].map((id) =>
+                tx.user.create({ data: { id, email: id } })
+              )
+            );
+            await tx
+              .$transaction(async (t2: any) => {
+                await t2.user.create({ data: { id: "d", email: "d" } });
+                throw new TypeError("scope");
+              })
+              .catch(() => undefined);
+            return tx.user.count();
+          })
+        );
+        return { answer, users: await rows(db, "user") };
+      }));
+    it("a skipped row that wrote nothing costs no replay", async () => {
+      const child = s.model({
+        id: s.string().id(),
+        parentId: s.string().nullable(),
+        parent: s
+          .toOne(() => parent)
+          .fields("parentId")
+          .references("id"),
+      });
+      const parent = s.model({
+        id: s.string().id(),
+        children: s.toMany(() => child),
+      });
+      const driver = createSurrealTestDriver();
+      const db: any = createClient({ schema: { parent, child }, driver });
+      try {
+        await syncLiveSchema(db);
+        await db.parent.createMany({
+          data: [{ id: "a" }, { id: "b" }, { id: "c" }],
+        });
+        const client = await (driver as any).initClient();
+        const begin = vi.spyOn(client, "beginTransaction");
+        await db.parent.createMany({
+          data: ["a", "b", "c"].map((id) => ({
+            id,
+            children: { create: { id: `child-${id}` } },
+          })),
           skipDuplicates: true,
         });
-        await expect(written).rejects.toMatchObject({ code: "V5001" });
-        expect(await rows(db, "parent")).toEqual([]);
-        expect((await rows(db, "child")).map((row: any) => row.id)).toEqual([
-          "dup",
-        ]);
+        expect(begin).toHaveBeenCalledTimes(1);
+        expect(await db.child.count()).toBe(0);
       } finally {
         await db.$disconnect();
       }
     });
-    it("no savepoints: a failure caught as the callback's last act refuses at commit", async () => {
+    it("a raw INSERT IGNORE that failed part-way goes back like any write", async () => {
       await within(async (db) => {
-        const committed = db.$transaction(async (tx: any) => {
-          await tx.parent.create({ data: { id: "before", name: "before" } });
-          await tx.parent
-            .create({
-              data: {
-                id: "failed",
-                name: "failed",
-                children: { connect: { id: "missing" } },
-              },
-            })
+        await db.$transaction(async (tx: any) => {
+          await tx
+            .$transaction((t2: any) =>
+              t2.$executeRaw(
+                sql.raw(
+                  "INSERT IGNORE INTO parent [{ id: 'ok', name: 'ok' }, { id: 'bad', name: 1 }]"
+                )
+              )
+            )
             .catch(() => undefined);
         });
-        await expect(committed).rejects.toBeInstanceOf(Error);
         expect(await rows(db, "parent")).toEqual([]);
       });
     });
+    it("a raw SELECT that writes goes back like any write", async () => {
+      await within(async (db) => {
+        await db.$transaction(async (tx: any) => {
+          await tx
+            .$transaction(async (t2: any) => {
+              await t2.$executeRaw(
+                sql.raw("SELECT * FROM (CREATE parent:raw SET name = 'raw')")
+              );
+              throw new TypeError("scope");
+            })
+            .catch(() => undefined);
+        });
+        expect(await rows(db, "parent")).toEqual([]);
+      });
+    });
+    it("a callback whose reads changed under it is refused, whole", async () => {
+      await within(async (db) => {
+        await db.parent.create({ data: { id: "a", name: "a" } });
+        const committed = db.$transaction(async (tx: any) => {
+          const seen = await tx.parent.findUnique({ where: { id: "a" } });
+          await tx.parent.create({ data: { id: "b", name: seen.name } });
+          await db.parent.update({ where: { id: "a" }, data: { name: "z" } });
+          await tx
+            .$transaction(async (t2: any) => {
+              await t2.parent.create({ data: { id: "c", name: "c" } });
+              throw new TypeError("scope");
+            })
+            .catch(() => undefined);
+          await tx.parent.create({ data: { id: "d", name: "d" } });
+        });
+        await expect(committed).rejects.toMatchObject({ code: "V5001" });
+        expect((await rows(db, "parent")).map((r: any) => r.id)).toEqual(["a"]);
+      });
+    });
+    it("writers that met commit without running a callback twice, when nothing they saw changed", async () => {
+      const item = s.model({ id: s.string().id(), n: s.int() });
+      const clients: any[] = [
+        createClient({ schema: { item }, driver: createSurrealTestDriver() }),
+      ];
+      try {
+        await syncLiveSchema(clients[0]);
+        for (let index = 1; index < 8; index++)
+          clients.push(
+            createClient({
+              schema: { item },
+              driver: createSurrealTestDriver(),
+            })
+          );
+        await clients[0].item.create({ data: { id: "a", n: 0 } });
+        await Promise.all(clients.map((db) => db.item.findMany()));
+        let entered = 0;
+        let runs = 0;
+        let release = () => undefined as void;
+        const barrier = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const results = await Promise.all(
+          clients.map((db, index) =>
+            db.$transaction(async (tx: any) => {
+              runs += 1;
+              await tx.item.updateMany({
+                where: { id: "a" },
+                data: { n: index + 1 },
+              });
+              if (++entered === clients.length) release();
+              await barrier;
+              return "committed";
+            })
+          )
+        );
+        expect(results).toEqual(new Array(8).fill("committed"));
+        expect(runs).toBe(8);
+      } finally {
+        await Promise.all(clients.map((db) => db.$disconnect()));
+      }
+    });
+  });
+
+  describe("what differs by design", () => {
     it("optimism: of callbacks that meet, the rest refuse rather than wait, and none half commits", async () => {
       const item = s.model({ id: s.string().id(), n: s.int() });
       const audit = s.model({ id: s.string().id() });
@@ -1299,6 +1587,49 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
         expect(await clients[0].audit.count()).toBe(committed);
       } finally {
         await Promise.all(clients.map((db) => db.$disconnect()));
+      }
+    });
+    it("snapshot isolation: a delete and an insert that meet both commit, leaving an orphan", async () => {
+      const family_ = family("cascade", "restrict");
+      const first: any = createClient({
+        schema: family_,
+        driver: createSurrealTestDriver(),
+      });
+      const second: any = createClient({
+        schema: family_,
+        driver: createSurrealTestDriver(),
+      });
+      try {
+        await syncLiveSchema(first);
+        await first.parent.create({ data: { id: "p", name: "p" } });
+        await second.parent.findMany();
+        let met = () => undefined as void;
+        const both = new Promise<void>((resolve) => {
+          met = resolve;
+        });
+        let entered = 0;
+        const meet = async () => {
+          if (++entered === 2) met();
+          await both;
+        };
+        await Promise.all([
+          first.$transaction(async (tx: any) => {
+            await tx.parent.delete({ where: { id: "p" } });
+            await meet();
+          }),
+          second.$transaction(async (tx: any) => {
+            await tx.child.create({
+              data: { id: "c", parent: { connect: { id: "p" } } },
+            });
+            await meet();
+          }),
+        ]);
+        expect(await rows(first, "parent")).toEqual([]);
+        expect(await rows(first, "child")).toEqual([
+          { id: "c", parentId: "p" },
+        ]);
+      } finally {
+        await Promise.all([first.$disconnect(), second.$disconnect()]);
       }
     });
     it("a JSON key named __proto__ is stored, and the SDK's answer loses it", async () => {
