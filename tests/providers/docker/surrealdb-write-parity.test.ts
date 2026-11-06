@@ -7,6 +7,7 @@
 import { createClient } from "@client/client";
 import { DbNull, JsonNull, s } from "@schema";
 import { sql } from "@sql";
+import { defineExtension } from "@src/index";
 import {
   createSurrealTestDriver,
   surrealUrl,
@@ -1482,6 +1483,178 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
         });
         await expect(committed).rejects.toMatchObject({ code: "V5001" });
         expect((await rows(db, "parent")).map((r: any) => r.id)).toEqual(["a"]);
+      });
+    });
+    describe("rerunsOnConflict", () => {
+      const item = s.model({ id: s.string().id(), n: s.int() });
+      const meeting = async (
+        rerunsOnConflict: number | undefined,
+        schema: Record<string, unknown> = { item }
+      ) => {
+        const driver = () => createSurrealTestDriver({ rerunsOnConflict });
+        const clients: any[] = [
+          createClient({ schema, driver: driver() } as any),
+        ];
+        await syncLiveSchema(clients[0]);
+        for (let index = 1; index < 8; index++)
+          clients.push(createClient({ schema, driver: driver() } as any));
+        await clients[0].item.create({ data: { id: "a", n: 0 } });
+        await Promise.all(clients.map((db) => db.item.findMany()));
+        let runs = 0;
+        let first = 0;
+        let release = () => undefined as void;
+        const barrier = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const results = await Promise.all(
+          clients.map(async (db) => {
+            try {
+              return await db.$transaction(async (tx: any) => {
+                runs += 1;
+                const { n } = await tx.item.update({
+                  where: { id: "a" },
+                  data: { n: { increment: 1 } },
+                });
+                if (++first === clients.length) release();
+                await barrier;
+                return n;
+              });
+            } catch (error) {
+              return (error as { code?: string }).code;
+            }
+          })
+        );
+        const [row] = await clients[0].item.findMany();
+        await Promise.all(clients.map((db) => db.$disconnect()));
+        return { results, runs, n: row.n };
+      };
+      it("gives writers who read each other the values PostgreSQL would", async () => {
+        const { results, runs, n } = await meeting(8);
+        expect(n).toBe(8);
+        expect([...results].sort()).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+        expect(runs).toBeGreaterThan(8);
+      });
+      it("is off unless asked for", async () => {
+        const { results, runs, n } = await meeting(undefined);
+        expect(runs).toBe(8);
+        expect(results.filter((result) => result === "V5001").length).toBe(
+          8 - n
+        );
+      });
+      it("gives up when its runs are spent, with nothing half done", async () => {
+        const { results, runs, n } = await meeting(1);
+        expect(runs).toBeLessThanOrEqual(16);
+        expect(results.filter((result) => result === "V5001").length).toBe(
+          8 - n
+        );
+      });
+      const counter = async (extend: (db: any) => any = (db) => db) => {
+        const root: any = createClient({
+          schema: { item },
+          driver: createSurrealTestDriver({ rerunsOnConflict: 1 }),
+        });
+        await syncLiveSchema(root);
+        await root.item.create({ data: { id: "a", n: 0 } });
+        return { root, db: extend(root) };
+      };
+      const interfere = (db: any) =>
+        db.item.update({ where: { id: "a" }, data: { n: { increment: 10 } } });
+      it("runs again over a conflict that came up going back", async () => {
+        const { root, db } = await counter();
+        let runs = 0;
+        const answer = await db.$transaction(async (tx: any) => {
+          runs += 1;
+          const { n } = await tx.item.findUnique({ where: { id: "a" } });
+          if (runs === 1) await interfere(root);
+          await tx
+            .$transaction(async (t2: any) => {
+              await t2.item.create({ data: { id: "gone", n: 0 } });
+              throw new TypeError("scope");
+            })
+            .catch(() => undefined);
+          await tx.item.count();
+          return n;
+        });
+        expect(answer).toBe(10);
+        expect(runs).toBe(2);
+        expect(await root.item.count()).toBe(1);
+        await root.$disconnect();
+      });
+      it("runs again over a conflict that came up at commit", async () => {
+        const { root, db } = await counter();
+        let runs = 0;
+        const answer = await db.$transaction(async (tx: any) => {
+          runs += 1;
+          const { n } = await tx.item.update({
+            where: { id: "a" },
+            data: { n: { increment: 1 } },
+          });
+          if (runs === 1) await interfere(root);
+          return n;
+        });
+        expect(answer).toBe(11);
+        expect(runs).toBe(2);
+        await root.$disconnect();
+      });
+      it("does not run a callback twice under an extension that collects its writes", async () => {
+        const { root, db } = await counter((client) =>
+          client.$extends(
+            defineExtension()({
+              name: "observer",
+              observe: (_unit: unknown, proceed: () => unknown) => proceed(),
+            } as any)
+          )
+        );
+        let runs = 0;
+        await expect(
+          db.$transaction(async (tx: any) => {
+            runs += 1;
+            await tx.item.update({
+              where: { id: "a" },
+              data: { n: { increment: 1 } },
+            });
+            await interfere(root);
+          })
+        ).rejects.toMatchObject({ code: "V5001" });
+        expect(runs).toBe(1);
+        await root.$disconnect();
+      });
+      it("does not run a callback again over the callback's own failure", async () => {
+        const db: any = createClient({
+          schema: { item },
+          driver: createSurrealTestDriver({ rerunsOnConflict: 5 }),
+        });
+        await syncLiveSchema(db);
+        let runs = 0;
+        await expect(
+          db.$transaction(() => {
+            runs += 1;
+            throw new TypeError("mine");
+          })
+        ).rejects.toBeInstanceOf(TypeError);
+        expect(runs).toBe(1);
+        await db.$disconnect();
+      });
+      it("leaves an engine's own transaction to its one recovery", async () => {
+        const driver = createSurrealTestDriver({ rerunsOnConflict: 5 });
+        const db: any = createClient({ schema: { item }, driver });
+        await syncLiveSchema(db);
+        await db.item.create({ data: { id: "a", n: 0 } });
+        const bump = "UPDATE item:a SET n += 1";
+        let calls = 0;
+        await expect(
+          driver.withTransaction(
+            async (tx: any) => {
+              calls += 1;
+              await tx._executeRaw(bump, []);
+              await interfere(db);
+            },
+            undefined,
+            { operation: "create" }
+          )
+        ).rejects.toMatchObject({ code: "V5001" });
+        expect(calls).toBe(1);
+        await db.$disconnect();
       });
     });
     it("writers that met commit without running a callback twice, when nothing they saw changed", async () => {

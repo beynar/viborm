@@ -3,7 +3,7 @@
  * when a test's schema is about to be pushed to it.
  */
 
-import { SurrealDriver } from "@drivers/surrealdb";
+import { SurrealDriver, type SurrealDriverOptions } from "@drivers/surrealdb";
 import { RecordId, Surreal } from "surrealdb";
 
 export const surrealUrl = process.env.SURREAL_TEST_URL;
@@ -19,8 +19,8 @@ class SurrealTestDriver extends SurrealDriver {
 
   readonly #surreal = new Surreal();
 
-  constructor() {
-    super(new Surreal());
+  constructor(options?: SurrealDriverOptions) {
+    super(new Surreal(), options);
     // Connected on first use, as a URL-configured driver would be.
     this.client = null;
   }
@@ -90,8 +90,10 @@ class SurrealTestDriver extends SurrealDriver {
   }
 }
 
-export function createSurrealTestDriver(): SurrealDriver {
-  return new SurrealTestDriver();
+export function createSurrealTestDriver(
+  options?: SurrealDriverOptions
+): SurrealDriver {
+  return new SurrealTestDriver(options);
 }
 
 const DROP_TABLE = /^DROP TABLE IF EXISTS/;

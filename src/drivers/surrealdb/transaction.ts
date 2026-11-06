@@ -59,6 +59,7 @@ export class ReplayedTransaction {
   readonly #client: Surreal;
   #open: SurrealTransaction;
   readonly #log: Statement[] = [];
+  #conflicted = false;
 
   private constructor(client: Surreal, open: SurrealTransaction) {
     this.#client = client;
@@ -67,6 +68,11 @@ export class ReplayedTransaction {
 
   static async begin(client: Surreal): Promise<ReplayedTransaction> {
     return new ReplayedTransaction(client, await client.beginTransaction());
+  }
+
+  /** A concurrent write changed what it was told, whatever the caller then did. */
+  get conflicted(): boolean {
+    return this.#conflicted;
   }
 
   /** How far this transaction has come, to {@link rollbackTo} later. */
@@ -118,10 +124,12 @@ export class ReplayedTransaction {
     this.#open = await this.#client.beginTransaction();
     for (const statement of this.#log) {
       const answer = await this.#open.query(statement.text, statement.values);
-      if (asText(answer) !== asText(statement.answer))
+      if (asText(answer) !== asText(statement.answer)) {
+        this.#conflicted = true;
         throw new TransactionError(
           "A concurrent write changed what this transaction read, so it cannot go on. This transaction can be retried."
         );
+      }
     }
   }
 

@@ -225,8 +225,11 @@ writes. What the override drops, and a real backend would have to answer:
 - **Meeting at commit:** the loser wrote nothing, so the same replay runs and commits again,
   without running the callback twice. Writers that were told nothing that changed all commit. Those
   whose answers changed, such as an `update` that returns the value another writer incremented,
-  still fail with `V5001` where PostgreSQL makes them wait, because only running the callback again
-  could give them the new value.
+  fail with `V5001` where PostgreSQL makes them wait, because only running the callback again can
+  give them the new value. `new SurrealDriver(client, { rerunsOnConflict: n })` does that, for a
+  `$transaction` callback. It is off by default, since whatever the callback does outside the
+  database happens again. An array transaction and an operation's own transaction do not rerun, and
+  neither does a callback under an extension that collects its writes.
 - **Sequences:** they stand outside transactions, so a statement in one takes its values ahead and
   holds them, which costs a round trip and keeps a replay's answers the same.
 
