@@ -1,2 +1,0 @@
-Checked 0 files in 6ms. No fixes applied.
-exit=0
