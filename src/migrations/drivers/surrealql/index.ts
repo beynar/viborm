@@ -283,7 +283,11 @@ export class SurrealMigrationDriver extends MigrationDriver {
   ): Promise<SchemaSnapshot> {
     const one = async <T>(statement: string) =>
       (await executeRaw<T>(`RETURN [${statement}]`)).rows[0]!;
-    const database = await one<DatabaseInfo>("INFO FOR DB STRUCTURE");
+    // Only what the schema is: an answer also holds how far the server's own
+    // work on a removed field has come, which changes under any transaction.
+    const database = await one<DatabaseInfo>(
+      "(INFO FOR DB STRUCTURE).{ tables, sequences }"
+    );
     const sequences = new Set(database.sequences.map(({ name }) => name));
     const known = database.tables.filter(({ name }) => name !== LOCK_TABLE);
     const infos = new Map<string, TableInfo>();
@@ -291,7 +295,7 @@ export class SurrealMigrationDriver extends MigrationDriver {
       infos.set(
         name,
         await one<TableInfo>(
-          `INFO FOR TABLE ${this.escapeIdentifier(name)} STRUCTURE`
+          `(INFO FOR TABLE ${this.escapeIdentifier(name)} STRUCTURE).{ fields, indexes, events }`
         )
       );
     const tables = known.map((table) => {

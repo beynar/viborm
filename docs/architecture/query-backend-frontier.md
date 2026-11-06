@@ -211,15 +211,27 @@ writes. What the override drops, and a real backend would have to answer:
 
 - **The batch route:** `usesBatch` is never true here, so that half of each method is
   untouched and untested. A driver without interactive transactions would need it.
-- **Locks:** `forUpdate` reads as it is. Writers meet at commit instead: of eight callback
-  transactions that touch one row, one commits and the others fail with `V5001`, where
-  PostgreSQL makes them wait and commits all eight.
-- **Savepoints:** a nested scope runs in its parent, and what it wrote cannot be taken back
-  alone. So a nested scope that fails marks the whole transaction rollback-only, through the
-  driver's existing `transactionCleanupFailed`: a caller that catches the failure gets
-  `TransactionError` on its next statement and at commit, and nothing commits. PostgreSQL
-  would have rolled back to the savepoint and gone on. The one exception is a skipped
-  `skipDuplicates` member refused at its own row, having written nothing.
+- **Locks:** `forUpdate` reads as it is, and writers meet at commit. Every engine measured
+  (memory, RocksDB, SurrealKV) is snapshot isolation where the first committer wins, with no
+  read checks. A write that changes nothing conflicts with nothing, so a lock cannot be imitated
+  by touching a row.
+- **Savepoints:** the language has none, and a failed statement may leave part of its change,
+  over which the server refuses to commit. `ReplayedTransaction` keeps each statement with its
+  answer. Going back is a new transaction running the statements up to the mark again, so a
+  caught failure leaves the rest to commit, as on PostgreSQL. If any answer differs, a concurrent
+  write changed what the caller was told, and the transaction ends with `V5001`. A scope that
+  wrote nothing costs nothing: a read, or an `INSERT IGNORE` that took no row. Otherwise going back
+  costs one round trip per statement so far.
+- **Meeting at commit:** the loser wrote nothing, so the same replay runs and commits again,
+  without running the callback twice. Writers that were told nothing that changed all commit. Those
+  whose answers changed, such as an `update` that returns the value another writer incremented,
+  fail with `V5001` where PostgreSQL makes them wait, because only running the callback again can
+  give them the new value. `new SurrealDriver(client, { rerunsOnConflict: n })` does that, for a
+  `$transaction` callback. It is off by default, since whatever the callback does outside the
+  database happens again. An array transaction and an operation's own transaction do not rerun, and
+  neither does a callback under an extension that collects its writes.
+- **Sequences:** they stand outside transactions, so a statement in one takes its values ahead and
+  holds them, which costs a round trip and keeps a replay's answers the same.
 
 **Parity with SQL.** The shared driver contracts run on SurrealDB unchanged, through
 `tests/providers/docker/surrealdb-contracts.test.ts`. The test fixture defines a schema
@@ -341,7 +353,11 @@ it with PostgreSQL and read its evidence. Their tests now run as
 `surrealdb-read-parity.test.ts` and `surrealdb-write-parity.test.ts`, which compare whole
 answers on SurrealDB and PGlite. What stays different, each stated by a test or a waiver:
 
-- A caught failure ends a transaction, and concurrent transactions refuse rather than wait.
+- Concurrent transactions whose answers changed refuse rather than wait.
+- A delete and an insert that meet both commit and leave an orphan, even under `REFERENCE ... ON
+  DELETE REJECT`: neither writes a key the other does. PostgreSQL's foreign key takes a lock here.
+  Closing it means each insert writes to its parent, which turns every insert under a popular
+  parent into a conflict.
 - A JSON key named `__proto__` is stored, and the SDK's answer loses it.
 - A schema written by hand can hold what generated DDL cannot: a dangling edge, which a read
   skips, or a second edge of a singular relation, of which a read takes the first. SQL's

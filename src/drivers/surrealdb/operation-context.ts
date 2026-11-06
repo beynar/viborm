@@ -34,6 +34,7 @@ import { getModelKeyCatalog } from "@schema/model/keys";
 import { type Sql, sql } from "@sql";
 import { SurrealQueries } from "./queries";
 import { quantized, SurrealReadBackend } from "./read-backend";
+import { isConflict } from "./transaction";
 
 type AnyModel = PreparedProjection["model"];
 type Junction = Extract<Membership, { kind: "junction" }>;
@@ -45,8 +46,6 @@ const ARITHMETIC: Readonly<Record<string, string>> = {
   divide: "/",
 };
 
-const CONFLICT = /can be retried|read or write conflict/;
-
 /**
  * A key a moved row can hold beside its old self: only what its field's type
  * admits, and nothing it could ever keep, since it is overwritten in that statement.
@@ -56,21 +55,6 @@ const STAND_INS: Readonly<Record<string, Sql>> = {
   int: sql.raw("rand::int(-2147483648, 2147483647)"),
   bigint: sql.raw("rand::int(-2147483648, 2147483647)"),
 };
-
-/**
- * Failures that leave a nested scope having written nothing, which is all a scope
- * can undo here without a savepoint: the transaction around it goes on.
- */
-export const WROTE_NOTHING = new WeakSet<object>();
-
-/** Two transactions that met at commit, in the words SurrealDB has for it. */
-export function isConflict(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    (CONFLICT.test(error.message) ||
-      (error.cause instanceof Error && CONFLICT.test(error.cause.message)))
-  );
-}
 
 function refuse(what: string): never {
   throw new UnsupportedOperationError(
@@ -121,8 +105,6 @@ export class SurrealOperationContext extends OperationContext {
     return this.#backend;
   }
 
-  #writes = 0;
-
   /**
    * Every write says so here. Preparing an array transaction queues statements,
    * and this writes through none: running here would write outside the transaction,
@@ -131,32 +113,6 @@ export class SurrealOperationContext extends OperationContext {
   #writing(): void {
     if (this.preparesBatch) throw this.incompletePreparation;
     if (writeSinks.get(this.attribution)) refuse("a write a hook observes");
-    this.#writes += 1;
-  }
-
-  /** A member skipped at its own row, before any write, has nothing to take back. */
-  override async executeSkippableMember(
-    execute: () => Promise<void>,
-    rootProducer: object,
-    member: Parameters<OperationContext["executeSkippableMember"]>[2]
-  ): Promise<boolean> {
-    const before = this.#writes;
-    return await super.executeSkippableMember(
-      async () => {
-        try {
-          await execute();
-        } catch (error) {
-          if (
-            this.#writes === before &&
-            this.rejectedProducer(error) === rootProducer
-          )
-            WROTE_NOTHING.add(error as object);
-          throw error;
-        }
-      },
-      rootProducer,
-      member
-    );
   }
 
   /** `RETURN` reads any row after a write, and a delete reads ahead of itself. */
@@ -436,8 +392,8 @@ export class SurrealOperationContext extends OperationContext {
     const produced = [...demanded].filter(
       (field) => given[field] === undefined
     );
-    // No savepoints: a statement that fails ends the transaction. An insert that
-    // may be answered another way is one that ignores its conflict, and says so.
+    // A failing statement costs its transaction a replay. An insert that may be
+    // answered another way ignores its conflict, and says so, for nothing.
     const verb = sql.raw(producer ? "INSERT IGNORE" : "INSERT");
     const { response, decoded } = await this.#written(
       model,
@@ -449,7 +405,6 @@ export class SurrealOperationContext extends OperationContext {
       const error = new UniqueConstraintError(
         `A record of '${model["~"].names.ts}' already holds these values.`
       );
-      this.#writes -= 1;
       this.rejectInsert(error, producer);
       throw error;
     }
