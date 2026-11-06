@@ -116,6 +116,9 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   // producer its caller hands it (the pinned session, or the pre-lock no-op
   // proof's own read).
   "src/migrations/drivers/postgres/catalog-digest.ts executeRaw 1",
+  // The SurrealQL driver takes and lets go of its lock record on the producer
+  // `withCommandLock` was handed. No other statement of its command runs here.
+  "src/migrations/drivers/surrealql/index.ts executeRaw 2",
   "src/migrations/execute-dispatch.ts executeRaw 2",
   // S10 (1.2.0): the verified foreign-key lift reads `PRAGMA foreign_keys`
   // back after each toggle, and its execution view runs each `DROP TABLE`
