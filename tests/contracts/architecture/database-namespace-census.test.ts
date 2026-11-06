@@ -154,7 +154,8 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   // Neki refuses mixing it with a transaction lock).
   "src/migrations/pinned-session.ts executeRaw 8",
   "src/migrations/pinned-session.ts queryExecutorFactory 2",
-  "src/migrations/push-fingerprint.ts executeRaw 2",
+  // A driver's own answer to what a push targets, on the producer it is handed.
+  "src/migrations/push-fingerprint.ts executeRaw 3",
   // Selected-table population proof uses the handed producer and its adapter's
   // qualified identifier before refusing an unsafe required-column addition.
   // S11 (1.2.0): push preflights its compiled program on the handed producer,
