@@ -52,7 +52,7 @@ import {
   type ScratchCarry,
   type SpentSlots,
   type StatementAnswer,
-  WriteOutcomeSeam,
+  type WriteOutcomeSeam,
 } from "./operation-context";
 import {
   type PreparedProjection,
