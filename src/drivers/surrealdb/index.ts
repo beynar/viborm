@@ -43,10 +43,19 @@ import { SurrealReadBackend } from "./read-backend";
 /** What decoding a row and starting a client read of an adapter, and no more. */
 const ROW_FACTS = {
   namespace: undefined,
-  // A name reads the same in both languages, and migrations probe by it.
+  // Migrations probe a table with these, and they read the same in both languages.
   identifiers: {
-    escape: (identifier: string) => sql.raw(identifier),
-    table: (identifier: string) => sql.raw(identifier),
+    escape: sql.raw,
+    table: sql.raw,
+    aliased: (column: Sql, alias: string) =>
+      sql`${column} AS ${sql.raw(alias)}`,
+  },
+  literals: {
+    value: (value: unknown) => sql`${value}`,
+    list: (values: readonly Sql[]) => sql`[${sql.join([...values], ", ")}]`,
+  },
+  operators: {
+    notIn: (column: Sql, list: Sql) => sql`${column} NOT IN ${list}`,
   },
   // A point's statements are this driver's own: the fact is that it holds them.
   geoPoint: {},

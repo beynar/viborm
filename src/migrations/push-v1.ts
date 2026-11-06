@@ -345,7 +345,8 @@ async function assertPushControlInterlock(
   command: BoundMigrationDriver,
   plan: InternalPushPlan
 ): Promise<void> {
-  if (!command.keepsControlTables) return;
+  // A driver holding its own lock keeps no control tables to interlock with.
+  if (command.holdLock) return;
   const control = await readCommandControl(producer, command);
   if (control.presence.kind !== "present") return;
   const { marker, ledger } = control;

@@ -57,11 +57,7 @@ import { assertArtifactExecutionSafe } from "./statement-safety";
 import type { MigrationStorageWriter } from "./storage/contract";
 import { assertEstateTargetMatches } from "./target";
 import type { DiffOperation, ResolveCallback, SchemaSnapshot } from "./types";
-import {
-  generateMigrationName,
-  prepareSchemaProgram,
-  refuseWithoutHistory,
-} from "./utils";
+import { generateMigrationName, prepareSchemaProgram } from "./utils";
 import {
   encodeEstateDescriptor,
   encodeSnapshot,
@@ -115,7 +111,7 @@ export async function generateV1(
     client,
     request.skipValidation ?? false
   );
-  refuseWithoutHistory(driver, "generate()");
+  // An estate's own format admits no dialect without a history.
   const dialect = driver.target.dialect as SqlDialect;
   const publishedEstate = await storage.readEstate();
   const estateBytes =

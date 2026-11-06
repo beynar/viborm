@@ -149,15 +149,17 @@ export class SurrealMigrationDriver extends MigrationDriver {
     supportsAddForeignKeyViaAlter: true,
     introspectionReadsConstraintNames: true,
   };
-  override readonly keepsControlTables = false;
-  override readonly resetsApart = true;
 
   /**
    * An index is built from committed rows, so it cannot share a transaction with
-   * the backfill of a field on its table. Each statement then stands alone, and a
+   * the backfill of a field on its table, or with its table's removal. Each statement then stands alone, and a
    * failure part-way leaves what the next push plans from.
    */
-  override buildsApart(operations: readonly DiffOperation[]): boolean {
+  override buildsApart(
+    operations: readonly DiffOperation[],
+    reset?: boolean
+  ): boolean {
+    if (reset) return true;
     const backfilled = new Set(
       operations.flatMap((operation) =>
         operation.type === "addColumn" &&
@@ -268,7 +270,7 @@ export class SurrealMigrationDriver extends MigrationDriver {
     };
   }
 
-  override finalizeJunction(table: TableDef): TableDef {
+  override markJunction(table: TableDef): TableDef {
     return { ...table, junction: true };
   }
 
@@ -815,7 +817,7 @@ export class SurrealMigrationDriver extends MigrationDriver {
     const fk = table?.foreignKeys.find(({ name }) => name === fkName);
     // A reset names keys it read from no schema of ours: it removes their tables,
     // and their fields and events go with those.
-    if (!(table && fk)) return [];
+    if (!(table && fk)) return ["RETURN NONE"];
     const key = table.primaryKey?.columns ?? [];
     if (!this.holdsRecord(fk, context, table, key))
       return this.removeEvents(fk);
@@ -884,17 +886,6 @@ export class SurrealMigrationDriver extends MigrationDriver {
   // The command's lock and identity
   // ---------------------------------------------------------------------------
 
-  override orphanDiscriminatorProbe(
-    table: string,
-    column: string,
-    declared: readonly string[]
-  ) {
-    return {
-      sql: `SELECT ${this.escapeIdentifier(column)} AS stored FROM ${this.escapeIdentifier(table)} WHERE ${this.escapeIdentifier(column)} NOT IN $p1 LIMIT 1`,
-      params: [declared],
-    };
-  }
-
   override async pushTarget(
     executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>
   ) {
@@ -908,7 +899,7 @@ export class SurrealMigrationDriver extends MigrationDriver {
    * No session holds anything here, so a record holds the lock. It carries a lease
    * because a command that dies cannot let go of it: a later one takes it over.
    */
-  override async withCommandLock<T>(
+  override async holdLock<T>(
     driver: AnyDriver,
     lockWait: number,
     run: () => Promise<T>

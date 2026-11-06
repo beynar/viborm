@@ -31,18 +31,6 @@ export function defaultGeneratedPrimaryKeyName(
 // DIALECT UTILITIES
 // =============================================================================
 
-/** History commands, for a driver that keeps none: `push` is what it has. */
-export function refuseWithoutHistory(
-  driver: Pick<MigrationDriver, "keepsControlTables">,
-  command: string
-): void {
-  if (!driver.keepsControlTables)
-    throw new MigrationError(
-      `${command} needs a migration history this dialect does not keep: use push().`,
-      VibORMErrorCode.MIGRATION_INVALID_STATE
-    );
-}
-
 /**
  * Validates and normalizes the database dialect for migrations.
  * Throws if the dialect is not supported.
@@ -51,14 +39,8 @@ export function normalizeDialect(dialect: string): Dialect {
   if (dialect === "postgresql" || dialect === "postgres") {
     return "postgresql";
   }
-  if (dialect === "sqlite") {
-    return "sqlite";
-  }
-  if (dialect === "mysql") {
-    return "mysql";
-  }
-  if (dialect === "surrealql") {
-    return "surrealql";
+  if (dialect === "sqlite" || dialect === "mysql" || dialect === "surrealql") {
+    return dialect;
   }
   throw new MigrationError(
     `Unsupported dialect for migrations: "${dialect}". ` +

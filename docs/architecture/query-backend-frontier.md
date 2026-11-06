@@ -364,9 +364,9 @@ The boundary is not closed. These still leak, and a second real backend must ans
 
 **Migrations.** `push` works end to end: `src/migrations/drivers/surrealql` is a
 `MigrationDriver`, and the plan, its consent and hash, the diff, the attestation and the
-refusals are all the shared ones. A driver asked for four things beyond its DDL, each a hook
-that is empty on the others, so SQL is unchanged and no bundle carries it: `withCommandLock`,
-`pushTarget`, `orphanDiscriminatorProbe` and `buildsApart`. The tests now define their schemas
+refusals are all the shared ones. A driver asked for three things beyond its DDL, each a hook
+that is empty on the others, so SQL is unchanged and no bundle carries it: `holdLock`,
+`pushTarget` and `buildsApart`. The tests now define their schemas
 through it, so the 1,100 tests of the driver run on what `push` generates.
 
 What the schema is made of:
@@ -395,10 +395,10 @@ The lock is a record, since no session can hold anything here. A command that di
 behind, and another takes it over once its 15-minute lease is up, so a command longer than that
 can be overtaken.
 
-Not done, and refusing by name: `generate`, `apply` and everything that reads a file history,
-which need control tables, a ledger and statement safety in SurrealQL. Renames, since SurrealDB
-has none and a table's copy needs new record ids. A key change, since a key is its id. Partial
-indexes.
+Not done: `generate`, `apply` and everything that reads a file history, which need control
+tables, a ledger and statement safety in SurrealQL. They refuse because an estate's format admits
+no such dialect, in that format's words. Refusing by name: renames, since SurrealDB has none and a
+table's copy needs new record ids; a key change, since a key is its id; partial indexes.
 
 ## Open questions
 

@@ -365,19 +365,11 @@ export abstract class MigrationDriver {
     return table;
   }
 
-  /** A generated junction, before {@link finalizeTable}. Default: identity. */
-  finalizeJunction(table: TableDef): TableDef {
-    return table;
-  }
+  /** A generated junction, before {@link finalizeTable}. */
+  markJunction?(table: TableDef): TableDef;
 
-  /** Whether commands keep a history in control tables. */
-  readonly keepsControlTables: boolean = true;
-
-  /** Whether these operations cannot share a transaction here. */
-  buildsApart?(operations: readonly DiffOperation[]): boolean;
-
-  /** Whether a reset's clear must commit before the schema is defined again. */
-  readonly resetsApart: boolean = false;
+  /** Whether these operations, after a reset or not, cannot share a transaction. */
+  buildsApart?(operations: readonly DiffOperation[], reset?: boolean): boolean;
 
   /** A driver's own answer to what a push targets, where it has one. */
   pushTarget?(
@@ -385,18 +377,11 @@ export abstract class MigrationDriver {
   ): Promise<PushTargetIdentity>;
 
   /** A driver's own hold on a command, where no pinned session can take one. */
-  withCommandLock?<T>(
+  holdLock?<T>(
     driver: AnyDriver,
     lockWait: number,
     run: () => Promise<T>
   ): Promise<T>;
-
-  /** A driver's own read of a stored discriminator outside `declared`. */
-  orphanDiscriminatorProbe?(
-    table: string,
-    column: string,
-    declared: readonly string[]
-  ): { readonly sql: string; readonly params: unknown[] };
 
   /** The exact generated PK name used by this driver's DDL and its inverse. */
   generatedPrimaryKeyName(tableName: string, name?: string): string {

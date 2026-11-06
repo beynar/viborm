@@ -93,7 +93,7 @@ export interface TableDef {
     | undefined;
   /**
    * A generated junction, where a driver stores one differently from a table:
-   * {@link MigrationDriver.finalizeJunction} says so. No SQL driver sets it.
+   * {@link MigrationDriver.markJunction} says so. No SQL driver sets it.
    */
   junction?: true | undefined;
 }

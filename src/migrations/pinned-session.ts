@@ -653,10 +653,8 @@ export function withLockedMigrationProducer<T>(
       producer,
       await validateAndSelectMigrationTarget(producer, migrationDriver)
     );
-  if (migrationDriver.withCommandLock)
-    return migrationDriver.withCommandLock(driver, limits.lockWait, () =>
-      run(driver)
-    );
+  if (migrationDriver.holdLock)
+    return migrationDriver.holdLock(driver, limits.lockWait, () => run(driver));
   const lockFree = migrationLockFree(migrationDriver);
   const scope: PinnedSessionScope = {
     connectionWait: limits.connectionWait,

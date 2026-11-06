@@ -28,10 +28,6 @@ export async function pushTargetIdentity(
   producer: AnyDriver,
   driver: BoundMigrationDriver
 ): Promise<PushTargetIdentity> {
-  const own = await driver.pushTarget?.((sql, params) =>
-    producer._executeRaw(sql, params)
-  );
-  if (own) return own;
   if (driver.target.dialect === "postgresql") {
     const result = await producer._executeRaw<{ database: unknown }>(
       "SELECT current_database() AS database"
@@ -61,7 +57,11 @@ export async function pushTargetIdentity(
       database: driver.namespace,
     };
   }
-  return { dialect: "sqlite", location: null };
+  return (
+    (await driver.pushTarget?.((sql, params) =>
+      producer._executeRaw(sql, params)
+    )) ?? { dialect: "sqlite", location: null }
+  );
 }
 
 export function hashSnapshot(snapshot: SchemaSnapshot): Sha256 {

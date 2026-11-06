@@ -802,7 +802,7 @@ export function serializeResolvedModels(
 
   // Append junction tables to the tables array
   for (const { def } of junctionTables.values()) {
-    tables.push(migrationDriver.finalizeJunction(def));
+    tables.push(migrationDriver.markJunction?.(def) ?? def);
   }
 
   const snapshot: SchemaSnapshot = {

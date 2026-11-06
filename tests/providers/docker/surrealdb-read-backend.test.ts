@@ -396,7 +396,7 @@ describe.skipIf(!url)("SurrealDB read prototype against PostgreSQL", () => {
   it("holds no SQL: reaching for any syntax refuses", () => {
     const { adapter } = new SurrealDriver(surreal);
     expect(adapter.result).toBeDefined();
-    expect(() => adapter.operators).toThrow("speaks no SQL");
+    expect(() => adapter.subqueries).toThrow("speaks no SQL");
     expect(() => adapter.clauses).toThrow("speaks no SQL");
   });
 });

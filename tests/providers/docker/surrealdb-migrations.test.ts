@@ -340,6 +340,39 @@ describe.skipIf(!surrealUrl)("a change on a populated table", () => {
     });
   });
 
+  it("a stored discriminator the schema no longer declares refuses", async () => {
+    const shape = (arm: "clip" | "note") => {
+      const book = s.model({ id: s.string().id() });
+      const clip = s.model({ id: s.string().id() });
+      const note = s.model({ id: s.string().id() });
+      const pin = s.model({
+        id: s.string().id(),
+        target: s
+          .toOne(
+            (arm === "clip"
+              ? { book: () => book, clip: () => clip }
+              : { book: () => book, note: () => note }) as never
+          )
+          .name("target"),
+      });
+      return { book, clip, note, pin };
+    };
+    const db = clientOf(shape("clip"));
+    await using(db, async () => {
+      await syncLiveSchema(db);
+      await db.clip.create({ data: { id: "c" } });
+      await db.pin.create({
+        data: {
+          id: "p",
+          target: { connect: { type: "clip", where: { id: "c" } } },
+        },
+      });
+      await expect(preview(nextVersion(shape("note"), db))).rejects.toThrow(
+        "no longer declares"
+      );
+    });
+  });
+
   it("an index is built over what is there", async () => {
     const schema = (index: boolean) => {
       const item = s.model({ id: s.string().id(), name: s.string() });
@@ -579,9 +612,7 @@ describe.skipIf(!surrealUrl)("what SurrealDB has no form for", () => {
       const migrations = createMigrationClient(db, {
         storage: new MemoryStorage(),
       });
-      await expect(migrations.generate()).rejects.toThrow(
-        "a migration history this dialect does not keep"
-      );
+      await expect(migrations.generate()).rejects.toThrow("target.dialect");
     });
   });
 });

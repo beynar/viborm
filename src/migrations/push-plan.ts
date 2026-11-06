@@ -183,13 +183,7 @@ export async function buildPushPlan(
         );
     }
   if (!options.forceReset)
-    await refuseOrphanedDiscriminators(
-      producer,
-      command,
-      desired,
-      current,
-      operations
-    );
+    await refuseOrphanedDiscriminators(producer, desired, current, operations);
   const resolutions = controller.finish();
   const target = await pushTargetIdentity(producer, command);
   const sourceFingerprint = await fingerprintLive(current, command, producer);
@@ -222,10 +216,7 @@ export async function buildPushPlan(
           : "safe",
     })
   );
-  const atomicity =
-    reset && command.resetsApart
-      ? "stepwise"
-      : classifyGeneratedAtomicity(command, operations);
+  const atomicity = classifyGeneratedAtomicity(command, operations, !!reset);
   const destructive =
     mode === "force-reset" ||
     reportedOperations.some((operation) => operation.risk === "destructive");
@@ -444,11 +435,11 @@ function liveTableName(
  */
 async function refuseOrphanedDiscriminators(
   producer: AnyDriver,
-  command: BoundMigrationDriver,
   desired: SchemaSnapshot,
   current: SchemaSnapshot,
   operations: readonly DiffOperation[]
 ): Promise<void> {
+  const { identifiers, literals, operators } = producer.adapter;
   for (const slot of desired.polymorphicStorage ?? []) {
     if (slot.kind !== "toOne") continue;
     const tableName = liveTableName(operations, slot.ownerTable);
@@ -462,10 +453,13 @@ async function refuseOrphanedDiscriminators(
       rename?.type === "renameColumn" ? rename.from : slot.storageRef;
     const live = current.tables.find((table) => table.name === tableName);
     if (!live?.columns.some((column) => column.name === columnName)) continue;
-    const stored = slot.members.map((member) => member.storedType);
-    const probe =
-      command.orphanDiscriminatorProbe?.(tableName, columnName, stored) ??
-      sqlOrphanProbe(producer, tableName, columnName, stored);
+    const column = identifiers.escape(columnName);
+    const declared = literals.list(
+      slot.members.map((member) => literals.value(member.storedType))
+    );
+    const probe = producer._prepare(
+      sql`SELECT ${identifiers.aliased(column, "stored")} FROM ${identifiers.table(tableName)} WHERE ${operators.notIn(column, declared)} LIMIT 1`
+    );
     const [orphan] = (
       await producer._executeRaw<{ stored: unknown }>(probe.sql, probe.params)
     ).rows;
@@ -482,20 +476,6 @@ async function refuseOrphanedDiscriminators(
         }
       );
   }
-}
-
-function sqlOrphanProbe(
-  producer: AnyDriver,
-  tableName: string,
-  columnName: string,
-  stored: readonly string[]
-): { readonly sql: string; readonly params?: unknown[] } {
-  const { identifiers, literals, operators } = producer.adapter;
-  const column = identifiers.escape(columnName);
-  const declared = literals.list(stored.map((value) => literals.value(value)));
-  return producer._prepare(
-    sql`SELECT ${identifiers.aliased(column, "stored")} FROM ${identifiers.table(tableName)} WHERE ${operators.notIn(column, declared)} LIMIT 1`
-  );
 }
 
 function resolutionController(source: ResolutionSource): ResolutionController {
