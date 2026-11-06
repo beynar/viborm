@@ -197,12 +197,7 @@ export async function generateV1(
       request.manualMigration.destinationChecks ?? []
     ).entries()) {
       destinationPlaceholders.push(
-        compileTrustedCheck(
-          check,
-          dialect,
-          assembly,
-          `destination:${index}`
-        )
+        compileTrustedCheck(check, dialect, assembly, `destination:${index}`)
       );
     }
     for (const compiled of parentBodies) {
