@@ -31,6 +31,18 @@ export function defaultGeneratedPrimaryKeyName(
 // DIALECT UTILITIES
 // =============================================================================
 
+/** History commands, for a driver that keeps none: `push` is what it has. */
+export function refuseWithoutHistory(
+  driver: Pick<MigrationDriver, "keepsControlTables">,
+  command: string
+): void {
+  if (!driver.keepsControlTables)
+    throw new MigrationError(
+      `${command} needs a migration history this dialect does not keep: use push().`,
+      VibORMErrorCode.MIGRATION_INVALID_STATE
+    );
+}
+
 /**
  * Validates and normalizes the database dialect for migrations.
  * Throws if the dialect is not supported.

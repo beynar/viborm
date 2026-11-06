@@ -3,6 +3,7 @@
  * Snapshot and SQL are published before the state manifest.
  */
 
+import type { SqlDialect } from "../drivers/types";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import {
   assertManualStepwiseProof,
@@ -56,7 +57,11 @@ import { assertArtifactExecutionSafe } from "./statement-safety";
 import type { MigrationStorageWriter } from "./storage/contract";
 import { assertEstateTargetMatches } from "./target";
 import type { DiffOperation, ResolveCallback, SchemaSnapshot } from "./types";
-import { generateMigrationName, prepareSchemaProgram } from "./utils";
+import {
+  generateMigrationName,
+  prepareSchemaProgram,
+  refuseWithoutHistory,
+} from "./utils";
 import {
   encodeEstateDescriptor,
   encodeSnapshot,
@@ -110,12 +115,8 @@ export async function generateV1(
     client,
     request.skipValidation ?? false
   );
-  const { dialect } = driver.target;
-  if (dialect === "surrealql")
-    throw new MigrationError(
-      "generate() has no SurrealQL history yet: use push().",
-      VibORMErrorCode.MIGRATION_INVALID_STATE
-    );
+  refuseWithoutHistory(driver, "generate()");
+  const dialect = driver.target.dialect as SqlDialect;
   const publishedEstate = await storage.readEstate();
   const estateBytes =
     publishedEstate ?? encodeEstateDescriptor(driver.target).bytes;

@@ -21,6 +21,7 @@ import type { MigrationGraph } from "./graph";
 import type { Sha256 } from "./identity";
 import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
 import { assertEstateTargetMatches } from "./target";
+import { refuseWithoutHistory } from "./utils";
 import type {
   LedgerEventV1,
   MigrationOperationV1,
@@ -35,11 +36,7 @@ export function openCommand(
   label: string
 ): BoundMigrationDriver {
   const driver = getPushMigrationDriver(client);
-  if (!driver.keepsControlTables)
-    throw new MigrationError(
-      `${label} reads a migration history, and this dialect keeps none yet: use push().`,
-      VibORMErrorCode.MIGRATION_INVALID_STATE
-    );
+  refuseWithoutHistory(driver, label);
   assertEstateTargetMatches(graph.descriptor.target, driver.target);
   admitLiveMigrationCapability(driver, requirement, label);
   return driver;

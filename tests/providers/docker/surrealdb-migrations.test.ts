@@ -580,7 +580,7 @@ describe.skipIf(!surrealUrl)("what SurrealDB has no form for", () => {
         storage: new MemoryStorage(),
       });
       await expect(migrations.generate()).rejects.toThrow(
-        "no SurrealQL history"
+        "a migration history this dialect does not keep"
       );
     });
   });
