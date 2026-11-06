@@ -4,6 +4,7 @@
  */
 
 import { SurrealDriver, type SurrealDriverOptions } from "@drivers/surrealdb";
+import { type Sql, sql } from "@sql";
 import { RecordId, Surreal } from "surrealdb";
 
 export const surrealUrl = process.env.SURREAL_TEST_URL;
@@ -12,7 +13,29 @@ let databases = 0;
 let latest: string | undefined;
 const nextDatabase = () => `t${process.pid}_${Date.now()}_${++databases}`;
 
+/** What the shared contracts spell statements with, which reads the same here. */
+const CONTRACT_SPELLING = {
+  identifiers: {
+    escape: sql.raw,
+    table: sql.raw,
+    aliased: (column: Sql, alias: string) =>
+      sql`${column} AS ${sql.raw(alias)}`,
+  },
+  literals: {
+    value: (value: unknown) => sql`${value}`,
+    list: (values: readonly Sql[]) => sql`[${sql.join([...values], ", ")}]`,
+  },
+  operators: {
+    notIn: (column: Sql, list: Sql) => sql`${column} NOT IN ${list}`,
+  },
+};
+
 class SurrealTestDriver extends SurrealDriver {
+  override readonly adapter = {
+    ...new SurrealDriver(new Surreal()).adapter,
+    ...CONTRACT_SPELLING,
+  };
+
   #connected: Promise<Surreal> | undefined;
   #database: string | undefined;
   #defined = false;
