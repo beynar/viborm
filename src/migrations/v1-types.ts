@@ -419,6 +419,10 @@ export type PushTargetIdentity =
       readonly database: string;
     }
   | {
+      readonly dialect: "surrealql";
+      readonly database: string;
+    }
+  | {
       readonly dialect: "sqlite";
       readonly location: string | null;
     };

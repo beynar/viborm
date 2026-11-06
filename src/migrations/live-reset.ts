@@ -225,7 +225,8 @@ function clearForeignKeys(
       )
     );
   }
-  return statements;
+  // A driver whose keys go with their tables has no statement for them.
+  return statements.filter((statement) => statement !== "");
 }
 
 /** Every foreign key owned by a table this reset is about to drop. */

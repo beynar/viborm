@@ -110,6 +110,12 @@ export async function generateV1(
     client,
     request.skipValidation ?? false
   );
+  const { dialect } = driver.target;
+  if (dialect === "surrealql")
+    throw new MigrationError(
+      "generate() has no SurrealQL history yet: use push().",
+      VibORMErrorCode.MIGRATION_INVALID_STATE
+    );
   const publishedEstate = await storage.readEstate();
   const estateBytes =
     publishedEstate ?? encodeEstateDescriptor(driver.target).bytes;
@@ -180,7 +186,7 @@ export async function generateV1(
       const compiled = compileManualTransition(
         transition.up,
         transition.rollback,
-        driver.target.dialect,
+        dialect,
         transition.execution,
         transition.originChecks,
         assembly
@@ -193,7 +199,7 @@ export async function generateV1(
       destinationPlaceholders.push(
         compileTrustedCheck(
           check,
-          driver.target.dialect,
+          dialect,
           assembly,
           `destination:${index}`
         )

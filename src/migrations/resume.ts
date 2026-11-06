@@ -35,6 +35,11 @@ export function openCommand(
   label: string
 ): BoundMigrationDriver {
   const driver = getPushMigrationDriver(client);
+  if (!driver.keepsControlTables)
+    throw new MigrationError(
+      `${label} reads a migration history, and this dialect keeps none yet: use push().`,
+      VibORMErrorCode.MIGRATION_INVALID_STATE
+    );
   assertEstateTargetMatches(graph.descriptor.target, driver.target);
   admitLiveMigrationCapability(driver, requirement, label);
   return driver;

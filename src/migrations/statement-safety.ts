@@ -702,6 +702,12 @@ export function assertArtifactExecutionSafe(
   dialect: MigrationTarget["dialect"],
   artifact: string
 ): void {
+  // Reached only where a history exists, and this dialect keeps none.
+  if (dialect === "surrealql")
+    throw new MigrationError(
+      `Cannot read the artifact "${artifact}" as SurrealQL: this dialect has no file history.`,
+      VibORMErrorCode.MIGRATION_INVALID_STATE
+    );
   for (const chunk of statements) {
     const scanned = scanStatements(chunk, dialect);
     if (dialect === "sqlite" && isSqliteTrigger(scanned[0])) {

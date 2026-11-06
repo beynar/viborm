@@ -648,12 +648,16 @@ export function withLockedMigrationProducer<T>(
 ): Promise<T> {
   const { dialect } = migrationDriver.target;
   const limits = migrationDriver.limits;
-  const lockFree = migrationLockFree(migrationDriver);
   const run = async (producer: AnyDriver) =>
     body(
       producer,
       await validateAndSelectMigrationTarget(producer, migrationDriver)
     );
+  if (migrationDriver.withCommandLock)
+    return migrationDriver.withCommandLock(driver, limits.lockWait, () =>
+      run(driver)
+    );
+  const lockFree = migrationLockFree(migrationDriver);
   const scope: PinnedSessionScope = {
     connectionWait: limits.connectionWait,
     diagnostics: migrationDriver.diagnostics,

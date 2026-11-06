@@ -1,4 +1,5 @@
 import { stringifyJson } from "../../adapters/shared/standard-sql";
+import type { PushTargetIdentity } from "../v1-types";
 /**
  * MigrationDriver Base Class
  *
@@ -363,6 +364,39 @@ export abstract class MigrationDriver {
   finalizeTable(table: TableDef): TableDef {
     return table;
   }
+
+  /** A generated junction, before {@link finalizeTable}. Default: identity. */
+  finalizeJunction(table: TableDef): TableDef {
+    return table;
+  }
+
+  /** Whether commands keep a history in control tables. */
+  readonly keepsControlTables: boolean = true;
+
+  /** Whether these operations cannot share a transaction here. */
+  buildsApart?(operations: readonly DiffOperation[]): boolean;
+
+  /** Whether a reset's clear must commit before the schema is defined again. */
+  readonly resetsApart: boolean = false;
+
+  /** A driver's own answer to what a push targets, where it has one. */
+  pushTarget?(
+    executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>
+  ): Promise<PushTargetIdentity>;
+
+  /** A driver's own hold on a command, where no pinned session can take one. */
+  withCommandLock?<T>(
+    driver: AnyDriver,
+    lockWait: number,
+    run: () => Promise<T>
+  ): Promise<T>;
+
+  /** A driver's own read of a stored discriminator outside `declared`. */
+  orphanDiscriminatorProbe?(
+    table: string,
+    column: string,
+    declared: readonly string[]
+  ): { readonly sql: string; readonly params: unknown[] };
 
   /** The exact generated PK name used by this driver's DDL and its inverse. */
   generatedPrimaryKeyName(tableName: string, name?: string): string {

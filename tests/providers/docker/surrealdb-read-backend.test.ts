@@ -398,6 +398,5 @@ describe.skipIf(!url)("SurrealDB read prototype against PostgreSQL", () => {
     expect(adapter.result).toBeDefined();
     expect(() => adapter.operators).toThrow("speaks no SQL");
     expect(() => adapter.clauses).toThrow("speaks no SQL");
-    expect(() => adapter.identifiers).toThrow("speaks no SQL");
   });
 });

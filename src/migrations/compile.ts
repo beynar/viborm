@@ -755,7 +755,8 @@ export function classifyGeneratedAtomicity(
   driver: MigrationDriver,
   operations: readonly DiffOperation[]
 ): AtomicityClass {
-  if (driver.dialect === "mysql") return "stepwise";
+  if (driver.dialect === "mysql" || driver.buildsApart?.(operations))
+    return "stepwise";
   if (
     operations.some(
       (operation) =>

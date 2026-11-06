@@ -345,6 +345,7 @@ async function assertPushControlInterlock(
   command: BoundMigrationDriver,
   plan: InternalPushPlan
 ): Promise<void> {
+  if (!command.keepsControlTables) return;
   const control = await readCommandControl(producer, command);
   if (control.presence.kind !== "present") return;
   const { marker, ledger } = control;

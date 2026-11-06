@@ -326,21 +326,6 @@ form is used, and 1.0 ms with `SURREAL_DATASTORE_SYNC=never`. That is the sync o
 commit. PostgreSQL on this machine uses `open_datasync`, which macOS does not flush as
 far, so this gap is not a like-for-like measure of durability.
 
-Migrations will have to state what these forms rely on:
-
-- `LIGHTWEIGHT` for a generated junction, and a classic relation with a unique index for a
-  singular one.
-- `DEFINE FIELD id ... TYPE [a: string, b: int]` for a compound key, which turns the
-  driver's `id[0]` into a key range. A part named `id` is refused, and the driver reads by
-  position, so the schema may name it anything. A `decimal` part cannot be named.
-- `REFERENCE` on every foreign key, an index on what a filter reads, and events for a
-  foreign key that holds no record, over several columns or another unique field: `DELETE`,
-  and `UPDATE` where the referenced value can change. Nothing else applies its actions, so a
-  schema without them leaves orphans silently.
-- `i32` for `s.int()`, since a plain `int` holds what SQL's `integer` refuses, and `int` for a
-  compound key's part, the only integer type a key range takes.
-- `INLINE EDGES` and `INLINE REFERENCES` are not tried here. They cost each write.
-
 Not measured: declared junctions, variant relations, geography, vectors, concurrent load,
 and anything above 100,000 rows.
 
@@ -361,22 +346,59 @@ answers on SurrealDB and PGlite. What stays different, each stated by a test or 
 - A schema written by hand can hold what generated DDL cannot: a dangling edge, which a read
   skips, or a second edge of a singular relation, of which a read takes the first. SQL's
   contract refuses both, by a check a driver cannot make without reading more.
-- The fixture holds much of this behaviour: assertions, events, sequences, indexes. The raw
-  statements of the shared contracts are rewritten by it, and `syncLiveSchema` plans nothing
-  (`operations: []`). Until migrations generate that DDL, these tests prove the driver against
-  a schema nothing ships.
+- The shared contracts still rewrite a few raw statements in the test fixture, which spells
+  SQL's `DROP TABLE` and the like.
 
 The boundary is not closed. These still leak, and a second real backend must answer them:
 
 - `Driver` must declare a `DatabaseAdapter`, here a proxy over row facts that refuses the rest.
 - `Queries` is concrete, and `selectSeries`, `select` and `junction` are overridden by name.
+- `MigrationDriver` is written for SQL: its identifiers, values and defaults are overridden,
+  `TableDef` gained a `junction` mark, and `pinned-session`, `control` and `statement-safety` are
+  reached only because the driver takes other paths around them.
 - `operationContext` is `typeof OperationContext`, and a method left out refuses at its first
   adapter read rather than at compile time.
 - `Query.sql` is `Sql`, and `SelectControls.condition` is a fragment bearing an alias.
 - A unique refusal's recovery compares constraint identities, which this driver must install
   and never matches: its refusals name no constraint, and a lost race recovers at commit.
-- `Dialect` widened to `surrealql`, but the migration serializer still casts it to
-  `SqlDialect`: left alone, this dialect would take SQLite's decimal limit.
+
+**Migrations.** `push` works end to end: `src/migrations/drivers/surrealql` is a
+`MigrationDriver`, and the plan, its consent and hash, the diff, the attestation and the
+refusals are all the shared ones. A driver asked for four things beyond its DDL, each a hook
+that is empty on the others, so SQL is unchanged and no bundle carries it: `withCommandLock`,
+`pushTarget`, `orphanDiscriminatorProbe` and `buildsApart`. The tests now define their schemas
+through it, so the 1,100 tests of the driver run on what `push` generates.
+
+What the schema is made of:
+
+- `LIGHTWEIGHT` for a generated junction, a classic relation with a unique index for a singular
+  one. An action on a junction other than cascade refuses by name: a record's edges go with it,
+  before an event could object.
+- `DEFINE FIELD id ... TYPE [a: string, b: int]` for a compound key, which turns the driver's
+  `id[0]` into a key range and names its parts, so an index can read them. A part named `id` is
+  `id_part`. A `decimal` part cannot be named, and a unique over part of such a key refuses.
+- `REFERENCE` on a foreign key that holds a record. Events for one that does not, over several
+  columns, another unique field or a part of the row's own key: `DELETE`, and `UPDATE` where the
+  referenced value can change. Nothing else applies its actions.
+- `i32` for `s.int()`, and `int` for a compound key's part, the only integer a key range takes.
+- A `COMMENT` for what the database cannot say: the schema's names for `id`, `in` and `out`, a
+  junction's definition, `onUpdate`, a decimal's scale. `INFO ... STRUCTURE` reads the rest.
+
+What the database decides for itself, at compatibility level 4: on a populated `SCHEMAFULL`
+table, a change its rows might not satisfy refuses in the server's words, and nothing of that
+push is left. A required field with a default fills old rows through `MIGRATE EXISTING ROWS`. An
+index cannot share a transaction with a backfill on its table or with a removal of that table,
+so such a plan runs statement by statement: a failure part-way leaves what the next push plans
+from, which is why that is acceptable for a push and would not be for a history.
+
+The lock is a record, since no session can hold anything here. A command that dies leaves it
+behind, and another takes it over once its 15-minute lease is up, so a command longer than that
+can be overtaken.
+
+Not done, and refusing by name: `generate`, `apply` and everything that reads a file history,
+which need control tables, a ledger and statement safety in SurrealQL. Renames, since SurrealDB
+has none and a table's copy needs new record ids. A key change, since a key is its id. Partial
+indexes.
 
 ## Open questions
 

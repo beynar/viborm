@@ -19,7 +19,7 @@ import {
   VibORMErrorCode,
 } from "@errors";
 import type { Queries, ReadBackend } from "@query-engine/raptor3/shared/query";
-import type { Sql } from "@sql";
+import { type Sql, sql } from "@sql";
 import {
   DateTime,
   Decimal,
@@ -43,6 +43,11 @@ import { SurrealReadBackend } from "./read-backend";
 /** What decoding a row and starting a client read of an adapter, and no more. */
 const ROW_FACTS = {
   namespace: undefined,
+  // A name reads the same in both languages, and migrations probe by it.
+  identifiers: {
+    escape: (identifier: string) => sql.raw(identifier),
+    table: (identifier: string) => sql.raw(identifier),
+  },
   // A point's statements are this driver's own: the fact is that it holds them.
   geoPoint: {},
   // A strategy `Commands` asks about, not syntax: `INSERT IGNORE` skips.

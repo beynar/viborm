@@ -1049,6 +1049,90 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
     });
   });
 
+  describe("what a foreign key does when it is no field", () => {
+    const seats = (action: "cascade" | "restrict" | "noAction") => {
+      const seat = s
+        .model({
+          roomId: s.string(),
+          guestId: s.string(),
+          room: s
+            .toOne(() => room)
+            .fields("roomId")
+            .references("id")
+            .onDelete(action),
+          guest: s
+            .toOne(() => guest)
+            .fields("guestId")
+            .references("id")
+            .onDelete(action),
+        })
+        .id(["roomId", "guestId"]);
+      const room = s.model({
+        id: s.string().id(),
+        guests: s
+          .toMany(() => guest)
+          .through(() => seat)
+          .source("room")
+          .target("guest"),
+      });
+      const guest = s.model({
+        id: s.string().id(),
+        rooms: s.toMany(() => room),
+      });
+      return { seat, room, guest };
+    };
+    it.each([
+      "cascade",
+      "restrict",
+      "noAction",
+    ] as const)("a part of the row's own key, onDelete %s", async (action) => {
+      await compare(seats(action), async (db) => {
+        await db.room.create({
+          data: { id: "r", guests: { create: { id: "g" } } },
+        });
+        const result = await caught(() =>
+          db.room.delete({ where: { id: "r" } })
+        );
+        return { result, seats: await db.seat.findMany() };
+      });
+    });
+    it("a generated junction, onDelete cascade", async () => {
+      const post = s.model({
+        id: s.string().id(),
+        tags: s.toMany(() => tag),
+      });
+      const tag = s.model({ id: s.string().id(), posts: s.toMany(() => post) });
+      await compare({ post, tag }, async (db) => {
+        await db.post.create({
+          data: { id: "p", tags: { create: { id: "t" } } },
+        });
+        const result = await caught(() =>
+          db.tag.delete({ where: { id: "t" } })
+        );
+        return {
+          result,
+          posts: await db.post.findMany({ include: { tags: true } }),
+        };
+      });
+    });
+    it("a unique over a part of the key holds", async () => {
+      const member = s
+        .model({ org: s.string(), rank: s.int(), email: s.string() })
+        .id(["org", "rank"])
+        .unique(["org", "email"]);
+      await compare({ member }, async (db) => {
+        await db.member.create({ data: { org: "a", rank: 1, email: "x" } });
+        const taken = await caught(() =>
+          db.member.create({ data: { org: "a", rank: 2, email: "x" } })
+        );
+        const other = await caught(() =>
+          db.member.create({ data: { org: "b", rank: 1, email: "x" } })
+        );
+        return { taken, other };
+      });
+    });
+  });
+
   describe("what differs by design", () => {
     const within = async (scenario: (db: any) => Promise<void>) => {
       const db: any = createClient({

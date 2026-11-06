@@ -218,6 +218,13 @@ function parseTarget(value: unknown): PushTargetIdentity {
       database: requiredString(record.database, "consent.target.database"),
     };
   }
+  if (record.dialect === "surrealql") {
+    refuseTargetKeys(record, ["database", "dialect"]);
+    return {
+      dialect: "surrealql",
+      database: requiredString(record.database, "consent.target.database"),
+    };
+  }
   if (record.dialect === "sqlite") {
     refuseTargetKeys(record, ["dialect", "location"]);
     if (record.location !== null && typeof record.location !== "string") {
