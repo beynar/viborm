@@ -151,7 +151,7 @@ export function parseMigrationTarget(
         : { tables: parseManagedTables(value.tables, label) }),
     };
   }
-  if (dialect === "mysql" || dialect === "sqlite") {
+  if (dialect === "mysql" || dialect === "sqlite" || dialect === "surrealql") {
     exactObject(value, DIALECT_ONLY_TARGET_KEYS, ["dialect"], label);
     return {
       dialect,

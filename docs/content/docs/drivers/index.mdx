@@ -3,7 +3,7 @@ title: Database Drivers
 description: Overview of available database drivers for VibORM
 ---
 
-VibORM supports multiple database drivers across three dialects: PostgreSQL, MySQL, and SQLite.
+VibORM supports multiple database drivers across four dialects: SurrealQL, PostgreSQL, MySQL, and SQLite.
 
 Every PostgreSQL and MySQL driver takes one optional `namespace` — the
 PostgreSQL schema or MySQL database its objects live in. See
@@ -19,6 +19,12 @@ timeouts and recovery are covered in [Production connections](/docs/drivers/prod
 | [pglite](/docs/drivers/postgresql/pglite) | `@electric-sql/pglite` | Local/embedded PostgreSQL (WASM) |
 | [neon-http](/docs/drivers/postgresql/neon-http) | `@neondatabase/serverless` | Serverless/edge deployments |
 | [bun-sql](/docs/drivers/postgresql/bun-sql) | `bun:sql` | Bun runtime applications |
+
+## SurrealDB
+
+| Driver | Package | Best For |
+|--------|---------|----------|
+| [surrealdb](/docs/drivers/surrealdb) | `surrealdb` | Graph relations, in SurrealDB's own language |
 
 ## MySQL Drivers
 

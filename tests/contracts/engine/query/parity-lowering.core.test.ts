@@ -4,8 +4,8 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
 import { type Dialect, Driver } from "@drivers";
-import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
 import {
@@ -268,7 +268,7 @@ describe.each(dialectCases)("$name limited writes", (dialectCase) => {
   // MySQL refuses both a LIMIT inside IN (…) and a subquery reading the
   // updated table: there the limited read is a derived table.
   test("a window's limited read is a derived table where the provider needs one", () => {
-    const queries = new Queries(
+    const queries = new SqlQueries(
       new EngineSchema(schema),
       dialectCase.adapter()
     );
