@@ -47,30 +47,30 @@ import type {
 } from "../../types";
 import { derivedMigrationName } from "../../utils";
 import type { BoundMigrationDriver } from "..";
-import {
-  type AddColumnOperation,
-  type AddForeignKeyOperation,
-  type AddPrimaryKeyOperation,
-  type AddUniqueConstraintOperation,
-  type AlterColumnOperation,
-  type AlterEnumOperation,
-  type ControlTableNames,
-  type CreateEnumOperation,
-  type CreateIndexOperation,
-  type CreateTableOperation,
-  type DDLContext,
-  type DerivedRename,
-  type DropColumnOperation,
-  type DropEnumOperation,
-  type DropForeignKeyOperation,
-  type DropIndexOperation,
-  type DropPrimaryKeyOperation,
-  type DropTableOperation,
-  type DropUniqueConstraintOperation,
-  MigrationDriver,
-  type RenameColumnOperation,
-  type RenameTableOperation,
+import type {
+  AddColumnOperation,
+  AddForeignKeyOperation,
+  AddPrimaryKeyOperation,
+  AddUniqueConstraintOperation,
+  AlterColumnOperation,
+  AlterEnumOperation,
+  ControlTableNames,
+  CreateEnumOperation,
+  CreateIndexOperation,
+  CreateTableOperation,
+  DDLContext,
+  DerivedRename,
+  DropColumnOperation,
+  DropEnumOperation,
+  DropForeignKeyOperation,
+  DropIndexOperation,
+  DropPrimaryKeyOperation,
+  DropTableOperation,
+  DropUniqueConstraintOperation,
+  RenameColumnOperation,
+  RenameTableOperation,
 } from "../base";
+import { SqlMigrationDriver } from "../sql";
 import { getPostgresType, PG_TYPE_DEFAULTS } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
 import {
@@ -368,7 +368,7 @@ function enumValuesNamed(definition: string, type: string): string[] {
   return [...values];
 }
 
-export class PostgresMigrationDriver extends MigrationDriver {
+export class PostgresMigrationDriver extends SqlMigrationDriver {
   readonly dialect = "postgresql" as const;
   readonly driverName = "postgresql";
 

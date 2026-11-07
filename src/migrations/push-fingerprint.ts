@@ -57,7 +57,11 @@ export async function pushTargetIdentity(
       database: driver.namespace,
     };
   }
-  return { dialect: "sqlite", location: null };
+  return (
+    (await driver.pushTarget?.((sql, params) =>
+      producer._executeRaw(sql, params)
+    )) ?? { dialect: "sqlite", location: null }
+  );
 }
 
 export function hashSnapshot(snapshot: SchemaSnapshot): Sha256 {

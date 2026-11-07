@@ -5,9 +5,10 @@ import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { ValidationError } from "@errors";
-import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
 import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { SqlOperationContext } from "@query-engine/raptor3/shared/sql-operation-context";
+import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { s } from "@schema";
 import { Sql } from "@sql";
 import { Decimal } from "@src/index";
@@ -148,7 +149,10 @@ class ProjectionBatchSQLiteDriver extends ProjectionRecordingSQLiteDriver {
 describe("post-G3 projection preparation", () => {
   it("prepares shape without SQL and binds aliases only while lowering", () => {
     const schema = projectionSchema();
-    const queries = new Queries(new EngineSchema(schema), new SQLiteAdapter());
+    const queries = new SqlQueries(
+      new EngineSchema(schema),
+      new SQLiteAdapter()
+    );
     const selection = {
       select: {
         id: true,
@@ -192,7 +196,10 @@ describe("post-G3 projection preparation", () => {
 
   it("decodes one prepared mapped decimal, nested, and variant shape freshly", () => {
     const schema = projectionSchema();
-    const queries = new Queries(new EngineSchema(schema), new SQLiteAdapter());
+    const queries = new SqlQueries(
+      new EngineSchema(schema),
+      new SQLiteAdapter()
+    );
     const prepared = queries.prepareProjection(schema.comment, {
       select: {
         id: true,
@@ -261,7 +268,7 @@ describe("post-G3 projection preparation", () => {
       );
     `);
     const driver = new ProjectionBatchSQLiteDriver({ client: database });
-    const context = new OperationContext(
+    const context = new SqlOperationContext(
       engineSchema,
       driver,
       "output",
@@ -338,7 +345,7 @@ describe("post-G3 projection preparation", () => {
     `);
     const driver = new ProjectionRecordingSQLiteDriver({ client: database });
     driver.adapter.capabilities.supportsReturning = false;
-    const context = new OperationContext(
+    const context = new SqlOperationContext(
       engineSchema,
       driver,
       "output",

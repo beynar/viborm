@@ -181,6 +181,7 @@ export function runProjectionTrimsBehavior({
         },
         { id: "a2", meta: null, posts: [] },
       ]);
+      if (dialect === "surrealql") return;
       const [statement] = statements;
       expect(statement).not.toContain("COALESCE(COALESCE(");
       if (dialect === "sqlite") {
@@ -227,7 +228,7 @@ export function runProjectionTrimsBehavior({
     });
 
     test(`${provider}: an unbounded, unfiltered walk states no WHERE`, async () => {
-      const { db, statements } = await open();
+      const { db, statements, dialect } = await open();
       const roots = await db.node.findMany({
         where: { id: "n1" },
         select: {
@@ -243,6 +244,7 @@ export function runProjectionTrimsBehavior({
           ],
         },
       ]);
+      if (dialect === "surrealql") return;
       const [statement] = statements;
       expect(statement).toContain("WITH RECURSIVE");
       expect(statement).not.toMatch(VACUOUS_WALK_WHERE);

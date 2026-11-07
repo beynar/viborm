@@ -12,6 +12,7 @@ import {
   type PlanTree,
   postgresPlan,
   sqlitePlan,
+  surrealPlan,
   walk,
 } from "./plan";
 import {
@@ -20,6 +21,8 @@ import {
   schemasOf,
   type TableIndex,
 } from "./plan-catalog";
+
+const LAST_SEMICOLON = /;$/;
 
 export interface StudioPlan extends PlanTree {
   readonly dialect: Dialect;
@@ -83,6 +86,7 @@ const rawOf = (client: object): Raw => {
 /** The dialect a driver says it speaks, as a plan reads it. */
 export function dialectOf(name: string): Dialect | undefined {
   const lower = name.toLowerCase();
+  if (lower.includes("surreal")) return "surrealql";
   if (lower.includes("postgres")) return "postgresql";
   if (lower.includes("mysql") || lower.includes("maria")) return "mysql";
   if (
@@ -94,6 +98,28 @@ export function dialectOf(name: string): Dialect | undefined {
   return undefined;
 }
 
+/** A script's last statement, and what stands ahead of it: lists it holds, in SurrealQL. */
+function lastStatement(sql: string): { ahead: string; last: string } {
+  let depth = 0;
+  let quote: string | undefined;
+  let boundary = -1;
+  const body = sql.trimEnd().replace(LAST_SEMICOLON, "");
+  for (let at = 0; at < body.length; at++) {
+    const char = body.charAt(at);
+    if (quote) {
+      if (char === "\\") at += 1;
+      else if (char === quote) quote = undefined;
+    } else if (char === "'" || char === '"' || char === "`") quote = char;
+    else if (char === "(" || char === "[" || char === "{") depth += 1;
+    else if (char === ")" || char === "]" || char === "}") depth -= 1;
+    else if (char === ";" && depth === 0) boundary = at;
+  }
+  return {
+    ahead: body.slice(0, boundary + 1),
+    last: body.slice(boundary + 1).trim(),
+  };
+}
+
 async function planOf(
   client: object,
   dialect: Dialect,
@@ -102,6 +128,14 @@ async function planOf(
 ): Promise<{ tree: PlanTree; raw: string }> {
   const sql = statement.sql ?? "";
   const params = statement.params ?? [];
+  if (dialect === "surrealql") {
+    const { ahead, last } = lastStatement(sql);
+    const [plan] = await rawOf(client)(
+      `${ahead} LET $plan = (EXPLAIN ${analyze ? "ANALYZE " : ""}FORMAT JSON ${last}); RETURN [$plan]`,
+      ...params
+    );
+    return { tree: surrealPlan(plan), raw: JSON.stringify(plan, null, 2) };
+  }
   if (dialect === "postgresql") {
     const explain = `EXPLAIN (${analyze ? "ANALYZE, BUFFERS, FORMAT JSON" : "FORMAT JSON"}) ${sql}`;
     const transaction = methodOf(client, "$transaction");
@@ -378,7 +412,7 @@ export async function explainStatements(
         ]),
       ];
       const catalog =
-        tables.length === 0
+        tables.length === 0 || dialect === "surrealql"
           ? { indexes: {}, columns: {}, tableRows: {} }
           : dialect === "postgresql"
             ? await postgresCatalog(raw, tables, schemasOf(sql))

@@ -89,7 +89,13 @@ export function describeOrdering(
    * neighbours, then locks, updates and reads the row). Four upserts, on an
    * unordered model then an ordered one, each creating then updating: one
    * INSERT … ON CONFLICT each, where the adapter returns its row. */
-  { move = 1, update = 1, upsert = [1, 1, 1, 1] } = {}
+  {
+    move = 1,
+    update = 1,
+    upsert = [1, 1, 1, 1],
+    rekey = 1,
+    lastKeyRead = "MAX(",
+  } = {}
 ) {
   const statements: string[] = [];
   let base_: any;
@@ -157,7 +163,7 @@ export function describeOrdering(
       statements.length = 0;
       await db.card.create({ data: { id: "b", columnId: "c1", title: "b" } });
       expect(statements).toHaveLength(createStatements);
-      expect(statements.join(" ")).toContain("MAX(");
+      expect(statements.join(" ")).toContain(lastKeyRead);
       expect(await listOf(db, "c1")).toEqual(["a", "b"]);
     });
 
@@ -649,8 +655,8 @@ export function describeOrdering(
       statements.length = 0;
       const { count } = await db.card.rekey({ where: { id: "c" } });
       expect(count).toBe(4);
-      // One UPDATE names the lists and respaces them, on every dialect.
-      expect(statements).toHaveLength(1);
+      // One UPDATE names the lists and respaces them, on every SQL dialect.
+      expect(statements).toHaveLength(rekey);
       expect(await listOf(db, "c1")).toEqual(["a", "b", "c", "d"]);
     });
 
