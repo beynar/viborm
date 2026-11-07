@@ -197,19 +197,30 @@ export class SurrealOperationContext extends OperationContext {
    */
   override async run<T>(body: () => Promise<T>, single = false): Promise<T> {
     let replacement: ReturnType<OperationContext["spendRecovery"]>;
+    // A create the engine would open a transaction for is first stated whole, its
+    // writes waiting for its last read, as one `BEGIN; …; COMMIT;`: the engine
+    // starts it again in a transaction at the first statement anything reads
+    // before the end, which none of its writes has reached. Not where a domain
+    // judges rows: a body started again runs its admissions again.
+    this.#scripting =
+      !single &&
+      this.ownership === "standalone" &&
+      this.operation === "create" &&
+      this.queries.domain === undefined;
     for (let attempt = 1; ; attempt++) {
       try {
         return await super.run(async () => {
           try {
             const value = await body();
-            // What still waits goes before the transaction commits.
-            await this.#flush();
+            // What still waits goes before the transaction commits, or is the
+            // whole write's one statement.
+            await this.#flush(!this.ownRegionOpen);
             return value;
           } catch (error) {
             this.#waiting.length = 0;
             throw error;
           }
-        }, single);
+        }, single || this.#scripting);
       } catch (error) {
         if (!(isConflict(error) && this.replaysInPlace) || attempt === REPLANS)
           throw error;
@@ -235,8 +246,16 @@ export class SurrealOperationContext extends OperationContext {
   /** How deep in member savepoints this runs: nothing waits across one. */
   #scoped = 0;
 
+  /** The write is being stated whole, outside any transaction (see {@link run}). */
+  #scripting = false;
+
   get #defers(): boolean {
-    return this.ownRegionOpen && this.#scoped === 0;
+    return (this.ownRegionOpen || this.#scripting) && this.#scoped === 0;
+  }
+
+  /** `text` as one transaction of its own, where no transaction holds it. */
+  #whole(text: Sql): Sql {
+    return this.ownRegionOpen ? text : sql`BEGIN; ${text}; COMMIT;`;
   }
 
   /**
@@ -380,12 +399,13 @@ export class SurrealOperationContext extends OperationContext {
   }
 
   /** The waiting writes, alone, where no statement follows to take them. */
-  async #flush(): Promise<void> {
+  async #flush(terminal = false): Promise<void> {
     if (this.#waiting.length === 0) return;
     const { text, failures } = this.#drain();
     try {
-      await this.dispatch(1, false, () =>
-        this.transport._execute<Input>(text, this.attribution)
+      // Outside a transaction only the write's last statement may run.
+      await this.dispatch(1, terminal, () =>
+        this.transport._execute<Input>(this.#whole(text), this.attribution)
       );
     } catch (error) {
       throw await this.#owned(error, failures);
@@ -403,13 +423,33 @@ export class SurrealOperationContext extends OperationContext {
     const { text, failures } = this.#drain();
     try {
       return await super.answer(
-        { ...query, sql: sql`${text}; ${query.sql}` },
+        { ...query, sql: this.#whole(sql`${text}; ${query.sql}`) },
         terminal,
         model
       );
     } catch (error) {
       throw await this.#owned(error, failures);
     }
+  }
+
+  /** Rows that share an insert share it in a write stated whole, one transaction too. */
+  override async insertMany(
+    model: AnyModel,
+    rows: () => Input[],
+    refusal?: PreparedGuardFailure
+  ): Promise<number | undefined> {
+    if (this.ownRegionOpen || !this.#defers)
+      return await super.insertMany(model, rows, refusal);
+    return (
+      (await this.createMany(
+        model,
+        rows(),
+        undefined,
+        false,
+        undefined,
+        refusal
+      )) as { count: number }
+    ).count;
   }
 
   /** A member's savepoint marks what ran before it: nothing waits across it. */
@@ -1378,8 +1418,9 @@ export class SurrealOperationContext extends OperationContext {
     const stated = this.#statedKeys(model, given);
     if (
       this.#defers &&
-      // The root's own insert answers its row, where waiting would read it again.
-      !answer &&
+      // The root's own insert answers its row, where waiting would read it again,
+      // unless the whole write is one text.
+      !(answer && this.ownRegionOpen) &&
       !judge?.predicate &&
       produced.length === 0 &&
       // An ignored insert names the key it met only where the row states one.

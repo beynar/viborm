@@ -456,16 +456,29 @@ presence is such a check, in order with the writes around it. Nothing waits in a
 or across a member's savepoint: a `THROW` inside a session transaction does not stop the statements
 after it, and a commit would keep them; inside the operation's own, the failure cancels it.
 
-Measured on one machine, each form alternating with the other in the same process: a post with a new
-and a connected tag 1.87 ms to 1.68 ms, a parent with two children 1.01 to 0.99, a post with a new author
-1.02 to 0.98. Three things bound the gain:
+**A create stated whole.** A `create` the engine would run in a transaction, where no domain judges
+rows, is first run outside any, its writes waiting for its last read, the root's own insert too: the
+text goes as one `BEGIN; …; COMMIT;`, all or nothing, with no `begin` and `commit` calls. That is the
+engine's own envelope rule: the first statement anything reads before the end is refused before it is
+sent, and the body starts again in a transaction. Rows that share an insert share it there too, as the
+text is one transaction. Nothing else is scripted: a body started again runs its admissions again,
+which a domain's callbacks would see.
 
-- The check costs about 0.08 ms a statement, close to the round trip it saves (0.11 ms).
+Measured on one machine, the three forms alternating in one process:
+
+| Create | Before | Writes wait | Stated whole |
+|---|---|---|---|
+| A post with a new and a connected tag | 1.86 ms | 1.58 ms | 1.32 ms |
+| A parent with two children | 1.03 ms | 0.98 ms | 0.93 ms |
+| A post with a new author | 1.02 ms | 0.95 ms | 0.99 ms |
+
+What bounds it:
+
+- The check after an ignored insert costs about 0.08 ms a statement, close to a round trip (0.11 ms).
 - An ignored insert names the key it met by reading every stated unique key in the `THROW`, which the
-  server compiles each time: that made each case slower (1.33, 1.59 ms), so an insert waits only where
-  its row states one unique key, and the root's own insert, which answers its row, runs at once.
-- `begin` and `commit` are still a call each. A text `BEGIN; …; COMMIT;` written by hand, with no
-  check, measured 2.02 ms to 1.02 ms for the first case: most of that is those two calls.
+  server compiles each time: that made each case slower, so an insert waits only where its row states
+  one unique key.
+- A text with no check at all, written by hand, measured 1.02 ms for the first case.
 
 **Refusals** are counted in `tests/contracts/architecture/surrealdb-refusal-census.test.ts`, each with
 why it stands. A new one fails it.

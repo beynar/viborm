@@ -334,7 +334,7 @@ export class SurrealDriver extends Driver<Surreal, ReplayedTransaction> {
         values
       );
       // What a statement holds ahead of itself answers first, and `COMMIT` last.
-      const result = answers.at(stated === statement ? -1 : -2);
+      const result = answers.at(stated.endsWith("; COMMIT;") ? -2 : -1);
       const rows = Array.isArray(result) ? result : [];
       return { rows: plain(rows) as T[], rowCount: rows.length };
     } catch (error) {
