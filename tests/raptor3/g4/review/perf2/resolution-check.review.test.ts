@@ -11,8 +11,9 @@
 
 import assert from "node:assert/strict";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { Queries } from "@query-engine/raptor3/shared/query";
+import type { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { s } from "@schema";
 import { describe, it } from "vitest";
 
@@ -42,11 +43,13 @@ describe("review/perf2 — the TS2459 resolution", () => {
     const account = s
       .model({ id: s.int().id(), label: s.string() })
       .map("g4_review_perf2_resolution");
-    const queries = new Queries(
+    const queries = new SqlQueries(
       new EngineSchema({ account }),
       new SQLiteAdapter()
     );
-    const selector = queries.prepareSelector(account, { id: { in: [1, 2, 3] } });
+    const selector = queries.prepareSelector(account, {
+      id: { in: [1, 2, 3] },
+    });
     const operation = findIn(selector.predicate);
     assert.ok(operation, "the alias did not resolve the `in` operation");
     assert.equal(Object.isFrozen(operation), true);

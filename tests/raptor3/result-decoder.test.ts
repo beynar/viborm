@@ -30,11 +30,9 @@ import { Driver } from "@drivers";
 import { resolvePositionalResultDriver } from "@drivers/positional-result";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { QueryEngineError, QueryError } from "@errors";
-import {
-  InvalidScalarResult,
-  Queries,
-} from "@query-engine/raptor3/shared/query";
+import { InvalidScalarResult } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { POLYMORPHIC_COLLECTION_ORPHANS_KEY } from "@query-engine/result-aliases";
 import { s } from "@schema";
 import { sql } from "@sql";
@@ -615,7 +613,7 @@ function executionDecoder(
 ) {
   const adapter = new SQLiteAdapter();
   if (parseField) adapter.result.parseField = parseField;
-  const queries = new Queries(
+  const queries = new SqlQueries(
     new EngineSchema(scriptedSchema),
     adapter,
     parser
@@ -875,7 +873,7 @@ const branch = (() => {
 })();
 
 describe("one document rule for the recursive carrier and its entries", () => {
-  const queries = new Queries(
+  const queries = new SqlQueries(
     new EngineSchema({ branch }),
     new SQLiteAdapter()
   );
@@ -957,7 +955,7 @@ describe("a variant arm and a recursive node are carried at every depth", () => 
 
   it("never offers a recursive node row or identity to the chain", () => {
     const asked: string[] = [];
-    const queries = new Queries(
+    const queries = new SqlQueries(
       new EngineSchema({ branch }),
       new SQLiteAdapter(),
       counting(asked)
@@ -1117,7 +1115,7 @@ describe("internal positional projection transport", () => {
       expect(response.kind).toBe("positional");
       if (response.kind !== "positional")
         throw new Error("stock transport was not positional");
-      const queries = new Queries(
+      const queries = new SqlQueries(
         new EngineSchema(schema),
         driver.adapter,
         driver.result

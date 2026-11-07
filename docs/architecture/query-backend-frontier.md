@@ -1,8 +1,8 @@
 # The query backend frontier
 
 Status: proposal, 2026-11-05. Steps 0 and 1 are done and step 2 is dropped. Steps 3
-to 5 exist as a prototype on the `feat/query-backend` stack, for foreign key relations
-and generated many-to-many relations.
+to 5 exist as a prototype on the `feat/query-backend` stack, and the shared driver
+contracts and the official extensions' behaviours pass on it.
 Numbers read from `main` at `e4b09fd64` with an AST pass over the engine.
 
 ## The problem
@@ -182,9 +182,7 @@ reads of SurrealDB and of PGlite over the same rows and compares the answers:
 scalars, order and pages, the filters on nullable fields, to-one and to-many at three
 levels, two relations to one table, and `some`, `none`, `every`, `is`, `isNot`.
 
-It refuses by name what it does not cover: declared junctions, aggregates, cursors,
-`distinct`, junctions and variants, `recurse`, `_count`, ordering by a relation or a
-nullable field, and row domains (so soft delete and permissions).
+It refuses by name what it does not cover.
 
 **Writes.** `driver.operationContext` supplies a subclass of `OperationContext` that
 overrides `createMany`, `updateMany`, `deleteMany` and `upsertOne`, the four methods
@@ -212,58 +210,377 @@ writes. What the override drops, and a real backend would have to answer:
 
 - **The batch route:** `usesBatch` is never true here, so that half of each method is
   untouched and untested. A driver without interactive transactions would need it.
-- **Recovery:** a unique race in `connectOrCreate` no longer records `rejectedInsert`,
-  so it surfaces as the violation rather than recovering.
-- **Locks:** `forUpdate` reads as it is. What a concurrent write does to a located row
-  is untested on this path.
-- **Savepoints:** a nested scope runs in its parent, so a caller that catches a failed
-  write cannot continue that transaction.
+- **Locks:** `forUpdate` reads as it is, and writers meet at commit. Every engine measured
+  (memory, RocksDB, SurrealKV) is snapshot isolation where the first committer wins, with no
+  read checks. A write that changes nothing conflicts with nothing, so a lock cannot be imitated
+  by touching a row.
+- **Savepoints:** the language has none, and a failed statement may leave part of its change,
+  over which the server refuses to commit. `ReplayedTransaction` keeps each statement with its
+  answer. Going back is a new transaction running the statements up to the mark again, so a
+  caught failure leaves the rest to commit, as on PostgreSQL. If any answer differs, a concurrent
+  write changed what the caller was told, and the transaction ends with `V5001`. A scope that
+  wrote nothing costs nothing: a read, or an `INSERT IGNORE` that took no row. Otherwise going back
+  costs one round trip per statement so far.
+- **Meeting at commit:** the loser wrote nothing, so the same replay runs and commits again,
+  without running the callback twice. Writers that were told nothing that changed all commit. Those
+  whose answers changed, such as an `update` that returns the value another writer incremented,
+  fail with `V5001` where PostgreSQL makes them wait, because only running the callback again can
+  give them the new value. `new SurrealDriver(client, { rerunsOnConflict: n })` does that, for a
+  `$transaction` callback. It is off by default, since whatever the callback does outside the
+  database happens again. An array transaction and an operation's own transaction do not rerun, and
+  neither does a callback under an extension that collects its writes.
+- **Sequences:** they stand outside transactions, so a statement in one takes its values ahead and
+  holds them, which costs a round trip and keeps a replay's answers the same.
+
+**Parity with SQL.** The shared driver contracts run on SurrealDB unchanged, through
+`tests/providers/docker/surrealdb-contracts.test.ts`. The test fixture defines a schema
+from the migration serializer's neutral description, so `syncLiveSchema` works without
+any migration. CI runs them against a real server, in its own job. Contracts that state
+migrations, a SQL plan or a batch-only substrate do not apply. Tests a contract states
+in SQL's own words are waived by name, each with its reason, in that file.
+
+What had no direct equivalent, and how it answers:
+
+- **Keys:** a single key is the record's `id` whatever the field is called, and a
+  compound key is an array id read by position, `id[0]`. A generated integer key reads
+  a `DEFINE SEQUENCE`. A key change is a new record, in one statement: the row is copied,
+  holders do what `onUpdate` says (unsaid is SQL's `NO ACTION`, which refuses), edges are
+  related again, the old record goes. A unique field holds a stand-in value until then,
+  since its index would read the old row as a duplicate. Three cases refuse by name: a
+  unique field with no stand-in (not a string or integer, not nullable, or a link), a holder
+  whose own key holds the moved one, and a reference by another unique field, whose action
+  is an event the deleted copy would fire.
+- **Aggregates:** flat aggregates inside, the public shape outside, where `having` and
+  an order read them by name. `math::sum` of nothing is 0 and SQL's is NULL, so each
+  aggregate carries how many values it saw.
+- **`distinct`:** `GROUP BY` keeps its source's order, so each tuple's first row is
+  `array::first(id)`, chosen in the caller's order. A nested one groups a parent's
+  members as a value, because a subquery past the first cannot see `$parent`.
+- **Null order:** a missing value sorts by a selected flag, as PostgreSQL places it, in
+  `groupBy` too, where a sum of no values is NULL and not 0.
+- **Conflicts:** no locks, so writers meet at commit. The loser plans again once, under
+  the operation's one recovery. `insert` with a producer is `INSERT IGNORE` and reports
+  its rejection without a failing statement, which a transaction here cannot survive.
+- **Variant relations:** the type and id columns stay plain fields. A generated variant
+  junction is one edge table per member.
+- **Geography:** `INTERSECTS` holds a polygon's boundary and not its holes. It is
+  planar: a ring crossing 180 is unwrapped past it, and edges are not great circles as
+  they are in PostGIS. `geo::distance` matched the shared boundary tests.
+
+- **`recurse`:** a fold over the levels, as one value in the row. A numeric depth labels
+  each edge with its level, as the decoder expects. An exhaustive walk keeps what it has
+  seen, which ends a cycle, and refuses past 256 levels, where a SQL recursion would go on.
+- **Blocks:** a block answers with its last expression. A `RETURN` inside one leaves
+  whatever expression holds the block: `!(RETURN { ... })` answered without its negation.
+- **Declared junctions:** the link is a row of its model and not an edge, read through
+  the row's links, then the rows they name. A compound foreign key holds no record, so
+  the test fixture states its action as an event on the table it names. Migrations will
+  have to state it too.
+- **Parser depth:** the server's parser limits nesting, and each parenthesis counts. A
+  filter nesting five relations failed until a lone arm dropped its parenthesis and a
+  relation test dropped `array::len`. Fourteen levels now parse, for reads and filters,
+  on a server at its defaults. Many arms in each level will reach the limit sooner, and
+  past it the read refuses by name: `SURREAL_MAX_QUERY_PARSING_DEPTH` raises it.
 
 **Many-to-many.** A generated junction is an edge table, `TYPE RELATION IN post OUT tag
-ENFORCED`, with a unique index over `in, out`. `in` is the junction's canonical first
-side. No shared behaviour changed, and one shared member became `protected`: the seam is `Queries.junction`, `select`, `link`,
-`linkMany` and `remove`, and `Commands` already keeps a junction away from
-`mutateMembers`. A third script of 46 tests compares reads, filters, writes and deletes
-with PGlite's junction tables, including a self relation and two relations between the
-same models.
+LIGHTWEIGHT`: the edge is its pair and nothing else, so `RELATE` is idempotent with no
+index to keep. `in` is the junction's canonical first side. A singular relation needs a
+unique end, which an index holds, so its table stays a classic relation written with
+`INSERT RELATION IGNORE`. No shared behaviour changed: the seam is `Queries.junction`,
+`select`, `link`, `linkMany` and `remove`.
 
-| Need | Form | Measured, 5,000 posts, 500 tags, 15,000 edges |
+**Performance.** `tests/providers/docker/surrealdb-perf.test.ts` runs the same viborm
+calls on PostgreSQL 18 and SurrealDB 4.0 over the same rows, in alternating rounds, with
+`SURREAL_PERF` set. It fails if the two databases answer a read differently in any round, or
+if an operation errors, and neither happened. Medians in ms,
+over 100,000 posts, 100,000 comments and 10,000 users, one client on one machine:
+
+| Operation | PostgreSQL | SurrealDB |
 |---|---|---|
-| Members, ordered and limited | `->tagged->(SELECT * FROM tag ORDER BY … LIMIT n).{ … }` | 2 ms for 10 parents; 4 ms at three levels |
-| A link that may exist | `INSERT RELATION IGNORE INTO tagged [{ in, out }]` | |
-| A filter | `array::len(->tagged->(tag WHERE …)) > 0` | 61 ms over the table |
-| A record's members | `FROM $p->tagged->tag` | about 3 ms; `WHERE id IN` the same path scans, about 25 ms |
+| `findUnique` by key | 0.3 | 0.4 |
+| `findMany`, indexed filter, order, take | 0.3 | 0.5 |
+| Include to-many, take | 0.5 | 0.8 |
+| Include three levels | 0.6 | 0.9 |
+| Filter `some`, to-one | 0.5 | 0.9 |
+| Filter `some`, to-many | 19.5 | 16.6 |
+| Filter `some`, broad, take 1 | 0.4 | 2.2 |
+| Filter `none`, to-many | 7.3 | 24.9 |
+| Filter `some`, many-to-many | 132.7 | 2.3 |
+| Filter, two relations down | 4.8 | 17.7 |
+| Cursor page | 0.5 | 1.0 |
+| `groupBy` | 15.5 | 24.4 |
+| `distinct` | 137.3 | 244.1 |
+| `recurse`, exhaustive, 1,000 nodes | 17.3 | 26.3 |
+| `update` by key | 0.4 | 0.6 |
+| `create` | 0.5 | 5.0 |
+| `createMany`, 100 | 5.3 | 27.1 |
 
-Times are over HTTP with its roughly 20 ms floor subtracted, so read them as orders of
-magnitude. The answers of the read forms were checked against values computed separately.
+The forms behind them, each measured against the one it replaced:
 
-- **`RELATE` is not the form:** it refuses a pair the unique index already holds, and a
-  `connect` must not. `INSERT RELATION IGNORE` skips that pair and still refuses a
-  missing record. It relies on the index: without it, a second link is a second edge.
-- **Avoid:** `id IN (SELECT VALUE in FROM tagged WHERE out.name = …)`, over 20 s here,
-  and `(SELECT VALUE out FROM …)` as a `FROM` source, which reads no field.
-- **Not covered:** declared junctions and `$through`, variant junctions, compound keys,
-  and one statement per member for `updateMany` and `deleteMany`, as on SQL.
-- **Unproven:** `holdMember`'s read of the edge cannot fail without a concurrent write,
-  and nothing here runs one. Dropping one of its conditions fails no test.
-- A concurrent delete and insert can still leave an orphan (`viborm-evidence`):
-  nothing here takes the write on the parent that would close it.
-- Unique and foreign key refusals carry no code, so the driver recognizes them by
-  sentence, which a server version could change.
-- Changing a record's key and generated keys are refused. Tables are defined by hand:
-  there is no migration driver.
+- **Relation filters read the other side first.** A subquery that reads no outer row is
+  a `LET` ahead of the statement. `some` reads its rows from that list, `FROM $h0`, so it
+  fetches only them; `none` and `every` test `id NOT IN $h0`. A `WHERE` running a traversal
+  per row cost 56 ms for a to-one over 20,000 rows, and this costs 0.6 ms. A page cannot
+  afford the whole list of a broad filter, so with `take` it reads 1,000 rows ahead: fewer
+  mean the list is whole, and otherwise the page walks its own rows and stops early. A
+  filter whose body matches everything cost 107 ms with the whole list and costs 2.2 ms.
+- **Cursors seek.** `id >= $h1` walks from the key. A bare condition beside it, `$h0 AND
+  id >= $h1`, turns that into a scan, so "no such cursor" is an `IF` around the statement.
+- **Exhaustive walks recurse.** `{..+collect}` found the nodes where a fold spent 98 ms
+  on 256 levels. It stops at SurrealDB's own 256 levels, with an error.
+- **A to-one over a compound key reads its record**, `type::record(t, [a, b])`.
+- **Lists of records, not `OR`:** `UPDATE [a, b]`, since `id IN` and a list read by key.
+- **Blocks answer with their last expression**, and parentheses are kept to a minimum.
 
-Building it showed the seam is small and `Prepared*` is enough for reads. It also
-showed what is still wrong:
+Not a driver matter: `INSERT`, `CREATE` and `DELETE` cost 4.5 ms above the network whichever
+form is used, and 1.0 ms with `SURREAL_DATASTORE_SYNC=never`. That is the sync of each
+commit. PostgreSQL on this machine uses `open_datasync`, which macOS does not flush as
+far, so this gap is not a like-for-like measure of durability.
 
-- `driver.adapter` is still typed `DatabaseAdapter`. The driver's is a proxy holding
-  the five members a read touches (`result.parseField`, `result.parseResult`,
-  `capabilities`, `namespace`, `geoPoint`) and refusing any other, behind one cast.
-  Splitting the type is what would remove the cast.
-- `"surrealql"` joins `Dialect`, and three casts to `SqlDialect` stand where only a
-  SQL driver can arrive: a migration and a write's computed values.
-- `plain()` in the driver turns record ids and dates into what the decoders read.
-- The backend finds a link's target by scanning the model's relations.
+Not measured: declared junctions, variant relations, geography, vectors, concurrent load,
+and anything above 100,000 rows.
+
+**The official extensions.** Hooks, soft delete, permissions and ordering run on SurrealDB through
+their shared behaviours in `surrealdb-extensions.test.ts` and `surrealdb-permissions.test.ts`. What
+they needed:
+
+- **Row domains.** A layer's predicate lowers like any other, with a call's values read from its
+  scope. Relation reads, relation filters, counts and cursors each read among the rows the call may
+  see, as the SQL lowering does. A read-gated field reads absent to a caller's filter, order, group
+  and aggregate on a row that does not carry it.
+- **Judged writes.** A create judges its rows before it writes, and an update judges them as it would
+  leave them, `SELECT *, value AS field`, in the same statement. So a refusal comes before a unique
+  index or a reference could object, as it does in SQL. A row is refused unless it holds, so a missing
+  value refuses. A rule that a relation stays acyclic walks the new link from each row.
+- **A statement does not read a snapshot of itself.** `UPDATE t SET x WHERE <filter>` evaluates its
+  filter row by row and sees what it has already written, where SQL reads the rows as they were. A
+  policy that reads the caller's own row stopped matching once that row was written. A bulk write
+  whose filter reads other rows finds its rows first and writes the list.
+- **Repeated subqueries.** A policy states one subquery per action it answers, and a read holding
+  `$access` states them all. The lists a statement holds ahead of itself are shared by their text and
+  values, which took one suite from 438 s to 66 s.
+- **The parser.** These statements nest deep. The server needs
+  `SURREAL_MAX_QUERY_PARSING_DEPTH=128` for the acceptance estate; below what a statement needs, the
+  read refuses by name and says so. Nothing was measured beyond that estate.
+- **Partial unique indexes.** SurrealDB has none. A computed field is the indexed value where the
+  predicate holds and `NONE` where it does not, and `NONE` is not indexed. Several columns are one text,
+  since an array is indexed member by member. Only columns set or unset can be stated; anything else
+  refuses by name. An index cannot share a transaction with rewriting its table's rows, so adding one
+  to a populated table runs statement by statement.
+- **Restricted junctions.** A record's edges go before an event could object, so `restrict` on a
+  many-to-many is the driver's, which reads them before a delete or a key change. A raw delete does
+  not hold back.
+- **Ordering.** An appended key reads the list's last key first, as on MySQL, through
+  `InsertValueContext.lastKey`. A move already reads its neighbours through the delegates. Respacing
+  reads its lists and writes each row in one statement, through `JoinedValue.plan()`; SQL's is one
+  `UPDATE ... FROM`. Keys may tie under concurrent appends, as a move handles.
+
+**What the server asks of what is written for it.** Measured on 4.0.0, and each is why a statement
+reads as it does.
+
+- **Compilation is the cost.** A server compiles in about the square of a statement's subqueries, and
+  keeps what it has compiled per statement. 40 nested subqueries took 96 ms, 80 took 308 ms, and a
+  block doubles it, where running them takes under a millisecond. So a statement holds its lists in
+  top-level `LET`s and one small block, and a text transaction keeps them atomic. That took the
+  acceptance suite's slowest part from 427 s to 26 s.
+- **A long literal beside an `IF`** in one block takes about the cube of its length, and the server
+  cannot stop it: 1,600 rows never ended and held a core past a kill signal. It stands outside.
+- **About 65,000 values in one statement** ("IR table full"). A list of plain values is one parameter.
+- **64 open transactions per connection**, past which the server refuses. The rest wait.
+- **One equality stated twice with one value** fails with "Internal database error: stale IR id".
+  Conditions are stated once.
+- **An event does not see a statement's variables**, so a moved record's old copy says so in a field.
+
+**How a row domain reads.** A row named by its whole key follows its links, each a read by key, to
+lists of who holds what lies at their ends: `authorId.orgId IN $h1`. A page caps its list by an index
+read and, past 1,000, reads in key order following each row's links, which is where the wide actor's
+28 ms became 0.7 ms.
+
+**Speed against PostgreSQL** on one machine (`benchmarks/surrealdb-compare.mjs`, medians) depends first
+on durability. On macOS SurrealDB flushes the disk's cache at each commit by default, about 4 ms, where
+PostgreSQL's `open_datasync` does not. At equal durability (PostgreSQL with `fsync_writethrough`)
+writes take 1.0 to 1.6 times as long, extensions included. With neither flushing
+(`SURREAL_DATASTORE_SYNC=never` against PostgreSQL's defaults), a read or write of one row takes 1.1 to
+1.7 times as long, a page 2 to 2.6, `count` 3.7 and `updateMany` 3.9, which are the server's scan and its
+cost per row written. A round trip alone costs 0.13 ms here against 0.08 ms.
+
+The forms behind that, each measured against the one it replaced, on the same plan:
+
+- A filter that names a record by its whole key reads or writes the record itself: `SELECT … FROM $p1`,
+  `UPDATE $p1 SET … WHERE <the rest>`. `WHERE id = $p1` walks the same single record yet costs the
+  statement about twice as much (an update 0.78 ms to 0.31 ms). A keyed cursor reads its anchor the same way.
+- One row is created with `CREATE $id CONTENT $row`, which costs half `INSERT INTO t $row` (0.67 ms to
+  0.31 ms) and refuses a taken record or unique value in the same words. A key a sequence gives, or the
+  statement reads, still inserts.
+- A unique read has no `ORDER BY`, which only sorted its one row.
+- A projection lists its columns bare. An absent field reaches the client as `undefined` under its key,
+  which the driver reads as null, so `(f ?? NULL) AS f` cost each row for nothing (50 rows, 0.52 ms to
+  0.40 ms).
+
+At 20,000 rows the same holds, 1.7 to 4.7 times without flushing, once a page walks its index:
+
+- `ORDER BY a DESC, id ASC` sorts every row, as no index holds that order, so a page reads `a`'s value
+  at its last row ahead and bounds the sort with it (7 ms to 0.6 ms). It needs an index on `a`, and a
+  filter without a subquery, whose second statement would cost more to compile than the sort.
+- A cursor is `a >= x AND (a > x OR ...)`, one range walked in order, where `a > x OR (a = x AND ...)`
+  reads two ranges and sorts them (19 ms to 0.85 ms).
+- `_min` and `_max` alone are one row an index finds, where an aggregate reads them all (3.5 ms to 0.3 ms).
+- An index holding the key among other columns is kept. It used to be dropped at push, so an ordered
+  list sorted all its rows (16 ms to 1 ms for an ordering create).
+
+- A correlated read never walks an index in order, not with `$parent.id` nor a closure's variable, where
+  a statement's own `LET` does. An `include` with a `take` under a root page of at most 20 rows reads which
+  rows they are ahead, then each one's children in a read of its own (2 parents of 4,000 children each,
+  10 ms to 0.6 ms; compiling for 20 rows takes 5 ms). Deeper includes stay correlated.
+
+A `groupBy` under `take` of at most 20 groups seeks them on the index of the field it orders by, one
+value after the last, and reads only their rows (5.6 ms to about 1.1 ms, and no longer growing with the
+table). PostgreSQL's 0.13 ms stops on the index itself, so this stays the widest ratio, at about 8 for
+1 ms. Without `take` both read every row, and the ratio is 3.4. `_sum` reads every value, as `SELECT VALUE`
+does in the same time, and `GROUP ALL` is the fastest form measured: that ratio, 4.4, is the server's
+scan. A cursor reads its anchor's values in one read ahead, where it read each apart (0.78 ms to 0.60 ms
+over a second order column, about 4.6 times). `BEGIN; … COMMIT;` around a read's `LET`s costs nothing
+measurable (0.885 ms against 0.872 ms without). A transaction's `begin` and `commit` are each a call of their
+own, which the client cannot join to a statement: a commit sent before a query's answer commits what had run.
+`INSERT IGNORE` costs twice `CREATE`, but a nested insert keeps it: the engine recovers from a rejected
+insert only where no statement failed, and a failed one would cost the transaction a replay.
+
+**Writes that wait.** Inside an operation's own transaction, a write whose answer nothing reads (a
+link, a nested insert whose key the row states, a counted `createMany`) waits and goes with the next
+statement, in one text: a nested write costs a round trip per read, not per statement. A `RELATE` joins
+the waiting one of the same source when nothing between writes its table. An ignored insert says so
+with `IF array::len($waitedN) = 0 { THROW "viborm:waiting:N" }`, and the mark names the waiting write
+whose own error is raised. A required lookup that names its row by its whole key, and from which no
+relation reads anything but that key (`OperationContext.pin`, the engine's one hook), is not read: its
+presence is such a check, in order with the writes around it. Nothing waits in a caller's transaction
+or across a member's savepoint: a `THROW` inside a session transaction does not stop the statements
+after it, and a commit would keep them; inside the operation's own, the failure cancels it.
+
+**A create stated whole.** A `create` the engine would run in a transaction, where no domain judges
+rows, is first run outside any, its writes waiting for its last read, the root's own insert too: the
+text goes as one `BEGIN; …; COMMIT;`, all or nothing, with no `begin` and `commit` calls. That is the
+engine's own envelope rule: the first statement anything reads before the end is refused before it is
+sent, and the body starts again in a transaction. Rows that share an insert share it there too, as the
+text is one transaction. There an insert is a `CREATE`, half an `INSERT IGNORE` and its check: a
+refused one undoes the whole text, and the write starts again in a transaction, where an ignored insert
+says what it met and the engine recovers as before. Nothing else is scripted: a body started again
+runs its admissions again, which a domain's callbacks would see.
+
+Measured on one machine, the three forms alternating in one process:
+
+| Create | Before | Writes wait | Stated whole |
+|---|---|---|---|
+| A post with a new and a connected tag | 1.86 ms | 1.58 ms | 1.32 ms |
+| A parent with two children | 1.03 ms | 0.98 ms | 0.93 ms |
+| A post with a new author | 1.02 ms | 0.95 ms | 0.99 ms |
+
+What bounds it:
+
+- The check after an ignored insert costs about 0.08 ms a statement, close to a round trip (0.11 ms).
+- An ignored insert names the key it met by reading every stated unique key in the `THROW`, which the
+  server compiles each time: that made each case slower, so an insert waits only where its row states
+  one unique key.
+- With `CREATE` in the text stated whole, a create costs what the same SurrealQL written by hand costs,
+  measured side by side: 1.20 ms against 1.16 for the first case, 0.90 against 0.88 for the second.
+
+**Refusals** are counted in `tests/contracts/architecture/surrealdb-refusal-census.test.ts`, each with
+why it stands. A new one fails it.
+
+What a judgement can read goes further here. A list's appended value and a sequence's next value are
+known before the write, so they are judged as any value, where SQL refuses to judge what only the
+statement computes.
+
+What stays different here: a hook's rows of a nested clear read after the write, and a statement count
+differs where a test states SQL's plan, each waived by name. A fragment in a filter is written in the database's own
+language: arithmetic and comparisons read the same in both, and a SQL subquery fails at the
+server. A key is its public text here, so comparing it with a plain string column answers
+from that text, where the other providers refuse.
+
+**What a review of this prototype changed.** Three independent reviews on 2026-11-05 compared
+it with PostgreSQL and read its evidence. Their tests now run as
+`surrealdb-read-parity.test.ts` and `surrealdb-write-parity.test.ts`, which compare whole
+answers on SurrealDB and PGlite. What stays different, each stated by a test or a waiver:
+
+- Concurrent transactions whose answers changed refuse rather than wait.
+- A delete and an insert that meet both commit and leave an orphan, even under `REFERENCE ... ON
+  DELETE REJECT`: neither writes a key the other does. PostgreSQL's foreign key takes a lock here.
+  Closing it means each insert writes to its parent, which turns every insert under a popular
+  parent into a conflict.
+- A JSON key named `__proto__` is stored, and the SDK's answer loses it.
+- A schema written by hand can hold what generated DDL cannot: a dangling edge, which a read
+  skips, or a second edge of a singular relation, of which a read takes the first. SQL's
+  contract refuses both, by a check a driver cannot make without reading more.
+- The shared contracts still rewrite a few raw statements in the test fixture, which spells
+  SQL's `DROP TABLE` and the like.
+
+**The boundary in the types.** `driver.backend` supplies two classes, and what a language must
+answer is their abstract members, so a backend that leaves one out does not compile:
+
+| Class | Holds | Abstract |
+|---|---|---|
+| `Queries` | descriptions (`prepare*`), filters over them, decoding | 9 members: `read`, `select`, `selectSeries`, `junction`, `locatedValue`, `under`, `lowerSelector`, `updateAssignment`, `lockAll` |
+| `OperationContext` | what a write's run is: attempts, members, recovery, publishing | the writes, and `submit`, `statePremise`, `packageGuard`, `closeScratch`, `answersInStatement`, `createQueries` |
+
+`SqlQueries` and `SqlOperationContext` are the SQL backend, the default when a driver names none.
+`driver.adapter` is typed `EngineFacts`: strategy and decoding, and nothing that spells a statement.
+The SQL backend reads a `DatabaseAdapter` there, and the language-free classes cannot. This costs
+0.72 kB on the pg and D1 bundles, because the 52 private members the split crosses became retained
+names.
+
+`select`, `junction` and the rest are `Sql` values, which here means text and its values: a backend
+binds them as its driver does, and `Query.sql` needs no other type.
+
+`MigrationDriver` follows the same line. It holds the plan's mechanics and is abstract in every
+statement, including how an identifier is escaped, and the two questions `push` asks of a table:
+`tableHoldsRows` and `undeclaredValue`. `SqlMigrationDriver` holds what the SQL drivers share: how a
+value and a default are spelled, enum replacement, the column definition. Bundles did not grow.
+
+Still leaking:
+
+- `pinned-session`, `control` and `statement-safety` assume SQL. `push` goes around them through
+  `holdLock`, and `generate` and `apply` need them, which is why those stop at the history format.
+- `TableDef` gained a `junction` mark, set by the optional `markJunction`.
+- `lowerSelector`, `updateAssignment` and `lockAll` are abstract because `commands/` asks for them in
+  its batch and lock paths. SurrealDB refuses them by name and never reaches them.
+- `InsertValue` hands its producers a `Queries`, and the ordering extension's own casts it to SQL.
+
+**Migrations.** `push` works end to end: `src/migrations/drivers/surrealql` is a
+`MigrationDriver`, and the plan, its consent and hash, the diff, the attestation and the
+refusals are all the shared ones. A driver asked for three things beyond its DDL, each a hook
+that is empty on the others, so SQL is unchanged and no bundle carries it: `holdLock`,
+`pushTarget` and `buildsApart`. The tests now define their schemas
+through it, so the 1,100 tests of the driver run on what `push` generates.
+
+What the schema is made of:
+
+- `LIGHTWEIGHT` for a generated junction, a classic relation with a unique index for a singular
+  one. An action on a junction other than cascade refuses by name: a record's edges go with it,
+  before an event could object.
+- `DEFINE FIELD id ... TYPE [a: string, b: int]` for a compound key, which turns the driver's
+  `id[0]` into a key range and names its parts, so an index can read them. A part named `id` is
+  `id_part`. A `decimal` part cannot be named, and a unique over part of such a key refuses.
+- `REFERENCE` on a foreign key that holds a record. Events for one that does not, over several
+  columns, another unique field or a part of the row's own key: `DELETE`, and `UPDATE` where the
+  referenced value can change. Nothing else applies its actions.
+- `i32` for `s.int()`, and `int` for a compound key's part, the only integer a key range takes.
+- A `COMMENT` for what the database cannot say: the schema's names for `id`, `in` and `out`, a
+  junction's definition, `onUpdate`, a decimal's scale. `INFO ... STRUCTURE` reads the rest.
+
+What the database decides for itself, at compatibility level 4: on a populated `SCHEMAFULL`
+table, a change its rows might not satisfy refuses in the server's words, and nothing of that
+push is left. A required field with a default fills old rows through `MIGRATE EXISTING ROWS`. An
+index cannot share a transaction with a backfill on its table or with a removal of that table,
+so such a plan runs statement by statement: a failure part-way leaves what the next push plans
+from, which is why that is acceptable for a push and would not be for a history.
+
+The lock is a record, since no session can hold anything here. A command that dies leaves it
+behind, and another takes it over once its 15-minute lease is up, so a command longer than that
+can be overtaken.
+
+Not done: `generate`, `apply` and everything that reads a file history, which need control
+tables, a ledger and statement safety in SurrealQL. They refuse because an estate's format admits
+no such dialect, in that format's words. Refusing by name: renames, since SurrealDB has none and a
+table's copy needs new record ids; a key change, since a key is its id; partial indexes.
 
 ## Open questions
 

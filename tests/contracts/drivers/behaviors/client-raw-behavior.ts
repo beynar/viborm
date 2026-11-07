@@ -53,8 +53,10 @@ export function runClientRawBehavior({
 
     beforeEach(async () => {
       const driver = createDriver();
-      placeholder =
-        driver.dialect === "postgresql" ? (i) => `$${i}` : () => "?";
+      const { dialect } = driver;
+      if (dialect === "postgresql") placeholder = (i) => `$${i}`;
+      else if (dialect === "surrealql") placeholder = (i) => `$p${i}`;
+      else placeholder = () => "?";
       client = createClient({ schema, driver });
       await syncLiveSchema(client);
 

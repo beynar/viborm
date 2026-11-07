@@ -1,41 +1,42 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: helpers assert for the tests that call them.
+// biome-ignore-all lint/style/noParameterProperties: this measurement harness predates the rule.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { SQLite3Driver } from "@drivers/sqlite3";
+import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
-import { NestedWriteError, NotFoundError, VibORMErrorCode } from "@errors";
+import { SQLite3Driver } from "@drivers/sqlite3";
+import { NestedWriteError, NotFoundError } from "@errors";
 import {
+  type Choose,
   type CommandOccurrence,
   Commands,
   isRecordOccurrence,
-  type Choose,
   type RecordCommand,
-  type SelectedSeries,
 } from "@query-engine/raptor3/commands/commands";
-import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
+import type { OperationContext } from "@query-engine/raptor3/shared/operation-context";
 import {
   type Arguments,
   EngineSchema,
-  entries,
   type Input,
   record,
 } from "@query-engine/raptor3/shared/schema";
+import { SqlOperationContext } from "@query-engine/raptor3/shared/sql-operation-context";
 import { bindMembership } from "@query-engine/raptor3/shared/storage";
 import { s } from "@schema";
 import type { AnyModel } from "@schema/model";
-import { createClient } from "@client/client";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { isRecord } from "@validation/value-guards";
-import { encodeEvidenceValue } from "../../../../benchmarks/operation-pipeline-evidence.mjs";
-import { captureRaptor3Identity } from "../../../../scripts/raptor3-manifest.mjs";
 import Database from "better-sqlite3";
 import { it } from "vitest";
-import { Recorder } from "../../harness/recorder";
+import { encodeEvidenceValue } from "../../../../benchmarks/operation-pipeline-evidence.mjs";
+import { captureRaptor3Identity } from "../../../../scripts/raptor3-manifest.mjs";
 import type { ReplayTape, StatementCompletion } from "../../harness/protocol";
+import { Recorder } from "../../harness/recorder";
 import {
-  captureStructuralMeasurement,
   type CapturedMemberBinding,
+  captureStructuralMeasurement,
   SemanticInventoryBindings,
 } from "./hooks";
 import {
@@ -259,7 +260,7 @@ function createCommands(data: Input): {
   const raw: Arguments = { data };
   const admitted = schema.admit(nodeModel, "create", raw);
   const commands = new Commands(
-    new OperationContext(schema, new SQLite3Driver(), "nodeModel", "create")
+    new SqlOperationContext(schema, new SQLite3Driver(), "nodeModel", "create")
   );
   return {
     commands,
@@ -314,7 +315,12 @@ function overlapCommands(
     data: { a: "root-a", b: "root-b", label: "root" },
   };
   const admitted = engineSchema.admit(schema.pair, "create", raw);
-  const context = new OperationContext(engineSchema, driver, "pair", "create");
+  const context = new SqlOperationContext(
+    engineSchema,
+    driver,
+    "pair",
+    "create"
+  );
   const commands = new Commands(context);
   const root = commands.create(schema.pair, admitted.data, raw.data);
   const edge = bindMembership(engineSchema, schema.pair, "kids");
@@ -878,7 +884,12 @@ function seriesCommands(
   const engineSchema = new EngineSchema(schema);
   const raw = seriesArguments(size, lateFound);
   const admitted = engineSchema.admit(schema.shelf, "update", raw);
-  const context = new OperationContext(engineSchema, driver, "shelf", "update");
+  const context = new SqlOperationContext(
+    engineSchema,
+    driver,
+    "shelf",
+    "update"
+  );
   const commands = new Commands(context);
   const located = commands.lookup(
     schema.shelf,
@@ -1019,7 +1030,13 @@ async function measureSeriesChoice(
                 "SELECT id,shelfId,ticketId FROM cs02_measure_early_holders ORDER BY id"
               )
               .all(),
-            [{ id: "early", shelfId: "s1", ticketId: recipe.oracle.earlyTicket }]
+            [
+              {
+                id: "early",
+                shelfId: "s1",
+                ticketId: recipe.oracle.earlyTicket,
+              },
+            ]
           );
           assert.deepEqual(
             database
@@ -1028,7 +1045,13 @@ async function measureSeriesChoice(
               )
               .all(),
             recipe.lateChoiceState === "found"
-              ? [{ id: "late", shelfId: "s1", ticketId: recipe.oracle.lateTicket }]
+              ? [
+                  {
+                    id: "late",
+                    shelfId: "s1",
+                    ticketId: recipe.oracle.lateTicket,
+                  },
+                ]
               : [
                   { id: "late", shelfId: "s1", ticketId: null },
                   { id: "missing", shelfId: "s1", ticketId: null },

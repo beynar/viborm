@@ -11,7 +11,7 @@ import { selectManagedSnapshot } from "./target";
  * - Enum handling (capabilities.supportsNativeEnums, getEnumColumnType)
  */
 
-import type { Dialect, SqlDialect } from "../drivers/types";
+import type { Dialect } from "../drivers/types";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { hydrateSchemaNames } from "../schema/hydration";
 import {
@@ -70,10 +70,9 @@ export function assertMigrationDecimalDomainsFitProvider(
   models: Record<string, AnyModel>,
   dialect: Dialect
 ): void {
-  const refusal = findDecimalProviderLimitRefusal(
-    models,
-    dialect as SqlDialect
-  );
+  // SurrealDB's `decimal` holds any precision and scale: there is no limit to fit.
+  if (dialect === "surrealql") return;
+  const refusal = findDecimalProviderLimitRefusal(models, dialect);
   if (refusal === undefined) return;
   throw new MigrationError(
     describeDecimalProviderLimitRefusal(refusal),
@@ -803,7 +802,7 @@ export function serializeResolvedModels(
 
   // Append junction tables to the tables array
   for (const { def } of junctionTables.values()) {
-    tables.push(def);
+    tables.push(migrationDriver.markJunction?.(def) ?? def);
   }
 
   const snapshot: SchemaSnapshot = {
