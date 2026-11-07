@@ -368,7 +368,10 @@ describe.skipIf(!url)("SurrealDB read prototype against PostgreSQL", () => {
       await surreal.query(
         `CREATE comment:${c.id} SET body=${literal(c.body)},rank=${c.rank},postId=post:${c.postId}`
       );
-    onSurreal = createClient({ schema, driver: new SurrealDriver(surreal) });
+    onSurreal = createClient({
+      schema,
+      driver: new SurrealDriver({ client: surreal }),
+    });
 
     pglite = new PGlite();
     onPostgres = createClient({
@@ -394,7 +397,7 @@ describe.skipIf(!url)("SurrealDB read prototype against PostgreSQL", () => {
   });
 
   it("holds no SQL: reaching for any syntax refuses", () => {
-    const { adapter } = new SurrealDriver(surreal);
+    const { adapter } = new SurrealDriver({ client: surreal });
     expect(adapter.result).toBeDefined();
     expect("subqueries" in adapter).toBe(false);
     expect("clauses" in adapter).toBe(false);

@@ -375,17 +375,116 @@ they needed:
   reads its lists and writes each row in one statement, through `JoinedValue.plan()`; SQL's is one
   `UPDATE ... FROM`. Keys may tie under concurrent appends, as a move handles.
 
-**Limits a suite found once it ran here.**
+**What the server asks of what is written for it.** Measured on 4.0.0, and each is why a statement
+reads as it does.
 
-- **A long literal beside an `IF`.** An `IF` in one block with a literal list takes about the cube of
-  its length, and the server cannot stop it: 800 rows took 6 s, 1,600 never ended and held a core past
-  a kill signal. A list a write reads is held outside the block, or bound whole.
-- **About 65,000 values in one statement** ("IR table full"). A list whose members are each one value
-  is one parameter, so 12,000 judged rows and 40,000 ids pass.
-- **64 open transactions per connection**, past which the server refuses. The rest wait, as for a pool.
-- **A record's key is not an instant or a decimal.** A key of either type is its text.
-- **A generated column beside a record's id** refuses at push. A sequence reaches only the id.
-- **A key moved through a relation**, and a key held by another key, refuse by name.
+- **Compilation is the cost.** A server compiles in about the square of a statement's subqueries, and
+  keeps what it has compiled per statement. 40 nested subqueries took 96 ms, 80 took 308 ms, and a
+  block doubles it, where running them takes under a millisecond. So a statement holds its lists in
+  top-level `LET`s and one small block, and a text transaction keeps them atomic. That took the
+  acceptance suite's slowest part from 427 s to 26 s.
+- **A long literal beside an `IF`** in one block takes about the cube of its length, and the server
+  cannot stop it: 1,600 rows never ended and held a core past a kill signal. It stands outside.
+- **About 65,000 values in one statement** ("IR table full"). A list of plain values is one parameter.
+- **64 open transactions per connection**, past which the server refuses. The rest wait.
+- **One equality stated twice with one value** fails with "Internal database error: stale IR id".
+  Conditions are stated once.
+- **An event does not see a statement's variables**, so a moved record's old copy says so in a field.
+
+**How a row domain reads.** A row named by its whole key follows its links, each a read by key, to
+lists of who holds what lies at their ends: `authorId.orgId IN $h1`. A page caps its list by an index
+read and, past 1,000, reads in key order following each row's links, which is where the wide actor's
+28 ms became 0.7 ms.
+
+**Speed against PostgreSQL** on one machine (`benchmarks/surrealdb-compare.mjs`, medians) depends first
+on durability. On macOS SurrealDB flushes the disk's cache at each commit by default, about 4 ms, where
+PostgreSQL's `open_datasync` does not. At equal durability (PostgreSQL with `fsync_writethrough`)
+writes take 1.0 to 1.6 times as long, extensions included. With neither flushing
+(`SURREAL_DATASTORE_SYNC=never` against PostgreSQL's defaults), a read or write of one row takes 1.1 to
+1.7 times as long, a page 2 to 2.6, `count` 3.7 and `updateMany` 3.9, which are the server's scan and its
+cost per row written. A round trip alone costs 0.13 ms here against 0.08 ms.
+
+The forms behind that, each measured against the one it replaced, on the same plan:
+
+- A filter that names a record by its whole key reads or writes the record itself: `SELECT … FROM $p1`,
+  `UPDATE $p1 SET … WHERE <the rest>`. `WHERE id = $p1` walks the same single record yet costs the
+  statement about twice as much (an update 0.78 ms to 0.31 ms). A keyed cursor reads its anchor the same way.
+- One row is created with `CREATE $id CONTENT $row`, which costs half `INSERT INTO t $row` (0.67 ms to
+  0.31 ms) and refuses a taken record or unique value in the same words. A key a sequence gives, or the
+  statement reads, still inserts.
+- A unique read has no `ORDER BY`, which only sorted its one row.
+- A projection lists its columns bare. An absent field reaches the client as `undefined` under its key,
+  which the driver reads as null, so `(f ?? NULL) AS f` cost each row for nothing (50 rows, 0.52 ms to
+  0.40 ms).
+
+At 20,000 rows the same holds, 1.7 to 4.7 times without flushing, once a page walks its index:
+
+- `ORDER BY a DESC, id ASC` sorts every row, as no index holds that order, so a page reads `a`'s value
+  at its last row ahead and bounds the sort with it (7 ms to 0.6 ms). It needs an index on `a`, and a
+  filter without a subquery, whose second statement would cost more to compile than the sort.
+- A cursor is `a >= x AND (a > x OR ...)`, one range walked in order, where `a > x OR (a = x AND ...)`
+  reads two ranges and sorts them (19 ms to 0.85 ms).
+- `_min` and `_max` alone are one row an index finds, where an aggregate reads them all (3.5 ms to 0.3 ms).
+- An index holding the key among other columns is kept. It used to be dropped at push, so an ordered
+  list sorted all its rows (16 ms to 1 ms for an ordering create).
+
+- A correlated read never walks an index in order, not with `$parent.id` nor a closure's variable, where
+  a statement's own `LET` does. An `include` with a `take` under a root page of at most 20 rows reads which
+  rows they are ahead, then each one's children in a read of its own (2 parents of 4,000 children each,
+  10 ms to 0.6 ms; compiling for 20 rows takes 5 ms). Deeper includes stay correlated.
+
+A `groupBy` under `take` of at most 20 groups seeks them on the index of the field it orders by, one
+value after the last, and reads only their rows (5.6 ms to about 1.1 ms, and no longer growing with the
+table). PostgreSQL's 0.13 ms stops on the index itself, so this stays the widest ratio, at about 8 for
+1 ms. Without `take` both read every row, and the ratio is 3.4. `_sum` reads every value, as `SELECT VALUE`
+does in the same time, and `GROUP ALL` is the fastest form measured: that ratio, 4.4, is the server's
+scan. A cursor reads its anchor's values in one read ahead, where it read each apart (0.78 ms to 0.60 ms
+over a second order column, about 4.6 times). `BEGIN; … COMMIT;` around a read's `LET`s costs nothing
+measurable (0.885 ms against 0.872 ms without). A transaction's `begin` and `commit` are each a call of their
+own, which the client cannot join to a statement: a commit sent before a query's answer commits what had run.
+`INSERT IGNORE` costs twice `CREATE`, but a nested insert keeps it: the engine recovers from a rejected
+insert only where no statement failed, and a failed one would cost the transaction a replay.
+
+**Writes that wait.** Inside an operation's own transaction, a write whose answer nothing reads (a
+link, a nested insert whose key the row states, a counted `createMany`) waits and goes with the next
+statement, in one text: a nested write costs a round trip per read, not per statement. A `RELATE` joins
+the waiting one of the same source when nothing between writes its table. An ignored insert says so
+with `IF array::len($waitedN) = 0 { THROW "viborm:waiting:N" }`, and the mark names the waiting write
+whose own error is raised. A required lookup that names its row by its whole key, and from which no
+relation reads anything but that key (`OperationContext.pin`, the engine's one hook), is not read: its
+presence is such a check, in order with the writes around it. Nothing waits in a caller's transaction
+or across a member's savepoint: a `THROW` inside a session transaction does not stop the statements
+after it, and a commit would keep them; inside the operation's own, the failure cancels it.
+
+**A create stated whole.** A `create` the engine would run in a transaction, where no domain judges
+rows, is first run outside any, its writes waiting for its last read, the root's own insert too: the
+text goes as one `BEGIN; …; COMMIT;`, all or nothing, with no `begin` and `commit` calls. That is the
+engine's own envelope rule: the first statement anything reads before the end is refused before it is
+sent, and the body starts again in a transaction. Rows that share an insert share it there too, as the
+text is one transaction. There an insert is a `CREATE`, half an `INSERT IGNORE` and its check: a
+refused one undoes the whole text, and the write starts again in a transaction, where an ignored insert
+says what it met and the engine recovers as before. Nothing else is scripted: a body started again
+runs its admissions again, which a domain's callbacks would see.
+
+Measured on one machine, the three forms alternating in one process:
+
+| Create | Before | Writes wait | Stated whole |
+|---|---|---|---|
+| A post with a new and a connected tag | 1.86 ms | 1.58 ms | 1.32 ms |
+| A parent with two children | 1.03 ms | 0.98 ms | 0.93 ms |
+| A post with a new author | 1.02 ms | 0.95 ms | 0.99 ms |
+
+What bounds it:
+
+- The check after an ignored insert costs about 0.08 ms a statement, close to a round trip (0.11 ms).
+- An ignored insert names the key it met by reading every stated unique key in the `THROW`, which the
+  server compiles each time: that made each case slower, so an insert waits only where its row states
+  one unique key.
+- With `CREATE` in the text stated whole, a create costs what the same SurrealQL written by hand costs,
+  measured side by side: 1.20 ms against 1.16 for the first case, 0.90 against 0.88 for the second.
+
+**Refusals** are counted in `tests/contracts/architecture/surrealdb-refusal-census.test.ts`, each with
+why it stands. A new one fails it.
 
 What a judgement can read goes further here. A list's appended value and a sequence's next value are
 known before the write, so they are judged as any value, where SQL refuses to judge what only the

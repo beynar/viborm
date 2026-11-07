@@ -21,12 +21,6 @@ import { beforeEach, describe } from "vitest";
 const WAIVED: Readonly<Record<string, string>> = {
   "an unlink reads the rows a hook wants under the lock the session's other reads take":
     "reads SQL's plan: no read here takes a lock",
-  "a create computes its key in its own statement (a read first on MySQL)":
-    "asserts the SQL it reads the last key with",
-  "rekey of part of a list respaces the whole list, in its order":
-    "counts the one statement SQL respaces in; here the rows are read, placed and written",
-  "one order for every grouping: a card changes column with its place, in one move":
-    "counts the reads of the path that computes the key in its UPDATE",
 };
 
 describe.skipIf(!surrealUrl)("SurrealDB", () => {
@@ -51,6 +45,12 @@ describe.skipIf(!surrealUrl)("SurrealDB", () => {
       // As MySQL's: a create reads the list's last key, and a move its neighbours.
     },
     2,
-    { move: 3, update: 1, upsert: [1, 1, 2, 2] }
+    {
+      move: 3,
+      update: 1,
+      upsert: [1, 1, 2, 2],
+      rekey: 3,
+      lastKeyRead: "ORDER BY",
+    }
   );
 });

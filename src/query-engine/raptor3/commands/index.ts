@@ -123,8 +123,8 @@ export interface PreparedOperation {
 class PreparedCommand implements PreparedOperation {
   readonly #config: EngineConfig;
   readonly #schema: EngineSchema;
-  readonly #queries: Queries;
   /** {@link Queries} itself, unless the driver supplies another language. */
+  readonly #queries: Queries;
   readonly #operation: Operation;
   readonly #model: EngineConfig["schema"][string];
   readonly #modelName: string;

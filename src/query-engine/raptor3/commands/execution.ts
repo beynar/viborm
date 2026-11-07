@@ -826,6 +826,8 @@ export class CommandExecution {
   ): Promise<void> {
     const attempt = this.attempt;
     if (attempt.rows.has(selection)) return;
+    const pinned = this.context.pin(selection);
+    if (pinned) return this.#observed(selection, pinned);
     const source = selection.source;
     if (
       source.kind === "producer" &&
