@@ -32,7 +32,7 @@ const CONTRACT_SPELLING = {
 
 class SurrealTestDriver extends SurrealDriver {
   override readonly adapter = {
-    ...new SurrealDriver(new Surreal()).adapter,
+    ...new SurrealDriver().adapter,
     ...CONTRACT_SPELLING,
   };
 
@@ -41,12 +41,6 @@ class SurrealTestDriver extends SurrealDriver {
   #defined = false;
 
   readonly #surreal = new Surreal();
-
-  constructor(options?: SurrealDriverOptions) {
-    super(new Surreal(), options);
-    // Connected on first use, as a URL-configured driver would be.
-    this.client = null;
-  }
 
   // The shared contracts spell a few raw statements in SQL's words.
   protected override execute<T>(
@@ -123,3 +117,25 @@ const DROP_TABLE = /^DROP TABLE IF EXISTS/;
 const CREATE_EXTENSION = /^CREATE EXTENSION .*/;
 const RAW_NAME = /^DELETE FROM "([a-z_]+)"/;
 const RAW_KEY = /WHERE id = \$p(\d+)/;
+
+/** A driver that keeps what it sends, for a contract counting statements. */
+export function createSurrealRecordingDriver() {
+  const driver = createSurrealTestDriver();
+  const statements: string[] = [];
+  const execute = (driver as any).execute.bind(driver);
+  const recording = Object.assign(driver, {
+    statements,
+    failWhen: undefined as ((statement: string) => boolean) | undefined,
+  });
+  (driver as any).execute = (
+    client: never,
+    statement: string,
+    params: unknown[]
+  ) => {
+    statements.push(statement);
+    if (recording.failWhen?.(statement))
+      return Promise.reject(new Error("a recorded failure"));
+    return execute(client, statement, params);
+  };
+  return recording;
+}

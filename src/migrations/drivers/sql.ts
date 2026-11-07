@@ -1,15 +1,14 @@
-import type { DatabaseAdapter } from "@adapters/database-adapter";
-import type { AnyDriver } from "@drivers/driver";
-import { sql } from "@sql";
-
 /**
  * What every SQL migration driver shares: how an identifier, a value and a default
  * are spelled, and the two probes `push` reads. {@link MigrationDriver} is what any
  * language answers. See `docs/architecture/query-backend-frontier.md`.
  */
 
+import type { DatabaseAdapter } from "@adapters/database-adapter";
+import type { AnyDriver } from "@drivers/driver";
 import { jsonNullKindOf } from "@schema/json-null";
 import type { Scalar, ScalarState } from "@schema/scalars";
+import { sql } from "@sql";
 import {
   type DecimalDialect,
   decimalDefaultText,

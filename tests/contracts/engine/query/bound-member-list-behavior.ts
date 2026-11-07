@@ -78,6 +78,9 @@ const open = (driver: AnyDriver) => createClient({ schema, driver });
 export interface BoundMemberListOptions {
   readonly name: string;
   readonly dialect: "sqlite" | "postgresql";
+  /** The one-parameter list, where the provider does not read it as `dialect` does. */
+  readonly listForm?: RegExp;
+  readonly notListForm?: RegExp;
   readonly createDriver: () => AnyDriver;
   /** Rows seeded for the large-list legs; the list itself is always 40,000. */
   readonly rows?: number;
@@ -109,7 +112,7 @@ interface Statement {
   readonly params: readonly unknown[];
 }
 const SQLITE_PLACEHOLDER = /\?/g;
-const PG_PLACEHOLDER = /\$(\d+)/g;
+const PG_PLACEHOLDER = /\$p?(\d+)/g;
 /**
  * The values a statement binds, read from its placeholders: the logged
  * parameter array is a diagnostic, bounded, copy.
@@ -221,7 +224,9 @@ export function runBoundMemberListBehavior(
         ).toHaveLength(rows);
       });
       expect(bound(read)).toBe(1);
-      expect(read?.sql).toMatch(sqlite ? SQLITE_LIST : PG_LIST);
+      expect(read?.sql).toMatch(
+        options.listForm ?? (sqlite ? SQLITE_LIST : PG_LIST)
+      );
 
       const text = await widest(async () => {
         expect(
@@ -241,7 +246,9 @@ export function runBoundMemberListBehavior(
           })
         ).toEqual([{ id: 1 }]);
       });
-      expect(excluded?.sql).toMatch(sqlite ? SQLITE_NOT_IN : PG_NOT_IN);
+      expect(excluded?.sql).toMatch(
+        options.notListForm ?? (sqlite ? SQLITE_NOT_IN : PG_NOT_IN)
+      );
 
       expect(
         await client.order.updateMany({

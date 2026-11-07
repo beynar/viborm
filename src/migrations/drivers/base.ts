@@ -1,4 +1,3 @@
-import type { PushTargetIdentity } from "../v1-types";
 /**
  * MigrationDriver Base Class
  *
@@ -27,6 +26,7 @@ import type {
   TableDef,
 } from "../types";
 import { defaultGeneratedPrimaryKeyName, derivedMigrationName } from "../utils";
+import type { PushTargetIdentity } from "../v1-types";
 import type { BoundMigrationDriver } from ".";
 import type { Dialect, MigrationCapabilities } from "./types";
 
@@ -779,6 +779,20 @@ export abstract class MigrationDriver {
   }
 
   // ===========================================================================
+  // PUSH PROBES
+  // ===========================================================================
+
+  /** Whether a table holds any row, which `push` reads before adding a required field. */
+  abstract tableHoldsRows(producer: AnyDriver, table: string): Promise<boolean>;
+  /** A stored value of `column` that `declared` does not hold, if a row has one. */
+  abstract undeclaredValue(
+    producer: AnyDriver,
+    table: string,
+    column: string,
+    declared: readonly string[]
+  ): Promise<{ readonly stored: unknown } | undefined>;
+
+  // ===========================================================================
   // MIGRATION LOCKING
   // ===========================================================================
 
@@ -793,16 +807,6 @@ export abstract class MigrationDriver {
    * @param lockId - A numeric lock identifier
    * @returns SQL statement or null
    */
-  /** Whether a table holds any row, which `push` reads before adding a required field. */
-  abstract tableHoldsRows(producer: AnyDriver, table: string): Promise<boolean>;
-  /** A stored value of `column` that `declared` does not hold, if a row has one. */
-  abstract undeclaredValue(
-    producer: AnyDriver,
-    table: string,
-    column: string,
-    declared: readonly string[]
-  ): Promise<{ readonly stored: unknown } | undefined>;
-
   abstract generateAcquireLock(lockId: number): string | null;
 
   /**
