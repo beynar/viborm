@@ -1889,28 +1889,18 @@ export class SurrealReadBackend implements ReadBackend {
     const table = name(tableOf(model));
     // The anchor is a candidate like any other: a hidden one is a missing one.
     const q = this.#queries;
-    const anchor = q.scoped(
+    const stated = q.scoped(
       model,
       q.prepareSelector(model, cursor, true, false).predicate,
       this.#inRelation > 0 ? "related" : "root"
     )!;
     // A cursor that states its key is the record itself, read without a filter.
-    const named = this.namedRecord(model, anchor);
+    const named = this.namedRecord(model, stated);
     const source = named?.record ?? table;
-    const asked = named ? named.rest : anchor;
+    const asked = named ? named.rest : stated;
     const located = asked
       ? sql` WHERE ${this.predicate(asked, true)}`
       : sql.raw("");
-    // Read once, ahead of the statement, where a statement can: in a `WHERE` these
-    // run for each row the scan passes.
-    const once = (expression: Sql) => this.#hoist(expression) ?? expression;
-    const at = (expression: Sql) =>
-      once(
-        sql`(SELECT VALUE ${expression} FROM ${source}${located} LIMIT 1)[0]`
-      );
-    const found = once(
-      sql`array::len(SELECT VALUE id FROM ${source}${located} LIMIT 1) > 0`
-    );
     const walked = terms.flatMap((term): OrderTerm[] =>
       term.nullable
         ? [
@@ -1923,10 +1913,20 @@ export class SurrealReadBackend implements ReadBackend {
           ]
         : [term]
     );
+    // The anchor's values in one read, ahead of the statement where a statement can:
+    // in a `WHERE` it would run for each row the scan passes.
+    const read = sql`(SELECT ${sql.join(
+      walked.map(
+        (term, index) => sql`${term.expression} AS ${sql.raw(`c${index}`)}`
+      ),
+      ", "
+    )} FROM ${source}${located} LIMIT 1)[0]`;
+    const anchor = this.#hoist(read) ?? read;
+    const found = sql`${anchor} != NONE`;
     // `a >= x AND (a > x OR …)`: the same rows as `a > x OR (a = x AND …)`, which
     // reads two ranges of an index and sorts them, where this walks one in order.
-    const after = walked.reduceRight<Sql | undefined>((rest, term) => {
-      const value = at(term.expression);
+    const after = walked.reduceRight<Sql | undefined>((rest, term, index) => {
+      const value = sql`${anchor}.${sql.raw(`c${index}`)}`;
       const reached = sql`${term.expression} ${sql.raw(term.descending ? "<=" : ">=")} ${value}`;
       if (!rest) return reached;
       return sql`${reached} AND (${term.expression} ${sql.raw(term.descending ? "<" : ">")} ${value} OR (${rest}))`;

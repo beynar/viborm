@@ -438,7 +438,11 @@ value after the last, and reads only their rows (5.6 ms to about 1.1 ms, and no 
 table). PostgreSQL's 0.13 ms stops on the index itself, so this stays the widest ratio, at about 8 for
 1 ms. Without `take` both read every row, and the ratio is 3.4. `_sum` reads every value, as `SELECT VALUE`
 does in the same time, and `GROUP ALL` is the fastest form measured: that ratio, 4.4, is the server's
-scan. A cursor over a second order column reads its anchor's values ahead, and stays at about 6 for 0.8 ms.
+scan. A cursor reads its anchor's values in one read ahead, where it read each apart (0.78 ms to 0.60 ms
+over a second order column, about 4.6 times). Neither a transaction's `begin` and `commit`, each its own
+call to the server, nor `BEGIN; … COMMIT;` around a read's `LET`s, measurably costs more than PostgreSQL's.
+`INSERT IGNORE` costs twice `CREATE`, but a nested insert keeps it: the engine recovers from a rejected
+insert only where no statement failed, and a failed one would cost the transaction a replay.
 
 **Refusals** are counted in `tests/contracts/architecture/surrealdb-refusal-census.test.ts`, each with
 why it stands. A new one fails it.
