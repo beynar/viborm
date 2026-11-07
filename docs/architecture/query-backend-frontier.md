@@ -445,6 +445,28 @@ own, which the client cannot join to a statement: a commit sent before a query's
 `INSERT IGNORE` costs twice `CREATE`, but a nested insert keeps it: the engine recovers from a rejected
 insert only where no statement failed, and a failed one would cost the transaction a replay.
 
+**Writes that wait.** Inside an operation's own transaction, a write whose answer nothing reads (a
+link, a nested insert whose key the row states, a counted `createMany`) waits and goes with the next
+statement, in one text: a nested write costs a round trip per read, not per statement. A `RELATE` joins
+the waiting one of the same source when nothing between writes its table. An ignored insert says so
+with `IF array::len($waitedN) = 0 { THROW "viborm:waiting:N" }`, and the mark names the waiting write
+whose own error is raised. A required lookup that names its row by its whole key, and from which no
+relation reads anything but that key (`OperationContext.pin`, the engine's one hook), is not read: its
+presence is such a check, in order with the writes around it. Nothing waits in a caller's transaction
+or across a member's savepoint: a `THROW` inside a session transaction does not stop the statements
+after it, and a commit would keep them; inside the operation's own, the failure cancels it.
+
+Measured on one machine, each form alternating with the other in the same process: a post with a new
+and a connected tag 1.87 ms to 1.68 ms, a parent with two children 1.01 to 0.99, a post with a new author
+1.02 to 0.98. Three things bound the gain:
+
+- The check costs about 0.08 ms a statement, close to the round trip it saves (0.11 ms).
+- An ignored insert names the key it met by reading every stated unique key in the `THROW`, which the
+  server compiles each time: that made each case slower (1.33, 1.59 ms), so an insert waits only where
+  its row states one unique key, and the root's own insert, which answers its row, runs at once.
+- `begin` and `commit` are still a call each. A text `BEGIN; …; COMMIT;` written by hand, with no
+  check, measured 2.02 ms to 1.02 ms for the first case: most of that is those two calls.
+
 **Refusals** are counted in `tests/contracts/architecture/surrealdb-refusal-census.test.ts`, each with
 why it stands. A new one fails it.
 

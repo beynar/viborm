@@ -990,7 +990,7 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
       let raced = false;
       const execute = driver.execute;
       driver.execute = async function (this: unknown, ...args: unknown[]) {
-        if (!raced && String(args[1]).startsWith("INSERT IGNORE")) {
+        if (!raced && String(args[1]).includes("INSERT IGNORE")) {
           raced = true;
           await winner(other);
         }

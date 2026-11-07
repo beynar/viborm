@@ -279,6 +279,16 @@ export class SurrealQueries extends Queries {
       !membership.outside
         ? this.#lowering.membersOf(membership.edge, membership.parent)
         : undefined;
+    // A whole key stated as values is the record itself, read without a filter.
+    const identity = controls.identity;
+    const record =
+      identity &&
+      !path &&
+      this.keyOrder(model).every(
+        (key) => identity[key] != null && !(identity[key] instanceof Sql)
+      )
+        ? this.#lowering.recordOfRow(model, identity)
+        : undefined;
     const conditions = () => [
       ...(membership && !path
         ? [
@@ -289,8 +299,8 @@ export class SurrealQueries extends Queries {
             ),
           ]
         : []),
-      ...(controls.identity
-        ? [this.#lowering.identity(model, controls.identity)]
+      ...(identity && !record
+        ? [this.#lowering.identity(model, identity)]
         : []),
       ...(controls.unless?.predicate
         ? [this.#lowering.predicate(controls.unless.predicate, false)]
@@ -302,10 +312,10 @@ export class SurrealQueries extends Queries {
         this.#lowering.statement(
           model,
           projection,
-          args,
+          record ? { ...args, unordered: true } : args,
           predicate,
           conditions(),
-          path
+          path ?? record
         )
       ),
       shape: projection.shape,

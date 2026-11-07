@@ -1424,6 +1424,13 @@ export abstract class OperationContext {
   requirePresent(query: Query, failure: Error): void {
     this.statePremise(query, true, failure);
   }
+  /**
+   * The row a lookup would read, where this context knows it without reading and
+   * checks it in its next statement instead, in order with the writes around it.
+   */
+  pin(_lookup: object): Input | undefined {
+    return;
+  }
   protected abstract statePremise(
     query: Query,
     present: boolean,

@@ -6,6 +6,8 @@
  * its first adapter read: this driver holds no SQL.
  */
 
+import type { AnyDriver } from "@drivers/exports";
+import type { QueryResult } from "@drivers/types";
 import {
   ForbiddenError,
   NestedWriteError,
@@ -14,6 +16,7 @@ import {
   UniqueConstraintError,
   UnsupportedOperationError,
 } from "@errors";
+import type { Selection } from "@query-engine/raptor3/commands/selection";
 import { dividesByZero } from "@query-engine/raptor3/shared/decimal";
 import {
   InsertValue,
@@ -55,9 +58,35 @@ import {
   walksFurther,
 } from "./read-backend";
 import { placed } from "./respace";
-import { FORBIDDEN_ROW, isConflict } from "./transaction";
+import { FORBIDDEN_ROW, isConflict, WAITING_FAILED } from "./transaction";
 
 type AnyModel = PreparedProjection["model"];
+
+/** {@link SurrealOperationContext.#readByKey}, once per model. */
+const readByKey = new WeakMap<AnyModel, boolean>();
+
+/**
+ * A write whose answer nothing reads yet: it waits for the operation's next
+ * statement and goes with it. `stated` builds it with its own index, which names
+ * its variables and the `THROW` that says it failed; `failure` is that error.
+ */
+interface Waiting {
+  readonly stated: (index: number) => Sql;
+  readonly failure?: () => unknown;
+  /** The edge table it relates, where it is a `RELATE` later links may join. */
+  readonly edge?: Relating;
+  /** The table it writes, which a later `RELATE` must not pass over. */
+  readonly writes?: string;
+}
+
+interface Relating {
+  readonly table: string;
+  readonly source: string;
+  readonly forward: boolean;
+  readonly targets: readonly Sql[];
+  readonly relate: (targets: Sql) => Sql;
+}
+
 type Junction = Extract<Membership, { kind: "junction" }>;
 
 const ARITHMETIC: Readonly<Record<string, string>> = {
@@ -170,7 +199,17 @@ export class SurrealOperationContext extends OperationContext {
     let replacement: ReturnType<OperationContext["spendRecovery"]>;
     for (let attempt = 1; ; attempt++) {
       try {
-        return await super.run(body, single);
+        return await super.run(async () => {
+          try {
+            const value = await body();
+            // What still waits goes before the transaction commits.
+            await this.#flush();
+            return value;
+          } catch (error) {
+            this.#waiting.length = 0;
+            throw error;
+          }
+        }, single);
       } catch (error) {
         if (!(isConflict(error) && this.replaysInPlace) || attempt === REPLANS)
           throw error;
@@ -182,6 +221,207 @@ export class SurrealOperationContext extends OperationContext {
       await new Promise((resolve) =>
         setTimeout(resolve, 5 + Math.random() * 45 * attempt)
       );
+    }
+  }
+
+  /**
+   * Writes whose answer nothing reads yet, in order. Each goes with the next
+   * statement, so a nested write costs a round trip per read instead of one per
+   * statement. Only inside this operation's own transaction: a failure there
+   * cancels everything the text ran after it, where a caller's transaction could
+   * commit it.
+   */
+  readonly #waiting: Waiting[] = [];
+  /** How deep in member savepoints this runs: nothing waits across one. */
+  #scoped = 0;
+
+  get #defers(): boolean {
+    return this.ownRegionOpen && this.#scoped === 0;
+  }
+
+  /**
+   * A required lookup that names its row by its whole key, and from which nothing
+   * but that key is asked: the row is known, and its presence is checked in the
+   * next statement, in order with the writes around it.
+   */
+  override pin(selection: Selection): Input | undefined {
+    if (
+      !(this.#defers && selection.required) ||
+      selection.source.kind !== "query" ||
+      selection.membership() ||
+      selection.dependent ||
+      selection.insertsWhenAbsent ||
+      selection.unjudged ||
+      this.queries.domain !== undefined ||
+      selection.facts.reads.length > 0 ||
+      !selection.identityOnly()
+    )
+      return;
+    const keys = this.queries.keyOrder(selection.model);
+    for (const field of selection.fields.demands)
+      if (!keys.includes(field)) return;
+    if (!this.#readByKey(selection.model)) return;
+    this.requirePresent(selection.query(), selection.required());
+    return Object.fromEntries(
+      keys.map((field) => [field, selection.facts.keys.get(field)])
+    );
+  }
+
+  /** A required row, checked where the next statement runs, before what follows it. */
+  protected override statePremise(
+    query: Query,
+    present: boolean,
+    failure: Error
+  ): void {
+    if (!this.#defers) refuse("a premise stated for a batch");
+    this.#waiting.push({
+      stated: (index) =>
+        sql`IF array::len((${query.sql})) ${sql.raw(present ? "=" : ">")} 0 { THROW ${`viborm:waiting:${index}`} }`,
+      failure: () => failure,
+    });
+  }
+
+  /**
+   * Whether every field a relation reads of `model`'s rows is its key: what a
+   * link copies from a row it found is then the key its lookup stated.
+   */
+  #readByKey(model: AnyModel): boolean {
+    let known = readByKey.get(model);
+    if (known !== undefined) return known;
+    const keys = this.queries.keyOrder(model);
+    const read: string[] = [];
+    const schema = this.schema;
+    try {
+      for (const [holder, relations] of schema.index)
+        for (const [name] of relations) {
+          const view = schema.membership(holder as AnyModel, name);
+          if (
+            view.discriminator &&
+            (view.source === model || view.target === model)
+          )
+            read.push("");
+          if (view.kind === "reference") {
+            if (view.owner === "source" && view.target === model)
+              read.push(...view.pairs.map((pair) => pair.target));
+            if (view.owner === "target" && view.source === model)
+              read.push(...view.pairs.map((pair) => pair.source));
+            continue;
+          }
+          if (view.source === model)
+            read.push(
+              ...view.sourceSide.members.map((pair) => pair.referencedField)
+            );
+          if (view.target === model)
+            read.push(
+              ...view.targetSide.members.map((pair) => pair.referencedField)
+            );
+        }
+      known = read.every((field) => keys.includes(field));
+    } catch {
+      // A slot no single view states (a polymorphic one) may read anything.
+      known = false;
+    }
+    readByKey.set(model, known);
+    return known;
+  }
+
+  /** `edge`'s link, joining the waiting `RELATE` of the same source when nothing between writes its table. */
+  #relate(edge: Relating): void {
+    const waiting = this.#waiting;
+    for (let at = waiting.length - 1; at >= 0; at--) {
+      const entry = waiting[at]!;
+      const held = entry.edge;
+      if (
+        held &&
+        held.table === edge.table &&
+        held.source === edge.source &&
+        held.forward === edge.forward
+      ) {
+        waiting.splice(at, 1);
+        this.#relate({ ...edge, targets: [...held.targets, ...edge.targets] });
+        return;
+      }
+      if (entry.writes === undefined || entry.writes === edge.table) break;
+    }
+    waiting.push({
+      stated: () =>
+        edge.relate(sql`[${sql.join(edge.targets as Sql[], ", ")}]`),
+      edge,
+      writes: edge.table,
+    });
+  }
+
+  /** The waiting writes as one text, and the failure each one's mark stands for. */
+  #drain(): {
+    readonly text: Sql;
+    readonly failures: Map<number, () => unknown>;
+  } {
+    const failures = new Map<number, () => unknown>();
+    const statements = this.#waiting.splice(0).map((entry, index) => {
+      if (entry.failure) failures.set(index, entry.failure);
+      return entry.stated(index);
+    });
+    return { text: sql.join(statements, "; "), failures };
+  }
+
+  /** What a failed text raises: the waiting write's own error, where its mark says which. */
+  async #owned(
+    error: unknown,
+    failures: Map<number, () => unknown>
+  ): Promise<unknown> {
+    let cause = error;
+    for (let depth = 0; cause instanceof Error && depth < 4; depth++) {
+      const marked = WAITING_FAILED.exec(cause.message);
+      const failure = marked && failures.get(Number(marked[1]));
+      if (failure) return await failure();
+      cause = cause.cause;
+    }
+    return error;
+  }
+
+  /** The waiting writes, alone, where no statement follows to take them. */
+  async #flush(): Promise<void> {
+    if (this.#waiting.length === 0) return;
+    const { text, failures } = this.#drain();
+    try {
+      await this.dispatch(1, false, () =>
+        this.transport._execute<Input>(text, this.attribution)
+      );
+    } catch (error) {
+      throw await this.#owned(error, failures);
+    }
+  }
+
+  /** A statement, with the writes waiting ahead of it in the same text. */
+  protected override async answer(
+    query: Query,
+    terminal: boolean,
+    model?: AnyModel
+  ): Promise<QueryResult<Input>> {
+    if (this.#waiting.length === 0)
+      return await super.answer(query, terminal, model);
+    const { text, failures } = this.#drain();
+    try {
+      return await super.answer(
+        { ...query, sql: sql`${text}; ${query.sql}` },
+        terminal,
+        model
+      );
+    } catch (error) {
+      throw await this.#owned(error, failures);
+    }
+  }
+
+  /** A member's savepoint marks what ran before it: nothing waits across it. */
+  protected override async withMemberRollback<T>(
+    execute: (driver: AnyDriver) => Promise<T>
+  ): Promise<T> {
+    await this.#flush();
+    this.#scoped++;
+    try {
+      return await super.withMemberRollback(execute);
+    } finally {
+      this.#scoped--;
     }
   }
 
@@ -199,11 +439,6 @@ export class SurrealOperationContext extends OperationContext {
    */
   #writing(): void {
     if (this.preparesBatch) throw this.incompletePreparation;
-  }
-
-  /** Everything here runs at once, in a transaction: nothing waits in a batch. */
-  protected override statePremise(): void {
-    refuse("a premise stated for a batch");
   }
 
   protected override submit(): never {
@@ -884,6 +1119,14 @@ export class SurrealOperationContext extends OperationContext {
             judge
           );
     });
+    if (this.#defers && !projection && !skipDuplicates && !judge?.predicate) {
+      // A count is all it answers, and the count is the rows given, or it fails.
+      this.#waiting.push({
+        stated: () => statement,
+        writes: table.toStatement(),
+      });
+      return { count: given.length } as never;
+    }
     return (await this.#refusing(model, refusal, () =>
       this.#finish(model, statement, projection, single)
     )) as never;
@@ -1048,30 +1291,50 @@ export class SurrealOperationContext extends OperationContext {
    * states whose values a record holds. A recovery reads it to tell its own key.
    */
   async #heldBy(model: AnyModel, row: Input) {
+    for (const [at, held] of this.#holders(model, row).entries())
+      if (
+        (
+          await this.read(
+            { sql: held, shape: { kind: "object", fields: {} } },
+            true
+          )
+        ).length > 0
+      )
+        return this.#heldMeta(model, row, at);
+    return this.#heldMeta(model, row, -1);
+  }
+
+  /** Each key `row` states whole, as a read of the record holding its values. */
+  #holders(model: AnyModel, row: Input): Sql[] {
+    const table = fieldName(model["~"].names.sql!);
+    return this.#statedKeys(model, row).map(
+      (key) =>
+        sql`SELECT id FROM ${table} WHERE ${sql.join(
+          key.map(
+            (field) =>
+              sql`${this.#lowering.physical(model, field)} = ${this.#lowering.value(model, field, row[field])}`
+          ),
+          " AND "
+        )} LIMIT 1`
+    );
+  }
+
+  #statedKeys(model: AnyModel, row: Input): (readonly string[])[] {
+    return getModelKeyCatalog(model).referenceableKeys.filter((key) =>
+      key.every((field) => row[field] !== undefined)
+    );
+  }
+
+  /** The meta of a refused insert: the key at `at` among those `row` states holds its values. */
+  #heldMeta(model: AnyModel, row: Input, at: number) {
     const table = model["~"].names.sql!;
-    for (const key of getModelKeyCatalog(model).referenceableKeys) {
-      if (key.some((field) => row[field] === undefined)) continue;
-      const matches = sql.join(
-        key.map(
-          (field) =>
-            sql`${this.#lowering.physical(model, field)} = ${this.#lowering.value(model, field, row[field])}`
-        ),
-        " AND "
-      );
-      const held = await this.read(
-        {
-          sql: sql`SELECT id FROM ${fieldName(table)} WHERE ${matches} LIMIT 1`,
-          shape: { kind: "object", fields: {} },
-        },
-        true
-      );
-      if (held.length > 0)
-        return {
+    const key = this.#statedKeys(model, row)[at];
+    return key
+      ? {
           table,
           columns: key.map((field) => this.queries.columnName(model, field)),
-        };
-    }
-    return { table };
+        }
+      : { table };
   }
 
   /** One record's write, inside the transaction `Commands` opened. */
@@ -1109,13 +1372,49 @@ export class SurrealOperationContext extends OperationContext {
           true
         )
       );
+    const write = () =>
+      (producer ? undefined : this.#created(model, given)) ??
+      sql`${verb} INTO ${table} [${row}]`;
+    const stated = this.#statedKeys(model, given);
+    if (
+      this.#defers &&
+      // The root's own insert answers its row, where waiting would read it again.
+      !answer &&
+      !judge?.predicate &&
+      produced.length === 0 &&
+      // An ignored insert names the key it met only where the row states one.
+      stated.length === 1 &&
+      // A key the statement reads is no record a later read can name.
+      this.queries
+        .keyOrder(model)
+        .every((key) => given[key] != null && !(given[key] instanceof Sql))
+    ) {
+      // Nothing it answers is read: it waits, and says so if it inserted nothing.
+      const statement = this.#lowering.hoisted(write);
+      this.#waiting.push({
+        stated: producer
+          ? (index) => {
+              const waited = sql.raw(`$waited${index}`);
+              return sql`LET ${waited} = (${statement} RETURN id); IF array::len(${waited}) = 0 { THROW ${`viborm:waiting:${index}`} }`;
+            }
+          : () => sql`${statement} RETURN NONE`,
+        failure:
+          producer &&
+          (() => {
+            const error = new UniqueConstraintError(
+              `A record of '${model["~"].names.ts}' already holds these values.`,
+              { meta: this.#heldMeta(model, given, 0) }
+            );
+            this.rejectInsert(error, producer);
+            return error;
+          }),
+        writes: table.toStatement(),
+      });
+      return { ...given };
+    }
     const { response, decoded } = await this.#written(
       model,
-      () => ({
-        write:
-          (producer ? undefined : this.#created(model, given)) ??
-          sql`${verb} INTO ${table} [${row}]`,
-      }),
+      () => ({ write: write() }),
       produced,
       answer
     );
@@ -1947,16 +2246,19 @@ export class SurrealOperationContext extends OperationContext {
       model,
       Object.fromEntries(stamped.map((field) => [field, undefined]))
     );
-    await this.#written(
-      model,
-      () => ({
-        write: stated.length
-          ? sql`INSERT INTO ${table} ${this.#row(model, row)} ON DUPLICATE KEY UPDATE ${this.#assignments(model, { ...written, ...stamps })}`
-          : sql`INSERT IGNORE INTO ${table} [${this.#row(model, row)}]`,
-      }),
-      [],
-      undefined
-    );
+    const write = () =>
+      stated.length
+        ? sql`INSERT INTO ${table} ${this.#row(model, row)} ON DUPLICATE KEY UPDATE ${this.#assignments(model, { ...written, ...stamps })}`
+        : sql`INSERT IGNORE INTO ${table} [${this.#row(model, row)}]`;
+    if (this.#defers) {
+      const statement = this.#lowering.hoisted(write);
+      this.#waiting.push({
+        stated: () => sql`${statement} RETURN NONE`,
+        writes: table.toStatement(),
+      });
+      return;
+    }
+    await this.#written(model, () => ({ write: write() }), [], undefined);
   }
 
   override async linkMany(
@@ -1978,32 +2280,44 @@ export class SurrealOperationContext extends OperationContext {
         (values) =>
           sql`{ ${near}: ${end(edge.sourceSide, values)}, ${far}: ${end(edge.targetSide, values)} }`
       );
-      await this.#written(
-        edge.source,
-        () => ({
-          write: sql`INSERT RELATION IGNORE INTO ${table} [${sql.join(edges, ", ")}]`,
-        }),
-        [],
-        undefined
-      );
+      const write = sql`INSERT RELATION IGNORE INTO ${table} [${sql.join(edges, ", ")}]`;
+      if (this.#defers) {
+        this.#waiting.push({
+          stated: () => sql`${write} RETURN NONE`,
+          writes: table.toStatement(),
+        });
+        return;
+      }
+      await this.#written(edge.source, () => ({ write }), [], undefined);
       return;
     }
     // A `LIGHTWEIGHT` edge is its pair, so `RELATE` is idempotent by itself and
     // takes one source's targets in one statement.
     // The links of one run share their parent, so one source.
     const source = end(edge.sourceSide, rows[0]!);
-    const targets = sql`[${sql.join(
-      rows.map((values) => end(edge.targetSide, values)),
-      ", "
-    )}]`;
+    const forward = near.toStatement() === "in";
+    const relate = (targets: Sql) =>
+      forward
+        ? sql`RELATE (${source})->${table}->(${targets})`
+        : sql`RELATE (${targets})->${table}->(${source})`;
+    const targets = rows.map((values) => end(edge.targetSide, values));
+    if (this.#defers) {
+      // Its answer is never read: it waits, and joins the next of its source.
+      const named = source.toStatement();
+      if (!(named.startsWith("LET ") || named.includes(";"))) {
+        this.#relate({
+          table: table.toStatement(),
+          source: `${named} ${source.values.map(String).join(" ")}`,
+          forward,
+          targets,
+          relate: (all) => sql`${relate(all)} RETURN NONE`,
+        });
+        return;
+      }
+    }
     await this.#written(
       edge.source,
-      () => ({
-        write:
-          near.toStatement() === "in"
-            ? sql`RELATE (${source})->${table}->(${targets})`
-            : sql`RELATE (${targets})->${table}->(${source})`,
-      }),
+      () => ({ write: relate(sql`[${sql.join(targets, ", ")}]`) }),
       [],
       undefined
     );

@@ -46,7 +46,12 @@ import { createTransactionCleanupError } from "../shared/transactions";
 import type { QueryExecutionContext, QueryResult } from "../types";
 import { SurrealOperationContext } from "./operation-context";
 import { SurrealQueries } from "./queries";
-import { FORBIDDEN_ROW, isConflict, ReplayedTransaction } from "./transaction";
+import {
+  FORBIDDEN_ROW,
+  isConflict,
+  ReplayedTransaction,
+  WAITING_FAILED,
+} from "./transaction";
 
 /** What the engine asks of any driver. */
 const FACTS: EngineFacts = {
@@ -124,6 +129,8 @@ function refusal(error: unknown): unknown {
   const message = error instanceof Error ? error.message : String(error);
   const cause = error instanceof Error ? error : undefined;
   if (isConflict(error)) return new TransactionError(message, { cause });
+  // Its operation's own error, which it reads from the mark.
+  if (WAITING_FAILED.test(message)) return new QueryError(message, { cause });
   if (message.includes(FORBIDDEN_ROW))
     return new ForbiddenError("row", "write", { cause });
   if (UNIQUE_REFUSAL.test(message))
