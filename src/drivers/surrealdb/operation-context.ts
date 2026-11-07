@@ -383,11 +383,17 @@ export class SurrealOperationContext extends OperationContext {
     return { text: sql.join(statements, "; "), failures };
   }
 
-  /** What a failed text raises: the waiting write's own error, where its mark says which. */
+  /**
+   * What a failed text raises: the waiting write's own error, where its mark says
+   * which. A write stated whole undid all of it, and starts again in a transaction,
+   * where each error is the statement's own.
+   */
   async #owned(
     error: unknown,
     failures: Map<number, () => unknown>
   ): Promise<unknown> {
+    if (!this.ownRegionOpen && error !== this.requiresEnvelope)
+      return this.requiresEnvelope;
     let cause = error;
     for (let depth = 0; cause instanceof Error && depth < 4; depth++) {
       const marked = WAITING_FAILED.exec(cause.message);
@@ -1416,6 +1422,10 @@ export class SurrealOperationContext extends OperationContext {
       (producer ? undefined : this.#created(model, given)) ??
       sql`${verb} INTO ${table} [${row}]`;
     const stated = this.#statedKeys(model, given);
+    const scripted =
+      this.#defers && !this.ownRegionOpen
+        ? this.#created(model, given)
+        : undefined;
     if (
       this.#defers &&
       // The root's own insert answers its row, where waiting would read it again,
@@ -1423,8 +1433,9 @@ export class SurrealOperationContext extends OperationContext {
       !(answer && this.ownRegionOpen) &&
       !judge?.predicate &&
       produced.length === 0 &&
-      // An ignored insert names the key it met only where the row states one.
-      stated.length === 1 &&
+      // An ignored insert names the key it met only where the row states one; a
+      // refused CREATE starts the write again.
+      (stated.length === 1 || scripted !== undefined) &&
       // A key the statement reads is no record a later read can name.
       this.queries
         .keyOrder(model)
@@ -1432,23 +1443,29 @@ export class SurrealOperationContext extends OperationContext {
     ) {
       // Nothing it answers is read: it waits, and says so if it inserted nothing.
       const statement = this.#lowering.hoisted(write);
+
       this.#waiting.push({
-        stated: producer
-          ? (index) => {
-              const waited = sql.raw(`$waited${index}`);
-              return sql`LET ${waited} = (${statement} RETURN id); IF array::len(${waited}) = 0 { THROW ${`viborm:waiting:${index}`} }`;
-            }
-          : () => sql`${statement} RETURN NONE`,
+        // Stated whole, a refused CREATE undoes the text, and the write starts again
+        // in a transaction, where an ignored insert says what it met.
+        stated: scripted
+          ? () => sql`${scripted} RETURN NONE`
+          : producer
+            ? (index) => {
+                const waited = sql.raw(`$waited${index}`);
+                return sql`LET ${waited} = (${statement} RETURN id); IF array::len(${waited}) = 0 { THROW ${`viborm:waiting:${index}`} }`;
+              }
+            : () => sql`${statement} RETURN NONE`,
         failure:
-          producer &&
-          (() => {
-            const error = new UniqueConstraintError(
-              `A record of '${model["~"].names.ts}' already holds these values.`,
-              { meta: this.#heldMeta(model, given, 0) }
-            );
-            this.rejectInsert(error, producer);
-            return error;
-          }),
+          scripted || !producer
+            ? undefined
+            : () => {
+                const error = new UniqueConstraintError(
+                  `A record of '${model["~"].names.ts}' already holds these values.`,
+                  { meta: this.#heldMeta(model, given, 0) }
+                );
+                this.rejectInsert(error, producer);
+                return error;
+              },
         writes: table.toStatement(),
       });
       return { ...given };

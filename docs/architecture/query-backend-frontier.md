@@ -461,8 +461,10 @@ rows, is first run outside any, its writes waiting for its last read, the root's
 text goes as one `BEGIN; …; COMMIT;`, all or nothing, with no `begin` and `commit` calls. That is the
 engine's own envelope rule: the first statement anything reads before the end is refused before it is
 sent, and the body starts again in a transaction. Rows that share an insert share it there too, as the
-text is one transaction. Nothing else is scripted: a body started again runs its admissions again,
-which a domain's callbacks would see.
+text is one transaction. There an insert is a `CREATE`, half an `INSERT IGNORE` and its check: a
+refused one undoes the whole text, and the write starts again in a transaction, where an ignored insert
+says what it met and the engine recovers as before. Nothing else is scripted: a body started again
+runs its admissions again, which a domain's callbacks would see.
 
 Measured on one machine, the three forms alternating in one process:
 
@@ -478,7 +480,8 @@ What bounds it:
 - An ignored insert names the key it met by reading every stated unique key in the `THROW`, which the
   server compiles each time: that made each case slower, so an insert waits only where its row states
   one unique key.
-- A text with no check at all, written by hand, measured 1.02 ms for the first case.
+- With `CREATE` in the text stated whole, a create costs what the same SurrealQL written by hand costs,
+  measured side by side: 1.20 ms against 1.16 for the first case, 0.90 against 0.88 for the second.
 
 **Refusals** are counted in `tests/contracts/architecture/surrealdb-refusal-census.test.ts`, each with
 why it stands. A new one fails it.

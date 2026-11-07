@@ -426,7 +426,7 @@ export abstract class OperationContext {
    * ({@link run}), which compares it by identity; a successful operation never
    * materialises it, and an operation that does pays for exactly one.
    */
-  private get requiresEnvelope(): Error {
+  protected get requiresEnvelope(): Error {
     return (this.#requiresEnvelopeSentinel ??= new Error(
       "This operation must execute through its driver context"
     ));
