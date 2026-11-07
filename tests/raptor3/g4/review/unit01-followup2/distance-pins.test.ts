@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { type Dialect, Driver } from "@drivers";
+import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
+import { s } from "@schema";
 import {
   createModelRegistry,
   TestQueryEngine,
 } from "@tests/fixtures/query-engine";
-import { Queries } from "@query-engine/raptor3/shared/query";
-import { EngineSchema } from "@query-engine/raptor3/shared/schema";
-import { s } from "@schema";
 import { createSchemaRegistry } from "@validation";
 import { describe, it } from "vitest";
 
@@ -87,7 +87,7 @@ function both(
         .toStatement("$n");
     }),
     candidate: run(() =>
-      new Queries(new EngineSchema(spotSchema), postgres(postgis, pgvector))
+      new SqlQueries(new EngineSchema(spotSchema), postgres(postgis, pgvector))
         .select(spot, args as never)
         .sql.toStatement("$n")
     ),
@@ -108,7 +108,10 @@ describe("G4-01 repair 2 review — absolute distance pins", () => {
   it("pins a reversed mixed order: the expression keeps NULLS LAST, the scalar flips bare", () => {
     const seen = both({
       select: { id: true },
-      orderBy: [{ at: { _distance: { to: paris, sort: "asc" } } }, { id: "asc" }],
+      orderBy: [
+        { at: { _distance: { to: paris, sort: "asc" } } },
+        { id: "asc" },
+      ],
       take: -3,
     });
     assert.ok(seen.shipped.startsWith("ok:"), seen.shipped);
@@ -120,7 +123,10 @@ describe("G4-01 repair 2 review — absolute distance pins", () => {
   it("pins the unreversed mixed order", () => {
     const seen = both({
       select: { id: true },
-      orderBy: [{ at: { _distance: { to: paris, sort: "asc" } } }, { id: "asc" }],
+      orderBy: [
+        { at: { _distance: { to: paris, sort: "asc" } } },
+        { id: "asc" },
+      ],
       take: 3,
     });
     assert.deepEqual(placements(seen.shipped), ["ASC NULLS LAST", "ASC"]);
@@ -145,7 +151,9 @@ describe("G4-01 repair 2 review — absolute distance pins", () => {
         {
           select: { id: true },
           where: {
-            at: { within: { bounds: { south: 45, west: 2, north: 49, east: 5 } } },
+            at: {
+              within: { bounds: { south: 45, west: 2, north: 49, east: 5 } },
+            },
           },
         },
       ],
@@ -160,7 +168,10 @@ describe("G4-01 repair 2 review — absolute distance pins", () => {
     ];
     for (const [label, args] of cases) {
       const seen = both(args, false);
-      assert.ok(seen.shipped.includes(sentence), `${label} shipped ${seen.shipped}`);
+      assert.ok(
+        seen.shipped.includes(sentence),
+        `${label} shipped ${seen.shipped}`
+      );
       assert.ok(
         seen.candidate.includes(sentence),
         `${label} candidate ${seen.candidate}`
@@ -184,7 +195,10 @@ describe("G4-01 repair 2 review — absolute distance pins", () => {
     assert.equal(order.candidate, order.shipped);
 
     const select = both({
-      select: { id: true, embedding: { _distance: { to: [1, 2, 3], metric: "l2" } } },
+      select: {
+        id: true,
+        embedding: { _distance: { to: [1, 2, 3], metric: "l2" } },
+      },
     });
     assert.ok(
       select.shipped.includes(

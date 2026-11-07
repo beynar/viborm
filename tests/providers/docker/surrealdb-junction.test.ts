@@ -214,6 +214,25 @@ const STEPS: readonly Step[] = [
       }),
   ],
   ["filter, some", where({ tags: { some: { name: "y" } } })],
+  [
+    "filter, a to-many whose holder may be empty",
+    (db) =>
+      db.user.findMany({
+        where: { reviews: { some: { rank: { gt: 0 } } } },
+        ...ids,
+      }),
+  ],
+  [
+    "filter, a to-many whose holder may be empty, beside another",
+    (db) =>
+      db.user.findMany({
+        where: {
+          id: { not: "nope" },
+          reviews: { some: { title: { startsWith: "p" } } },
+        },
+        ...ids,
+      }),
+  ],
   ["filter, some with no body", where({ tags: { some: {} } })],
   ["filter, none", where({ tags: { none: { name: "y" } } })],
   ["filter, none with no body", where({ highlights: { none: {} } })],

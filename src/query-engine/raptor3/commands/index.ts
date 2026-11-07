@@ -1,17 +1,17 @@
 import type { Operations } from "@client/types";
 import type { QueryExecutionContext } from "@drivers/types";
-import { NotFoundError, UnsupportedOperationError } from "@errors";
+import { NotFoundError } from "@errors";
 import type { Sql } from "@sql";
 import { baseOperation } from "../../routed-operations";
 import type { PreparedBatchOperation } from "../../types";
 import { renderers } from "../shared/insert-value";
-import {
-  type ExecutionBinding,
+import type {
+  ExecutionBinding,
   OperationContext,
 } from "../shared/operation-context";
 import { admitProjected } from "../shared/projected";
-import type { Leaf, ProjectionShape, Read, ReadBackend } from "../shared/query";
-import { PreparedDomain, Queries } from "../shared/query";
+import type { Leaf, ProjectionShape, Read } from "../shared/query";
+import { PreparedDomain, type Queries } from "../shared/query";
 import {
   type CallRows,
   type CallScope,
@@ -26,6 +26,8 @@ import {
   memo,
   type Operation,
 } from "../shared/schema";
+import { SqlOperationContext } from "../shared/sql-operation-context";
+import { SqlQueries } from "../shared/sql-queries";
 import { Commands, type PhysicalPlan } from "./commands";
 
 /**
@@ -121,9 +123,8 @@ export interface PreparedOperation {
 class PreparedCommand implements PreparedOperation {
   readonly #config: EngineConfig;
   readonly #schema: EngineSchema;
-  readonly #queries: Queries;
   /** {@link Queries} itself, unless the driver supplies another language. */
-  readonly #reads: ReadBackend;
+  readonly #queries: Queries;
   readonly #operation: Operation;
   readonly #model: EngineConfig["schema"][string];
   readonly #modelName: string;
@@ -138,7 +139,6 @@ class PreparedCommand implements PreparedOperation {
     config: EngineConfig,
     schema: EngineSchema,
     queries: Queries,
-    reads: ReadBackend,
     modelName: string,
     requested: Operations,
     rawArgs: unknown,
@@ -157,7 +157,6 @@ class PreparedCommand implements PreparedOperation {
     this.#config = config;
     this.#schema = schema;
     this.#queries = queries;
-    this.#reads = reads;
     this.#operation = baseOperation(requested);
     this.#model = config.schema[modelName]!;
     this.#modelName = modelName;
@@ -199,12 +198,8 @@ class PreparedCommand implements PreparedOperation {
 
   #read(): Read | undefined {
     if (!isReadOperation(this.#operation)) return undefined;
-    if (this.#scope && this.#reads !== this.#queries)
-      throw new UnsupportedOperationError(
-        "This driver's read backend does not support row domains yet."
-      );
     return (this.#prepared ??= (
-      this.#scope?.domain.reads(this.#scope) ?? this.#reads
+      this.#scope?.domain.reads(this.#scope) ?? this.#queries
     ).read(this.#model, this.#operation, this.args));
   }
 
@@ -220,7 +215,7 @@ class PreparedCommand implements PreparedOperation {
     attribution?: QueryExecutionContext,
     binding?: ExecutionBinding
   ): OperationContext {
-    const Context = this.#config.driver.operationContext ?? OperationContext;
+    const Context = this.#config.driver.backend?.context ?? SqlOperationContext;
     return new Context(
       this.#schema,
       this.#config.driver,
@@ -234,10 +229,6 @@ class PreparedCommand implements PreparedOperation {
   }
 
   #plan(context: OperationContext): PhysicalPlan {
-    if (this.#reads !== this.#queries && !this.#config.driver.operationContext)
-      throw new UnsupportedOperationError(
-        "This driver's backend reads only: it does not support writes yet."
-      );
     return new Commands(context).plan(
       this.#model,
       this.args,
@@ -372,7 +363,11 @@ function preparedDomain(
 }
 
 function sharedQueries(config: EngineConfig): Queries {
-  const { adapter, result } = config.driver;
+  const { adapter, result, backend } = config.driver;
+  const createQueries = (
+    ...args: ConstructorParameters<typeof SqlQueries>
+  ): Queries =>
+    backend ? new backend.queries(...args) : new SqlQueries(...args);
   const key = config.resolved?.registry;
   let shared = key && sharedEngines.get(key);
   if (!shared) {
@@ -386,11 +381,11 @@ function sharedQueries(config: EngineConfig): Queries {
   if (!byResult)
     shared.queries.set(adapter, (byResult = { parsers: new WeakMap() }));
   if (!result) {
-    return (byResult.none ??= new Queries(shared.schema, adapter, result));
+    return (byResult.none ??= createQueries(shared.schema, adapter, result));
   }
   let queries = byResult.parsers.get(result);
   if (!queries) {
-    queries = new Queries(shared.schema, adapter, result);
+    queries = createQueries(shared.schema, adapter, result);
     byResult.parsers.set(result, queries);
   }
   return queries;
@@ -406,7 +401,6 @@ export function createCommandEngine(config: EngineConfig) {
   if (!byAdapter) renderers.set(config.schema, (byAdapter = new WeakMap()));
   byAdapter.set(config.driver.adapter, queries);
   const { schema } = queries;
-  const reads = config.driver.readBackend?.(queries) ?? queries;
   const prepare = (
     modelName: string,
     requested: Operations,
@@ -417,7 +411,6 @@ export function createCommandEngine(config: EngineConfig) {
       config,
       schema,
       queries,
-      reads,
       modelName,
       requested,
       rawArgs,

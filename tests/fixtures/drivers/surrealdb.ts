@@ -1,17 +1,10 @@
 /**
- * The SurrealDB test estate. A driver opens its own database, and a client's
- * schema is defined from the migration serializer's neutral description, so the
- * shared driver contracts run here unchanged. This is not a migration: it creates
- * every table once, on an empty database, and plans nothing.
+ * The SurrealDB test estate: a driver opens its own database, on first use or
+ * when a test's schema is about to be pushed to it.
  */
 
-import { PGliteDriver } from "@drivers/pglite";
-import { SurrealDriver } from "@drivers/surrealdb";
-import { getMigrationDriver } from "@migrations/drivers";
-import { serializeModels } from "@migrations/serializer";
-import type { ColumnDef, TableDef } from "@migrations/types";
-import type { AnyModel } from "@schema/model";
-import { sql } from "@sql";
+import { SurrealDriver, type SurrealDriverOptions } from "@drivers/surrealdb";
+import { type Sql, sql } from "@sql";
 import { RecordId, Surreal } from "surrealdb";
 
 export const surrealUrl = process.env.SURREAL_TEST_URL;
@@ -20,29 +13,34 @@ let databases = 0;
 let latest: string | undefined;
 const nextDatabase = () => `t${process.pid}_${Date.now()}_${++databases}`;
 
+/** What the shared contracts spell statements with, which reads the same here. */
+const CONTRACT_SPELLING = {
+  identifiers: {
+    escape: sql.raw,
+    table: sql.raw,
+    aliased: (column: Sql, alias: string) =>
+      sql`${column} AS ${sql.raw(alias)}`,
+  },
+  literals: {
+    value: (value: unknown) => sql`${value}`,
+    list: (values: readonly Sql[]) => sql`[${sql.join([...values], ", ")}]`,
+  },
+  operators: {
+    notIn: (column: Sql, list: Sql) => sql`${column} NOT IN ${list}`,
+  },
+};
+
 class SurrealTestDriver extends SurrealDriver {
+  override readonly adapter = {
+    ...new SurrealDriver().adapter,
+    ...CONTRACT_SPELLING,
+  };
+
   #connected: Promise<Surreal> | undefined;
   #database: string | undefined;
+  #defined = false;
 
   readonly #surreal = new Surreal();
-
-  constructor() {
-    super(new Surreal());
-    // Connected on first use, as a URL-configured driver would be.
-    this.client = null;
-    // The shared contracts spell their own seeds and checks with these, and a
-    // name reads the same in both languages. Nothing in the engine reads them.
-    (this as { adapter: unknown }).adapter = new Proxy(this.adapter, {
-      get(facts, member, receiver) {
-        if (member === "identifiers")
-          return {
-            escape: (identifier: string) => sql.raw(identifier),
-            table: (identifier: string) => sql.raw(identifier),
-          };
-        return Reflect.get(facts, member, receiver);
-      },
-    });
-  }
 
   // The shared contracts spell a few raw statements in SQL's words.
   protected override execute<T>(
@@ -91,143 +89,53 @@ class SurrealTestDriver extends SurrealDriver {
     this.#connected = undefined;
   }
 
-  async define(statements: readonly string[]): Promise<void> {
-    // The first definition on a driver is a fresh database, as an in-memory one is.
-    if (!this.#connected) {
-      this.#database = nextDatabase();
-      latest = this.#database;
-    }
-    const surreal = await this.initClient();
-    await surreal.query(statements.join("\n"));
+  /**
+   * A driver's first schema is a fresh database, as an in-memory one is, even when
+   * a raw statement already opened the one it had.
+   */
+  async fresh(): Promise<void> {
+    if (this.#defined) return;
+    this.#defined = true;
+    this.#database = nextDatabase();
+    latest = this.#database;
+    if (!this.#connected) return;
+    const surreal = await this.#connected;
+    await surreal.query(
+      `DEFINE NAMESPACE IF NOT EXISTS viborm; USE NS viborm; DEFINE DATABASE IF NOT EXISTS ${this.#database};`
+    );
+    await surreal.use({ namespace: "viborm", database: this.#database });
   }
 }
 
-export function createSurrealTestDriver(): SurrealDriver {
-  return new SurrealTestDriver();
+export function createSurrealTestDriver(
+  options?: SurrealDriverOptions
+): SurrealDriver {
+  return new SurrealTestDriver(options);
 }
 
-const ARRAY = /\[\]$/;
 const DROP_TABLE = /^DROP TABLE IF EXISTS/;
 const CREATE_EXTENSION = /^CREATE EXTENSION .*/;
 const RAW_NAME = /^DELETE FROM "([a-z_]+)"/;
 const RAW_KEY = /WHERE id = \$p(\d+)/;
 
-function scalarType(column: ColumnDef): string {
-  const type = column.type.toLowerCase();
-  if (ARRAY.test(type))
-    return `array<${scalarType({ ...column, type: type.replace(ARRAY, "") })}>`;
-  if (type.startsWith("vector")) return "array<float>";
-  if (type.includes("geometry") || type.includes("geography"))
-    return "geometry<point>";
-  if (type === "boolean" || type === "bool") return "bool";
-  if (type.startsWith("timestamp")) return "datetime";
-  if (type === "date" || type.startsWith("time")) return "string";
-  if (type === "jsonb" || type === "json") return "any";
-  if (type === "bytea") return "bytes";
-  if (type.startsWith("numeric") || type.startsWith("decimal"))
-    return "decimal";
-  if (type.includes("double") || type === "real" || type.startsWith("float"))
-    return "float";
-  if (type.includes("int") || type.includes("serial")) return "int";
-  return "string";
-}
-
-const DELETE_ACTION: Readonly<Record<string, string>> = {
-  cascade: "CASCADE",
-  setNull: "UNSET",
-};
-
-function fieldStatement(
-  table: TableDef,
-  column: ColumnDef,
-  keysOf: ReadonlyMap<string, readonly string[]>
-): string {
-  const reference = table.foreignKeys.find(
-    (key) =>
-      key.columns.length === 1 &&
-      key.columns[0] === column.name &&
-      keysOf.get(key.referencedTable)?.join() === key.referencedColumns.join()
-  );
-  if (!reference) {
-    const type = scalarType(column);
-    // A `decimal` holds any scale and precision: the declared domain is an assertion.
-    const decimal = type === "decimal" ? column.decimal : undefined;
-    const bound = decimal
-      ? ` ASSERT $value = NONE OR math::abs($value) < 1${"0".repeat(decimal.precision - decimal.scale)}dec`
-      : "";
-    return `DEFINE FIELD OVERWRITE ${column.name} ON ${table.name} TYPE ${column.nullable && type !== "any" ? `option<${type}>` : type}${bound};`;
-  }
-  const record = `record<${reference.referencedTable}>`;
-  const action = DELETE_ACTION[reference.onDelete ?? ""] ?? "REJECT";
-  const type = column.nullable ? `option<${record}>` : record;
-  const assertion = column.nullable
-    ? "$value = NONE OR $value.exists()"
-    : "$value.exists()";
-  return `DEFINE FIELD OVERWRITE ${column.name} ON ${table.name} TYPE ${type} REFERENCE ON DELETE ${action} ASSERT ${assertion};`;
-}
-
-function tableStatements(
-  table: TableDef,
-  modelTables: Set<string>,
-  keysOf: ReadonlyMap<string, readonly string[]>
-): string[] {
-  if (!modelTables.has(table.name)) {
-    const [first, second] = table.foreignKeys;
-    return [
-      `DEFINE TABLE OVERWRITE ${table.name} TYPE RELATION IN ${first!.referencedTable} OUT ${second!.referencedTable} ENFORCED SCHEMAFULL;`,
-      `DEFINE INDEX OVERWRITE ${table.name}_pair ON ${table.name} FIELDS in, out UNIQUE;`,
-      // A singular relation holds one edge per record on that side.
-      ...table.uniqueConstraints.flatMap((unique) => {
-        const end = [first, second].findIndex(
-          (key) => key!.columns.join() === unique.columns.join()
-        );
-        return end < 0
-          ? []
-          : [
-              `DEFINE INDEX OVERWRITE ${unique.name} ON ${table.name} FIELDS ${end === 0 ? "in" : "out"} UNIQUE;`,
-            ];
-      }),
-    ];
-  }
-  const key = table.primaryKey?.columns ?? [];
-  return [
-    `DEFINE TABLE OVERWRITE ${table.name} SCHEMAFULL;`,
-    ...(table.columns.some((column) => column.autoIncrement)
-      ? [`DEFINE SEQUENCE OVERWRITE ${table.name}_seq START 1;`]
-      : []),
-    ...table.columns
-      .filter((column) => !key.includes(column.name))
-      .map((column) => fieldStatement(table, column, keysOf)),
-    ...table.uniqueConstraints.map(
-      (unique) =>
-        `DEFINE INDEX OVERWRITE ${unique.name} ON ${table.name} FIELDS ${unique.columns.join(", ")} UNIQUE;`
-    ),
-    ...table.indexes.map(
-      (index) =>
-        `DEFINE INDEX OVERWRITE ${index.name} ON ${table.name} FIELDS ${index.columns.join(", ")}${index.unique ? " UNIQUE" : ""};`
-    ),
-  ];
-}
-
-export async function defineSurrealSchema(client: {
-  $driver: unknown;
-  $schema: Record<string, AnyModel>;
-}): Promise<void> {
-  const snapshot = serializeModels(client.$schema, {
-    migrationDriver: getMigrationDriver(new PGliteDriver()),
+/** A driver that keeps what it sends, for a contract counting statements. */
+export function createSurrealRecordingDriver() {
+  const driver = createSurrealTestDriver();
+  const statements: string[] = [];
+  const execute = (driver as any).execute.bind(driver);
+  const recording = Object.assign(driver, {
+    statements,
+    failWhen: undefined as ((statement: string) => boolean) | undefined,
   });
-  const modelTables = new Set(
-    Object.values(client.$schema).map((model) => model["~"].names.sql!)
-  );
-  const keysOf = new Map(
-    snapshot.tables.map((table) => [
-      table.name,
-      table.primaryKey?.columns ?? [],
-    ])
-  );
-  await (client.$driver as SurrealTestDriver).define(
-    snapshot.tables.flatMap((table) =>
-      tableStatements(table, modelTables, keysOf)
-    )
-  );
+  (driver as any).execute = (
+    client: never,
+    statement: string,
+    params: unknown[]
+  ) => {
+    statements.push(statement);
+    if (recording.failWhen?.(statement))
+      return Promise.reject(new Error("a recorded failure"));
+    return execute(client, statement, params);
+  };
+  return recording;
 }

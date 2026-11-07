@@ -60,29 +60,29 @@ function classifyDecimalListDescriptorChange(
 }
 
 import type { CatalogRead, CommandNamespaceResolver } from "../../target";
-import {
-  type AddColumnOperation,
-  type AddForeignKeyOperation,
-  type AddPrimaryKeyOperation,
-  type AddUniqueConstraintOperation,
-  type AlterColumnOperation,
-  type AlterEnumOperation,
-  type CreateEnumOperation,
-  type CreateIndexOperation,
-  type CreateTableOperation,
-  type DDLContext,
-  type DerivedRename,
-  type DropColumnOperation,
-  type DropEnumOperation,
-  type DropForeignKeyOperation,
-  type DropIndexOperation,
-  type DropPrimaryKeyOperation,
-  type DropTableOperation,
-  type DropUniqueConstraintOperation,
-  MigrationDriver,
-  type RenameColumnOperation,
-  type RenameTableOperation,
+import type {
+  AddColumnOperation,
+  AddForeignKeyOperation,
+  AddPrimaryKeyOperation,
+  AddUniqueConstraintOperation,
+  AlterColumnOperation,
+  AlterEnumOperation,
+  CreateEnumOperation,
+  CreateIndexOperation,
+  CreateTableOperation,
+  DDLContext,
+  DerivedRename,
+  DropColumnOperation,
+  DropEnumOperation,
+  DropForeignKeyOperation,
+  DropIndexOperation,
+  DropPrimaryKeyOperation,
+  DropTableOperation,
+  DropUniqueConstraintOperation,
+  RenameColumnOperation,
+  RenameTableOperation,
 } from "../base";
+import { SqlMigrationDriver } from "../sql";
 import {
   getMySQLType,
   MYSQL_TYPE_DEFAULTS,
@@ -195,7 +195,7 @@ function isMySQLExactIntegerType(type: string): boolean {
   return base === "INT" || base === "INTEGER" || base === "BIGINT";
 }
 export class MySQLMigrationDriver
-  extends MigrationDriver
+  extends SqlMigrationDriver
   implements CommandNamespaceResolver
 {
   readonly dialect = "mysql" as const;

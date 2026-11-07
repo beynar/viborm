@@ -1,3 +1,4 @@
+import type { DatabaseAdapter } from "@adapters/database-adapter";
 import {
   createClient,
   type VibORMClient,
@@ -410,7 +411,8 @@ function runSingularSlotTransferRaces({
      * order, which the topology owner legitimately decides for itself.
      */
     async function members(client: SlotClient): Promise<string[]> {
-      const ident = client.$driver.adapter.identifiers.escape;
+      const ident = (client.$driver.adapter as DatabaseAdapter).identifiers
+        .escape;
       const rows = await client.$queryRaw<Record<string, unknown>>(
         sql`SELECT * FROM ${ident("nwc_slot_members")}`
       );

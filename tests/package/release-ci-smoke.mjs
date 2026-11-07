@@ -258,7 +258,7 @@ test("release CI accepts only current complete exact-main proof", async () => {
   });
   assert.deepEqual(proof, {
     attempt: 2,
-    jobs: 16,
+    jobs: 15,
     proof: "push",
     runId: 200,
     sha,
@@ -709,7 +709,7 @@ test("release CI accepts a tree-equivalent pull-request proof", async () => {
   const pullProof = {
     attempt: 1,
     headSha,
-    jobs: 16,
+    jobs: 15,
     proof: "pull-request-tree",
     pullRequest: 90,
     runId: 190,

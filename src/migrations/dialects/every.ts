@@ -9,10 +9,12 @@ import { libsqlMigrationDriver } from "../drivers/libsql";
 import { mysqlMigrationDriver } from "../drivers/mysql";
 import { postgresMigrationDriver } from "../drivers/postgres";
 import { sqlite3MigrationDriver } from "../drivers/sqlite";
+import { surrealMigrationDriver } from "../drivers/surrealql";
 
 export function registerEveryMigrationDriver(): void {
   registerMigrationDriver(postgresMigrationDriver);
   registerMigrationDriver(sqlite3MigrationDriver);
   registerMigrationDriver(libsqlMigrationDriver);
   registerMigrationDriver(mysqlMigrationDriver);
+  registerMigrationDriver(surrealMigrationDriver);
 }

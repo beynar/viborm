@@ -847,7 +847,12 @@ async function executeResetProgram(
     admissionPending = undefined;
     await pending(target);
   };
-  if (clearPending && groups[0]?.boundary === "stepwise") {
+  // A driver whose index cannot share a transaction with what a clear wrote commits
+  // the clear first, whatever boundary the program that follows asks for.
+  if (
+    clearPending &&
+    (groups[0]?.boundary === "stepwise" || command.buildsApart?.([], true))
+  ) {
     const clear = clearPending;
     clearPending = undefined;
     await runBoundary(
