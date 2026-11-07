@@ -8,8 +8,8 @@ import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { UnsupportedOperationError } from "@errors";
 import { compileBindBudgetChunks } from "@query-engine/bind-budget";
-import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { s } from "@schema";
 import { sql } from "@sql";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
@@ -244,7 +244,7 @@ describe("adversarial V1 query repairs", () => {
       database.transaction(() => {
         for (let id = 0; id < 1100; id++) put.run(id, id);
       })();
-      const queries = new Queries(
+      const queries = new SqlQueries(
         new EngineSchema({ compound, child, parent }),
         new SQLiteAdapter()
       );
@@ -341,7 +341,7 @@ describe("adversarial V1 query repairs", () => {
           .get()?.embedding,
         "[1.25,-2.5]"
       );
-      const mysql = new Queries(
+      const mysql = new SqlQueries(
         new EngineSchema({ vector }),
         new MySQLAdapter()
       );
@@ -359,7 +359,7 @@ describe("adversarial V1 query repairs", () => {
     });
     const adapter = new PostgresAdapter();
     adapter.capabilities.supportsVector = true;
-    const queries = new Queries(new EngineSchema({ model }), adapter);
+    const queries = new SqlQueries(new EngineSchema({ model }), adapter);
     const cosine = queries.prepareProjection(model, {
       select: { embedding: { _distance: { to: [0, 0], metric: "cosine" } } },
     }).shape;
@@ -517,7 +517,7 @@ describe("adversarial V1 query repairs", () => {
       day: s.date(),
       days: s.date().array(),
     });
-    const queries = new Queries(
+    const queries = new SqlQueries(
       new EngineSchema({ event }),
       new PostgresAdapter()
     );
@@ -738,7 +738,7 @@ describe("adversarial V1 query repairs", () => {
       id: s.int().id(),
       document: s.json().schema(validator),
     });
-    const queries = new Queries(
+    const queries = new SqlQueries(
       new EngineSchema({ model }),
       new PostgresAdapter()
     );
@@ -755,7 +755,7 @@ describe("adversarial V1 query repairs", () => {
   });
   it("decodes native JSON integer carriers with JSON.parse Number semantics", () => {
     const model = s.model({ id: s.int().id(), document: s.json() });
-    const queries = new Queries(
+    const queries = new SqlQueries(
       new EngineSchema({ model }),
       new SQLiteAdapter()
     );
@@ -774,7 +774,7 @@ describe("adversarial V1 query repairs", () => {
   });
   it("requires aggregate rows and short-circuits existence through EXISTS", () => {
     const model = s.model({ id: s.int().id() });
-    const queries = new Queries(
+    const queries = new SqlQueries(
       new EngineSchema({ model }),
       new PostgresAdapter()
     );

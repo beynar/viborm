@@ -23,11 +23,9 @@ export async function syncLiveSchema(
   client: MigrationClient,
   options: SyncLiveSchemaOptions = {}
 ) {
-  // No migration driver speaks SurrealQL yet: its fixture defines an empty database.
   if (client.$driver.dialect === "surrealql") {
-    const { defineSurrealSchema } = await import("./drivers/surrealdb");
-    await defineSurrealSchema(client);
-    return { applied: true, operations: [], sql: [] } as never;
+    await import("@migrations/dialects/surrealql");
+    await (client.$driver as unknown as { fresh(): Promise<void> }).fresh();
   }
   const resolve: ResolveCallback | undefined = options.force
     ? async (change) =>

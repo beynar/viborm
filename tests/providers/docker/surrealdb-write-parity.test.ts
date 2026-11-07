@@ -6,12 +6,14 @@
 
 import { createClient } from "@client/client";
 import { DbNull, JsonNull, s } from "@schema";
+import { sql } from "@sql";
+import { defineExtension } from "@src/index";
 import {
   createSurrealTestDriver,
   surrealUrl,
 } from "@tests/fixtures/drivers/surrealdb";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   caught,
   compare,
@@ -726,7 +728,7 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
         await db.$disconnect();
       }
     });
-    it("a link row whose own key holds the moved one refuses by name", async () => {
+    it("a link row whose own key holds the moved one moves with it", async () => {
       const link = s
         .model({
           roomId: s.string(),
@@ -766,11 +768,9 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
         await db.room.create({
           data: { id: "r", guests: { create: { id: "g" } } },
         });
-        await expect(
-          db.guest.update({ where: { id: "g" }, data: { id: "h" } })
-        ).rejects.toThrow("a key that holds it");
+        await db.guest.update({ where: { id: "g" }, data: { id: "h" } });
         expect(await db.link.findMany()).toEqual([
-          { roomId: "r", guestId: "g" },
+          { roomId: "r", guestId: "h" },
         ]);
       } finally {
         await db.$disconnect();
@@ -915,7 +915,7 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
         };
       });
     });
-    it("a key move refuses by name: its action is an event the old row would fire", async () => {
+    it("a key move leaves what references another field, and its old row's event quiet", async () => {
       const parent = s.model({
         id: s.string().id(),
         slug: s.string().unique(),
@@ -938,10 +938,9 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
         await db.parent.create({
           data: { id: "a", slug: "a", children: { create: { id: "c" } } },
         });
-        await expect(
-          db.parent.update({ where: { id: "a" }, data: { id: "b" } })
-        ).rejects.toThrow("references by another field");
+        await db.parent.update({ where: { id: "a" }, data: { id: "b" } });
         expect(await rows(db, "child")).toEqual([{ id: "c", parentSlug: "a" }]);
+        expect(await rows(db, "parent")).toEqual([{ id: "b", slug: "a" }]);
       } finally {
         await db.$disconnect();
       }
@@ -991,7 +990,7 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
       let raced = false;
       const execute = driver.execute;
       driver.execute = async function (this: unknown, ...args: unknown[]) {
-        if (!raced && String(args[1]).startsWith("INSERT IGNORE")) {
+        if (!raced && String(args[1]).includes("INSERT IGNORE")) {
           raced = true;
           await winner(other);
         }
@@ -1049,7 +1048,205 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
     });
   });
 
-  describe("what differs by design", () => {
+  describe("what a write leaves out of sight", () => {
+    const task = () =>
+      s.model({
+        id: s.string().id(),
+        status: s.string(),
+        owner: s.string(),
+      });
+    it("a created row a caller may not read carries no evidence", async () => {
+      await compare({ task: task() }, async (db) => {
+        const governed = db.$extends({
+          name: "evidence",
+          rows: {
+            default: "on",
+            models: { task: { on: {} } },
+            verbs: {
+              task: {
+                predicates: {
+                  seen: { status: "open" },
+                  own: { owner: "ann" },
+                },
+                read: "seen",
+                place: "own",
+                evidence: { as: "$access", names: ["seen", "own"] },
+              },
+            },
+          },
+        });
+        const created = await caught(() =>
+          governed.task.create({
+            data: { id: "a", status: "closed", owner: "ann" },
+            select: { id: true, $access: true },
+          })
+        );
+        expect(created).toEqual({
+          answer: { id: "a", $access: { seen: false, own: false } },
+        });
+        return { created, rows: await rows(db, "task") };
+      });
+    });
+  });
+
+  describe("what a foreign key does when it is no field", () => {
+    const seats = (action: "cascade" | "restrict" | "noAction") => {
+      const seat = s
+        .model({
+          roomId: s.string(),
+          guestId: s.string(),
+          room: s
+            .toOne(() => room)
+            .fields("roomId")
+            .references("id")
+            .onDelete(action),
+          guest: s
+            .toOne(() => guest)
+            .fields("guestId")
+            .references("id")
+            .onDelete(action),
+        })
+        .id(["roomId", "guestId"]);
+      const room = s.model({
+        id: s.string().id(),
+        guests: s
+          .toMany(() => guest)
+          .through(() => seat)
+          .source("room")
+          .target("guest"),
+      });
+      const guest = s.model({
+        id: s.string().id(),
+        rooms: s.toMany(() => room),
+      });
+      return { seat, room, guest };
+    };
+    it.each([
+      "cascade",
+      "restrict",
+      "noAction",
+    ] as const)("a part of the row's own key, onDelete %s", async (action) => {
+      await compare(seats(action), async (db) => {
+        await db.room.create({
+          data: { id: "r", guests: { create: { id: "g" } } },
+        });
+        const result = await caught(() =>
+          db.room.delete({ where: { id: "r" } })
+        );
+        return { result, seats: await db.seat.findMany() };
+      });
+    });
+    it("a generated junction, onDelete cascade", async () => {
+      const post = s.model({
+        id: s.string().id(),
+        tags: s.toMany(() => tag),
+      });
+      const tag = s.model({ id: s.string().id(), posts: s.toMany(() => post) });
+      await compare({ post, tag }, async (db) => {
+        await db.post.create({
+          data: { id: "p", tags: { create: { id: "t" } } },
+        });
+        const result = await caught(() =>
+          db.tag.delete({ where: { id: "t" } })
+        );
+        return {
+          result,
+          posts: await db.post.findMany({ include: { tags: true } }),
+        };
+      });
+    });
+    it("a unique over a part of the key holds", async () => {
+      const member = s
+        .model({ org: s.string(), rank: s.int(), email: s.string() })
+        .id(["org", "rank"])
+        .unique(["org", "email"]);
+      await compare({ member }, async (db) => {
+        await db.member.create({ data: { org: "a", rank: 1, email: "x" } });
+        const taken = await caught(() =>
+          db.member.create({ data: { org: "a", rank: 2, email: "x" } })
+        );
+        const other = await caught(() =>
+          db.member.create({ data: { org: "b", rank: 1, email: "x" } })
+        );
+        return { taken, other };
+      });
+    });
+  });
+
+  describe("a statement reads a snapshot of what it writes", () => {
+    const tree = () => {
+      const node = s.model({
+        id: s.string().id(),
+        flag: s.boolean(),
+        parentId: s.string().nullable(),
+        parent: s
+          .toOne(() => node)
+          .name("tree")
+          .fields("parentId")
+          .references("id")
+          .onDelete("setNull"),
+        children: s.toMany(() => node).name("tree"),
+      });
+      return { node };
+    };
+    const chain = async (db: any) => {
+      await db.node.create({ data: { id: "a", flag: false } });
+      await db.node.create({ data: { id: "b", flag: false, parentId: "a" } });
+      await db.node.create({ data: { id: "c", flag: false, parentId: "b" } });
+      await db.node.create({ data: { id: "d", flag: false, parentId: "c" } });
+    };
+    it("updateMany whose filter reads rows it writes", async () =>
+      compare(tree(), async (db) => {
+        await chain(db);
+        const result = await db.node.updateMany({
+          where: { parent: { is: { flag: false } } },
+          data: { flag: true },
+        });
+        return { result, rows: await rows(db, "node") };
+      }));
+    it("updateMany filtering on the rows' children", async () =>
+      compare(tree(), async (db) => {
+        await chain(db);
+        const result = await db.node.updateMany({
+          where: { children: { some: { flag: false } } },
+          data: { flag: true },
+        });
+        return { result, rows: await rows(db, "node") };
+      }));
+    it("deleteMany whose filter reads rows it deletes", async () =>
+      compare(tree(), async (db) => {
+        await chain(db);
+        const result = await db.node.deleteMany({
+          where: { children: { some: { flag: false } } },
+        });
+        return { result, rows: await rows(db, "node") };
+      }));
+    it("a nested updateMany whose filter reads its siblings", async () =>
+      compare(tree(), async (db) => {
+        await db.node.create({ data: { id: "p", flag: false } });
+        await db.node.create({ data: { id: "x", flag: false, parentId: "p" } });
+        await db.node.create({ data: { id: "y", flag: false, parentId: "p" } });
+        await db.node.update({
+          where: { id: "p" },
+          data: {
+            children: {
+              updateMany: {
+                where: {
+                  parent: { is: { children: { some: { flag: false } } } },
+                },
+                data: { flag: true },
+              },
+            },
+          },
+        });
+        return rows(db, "node");
+      }));
+  });
+
+  describe("transactions going back", () => {
+    const committing = async (work: () => Promise<unknown>) => ({
+      answer: await work(),
+    });
     const within = async (scenario: (db: any) => Promise<void>) => {
       const db: any = createClient({
         schema: family("cascade", "cascade"),
@@ -1062,37 +1259,149 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
         await db.$disconnect();
       }
     };
-    it.each([
-      [
-        "a statement refused",
-        { connect: undefined, create: [{ id: "new" }, { id: "dup" }] },
-      ],
-      [
-        "a check of the engine's",
-        { connect: { id: "missing" }, create: undefined },
-      ],
-    ])("no savepoints: after %s, a caught failure still ends the transaction", async (_title, children) => {
-      await within(async (db) => {
+    const failing = {
+      "a statement refused": { create: [{ id: "new" }, { id: "dup" }] },
+      "a check of the engine's": { connect: { id: "missing" } },
+    };
+    it.each(
+      Object.entries(failing)
+    )("a caught failure leaves the rest to commit, after %s", async (_title, children) =>
+      compare(family("cascade", "cascade"), async (db) => {
         await db.child.create({ data: { id: "dup" } });
         let failure: unknown;
-        const committed = db.$transaction(async (tx: any) => {
-          await tx.parent.create({ data: { id: "before", name: "before" } });
-          await tx.parent
-            .create({ data: { id: "failed", name: "failed", children } })
-            .catch((error: unknown) => {
-              failure = error;
+        const committed = await committing(() =>
+          db.$transaction(async (tx: any) => {
+            await tx.parent.create({ data: { id: "before", name: "before" } });
+            failure = await caught(() =>
+              tx.parent.create({
+                data: { id: "failed", name: "failed", children },
+              })
+            );
+            await tx.parent.create({ data: { id: "after", name: "after" } });
+            return tx.parent.findMany({ orderBy: { id: "asc" } });
+          })
+        );
+        return {
+          committed,
+          failure,
+          parents: await rows(db, "parent"),
+          children: await rows(db, "child"),
+        };
+      }));
+    it("a failure caught as the callback's last act commits the rest", async () =>
+      compare(family("cascade", "cascade"), async (db) => {
+        const committed = await committing(() =>
+          db.$transaction(async (tx: any) => {
+            await tx.parent.create({ data: { id: "before", name: "before" } });
+            await tx.parent
+              .create({
+                data: {
+                  id: "failed",
+                  name: "failed",
+                  children: { connect: { id: "missing" } },
+                },
+              })
+              .catch(() => undefined);
+          })
+        );
+        return { committed, parents: await rows(db, "parent") };
+      }));
+    it("a nested scope takes back only its own writes, at each depth", async () =>
+      compare(family("cascade", "cascade"), async (db) => {
+        const seen = await committing(() =>
+          db.$transaction(async (tx: any) => {
+            await tx.parent.create({ data: { id: "a", name: "outer" } });
+            const inner = await caught(() =>
+              tx.$transaction(async (t2: any) => {
+                await t2.parent.create({ data: { id: "b", name: "kept" } });
+                const deepest = await caught(() =>
+                  t2.$transaction(async (t3: any) => {
+                    await t3.parent.create({ data: { id: "c", name: "gone" } });
+                    throw new TypeError("deepest");
+                  })
+                );
+                return {
+                  deepest,
+                  rows: await t2.parent.findMany({ orderBy: { id: "asc" } }),
+                };
+              })
+            );
+            const outer = await caught(() =>
+              tx.$transaction(async (t2: any) => {
+                await t2.parent.create({ data: { id: "d", name: "gone" } });
+                await t2.parent.update({
+                  where: { id: "a" },
+                  data: { name: "gone" },
+                });
+                throw new TypeError("outer");
+              })
+            );
+            await tx.parent.update({
+              where: { id: "b" },
+              data: { name: "changed" },
             });
-          await tx.parent.create({ data: { id: "after", name: "after" } });
-        });
-        await expect(committed).rejects.toMatchObject({ code: "V5001" });
-        expect(failure).toBeInstanceOf(Error);
-        expect(await rows(db, "parent")).toEqual([]);
-        expect(await rows(db, "child")).toEqual([
-          { id: "dup", parentId: null },
-        ]);
-      });
-    });
-    it("no savepoints: a skipped row keeps the operation going only if it wrote nothing", async () => {
+            return {
+              inner,
+              outer,
+              rows: await tx.parent.findMany({ orderBy: { id: "asc" } }),
+            };
+          })
+        );
+        return { seen, parents: await rows(db, "parent") };
+      }));
+    it("a scope whose only statement failed part-way leaves the rest to commit", async () =>
+      compare(simple(), async (db) => {
+        await db.user.create({ data: { id: "held", email: "held" } });
+        const answer = await committing(() =>
+          db.$transaction(async (tx: any) => {
+            await tx.user.create({ data: { id: "a", email: "a" } });
+            const scope = await caught(() =>
+              tx.$transaction((t2: any) =>
+                t2.user.create({ data: { id: "dup", email: "held" } })
+              )
+            );
+            await tx.user.create({ data: { id: "b", email: "b" } });
+            return scope;
+          })
+        );
+        return { answer, users: await rows(db, "user") };
+      }));
+    it("a statement that fails with no scope around it fails the transaction", async () =>
+      compare(simple(), async (db) => {
+        await db.user.create({ data: { id: "held", email: "held" } });
+        let next: unknown;
+        const committed = await caught(() =>
+          db.$transaction(async (tx: any) => {
+            await tx.user.create({ data: { id: "a", email: "a" } });
+            await tx.$executeRaw(sql`not a statement`).catch(() => null);
+            next = await caught(() =>
+              tx.user.create({ data: { id: "b", email: "b" } })
+            );
+          })
+        );
+        expect(committed).toMatchObject({ code: "V2001" });
+        expect(next).toMatchObject({ code: "V5001" });
+        return { committed, next, users: await rows(db, "user") };
+      }));
+    it("a scope that catches its own failure is refused when it ends", async () =>
+      compare(simple(), async (db) => {
+        const committed = await caught(() =>
+          db.$transaction(async (tx: any) => {
+            await tx.user.create({ data: { id: "a", email: "a" } });
+            const scope = await caught(() =>
+              tx.$transaction(async (t2: any) => {
+                await t2.user.create({ data: { id: "b", email: "b" } });
+                await t2.$executeRaw(sql`not a statement`).catch(() => null);
+              })
+            );
+            await tx.user.create({ data: { id: "c", email: "c" } });
+            return scope;
+          })
+        );
+        expect(committed).toMatchObject({ answer: { code: "V2001" } });
+        return { committed, users: await rows(db, "user") };
+      }));
+    it("a skipped row takes back what it wrote, and the others stay", async () => {
       const parent = s.model({
         id: s.string().id(),
         children: s.toMany(() => child),
@@ -1105,58 +1414,402 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
           .fields("parentId")
           .references("id"),
       });
-      const db: any = createClient({
-        schema: { parent, child },
-        driver: createSurrealTestDriver(),
-      });
-      try {
-        await syncLiveSchema(db);
+      await compare({ parent, child }, async (db) => {
         await db.child.create({ data: { id: "dup" } });
-        const skipped = await db.child
-          .createMany({
+        const created = await committing(() =>
+          db.child.createMany({
             data: [
-              { id: "dup", parent: { connect: { id: "absent" } } },
-              { id: "fresh" },
+              { id: "dup", parent: { create: { id: "new" } } },
+              { id: "other", parent: { create: { id: "kept" } } },
             ],
             skipDuplicates: true,
-            select: { id: true },
           })
-          .catch((error: unknown) => error);
-        expect(skipped).toBeInstanceOf(Error);
-        const written = db.child.createMany({
-          data: [
-            { id: "dup", parent: { create: { id: "new" } } },
-            { id: "other" },
-          ],
+        );
+        return {
+          created,
+          parents: await rows(db, "parent"),
+          children: await rows(db, "child"),
+        };
+      });
+    });
+    it("generated values hold across going back", async () => {
+      const row = s.model({
+        id: s.int().id().increment(),
+        name: s.string().unique(),
+        at: s.dateTime().now(),
+        changed: s.dateTime().updatedAt(),
+      });
+      await compare({ row }, async (db) => {
+        const answers = await committing(() =>
+          db.$transaction(async (tx: any) => {
+            const first = await tx.row.create({ data: { name: "a" } });
+            await tx
+              .$transaction(async (t2: any) => {
+                await t2.row.create({ data: { name: "gone" } });
+                throw new TypeError("scope");
+              })
+              .catch(() => undefined);
+            const after = await tx.row.findUnique({ where: { id: first.id } });
+            await tx.row.create({ data: { name: "b" } });
+            return JSON.stringify(after) === JSON.stringify(first);
+          })
+        );
+        return {
+          answers,
+          names: (await db.row.findMany({ orderBy: { name: "asc" } })).map(
+            (r: any) => r.name
+          ),
+        };
+      });
+    });
+    it("a key moved before a scope fails stays moved", async () =>
+      compare(family("cascade", "cascade"), async (db) => {
+        await db.parent.create({
+          data: { id: "a", name: "a", children: { create: { id: "c" } } },
+        });
+        const answer = await committing(() =>
+          db.$transaction(async (tx: any) => {
+            await tx.parent.update({ where: { id: "a" }, data: { id: "b" } });
+            await tx
+              .$transaction(async (t2: any) => {
+                await t2.parent.update({
+                  where: { id: "b" },
+                  data: { id: "gone" },
+                });
+                throw new TypeError("scope");
+              })
+              .catch(() => undefined);
+            return tx.parent.findMany();
+          })
+        );
+        return {
+          answer,
+          parents: await rows(db, "parent"),
+          children: await rows(db, "child"),
+        };
+      }));
+    it("rows written side by side hold across going back", async () =>
+      compare(simple(), async (db) => {
+        const answer = await committing(() =>
+          db.$transaction(async (tx: any) => {
+            await Promise.all(
+              ["a", "b", "c"].map((id) =>
+                tx.user.create({ data: { id, email: id } })
+              )
+            );
+            await tx
+              .$transaction(async (t2: any) => {
+                await t2.user.create({ data: { id: "d", email: "d" } });
+                throw new TypeError("scope");
+              })
+              .catch(() => undefined);
+            return tx.user.count();
+          })
+        );
+        return { answer, users: await rows(db, "user") };
+      }));
+    it("a skipped row that wrote nothing costs no replay", async () => {
+      const child = s.model({
+        id: s.string().id(),
+        parentId: s.string().nullable(),
+        parent: s
+          .toOne(() => parent)
+          .fields("parentId")
+          .references("id"),
+      });
+      const parent = s.model({
+        id: s.string().id(),
+        children: s.toMany(() => child),
+      });
+      const driver = createSurrealTestDriver();
+      const db: any = createClient({ schema: { parent, child }, driver });
+      try {
+        await syncLiveSchema(db);
+        await db.parent.createMany({
+          data: [{ id: "a" }, { id: "b" }, { id: "c" }],
+        });
+        const client = await (driver as any).initClient();
+        const begin = vi.spyOn(client, "beginTransaction");
+        await db.parent.createMany({
+          data: ["a", "b", "c"].map((id) => ({
+            id,
+            children: { create: { id: `child-${id}` } },
+          })),
           skipDuplicates: true,
         });
-        await expect(written).rejects.toMatchObject({ code: "V5001" });
-        expect(await rows(db, "parent")).toEqual([]);
-        expect((await rows(db, "child")).map((row: any) => row.id)).toEqual([
-          "dup",
-        ]);
+        expect(begin).toHaveBeenCalledTimes(1);
+        expect(await db.child.count()).toBe(0);
       } finally {
         await db.$disconnect();
       }
     });
-    it("no savepoints: a failure caught as the callback's last act refuses at commit", async () => {
+    it("a raw INSERT IGNORE that failed part-way goes back like any write", async () => {
       await within(async (db) => {
-        const committed = db.$transaction(async (tx: any) => {
-          await tx.parent.create({ data: { id: "before", name: "before" } });
-          await tx.parent
-            .create({
-              data: {
-                id: "failed",
-                name: "failed",
-                children: { connect: { id: "missing" } },
-              },
-            })
+        await db.$transaction(async (tx: any) => {
+          await tx
+            .$transaction((t2: any) =>
+              t2.$executeRaw(
+                sql.raw(
+                  "INSERT IGNORE INTO parent [{ id: 'ok', name: 'ok' }, { id: 'bad', name: 1 }]"
+                )
+              )
+            )
             .catch(() => undefined);
         });
-        await expect(committed).rejects.toBeInstanceOf(Error);
         expect(await rows(db, "parent")).toEqual([]);
       });
     });
+    it("a raw SELECT that writes goes back like any write", async () => {
+      await within(async (db) => {
+        await db.$transaction(async (tx: any) => {
+          await tx
+            .$transaction(async (t2: any) => {
+              await t2.$executeRaw(
+                sql.raw("SELECT * FROM (CREATE parent:raw SET name = 'raw')")
+              );
+              throw new TypeError("scope");
+            })
+            .catch(() => undefined);
+        });
+        expect(await rows(db, "parent")).toEqual([]);
+      });
+    });
+    it("a callback whose reads changed under it is refused, whole", async () => {
+      await within(async (db) => {
+        await db.parent.create({ data: { id: "a", name: "a" } });
+        const committed = db.$transaction(async (tx: any) => {
+          const seen = await tx.parent.findUnique({ where: { id: "a" } });
+          await tx.parent.create({ data: { id: "b", name: seen.name } });
+          await db.parent.update({ where: { id: "a" }, data: { name: "z" } });
+          await tx
+            .$transaction(async (t2: any) => {
+              await t2.parent.create({ data: { id: "c", name: "c" } });
+              throw new TypeError("scope");
+            })
+            .catch(() => undefined);
+          await tx.parent.create({ data: { id: "d", name: "d" } });
+        });
+        await expect(committed).rejects.toMatchObject({ code: "V5001" });
+        expect((await rows(db, "parent")).map((r: any) => r.id)).toEqual(["a"]);
+      });
+    });
+    describe("rerunsOnConflict", () => {
+      const item = s.model({ id: s.string().id(), n: s.int() });
+      const meeting = async (
+        rerunsOnConflict: number | undefined,
+        schema: Record<string, unknown> = { item }
+      ) => {
+        const driver = () => createSurrealTestDriver({ rerunsOnConflict });
+        const clients: any[] = [
+          createClient({ schema, driver: driver() } as any),
+        ];
+        await syncLiveSchema(clients[0]);
+        for (let index = 1; index < 8; index++)
+          clients.push(createClient({ schema, driver: driver() } as any));
+        await clients[0].item.create({ data: { id: "a", n: 0 } });
+        await Promise.all(clients.map((db) => db.item.findMany()));
+        let runs = 0;
+        let first = 0;
+        let release = () => undefined as void;
+        const barrier = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const results = await Promise.all(
+          clients.map(async (db) => {
+            try {
+              return await db.$transaction(async (tx: any) => {
+                runs += 1;
+                const { n } = await tx.item.update({
+                  where: { id: "a" },
+                  data: { n: { increment: 1 } },
+                });
+                if (++first === clients.length) release();
+                await barrier;
+                return n;
+              });
+            } catch (error) {
+              return (error as { code?: string }).code;
+            }
+          })
+        );
+        const [row] = await clients[0].item.findMany();
+        await Promise.all(clients.map((db) => db.$disconnect()));
+        return { results, runs, n: row.n };
+      };
+      it("gives writers who read each other the values PostgreSQL would", async () => {
+        const { results, runs, n } = await meeting(8);
+        expect(n).toBe(8);
+        expect([...results].sort()).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+        expect(runs).toBeGreaterThan(8);
+      });
+      it("is off unless asked for", async () => {
+        const { results, runs, n } = await meeting(undefined);
+        expect(runs).toBe(8);
+        expect(results.filter((result) => result === "V5001").length).toBe(
+          8 - n
+        );
+      });
+      it("gives up when its runs are spent, with nothing half done", async () => {
+        const { results, runs, n } = await meeting(1);
+        expect(runs).toBeLessThanOrEqual(16);
+        expect(results.filter((result) => result === "V5001").length).toBe(
+          8 - n
+        );
+      });
+      const counter = async (extend: (db: any) => any = (db) => db) => {
+        const root: any = createClient({
+          schema: { item },
+          driver: createSurrealTestDriver({ rerunsOnConflict: 1 }),
+        });
+        await syncLiveSchema(root);
+        await root.item.create({ data: { id: "a", n: 0 } });
+        return { root, db: extend(root) };
+      };
+      const interfere = (db: any) =>
+        db.item.update({ where: { id: "a" }, data: { n: { increment: 10 } } });
+      it("runs again over a conflict that came up going back", async () => {
+        const { root, db } = await counter();
+        let runs = 0;
+        const answer = await db.$transaction(async (tx: any) => {
+          runs += 1;
+          const { n } = await tx.item.findUnique({ where: { id: "a" } });
+          if (runs === 1) await interfere(root);
+          await tx
+            .$transaction(async (t2: any) => {
+              await t2.item.create({ data: { id: "gone", n: 0 } });
+              throw new TypeError("scope");
+            })
+            .catch(() => undefined);
+          await tx.item.count();
+          return n;
+        });
+        expect(answer).toBe(10);
+        expect(runs).toBe(2);
+        expect(await root.item.count()).toBe(1);
+        await root.$disconnect();
+      });
+      it("runs again over a conflict that came up at commit", async () => {
+        const { root, db } = await counter();
+        let runs = 0;
+        const answer = await db.$transaction(async (tx: any) => {
+          runs += 1;
+          const { n } = await tx.item.update({
+            where: { id: "a" },
+            data: { n: { increment: 1 } },
+          });
+          if (runs === 1) await interfere(root);
+          return n;
+        });
+        expect(answer).toBe(11);
+        expect(runs).toBe(2);
+        await root.$disconnect();
+      });
+      it("does not run a callback twice under an extension that collects its writes", async () => {
+        const { root, db } = await counter((client) =>
+          client.$extends(
+            defineExtension()({
+              name: "observer",
+              observe: (_unit: unknown, proceed: () => unknown) => proceed(),
+            } as any)
+          )
+        );
+        let runs = 0;
+        await expect(
+          db.$transaction(async (tx: any) => {
+            runs += 1;
+            await tx.item.update({
+              where: { id: "a" },
+              data: { n: { increment: 1 } },
+            });
+            await interfere(root);
+          })
+        ).rejects.toMatchObject({ code: "V5001" });
+        expect(runs).toBe(1);
+        await root.$disconnect();
+      });
+      it("does not run a callback again over the callback's own failure", async () => {
+        const db: any = createClient({
+          schema: { item },
+          driver: createSurrealTestDriver({ rerunsOnConflict: 5 }),
+        });
+        await syncLiveSchema(db);
+        let runs = 0;
+        await expect(
+          db.$transaction(() => {
+            runs += 1;
+            throw new TypeError("mine");
+          })
+        ).rejects.toBeInstanceOf(TypeError);
+        expect(runs).toBe(1);
+        await db.$disconnect();
+      });
+      it("leaves an engine's own transaction to its one recovery", async () => {
+        const driver = createSurrealTestDriver({ rerunsOnConflict: 5 });
+        const db: any = createClient({ schema: { item }, driver });
+        await syncLiveSchema(db);
+        await db.item.create({ data: { id: "a", n: 0 } });
+        const bump = "UPDATE item:a SET n += 1";
+        let calls = 0;
+        await expect(
+          driver.withTransaction(
+            async (tx: any) => {
+              calls += 1;
+              await tx._executeRaw(bump, []);
+              await interfere(db);
+            },
+            undefined,
+            { operation: "create" }
+          )
+        ).rejects.toMatchObject({ code: "V5001" });
+        expect(calls).toBe(1);
+        await db.$disconnect();
+      });
+    });
+    it("writers that met commit without running a callback twice, when nothing they saw changed", async () => {
+      const item = s.model({ id: s.string().id(), n: s.int() });
+      const clients: any[] = [
+        createClient({ schema: { item }, driver: createSurrealTestDriver() }),
+      ];
+      try {
+        await syncLiveSchema(clients[0]);
+        for (let index = 1; index < 8; index++)
+          clients.push(
+            createClient({
+              schema: { item },
+              driver: createSurrealTestDriver(),
+            })
+          );
+        await clients[0].item.create({ data: { id: "a", n: 0 } });
+        await Promise.all(clients.map((db) => db.item.findMany()));
+        let entered = 0;
+        let runs = 0;
+        let release = () => undefined as void;
+        const barrier = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const results = await Promise.all(
+          clients.map((db, index) =>
+            db.$transaction(async (tx: any) => {
+              runs += 1;
+              await tx.item.updateMany({
+                where: { id: "a" },
+                data: { n: index + 1 },
+              });
+              if (++entered === clients.length) release();
+              await barrier;
+              return "committed";
+            })
+          )
+        );
+        expect(results).toEqual(new Array(8).fill("committed"));
+        expect(runs).toBe(8);
+      } finally {
+        await Promise.all(clients.map((db) => db.$disconnect()));
+      }
+    });
+  });
+
+  describe("what differs by design", () => {
     it("optimism: of callbacks that meet, the rest refuse rather than wait, and none half commits", async () => {
       const item = s.model({ id: s.string().id(), n: s.int() });
       const audit = s.model({ id: s.string().id() });
@@ -1217,7 +1870,50 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
         await Promise.all(clients.map((db) => db.$disconnect()));
       }
     });
-    it("a JSON key named __proto__ is stored, and the SDK's answer loses it", async () => {
+    it("snapshot isolation: a delete and an insert that meet both commit, leaving an orphan", async () => {
+      const family_ = family("cascade", "restrict");
+      const first: any = createClient({
+        schema: family_,
+        driver: createSurrealTestDriver(),
+      });
+      const second: any = createClient({
+        schema: family_,
+        driver: createSurrealTestDriver(),
+      });
+      try {
+        await syncLiveSchema(first);
+        await first.parent.create({ data: { id: "p", name: "p" } });
+        await second.parent.findMany();
+        let met = () => undefined as void;
+        const both = new Promise<void>((resolve) => {
+          met = resolve;
+        });
+        let entered = 0;
+        const meet = async () => {
+          if (++entered === 2) met();
+          await both;
+        };
+        await Promise.all([
+          first.$transaction(async (tx: any) => {
+            await tx.parent.delete({ where: { id: "p" } });
+            await meet();
+          }),
+          second.$transaction(async (tx: any) => {
+            await tx.child.create({
+              data: { id: "c", parent: { connect: { id: "p" } } },
+            });
+            await meet();
+          }),
+        ]);
+        expect(await rows(first, "parent")).toEqual([]);
+        expect(await rows(first, "child")).toEqual([
+          { id: "c", parentId: "p" },
+        ]);
+      } finally {
+        await Promise.all([first.$disconnect(), second.$disconnect()]);
+      }
+    });
+    it("a JSON key named __proto__ is its own key, never the row's prototype", async () => {
       const item = s.model({ id: s.string().id(), payload: s.json() });
       const db: any = createClient({
         schema: { item },
@@ -1235,9 +1931,11 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
           "RETURN object::keys((SELECT VALUE payload FROM item)[0]);"
         );
         expect(keys).toContain("__proto__");
-        expect(
-          (await db.item.findUnique({ where: { id: "a" } })).payload
-        ).toEqual({ safe: 2 });
+        const { payload } = await db.item.findUnique({ where: { id: "a" } });
+        expect(Object.getPrototypeOf(payload)).toBe(Object.prototype);
+        expect(Object.hasOwn(payload, "__proto__")).toBe(true);
+        expect(payload.x).toBeUndefined();
+        expect(payload.safe).toBe(2);
       } finally {
         await db.$disconnect();
       }
