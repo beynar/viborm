@@ -21,6 +21,7 @@ import { NotFoundError, UniqueConstraintError } from "@errors";
 import { defineExtension } from "@extensions/definition";
 import { PreparedDomain, Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { s } from "@schema";
 import { v } from "@src/validation";
 import {
@@ -307,7 +308,7 @@ describe("the key-preserving conjunction", () => {
   const schema = rowScopeSchema();
   const engine = new EngineSchema(schema);
   const adapter = new SQLiteAdapter();
-  const plain = new Queries(engine, adapter);
+  const plain = new SqlQueries(engine, adapter);
   const domain = new PreparedDomain(
     {
       root: new Map([["post", [{ deletedAt: null }]]]),
@@ -315,7 +316,7 @@ describe("the key-preserving conjunction", () => {
     },
     plain
   );
-  const scoped = new Queries(engine, adapter, undefined, domain);
+  const scoped = new SqlQueries(engine, adapter, undefined, domain);
 
   test("a domain conjunct keeps the selector's unique key and marks it scoped", () => {
     const selector = scoped.prepareSelector(schema.post, { slug: "s10" }, true);
@@ -361,7 +362,7 @@ describe("one engine view", () => {
     );
     try {
       const prepare = vi.spyOn(Queries.prototype, "prepareSelector");
-      const read = vi.spyOn(Queries.prototype, "read");
+      const read = vi.spyOn(SqlQueries.prototype, "read");
       const preparedIn = async (call: () => PromiseLike<unknown>) => {
         prepare.mockClear();
         await call();

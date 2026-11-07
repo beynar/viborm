@@ -106,7 +106,7 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   "src/migrations/catalog-probes.ts executeRaw 1",
   // S7 (1.2.0): control authentication no longer interprets managed tables;
   // its two scoped reads became one.
-  "src/migrations/control.ts executeRaw 17",
+  "src/migrations/control.ts executeRaw 18",
   // Consolidation (1.2.0): MySQL's interrupted exact-decimal recovery plan is
   // the dialect's own `programPreamble`, reading on the producer the
   // sequential program hands it (the pinned session). It moved here out of
@@ -118,7 +118,8 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   "src/migrations/drivers/postgres/catalog-digest.ts executeRaw 1",
   // The SurrealQL driver takes and lets go of its lock record on the producer
   // `holdLock` was handed. No other statement of its command runs here.
-  "src/migrations/drivers/surrealql/index.ts executeRaw 2",
+  "src/migrations/drivers/sql.ts executeRaw 2",
+  "src/migrations/drivers/surrealql/index.ts executeRaw 4",
   "src/migrations/execute-dispatch.ts executeRaw 2",
   // S10 (1.2.0): the verified foreign-key lift reads `PRAGMA foreign_keys`
   // back after each toggle, and its execution view runs each `DROP TABLE`
@@ -165,7 +166,7 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   // #85 (1.6.0): an enum recreation reads the CHECK constraints on the
   // columns it converts, one catalog query on the handed producer (the
   // pinned session under the lock), so it can drop and re-add them.
-  "src/migrations/push-plan.ts executeRaw 6",
+  "src/migrations/push-plan.ts executeRaw 4",
   "src/migrations/push/planner.ts executeRaw 2",
   // The added catalog probe uses the pinned producer and bound probe parameters.
   "src/migrations/reset-v1.ts executeRaw 3",
@@ -311,7 +312,7 @@ const REJECTED_ALIAS_SPELLINGS = [
   "searchPath",
 ];
 
-/** §1.1's seven option types, spelled independently for the same reason. */
+/** The eight admitted option types, spelled independently for the same reason. */
 const ADMITTED_OPTION_TYPE_SPELLINGS = [
   "BunSQLDriverOptions",
   "MySQL2DriverOptions",
@@ -320,6 +321,7 @@ const ADMITTED_OPTION_TYPE_SPELLINGS = [
   "PgDriverOptions",
   "PlanetScaleDriverOptions",
   "PostgresDriverOptions",
+  "SurrealDriverOptions",
 ];
 
 /* ------------------------------------------------------------------ *
@@ -534,11 +536,11 @@ describe("database-namespace census: model and query-scope state", () => {
  * ------------------------------------------------------------------ */
 
 describe("database-namespace census: second configurable source", () => {
-  it("configures the namespace from the seven driver option types only", () => {
+  it("configures the namespace from the eight driver option types only", () => {
     expect(census.configurableSources).toEqual([]);
   });
 
-  it("admits the seven, counts every other option type, and yields its regions", () => {
+  it("admits the eight, counts every other option type, and yields its regions", () => {
     expect(
       configurableSourceEntries(
         "src/client/client.ts",

@@ -9,7 +9,6 @@ import { formatOperation } from "./push/format";
 import type { AnyDriver } from "../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import type { ResolvedRelationIndex } from "../schema/validation/relation-resolution";
-import { sql } from "../sql/sql";
 import { isRecord } from "../validation/value-guards";
 import { canonicalizeJson, canonicalizeJsonText } from "./canonical-json";
 import { classifyGeneratedAtomicity, dispatchAt } from "./compile";
@@ -164,11 +163,7 @@ export async function buildPushPlan(
         continue;
       const tableName = liveTableName(operations, operation.tableName);
       if (!current.tables.some((table) => table.name === tableName)) continue;
-      const reference = producer.adapter.identifiers.table(tableName);
-      const populated = await producer._executeRaw(
-        `SELECT 1 AS present FROM ${reference.toStatement()} LIMIT 1`
-      );
-      if (populated.rows.length > 0)
+      if (await command.tableHoldsRows(producer, tableName))
         throw new MigrationError(
           `Cannot add required column "${operation.tableName}.${operation.column.name}" without a database default to a populated table. Application function/generator defaults do not backfill stored rows. Author a manual data migration that adds a nullable column, fills it, and then makes it required. No migration effects were executed.`,
           VibORMErrorCode.MIGRATION_INVALID_STATE,
@@ -183,7 +178,13 @@ export async function buildPushPlan(
         );
     }
   if (!options.forceReset)
-    await refuseOrphanedDiscriminators(producer, desired, current, operations);
+    await refuseOrphanedDiscriminators(
+      producer,
+      command,
+      desired,
+      current,
+      operations
+    );
   const resolutions = controller.finish();
   const target = await pushTargetIdentity(producer, command);
   const sourceFingerprint = await fingerprintLive(current, command, producer);
@@ -435,11 +436,11 @@ function liveTableName(
  */
 async function refuseOrphanedDiscriminators(
   producer: AnyDriver,
+  command: BoundMigrationDriver,
   desired: SchemaSnapshot,
   current: SchemaSnapshot,
   operations: readonly DiffOperation[]
 ): Promise<void> {
-  const { identifiers, literals, operators } = producer.adapter;
   for (const slot of desired.polymorphicStorage ?? []) {
     if (slot.kind !== "toOne") continue;
     const tableName = liveTableName(operations, slot.ownerTable);
@@ -453,16 +454,12 @@ async function refuseOrphanedDiscriminators(
       rename?.type === "renameColumn" ? rename.from : slot.storageRef;
     const live = current.tables.find((table) => table.name === tableName);
     if (!live?.columns.some((column) => column.name === columnName)) continue;
-    const column = identifiers.escape(columnName);
-    const declared = literals.list(
-      slot.members.map((member) => literals.value(member.storedType))
+    const orphan = await command.undeclaredValue(
+      producer,
+      tableName,
+      columnName,
+      slot.members.map((member) => member.storedType)
     );
-    const probe = producer._prepare(
-      sql`SELECT ${identifiers.aliased(column, "stored")} FROM ${identifiers.table(tableName)} WHERE ${operators.notIn(column, declared)} LIMIT 1`
-    );
-    const [orphan] = (
-      await producer._executeRaw<{ stored: unknown }>(probe.sql, probe.params)
-    ).rows;
     if (orphan)
       throw new MigrationError(
         `Polymorphic storage "${slot.ownerTable}.${slot.relation}" stores "${String(orphan.stored)}", which the desired schema no longer declares; those rows would lose their target. Author an explicit manual data transition that rewrites the stored values. No migration effects were executed.`,

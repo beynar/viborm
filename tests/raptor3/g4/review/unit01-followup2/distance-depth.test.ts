@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { type Dialect, Driver } from "@drivers";
-import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { s } from "@schema";
 import {
   createModelRegistry,
@@ -100,7 +100,7 @@ function candidate(
   postgis = true,
   pgvector = false
 ): string {
-  const queries = new Queries(
+  const queries = new SqlQueries(
     new EngineSchema(spotSchema),
     postgres(postgis, pgvector)
   );

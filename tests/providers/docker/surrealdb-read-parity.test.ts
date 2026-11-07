@@ -591,7 +591,686 @@ reads(
   ]
 );
 
+const entry = s
+  .model({
+    id: s.string().id(),
+    bookId: s.string(),
+    rank: s.int(),
+    at: s.dateTime(),
+    note: s.string().nullable(),
+    amount: s.int().nullable(),
+  })
+  .index(["rank"])
+  .index(["bookId", "rank"])
+  .index(["amount"]);
+const empty = s.model({ id: s.string().id(), rank: s.int() });
+const byRank = (extra: object = {}) => ({
+  orderBy: { rank: "desc" },
+  select: { id: true },
+  ...extra,
+});
+reads(
+  "pages an index walks, and what bounds them",
+  { entry, empty },
+  async (db) => {
+    await db.entry.createMany({
+      data: Array.from({ length: 40 }, (_, at) => ({
+        // Listed out of key order, so a tie read in the wrong order shows.
+        id: `e${String((at * 7) % 40).padStart(2, "0")}`,
+        bookId: at % 2 ? "odd" : "even",
+        rank: at % 5,
+        at: new Date(1_700_000_000_000 + (at % 4) * 1000),
+        note: at % 3 ? `n${at % 4}` : null,
+        amount: at % 3 ? at : null,
+      })),
+    });
+  },
+  [
+    [
+      "descending, ties by the ascending key",
+      "entry",
+      "findMany",
+      byRank({ take: 10 }),
+    ],
+    ["the page ends inside a tie", "entry", "findMany", byRank({ take: 3 })],
+    ["with a skip", "entry", "findMany", byRank({ take: 5, skip: 7 })],
+    [
+      "with a skip past the rows",
+      "entry",
+      "findMany",
+      byRank({ take: 5, skip: 100 }),
+    ],
+    ["longer than the table", "entry", "findMany", byRank({ take: 100 })],
+    ["taken from the end", "entry", "findMany", byRank({ take: -6 })],
+    [
+      "with a filter",
+      "entry",
+      "findMany",
+      byRank({ take: 4, where: { bookId: "odd" } }),
+    ],
+    [
+      "with a filter no row passes",
+      "entry",
+      "findMany",
+      byRank({ take: 4, where: { bookId: "none" } }),
+    ],
+    [
+      "a further term",
+      "entry",
+      "findMany",
+      {
+        orderBy: [{ rank: "desc" }, { at: "asc" }],
+        select: { id: true },
+        take: 7,
+      },
+    ],
+    [
+      "ascending under a descending term",
+      "entry",
+      "findMany",
+      {
+        orderBy: [{ rank: "asc" }, { id: "desc" }],
+        select: { id: true },
+        take: 7,
+      },
+    ],
+    [
+      "a cursor descending",
+      "entry",
+      "findMany",
+      byRank({ take: 6, cursor: { id: "e13" } }),
+    ],
+    [
+      "a cursor with a skip",
+      "entry",
+      "findMany",
+      byRank({ take: 6, skip: 1, cursor: { id: "e13" } }),
+    ],
+    [
+      "a cursor ascending over two terms",
+      "entry",
+      "findMany",
+      {
+        orderBy: [{ rank: "asc" }, { at: "desc" }],
+        select: { id: true },
+        take: 6,
+        cursor: { id: "e21" },
+      },
+    ],
+    [
+      "a cursor over a column that may be unset",
+      "entry",
+      "findMany",
+      {
+        orderBy: [{ note: { sort: "desc", nulls: "first" } }],
+        select: { id: true },
+        take: 6,
+        cursor: { id: "e21" },
+      },
+    ],
+    [
+      "a cursor on a row holding nothing there",
+      "entry",
+      "findMany",
+      {
+        orderBy: [{ note: { sort: "asc", nulls: "last" } }],
+        select: { id: true },
+        take: 6,
+        cursor: { id: "e00" },
+      },
+    ],
+    [
+      "a cursor that is not there",
+      "entry",
+      "findMany",
+      byRank({ take: 6, cursor: { id: "missing" } }),
+    ],
+    ["the highest", "entry", "aggregate", { _max: { rank: true } }],
+    ["the lowest", "entry", "aggregate", { _min: { rank: true } }],
+    [
+      "both, of several fields",
+      "entry",
+      "aggregate",
+      { _min: { rank: true, at: true }, _max: { rank: true, at: true } },
+    ],
+    [
+      "of a field that may be unset",
+      "entry",
+      "aggregate",
+      {
+        _min: { amount: true, note: true },
+        _max: { amount: true, note: true },
+      },
+    ],
+    [
+      "of the key",
+      "entry",
+      "aggregate",
+      { _min: { id: true }, _max: { id: true } },
+    ],
+    [
+      "under a filter",
+      "entry",
+      "aggregate",
+      { where: { bookId: "odd" }, _max: { rank: true } },
+    ],
+    [
+      "under a filter no row passes",
+      "entry",
+      "aggregate",
+      {
+        where: { bookId: "none" },
+        _max: { rank: true },
+        _min: { amount: true },
+      },
+    ],
+    ["of no rows", "empty", "aggregate", { _max: { rank: true } }],
+    [
+      "beside a count",
+      "entry",
+      "aggregate",
+      { _count: true, _max: { rank: true } },
+    ],
+    ["of a page", "entry", "aggregate", { take: 3, _max: { rank: true } }],
+    ...(
+      [
+        ["first groups", { take: 2 }],
+        ["first groups, ascending", { take: 2, orderBy: { rank: "asc" } }],
+        ["first groups, descending", { take: 2, orderBy: { rank: "desc" } }],
+        ["one group", { take: 1, orderBy: { rank: "desc" } }],
+        ["past a skip", { take: 2, skip: 1, orderBy: { rank: "asc" } }],
+        ["more than there are", { take: 12, orderBy: { rank: "asc" } }],
+        ["past the groups", { take: 2, skip: 9, orderBy: { rank: "asc" } }],
+        ["under a filter", { take: 2, where: { bookId: "odd" } }],
+        [
+          "under a filter no row passes",
+          { take: 2, where: { bookId: "none" } },
+        ],
+        ["with a having", { take: 2, having: { rank: { gt: 1 } } }],
+        [
+          "of another field",
+          { take: 2, orderBy: { _count: { rank: "desc" } } },
+        ],
+      ] as const
+    ).map(
+      ([title, input]) =>
+        [
+          `a group by: ${title}`,
+          "entry",
+          "groupBy",
+          {
+            by: ["rank"],
+            _count: { _all: true },
+            _sum: { amount: true },
+            ...input,
+          },
+        ] as const
+    ),
+    [
+      "a group by over two fields",
+      "entry",
+      "groupBy",
+      {
+        by: ["rank", "bookId"],
+        _count: { _all: true },
+        take: 3,
+        orderBy: [{ rank: "desc" }, { bookId: "asc" }],
+      },
+    ],
+    [
+      "a group by over a field that may be unset",
+      "entry",
+      "groupBy",
+      {
+        by: ["amount"],
+        _count: { _all: true },
+        take: 3,
+        orderBy: { amount: "asc" },
+      },
+    ],
+  ]
+);
+
+const shelf = s.model({
+  id: s.string().id(),
+  volumes: s.toMany(() => volume),
+});
+const volume = s.model({
+  id: s.string().id(),
+  shelfId: s.string(),
+  pages: s.int(),
+  shelf: s
+    .toOne(() => shelf)
+    .fields("shelfId")
+    .references("id"),
+});
+reads(
+  "pages and groups over a foreign key's own index",
+  { shelf, volume },
+  async (db) => {
+    await db.shelf.createMany({
+      data: ["s1", "s2", "s3", "s4"].map((id) => ({ id })),
+    });
+    await db.volume.createMany({
+      data: Array.from({ length: 20 }, (_, at) => ({
+        id: `v${String((at * 3) % 20).padStart(2, "0")}`,
+        shelfId: `s${(at % 4) + 1}`,
+        pages: at,
+      })),
+    });
+  },
+  [
+    [
+      "a descending page",
+      "volume",
+      "findMany",
+      { orderBy: { shelfId: "desc" }, select: { id: true }, take: 7 },
+    ],
+    [
+      "a cursor over it",
+      "volume",
+      "findMany",
+      {
+        orderBy: { shelfId: "desc" },
+        select: { id: true, shelfId: true },
+        take: 5,
+        cursor: { id: "v09" },
+      },
+    ],
+    [
+      "first groups",
+      "volume",
+      "groupBy",
+      { by: ["shelfId"], _sum: { pages: true }, take: 2 },
+    ],
+    [
+      "first groups, descending, past a skip",
+      "volume",
+      "groupBy",
+      {
+        by: ["shelfId"],
+        _count: { _all: true },
+        take: 2,
+        skip: 1,
+        orderBy: { shelfId: "desc" },
+      },
+    ],
+    [
+      "under a filter",
+      "volume",
+      "groupBy",
+      {
+        by: ["shelfId"],
+        _count: { _all: true },
+        take: 2,
+        where: { pages: { gt: 10 } },
+      },
+    ],
+    ["its highest", "volume", "aggregate", { _max: { shelfId: true } }],
+  ]
+);
+
+const library = s.model({
+  id: s.string().id(),
+  rank: s.int().nullable(),
+  books: s.toMany(() => tome),
+  loans: s.toMany(() => loan),
+});
+const tome = s
+  .model({
+    id: s.string().id(),
+    libraryId: s.string(),
+    pages: s.int(),
+    title: s.string().nullable(),
+    library: s
+      .toOne(() => library)
+      .fields("libraryId")
+      .references("id"),
+    chapters: s.toMany(() => chapter),
+  })
+  .index(["libraryId", "pages"]);
+const chapter = s.model({
+  id: s.string().id(),
+  bookId: s.string(),
+  tome: s
+    .toOne(() => tome)
+    .fields("bookId")
+    .references("id"),
+});
+const loan = s.model({
+  id: s.string().id(),
+  libraryId: s.string(),
+  library: s
+    .toOne(() => library)
+    .fields("libraryId")
+    .references("id"),
+});
+const firstBooks = (extra: object = {}) => ({
+  include: { books: { take: 2, select: { id: true }, ...extra } },
+  orderBy: { id: "asc" },
+});
+const newestBooks = { orderBy: { pages: "desc" } };
+reads(
+  "a page of rows, each with its own page of children",
+  { library, tome, chapter, loan },
+  async (db) => {
+    await db.library.createMany({
+      data: ["l1", "l2", "l3", "l4"].map((id, at) => ({
+        id,
+        rank: at % 2 ? at : null,
+      })),
+    });
+    await db.tome.createMany({
+      data: Array.from({ length: 30 }, (_, at) => ({
+        id: `b${String((at * 7) % 30).padStart(2, "0")}`,
+        // l4 holds nothing.
+        libraryId: `l${(at % 3) + 1}`,
+        pages: at % 4,
+        title: at % 5 ? `t${at % 3}` : null,
+      })),
+    });
+    await db.chapter.createMany({
+      data: ["b00", "b01", "b02", "b03", "b07"].map((bookId, at) => ({
+        id: `c${at}`,
+        bookId,
+      })),
+    });
+    await db.loan.createMany({
+      data: [
+        { id: "x1", libraryId: "l1" },
+        { id: "x2", libraryId: "l1" },
+        { id: "x3", libraryId: "l2" },
+      ],
+    });
+  },
+  [
+    ["in the key's order", "library", "findMany", { ...firstBooks(), take: 3 }],
+    [
+      "descending, ties by the key",
+      "library",
+      "findMany",
+      { ...firstBooks(newestBooks), take: 3 },
+    ],
+    [
+      "a row holding no children",
+      "library",
+      "findMany",
+      { ...firstBooks(newestBooks), take: 4 },
+    ],
+    [
+      "more rows asked for than there are",
+      "library",
+      "findMany",
+      { ...firstBooks(newestBooks), take: 20 },
+    ],
+    [
+      "past a skip of rows",
+      "library",
+      "findMany",
+      { ...firstBooks(), take: 2, skip: 1 },
+    ],
+    [
+      "past a skip of children",
+      "library",
+      "findMany",
+      { ...firstBooks({ ...newestBooks, skip: 1 }), take: 2 },
+    ],
+    [
+      "children under a filter",
+      "library",
+      "findMany",
+      {
+        ...firstBooks({ ...newestBooks, where: { pages: { lt: 2 } } }),
+        take: 3,
+      },
+    ],
+    [
+      "rows under a filter",
+      "library",
+      "findMany",
+      {
+        ...firstBooks(newestBooks),
+        take: 2,
+        where: { id: { in: ["l3", "l1"] } },
+      },
+    ],
+    [
+      "rows descending",
+      "library",
+      "findMany",
+      {
+        include: { books: { take: 2, select: { id: true }, ...newestBooks } },
+        orderBy: { id: "desc" },
+        take: 3,
+      },
+    ],
+    [
+      "rows ordered by what may be unset",
+      "library",
+      "findMany",
+      {
+        include: { books: { take: 2, select: { id: true } } },
+        orderBy: [{ rank: { sort: "desc", nulls: "last" } }, { id: "asc" }],
+        take: 3,
+      },
+    ],
+    [
+      "children ordered by what may be unset",
+      "library",
+      "findMany",
+      {
+        ...firstBooks({ orderBy: { title: { sort: "desc", nulls: "first" } } }),
+        take: 3,
+      },
+    ],
+    [
+      "two relations",
+      "library",
+      "findMany",
+      {
+        include: {
+          books: { take: 1, select: { id: true }, ...newestBooks },
+          loans: { take: 1, select: { id: true }, orderBy: { id: "desc" } },
+        },
+        orderBy: { id: "asc" },
+        take: 3,
+      },
+    ],
+    [
+      "children with their own children",
+      "library",
+      "findMany",
+      {
+        include: {
+          books: {
+            take: 2,
+            orderBy: { id: "asc" },
+            select: {
+              id: true,
+              chapters: {
+                take: 1,
+                select: { id: true },
+                orderBy: { id: "desc" },
+              },
+            },
+          },
+        },
+        orderBy: { id: "asc" },
+        take: 2,
+      },
+    ],
+    [
+      "the row one key names",
+      "library",
+      "findUnique",
+      {
+        where: { id: "l2" },
+        include: { books: { take: 2, select: { id: true }, ...newestBooks } },
+      },
+    ],
+    [
+      "the row one key does not name",
+      "library",
+      "findUnique",
+      {
+        where: { id: "gone" },
+        include: { books: { take: 2, select: { id: true }, ...newestBooks } },
+      },
+    ],
+    [
+      "the first row",
+      "library",
+      "findFirst",
+      { ...firstBooks(newestBooks), where: { id: "l3" } },
+    ],
+    [
+      "more rows than are read apart",
+      "library",
+      "findMany",
+      { ...firstBooks(newestBooks), take: 21 },
+    ],
+    ["no take of rows", "library", "findMany", firstBooks(newestBooks)],
+    [
+      "from a row's own children, up to the row",
+      "tome",
+      "findMany",
+      {
+        include: { library: { select: { id: true } } },
+        orderBy: { id: "asc" },
+        take: 2,
+      },
+    ],
+    [
+      "under a relation filter",
+      "library",
+      "findMany",
+      {
+        ...firstBooks(),
+        where: { books: { some: { pages: 3 } } },
+        take: 2,
+      },
+    ],
+    [
+      "children under a relation filter",
+      "library",
+      "findMany",
+      {
+        ...firstBooks({ where: { chapters: { some: {} } } }),
+        take: 2,
+      },
+    ],
+  ]
+);
+
+describe.skipIf(!surrealUrl)("a write's own answer", () => {
+  it("reads the children as the write left them", async () => {
+    const db: any = createClient({
+      schema: { library, tome, chapter, loan },
+      driver: createSurrealTestDriver(),
+    });
+    try {
+      await syncLiveSchema(db);
+      await db.library.create({ data: { id: "l" } });
+      await db.tome.create({
+        data: { id: "old", libraryId: "l", pages: 1 },
+      });
+      const include = {
+        books: { take: 1, orderBy: { pages: "desc" }, select: { id: true } },
+      };
+      expect(
+        await db.library.update({
+          where: { id: "l" },
+          data: { books: { create: { id: "new", pages: 9 } } },
+          include,
+        })
+      ).toMatchObject({ books: [{ id: "new" }] });
+      expect(
+        await db.library.upsert({
+          where: { id: "l" },
+          update: { books: { create: { id: "newer", pages: 10 } } },
+          create: { id: "l" },
+          include,
+        })
+      ).toMatchObject({ books: [{ id: "newer" }] });
+      await db.$transaction(async (tx: any) => {
+        await tx.tome.create({
+          data: { id: "inside", libraryId: "l", pages: 11 },
+        });
+        expect(
+          await tx.library.findUnique({ where: { id: "l" }, include })
+        ).toMatchObject({ books: [{ id: "inside" }] });
+      });
+    } finally {
+      await db.$disconnect();
+    }
+  });
+});
+
 describe.skipIf(!surrealUrl)("a page's reach", () => {
+  it("a descending page reads its bound from the index, and only with one", async () => {
+    const driver = createSurrealTestDriver() as unknown as {
+      execute: (...args: unknown[]) => Promise<unknown>;
+    };
+    const statements: string[] = [];
+    const execute = driver.execute;
+    driver.execute = function (this: unknown, ...args: unknown[]) {
+      statements.push(args[1] as string);
+      return execute.apply(this, args);
+    };
+    const db: any = createClient({
+      schema: { entry, empty, shelf, volume },
+      driver: driver as never,
+    });
+    try {
+      await syncLiveSchema(db);
+      await db.entry.findMany({ orderBy: { rank: "desc" }, take: 2, skip: 3 });
+      expect(statements.at(-1)).toContain("LIMIT 1 START 4");
+      await db.entry.findMany({ orderBy: { at: "desc" }, take: 2 });
+      expect(statements.at(-1)).not.toContain("START");
+      await db.entry.findMany({ orderBy: { rank: "asc" }, take: 2 });
+      expect(statements.at(-1)).not.toContain("START");
+      await db.entry.findMany({ orderBy: { rank: "desc" } });
+      expect(statements.at(-1)).not.toContain("START");
+      await db.entry.aggregate({ _max: { rank: true } });
+      expect(statements.at(-1)).not.toContain("GROUP ALL");
+      await db.entry.aggregate({ _max: { rank: true }, _count: true });
+      expect(statements.at(-1)).toContain("GROUP ALL");
+      const groups = { by: ["rank"], _count: { _all: true } };
+      await db.entry.groupBy({ ...groups, take: 2 });
+      expect(statements.at(-1)).toContain("rank IN [");
+      await db.entry.groupBy({ ...groups, take: 21 });
+      expect(statements.at(-1)).not.toContain("rank IN [");
+      await db.entry.groupBy(groups);
+      expect(statements.at(-1)).not.toContain("rank IN [");
+      await db.shelf.findMany({
+        take: 2,
+        orderBy: { id: "asc" },
+        include: { volumes: { take: 1, orderBy: { pages: "desc" } } },
+      });
+      expect(statements.at(-1)).toContain("array::find_index");
+      await db.shelf.findMany({
+        take: 21,
+        orderBy: { id: "asc" },
+        include: { volumes: { take: 1 } },
+      });
+      expect(statements.at(-1)).not.toContain("array::find_index");
+      await db.shelf.findMany({
+        take: 2,
+        orderBy: { id: "asc" },
+        include: { volumes: true },
+      });
+      expect(statements.at(-1)).not.toContain("array::find_index");
+      await db.volume.groupBy({
+        by: ["shelfId"],
+        _count: { _all: true },
+        take: 2,
+      });
+      expect(statements.at(-1)).toContain("shelfId IN [");
+    } finally {
+      await db.$disconnect();
+    }
+  });
+
   it("a page lists no further than it reads ahead, whichever way it answers", async () => {
     const driver = createSurrealTestDriver() as unknown as {
       execute: (...args: unknown[]) => Promise<unknown>;
@@ -641,7 +1320,7 @@ describe.skipIf(!surrealUrl)("what a server refuses", () => {
     try {
       await syncLiveSchema(db);
       let select: object = { id: true };
-      for (let depth = 0; depth < 20; depth++)
+      for (let depth = 0; depth < 80; depth++)
         select = { id: true, children: { select } };
       const failure = await db.node
         .findMany({ select })

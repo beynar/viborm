@@ -47,6 +47,7 @@ function placeholder(
   dialect: BoundMigrationDriver["target"]["dialect"],
   index: number
 ): string {
+  if (dialect === "surrealql") return `$p${index}`;
   return dialect === "postgresql" ? `$${index}` : "?";
 }
 
@@ -89,6 +90,32 @@ function controlDefinition(
   return `(\n      ${columns.join(",\n      ")}\n    )`;
 }
 
+/** A control table in SurrealQL: its columns are fields, its key a unique index. */
+function surrealControlDefinition(
+  driver: BoundMigrationDriver,
+  table: ControlTable
+): string {
+  const name = qualifiedName(driver, CONTROL_TABLES[table]);
+  const key = table === "state" ? "singleton" : "event_id";
+  const fields =
+    table === "state"
+      ? ["singleton TYPE int ASSERT $value = 1", "payload TYPE string"]
+      : [
+          "event_id TYPE string",
+          "attempt_id TYPE string",
+          "kind TYPE string",
+          "payload TYPE string",
+        ];
+  return [
+    `DEFINE TABLE ${name} SCHEMAFULL;`,
+    ...fields.map((field) => {
+      const [column, ...rest] = field.split(" ");
+      return `DEFINE FIELD ${column} ON ${name} ${rest.join(" ")};`;
+    }),
+    `DEFINE INDEX ${CONTROL_TABLES[table]}_key ON ${name} FIELDS ${key} UNIQUE;`,
+  ].join(" ");
+}
+
 /** Exact writer-owned state definition; the control owner authenticates its contents separately. */
 export function isSqliteStateControlDefinition(
   name: string,
@@ -107,7 +134,9 @@ export function createControlTableSQL(driver: BoundMigrationDriver): {
   log: string;
 } {
   const create = (table: ControlTable) =>
-    `CREATE TABLE IF NOT EXISTS ${qualifiedName(driver, CONTROL_TABLES[table])} ${controlDefinition(driver.target.dialect, table)}`;
+    driver.target.dialect === "surrealql"
+      ? surrealControlDefinition(driver, table)
+      : `CREATE TABLE IF NOT EXISTS ${qualifiedName(driver, CONTROL_TABLES[table])} ${controlDefinition(driver.target.dialect, table)}`;
   return { state: create("state"), log: create("log") };
 }
 
@@ -249,6 +278,10 @@ export async function assertControlTablesAuthentic(
     return;
   }
   const refusal = UNAUTHENTIC[scope];
+  if (driver.target.dialect === "surrealql") {
+    await assertSurrealControlAuthentic(producer, driver, scope);
+    return;
+  }
   let snapshot: SchemaSnapshot;
   try {
     snapshot = await introspectControlTables(producer, driver);
@@ -297,6 +330,52 @@ export async function assertControlTablesAuthentic(
       refusal.attached,
       VibORMErrorCode.MIGRATION_INVALID_STATE
     );
+  }
+}
+
+/** Each control table's fields, unique key and no event, as SurrealDB reads them back. */
+async function assertSurrealControlAuthentic(
+  producer: AnyDriver,
+  driver: BoundMigrationDriver,
+  scope: keyof typeof UNAUTHENTIC
+): Promise<void> {
+  const refusal = UNAUTHENTIC[scope];
+  for (const table of scope === "pair"
+    ? (["state", "log"] as const)
+    : (["state"] as const)) {
+    const name = qualifiedName(driver, CONTROL_TABLES[table]);
+    let info: {
+      readonly fields: readonly { readonly name: string }[];
+      readonly indexes: readonly { readonly name: string }[];
+      readonly events: readonly unknown[];
+    };
+    try {
+      const { rows } = await producer._executeRaw<typeof info>(
+        `RETURN [(INFO FOR TABLE ${name} STRUCTURE).{ fields, indexes, events }]`
+      );
+      info = rows[0]!;
+    } catch (failure) {
+      throw unreadable(refusal.unreadable, failure);
+    }
+    const expected =
+      table === "state"
+        ? ["payload", "singleton"]
+        : ["attempt_id", "event_id", "kind", "payload"];
+    const fields = info.fields.map((field) => field.name).sort();
+    if (
+      fields.join() !== expected.join() ||
+      info.indexes.length !== 1 ||
+      info.indexes[0]?.name !== `${CONTROL_TABLES[table]}_key`
+    )
+      throw new MigrationError(
+        refusal.unexpected,
+        VibORMErrorCode.MIGRATION_INVALID_STATE
+      );
+    if (info.events.length > 0)
+      throw new MigrationError(
+        refusal.attached,
+        VibORMErrorCode.MIGRATION_INVALID_STATE
+      );
   }
 }
 
@@ -553,7 +632,10 @@ export async function readControlState(
  */
 function ledgerSql(driver: BoundMigrationDriver, all: boolean): string {
   const log = qualifiedName(driver, CONTROL_TABLES.log);
-  if (all) return `SELECT payload FROM ${log}`;
+  // Which attempts are open is `unfinishedAttempts`'s to read: a subquery here
+  // answers rows, not the list SQL's `IN` reads.
+  if (all || driver.target.dialect === "surrealql")
+    return `SELECT payload FROM ${log}`;
   return `SELECT payload FROM ${log} WHERE ${openAttempt(log)}
   OR event_id = (SELECT event_id FROM ${log} WHERE kind = 'failed' ORDER BY ${jsonField(driver.target.dialect, "startedAt")} DESC, event_id DESC LIMIT 1)`;
 }
@@ -594,6 +676,11 @@ function markerAt(
   { revision, pathHash }: MarkerIdentity
 ): { readonly sql: string; readonly params: unknown[] } {
   const slot = placeholder(dialect, first);
+  if (dialect === "surrealql")
+    return {
+      sql: `encoding::json::decode(payload).revision = ${slot} AND encoding::json::decode(payload).pathHash = ${placeholder(dialect, first + 1)}`,
+      params: [revision, pathHash],
+    };
   const revisionMatch =
     dialect === "postgresql"
       ? `(payload::json->>'revision')::bigint = ${slot}`
@@ -970,7 +1057,7 @@ export async function ensureControlTables(
   if (presence.kind === "missing-table") refusePartialControl(presence);
   else {
     await producer._executeRaw(
-      `DROP TABLE ${qualifiedName(driver, CONTROL_TABLES.state)}`
+      `${driver.target.dialect === "surrealql" ? "REMOVE TABLE" : "DROP TABLE"} ${qualifiedName(driver, CONTROL_TABLES.state)}`
     );
   }
   const sql = createControlTableSQL(driver);
