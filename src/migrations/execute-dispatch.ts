@@ -6,6 +6,7 @@ import { errorCause } from "../errors/diagnostic-safety";
 
 import type { AnyDriver } from "../drivers/driver";
 import { attachMissingMeta } from "../drivers/driver-error-context";
+import type { SqlDialect } from "../drivers/types";
 import {
   ConnectionError,
   isVibORMError,
@@ -315,7 +316,7 @@ function refusedWhole(
   dialect: AnyDriver["dialect"]
 ): error is VibORMError {
   if (!providerRefused(error)) return false;
-  const statements = readExecutableStatements(sql, dialect);
+  const statements = readExecutableStatements(sql, dialect as SqlDialect);
   const [leader = "", ...rest] = statements[0] ?? [];
   return (
     statements.length === 1 &&

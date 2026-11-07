@@ -328,7 +328,7 @@ export interface DeletionCapabilityProvider {
    * tombstone; without RETURNING the lock is the capture of the rows' keys,
    * and the result is read after the tombstone.
    */
-  readonly restrictedDelete: number;
+  readonly restrictedDelete?: number;
 }
 
 export function runDeletionCapabilityBehavior(
@@ -357,6 +357,8 @@ export function runDeletionCapabilityBehavior(
       expect(
         await db.post.delete({ where: { id: 14 }, select: { id: true } })
       ).toEqual({ id: 14 });
+      // SurrealQL states the check and the tombstone in one statement, and no lock.
+      if (provider.restrictedDelete === undefined) return;
       expect(statements).toHaveLength(provider.restrictedDelete);
       const tombstone = statements.findIndex((statement) =>
         UPDATE_STATEMENT.test(statement.sql)

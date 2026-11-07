@@ -63,6 +63,8 @@ export type IsolationLevelPlacement =
   | "pre-begin"
   /** SQLite family: serializable by construction; nothing to emit. */
   | "serializable-only"
+  /** SurrealDB: snapshot isolated by construction; nothing to emit. */
+  | "snapshot-only"
   /** No transaction is opened, so there is nothing to configure. */
   | "unsupported";
 
@@ -283,11 +285,18 @@ function resolveIsolationLevel(
         placement: support.isolationLevel,
         statement: isolationLevelStatement(level),
       };
+    case "snapshot-only":
     case "serializable-only":
       // Honored by construction, not by statement: SQLite runs one writer at a
       // time, so a transaction is already serializable. Emitting nothing is the
       // honest implementation — anything weaker would be a lie about the level.
-      if (level === "Serializable") return { placement: "serializable-only" };
+      // A snapshot, on SurrealDB, gives what each weaker level asks, and two
+      // transactions may each read what the other writes.
+      if (
+        (level === "Serializable") ===
+        (support.isolationLevel === "serializable-only")
+      )
+        return { placement: support.isolationLevel };
       throw refuseTransactionOption(
         "isolationLevel",
         `${level} is not available — ${support.isolationLevelReason ?? "this driver offers Serializable only"}.`,

@@ -1,5 +1,5 @@
 // Catalog metadata and relation names used to describe a query plan.
-export type Dialect = "postgresql" | "mysql" | "sqlite";
+export type Dialect = "postgresql" | "mysql" | "sqlite" | "surrealql";
 
 export interface TableIndex {
   readonly name: string;

@@ -1,4 +1,4 @@
-import type { DatabaseAdapter } from "@adapters/database-adapter";
+import type { EngineFacts } from "@adapters/database-adapter";
 import type { AnyDriver } from "@drivers/exports";
 import { UnsupportedOperationError } from "@errors";
 import { hydrateSchemaNames, type Schema } from "@schema/hydration";
@@ -712,8 +712,8 @@ export class EngineSchema {
    * `scope(adapter, create)` would hand a second caller the first caller's
    * object under the second caller's type, and the cast would hide it.
    */
-  readonly #queryViewsByAdapter = new WeakMap<DatabaseAdapter, QueryViews>();
-  queryViews(adapter: DatabaseAdapter): QueryViews {
+  readonly #queryViewsByAdapter = new WeakMap<EngineFacts, QueryViews>();
+  queryViews(adapter: EngineFacts): QueryViews {
     return memo(this.#queryViewsByAdapter, adapter, createQueryViews);
   }
   storedFields(model: AnyModel): readonly string[] {

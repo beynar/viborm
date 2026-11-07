@@ -5,13 +5,13 @@ import type { Sql } from "@sql";
 import { baseOperation } from "../../routed-operations";
 import type { PreparedBatchOperation } from "../../types";
 import { renderers } from "../shared/insert-value";
-import {
-  type ExecutionBinding,
+import type {
+  ExecutionBinding,
   OperationContext,
 } from "../shared/operation-context";
 import { admitProjected } from "../shared/projected";
 import type { Leaf, ProjectionShape, Read } from "../shared/query";
-import { PreparedDomain, Queries } from "../shared/query";
+import { PreparedDomain, type Queries } from "../shared/query";
 import {
   type CallRows,
   type CallScope,
@@ -26,6 +26,8 @@ import {
   memo,
   type Operation,
 } from "../shared/schema";
+import { SqlOperationContext } from "../shared/sql-operation-context";
+import { SqlQueries } from "../shared/sql-queries";
 import { Commands, type PhysicalPlan } from "./commands";
 
 /**
@@ -121,6 +123,7 @@ export interface PreparedOperation {
 class PreparedCommand implements PreparedOperation {
   readonly #config: EngineConfig;
   readonly #schema: EngineSchema;
+  /** {@link Queries} itself, unless the driver supplies another language. */
   readonly #queries: Queries;
   readonly #operation: Operation;
   readonly #model: EngineConfig["schema"][string];
@@ -212,7 +215,8 @@ class PreparedCommand implements PreparedOperation {
     attribution?: QueryExecutionContext,
     binding?: ExecutionBinding
   ): OperationContext {
-    return new OperationContext(
+    const Context = this.#config.driver.backend?.context ?? SqlOperationContext;
+    return new Context(
       this.#schema,
       this.#config.driver,
       this.#modelName,
@@ -359,7 +363,11 @@ function preparedDomain(
 }
 
 function sharedQueries(config: EngineConfig): Queries {
-  const { adapter, result } = config.driver;
+  const { adapter, result, backend } = config.driver;
+  const createQueries = (
+    ...args: ConstructorParameters<typeof SqlQueries>
+  ): Queries =>
+    backend ? new backend.queries(...args) : new SqlQueries(...args);
   const key = config.resolved?.registry;
   let shared = key && sharedEngines.get(key);
   if (!shared) {
@@ -373,11 +381,11 @@ function sharedQueries(config: EngineConfig): Queries {
   if (!byResult)
     shared.queries.set(adapter, (byResult = { parsers: new WeakMap() }));
   if (!result) {
-    return (byResult.none ??= new Queries(shared.schema, adapter, result));
+    return (byResult.none ??= createQueries(shared.schema, adapter, result));
   }
   let queries = byResult.parsers.get(result);
   if (!queries) {
-    queries = new Queries(shared.schema, adapter, result);
+    queries = createQueries(shared.schema, adapter, result);
     byResult.parsers.set(result, queries);
   }
   return queries;

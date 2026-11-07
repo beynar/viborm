@@ -17,7 +17,7 @@
  * below is an adapter member. A field with no domain answers `undefined` from
  * {@link identifierColumn}, and every path stays the one it was.
  */
-import type { DatabaseAdapter } from "@adapters/database-adapter";
+import type { DatabaseAdapter, EngineFacts } from "@adapters/database-adapter";
 import type { AnyModel } from "@schema/model";
 import { idDomainOf } from "@schema/validation/id-domains";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
@@ -53,7 +53,7 @@ export interface IdentifierColumn {
  * goes through the referenced key (`Queries.junctionWhere`).
  */
 export function identifierColumn(
-  adapter: DatabaseAdapter,
+  adapter: EngineFacts,
   index: ResolvedRelationIndex,
   model: AnyModel,
   field: string,

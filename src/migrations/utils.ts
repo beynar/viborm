@@ -39,11 +39,8 @@ export function normalizeDialect(dialect: string): Dialect {
   if (dialect === "postgresql" || dialect === "postgres") {
     return "postgresql";
   }
-  if (dialect === "sqlite") {
-    return "sqlite";
-  }
-  if (dialect === "mysql") {
-    return "mysql";
+  if (dialect === "sqlite" || dialect === "mysql" || dialect === "surrealql") {
+    return dialect;
   }
   throw new MigrationError(
     `Unsupported dialect for migrations: "${dialect}". ` +

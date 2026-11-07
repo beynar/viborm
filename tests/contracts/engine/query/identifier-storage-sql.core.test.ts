@@ -18,11 +18,9 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { type Dialect, Driver } from "@drivers";
 import { D1Driver } from "@drivers/d1";
 import { QueryEngineError, ValidationError } from "@errors";
-import {
-  InvalidScalarResult,
-  Queries,
-} from "@query-engine/raptor3/shared/query";
+import { InvalidScalarResult } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { s } from "@schema";
 import { createModelFieldRefs } from "@schema/field-ref";
 import { MYSQL, PG, SQLITE } from "@schema/scalars/native-types";
@@ -273,7 +271,7 @@ function decode(
   rows: Record<string, unknown>[],
   options: { internal?: boolean; driver?: Driver<unknown, unknown> } = {}
 ): Record<string, unknown>[] {
-  const queries = new Queries(
+  const queries = new SqlQueries(
     new EngineSchema(models),
     adapter,
     options.driver?.result
@@ -361,7 +359,7 @@ describe("what the engine reads about an identifier column", () => {
     if (edge?.kind !== "variantRowCarrier")
       throw new Error("Expected the row carrier");
     for (const adapter of [pg, mysql, sqlite]) {
-      const queries = new Queries(new EngineSchema(models), adapter);
+      const queries = new SqlQueries(new EngineSchema(models), adapter);
       const carried = queries.fieldValue(
         note,
         edge.storage.idColumn.name,

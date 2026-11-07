@@ -5,6 +5,7 @@ import { SQLite3Driver } from "@drivers/sqlite3";
 import { QueryEngineError } from "@errors";
 import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { s } from "@schema";
 import { createModelFieldRefs } from "@schema/field-ref";
 import { sql } from "@sql";
@@ -95,7 +96,7 @@ describe("post-G3 selector preparation", () => {
         "CREATE TABLE post_g3_selector_rows (id INTEGER, tenant_id TEXT, left_value INTEGER, right_value INTEGER);" +
           "INSERT INTO post_g3_selector_rows VALUES (1, 't1', 2, 3), (2, 't1', 4, 5), (3, 't2', 6, 7)"
       );
-      const queries = new Queries(
+      const queries = new SqlQueries(
         new EngineSchema(schema),
         new SQLiteAdapter()
       );
@@ -155,8 +156,14 @@ describe("post-G3 selector preparation", () => {
           OR: [{ tenant: { is: { id: "t1" } } }, { NOT: { left: 3 } }],
         },
       ]) {
-        const full = new Queries(new EngineSchema(schema), new SQLiteAdapter());
-        const read = new Queries(new EngineSchema(schema), new SQLiteAdapter());
+        const full = new SqlQueries(
+          new EngineSchema(schema),
+          new SQLiteAdapter()
+        );
+        const read = new SqlQueries(
+          new EngineSchema(schema),
+          new SQLiteAdapter()
+        );
         const tracked = full.prepareSelector(schema.row, where, unique);
         const untracked = read.prepareSelector(
           schema.row,
@@ -176,7 +183,10 @@ describe("post-G3 selector preparation", () => {
 
   it("keeps every selector fact scope mutable and isolated", () => {
     const schema = selectorSchema();
-    const queries = new Queries(new EngineSchema(schema), new SQLiteAdapter());
+    const queries = new SqlQueries(
+      new EngineSchema(schema),
+      new SQLiteAdapter()
+    );
     const prepared = queries.prepareSelector(schema.row, { id: 1 });
     const identity = queries.identitySelector(schema.row, { id: 1 });
     const excluded = queries.excludeIdentities(schema.row, [{ id: 1 }]);
@@ -213,7 +223,7 @@ describe("post-G3 selector preparation", () => {
   it("prepares mixed compound and relation facts without SQL or alias allocation", () => {
     const schema = selectorSchema();
     const adapter = new SQLiteAdapter();
-    const queries = new Queries(new EngineSchema(schema), adapter);
+    const queries = new SqlQueries(new EngineSchema(schema), adapter);
     const refs = createModelFieldRefs("row", schema.row);
     const column = vi.spyOn(adapter.identifiers, "column");
     const conjunction = vi.spyOn(adapter.operators, "and");
@@ -372,7 +382,7 @@ describe("post-G3 selector preparation", () => {
     const candidate = createTestCommandEngine({ schema, driver });
     const preparation = vi.spyOn(Queries.prototype, "prepareSelector");
     const conjunction = vi.spyOn(Queries.prototype, "andSelectors");
-    const lowering = vi.spyOn(Queries.prototype, "lowerSelector");
+    const lowering = vi.spyOn(SqlQueries.prototype, "lowerSelector");
 
     try {
       assert.deepEqual(

@@ -2,7 +2,7 @@ import type { Sql } from "@sql";
 import type { BatchReferenceSqlAdapter } from "./adapter-core-types";
 import type { QueryParts } from "./adapter-query-parts";
 import type { ConstraintIdentities } from "./constraint-identity";
-import type { DatabaseAdapter } from "./database-adapter";
+import type { DatabaseAdapter, EngineFacts } from "./database-adapter";
 
 export type { QueryParts } from "./adapter-query-parts";
 
@@ -47,6 +47,15 @@ export function getAdapterInternals(
     );
   }
   return adapter[ADAPTER_INTERNALS];
+}
+
+/** How this database names a key's refusal, where it names one at all. */
+export function adapterConstraints(
+  adapter: EngineFacts
+): ConstraintIdentities | undefined {
+  return ADAPTER_INTERNALS in adapter
+    ? (adapter as AdapterWithInternals)[ADAPTER_INTERNALS].constraints
+    : undefined;
 }
 
 /** Assemble one query-engine SELECT without exposing its parts publicly. */

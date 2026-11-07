@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { s } from "@schema";
 import { Decimal } from "@src/index";
 import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
@@ -405,7 +405,7 @@ describe("G4-01 repair — distance projection (Q-O02, SC-14)", () => {
     // PostgreSQL cannot be executed here (the preserved G4 environment
     // blocker), so the distance-tier evidence is the lowered statement and the
     // decode of a provider row, not a live answer.
-    const queries = new Queries(
+    const queries = new SqlQueries(
       new EngineSchema(placeSchema),
       new PostgresAdapter("public", true)
     );

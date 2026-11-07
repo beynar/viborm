@@ -753,9 +753,11 @@ function isNonTransactionalSql(driver: MigrationDriver, sql: string): boolean {
 
 export function classifyGeneratedAtomicity(
   driver: MigrationDriver,
-  operations: readonly DiffOperation[]
+  operations: readonly DiffOperation[],
+  reset?: boolean
 ): AtomicityClass {
-  if (driver.dialect === "mysql") return "stepwise";
+  if (driver.dialect === "mysql" || driver.buildsApart?.(operations, reset))
+    return "stepwise";
   if (
     operations.some(
       (operation) =>

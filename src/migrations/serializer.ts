@@ -70,6 +70,8 @@ export function assertMigrationDecimalDomainsFitProvider(
   models: Record<string, AnyModel>,
   dialect: Dialect
 ): void {
+  // SurrealDB's `decimal` holds any precision and scale: there is no limit to fit.
+  if (dialect === "surrealql") return;
   const refusal = findDecimalProviderLimitRefusal(models, dialect);
   if (refusal === undefined) return;
   throw new MigrationError(
@@ -800,7 +802,7 @@ export function serializeResolvedModels(
 
   // Append junction tables to the tables array
   for (const { def } of junctionTables.values()) {
-    tables.push(def);
+    tables.push(migrationDriver.markJunction?.(def) ?? def);
   }
 
   const snapshot: SchemaSnapshot = {

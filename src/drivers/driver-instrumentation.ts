@@ -1,6 +1,6 @@
 /** Driver instrumentation, diagnostics, and provider result middleware. */
 
-import type { DatabaseAdapter } from "@adapters/database-adapter";
+import type { EngineFacts } from "@adapters/database-adapter";
 import {
   ConnectionError,
   type DiagnosticDisclosure,
@@ -24,6 +24,7 @@ import type {
   StatementFacts,
 } from "@extensions/official-facts";
 import { applyStatementTransforms } from "@extensions/statement";
+import type { QueryBackend } from "@query-engine/raptor3/shared/query-backend";
 import type { Operation } from "@query-engine/types";
 import type { Sql } from "@sql";
 import { markErrorLogged } from "../errors/logged-errors";
@@ -259,7 +260,13 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
    */
   declare readonly dialect: Dialect;
   readonly driverName: string;
-  abstract readonly adapter: DatabaseAdapter;
+  abstract readonly adapter: EngineFacts;
+  /**
+   * What writes this driver's statements, where its database does not read SQL.
+   * Absent, the engine's SQL backend does. Each class's abstract members are what
+   * a language has to answer, so one left out does not compile.
+   */
+  declare readonly backend?: QueryBackend;
   /**
    * This driver's transport assertion, or `undefined` for every driver that
    * makes none. It is never a target and never derived: only a constructor

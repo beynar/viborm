@@ -7,7 +7,10 @@
 /**
  * Supported database dialects
  */
-export type Dialect = "postgresql" | "mysql" | "sqlite";
+export type Dialect = "postgresql" | "mysql" | "sqlite" | "surrealql";
+
+/** The dialects with migrations and a write path: every SQL one. */
+export type SqlDialect = Exclude<Dialect, "surrealql">;
 
 /** Immutable attribution captured for one driver execution. */
 export interface QueryExecutionContext {
