@@ -181,6 +181,7 @@ test("CI keeps every delegated check and shallow sparse checkout", () => {
       "package",
       "local-providers",
       "docker-providers",
+      "surrealdb-provider",
       "platform-providers",
     ]
   );
@@ -196,6 +197,7 @@ test("CI keeps every delegated check and shallow sparse checkout", () => {
     ["package", "run: pnpm test:package"],
     ["docker-providers", "--project=provider-pg\n"],
     ["docker-providers", "--project=provider-pgbouncer\n"],
+    ["surrealdb-provider", "--project provider-surrealdb"],
     ["platform-providers", "--project=provider-bun"],
     ["platform-providers", "VIBORM_RECURSIVE_WHERE_CHECKERS: bun"],
     ["platform-providers", "--project=provider-d1"],
@@ -209,8 +211,12 @@ test("CI keeps every delegated check and shallow sparse checkout", () => {
   // Coverage and absolute timing budgets are off the pull-request path.
   assert.doesNotMatch(workflow, pullRequestPathCoverage);
   assert.doesNotMatch(workflow, perfTimingsVariable);
-  // The release proof is exactly the set of jobs this workflow runs.
-  assert.deepEqual(expandedJobNames(jobs), RELEASE_CI_JOBS);
+  // The release proof is exactly the set of jobs this workflow runs, the
+  // prototype's excepted: it reports, and no release waits on it.
+  assert.deepEqual(
+    expandedJobNames(jobs).filter((name) => name !== "SurrealDB provider"),
+    RELEASE_CI_JOBS
+  );
 
   const localJob = jobs.get("local-providers");
   for (const broken of [

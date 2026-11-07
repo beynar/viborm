@@ -30,6 +30,8 @@ const runtime = {
 
     // MySQL drivers (viborm/mysql2, viborm/planetscale)
     mysql2: "./src/drivers/mysql2/index.ts",
+    // SurrealDB (viborm/surrealdb)
+    surrealdb: "./src/drivers/surrealdb/index.ts",
     planetscale: "./src/drivers/planetscale/index.ts",
 
     // SQLite drivers (viborm/sqlite3, viborm/libsql, etc.)
@@ -47,6 +49,7 @@ const runtime = {
     // driver, viborm/migrations/<dialect> only its own.
     migrations: "./src/migrations/dialects/all.ts",
     "migrations/postgres": "./src/migrations/dialects/postgres.ts",
+    "migrations/surrealdb": "./src/migrations/dialects/surrealql.ts",
     "migrations/sqlite": "./src/migrations/dialects/sqlite.ts",
     "migrations/mysql": "./src/migrations/dialects/mysql.ts",
     "migrations/storage/fs": "./src/migrations/storage/fs.ts",
@@ -123,6 +126,7 @@ const runtime = {
     "@planetscale/database",
     "@libsql/client",
     "mysql2",
+    "surrealdb",
     "better-sqlite3",
     "postgres",
     // Bun built-ins (only available in Bun runtime). "bun" itself must be

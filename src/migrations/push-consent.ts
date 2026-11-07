@@ -211,10 +211,10 @@ function parseTarget(value: unknown): PushTargetIdentity {
       namespace: requiredString(record.namespace, "consent.target.namespace"),
     };
   }
-  if (record.dialect === "mysql") {
+  if (record.dialect === "mysql" || record.dialect === "surrealql") {
     refuseTargetKeys(record, ["database", "dialect"]);
     return {
-      dialect: "mysql",
+      dialect: record.dialect,
       database: requiredString(record.database, "consent.target.database"),
     };
   }

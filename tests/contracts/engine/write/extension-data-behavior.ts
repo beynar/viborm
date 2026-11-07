@@ -88,8 +88,9 @@ export function dataSchema() {
 }
 
 const MODELS = ["post", "comment", "tag"] as const;
-const UPDATE_STATEMENT = /^\s*UPDATE\b/i;
-const DELETE_STATEMENT = /^\s*DELETE\b/i;
+// SurrealQL states what a write reads ahead of it, in the same statement.
+const UPDATE_STATEMENT = /(?:^|[;({])\s*UPDATE\b/i;
+const DELETE_STATEMENT = /(?:^|[;({])\s*DELETE\b/i;
 
 /** A soft delete without row modes: it only turns deletes into updates. */
 const softDelete = defineExtension({

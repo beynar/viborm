@@ -23,6 +23,10 @@ export async function syncLiveSchema(
   client: MigrationClient,
   options: SyncLiveSchemaOptions = {}
 ) {
+  if (client.$driver.dialect === "surrealql") {
+    await import("@migrations/dialects/surrealql");
+    await (client.$driver as unknown as { fresh(): Promise<void> }).fresh();
+  }
   const resolve: ResolveCallback | undefined = options.force
     ? async (change) =>
         (await options.resolve?.(change)) ?? addDropResolver(change)

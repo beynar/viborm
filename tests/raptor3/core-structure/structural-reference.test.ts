@@ -1,4 +1,7 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: helpers assert for the tests that call them.
+// biome-ignore-all lint/performance/useTopLevelRegex: a regex in a test runs a handful of times.
 import assert from "node:assert/strict";
+import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import {
@@ -7,14 +10,13 @@ import {
   UnsupportedOperationError,
 } from "@errors";
 import {
-  Commands,
   type Choose,
+  Commands,
   type RecordCommand,
   type SelectedSeries,
   type SeriesCapture,
 } from "@query-engine/raptor3/commands/commands";
-import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
-import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
+import type { OperationContext } from "@query-engine/raptor3/shared/operation-context";
 import {
   type Arguments,
   EngineSchema,
@@ -22,11 +24,12 @@ import {
   type Input,
   record,
 } from "@query-engine/raptor3/shared/schema";
+import { SqlOperationContext } from "@query-engine/raptor3/shared/sql-operation-context";
 import { bindMembership } from "@query-engine/raptor3/shared/storage";
 import { s } from "@schema";
 import type { AnyModel } from "@schema/model";
-import { createClient } from "@client/client";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { isRecord } from "@validation/value-guards";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
@@ -236,7 +239,12 @@ function priorityCommands(
   const engineSchema = new EngineSchema(schema);
   const raw: Arguments = priorityArgs(lateFound);
   const admitted = engineSchema.admit(schema.shelf, "update", raw);
-  const context = new OperationContext(engineSchema, driver, "shelf", "update");
+  const context = new SqlOperationContext(
+    engineSchema,
+    driver,
+    "shelf",
+    "update"
+  );
   const commands = new Commands(context);
   const located = commands.lookup(
     schema.shelf,
@@ -422,7 +430,7 @@ function occurrenceCommands(
   const raw: Arguments = { data: rawData };
   const admitted = schema.admit(occurrenceNode, "create", raw);
   const commands = new Commands(
-    new OperationContext(schema, driver, "occurrenceNode", "create")
+    new SqlOperationContext(schema, driver, "occurrenceNode", "create")
   );
   return {
     commands,
@@ -566,7 +574,12 @@ async function executeReconciliationPublication(
   const engineSchema = new EngineSchema(schema);
   const raw: Arguments = reconciliationArgs(testCase);
   const admitted = engineSchema.admit(schema.pair, "create", raw);
-  const context = new OperationContext(engineSchema, driver, "pair", "create");
+  const context = new SqlOperationContext(
+    engineSchema,
+    driver,
+    "pair",
+    "create"
+  );
   const commands = new Commands(context);
   const root = commands.create(schema.pair, admitted.data, raw.data);
 
