@@ -15,10 +15,14 @@
 
 import { TransactionError } from "@errors";
 import type { Surreal, SurrealTransaction } from "surrealdb";
+import { acquireWithMaxWait } from "../shared/transaction-options";
 
 const CONFLICT = /can be retried|read or write conflict/;
 
 /** What a statement throws where a row it would leave is not permitted. */
+/** The mark a waiting write's `THROW` carries, and its index in the text it went with. */
+export const WAITING_FAILED = /viborm:waiting:(\d+)/;
+
 export const FORBIDDEN_ROW = "viborm: a row this write leaves is not permitted";
 
 /** Two transactions that met at commit, in the words SurrealDB has for it. */
@@ -99,13 +103,22 @@ export class ReplayedTransaction {
     this.#open = open;
   }
 
-  static async begin(client: Surreal): Promise<ReplayedTransaction> {
+  static async begin(
+    client: Surreal,
+    maxWaitMs?: number
+  ): Promise<ReplayedTransaction> {
     let slots = slotsOf.get(client);
     if (!slots) {
       slots = new Slots();
       slotsOf.set(client, slots);
     }
-    await slots.take();
+    const held = slots;
+    await acquireWithMaxWait(
+      () => held.take(),
+      () => held.give(),
+      maxWaitMs,
+      { driverName: "surrealdb", form: "callback" }
+    );
     try {
       return new ReplayedTransaction(
         client,

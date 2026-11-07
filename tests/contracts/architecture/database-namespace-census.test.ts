@@ -106,7 +106,7 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   "src/migrations/catalog-probes.ts executeRaw 1",
   // S7 (1.2.0): control authentication no longer interprets managed tables;
   // its two scoped reads became one.
-  "src/migrations/control.ts executeRaw 17",
+  "src/migrations/control.ts executeRaw 18",
   // Consolidation (1.2.0): MySQL's interrupted exact-decimal recovery plan is
   // the dialect's own `programPreamble`, reading on the producer the
   // sequential program hands it (the pinned session). It moved here out of
@@ -312,7 +312,7 @@ const REJECTED_ALIAS_SPELLINGS = [
   "searchPath",
 ];
 
-/** §1.1's seven option types, spelled independently for the same reason. */
+/** The eight admitted option types, spelled independently for the same reason. */
 const ADMITTED_OPTION_TYPE_SPELLINGS = [
   "BunSQLDriverOptions",
   "MySQL2DriverOptions",
@@ -321,6 +321,7 @@ const ADMITTED_OPTION_TYPE_SPELLINGS = [
   "PgDriverOptions",
   "PlanetScaleDriverOptions",
   "PostgresDriverOptions",
+  "SurrealDriverOptions",
 ];
 
 /* ------------------------------------------------------------------ *
@@ -535,11 +536,11 @@ describe("database-namespace census: model and query-scope state", () => {
  * ------------------------------------------------------------------ */
 
 describe("database-namespace census: second configurable source", () => {
-  it("configures the namespace from the seven driver option types only", () => {
+  it("configures the namespace from the eight driver option types only", () => {
     expect(census.configurableSources).toEqual([]);
   });
 
-  it("admits the seven, counts every other option type, and yields its regions", () => {
+  it("admits the eight, counts every other option type, and yields its regions", () => {
     expect(
       configurableSourceEntries(
         "src/client/client.ts",

@@ -140,7 +140,10 @@ export function describeWrites(
       DEFINE TABLE post_tag_highlighted TYPE RELATION IN post OUT tag LIGHTWEIGHT;
       DEFINE TABLE user_user_follows TYPE RELATION IN user OUT user LIGHTWEIGHT;
     `);
-      onSurreal = createClient({ schema, driver: new SurrealDriver(surreal) });
+      onSurreal = createClient({
+        schema,
+        driver: new SurrealDriver({ client: surreal }),
+      });
       pglite = new PGlite();
       onPostgres = createClient({
         schema,

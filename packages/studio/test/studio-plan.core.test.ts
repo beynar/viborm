@@ -7,6 +7,7 @@ import {
   type PlanTree,
   postgresPlan,
   sqlitePlan,
+  surrealPlan,
   walk,
 } from "../src/plan";
 import { aliasesOf, schemasOf } from "../src/plan-catalog";
@@ -229,4 +230,38 @@ test("catalog names retain aliases and namespaces", () => {
     'SELECT * FROM "public"."orders" AS "q0" LEFT JOIN customer c ON c.id = "q0"."customerId"';
   expect(aliasesOf(sql)).toEqual({ q0: "orders", c: "customer" });
   expect(schemasOf(sql)).toEqual({ orders: "public" });
+});
+
+describe("surrealPlan", () => {
+  test("reads SurrealDB's JSON plan, with what ran where it ran", () => {
+    const tree = surrealPlan({
+      operator: "SelectProject",
+      attributes: { projections: "*" },
+      metrics: { elapsed_ns: 3_000_000, output_rows: 1 },
+      children: [
+        {
+          operator: "IndexScan",
+          attributes: { table: "t", index: "ia", access: "= 1" },
+          metrics: { elapsed_ns: 1_000_000, output_rows: 1 },
+        },
+        { operator: "TableScan", attributes: { table: "u" } },
+      ],
+    });
+    expect(tree.analyzed).toBe(true);
+    expect(tree.root.actual?.self).toBe(2);
+    expect(tree.root.children[0]).toMatchObject({
+      kind: "index",
+      relation: "t",
+      index: "ia",
+      fullScan: false,
+    });
+    expect(tree.root.children[1]).toMatchObject({
+      kind: "scan",
+      fullScan: true,
+    });
+  });
+
+  test("says when there is none", () => {
+    expect(() => surrealPlan(undefined)).toThrow("no plan");
+  });
 });

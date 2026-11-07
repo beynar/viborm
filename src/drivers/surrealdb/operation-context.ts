@@ -1,11 +1,13 @@
 /**
- * PROTOTYPE: `docs/architecture/query-backend-frontier.md` step 5.
+ * `docs/architecture/query-backend-frontier.md` step 5.
  *
  * The writes `Commands` asks for, in SurrealQL. `Commands`, admission, stamps, the
  * envelope and decoding stay shared. A method this does not override refuses at
  * its first adapter read: this driver holds no SQL.
  */
 
+import type { AnyDriver } from "@drivers/exports";
+import type { QueryResult } from "@drivers/types";
 import {
   ForbiddenError,
   NestedWriteError,
@@ -14,6 +16,7 @@ import {
   UniqueConstraintError,
   UnsupportedOperationError,
 } from "@errors";
+import type { Selection } from "@query-engine/raptor3/commands/selection";
 import { dividesByZero } from "@query-engine/raptor3/shared/decimal";
 import {
   InsertValue,
@@ -45,17 +48,45 @@ import type { PreparedGuardFailure } from "@query-engine/types";
 import { writeSinks } from "@query-engine/write-sinks";
 import { getModelKeyCatalog } from "@schema/model/keys";
 import { Sql, sql } from "@sql";
+import { Decimal, RecordId } from "surrealdb";
 import { SurrealQueries } from "./queries";
 import {
   isOneValue,
+  onceEach,
   quantized,
   SurrealReadBackend,
   walksFurther,
 } from "./read-backend";
 import { placed } from "./respace";
-import { FORBIDDEN_ROW, isConflict } from "./transaction";
+import { FORBIDDEN_ROW, isConflict, WAITING_FAILED } from "./transaction";
 
 type AnyModel = PreparedProjection["model"];
+
+/** {@link SurrealOperationContext.#readByKey}, once per model. */
+const readByKey = new WeakMap<AnyModel, boolean>();
+
+/**
+ * A write whose answer nothing reads yet: it waits for the operation's next
+ * statement and goes with it. `stated` builds it with its own index, which names
+ * its variables and the `THROW` that says it failed; `failure` is that error.
+ */
+interface Waiting {
+  readonly stated: (index: number) => Sql;
+  readonly failure?: () => unknown;
+  /** The edge table it relates, where it is a `RELATE` later links may join. */
+  readonly edge?: Relating;
+  /** The table it writes, which a later `RELATE` must not pass over. */
+  readonly writes?: string;
+}
+
+interface Relating {
+  readonly table: string;
+  readonly source: string;
+  readonly forward: boolean;
+  readonly targets: readonly Sql[];
+  readonly relate: (targets: Sql) => Sql;
+}
+
 type Junction = Extract<Membership, { kind: "junction" }>;
 
 const ARITHMETIC: Readonly<Record<string, string>> = {
@@ -73,12 +104,72 @@ const STAND_INS: Readonly<Record<string, Sql>> = {
   string: sql.raw("rand::string(32)"),
   int: sql.raw("rand::int(-2147483648, 2147483647)"),
   bigint: sql.raw("rand::int(-2147483648, 2147483647)"),
+  float: sql.raw("rand::float()"),
+  decimal: sql.raw("<decimal>rand::int(-2147483648, 2147483647)"),
+  datetime: sql.raw("time::from_millis(rand::int(0, 2147483647))"),
 };
 
 const JUDGED = sql.raw(`"${FORBIDDEN_ROW}"`);
 
 /** How many times an operation plans again after meeting another at commit. */
 const REPLANS = 16;
+
+/** A relation whose row holds a value of another in its own key. */
+type FollowingEdge = Extract<Membership, { kind: "reference" }>;
+
+/** What a write holds at the top level ahead of itself, and what refuses with it. */
+interface Ahead {
+  readonly lets: Sql;
+  readonly checks: Sql;
+}
+
+const NOTHING_AHEAD: Ahead = { lets: sql.raw(""), checks: sql.raw("") };
+
+/** A key part's value after arithmetic, computed here since a record's id is fixed. */
+function arithmetic(
+  type: string,
+  current: unknown,
+  operator: string,
+  operand: unknown
+): unknown {
+  if (type === "decimal") {
+    const [a, b] = [new Decimal(String(current)), new Decimal(String(operand))];
+    if (operator === "divide" && dividesByZero(operand))
+      throw new QueryEngineError("Cannot divide a key by zero.");
+    return (
+      operator === "increment"
+        ? a.add(b)
+        : operator === "decrement"
+          ? a.sub(b)
+          : operator === "multiply"
+            ? a.mul(b)
+            : a.div(b)
+    ).toString();
+  }
+  if (type === "bigint") {
+    const [a, b] = [BigInt(String(current)), BigInt(String(operand))];
+    if (operator === "divide" && b === 0n)
+      throw new QueryEngineError("Cannot divide a key by zero.");
+    return operator === "increment"
+      ? a + b
+      : operator === "decrement"
+        ? a - b
+        : operator === "multiply"
+          ? a * b
+          : a / b;
+  }
+  if (type !== "int") refuse(`arithmetic on a key of type '${type}'`);
+  const [a, b] = [Number(current), Number(operand)];
+  if (operator === "divide" && b === 0)
+    throw new QueryEngineError("Cannot divide a key by zero.");
+  return operator === "increment"
+    ? a + b
+    : operator === "decrement"
+      ? a - b
+      : operator === "multiply"
+        ? a * b
+        : Math.trunc(a / b);
+}
 
 function refuse(what: string): never {
   throw new UnsupportedOperationError(
@@ -108,7 +199,17 @@ export class SurrealOperationContext extends OperationContext {
     let replacement: ReturnType<OperationContext["spendRecovery"]>;
     for (let attempt = 1; ; attempt++) {
       try {
-        return await super.run(body, single);
+        return await super.run(async () => {
+          try {
+            const value = await body();
+            // What still waits goes before the transaction commits.
+            await this.#flush();
+            return value;
+          } catch (error) {
+            this.#waiting.length = 0;
+            throw error;
+          }
+        }, single);
       } catch (error) {
         if (!(isConflict(error) && this.replaysInPlace) || attempt === REPLANS)
           throw error;
@@ -120,6 +221,207 @@ export class SurrealOperationContext extends OperationContext {
       await new Promise((resolve) =>
         setTimeout(resolve, 5 + Math.random() * 45 * attempt)
       );
+    }
+  }
+
+  /**
+   * Writes whose answer nothing reads yet, in order. Each goes with the next
+   * statement, so a nested write costs a round trip per read instead of one per
+   * statement. Only inside this operation's own transaction: a failure there
+   * cancels everything the text ran after it, where a caller's transaction could
+   * commit it.
+   */
+  readonly #waiting: Waiting[] = [];
+  /** How deep in member savepoints this runs: nothing waits across one. */
+  #scoped = 0;
+
+  get #defers(): boolean {
+    return this.ownRegionOpen && this.#scoped === 0;
+  }
+
+  /**
+   * A required lookup that names its row by its whole key, and from which nothing
+   * but that key is asked: the row is known, and its presence is checked in the
+   * next statement, in order with the writes around it.
+   */
+  override pin(selection: Selection): Input | undefined {
+    if (
+      !(this.#defers && selection.required) ||
+      selection.source.kind !== "query" ||
+      selection.membership() ||
+      selection.dependent ||
+      selection.insertsWhenAbsent ||
+      selection.unjudged ||
+      this.queries.domain !== undefined ||
+      selection.facts.reads.length > 0 ||
+      !selection.identityOnly()
+    )
+      return;
+    const keys = this.queries.keyOrder(selection.model);
+    for (const field of selection.fields.demands)
+      if (!keys.includes(field)) return;
+    if (!this.#readByKey(selection.model)) return;
+    this.requirePresent(selection.query(), selection.required());
+    return Object.fromEntries(
+      keys.map((field) => [field, selection.facts.keys.get(field)])
+    );
+  }
+
+  /** A required row, checked where the next statement runs, before what follows it. */
+  protected override statePremise(
+    query: Query,
+    present: boolean,
+    failure: Error
+  ): void {
+    if (!this.#defers) refuse("a premise stated for a batch");
+    this.#waiting.push({
+      stated: (index) =>
+        sql`IF array::len((${query.sql})) ${sql.raw(present ? "=" : ">")} 0 { THROW ${`viborm:waiting:${index}`} }`,
+      failure: () => failure,
+    });
+  }
+
+  /**
+   * Whether every field a relation reads of `model`'s rows is its key: what a
+   * link copies from a row it found is then the key its lookup stated.
+   */
+  #readByKey(model: AnyModel): boolean {
+    let known = readByKey.get(model);
+    if (known !== undefined) return known;
+    const keys = this.queries.keyOrder(model);
+    const read: string[] = [];
+    const schema = this.schema;
+    try {
+      for (const [holder, relations] of schema.index)
+        for (const [name] of relations) {
+          const view = schema.membership(holder as AnyModel, name);
+          if (
+            view.discriminator &&
+            (view.source === model || view.target === model)
+          )
+            read.push("");
+          if (view.kind === "reference") {
+            if (view.owner === "source" && view.target === model)
+              read.push(...view.pairs.map((pair) => pair.target));
+            if (view.owner === "target" && view.source === model)
+              read.push(...view.pairs.map((pair) => pair.source));
+            continue;
+          }
+          if (view.source === model)
+            read.push(
+              ...view.sourceSide.members.map((pair) => pair.referencedField)
+            );
+          if (view.target === model)
+            read.push(
+              ...view.targetSide.members.map((pair) => pair.referencedField)
+            );
+        }
+      known = read.every((field) => keys.includes(field));
+    } catch {
+      // A slot no single view states (a polymorphic one) may read anything.
+      known = false;
+    }
+    readByKey.set(model, known);
+    return known;
+  }
+
+  /** `edge`'s link, joining the waiting `RELATE` of the same source when nothing between writes its table. */
+  #relate(edge: Relating): void {
+    const waiting = this.#waiting;
+    for (let at = waiting.length - 1; at >= 0; at--) {
+      const entry = waiting[at]!;
+      const held = entry.edge;
+      if (
+        held &&
+        held.table === edge.table &&
+        held.source === edge.source &&
+        held.forward === edge.forward
+      ) {
+        waiting.splice(at, 1);
+        this.#relate({ ...edge, targets: [...held.targets, ...edge.targets] });
+        return;
+      }
+      if (entry.writes === undefined || entry.writes === edge.table) break;
+    }
+    waiting.push({
+      stated: () =>
+        edge.relate(sql`[${sql.join(edge.targets as Sql[], ", ")}]`),
+      edge,
+      writes: edge.table,
+    });
+  }
+
+  /** The waiting writes as one text, and the failure each one's mark stands for. */
+  #drain(): {
+    readonly text: Sql;
+    readonly failures: Map<number, () => unknown>;
+  } {
+    const failures = new Map<number, () => unknown>();
+    const statements = this.#waiting.splice(0).map((entry, index) => {
+      if (entry.failure) failures.set(index, entry.failure);
+      return entry.stated(index);
+    });
+    return { text: sql.join(statements, "; "), failures };
+  }
+
+  /** What a failed text raises: the waiting write's own error, where its mark says which. */
+  async #owned(
+    error: unknown,
+    failures: Map<number, () => unknown>
+  ): Promise<unknown> {
+    let cause = error;
+    for (let depth = 0; cause instanceof Error && depth < 4; depth++) {
+      const marked = WAITING_FAILED.exec(cause.message);
+      const failure = marked && failures.get(Number(marked[1]));
+      if (failure) return await failure();
+      cause = cause.cause;
+    }
+    return error;
+  }
+
+  /** The waiting writes, alone, where no statement follows to take them. */
+  async #flush(): Promise<void> {
+    if (this.#waiting.length === 0) return;
+    const { text, failures } = this.#drain();
+    try {
+      await this.dispatch(1, false, () =>
+        this.transport._execute<Input>(text, this.attribution)
+      );
+    } catch (error) {
+      throw await this.#owned(error, failures);
+    }
+  }
+
+  /** A statement, with the writes waiting ahead of it in the same text. */
+  protected override async answer(
+    query: Query,
+    terminal: boolean,
+    model?: AnyModel
+  ): Promise<QueryResult<Input>> {
+    if (this.#waiting.length === 0)
+      return await super.answer(query, terminal, model);
+    const { text, failures } = this.#drain();
+    try {
+      return await super.answer(
+        { ...query, sql: sql`${text}; ${query.sql}` },
+        terminal,
+        model
+      );
+    } catch (error) {
+      throw await this.#owned(error, failures);
+    }
+  }
+
+  /** A member's savepoint marks what ran before it: nothing waits across it. */
+  protected override async withMemberRollback<T>(
+    execute: (driver: AnyDriver) => Promise<T>
+  ): Promise<T> {
+    await this.#flush();
+    this.#scoped++;
+    try {
+      return await super.withMemberRollback(execute);
+    } finally {
+      this.#scoped--;
     }
   }
 
@@ -137,11 +439,6 @@ export class SurrealOperationContext extends OperationContext {
    */
   #writing(): void {
     if (this.preparesBatch) throw this.incompletePreparation;
-  }
-
-  /** Everything here runs at once, in a transaction: nothing waits in a batch. */
-  protected override statePremise(): void {
-    refuse("a premise stated for a batch");
   }
 
   protected override submit(): never {
@@ -190,7 +487,49 @@ export class SurrealOperationContext extends OperationContext {
         this.queries.columnName(model, field),
         this.#lowering.value(model, field, value),
       ]);
-    return [["id", this.#recordKey(model, row, keys)], ...members];
+    // Written here, not left to its default: a transaction reserves what it states.
+    const generated = Object.entries(model["~"].state.scalars)
+      .filter(
+        ([field, scalar]) =>
+          (scalar as { "~": { state: { autoGenerate?: { kind: string } } } })[
+            "~"
+          ].state.autoGenerate?.kind === "increment" &&
+          !keys.includes(field) &&
+          row[field] === undefined
+      )
+      .map(([field]): [string, Sql] => {
+        const column = this.queries.columnName(model, field);
+        return [
+          column,
+          sql`sequence::nextval(${`${model["~"].names.sql!}_${column}_seq`})`,
+        ];
+      });
+    return [
+      ["id", this.#recordKey(model, row, keys)],
+      ...members,
+      ...generated,
+    ];
+  }
+
+  /**
+   * One row created at its record, where the row states it. `INSERT` costs about
+   * twice as much for one row, and refuses a taken record or a unique value in the
+   * same words. A key a sequence gives, or the statement reads, is no record yet.
+   */
+  #created(model: AnyModel, row: Input): Sql | undefined {
+    const [stated, ...members] = this.#rowMembers(model, row);
+    const record = stated![1];
+    if (!(isOneValue(record) && record.values[0] instanceof RecordId))
+      return undefined;
+    const content = members.every(([, value]) => isOneValue(value))
+      ? sql`${Object.fromEntries(
+          members.map(([column, value]) => [column, value.values[0]])
+        )}`
+      : sql`{ ${sql.join(
+          members.map(([column, value]) => sql`${fieldName(column)}: ${value}`),
+          ", "
+        )} }`;
+    return sql`CREATE ${record} CONTENT ${content}`;
   }
 
   /** Rows as a list: one parameter, where each value of each is one. */
@@ -214,9 +553,23 @@ export class SurrealOperationContext extends OperationContext {
   /** A row's id: what it states, or the next of its sequence. */
   #recordKey(model: AnyModel, row: Input, keys: readonly string[]): Sql {
     if (keys.length > 1) {
-      if (keys.some((key) => row[key] === undefined))
-        refuse("a compound key the database generates");
-      return sql`${this.#lowering.recordOf(model, row)}`;
+      if (
+        keys.every(
+          (key) => row[key] !== undefined && !(row[key] instanceof Sql)
+        )
+      )
+        return sql`${this.#lowering.recordOf(model, row)}`;
+      const parts = keys.map((key) => {
+        if (row[key] instanceof Sql) return row[key];
+        if (row[key] !== undefined)
+          return this.#lowering.keyPart(model, key, row[key]);
+        const state = model["~"].state.scalars[key]?.["~"].state;
+        if (state?.autoGenerate?.kind !== "increment")
+          refuse("a key the database generates");
+        const column = this.queries.columnName(model, key);
+        return sql`sequence::nextval(${`${model["~"].names.sql!}_${column}_seq`})`;
+      });
+      return sql`[${sql.join(parts, ", ")}]`;
     }
     const given = row[keys[0]!];
     if (given !== undefined)
@@ -294,17 +647,46 @@ export class SurrealOperationContext extends OperationContext {
   }
 
   #where(selector: PreparedSelector): Sql {
-    const { predicate } = selector;
-    const lowered = predicate && this.#lowering.predicate(predicate, true);
-    return lowered ? sql`WHERE ${lowered}` : sql.raw("");
+    const { predicate, model } = selector;
+    if (!predicate) return sql.raw("");
+    const conditions = onceEach(this.#lowering.located(model, predicate));
+    return conditions.length
+      ? sql`WHERE ${sql.join(conditions, " AND ")}`
+      : sql.raw("");
+  }
+
+  /**
+   * Where a write finds its rows: the record its filter names by its whole key, or
+   * the table, and what else the filter asks of them.
+   */
+  #source(selector: PreparedSelector): {
+    readonly from: Sql;
+    readonly where: Sql;
+  } {
+    const { model, predicate } = selector;
+    const named = predicate && this.#lowering.namedRecord(model, predicate);
+    if (!named)
+      return {
+        from: fieldName(model["~"].names.sql!),
+        where: this.#where(selector),
+      };
+    const conditions = named.rest
+      ? onceEach(this.#lowering.located(model, named.rest, true))
+      : [];
+    return {
+      from: named.record,
+      where: conditions.length
+        ? sql`WHERE ${sql.join(conditions, " AND ")}`
+        : sql.raw(""),
+    };
   }
 
   /** What a bulk write takes: the table, or the first rows of it in key order. */
   #target(selector: PreparedSelector, limit: number | undefined): Sql {
     const { model } = selector;
-    const table = fieldName(model["~"].names.sql!);
-    if (limit === undefined) return sql`${table} ${this.#where(selector)}`;
-    return sql`(SELECT VALUE id FROM ${table} ${this.#where(selector)} ORDER BY ${this.#lowering.order(model, undefined)} LIMIT ${sql.raw(String(Number(limit)))})`;
+    const { from, where } = this.#source(selector);
+    if (limit === undefined) return sql`${from} ${where}`;
+    return sql`(SELECT VALUE id FROM ${from} ${where} ORDER BY ${this.#lowering.order(model, undefined)} LIMIT ${sql.raw(String(Number(limit)))})`;
   }
 
   /**
@@ -325,10 +707,15 @@ export class SurrealOperationContext extends OperationContext {
   }
 
   /** Refused unless every row in `rows`, read as a list, holds what judges it. */
-  #judges(rows: string, judge: PreparedSelector | undefined): Sql {
-    return judge?.predicate
-      ? sql`IF array::len(SELECT VALUE 1 FROM ${sql.raw(rows)} WHERE ${this.#lowering.predicate(judge.predicate, true)}) != array::len(${sql.raw(rows)}) { THROW ${JUDGED} };`
-      : sql.raw("");
+  #judges(rows: string, judge: PreparedSelector | undefined): Ahead {
+    if (!judge?.predicate) return NOTHING_AHEAD;
+    const holds = this.#lowering.judging(() =>
+      this.#lowering.predicate(judge.predicate!, true)
+    );
+    return {
+      lets: sql`LET $judged = (SELECT VALUE 1 FROM ${sql.raw(rows)} WHERE ${holds});`,
+      checks: sql`IF array::len($judged) != array::len(${sql.raw(rows)}) { THROW ${JUDGED} };`,
+    };
   }
 
   /** A create, refused before it writes where a row it would make is not permitted. */
@@ -338,9 +725,10 @@ export class SurrealOperationContext extends OperationContext {
     judge: PreparedSelector | undefined
   ): Sql {
     if (!judge?.predicate) return insert(rows);
+    const { lets, checks } = this.#judges("$rows", judge);
     // The rows stand outside the block: an `IF` in a block beside a long literal takes
     // about the cube of its length (800 rows, 6 s; 1,600 never ends and holds the server).
-    return sql`LET $rows = ${rows}; RETURN { ${this.#judges("$rows", judge)} ${insert(sql.raw("$rows"))} }`;
+    return sql`LET $rows = ${rows}; ${lets} RETURN { ${checks} ${insert(sql.raw("$rows"))} }`;
   }
 
   /**
@@ -355,32 +743,46 @@ export class SurrealOperationContext extends OperationContext {
     values: Input,
     judgement: RowJudgement | undefined,
     candidatesJudged = true
-  ): Sql | undefined {
+  ): Ahead {
     const domain = this.queries.domain;
-    if (judgement === undefined || domain === undefined) return undefined;
+    if (judgement === undefined || domain === undefined) return NOTHING_AHEAD;
     const judge = domain.produced(
       model,
       judgement,
       candidatesJudged ? Object.keys(values) : undefined
     );
     const cycles = domain.cycles(model, judgement);
-    if (!judge?.predicate && cycles.length === 0) return undefined;
+    if (!judge?.predicate && cycles.length === 0) return NOTHING_AHEAD;
     const written = this.#assigned(model, values).map(
       ({ column, value }) => sql`${value} AS ${column}`
     );
-    return sql`LET $next = (SELECT ${sql.join([sql.raw("*"), ...written], ", ")} FROM ${source}); ${this.#judges("$next", judge)} ${sql.join(
-      cycles.map((relation) => this.#staysAcyclic(model, relation)),
-      " "
-    )}`;
+    const { lets, checks } = this.#judges("$next", judge);
+    return {
+      lets: sql`LET $next = (SELECT ${sql.join([sql.raw("*"), ...written], ", ")} FROM ${source}); ${lets}`,
+      checks: sql`${checks} ${sql.join(
+        cycles.map((relation) => this.#staysAcyclic(model, relation)),
+        " "
+      )}`,
+    };
+  }
+
+  /**
+   * A write with what it holds ahead of it. What is held stands at the top level, and
+   * the block holds only what must refuse together with the write, as one transaction.
+   */
+  #stated(ahead: Ahead, write: Sql): Sql {
+    if (ahead === NOTHING_AHEAD) return write;
+    return sql`${ahead.lets} RETURN { ${ahead.checks} ${write} }`;
   }
 
   /** Refused where a row in `$next` would hold itself among what its link walks to. */
   #staysAcyclic(model: AnyModel, relation: string): Sql {
     const edge = this.schema.membership(model, relation);
-    if (edge.kind !== "reference" || edge.pairs.length !== 1)
-      refuse("an acyclic rule over this relation");
-    const link = this.#lowering.physical(model, edge.pairs[0]!.source);
-    return sql`IF array::len(SELECT VALUE 1 FROM $next WHERE ${link} != NONE AND (${link} = id OR id IN ${link}.{..+collect}.${link})) > 0 { THROW ${JUDGED} };`;
+    if (edge.kind === "reference" && this.#lowering.isLinked(edge)) {
+      const link = this.#lowering.physical(model, edge.pairs[0]!.source);
+      return sql`IF array::len(SELECT VALUE 1 FROM $next WHERE ${link} != NONE AND (${link} = id OR id IN ${link}.{..+collect}.${link})) > 0 { THROW ${JUDGED} };`;
+    }
+    return sql`IF array::len(array::filter($next, |$candidate| $candidate.id IN ${this.#lowering.walkFrom(edge, sql.raw("$candidate"))}.edges.c)) > 0 { THROW ${JUDGED} };`;
   }
 
   /**
@@ -410,10 +812,20 @@ export class SurrealOperationContext extends OperationContext {
     };
   }
 
+  /** {@link #frozen} over where `selector` finds its rows. */
+  #framed(selector: PreparedSelector): {
+    readonly before: Sql;
+    readonly source: Sql;
+    readonly update: (set: Sql) => Sql;
+  } {
+    const { from, where } = this.#source(selector);
+    return this.#frozen(from, where, selector.predicate);
+  }
+
   /** What a write's block states ahead of it, where anything does. */
-  #ahead(before: Sql, judged: Sql | undefined): Sql | undefined {
-    if (!(before.toStatement() || judged)) return undefined;
-    return sql`${before} ${judged ?? sql.raw("")}`;
+  #ahead(before: Sql, judged: Ahead): Ahead {
+    if (!before.toStatement()) return judged;
+    return { lets: sql`${before} ${judged.lets}`, checks: judged.checks };
   }
 
   /** Each value an extension computes, replaced by what it computes for these rows. */
@@ -691,14 +1103,30 @@ export class SurrealOperationContext extends OperationContext {
     if (given.length === 0) return { count: 0 } as never;
     const table = fieldName(model["~"].names.sql!);
     const computed = await this.#computed(model, given);
-    const rows = this.#rows(model, computed);
+    const judge = this.queries.domain?.produced(model);
     const verb = sql.raw(skipDuplicates ? "INSERT IGNORE" : "INSERT");
-    const statement = this.#judgedInsert(
-      (held) =>
-        sql`${verb} INTO ${table} ${held} ${this.#returning(projection)}`,
-      rows,
-      this.queries.domain?.produced(model)
-    );
+    const statement = this.#lowering.hoisted(() => {
+      const created =
+        computed.length === 1 && !skipDuplicates && !judge?.predicate
+          ? this.#created(model, computed[0]!)
+          : undefined;
+      return created
+        ? sql`${created} ${this.#returning(projection)}`
+        : this.#judgedInsert(
+            (held) =>
+              sql`${verb} INTO ${table} ${held} ${this.#returning(projection)}`,
+            this.#rows(model, computed),
+            judge
+          );
+    });
+    if (this.#defers && !projection && !skipDuplicates && !judge?.predicate) {
+      // A count is all it answers, and the count is the rows given, or it fails.
+      this.#waiting.push({
+        stated: () => statement,
+        writes: table.toStatement(),
+      });
+      return { count: given.length } as never;
+    }
     return (await this.#refusing(model, refusal, () =>
       this.#finish(model, statement, projection, single)
     )) as never;
@@ -710,11 +1138,9 @@ export class SurrealOperationContext extends OperationContext {
     asked: Input,
     limit?: number,
     projection?: PreparedProjection,
-    single?: () => Error,
-    captured?: readonly Input[]
+    single?: () => Error
   ): Promise<unknown> {
     this.#writing();
-    if (captured) refuse("a tombstone");
     const joined = Object.values(asked).find(
       (value): value is JoinedValue => value instanceof JoinedValue
     );
@@ -745,28 +1171,25 @@ export class SurrealOperationContext extends OperationContext {
         single
       );
     const assignments = this.#assignments(model, given);
-    const table = fieldName(model["~"].names.sql!);
-    const frozen =
-      limit === undefined
-        ? this.#frozen(table, this.#where(selector), selector.predicate)
-        : undefined;
-    const statement = (() => {
+    const statement = this.#lowering.hoisted(() => {
+      const frozen = limit === undefined ? this.#framed(selector) : undefined;
       const source = () => frozen?.source ?? this.#target(selector, limit);
-      const write = () =>
-        sql`${frozen ? frozen.update(assignments) : sql`UPDATE ${source()} SET ${assignments}`} ${this.#returning(projection)}`;
-      const judged = this.#judgedRows(
-        model,
-        source(),
-        given,
-        selector.judgement
+      return this.#stated(
+        this.#ahead(
+          frozen?.before ?? sql.raw(""),
+          this.#judgedRows(model, source(), given, selector.judgement)
+        ),
+        sql`${frozen ? frozen.update(assignments) : sql`UPDATE ${source()} SET ${assignments}`} ${this.#returning(projection)}`
       );
-      const before = frozen?.before.toStatement() ? frozen.before : undefined;
-      return judged || before
-        ? sql`RETURN { ${before ?? sql.raw("")} ${judged ?? sql.raw("")} ${write()} }`
-        : this.#lowering.hoisted(write);
-    })();
-    return await this.#refusing(model, undefined, () =>
-      this.#finish(model, statement, projection, single)
+    });
+    return await this.#withFollowers(
+      model,
+      given,
+      this.#target(selector, limit),
+      () =>
+        this.#refusing(model, undefined, () =>
+          this.#finish(model, statement, projection, single)
+        )
     );
   }
 
@@ -821,25 +1244,22 @@ export class SurrealOperationContext extends OperationContext {
     single?: () => Error
   ): Promise<unknown> {
     this.#writing();
-    const table = fieldName(model["~"].names.sql!);
-    const located =
+    const located = () =>
       limit === undefined
-        ? sql`LET $rows = (SELECT VALUE id FROM ${table} ${this.#where(selector)});`
+        ? sql`LET $rows = (SELECT VALUE id FROM ${this.#target(selector, undefined)});`
         : sql`LET $rows = ${this.#target(selector, limit)};`;
     const heldBack = this.#heldBack(model, sql.raw("$rows"));
     if (!projection) {
       const { rows } = await this.answer(
         {
-          sql:
+          sql: this.#lowering.hoisted(() =>
             heldBack ||
             (limit === undefined &&
               selector.predicate &&
               walksFurther(selector.predicate))
-              ? sql`RETURN { ${located} ${heldBack ?? sql.raw("")} DELETE $rows RETURN BEFORE }`
-              : this.#lowering.hoisted(
-                  () =>
-                    sql`DELETE ${this.#target(selector, limit)} RETURN BEFORE`
-                ),
+              ? sql`${located()} RETURN { ${heldBack ?? sql.raw("")} DELETE $rows RETURN BEFORE }`
+              : sql`DELETE ${this.#target(selector, limit)} RETURN BEFORE`
+          ),
           shape: { kind: "object", fields: {} },
         },
         true,
@@ -851,7 +1271,10 @@ export class SurrealOperationContext extends OperationContext {
     // the one statement: a block runs as a transaction of its own.
     const { rows } = await this.answer(
       {
-        sql: sql`RETURN { ${located} ${heldBack ?? sql.raw("")} LET $answer = (SELECT ${this.#lowering.columns(projection)} FROM $rows); DELETE $rows; RETURN $answer; }`,
+        sql: this.#lowering.hoisted(
+          () =>
+            sql`${located()} LET $answer = (SELECT ${this.#lowering.columns(projection)} FROM $rows); RETURN { ${heldBack ?? sql.raw("")} DELETE $rows; RETURN $answer; }`
+        ),
         shape: projection.shape,
       },
       true,
@@ -868,30 +1291,50 @@ export class SurrealOperationContext extends OperationContext {
    * states whose values a record holds. A recovery reads it to tell its own key.
    */
   async #heldBy(model: AnyModel, row: Input) {
+    for (const [at, held] of this.#holders(model, row).entries())
+      if (
+        (
+          await this.read(
+            { sql: held, shape: { kind: "object", fields: {} } },
+            true
+          )
+        ).length > 0
+      )
+        return this.#heldMeta(model, row, at);
+    return this.#heldMeta(model, row, -1);
+  }
+
+  /** Each key `row` states whole, as a read of the record holding its values. */
+  #holders(model: AnyModel, row: Input): Sql[] {
+    const table = fieldName(model["~"].names.sql!);
+    return this.#statedKeys(model, row).map(
+      (key) =>
+        sql`SELECT id FROM ${table} WHERE ${sql.join(
+          key.map(
+            (field) =>
+              sql`${this.#lowering.physical(model, field)} = ${this.#lowering.value(model, field, row[field])}`
+          ),
+          " AND "
+        )} LIMIT 1`
+    );
+  }
+
+  #statedKeys(model: AnyModel, row: Input): (readonly string[])[] {
+    return getModelKeyCatalog(model).referenceableKeys.filter((key) =>
+      key.every((field) => row[field] !== undefined)
+    );
+  }
+
+  /** The meta of a refused insert: the key at `at` among those `row` states holds its values. */
+  #heldMeta(model: AnyModel, row: Input, at: number) {
     const table = model["~"].names.sql!;
-    for (const key of getModelKeyCatalog(model).referenceableKeys) {
-      if (key.some((field) => row[field] === undefined)) continue;
-      const matches = sql.join(
-        key.map(
-          (field) =>
-            sql`${this.#lowering.physical(model, field)} = ${this.#lowering.value(model, field, row[field])}`
-        ),
-        " AND "
-      );
-      const held = await this.read(
-        {
-          sql: sql`SELECT id FROM ${fieldName(table)} WHERE ${matches} LIMIT 1`,
-          shape: { kind: "object", fields: {} },
-        },
-        true
-      );
-      if (held.length > 0)
-        return {
+    const key = this.#statedKeys(model, row)[at];
+    return key
+      ? {
           table,
           columns: key.map((field) => this.queries.columnName(model, field)),
-        };
-    }
-    return { table };
+        }
+      : { table };
   }
 
   /** One record's write, inside the transaction `Commands` opened. */
@@ -921,15 +1364,57 @@ export class SurrealOperationContext extends OperationContext {
       await this.#refusing(model, refusal, () =>
         this.read(
           {
-            sql: sql`RETURN { LET $rows = [${row}]; ${this.#judges("$rows", judge)} [] }`,
+            sql: this.#lowering.hoisted(() =>
+              this.#judgedInsert(() => sql.raw("[]"), sql`[${row}]`, judge)
+            ),
             shape: { kind: "object", fields: {} },
           },
           true
         )
       );
+    const write = () =>
+      (producer ? undefined : this.#created(model, given)) ??
+      sql`${verb} INTO ${table} [${row}]`;
+    const stated = this.#statedKeys(model, given);
+    if (
+      this.#defers &&
+      // The root's own insert answers its row, where waiting would read it again.
+      !answer &&
+      !judge?.predicate &&
+      produced.length === 0 &&
+      // An ignored insert names the key it met only where the row states one.
+      stated.length === 1 &&
+      // A key the statement reads is no record a later read can name.
+      this.queries
+        .keyOrder(model)
+        .every((key) => given[key] != null && !(given[key] instanceof Sql))
+    ) {
+      // Nothing it answers is read: it waits, and says so if it inserted nothing.
+      const statement = this.#lowering.hoisted(write);
+      this.#waiting.push({
+        stated: producer
+          ? (index) => {
+              const waited = sql.raw(`$waited${index}`);
+              return sql`LET ${waited} = (${statement} RETURN id); IF array::len(${waited}) = 0 { THROW ${`viborm:waiting:${index}`} }`;
+            }
+          : () => sql`${statement} RETURN NONE`,
+        failure:
+          producer &&
+          (() => {
+            const error = new UniqueConstraintError(
+              `A record of '${model["~"].names.ts}' already holds these values.`,
+              { meta: this.#heldMeta(model, given, 0) }
+            );
+            this.rejectInsert(error, producer);
+            return error;
+          }),
+        writes: table.toStatement(),
+      });
+      return { ...given };
+    }
     const { response, decoded } = await this.#written(
       model,
-      sql`${verb} INTO ${table} [${row}]`,
+      () => ({ write: write() }),
       produced,
       answer
     );
@@ -975,20 +1460,28 @@ export class SurrealOperationContext extends OperationContext {
       Object.keys(rest).length === 0
         ? sql.raw("")
         : sql`SET ${this.#assignments(model, rest)} `;
-    const { response, decoded } = await this.#refusing(model, refusal, () =>
-      this.#written(
-        model,
-        sql`UPDATE ${table} ${assignments}WHERE ${identity}`,
-        fields,
-        answer,
-        this.#judgedRows(
-          model,
-          sql`${table} WHERE ${identity}`,
-          rest,
-          judgement,
-          false
+    const { response, decoded } = await this.#withFollowers(
+      model,
+      rest,
+      this.#lowering.recordOfRow(model, row),
+      () =>
+        this.#refusing(model, refusal, () =>
+          this.#written(
+            model,
+            () => ({
+              write: sql`UPDATE ${table} ${assignments}WHERE ${identity}`,
+              ahead: this.#judgedRows(
+                model,
+                sql`${table} WHERE ${identity}`,
+                rest,
+                judgement,
+                false
+              ),
+            }),
+            fields,
+            answer
+          )
         )
-      )
     );
     if (fields.length && !response.rows[0])
       throw (
@@ -1052,33 +1545,211 @@ export class SurrealOperationContext extends OperationContext {
       );
       if (!absent)
         refuse(
-          `changing the key of '${model["~"].names.ts}', whose unique ${fields.map((field) => `'${field}'`).join(", ")} has no value to stand in`
+          `changing the key of '${model["~"].names.ts}', whose unique ${fields.join(", ")} has no value to stand in`
         );
       standIns.set(absent, undefined);
     }
     return standIns;
   }
 
-  /**
-   * A record's id cannot change, so a new key is a new record: the row is copied
-   * under it, what points at it does what its action says, and the old one goes.
-   * It runs as one statement, a transaction of its own.
-   */
+  /** It runs as one statement, a transaction of its own. */
   async #moveRecord(
     model: AnyModel,
     identity: Input,
     given: Input
   ): Promise<Input> {
+    const next = { ...identity };
+    for (const key of this.#keyChange(model, given))
+      next[key] = await this.#movedKey(model, key, identity[key], given[key]);
+    const moves = { count: 0 };
+    const statement = await this.#movement(model, identity, next, moves);
+    await this.answer(
+      {
+        sql: sql`RETURN { ${statement} RETURN []; }`,
+        shape: { kind: "object", fields: {} },
+      },
+      false,
+      model
+    );
+    return next;
+  }
+
+  /** A row's stored fields, as a key moving reads those it does not state. */
+  async #storedRow(model: AnyModel, identity: Input): Promise<Input> {
+    const low = this.#lowering;
+    const fields = this.schema.storedFields(model);
+    const { rows } = await this.answer(
+      {
+        sql: sql`SELECT ${sql.join(
+          fields.map(
+            (field) => sql`${low.physical(model, field)} AS ${fieldName(field)}`
+          ),
+          ", "
+        )} FROM ${low.recordOfRow(model, identity)}`,
+        shape: { kind: "object", fields: {} },
+      },
+      false,
+      model
+    );
+    return (rows as Input[])[0] ?? {};
+  }
+
+  /**
+   * Who holds a non-key field of `model` in their own key, cascading: nothing in the
+   * database can move a record, so an update of the field moves them here.
+   */
+  #keyFollowers(model: AnyModel, given: Input): readonly FollowingEdge[] {
+    const q = this.queries;
+    const keys = q.keyOrder(model);
+    const found: FollowingEdge[] = [];
+    for (const source of Object.values(this.schema.schema) as AnyModel[])
+      for (const slot of Object.keys(source["~"].state.relations)) {
+        const { edges } = q.countedMemberships(source, slot);
+        for (const edge of edges)
+          if (
+            edge.kind === "reference" &&
+            edge.target === model &&
+            edge.owner === "source" &&
+            !edge.discriminator &&
+            edge.reference?.onUpdate === "cascade" &&
+            edge.pairs.some(
+              ({ source: part, target }) =>
+                !keys.includes(target) &&
+                Object.hasOwn(given, target) &&
+                q.keyOrder(source).includes(part)
+            )
+          )
+            found.push(edge);
+      }
+    return found;
+  }
+
+  /** `write`, and the records holding what it changed in their own keys, moved after it. */
+  async #withFollowers<T>(
+    model: AnyModel,
+    given: Input,
+    rows: Sql,
+    write: () => Promise<T>
+  ): Promise<T> {
+    const followers = this.#keyFollowers(model, given);
+    if (followers.length === 0) return await write();
+    const low = this.#lowering;
+    const q = this.queries;
+    const keys = q.keyOrder(model);
+    const read = async (from: Sql) => {
+      const { rows: found } = await this.answer(
+        {
+          sql: sql`SELECT ${sql.join(
+            this.schema
+              .storedFields(model)
+              .map(
+                (field) =>
+                  sql`${low.physical(model, field)} AS ${fieldName(field)}`
+              ),
+            ", "
+          )} FROM ${from}`,
+          shape: { kind: "object", fields: {} },
+        },
+        false,
+        model
+      );
+      return found as Input[];
+    };
+    const before = await read(rows);
+    const result = await write();
+    for (const was of before) {
+      const [now] = await read(
+        low.recordOfRow(model, this.schema.identity(model, was))
+      );
+      if (!now) continue;
+      for (const edge of followers) {
+        const source = edge.source;
+        const located = await this.answer(
+          {
+            sql: sql`SELECT ${sql.join(
+              q
+                .keyOrder(source)
+                .map(
+                  (key) =>
+                    sql`${low.physical(source, key)} AS ${fieldName(key)}`
+                ),
+              ", "
+            )} FROM ${fieldName(source["~"].names.sql!)} WHERE ${sql.join(
+              edge.pairs.map(
+                ({ source: part, target }) =>
+                  sql`${low.physical(source, part)} = ${low.value(source, part, was[target])}`
+              ),
+              " AND "
+            )}`,
+            shape: { kind: "object", fields: {} },
+          },
+          false,
+          model
+        );
+        for (const row of located.rows as Input[])
+          await this.#moveRecord(
+            source,
+            row,
+            Object.fromEntries(
+              edge.pairs
+                .filter(
+                  ({ source: part, target }) =>
+                    !keys.includes(target) && q.keyOrder(source).includes(part)
+                )
+                .map(({ source: part, target }) => [part, now[target]])
+            )
+          );
+      }
+    }
+    return result;
+  }
+
+  /** What a write leaves a key part at: what it states, reads, or computes from it. */
+  async #movedKey(
+    model: AnyModel,
+    key: string,
+    current: unknown,
+    given: unknown
+  ): Promise<unknown> {
+    const whole = wholeValue(given);
+    if (whole && !(whole.value instanceof Sql)) return whole.value;
+    if (whole) {
+      const { rows } = await this.answer(
+        {
+          sql: sql`RETURN [{ value: ${whole.value as Sql} }]`,
+          shape: { kind: "object", fields: {} },
+        },
+        false,
+        model
+      );
+      return (rows as Input[])[0]?.value;
+    }
+    const [operator, operand] = Object.entries(given as Input)[0]!;
+    const { type } = model["~"].state.scalars[key]!["~"].state;
+    if (!ARITHMETIC[operator]) refuse(`the '${operator}' update`);
+    return arithmetic(type as string, current, operator, operand);
+  }
+
+  /**
+   * A record's id cannot change, so a new key is a new record: the row is copied
+   * under it, what points at it does what its action says, and the old one goes.
+   * A record holding the key in its own key moves with it, inside the same block.
+   */
+  async #movement(
+    model: AnyModel,
+    identity: Input,
+    next: Input,
+    moves: { count: number }
+  ): Promise<Sql> {
     const q = this.queries;
     const low = this.#lowering;
-    const next = { ...identity };
-    for (const key of this.#keyChange(model, given)) {
-      const whole = wholeValue(given[key]);
-      if (!whole) refuse("arithmetic on a record's key");
-      if (whole.value instanceof Sql)
-        refuse("moving a record's key through a relation");
-      next[key] = whole.value;
-    }
+    const at = moves.count++;
+    const named = (variable: string) => sql.raw(`$${variable}${at}`);
+    const old = named("old");
+    const moved = named("new");
+    const held = named("row");
+    const other = named("other");
+    const others = named("others");
     const keys = q.keyOrder(model);
     const standIns = this.#standIns(model);
     const copied = this.schema
@@ -1089,14 +1760,15 @@ export class SurrealOperationContext extends OperationContext {
       )
       .map((field) => {
         const column = fieldName(q.columnName(model, field));
-        return sql`${column}: ${standIns.get(field) ?? sql`$row.${column}`}`;
+        return sql`${column}: ${standIns.get(field) ?? sql`${held}.${column}`}`;
       });
     const restored = [...standIns.keys()].map((field) => {
       const column = fieldName(q.columnName(model, field));
-      return sql`${column} = $row.${column}`;
+      return sql`${column} = ${held}.${column}`;
     });
     const refusals: Sql[] = [];
     const follow: Sql[] = [];
+    let quiet = false;
     for (const source of Object.values(this.schema.schema) as AnyModel[])
       for (const slot of Object.keys(source["~"].state.relations)) {
         const { edges } = q.countedMemberships(source, slot);
@@ -1107,36 +1779,47 @@ export class SurrealOperationContext extends OperationContext {
             if (edge.declared) continue;
             const { table, near, far } = low.edgeOf(edge);
             // Nothing in the database holds an edge's key back, so the engine does.
-            const held = edge.targetSide.onUpdate ?? "cascade";
-            if (held === "restrict" || held === "noAction") {
+            const action = edge.targetSide.onUpdate ?? "cascade";
+            if (action === "restrict" || action === "noAction") {
               refusals.push(
-                sql`IF array::len(SELECT VALUE id FROM ${table} WHERE ${far} = $old LIMIT 1) > 0 { THROW ${`ON UPDATE REJECT: ${edge.name}`} };`
+                sql`IF array::len(SELECT VALUE id FROM ${table} WHERE ${far} = ${old} LIMIT 1) > 0 { THROW ${`ON UPDATE REJECT: ${edge.name}`} };`
               );
               continue;
             }
-            const others = sql`(SELECT VALUE ${near} FROM ${table} WHERE ${far} = $old)`;
+            const linked = sql`(SELECT VALUE ${near} FROM ${table} WHERE ${far} = ${old})`;
             // An edge's ends are fixed: it is related again from the new record. A
             // singular one holds its index until it is gone.
             follow.push(
               edge.uniqueSide
-                ? sql`LET $others = ${others}; DELETE ${table} WHERE ${far} = $old; FOR $other IN $others { INSERT RELATION INTO ${table} [{ ${near}: $other, ${far}: $new }] };`
+                ? sql`LET ${others} = ${linked}; DELETE ${table} WHERE ${far} = ${old}; FOR ${other} IN ${others} { INSERT RELATION INTO ${table} [{ ${near}: ${other}, ${far}: ${moved} }] };`
                 : near.toStatement() === "in"
-                  ? sql`FOR $other IN ${others} { RELATE $other->${table}->$new };`
-                  : sql`FOR $other IN ${others} { RELATE $new->${table}->$other };`
+                  ? sql`FOR ${other} IN ${linked} { RELATE ${other}->${table}->${moved} };`
+                  : sql`FOR ${other} IN ${linked} { RELATE ${moved}->${table}->${other} };`
             );
             continue;
           }
           if (edge.owner !== "source" || edge.discriminator) continue;
-          // Not by the key: its action is an event on the row, which deleting the
-          // old copy would fire while the new one is the row that holds the value.
-          if (!edge.pairs.every(({ target }) => keys.includes(target)))
-            refuse(
-              `changing the key of '${model["~"].names.ts}', which '${source["~"].names.ts}' references by another field`
-            );
-          const holders = edge.pairs.map(({ source: held, target }) => ({
-            column: low.physical(source, held),
-            value: low.value(source, held, next[target]),
-            was: low.value(source, held, identity[target]),
+          // An event answers for it: a move's old copy says so, and it stays quiet.
+          if (
+            edge.pairs.length > 1 ||
+            !low.holdsRecord(source, edge.pairs[0]!.source)
+          )
+            quiet = true;
+          // Not by the key: the value stays with the row, and so do those holding it.
+          if (!edge.pairs.some(({ target }) => keys.includes(target))) continue;
+          const stored = edge.pairs.every(({ target }) => keys.includes(target))
+            ? identity
+            : { ...(await this.#storedRow(model, identity)), ...identity };
+          const holders = edge.pairs.map(({ source: part, target }) => ({
+            part,
+            column: low.physical(source, part),
+            now: keys.includes(target) ? next[target] : stored[target],
+            value: low.value(
+              source,
+              part,
+              keys.includes(target) ? next[target] : stored[target]
+            ),
+            was: low.value(source, part, stored[target]),
           }));
           const table = fieldName(source["~"].names.sql!);
           const holding = sql.join(
@@ -1153,8 +1836,41 @@ export class SurrealOperationContext extends OperationContext {
           }
           if (
             holders.some(({ column }) => column.toStatement().startsWith("id"))
-          )
-            refuse("a key change under a key that holds it");
+          ) {
+            if (action === "setNull")
+              refuse("setNull on a key that holds another");
+            const located = await this.answer(
+              {
+                sql: sql`SELECT ${sql.join(
+                  q
+                    .keyOrder(source)
+                    .map(
+                      (key) =>
+                        sql`${low.physical(source, key)} AS ${fieldName(key)}`
+                    ),
+                  ", "
+                )} FROM ${table} WHERE ${holding}`,
+                shape: { kind: "object", fields: {} },
+              },
+              false,
+              model
+            );
+            for (const row of located.rows as Input[])
+              follow.push(
+                await this.#movement(
+                  source,
+                  row,
+                  {
+                    ...row,
+                    ...Object.fromEntries(
+                      holders.map(({ part, now }) => [part, now])
+                    ),
+                  },
+                  moves
+                )
+              );
+            continue;
+          }
           follow.push(
             sql`UPDATE ${table} SET ${sql.join(
               holders.map(({ column, value }) =>
@@ -1167,15 +1883,7 @@ export class SurrealOperationContext extends OperationContext {
           );
         }
       }
-    await this.answer(
-      {
-        sql: sql`RETURN { LET $old = ${low.recordOfRow(model, identity)}; LET $new = ${low.recordOfRow(model, next)}; IF $new = $old { RETURN []; }; ${sql.join(refusals, " ")} LET $row = (SELECT * FROM ONLY $old); INSERT INTO ${fieldName(model["~"].names.sql!)} [{ ${sql.join([sql`id: $new`, ...copied], ", ")} }] RETURN NONE; ${sql.join(follow, " ")} DELETE $old; ${restored.length ? sql`UPDATE $new SET ${sql.join(restored, ", ")};` : sql.raw("")} RETURN []; }`,
-        shape: { kind: "object", fields: {} },
-      },
-      false,
-      model
-    );
-    return next;
+    return sql`LET ${old} = ${low.recordOfRow(model, identity)}; LET ${moved} = ${low.recordOfRow(model, next)}; IF ${moved} = ${old} { RETURN []; }; ${sql.join(refusals, " ")} LET ${held} = (SELECT * FROM ONLY ${old}); IF ${held} = NONE { RETURN []; }; ${quiet ? sql`UPDATE ${old} SET viborm_moved = true;` : sql.raw("")} INSERT INTO ${fieldName(model["~"].names.sql!)} [{ ${sql.join([sql`id: ${moved}`, ...copied], ", ")} }] RETURN NONE; ${sql.join(follow, " ")} DELETE ${old}; ${restored.length ? sql`UPDATE ${moved} SET ${sql.join(restored, ", ")};` : sql.raw("")}`;
   }
 
   /** The values a write states beside a key it has already moved. */
@@ -1189,12 +1897,9 @@ export class SurrealOperationContext extends OperationContext {
   /** A write and what it must read back: named fields and the caller's answer. */
   async #written(
     model: AnyModel,
-    statement: Sql,
+    build: () => { readonly write: Sql; readonly ahead?: Ahead },
     fields: readonly string[],
-    answer: StatementAnswer | undefined,
-    judged?: Sql,
-    /** What it reads held outside its block, for the reason `#judgedInsert` says. */
-    held?: Sql
+    answer: StatementAnswer | undefined
   ) {
     const q = this.queries;
     const projection = fields.length
@@ -1214,15 +1919,13 @@ export class SurrealOperationContext extends OperationContext {
     const columns = returned.length ? sql.join(returned, ", ") : sql.raw("id");
     const response = await this.answer(
       {
-        sql: sql.join(
-          [
-            ...(held ? [held] : []),
-            judged
-              ? sql`RETURN { ${judged} ${statement} RETURN ${columns} }`
-              : sql`${statement} RETURN ${columns}`,
-          ],
-          " "
-        ),
+        sql: this.#lowering.hoisted(() => {
+          const { write, ahead } = build();
+          return this.#stated(
+            ahead ?? NOTHING_AHEAD,
+            sql`${write} RETURN ${columns}`
+          );
+        }),
         shape: projection?.shape ?? { kind: "object", fields: {} },
       },
       false,
@@ -1247,7 +1950,6 @@ export class SurrealOperationContext extends OperationContext {
   ): Promise<Input> {
     this.#writing();
     const given = await this.#settled(model, asked);
-    const table = fieldName(model["~"].names.sql!);
     const fields = projection.fields.map((field) => field.name);
     if (this.#keyChange(model, given).length > 0) {
       const result = await this.#updateKeys(
@@ -1261,22 +1963,33 @@ export class SurrealOperationContext extends OperationContext {
       if (answer) answer.row = result as Input;
       return result as Input;
     }
-    const frozen = this.#frozen(
-      table,
-      this.#where(selector),
-      selector.predicate
-    );
-    const { response, decoded } = await this.#refusing(model, refusal, () =>
-      this.#written(
-        model,
-        frozen.update(this.#assignments(model, given)),
-        fields,
-        answer,
-        this.#ahead(
-          frozen.before,
-          this.#judgedRows(model, frozen.source, given, selector.judgement)
+    const { response, decoded } = await this.#withFollowers(
+      model,
+      given,
+      this.#target(selector, undefined),
+      () =>
+        this.#refusing(model, refusal, () =>
+          this.#written(
+            model,
+            () => {
+              const frozen = this.#framed(selector);
+              return {
+                write: frozen.update(this.#assignments(model, given)),
+                ahead: this.#ahead(
+                  frozen.before,
+                  this.#judgedRows(
+                    model,
+                    frozen.source,
+                    given,
+                    selector.judgement
+                  )
+                ),
+              };
+            },
+            fields,
+            answer
+          )
         )
-      )
     );
     if (!response.rows[0]) throw missing();
     return decoded;
@@ -1292,21 +2005,35 @@ export class SurrealOperationContext extends OperationContext {
     refusal: PreparedGuardFailure | undefined
   ): Promise<void> {
     this.#writing();
-    const values = await this.#settled(model, asked);
+    const asking = await this.#settled(model, asked);
+    if (Object.keys(asking).length === 0) return;
+    const moves = this.#keyChange(model, asking).length > 0;
+    const moved = moves
+      ? await Promise.all(
+          identities.map((identity) =>
+            this.#moveRecord(model, identity, asking)
+          )
+        )
+      : identities;
+    const values = moves ? this.#withoutKeys(model, asking) : asking;
     if (Object.keys(values).length === 0) return;
     // A list of records reads each by key, where an `OR` of the same scans.
     const records = sql.join(
-      identities.map((identity) => this.#lowering.recordOfRow(model, identity)),
+      moved.map((identity) => this.#lowering.recordOfRow(model, identity)),
       ", "
     );
     await this.#refusing(model, refusal, () =>
       this.#written(
         model,
-        sql`UPDATE $records SET ${this.#assignments(model, values)}`,
+        () => ({
+          write: sql`UPDATE $records SET ${this.#assignments(model, values)}`,
+          ahead: this.#ahead(
+            sql`LET $records = [${records}];`,
+            this.#judgedRows(model, sql.raw("$records"), values, judgement)
+          ),
+        }),
         [],
-        undefined,
-        this.#judgedRows(model, sql.raw("$records"), values, judgement),
-        sql`LET $records = [${records}];`
+        undefined
       )
     );
   }
@@ -1321,57 +2048,105 @@ export class SurrealOperationContext extends OperationContext {
     this.#writing();
     const model = edge.target;
     const table = fieldName(model["~"].names.sql!);
-    const conditions = [
-      this.#lowering.member(edge, parent),
-      ...(selector.predicate
-        ? [this.#lowering.predicate(selector.predicate, true)]
-        : []),
-    ];
-    const where = sql.join(conditions, " AND ");
-    const frozen = this.#frozen(table, sql`WHERE ${where}`, selector.predicate);
+    const where = () =>
+      sql.join(
+        onceEach([
+          this.#lowering.member(edge, parent),
+          ...(selector.predicate
+            ? this.#lowering.conjuncts(selector.predicate)
+            : []),
+        ]),
+        " AND "
+      );
+    const frozen = () =>
+      this.#frozen(table, sql`WHERE ${where()}`, selector.predicate);
+    if (values && this.#keyChange(model, values).length > 0) {
+      const keys = this.queries.keyOrder(model);
+      const located = await this.answer(
+        {
+          sql: sql`SELECT ${sql.join(
+            keys.map(
+              (key) =>
+                sql`${this.#lowering.physical(model, key)} AS ${fieldName(key)}`
+            ),
+            ", "
+          )} FROM ${table} WHERE ${where()}`,
+          shape: { kind: "object", fields: {} },
+        },
+        false,
+        model
+      );
+      const rest = this.#withoutKeys(model, values);
+      for (const row of located.rows as Input[]) {
+        const moved = await this.#moveRecord(model, row, values);
+        if (Object.keys(rest).length > 0)
+          await this.#written(
+            model,
+            () => ({
+              write: sql`UPDATE ${table} SET ${this.#assignments(model, rest)} WHERE ${this.#lowering.identity(model, moved)}`,
+            }),
+            [],
+            undefined
+          );
+      }
+      return;
+    }
     if (values)
       return await this.#refusing(
         model,
         nestedRefusal("updateMany", edge.name),
         () =>
-          this.#reportedUpdate(
-            model,
-            frozen.update(this.#assignments(model, values)),
-            this.#ahead(
-              frozen.before,
-              this.#judgedRows(model, frozen.source, values, selector.judgement)
-            )
-          )
+          this.#reportedUpdate(model, () => {
+            const { before, source, update } = frozen();
+            return {
+              write: update(this.#assignments(model, values)),
+              ahead: this.#ahead(
+                before,
+                this.#judgedRows(model, source, values, selector.judgement)
+              ),
+            };
+          })
       );
-    await this.#reportDelete(model, where);
+    await this.#reportDelete(model, where());
     await this.#written(
       model,
-      sql`DELETE ${frozen.source}`,
+      () => {
+        const { before, source } = frozen();
+        return {
+          write: sql`DELETE ${source}`,
+          ahead: this.#ahead(before, {
+            lets: sql.raw(""),
+            checks: this.#heldBack(model, source) ?? sql.raw(""),
+          }),
+        };
+      },
       [],
-      undefined,
-      this.#ahead(frozen.before, this.#heldBack(model, frozen.source))
+      undefined
     );
   }
 
   /** An update whose rows a hook may want: the statement answers with them. */
   async #reportedUpdate(
     model: AnyModel,
-    statement: Sql,
-    judged?: Sql
+    build: () => { readonly write: Sql; readonly ahead?: Ahead }
   ): Promise<void> {
     const name = model["~"].names.ts!;
     const sink = writeSinks.get(this.attribution);
     if (!sink?.wants(name, "update")) {
-      await this.#written(model, statement, [], undefined, judged);
+      await this.#written(model, build, [], undefined);
       return;
     }
     const { shape, fields } = this.queries.prepareProjection(model, {});
     const columns = fields.map((field) => this.#lowering.column(model, field));
     const rows = await this.read(
       {
-        sql: judged
-          ? sql`RETURN { ${judged} ${statement} RETURN ${sql.join(columns, ", ")} }`
-          : sql`${statement} RETURN ${sql.join(columns, ", ")}`,
+        sql: this.#lowering.hoisted(() => {
+          const { write, ahead } = build();
+          return this.#stated(
+            ahead ?? NOTHING_AHEAD,
+            sql`${write} RETURN ${sql.join(columns, ", ")}`
+          );
+        }),
         shape,
       },
       false,
@@ -1471,14 +2246,19 @@ export class SurrealOperationContext extends OperationContext {
       model,
       Object.fromEntries(stamped.map((field) => [field, undefined]))
     );
-    await this.#written(
-      model,
+    const write = () =>
       stated.length
         ? sql`INSERT INTO ${table} ${this.#row(model, row)} ON DUPLICATE KEY UPDATE ${this.#assignments(model, { ...written, ...stamps })}`
-        : sql`INSERT IGNORE INTO ${table} [${this.#row(model, row)}]`,
-      [],
-      undefined
-    );
+        : sql`INSERT IGNORE INTO ${table} [${this.#row(model, row)}]`;
+    if (this.#defers) {
+      const statement = this.#lowering.hoisted(write);
+      this.#waiting.push({
+        stated: () => sql`${statement} RETURN NONE`,
+        writes: table.toStatement(),
+      });
+      return;
+    }
+    await this.#written(model, () => ({ write: write() }), [], undefined);
   }
 
   override async linkMany(
@@ -1500,27 +2280,44 @@ export class SurrealOperationContext extends OperationContext {
         (values) =>
           sql`{ ${near}: ${end(edge.sourceSide, values)}, ${far}: ${end(edge.targetSide, values)} }`
       );
-      await this.#written(
-        edge.source,
-        sql`INSERT RELATION IGNORE INTO ${table} [${sql.join(edges, ", ")}]`,
-        [],
-        undefined
-      );
+      const write = sql`INSERT RELATION IGNORE INTO ${table} [${sql.join(edges, ", ")}]`;
+      if (this.#defers) {
+        this.#waiting.push({
+          stated: () => sql`${write} RETURN NONE`,
+          writes: table.toStatement(),
+        });
+        return;
+      }
+      await this.#written(edge.source, () => ({ write }), [], undefined);
       return;
     }
     // A `LIGHTWEIGHT` edge is its pair, so `RELATE` is idempotent by itself and
     // takes one source's targets in one statement.
     // The links of one run share their parent, so one source.
     const source = end(edge.sourceSide, rows[0]!);
-    const targets = sql`[${sql.join(
-      rows.map((values) => end(edge.targetSide, values)),
-      ", "
-    )}]`;
+    const forward = near.toStatement() === "in";
+    const relate = (targets: Sql) =>
+      forward
+        ? sql`RELATE (${source})->${table}->(${targets})`
+        : sql`RELATE (${targets})->${table}->(${source})`;
+    const targets = rows.map((values) => end(edge.targetSide, values));
+    if (this.#defers) {
+      // Its answer is never read: it waits, and joins the next of its source.
+      const named = source.toStatement();
+      if (!(named.startsWith("LET ") || named.includes(";"))) {
+        this.#relate({
+          table: table.toStatement(),
+          source: `${named} ${source.values.map(String).join(" ")}`,
+          forward,
+          targets,
+          relate: (all) => sql`${relate(all)} RETURN NONE`,
+        });
+        return;
+      }
+    }
     await this.#written(
       edge.source,
-      near.toStatement() === "in"
-        ? sql`RELATE (${source})->${table}->(${targets})`
-        : sql`RELATE (${targets})->${table}->(${source})`,
+      () => ({ write: relate(sql`[${sql.join(targets, ", ")}]`) }),
       [],
       undefined
     );
@@ -1554,11 +2351,15 @@ export class SurrealOperationContext extends OperationContext {
     ];
     await this.#written(
       model,
-      sql`DELETE ${fieldName(model["~"].names.sql!)} WHERE ${sql.join(conditions, " AND ")}`,
+      () => ({
+        write: sql`DELETE ${fieldName(model["~"].names.sql!)} WHERE ${sql.join(conditions, " AND ")}`,
+        ahead: writable && {
+          lets: sql`LET $writable = ${writable};`,
+          checks: sql.raw(""),
+        },
+      }),
       [],
-      undefined,
-      undefined,
-      writable && sql`LET $writable = ${writable};`
+      undefined
     );
   }
 
@@ -1593,11 +2394,15 @@ export class SurrealOperationContext extends OperationContext {
       : sql`DELETE ${table}${where}`;
     return this.#written(
       edge.source,
-      statement,
+      () => ({
+        write: statement,
+        ahead: writable && {
+          lets: sql`LET $writable = ${writable};`,
+          checks: sql.raw(""),
+        },
+      }),
       [],
-      undefined,
-      undefined,
-      writable && sql`LET $writable = ${writable};`
+      undefined
     );
   }
 
@@ -1690,18 +2495,28 @@ export class SurrealOperationContext extends OperationContext {
           ]
         : []),
     ];
-    if (allowed) conditions.push(this.#lowering.predicate(allowed, true));
-    const unlinked = sql.join(conditions, " AND ");
-    const frozen = this.#frozen(table, sql`WHERE ${unlinked}`, allowed);
     await this.#refusing(model, nestedRefusal("disconnect", edge.name), () =>
-      this.#reportedUpdate(
-        model,
-        frozen.update(this.#assignments(model, cleared)),
-        this.#ahead(
-          frozen.before,
-          this.#judgedRows(model, frozen.source, cleared, judgement)
-        )
-      )
+      this.#reportedUpdate(model, () => {
+        const unlinked = sql.join(
+          onceEach([
+            ...conditions,
+            ...(allowed ? this.#lowering.conjuncts(allowed) : []),
+          ]),
+          " AND "
+        );
+        const { before, source, update } = this.#frozen(
+          table,
+          sql`WHERE ${unlinked}`,
+          allowed
+        );
+        return {
+          write: update(this.#assignments(model, cleared)),
+          ahead: this.#ahead(
+            before,
+            this.#judgedRows(model, source, cleared, judgement)
+          ),
+        };
+      })
     );
   }
 

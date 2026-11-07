@@ -1,5 +1,5 @@
 /**
- * PROTOTYPE: `docs/architecture/query-backend-frontier.md` step 5.
+ * `docs/architecture/query-backend-frontier.md` step 5.
  *
  * `Commands` locates and captures rows through `Queries.select`, so a nested
  * write reads through this. Everything else it asks of `Queries` is shared.
@@ -15,6 +15,7 @@ import {
   type Query,
   type RowCondition,
   type SelectControls,
+  wholeValue,
 } from "@query-engine/raptor3/shared/query";
 import type {
   CallScope,
@@ -24,7 +25,7 @@ import type {
 } from "@query-engine/raptor3/shared/row-scope";
 import type { Arguments, Input } from "@query-engine/raptor3/shared/schema";
 import type { Membership } from "@query-engine/raptor3/shared/storage";
-import { type Sql, sql } from "@sql";
+import { Sql, sql } from "@sql";
 import { SurrealReadBackend } from "./read-backend";
 
 type AnyModel = Parameters<Queries["select"]>[0];
@@ -37,6 +38,14 @@ function refuse(what: string): never {
 }
 
 export class SurrealQueries extends Queries {
+  /** `id` is the record's: a field of that name beside a key of another lives apart. */
+  override columnName(model: AnyModel, field: string): string {
+    const column = super.columnName(model, field);
+    return column === "id" && !this.keyOrder(model).includes(field)
+      ? "id_field"
+      : column;
+  }
+
   /** A caller's filter on a link row is a test of what a direct read could hide. */
   refuseHiddenLink(
     edge: Membership,
@@ -57,6 +66,13 @@ export class SurrealQueries extends Queries {
   }
 
   /** A layer's predicate for this call, read while it lowers: `undefined` where it drops. */
+  /** A layer's predicate for this call, `undefined` where the call drops it. */
+  resolved(
+    node: Extract<PreparedPredicate, { kind: "layer" }>
+  ): PreparedPredicate | undefined {
+    return this.resolve(node);
+  }
+
   layer(
     node: Extract<PreparedPredicate, { kind: "layer" }>,
     lower: (resolved: PreparedPredicate) => Sql
@@ -143,12 +159,27 @@ export class SurrealQueries extends Queries {
           ),
           " OR "
         )})`;
-      default:
-        return sql.raw(
-          row.fields.some((field) => row.before[field] !== row.after[field])
-            ? "true"
-            : "false"
-        );
+      default: {
+        // A located value is read where it is spent, so the database compares it.
+        const moves = row.fields.flatMap((field) => {
+          const stated = row.after[field];
+          // Nothing this write states: the column keeps what it holds.
+          if (stated === undefined) return [];
+          const whole = wholeValue(stated);
+          if (!whole) return [sql.raw("true")];
+          const after = whole.value;
+          if (after instanceof Sql)
+            return [
+              sql`({ LET $moved = ${after}; (IF type::is_record($moved) { record::id($moved) } ELSE { $moved }) != ${row.before[field]} })`,
+            ];
+          return String(row.before[field]) === String(after)
+            ? []
+            : [sql.raw("true")];
+        });
+        return moves.length
+          ? sql`(${sql.join(moves, " OR ")})`
+          : sql.raw("false");
+      }
     }
   }
 
@@ -248,6 +279,16 @@ export class SurrealQueries extends Queries {
       !membership.outside
         ? this.#lowering.membersOf(membership.edge, membership.parent)
         : undefined;
+    // A whole key stated as values is the record itself, read without a filter.
+    const identity = controls.identity;
+    const record =
+      identity &&
+      !path &&
+      this.keyOrder(model).every(
+        (key) => identity[key] != null && !(identity[key] instanceof Sql)
+      )
+        ? this.#lowering.recordOfRow(model, identity)
+        : undefined;
     const conditions = () => [
       ...(membership && !path
         ? [
@@ -258,8 +299,8 @@ export class SurrealQueries extends Queries {
             ),
           ]
         : []),
-      ...(controls.identity
-        ? [this.#lowering.identity(model, controls.identity)]
+      ...(identity && !record
+        ? [this.#lowering.identity(model, identity)]
         : []),
       ...(controls.unless?.predicate
         ? [this.#lowering.predicate(controls.unless.predicate, false)]
@@ -271,10 +312,10 @@ export class SurrealQueries extends Queries {
         this.#lowering.statement(
           model,
           projection,
-          args,
+          record ? { ...args, unordered: true } : args,
           predicate,
           conditions(),
-          path
+          path ?? record
         )
       ),
       shape: projection.shape,

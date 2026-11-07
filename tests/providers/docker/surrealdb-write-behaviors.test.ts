@@ -1,9 +1,6 @@
 /**
  * The write behaviours the other providers run on live servers, on SurrealDB.
  * Gated on SURREAL_TEST_URL.
- *
- * Not here: a column an insert generates beside a record's id, which push refuses by
- * name. A sequence reaches only the id (fresh-produced-field, produced-compound-identity).
  */
 
 import { createClient } from "@client/client";
@@ -32,6 +29,12 @@ import {
   registerDestinationCastBehavior,
 } from "@tests/contracts/engine/write/destination-cast-behavior";
 import {
+  producedFieldSchema,
+  registerProducedFieldBehavior,
+  registerTwoSequenceBehavior,
+  twoSequenceSchema,
+} from "@tests/contracts/engine/write/fresh-produced-field-behavior";
+import {
   producedIdentitySchema,
   registerProducedIdentityBehavior,
 } from "@tests/contracts/engine/write/junction-produced-identity-behavior";
@@ -44,6 +47,10 @@ import {
   registerParentHeldCompoundEdgeBehavior,
 } from "@tests/contracts/engine/write/parent-held-compound-edge-behavior";
 import {
+  producedCompoundSchema,
+  registerProducedCompoundBehavior,
+} from "@tests/contracts/engine/write/produced-compound-identity-behavior";
+import {
   registerSharedPkConnectOrCreateBehavior,
   sharedPkConnectOrCreateSchema,
 } from "@tests/contracts/engine/write/shared-pk-connect-or-create-behavior";
@@ -55,6 +62,11 @@ import {
   registerSqlOperandWallBehavior,
   sqlOperandWallSchema,
 } from "@tests/contracts/engine/write/sql-operand-boundary-behavior";
+import {
+  registerSupplierContinuationBehavior,
+  registerSupplierContinuationRefusals,
+  supplierContinuationSchema,
+} from "@tests/contracts/engine/write/supplier-continuation-behavior";
 import {
   registerUpdateManySeriesBehavior,
   updateManySeriesSchema,
@@ -72,34 +84,10 @@ import { afterAll, beforeEach, describe } from "vitest";
 
 const enabled = surrealUrl ? describe : describe.skip;
 
-/** What this driver answers otherwise, or refuses by name, by the start of its name. */
+/** What this driver answers otherwise, by the start of its name. */
 const WAIVED: Readonly<Record<string, string>> = {
   "a REF parent source":
     "a generated key is known here when the arm reads it, so it can agree",
-  "PORTABLE ARITHMETIC on the key":
-    "arithmetic on a record's key refuses by name",
-  "a primary-key transition writes descendants":
-    "arithmetic on a record's key refuses by name",
-  "a mixed row keeps the polymorphic membership":
-    "reads the table raw, in SQL's words",
-  "connect: the record's key moves":
-    "moving a record's key through a relation refuses by name",
-  "compound shared keys use every member":
-    "moving a record's key through a relation refuses by name",
-  "upsert FOUND publishes the target's post-update":
-    "a key change under a key that holds it refuses by name",
-  "update publishes the target's post-update key":
-    "a key change under a key that holds it refuses by name",
-  "a partial compound shared edge":
-    "a key referenced by another field refuses by name",
-  "upsert FOUND publishes a relation-folded":
-    "moving a record's key through a relation refuses by name",
-  "update publishes a nested relation-folded":
-    "moving a record's key through a relation refuses by name",
-  "a connect selected by alternate unique":
-    "moving a record's key through a relation refuses by name",
-  "a selected fold that keeps the key":
-    "moving a record's key through a relation refuses by name",
 };
 const waived = (name: string) =>
   Object.keys(WAIVED).some((start) => name.startsWith(start));
@@ -195,5 +183,30 @@ registerUpdateManySeriesBehavior(
 registerVacateThenSupplyBehavior(
   "SurrealDB",
   connecting(vacateThenSupplySchema),
+  enabled
+);
+registerSupplierContinuationBehavior(
+  "SurrealDB",
+  connecting(supplierContinuationSchema),
+  enabled
+);
+registerSupplierContinuationRefusals(
+  "SurrealDB",
+  connecting(supplierContinuationSchema),
+  enabled
+);
+registerProducedFieldBehavior(
+  "SurrealDB",
+  connecting(producedFieldSchema),
+  enabled
+);
+registerTwoSequenceBehavior(
+  "SurrealDB",
+  connecting(twoSequenceSchema),
+  enabled
+);
+registerProducedCompoundBehavior(
+  "SurrealDB",
+  connecting(producedCompoundSchema),
   enabled
 );

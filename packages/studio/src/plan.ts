@@ -281,6 +281,7 @@ export function postgresPlan(answer: unknown): PlanTree {
 
 // MySQL ------------------------------------------------------------------------------------------------------------
 
+const TABLE_SCAN = /tablescan/i;
 const MYSQL_LINE = /^(\s*)-> (.*)$/;
 const MYSQL_ESTIMATE = /\(cost=([\d.e+]+)(?:\.\.[\d.e+]+)? rows=([\d.e+]+)\)/;
 const MYSQL_ACTUAL =
@@ -482,4 +483,68 @@ export function sqlitePlan(
 export function* walk(node: PlanNode): Generator<PlanNode> {
   yield node;
   for (const child of node.children) yield* walk(child);
+}
+
+const SURREAL_KINDS: readonly (readonly [RegExp, PlanKind])[] = [
+  [/index/i, "index"],
+  [/scan/i, "scan"],
+  [/join/i, "join"],
+  [/sort/i, "sort"],
+  [/aggregate|group/i, "aggregate"],
+  [/limit/i, "limit"],
+  [/filter/i, "filter"],
+];
+
+/** `EXPLAIN FORMAT JSON`'s tree, as SurrealDB writes it. */
+export function surrealPlan(answer: unknown): PlanTree {
+  if (!isJson(answer)) throw new Error("SurrealDB returned no plan");
+  let next = 0;
+  const node = (plan: Json): PlanNode => {
+    const operation = String(plan.operator ?? "Unknown");
+    const attributes = isJson(plan.attributes) ? plan.attributes : {};
+    const metrics = isJson(plan.metrics) ? plan.metrics : undefined;
+    const children = (Array.isArray(plan.children) ? plan.children : [])
+      .filter(isJson)
+      .map(node);
+    const time = metrics ? (num(metrics.elapsed_ns) ?? 0) / 1e6 : 0;
+    const under = children.reduce(
+      (sum, child) => sum + (child.actual?.time ?? 0),
+      0
+    );
+    return {
+      id: String(next++),
+      operation,
+      kind:
+        SURREAL_KINDS.find(([pattern]) => pattern.test(operation))?.[1] ??
+        "other",
+      fullScan: TABLE_SCAN.test(operation),
+      ...(typeof attributes.table === "string"
+        ? { relation: attributes.table }
+        : {}),
+      ...(typeof attributes.index === "string"
+        ? { index: attributes.index }
+        : {}),
+      detail: Object.entries(attributes)
+        .map(([name, value]) => `${name}: ${String(value)}`)
+        .join(", "),
+      conditions:
+        typeof attributes.access === "string"
+          ? [{ label: "Index Cond", text: attributes.access }]
+          : [],
+      facts: [],
+      ...(metrics
+        ? {
+            actual: {
+              rows: num(metrics.output_rows) ?? 0,
+              loops: 1,
+              time: round(time),
+              self: round(Math.max(0, time - under)),
+            },
+          }
+        : {}),
+      children,
+    };
+  };
+  const root = node(answer);
+  return { root, analyzed: isJson(answer.metrics) };
 }

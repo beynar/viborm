@@ -1,12 +1,21 @@
 /**
- * A driver whose database reads SurrealQL: `docs/architecture/query-backend-frontier.md`.
- * Not a package entry. {@link SurrealQueries} and {@link SurrealOperationContext}
- * write its statements, and it declares only what the engine asks of any driver.
+ * `viborm/surrealdb`: a driver whose database reads SurrealQL. {@link SurrealQueries}
+ * and {@link SurrealOperationContext} write its statements, and it declares only what
+ * the engine asks of any driver. `docs/architecture/query-backend-frontier.md`.
  */
 
 import { passThroughParseResult } from "@adapters/adapter-result-parser";
 import type { EngineFacts } from "@adapters/database-adapter";
 import {
+  createClientFromDriverConfig,
+  type DriverConfig,
+  type LinkedClientConfig,
+  type NoExtraDriverConfigKeys,
+  type VibORMClient,
+} from "@client/client";
+import type { Schema } from "@client/types";
+import {
+  ClientInitializationError,
   ForbiddenError,
   ForeignKeyError,
   QueryError,
@@ -22,17 +31,27 @@ import {
   GeometryPoint,
   RecordId,
   SizedNumber,
-  type Surreal,
+  Surreal,
   Uuid,
 } from "surrealdb";
 import { Driver, TransactionBoundDriver } from "../driver";
 import { getExecutionTransactionPhases } from "../execution-context";
-import type { TransactionOptionSupport, TransactionOptions } from "../shared";
+import type {
+  DriverTransactionOptions,
+  TransactionOptionSupport,
+  TransactionOptions,
+} from "../shared";
+import { refuseUnknownDriverConfigKeys } from "../shared/driver-options";
 import { createTransactionCleanupError } from "../shared/transactions";
 import type { QueryExecutionContext, QueryResult } from "../types";
 import { SurrealOperationContext } from "./operation-context";
 import { SurrealQueries } from "./queries";
-import { FORBIDDEN_ROW, isConflict, ReplayedTransaction } from "./transaction";
+import {
+  FORBIDDEN_ROW,
+  isConflict,
+  ReplayedTransaction,
+  WAITING_FAILED,
+} from "./transaction";
 
 /** What the engine asks of any driver. */
 const FACTS: EngineFacts = {
@@ -76,9 +95,21 @@ function plain(value: unknown): unknown {
   if (ArrayBuffer.isView(value)) return value;
   if (value instanceof ArrayBuffer) return new Uint8Array(value);
   if (value !== null && typeof value === "object" && !(value instanceof Date)) {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, member]) => [key, plain(member)])
-    );
+    const members = Object.entries(value).map(([key, member]) => [
+      key,
+      plain(member),
+    ]);
+    // The SDK decodes a map by assignment, so a stored `__proto__` key becomes the
+    // object's prototype, which every read of the row would then inherit from.
+    const inherited = Object.getPrototypeOf(value);
+    if (
+      inherited === null ||
+      (inherited !== Object.prototype &&
+        Object.getPrototypeOf(inherited) === Object.prototype &&
+        !Object.hasOwn(inherited, "constructor"))
+    )
+      members.unshift(["__proto__", plain(inherited)]);
+    return Object.fromEntries(members);
   }
   return value;
 }
@@ -98,6 +129,8 @@ function refusal(error: unknown): unknown {
   const message = error instanceof Error ? error.message : String(error);
   const cause = error instanceof Error ? error : undefined;
   if (isConflict(error)) return new TransactionError(message, { cause });
+  // Its operation's own error, which it reads from the mark.
+  if (WAITING_FAILED.test(message)) return new QueryError(message, { cause });
   if (message.includes(FORBIDDEN_ROW))
     return new ForbiddenError("row", "write", { cause });
   if (UNIQUE_REFUSAL.test(message))
@@ -173,6 +206,16 @@ class SurrealTransactionDriver extends TransactionBoundDriver<
 const CALLBACK = "$transaction(callback)";
 
 export interface SurrealDriverOptions {
+  /** A client you connected, which stays yours: the driver never closes it. */
+  readonly client?: Surreal;
+  /** Where to connect, when the driver opens its own client. */
+  readonly url?: string;
+  readonly namespace?: string;
+  readonly database?: string;
+  readonly authentication?: {
+    readonly username: string;
+    readonly password: string;
+  };
   /**
    * How many more times a `$transaction` callback may run when a concurrent write
    * changed what it read, instead of failing with `V5001`. PostgreSQL would make it
@@ -194,10 +237,12 @@ export class SurrealDriver extends Driver<Surreal, ReplayedTransaction> {
   readonly supportsOrderedCommittedSegments = false;
 
   readonly #rerunsOnConflict: number;
+  readonly #options: SurrealDriverOptions;
 
-  constructor(client: Surreal, options: SurrealDriverOptions = {}) {
+  constructor(options: SurrealDriverOptions = {}) {
     super("surrealql", "surrealdb");
-    this.client = client;
+    if (options.client) this.client = options.client;
+    this.#options = options;
     this.#rerunsOnConflict = options.rerunsOnConflict ?? 0;
   }
 
@@ -248,11 +293,25 @@ export class SurrealDriver extends Driver<Surreal, ReplayedTransaction> {
   }
 
   protected async initClient(): Promise<Surreal> {
-    return this.client as Surreal;
+    const { url, namespace, database, authentication } = this.#options;
+    if (!url)
+      throw new ClientInitializationError(
+        'Driver "surrealdb" needs a connected client or a url.',
+        { meta: { driver: "surrealdb", operation: "configuration" } }
+      );
+    const client = new Surreal();
+    await client.connect(url, {
+      ...(namespace ? { namespace } : {}),
+      ...(database ? { database } : {}),
+      ...(authentication ? { authentication: { ...authentication } } : {}),
+    });
+    return client;
   }
 
   protected async closeClient(): Promise<void> {
-    // The caller connected it and owns it.
+    // A client handed in is the caller's.
+    if (this.#options.client) return;
+    await (this.client as Surreal | null)?.close();
   }
 
   protected async execute<T>(
@@ -264,13 +323,18 @@ export class SurrealDriver extends Driver<Surreal, ReplayedTransaction> {
       params.map((value, index) => [`p${index + 1}`, value])
     );
     try {
+      // What a statement holds ahead of itself is read with it, as one transaction.
+      const stated =
+        client instanceof ReplayedTransaction || !statement.startsWith("LET ")
+          ? statement
+          : `BEGIN; ${statement}; COMMIT;`;
       // The SDK's client answers the same call.
       const answers = await (client as ReplayedTransaction).query<unknown[]>(
-        statement,
+        stated,
         values
       );
-      // What a statement holds ahead of itself answers first.
-      const result = answers.at(-1);
+      // What a statement holds ahead of itself answers first, and `COMMIT` last.
+      const result = answers.at(stated === statement ? -1 : -2);
       const rows = Array.isArray(result) ? result : [];
       return { rows: plain(rows) as T[], rowCount: rows.length };
     } catch (error) {
@@ -288,22 +352,25 @@ export class SurrealDriver extends Driver<Surreal, ReplayedTransaction> {
   }
 
   protected override transactionOptionSupport(): TransactionOptionSupport {
-    const reason = "The SurrealDB prototype takes the server's own isolation.";
     return {
-      isolationLevel: "unsupported",
-      isolationLevelReason: reason,
-      timeout: false,
-      timeoutReason: reason,
-      maxWait: "unsupported",
-      maxWaitReason: reason,
+      isolationLevel: "snapshot-only",
+      isolationLevelReason:
+        "a SurrealDB transaction reads a snapshot, where two may each read what the other writes",
+      timeout: true,
+      maxWait: "acquisition",
     };
   }
 
   protected async transaction<T>(
     client: Surreal | ReplayedTransaction,
-    fn: (tx: ReplayedTransaction) => Promise<T>
+    fn: (tx: ReplayedTransaction) => Promise<T>,
+    _context?: QueryExecutionContext,
+    options?: DriverTransactionOptions
   ): Promise<T> {
-    const transaction = await ReplayedTransaction.begin(client as Surreal);
+    const transaction = await ReplayedTransaction.begin(
+      client as Surreal,
+      options?.maxWaitMs
+    );
     let result: T;
     try {
       result = await fn(transaction);
@@ -318,4 +385,41 @@ export class SurrealDriver extends Driver<Surreal, ReplayedTransaction> {
     }
     return result;
   }
+}
+
+export type SurrealClientConfig<C extends DriverConfig> = SurrealDriverOptions &
+  C;
+
+const SURREAL_CONFIG_KEYS: Record<keyof SurrealDriverOptions, true> = {
+  client: true,
+  url: true,
+  namespace: true,
+  database: true,
+  authentication: true,
+  rerunsOnConflict: true,
+};
+
+export function createClient<S extends Schema, C extends DriverConfig<S>>(
+  config: SurrealClientConfig<C> &
+    DriverConfig<S> &
+    NoExtraDriverConfigKeys<C, SurrealDriverOptions, S>
+): VibORMClient<{
+  [P in keyof LinkedClientConfig<
+    C & { driver: SurrealDriver }
+  >]: LinkedClientConfig<C & { driver: SurrealDriver }>[P];
+}> {
+  refuseUnknownDriverConfigKeys(config, "surrealdb", SURREAL_CONFIG_KEYS);
+  const { client, url, namespace, database, authentication, rerunsOnConflict } =
+    config;
+  return createClientFromDriverConfig<S, C, SurrealDriver>(
+    config,
+    new SurrealDriver({
+      client,
+      url,
+      namespace,
+      database,
+      authentication,
+      rerunsOnConflict,
+    })
+  );
 }
