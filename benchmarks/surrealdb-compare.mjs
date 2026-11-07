@@ -8,6 +8,11 @@
  *   SURREAL_URL=ws://127.0.0.1:8765/rpc node benchmarks/surrealdb-compare.mjs
  *
  * SURREAL_MAX_QUERY_PARSING_DEPTH=128 on the server, as for permissions at any depth.
+ *
+ * Writes compare only at equal durability. On macOS SurrealDB flushes the disk's cache at
+ * each commit (about 4 ms) and PostgreSQL's default `open_datasync` does not: either start
+ * SurrealDB with SURREAL_DATASTORE_SYNC=never, or PostgreSQL with
+ * `-c wal_sync_method=fsync_writethrough`.
  */
 
 import { randomBytes } from "node:crypto";

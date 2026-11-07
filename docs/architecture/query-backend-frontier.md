@@ -394,9 +394,30 @@ reads as it does.
 **How a row domain reads.** A row named by its whole key follows its links, each a read by key, to
 lists of who holds what lies at their ends: `authorId.orgId IN $h1`. A page caps its list by an index
 read and, past 1,000, reads in key order following each row's links, which is where the wide actor's
-28 ms became 0.7 ms. Against PostgreSQL on one machine (`benchmarks/surrealdb-compare.mjs`, medians):
-plain reads and writes take 2 to 3.6 times as long, soft delete 1.7 to 2.7, hooks 3, ordering 1.1 to
-3.8, permissions 1.8 to 3. At 20,000 rows the same holds, 1.6 to 5.1 times, once a page walks its index:
+28 ms became 0.7 ms.
+
+**Speed against PostgreSQL** on one machine (`benchmarks/surrealdb-compare.mjs`, medians) depends first
+on durability. On macOS SurrealDB flushes the disk's cache at each commit by default, about 4 ms, where
+PostgreSQL's `open_datasync` does not. At equal durability (PostgreSQL with `fsync_writethrough`)
+writes take 1.0 to 1.6 times as long, extensions included. With neither flushing
+(`SURREAL_DATASTORE_SYNC=never` against PostgreSQL's defaults), a read or write of one row takes 1.1 to
+1.7 times as long, a page 2 to 2.6, `count` 3.7 and `updateMany` 3.9, which are the server's scan and its
+cost per row written. A round trip alone costs 0.13 ms here against 0.08 ms.
+
+The forms behind that, each measured against the one it replaced, on the same plan:
+
+- A filter that names a record by its whole key reads or writes the record itself: `SELECT … FROM $p1`,
+  `UPDATE $p1 SET … WHERE <the rest>`. `WHERE id = $p1` walks the same single record yet costs the
+  statement about twice as much (an update 0.78 ms to 0.31 ms). A keyed cursor reads its anchor the same way.
+- One row is created with `CREATE $id CONTENT $row`, which costs half `INSERT INTO t $row` (0.67 ms to
+  0.31 ms) and refuses a taken record or unique value in the same words. A key a sequence gives, or the
+  statement reads, still inserts.
+- A unique read has no `ORDER BY`, which only sorted its one row.
+- A projection lists its columns bare. An absent field reaches the client as `undefined` under its key,
+  which the driver reads as null, so `(f ?? NULL) AS f` cost each row for nothing (50 rows, 0.52 ms to
+  0.40 ms).
+
+At 20,000 rows the same holds, 1.7 to 4.7 times without flushing, once a page walks its index:
 
 - `ORDER BY a DESC, id ASC` sorts every row, as no index holds that order, so a page reads `a`'s value
   at its last row ahead and bounds the sort with it (7 ms to 0.6 ms). It needs an index on `a`, and a
@@ -414,9 +435,10 @@ plain reads and writes take 2 to 3.6 times as long, soft delete 1.7 to 2.7, hook
 
 A `groupBy` under `take` of at most 20 groups seeks them on the index of the field it orders by, one
 value after the last, and reads only their rows (5.6 ms to about 1.1 ms, and no longer growing with the
-table). PostgreSQL's 0.2 ms stops on the index itself, so this stays the widest ratio, at about 5. Without `take` both
-read every row, and the ratio is 3. `_sum` reads every value, as `SELECT VALUE` does in the same 3.2 ms:
-that ratio, 5, is the server's scan.
+table). PostgreSQL's 0.13 ms stops on the index itself, so this stays the widest ratio, at about 8 for
+1 ms. Without `take` both read every row, and the ratio is 3.4. `_sum` reads every value, as `SELECT VALUE`
+does in the same time, and `GROUP ALL` is the fastest form measured: that ratio, 4.4, is the server's
+scan. A cursor over a second order column reads its anchor's values ahead, and stays at about 6 for 0.8 ms.
 
 **Refusals** are counted in `tests/contracts/architecture/surrealdb-refusal-census.test.ts`, each with
 why it stands. A new one fails it.

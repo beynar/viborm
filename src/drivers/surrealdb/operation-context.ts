@@ -45,7 +45,7 @@ import type { PreparedGuardFailure } from "@query-engine/types";
 import { writeSinks } from "@query-engine/write-sinks";
 import { getModelKeyCatalog } from "@schema/model/keys";
 import { Sql, sql } from "@sql";
-import { Decimal } from "surrealdb";
+import { Decimal, RecordId } from "surrealdb";
 import { SurrealQueries } from "./queries";
 import {
   isOneValue,
@@ -276,6 +276,27 @@ export class SurrealOperationContext extends OperationContext {
     ];
   }
 
+  /**
+   * One row created at its record, where the row states it. `INSERT` costs about
+   * twice as much for one row, and refuses a taken record or a unique value in the
+   * same words. A key a sequence gives, or the statement reads, is no record yet.
+   */
+  #created(model: AnyModel, row: Input): Sql | undefined {
+    const [stated, ...members] = this.#rowMembers(model, row);
+    const record = stated![1];
+    if (!(isOneValue(record) && record.values[0] instanceof RecordId))
+      return undefined;
+    const content = members.every(([, value]) => isOneValue(value))
+      ? sql`${Object.fromEntries(
+          members.map(([column, value]) => [column, value.values[0]])
+        )}`
+      : sql`{ ${sql.join(
+          members.map(([column, value]) => sql`${fieldName(column)}: ${value}`),
+          ", "
+        )} }`;
+    return sql`CREATE ${record} CONTENT ${content}`;
+  }
+
   /** Rows as a list: one parameter, where each value of each is one. */
   #rows(model: AnyModel, rows: readonly Input[]): Sql {
     const members = rows.map((row) => this.#rowMembers(model, row));
@@ -399,12 +420,38 @@ export class SurrealOperationContext extends OperationContext {
       : sql.raw("");
   }
 
+  /**
+   * Where a write finds its rows: the record its filter names by its whole key, or
+   * the table, and what else the filter asks of them.
+   */
+  #source(selector: PreparedSelector): {
+    readonly from: Sql;
+    readonly where: Sql;
+  } {
+    const { model, predicate } = selector;
+    const named = predicate && this.#lowering.namedRecord(model, predicate);
+    if (!named)
+      return {
+        from: fieldName(model["~"].names.sql!),
+        where: this.#where(selector),
+      };
+    const conditions = named.rest
+      ? onceEach(this.#lowering.located(model, named.rest, true))
+      : [];
+    return {
+      from: named.record,
+      where: conditions.length
+        ? sql`WHERE ${sql.join(conditions, " AND ")}`
+        : sql.raw(""),
+    };
+  }
+
   /** What a bulk write takes: the table, or the first rows of it in key order. */
   #target(selector: PreparedSelector, limit: number | undefined): Sql {
     const { model } = selector;
-    const table = fieldName(model["~"].names.sql!);
-    if (limit === undefined) return sql`${table} ${this.#where(selector)}`;
-    return sql`(SELECT VALUE id FROM ${table} ${this.#where(selector)} ORDER BY ${this.#lowering.order(model, undefined)} LIMIT ${sql.raw(String(Number(limit)))})`;
+    const { from, where } = this.#source(selector);
+    if (limit === undefined) return sql`${from} ${where}`;
+    return sql`(SELECT VALUE id FROM ${from} ${where} ORDER BY ${this.#lowering.order(model, undefined)} LIMIT ${sql.raw(String(Number(limit)))})`;
   }
 
   /**
@@ -528,6 +575,16 @@ export class SurrealOperationContext extends OperationContext {
       source: sql`${table} ${where}`,
       update: (set) => sql`UPDATE ${table} SET ${set} ${where}`,
     };
+  }
+
+  /** {@link #frozen} over where `selector` finds its rows. */
+  #framed(selector: PreparedSelector): {
+    readonly before: Sql;
+    readonly source: Sql;
+    readonly update: (set: Sql) => Sql;
+  } {
+    const { from, where } = this.#source(selector);
+    return this.#frozen(from, where, selector.predicate);
   }
 
   /** What a write's block states ahead of it, where anything does. */
@@ -811,16 +868,22 @@ export class SurrealOperationContext extends OperationContext {
     if (given.length === 0) return { count: 0 } as never;
     const table = fieldName(model["~"].names.sql!);
     const computed = await this.#computed(model, given);
-    const rows = this.#rows(model, computed);
+    const judge = this.queries.domain?.produced(model);
     const verb = sql.raw(skipDuplicates ? "INSERT IGNORE" : "INSERT");
-    const statement = this.#lowering.hoisted(() =>
-      this.#judgedInsert(
-        (held) =>
-          sql`${verb} INTO ${table} ${held} ${this.#returning(projection)}`,
-        rows,
-        this.queries.domain?.produced(model)
-      )
-    );
+    const statement = this.#lowering.hoisted(() => {
+      const created =
+        computed.length === 1 && !skipDuplicates && !judge?.predicate
+          ? this.#created(model, computed[0]!)
+          : undefined;
+      return created
+        ? sql`${created} ${this.#returning(projection)}`
+        : this.#judgedInsert(
+            (held) =>
+              sql`${verb} INTO ${table} ${held} ${this.#returning(projection)}`,
+            this.#rows(model, computed),
+            judge
+          );
+    });
     return (await this.#refusing(model, refusal, () =>
       this.#finish(model, statement, projection, single)
     )) as never;
@@ -865,12 +928,8 @@ export class SurrealOperationContext extends OperationContext {
         single
       );
     const assignments = this.#assignments(model, given);
-    const table = fieldName(model["~"].names.sql!);
     const statement = this.#lowering.hoisted(() => {
-      const frozen =
-        limit === undefined
-          ? this.#frozen(table, this.#where(selector), selector.predicate)
-          : undefined;
+      const frozen = limit === undefined ? this.#framed(selector) : undefined;
       const source = () => frozen?.source ?? this.#target(selector, limit);
       return this.#stated(
         this.#ahead(
@@ -942,10 +1001,9 @@ export class SurrealOperationContext extends OperationContext {
     single?: () => Error
   ): Promise<unknown> {
     this.#writing();
-    const table = fieldName(model["~"].names.sql!);
     const located = () =>
       limit === undefined
-        ? sql`LET $rows = (SELECT VALUE id FROM ${table} ${this.#where(selector)});`
+        ? sql`LET $rows = (SELECT VALUE id FROM ${this.#target(selector, undefined)});`
         : sql`LET $rows = ${this.#target(selector, limit)};`;
     const heldBack = this.#heldBack(model, sql.raw("$rows"));
     if (!projection) {
@@ -1053,7 +1111,11 @@ export class SurrealOperationContext extends OperationContext {
       );
     const { response, decoded } = await this.#written(
       model,
-      () => ({ write: sql`${verb} INTO ${table} [${row}]` }),
+      () => ({
+        write:
+          (producer ? undefined : this.#created(model, given)) ??
+          sql`${verb} INTO ${table} [${row}]`,
+      }),
       produced,
       answer
     );
@@ -1589,7 +1651,6 @@ export class SurrealOperationContext extends OperationContext {
   ): Promise<Input> {
     this.#writing();
     const given = await this.#settled(model, asked);
-    const table = fieldName(model["~"].names.sql!);
     const fields = projection.fields.map((field) => field.name);
     if (this.#keyChange(model, given).length > 0) {
       const result = await this.#updateKeys(
@@ -1606,17 +1667,13 @@ export class SurrealOperationContext extends OperationContext {
     const { response, decoded } = await this.#withFollowers(
       model,
       given,
-      sql`${table} ${this.#where(selector)}`,
+      this.#target(selector, undefined),
       () =>
         this.#refusing(model, refusal, () =>
           this.#written(
             model,
             () => {
-              const frozen = this.#frozen(
-                table,
-                this.#where(selector),
-                selector.predicate
-              );
+              const frozen = this.#framed(selector);
               return {
                 write: frozen.update(this.#assignments(model, given)),
                 ahead: this.#ahead(

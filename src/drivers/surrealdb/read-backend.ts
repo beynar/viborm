@@ -392,10 +392,11 @@ export class SurrealReadBackend implements ReadBackend {
             ? undefined
             : q.prepareSelector(model, args.where, true, false);
         const query = {
+          // One row at most: an order would only sort it.
           sql: this.statement(
             model,
             prepared,
-            args,
+            { ...args, unordered: true },
             q.scoped(model, selector?.predicate, "root")
           ),
           shape: prepared.shape,
@@ -589,10 +590,79 @@ export class SurrealReadBackend implements ReadBackend {
   }
 
   /** A filter's conditions: one that names a row follows its links from that row. */
-  located(model: AnyModel, predicate: PreparedPredicate): Sql[] {
-    return this.#namesOneRow(model, predicate)
+  located(
+    model: AnyModel,
+    predicate: PreparedPredicate,
+    named = this.#namesOneRow(model, predicate)
+  ): Sql[] {
+    return named
       ? this.judgingAll(() => this.conjuncts(predicate))
       : this.conjuncts(predicate);
+  }
+
+  /** What an operation compares with, where the call states it. */
+  #statedValue(arm: PreparedPredicate): unknown {
+    if (arm.kind !== "operation") return undefined;
+    const { operand } = arm;
+    if (operand === undefined) return arm.value;
+    if (operand.kind === "value") return operand.value;
+    if (operand.kind === "parameter")
+      return this.#queries.callValue(operand.parameter);
+    return undefined;
+  }
+
+  /**
+   * The record a filter names by its whole key, and what else it asks of that row.
+   * A statement over the record itself costs about half one that filters the table
+   * on `id`, though both fetch the one record.
+   */
+  namedRecord(
+    model: AnyModel,
+    predicate: PreparedPredicate
+  ):
+    | { readonly record: Sql; readonly rest: PreparedPredicate | undefined }
+    | undefined {
+    const q = this.#queries;
+    const keys = q.keyOrder(model);
+    const flat = (node: PreparedPredicate): PreparedPredicate[] =>
+      node.kind === "and" ? node.predicates.flatMap(flat) : [node];
+    const named = new Map<string, unknown>();
+    const others: PreparedPredicate[] = [];
+    for (const arm of flat(predicate)) {
+      const value = this.#statedValue(arm);
+      const field =
+        arm.kind === "operation" &&
+        arm.operator === "equals" &&
+        !arm.insensitive &&
+        value !== null &&
+        value !== undefined &&
+        !(value instanceof Sql) &&
+        arm.target.kind === "column" &&
+        arm.target.path === undefined &&
+        arm.target.scalar.model === model
+          ? arm.target.scalar.field
+          : undefined;
+      if (
+        field !== undefined &&
+        keys.includes(field) &&
+        !named.has(field) &&
+        !this.#gatedHere(model, field)
+      )
+        named.set(field, value);
+      else others.push(arm);
+    }
+    if (!keys.every((key) => named.has(key))) return undefined;
+    const [only] = keys;
+    let record: Sql | undefined;
+    if (keys.length > 1)
+      record = sql`${this.recordOf(model, Object.fromEntries(named) as Input)}`;
+    else if (isSingleKey(q, model, only!))
+      record = this.value(model, only!, named.get(only!));
+    if (!record) return undefined;
+    let rest: PreparedPredicate | undefined;
+    if (others.length > 1) rest = { kind: "and", predicates: others };
+    else rest = others[0];
+    return { record, rest };
   }
 
   judgingAll<T>(build: () => T): T {
@@ -1180,7 +1250,7 @@ export class SurrealReadBackend implements ReadBackend {
   statement(
     model: AnyModel,
     prepared: PreparedProjection,
-    args: Partial<Arguments>,
+    args: Partial<Arguments> & { readonly unordered?: boolean },
     predicate: PreparedPredicate | undefined,
     conditions: readonly Sql[] = [],
     path?: Sql
@@ -1194,12 +1264,19 @@ export class SurrealReadBackend implements ReadBackend {
         predicate,
         conditions
       );
-    const { from, rest, ahead } = this.#driven(
+    const { from, rest, ahead, named } = this.#driven(
       model,
       predicate,
       args.take !== undefined
     );
-    const listed = this.#page(model, prepared, args, from, rest, conditions);
+    const listed = this.#page(
+      model,
+      prepared,
+      named ? { ...args, named, unordered: true } : args,
+      from,
+      rest,
+      conditions
+    );
     if (!ahead) return listed;
     // The list is complete or it is not, and only a read can tell. What the walk
     // computes for itself waits in its own branch, where it may never run.
@@ -1227,7 +1304,10 @@ export class SurrealReadBackend implements ReadBackend {
   #page(
     model: AnyModel,
     prepared: PreparedProjection,
-    args: Partial<Arguments>,
+    args: Partial<Arguments> & {
+      readonly named?: boolean;
+      readonly unordered?: boolean;
+    },
     from: Sql,
     rest: PreparedPredicate | undefined,
     conditions: readonly Sql[]
@@ -1237,7 +1317,8 @@ export class SurrealReadBackend implements ReadBackend {
     const fromTable =
       this.#inRelation === 0 &&
       !this.#walking &&
-      from.toStatement() === name(tableOf(model)).toStatement();
+      (args.named === true ||
+        from.toStatement() === name(tableOf(model)).toStatement());
     const { extras, clauses } = this.#clauses(
       model,
       { ...args, fromTable },
@@ -1245,10 +1326,12 @@ export class SurrealReadBackend implements ReadBackend {
       conditions
     );
     this.#guardsCursor = false;
-    const count =
-      Number(args.take ?? 0) > 0
-        ? Number(args.take)
-        : Number(rest !== undefined && this.#namesOneRow(model, rest));
+    let count = Number(args.take ?? 0);
+    if (count <= 0)
+      count = Number(
+        args.named === true ||
+          (rest !== undefined && this.#namesOneRow(model, rest))
+      );
     const statedOnce = sql.join(clauses, " ");
     this.#parents =
       fromTable &&
@@ -1628,14 +1711,22 @@ export class SurrealReadBackend implements ReadBackend {
     args: Pick<
       Partial<Arguments>,
       "orderBy" | "take" | "skip" | "cursor" | "distinct"
-    > & { readonly unordered?: boolean; readonly fromTable?: boolean },
+    > & {
+      readonly unordered?: boolean;
+      readonly fromTable?: boolean;
+      readonly named?: boolean;
+    },
     predicate: PreparedPredicate | undefined,
     conditions: readonly Sql[] = []
   ): { readonly extras: Sql[]; readonly clauses: Sql[] } {
     const { terms, forward } = this.#ordering(model, args);
     const { extras, order } = this.#ordered(terms);
     const located = [
-      ...(predicate ? this.located(model, predicate) : []),
+      ...(predicate
+        ? args.named
+          ? this.located(model, predicate, true)
+          : this.located(model, predicate)
+        : []),
       ...conditions,
     ];
     const cursor =
@@ -1798,23 +1889,27 @@ export class SurrealReadBackend implements ReadBackend {
     const table = name(tableOf(model));
     // The anchor is a candidate like any other: a hidden one is a missing one.
     const q = this.#queries;
-    const located = this.predicate(
-      q.scoped(
-        model,
-        q.prepareSelector(model, cursor, true, false).predicate,
-        this.#inRelation > 0 ? "related" : "root"
-      )!,
-      true
-    );
+    const anchor = q.scoped(
+      model,
+      q.prepareSelector(model, cursor, true, false).predicate,
+      this.#inRelation > 0 ? "related" : "root"
+    )!;
+    // A cursor that states its key is the record itself, read without a filter.
+    const named = this.namedRecord(model, anchor);
+    const source = named?.record ?? table;
+    const asked = named ? named.rest : anchor;
+    const located = asked
+      ? sql` WHERE ${this.predicate(asked, true)}`
+      : sql.raw("");
     // Read once, ahead of the statement, where a statement can: in a `WHERE` these
     // run for each row the scan passes.
     const once = (expression: Sql) => this.#hoist(expression) ?? expression;
     const at = (expression: Sql) =>
       once(
-        sql`(SELECT VALUE ${expression} FROM ${table} WHERE ${located} LIMIT 1)[0]`
+        sql`(SELECT VALUE ${expression} FROM ${source}${located} LIMIT 1)[0]`
       );
     const found = once(
-      sql`array::len(SELECT VALUE id FROM ${table} WHERE ${located} LIMIT 1) > 0`
+      sql`array::len(SELECT VALUE id FROM ${source}${located} LIMIT 1) > 0`
     );
     const walked = terms.flatMap((term): OrderTerm[] =>
       term.nullable
@@ -1987,10 +2082,7 @@ export class SurrealReadBackend implements ReadBackend {
 
   columns(prepared: PreparedProjection): Sql {
     return sql.join(
-      prepared.fields.map((field) => {
-        const { value, alias } = this.#field(prepared.model, field);
-        return sql`${value} AS ${name(alias)}`;
-      }),
+      prepared.fields.map((field) => this.column(prepared.model, field)),
       ", "
     );
   }
@@ -1998,7 +2090,11 @@ export class SurrealReadBackend implements ReadBackend {
   /** One projected field, as a `SELECT` or a `RETURN` lists it. */
   column(model: AnyModel, field: PreparedProjectionField): Sql {
     const { value, alias } = this.#field(model, field);
-    return sql`${value} AS ${name(alias)}`;
+    const named = name(alias);
+    // A column under its own name needs no alias, which costs a little per row.
+    return value.toStatement() === named.toStatement()
+      ? value
+      : sql`${value} AS ${named}`;
   }
 
   #destructure(prepared: PreparedProjection): Sql {
@@ -2030,11 +2126,9 @@ export class SurrealReadBackend implements ReadBackend {
             alias: field.name,
           };
         }
-        return {
-          // An absent field is NONE, which a row carries as no key at all.
-          value: nullable ? sql`(${column} ?? NULL)` : column,
-          alias: field.name,
-        };
+        // An absent field is NONE, which the client reads as `undefined` under its
+        // key, and the driver as null: `?? NULL` would cost each row for nothing.
+        return { value: column, alias: field.name };
       }
       case "relation":
         return { value: this.#relation(field), alias: field.name };
@@ -3143,12 +3237,18 @@ export class SurrealReadBackend implements ReadBackend {
     readonly rest: PreparedPredicate | undefined;
     /** A page may need fewer rows than the list holds: read only so far ahead. */
     readonly ahead?: { readonly rows: Sql; readonly arm: PreparedPredicate };
+    /** `from` is the one record the filter names, and `rest` asks more of it. */
+    readonly named?: boolean;
   } {
     const table = name(tableOf(model));
     if (!(predicate && this.#lets)) return { from: table, rest: predicate };
     // A row named by its key is read, and its links followed.
-    if (this.#namesOneRow(model, predicate))
-      return { from: table, rest: predicate };
+    if (this.#namesOneRow(model, predicate)) {
+      const named = this.namedRecord(model, predicate);
+      return named
+        ? { from: named.record, rest: named.rest, named: true }
+        : { from: table, rest: predicate };
+    }
     const flat = (node: PreparedPredicate): PreparedPredicate[] =>
       node.kind === "and" ? node.predicates.flatMap(flat) : [node];
     const arms = flat(predicate);
