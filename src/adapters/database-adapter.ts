@@ -84,6 +84,23 @@ export function installGeoPointSql(
 /** The three substring filters, as `insensitiveText` names them. */
 export type TextMatch = "contains" | "startsWith" | "endsWith";
 
+/**
+ * What the engine reads of a driver in any language: strategy and decoding, and
+ * nothing that spells a statement. A database with no SQL declares only this.
+ */
+export interface EngineFacts
+  extends Pick<DatabaseAdapter, "namespace" | "capabilities" | "result"> {
+  /** Set when this database holds a geographic point, however it writes one. */
+  readonly geoPoint?: object;
+  readonly mutations: Pick<
+    DatabaseAdapter["mutations"],
+    "skipDuplicatesStrategy" | "upserted"
+  >;
+  readonly aggregates: Partial<
+    Pick<DatabaseAdapter["aggregates"], "numberSum" | "integerSum">
+  >;
+}
+
 export interface DatabaseAdapter {
   /**
    * NAMESPACE

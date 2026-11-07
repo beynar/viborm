@@ -6,7 +6,10 @@
  */
 export async function foldsNonAscii(client: {
   $queryRawUnsafe(query: string): Promise<unknown>;
+  $driver?: { dialect: string };
 }): Promise<boolean> {
+  // SurrealDB folds every letter, and its language has no `LOWER`.
+  if (client.$driver?.dialect === "surrealql") return true;
   const rows = (await client.$queryRawUnsafe(
     "SELECT LOWER('É') AS folded"
   )) as { folded: string }[];

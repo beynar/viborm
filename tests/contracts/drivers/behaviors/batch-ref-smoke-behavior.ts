@@ -1,4 +1,5 @@
 import { getAdapterInternals } from "@adapters/adapter-internals";
+import type { DatabaseAdapter } from "@adapters/database-adapter";
 import type { Driver } from "@drivers";
 import { sql } from "@sql";
 import { defineContract } from "@tests/contracts/contract";
@@ -16,8 +17,9 @@ export function runBatchRefSmokeBehavior<TDriver extends Driver<any, any>>({
   describe(`${driverName} batch refs`, () => {
     test("stores and reads an exact reference inside one batch", async () => {
       const driver = createDriver();
-      const storeLastInsertId = getAdapterInternals(driver.adapter).batchRefs
-        .storeLastInsertId;
+      const storeLastInsertId = getAdapterInternals(
+        driver.adapter as DatabaseAdapter
+      ).batchRefs.storeLastInsertId;
       const batchId = `smoke_${driverName.replace(/[^a-z0-9]/gi, "_")}`;
       const tableName = "__viborm_batch_ref_smoke_users";
       const createTable =
@@ -32,34 +34,30 @@ export function runBatchRefSmokeBehavior<TDriver extends Driver<any, any>>({
         const publication = storeLastInsertId
           ? [
               createTable,
-              sql`INSERT INTO ${driver.adapter.identifiers.escape(
-                tableName
-              )} (${driver.adapter.identifiers.escape(
-                "name"
-              )}) VALUES (${"Ada"})`,
+              sql`INSERT INTO ${(driver.adapter as DatabaseAdapter).identifiers.escape(tableName)} (${(driver.adapter as DatabaseAdapter).identifiers.escape("name")}) VALUES (${"Ada"})`,
               storeLastInsertId(batchId, "user_id"),
             ]
           : [
-              getAdapterInternals(driver.adapter).batchRefs.store(
-                batchId,
-                "user_id",
-                sql`${1}`
-              ),
+              getAdapterInternals(
+                driver.adapter as DatabaseAdapter
+              ).batchRefs.store(batchId, "user_id", sql`${1}`),
             ];
-        const setup = getAdapterInternals(driver.adapter).batchRefs.setup(
-          batchId
-        );
+        const setup = getAdapterInternals(
+          driver.adapter as DatabaseAdapter
+        ).batchRefs.setup(batchId);
         const statements = [
           ...setup,
           ...publication,
-          sql`SELECT ${getAdapterInternals(driver.adapter).batchRefs.read(
+          sql`SELECT ${getAdapterInternals(
+            driver.adapter as DatabaseAdapter
+          ).batchRefs.read(
             batchId,
             "user_id"
-          )} AS ${driver.adapter.identifiers.escape("id")}`,
-          getAdapterInternals(driver.adapter).batchRefs.cleanup(batchId),
-          sql`DROP TABLE IF EXISTS ${driver.adapter.identifiers.escape(
-            tableName
-          )}`,
+          )} AS ${(driver.adapter as DatabaseAdapter).identifiers.escape("id")}`,
+          getAdapterInternals(
+            driver.adapter as DatabaseAdapter
+          ).batchRefs.cleanup(batchId),
+          sql`DROP TABLE IF EXISTS ${(driver.adapter as DatabaseAdapter).identifiers.escape(tableName)}`,
         ];
         const selectIndex = setup.length + publication.length;
         const results = await driver._executeBatch<{ id: string | number }>(

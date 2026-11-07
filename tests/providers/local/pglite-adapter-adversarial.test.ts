@@ -1,3 +1,4 @@
+import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { createClient } from "@drivers/pglite";
 import { citext } from "@electric-sql/pglite/contrib/citext";
 import { vector } from "@electric-sql/pglite-pgvector";
@@ -180,7 +181,7 @@ test("wide JSON projection preserves every field and aggregate scope", async () 
     `field${index}`,
     index === 120 ? sql.raw`COUNT(*)` : sql`${index}::int`,
   ]);
-  const expression = adapter.json.object(fields);
+  const expression = (adapter as DatabaseAdapter).json.object(fields);
   const rows = await client.$queryRaw<{ payload: Record<string, number> }>(
     sql`SELECT ${expression} AS payload FROM (VALUES (1), (2)) AS source(value)`
   );

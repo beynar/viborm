@@ -58,6 +58,13 @@ export function tableExistsProbe(
   lifetime: CatalogProbeLifetime = "live-command"
 ): CatalogProbe {
   const dialect = driver.dialect;
+  if (dialect === "surrealql")
+    return {
+      id: `table:${exists ? "exists" : "absent"}:${tableName}`,
+      sql: "RETURN [{ present: (INFO FOR DB STRUCTURE).tables.name CONTAINS $p1 }]",
+      parameters: [stringParam(tableName)],
+      equals: exists,
+    };
   if (dialect === "postgresql") {
     const schema = boundCatalogNamespace(driver);
     return {
@@ -185,6 +192,8 @@ export function probeForGeneratedStatement(
   operation: DiffOperation,
   statement: string
 ): { pre: CatalogProbe; post: CatalogProbe } | null {
+  // An operation here is several statements, and they run in the one transaction.
+  if (driver.dialect === "surrealql") return null;
   if (
     (driver.dialect === "postgresql" || driver.dialect === "mysql") &&
     namespace(driver) === undefined
@@ -389,7 +398,9 @@ export function qualifiedName(
 ): string {
   return renderQualifiedIdentifier(
     (part) => driver.escapeIdentifier(part),
-    driver.target.dialect === "sqlite" ? undefined : namespace(driver),
+    driver.target.dialect === "sqlite" || driver.target.dialect === "surrealql"
+      ? undefined
+      : namespace(driver),
     name
   );
 }

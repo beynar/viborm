@@ -1,0 +1,102 @@
+---
+title: SurrealDB
+description: Use VibORM with SurrealDB, through its own query language
+---
+
+`viborm/surrealdb` writes SurrealQL, not SQL: a relation is a record link, a
+many-to-many is a graph edge, and a filter on a relation walks the graph. Every
+query, write, transaction, migration and official extension works the same as on
+the other databases, with the differences below.
+
+```bash
+npm install viborm surrealdb
+```
+
+```ts
+import { createClient } from "viborm/surrealdb";
+import { schema } from "./schema";
+
+const db = createClient({
+  schema,
+  url: "ws://127.0.0.1:8000/rpc",
+  namespace: "app",
+  database: "main",
+  authentication: { username: "root", password: "root" },
+});
+```
+
+To keep control of the connection, pass a client you connected. The driver never
+closes it:
+
+```ts
+import { Surreal } from "surrealdb";
+import { SurrealDriver } from "viborm/surrealdb";
+import { createClient } from "viborm";
+
+const surreal = new Surreal();
+await surreal.connect("ws://127.0.0.1:8000/rpc", {
+  namespace: "app",
+  database: "main",
+  authentication: { username: "root", password: "root" },
+});
+
+const db = createClient({ schema, driver: new SurrealDriver({ client: surreal }) });
+```
+
+## Migrations
+
+`viborm/migrations/surrealdb` gives `push`, `generate`, `apply`, `verify`, `down`
+and `reset`. Generated files hold SurrealQL.
+
+```ts
+import { createMigrationClient } from "viborm/migrations/surrealdb";
+
+const migrations = createMigrationClient(db, { storage });
+await migrations.generate({ name: "init" });
+await migrations.apply();
+```
+
+## Server settings
+
+Permission policies write deep statements. Start the server with
+`SURREAL_MAX_QUERY_PARSING_DEPTH=128`; a statement past the limit refuses by name
+and says so.
+
+## What differs from SQL
+
+- **Transactions** are snapshot isolated. There is no savepoint, so going back to
+  a nested `$transaction` and a commit conflict run the statements again. If a
+  concurrent write changed what they read, the transaction fails with `V5001` and
+  can be retried; `rerunsOnConflict` retries a `$transaction` callback for you, and
+  everything it does outside the database happens again.
+- **`isolationLevel`**: a transaction reads a snapshot, which gives what `ReadUncommitted`,
+  `ReadCommitted` and `RepeatableRead` ask. `Serializable` is refused: two transactions may each
+  read what the other writes. There are no row locks.
+- **A connection holds 64 open transactions**, and the rest wait for one to end; `maxWait` bounds
+  the wait.
+- **A record's key** is its id, and an id never changes. Changing a key copies the
+  record to its new id, and what holds it follows. A key that is a `dateTime` or
+  `decimal` is stored as its text.
+- **A foreign key to a unique field**, rather than to the key, is an event on the
+  referenced table, not a record link.
+- **`restrict` on a many-to-many** is the driver's: a raw `DELETE` does not hold back.
+- **A partial unique index** is a computed field. Its predicate may hold comparisons, `IN`,
+  `IS [NOT] NULL`, `AND`, `OR` and `NOT` over columns and values; anything else is refused by name.
+- **A page in an order** walks an index on its first field, as on SQL. A descending page first reads,
+  in the same statement, that field's value at the page's last row, because the key that breaks ties
+  ascends and no index here holds that order. Without an index on that field the page sorts every row.
+- **An `include` with a `take`** walks an index in its order only under a root page of at most 20 rows
+  (or a `findUnique`), whose children are then read one row at a time, in the same statement, and only
+  if the filters on both hold no subquery. Otherwise each row reads all its children and sorts them, as
+  SurrealDB plans a correlated read without one.
+- **A `groupBy`** reads every row it groups. Under a `take` of at most 20 groups, ordered by a field an
+  index holds and without a `having`, it first seeks those groups on the index and reads only their rows.
+- **Every index kind** is a plain index here: a `spatial`, `gin` or `fulltext` declaration is kept,
+  and a read through it scans as it would without.
+- **A field named `id`** beside a key of another name is stored as `id_field`: `id` is the record's.
+- **Renaming a table or a field, and changing a key,** copy the rows, statement by statement, since
+  SurrealDB has no rename and a record's id never changes. They are not atomic.
+- **A concurrent delete and insert can leave an orphan**: `REFERENCE` is checked in
+  each transaction's own snapshot, and neither sees the other.
+- **Raw fragments** are SurrealQL, and `$executeRaw` parameters are named `$p1`, `$p2`.
+- **A `$queryRaw` or a filter fragment** cannot hold SQL subqueries.

@@ -648,12 +648,14 @@ export function withLockedMigrationProducer<T>(
 ): Promise<T> {
   const { dialect } = migrationDriver.target;
   const limits = migrationDriver.limits;
-  const lockFree = migrationLockFree(migrationDriver);
   const run = async (producer: AnyDriver) =>
     body(
       producer,
       await validateAndSelectMigrationTarget(producer, migrationDriver)
     );
+  if (migrationDriver.holdLock)
+    return migrationDriver.holdLock(driver, limits.lockWait, () => run(driver));
+  const lockFree = migrationLockFree(migrationDriver);
   const scope: PinnedSessionScope = {
     connectionWait: limits.connectionWait,
     diagnostics: migrationDriver.diagnostics,
@@ -1454,6 +1456,7 @@ async function releaseLock(
 function describeEstate(migrationDriver: BoundMigrationDriver): string {
   const { target } = migrationDriver;
   if (target.dialect === "sqlite") return "the SQLite database";
+  if (target.dialect === "surrealql") return "the SurrealDB database";
   return target.dialect === "postgresql"
     ? `schema "${target.namespace}"`
     : `database "${migrationDriver.namespace ?? "(unbound)"}"`;

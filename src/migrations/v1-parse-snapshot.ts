@@ -49,6 +49,7 @@ const TABLE_KEYS = [
   "columns",
   "foreignKeys",
   "indexes",
+  "junction",
   "name",
   "primaryKey",
   "relationStorage",
@@ -382,6 +383,7 @@ function parseTable(value: unknown, label: string): TableDef {
       `${label}.relationStorage`
     );
   }
+  if (record.junction === true) table.junction = true;
   return table;
 }
 

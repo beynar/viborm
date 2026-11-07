@@ -32,8 +32,8 @@ import assert from "node:assert/strict";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { createClient } from "@client/client";
 import { renderOperationResultType } from "@client/schema-introspection";
-import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { buildExpectedResultShape } from "@query-engine/result/result-shape";
 import { s } from "@schema";
 import { SchemaValidationError, validateSchema } from "@schema/validation";
@@ -158,7 +158,8 @@ class CountingDriver extends SqlOnlyDriver {
 }
 
 const engine = new EngineSchema(schema);
-const queries = () => new Queries(engine, new PostgresAdapter("public", true));
+const queries = () =>
+  new SqlQueries(engine, new PostgresAdapter("public", true));
 
 /** The prepared top-level keys and the kind each publishes, or the shape's kind. */
 const fieldKinds = (args: object) => {

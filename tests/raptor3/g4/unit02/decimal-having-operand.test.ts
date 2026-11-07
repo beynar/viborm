@@ -1,3 +1,4 @@
+// biome-ignore-all lint/performance/useTopLevelRegex: a regex in a test runs a handful of times.
 /**
  * G4-02 author check — the decimal `having { _sum }` operand domain (§10.10).
  *
@@ -36,7 +37,7 @@ import assert from "node:assert/strict";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
-import { Queries } from "@query-engine/raptor3/shared/query";
+import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { hydrateSchemaNames, s } from "@schema";
 import { beforeAll, describe, it } from "vitest";
 
@@ -57,7 +58,7 @@ function candidate(
   args: Record<string, unknown>
 ): string {
   const engineSchema = new EngineSchema(schema);
-  const queries = new Queries(engineSchema, adapter);
+  const queries = new SqlQueries(engineSchema, adapter);
   const admitted = engineSchema.admit(ledger, "groupBy", args);
   return queries.grouped(ledger, admitted).sql.toStatement("$n");
 }
@@ -80,7 +81,9 @@ describe("G4-02 decimal having _sum operand (§10.10)", () => {
         return `error:${(error as Error).message}`;
       }
     };
-    const candidateOutcome = observe(() => candidate(new SQLiteAdapter(), args));
+    const candidateOutcome = observe(() =>
+      candidate(new SQLiteAdapter(), args)
+    );
     assert.match(
       candidateOutcome,
       /outside this provider's exact HAVING operand cast domain/

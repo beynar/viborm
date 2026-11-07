@@ -368,7 +368,10 @@ describe.skipIf(!url)("SurrealDB read prototype against PostgreSQL", () => {
       await surreal.query(
         `CREATE comment:${c.id} SET body=${literal(c.body)},rank=${c.rank},postId=post:${c.postId}`
       );
-    onSurreal = createClient({ schema, driver: new SurrealDriver(surreal) });
+    onSurreal = createClient({
+      schema,
+      driver: new SurrealDriver({ client: surreal }),
+    });
 
     pglite = new PGlite();
     onPostgres = createClient({
@@ -393,27 +396,10 @@ describe.skipIf(!url)("SurrealDB read prototype against PostgreSQL", () => {
     expect(answered).toEqual(expected);
   });
 
-  it("refuses what it does not cover, by name", async () => {
-    await expect(onSurreal.user.count({})).rejects.toThrow(
-      "SurrealDB read backend"
-    );
-    await expect(
-      onSurreal.post.findMany({ cursor: { id: 1 }, take: 2 })
-    ).rejects.toThrow("a cursor");
-  });
-
   it("holds no SQL: reaching for any syntax refuses", () => {
-    const { adapter } = new SurrealDriver(surreal);
+    const { adapter } = new SurrealDriver({ client: surreal });
     expect(adapter.result).toBeDefined();
-    expect(() => adapter.operators).toThrow("speaks no SQL");
-    expect(() => adapter.clauses).toThrow("speaks no SQL");
-    expect(() => adapter.identifiers).toThrow("speaks no SQL");
-  });
-
-  it("refuses a write rather than send it SQL", async () => {
-    await expect(
-      onSurreal.user.create({ data: { id: "z", email: "z@x.io" } })
-    ).rejects.toThrow("reads only");
-    expect(await onSurreal.user.findUnique({ where: { id: "z" } })).toBeNull();
+    expect("subqueries" in adapter).toBe(false);
+    expect("clauses" in adapter).toBe(false);
   });
 });
