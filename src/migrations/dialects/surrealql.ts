@@ -1,6 +1,6 @@
 /**
- * PROTOTYPE: the `viborm/migrations` API with the SurrealQL migration driver. Not
- * a package entry, and not among `every.ts`'s, so no bundle carries it.
+ * `viborm/migrations/surrealdb`: the `viborm/migrations` API with only the SurrealQL
+ * migration driver registered, so a bundle carries no SQL migration code.
  */
 
 import { registerMigrationDriver } from "../drivers";

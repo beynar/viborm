@@ -14,7 +14,6 @@ import {
   surrealUrl,
 } from "@tests/fixtures/drivers/surrealdb";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import { MemoryStorage } from "@tests/unit/migrations/_estate";
 import { describe, expect, it } from "vitest";
 
 type Client = any;
@@ -274,6 +273,84 @@ describe.skipIf(!surrealUrl)("a change on a populated table", () => {
       await body(db);
     });
   }
+
+  it("an index holding the key is kept: a page walks it, and a new key restates it", async () => {
+    const cards = (key: "id" | "code") => ({
+      card: s
+        .model({
+          id: key === "id" ? s.string().id() : s.string(),
+          code: key === "code" ? s.string().id() : s.string(),
+          listId: s.string(),
+          rank: s.string(),
+        })
+        .index(["listId", "rank", "code", "id"], { name: "card_walk" }),
+    });
+    const db = clientOf(cards("id"));
+    await using(db, async () => {
+      await syncLiveSchema(db);
+      await db.card.create({
+        data: { id: "a", code: "c1", listId: "l", rank: "1" },
+      });
+      const columns = async (client: Client) => {
+        const [info] = await raw(
+          client,
+          "RETURN [(INFO FOR TABLE card STRUCTURE).{ indexes }]"
+        );
+        return (info as { indexes: { name: string; cols: string[] }[] }).indexes
+          .filter(({ name }) => name === "card_walk")
+          .map(({ cols }) => cols);
+      };
+      expect(await columns(db)).toEqual([["listId", "rank", "code", "id"]]);
+      expect((await preview(db)).outcome).toBe("noop");
+      const [plan] = await raw(
+        db,
+        "LET $plan = (EXPLAIN FORMAT JSON SELECT * FROM card WHERE listId = 'l' ORDER BY rank DESC LIMIT 1); RETURN [$plan]"
+      );
+      expect(JSON.stringify(plan)).toContain("IndexScan");
+
+      const moved = nextVersion(cards("code"), db);
+      await push(moved);
+      expect(await columns(moved)).toEqual([
+        ["listId", "rank", "id", "id_field"],
+      ]);
+      expect((await preview(moved)).outcome).toBe("noop");
+      expect(
+        await moved.card.findMany({
+          where: { listId: "l" },
+          orderBy: { rank: "desc" },
+        })
+      ).toEqual([{ id: "a", code: "c1", listId: "l", rank: "1" }]);
+
+      // Back onto a column whose field had to be named apart from the id.
+      const back = nextVersion(cards("id"), db);
+      await push(back);
+      expect(await columns(back)).toEqual([["listId", "rank", "code", "id"]]);
+      expect((await preview(back)).outcome).toBe("noop");
+      expect(await back.card.findUnique({ where: { id: "a" } })).toEqual({
+        id: "a",
+        code: "c1",
+        listId: "l",
+        rank: "1",
+      });
+    });
+  });
+
+  it("an index over the key alone is the id's, and asks for nothing", async () => {
+    const db = clientOf({
+      card: s
+        .model({ id: s.string().id(), rank: s.string() })
+        .index(["id"], { name: "card_key" }),
+    });
+    await using(db, async () => {
+      await syncLiveSchema(db);
+      const [info] = await raw(
+        db,
+        "RETURN [(INFO FOR TABLE card STRUCTURE).{ indexes }]"
+      );
+      expect((info as { indexes: unknown[] }).indexes).toEqual([]);
+      expect((await preview(db)).outcome).toBe("noop");
+    });
+  });
 
   it("a field that may be unset is added, and existing rows hold nothing", async () => {
     await populated(async (db) => {
@@ -547,7 +624,7 @@ describe.skipIf(!surrealUrl)("a change on a populated table", () => {
 });
 
 describe.skipIf(!surrealUrl)("what SurrealDB has no form for", () => {
-  it("a key that changes refuses by name", async () => {
+  it("a key that changes is planned", async () => {
     const db = clientOf({ item: s.model({ id: s.string().id() }) });
     await using(db, async () => {
       await syncLiveSchema(db);
@@ -562,22 +639,7 @@ describe.skipIf(!surrealUrl)("what SurrealDB has no form for", () => {
           dryRun: true,
           resolve: addDropResolver,
         })
-      ).rejects.toThrow("a record's key is its id");
-    });
-  });
-
-  it("a generated column beside a record's id refuses by name", async () => {
-    const db = clientOf({
-      ticket: s.model({
-        id: s.string().id(),
-        serial: s.int().unique().increment(),
-      }),
-    });
-    await using(db, async () => {
-      await (db.$driver as { fresh(): Promise<void> }).fresh();
-      await expect(preview(db)).rejects.toThrow(
-        "the generated column 'ticket.serial' beside a record's id"
-      );
+      ).resolves.toMatchObject({ outcome: "planned" });
     });
   });
 
@@ -669,16 +731,6 @@ describe.skipIf(!surrealUrl)("what SurrealDB has no form for", () => {
     await using(db, async () => {
       await (db.$driver as { fresh(): Promise<void> }).fresh();
       await expect(preview(db)).rejects.toThrow("cannot be named");
-    });
-  });
-
-  it("the file history refuses by name, and push is what there is", async () => {
-    const db = clientOf({ item: s.model({ id: s.string().id() }) });
-    await using(db, async () => {
-      const migrations = createMigrationClient(db, {
-        storage: new MemoryStorage(),
-      });
-      await expect(migrations.generate()).rejects.toThrow("target.dialect");
     });
   });
 });

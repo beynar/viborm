@@ -728,7 +728,7 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
         await db.$disconnect();
       }
     });
-    it("a link row whose own key holds the moved one refuses by name", async () => {
+    it("a link row whose own key holds the moved one moves with it", async () => {
       const link = s
         .model({
           roomId: s.string(),
@@ -768,11 +768,9 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
         await db.room.create({
           data: { id: "r", guests: { create: { id: "g" } } },
         });
-        await expect(
-          db.guest.update({ where: { id: "g" }, data: { id: "h" } })
-        ).rejects.toThrow("a key that holds it");
+        await db.guest.update({ where: { id: "g" }, data: { id: "h" } });
         expect(await db.link.findMany()).toEqual([
-          { roomId: "r", guestId: "g" },
+          { roomId: "r", guestId: "h" },
         ]);
       } finally {
         await db.$disconnect();
@@ -917,7 +915,7 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
         };
       });
     });
-    it("a key move refuses by name: its action is an event the old row would fire", async () => {
+    it("a key move leaves what references another field, and its old row's event quiet", async () => {
       const parent = s.model({
         id: s.string().id(),
         slug: s.string().unique(),
@@ -940,10 +938,9 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
         await db.parent.create({
           data: { id: "a", slug: "a", children: { create: { id: "c" } } },
         });
-        await expect(
-          db.parent.update({ where: { id: "a" }, data: { id: "b" } })
-        ).rejects.toThrow("references by another field");
+        await db.parent.update({ where: { id: "a" }, data: { id: "b" } });
         expect(await rows(db, "child")).toEqual([{ id: "c", parentSlug: "a" }]);
+        expect(await rows(db, "parent")).toEqual([{ id: "b", slug: "a" }]);
       } finally {
         await db.$disconnect();
       }
@@ -1916,7 +1913,7 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
         await Promise.all([first.$disconnect(), second.$disconnect()]);
       }
     });
-    it("a JSON key named __proto__ is stored, and the SDK's answer loses it", async () => {
+    it("a JSON key named __proto__ is its own key, never the row's prototype", async () => {
       const item = s.model({ id: s.string().id(), payload: s.json() });
       const db: any = createClient({
         schema: { item },
@@ -1934,9 +1931,11 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
           "RETURN object::keys((SELECT VALUE payload FROM item)[0]);"
         );
         expect(keys).toContain("__proto__");
-        expect(
-          (await db.item.findUnique({ where: { id: "a" } })).payload
-        ).toEqual({ safe: 2 });
+        const { payload } = await db.item.findUnique({ where: { id: "a" } });
+        expect(Object.getPrototypeOf(payload)).toBe(Object.prototype);
+        expect(Object.hasOwn(payload, "__proto__")).toBe(true);
+        expect(payload.x).toBeUndefined();
+        expect(payload.safe).toBe(2);
       } finally {
         await db.$disconnect();
       }

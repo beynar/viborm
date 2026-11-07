@@ -71,12 +71,6 @@ const WAIVED: Readonly<Record<string, string>> = {
     "the setup drops a SQL constraint; a schema written by hand can hold the duplicate, and the read then takes its first",
   "an identifier against a plain string column is refused, not answered":
     "a key here is its public text, so it answers; surrealdb-keys.test.ts checks that",
-  "splices the statement verbatim and binds positional params":
-    "writes `?`, and SurrealQL's parameters have names",
-  "mutates through a hand-written statement":
-    "writes `?`, and SurrealQL's parameters have names",
-  "idempotency: re-pushing a forward-ref schema does not recreate tables":
-    "plans a migration, and this driver has none yet",
   "an EXPLICIT non-default placement on a NOT NULL column is elided too":
     "reads SQL's plan",
   "a windowed order on a NOT NULL column walks the index": "reads SQL's plan",

@@ -1,5 +1,5 @@
 /**
- * PROTOTYPE, read-only: `docs/architecture/query-backend-frontier.md` step 4.
+ * `docs/architecture/query-backend-frontier.md` step 4.
  *
  * Writes idiomatic SurrealQL from the engine's `Prepared*` descriptions, from
  * the relation and not from a translation of the SQL: a to-many is a reference
@@ -108,11 +108,18 @@ type OrderTerm = {
   readonly expression: Sql;
   /** A plain column: `ORDER BY` can read it without selecting it. */
   readonly named: boolean;
+  /** The model's own field it orders by, when it is one. */
+  readonly field?: string;
   readonly descending: boolean;
   readonly nullable: boolean;
   readonly nulls?: "first" | "last";
 };
 
+const HOLDS_SUBQUERY = /\bSELECT\b/;
+/** Past this many, seeking one group after another costs more than reading them all. */
+const GROUPS_SOUGHT = 20;
+const PARENTS_READ_APART = 20;
+const READS_A_ROW_ABOVE = /\$(?:parent|this|owner|row)\b/;
 const COMPARISONS: Readonly<Record<string, string>> = {
   equals: "=",
   gt: ">",
@@ -211,6 +218,26 @@ function keyPart(model: AnyModel, field: string, value: unknown): unknown {
   return value;
 }
 
+/** Whether a predicate is only rows being among lists, which nothing unset is. */
+function onlyLists(predicate: PreparedPredicate): boolean {
+  switch (predicate.kind) {
+    case "and":
+      return predicate.predicates.some(onlyLists);
+    case "or":
+      return predicate.predicates.every(onlyLists);
+    case "layer":
+      return onlyLists(predicate.predicate);
+    case "relation":
+      return (
+        !predicate.closure &&
+        (predicate.quantifier === "some" || predicate.quantifier === "is") &&
+        predicate.predicate !== undefined
+      );
+    default:
+      return false;
+  }
+}
+
 /** Whether a predicate reads a row a filter stepped away from, at any depth. */
 function readsAbove(predicate: PreparedPredicate): boolean {
   switch (predicate.kind) {
@@ -233,6 +260,20 @@ function readsAbove(predicate: PreparedPredicate): boolean {
     default:
       return false;
   }
+}
+
+/**
+ * Each condition once. It asks nothing more, and the server fails a statement stating
+ * one equality twice with the same value ("Internal database error: stale IR id").
+ */
+export function onceEach(conditions: readonly Sql[]): Sql[] {
+  const seen = new Set<string>();
+  return conditions.filter((condition) => {
+    const key = `${condition.toStatement()} ${JSON.stringify(condition.values, sameValue)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 /** Arms joined in parentheses of at most `ARMS` each: a parser counts each `OR` as a level. */
@@ -279,6 +320,12 @@ export class SurrealReadBackend implements ReadBackend {
   #cursorGuard: Sql | undefined;
   /** The relation filter a page reads by walking, with its list already too long. */
   #walking: PreparedPredicate | undefined;
+  /** The rows a root page reads, when they are few enough to give each its own read. */
+  #parents:
+    | { readonly read: Sql; readonly count: number; ids?: Sql }
+    | undefined;
+  /** Whether what is being lowered reads rows a write would leave. */
+  #judging = false;
   /** What holds each row a relation filter stepped away from, innermost last. */
   readonly #above: string[] = [];
 
@@ -294,12 +341,22 @@ export class SurrealReadBackend implements ReadBackend {
     this.#hoisted.clear();
     try {
       const body = build();
+      // Each at the top level: a server compiles a statement in the square of the
+      // subqueries it holds, and keeps each statement it has compiled.
       return this.#lets.length
-        ? sql`RETURN { ${sql.join(this.#lets, " ")} ${body} }`
+        ? sql`${sql.join(this.#lets, " ")} ${body}`
         : body;
     } finally {
       this.#lets = undefined;
     }
+  }
+
+  /**
+   * `build` reading rows a write would leave: a to-one link is the row's own value,
+   * not the stored one, so a list of what holds reads targets, not who stores them.
+   */
+  judging(build: () => Sql): Sql {
+    return this.judgingAll(build);
   }
 
   #hoist(expression: Sql): Sql | undefined {
@@ -473,7 +530,101 @@ export class SurrealReadBackend implements ReadBackend {
     return sql.raw(keys.length === 1 ? "id" : `id[${position}]`);
   }
 
+  /**
+   * Whether a predicate of one row can be answered by following its links, each a
+   * read by key, and by lists of who holds what lies at their ends.
+   */
+  #walksForward(predicate: PreparedPredicate): boolean {
+    switch (predicate.kind) {
+      case "and":
+      case "or":
+        return predicate.predicates.every((arm) => this.#walksForward(arm));
+      case "not":
+      case "layer":
+        return this.#walksForward(predicate.predicate);
+      case "always":
+      case "operation":
+        return true;
+      case "relation": {
+        const { edge, closure, link, predicate: inner } = predicate;
+        if (closure || link) return false;
+        const asked = this.#queries.scoped(edge.target, inner, "related");
+        if (
+          edge.kind === "reference" &&
+          !edge.many &&
+          edge.owner === "source" &&
+          this.#linked(edge)
+        )
+          return (
+            !(asked && readsAbove(asked)) &&
+            (asked === undefined || this.#walksForward(asked))
+          );
+        return (
+          asked !== undefined &&
+          predicate.quantifier !== "every" &&
+          !readsAbove(asked) &&
+          this.#holders(predicate, asked) !== undefined
+        );
+      }
+      default:
+        return false;
+    }
+  }
+
+  /** Whether a predicate names one row by its whole key. */
+  #namesOneRow(model: AnyModel, predicate: PreparedPredicate): boolean {
+    const named = new Set<string>();
+    const collect = (node: PreparedPredicate) => {
+      if (node.kind === "and") node.predicates.forEach(collect);
+      else if (
+        node.kind === "operation" &&
+        node.operator === "equals" &&
+        node.target.kind === "column" &&
+        node.target.scalar.model === model
+      )
+        named.add(node.target.scalar.field);
+    };
+    collect(predicate);
+    return this.#queries.keyOrder(model).every((key) => named.has(key));
+  }
+
+  /** A filter's conditions: one that names a row follows its links from that row. */
+  located(model: AnyModel, predicate: PreparedPredicate): Sql[] {
+    return this.#namesOneRow(model, predicate)
+      ? this.judgingAll(() => this.conjuncts(predicate))
+      : this.conjuncts(predicate);
+  }
+
+  judgingAll<T>(build: () => T): T {
+    const outer = this.#judging;
+    this.#judging = true;
+    try {
+      return build();
+    } finally {
+      this.#judging = outer;
+    }
+  }
+
+  /** A predicate's conditions, to state beside others, each once ({@link onceEach}). */
+  conjuncts(predicate: PreparedPredicate): Sql[] {
+    return predicate.kind === "and"
+      ? predicate.predicates.flatMap((inner) => this.conjuncts(inner))
+      : [this.predicate(predicate, true)];
+  }
+
   /** Whether a relation's link is a record, which a graph read can follow. */
+  isLinked(edge: Reference): boolean {
+    return this.#linked(edge);
+  }
+
+  /**
+   * What a row reaches along a to-one link, as a write would leave it. The walk is
+   * physical: a cycle through a hidden row is still one.
+   */
+  walkFrom(edge: Membership, row: Sql): Sql {
+    return this.#walk(edge, {} as never, false, row);
+  }
+
   #linked(edge: Reference): boolean {
     if (edge.pairs.length !== 1 || edge.discriminator) return false;
     const q = this.#queries;
@@ -532,8 +683,13 @@ export class SurrealReadBackend implements ReadBackend {
   }
 
   /** The rows an aggregate reads: the filtered table, or its page. */
-  #rows(model: AnyModel, args: Arguments): Sql {
+  #rows(model: AnyModel, args: Arguments, within?: Sql): Sql {
     const { from, rest } = this.#driven(model, this.#filter(model, args));
+    if (within)
+      return sql`${from} WHERE ${sql.join(
+        [...(rest ? [this.predicate(rest, true)] : []), within],
+        " AND "
+      )}`;
     const paged =
       args.take !== undefined ||
       args.skip !== undefined ||
@@ -551,6 +707,8 @@ export class SurrealReadBackend implements ReadBackend {
    * and SQL's is NULL, so each aggregate carries how many values it saw.
    */
   #aggregation(model: AnyModel, args: Arguments, by: readonly string[]): Query {
+    const extremes = this.#extremes(model, args, by);
+    if (extremes) return extremes;
     const inner = new Map<string, Sql>();
     const flat = (alias: string, expression: Sql) => {
       inner.set(alias, sql`${expression} AS ${name(alias)}`);
@@ -639,12 +797,16 @@ export class SurrealReadBackend implements ReadBackend {
         : []),
     ];
     const rows = by.length
-      ? this.#rows(model, {
-          ...args,
-          take: undefined,
-          skip: undefined,
-          cursor: undefined,
-        })
+      ? this.#rows(
+          model,
+          {
+            ...args,
+            take: undefined,
+            skip: undefined,
+            cursor: undefined,
+          },
+          this.#firstGroups(model, args, by)
+        )
       : this.#rows(model, args);
     return {
       sql: sql.join(
@@ -654,6 +816,137 @@ export class SurrealReadBackend implements ReadBackend {
         ],
         " "
       ),
+      shape: { kind: "object", fields } as Query["shape"],
+    };
+  }
+
+  /**
+   * A `groupBy` reads every row before it can take any group, so a page of few groups
+   * first seeks them on the index of the field it orders by, one value after the last,
+   * each a statement of its own as a closure's variable never seeks, and reads only
+   * their rows. Only a filter of its own columns goes along: each seek
+   * states it again.
+   */
+  #firstGroups(
+    model: AnyModel,
+    args: Arguments,
+    by: readonly string[]
+  ): Sql | undefined {
+    const groups = Number(args.take ?? 0) + Number(args.skip ?? 0);
+    const orders = args.orderBy ? [args.orderBy as Input].flat() : [];
+    const [field, spec] = Object.entries((orders[0] ?? {}) as Input)[0] ?? [
+      by[0],
+      "asc",
+    ];
+    if (
+      !this.#lets ||
+      Number(args.take ?? 0) <= 0 ||
+      groups > GROUPS_SOUGHT ||
+      args.having ||
+      !by.includes(field as string) ||
+      (spec !== "asc" && spec !== "desc") ||
+      model["~"].state.scalars[field as string]?.["~"].state.nullable ||
+      this.#gatedHere(model, field as string) ||
+      !this.#indexed(model, field as string)
+    )
+      return undefined;
+    const filter = this.#filter(model, args);
+    const where = filter ? [this.predicate(filter, true)] : [];
+    if (where.some((part) => HOLDS_SUBQUERY.test(part.toStatement())))
+      return undefined;
+    const column = this.physical(model, field as string);
+    const direction = sql.raw(spec === "desc" ? "DESC" : "ASC");
+    const beyond = sql.raw(spec === "desc" ? "<" : ">");
+    const seek = (past: readonly Sql[]) => {
+      const conditions = [...where, ...past];
+      return sql`(SELECT VALUE ${column} FROM ${name(tableOf(model))}${conditions.length ? sql` WHERE ${sql.join(conditions, " AND ")}` : sql.raw("")} ORDER BY ${column} ${direction} LIMIT 1)[0]`;
+    };
+    // Past the last group a seek finds nothing, and the next finds a group again:
+    // one already listed, which changes nothing.
+    const found: Sql[] = [];
+    for (let at = 0; at < groups; at++) {
+      const last = found.at(-1);
+      const next = this.#hoist(
+        seek(last ? [sql`${column} ${beyond} ${last}`] : [])
+      );
+      if (!next) return undefined;
+      found.push(next);
+    }
+    return sql`${column} IN [${sql.join(found, ", ")}]`;
+  }
+
+  /** Whether an index holds the field: one declared, or a foreign key's. */
+  #indexed(model: AnyModel, field: string): boolean {
+    const { indexes, relations } = model["~"].state;
+    return (
+      indexes.some((index) =>
+        (index.fields as readonly string[]).includes(field)
+      ) ||
+      Object.values(
+        relations as Record<
+          string,
+          { "~": { state: { foreignKey?: { fields: readonly string[] } } } }
+        >
+      ).some((relation) =>
+        relation["~"].state.foreignKey?.fields.includes(field)
+      )
+    );
+  }
+
+  /**
+   * `_min` and `_max` alone, over every row a filter leaves: each is the one row an
+   * index finds walking no further, where an aggregate reads them all.
+   */
+  #extremes(
+    model: AnyModel,
+    args: Arguments,
+    by: readonly string[]
+  ): Query | undefined {
+    const selected = (["_min", "_max"] as const).flatMap((aggregate) => {
+      const fields = Object.entries((args[aggregate] ?? {}) as Input)
+        .filter(([, include]) => include)
+        .map(([field]) => field);
+      return fields.length > 0 ? [{ aggregate, fields }] : [];
+    });
+    const physical = selected.every(({ fields }) =>
+      fields.every(
+        (field) =>
+          !this.#gatedHere(model, field) &&
+          this.#operand(model, field).toStatement() ===
+            this.physical(model, field).toStatement()
+      )
+    );
+    if (
+      selected.length === 0 ||
+      !physical ||
+      by.length > 0 ||
+      args.take !== undefined ||
+      args.skip !== undefined ||
+      args.cursor !== undefined ||
+      args.having ||
+      args._count ||
+      args._avg ||
+      args._sum
+    )
+      return undefined;
+    const { from, rest } = this.#driven(model, this.#filter(model, args));
+    const filter = rest ? [this.predicate(rest, true)] : [];
+    const fields: Record<string, unknown> = {};
+    const members = selected.map(({ aggregate, fields: chosen }) => {
+      const leaves: Record<string, unknown> = {};
+      const values = chosen.map((field) => {
+        leaves[field] = this.#aggregateLeaf(model, aggregate, field);
+        const column = this.physical(model, field);
+        const where = model["~"].state.scalars[field]?.["~"].state.nullable
+          ? [...filter, sql`${column} != NONE`]
+          : filter;
+        return sql`${name(field)}: ((SELECT VALUE ${column} FROM ${from}${where.length ? sql` WHERE ${sql.join(where, " AND ")}` : sql.raw("")} ORDER BY ${column} ${sql.raw(aggregate === "_max" ? "DESC" : "ASC")} LIMIT 1)[0] ?? NULL)`;
+      });
+      fields[aggregate] = { kind: "object", fields: leaves };
+      return sql`${name(aggregate)}: { ${sql.join(values, ", ")} }`;
+    });
+    return {
+      sql: sql`RETURN [{ ${sql.join(members, ", ")} }]`,
       shape: { kind: "object", fields } as Query["shape"],
     };
   }
@@ -914,13 +1207,16 @@ export class SurrealReadBackend implements ReadBackend {
     const own: Sql[] = [];
     this.#lets = own;
     this.#walking = ahead.arm;
-    const walked = this.#page(
-      model,
-      prepared,
-      args,
-      name(tableOf(model)),
-      predicate,
-      conditions
+    // Too many hold for a list: the page reads in order, following each row's links.
+    const walked = this.judgingAll(() =>
+      this.#page(
+        model,
+        prepared,
+        args,
+        name(tableOf(model)),
+        predicate,
+        conditions
+      )
     );
     this.#walking = undefined;
     this.#lets = lets;
@@ -938,8 +1234,32 @@ export class SurrealReadBackend implements ReadBackend {
   ): Sql {
     this.#cursorGuard = undefined;
     this.#guardsCursor = true;
-    const { extras, clauses } = this.#clauses(model, args, rest, conditions);
+    const fromTable =
+      this.#inRelation === 0 &&
+      !this.#walking &&
+      from.toStatement() === name(tableOf(model)).toStatement();
+    const { extras, clauses } = this.#clauses(
+      model,
+      { ...args, fromTable },
+      rest,
+      conditions
+    );
     this.#guardsCursor = false;
+    const count =
+      Number(args.take ?? 0) > 0
+        ? Number(args.take)
+        : Number(rest !== undefined && this.#namesOneRow(model, rest));
+    const statedOnce = sql.join(clauses, " ");
+    this.#parents =
+      fromTable &&
+      args.cursor === undefined &&
+      !args.distinct &&
+      extras.length === 0 &&
+      count > 0 &&
+      count <= PARENTS_READ_APART &&
+      !HOLDS_SUBQUERY.test(statedOnce.toStatement())
+        ? { read: sql`(SELECT VALUE id FROM ${from} ${statedOnce})`, count }
+        : undefined;
     const guard = this.#cursorGuard as Sql | undefined;
     const guarded = (body: Sql) =>
       guard ? sql`IF ${guard} { ${body} } ELSE { [] }` : body;
@@ -953,9 +1273,11 @@ export class SurrealReadBackend implements ReadBackend {
           this.#queries.columnName(model, other) === field.name
       )
     );
+    const stated = this.columns(prepared);
+    this.#parents = undefined;
     if (shadowed)
       return guarded(
-        sql`SELECT ${this.columns(prepared)} FROM (${sql.join(
+        sql`SELECT ${stated} FROM (${sql.join(
           [
             sql`SELECT ${sql.join([sql.raw("*"), ...extras], ", ")} FROM ${from}`,
             ...clauses,
@@ -966,12 +1288,59 @@ export class SurrealReadBackend implements ReadBackend {
     return guarded(
       sql.join(
         [
-          sql`SELECT ${sql.join([this.columns(prepared), ...extras], ", ")} FROM ${from}`,
+          sql`SELECT ${sql.join([stated, ...extras], ", ")} FROM ${from}`,
           ...clauses,
         ],
         " "
       )
     );
+  }
+
+  /**
+   * A correlated read never walks an index in order: `<~` reads every reference and
+   * sorts them, whatever the page takes, where a read of a statement's own variable
+   * seeks. So a page of few rows reads ahead which they are, and each one's children
+   * in a read of its own. Each read is stated once per row, which only a filter
+   * without a subquery of its own, or a row above it, can afford.
+   */
+  #pagesOfParents(
+    edge: Reference,
+    predicate: PreparedPredicate | undefined,
+    args: Relation["arguments"]
+  ): Sql | undefined {
+    const parents = this.#parents;
+    if (
+      !parents ||
+      this.#inRelation !== 1 ||
+      !this.#linked(edge) ||
+      Number(args.take ?? 0) <= 0 ||
+      args.cursor !== undefined ||
+      args.distinct
+    )
+      return undefined;
+    parents.ids ??= this.#hoist(parents.read);
+    if (!parents.ids) return undefined;
+    const { target } = edge;
+    const link = name(this.#queries.columnName(target, edge.pairs[0]!.target));
+    const pages: Sql[] = [];
+    for (let at = 0; at < parents.count; at++) {
+      const { extras, clauses } = this.#clauses(
+        target,
+        { ...args, fromTable: true },
+        predicate,
+        [sql`${link} = ${parents.ids}[${sql.raw(String(at))}]`]
+      );
+      const page = sql`(SELECT ${sql.join([sql.raw("*"), ...extras], ", ")} FROM ${name(tableOf(target))} ${sql.join(clauses, " ")})`;
+      if (
+        at === 0 &&
+        (HOLDS_SUBQUERY.test(sql.join(clauses, " ").toStatement()) ||
+          READS_A_ROW_ABOVE.test(sql.join(clauses, " ").toStatement()))
+      )
+        return undefined;
+      pages.push(page);
+    }
+    const read = this.#hoist(sql`[${sql.join(pages, ", ")}]`);
+    return read && sql`${read}[array::find_index(${parents.ids}, $this.id)]`;
   }
 
   /** The row `identity` names, every key field equal. */
@@ -1005,6 +1374,11 @@ export class SurrealReadBackend implements ReadBackend {
         .keyOrder(model)
         .map((key) => this.#part(model, key, row[key])) as never
     );
+  }
+
+  /** One stated part of an array id, as a value. */
+  keyPart(model: AnyModel, field: string, value: unknown): Sql {
+    return sql`${this.#part(model, field, value)}`;
   }
 
   /** One part of an array id: a link stays a record, as its field holds it. */
@@ -1145,11 +1519,24 @@ export class SurrealReadBackend implements ReadBackend {
   /** The record of a side, read from a link row a variable or the row itself holds. */
   linkTarget(edge: Junction, side: Junction["sourceSide"], row: string): Sql {
     const link = edge.declared!.model;
-    const parts = this.#queries.keyOrder(side.model).map((key) => {
+    const keys = this.#queries.keyOrder(side.model);
+    // A link over fields other than the key names its record by looking it up.
+    if (
+      !keys.every((key) => side.members.some((m) => m.referencedField === key))
+    ) {
+      const named = side.members.map((pair) => {
+        const column = this.physical(
+          link,
+          this.#linkField(edge, pair.junctionField)
+        );
+        return sql`${this.physical(side.model, pair.referencedField)} = ${sql.raw(row || "$parent")}.${column}`;
+      });
+      return sql`(SELECT VALUE id FROM ${name(tableOf(side.model))} WHERE ${sql.join(named, " AND ")} LIMIT 1)[0]`;
+    }
+    const parts = keys.map((key) => {
       const pair = side.members.find(
         (member) => member.referencedField === key
-      );
-      if (!pair) refuse("a declared junction over part of a key");
+      )!;
       const field = this.#linkField(edge, pair.junctionField);
       const column = this.physical(link, field);
       return {
@@ -1241,14 +1628,14 @@ export class SurrealReadBackend implements ReadBackend {
     args: Pick<
       Partial<Arguments>,
       "orderBy" | "take" | "skip" | "cursor" | "distinct"
-    > & { readonly unordered?: boolean },
+    > & { readonly unordered?: boolean; readonly fromTable?: boolean },
     predicate: PreparedPredicate | undefined,
     conditions: readonly Sql[] = []
   ): { readonly extras: Sql[]; readonly clauses: Sql[] } {
     const { terms, forward } = this.#ordering(model, args);
     const { extras, order } = this.#ordered(terms);
     const located = [
-      ...(predicate ? [this.predicate(predicate, true)] : []),
+      ...(predicate ? this.located(model, predicate) : []),
       ...conditions,
     ];
     const cursor =
@@ -1271,8 +1658,13 @@ export class SurrealReadBackend implements ReadBackend {
           chosen.extras
         )}`
       );
-    } else if (located.length + cursor.length > 0) {
-      clauses.push(sql`WHERE ${sql.join([...located, ...cursor], " AND ")}`);
+    } else {
+      const where = onceEach([...located, ...cursor]);
+      const bound = args.fromTable
+        ? this.#pageBound(model, args, terms, where)
+        : undefined;
+      const all = bound ? [...where, bound] : where;
+      if (all.length > 0) clauses.push(sql`WHERE ${sql.join(all, " AND ")}`);
     }
     if (!args.unordered) clauses.push(sql`ORDER BY ${sql.join(order, ", ")}`);
     // A bound LIMIT is what a nested read's index needs written, so both inline
@@ -1282,6 +1674,40 @@ export class SurrealReadBackend implements ReadBackend {
     if (args.skip !== undefined)
       clauses.push(sql.raw(`START ${Number(args.skip)}`));
     return { extras, clauses };
+  }
+
+  /**
+   * A descending page over an ascending key has an order no index holds, so it sorts
+   * every row. The first term's value at the page's last row bounds what it sorts,
+   * and an index finds that value walking no further than the page. Short of that
+   * many rows there is no value, and every row is at least NONE.
+   */
+  #pageBound(
+    model: AnyModel,
+    args: Pick<Partial<Arguments>, "take" | "skip">,
+    terms: readonly OrderTerm[],
+    where: readonly Sql[]
+  ): Sql | undefined {
+    const [first, ...rest] = terms;
+    const take = Math.abs(Number(args.take ?? 0));
+    if (
+      take === 0 ||
+      first?.field === undefined ||
+      !first.descending ||
+      first.nullable ||
+      rest.every((term) => term.descending) ||
+      !this.#indexed(model, first.field)
+    )
+      return undefined;
+    const filter = where.length
+      ? sql`WHERE ${sql.join(where, " AND ")} `
+      : sql.raw("");
+    // Stating subqueries twice costs more to compile than the sort does to run.
+    if (HOLDS_SUBQUERY.test(filter.toStatement())) return undefined;
+    const value = this.#hoist(
+      sql`(SELECT VALUE ${first.expression} FROM ${name(tableOf(model))} ${filter}ORDER BY ${first.expression} DESC LIMIT 1 START ${sql.raw(String(take + Number(args.skip ?? 0) - 1))})[0]`
+    );
+    return value && sql`${first.expression} >= ${value}`;
   }
 
   /** The terms a read walks, and those of the caller's own order. */
@@ -1402,12 +1828,13 @@ export class SurrealReadBackend implements ReadBackend {
           ]
         : [term]
     );
+    // `a >= x AND (a > x OR …)`: the same rows as `a > x OR (a = x AND …)`, which
+    // reads two ranges of an index and sorts them, where this walks one in order.
     const after = walked.reduceRight<Sql | undefined>((rest, term) => {
       const value = at(term.expression);
-      const sign = sql.raw(term.descending ? "<" : ">");
-      if (!rest)
-        return sql`${term.expression} ${sql.raw(term.descending ? "<=" : ">=")} ${value}`;
-      return sql`(${term.expression} ${sign} ${value} OR (${term.expression} = ${value} AND ${rest}))`;
+      const reached = sql`${term.expression} ${sql.raw(term.descending ? "<=" : ">=")} ${value}`;
+      if (!rest) return reached;
+      return sql`${reached} AND (${term.expression} ${sql.raw(term.descending ? "<" : ">")} ${value} OR (${rest}))`;
     }, undefined)!;
     // Beside a bare condition, a seek on the key becomes a scan, so where a whole
     // statement can answer "no such cursor", it answers ahead of its `WHERE`.
@@ -1489,6 +1916,7 @@ export class SurrealReadBackend implements ReadBackend {
         path
       ),
       named: path === "" && !this.#gatedHere(model, field),
+      field: path === "" ? field : undefined,
       descending: sort === "desc",
       nullable:
         path !== "" || state.nullable === true || this.#gatedHere(model, field),
@@ -1849,7 +2277,10 @@ export class SurrealReadBackend implements ReadBackend {
         return sql`(IF ${link} = NONE { NULL } ELSE { ((SELECT * FROM $this.${link} WHERE ${this.predicate(predicate, true)})${members})[0] ?? NULL })`;
       return sql`(${name(this.#queries.columnName(edge.source, edge.pairs[0]!.source))}${members} ?? NULL)`;
     }
-    const read = this.#traversal(edge, args.selector?.predicate, args);
+    const paged = edge.many
+      ? this.#pagesOfParents(edge, predicate, args)
+      : undefined;
+    const read = paged ?? this.#traversal(edge, args.selector?.predicate, args);
     return edge.many
       ? sql`${read}${members}`
       : sql`((${read}${members})[0] ?? NULL)`;
@@ -1965,7 +2396,7 @@ export class SurrealReadBackend implements ReadBackend {
     }
     if (depth !== false)
       return sql`array::fold(array::range(1, ${sql.raw(String(depth + 1))}), { level: [${root}], edges: [] }, |$walk, $depth| { LET $pairs = array::flatten($walk.level.map(|$p| (${children}).map(|$c| { p: $p, c: $c, d: $depth }))); { level: array::distinct($pairs.c), edges: array::concat($walk.edges, $pairs) } })`;
-    return sql`array::fold(array::range(1, ${sql.raw(String(MAX_WALK + 1))}), { level: [${root}], seen: [${root}], edges: [] }, |$walk, $depth| { LET $pairs = array::flatten($walk.level.map(|$p| (${children}).map(|$c| { p: $p, c: $c }))); LET $next = array::complement(array::distinct($pairs.c), $walk.seen); { level: $next, seen: array::concat($walk.seen, $next), edges: array::concat($walk.edges, $pairs) } })`;
+    return sql`array::fold(array::range(1, ${sql.raw(String(MAX_WALK + 1))}), { level: [${root}], seen: [${root}], edges: [] }, |$walk, $depth| { LET $pairs = array::flatten($walk.level.map(|$p| (${children}).map(|$c| { p: $p, c: $c }))); LET $reached = array::complement(array::distinct($pairs.c), $walk.seen); { level: $reached, seen: array::concat($walk.seen, $reached), edges: array::concat($walk.edges, $pairs) } })`;
   }
 
   /** One step along `edge` as an idiom, which a recursion can repeat. */
@@ -2154,12 +2585,18 @@ export class SurrealReadBackend implements ReadBackend {
         if (predicate.predicates.length === 1)
           return this.predicate(predicate.predicates[0]!, positive, path);
         const conjunction = (predicate.kind === "and") === positive;
-        return sql`(${joined(
-          predicate.predicates.map((inner) =>
-            this.predicate(inner, positive, path)
-          ),
-          conjunction ? " AND " : " OR "
-        )})`;
+        const arms = (node: PreparedPredicate): PreparedPredicate[] =>
+          node.kind === predicate.kind ? node.predicates.flatMap(arms) : [node];
+        const lowered = onceEach(
+          arms(predicate).map((inner) => this.predicate(inner, positive, path))
+        );
+        // Arms with nothing in them hold as an empty one does.
+        if (lowered.length === 0)
+          return sql.raw(
+            (predicate.kind === "and") === positive ? "true" : "false"
+          );
+        if (lowered.length === 1) return lowered[0]!;
+        return sql`(${joined(lowered, conjunction ? " AND " : " OR ")})`;
       }
       case "not":
         return this.predicate(predicate.predicate, !positive, path);
@@ -2565,16 +3002,43 @@ export class SurrealReadBackend implements ReadBackend {
         : inner,
       "related"
     );
+    const heldLink =
+      this.#judging &&
+      this.#lets &&
+      asked &&
+      !predicate.link &&
+      !readsAbove(asked) &&
+      edge.kind === "reference" &&
+      !edge.many &&
+      edge.owner === "source" &&
+      this.#linked(edge);
+    if (heldLink && this.#walksForward(asked)) {
+      // One row's link is one read, where a list of all that hold is many.
+      const link = `${path}${this.physical(edge.source, edge.pairs[0]!.source).toStatement()}`;
+      const inner = this.predicate(asked, true, `${link}.`);
+      // A list holds nothing unset, so asking is enough, and a scan can stop early.
+      const held = onlyLists(asked)
+        ? inner
+        : sql`(${sql.raw(link)} != NONE AND ${inner})`;
+      return wanted === positive ? held : sql`!(${held})`;
+    }
+    if (heldLink && !path) {
+      const targets = this.#hoist(
+        this.#selecting(edge.target, sql.raw("id"), asked)
+      )!;
+      const held = sql`${this.physical(edge.source, edge.pairs[0]!.source)} IN ${targets}`;
+      return wanted === positive ? held : sql`!(${held})`;
+    }
     // A row above stays in its own statement: a list hoisted out of it has no such row.
     const holders =
-      !path &&
+      (!path || this.#judging) &&
       asked &&
       predicate !== this.#walking &&
       !readsAbove(asked) &&
       this.#holders(predicate, asked);
     if (holders) {
       const held = this.#hoist(holders.list(holders.rows()))!;
-      return sql`id ${sql.raw(wanted === positive ? "IN" : "NOT IN")} ${held}`;
+      return sql`${sql.raw(path ? path.slice(0, -1) : "id")} ${sql.raw(wanted === positive ? "IN" : "NOT IN")} ${held}`;
     }
     if (predicate.link) this.#queries.refuseHiddenLink(edge, predicate);
     const above = `$above${this.#above.length}`;
@@ -2634,13 +3098,16 @@ export class SurrealReadBackend implements ReadBackend {
     const { source, target: holder } = held.pairs[0]!;
     if (held.owner === "source")
       return {
+        // Counting toward a limit reads the index on the link, which stops at it:
+        // from each target, one with many holders would be read whole.
         rows: (limit) =>
-          this.#selecting(
-            target,
-            sql`<~(${name(tableOf(held.source))} FIELD ${name(this.#queries.columnName(held.source, source))})`,
-            body,
-            limit
-          ),
+          limit === undefined
+            ? this.#selecting(
+                target,
+                sql`<~(${name(tableOf(held.source))} FIELD ${name(this.#queries.columnName(held.source, source))})`,
+                body
+              )
+            : sql`(SELECT VALUE id FROM ${name(tableOf(held.source))} WHERE ${this.physical(held.source, source)} IN ${this.#hoist(this.#selecting(target, sql.raw("id"), body))!} LIMIT ${sql.raw(String(limit))})`,
         list: flat,
       };
     const column = name(this.#queries.columnName(target, holder));
@@ -2679,40 +3146,77 @@ export class SurrealReadBackend implements ReadBackend {
   } {
     const table = name(tableOf(model));
     if (!(predicate && this.#lets)) return { from: table, rest: predicate };
-    const arms: PreparedPredicate[] = [];
-    const collect = (arm: PreparedPredicate) => {
-      if (arm.kind === "and") arm.predicates.forEach(collect);
-      else arms.push(arm);
-    };
-    collect(predicate);
-    for (const [index, arm] of arms.entries()) {
+    // A row named by its key is read, and its links followed.
+    if (this.#namesOneRow(model, predicate))
+      return { from: table, rest: predicate };
+    const flat = (node: PreparedPredicate): PreparedPredicate[] =>
+      node.kind === "and" ? node.predicates.flatMap(flat) : [node];
+    const arms = flat(predicate);
+    /** A list, where `arm` is a relation filter some row can hold. */
+    const listed = (arm: PreparedPredicate) => {
       if (
         arm.kind !== "relation" ||
         !arm.predicate ||
         (arm.quantifier !== "some" && arm.quantifier !== "is")
       )
-        continue;
+        return undefined;
       // Among the rows this call may see of them, as a filter reads them anywhere.
-      const holders = this.#holders(
-        arm,
-        this.#queries.scoped(arm.edge.target, arm.predicate, "related")!
-      );
-      if (!holders) continue;
-      const others = arms.filter((_, position) => position !== index);
-      const rest: PreparedPredicate | undefined = others.length
-        ? { kind: "and", predicates: others }
-        : undefined;
-      if (!paged)
-        return {
-          from: this.#hoist(holders.list(holders.rows()))!,
-          rest,
-        };
+      const asked = this.#queries.scoped(
+        arm.edge.target,
+        arm.predicate,
+        "related"
+      )!;
+      // A row above stays in its own statement: a list hoisted out of it has no such row.
+      if (readsAbove(asked)) return undefined;
+      const holders = this.#holders(arm, asked);
+      if (!holders) return undefined;
+      if (!paged) return { from: this.#hoist(holders.list(holders.rows()))! };
       const rows = this.#hoist(holders.rows(HOLDERS_AHEAD))!;
       return {
         from: this.#hoist(holders.list(rows))!,
-        rest,
         ahead: { rows, arm },
       };
+    };
+    const without = (at: number) => {
+      const others = arms.filter((_, position) => position !== at);
+      return others.length
+        ? ({ kind: "and", predicates: others } as const)
+        : undefined;
+    };
+    for (const [index, arm] of arms.entries()) {
+      if (arm.kind !== "layer") {
+        const found = listed(arm);
+        if (found) return { ...found, rest: without(index) };
+        continue;
+      }
+      // A rule's own arms read as its layer reads them, with what is left of it kept.
+      const resolved = this.#queries.resolved(arm);
+      if (!resolved) continue;
+      const inner = flat(resolved);
+      for (const [position, candidate] of inner.entries()) {
+        let found: ReturnType<typeof listed>;
+        this.#queries.layer(arm, () => {
+          found = listed(candidate);
+          return sql.raw("");
+        });
+        if (!found) continue;
+        const left = inner.filter((_, at) => at !== position);
+        const others = arms.filter((_, at) => at !== index);
+        const kept: PreparedPredicate[] = left.length
+          ? [
+              ...others,
+              {
+                ...arm,
+                predicate: { kind: "and", predicates: left },
+                folded: new Map(),
+              },
+            ]
+          : others;
+        return {
+          ...(found as NonNullable<typeof found>),
+          rest: kept.length ? { kind: "and", predicates: kept } : undefined,
+        };
+      }
     }
     return { from: table, rest: predicate };
   }

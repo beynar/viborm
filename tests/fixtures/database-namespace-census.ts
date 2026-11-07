@@ -23,7 +23,7 @@ import ts from "typescript";
  *  4. `rejectedAliasMember` — the §13 alias spellings in member position;
  *  5. `modelScopeNamespace` — `namespace` as model/query-scope state;
  *  6. `configurableSource`  — `namespace` on any option/config type outside the
- *                             seven admitted driver option types;
+ *                             eight admitted driver option types;
  *  7. `sqliteAttachment`    — an `ATTACH`/`DETACH` statement, or an attachment
  *                             or namespace member on a SQLite surface;
  *  8. `attestationInference`— the MySQL2 attestation produced from transport or
@@ -84,7 +84,7 @@ export const ADMITTED_NAMESPACE_MEMBER = "namespace";
 export const MIGRATION_ATTESTATION_MEMBER = "migrationNamespaceAttestation";
 
 /**
- * §1.1's exact seven option types — the ONLY declarations that may configure a
+ * §1.1's exact seven option types and SurrealDB's own namespace — the ONLY declarations that may configure a
  * namespace. Every other options/config type that grows the member is a second
  * configurable source, which §13 "Generic `VibORMConfig` namespace options"
  * rejects.
@@ -97,6 +97,7 @@ export const ADMITTED_DRIVER_OPTION_TYPES = [
   "PgDriverOptions",
   "PlanetScaleDriverOptions",
   "PostgresDriverOptions",
+  "SurrealDriverOptions",
 ] as const;
 
 /**
@@ -621,7 +622,7 @@ export function modelScopeNamespaceEntries(
 
 /**
  * §13 "Generic `VibORMConfig` namespace options": one configurable source per
- * driver, and only on §1.1's seven option types. Any other declaration whose
+ * driver, and only on the eight admitted option types. Any other declaration whose
  * name ends in `Options` or `Config` that grows a `namespace` member is a
  * second answer to the same question.
  *

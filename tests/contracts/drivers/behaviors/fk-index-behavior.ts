@@ -194,6 +194,12 @@ async function indexNames(
   dialect: string,
   table: string
 ): Promise<string[]> {
+  if (dialect === "surrealql") {
+    const [info] = await client.$queryRawUnsafe<{
+      indexes: { name: string }[];
+    }>(`RETURN [(INFO FOR TABLE ${table} STRUCTURE).{ indexes }]`);
+    return info!.indexes.map((index) => index.name).sort();
+  }
   const query =
     dialect === "postgresql"
       ? "SELECT indexname AS name FROM pg_indexes WHERE tablename = $1"
@@ -414,7 +420,11 @@ export function runFkIndexUpgradeBehavior({
 
       // Reduce the database to the pre-phase state: same tables, same
       // constraint, no FK index.
-      await c.$executeRawUnsafe('DROP INDEX "fk_idx_posts_author_id_idx"');
+      await c.$executeRawUnsafe(
+        dialect === "surrealql"
+          ? "REMOVE INDEX fk_idx_posts_author_id_idx ON fk_idx_posts"
+          : 'DROP INDEX "fk_idx_posts_author_id_idx"'
+      );
       expect(await indexNames(c, dialect, "fk_idx_posts")).not.toContain(
         "fk_idx_posts_author_id_idx"
       );

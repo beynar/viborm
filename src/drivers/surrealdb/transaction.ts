@@ -15,6 +15,7 @@
 
 import { TransactionError } from "@errors";
 import type { Surreal, SurrealTransaction } from "surrealdb";
+import { acquireWithMaxWait } from "../shared/transaction-options";
 
 const CONFLICT = /can be retried|read or write conflict/;
 
@@ -99,13 +100,22 @@ export class ReplayedTransaction {
     this.#open = open;
   }
 
-  static async begin(client: Surreal): Promise<ReplayedTransaction> {
+  static async begin(
+    client: Surreal,
+    maxWaitMs?: number
+  ): Promise<ReplayedTransaction> {
     let slots = slotsOf.get(client);
     if (!slots) {
       slots = new Slots();
       slotsOf.set(client, slots);
     }
-    await slots.take();
+    const held = slots;
+    await acquireWithMaxWait(
+      () => held.take(),
+      () => held.give(),
+      maxWaitMs,
+      { driverName: "surrealdb", form: "callback" }
+    );
     try {
       return new ReplayedTransaction(
         client,

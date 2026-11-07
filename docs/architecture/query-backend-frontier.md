@@ -375,17 +375,51 @@ they needed:
   reads its lists and writes each row in one statement, through `JoinedValue.plan()`; SQL's is one
   `UPDATE ... FROM`. Keys may tie under concurrent appends, as a move handles.
 
-**Limits a suite found once it ran here.**
+**What the server asks of what is written for it.** Measured on 4.0.0, and each is why a statement
+reads as it does.
 
-- **A long literal beside an `IF`.** An `IF` in one block with a literal list takes about the cube of
-  its length, and the server cannot stop it: 800 rows took 6 s, 1,600 never ended and held a core past
-  a kill signal. A list a write reads is held outside the block, or bound whole.
-- **About 65,000 values in one statement** ("IR table full"). A list whose members are each one value
-  is one parameter, so 12,000 judged rows and 40,000 ids pass.
-- **64 open transactions per connection**, past which the server refuses. The rest wait, as for a pool.
-- **A record's key is not an instant or a decimal.** A key of either type is its text.
-- **A generated column beside a record's id** refuses at push. A sequence reaches only the id.
-- **A key moved through a relation**, and a key held by another key, refuse by name.
+- **Compilation is the cost.** A server compiles in about the square of a statement's subqueries, and
+  keeps what it has compiled per statement. 40 nested subqueries took 96 ms, 80 took 308 ms, and a
+  block doubles it, where running them takes under a millisecond. So a statement holds its lists in
+  top-level `LET`s and one small block, and a text transaction keeps them atomic. That took the
+  acceptance suite's slowest part from 427 s to 26 s.
+- **A long literal beside an `IF`** in one block takes about the cube of its length, and the server
+  cannot stop it: 1,600 rows never ended and held a core past a kill signal. It stands outside.
+- **About 65,000 values in one statement** ("IR table full"). A list of plain values is one parameter.
+- **64 open transactions per connection**, past which the server refuses. The rest wait.
+- **One equality stated twice with one value** fails with "Internal database error: stale IR id".
+  Conditions are stated once.
+- **An event does not see a statement's variables**, so a moved record's old copy says so in a field.
+
+**How a row domain reads.** A row named by its whole key follows its links, each a read by key, to
+lists of who holds what lies at their ends: `authorId.orgId IN $h1`. A page caps its list by an index
+read and, past 1,000, reads in key order following each row's links, which is where the wide actor's
+28 ms became 0.7 ms. Against PostgreSQL on one machine (`benchmarks/surrealdb-compare.mjs`, medians):
+plain reads and writes take 2 to 3.6 times as long, soft delete 1.7 to 2.7, hooks 3, ordering 1.1 to
+3.8, permissions 1.8 to 3. At 20,000 rows the same holds, 1.6 to 5.1 times, once a page walks its index:
+
+- `ORDER BY a DESC, id ASC` sorts every row, as no index holds that order, so a page reads `a`'s value
+  at its last row ahead and bounds the sort with it (7 ms to 0.6 ms). It needs an index on `a`, and a
+  filter without a subquery, whose second statement would cost more to compile than the sort.
+- A cursor is `a >= x AND (a > x OR ...)`, one range walked in order, where `a > x OR (a = x AND ...)`
+  reads two ranges and sorts them (19 ms to 0.85 ms).
+- `_min` and `_max` alone are one row an index finds, where an aggregate reads them all (3.5 ms to 0.3 ms).
+- An index holding the key among other columns is kept. It used to be dropped at push, so an ordered
+  list sorted all its rows (16 ms to 1 ms for an ordering create).
+
+- A correlated read never walks an index in order, not with `$parent.id` nor a closure's variable, where
+  a statement's own `LET` does. An `include` with a `take` under a root page of at most 20 rows reads which
+  rows they are ahead, then each one's children in a read of its own (2 parents of 4,000 children each,
+  10 ms to 0.6 ms; compiling for 20 rows takes 5 ms). Deeper includes stay correlated.
+
+A `groupBy` under `take` of at most 20 groups seeks them on the index of the field it orders by, one
+value after the last, and reads only their rows (5.6 ms to about 1.1 ms, and no longer growing with the
+table). PostgreSQL's 0.2 ms stops on the index itself, so this stays the widest ratio, at about 5. Without `take` both
+read every row, and the ratio is 3. `_sum` reads every value, as `SELECT VALUE` does in the same 3.2 ms:
+that ratio, 5, is the server's scan.
+
+**Refusals** are counted in `tests/contracts/architecture/surrealdb-refusal-census.test.ts`, each with
+why it stands. A new one fails it.
 
 What a judgement can read goes further here. A list's appended value and a sequence's next value are
 known before the write, so they are judged as any value, where SQL refuses to judge what only the

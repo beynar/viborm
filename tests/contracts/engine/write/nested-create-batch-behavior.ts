@@ -164,8 +164,10 @@ export function runNestedCreateBatchBehavior(options: {
       });
       const sent = recorder?.drain() ?? [];
 
-      expect(inserts(sent, "ncb_articles")).toHaveLength(1);
-      expect(inserts(sent, "ncb_writers")).toHaveLength(1);
+      if (options.countsInserts !== false) {
+        expect(inserts(sent, "ncb_articles")).toHaveLength(1);
+        expect(inserts(sent, "ncb_writers")).toHaveLength(1);
+      }
       expect(created.articles.map((row) => row.title)).toEqual(titles);
       expect(created.articles.map((row) => row.slug)).toEqual(
         titles.map((_, n) => `batch-${n}`)
