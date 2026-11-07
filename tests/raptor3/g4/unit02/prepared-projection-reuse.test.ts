@@ -28,8 +28,9 @@
 
 import assert from "node:assert/strict";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { Queries } from "@query-engine/raptor3/shared/query";
+import type { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { s } from "@schema";
 import { Sql } from "@sql";
 import { describe, it } from "vitest";
@@ -79,8 +80,8 @@ describe("G4 perf pass 2 item 2 — one default projection per (adapter, model)"
     const schema = reuseSchema();
     const engine = new EngineSchema(schema);
     const adapter = new SQLiteAdapter();
-    const first = new Queries(engine, adapter);
-    const second = new Queries(engine, adapter);
+    const first = new SqlQueries(engine, adapter);
+    const second = new SqlQueries(engine, adapter);
 
     const one = first.prepareProjection(schema.author, {});
     const two = first.prepareProjection(schema.author, { where: { id: 1 } });
@@ -110,7 +111,10 @@ describe("G4 perf pass 2 item 2 — one default projection per (adapter, model)"
 
   it("never hands the shared projection to an operation that names a selection", () => {
     const schema = reuseSchema();
-    const queries = new Queries(new EngineSchema(schema), new SQLiteAdapter());
+    const queries = new SqlQueries(
+      new EngineSchema(schema),
+      new SQLiteAdapter()
+    );
     const shared = queries.prepareProjection(schema.author, {});
 
     const selected = queries.prepareProjection(schema.author, {
@@ -138,7 +142,7 @@ describe("G4 perf pass 2 item 2 — one default projection per (adapter, model)"
   it("refuses the shared projection to an omit, because admission desugared it", () => {
     const schema = reuseSchema();
     const engine = new EngineSchema(schema);
-    const queries = new Queries(engine, new SQLiteAdapter());
+    const queries = new SqlQueries(engine, new SQLiteAdapter());
     const shared = queries.prepareProjection(schema.author, {});
 
     const admitted = engine.admit(schema.author, "findMany", {
@@ -163,8 +167,8 @@ describe("G4 perf pass 2 item 2 — one default projection per (adapter, model)"
   it("keys the store by the adapter, and one leaf per (adapter, model, field)", () => {
     const schema = reuseSchema();
     const engine = new EngineSchema(schema);
-    const sqlite = new Queries(engine, new SQLiteAdapter());
-    const other = new Queries(engine, new SQLiteAdapter());
+    const sqlite = new SqlQueries(engine, new SQLiteAdapter());
+    const other = new SqlQueries(engine, new SQLiteAdapter());
 
     const mine = sqlite.prepareProjection(schema.author, {});
     const theirs = other.prepareProjection(schema.author, {});
@@ -227,7 +231,10 @@ function findIn(
 describe("G4 perf pass 2 item 4 — one freeze per predicate, not per member", () => {
   it("freezes the predicate and its operand list, and binds every member once", () => {
     const schema = reuseSchema();
-    const queries = new Queries(new EngineSchema(schema), new SQLiteAdapter());
+    const queries = new SqlQueries(
+      new EngineSchema(schema),
+      new SQLiteAdapter()
+    );
     // Past 25 members: SQLite's one-parameter list (engine-09).
     const ids = Array.from({ length: 30 }, (_, index) => index + 1);
     const selector = queries.prepareSelector(schema.author, {

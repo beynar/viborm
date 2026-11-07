@@ -1,11 +1,9 @@
 import assert from "node:assert/strict";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { UnsupportedOperationError } from "@errors";
-import {
-  Queries,
-  RecursiveOutputOverBudget,
-} from "@query-engine/raptor3/shared/query";
+import { RecursiveOutputOverBudget } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { s } from "@schema";
 import type { NormalizedRecurrence } from "@validation/relations/recurrence";
 import { describe, it } from "vitest";
@@ -140,7 +138,7 @@ function decoderFor(
   recurrence: NormalizedRecurrence,
   select: Record<string, true>
 ) {
-  const queries = new Queries(
+  const queries = new SqlQueries(
     new EngineSchema({ [model]: MODELS[model] }),
     new SQLiteAdapter()
   );
