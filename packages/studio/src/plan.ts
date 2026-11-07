@@ -281,7 +281,6 @@ export function postgresPlan(answer: unknown): PlanTree {
 
 // MySQL ------------------------------------------------------------------------------------------------------------
 
-const TABLE_SCAN = /tablescan/i;
 const MYSQL_LINE = /^(\s*)-> (.*)$/;
 const MYSQL_ESTIMATE = /\(cost=([\d.e+]+)(?:\.\.[\d.e+]+)? rows=([\d.e+]+)\)/;
 const MYSQL_ACTUAL =
@@ -485,6 +484,7 @@ export function* walk(node: PlanNode): Generator<PlanNode> {
   for (const child of node.children) yield* walk(child);
 }
 
+const TABLE_SCAN = /tablescan/i;
 const SURREAL_KINDS: readonly (readonly [RegExp, PlanKind])[] = [
   [/index/i, "index"],
   [/scan/i, "scan"],
