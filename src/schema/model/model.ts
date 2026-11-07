@@ -38,6 +38,8 @@ export interface ModelState {
     | undefined;
   tableName: string | undefined;
   indexes: IndexDefinition[];
+  /** Indexes in the database's own language: see {@link Model.rawIndex}. */
+  rawIndexes: readonly RawIndexDefinition[];
   omit: Record<string, true> | undefined;
   scalars: Record<string, Scalar>;
   /** ONE canonical relation map, holding both target domains in shape order. */
@@ -112,6 +114,25 @@ type GeoPointSpatialIndexOptions = {
   unique?: never;
   where?: never;
 };
+
+/**
+ * One index per dialect, written in that database's own language, for what the
+ * index declaration cannot say (pgvector's HNSW, SurrealDB's HNSW, an expression).
+ * Each text is a template: `{name}`, `{table}` and `{<field>}` become the driver's
+ * escaped identifiers, the table qualified by the bound namespace. A dialect
+ * without a text has no such index.
+ */
+export interface RawIndexTemplates {
+  pg?: string;
+  mysql?: string;
+  sqlite?: string;
+  surrealdb?: string;
+}
+
+export interface RawIndexDefinition {
+  readonly name: string;
+  readonly templates: Readonly<RawIndexTemplates>;
+}
 
 export interface IndexDefinition<
   Keys extends string[] = string[],
@@ -471,6 +492,34 @@ export class Model<State extends ModelState> {
     });
   }
 
+  /**
+   * An index the declaration cannot say, in each database's own language, which
+   * migrations create, recognize and recreate when its text changes. It is never a
+   * key and never covers a foreign key.
+   */
+  rawIndex<const O extends RawIndexTemplates>(
+    name: string,
+    templates: ExactOptions<O, RawIndexTemplates>
+  ): Model<State> {
+    if (typeof name !== "string" || name === "") {
+      throw new Error("A raw index needs a name");
+    }
+    const given: RawIndexTemplates = templates;
+    const stored: RawIndexTemplates = {};
+    for (const dialect of ["pg", "mysql", "sqlite", "surrealdb"] as const) {
+      const text = given[dialect];
+      if (text === undefined) continue;
+      if (typeof text !== "string" || text.trim() === "") {
+        throw new Error(`The raw index '${name}' needs a ${dialect} text`);
+      }
+      stored[dialect] = text;
+    }
+    return new Model({
+      ...this.#state,
+      rawIndexes: [...this.#state.rawIndexes, { name, templates: stored }],
+    });
+  }
+
   id<
     const Keys extends PortableKeyScalarKeys<State["scalars"]>[],
     const O extends CompoundKeyOptions = Record<never, never>,
@@ -619,6 +668,7 @@ export const model = <TShape extends DeclaredModelShape>(
     compoundUniques: undefined,
     tableName: undefined,
     indexes: [],
+    rawIndexes: [],
     omit: undefined,
     shape,
     scalars: extractScalarMap(shape),
