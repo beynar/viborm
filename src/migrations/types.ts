@@ -91,6 +91,11 @@ export interface TableDef {
   relationStorage?:
     | Readonly<Record<string, PolymorphicToOneStorageRegistryEntry>>
     | undefined;
+  /**
+   * A generated junction, where a driver stores one differently from a table:
+   * {@link MigrationDriver.markJunction} says so. No SQL driver sets it.
+   */
+  junction?: true | undefined;
 }
 
 export interface ColumnDef {
@@ -613,7 +618,7 @@ export function createEnumValueRemovalChange(props: {
   return change;
 }
 
-export type Dialect = "postgresql" | "sqlite" | "mysql";
+export type Dialect = "postgresql" | "sqlite" | "mysql" | "surrealql";
 
 /**
  * The durable estate target a migration history is generated for.
@@ -632,4 +637,5 @@ export type MigrationTarget = (
   | { readonly dialect: "postgresql"; readonly namespace: string }
   | { readonly dialect: "mysql" }
   | { readonly dialect: "sqlite" }
+  | { readonly dialect: "surrealql" }
 ) & { readonly tables?: readonly string[] };

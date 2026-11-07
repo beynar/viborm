@@ -18,11 +18,9 @@
 import assert from "node:assert/strict";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import {
-  Queries,
-  returningSafeProjection,
-} from "@query-engine/raptor3/shared/query";
+import { returningSafeProjection } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { s } from "@schema";
 import { describe, it } from "vitest";
 
@@ -53,7 +51,7 @@ function gate(select: Record<string, unknown>, postgis = false): boolean {
   const adapter = postgis
     ? new PostgresAdapter("public", true)
     : new SQLiteAdapter();
-  const queries = new Queries(new EngineSchema(gateSchema), adapter);
+  const queries = new SqlQueries(new EngineSchema(gateSchema), adapter);
   return returningSafeProjection(queries.prepareProjection(spot, { select }));
 }
 
@@ -63,7 +61,7 @@ describe("G4-02 — a projection rides RETURNING when every field is the row's o
   });
 
   it("admits the default whole-row projection", () => {
-    const queries = new Queries(
+    const queries = new SqlQueries(
       new EngineSchema(gateSchema),
       new SQLiteAdapter()
     );

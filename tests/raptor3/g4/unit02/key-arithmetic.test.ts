@@ -42,8 +42,8 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
@@ -400,7 +400,7 @@ describe("G4-02 — the integer quotient is the dialect's own spelling", () => {
 
   it("names an int key's quotient through expressions.integerDivide", () => {
     for (const { name, adapter, sql: expected } of dialects) {
-      const queries = new Queries(new EngineSchema(keySchema), adapter);
+      const queries = new SqlQueries(new EngineSchema(keySchema), adapter);
       const named = queries.updateValue(
         intKey,
         "id",
@@ -414,7 +414,7 @@ describe("G4-02 — the integer quotient is the dialect's own spelling", () => {
 
   it("names a multiplied key natively on every dialect", () => {
     for (const { name, adapter } of dialects) {
-      const queries = new Queries(new EngineSchema(keySchema), adapter);
+      const queries = new SqlQueries(new EngineSchema(keySchema), adapter);
       const named = queries.updateValue(
         intKey,
         "id",
@@ -437,7 +437,7 @@ describe("G4-02 — the one shape with no expression form stays refused", () => 
   // writing the expression now would be dead code. The authorization is
   // recorded; this unit-level pin stays until a reachable shape exists.
   it("refuses to name an exact decimal under multiply, with its registered identity", () => {
-    const queries = new Queries(
+    const queries = new SqlQueries(
       new EngineSchema(keySchema),
       new SQLiteAdapter()
     );
@@ -460,7 +460,7 @@ describe("G4-02 — the one shape with no expression form stays refused", () => 
   });
 
   it("names an exact decimal under increment and decrement, which are exact", () => {
-    const queries = new Queries(
+    const queries = new SqlQueries(
       new EngineSchema(keySchema),
       new SQLiteAdapter()
     );

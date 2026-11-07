@@ -1,4 +1,4 @@
-import { getAdapterInternals } from "@adapters/adapter-internals";
+import { adapterConstraints } from "@adapters/adapter-internals";
 import {
   NestedWriteError,
   NotFoundError,
@@ -826,6 +826,8 @@ export class CommandExecution {
   ): Promise<void> {
     const attempt = this.attempt;
     if (attempt.rows.has(selection)) return;
+    const pinned = this.context.pin(selection);
+    if (pinned) return this.#observed(selection, pinned);
     const source = selection.source;
     if (
       source.kind === "producer" &&
@@ -2655,7 +2657,13 @@ export function namesKeyConstraint(
   const columns = key.fields.map((field) =>
     context.queries.columnName(model, field)
   );
-  const constraints = getAdapterInternals(context.driver.adapter).constraints;
+  const constraints = adapterConstraints(context.driver.adapter);
+  // A database whose refusals name no constraint says which columns it found.
+  if (!constraints)
+    return (
+      error.meta.table === table &&
+      error.meta.columns?.join() === columns.join()
+    );
   const expected = (
     key.kind === "primary"
       ? constraints.primaryKey(table, columns)

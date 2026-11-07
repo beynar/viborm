@@ -18,6 +18,11 @@ export interface InsertValueContext {
    * array transaction's batch), so the value must be an SQL expression.
    */
   readonly read?: (statement: Sql) => Promise<readonly Input[]>;
+  /**
+   * The largest key among the rows holding `list`, where a backend reads it for
+   * the value rather than the value spelling the read.
+   */
+  readonly lastKey?: (list: Input, key: string) => Promise<string | null>;
 }
 
 /**
@@ -66,6 +71,16 @@ export abstract class JoinedValue extends InsertValue {
     queries: Queries,
     target: string
   ): { readonly source: Sql; readonly on: Sql };
+  /** The same values for a backend that reads the rows and writes them itself. */
+  abstract plan(): JoinedPlan;
+}
+
+export interface JoinedPlan {
+  readonly key: string;
+  readonly within: readonly string[];
+  readonly identity: readonly string[];
+  readonly order: readonly (readonly [string, "asc" | "desc"])[];
+  readonly where: unknown;
 }
 
 /**

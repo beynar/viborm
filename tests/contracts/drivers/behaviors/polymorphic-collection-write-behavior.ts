@@ -1,3 +1,4 @@
+import type { DatabaseAdapter } from "@adapters/database-adapter";
 /**
  * Direct polymorphic COLLECTION writes, against a real database.
  *
@@ -131,7 +132,8 @@ export function runPolymorphicCollectionWriteBehavior(
       // the adapter's namespace, which a suite sharing one database instance
       // needs, because its tables live in a private schema rather than in
       // `public`.
-      const tableRef = client.$driver.adapter.identifiers.table;
+      const tableRef = (client.$driver.adapter as DatabaseAdapter).identifiers
+        .table;
       const rows = await client.$queryRaw<Record<string, unknown>>(
         sql`SELECT * FROM ${tableRef(table)}`
       );

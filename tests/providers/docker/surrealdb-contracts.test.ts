@@ -4,6 +4,7 @@
 
 import { blobFilterContract } from "@tests/contracts/drivers/behaviors/blob-filter-behavior";
 import { bulkWriteLimitContract } from "@tests/contracts/drivers/behaviors/bulk-write-limit-behavior";
+import { clientRawContract } from "@tests/contracts/drivers/behaviors/client-raw-behavior";
 import { compoundJunctionContract } from "@tests/contracts/drivers/behaviors/compound-junction-behavior";
 import { compoundKeyContract } from "@tests/contracts/drivers/behaviors/compound-key-behavior";
 import { countAggregateWindowContract } from "@tests/contracts/drivers/behaviors/count-aggregate-window-behavior";
@@ -12,7 +13,11 @@ import { cursorPaginationContract } from "@tests/contracts/drivers/behaviors/cur
 import { decimalExactnessContract } from "@tests/contracts/drivers/behaviors/decimal-exactness-behavior";
 import { distinctSkipWindowContract } from "@tests/contracts/drivers/behaviors/distinct-skip-window-behavior";
 import { fieldReferenceContract } from "@tests/contracts/drivers/behaviors/field-reference-behavior";
-import { geoPointContract } from "@tests/contracts/drivers/behaviors/geopoint-behavior";
+import { forwardFkOrderingContract } from "@tests/contracts/drivers/behaviors/forward-fk-ordering-behavior";
+import {
+  geoPointBatchContract,
+  geoPointContract,
+} from "@tests/contracts/drivers/behaviors/geopoint-behavior";
 import { implicitReturningContract } from "@tests/contracts/drivers/behaviors/implicit-returning-behavior";
 import { jsonNullSentinelContract } from "@tests/contracts/drivers/behaviors/json-null-sentinel-behavior";
 import { likeEscapeContract } from "@tests/contracts/drivers/behaviors/like-escape-behavior";
@@ -27,10 +32,12 @@ import { nestedWriteJsonEnvelopeContract } from "@tests/contracts/drivers/behavi
 import { omitContract } from "@tests/contracts/drivers/behaviors/omit-behavior";
 import { optionalRelationParityContract } from "@tests/contracts/drivers/behaviors/optional-relation-parity-behavior";
 import { orderingArrayCreateContract } from "@tests/contracts/drivers/behaviors/ordering-array-create-behavior";
+import { orderingPlanContract } from "@tests/contracts/drivers/behaviors/ordering-plan-behavior";
 import { polymorphicCollectionReadContract } from "@tests/contracts/drivers/behaviors/polymorphic-collection-read-behavior";
 import { polymorphicCollectionWriteContract } from "@tests/contracts/drivers/behaviors/polymorphic-collection-write-behavior";
 import { polymorphicRelationContract } from "@tests/contracts/drivers/behaviors/polymorphic-relation-behavior";
 import { prismaParityContract } from "@tests/contracts/drivers/behaviors/prisma-parity-behavior";
+import { rawArrayTransactionContract } from "@tests/contracts/drivers/behaviors/raw-array-transaction-behavior";
 import { readPathRegressionContract } from "@tests/contracts/drivers/behaviors/read-path-regression-behavior";
 import { relationFilterMutationContract } from "@tests/contracts/drivers/behaviors/relation-filter-mutation-behavior";
 import { relationReadAggregateContract } from "@tests/contracts/drivers/behaviors/relation-read-aggregate-behavior";
@@ -45,14 +52,13 @@ import {
   createSurrealTestDriver,
   surrealUrl,
 } from "@tests/fixtures/drivers/surrealdb";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { beforeEach, describe } from "vitest";
 
 /** Tests a shared contract states in SQL's own words, each with why it cannot run here. */
 const WAIVED: Readonly<Record<string, string>> = {
-  "an arithmetic expression compares against the row": "an SQL fragment",
-  "a scalar subquery compares against the whole table": "an SQL fragment",
-  "a fragment drives updateMany and deleteMany": "an SQL fragment",
-  "a fragment survives both execution substrates": "an SQL fragment",
+  "a scalar subquery compares against the whole table":
+    "its fragment is SQL's subquery, and a fragment is the database's own language",
   "four same-shape rows are ONE statement, and the rows come back in input order":
     "reads the SQL text",
   "row shapes that differ split into one statement per contiguous run, still in input order":
@@ -60,11 +66,20 @@ const WAIVED: Readonly<Record<string, string>> = {
   "skipDuplicates with select is ONE statement whose rows are exactly the rows inserted":
     "reads the SQL text",
   "an owner-scoped orphan fails the read, even hidden behind only":
-    "an edge cannot outlive its record, and the setup drops a SQL constraint",
+    "the setup drops a SQL constraint; a schema written by hand can leave such an edge, and the read then skips it",
   "a singular-inverse duplicate fails BEFORE the LIMIT":
-    "the setup drops a SQL constraint to plant the duplicate",
+    "the setup drops a SQL constraint; a schema written by hand can hold the duplicate, and the read then takes its first",
   "an identifier against a plain string column is refused, not answered":
     "a key here is its public text, so it answers; surrealdb-keys.test.ts checks that",
+  "an EXPLICIT non-default placement on a NOT NULL column is elided too":
+    "reads SQL's plan",
+  "a windowed order on a NOT NULL column walks the index": "reads SQL's plan",
+  "a nullable sort column keeps its placement and still orders correctly":
+    "reads the SQL text; surrealdb-read-parity.test.ts checks the order",
+  "a cursor over NOT NULL sort columns seeks into the index":
+    "reads the SQL text",
+  "both cursor spellings page identically over duplicate sort keys":
+    "its setup reads the SQL text; surrealdb-read-parity.test.ts checks the pages",
   "the column has the type `tally`'s map names on this dialect":
     "reads a SQL column type",
   "include resolves junction join through mapped PK columns":
@@ -142,4 +157,13 @@ describe.skipIf(!surrealUrl)("SurrealDB", () => {
   polymorphicCollectionReadContract.register(named);
   polymorphicCollectionWriteContract.register(named);
   nestedWriteConcurrencyContract.register(named);
+  clientRawContract.register(named);
+  forwardFkOrderingContract.register(named);
+  geoPointBatchContract.register({
+    driverName: "SurrealDB",
+    createDriver: createSurrealTestDriver,
+    setup: syncLiveSchema,
+  } as never);
+  orderingPlanContract.register(named);
+  rawArrayTransactionContract.register(named);
 });

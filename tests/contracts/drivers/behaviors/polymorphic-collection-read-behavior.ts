@@ -1,3 +1,4 @@
+import type { DatabaseAdapter } from "@adapters/database-adapter";
 /**
  * Direct polymorphic COLLECTION reads, against a real database.
  *
@@ -156,8 +157,10 @@ export function runPolymorphicCollectionReadBehavior(
         await client.$executeRawUnsafe("PRAGMA foreign_keys = OFF");
         return;
       }
-      const ident = client.$driver.adapter.identifiers.escape;
-      const tableRef = client.$driver.adapter.identifiers.table;
+      const ident = (client.$driver.adapter as DatabaseAdapter).identifiers
+        .escape;
+      const tableRef = (client.$driver.adapter as DatabaseAdapter).identifiers
+        .table;
       if (dialect === "mysql") {
         const named = await client.$queryRaw<{ name: string }>(
           sql`SELECT CONSTRAINT_NAME AS name FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = ${constraintSchema(client)} AND TABLE_NAME = ${table} AND CONSTRAINT_TYPE = 'FOREIGN KEY'`
@@ -195,8 +198,10 @@ export function runPolymorphicCollectionReadBehavior(
     ): Promise<boolean> {
       const dialect = client.$driver.dialect;
       if (dialect === "sqlite") return false;
-      const ident = client.$driver.adapter.identifiers.escape;
-      const tableRef = client.$driver.adapter.identifiers.table;
+      const ident = (client.$driver.adapter as DatabaseAdapter).identifiers
+        .escape;
+      const tableRef = (client.$driver.adapter as DatabaseAdapter).identifiers
+        .table;
       if (dialect === "mysql") {
         // MySQL SATISFIES THE FOREIGN KEY'S INDEX REQUIREMENT WITH THIS VERY
         // UNIQUE INDEX, so dropping it while the keys stand is errno 1553.
@@ -230,15 +235,17 @@ export function runPolymorphicCollectionReadBehavior(
       column: string,
       targetId: number
     ) {
-      const ident = client.$driver.adapter.identifiers.escape;
-      const tableRef = client.$driver.adapter.identifiers.table;
+      const ident = (client.$driver.adapter as DatabaseAdapter).identifiers
+        .escape;
+      const tableRef = (client.$driver.adapter as DatabaseAdapter).identifiers
+        .table;
       if (client.$driver.dialect === "surrealql") {
         // An edge table holds two records, in the junction's canonical order.
         const gallery = sql`type::record(${"coll_contract_galleries"}, ${galleryId})`;
         const target = sql`type::record(${`coll_contract_${column.replace("Id", "")}s`}, ${targetId})`;
         const galleryFirst = column > "galleryId";
         await client.$executeRaw(
-          sql`INSERT RELATION INTO ${tableRef(table)} { in: ${galleryFirst ? gallery : target}, out: ${galleryFirst ? target : gallery} }`
+          sql`RELATE (${galleryFirst ? gallery : target})->${tableRef(table)}->(${galleryFirst ? target : gallery})`
         );
         return;
       }
@@ -446,8 +453,10 @@ export function runPolymorphicCollectionReadBehavior(
 
     test("an owner-scoped orphan fails the read, even hidden behind only", async () => {
       const { client, gallery, clip } = await seed();
-      const ident = client.$driver.adapter.identifiers.escape;
-      const tableRef = client.$driver.adapter.identifiers.table;
+      const ident = (client.$driver.adapter as DatabaseAdapter).identifiers
+        .escape;
+      const tableRef = (client.$driver.adapter as DatabaseAdapter).identifiers
+        .table;
       // With its FKs intact the provider CASCADEs the membership away and there
       // is no orphan at all. Disable them, then delete the target: the
       // membership row survives, pointing at nothing.
@@ -555,8 +564,10 @@ export function runPolymorphicCollectionReadBehavior(
       const late = await client.gallery.create({ data: { name: "zeta" } });
       // Move `second`'s membership rather than adding one: the UNIQUE over the
       // target side is intact here, exactly as a singular inverse requires.
-      const ident = client.$driver.adapter.identifiers.escape;
-      const tableRef = client.$driver.adapter.identifiers.table;
+      const ident = (client.$driver.adapter as DatabaseAdapter).identifiers
+        .escape;
+      const tableRef = (client.$driver.adapter as DatabaseAdapter).identifiers
+        .table;
       if (client.$driver.dialect === "surrealql")
         await client.$executeRaw(
           sql`DELETE ${tableRef(ARTICLE_MEMBERS)} WHERE in = type::record(${"coll_contract_articles"}, ${second.id})`
