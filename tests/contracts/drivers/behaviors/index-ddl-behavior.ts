@@ -233,12 +233,31 @@ type AnySchema =
 
 type IndexDdlClient = VibORMClient<VibORMConfig<AnySchema>>;
 
+/** An index by name, wherever SurrealDB holds it. */
+async function surrealIndex(client: IndexDdlClient, indexName: string) {
+  const [database] = await client.$queryRawUnsafe<{
+    tables: { name: string }[];
+  }>("RETURN [(INFO FOR DB STRUCTURE).{ tables }]");
+  for (const { name } of database!.tables) {
+    const [info] = await client.$queryRawUnsafe<{
+      indexes: { name: string; cols: unknown[]; comment?: string }[];
+    }>(`RETURN [(INFO FOR TABLE ${name} STRUCTURE).{ indexes }]`);
+    const index = info!.indexes.find((item) => item.name === indexName);
+    if (index) return index;
+  }
+  return undefined;
+}
+
 /** The columns the database itself reports for `indexName`, in index order. */
 async function indexColumns(
   client: IndexDdlClient,
   dialect: string,
   indexName: string
 ): Promise<string[]> {
+  if (dialect === "surrealql") {
+    const index = await surrealIndex(client, indexName);
+    return (index?.cols ?? []) as string[];
+  }
   if (dialect === "postgresql") {
     const rows = await client.$queryRawUnsafe<{ name: string }>(
       `SELECT a.attname AS name
@@ -278,6 +297,10 @@ async function isPartial(
   tableName: string,
   indexName: string
 ): Promise<boolean> {
+  if (dialect === "surrealql") {
+    const index = await surrealIndex(client, indexName);
+    return Boolean(index?.comment && JSON.parse(index.comment).where);
+  }
   if (dialect === "postgresql") {
     const rows = await client.$queryRawUnsafe<{ partial: boolean }>(
       `SELECT (x.indpred IS NOT NULL) AS partial

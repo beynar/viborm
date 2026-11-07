@@ -1456,6 +1456,7 @@ async function releaseLock(
 function describeEstate(migrationDriver: BoundMigrationDriver): string {
   const { target } = migrationDriver;
   if (target.dialect === "sqlite") return "the SQLite database";
+  if (target.dialect === "surrealql") return "the SurrealDB database";
   return target.dialect === "postgresql"
     ? `schema "${target.namespace}"`
     : `database "${migrationDriver.namespace ?? "(unbound)"}"`;

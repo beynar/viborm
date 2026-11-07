@@ -48,28 +48,28 @@ import type {
   SchemaSnapshot,
   TableDef,
 } from "../../types";
-import {
-  type AddColumnOperation,
-  type AddForeignKeyOperation,
-  type AddPrimaryKeyOperation,
-  type AddUniqueConstraintOperation,
-  type AlterColumnOperation,
-  type AlterEnumOperation,
-  type CreateEnumOperation,
-  type CreateIndexOperation,
-  type CreateTableOperation,
-  type DDLContext,
-  type DropColumnOperation,
-  type DropEnumOperation,
-  type DropForeignKeyOperation,
-  type DropIndexOperation,
-  type DropPrimaryKeyOperation,
-  type DropTableOperation,
-  type DropUniqueConstraintOperation,
-  MigrationDriver,
-  type RenameColumnOperation,
-  type RenameTableOperation,
+import type {
+  AddColumnOperation,
+  AddForeignKeyOperation,
+  AddPrimaryKeyOperation,
+  AddUniqueConstraintOperation,
+  AlterColumnOperation,
+  AlterEnumOperation,
+  CreateEnumOperation,
+  CreateIndexOperation,
+  CreateTableOperation,
+  DDLContext,
+  DropColumnOperation,
+  DropEnumOperation,
+  DropForeignKeyOperation,
+  DropIndexOperation,
+  DropPrimaryKeyOperation,
+  DropTableOperation,
+  DropUniqueConstraintOperation,
+  RenameColumnOperation,
+  RenameTableOperation,
 } from "../base";
+import { SqlMigrationDriver } from "../sql";
 import { getSQLiteType } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
 import { introspect } from "./introspect";
@@ -394,7 +394,7 @@ export function sqliteTableBearsRelations(
  *
  * LibSQL extends this class and overrides methods for operations it supports.
  */
-export class SQLite3MigrationDriver extends MigrationDriver {
+export class SQLite3MigrationDriver extends SqlMigrationDriver {
   readonly dialect = "sqlite" as const;
   readonly driverName: string = "sqlite3";
 

@@ -826,6 +826,8 @@ export class CommandExecution {
   ): Promise<void> {
     const attempt = this.attempt;
     if (attempt.rows.has(selection)) return;
+    const pinned = this.context.pin(selection);
+    if (pinned) return this.#observed(selection, pinned);
     const source = selection.source;
     if (
       source.kind === "producer" &&
@@ -2656,7 +2658,12 @@ export function namesKeyConstraint(
     context.queries.columnName(model, field)
   );
   const constraints = adapterConstraints(context.driver.adapter);
-  if (!constraints) return false;
+  // A database whose refusals name no constraint says which columns it found.
+  if (!constraints)
+    return (
+      error.meta.table === table &&
+      error.meta.columns?.join() === columns.join()
+    );
   const expected = (
     key.kind === "primary"
       ? constraints.primaryKey(table, columns)

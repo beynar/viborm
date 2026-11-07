@@ -393,7 +393,7 @@ export interface SelectControls {
 }
 /**
  * What writes a read in a database's language. {@link Queries} is the SQL one;
- * a driver supplies another through `readBackend`. It takes the admitted
+ * a driver supplies another through `driver.backend`. It takes the admitted
  * arguments and answers one statement with its shape, and decoding stays shared.
  */
 export interface ReadBackend {

@@ -30,6 +30,7 @@ import type {
 } from "../index";
 import {
   type InsertValueContext,
+  type JoinedPlan,
   JoinedValue,
   renderers,
   Stored,
@@ -275,6 +276,19 @@ class Respace extends JoinedValue {
   }
   compute({ queries }: InsertValueContext): readonly unknown[] {
     return [joined(queries as SqlQueries, "nk")];
+  }
+  plan(): JoinedPlan {
+    const { key, within, identity } = this.#ordered;
+    const order = this.#order.flatMap(
+      (term) => Object.entries(term) as [string, "asc" | "desc"][]
+    );
+    return {
+      key,
+      within,
+      identity,
+      order,
+      where: this.#where,
+    };
   }
   join(q: SqlQueries, target: string): { source: Sql; on: Sql } {
     const { model, key, within, identity } = this.#ordered;

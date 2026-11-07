@@ -728,7 +728,7 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
         await db.$disconnect();
       }
     });
-    it("a link row whose own key holds the moved one refuses by name", async () => {
+    it("a link row whose own key holds the moved one moves with it", async () => {
       const link = s
         .model({
           roomId: s.string(),
@@ -768,11 +768,9 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
         await db.room.create({
           data: { id: "r", guests: { create: { id: "g" } } },
         });
-        await expect(
-          db.guest.update({ where: { id: "g" }, data: { id: "h" } })
-        ).rejects.toThrow("a key that holds it");
+        await db.guest.update({ where: { id: "g" }, data: { id: "h" } });
         expect(await db.link.findMany()).toEqual([
-          { roomId: "r", guestId: "g" },
+          { roomId: "r", guestId: "h" },
         ]);
       } finally {
         await db.$disconnect();
@@ -917,7 +915,7 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
         };
       });
     });
-    it("a key move refuses by name: its action is an event the old row would fire", async () => {
+    it("a key move leaves what references another field, and its old row's event quiet", async () => {
       const parent = s.model({
         id: s.string().id(),
         slug: s.string().unique(),
@@ -940,10 +938,9 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
         await db.parent.create({
           data: { id: "a", slug: "a", children: { create: { id: "c" } } },
         });
-        await expect(
-          db.parent.update({ where: { id: "a" }, data: { id: "b" } })
-        ).rejects.toThrow("references by another field");
+        await db.parent.update({ where: { id: "a" }, data: { id: "b" } });
         expect(await rows(db, "child")).toEqual([{ id: "c", parentSlug: "a" }]);
+        expect(await rows(db, "parent")).toEqual([{ id: "b", slug: "a" }]);
       } finally {
         await db.$disconnect();
       }
@@ -993,7 +990,7 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
       let raced = false;
       const execute = driver.execute;
       driver.execute = async function (this: unknown, ...args: unknown[]) {
-        if (!raced && String(args[1]).startsWith("INSERT IGNORE")) {
+        if (!raced && String(args[1]).includes("INSERT IGNORE")) {
           raced = true;
           await winner(other);
         }
@@ -1047,6 +1044,47 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
       expect(answer).toEqual({
         users: [{ id: "b", email: "theirs" }],
         children: [{ id: "c", ownerId: "b" }],
+      });
+    });
+  });
+
+  describe("what a write leaves out of sight", () => {
+    const task = () =>
+      s.model({
+        id: s.string().id(),
+        status: s.string(),
+        owner: s.string(),
+      });
+    it("a created row a caller may not read carries no evidence", async () => {
+      await compare({ task: task() }, async (db) => {
+        const governed = db.$extends({
+          name: "evidence",
+          rows: {
+            default: "on",
+            models: { task: { on: {} } },
+            verbs: {
+              task: {
+                predicates: {
+                  seen: { status: "open" },
+                  own: { owner: "ann" },
+                },
+                read: "seen",
+                place: "own",
+                evidence: { as: "$access", names: ["seen", "own"] },
+              },
+            },
+          },
+        });
+        const created = await caught(() =>
+          governed.task.create({
+            data: { id: "a", status: "closed", owner: "ann" },
+            select: { id: true, $access: true },
+          })
+        );
+        expect(created).toEqual({
+          answer: { id: "a", $access: { seen: false, own: false } },
+        });
+        return { created, rows: await rows(db, "task") };
       });
     });
   });
@@ -1133,6 +1171,76 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
         return { taken, other };
       });
     });
+  });
+
+  describe("a statement reads a snapshot of what it writes", () => {
+    const tree = () => {
+      const node = s.model({
+        id: s.string().id(),
+        flag: s.boolean(),
+        parentId: s.string().nullable(),
+        parent: s
+          .toOne(() => node)
+          .name("tree")
+          .fields("parentId")
+          .references("id")
+          .onDelete("setNull"),
+        children: s.toMany(() => node).name("tree"),
+      });
+      return { node };
+    };
+    const chain = async (db: any) => {
+      await db.node.create({ data: { id: "a", flag: false } });
+      await db.node.create({ data: { id: "b", flag: false, parentId: "a" } });
+      await db.node.create({ data: { id: "c", flag: false, parentId: "b" } });
+      await db.node.create({ data: { id: "d", flag: false, parentId: "c" } });
+    };
+    it("updateMany whose filter reads rows it writes", async () =>
+      compare(tree(), async (db) => {
+        await chain(db);
+        const result = await db.node.updateMany({
+          where: { parent: { is: { flag: false } } },
+          data: { flag: true },
+        });
+        return { result, rows: await rows(db, "node") };
+      }));
+    it("updateMany filtering on the rows' children", async () =>
+      compare(tree(), async (db) => {
+        await chain(db);
+        const result = await db.node.updateMany({
+          where: { children: { some: { flag: false } } },
+          data: { flag: true },
+        });
+        return { result, rows: await rows(db, "node") };
+      }));
+    it("deleteMany whose filter reads rows it deletes", async () =>
+      compare(tree(), async (db) => {
+        await chain(db);
+        const result = await db.node.deleteMany({
+          where: { children: { some: { flag: false } } },
+        });
+        return { result, rows: await rows(db, "node") };
+      }));
+    it("a nested updateMany whose filter reads its siblings", async () =>
+      compare(tree(), async (db) => {
+        await db.node.create({ data: { id: "p", flag: false } });
+        await db.node.create({ data: { id: "x", flag: false, parentId: "p" } });
+        await db.node.create({ data: { id: "y", flag: false, parentId: "p" } });
+        await db.node.update({
+          where: { id: "p" },
+          data: {
+            children: {
+              updateMany: {
+                where: {
+                  parent: { is: { children: { some: { flag: false } } } },
+                },
+                data: { flag: true },
+              },
+            },
+          },
+        });
+        return rows(db, "node");
+      }));
   });
 
   describe("transactions going back", () => {
@@ -1805,7 +1913,7 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
         await Promise.all([first.$disconnect(), second.$disconnect()]);
       }
     });
-    it("a JSON key named __proto__ is stored, and the SDK's answer loses it", async () => {
+    it("a JSON key named __proto__ is its own key, never the row's prototype", async () => {
       const item = s.model({ id: s.string().id(), payload: s.json() });
       const db: any = createClient({
         schema: { item },
@@ -1823,9 +1931,11 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
           "RETURN object::keys((SELECT VALUE payload FROM item)[0]);"
         );
         expect(keys).toContain("__proto__");
-        expect(
-          (await db.item.findUnique({ where: { id: "a" } })).payload
-        ).toEqual({ safe: 2 });
+        const { payload } = await db.item.findUnique({ where: { id: "a" } });
+        expect(Object.getPrototypeOf(payload)).toBe(Object.prototype);
+        expect(Object.hasOwn(payload, "__proto__")).toBe(true);
+        expect(payload.x).toBeUndefined();
+        expect(payload.safe).toBe(2);
       } finally {
         await db.$disconnect();
       }

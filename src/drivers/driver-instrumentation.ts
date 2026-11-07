@@ -266,7 +266,7 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
    * Absent, the engine's SQL backend does. Each class's abstract members are what
    * a language has to answer, so one left out does not compile.
    */
-  readonly backend?: QueryBackend;
+  declare readonly backend?: QueryBackend;
   /**
    * This driver's transport assertion, or `undefined` for every driver that
    * makes none. It is never a target and never derived: only a constructor
