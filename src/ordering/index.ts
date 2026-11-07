@@ -30,13 +30,14 @@ import type {
 } from "../index";
 import {
   type InsertValueContext,
+  type JoinedPlan,
   JoinedValue,
   renderers,
   Stored,
 } from "../query-engine/raptor3/shared/insert-value";
-import type { Queries } from "../query-engine/raptor3/shared/query";
 import type { RowJudgement } from "../query-engine/raptor3/shared/row-scope";
 import { RowsOf } from "../query-engine/raptor3/shared/rows-of";
+import type { SqlQueries } from "../query-engine/raptor3/shared/sql-queries";
 import { getModelKeyCatalog } from "../schema/model/keys";
 import { type Sql, sql } from "../sql/sql";
 import { AppendKey } from "./append";
@@ -211,7 +212,7 @@ function invalid(model: string, message: string): never {
 /** The engine's renderer for one client: its namespace, columns and
  * value encodings, so a respace names what a query would. */
 interface Engine {
-  readonly queries: Queries;
+  readonly queries: SqlQueries;
   readonly dialect: string;
 }
 
@@ -220,7 +221,7 @@ function engineOf(schema: Schema, driver: Driver): () => Engine {
   return () =>
     (engine ??= {
       // Registered when the client's engine was built.
-      queries: renderers.get(schema)!.get(driver.adapter)!,
+      queries: renderers.get(schema)!.get(driver.adapter)! as SqlQueries,
       dialect: driver.dialect,
     });
 }
@@ -258,7 +259,7 @@ const movable = (key: string): RowJudgement =>
  * A column of respacing's joined table: named `0viborm_…`, which no schema
  * identifier can be (they start with a letter or `_`).
  */
-const joined = (q: Queries, name: string): Sql =>
+const joined = (q: SqlQueries, name: string): Sql =>
   q.adapter.identifiers.column("r", `0viborm_${name}`);
 
 class Respace extends JoinedValue {
@@ -274,9 +275,22 @@ class Respace extends JoinedValue {
     this.#order = order;
   }
   compute({ queries }: InsertValueContext): readonly unknown[] {
-    return [joined(queries, "nk")];
+    return [joined(queries as SqlQueries, "nk")];
   }
-  join(q: Queries, target: string): { source: Sql; on: Sql } {
+  plan(): JoinedPlan {
+    const { key, within, identity } = this.#ordered;
+    const order = this.#order.flatMap(
+      (term) => Object.entries(term) as [string, "asc" | "desc"][]
+    );
+    return {
+      key,
+      within,
+      identity,
+      order,
+      where: this.#where,
+    };
+  }
+  join(q: SqlQueries, target: string): { source: Sql; on: Sql } {
     const { model, key, within, identity } = this.#ordered;
     const s = spellings[this.#dialect];
     const terms = this.#order.flatMap((term) => Object.entries(term));

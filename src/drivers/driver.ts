@@ -1,6 +1,6 @@
 /** Driver connection lifecycle and transaction-bound execution surface. */
 
-import type { DatabaseAdapter } from "@adapters/database-adapter";
+import type { EngineFacts } from "@adapters/database-adapter";
 import { TransactionError } from "@errors";
 import type { Sql } from "@sql";
 import { ASYNC_DISPOSE, type AsyncDisposeMember } from "./async-dispose";
@@ -324,7 +324,7 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
   private isSavepointActive = false;
   private hasAdmittedWithTransactionDispatch = false;
   private rollbackOnlyError: Error | undefined;
-  declare readonly adapter: DatabaseAdapter;
+  declare readonly adapter: EngineFacts;
   override readonly result?: DriverResultParser;
   protected override readonly inTransaction = true;
   override readonly supportsTransactions: boolean;

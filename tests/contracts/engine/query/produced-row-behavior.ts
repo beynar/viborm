@@ -195,6 +195,8 @@ export interface ProducedRowSubstrate {
   /** Creates the fixture's tables on an empty database (default: push). */
   readonly prepare?: (client: ProducedRowClient) => Promise<void>;
   readonly release?: () => Promise<void>;
+  /** What the database computes can be judged before the write, as any value is. */
+  readonly judgesComputedValues?: boolean;
   /**
    * The provider hands back a key it generates: RETURNING, the batch
    * scratch, or an insert id (false for SQLite without RETURNING, whose
@@ -895,10 +897,13 @@ export function runProducedRowBehavior(substrate: ProducedRowSubstrate): void {
             ...as("ann"),
           })
         )
-      ).toBeInstanceOf(QueryEngineError);
-      expect(
-        await failure(db.tick!.create({ data: {}, ...as("ann") }))
-      ).toBeInstanceOf(UnsupportedOperationError);
+      ).toBeInstanceOf(
+        substrate.judgesComputedValues ? ForbiddenError : QueryEngineError
+      );
+      if (!substrate.judgesComputedValues)
+        expect(
+          await failure(db.tick!.create({ data: {}, ...as("ann") }))
+        ).toBeInstanceOf(UnsupportedOperationError);
       expect(statements.slice(issued).join("\n")).not.toMatch(WRITES);
       // A whole list is a value: it is judged as any.
       expect(

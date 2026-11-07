@@ -1335,9 +1335,14 @@ export class VibORM<C extends VibORMConfig> {
       // schema rather than at the first UPDATE that could not compute inside it.
       // On SQLite the refusal is load-bearing: past 18 digits its range CHECK
       // stops being exact (see the SQLite adapter's arithmetic guards).
-      const decimalRefusal = reused?.fittingDialects.has(config.driver.dialect)
-        ? undefined
-        : findDecimalProviderLimitRefusal(config.schema, config.driver.dialect);
+      const decimalRefusal =
+        config.driver.dialect === "surrealql" ||
+        reused?.fittingDialects.has(config.driver.dialect)
+          ? undefined
+          : findDecimalProviderLimitRefusal(
+              config.schema,
+              config.driver.dialect
+            );
       if (decimalRefusal !== undefined) {
         throw new ClientInitializationError(
           describeDecimalProviderLimitRefusal(decimalRefusal)

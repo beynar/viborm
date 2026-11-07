@@ -3,6 +3,7 @@
  * Snapshot and SQL are published before the state manifest.
  */
 
+import type { SqlDialect } from "../drivers/types";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import {
   assertManualStepwiseProof,
@@ -110,6 +111,8 @@ export async function generateV1(
     client,
     request.skipValidation ?? false
   );
+  // An estate's own format admits no dialect without a history.
+  const dialect = driver.target.dialect as SqlDialect;
   const publishedEstate = await storage.readEstate();
   const estateBytes =
     publishedEstate ?? encodeEstateDescriptor(driver.target).bytes;
@@ -180,7 +183,7 @@ export async function generateV1(
       const compiled = compileManualTransition(
         transition.up,
         transition.rollback,
-        driver.target.dialect,
+        dialect,
         transition.execution,
         transition.originChecks,
         assembly
@@ -191,12 +194,7 @@ export async function generateV1(
       request.manualMigration.destinationChecks ?? []
     ).entries()) {
       destinationPlaceholders.push(
-        compileTrustedCheck(
-          check,
-          driver.target.dialect,
-          assembly,
-          `destination:${index}`
-        )
+        compileTrustedCheck(check, dialect, assembly, `destination:${index}`)
       );
     }
     for (const compiled of parentBodies) {
