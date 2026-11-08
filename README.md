@@ -1,6 +1,6 @@
 # VibORM
 
-A TypeScript ORM for PostgreSQL, MySQL and SQLite. Define models in TypeScript;
+A TypeScript ORM for PostgreSQL, MySQL, SQLite and SurrealDB. Define models in TypeScript;
 query inputs and results are inferred without a code generation step.
 
 V1 requires Node.js 22+ and TypeScript 5.9+. Bun support depends on the selected

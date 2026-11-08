@@ -185,8 +185,9 @@ read the table instead, which returns the exact answer.
 A vector index created by hand, outside `.rawIndex()`, makes every `push` and
 `migrate` apply in the namespace fail with `V8001` before it changes anything:
 VibORM keeps the index but cannot synchronize a table that holds an index it
-cannot declare. Declare it with `.rawIndex()` instead; a hand-made index under
-the same name is replaced by the declared one.
+cannot declare. Declare it with `.rawIndex()` instead, and drop the hand-made
+one once: an HNSW or IVFFlat index VibORM did not create still refuses after it
+is declared, and the next `push` creates the declared one.
 :::
 
 ## When to Use Vector

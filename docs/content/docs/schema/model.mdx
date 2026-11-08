@@ -174,7 +174,8 @@ const document = s
   of the model, and becomes its escaped column. Each field written this way is a
   column the index covers; a text names at least one. A field named `name` or
   `table` cannot be a placeholder, and a column written out literally does not
-  follow a rename.
+  follow a rename. A `{word}` is a placeholder wherever it stands, inside a
+  string literal too, and there is no escape for it.
 - It is one statement, without a terminating `;`. VibORM writes some words
   itself, so the text cannot: `CONCURRENTLY` on PostgreSQL (a raw index is always
   built in the migration's transaction, `lowLock` included), `COMMENT`,
