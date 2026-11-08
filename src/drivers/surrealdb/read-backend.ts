@@ -1424,11 +1424,22 @@ export class SurrealReadBackend implements ReadBackend {
       (index.dimension !== undefined && index.dimension !== to.length)
     )
       return exact;
-    const searched = sql`${this.physical(model, nearest.field)} ${sql.raw(
+    const column = this.physical(model, nearest.field);
+    const searched = sql`${column} ${sql.raw(
       `<|${nearest.take},${Math.max(EF_SEARCH, nearest.take)}|>`
     )} ${to}`;
+    // An index may hold a zero vector among a cosine's nearest, which has no
+    // cosine: it is left out, as an index leaves it out on PostgreSQL.
+    const directed =
+      nearest.distance.metric === "cosine"
+        ? [sql`vector::magnitude(${column}) > 0`]
+        : [];
     const found = this.#hoist(
-      this.#page(model, prepared, args, from, rest, [...conditions, searched])
+      this.#page(model, prepared, args, from, rest, [
+        ...conditions,
+        searched,
+        ...directed,
+      ])
     );
     return found
       ? sql`IF array::len(${found}) > 0 { ${found} } ELSE { ${exact} }`
@@ -3141,11 +3152,10 @@ export class SurrealReadBackend implements ReadBackend {
       throw new UnsupportedOperationError(
         `Vector distance ${usage} dimension mismatch for '${field}': expected ${facts.dimension} values, received ${to.length}.`
       );
-    const distance =
-      spec.metric === "cosine"
-        ? sql`1 - vector::similarity::cosine(${column}, ${to})`
-        : sql`vector::distance::euclidean(${column}, ${to})`;
-    return sql`(IF ${column} != NONE { ${distance} } ELSE { NONE })`;
+    // A zero vector has no direction, so no cosine: NONE, as PostgreSQL's NULL.
+    if (spec.metric === "cosine")
+      return sql`(IF ${column} != NONE AND vector::magnitude(${column}) > 0 { 1 - vector::similarity::cosine(${column}, ${to}) } ELSE { NONE })`;
+    return sql`(IF ${column} != NONE { vector::distance::euclidean(${column}, ${to}) } ELSE { NONE })`;
   }
 
   /** A JSON filter: a missing path answers neither a test nor its negation. */

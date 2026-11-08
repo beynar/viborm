@@ -335,6 +335,26 @@ export function runVectorBehavior({
       );
     });
 
+    test("a zero vector has no cosine distance, and sorts with the missing ones", async () => {
+      const rows = await requireClient(client).neighbour.findMany({
+        select: {
+          id: true,
+          embedding: { _distance: { to: [1, 0, 0], metric: "cosine" } },
+        },
+        orderBy: nearest("cosine"),
+      });
+      expect(rows.slice(0, 4).map((row) => row.id)).toEqual([
+        "exact",
+        "near",
+        "orthogonal",
+        "opposite",
+      ]);
+      expect(new Set(rows.slice(4).map((row) => row.id))).toEqual(
+        new Set(["zero", "missing"])
+      );
+      expect(rows.find((row) => row.id === "zero")?._distance).toBeNull();
+    });
+
     test("an approximate order keeps the selected distance exact", async () => {
       const rows = await requireClient(client).neighbour.findMany({
         select: {
