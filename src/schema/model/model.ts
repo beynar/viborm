@@ -497,10 +497,7 @@ export class Model<State extends ModelState> {
    * migrations create, recognize and recreate when its text changes. It is never a
    * key and never covers a foreign key.
    */
-  rawIndex<const O extends RawIndexTemplates>(
-    name: string,
-    templates: ExactOptions<O, RawIndexTemplates>
-  ): Model<State> {
+  rawIndex(name: string, templates: RawIndexTemplates): Model<State> {
     // The migration that renders a template is what checks it.
     return new Model({
       ...this.#state,

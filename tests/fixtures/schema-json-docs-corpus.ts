@@ -11,7 +11,7 @@
  *  - 36 are here, each as the fence's own declarations plus the JSON twin;
  *  - `index.mdx` fence #1 is prose — `s.model({ ... })` with a literal ellipsis
  *    — and declares nothing to transliterate;
- *  - `model.mdx` fences #0 and #8 carry `.default(() => new Date())`, the
+ *  - `model.mdx` fences #0 and #9 carry `.default(() => new Date())`, the
  *    function default v1 refuses. Their witnesses live in the suite.
  *
  * Three fences in `scalars/json.mdx` (#1, #3, #4) carry `.schema(validator)` at
@@ -163,7 +163,7 @@ export const docsFenceCorpus: DocsFenceCase[] = [
     },
   },
   {
-    id: "model.mdx#6",
+    id: "model.mdx#7",
     coded: () => ({
       membership: s
         .model({
@@ -184,7 +184,7 @@ export const docsFenceCorpus: DocsFenceCase[] = [
     },
   },
   {
-    id: "model.mdx#7",
+    id: "model.mdx#8",
     coded: () => ({
       user: s
         .model({
