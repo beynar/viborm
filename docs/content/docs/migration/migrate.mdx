@@ -161,6 +161,7 @@ const preview = await migrations.generate({ dryRun: true });
 | Resolver | `migrations.resolve` (config) | `resolve` | Answers ambiguous renames, enum value removals, and destructive changes (drops, type changes, NOT NULL tightening, narrower decimals, required columns without a default). |
 | Manual artifact | — | `manualMigration` | Caller-owned transitions. No CLI flag. |
 | Low-lock steps | `--low-lock` | `lowLock: boolean` | PostgreSQL: publish index builds and foreign keys on existing tables as recoverable steps. See [Indexes and foreign keys as steps](#indexes-and-foreign-keys-as-steps). |
+| Adopt tables | `--adopt <table...>` | `adopt: string[]` | Bring existing tables under an estate with a `tables` list without DDL; apply proves each one equals its declaration. See [Adopt an Existing Table](#adopt-an-existing-table). |
 
 `--from empty` and `from: null` mean the virtual empty root. On an estate that already has states, they author a checkpoint, which must restate the single leaf's schema; see [Bounded History with Checkpoints](#bounded-history-with-checkpoints). Numeric file indexes do not exist.
 
@@ -598,6 +599,72 @@ await migrations.baseline({ to: { name: "add-users" } });
 
 The marker records a baseline path boundary so later `down` cannot invent an arrival parent.
 
+## Adopt an Existing Table
+
+An estate created with a `tables` list (say, on a Durable Object whose
+database also holds FTS5 tables you manage yourself) records that list in
+`estate.json`. The list may only grow afterwards: a client can list every
+table of the estate's list plus new ones. A name of the estate's list missing
+from the client's, or a list on one side only, refuses with `V11004`, which
+says which.
+
+Growing the list does not hand the new names to the estate. Every history
+command (`apply`, `down`, `verify`, `status`, `baseline`, `reanchor`,
+`resolve`, `reset`) selects only what the estate manages: its own list plus
+the tables of the states the command proves, never the client's list. A table
+only the client lists is still yours, and no command reads, proves or drops
+it. `push` is history-free and keeps selecting the client's list.
+
+A new model on a grown list is an ordinary `CREATE TABLE` state. To bring a
+table you already created by hand (a `CREATE TABLE IF NOT EXISTS` bootstrap,
+say) under the estate instead, declare its model, list it, and adopt it when
+you generate:
+
+<Tabs>
+  <Tab title="CLI">
+```bash
+npx viborm migrate generate --name adopt-dependency --adopt dependency
+npx viborm migrate apply
+```
+  </Tab>
+  <Tab title="Migration Client">
+```ts
+const migrations = createMigrationClient(client, {
+  storage,
+  tables: ["users", "dependency"], // the estate was created with ["users"]
+});
+await migrations.generate({ name: "adopt-dependency", adopt: ["dependency"] });
+await migrations.apply();
+```
+  </Tab>
+</Tabs>
+
+Each adopted name must be a table the schema declares, absent from every
+parent state, and outside the estate's own list: a table of that list is
+managed already, so a raw one of that name is drift (`V11014`), not something
+to adopt. An estate without a list manages the whole database and adopts
+nothing. `adopt` is refused with `manualMigration`, `lowLock`, and on a
+checkpoint.
+
+The transition records the names in an `adopts` field (shown by `show` and in
+the review SQL) and emits no DDL for the table, its indexes or its foreign
+keys. `apply` proves the origin without it, then proves the destination with
+it: the live table must equal the declaration, columns, types, keys, indexes,
+foreign keys and SQLite's `WITHOUT ROWID` included
+([`.withoutRowid()`](/docs/schema/model)). A table that differs fails with
+`V11014` and its differences before the marker moves; nothing ran, and the
+table and its rows are untouched. Fix the table or the model and apply again.
+Rows are kept. From then on the table is managed like any other.
+
+`down` of an adopting state releases the table: no DDL runs, its rows stay,
+and the parent state no longer manages it. Applying again adopts it again,
+with the same proof.
+
+A raw table whose foreign key references a managed table crosses the managed
+boundary and is refused before any effect, as before; adoption does not lift
+that rule. Drop that key, adopt the table, then declare the relation: the next
+state adds the key as ordinary DDL.
+
 ## Recover an Unfinished Attempt
 
 An unfinished ledger attempt means the live schema may be between states. Ordinary apply and down refuse until you recover.
@@ -806,6 +873,13 @@ await migrations.reset({ to: { name: "add-users" } });
 Reset drops managed objects, then replays authenticated states. Effectful CLI reset requires `--confirm`. Dry-run reads the actual selected
 physical table inventory, returns it as `tables`, and writes nothing.
 :::
+
+On an estate with a `tables` list, what `reset` drops is the estate's list
+plus every table its marker's path managed, never a table only the client
+lists: a table you have not adopted yet survives a reset with its rows. A
+replayed adoption of such a table proves it as `apply` does. A replay that
+would adopt a table the clear drops (it was managed at the marker) is refused
+before any effect: an adoption has no DDL to recreate it.
 
 `reset` also works on a database whose marker names a state this estate does
 not hold (`status().markerState` is `"ahead"` or `"unknown"`, say after the

@@ -269,6 +269,28 @@ describe("migrate command routing", () => {
     );
   });
 
+  it("routes --adopt to the generate it adopts tables in", async () => {
+    const adopted = await invoke([
+      "generate",
+      "--adopt",
+      "dependency",
+      "fts_index",
+    ]);
+    expect(adopted.thrown).toBeUndefined();
+    expectCall("generate", {
+      name: undefined,
+      from: undefined,
+      dryRun: undefined,
+      adopt: ["dependency", "fts_index"],
+    });
+
+    boundary.migrations.generate.mockClear();
+    await invoke(["generate"]);
+    expect(boundary.migrations.generate.mock.calls[0]?.[0]).not.toHaveProperty(
+      "adopt"
+    );
+  });
+
   it("uses CLI directory, config directory, storage, and default precedence", async () => {
     await invoke(["generate", "--dir", "command-estate"], "/work/project");
     expect(boundary.createFsStorageWriter).toHaveBeenLastCalledWith(

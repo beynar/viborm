@@ -70,6 +70,7 @@ const MANUAL_ROLLBACK_KEYS = [
 ] as const;
 const IRREVERSIBLE_KEYS = ["kind", "reason"] as const;
 const PARENT_KEYS = [
+  "adopts",
   "approvals",
   "fromState",
   "operations",
@@ -97,9 +98,12 @@ const STATE_HASH_KEYS = [
   "snapshotHash",
   "sqlHash",
 ] as const;
-const PARENT_REQUIRED_KEYS = PARENT_KEYS.filter((key) => key !== "approvals");
+const PARENT_REQUIRED_KEYS = PARENT_KEYS.filter(
+  (key) => key !== "adopts" && key !== "approvals"
+);
 const STATE_ALLOWED_KEYS = [...STATE_KEYS, "snapshotArtifactHash"];
 const TRANSITION_HASH_KEYS = [
+  "adopts",
   "approvals",
   "fromState",
   "operations",
@@ -334,6 +338,26 @@ function parseRollback(value: unknown, label: string): MigrationRollbackV1 {
   refuse(`${label}.kind is not a V1 rollback`);
 }
 
+/**
+ * Absent, never empty: one encoding for "adopts nothing". Strictly ascending
+ * physical names, so one adoption has one encoding.
+ */
+function parseAdopts(value: unknown, label: string): readonly string[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    refuse(`${label} must be a non-empty array`);
+  }
+  return value.map((name: unknown, index) => {
+    if (!isString(name) || name.length === 0 || name.includes("\0")) {
+      refuse(`${label}[${index}] must be a non-empty physical table name`);
+    }
+    const previous: unknown = value[index - 1];
+    if (index > 0 && !(isString(previous) && previous < name)) {
+      refuse(`${label} must be sorted and free of repeats`);
+    }
+    return name;
+  });
+}
+
 /** Absent, never empty: one encoding for "no destructive change". */
 function parseApprovals(
   value: unknown,
@@ -434,6 +458,9 @@ function parseParent(
     ...(record.approvals === undefined
       ? {}
       : { approvals: parseApprovals(record.approvals, `${label}.approvals`) }),
+    ...(record.adopts === undefined
+      ? {}
+      : { adopts: parseAdopts(record.adopts, `${label}.adopts`) }),
   };
   const transitionHash = parseSha256(
     record.transitionHash,

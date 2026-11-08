@@ -61,6 +61,7 @@ import {
 import {
   assertLockedSinceDecision,
   assertNoDrift,
+  managedAt,
   markerStanding,
   proveLive,
 } from "./proof";
@@ -81,6 +82,11 @@ import type {
   MigrationStorageReader,
   MigrationStorageWriter,
 } from "./storage/contract";
+import {
+  managedTables,
+  selectManagedSnapshot,
+  withManagedTables,
+} from "./target";
 import type {
   AmbiguousChange,
   DiffOperation,
@@ -132,7 +138,13 @@ export async function statusV1(
   const driver = openCommand(client, graph, "read-only", "status()");
   const command = await resolveCommandDriver(client.$driver, driver);
   const control = await readCommandControl(client.$driver, command);
-  const invalidIndexes = await readInvalidIndexes(client.$driver, command);
+  const marked = control.marker?.stateId ?? null;
+  const invalidIndexes = await readInvalidIndexes(
+    client.$driver,
+    marked === null || graph.states.has(marked)
+      ? managedAt(command, graph, marked)
+      : command
+  );
   const listed = invalidIndexes.length === 0 ? {} : { invalidIndexes };
   if (control.presence.kind !== "present") {
     return {
@@ -206,7 +218,12 @@ export async function verifyV1(
         (sql, params) => pinned._executeRaw(sql, params),
         []
       );
-      await assertNoDrift(pinned, command, graph, marker);
+      await assertNoDrift(
+        pinned,
+        managedAt(command, graph, marker.stateId),
+        graph,
+        marker
+      );
       return { ok: true };
     }
   );
@@ -266,7 +283,7 @@ export async function baselineV1(
       }
       await proveLive(
         pinned,
-        command,
+        managedAt(command, graph, target),
         graph,
         graph.states.get(target)!.snapshotHash,
         async (differences) =>
@@ -309,12 +326,41 @@ export async function reanchorV1(
           VibORMErrorCode.MIGRATION_INVALID_STATE
         );
       }
-      const live = await introspectManaged(pinned, command);
-      const liveHash = await fingerprintLive(live, command, pinned);
+      // One read of everything any candidate manages, then each candidate
+      // compared with what it manages, selected in memory.
+      const candidates = named ? [named] : [...graph.states.keys()];
+      const read = await introspectManaged(
+        pinned,
+        withManagedTables(
+          command,
+          managedTables(
+            graph.descriptor.target.tables,
+            candidates.map((stateId) => requireStateSnapshot(graph, stateId))
+          )
+        )
+      );
+      const liveAt = (stateId: Sha256) =>
+        selectManagedSnapshot(read, managedAt(command, graph, stateId).target);
+      // One fingerprint per distinct selection: without a list, exactly one.
+      const liveHashes = new Map<string, Promise<string>>();
+      const liveHash = (stateId: Sha256) => {
+        const key = JSON.stringify(
+          managedAt(command, graph, stateId).target.tables ?? null
+        );
+        let hash = liveHashes.get(key);
+        if (hash === undefined) {
+          hash = fingerprintLive(liveAt(stateId), command, pinned);
+          liveHashes.set(key, hash);
+        }
+        return hash;
+      };
       const matches: Sha256[] = [];
-      for (const stateId of named ? [named] : graph.states.keys()) {
+      for (const stateId of candidates) {
         const snapshot = requireStateSnapshot(graph, stateId);
-        if ((await fingerprintLive(snapshot, command, pinned)) === liveHash) {
+        if (
+          (await liveHash(stateId)) ===
+          (await fingerprintLive(snapshot, command, pinned))
+        ) {
           matches.push(stateId);
         }
       }
@@ -322,7 +368,7 @@ export async function reanchorV1(
         named ?? (graph.leaves.length === 1 ? graph.leaves[0] : undefined);
       if (matches.length === 0) {
         const differences = reference
-          ? ` Differences from ${reference}: ${JSON.stringify(await diff(live, requireStateSnapshot(graph, reference)))}`
+          ? ` Differences from ${reference}: ${JSON.stringify(await diff(liveAt(reference), requireStateSnapshot(graph, reference)))}`
           : "";
         throw new MigrationError(
           `reanchor found no state of this history that the live schema matches.${differences}`,
@@ -739,7 +785,12 @@ async function planRollback(
         prepared[0]!
       );
     } else {
-      await assertNoDrift(producer, command, graph, marker);
+      await assertNoDrift(
+        producer,
+        managedAt(command, graph, marker.stateId, prepared[0]!.nextState),
+        graph,
+        marker
+      );
     }
     await approveRollbackLosses(
       producer,
@@ -817,21 +868,21 @@ export async function resolveV1(
         // On Neki each statement commits alone.
         true
       );
+      // Both ends of the edge, read once: the destination manages a table
+      // the edge adopts, the origin does not.
+      const across = managedAt(command, graph, to, from);
       if (options.outcome !== "retry") {
         await repairInvalidIndexes(
           pinned,
-          command,
+          across,
           statements,
           options.outcome === "complete" ? destSnapshot : originSnapshot
         );
       }
-      const liveHash = await fingerprintLive(
-        await introspectManaged(pinned, command),
-        command,
-        pinned
-      );
+      const read = await introspectManaged(pinned, across);
       const destHolds =
-        liveHash === (await fingerprintLive(destSnapshot, command, pinned)) &&
+        (await fingerprintLive(read, command, pinned)) ===
+          (await fingerprintLive(destSnapshot, command, pinned)) &&
         (await evaluateAllChecks(
           pinned,
           blob,
@@ -839,7 +890,14 @@ export async function resolveV1(
           command.namespace
         ));
       const originHolds =
-        liveHash === (await fingerprintLive(originSnapshot, command, pinned)) &&
+        (await fingerprintLive(
+          selectManagedSnapshot(
+            read,
+            managedAt(command, graph, from, to).target
+          ),
+          command,
+          pinned
+        )) === (await fingerprintLive(originSnapshot, command, pinned)) &&
         (await evaluateAllChecks(
           pinned,
           blob,
@@ -942,7 +1000,7 @@ export async function resolveV1(
           );
           await proveLive(
             producer,
-            command,
+            across,
             graph,
             state.snapshotHash,
             () => "Retry did not reach the destination"
@@ -1345,7 +1403,7 @@ async function proveRolledBack(
   producer: AnyDriver,
   command: Parameters<typeof appendLedger>[1],
   graph: MigrationGraph,
-  { parent, blob, nextState }: PreparedRollback
+  { parent, blob, nextState, edge }: PreparedRollback
 ): Promise<Sha256> {
   await assertAllChecks(
     producer,
@@ -1355,9 +1413,10 @@ async function proveRolledBack(
     "Origin checks failed after rollback"
   );
   const snapshotHash = snapshotHashOf(graph, nextState);
+  // On the parent's side: a table the edge adopted is released, rows kept.
   await proveLive(
     producer,
-    command,
+    managedAt(command, graph, nextState, edge.stateId),
     graph,
     snapshotHash,
     () => "Rollback did not reach the parent snapshot"

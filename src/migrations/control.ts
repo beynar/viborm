@@ -18,6 +18,7 @@ import type { BoundMigrationDriver } from "./drivers";
 import { throwIfCatalogRefusal } from "./drivers/postgres/catalog-refusal";
 import { providerFacts } from "./execute-dispatch";
 import { isSha256, type Sha256 } from "./identity";
+import { withManagedTables } from "./target";
 import type { SchemaSnapshot, TableDef } from "./types";
 import { encodePathHash, eventIdFor, parseLedgerEvent } from "./v1-parse";
 import { parseMarkerPayload } from "./v1-parse-control";
@@ -229,17 +230,10 @@ function introspectControlTables(
   producer: AnyDriver,
   driver: BoundMigrationDriver
 ): Promise<SchemaSnapshot> {
-  const scoped: BoundMigrationDriver = Object.create(driver);
-  Object.defineProperty(scoped, "target", {
-    value: Object.freeze({
-      ...driver.target,
-      tables: [CONTROL_TABLES.log, CONTROL_TABLES.state],
-    }),
-    enumerable: true,
-  });
-  return Object.freeze(scoped).introspect((sql, params) =>
-    producer._executeRaw(sql, params)
-  );
+  return withManagedTables(driver, [
+    CONTROL_TABLES.log,
+    CONTROL_TABLES.state,
+  ]).introspect((sql, params) => producer._executeRaw(sql, params));
 }
 
 /** The refusals of the pair, and of a state table left without its log. */

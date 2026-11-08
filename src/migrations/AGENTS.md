@@ -1185,12 +1185,39 @@ recording driver or in the extended or provider estate.
 
 ## V1 remediation contracts
 
-An optional exact physical `tables` list is normalized once at `target.ts`,
-frozen into the estate identity, and selects desired/catalog inventories.
-All authored user tables must fit the list; cross-boundary foreign keys and
-shared PostgreSQL enums refuse before effects. Control-table proofs remain
-visible. Live clients accept `{ tables }` without requiring a storage writer.
-A rename needs both names in the initial immutable scope.
+An optional exact physical `tables` list is normalized once at `target.ts`
+and recorded in the estate identity (T0). A client's list L may only grow
+from it: `assertEstateTargetMatches` (V11004) refuses a T0 name missing from
+L and a list on one side only, and says which. L selects the desired check
+(every authored user table must fit it) and `push`, nothing else. Every
+history command selects what the estate manages, never L: `openCommand`
+binds T0, and each proof restates its states' set through `proof.ts`
+`managedAt` (T0 ∪ S(x), and across an edge x→y T0 ∪ S(x) ∪ S(y), less the
+edge's `adopts` on the parent's side), built by `target.ts`
+`managedTables` / `withManagedTables` — one view whose `target` every
+inventory reads (introspection through the bound driver's `this.target`, the
+PostgreSQL digest, invalid indexes, the reset inventory), so a proof's digest
+and introspection select the same set. Commands comparing one read with
+several states (`reanchor`, `resolve`) read the widest set once and select
+in memory with `selectManagedSnapshot`. `reset` clears T0 ∪ the tables of
+its marker's arrival path, so a table only L names (not adopted yet) is never
+dropped, and refuses before effects a replay that adopts a table it clears.
+A control-only selection draws no user boundary. Cross-boundary foreign keys
+and shared PostgreSQL enums still refuse before effects. Live clients accept
+`{ tables }` without requiring a storage writer. A rename needs both names in
+the estate's scope.
+
+Adoption (`generate({ adopt })`, CLI `--adopt`) records `adopts` (sorted,
+non-empty) on each parent transition, hashed only when present like
+`approvals`, so a transition without it keeps its bytes and ids. Generation
+admits a name only when the desired snapshot declares it, T0 does not hold
+it, and no parent's snapshot does; `graph.ts` `assertAdoption` refuses a
+stored `adopts` breaking the last two, since `managedAt` relies on them. The
+program omits the table's CREATE, indexes, keys and an enum only adopted
+tables use; apply's origin proof excludes it and its destination proof
+includes it, so a live table unequal to the declaration (WITHOUT ROWID
+included) fails V11014 before the marker moves. `down` releases it with no
+DDL. Manual, low-lock and checkpoint states adopt nothing.
 
 Generation uses the strict resolver for every parent, including merges. Missing
 rename or enum-removal decisions refuse; nullable does not imply NULL consent.

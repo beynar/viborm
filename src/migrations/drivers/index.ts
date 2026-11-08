@@ -179,9 +179,11 @@ export function getMigrationDriver(
         this: MigrationDriver,
         executeRaw: Parameters<MigrationDriver["introspect"]>[0]
       ) {
+        // `this.target`, not the bound one: a history command restates the
+        // managed set on a view of this driver (`withManagedTables`).
         return selectManagedSnapshot(
           await implementation.introspect.call(this, executeRaw),
-          target
+          (this as BoundMigrationDriver).target
         );
       },
     },

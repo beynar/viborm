@@ -20,6 +20,7 @@ import {
   ensureControlTables,
   ledgerEvent,
   markerFromPath,
+  readControlState,
   refuseIncompatibleHistory,
   sameMarker,
   unfinishedAttempts,
@@ -64,6 +65,7 @@ import {
 import { encodeSqlText } from "./sql-blob";
 import { canonicalizeSqliteStorage } from "./sqlite-storage-audit";
 import type { MigrationStorageWriter } from "./storage/contract";
+import { managedTables, withManagedTables } from "./target";
 import { encodeDispatchIdentity, encodeSqlBlob } from "./v1-parse";
 import type {
   LedgerEventV1,
@@ -96,7 +98,16 @@ export async function resetV1(
   );
   if (dryRun) {
     const command = await resolveCommandDriver(client.$driver, driver);
-    const plan = await planLiveNamespaceReset(client.$driver, command);
+    // Without a list the whole namespace is cleared, and the marker is not read.
+    const marker =
+      graph.descriptor.target.tables === undefined
+        ? null
+        : (await readControlState(client.$driver, command, { ledger: "open" }))
+            .marker;
+    const plan = await planLiveNamespaceReset(
+      client.$driver,
+      clearedBy(command, graph, marker, path)
+    );
     await command.preflightSchemaRequirements(
       path.map((stateId) => requireStateSnapshot(graph, stateId)),
       (sql, params) => client.$driver._executeRaw(sql, params),
@@ -172,7 +183,10 @@ export async function resetV1(
           storedResetPlan
         ) &&
         (await fingerprintLive(
-          await introspectManaged(pinned, command),
+          await introspectManaged(
+            pinned,
+            replayedTo(command, graph, marker, target)
+          ),
           command,
           pinned
         )) === (await fingerprintLive(targetSnapshot, command, pinned))
@@ -215,7 +229,10 @@ export async function resetV1(
         : false;
       const livePlan = hasReplayEvidence
         ? undefined
-        : await planLiveNamespaceReset(pinned, command);
+        : await planLiveNamespaceReset(
+            pinned,
+            clearedBy(command, graph, marker, path)
+          );
       const clearDispatches = resetProgram(livePlan, []).map((sql) =>
         dispatchForClearSql(sql)
       );
@@ -288,7 +305,7 @@ export async function resetV1(
       const finish = async (producer: Parameters<typeof appendLedger>[0]) => {
         await proveLive(
           producer,
-          command,
+          replayedTo(command, graph, marker, target),
           graph,
           targetSnapshotHash,
           () => "Reset replay did not reach the target snapshot"
@@ -333,6 +350,63 @@ export async function resetV1(
       );
       return { preview: false, path };
     }
+  );
+}
+
+/**
+ * The tables an estate with a `tables` list holds while the marker stands:
+ * the estate's own list and every table its arrival path managed. Never a
+ * table only the client lists: nothing adopted it, so it is the user's.
+ */
+function managedByMarker(
+  graph: MigrationGraph,
+  marker: MigrationMarkerV1 | null
+): readonly string[] | undefined {
+  const states = [null, ...(marker?.path ?? []).map((edge) => edge.stateId)];
+  return managedTables(
+    graph.descriptor.target.tables,
+    states
+      .filter((state) => state === null || graph.states.has(state))
+      .map((state) => requireStateSnapshot(graph, state))
+  );
+}
+
+/**
+ * The command, its inventory what reset clears (`managedByMarker`), once the
+ * replay is proven able to recreate it: an adoption has no DDL, so replaying
+ * one whose table the clear drops would lose that table and its rows.
+ */
+function clearedBy(
+  command: BoundMigrationDriver,
+  graph: MigrationGraph,
+  marker: MigrationMarkerV1 | null,
+  path: readonly Sha256[]
+): BoundMigrationDriver {
+  const cleared = managedByMarker(graph, marker);
+  for (const { to, transition } of routeEdges(graph, null, path)) {
+    const lost = transition.adopts?.find((name) => cleared?.includes(name));
+    if (lost !== undefined) {
+      throw new MigrationError(
+        `reset cannot replay state ${to}, which adopts "${lost}": reset clears that table, and an adoption has no DDL to recreate it. Nothing ran.`,
+        VibORMErrorCode.MIGRATION_INVALID_STATE
+      );
+    }
+  }
+  return withManagedTables(command, cleared);
+}
+
+/** The command, proving the replay's target and that the clear left nothing. */
+function replayedTo(
+  command: BoundMigrationDriver,
+  graph: MigrationGraph,
+  marker: MigrationMarkerV1 | null,
+  target: Sha256
+): BoundMigrationDriver {
+  return withManagedTables(
+    command,
+    managedTables(managedByMarker(graph, marker), [
+      requireStateSnapshot(graph, target),
+    ])
   );
 }
 

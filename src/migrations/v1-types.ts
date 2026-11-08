@@ -100,6 +100,14 @@ export interface MigrationParentTransitionV1 {
    * and the ids it had before approvals existed.
    */
   readonly approvals?: readonly MigrationApprovalV1[];
+  /**
+   * The existing tables this transition adopts: tables of its state that its
+   * parent lacks, which it creates no DDL for. Apply proves each live table
+   * equals its declaration before the marker moves. Present, non-empty,
+   * sorted and part of `transitionHash` only when the transition adopts one,
+   * so a transition without one keeps its bytes and ids.
+   */
+  readonly adopts?: readonly string[];
 }
 
 export interface MigrationStateManifestV1 {
@@ -300,6 +308,15 @@ export interface ResolveV1Options {
 
 export interface GenerateV1Options {
   readonly name?: string;
+  /**
+   * Existing tables this state adopts into an estate with a `tables` list:
+   * each is declared by the schema, listed by the client, absent from every
+   * parent's snapshot and from the estate's own frozen list. The transition
+   * runs no DDL for it; apply proves the live table equals its declaration
+   * (columns, keys, indexes, foreign keys, `WITHOUT ROWID`) before the marker
+   * moves, and `down` releases it, rows kept.
+   */
+  readonly adopt?: readonly string[];
   /** Full parent state id, or `null` for the virtual empty root. */
   readonly from?: Sha256 | null;
   readonly dryRun?: boolean;
