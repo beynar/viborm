@@ -46,7 +46,8 @@ const db = createClient({ schema, driver: new SurrealDriver({ client: surreal })
 ## Migrations
 
 `viborm/migrations/surrealdb` gives `push`, `generate`, `apply`, `verify`, `down`
-and `reset`. Generated files hold SurrealQL.
+and `reset`. Generated files hold SurrealQL. The [SurrealDB migration driver](/docs/migration/drivers/surrealdb)
+page says what it writes and what it does differently.
 
 ```ts
 import { createMigrationClient } from "viborm/migrations/surrealdb";
