@@ -1633,11 +1633,89 @@ export function policyCompiler(
     return verbs;
   };
   /**
+   * The `{ relation: { is: body } }` members `clause`, read at `name`, holds
+   * where it holds: under AND and OR, never under NOT or another quantifier.
+   */
+  const heldRelations = (
+    name: string,
+    clause: Where,
+    into: Array<{ relation: string; body: Where; member: Where }> = []
+  ) => {
+    for (const member of conjuncts(clause)) {
+      const [key, value] = Object.entries(member)[0]!;
+      if (key === "AND" || key === "OR") {
+        for (const item of value as Where[]) heldRelations(name, item, into);
+      } else if (
+        targetOf(name, key) !== undefined &&
+        isRecord(value) &&
+        Object.keys(value).length === 1 &&
+        isRecord(value.is)
+      ) {
+        into.push({ relation: key, body: value.is, member });
+      }
+    }
+    return into;
+  };
+  /**
+   * Where `create` equates a key's fields with a key a row it reads holds:
+   * `{ parent: { is: { teamspaceId: { $row: "teamspaceId", up: 1 } } } }`,
+   * every field of `key` (to `target`'s `references`) compared with the
+   * fields of a foreign key of `relation`'s row onto the same target and
+   * fields. Such a row is one the placement already proves the actor reads
+   * (its own key's clause, R4), and its foreign key names a target that
+   * exists, so a value equal to it discloses nothing: a missing target and a
+   * hidden one still fail the same comparison (R4's oracle stays closed).
+   * The member found, which R4 then accepts beside the target's visibility,
+   * and the relation whose key clause must hold with it.
+   */
+  const inheritedKey = (
+    name: string,
+    create: Clause,
+    relation: string,
+    key: {
+      readonly fields: readonly string[];
+      readonly references: readonly string[];
+    }
+  ): { member: Where; through: string } | undefined => {
+    if (create === false) return;
+    const target = targetOf(name, relation);
+    for (const held of heldRelations(name, create)) {
+      const holder = relationOf(name, held.relation)?.state.foreignKey;
+      if (held.relation === relation || holder === undefined) continue;
+      const row = targetOf(name, held.relation)!;
+      const compared = new Map<string, string>();
+      for (const member of conjuncts(held.body)) {
+        const [field, operand] = Object.entries(member)[0]!;
+        if (isEnclosingRow(operand) && operand.up === 1)
+          compared.set(field, operand.$row);
+      }
+      const matches = Object.entries(stateOf(row).relations).some(
+        ([other, declared]) => {
+          const foreign = declared["~"].state.foreignKey;
+          return (
+            foreign !== undefined &&
+            targetOf(row, other) === target &&
+            foreign.references.length === key.references.length &&
+            foreign.references.every(
+              (reference, at) =>
+                reference === key.references[at] &&
+                compared.get(foreign.fields[at]!) === key.fields[at]
+            )
+          );
+        }
+      );
+      if (matches) return { member: held.member, through: held.relation };
+    }
+    return;
+  };
+  /**
    * Each foreign key `name` holds, with what R4 asks of a value written to
    * it: null where every field of the key may be, or a target the actor
-   * views, `P(T, read)` (false where T holds none: R9, fail closed).
+   * views, `P(T, read)` (false where T holds none: R9, fail closed), or the
+   * key of a row the placement reads, where `create` equates them
+   * ({@link inheritedKey}; `through` is that row's relation).
    */
-  const keysOf = (name: string) =>
+  const keysOf = (name: string, create: Clause) =>
     Object.entries(stateOf(name).relations).flatMap(([relation, declared]) => {
       const key = declared["~"].state.foreignKey;
       if (key === undefined) return [];
@@ -1649,12 +1727,17 @@ export function policyCompiler(
       const nullable = key.fields.every(
         (field) => stateOf(name).scalars[field]?.["~"].state.nullable === true
       );
+      const own = nullable
+        ? or([and(key.fields.map((field) => ({ [field]: null }))), visible])
+        : visible;
+      const inherited = inheritedKey(name, create, relation, key);
+      const accepted = inherited ? or([own, inherited.member]) : own;
       return [
         {
+          relation,
           fields: key.fields,
-          clause: nullable
-            ? or([and(key.fields.map((field) => ({ [field]: null }))), visible])
-            : visible,
+          clause: accepted,
+          through: inherited?.through,
         },
       ];
     });
@@ -1895,7 +1978,7 @@ export function policyCompiler(
     // adds target visibility; moves reuse the row rule without requiring a
     // create credential scope for an update.
     const create = P(name, "create");
-    const keys = keysOf(name);
+    const keys = keysOf(name, create);
     claim(
       PLACE,
       `models.${name}.create`,
@@ -1938,7 +2021,14 @@ export function policyCompiler(
             placed.has(field) ? create : {},
             ...keys
               .filter(({ fields }) => fields.includes(field))
-              .map(({ clause }) => clause),
+              .flatMap(({ clause, through }) => [
+                clause,
+                // A key inherited from a row holds only where that row is
+                // one the actor reads: its own key's clause, as in PLACE.
+                ...keys
+                  .filter(({ relation }) => relation === through)
+                  .map((holder) => holder.clause),
+              ]),
           ],
           judged
         ) || FALSE

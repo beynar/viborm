@@ -255,7 +255,9 @@ post satisfies `post`'s own `read` rule". It is how one model's permission
 follows another's, without writing it twice.
 
 - Every foreign key a create writes must point at a row the caller can see
-  (a hidden target and a missing one give the same `ForbiddenError`).
+  (a hidden target and a missing one give the same `ForbiddenError`), unless
+  the `create` rule says it equals the same key of a row the create already
+  reads: see [a key taken from the parent](#a-key-taken-from-the-parent).
 - **Moving a row is judged like a create.** An update that changes a field
   the `create` rule reads (here `postId` or `authorId`) must leave a row the
   `create` rule accepts, and the new row must still pass the rules that let
@@ -269,6 +271,42 @@ follows another's, without writing it twice.
   `actions: { create: ["read"] }` when the creation predicate should also grant
   reads. With that explicit implication, `create: true` grants reading every row
   that passes the restrictions, unless `read: false` denies it.
+
+### A key taken from the parent
+
+A guest who may edit one shared page may add a subpage under it, but cannot read
+the page's teamspace. A subpage stores the same `teamspaceId` as its parent, so
+say it in the rule: compare the key with the parent's own, through `$row`:
+
+```ts
+page: {
+  // …
+  create: {
+    AND: [
+      { parent: "update" },
+      {
+        OR: [
+          { teamspaceId: null, parent: { is: { teamspaceId: null } } },
+          { parent: { is: { teamspaceId: { $row: "teamspaceId", up: 1 } } } },
+        ],
+      },
+    ],
+  },
+},
+```
+
+Where the rule compares every field of a foreign key with the fields of the
+same foreign key on a related row (`parent.teamspaceId`, onto the same
+teamspace), the created row may name that target without the caller reading
+it: the related row is one the caller reads (its own key must point at a
+visible row, as always), and its key names a target that exists, so nothing
+new is disclosed. Any other value still needs a visible target, and a hidden
+teamspace and a missing one still fail alike. The same holds when an update
+moves the key. Without such a comparison in the rule, nothing changes, the
+statement included.
+
+Write the foreign key's field to use it: a `connect` to the teamspace still
+looks the target up among the rows the caller reads.
 
 ## 4. A team: the organization, and roles
 
