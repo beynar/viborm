@@ -327,14 +327,23 @@ export function serializeResolvedModels(
       }
     }
 
-    // Set primary key
+    // Set primary key. `WITHOUT ROWID` is SQLite's alone, and SQLite's
+    // AUTOINCREMENT is a rowid's: the pair is refused here, before any
+    // migration names the table, and never on a dialect that ignores it.
+    const withoutRowid =
+      model["~"].withoutRowid && migrationDriver.dialect === "sqlite";
+    const incremented = columns.find((column) => column.autoIncrement);
+    if (withoutRowid && incremented)
+      throw new MigrationError(
+        `"${modelName}" is declared withoutRowid, and its ID "${incremented.name}" uses .increment(): SQLite's AUTOINCREMENT needs a rowid`,
+        VibORMErrorCode.INVALID_INPUT,
+        { meta: { model: modelName, field: incremented.name } }
+      );
     if (pkColumns.length > 0) {
       primaryKey = {
         columns: pkColumns,
         name: `${tableName}_pkey`,
-        ...(model["~"].withoutRowid && migrationDriver.dialect === "sqlite"
-          ? { withoutRowid: true as const }
-          : {}),
+        ...(withoutRowid ? { withoutRowid: true as const } : {}),
       };
     }
 

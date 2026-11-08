@@ -598,7 +598,6 @@ M003  Duplicate registration is rejected before Map replacement
 M005  Model name must be a valid identifier
 M006  Model name cannot be reserved
 M007  Mapped table name must be a valid identifier
-M008  A withoutRowid model cannot have an .increment() ID
 
 F001  Field names must be valid identifiers
 F002  ID definitions cannot conflict

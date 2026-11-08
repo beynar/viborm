@@ -25,6 +25,7 @@ const textValue = () =>
 const ENDS_WITHOUT_ROWID = /\)\s*WITHOUT ROWID$/;
 const NOTE_NOT_NULL = /"note" TEXT NOT NULL/;
 const ONLY_TRUE = /withoutRowid must be true/;
+const NEEDS_ROWID = /AUTOINCREMENT needs a rowid/;
 
 const tableSql = async (
   driver: ReturnType<typeof createInMemorySQLite3Driver>
@@ -188,10 +189,15 @@ describe("withoutRowid in the snapshot", () => {
     ).toEqual({ columns: ["prop"], withoutRowid: true });
   });
 
-  it("refuses an incremented ID (M008)", () => {
+  it("refuses an incremented ID on SQLite only", () => {
     const counter = s.model({ id: s.int().id().increment() }).withoutRowid();
-    expect(validateSchema({ counter }).errors).toContainEqual(
-      expect.objectContaining({ code: "M008", model: "counter", field: "id" })
-    );
+    expect(validateSchema({ counter }).errors).toEqual([]);
+    expect(() =>
+      serializeModels({ counter }, { migrationDriver: sqlite3MigrationDriver })
+    ).toThrow(NEEDS_ROWID);
+    expect(
+      serializeModels({ counter }, { migrationDriver: postgresMigrationDriver })
+        .tables[0]!.primaryKey
+    ).toEqual({ columns: ["id"], name: "counter_pkey" });
   });
 });

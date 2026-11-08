@@ -457,8 +457,12 @@ function admitAdoption(
 
 /**
  * The program without what creates an adopted table: its CREATE TABLE, its
- * indexes and keys, and an enum only adopted tables use. It runs no DDL for
- * them; the destination proof proves the live table equals the declaration.
+ * indexes and keys, and every enum an adopted table uses. That enum already
+ * exists with the table (a PostgreSQL type is the database's, not the
+ * table's), even where a new managed table of the same transition uses it
+ * too, so it is never created, and a rollback, which drops only what the
+ * program created, never drops it. It runs no DDL for them; the destination
+ * proof proves the live table and the enum equal the declaration.
  */
 function withoutAdoptedTables(
   operations: DiffOperation[],
@@ -477,16 +481,12 @@ function withoutAdoptedTables(
   const adoptedEnums = enumsOf(
     desired.tables.filter((table) => adopts.includes(table.name))
   );
-  const managedEnums = enumsOf(
-    desired.tables.filter((table) => !adopts.includes(table.name))
-  );
   return operations.filter((operation) => {
     if (operation.type === "createTable") {
       return !adopts.includes(operation.table.name);
     }
     if (operation.type === "createEnum") {
-      const { name } = operation.enumDef;
-      return !adoptedEnums.has(name) || managedEnums.has(name);
+      return !adoptedEnums.has(operation.enumDef.name);
     }
     return !("tableName" in operation && adopts.includes(operation.tableName));
   });
