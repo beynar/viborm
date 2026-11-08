@@ -129,7 +129,7 @@ function admitSqliteFamilyCapability(
   const reason =
     capability === undefined
       ? `the SQLite driver "${driverName}" declares no \`sqliteMigrationCapability\``
-      : `the SQLite driver "${driverName}" declares a read-only migration capability: it can neither switch foreign keys off for a table recreation nor hold a migration lock`;
+      : `the SQLite driver "${driverName}" declares a read-only migration capability: it can neither switch foreign keys off nor hold a migration lock`;
   throw new MigrationError(
     `${command} is refused: ${reason}. Generation, check and status remain available.`,
     VibORMErrorCode.DRIVER_NOT_SUPPORTED,

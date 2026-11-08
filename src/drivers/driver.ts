@@ -87,22 +87,22 @@ export const SQLITE_MIGRATION_CAPABILITY: SqliteMigrationCapability =
     exclusion: "database-write-lock",
   });
 
+// The two below are plain literals, so a bundle that never names them drops
+// them; binding reads their values and keeps the table's own frozen entry.
+
 /** A Cloudflare Durable Object's SQLite storage (`viborm/durable-object`). */
-export const DURABLE_OBJECT_MIGRATION_CAPABILITY: SqliteMigrationCapability =
-  Object.freeze({
-    foreignKeys: "pragma",
-    reservedTablePrefixes: "_cf_",
-    exclusion: "frame",
-  });
+export const DURABLE_OBJECT_MIGRATION_CAPABILITY: SqliteMigrationCapability = {
+  foreignKeys: "pragma",
+  reservedTablePrefixes: "_cf_",
+  exclusion: "frame",
+};
 
 /** Cloudflare D1: its catalog can be read, nothing can be migrated. */
-export const D1_MIGRATION_CAPABILITY: SqliteMigrationCapability = Object.freeze(
-  {
-    foreignKeys: "none",
-    reservedTablePrefixes: "_cf_",
-    exclusion: "none",
-  }
-);
+export const D1_MIGRATION_CAPABILITY: SqliteMigrationCapability = {
+  foreignKeys: "none",
+  reservedTablePrefixes: "_cf_",
+  exclusion: "none",
+};
 
 /**
  * One platform transaction a SQLite migration runs its statements in, opened

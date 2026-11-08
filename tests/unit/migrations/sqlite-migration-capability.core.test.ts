@@ -299,7 +299,7 @@ describe("SQLite positive admission", () => {
         "push()"
       )
     ).toThrow(
-      'push() is refused: the SQLite driver "custom-sqlite" declares a read-only migration capability: it can neither switch foreign keys off for a table recreation nor hold a migration lock.'
+      'push() is refused: the SQLite driver "custom-sqlite" declares a read-only migration capability: it can neither switch foreign keys off nor hold a migration lock.'
     );
     db.close();
   });
