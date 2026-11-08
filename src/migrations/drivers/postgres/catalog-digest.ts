@@ -30,6 +30,10 @@
  * - a projection holding a character at or above U+E000, where PostgreSQL's
  *   code-point order and JavaScript's UTF-16 order can disagree;
  * - a database whose encoding is not UTF-8;
+ * - an index whose comment starts as a raw index's marker does but is not
+ *   one this statement can project as written (`RAW_MARKER`): a marked raw
+ *   index projects its marker, which is `fingerprintSnapshot`'s projection
+ *   of it, and skips the method and structure refusals (not validity);
  * - an index whose deparsed definition mentions NULLS NOT DISTINCT: one
  *   statement cannot name `indnullsnotdistinct`, absent before PostgreSQL 15,
  *   but through a whole-row read, which PlanetScale's Neki refuses.
@@ -44,6 +48,7 @@ import { arrayLiteralText } from "../../../adapters/databases/postgres/array-lit
 import type { AnyDriver } from "../../../drivers/driver";
 import { boundNamespace } from "../../catalog-probes";
 import { HASH_DOMAIN, isSha256, type Sha256 } from "../../identity";
+import { RAW_INDEX_MARKER_PREFIX } from "../../raw-index";
 import type { BoundMigrationDriver } from "..";
 import type { ControlTableNames } from "../base";
 import {
@@ -110,6 +115,14 @@ const LITERALS = `'(?:[^']|'')*'|"(?:[^"]|"")*"`;
 const UTC_NOW = String.raw`^(?:now\(\) at time zone 'utc'|timezone\(${WS}*'utc'${WS}*,${WS}*now\(\)${WS}*\))$`;
 const UTC_CURRENT_TIME = String.raw`^timezone\(${WS}*'utc'${WS}*,${WS}*current_time(?:\(3\))?${WS}*\)$`;
 const NUMBER_LITERAL = String.raw`^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:e[+-]?[0-9]+)?$`;
+/** A string of a canonical marker that needs no escape: anything else abstains. */
+const MARKER_STRING = String.raw`"[^"\\\x01-\x1f]*"`;
+/**
+ * A raw index's marker as `rawIndexMarker` writes it, which is then also the
+ * projection `fingerprintSnapshot` hashes for it. A marker whose strings hold
+ * an escape, or that names another index, abstains rather than be parsed.
+ */
+const RAW_MARKER = String.raw`^${RAW_INDEX_MARKER_PREFIX}\{"columns":\[${MARKER_STRING}(?:,${MARKER_STRING})*\],"name":${MARKER_STRING},"raw":"[0-9a-f]{64}"\}$`;
 /** Characters whose order differs between code points and UTF-16 units. */
 const BEYOND_ORDER = "[\ue000-\\U0010FFFF]";
 
@@ -237,6 +250,9 @@ columns AS (
 ),
 indexes AS (
   SELECT s.table_name, s.selected, s.kept, i.index_name::text AS name,
+    min(i.index_comment) AS comment,
+    coalesce(starts_with(min(i.index_comment), ${re(RAW_INDEX_MARKER_PREFIX)}), false) AS raw_prefixed,
+    coalesce(min(i.index_comment) ~ ${re(RAW_MARKER)} AND strpos(min(i.index_comment), ',"name":' || to_json(i.index_name::text)::text || ',"raw":') > 0, false) AS raw,
     bool_and(i.is_valid) AS valid,
     bool_or(i.unsupported_structure IS DISTINCT FROM false) AS unsupported,
     min(i.index_type::text) AS method,
@@ -249,11 +265,12 @@ indexes AS (
 ),
 kept_indexes AS (
   SELECT table_name, name, columns,
-    is_unique AND predicate = '' AND method = 'btree' AS total_unique,
+    NOT raw AND is_unique AND predicate = '' AND method = 'btree' AS total_unique,
+    CASE WHEN raw THEN substr(comment, ${RAW_INDEX_MARKER_PREFIX.length + 1}) ELSE
     '{"columns":' || columns || ',"name":' || to_json(name)::text || ',"type":' || to_json(method)::text || ',"unique":' || is_unique::text
-      || ',"where":' || coalesce(to_json(nullif(${trim("predicate")}, ''))::text, 'null') || '}' AS json
+      || ',"where":' || coalesce(to_json(nullif(${trim("predicate")}, ''))::text, 'null') || '}' END AS json
   FROM indexes
-  WHERE kept AND method IN ('btree', 'hash', 'gin', 'gist') AND NOT expression
+  WHERE kept AND (raw OR (method IN ('btree', 'hash', 'gin', 'gist') AND NOT expression))
 ),
 pks AS (
   SELECT s.table_name, '{"columns":[' || string_agg(to_json(p.column_name::text)::text, ',' ORDER BY p.ordinal_position) || '],"name":' || to_json(min(p.constraint_name::text))::text || '}' AS json
@@ -308,7 +325,7 @@ SELECT CASE WHEN
   AND pg_catalog.getdatabaseencoding() = 'UTF8'
   AND NOT EXISTS (SELECT 1 FROM scope WHERE selected AND partitioned)
   AND NOT EXISTS (SELECT 1 FROM columns WHERE selected AND (generated OR type IS NULL OR NOT decimal_valid OR (kept AND json IS NULL)))
-  AND NOT EXISTS (SELECT 1 FROM indexes WHERE selected AND (NOT valid OR unsupported OR method NOT IN ('btree', 'hash', 'gin', 'gist') OR (kept AND NOT expression AND predicate <> '' AND NOT $6::boolean)))
+  AND NOT EXISTS (SELECT 1 FROM indexes WHERE selected AND (NOT valid OR (raw_prefixed AND NOT raw) OR (NOT raw AND (unsupported OR method NOT IN ('btree', 'hash', 'gin', 'gist') OR (kept AND NOT expression AND predicate <> '' AND NOT $6::boolean)))))
   AND NOT EXISTS (SELECT 1 FROM fk WHERE $4::text[] IS NOT NULL AND ${managedOrControl("fk.table_name")} <> ${managedOrControl("fk.foreign_table_name")})
   AND NOT EXISTS (SELECT 1 FROM columns c WHERE NOT c.selected AND c.kept AND ${elementType("c.type")} IN (SELECT name FROM enums))
   AND NOT EXISTS (SELECT 1 FROM xfk WHERE $4::text[] IS NULL OR (owning_schema::text = $1::text AND owning_table::text = ANY ($4::text[])) OR (referenced_schema::text = $1::text AND referenced_table::text = ANY ($4::text[])))

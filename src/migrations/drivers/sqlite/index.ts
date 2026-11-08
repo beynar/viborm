@@ -42,6 +42,13 @@ import {
 } from "../../decimal";
 import { foreignKeyPragmasCannotBeLifted } from "../../foreign-keys";
 import { applyNativeRename } from "../../native-rename";
+import {
+  RAW_INDEX_MARKER_PREFIX,
+  rawIndexMarker,
+  refuseRawIndexStatement,
+  renderRawIndex,
+} from "../../raw-index";
+import { readExecutableStatements } from "../../statement-safety";
 import type {
   ColumnDef,
   DiffOperation,
@@ -1343,7 +1350,24 @@ export class SQLite3MigrationDriver extends SqlMigrationDriver {
     // SQLite 3.25.0+ supports RENAME COLUMN
     const nativeRename = `ALTER TABLE ${this.escapeIdentifier(op.tableName)} RENAME COLUMN ${this.escapeIdentifier(op.from)} TO ${this.escapeIdentifier(op.to)}`;
     if (currentTable === undefined || renamed?.decimal === undefined) {
-      return nativeRename;
+      // SQLite rewrites the index's text, but not the marker in its comment.
+      return [
+        nativeRename,
+        ...this.rawIndexesRenamedBy(op, context).flatMap((index) => [
+          this.generateDropIndex(
+            {
+              type: "dropIndex",
+              tableName: op.tableName,
+              indexName: index.name,
+            },
+            context
+          ),
+          this.generateCreateIndex(
+            { type: "createIndex", tableName: op.tableName, index },
+            context
+          ),
+        ]),
+      ];
     }
 
     const renamedTable = applyNativeRename({ tables: [currentTable] }, op)
@@ -1477,6 +1501,23 @@ export class SQLite3MigrationDriver extends SqlMigrationDriver {
 
   generateCreateIndex(op: CreateIndexOperation, _context: DDLContext): string {
     const { tableName, index } = op;
+    if (index.raw) {
+      const rendered = renderRawIndex(index, {
+        name: this.escapeIdentifier(index.name),
+        table: this.escapeIdentifier(tableName),
+        column: (column) => this.escapeIdentifier(column),
+      });
+      refuseRawIndexStatement(
+        index,
+        rendered,
+        (text) => readExecutableStatements(text, "sqlite"),
+        []
+      );
+      // SQLite keeps an index's text as written, a trailing comment included,
+      // and rewrites only identifiers on a rename: the comment is its marker.
+      // Every `/` is escaped so that no name can close the comment early.
+      return `${rendered} /* ${RAW_INDEX_MARKER_PREFIX}${rawIndexMarker(index).replaceAll("/", "\\/")} */`;
+    }
 
     // Validate index type against capabilities (SQLite only supports btree)
     this.validateIndexType(index.type, index.name);

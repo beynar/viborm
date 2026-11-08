@@ -28,13 +28,14 @@ Drivers abstract these differences behind a common interface.
 
 ## Driver Interface
 
-Drivers extend the abstract `Driver` base class (see `src/drivers/driver.ts`). It is generic over the underlying client and transaction handle, carries the SQL adapter for its dialect, and manages lazy connection, transaction queuing, and error mapping. Subclasses implement five methods and provide their typed result parser:
+Drivers extend the abstract `Driver` base class (see `src/drivers/driver.ts`). It is generic over the underlying client and transaction handle, carries its dialect's facts (a SQL driver's are its SQL adapter), and manages lazy connection, transaction queuing, and error mapping. Subclasses implement five methods and provide their typed result parser:
 
 ```typescript
 abstract class Driver<TClient, TTransaction> {
-  readonly dialect: Dialect;                    // "postgres" | "mysql" | "sqlite"
+  readonly dialect: Dialect;                    // "postgresql" | "mysql" | "sqlite" | "surrealql"
   readonly driverName: string;
-  abstract readonly adapter: DatabaseAdapter;   // SQL adapter for this dialect
+  abstract readonly adapter: EngineFacts;       // what the engine asks of every driver; a SQL driver's is its DatabaseAdapter
+  readonly backend?: QueryBackend;              // what writes its statements where the database reads no SQL (SurrealDB)
   abstract readonly result: DriverResultParser; // physical-to-logical result codecs
   readonly supportsTransactions: boolean;       // false for batch-only clients (D1 binding, Neon HTTP)
   readonly supportsBatch: boolean;              // true for atomic-batch APIs (D1, Neon HTTP)

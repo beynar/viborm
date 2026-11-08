@@ -179,7 +179,10 @@ export function lowLockStates(
   return { states, steps };
 }
 
-/** The index builds and keys of `operations` on tables it does not create. */
+/**
+ * The index builds and keys of `operations` on tables it does not create. A
+ * raw index is not one: its text is the author's, and it is built blocking.
+ */
 export function lowLockSteps(
   operations: readonly DiffOperation[]
 ): ReadonlySet<DiffOperation> {
@@ -189,7 +192,8 @@ export function lowLockSteps(
   return new Set(
     operations.filter(
       (op) =>
-        (op.type === "createIndex" || op.type === "addForeignKey") &&
+        ((op.type === "createIndex" && !op.index.raw) ||
+          op.type === "addForeignKey") &&
         !created.has(op.tableName)
     )
   );

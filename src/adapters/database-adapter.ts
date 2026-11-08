@@ -84,6 +84,9 @@ export function installGeoPointSql(
 /** The three substring filters, as `insensitiveText` names them. */
 export type TextMatch = "contains" | "startsWith" | "endsWith";
 
+/** A vector distance as an order key: see {@link DatabaseAdapter.vector}. */
+export type VectorOrderKey = "exact" | "servable";
+
 /**
  * What the engine reads of a driver in any language: strategy and decoding, and
  * nothing that spells a statement. A database with no SQL declares only this.
@@ -1008,20 +1011,23 @@ export interface DatabaseAdapter {
    * VECTOR
    * Vector operations for similarity search (pgvector)
    *
-   * Matches filter schema: { l2, cosine }
-   * Drivers that don't support vector operations can override
-   * this property with an object that throws FeatureNotSupportedError.
+   * The `_distance` metrics `{ l2, cosine }`: the selected distance, and the
+   * order key of a distance `orderBy`. Drivers that don't support vector
+   * operations can override this property with an object that throws
+   * FeatureNotSupportedError.
    *
-   * Reserved — the query engine does not call these yet; vector filters are
-   * rejected in the where-builder today.
+   * Without `order` a metric is the distance VALUE. With it, an order key: an
+   * `"exact"` key is one no index can serve, so the order is exact whatever
+   * index the column has; a `"servable"` key is one a nearest-neighbour index
+   * may serve, and is approximate where it does.
    */
   vector: {
     /** Create a vector literal from number array: '[1,2,3]'::vector */
     literal: (values: number[]) => Sql;
-    /** L2 (Euclidean) distance operator for ORDER BY: column <-> vector */
-    l2: (column: Sql, vector: Sql) => Sql;
-    /** Cosine distance operator for ORDER BY: column <=> vector */
-    cosine: (column: Sql, vector: Sql) => Sql;
+    /** L2 (Euclidean) distance: column <-> vector */
+    l2: (column: Sql, vector: Sql, order?: VectorOrderKey) => Sql;
+    /** Cosine distance: column <=> vector */
+    cosine: (column: Sql, vector: Sql, order?: VectorOrderKey) => Sql;
   };
 
   /**

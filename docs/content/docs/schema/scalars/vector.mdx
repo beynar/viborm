@@ -115,34 +115,79 @@ Distance ordering and selection require a pgvector-enabled PostgreSQL driver, fo
 
 ## Indexing Vectors
 
-VibORM's index declarations cannot express an approximate nearest-neighbour
-index yet. Without one, distance ordering reads the whole table: exact, and
-fine for small tables. For larger tables, pgvector's indexes are created by
-hand:
+Without an index, distance ordering reads the whole table: exact, and fine for
+small tables. For larger tables, declare an approximate nearest-neighbour index
+in the database's own language with `.rawIndex()`, chained on the model like
+`.index()`. Migrations create it, recognize it and recreate it when its text
+changes. On the `document` model above:
 
-```sql
--- HNSW index (recommended for most cases)
-CREATE INDEX documents_embedding_idx ON documents USING hnsw (embedding vector_cosine_ops);
-
--- IVFFlat index (for very large datasets)
-CREATE INDEX documents_embedding_ivf_idx ON documents USING ivfflat (embedding vector_cosine_ops)
-  WITH (lists = 100);
+```ts
+const indexedDocument = document.rawIndex("documents_embedding_hnsw", {
+  pg: "CREATE INDEX {name} ON {table} USING hnsw ({embedding} vector_cosine_ops)",
+  surrealdb:
+    "DEFINE INDEX {name} ON {table} FIELDS {embedding} HNSW DIMENSION 1536 DIST COSINE",
+});
 ```
 
-:::warning[A hand-made index blocks migrations]
-Once such an index exists, every `push` and every `migrate` apply in the
-namespace fails with `V8001` before it changes anything, even when the change
-is to another table. VibORM keeps the index but cannot synchronize a table that
-holds an index it cannot declare. Two routes work today:
+`{name}`, `{table}` and `{embedding}` become the escaped index, table and column
+names, so the declaration follows renames and tenant namespaces. A dialect left
+out has no such index. Match the index to the metric you order by: pgvector's
+`vector_cosine_ops` serves `metric: "cosine"` and `vector_l2_ops` serves
+`metric: "l2"`; on SurrealDB `DIST COSINE` serves cosine and `DIST EUCLIDEAN`
+(the default) serves l2.
 
-- Drop the index before you run `push` or `migrate` apply, and create it again
-  afterwards. Rebuilding an HNSW index on a large table takes time.
-- If no foreign key links the vector table to the other tables, leave it out of
-  VibORM's migrations: migrate from a client whose schema omits the vector
-  model, pass the remaining tables as
-  [`tables`](/docs/migration/push#managed-tables-and-cli-decisions), and manage
-  the vector table's DDL yourself. A foreign key across that boundary fails
-  with `V11009`.
+### Approximate nearest neighbours
+
+An index answers a different question than the exact order: it finds rows
+that are probably nearest, quickly. VibORM keeps the two apart. A distance
+order stays exact even when an index exists, and the index is used only when
+you ask for it with `approximate: true`:
+
+```ts
+const nearby = await client.document.findMany({
+  select: { id: true, content: true },
+  where: { content: { contains: "launch" } },
+  orderBy: {
+    embedding: {
+      _distance: { to: queryEmbedding, metric: "cosine", approximate: true },
+    },
+  },
+  take: 10,
+});
+```
+
+What `approximate: true` means:
+
+- The rows are approximate neighbours, returned nearest first by their exact
+  distance. Some true neighbours may be missing.
+- A read can return **fewer rows than `take`**. pgvector's HNSW search keeps at
+  most `hnsw.ef_search` candidates (40 by default), and filters — your `where`
+  and those extensions add, such as soft delete or permissions — apply to what
+  the index found, after the search.
+- Rows whose vector is `null` are never returned, and an index may also skip
+  zero vectors (pgvector does for cosine).
+- The flag is honored only where an index can answer: a root `findMany` or
+  `findFirst` whose **first** `orderBy` term is the distance, ascending, with
+  `take > 0` (implied by `findFirst`) and no `cursor`, `skip` or `distinct`.
+  Everywhere else — an `include`, a nested read, an aggregate — it is ignored
+  and the order is exact.
+- `approximate: false` and leaving it out are the same exact order.
+- On SurrealDB, the read uses the HNSW index only when the model declares
+  exactly one `.rawIndex()` HNSW index on that field with a matching `DIST`,
+  the field carries no read permission, and the read is of the table itself.
+  When the search finds nothing (for example the index is not built yet), the
+  exact order answers instead.
+
+On PostgreSQL the planner still decides: a selective `where` may lead it to
+read the table instead, which returns the exact answer.
+
+:::warning[An index VibORM does not know blocks migrations]
+A vector index created by hand, outside `.rawIndex()`, makes every `push` and
+`migrate` apply in the namespace fail with `V8001` before it changes anything:
+VibORM keeps the index but cannot synchronize a table that holds an index it
+cannot declare. Declare it with `.rawIndex()` instead, and drop the hand-made
+one once: an HNSW or IVFFlat index VibORM did not create still refuses after it
+is declared, and the next `push` creates the declared one.
 :::
 
 ## When to Use Vector

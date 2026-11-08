@@ -42,6 +42,7 @@ import {
 } from "../schema/validation/relation-resolution";
 import { resolveSchemaOrThrow } from "../schema/validation/validator";
 import type { MigrationDriver } from "./drivers";
+import { declaredRawIndex, RAW_INDEX_TEMPLATE_KEY } from "./raw-index";
 import type {
   ColumnDef,
   EnumDef,
@@ -375,6 +376,36 @@ export function serializeResolvedModels(
       if (isTotalIndex(declared)) {
         declaredIndexColumns.push(columns);
       }
+    }
+
+    // A raw index is never a key and never covers a foreign key: its text may
+    // index an expression of the columns it names, or not in their order. It is
+    // listed before the foreign-key indexes so that an automatic one yields
+    // its name to it. A dialect it has no text for has no such index.
+    const templateKey = RAW_INDEX_TEMPLATE_KEY[migrationDriver.dialect];
+    for (const rawIndex of model["~"].rawIndexes) {
+      const template = rawIndex.templates[templateKey];
+      if (template === undefined) continue;
+      // I002 sees explicit names only; an `.index()` without one takes its
+      // name here, and two indexes under one name fail the second CREATE.
+      if (indexes.some(({ name }) => name === rawIndex.name))
+        throw new MigrationError(
+          `The raw index "${modelName}.${rawIndex.name}" has the name of another index of "${modelName}": give one of them another name.`,
+          VibORMErrorCode.INVALID_INPUT,
+          { meta: { model: modelName, indexName: rawIndex.name } }
+        );
+      indexes.push(
+        declaredRawIndex(
+          modelName,
+          rawIndex.name,
+          template,
+          migrationDriver.dialect,
+          (field) =>
+            Object.hasOwn(modelState.scalars, field)
+              ? model["~"].getFieldName(field).sql
+              : undefined
+        )
+      );
     }
 
     // Variant storage is relation-owned, so it never appears in the public

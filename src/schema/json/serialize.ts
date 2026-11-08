@@ -179,6 +179,14 @@ function serializeModel(
   if (state.tableName !== undefined) document.table = state.tableName;
   const indexes = serializeIndexes(state.indexes, path, issues);
   if (indexes.length > 0) document.indexes = indexes;
+  if (model["~"].rawIndexes.length > 0) {
+    addIssue(
+      issues,
+      pointer(path, "rawIndexes"),
+      "J009",
+      "This model declares a raw index — SQL the v1 document refuses to carry, for the reason it refuses a `where` predicate. Keep this schema in code"
+    );
+  }
   const ids = serializeCompound(state.compoundId);
   if (ids.length > 0) document.ids = ids;
   const uniques = serializeCompound(state.compoundUniques);

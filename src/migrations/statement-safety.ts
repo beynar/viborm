@@ -731,23 +731,28 @@ export function assertArtifactExecutionSafe(
 
 /**
  * SurrealQL's own lexical grammar, kept apart from SQL's: a comment is `--`, `//`, `#`
- * or a block, a string or a name is quoted four ways, and a block is `{ … }`. A
- * transaction control at the top level would end the boundary the command opened.
+ * or a block, a string or a name is quoted four ways, and a block is `{ … }`.
+ * `visit` sees each bare word, uppercased, whether it opens its statement, and
+ * how deep in brackets it stands; `end` sees each top-level `;`.
  */
-function assertSurrealStatementSafe(chunk: string, artifact: string): void {
+function scanSurreal(
+  chunk: string,
+  visit: (word: string, atStart: boolean, depth: number) => void,
+  end: () => void = () => undefined
+): void {
   let depth = 0;
   let atStart = true;
   for (let index = 0; index < chunk.length; ) {
     const char = chunk.charAt(index);
     const two = chunk.slice(index, index + 2);
     if (two === "--" || two === "//" || char === "#") {
-      const end = chunk.indexOf("\n", index);
-      index = end < 0 ? chunk.length : end + 1;
+      const close = chunk.indexOf("\n", index);
+      index = close < 0 ? chunk.length : close + 1;
       continue;
     }
     if (two === "/*") {
-      const end = chunk.indexOf("*/", index + 2);
-      index = end < 0 ? chunk.length : end + 2;
+      const close = chunk.indexOf("*/", index + 2);
+      index = close < 0 ? chunk.length : close + 2;
       continue;
     }
     const closing = SURREAL_QUOTES[char];
@@ -763,26 +768,49 @@ function assertSurrealStatementSafe(chunk: string, artifact: string): void {
     else if (char === ")" || char === "]" || char === "}") depth -= 1;
     if (char === ";" && depth === 0) {
       atStart = true;
+      end();
       index += 1;
       continue;
     }
     if (WORD_START.test(char)) {
-      let end = index + 1;
-      while (end < chunk.length && WORD_PART.test(chunk.charAt(end))) end += 1;
-      const word = chunk.slice(index, end).toUpperCase();
-      if (atStart && depth === 0 && SURREAL_TRANSACTION_WORDS.has(word))
-        throw refuse(
-          artifact,
-          chunk,
-          `the transaction-control statement "${word}", which would end the transaction the command runs it in`
-        );
+      let stop = index + 1;
+      while (stop < chunk.length && WORD_PART.test(chunk.charAt(stop)))
+        stop += 1;
+      visit(chunk.slice(index, stop).toUpperCase(), atStart, depth);
       atStart = false;
-      index = end;
+      index = stop;
       continue;
     }
     if (!WHITESPACE.test(char)) atStart = false;
     index += 1;
   }
+}
+
+/** A transaction control at the top level would end the boundary the command opened. */
+function assertSurrealStatementSafe(chunk: string, artifact: string): void {
+  scanSurreal(chunk, (word, atStart, depth) => {
+    if (atStart && depth === 0 && SURREAL_TRANSACTION_WORDS.has(word))
+      throw refuse(
+        artifact,
+        chunk,
+        `the transaction-control statement "${word}", which would end the transaction the command runs it in`
+      );
+  });
+}
+
+/**
+ * The executable bare words of a SurrealQL chunk, grouped per top-level
+ * statement: what {@link readExecutableStatements} is for SQL. A quoted name,
+ * a string and a comment hold none.
+ */
+export function readSurrealStatements(chunk: string): string[][] {
+  const statements: string[][] = [[]];
+  scanSurreal(
+    chunk,
+    (word) => statements.at(-1)!.push(word),
+    () => statements.push([])
+  );
+  return statements.filter((words) => words.length > 0);
 }
 
 /**

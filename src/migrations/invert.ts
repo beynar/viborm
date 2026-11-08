@@ -160,6 +160,7 @@ function invertOperation(
           type: "dropIndex",
           tableName: op.tableName,
           indexName: op.index.name,
+          ...(op.index.raw ? { raw: true } : {}),
         },
       ];
 

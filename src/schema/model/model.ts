@@ -70,6 +70,8 @@ export interface ModelInternal<T extends ModelState> {
   scalarFieldNames: string[];
   /** Cached relation names (computed once on first access) */
   relationNames: string[];
+  /** Indexes in the database's own language: see {@link Model.rawIndex}. */
+  readonly rawIndexes: readonly RawIndexDefinition[];
 }
 
 /**
@@ -112,6 +114,25 @@ type GeoPointSpatialIndexOptions = {
   unique?: never;
   where?: never;
 };
+
+/**
+ * One index per dialect, written in that database's own language, for what the
+ * index declaration cannot say (pgvector's HNSW, SurrealDB's HNSW, an expression).
+ * Each text is a template: `{name}`, `{table}` and `{<field>}` become the driver's
+ * escaped identifiers, the table qualified by the bound namespace. A dialect
+ * without a text has no such index.
+ */
+export interface RawIndexTemplates {
+  pg?: string;
+  mysql?: string;
+  sqlite?: string;
+  surrealdb?: string;
+}
+
+export interface RawIndexDefinition {
+  readonly name: string;
+  readonly templates: Readonly<RawIndexTemplates>;
+}
 
 export interface IndexDefinition<
   Keys extends string[] = string[],
@@ -471,6 +492,25 @@ export class Model<State extends ModelState> {
     });
   }
 
+  /**
+   * An index the declaration cannot say, in each database's own language, which
+   * migrations create, recognize and recreate when its text changes. It is never a
+   * key and never covers a foreign key.
+   */
+  rawIndex(name: string, templates: RawIndexTemplates): Model<State> {
+    // The migration that renders a template is what checks it. The list rides
+    // the state object, so every builder's spread carries it, but not its type:
+    // every state type maps over ModelState's keys, per model.
+    const state = {
+      ...this.#state,
+      rawIndexes: [
+        ...this["~"].rawIndexes,
+        { name, templates: { ...templates } },
+      ],
+    };
+    return new Model<State>(state);
+  }
+
   id<
     const Keys extends PortableKeyScalarKeys<State["scalars"]>[],
     const O extends CompoundKeyOptions = Record<never, never>,
@@ -605,6 +645,13 @@ export class Model<State extends ModelState> {
       /** Cached relation names (computed once on first access) */
       get relationNames(): string[] {
         return (model.#relationNames ??= Object.keys(model.#state.relations));
+      },
+      get rawIndexes(): readonly RawIndexDefinition[] {
+        // Held beside the typed state: see Model.rawIndex.
+        return (
+          (model.#state as { rawIndexes?: readonly RawIndexDefinition[] })
+            .rawIndexes ?? []
+        );
       },
     };
     return this.#internal;

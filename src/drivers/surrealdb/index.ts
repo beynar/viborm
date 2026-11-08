@@ -24,6 +24,7 @@ import {
   UnsupportedOperationError,
   VibORMErrorCode,
 } from "@errors";
+import { queryBackend } from "@query-engine/raptor3/shared/query-backend";
 import type { Sql } from "@sql";
 import {
   DateTime,
@@ -228,10 +229,10 @@ export interface SurrealDriverOptions {
 
 export class SurrealDriver extends Driver<Surreal, ReplayedTransaction> {
   readonly adapter = FACTS;
-  override readonly backend = {
+  override readonly backend = queryBackend({
     queries: SurrealQueries,
     context: SurrealOperationContext,
-  };
+  });
   readonly supportsTransactions = true;
   readonly supportsBatch = false;
   readonly supportsOrderedCommittedSegments = false;

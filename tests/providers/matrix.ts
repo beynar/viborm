@@ -67,7 +67,7 @@ export const PROVIDERS = [
     sourceFiles: providerSources("local", "libsql"),
     availability: "always",
     waiverReason:
-      "LibSQL runs only geoPointContract, geoPointBatchContract and batchRefSmokeContract, which build their own tables. A contract SQLite3 runs is waived here because it sets its schema up with the effectful live-schema push LibSQL refuses (DRIVER_NOT_SUPPORTED, pinned in libsql.test.ts); the libsql-* suites keep most of those registrations inside a describe.skip. A contract SQLite3 waives is waived here for SQLite3's reason: it needs an isolation or dialect feature the SQLite fixtures lack.",
+      "LibSQL runs only geoPointContract, geoPointBatchContract and batchRefSmokeContract, which build their own tables, and rawIndexContract, which applies a generated history. A contract SQLite3 runs is waived here because it sets its schema up with the effectful live-schema push LibSQL refuses (DRIVER_NOT_SUPPORTED, pinned in libsql.test.ts); the libsql-* suites keep most of those registrations inside a describe.skip. A contract SQLite3 waives is waived here for SQLite3's reason: it needs an isolation or dialect feature the SQLite fixtures lack.",
   },
   {
     id: "pg",
@@ -95,7 +95,7 @@ export const PROVIDERS = [
     sourceFiles: ["tests/providers/workers/d1.test.ts"],
     availability: "workerd",
     waiverReason:
-      "The workerd fixture runs focused D1-specific provider witnesses, including fixed-decimal scalar/list exactness, but shared schema contracts still need migration-driven fixture setup.",
+      "The workerd fixture runs focused D1-specific provider witnesses, including fixed-decimal scalar/list exactness, and rawIndexContract, which applies a generated history; other shared schema contracts still need migration-driven fixture setup.",
   },
   {
     id: "neon-http",
@@ -180,6 +180,7 @@ const PROVIDER_RUNS = {
     "polymorphicCollectionWriteContract",
     "polymorphicRelationContract",
     "prismaParityContract",
+    "rawIndexContract",
     "readPathRegressionContract",
     "relationFilterMutationContract",
     "relationReadAggregateContract",
@@ -230,6 +231,7 @@ const PROVIDER_RUNS = {
     "polymorphicMemberJunctionContract",
     "polymorphicRelationContract",
     "prismaParityContract",
+    "rawIndexContract",
     "readPathRegressionContract",
     "relationFilterMutationContract",
     "relationReadAggregateContract",
@@ -240,6 +242,7 @@ const PROVIDER_RUNS = {
     "batchRefSmokeContract",
     "geoPointBatchContract",
     "geoPointContract",
+    "rawIndexContract",
   ],
   pg: [
     "batchPrimaryKeyDataflowContract",
@@ -271,6 +274,7 @@ const PROVIDER_RUNS = {
     "polymorphicMemberJunctionContract",
     "polymorphicRelationContract",
     "rawArrayTransactionContract",
+    "rawIndexContract",
     "relationReadAggregateContract",
     "scalarRoundtripContract",
     "upsertAtomicityContract",
@@ -332,13 +336,14 @@ const PROVIDER_RUNS = {
     "polymorphicRelationContract",
     "prismaParityContract",
     "rawArrayTransactionContract",
+    "rawIndexContract",
     "readPathRegressionContract",
     "relationFilterMutationContract",
     "relationReadAggregateContract",
     "scalarRoundtripContract",
     "upsertAtomicityContract",
   ],
-  d1: ["geoPointBatchContract", "geoPointContract"],
+  d1: ["geoPointBatchContract", "geoPointContract", "rawIndexContract"],
   surrealdb: [
     "blobFilterContract",
     "bulkWriteLimitContract",
@@ -380,6 +385,7 @@ const PROVIDER_RUNS = {
     "polymorphicRelationContract",
     "prismaParityContract",
     "rawArrayTransactionContract",
+    "rawIndexContract",
     "readPathRegressionContract",
     "relationFilterMutationContract",
     "relationReadAggregateContract",

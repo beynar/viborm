@@ -59,6 +59,13 @@ function classifyDecimalListDescriptorChange(
   return "same";
 }
 
+import {
+  RAW_INDEX_MARKER_PREFIX,
+  rawIndexMarker,
+  refuseRawIndexStatement,
+  renderRawIndex,
+} from "../../raw-index";
+import { readExecutableStatements } from "../../statement-safety";
 import type { CatalogRead, CommandNamespaceResolver } from "../../target";
 import type {
   AddColumnOperation,
@@ -427,10 +434,12 @@ export class MySQLMigrationDriver
    *    unique-constraint bucket and the index bucket is created as usual.
    */
   override finalizeTable(table: TableDef): TableDef {
+    // A raw index is its author's text: its columns are not keyed for it (a
+    // prefix or an expression may be what it indexes), nor is it a key.
     const keyedColumns = new Set<string>([
       ...(table.primaryKey?.columns ?? []),
       ...table.uniqueConstraints.flatMap((uq) => uq.columns),
-      ...table.indexes.flatMap((index) => index.columns),
+      ...table.indexes.flatMap((index) => (index.raw ? [] : index.columns)),
       ...table.foreignKeys.flatMap((fk) => fk.columns),
     ]);
 
@@ -459,7 +468,7 @@ export class MySQLMigrationDriver
       uniqueConstraints: [],
     };
     const ordinary = finalized.indexes.filter(
-      (index) => !index.type || index.type === "btree"
+      (index) => !(index.raw || (index.type && index.type !== "btree"))
     );
     const keys = [
       { name: "PRIMARY", columns: finalized.primaryKey?.columns ?? [] },
@@ -641,6 +650,7 @@ export class MySQLMigrationDriver
             (index) =>
               (!index.type || index.type === "btree") &&
               !index.where &&
+              !index.raw &&
               index.columns[0] === increment.name
           )
         : undefined;
@@ -738,10 +748,26 @@ export class MySQLMigrationDriver
     return `ALTER TABLE ${this.tableRef(op.tableName, context.destination)} DROP COLUMN ${this.escapeIdentifier(op.columnName)}`;
   }
 
-  generateRenameColumn(op: RenameColumnOperation, context: DDLContext): string {
+  generateRenameColumn(
+    op: RenameColumnOperation,
+    context: DDLContext
+  ): string[] {
     // MySQL 8.0+ supports RENAME COLUMN. Column names stay ONE identifier —
     // only the table position carries the database (§5.1).
-    return `ALTER TABLE ${this.tableRef(op.tableName, context.destination)} RENAME COLUMN ${this.escapeIdentifier(op.from)} TO ${this.escapeIdentifier(op.to)}`;
+    return [
+      `ALTER TABLE ${this.tableRef(op.tableName, context.destination)} RENAME COLUMN ${this.escapeIdentifier(op.from)} TO ${this.escapeIdentifier(op.to)}`,
+      // An index's comment is changed only by re-creating it.
+      ...this.rawIndexesRenamedBy(op, context).flatMap((index) => [
+        this.generateDropIndex(
+          { type: "dropIndex", tableName: op.tableName, indexName: index.name },
+          context
+        ),
+        this.generateCreateIndex(
+          { type: "createIndex", tableName: op.tableName, index },
+          context
+        ),
+      ]),
+    ];
   }
 
   generateAlterColumn(
@@ -954,6 +980,30 @@ export class MySQLMigrationDriver
 
   generateCreateIndex(op: CreateIndexOperation, context: DDLContext): string {
     const { tableName, index } = op;
+    if (index.raw) {
+      const rendered = renderRawIndex(index, {
+        name: this.escapeIdentifier(index.name),
+        table: this.tableRef(tableName, context.destination),
+        column: (column) => this.escapeIdentifier(column),
+      });
+      refuseRawIndexStatement(
+        index,
+        rendered,
+        (text) => readExecutableStatements(text, "mysql"),
+        ["COMMENT", "ALGORITHM", "LOCK"]
+      );
+      const marker = RAW_INDEX_MARKER_PREFIX + rawIndexMarker(index);
+      // MySQL in strict mode refuses an index comment over 1024 bytes, mid-migration.
+      if (new TextEncoder().encode(marker).length > 1024)
+        throw new MigrationError(
+          `The raw index "${index.name}" names too many or too long columns for MySQL's 1024-byte index comment, which holds VibORM's marker.`,
+          VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+          { meta: { indexName: index.name } }
+        );
+      // Its marker is the index's own comment, on a line of its own so that a
+      // line comment ending the text does not swallow it.
+      return `${rendered}\nCOMMENT ${this.escapeValue(marker)}`;
+    }
 
     // Validate index type
     this.validateIndexType(index.type, index.name);

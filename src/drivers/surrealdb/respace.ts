@@ -1,3 +1,11 @@
+const compareLists = (a: readonly unknown[], b: readonly unknown[]): number => {
+  for (const [index, value] of a.entries()) {
+    const compared = compareValues(value, b[index]);
+    if (compared !== 0) return compared;
+  }
+  return 0;
+};
+
 /**
  * One list's new keys, as respacing's statement computes them on SQL, for a database
  * that reads the rows and writes them itself.
@@ -8,7 +16,8 @@ import { keysBetween } from "../../ordering/keys";
 /** One row placed, with what it may do there. */
 export interface PlannedMember {
   readonly key: unknown;
-  readonly identity: string;
+  /** The row's key, field by field, which breaks ties in its own order. */
+  readonly identity: readonly unknown[];
   readonly order: readonly unknown[];
   readonly movable: boolean;
 }
@@ -36,7 +45,7 @@ export function placed(
     .sort(
       (a, b) =>
         compareValues(a.member.key, b.member.key) ||
-        compareValues(a.member.identity, b.member.identity)
+        compareLists(a.member.identity, b.member.identity)
     );
   const bound = ({ member }: (typeof current)[number]) =>
     !member.movable && isDigits(member.key);

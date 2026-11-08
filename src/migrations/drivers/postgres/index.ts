@@ -34,8 +34,15 @@ import {
 import type { Sha256 } from "../../identity";
 import { DEFAULT_MIGRATION_LIMITS } from "../../limits";
 import {
+  RAW_INDEX_MARKER_PREFIX,
+  rawIndexMarker,
+  refuseRawIndexStatement,
+  renderRawIndex,
+} from "../../raw-index";
+import {
   type CatalogHazard,
   catalogCommitBoundaries,
+  readExecutableStatements,
 } from "../../statement-safety";
 import type {
   ColumnDef,
@@ -1056,14 +1063,16 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
 
     for (const idx of table.indexes) {
       statements.push(
-        this.generateCreateIndex(
-          {
-            type: "createIndex",
-            tableName: table.name,
-            index: idx,
-          },
-          context
-        )
+        ...[
+          this.generateCreateIndex(
+            {
+              type: "createIndex",
+              tableName: table.name,
+              index: idx,
+            },
+            context
+          ),
+        ].flat()
       );
     }
 
@@ -1135,9 +1144,15 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
 
   generateRenameColumn(
     op: RenameColumnOperation,
-    _context: DDLContext
-  ): string {
-    return `ALTER TABLE ${this.qualify(op.tableName)} RENAME COLUMN ${this.escapeIdentifier(op.from)} TO ${this.escapeIdentifier(op.to)}`;
+    context: DDLContext
+  ): string[] {
+    return [
+      `ALTER TABLE ${this.qualify(op.tableName)} RENAME COLUMN ${this.escapeIdentifier(op.from)} TO ${this.escapeIdentifier(op.to)}`,
+      // The index follows the column; its marker is written again.
+      ...this.rawIndexesRenamedBy(op, context).map((index) =>
+        this.rawIndexComment(index)
+      ),
+    ];
   }
 
   generateAlterColumn(
@@ -1260,8 +1275,9 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
   generateCreateIndex(
     op: CreateIndexOperation,
     context: LowLockContext
-  ): string {
+  ): string | string[] {
     const { tableName, index } = op;
+    if (index.raw) return this.rawIndexStatements(tableName, index);
     const physicalType = index.type === "spatial" ? "gist" : index.type;
 
     // Validate index type against capabilities
@@ -1276,6 +1292,30 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
     // TABLE carries the qualification and the index name is one identifier.
     const concurrently = context.lowLock === "add" ? " CONCURRENTLY" : "";
     return `CREATE ${unique}INDEX${concurrently} ${this.escapeIdentifier(index.name)} ON ${this.qualify(tableName)} ${indexType}(${cols})${where}`;
+  }
+
+  /**
+   * A raw index's text, then its marker as the index's comment, in a statement
+   * of its own: `rawIndexMarkerProbe` proves it on a stepwise run.
+   */
+  private rawIndexStatements(tableName: string, index: IndexDef): string[] {
+    const rendered = renderRawIndex(index, {
+      name: this.escapeIdentifier(index.name),
+      table: this.qualify(tableName),
+      column: (column) => this.escapeIdentifier(column),
+    });
+    refuseRawIndexStatement(
+      index,
+      rendered,
+      (text) => readExecutableStatements(text, "postgresql"),
+      ["CONCURRENTLY"]
+    );
+    return [rendered, this.rawIndexComment(index)];
+  }
+
+  /** The statement that writes a raw index's marker as its comment. */
+  private rawIndexComment(index: IndexDef): string {
+    return `COMMENT ON INDEX ${this.qualify(index.name)} IS ${this.escapeValue(RAW_INDEX_MARKER_PREFIX + rawIndexMarker(index))}`;
   }
 
   // DROP INDEX names the index itself, which lives in a schema and takes one

@@ -64,6 +64,7 @@ import {
   type Aggregate,
   admittedTemporal,
   aggregateRow,
+  approximateOrder,
   BOOLEAN_LEAF,
   type BoundOperand,
   type BoundOperation,
@@ -145,6 +146,8 @@ import { linkMembers, type Membership, physicalField } from "./storage";
 export interface SqlSelectControls extends SelectControls {
   /** More of the root row's filter (a function: of its alias). */
   condition?: Sql | ((alias: string) => Sql);
+  /** The first order term is a distance an index may serve: {@link approximateOrder}. */
+  approximate?: boolean;
 }
 
 export class SqlQueries extends Queries {
@@ -2593,7 +2596,8 @@ export class SqlQueries extends Queries {
     state: ScalarState,
     field: string,
     specification: Input,
-    usage: "filter" | "orderBy" | "select"
+    usage: "filter" | "orderBy" | "select",
+    servable = false
   ): Sql {
     if (state.type === "vector") {
       if (!this.adapter.capabilities.supportsVector)
@@ -2613,7 +2617,8 @@ export class SqlQueries extends Queries {
       const metric = specification.metric === "cosine" ? "cosine" : "l2";
       return this.adapter.vector[metric](
         column,
-        this.adapter.vector.literal(to)
+        this.adapter.vector.literal(to),
+        usage === "orderBy" ? (servable ? "servable" : "exact") : undefined
       );
     }
     const geoPoint = this.#geoPoint(`distance ${usage}`);
@@ -3609,7 +3614,8 @@ export class SqlQueries extends Queries {
     input: Arguments["orderBy"],
     alias: string,
     cursored = false,
-    joins?: OrderJoins
+    joins?: OrderJoins,
+    approximate = false
   ): OrderTerm[] {
     if (!input) return [];
     const terms: OrderTerm[] = [];
@@ -3618,7 +3624,15 @@ export class SqlQueries extends Queries {
         const direction = order[field];
         if (direction !== undefined)
           terms.push(
-            this.#orderTerm(model, field, direction, alias, cursored, joins)
+            this.#orderTerm(
+              model,
+              field,
+              direction,
+              alias,
+              cursored,
+              joins,
+              approximate && terms.length === 0
+            )
           );
       }
     }
@@ -3630,7 +3644,8 @@ export class SqlQueries extends Queries {
     direction: unknown,
     alias: string,
     cursored = false,
-    joins?: OrderJoins
+    joins?: OrderJoins,
+    servable = false
   ): OrderTerm {
     if (model["~"].state.relations[field])
       return this.#relationOrderTerm(
@@ -3656,7 +3671,14 @@ export class SqlQueries extends Queries {
         const distance = record(specification._distance);
         const point = state.type === "point";
         return this.#sortKey(
-          this.#distanceExpression(column, state, field, distance, "orderBy"),
+          this.#distanceExpression(
+            column,
+            state,
+            field,
+            distance,
+            "orderBy",
+            servable
+          ),
           distance.sort === "desc",
           point ? "last" : undefined,
           point,
@@ -3813,7 +3835,8 @@ export class SqlQueries extends Queries {
     >,
     alias: string,
     purpose?: RowPurpose,
-    joined = true
+    joined = true,
+    approximate = false
   ): {
     readonly orderBy?: Sql;
     /** The to-one order joins the page's FROM takes after its own. */
@@ -3835,7 +3858,8 @@ export class SqlQueries extends Queries {
       args.orderBy,
       alias,
       cursored,
-      joins
+      joins,
+      approximate
     );
     const total = this.#totalOrder(model, requested, args.cursor, alias);
     // The single raise point for every other non-scalar key: a relation term
@@ -4144,7 +4168,8 @@ export class SqlQueries extends Queries {
       args,
       alias,
       controls.purpose,
-      !controls.forUpdate
+      !controls.forUpdate,
+      controls.approximate
     );
     const prepared = controls.projection ?? this.prepareProjection(model, args);
     const projection = this.lowerProjection(
@@ -4329,7 +4354,7 @@ export class SqlQueries extends Queries {
           model,
           { ...this.#ordered(model, args), take },
           undefined,
-          ROOT_CANDIDATES
+          this.#candidates(operation, args)
         );
         return {
           query,
@@ -4344,7 +4369,7 @@ export class SqlQueries extends Queries {
           model,
           this.#ordered(model, args),
           undefined,
-          ROOT_CANDIDATES
+          this.#candidates(operation, args)
         );
         return {
           query,
@@ -4356,6 +4381,12 @@ export class SqlQueries extends Queries {
       default:
         return this.#readAggregate(model, operation, args);
     }
+  }
+  /** A row read's root candidates, its order servable where it may be. */
+  #candidates(operation: ReadOperation, args: Arguments): SqlSelectControls {
+    return approximateOrder(operation, args)
+      ? { ...ROOT_CANDIDATES, approximate: true }
+      : ROOT_CANDIDATES;
   }
   /** Counting and aggregate reads, out of line from the row reads above. */
   #readAggregate(

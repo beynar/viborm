@@ -20,7 +20,11 @@ import type {
   Read,
   ReadBackend,
 } from "@query-engine/raptor3/shared/query";
-import { firstRow, rowSet } from "@query-engine/raptor3/shared/query";
+import {
+  approximateOrder,
+  firstRow,
+  rowSet,
+} from "@query-engine/raptor3/shared/query";
 import type {
   Arguments,
   Input,
@@ -303,6 +307,52 @@ export function walksFurther(predicate: PreparedPredicate): boolean {
   }
 }
 
+/** What a statement's text says outside its comments and string literals. */
+const NOT_STATED =
+  /\/\*[\s\S]*?\*\/|--[^\n]*|\/\/[^\n]*|#[^\n]*|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"/g;
+/** The one field an index is on, written as its placeholder. */
+const ON_ONE_FIELD =
+  /\b(?:FIELDS|COLUMNS)\s+\{([^{}]+)\}(?=\s+[A-Za-z]|\s*;?\s*$)/i;
+const HNSW = /\bHNSW\b/i;
+const DIST = /\bDIST\s+([A-Za-z_]+)/i;
+const DIMENSION = /\bDIMENSION\s+(\d+)/i;
+const DISTANCES: Readonly<Record<string, string>> = {
+  l2: "EUCLIDEAN",
+  cosine: "COSINE",
+};
+/** The least candidates a nearest-neighbour search keeps: pgvector's own default. */
+const EF_SEARCH = 40;
+
+/** A declared HNSW index on one field: its distance and dimension. */
+interface NearestIndex {
+  readonly field: string;
+  readonly distance: string;
+  readonly dimension: number | undefined;
+}
+const nearestIndexes = new WeakMap<AnyModel, readonly NearestIndex[]>();
+
+/** The HNSW indexes a model's raw `surrealdb` texts declare, read once per model. */
+function nearestIndexesOf(model: AnyModel): readonly NearestIndex[] {
+  const known = nearestIndexes.get(model);
+  if (known) return known;
+  const found = model["~"].rawIndexes.flatMap((index): NearestIndex[] => {
+    const text = index.templates.surrealdb?.replace(NOT_STATED, " ");
+    const field = text && ON_ONE_FIELD.exec(text)?.[1];
+    if (!(field && HNSW.test(text))) return [];
+    const dimension = DIMENSION.exec(text)?.[1];
+    return [
+      {
+        field,
+        // SurrealDB's own default.
+        distance: (DIST.exec(text)?.[1] ?? "EUCLIDEAN").toUpperCase(),
+        dimension: dimension === undefined ? undefined : Number(dimension),
+      },
+    ];
+  });
+  nearestIndexes.set(model, found);
+  return found;
+}
+
 export class SurrealReadBackend implements ReadBackend {
   readonly #queries: SurrealQueries;
 
@@ -416,7 +466,7 @@ export class SurrealReadBackend implements ReadBackend {
           sql: this.statement(
             model,
             prepared,
-            { ...args, take },
+            { ...args, take, nearest: approximateOrder(operation, args) },
             this.#filter(model, args)
           ),
           shape: prepared.shape,
@@ -431,7 +481,12 @@ export class SurrealReadBackend implements ReadBackend {
       case "findMany": {
         const prepared = projected();
         const query = {
-          sql: this.statement(model, prepared, args, this.#filter(model, args)),
+          sql: this.statement(
+            model,
+            prepared,
+            { ...args, nearest: approximateOrder(operation, args) },
+            this.#filter(model, args)
+          ),
           shape: prepared.shape,
         };
         return {
@@ -799,7 +854,9 @@ export class SurrealReadBackend implements ReadBackend {
       const column = this.#operand(model, field);
       if (aggregate === "_count")
         return flat(`__count_${field}`, sql`count(${column} != NONE)`);
-      const value = sql`${sql.raw(AGGREGATE_FUNCTIONS[aggregate]!)}(${column})`;
+      const value = sql`${sql.raw(AGGREGATE_FUNCTIONS[aggregate]!)}(${
+        this.#namesDecimal(model, field) ? this.#numeric(column, false) : column
+      })`;
       return flat(
         `_${aggregate}_${field}`,
         aggregate === "_avg"
@@ -917,6 +974,8 @@ export class SurrealReadBackend implements ReadBackend {
       (spec !== "asc" && spec !== "desc") ||
       model["~"].state.scalars[field as string]?.["~"].state.nullable ||
       this.#gatedHere(model, field as string) ||
+      // An index seeks the next text, not the next number.
+      this.#namesDecimal(model, field as string) ||
       !this.#indexed(model, field as string)
     )
       return undefined;
@@ -981,7 +1040,10 @@ export class SurrealReadBackend implements ReadBackend {
     const physical = selected.every(({ fields }) =>
       fields.every(
         (field) =>
-          !this.#gatedHere(model, field) &&
+          // An index's first row holds the least text, not the least number.
+          !(
+            this.#gatedHere(model, field) || this.#namesDecimal(model, field)
+          ) &&
           this.#operand(model, field).toStatement() ===
             this.physical(model, field).toStatement()
       )
@@ -1125,7 +1187,11 @@ export class SurrealReadBackend implements ReadBackend {
     seen?: Sql
   ): Sql {
     const bind = (value: unknown) =>
-      counted ? sql`${value}` : this.value(model, field, value);
+      counted
+        ? sql`${value}`
+        : this.#namesDecimal(model, field)
+          ? this.#decimalOperand(value)
+          : this.value(model, field, value);
     const given = Object.entries(filter).filter(
       ([, operand]) => operand !== undefined
     );
@@ -1190,6 +1256,13 @@ export class SurrealReadBackend implements ReadBackend {
       }
       order.push(sql`${value} ${sql.raw(sort === "desc" ? "DESC" : "ASC")}`);
     };
+    // A group's field orders by its alias, and one naming a decimal by a number of its own.
+    const grouped = (field: string) => {
+      if (!this.#namesDecimal(model, field)) return name(field);
+      const sorted = name(`__s${flags.length}`);
+      flags.push(sql`${this.#numeric(name(field), false)} AS ${sorted}`);
+      return sorted;
+    };
     for (const entry of input === undefined ? [] : [input].flat()) {
       for (const [key, spec] of Object.entries(entry as Input)) {
         if (spec === undefined) continue;
@@ -1208,7 +1281,7 @@ export class SurrealReadBackend implements ReadBackend {
           typeof spec === "string" ? { sort: spec } : spec
         ) as Input;
         term(
-          name(key),
+          grouped(key),
           nullable(key) ? sql`${name(key)} = NONE` : undefined,
           sort,
           nulls
@@ -1218,22 +1291,24 @@ export class SurrealReadBackend implements ReadBackend {
     if (order.length === 0)
       for (const field of by)
         term(
-          name(field),
+          grouped(field),
           nullable(field) ? sql`${name(field)} = NONE` : undefined,
           "asc"
         );
     return { order, flags };
   }
 
-  /** The key order, as a mutation limit reads it. */
-  order(model: AnyModel, input: Arguments["orderBy"]): Sql {
-    return sql.join(
-      this.#orderTerms(model, input).map(
-        (term) =>
-          sql`${term.expression} ${sql.raw(term.descending ? "DESC" : "ASC")}`
-      ),
-      ", "
-    );
+  /**
+   * The key order, as a mutation limit reads it: what the rows must also select
+   * (`ORDER BY` reads only a field, so an expression is read by its alias), and
+   * the order.
+   */
+  order(
+    model: AnyModel,
+    input: Arguments["orderBy"]
+  ): { readonly extras: Sql[]; readonly order: Sql } {
+    const { extras, order } = this.#ordered(this.#orderTerms(model, input));
+    return { extras, order: sql.join(order, ", ") };
   }
 
   #filter(model: AnyModel, args: Arguments): PreparedPredicate | undefined {
@@ -1250,7 +1325,11 @@ export class SurrealReadBackend implements ReadBackend {
   statement(
     model: AnyModel,
     prepared: PreparedProjection,
-    args: Partial<Arguments> & { readonly unordered?: boolean },
+    args: Partial<Arguments> & {
+      readonly unordered?: boolean;
+      /** The order an index may serve: {@link approximateOrder}. */
+      readonly nearest?: ReturnType<typeof approximateOrder>;
+    },
     predicate: PreparedPredicate | undefined,
     conditions: readonly Sql[] = [],
     path?: Sql
@@ -1277,7 +1356,16 @@ export class SurrealReadBackend implements ReadBackend {
       rest,
       conditions
     );
-    if (!ahead) return listed;
+    if (!ahead)
+      return this.#nearest(
+        model,
+        prepared,
+        args,
+        from,
+        rest,
+        conditions,
+        listed
+      );
     // The list is complete or it is not, and only a read can tell. What the walk
     // computes for itself waits in its own branch, where it may never run.
     const lets = this.#lets;
@@ -1298,6 +1386,64 @@ export class SurrealReadBackend implements ReadBackend {
     this.#walking = undefined;
     this.#lets = lets;
     return sql`IF array::len(${ahead.rows}) < ${sql.raw(String(HOLDERS_AHEAD))} { ${listed} } ELSE { ${sql.join([...own, walked], " ")} }`;
+  }
+
+  /**
+   * A page an HNSW index may answer: its nearest `k` among the rows the filter
+   * keeps, in the exact order. `<|k,ef|>` reads an HNSW index on the field, and
+   * the first one when there are several, whatever its distance: so only a
+   * table's one declared index of this distance, on a field no gate masks,
+   * read from the table itself (a named record or a list of ids holds no
+   * index: it answers nothing). With no such index built, it answers nothing,
+   * so then — or with nothing left beside it — the exact page answers.
+   */
+  #nearest(
+    model: AnyModel,
+    prepared: PreparedProjection,
+    args: Parameters<SurrealReadBackend["statement"]>[2],
+    from: Sql,
+    rest: PreparedPredicate | undefined,
+    conditions: readonly Sql[],
+    exact: Sql
+  ): Sql {
+    const nearest = args.nearest;
+    if (
+      !nearest ||
+      from.toStatement() !== name(tableOf(model)).toStatement() ||
+      this.#gatedHere(model, nearest.field)
+    )
+      return exact;
+    const to = nearest.distance.to as number[];
+    const indexes = nearestIndexesOf(model).filter(
+      (index) => index.field === nearest.field
+    );
+    const index = indexes.length === 1 ? indexes[0] : undefined;
+    if (
+      !index ||
+      index.distance !== DISTANCES[nearest.distance.metric as string] ||
+      (index.dimension !== undefined && index.dimension !== to.length)
+    )
+      return exact;
+    const column = this.physical(model, nearest.field);
+    const searched = sql`${column} ${sql.raw(
+      `<|${nearest.take},${Math.max(EF_SEARCH, nearest.take)}|>`
+    )} ${to}`;
+    // An index may hold a zero vector among a cosine's nearest, which has no
+    // cosine: it is left out, as an index leaves it out on PostgreSQL.
+    const directed =
+      nearest.distance.metric === "cosine"
+        ? [sql`vector::magnitude(${column}) > 0`]
+        : [];
+    const found = this.#hoist(
+      this.#page(model, prepared, args, from, rest, [
+        ...conditions,
+        searched,
+        ...directed,
+      ])
+    );
+    return found
+      ? sql`IF array::len(${found}) > 0 { ${found} } ELSE { ${exact} }`
+      : exact;
   }
 
   /** One page of rows, from wherever a statement reads them. */
@@ -1960,9 +2106,15 @@ export class SurrealReadBackend implements ReadBackend {
     }
     for (const field of q.keyOrder(model)) {
       if (ordered.has(field)) continue;
+      const plain = !this.#namesDecimal(model, field);
       terms.push({
-        expression: this.#operand(model, field),
-        named: true,
+        expression: plain
+          ? this.#operand(model, field)
+          : this.#numeric(
+              this.#operand(model, field),
+              !this.#gatedHere(model, field)
+            ),
+        named: plain,
         descending: false,
         nullable: false,
       });
@@ -2003,15 +2155,17 @@ export class SurrealReadBackend implements ReadBackend {
       refuse(`ordering by '${field}' with this specification`);
     const state = model["~"].state.scalars[field]?.["~"].state;
     if (!state) refuse(`ordering by '${field}'`);
+    const column = this.#gated(
+      model,
+      field,
+      sql.raw(`${path}${this.physical(model, field).toStatement()}`),
+      path
+    );
+    const plain = !this.#namesDecimal(model, field);
     return {
-      expression: this.#gated(
-        model,
-        field,
-        sql.raw(`${path}${this.physical(model, field).toStatement()}`),
-        path
-      ),
-      named: path === "" && !this.#gatedHere(model, field),
-      field: path === "" ? field : undefined,
+      expression: plain ? column : this.#numeric(column, false),
+      named: plain && path === "" && !this.#gatedHere(model, field),
+      field: plain && path === "" ? field : undefined,
       descending: sort === "desc",
       nullable:
         path !== "" || state.nullable === true || this.#gatedHere(model, field),
@@ -2045,10 +2199,15 @@ export class SurrealReadBackend implements ReadBackend {
     }
     const [nested, inner] = Object.entries(spec)[0]!;
     if (edge.many) refuse(`ordering by the relation '${field}'`);
+    const linked = edge.kind === "reference" && this.#linked(edge);
+    if (path && !linked)
+      refuse(`ordering by the relation '${field}' through another relation`);
+    // A link is the row's own field; the other side is a lookup of the records
+    // referencing the row the path has reached, which a path's last record leads.
     const prefix =
-      edge.kind === "reference" && edge.owner === "source" && this.#linked(edge)
+      linked && edge.owner === "source"
         ? `${path}${this.physical(edge.source, edge.pairs[0]!.source).toStatement()}.`
-        : `(${this.#members(edge).toStatement()})[0].`;
+        : `(${path.slice(0, -1)}${this.#members(edge).toStatement()})[0].`;
     const term = edge.target["~"].state.relations[nested]
       ? this.#relationOrder(edge.target, nested, inner as Input, prefix)
       : this.#scalarOrder(edge.target, nested, inner, prefix);
@@ -2244,6 +2403,35 @@ export class SurrealReadBackend implements ReadBackend {
 
   #operand(model: AnyModel, field: string): Sql {
     return this.#gated(model, field, this.physical(model, field));
+  }
+
+  /**
+   * Whether `field` holds a record that names a decimal by its text, a key or a link
+   * to one: as text, 10 sorts before 2, so it compares and sorts as {@link #numeric}.
+   * (A dateTime's text is as wide at every instant it holds, and sorts as it does.)
+   */
+  #namesDecimal(model: AnyModel, field: string): boolean {
+    return (
+      model["~"].state.scalars[field]?.["~"].state.type === "decimal" &&
+      this.#isRecord(model, field)
+    );
+  }
+
+  /**
+   * The number the record `column` reads names ({@link #namesDecimal}): no index
+   * holds it, so a read that compares or sorts by it reads every row. A missing
+   * record stays missing; `present` where the row's own key is read, never missing.
+   */
+  #numeric(column: Sql, present: boolean): Sql {
+    const value = sql`<decimal>record::id(${column})`;
+    return present ? value : sql`(IF ${column} { ${value} })`;
+  }
+
+  /** What a {@link #numeric} column compares with: the number a value is. */
+  #decimalOperand(value: unknown): Sql {
+    return value instanceof Sql
+      ? sql`<decimal>${value}`
+      : sql`<decimal>${String(value)}`;
   }
 
   /** Where a read-gated field's row carries it: every gating layer's `read` and predicate. */
@@ -2797,6 +2985,8 @@ export class SurrealReadBackend implements ReadBackend {
     const comparedToField =
       predicate.operand?.kind === "field" ||
       predicate.operands?.some((operand) => operand.kind === "field");
+    // What a decimal range reads is the record itself: see #numeric.
+    const record = column;
     if (comparedToField && isRecord) column = sql`record::id(${column})`;
     const read = predicate.insensitive ? asText : column;
     const compared = (member: unknown) =>
@@ -2804,7 +2994,13 @@ export class SurrealReadBackend implements ReadBackend {
         ? sql`string::lowercase(${member})`
         : fold(bind(member));
     let test: Sql;
-    if (COMPARISONS[operator]) {
+    if (
+      COMPARISONS[operator] &&
+      operator !== "equals" &&
+      this.#namesDecimal(scalar.model, scalar.field)
+    ) {
+      test = sql`${this.#numeric(record, false)} ${sql.raw(COMPARISONS[operator])} ${this.#decimalOperand(value)}`;
+    } else if (COMPARISONS[operator]) {
       test = sql`${fold(read)} ${sql.raw(COMPARISONS[operator])} ${compared(value)}`;
     } else if (FUNCTIONS[operator]) {
       test = sql`${sql.raw(FUNCTIONS[operator])}(${fold(asText)}, ${fold(sql`${value}`)})`;
@@ -2958,11 +3154,10 @@ export class SurrealReadBackend implements ReadBackend {
       throw new UnsupportedOperationError(
         `Vector distance ${usage} dimension mismatch for '${field}': expected ${facts.dimension} values, received ${to.length}.`
       );
-    const distance =
-      spec.metric === "cosine"
-        ? sql`1 - vector::similarity::cosine(${column}, ${to})`
-        : sql`vector::distance::euclidean(${column}, ${to})`;
-    return sql`(IF ${column} != NONE { ${distance} } ELSE { NONE })`;
+    // A zero vector has no direction, so no cosine: NONE, as PostgreSQL's NULL.
+    if (spec.metric === "cosine")
+      return sql`(IF ${column} != NONE AND vector::magnitude(${column}) > 0 { 1 - vector::similarity::cosine(${column}, ${to}) } ELSE { NONE })`;
+    return sql`(IF ${column} != NONE { vector::distance::euclidean(${column}, ${to}) } ELSE { NONE })`;
   }
 
   /** A JSON filter: a missing path answers neither a test nor its negation. */

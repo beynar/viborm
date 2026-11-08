@@ -18,6 +18,7 @@ import {
 } from "../../../adapters/databases/sqlite/storage/geo-point";
 import { skipSqlNonStructuralRegion } from "../../../adapters/databases/sqlite/storage/sql-lexing";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
+import { RAW_INDEX_MARKER_PREFIX, readRawIndexMarker } from "../../raw-index";
 import type {
   ColumnDef,
   ForeignKeyDef,
@@ -137,6 +138,20 @@ function sqliteEnumCheckSuffix(
  * statement to the parenthesis that closes the column list, skipping quoted
  * identifiers and string literals, and read the tail from there.
  */
+/** The marker `generateCreateIndex` ends a raw index's text with. */
+const RAW_INDEX_TRAILER = new RegExp(
+  String.raw`/\* ${RAW_INDEX_MARKER_PREFIX}(\{[^\n]*\}) \*/\s*$`
+);
+
+/** The raw index an index's stored text marks, when VibORM wrote it for this index. */
+function sqliteRawIndex(
+  sql: string | null,
+  name: string
+): IndexDef | undefined {
+  const marker = sql === null ? undefined : RAW_INDEX_TRAILER.exec(sql)?.[1];
+  return marker === undefined ? undefined : readRawIndexMarker(marker, name);
+}
+
 function partialIndexPredicate(sql: string | null): string | undefined {
   if (!sql) return undefined;
 
@@ -354,6 +369,12 @@ export async function introspect(
     const uniqueConstraints: UniqueConstraintDef[] = [];
 
     for (const idx of indexesResult.rows) {
+      // A raw index is its marker, whatever its key semantics are.
+      const raw = sqliteRawIndex(indexSql.get(idx.name) ?? null, idx.name);
+      if (raw) {
+        indexes.push(raw);
+        continue;
+      }
       // xinfo exposes the physical key semantics that index_info erases.
       // Auxiliary rowid columns are not key members; user expressions, DESC
       // and collations cannot be faithfully recreated by this declaration DSL.
@@ -375,7 +396,7 @@ export async function introspect(
       if (unsupported) {
         if (managedTables === undefined || managedTables.includes(tableName)) {
           throw new MigrationError(
-            `SQLite index "${tableName}.${idx.name}" has expression/order/collation semantics that this index declaration cannot represent. Synchronization refuses before effects and preserves it. Manage its table outside this synchronization scope until a faithful declaration is available.`,
+            `SQLite index "${tableName}.${idx.name}" has expression/order/collation semantics that this index declaration cannot represent. Synchronization refuses before effects and preserves it. Declare it with .rawIndex() (drop this hand-made copy first: only an index VibORM created carries the marker it recognizes), or manage its table outside this synchronization scope.`,
             VibORMErrorCode.FEATURE_NOT_SUPPORTED,
             { meta: { table: tableName, indexName: idx.name } }
           );

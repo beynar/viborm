@@ -7,7 +7,8 @@ import { renderQualifiedIdentifier } from "../sql/identifiers";
 import type { AnyDriver } from "../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import type { BoundMigrationDriver, MigrationDriver } from "./drivers";
-import type { DiffOperation } from "./types";
+import { RAW_INDEX_MARKER_PREFIX, rawIndexMarker } from "./raw-index";
+import type { DiffOperation, IndexDef } from "./types";
 import type { MigrationParameterV1 } from "./v1-types";
 
 export interface CatalogProbe {
@@ -174,6 +175,48 @@ export function indexExistsProbe(
   };
 }
 
+/**
+ * Whether a raw index carries its marker (PostgreSQL holds it as the index's
+ * comment, written by a statement of its own after the index's): an index
+ * that exists says nothing about it, so a stepwise run would skip the comment.
+ */
+function rawIndexMarkerProbe(
+  driver: MigrationDriver,
+  index: IndexDef,
+  present: boolean
+): CatalogProbe {
+  return {
+    id: `index-marker:${present ? "present" : "absent"}:${index.name}`,
+    sql: "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'i' AND pg_catalog.obj_description(c.oid, 'pg_class') IS NOT DISTINCT FROM $3)",
+    parameters: [
+      stringParam(boundCatalogNamespace(driver)),
+      stringParam(index.name),
+      stringParam(RAW_INDEX_MARKER_PREFIX + rawIndexMarker(index)),
+    ],
+    equals: present,
+  };
+}
+
+/** The raw index whose marker a `COMMENT ON INDEX` statement writes. */
+function commentedRawIndex(
+  operation: DiffOperation,
+  statement: string
+): IndexDef | undefined {
+  const indexes =
+    operation.type === "createIndex"
+      ? [operation.index]
+      : operation.type === "createTable"
+        ? operation.table.indexes
+        : [];
+  return indexes.find(
+    (index) =>
+      index.raw !== undefined &&
+      statement.includes(
+        (RAW_INDEX_MARKER_PREFIX + rawIndexMarker(index)).replaceAll("'", "''")
+      )
+  );
+}
+
 const CREATE_INDEX_HEADER =
   /^\s*CREATE\s+(?:UNIQUE\s+|SPATIAL\s+|FULLTEXT\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?("(?:[^"]|"")+"|`(?:[^`]|``)+`|[\w$]+)\s+ON\b/i;
 
@@ -207,6 +250,15 @@ export function probeForGeneratedStatement(
     text.startsWith("--")
   ) {
     return null;
+  }
+  if (text.startsWith("COMMENT ON INDEX")) {
+    const index = commentedRawIndex(operation, statement);
+    return index === undefined
+      ? null
+      : {
+          pre: rawIndexMarkerProbe(driver, index, false),
+          post: rawIndexMarkerProbe(driver, index, true),
+        };
   }
   switch (operation.type) {
     case "createTable":

@@ -23,6 +23,7 @@ import {
   geoPointContract,
   setupGeoPointBehaviorSQLite,
 } from "@tests/contracts/drivers/behaviors/geopoint-behavior";
+import { rawIndexContract } from "@tests/contracts/drivers/behaviors/raw-index-behavior";
 import { vi } from "vitest";
 
 declare module "cloudflare:test" {
@@ -82,6 +83,13 @@ geoPointBatchContract.register({
   driverName: "D1",
   createDriver: () => new D1Driver({ database: env.DB }),
   setup: setupD1GeoPoint,
+});
+
+// D1 refuses an effectful live push; a generated history applies.
+rawIndexContract.register({
+  driverName: "D1",
+  createDriver: () => new D1Driver({ database: env.DB }),
+  push: false,
 });
 
 const bigintParent = s

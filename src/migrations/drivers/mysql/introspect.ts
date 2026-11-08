@@ -12,6 +12,7 @@ import {
   readStoredDecimalDescriptor,
 } from "../../decimal";
 import { decodeUtf8 } from "../../identity";
+import { RAW_INDEX_MARKER_PREFIX, readRawIndexMarker } from "../../raw-index";
 import type {
   ColumnDef,
   EnumDef,
@@ -95,6 +96,7 @@ SELECT
   COLUMN_NAME,
   NON_UNIQUE,
   INDEX_TYPE,
+  INDEX_COMMENT,
   SEQ_IN_INDEX
 FROM information_schema.STATISTICS
 WHERE TABLE_SCHEMA = ?
@@ -639,6 +641,17 @@ export async function introspect(
         }
         indexCols.sort((a, b) => a.SEQ_IN_INDEX - b.SEQ_IN_INDEX);
         const firstCol = indexCols[0];
+        // A raw index is its marker, whatever its key parts are.
+        const raw = firstCol?.INDEX_COMMENT?.startsWith(RAW_INDEX_MARKER_PREFIX)
+          ? readRawIndexMarker(
+              firstCol.INDEX_COMMENT.slice(RAW_INDEX_MARKER_PREFIX.length),
+              indexName
+            )
+          : undefined;
+        if (raw) {
+          indexes.push(raw);
+          continue;
+        }
         if (firstCol) {
           const rawIndexType = firstCol.INDEX_TYPE.toLowerCase();
           // MySQL INFORMATION_SCHEMA reports RTREE for spatial indexes, normalize to "spatial"

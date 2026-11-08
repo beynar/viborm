@@ -979,6 +979,7 @@ dependency-safe clear are compiled before anything is dropped.
 | Which native type a scalar selects on this dialect (shorthand or per-dialect map) | `@schema/scalars/native-types` `nativeTypeFor` — each driver asks for its own dialect; a snapshot records only that answer |
 | Refusal of an alteration INTO a binary column | `binary-conversion.ts` `refuseBinaryReencoding`, from the one `alterColumn` dispatch |
 | Text→identifier conversion pre-checks, and the message PostgreSQL's `col::uuid` does not give | `identifier-conversion.ts` |
+| A raw index's template reading, hash, rendering, refused words and marker | `raw-index.ts` |
 
 If a new check cannot be assigned to exactly one row, fix the ownership before
 adding it. Consumers use trusted projections; they do not re-derive the fact.
@@ -1226,4 +1227,43 @@ PostgreSQL catalog index proof refuses unrepresentable expressions/order/INCLUDE
 opclass/collation/methods in selected tables. SQLite `index_xinfo` proves key
 members, BINARY collation and ascending order, including PK/unique backing indexes.
 Unsupported artifacts in unselected tables do not widen owned scope. The refusal
-preserves artifacts; it is not a native index DSL or importer.
+preserves artifacts; it is not an importer. SurrealDB introspection
+refuses the same way in a managed table: an index whose
+kind is not plain or `UNIQUE`, or whose comment is not one of VibORM's facts,
+and a table or field comment that is not JSON; elsewhere they are skipped.
+
+### Raw indexes
+
+`Model.rawIndex(name, templates)` is the native index language: one text per
+dialect, with `{name}`, `{table}` and `{field}` placeholders. `raw-index.ts` is
+its one owner: the header and placeholder reading (`declaredRawIndex`, from the
+serializer, for the bound dialect), `rawIndexHash` (own frozen domain),
+rendering (`renderRawIndex`: the i-th field placeholder becomes the i-th of
+`IndexDef.columns`, so a snapshot needs no field map), the refusal of what the
+driver writes itself (`refuseRawIndexStatement`, over the executable words of
+the rendered text), and the marker (`rawIndexMarker`, canonical JSON of
+columns, name and hash, exactly the projection `fingerprintSnapshot` hashes).
+`IndexDef.raw = { hash, template? }`: stored snapshots require the template
+and `v1-parse-snapshot.ts` refuses a hash that is not its template's, raw with
+unique/type/where, and columns that are not its fields; only an introspected
+snapshot lacks it, and `planPush` fills it from the declared index of the same
+name and hash (`withDeclaredRawTemplates`) so a SQLite rebuild or a SurrealDB
+re-definition can render it.
+
+A raw index is never a key, never covers a foreign key, never folds into a
+unique (`unique: false` always; the PostgreSQL digest excludes it from
+`total_unique` by itself), is skipped by MySQL and SurrealDB key handling in
+`finalizeTable`, is never a low-lock build, and is excluded from derived
+renames. Equality is name, hash and columns; a non-raw index of its name is
+replaced. A column rename projects its columns like any index; the database's
+index follows, its marker does not, so each driver writes the marker again in
+the rename (`rawIndexesRenamedBy`: the program's indexes at that point, minus
+those a later operation drops): PostgreSQL a `COMMENT ON INDEX`, MySQL and
+SQLite drop and re-create, SurrealDB re-defines. Its `dropIndex` carries
+`raw: true`, which lets it run before a column rename, so a rollback restores
+it after the rename back. Markers: PostgreSQL `obj_description` (`viborm:raw:`
+prefix; its COMMENT step has its own probe), MySQL `INDEX_COMMENT`, SQLite a
+trailing `/* viborm:raw:… */` in `sqlite_master.sql` (`/` escaped), SurrealDB
+the index comment `{columns, name, raw}`. Introspection reads a marker naming
+that index as the raw index, whatever its structure; a hand-made index carries
+none and keeps today's refusal (V8001), so declaring one does not adopt it.

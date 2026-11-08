@@ -191,6 +191,36 @@ describe("Vector OrderBy Schema", () => {
     expect(result.issues).toBeUndefined();
   });
 
+  test("runtime: admits a boolean approximate flag inside _distance order", () => {
+    for (const approximate of [true, false]) {
+      const result = parse(vectorOrderSchemas.core.orderBy, {
+        embedding: {
+          _distance: { to: [0.1, 0.2, 0.3], metric: "cosine", approximate },
+        },
+      });
+      expect(result.issues).toBeUndefined();
+    }
+    const refused = parse(vectorOrderSchemas.core.orderBy, {
+      embedding: {
+        _distance: { to: [0.1, 0.2, 0.3], metric: "cosine", approximate: 1 },
+      },
+    });
+    expect(refused.issues).toBeDefined();
+  });
+
+  test("runtime: rejects approximate on a selected distance", () => {
+    const select = vectorOrderRegistry.proxy.doc.core.select;
+    const distance = { to: [0.1, 0.2, 0.3], metric: "cosine" };
+    expect(
+      parse(select, { embedding: { _distance: distance } }).issues
+    ).toBeUndefined();
+    expect(
+      parse(select, {
+        embedding: { _distance: { ...distance, approximate: true } },
+      }).issues
+    ).toBeDefined();
+  });
+
   test("runtime: accepts nested include with vector distance order and take", () => {
     const result = parse(vectorCollectionSchemas.core.include, {
       docs: {

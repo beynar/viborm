@@ -1162,6 +1162,345 @@ reads(
   ]
 );
 
+const author = s.model({
+  id: s.string().id(),
+  profile: s.toOne(() => profile),
+  posts: s.toMany(() => post),
+});
+const profile = s.model({
+  id: s.string().id(),
+  rank: s.int(),
+  userId: s.string().unique(),
+  user: s
+    .toOne(() => author)
+    .fields("userId")
+    .references("id"),
+  badge: s.toOne(() => badge),
+});
+const badge = s.model({
+  id: s.string().id(),
+  level: s.int(),
+  profileId: s.string().unique(),
+  profile: s
+    .toOne(() => profile)
+    .fields("profileId")
+    .references("id"),
+});
+const post = s.model({
+  id: s.string().id(),
+  authorId: s.string(),
+  author: s
+    .toOne(() => author)
+    .fields("authorId")
+    .references("id"),
+});
+reads(
+  "an order through to-one relations",
+  { author, profile, badge, post },
+  async (db) => {
+    // Neither order is the key order that breaks ties.
+    for (const [user, rank, level, id] of [
+      ["u1", 20, 20, "a"],
+      ["u2", 1, 300, "b"],
+      ["u3", 300, 1, "c"],
+    ] as const)
+      await db.author.create({
+        data: {
+          id: user,
+          profile: {
+            create: {
+              id: `p-${user}`,
+              rank,
+              badge: { create: { id: `b-${user}`, level } },
+            },
+          },
+          posts: { create: { id } },
+        },
+      });
+  },
+  [
+    [
+      "an inverse hop after a link",
+      "post",
+      "findMany",
+      { orderBy: { author: { profile: { rank: "asc" } } } },
+    ],
+    [
+      "an inverse hop after a link, descending",
+      "post",
+      "findMany",
+      { orderBy: { author: { profile: { rank: "desc" } } } },
+    ],
+    [
+      "two inverse hops after a link",
+      "post",
+      "findMany",
+      { orderBy: { author: { profile: { badge: { level: "asc" } } } } },
+    ],
+    [
+      "two inverse hops after a link, descending",
+      "post",
+      "findMany",
+      { orderBy: { author: { profile: { badge: { level: "desc" } } } } },
+    ],
+    [
+      "two inverse hops",
+      "author",
+      "findMany",
+      { orderBy: { profile: { badge: { level: "asc" } } } },
+    ],
+    [
+      "a link after an inverse hop",
+      "author",
+      "findMany",
+      { orderBy: { profile: { user: { id: "desc" } } } },
+    ],
+    [
+      "a link back after an inverse hop",
+      "badge",
+      "findMany",
+      { orderBy: { profile: { user: { profile: { rank: "asc" } } } } },
+    ],
+  ]
+);
+
+// A decimal or a dateTime key is stored as its text, which must not be how it sorts.
+const lot = s.model({
+  amount: s.decimal({ precision: 6, scale: 2 }).id(),
+  label: s.string(),
+  floor: s.decimal({ precision: 6, scale: 2 }),
+  bids: s.toMany(() => bid),
+  offers: s.toMany(() => offer),
+});
+const bid = s.model({
+  id: s.string().id(),
+  lotAmount: s.decimal({ precision: 6, scale: 2 }).nullable(),
+  lot: s
+    .toOne(() => lot)
+    .fields("lotAmount")
+    .references("amount"),
+});
+const offer = s.model({
+  id: s.string().id(),
+  lotAmount: s.decimal({ precision: 6, scale: 2 }),
+  reserve: s.decimal({ precision: 6, scale: 2 }),
+  lot: s
+    .toOne(() => lot)
+    .fields("lotAmount")
+    .references("amount"),
+});
+const slot = s.model({ at: s.dateTime().id(), label: s.string() });
+reads(
+  "a key stored as its text",
+  { lot, bid, offer, slot },
+  async (db) => {
+    await db.lot.createMany({
+      data: ["2.00", "10.00", "1.00", "-0.50", "1.50", "9.00"].map(
+        (amount) => ({
+          amount,
+          label: amount,
+          floor: "1.75",
+        })
+      ),
+    });
+    await db.bid.createMany({
+      data: [
+        { id: "a", lotAmount: "10.00" },
+        { id: "b", lotAmount: "2.00" },
+        { id: "c", lotAmount: "10.00" },
+        { id: "d", lotAmount: null },
+        { id: "e", lotAmount: "-0.50" },
+      ],
+    });
+    await db.offer.createMany({
+      data: ["10.00", "2.00", "10.00", "1.00", "-0.50", "9.00"].map(
+        (lotAmount, at) => ({ id: `o${at}`, lotAmount, reserve: "1.75" })
+      ),
+    });
+    await db.slot.createMany({
+      data: [
+        "2026-01-02T00:00:00.000Z",
+        "2026-01-10T00:00:00.500Z",
+        "0999-12-31T23:59:59.999Z",
+        "2026-01-01T00:00:00.000Z",
+      ].map((at) => ({ at: new Date(at), label: at })),
+    });
+  },
+  [
+    [
+      "a decimal key's range",
+      "lot",
+      "findMany",
+      { where: { amount: { gt: "1.00" } } },
+    ],
+    [
+      "a decimal key above another field",
+      "lot",
+      "findMany",
+      {
+        where: {
+          amount: {
+            gt: (ctx: { fields: { floor: unknown } }) => ctx.fields.floor,
+          },
+        },
+      },
+    ],
+    [
+      "a link to a decimal key below another field",
+      "offer",
+      "findMany",
+      {
+        where: {
+          lotAmount: {
+            lt: (ctx: { fields: { reserve: unknown } }) => ctx.fields.reserve,
+          },
+        },
+      },
+    ],
+    [
+      "a decimal key's closed range",
+      "lot",
+      "findMany",
+      { where: { amount: { gte: "-0.5", lte: "2" } } },
+    ],
+    ["a decimal key's own order", "lot", "findMany", {}],
+    [
+      "a decimal key, ascending",
+      "lot",
+      "findMany",
+      { orderBy: { amount: "asc" } },
+    ],
+    [
+      "a decimal key, descending",
+      "lot",
+      "findMany",
+      { orderBy: { amount: "desc" } },
+    ],
+    [
+      "a decimal key's page from a cursor",
+      "lot",
+      "findMany",
+      { cursor: { amount: "1.50" }, take: 2, skip: 1 },
+    ],
+    [
+      "a decimal key's page from a cursor, descending",
+      "lot",
+      "findMany",
+      { orderBy: { amount: "desc" }, cursor: { amount: "2.00" }, take: 2 },
+    ],
+    ["a decimal key's last rows", "lot", "findMany", { take: -2 }],
+    [
+      "a decimal key's extremes",
+      "lot",
+      "aggregate",
+      { _min: { amount: true }, _max: { amount: true } },
+    ],
+    [
+      "a decimal key's aggregates",
+      "lot",
+      "aggregate",
+      {
+        _min: { amount: true },
+        _sum: { amount: true },
+        _avg: { amount: true },
+      },
+    ],
+    [
+      "a link to a decimal key's range",
+      "bid",
+      "findMany",
+      { where: { lotAmount: { lt: "3" } } },
+    ],
+    [
+      "a link to a decimal key, ordered",
+      "bid",
+      "findMany",
+      {
+        orderBy: [
+          { lotAmount: { sort: "asc", nulls: "first" } },
+          { id: "desc" },
+        ],
+      },
+    ],
+    [
+      "a decimal key through its link, ordered",
+      "bid",
+      "findMany",
+      { orderBy: [{ lot: { amount: "desc" } }, { id: "asc" }] },
+    ],
+    [
+      "a decimal key through its link, filtered",
+      "bid",
+      "findMany",
+      { where: { lot: { amount: { gte: "2" } } } },
+    ],
+    [
+      "a link to a decimal key's extremes",
+      "bid",
+      "aggregate",
+      { _min: { lotAmount: true }, _max: { lotAmount: true } },
+    ],
+    [
+      "groups of a link to a decimal key",
+      "bid",
+      "groupBy",
+      { by: ["lotAmount"], _count: { _all: true } },
+    ],
+    [
+      "groups of a link to a decimal key, a page of them",
+      "bid",
+      "groupBy",
+      {
+        by: ["lotAmount"],
+        _count: { _all: true },
+        orderBy: { lotAmount: "desc" },
+        take: 2,
+      },
+    ],
+    [
+      "groups of a link to a decimal key that is always there, a page of them",
+      "offer",
+      "groupBy",
+      { by: ["lotAmount"], _count: { _all: true }, take: 2 },
+    ],
+    [
+      "groups of a link to a decimal key that is always there, descending",
+      "offer",
+      "groupBy",
+      {
+        by: ["lotAmount"],
+        _count: { _all: true },
+        orderBy: { lotAmount: "desc" },
+        take: 2,
+      },
+    ],
+    [
+      "groups whose extremes are a decimal key",
+      "bid",
+      "groupBy",
+      {
+        by: ["id"],
+        _max: { lotAmount: true },
+        having: { lotAmount: { _max: { gt: "9" } } },
+        orderBy: { id: "asc" },
+      },
+    ],
+    [
+      "a dateTime key's range",
+      "slot",
+      "findMany",
+      { where: { at: { gt: new Date("2026-01-01T00:00:00.000Z") } } },
+    ],
+    ["a dateTime key's own order", "slot", "findMany", {}],
+    [
+      "a dateTime key, descending",
+      "slot",
+      "findMany",
+      { orderBy: { at: "desc" } },
+    ],
+  ]
+);
+
 describe.skipIf(!surrealUrl)("a write's own answer", () => {
   it("reads the children as the write left them", async () => {
     const db: any = createClient({
@@ -1302,6 +1641,46 @@ describe.skipIf(!surrealUrl)("a page's reach", () => {
 });
 
 describe.skipIf(!surrealUrl)("what a server refuses", () => {
+  it("an order through a relation stored in its row's own key, behind another, names it", async () => {
+    const holder = s.model({
+      id: s.string().id(),
+      accountId: s.string(),
+      account: s
+        .toOne(() => account)
+        .fields("accountId")
+        .references("id"),
+    });
+    const account = s.model({
+      id: s.string().id(),
+      card: s.toOne(() => card),
+      holders: s.toMany(() => holder),
+    });
+    // The card's key is its account's: no record link to walk from the account.
+    const card = s.model({
+      accountId: s.string().id(),
+      label: s.string(),
+      account: s
+        .toOne(() => account)
+        .fields("accountId")
+        .references("id"),
+    });
+    const db: any = createClient({
+      schema: { holder, account, card },
+      driver: createSurrealTestDriver(),
+    });
+    try {
+      await syncLiveSchema(db);
+      const failure = await db.holder
+        .findMany({ orderBy: { account: { card: { label: "asc" } } } })
+        .catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(UnsupportedOperationError);
+      expect((failure as Error).message).toContain(
+        "ordering by the relation 'card' through another relation"
+      );
+    } finally {
+      await db.$disconnect();
+    }
+  });
   it("a read past the parser's depth names what to change", async () => {
     const node = s.model({
       id: s.string().id(),
