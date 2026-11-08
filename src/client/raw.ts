@@ -30,9 +30,11 @@ import {
   VibORMErrorCode,
 } from "@errors";
 import {
+  lookupPlacedControls,
   lookupResolvedExtensionHandlers,
   type ResolvedExtensionHandler,
 } from "@extensions/chain";
+import { admitControls } from "@extensions/controls";
 import { observeOperation } from "@extensions/observation";
 import {
   executePreparedQuery,
@@ -40,6 +42,7 @@ import {
   type RawQueryKind,
   type WriteOutcomeNotifications,
 } from "@extensions/query";
+import { callRows } from "@extensions/rows";
 import {
   createOperationExecutionContext,
   createRawOperationInstrumentationFacts,
@@ -49,11 +52,14 @@ import {
 import { PendingExecution } from "@query-engine/pending-execution";
 import type { QueryEngine } from "@query-engine/query-engine";
 import { snapshotQueryInput } from "@query-engine/query-inspection";
+import type { CallRows } from "@query-engine/raptor3/shared/row-scope";
+import { RawRows } from "@query-engine/raptor3/shared/rows-of";
 import {
   registerTransactionOperationOwner,
   type TransactionOperation,
   type TransactionOperationOwner,
 } from "@query-engine/transaction-operation";
+import type { AnyModel } from "@schema/model";
 import { isSql, Sql } from "@sql";
 
 /** The four raw methods, spelled exactly as a caller types them. */
@@ -74,6 +80,95 @@ export const RAW_METHOD_NAMES = Object.freeze({
 /** The execute families are the only raw calls that publish write outcomes. */
 function isRawWrite(method: RawMethodName): boolean {
   return method === "$executeRaw" || method === "$executeRawUnsafe";
+}
+
+/**
+ * The type-only brand of a {@link RowsFragment}: nothing at runtime carries it.
+ */
+declare const ROWS_FRAGMENT: unique symbol;
+
+/**
+ * `<model>.$rows(alias)`: the rows of a model the client it was taken on may
+ * read, as a `FROM` item of a tagged `$queryRaw` — a derived table named
+ * `alias`, filtered by the row domain a `findMany` of that model on that
+ * client takes. Interpolated anywhere else it is refused.
+ */
+export interface RowsFragment extends Sql {
+  readonly [ROWS_FRAGMENT]: true;
+}
+
+/**
+ * A lowercase SQL name, so an unquoted reference to it reads the same on
+ * every dialect (PostgreSQL folds unquoted names).
+ */
+const ROWS_ALIAS = /^[a-z_][a-z0-9_]{0,62}$/;
+
+/** `<model>.$rows(alias)` on the client whose engine is `engine`. */
+export function createRowsFragment(
+  engine: QueryEngine,
+  model: AnyModel,
+  alias: unknown
+): RowsFragment {
+  if (typeof alias !== "string" || !ROWS_ALIAS.test(alias)) {
+    throw new QueryError(
+      `${model["~"].names.ts}.$rows() takes an alias matching ${ROWS_ALIAS}`,
+      { code: VibORMErrorCode.INVALID_INPUT }
+    );
+  }
+  return new RawRows(model, alias, engine) as unknown as RowsFragment;
+}
+
+/**
+ * The `FROM` item a `$rows` fragment stands for in a raw call of `engine`:
+ * the domain the call of a `findMany` of its model on its own client would
+ * take, controls bound to that client included, read at the raw call's one
+ * instant.
+ */
+function settleRawRows(
+  engine: QueryEngine,
+  method: RawMethodName,
+  rows: RawRows,
+  instant: () => Date
+): Sql {
+  const { client, model, alias } = rows;
+  if (client.route !== engine.route) {
+    throw rawInputError(
+      method,
+      "received a $rows() fragment of another client"
+    );
+  }
+  const chain = client.extensionChain;
+  const binding = chain?.callRows;
+  let facts: CallRows | undefined;
+  if (binding !== undefined) {
+    const name = model["~"].names.ts!;
+    const placed = lookupPlacedControls(chain, name, "findMany");
+    facts = callRows(
+      binding,
+      name,
+      placed.length === 0
+        ? undefined
+        : admitControls(name, "findMany", {}, placed, client.bound).controls
+    );
+  }
+  return engine.route.rowsOf(model, alias, facts, instant);
+}
+
+/** Where a `$rows` fragment is refused: anywhere but its one place. */
+const ROWS_ONLY =
+  "received a $rows() fragment: only a tagged $queryRaw takes one, interpolated directly";
+
+/**
+ * Refuse a `$rows` fragment inside a fragment the caller built: settling it
+ * there would write one call's domain into a fragment another call may
+ * reuse (a fragment keeps the text it first flattens to).
+ */
+function refuseNestedRows(method: RawMethodName, fragment: Sql): void {
+  Sql.each(fragment, (node) => {
+    if (node instanceof RawRows) {
+      throw rawInputError(method, ROWS_ONLY);
+    }
+  });
 }
 
 /** What a safe raw call accepts as its first argument. */
@@ -438,11 +533,14 @@ class DeferredRawOperation<T>
     const method = this.#method;
     const { query, values } = this.#captured;
     if (this.#captured.family === "unsafe") {
+      if (values.some((value) => value instanceof RawRows)) {
+        throw rawInputError(method, ROWS_ONLY);
+      }
       if (typeof query === "string") {
         return { kind: "verbatim", sql: query, params: [...values] };
       }
     } else if (isTemplateStringsArray(query)) {
-      return { kind: "fragment", query: new Sql(query, values) };
+      return { kind: "fragment", query: new Sql(query, this.#settle(values)) };
     } else if (isSql(query)) {
       if (values.length > 0) {
         throw rawInputError(
@@ -450,12 +548,39 @@ class DeferredRawOperation<T>
           "received an Sql fragment together with extra values. The fragment already carries its parameters — interpolate them into it instead."
         );
       }
+      refuseNestedRows(method, query);
       return { kind: "fragment", query: createOperationSql(query) };
     }
     throw rawInputError(
       method,
       `expects a tagged template (${method}\`SELECT ...\`) or an Sql fragment built with sql\`...\`. Received a value that is neither.`
     );
+  }
+
+  /**
+   * The template's values with each `$rows` fragment settled to the `FROM`
+   * item it stands for, at this call's one instant; the captured values
+   * themselves when it holds none.
+   */
+  #settle(values: readonly unknown[]): readonly unknown[] {
+    let settled: unknown[] | undefined;
+    let instant: Date | undefined;
+    for (let index = 0; index < values.length; index += 1) {
+      const value = values[index];
+      if (value instanceof RawRows) {
+        if (isRawWrite(this.#method)) {
+          throw rawInputError(this.#method, ROWS_ONLY);
+        }
+        settled ??= [...values];
+        settled[index] = settleRawRows(
+          this.#engine,
+          this.#method,
+          value,
+          () => (instant ??= new Date())
+        );
+      } else if (value instanceof Sql) refuseNestedRows(this.#method, value);
+    }
+    return settled ?? values;
   }
 
   #queryContext(mode: QueryInterceptionMode, query: ResolvedRawQuery) {

@@ -90,6 +90,16 @@ export interface ClientOperationRoute {
     args: Record<string, unknown>,
     rows?: CallRows
   ): RoutedCandidateOperation;
+  /**
+   * `model`'s rows a root read under `rows` takes, as a raw read's `FROM`
+   * item named `alias` (`$rows`), its values read at `instant`.
+   */
+  rowsOf(
+    model: AnyModel,
+    alias: string,
+    rows: CallRows | undefined,
+    instant: () => Date
+  ): Sql;
 }
 
 /** This operation's write-outcome seam, and whether it has already spoken. */
@@ -267,6 +277,7 @@ export function createCandidateRoute(
         engine.prepare(modelName, operation, args, rows)
       );
     },
+    rowsOf: engine.rowsOf,
   };
 }
 

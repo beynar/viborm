@@ -18,7 +18,10 @@ page goes from a simple policy to permissions inherited through folders and team
 the [reference](#reference) at the end lists every option.
 
 **Raw SQL is not filtered.** `$queryRaw`, `$executeRaw`, their unsafe forms
-and statement transforms see every row, even on a governed client. See
+and statement transforms see every row, even on a governed client. A raw read
+takes the actor's rows of a model with
+[`$rows`](/docs/client/raw-sql#governed-raw-reads):
+`` call.$queryRaw`SELECT p.id FROM ${call.post.$rows("p")}` ``. See
 [Boundaries](#boundaries).
 
 ## 1. A blog: authors edit their own posts
@@ -1848,6 +1851,10 @@ internal accessors, so it is versioned with the core it ships in.
 **not** apply to:
 
 - **Raw SQL.** `$queryRaw`, `$executeRaw` and the unsafe forms see every row.
+  A raw read keeps to the actor's rows only through a model's
+  [`$rows(alias)`](/docs/client/raw-sql#governed-raw-reads), taken on the
+  view; a model the policy does not list reads no row there, and one with
+  read-gated fields is refused.
 - **Statement transforms.** They are trusted rewrites after the policy, and
   can remove it.
 - **`call` is not a sandbox.** It runs raw SQL and can bind another actor:

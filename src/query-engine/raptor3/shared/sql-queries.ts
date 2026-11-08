@@ -132,7 +132,7 @@ import {
   wholeValue,
 } from "./query";
 import { type CallScope, Parameter, type RowPurpose } from "./row-scope";
-import { RowsOf } from "./rows-of";
+import { RawRows, RowsOf } from "./rows-of";
 import {
   type Arguments,
   entries,
@@ -955,6 +955,11 @@ export class SqlQueries extends Queries {
     Sql.each(fragment, (node) => {
       if (!(node instanceof RowsOf)) return;
       const { model } = node;
+      // Settled here, it would take this call's domain, not its own client's.
+      if (node instanceof RawRows)
+        throw new UnsupportedOperationError(
+          `${model["~"].names.ts}.$rows() is for a tagged $queryRaw only`
+        );
       const domain = this.domainOf(model, "root", node.judgement);
       // A `where` the extension passes on is admitted as a `findMany`'s.
       const named =
@@ -973,6 +978,24 @@ export class SqlQueries extends Queries {
       );
     });
     return fragment;
+  }
+  /**
+   * The rows of `model` this view's call may read, as a `FROM` item named
+   * `alias` (`$rows`): the domain a root `findMany` takes, in a derived
+   * table, so the text around it cannot place it under an `OR` or an outer
+   * join's `ON`. Inside, its own statement scope reads the row under a minted
+   * alias, so no name the caller chooses meets one the lowering writes.
+   */
+  rowsOf(model: AnyModel, alias: string): Sql {
+    const row = this.#rootAlias();
+    const domain = this.domainOf(model, "root");
+    const columns =
+      this.adapter.capabilities.hasRowid && !model["~"].withoutRowid
+        ? sql`${this.adapter.identifiers.column(row, "rowid")} AS rowid, *`
+        : sql.raw("*");
+    return sql`(SELECT ${columns} FROM ${this.table(model, row)} WHERE ${
+      (domain && this.lowerSelector(domain, row)) ?? sql.raw("1 = 1")
+    }) AS ${this.adapter.identifiers.escape(alias)}`;
   }
   /**
    * The one destination-aware operand owner: filters, cursors, order operands,

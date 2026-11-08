@@ -828,6 +828,7 @@ const SQLITE_CAPABILITIES = {
   supportsMutationRowLimit: false,
   supportsRowLocks: false,
   joinsJunctionFilters: true,
+  hasRowid: true,
 };
 
 const SQLITE_RESULT: AdapterResultParser = {
