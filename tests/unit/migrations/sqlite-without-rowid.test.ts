@@ -8,7 +8,7 @@ import {
   encodeSnapshot,
   parseSnapshotDocument,
 } from "@migrations/v1-parse-snapshot";
-import { s } from "@schema";
+import { type AnyScalar, s } from "@schema";
 import { validateSchema } from "@schema/validation";
 import { postgresMigrationDriver } from "@src/migrations/drivers/postgres";
 import { sqlite3MigrationDriver } from "@src/migrations/drivers/sqlite";
@@ -50,14 +50,14 @@ describe("SQLite WITHOUT ROWID tables", () => {
 
   it("keeps the option when another change rebuilds the table", async () => {
     const driver = createInMemorySQLite3Driver();
-    const clustered = (note: ReturnType<typeof s.string>) =>
+    const clustered = (note: AnyScalar) =>
       s
         .model({ prop: s.string(), v: s.string(), page: s.string(), note })
         .id(["prop", "v", "page"])
         .map("p_text")
         .withoutRowid();
     const before = createClient({
-      schema: { pText: clustered(s.string().nullable() as never) },
+      schema: { pText: clustered(s.string().nullable()) },
       driver,
     });
     await syncLiveSchema(before as never);
