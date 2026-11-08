@@ -33,6 +33,7 @@ import {
   type GeoPointSql,
   installGeoPointSql,
   type TextMatch,
+  type VectorOrderKey,
 } from "../../database-adapter";
 import { createOnConflictBatchRefs } from "../../shared/batch-refs";
 import {
@@ -732,10 +733,19 @@ export class PostgresAdapter implements DatabaseAdapter {
       return sql`${`[${values.join(",")}]`}::vector`;
     },
 
-    l2: (column: Sql, vector: Sql): Sql => sql`${column} <-> ${vector}`,
+    // pgvector's index serves `column <-> vector` as an ORDER BY key, and
+    // nothing else: an exact order adds a zero it cannot see through.
+    l2: (column: Sql, vector: Sql, order?: VectorOrderKey): Sql =>
+      order === "exact"
+        ? sql`(${column} <-> ${vector}) + 0`
+        : sql`${column} <-> ${vector}`,
 
-    cosine: (column: Sql, vector: Sql): Sql =>
-      sql`NULLIF(${column} <=> ${vector}, 'NaN'::double precision)`,
+    // A zero vector's cosine distance is NaN; the value reads it as NULL, and
+    // so does an exact order, which that NULLIF already keeps from an index.
+    cosine: (column: Sql, vector: Sql, order?: VectorOrderKey): Sql =>
+      order === "servable"
+        ? sql`${column} <=> ${vector}`
+        : sql`NULLIF(${column} <=> ${vector}, 'NaN'::double precision)`,
   };
 
   #createGeoPointSql(): GeoPointSql {

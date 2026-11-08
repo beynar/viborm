@@ -598,7 +598,12 @@ vector sentences in the shipped order and words
 (`builders/distance-builder.ts:142-188`), then the GeoPoint `distance` tier —
 and never emulates a tier in JavaScript. One distance expression serves the
 filter, the order key and the projected `_distance` leaf, so a provider tier is
-asked about once and the output name is stated once.
+asked about once and the output name is stated once. A vector ORDER KEY is the
+one place the adapter spells it differently (`vector.l2/cosine(…, order)`): an
+`"exact"` key no nearest-neighbour index can serve, so a declared HNSW index
+never makes an exact order approximate, and a `"servable"` key only for the
+first term of a read `approximateOrder` (`shared/query.ts`) admits — the one
+eligibility answer the SurrealDB backend reads too.
 
 `Queries.prepareProjection` owns one immutable alias-free projection description
 and decoder shape. `lowerProjection` binds that description to fresh statement

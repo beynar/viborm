@@ -1554,6 +1554,39 @@ export function firstRow(rows: Input[]): Input | null {
   return rows[0] ?? null;
 }
 
+/**
+ * The vector distance an index may serve approximately (`approximate: true`),
+ * where a read lets it: a root `findMany`/`findFirst` whose FIRST order term is
+ * that distance, nearest first, reading the first `take > 0` rows with no
+ * cursor, skip or distinct. An index answers exactly that question and nothing
+ * else, so everywhere else — a nested window, an aggregate, a count — the flag
+ * names nothing and the read is exact. Every backend reads this one answer.
+ */
+export function approximateOrder(
+  operation: ReadOperation,
+  args: Partial<Arguments>
+):
+  | { readonly field: string; readonly distance: Input; readonly take: number }
+  | undefined {
+  let take: number | undefined;
+  if (operation === "findMany") take = args.take;
+  else if (operation === "findFirst") take = args.take ?? 1;
+  if (
+    !(take !== undefined && take > 0) ||
+    args.cursor !== undefined ||
+    args.skip ||
+    args.distinct?.length
+  )
+    return undefined;
+  const first = entries(args.orderBy)[0] ?? {};
+  const field = Object.keys(first).find((key) => first[key] !== undefined);
+  if (field === undefined) return undefined;
+  const distance = record(record(first[field])._distance);
+  return distance?.approximate === true && distance.sort !== "desc"
+    ? { field, distance, take }
+    : undefined;
+}
+
 export function aggregateRow(rows: Input[]): Input {
   return rows[0] ?? {};
 }

@@ -20,7 +20,11 @@ import type {
   Read,
   ReadBackend,
 } from "@query-engine/raptor3/shared/query";
-import { firstRow, rowSet } from "@query-engine/raptor3/shared/query";
+import {
+  approximateOrder,
+  firstRow,
+  rowSet,
+} from "@query-engine/raptor3/shared/query";
 import type {
   Arguments,
   Input,
@@ -303,6 +307,52 @@ export function walksFurther(predicate: PreparedPredicate): boolean {
   }
 }
 
+/** What a statement's text says outside its comments and string literals. */
+const NOT_STATED =
+  /\/\*[\s\S]*?\*\/|--[^\n]*|\/\/[^\n]*|#[^\n]*|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"/g;
+/** The one field an index is on, written as its placeholder. */
+const ON_ONE_FIELD =
+  /\b(?:FIELDS|COLUMNS)\s+\{([^{}]+)\}(?=\s+[A-Za-z]|\s*;?\s*$)/i;
+const HNSW = /\bHNSW\b/i;
+const DIST = /\bDIST\s+([A-Za-z_]+)/i;
+const DIMENSION = /\bDIMENSION\s+(\d+)/i;
+const DISTANCES: Readonly<Record<string, string>> = {
+  l2: "EUCLIDEAN",
+  cosine: "COSINE",
+};
+/** The least candidates a nearest-neighbour search keeps: pgvector's own default. */
+const EF_SEARCH = 40;
+
+/** A declared HNSW index on one field: its distance and dimension. */
+interface NearestIndex {
+  readonly field: string;
+  readonly distance: string;
+  readonly dimension: number | undefined;
+}
+const nearestIndexes = new WeakMap<AnyModel, readonly NearestIndex[]>();
+
+/** The HNSW indexes a model's raw `surrealdb` texts declare, read once per model. */
+function nearestIndexesOf(model: AnyModel): readonly NearestIndex[] {
+  const known = nearestIndexes.get(model);
+  if (known) return known;
+  const found = model["~"].state.rawIndexes.flatMap((index): NearestIndex[] => {
+    const text = index.templates.surrealdb?.replace(NOT_STATED, " ");
+    const field = text && ON_ONE_FIELD.exec(text)?.[1];
+    if (!(field && HNSW.test(text))) return [];
+    const dimension = DIMENSION.exec(text)?.[1];
+    return [
+      {
+        field,
+        // SurrealDB's own default.
+        distance: (DIST.exec(text)?.[1] ?? "EUCLIDEAN").toUpperCase(),
+        dimension: dimension === undefined ? undefined : Number(dimension),
+      },
+    ];
+  });
+  nearestIndexes.set(model, found);
+  return found;
+}
+
 export class SurrealReadBackend implements ReadBackend {
   readonly #queries: SurrealQueries;
 
@@ -416,7 +466,7 @@ export class SurrealReadBackend implements ReadBackend {
           sql: this.statement(
             model,
             prepared,
-            { ...args, take },
+            { ...args, take, nearest: approximateOrder(operation, args) },
             this.#filter(model, args)
           ),
           shape: prepared.shape,
@@ -431,7 +481,12 @@ export class SurrealReadBackend implements ReadBackend {
       case "findMany": {
         const prepared = projected();
         const query = {
-          sql: this.statement(model, prepared, args, this.#filter(model, args)),
+          sql: this.statement(
+            model,
+            prepared,
+            { ...args, nearest: approximateOrder(operation, args) },
+            this.#filter(model, args)
+          ),
           shape: prepared.shape,
         };
         return {
@@ -1250,7 +1305,11 @@ export class SurrealReadBackend implements ReadBackend {
   statement(
     model: AnyModel,
     prepared: PreparedProjection,
-    args: Partial<Arguments> & { readonly unordered?: boolean },
+    args: Partial<Arguments> & {
+      readonly unordered?: boolean;
+      /** The order an index may serve: {@link approximateOrder}. */
+      readonly nearest?: ReturnType<typeof approximateOrder>;
+    },
     predicate: PreparedPredicate | undefined,
     conditions: readonly Sql[] = [],
     path?: Sql
@@ -1277,7 +1336,16 @@ export class SurrealReadBackend implements ReadBackend {
       rest,
       conditions
     );
-    if (!ahead) return listed;
+    if (!ahead)
+      return this.#nearest(
+        model,
+        prepared,
+        args,
+        from,
+        rest,
+        conditions,
+        listed
+      );
     // The list is complete or it is not, and only a read can tell. What the walk
     // computes for itself waits in its own branch, where it may never run.
     const lets = this.#lets;
@@ -1298,6 +1366,53 @@ export class SurrealReadBackend implements ReadBackend {
     this.#walking = undefined;
     this.#lets = lets;
     return sql`IF array::len(${ahead.rows}) < ${sql.raw(String(HOLDERS_AHEAD))} { ${listed} } ELSE { ${sql.join([...own, walked], " ")} }`;
+  }
+
+  /**
+   * A page an HNSW index may answer: its nearest `k` among the rows the filter
+   * keeps, in the exact order. `<|k,ef|>` reads an HNSW index on the field, and
+   * the first one when there are several, whatever its distance: so only a
+   * table's one declared index of this distance, on a field no gate masks,
+   * read from the table itself (a named record or a list of ids holds no
+   * index: it answers nothing). With no such index built, it answers nothing,
+   * so then — or with nothing left beside it — the exact page answers.
+   */
+  #nearest(
+    model: AnyModel,
+    prepared: PreparedProjection,
+    args: Parameters<SurrealReadBackend["statement"]>[2],
+    from: Sql,
+    rest: PreparedPredicate | undefined,
+    conditions: readonly Sql[],
+    exact: Sql
+  ): Sql {
+    const nearest = args.nearest;
+    if (
+      !nearest ||
+      from.toStatement() !== name(tableOf(model)).toStatement() ||
+      this.#gatedHere(model, nearest.field)
+    )
+      return exact;
+    const to = nearest.distance.to as number[];
+    const indexes = nearestIndexesOf(model).filter(
+      (index) => index.field === nearest.field
+    );
+    const index = indexes.length === 1 ? indexes[0] : undefined;
+    if (
+      !index ||
+      index.distance !== DISTANCES[nearest.distance.metric as string] ||
+      (index.dimension !== undefined && index.dimension !== to.length)
+    )
+      return exact;
+    const searched = sql`${this.physical(model, nearest.field)} ${sql.raw(
+      `<|${nearest.take},${Math.max(EF_SEARCH, nearest.take)}|>`
+    )} ${to}`;
+    const found = this.#hoist(
+      this.#page(model, prepared, args, from, rest, [...conditions, searched])
+    );
+    return found
+      ? sql`IF array::len(${found}) > 0 { ${found} } ELSE { ${exact} }`
+      : exact;
   }
 
   /** One page of rows, from wherever a statement reads them. */
