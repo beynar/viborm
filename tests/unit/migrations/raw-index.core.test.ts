@@ -46,6 +46,8 @@ const HASH_MISMATCH = /raw.hash does not match its template/;
 const NO_TEMPLATE = /missing template/;
 const NOT_ONLY_RAW = /cannot also be unique/;
 const COLUMNS_MISMATCH = /columns are not the fields its template names/;
+const NEEDS_NAME = /needs a name/;
+const COMMENT_TOO_LONG = /1024-byte index comment/;
 const CONCURRENT_HEADER = /must start with|says CONCURRENTLY/;
 const SAYS_CONCURRENTLY = /says CONCURRENTLY/;
 const SAYS_COMMENT = /says COMMENT/;
@@ -187,7 +189,7 @@ describe("the serializer records a raw index for its own dialect", () => {
     ]);
   });
 
-  it("refuses a template without the header, a field that is not a scalar, and one naming none", () => {
+  it("refuses a nameless index, a template without the header, a field that is not a scalar, and one naming none", () => {
     const refusal = (template: string) => () =>
       serializeModels(
         {
@@ -204,6 +206,17 @@ describe("the serializer records a raw index for its own dialect", () => {
       NOT_A_SCALAR
     );
     expect(refusal("CREATE INDEX {name} ON {table} ((1))")).toThrow(NO_FIELD);
+    expect(refusal("  ")).toThrow(NO_HEADER);
+    expect(() =>
+      serializeModels(
+        {
+          document: s
+            .model({ id: s.string().id(), title: s.string() })
+            .rawIndex("", { pg: "CREATE INDEX {name} ON {table} ({title})" }),
+        },
+        { migrationDriver: postgresMigrationDriver }
+      )
+    ).toThrow(NEEDS_NAME);
     expect(() =>
       serializeModels(
         {
@@ -440,7 +453,7 @@ describe("each driver renders a raw index with its marker", () => {
         { ...create, index: rawIndex("documents_raw", template, columns) },
         ddlContext("artifact")
       )
-    ).toThrow(/1024-byte index comment/);
+    ).toThrow(COMMENT_TOO_LONG);
   });
 
   it("SQLite: a trailing comment in which no name can close the comment", () => {

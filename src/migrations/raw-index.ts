@@ -73,6 +73,12 @@ export function declaredRawIndex(
   dialect: Dialect,
   columnOf: (field: string) => string | undefined
 ): IndexDef {
+  if (name === "")
+    throw new MigrationError(
+      `A raw index of "${model}" needs a name.`,
+      VibORMErrorCode.INVALID_INPUT,
+      { meta: { model } }
+    );
   const header = dialect === "surrealql" ? SURREAL_HEADER : SQL_HEADER;
   if (!header.test(template))
     throw new MigrationError(

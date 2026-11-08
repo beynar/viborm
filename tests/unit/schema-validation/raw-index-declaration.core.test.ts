@@ -1,5 +1,5 @@
 /**
- * `.rawIndex()` at the schema: what the builder refuses, and the names a raw
+ * `.rawIndex()` at the schema: what the builder keeps, and the names a raw
  * index claims beside the declared ones (I002) and the generated storage
  * names a variant relation would otherwise take (P008). Its text is read by
  * the migration layer, per dialect, and is not this layer's.
@@ -9,14 +9,11 @@ import { s } from "@src/schema";
 import { validateSchema } from "@src/schema/validation";
 import { describe, expect, it } from "vitest";
 
-const NEEDS_NAME = /needs a name/;
-const NEEDS_TEXT = /needs a pg text/;
-
 const codes = (result: ReturnType<typeof validateSchema>) =>
   result.errors.map(({ code }) => code);
 
 describe("a raw index declaration", () => {
-  it("keeps one text per dialect it is given, and refuses an empty name or text", () => {
+  it("keeps the texts it is given; the migration that renders them checks them", () => {
     const model = s
       .model({ id: s.string().id(), title: s.string() })
       .rawIndex("documents_title", {
@@ -30,9 +27,6 @@ describe("a raw index declaration", () => {
         },
       },
     ]);
-    const base = s.model({ id: s.string().id() });
-    expect(() => base.rawIndex("", { pg: "CREATE INDEX" })).toThrow(NEEDS_NAME);
-    expect(() => base.rawIndex("x", { pg: "  " })).toThrow(NEEDS_TEXT);
   });
 
   it("shares the model's index names (I002)", () => {

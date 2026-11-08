@@ -501,22 +501,13 @@ export class Model<State extends ModelState> {
     name: string,
     templates: ExactOptions<O, RawIndexTemplates>
   ): Model<State> {
-    if (typeof name !== "string" || name === "") {
-      throw new Error("A raw index needs a name");
-    }
-    const given: RawIndexTemplates = templates;
-    const stored: RawIndexTemplates = {};
-    for (const dialect of ["pg", "mysql", "sqlite", "surrealdb"] as const) {
-      const text = given[dialect];
-      if (text === undefined) continue;
-      if (typeof text !== "string" || text.trim() === "") {
-        throw new Error(`The raw index '${name}' needs a ${dialect} text`);
-      }
-      stored[dialect] = text;
-    }
+    // The migration that renders a template is what checks it.
     return new Model({
       ...this.#state,
-      rawIndexes: [...this.#state.rawIndexes, { name, templates: stored }],
+      rawIndexes: [
+        ...this.#state.rawIndexes,
+        { name, templates: { ...templates } },
+      ],
     });
   }
 
