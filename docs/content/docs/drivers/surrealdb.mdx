@@ -92,6 +92,10 @@ and says so.
   (or a `findUnique`), whose children are then read one row at a time, in the same statement, and only
   if the filters on both hold no subquery. Otherwise each row reads all its children and sorts them, as
   SurrealDB plans a correlated read without one.
+- **An order through a to-one** follows its links and looks up who references the row it reached.
+  A to-one that is no record link (a foreign key in its row's own key, a compound one, or one to a
+  unique field) can be ordered by only from the row itself; behind another relation it is refused
+  by name.
 - **A `groupBy`** reads every row it groups. Under a `take` of at most 20 groups, ordered by a field an
   index holds and without a `having`, it first seeks those groups on the index and reads only their rows.
 - **Every index kind** is a plain index here: a `spatial`, `gin` or `fulltext` declaration is kept,
