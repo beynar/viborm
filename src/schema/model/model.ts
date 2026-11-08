@@ -38,8 +38,6 @@ export interface ModelState {
     | undefined;
   tableName: string | undefined;
   indexes: IndexDefinition[];
-  /** Indexes in the database's own language: see {@link Model.rawIndex}. */
-  rawIndexes: readonly RawIndexDefinition[];
   omit: Record<string, true> | undefined;
   scalars: Record<string, Scalar>;
   /** ONE canonical relation map, holding both target domains in shape order. */
@@ -72,6 +70,8 @@ export interface ModelInternal<T extends ModelState> {
   scalarFieldNames: string[];
   /** Cached relation names (computed once on first access) */
   relationNames: string[];
+  /** Indexes in the database's own language: see {@link Model.rawIndex}. */
+  readonly rawIndexes: readonly RawIndexDefinition[];
 }
 
 /**
@@ -498,14 +498,17 @@ export class Model<State extends ModelState> {
    * key and never covers a foreign key.
    */
   rawIndex(name: string, templates: RawIndexTemplates): Model<State> {
-    // The migration that renders a template is what checks it.
-    return new Model({
+    // The migration that renders a template is what checks it. The list rides
+    // the state object, so every builder's spread carries it, but not its type:
+    // every state type maps over ModelState's keys, per model.
+    const state = {
       ...this.#state,
       rawIndexes: [
-        ...this.#state.rawIndexes,
+        ...this["~"].rawIndexes,
         { name, templates: { ...templates } },
       ],
-    });
+    };
+    return new Model<State>(state);
   }
 
   id<
@@ -643,6 +646,13 @@ export class Model<State extends ModelState> {
       get relationNames(): string[] {
         return (model.#relationNames ??= Object.keys(model.#state.relations));
       },
+      get rawIndexes(): readonly RawIndexDefinition[] {
+        // Held beside the typed state: see Model.rawIndex.
+        return (
+          (model.#state as { rawIndexes?: readonly RawIndexDefinition[] })
+            .rawIndexes ?? []
+        );
+      },
     };
     return this.#internal;
   }
@@ -656,7 +666,6 @@ export const model = <TShape extends DeclaredModelShape>(
     compoundUniques: undefined,
     tableName: undefined,
     indexes: [],
-    rawIndexes: [],
     omit: undefined,
     shape,
     scalars: extractScalarMap(shape),

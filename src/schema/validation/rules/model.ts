@@ -349,7 +349,7 @@ export function indexNameUnique(
     }
   }
   // A raw index is an index of the same table under the name it is given.
-  for (const { name: rawName } of model["~"].state.rawIndexes) {
+  for (const { name: rawName } of model["~"].rawIndexes) {
     names.set(rawName, (names.get(rawName) ?? 0) + 1);
   }
   const errors: SchemaValidationIssue[] = [];

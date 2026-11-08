@@ -19,7 +19,7 @@ describe("a raw index declaration", () => {
       .rawIndex("documents_title", {
         sqlite: "CREATE INDEX {name} ON {table} (lower({title}))",
       });
-    expect(model["~"].state.rawIndexes).toEqual([
+    expect(model["~"].rawIndexes).toEqual([
       {
         name: "documents_title",
         templates: {

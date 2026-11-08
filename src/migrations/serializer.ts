@@ -383,7 +383,7 @@ export function serializeResolvedModels(
     // listed before the foreign-key indexes so that an automatic one yields
     // its name to it. A dialect it has no text for has no such index.
     const templateKey = RAW_INDEX_TEMPLATE_KEY[migrationDriver.dialect];
-    for (const rawIndex of modelState.rawIndexes) {
+    for (const rawIndex of model["~"].rawIndexes) {
       const template = rawIndex.templates[templateKey];
       if (template === undefined) continue;
       indexes.push(

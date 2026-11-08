@@ -335,7 +335,7 @@ const nearestIndexes = new WeakMap<AnyModel, readonly NearestIndex[]>();
 function nearestIndexesOf(model: AnyModel): readonly NearestIndex[] {
   const known = nearestIndexes.get(model);
   if (known) return known;
-  const found = model["~"].state.rawIndexes.flatMap((index): NearestIndex[] => {
+  const found = model["~"].rawIndexes.flatMap((index): NearestIndex[] => {
     const text = index.templates.surrealdb?.replace(NOT_STATED, " ");
     const field = text && ON_ONE_FIELD.exec(text)?.[1];
     if (!(field && HNSW.test(text))) return [];

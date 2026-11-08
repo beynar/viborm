@@ -81,7 +81,7 @@ export function collectReservedPhysicalNames(
         index.options.name ?? `${tableName}_${index.fields.join("_")}_idx`
       );
     }
-    for (const index of candidate["~"].state.rawIndexes) {
+    for (const index of candidate["~"].rawIndexes) {
       reserved.add(index.name);
     }
     const scalars = getScalars(candidate);

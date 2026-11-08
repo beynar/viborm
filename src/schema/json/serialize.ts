@@ -179,7 +179,7 @@ function serializeModel(
   if (state.tableName !== undefined) document.table = state.tableName;
   const indexes = serializeIndexes(state.indexes, path, issues);
   if (indexes.length > 0) document.indexes = indexes;
-  if (state.rawIndexes.length > 0) {
+  if (model["~"].rawIndexes.length > 0) {
     addIssue(
       issues,
       pointer(path, "rawIndexes"),
