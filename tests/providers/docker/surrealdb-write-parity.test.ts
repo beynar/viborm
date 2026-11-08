@@ -8,11 +8,13 @@ import { createClient } from "@client/client";
 import { DbNull, JsonNull, s } from "@schema";
 import { sql } from "@sql";
 import { defineExtension } from "@src/index";
+import { permissions } from "@src/permissions";
 import {
   createSurrealTestDriver,
   surrealUrl,
 } from "@tests/fixtures/drivers/surrealdb";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { v } from "@validation";
 import { describe, expect, it, vi } from "vitest";
 import {
   caught,
@@ -1812,6 +1814,88 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
         await Promise.all(clients.map((db) => db.$disconnect()));
       }
     });
+  });
+
+  describe("what a permission judges a write by", () => {
+    const item = s.model({ id: s.int().id(), n: s.int() });
+    const restricted = (db: any) =>
+      db
+        .$extends(
+          permissions({
+            actor: v.object({ userId: v.string() }),
+            models: {
+              item: { read: true, update: { id: { lt: 10 }, n: { lt: 10 } } },
+            },
+          })
+        )
+        .$as({ userId: "u" });
+    it.each([
+      ["updateMany", { where: { id: 1 }, data: { id: 2, n: 99 } }],
+      ["update", { where: { id: 1 }, data: { id: 2, n: 99 } }],
+      ["update", { where: { id: 1 }, data: { id: 2 } }],
+      ["update", { where: { id: 1 }, data: { id: 12 } }],
+      ["updateMany", { where: { id: 1 }, data: { id: 12 } }],
+    ] as const)("a %s that moves a key is judged at the row it leaves: %j", async (verb, args) =>
+      compare({ item }, async (db) => {
+        await db.item.createMany({
+          data: [
+            { id: 1, n: 1 },
+            { id: 3, n: 1 },
+          ],
+        });
+        const result = await caught(() => restricted(db).item[verb](args));
+        return { result, rows: await rows(db, "item") };
+      }));
+    const owner = s.model({
+      id: s.string().id(),
+      items: s.toMany(() => member),
+    });
+    const member = s.model({
+      id: s.int().id(),
+      n: s.int(),
+      ownerId: s.string(),
+      owner: s
+        .toOne(() => owner)
+        .fields("ownerId")
+        .references("id"),
+    });
+    it.each([
+      { updateMany: { where: { id: 1 }, data: { id: 2, n: 99 } } },
+      { updateMany: { where: { id: 1 }, data: { id: 12 } } },
+      { update: { where: { id: 1 }, data: { id: 2, n: 99 } } },
+      { update: { where: { id: 1 }, data: { id: 12 } } },
+    ])("a nested write that moves a key is judged at the row it leaves: %j", async (items) =>
+      compare({ owner, member }, async (db) => {
+        await db.owner.create({
+          data: {
+            id: "o",
+            items: {
+              create: [
+                { id: 1, n: 1 },
+                { id: 3, n: 1 },
+              ],
+            },
+          },
+        });
+        const result = await caught(() =>
+          db
+            .$extends(
+              permissions({
+                actor: v.object({ userId: v.string() }),
+                models: {
+                  owner: { read: true, update: true },
+                  member: {
+                    read: true,
+                    update: { id: { lt: 10 }, n: { lt: 10 } },
+                  },
+                },
+              })
+            )
+            .$as({ userId: "u" })
+            .owner.update({ where: { id: "o" }, data: { items } })
+        );
+        return { result, rows: await rows(db, "member") };
+      }));
   });
 
   describe("what differs by design", () => {

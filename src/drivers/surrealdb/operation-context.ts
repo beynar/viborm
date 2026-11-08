@@ -1246,7 +1246,8 @@ export class SurrealOperationContext extends OperationContext {
     given: Input,
     limit: number | undefined,
     projection: PreparedProjection | undefined,
-    single: (() => Error) | undefined
+    single: (() => Error) | undefined,
+    refusal?: PreparedGuardFailure
   ): Promise<unknown> {
     const q = this.queries;
     const keys = q.keyOrder(model);
@@ -1275,11 +1276,25 @@ export class SurrealOperationContext extends OperationContext {
     const where = conditions.length
       ? sql.join(conditions, " OR ")
       : sql.raw("false");
-    const statement =
-      Object.keys(rest).length > 0
-        ? sql`UPDATE ${table} SET ${this.#assignments(model, rest)} WHERE ${where} ${this.#returning(projection)}`
-        : sql`SELECT ${projection ? this.#lowering.columns(projection) : sql.raw("id")} FROM ${table} WHERE ${where}`;
-    return await this.#finish(model, statement, projection, single);
+    // The moved records are what the update produces, judged as its rows would be
+    // where nothing moved: their candidates stood under the keys they left.
+    const statement = this.#lowering.hoisted(() =>
+      this.#stated(
+        this.#judgedRows(
+          model,
+          sql`${table} WHERE ${where}`,
+          rest,
+          selector.judgement,
+          false
+        ),
+        Object.keys(rest).length > 0
+          ? sql`UPDATE ${table} SET ${this.#assignments(model, rest)} WHERE ${where} ${this.#returning(projection)}`
+          : sql`SELECT ${projection ? this.#lowering.columns(projection) : sql.raw("id")} FROM ${table} WHERE ${where}`
+      )
+    );
+    return await this.#refusing(model, refusal, () =>
+      this.#finish(model, statement, projection, single)
+    );
   }
 
   override async deleteMany(
@@ -2016,7 +2031,8 @@ export class SurrealOperationContext extends OperationContext {
         given,
         undefined,
         projection,
-        missing
+        missing,
+        refusal
       );
       if (answer) answer.row = result as Input;
       return result as Input;
@@ -2135,19 +2151,44 @@ export class SurrealOperationContext extends OperationContext {
         model
       );
       const rest = this.#withoutKeys(model, values);
-      for (const row of located.rows as Input[]) {
-        const moved = await this.#moveRecord(model, row, values);
-        if (Object.keys(rest).length > 0)
-          await this.#written(
+      const moved: Input[] = [];
+      for (const row of located.rows as Input[])
+        moved.push(await this.#moveRecord(model, row, values));
+      const judged =
+        selector.judgement !== undefined && this.queries.domain !== undefined;
+      if (moved.length === 0 || (Object.keys(rest).length === 0 && !judged))
+        return;
+      const records = sql.join(
+        moved.map((identity) => this.#lowering.recordOfRow(model, identity)),
+        ", "
+      );
+      // The moved records are what it produces, judged as the rows of `#updateKeys`.
+      return await this.#refusing(
+        model,
+        nestedRefusal("updateMany", edge.name),
+        () =>
+          this.#written(
             model,
             () => ({
-              write: sql`UPDATE ${table} SET ${this.#assignments(model, rest)} WHERE ${this.#lowering.identity(model, moved)}`,
+              write:
+                Object.keys(rest).length > 0
+                  ? sql`UPDATE $records SET ${this.#assignments(model, rest)}`
+                  : sql`UPDATE $records`,
+              ahead: this.#ahead(
+                sql`LET $records = [${records}];`,
+                this.#judgedRows(
+                  model,
+                  sql.raw("$records"),
+                  rest,
+                  selector.judgement,
+                  false
+                )
+              ),
             }),
             [],
             undefined
-          );
-      }
-      return;
+          )
+      );
     }
     if (values)
       return await this.#refusing(
