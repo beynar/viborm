@@ -102,7 +102,9 @@ const actorSchema = v.object({
   }),
 });
 
-const isMember = { members: { some: { userId: { actor: "userId" } } } } as const;
+const isMember = {
+  members: { some: { userId: { actor: "userId" } } },
+} as const;
 const isOwner = {
   members: { some: { userId: { actor: "userId" }, role: "owner" } },
 } as const;

@@ -22,6 +22,10 @@ const textValue = () =>
     .id(["prop", "v", "page"])
     .map("p_text");
 
+const ENDS_WITHOUT_ROWID = /\)\s*WITHOUT ROWID$/;
+const NOTE_NOT_NULL = /"note" TEXT NOT NULL/;
+const ONLY_TRUE = /withoutRowid must be true/;
+
 const tableSql = async (
   driver: ReturnType<typeof createInMemorySQLite3Driver>
 ) =>
@@ -40,7 +44,7 @@ describe("SQLite WITHOUT ROWID tables", () => {
     });
     try {
       await syncLiveSchema(client as never);
-      expect(await tableSql(driver)).toMatch(/\)\s*WITHOUT ROWID$/);
+      expect(await tableSql(driver)).toMatch(ENDS_WITHOUT_ROWID);
       const again = await syncLiveSchema(client as never, { dryRun: true });
       expect(again.operations).toEqual([]);
     } finally {
@@ -74,8 +78,8 @@ describe("SQLite WITHOUT ROWID tables", () => {
       expect(applied.operations.map(({ type }) => type)).toEqual([
         "alterColumn",
       ]);
-      expect(await tableSql(driver)).toMatch(/"note" TEXT NOT NULL/);
-      expect(await tableSql(driver)).toMatch(/\)\s*WITHOUT ROWID$/);
+      expect(await tableSql(driver)).toMatch(NOTE_NOT_NULL);
+      expect(await tableSql(driver)).toMatch(ENDS_WITHOUT_ROWID);
       expect((await driver._executeRaw("SELECT * FROM p_text")).rows).toEqual([
         { prop: "a", v: "b", page: "c", note: "n" },
       ]);
@@ -101,7 +105,7 @@ describe("SQLite WITHOUT ROWID tables", () => {
         "dropPrimaryKey",
         "addPrimaryKey",
       ]);
-      expect(await tableSql(driver)).toMatch(/\)\s*WITHOUT ROWID$/);
+      expect(await tableSql(driver)).toMatch(ENDS_WITHOUT_ROWID);
       expect((await driver._executeRaw("SELECT * FROM p_text")).rows).toEqual([
         { prop: "a", v: "b", page: "c" },
       ]);
@@ -173,9 +177,7 @@ describe("withoutRowid in the snapshot", () => {
     const { bytes, snapshotHash } = encodeSnapshot({
       tables: [table],
     } as never);
-    expect(() => parseSnapshotDocument(bytes, snapshotHash)).toThrow(
-      /withoutRowid must be true/
-    );
+    expect(() => parseSnapshotDocument(bytes, snapshotHash)).toThrow(ONLY_TRUE);
     const kept = encodeSnapshot({
       tables: [
         { ...table, primaryKey: { columns: ["prop"], withoutRowid: true } },
