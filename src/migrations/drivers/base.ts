@@ -21,6 +21,7 @@ import {
 import type {
   DiffOperation,
   EnumDependentCheck,
+  IndexDef,
   MigrationTarget,
   SchemaSnapshot,
   TableDef,
@@ -491,7 +492,9 @@ export abstract class MigrationDriver {
         this.getEnumColumnType(owner, renamedTo(column.name), [])
       );
     }
+    // A raw index's name is the one its declaration gives, whatever it reads like.
     for (const index of table.indexes) {
+      if (index.raw) continue;
       follow("index", index.name, named(index.columns, "idx"), true);
     }
     // A unique constraint's index carries its name: renaming it renames both.
@@ -517,6 +520,56 @@ export abstract class MigrationDriver {
       (item) => item.name === owner
     )!;
     return this.renameDerivedNames!(owner, renames, table, context);
+  }
+
+  /**
+   * The raw indexes a column rename leaves with a stale marker, as the rename
+   * leaves them: the database's index follows the column, but the marker
+   * beside it still names the old one, so each driver writes it again (a
+   * comment, or the index re-created). One the program drops anyway is left
+   * to that drop.
+   */
+  protected rawIndexesRenamedBy(
+    op: RenameColumnOperation,
+    context: DDLContext
+  ): IndexDef[] {
+    let indexes =
+      this.schemaAtOperation(context)?.tables.find(
+        ({ name }) => name === op.tableName
+      )?.indexes ?? [];
+    // The indexes the program already dropped or created on the table (a
+    // rollback restores the old index before it renames its column back).
+    for (const operation of context.precedingOperations ?? []) {
+      if (
+        operation.type === "dropIndex" &&
+        operation.tableName === op.tableName
+      )
+        indexes = indexes.filter(({ name }) => name !== operation.indexName);
+      if (
+        operation.type === "createIndex" &&
+        operation.tableName === op.tableName
+      )
+        indexes = [...indexes, operation.index];
+    }
+    const dropped = new Set(
+      (context.followingOperations ?? []).flatMap((operation) =>
+        operation.type === "dropIndex" && operation.tableName === op.tableName
+          ? [operation.indexName]
+          : []
+      )
+    );
+    return indexes.flatMap((index) =>
+      index.raw && index.columns.includes(op.from) && !dropped.has(index.name)
+        ? [
+            {
+              ...index,
+              columns: index.columns.map((column) =>
+                column === op.from ? op.to : column
+              ),
+            },
+          ]
+        : []
+    );
   }
 
   /** Native identity and PK effects needed by rename and enum DDL at this prefix. */

@@ -19,6 +19,7 @@ import {
   parseJsonBytes,
 } from "./canonical-json";
 import { domainHash, HASH_DOMAIN, type Sha256 } from "./identity";
+import { rawIndexFields, rawIndexHash } from "./raw-index";
 import type {
   ColumnDef,
   EnumDef,
@@ -74,7 +75,15 @@ const COLUMN_KEYS = [
 ] as const;
 const DECIMAL_KEYS = ["precision", "scale"] as const;
 const PRIMARY_KEY_KEYS = ["columns", "name"] as const;
-const INDEX_KEYS = ["columns", "name", "type", "unique", "where"] as const;
+const INDEX_KEYS = [
+  "columns",
+  "name",
+  "raw",
+  "type",
+  "unique",
+  "where",
+] as const;
+const RAW_INDEX_KEYS = ["hash", "template"] as const;
 const FOREIGN_KEY_KEYS = [
   "columns",
   "name",
@@ -242,6 +251,23 @@ function parseIndex(value: unknown, label: string): IndexDef {
   if ("where" in record) {
     if (!isString(record.where)) refuse(`${label}.where must be a string`);
     index.where = record.where;
+  }
+  if ("raw" in record) {
+    const raw = exactObject(
+      record.raw,
+      RAW_INDEX_KEYS,
+      RAW_INDEX_KEYS,
+      `${label}.raw`
+    );
+    if (!isString(raw.template))
+      refuse(`${label}.raw.template must be a string`);
+    if (raw.hash !== rawIndexHash(raw.template))
+      refuse(`${label}.raw.hash does not match its template`);
+    if (index.unique || index.type !== undefined || index.where !== undefined)
+      refuse(`${label} is raw and cannot also be unique, typed or partial`);
+    if (rawIndexFields(raw.template).length !== index.columns.length)
+      refuse(`${label}.columns are not the fields its template names`);
+    index.raw = { hash: raw.hash, template: raw.template };
   }
   return index;
 }

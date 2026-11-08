@@ -151,6 +151,19 @@ export interface IndexDef {
   unique: boolean;
   type?: "btree" | "hash" | "gin" | "gist" | "fulltext" | "spatial" | undefined;
   where?: string | undefined; // For partial indexes
+  /**
+   * An index in the database's own language (`Model.rawIndex`). `columns` are
+   * the columns its template names, in the order they first appear, and it is
+   * never unique, typed or partial whatever the text says. `hash` is
+   * `rawIndexHash(template)`; only an introspected snapshot lacks `template`,
+   * since a database holds the rendered text and VibORM's marker beside it.
+   */
+  raw?: RawIndexDef | undefined;
+}
+
+export interface RawIndexDef {
+  readonly hash: string;
+  readonly template?: string | undefined;
 }
 
 export interface ForeignKeyDef {
@@ -215,7 +228,17 @@ export type DiffOperation =
       to: ColumnDef;
     }
   | { type: "createIndex"; tableName: string; index: IndexDef }
-  | { type: "dropIndex"; tableName: string; indexName: string }
+  | {
+      type: "dropIndex";
+      tableName: string;
+      indexName: string;
+      /**
+       * A raw index's drop: its name never follows a column, so it need not
+       * wait for a column rename (and a rollback then restores it after the
+       * rename back, rendered with the column it names).
+       */
+      raw?: true | undefined;
+    }
   | { type: "addForeignKey"; tableName: string; fk: ForeignKeyDef }
   | { type: "dropForeignKey"; tableName: string; fkName: string }
   | {

@@ -269,7 +269,8 @@ function operationTargetsColumn(
   columnName: string
 ): boolean {
   // A drop names a key as the rename left it: on PostgreSQL a derived key
-  // name follows its column.
+  // name follows its column. A raw index's name never does.
+  if (operation.type === "dropIndex" && operation.raw) return false;
   if (
     operation.type === "dropIndex" ||
     operation.type === "dropUniqueConstraint" ||

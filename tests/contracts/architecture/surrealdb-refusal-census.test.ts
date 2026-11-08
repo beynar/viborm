@@ -79,6 +79,8 @@ const CENSUS: Readonly<Record<string, string>> = {
     "SAME AS SQL: what holds a record by its key goes first",
   "leaving '…' without a key: a record's key is its id":
     "LIMIT: a record always has an id",
+  "a new key on '…' holding a field the raw index '…' names":
+    "LIMIT: a raw index's text names fields, and a key's parts are in the id",
 };
 
 const SOURCES = [

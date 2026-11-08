@@ -20,6 +20,7 @@ import {
 import type { AnyDriver } from "../../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import { readStoredDecimalDescriptor } from "../../decimal";
+import { RAW_INDEX_MARKER_PREFIX, readRawIndexMarker } from "../../raw-index";
 import type {
   EnumDef,
   ForeignKeyDef,
@@ -242,6 +243,7 @@ SELECT
    OR EXISTS (SELECT 1 FROM generate_series(0,ix.indnkeyatts-1) AS key(position) LEFT JOIN pg_attribute AS attr ON attr.attrelid=t.oid AND attr.attnum=ix.indkey[key.position] WHERE ix.indcollation[key.position] <> COALESCE(attr.attcollation,0))) AS unsupported_structure,
   am.amname AS index_type,
   pg_get_expr(ix.indpred, ix.indrelid) AS filter_condition,
+  pg_catalog.obj_description(ix.indexrelid, 'pg_class') AS index_comment,
   array_position(ix.indkey, a.attnum) AS ordinal_position
 FROM pg_index ix
 JOIN pg_class t ON t.oid = ix.indrelid
@@ -894,6 +896,13 @@ export async function introspectPostgresSchema(
               { meta: { table: tableName, indexName } }
             );
           }
+          // A raw index is its marker: whatever its method or structure, it
+          // is the text the marker's hash names.
+          const raw = readPostgresRawIndex(firstCol.index_comment, indexName);
+          if (raw) {
+            indexes.push(raw);
+            continue;
+          }
           if (
             managed &&
             (firstCol.unsupported_structure !== false ||
@@ -903,7 +912,7 @@ export async function introspectPostgresSchema(
                 method !== "gist"))
           ) {
             throw new MigrationError(
-              `PostgreSQL index "${tableName}.${indexName}" has physical method/order/expression/include/opclass/collation semantics that this index declaration cannot represent. Synchronization refuses before effects and preserves the index. Manage its table outside this synchronization scope until a faithful declaration is available.`,
+              `PostgreSQL index "${tableName}.${indexName}" has physical method/order/expression/include/opclass/collation semantics that this index declaration cannot represent. Synchronization refuses before effects and preserves the index. Declare it with .rawIndex() (drop this hand-made copy first: only an index VibORM created carries the marker it recognizes), or manage its table outside this synchronization scope.`,
               VibORMErrorCode.FEATURE_NOT_SUPPORTED,
               { meta: { table: tableName, indexName } }
             );
@@ -986,4 +995,17 @@ export async function introspectPostgresSchema(
     tables,
     enums: enums.length > 0 ? enums : undefined,
   };
+}
+
+/** The raw index an index's comment marks, when VibORM wrote it for this index. */
+function readPostgresRawIndex(
+  comment: string | null,
+  indexName: string
+): IndexDef | undefined {
+  return comment?.startsWith(RAW_INDEX_MARKER_PREFIX)
+    ? readRawIndexMarker(
+        comment.slice(RAW_INDEX_MARKER_PREFIX.length),
+        indexName
+      )
+    : undefined;
 }

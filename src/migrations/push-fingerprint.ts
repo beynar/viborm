@@ -197,13 +197,19 @@ export function fingerprintSnapshot(
           }
         : null,
       indexes: table.indexes
-        .map((index) => ({
-          name: index.name,
-          columns: index.columns,
-          unique: index.unique ?? false,
-          type: index.type ?? "btree",
-          where: index.where?.trim() || null,
-        }))
+        .map((index) =>
+          // A raw index is its text: what the database calls its method, its
+          // uniqueness or its predicate is the text's, and the hash says it.
+          index.raw
+            ? { name: index.name, raw: index.raw.hash, columns: index.columns }
+            : {
+                name: index.name,
+                columns: index.columns,
+                unique: index.unique ?? false,
+                type: index.type ?? "btree",
+                where: index.where?.trim() || null,
+              }
+        )
         .sort(byName),
       foreignKeys: table.foreignKeys
         .map((foreignKey) => ({

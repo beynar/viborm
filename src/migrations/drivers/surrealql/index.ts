@@ -12,7 +12,15 @@
 import type { ScalarState } from "@schema/scalars/common";
 import type { AnyDriver } from "../../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
+import { isRecord, isString } from "../../../validation/value-guards";
 import { CONTROL_TABLES } from "../../control";
+import {
+  rawIndexMarker,
+  readRawIndexMarker,
+  refuseRawIndexStatement,
+  renderRawIndex,
+} from "../../raw-index";
+import { readSurrealStatements } from "../../statement-safety";
 import type {
   ColumnDef,
   DiffOperation,
@@ -159,8 +167,62 @@ type DatabaseInfo = {
   }[];
 };
 
-const parsed = <T>(comment: string | undefined): T =>
-  (comment ? JSON.parse(comment) : {}) as T;
+/** A comment's JSON, `{}` where there is none, `undefined` where it is not JSON. */
+function commentJson(comment: string | undefined): unknown {
+  if (!comment) return {};
+  try {
+    return JSON.parse(comment);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * What a comment VibORM wrote says. A table it manages keeps VibORM's facts in
+ * its table and field comments, so one that is not JSON there is a hand-made
+ * change no snapshot can read, refused before effects; elsewhere it says
+ * nothing.
+ */
+function parsed<T>(
+  comment: string | undefined,
+  managed = false,
+  owner?: string
+): T {
+  const facts = commentJson(comment);
+  if (facts !== undefined) return facts as T;
+  if (managed)
+    throw new MigrationError(
+      `SurrealDB ${owner} carries a comment VibORM did not write, where VibORM keeps what its definition cannot say. Synchronization refuses before effects; restore or remove the comment, or manage the table outside this synchronization scope.`,
+      VibORMErrorCode.MIGRATION_INVALID_STATE,
+      { meta: { feature: "comment" } }
+    );
+  return {} as T;
+}
+
+/** The index kinds VibORM defines: a plain index and a unique one. */
+const OWN_INDEX_KINDS: ReadonlySet<unknown> = new Set(["", "UNIQUE"]);
+const OWN_INDEX_TYPES: ReadonlySet<unknown> = new Set([
+  "btree",
+  "hash",
+  "gin",
+  "gist",
+  "fulltext",
+  "spatial",
+]);
+
+/** Whether an index comment is one of the facts VibORM writes on its own indexes. */
+function ownIndexFacts(facts: unknown): boolean {
+  if (!isRecord(facts)) return false;
+  const keys = Object.keys(facts).sort().join();
+  if (keys === "") return true;
+  if (keys === "type") return OWN_INDEX_TYPES.has(facts.type);
+  return (
+    keys === "columns,where" &&
+    isString(facts.where) &&
+    Array.isArray(facts.columns) &&
+    facts.columns.every(isString)
+  );
+}
 
 export class SurrealMigrationDriver extends MigrationDriver {
   readonly dialect = "surrealql";
@@ -311,8 +373,10 @@ export class SurrealMigrationDriver extends MigrationDriver {
           );
         return !held(unique.columns);
       }),
+      // A raw index is its author's text, never one the key already is.
       indexes: table.indexes.filter(
-        ({ columns, unique }) =>
+        ({ columns, unique, raw }) =>
+          raw !== undefined ||
           !(
             nameless(columns) ||
             (unique && whole(columns)) ||
@@ -344,6 +408,9 @@ export class SurrealMigrationDriver extends MigrationDriver {
     const known = database.tables.filter(
       ({ name }) => name !== LOCK_TABLE && !CONTROL_NAMES.has(name)
     );
+    const managedTables = this.target?.tables;
+    const managed = (name: string) =>
+      managedTables === undefined || managedTables.includes(name);
     const infos = new Map<string, TableInfo>();
     for (const { name } of known)
       infos.set(
@@ -354,10 +421,14 @@ export class SurrealMigrationDriver extends MigrationDriver {
       );
     const tables = known.map((table) => {
       const info = infos.get(table.name)!;
-      const facts = parsed<TableFacts>(table.comment);
+      const facts = parsed<TableFacts>(
+        table.comment,
+        managed(table.name),
+        `table "${table.name}"`
+      );
       return facts.junction
         ? { ...facts.junction, junction: true as const }
-        : tableFrom(table.name, info, facts, sequences);
+        : tableFrom(table.name, info, facts, sequences, managed(table.name));
     });
     // A link names its target's whole key, which only the target's comment says.
     for (const table of tables)
@@ -507,6 +578,7 @@ export class SurrealMigrationDriver extends MigrationDriver {
     index: IndexDef,
     populated = false
   ): string[] {
+    if (index.raw) return [this.rawIndex(table, index)];
     const columns = index.columns.map((column) => partName(table, column));
     // SurrealDB has one kind of index to give any of these. A reader of a point or a
     // text scans as it would without it; its comment keeps what was declared.
@@ -535,6 +607,23 @@ export class SurrealMigrationDriver extends MigrationDriver {
       ...(populated ? [`UPDATE ${self} RETURN NONE;`] : []),
       this.index(table.name, index.name, [field], true, facts),
     ];
+  }
+
+  /**
+   * A raw index's text, its marker its comment: inline, so that no window
+   * between two statements leaves the index without it.
+   */
+  private rawIndex(table: TableDef, index: IndexDef): string {
+    const rendered = renderRawIndex(index, {
+      name: this.escapeIdentifier(index.name),
+      table: this.escapeIdentifier(table.name),
+      column: (column) => this.escapeIdentifier(partName(table, column)),
+    });
+    refuseRawIndexStatement(index, rendered, readSurrealStatements(rendered), [
+      "COMMENT",
+      "CONCURRENTLY",
+    ]);
+    return `${rendered}\nCOMMENT ${JSON.stringify(rawIndexMarker(index))};`;
   }
 
   /** What two spellings of one predicate translate to: nothing to change between them. */
@@ -1160,20 +1249,26 @@ export class SurrealMigrationDriver extends MigrationDriver {
         `UPDATE ${self} SET ${this.escapeIdentifier(to)} = ${this.escapeIdentifier(from)} RETURN NONE;`
       );
     }
-    for (const index of table!.indexes)
-      if (index.columns.includes(from))
-        statements.push(
-          ...this.generateDropIndex({
-            type: "dropIndex",
-            tableName,
-            indexName: index.name,
-          }),
-          ...this.plainIndex(
-            renamed,
-            { ...index, columns: swap(index.columns) },
-            true
-          )
-        );
+    // A raw index naming it is re-created too, as the program has it at this
+    // point, its marker naming the new column; one it drops anyway is left.
+    const reindexed = [
+      ...table!.indexes
+        .filter((index) => !index.raw && index.columns.includes(from))
+        .map((index) => ({ ...index, columns: swap(index.columns) })),
+      ...this.rawIndexesRenamedBy(
+        { type: "renameColumn", tableName, from, to },
+        context
+      ),
+    ];
+    for (const index of reindexed)
+      statements.push(
+        ...this.generateDropIndex({
+          type: "dropIndex",
+          tableName,
+          indexName: index.name,
+        }),
+        ...this.plainIndex(renamed, index, true)
+      );
     for (const unique of table!.uniqueConstraints)
       if (unique.columns.includes(from))
         statements.push(
@@ -1480,6 +1575,7 @@ export class SurrealMigrationDriver extends MigrationDriver {
           ]
         : []),
       // An index naming either key read a field that has just changed place.
+      // A raw index's text cannot follow a field into the id.
       ...table!.indexes
         .filter(
           ({ name, columns }) =>
@@ -1493,10 +1589,16 @@ export class SurrealMigrationDriver extends MigrationDriver {
                 operation.indexName === name
             )
         )
-        .flatMap((index) => [
-          `REMOVE INDEX ${this.escapeIdentifier(index.name)} ON ${self};`,
-          ...this.plainIndex({ ...table!, primaryKey }, index, true),
-        ]),
+        .flatMap((index) => {
+          if (index.raw && index.columns.some((column) => key.includes(column)))
+            refuse(
+              `a new key on '${tableName}' holding a field the raw index '${index.name}' names`
+            );
+          return [
+            `REMOVE INDEX ${this.escapeIdentifier(index.name)} ON ${self};`,
+            ...this.plainIndex({ ...table!, primaryKey }, index, true),
+          ];
+        }),
       `ALTER TABLE ${self} SCHEMAFULL;`,
     ];
   }
@@ -1720,8 +1822,11 @@ function tableFrom(
   name: string,
   info: TableInfo,
   facts: TableFacts,
-  sequences: ReadonlySet<string>
+  sequences: ReadonlySet<string>,
+  managed: boolean
 ): TableDef {
+  const fieldFacts = <T>(field: FieldInfo) =>
+    parsed<T>(field.comment, managed, `field "${name}.${field.name}"`);
   const key = facts.key ?? [];
   // A reserved word comes back as it must be written.
   const fields = info.fields
@@ -1732,7 +1837,7 @@ function tableFrom(
           field.name === "id" ||
           field.name === MOVED_FIELD ||
           field.name.includes(".") ||
-          parsed<{ partial?: boolean }>(field.comment).partial
+          fieldFacts<{ partial?: boolean }>(field).partial
         )
     );
   const columns: ColumnDef[] = [
@@ -1753,7 +1858,7 @@ function tableFrom(
     ...fields
       .filter((field) => !key.some((part) => part.name === field.name))
       .map((field) => {
-        const facts = parsed<FieldFacts>(field.comment);
+        const facts = fieldFacts<FieldFacts>(field);
         const nullable = field.kind.startsWith("none | ");
         const kind = nullable ? field.kind.slice("none | ".length) : field.kind;
         return {
@@ -1775,7 +1880,7 @@ function tableFrom(
       }),
   ];
   const foreignKeys: ForeignKeyDef[] = fields.flatMap((field) => {
-    const { fk } = parsed<FieldFacts>(field.comment);
+    const { fk } = fieldFacts<FieldFacts>(field);
     if (!(fk && field.reference)) return [];
     const target = RECORD_TARGET.exec(field.kind)?.[1] ?? "";
     return [
@@ -1799,9 +1904,30 @@ function tableFrom(
   const uniqueConstraints: UniqueConstraintDef[] = [];
   const indexes: IndexDef[] = [];
   for (const index of info.indexes) {
-    const partial = parsed<Partial<PartialFacts> & { type?: IndexDef["type"] }>(
-      index.comment
-    );
+    // A raw index is its marker, whatever kind of index it is.
+    const raw =
+      index.comment === undefined
+        ? undefined
+        : readRawIndexMarker(index.comment, index.name);
+    if (raw) {
+      indexes.push(raw);
+      continue;
+    }
+    // Any other index VibORM did not define (an HNSW, a full-text search, a
+    // comment of someone else's) cannot be read back into the schema, and
+    // replacing it would lose it: refused in a managed table, before effects.
+    const comment = commentJson(index.comment);
+    if (!(OWN_INDEX_KINDS.has(index.index) && ownIndexFacts(comment))) {
+      if (!managed) continue;
+      throw new MigrationError(
+        `SurrealDB index "${name}.${index.name}" is not one this index declaration can represent. Synchronization refuses before effects and preserves it. Declare it with .rawIndex() (drop this hand-made copy first: only an index VibORM created carries the marker it recognizes), or manage its table outside this synchronization scope.`,
+        VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+        { meta: { table: name, indexName: index.name } }
+      );
+    }
+    const partial = comment as Partial<PartialFacts> & {
+      type?: IndexDef["type"];
+    };
     if (partial.type) {
       indexes.push({
         name: index.name,

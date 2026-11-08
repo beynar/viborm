@@ -271,6 +271,14 @@ function indexesEqual(
   b: IndexDef,
   canonical: CanonicalPredicates
 ): boolean {
+  // A raw index equals only a raw index of the same text over the same
+  // columns: a hand-made index under its name is replaced by it.
+  if (a.raw || b.raw)
+    return (
+      a.name === b.name &&
+      a.raw?.hash === b.raw?.hash &&
+      arraysEqual(a.columns, b.columns)
+    );
   return (
     a.name === b.name &&
     normalizeIndexUnique(a.unique) === normalizeIndexUnique(b.unique) &&
@@ -629,7 +637,12 @@ function diffTable(
       desired.indexes,
       (index) => index.name,
       (from, to) => indexesEqual(tableName, from, to, canonical),
-      (index) => ({ type: "dropIndex", tableName, indexName: index.name }),
+      (index) => ({
+        type: "dropIndex",
+        tableName,
+        indexName: index.name,
+        ...(index.raw ? { raw: true } : {}),
+      }),
       (index) => ({ type: "createIndex", tableName, index })
     ),
     ...diffKeyed(

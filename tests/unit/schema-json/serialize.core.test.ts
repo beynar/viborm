@@ -122,6 +122,17 @@ describe("refusal witnesses", () => {
     ]);
   });
 
+  it("names a model declaring a raw index", () => {
+    const document = s
+      .model({ id: s.string().id(), title: s.string() })
+      .rawIndex("documents_title", {
+        pg: "CREATE INDEX {name} ON {table} (lower({title}))",
+      });
+    expect(issues(refusal({ document }))).toEqual([
+      "[J009] /models/document/rawIndexes",
+    ]);
+  });
+
   it("names the field carrying a function default", () => {
     const user = s.model({
       id: s.string().id(),

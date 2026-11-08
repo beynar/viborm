@@ -65,7 +65,7 @@ export interface ReservationInput {
 
 /**
  * Every physical name the schema already claims, in the spelling the migration
- * serializer emits: table names, declared and generated indexes, primary-key and
+ * serializer emits: table names, declared, raw and generated indexes, primary-key and
  * unique constraint names, automatic foreign-key indexes, and ordinary junction
  * tables with their reverse indexes. A generated variant storage name that lands
  * in this set is refused rather than silently shadowing an existing object.
@@ -80,6 +80,9 @@ export function collectReservedPhysicalNames(
       reserved.add(
         index.options.name ?? `${tableName}_${index.fields.join("_")}_idx`
       );
+    }
+    for (const index of candidate["~"].state.rawIndexes) {
+      reserved.add(index.name);
     }
     const scalars = getScalars(candidate);
     if (
