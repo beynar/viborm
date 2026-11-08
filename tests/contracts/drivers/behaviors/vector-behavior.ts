@@ -19,13 +19,6 @@ import {
 
 const COSINE_INDEX = "vector_behavior_neighbours_cosine";
 const L2_INDEX = "vector_behavior_neighbours_l2";
-// The `.rawIndex()` texts above, as a test that cannot push them states them.
-const POSTGRES_INDEXES = [
-  `CREATE INDEX IF NOT EXISTS "${COSINE_INDEX}" ON "vector_behavior_neighbours" USING hnsw ("embedding" vector_cosine_ops)`,
-  `CREATE INDEX IF NOT EXISTS "${L2_INDEX}" ON "vector_behavior_neighbours" USING hnsw ("embedding" vector_l2_ops)`,
-];
-const SURREAL_INDEX = `DEFINE INDEX IF NOT EXISTS ${COSINE_INDEX} ON vector_behavior_neighbours FIELDS embedding HNSW DIMENSION 3 DIST COSINE`;
-
 const schema = (() => {
   const collection = s
     .model({
@@ -110,10 +103,6 @@ export function runVectorBehavior({
         sent.push({ text, params });
         return execute(provider, text, params);
       };
-      for (const statement of driver.dialect === "surrealql"
-        ? [SURREAL_INDEX]
-        : POSTGRES_INDEXES)
-        await driver._executeRaw(statement);
     });
 
     beforeEach(async () => {
@@ -570,7 +559,8 @@ export function runVectorBehavior({
         expect(statement.text).toContain("<|2,40|>");
         expect(rows.map((row) => row.id)).toEqual(["exact", "orthogonal"]);
       } finally {
-        await active._executeRaw(SURREAL_INDEX);
+        // The push re-creates the declared index.
+        await syncLiveSchema(requireClient(client));
       }
     });
   });

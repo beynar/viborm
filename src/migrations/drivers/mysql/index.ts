@@ -992,9 +992,17 @@ export class MySQLMigrationDriver
         readExecutableStatements(rendered, "mysql"),
         ["COMMENT", "ALGORITHM", "LOCK"]
       );
+      const marker = RAW_INDEX_MARKER_PREFIX + rawIndexMarker(index);
+      // MySQL in strict mode refuses an index comment over 1024 bytes, mid-migration.
+      if (new TextEncoder().encode(marker).length > 1024)
+        throw new MigrationError(
+          `The raw index "${index.name}" names too many or too long columns for MySQL's 1024-byte index comment, which holds VibORM's marker.`,
+          VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+          { meta: { indexName: index.name } }
+        );
       // Its marker is the index's own comment, on a line of its own so that a
       // line comment ending the text does not swallow it.
-      return `${rendered}\nCOMMENT ${this.escapeValue(RAW_INDEX_MARKER_PREFIX + rawIndexMarker(index))}`;
+      return `${rendered}\nCOMMENT ${this.escapeValue(marker)}`;
     }
 
     // Validate index type

@@ -431,6 +431,18 @@ describe("each driver renders a raw index with its marker", () => {
     ]);
   });
 
+  it("MySQL: a marker over its 1024-byte index comment refuses before any statement", () => {
+    const long = "c".repeat(64);
+    const columns = Array.from({ length: 16 }, (_, i) => `${long}${i}`);
+    const template = `CREATE INDEX {name} ON {table} (${columns.map((_, i) => `{f${i}}`).join(", ")})`;
+    expect(() =>
+      mysqlMigrationDriver.compileStatements(
+        { ...create, index: rawIndex("documents_raw", template, columns) },
+        ddlContext("artifact")
+      )
+    ).toThrow(/1024-byte index comment/);
+  });
+
   it("SQLite: a trailing comment in which no name can close the comment", () => {
     const slashed = rawIndex(
       "a*/b",
