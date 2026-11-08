@@ -44,12 +44,15 @@ assertion and no MySQL- or SQLite-style provider limit applies.
 
 ## Keys and references
 
-- A record's key is its id. A compound key is an array id; a field named `id` beside a key of
+- A record's key is its id. A compound key is an array id, its parts named and in its fields'
+  declaration order, whatever order `.id([...])` lists them in; a field named `id` beside a key of
   another name is stored as `id_field`.
 - A foreign key to a record's key is a `record<table> REFERENCE` field, `ON DELETE` `REJECT`,
   `CASCADE` or `UNSET` (for `setNull`), with an `ASSERT` that the record exists.
 - A foreign key over several columns, to another unique field, or onto part of the row's own key is
-  an event on the table it names.
+  events: on the table it names, its actions; on its own table, that the row it names exists. A
+  reference holding a unique field of its own row is checked when that field is updated, not when
+  the row is created (a record moving to a new key holds a stand-in there until its copy is whole).
 - A generated many-to-many junction is an edge table, written with `RELATE`.
 
 ## Indexes
@@ -58,8 +61,8 @@ assertion and no MySQL- or SQLite-style provider limit applies.
   declaration is kept as a plain index (its kind is in the comment), and reads through it scan as
   they would without.
 - A partial unique index is a computed field the index covers. Its predicate may hold comparisons,
-  `IN`, `IS [NOT] NULL`, `AND`, `OR` and `NOT` over columns and values; anything else is refused by
-  name.
+  `IN`, `IS [NOT] NULL`, `AND`, `OR` and `NOT` over columns and values, a key's column reading its
+  record's id; anything else is refused by name.
 - An HNSW, a search or any other index kind is declared with
   [`.rawIndex()`](/docs/schema/model#rawindexname-templates). Its `surrealdb` text cannot say
   `COMMENT` or `CONCURRENTLY`: VibORM appends the comment that marks it as its own.

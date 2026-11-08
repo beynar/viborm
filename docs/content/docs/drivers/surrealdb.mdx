@@ -80,8 +80,11 @@ and says so.
   `decimal` is stored as its text. A decimal key, and a link to one, still compare
   and sort as numbers, but no index holds that order: a read that sorts by one, or
   filters it by a range, reads every row, and so does a page of the table it keys.
-- **A foreign key to a unique field**, rather than to the key, is an event on the
-  referenced table, not a record link.
+- **A foreign key to a unique field**, rather than to the key, is events, not a record link:
+  on the referenced table, its actions; on the referencing table, that the row it names
+  exists, as a `REFERENCE` checks. A row whose reference holds one of its own unique fields
+  is checked when that field is updated, not when the row is created: moving a record to a
+  new key writes a stand-in there until the copy is complete.
 - **`restrict` on a many-to-many** is the driver's: a raw `DELETE` does not hold back.
 - **A partial unique index** is a computed field. Its predicate may hold comparisons, `IN`,
   `IS [NOT] NULL`, `AND`, `OR` and `NOT` over columns and values; anything else is refused by name.

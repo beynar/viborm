@@ -235,6 +235,45 @@ describe.skipIf(!surrealUrl)("push on SurrealDB", () => {
     });
   });
 
+  it("a reference held by events refuses a row naming nothing, as a record's does", async () => {
+    const db = clientOf(everything());
+    await using(db, async () => {
+      await syncLiveSchema(db);
+      const refused = { code: "V3002" };
+      // To another unique field, from a column that may be unset.
+      await db.slugged.create({ data: { id: "s", postSlug: "there" } });
+      await expect(
+        db.reader.create({ data: { id: "r", slug: "missing" } })
+      ).rejects.toMatchObject(refused);
+      await db.reader.create({ data: { id: "r", slug: "there" } });
+      await db.reader.create({ data: { id: "unset" } });
+      await expect(
+        db.reader.update({ where: { id: "r" }, data: { slug: "missing" } })
+      ).rejects.toMatchObject(refused);
+      await db.reader.update({ where: { id: "r" }, data: { slug: null } });
+      expect(
+        await db.reader.findMany({ orderBy: { id: "asc" } })
+      ).toMatchObject([
+        { id: "r", slug: null },
+        { id: "unset", slug: null },
+      ]);
+      // Over several columns, to a whole compound key.
+      await db.member.create({ data: { org: "o", rank: 1, email: "m" } });
+      await expect(
+        db.badge.create({ data: { id: "b", org: "o", rank: 2 } })
+      ).rejects.toMatchObject(refused);
+      await db.badge.create({ data: { id: "b", org: "o", rank: 1 } });
+      // From a part of the row's own key.
+      await db.guest.create({ data: { id: "g" } });
+      await expect(
+        db.seat.create({ data: { roomId: "missing", guestId: "g" } })
+      ).rejects.toMatchObject(refused);
+      await db.room.create({ data: { id: "room" } });
+      await db.seat.create({ data: { roomId: "room", guestId: "g" } });
+      expect(await db.seat.count()).toBe(1);
+    });
+  });
+
   it("defines the forms the driver reads", async () => {
     const db = clientOf(everything());
     await using(db, async () => {
@@ -704,6 +743,51 @@ describe.skipIf(!surrealUrl)("what SurrealDB has no form for", () => {
       await push(back);
       expect((await preview(back)).operations).toEqual([]);
       await back.item.create({ data: { id: "c", slug: "s" } });
+    });
+  });
+
+  it("a partial unique index's predicate reads a key's value, whole or in part", async () => {
+    const single = s
+      .model({ id: s.int().id(), email: s.string() })
+      .index(["email"], { unique: true, where: '"id" IN (1, 2)' });
+    const pair = s
+      .model({ org: s.string(), rank: s.int(), email: s.string() })
+      .id(["org", "rank"])
+      .index(["email"], { unique: true, where: '"rank" < 3' });
+    const db = clientOf({ single, pair });
+    await using(db, async () => {
+      await (db.$driver as { fresh(): Promise<void> }).fresh();
+      await push(db);
+      expect((await preview(db)).operations).toEqual([]);
+      await db.single.create({ data: { id: 1, email: "e" } });
+      await expect(
+        db.single.create({ data: { id: 2, email: "e" } })
+      ).rejects.toMatchObject({ code: "V3001" });
+      await db.single.create({ data: { id: 3, email: "e" } });
+      await db.pair.create({ data: { org: "o", rank: 1, email: "e" } });
+      await expect(
+        db.pair.create({ data: { org: "p", rank: 2, email: "e" } })
+      ).rejects.toMatchObject({ code: "V3001" });
+      await db.pair.create({ data: { org: "p", rank: 3, email: "e" } });
+    });
+  });
+
+  it("a compound key listed out of its fields' order names its parts as the engine writes them", async () => {
+    const shelf = s
+      .model({ a: s.int(), b: s.int(), label: s.string() })
+      .id(["b", "a"])
+      .unique(["b", "label"]);
+    const db = clientOf({ shelf });
+    await using(db, async () => {
+      await (db.$driver as { fresh(): Promise<void> }).fresh();
+      await push(db);
+      expect((await preview(db)).operations).toEqual([]);
+      await db.shelf.create({ data: { a: 1, b: 9, label: "l" } });
+      expect(await raw(db, "SELECT a, b FROM shelf")).toEqual([{ a: 1, b: 9 }]);
+      await expect(
+        db.shelf.create({ data: { a: 2, b: 9, label: "l" } })
+      ).rejects.toMatchObject({ code: "V3001" });
+      await db.shelf.create({ data: { a: 1, b: 8, label: "l" } });
     });
   });
 
