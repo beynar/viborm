@@ -1917,7 +1917,7 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
             })
           )
           .$as({ userId: "u" });
-        const result = await caught(() => restricted.item.rekey());
+        const result = await caught(async () => await restricted.item.rekey());
         return { result, rows: await rows(db, "item") };
       }));
     it("breaks a tie in the key's own order", async () =>

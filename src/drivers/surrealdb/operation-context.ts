@@ -2210,32 +2210,30 @@ export class SurrealOperationContext extends OperationContext {
         ", "
       );
       // The moved records are what it produces, judged as the rows of `#updateKeys`.
-      return await this.#refusing(
-        model,
-        nestedRefusal("updateMany", edge.name),
-        () =>
-          this.#written(
-            model,
-            () => ({
-              write:
-                Object.keys(rest).length > 0
-                  ? sql`UPDATE $records SET ${this.#assignments(model, rest)}`
-                  : sql`UPDATE $records`,
-              ahead: this.#ahead(
-                sql`LET $records = [${records}];`,
-                this.#judgedRows(
-                  model,
-                  sql.raw("$records"),
-                  rest,
-                  selector.judgement,
-                  false
-                )
-              ),
-            }),
-            [],
-            undefined
-          )
+      await this.#refusing(model, nestedRefusal("updateMany", edge.name), () =>
+        this.#written(
+          model,
+          () => ({
+            write:
+              Object.keys(rest).length > 0
+                ? sql`UPDATE $records SET ${this.#assignments(model, rest)}`
+                : sql`UPDATE $records`,
+            ahead: this.#ahead(
+              sql`LET $records = [${records}];`,
+              this.#judgedRows(
+                model,
+                sql.raw("$records"),
+                rest,
+                selector.judgement,
+                false
+              )
+            ),
+          }),
+          [],
+          undefined
+        )
       );
+      return;
     }
     if (values)
       return await this.#refusing(
