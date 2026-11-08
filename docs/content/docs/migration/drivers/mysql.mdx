@@ -154,6 +154,8 @@ Changing an enum's values therefore issues a `MODIFY COLUMN` for every column us
 
 The driver generates and introspects btree (default), `FULLTEXT`, and `SPATIAL` indexes. InnoDB does not support user-defined hash indexes. See [Index Options](/docs/schema/model#index-options) for declaring indexes on models.
 
+A prefix or functional index is declared with [`.rawIndex()`](/docs/schema/model#rawindexname-templates). VibORM appends its marker as the index's `COMMENT` (so the text cannot say `COMMENT`, `ALGORITHM` or `LOCK`) and recognizes the index by it. MySQL changes an index comment only by re-creating the index, so renaming a column a raw index names re-creates it.
+
 ## Indexed TEXT Columns
 
 InnoDB cannot directly index an unbounded `TEXT` column through this column-list DSL. A bare `string()` participating in a primary key, unique constraint, index, or foreign key maps to the conservative `VARCHAR(191)` default. This limits stored values to 191 characters; adding a key to existing TEXT can narrow the column and is labeled destructive. Choose an explicit native `MYSQL.STRING.VARCHAR(length)` for a different bound, subject to the provider's index-byte limits. Strict mode and typed `ValueTooLongError` prevent silent truncation, but do not add upstream length validation.

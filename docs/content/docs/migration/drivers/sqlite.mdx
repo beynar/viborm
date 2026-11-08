@@ -352,4 +352,11 @@ An expression, descending or non-BINARY key refuses synchronization before
 effects because the current index declaration cannot recreate it faithfully.
 This includes primary/unique backing indexes. The existing index and rows remain
 untouched. An explicitly excluded table does not block a closed managed-table
-scope. Native expression/collation declarations remain a product gap.
+scope.
+
+Such an index is declared with
+[`.rawIndex()`](/docs/schema/model#rawindexname-templates). SQLite keeps an
+index's text as written, so VibORM ends it with a `/* viborm:raw:… */` comment
+and recognizes the index by it; a table rebuild re-creates it from its text, and
+a renamed column re-creates it with its marker. A hand-made index of the same
+name carries no marker and still refuses: drop it, and declare it.

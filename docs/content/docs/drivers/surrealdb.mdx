@@ -92,7 +92,12 @@ and says so.
 - **A `groupBy`** reads every row it groups. Under a `take` of at most 20 groups, ordered by a field an
   index holds and without a `having`, it first seeks those groups on the index and reads only their rows.
 - **Every index kind** is a plain index here: a `spatial`, `gin` or `fulltext` declaration is kept,
-  and a read through it scans as it would without.
+  and a read through it scans as it would without. An HNSW or search index is declared with
+  [`.rawIndex()`](/docs/schema/model#rawindexname-templates), whose comment holds VibORM's marker.
+  Any other index VibORM did not define (another kind, or a comment of someone else's) refuses
+  synchronization before effects while its table is managed, and is left as it is; drop it, and
+  declare it. So does a table or field comment that is not VibORM's JSON. Outside the managed
+  tables both are skipped. A generated junction's indexes are not read.
 - **A field named `id`** beside a key of another name is stored as `id_field`: `id` is the record's.
 - **Renaming a table or a field, and changing a key,** copy the rows, statement by statement, since
   SurrealDB has no rename and a record's id never changes. They are not atomic.

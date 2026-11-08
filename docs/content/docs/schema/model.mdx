@@ -147,6 +147,54 @@ its leading column is the same.
 A relation you include **without** `orderBy`, or without `take`/`skip`, does not
 need this — the automatic foreign-key index already answers it.
 
+### `.rawIndex(name, templates)`
+
+Declares an index in each database's own language, for what `.index()` cannot
+say: a pgvector or SurrealDB HNSW index, an expression, a key order, a prefix.
+
+```ts
+const document = s
+  .model({
+    id: s.string().id(),
+    embedding: s.vector().dimension(1536),
+  })
+  .rawIndex("document_embedding_hnsw", {
+    pg: "CREATE INDEX {name} ON {table} USING hnsw ({embedding} vector_cosine_ops)",
+    surrealdb:
+      "DEFINE INDEX {name} ON {table} FIELDS {embedding} HNSW DIMENSION 1536 DIST COSINE",
+  });
+```
+
+- The keys are `pg`, `mysql`, `sqlite` (also libSQL and D1) and `surrealdb`. A
+  database without a text gets no such index.
+- A SQL text starts with `CREATE [UNIQUE] INDEX {name} ON {table}`, a SurrealQL
+  one with `DEFINE INDEX {name} ON [TABLE] {table}`.
+- `{name}` and `{table}` are the index's name and its table, the table qualified
+  with the driver's namespace. Every other `{identifier}` must be a scalar field
+  of the model, and becomes its escaped column. Each field written this way is a
+  column the index covers; a text names at least one. A field named `name` or
+  `table` cannot be a placeholder, and a column written out literally does not
+  follow a rename.
+- It is one statement, without a terminating `;`. VibORM writes some words
+  itself, so the text cannot: `CONCURRENTLY` on PostgreSQL (a raw index is always
+  built in the migration's transaction, `lowLock` included), `COMMENT`,
+  `ALGORITHM` and `LOCK` on MySQL, `COMMENT` and `CONCURRENTLY` on SurrealDB.
+- A raw index is never a key and never covers a foreign key: a `CREATE UNIQUE
+  INDEX` text gives no `findUnique` selector, and the foreign key keeps its own
+  index. On MySQL its columns are not narrowed to `VARCHAR(191)` for it, so index
+  a `TEXT` column through a prefix (`{body}(32)`).
+- Migrations create it, recognize it on the next `push`, drop and re-create it
+  when its text changes, and drop it when the declaration goes. A renamed column
+  is followed. VibORM recognizes its own raw indexes by a marker it keeps beside
+  each one (the index's comment, or a trailing comment in SQLite's stored text);
+  do not edit it.
+- An index you made by hand under the same name is replaced, when VibORM can read
+  it as an ordinary index. One it cannot read (an HNSW, an expression) still
+  refuses synchronization before effects, as each migration driver's page says:
+  drop it first, and the next push creates the declared one.
+
+A JSON schema document cannot carry a raw index (`J009`).
+
 ### `.id(fields, options?)`
 
 Defines a compound primary key (when multiple fields form the PK):

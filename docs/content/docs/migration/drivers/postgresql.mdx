@@ -367,16 +367,23 @@ PlanetScale Neki's own codes (`NK013`, `NK316`, …) are kept in
 
 Indexes with expressions, descending keys, INCLUDE columns, `NULLS NOT DISTINCT`,
 nondefault opclasses or collations, or methods outside the declaration language
-refuse synchronization
-while their table is managed. VibORM preserves the existing artifact and refuses
-before effects; it does not turn a hand-authored HNSW or trigram index into an
-ordinary index. Excluding the table through `migrations.tables` requires the same
-closed dependency boundary as any selected scope.
+are declared with [`.rawIndex()`](/docs/schema/model#rawindexname-templates).
+VibORM writes its marker as the index's comment (`COMMENT ON INDEX`, a statement
+of its own with its own stepwise probe) and recognizes the index by it, whatever
+its method or structure; the one-statement catalog digest projects it too. A
+raw index is never built `CONCURRENTLY`.
+
+Any other such index refuses synchronization while its table is managed.
+VibORM preserves the existing artifact and refuses before effects; it does not
+turn a hand-authored HNSW or trigram index into an ordinary index, nor adopt it
+as a raw one (it carries no marker): drop it, and declare it. Excluding the table
+through `migrations.tables` requires the same closed dependency boundary as any
+selected scope.
 
 Equivalent primary, unique and foreign-key constraints whose physical names
 cannot be represented also refuse adoption before effects. Compound-key `name`
 is a query selector name; no physical constraint-name declaration is available.
-A faithful importer/native-index DSL remains a product gap.
+There is no importer for hand-made indexes.
 
 Vector migrations require `pgvector: true` and prove every required visible
 extension-owned vector type before effects. Install the extension yourself;
