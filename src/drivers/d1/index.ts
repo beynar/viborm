@@ -20,6 +20,7 @@ import { QueryError } from "@errors";
 import type { Sql } from "@sql";
 import {
   type AnyDriver,
+  D1_MIGRATION_CAPABILITY,
   Driver,
   type DriverResultParser,
   type QueryExecutionContext,
@@ -210,6 +211,8 @@ export class D1Driver extends Driver<
   readonly supportsTransactions = false;
   readonly supportsBatch = true;
   readonly supportsOrderedCommittedSegments = true;
+  /** Read-only: no foreign-key switch outside a batch, no migration lock. */
+  readonly sqliteMigrationCapability = D1_MIGRATION_CAPABILITY;
 
   private readonly driverOptions: D1DriverOptions;
   private readonly canonicalAdapter = this.adapter;

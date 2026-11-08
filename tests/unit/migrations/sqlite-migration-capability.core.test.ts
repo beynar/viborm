@@ -1,18 +1,24 @@
 /**
  * SQLite positive admission.
  *
- * Effectful migration work runs only on a SQLite driver that DECLARES the
- * migration capability (`sqliteMigrationCapability`). The stock sqlite3 and
- * bun-sqlite drivers declare it; D1 and libSQL do not. A custom SQLite driver
- * binds to the sqlite3 migration implementation only by declaring it — there is
- * no dialect-default fallback any more — so an undeclared one is refused before
- * any effect, and the same driver with the declaration migrates.
+ * Effectful migration work runs only on a SQLite driver that DECLARES an
+ * effectful migration capability (`sqliteMigrationCapability`): the stock one
+ * (sqlite3, bun-sqlite) or the Durable Object one. D1 declares the read-only
+ * one and libSQL none. A custom SQLite driver binds to the sqlite3 migration
+ * implementation only by declaring one — there is no dialect-default fallback
+ * any more — so an undeclared one is refused before any effect, and the same
+ * driver with the declaration migrates.
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
-import { Driver, SQLITE_MIGRATION_CAPABILITY } from "@drivers/driver";
+import {
+  D1_MIGRATION_CAPABILITY,
+  Driver,
+  DURABLE_OBJECT_MIGRATION_CAPABILITY,
+  SQLITE_MIGRATION_CAPABILITY,
+} from "@drivers/driver";
 import { sqliteResultParser } from "@drivers/shared/sqlite-utils";
 import { runTransactionLifecycle } from "@drivers/shared/transactions";
 import { SQLite3Driver } from "@drivers/sqlite3";
@@ -239,6 +245,7 @@ describe("SQLite positive admission", () => {
     ["foreignKeys", "none"],
     ["reservedTablePrefixes", "_cf_"],
     ["exclusion", "none"],
+    ["exclusion", "frame"],
   ])("a declaration whose %s claim is %j is no declaration", (key, value) => {
     const db = new Database(":memory:");
     const driver = new CustomSqliteDriver(db);
@@ -248,6 +255,51 @@ describe("SQLite positive admission", () => {
     });
     expect(refusalCode(() => getMigrationDriver(driver))).toBe(
       VibORMErrorCode.DRIVER_NOT_SUPPORTED
+    );
+    db.close();
+  });
+
+  test.each([
+    ["stock", SQLITE_MIGRATION_CAPABILITY, "admitted"],
+    ["Durable Object", DURABLE_OBJECT_MIGRATION_CAPABILITY, "admitted"],
+    ["D1", D1_MIGRATION_CAPABILITY, VibORMErrorCode.DRIVER_NOT_SUPPORTED],
+  ])("the %s declaration binds as the table's own frozen entry", (_name, declaration, effectful) => {
+    const db = new Database(":memory:");
+    const driver = new CustomSqliteDriver(db);
+    // A copy, so the bound value is the table's, not the caller's object.
+    Object.defineProperty(driver, "sqliteMigrationCapability", {
+      value: { ...declaration },
+    });
+    const bound = getMigrationDriver(driver);
+    expect(bound.sqliteMigrationCapability).toEqual(declaration);
+    expect(Object.isFrozen(bound.sqliteMigrationCapability)).toBe(true);
+    expect(
+      refusalCode(() =>
+        admitLiveMigrationCapability(bound, "read-only", "status()")
+      )
+    ).toBe("admitted");
+    expect(
+      refusalCode(() =>
+        admitLiveMigrationCapability(bound, "effectful", "apply()")
+      )
+    ).toBe(effectful);
+    db.close();
+  });
+
+  test("the read-only declaration's refusal says why", () => {
+    const db = new Database(":memory:");
+    const driver = new CustomSqliteDriver(db);
+    Object.defineProperty(driver, "sqliteMigrationCapability", {
+      value: D1_MIGRATION_CAPABILITY,
+    });
+    expect(() =>
+      admitLiveMigrationCapability(
+        getMigrationDriver(driver),
+        "effectful",
+        "push()"
+      )
+    ).toThrow(
+      'push() is refused: the SQLite driver "custom-sqlite" declares a read-only migration capability: it can neither switch foreign keys off for a table recreation nor hold a migration lock.'
     );
     db.close();
   });

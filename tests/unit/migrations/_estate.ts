@@ -8,7 +8,11 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { Driver, SQLITE_MIGRATION_CAPABILITY } from "@drivers/driver";
+import {
+  D1_MIGRATION_CAPABILITY,
+  Driver,
+  SQLITE_MIGRATION_CAPABILITY,
+} from "@drivers/driver";
 import type { PinnedSessionReservation } from "@drivers/shared";
 import type { Dialect, QueryResult } from "@drivers/types";
 import type { DDLContext } from "@migrations/drivers";
@@ -484,6 +488,7 @@ export function sqliteEstateDriver(): RecordingDriver {
 class BatchOnlySqliteDriver extends RecordingDriver {
   override readonly supportsTransactions = false;
   override readonly supportsBatch = true;
+  override readonly sqliteMigrationCapability = D1_MIGRATION_CAPABILITY;
 }
 
 export function d1EstateDriver(): RecordingDriver {

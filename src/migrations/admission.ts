@@ -100,12 +100,13 @@ export function admitLiveMigrationCapability(
 }
 
 /**
- * Admits effectful SQLite work only on a driver that declared the migration
- * capability.
+ * Admits effectful SQLite work only on a driver that declared one of the two
+ * effectful migration capabilities.
  *
  * The declaration was read once when the driver was bound (`getMigrationDriver`,
  * where it also chose the implementation); this is where it decides. Stock
- * sqlite3 and bun-sqlite declare it; D1 and libSQL do not, and stay refused for
+ * sqlite3, bun-sqlite and the Durable Object driver declare an effectful one;
+ * D1 declares the read-only one, and libSQL none. Those stay refused for
  * effectful work while generation, check and read-only status stay available.
  * Whether the driver runs callback transactions is its `supportsTransactions`,
  * which each command already reads for its own transaction shape.
@@ -115,15 +116,22 @@ function admitSqliteFamilyCapability(
   requirement: MigrationLiveRequirement,
   command: string
 ): void {
+  const capability = migrationDriver.sqliteMigrationCapability;
+  // The bound declarations are a closed table: an exclusion of "none" is the
+  // read-only one, which is also the one that cannot switch foreign keys off.
   if (
     requirement === "read-only" ||
-    migrationDriver.sqliteMigrationCapability !== undefined
+    (capability !== undefined && capability.exclusion !== "none")
   ) {
     return;
   }
   const { driverName } = migrationDriver.executionDriver;
+  const reason =
+    capability === undefined
+      ? `the SQLite driver "${driverName}" declares no \`sqliteMigrationCapability\``
+      : `the SQLite driver "${driverName}" declares a read-only migration capability: it can neither switch foreign keys off for a table recreation nor hold a migration lock`;
   throw new MigrationError(
-    `${command} is refused: the SQLite driver "${driverName}" declares no \`sqliteMigrationCapability\`. Generation, check and status remain available.`,
+    `${command} is refused: ${reason}. Generation, check and status remain available.`,
     VibORMErrorCode.DRIVER_NOT_SUPPORTED,
     {
       meta: {

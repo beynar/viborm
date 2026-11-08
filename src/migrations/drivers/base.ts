@@ -9,7 +9,10 @@ import { jsonNullKindOf } from "@schema/json-null";
 import type { Scalar, ScalarState } from "@schema/scalars";
 import { refinedStringDefault } from "@schema/validation/rules/model";
 import type { IdDomain } from "@validation/primitives/id-codec";
-import type { AnyDriver } from "../../drivers/driver";
+import type {
+  AnyDriver,
+  SqliteMigrationCapability,
+} from "../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import { refuseBinaryReencoding } from "../binary-conversion";
 import type { Sha256 } from "../identity";
@@ -204,6 +207,12 @@ export abstract class MigrationDriver {
    * capabilities. Absent on the unbound singleton.
    */
   declare readonly executionDriver?: AnyDriver;
+
+  /**
+   * The bound SQLite driver's migration capability, read once at binding.
+   * Absent on the unbound singleton and on every other dialect.
+   */
+  declare readonly sqliteMigrationCapability?: SqliteMigrationCapability;
 
   /**
    * The live execution namespace read once from the bound adapter.

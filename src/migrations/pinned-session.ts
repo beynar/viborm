@@ -8,7 +8,7 @@
  * the bound migration driver.
  */
 
-import type { AnyDriver } from "../drivers/driver";
+import type { AnyDriver, MigrationFrame } from "../drivers/driver";
 import { normalizeDriverError } from "../drivers/error-mapping";
 import {
   createExecutionContext,
@@ -794,10 +794,24 @@ function lockTransactions(
   limits: PostgresSessionLimits | undefined
 ): LockedTransactions {
   const sqlite = migrationDriver.target.dialect === "sqlite";
+  // `exclusion: "frame"`: the driver's platform transaction is the lock, and
+  // it stands where the statements below would be sent.
+  const frames =
+    migrationDriver.sqliteMigrationCapability?.exclusion === "frame";
   // The protocol's own statements, on the same session, past `before`.
   const direct: AnyDriver = Object.create(pinned);
   const run = <T = Record<string, unknown>>(sql: string) =>
     direct._executeRaw<T>(sql);
+  let frame: MigrationFrame | undefined;
+  const end = async (outcome: "commit" | "rollback"): Promise<void> => {
+    if (frame === undefined) {
+      await run(outcome === "commit" ? "COMMIT" : "ROLLBACK");
+      return;
+    }
+    const settled = frame;
+    frame = undefined;
+    await settled[outcome]();
+  };
   let open = false;
   let sessionLocked = false;
   // Held from the command's start (`hold`): each committed group still ends
@@ -813,16 +827,22 @@ function lockTransactions(
     open = false;
     continuous &&= sessionLocked && !heldAlone;
     if (control.lost()) return;
-    await control.cleanup(() => run("ROLLBACK"));
+    await control.cleanup(() => end("rollback"));
   };
   const commit = async (): Promise<void> => {
-    await run("COMMIT");
+    await end("commit");
     open = false;
     continuous &&= sessionLocked && !heldAlone;
   };
   // SQLite's lock IS its BEGIN IMMEDIATE: `lockWait` bounds that one
   // statement's busy wait, then the connection's own timeout is restored.
+  // A frame has no wait to bound: the driver's queue lease is already held.
   const beginImmediate = async (): Promise<void> => {
+    if (frames) {
+      // The frame claim is a declaration that the driver implements the hook.
+      frame = await direct["openMigrationFrame"]!();
+      return;
+    }
     const [own] = (await run<{ timeout: unknown }>("PRAGMA busy_timeout")).rows;
     await run(`PRAGMA busy_timeout = ${migrationDriver.limits.lockWait}`);
     try {
@@ -882,7 +902,7 @@ function lockTransactions(
       if (held) return;
       // Nothing was read under a lock never held: not a gap in `continuous`.
       open = false;
-      await control.cleanup(() => run("ROLLBACK"));
+      await control.cleanup(() => end("rollback"));
       do {
         await wait();
       } while (!(await lockHeld(direct, migrationDriver, control, tryLock)));
