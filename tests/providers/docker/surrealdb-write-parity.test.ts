@@ -8,6 +8,7 @@ import { createClient } from "@client/client";
 import { DbNull, JsonNull, s } from "@schema";
 import { sql } from "@sql";
 import { defineExtension } from "@src/index";
+import { ordering } from "@src/ordering";
 import { permissions } from "@src/permissions";
 import {
   createSurrealTestDriver,
@@ -1895,6 +1896,42 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
             .owner.update({ where: { id: "o" }, data: { items } })
         );
         return { result, rows: await rows(db, "member") };
+      }));
+  });
+
+  describe("a respacing", () => {
+    const item = s.model({ id: s.int().id(), rank: s.string() });
+    it("is judged at the rows it leaves", async () =>
+      compare({ item }, async (db) => {
+        await db.item.createMany({
+          data: [
+            { id: 1, rank: "15" },
+            { id: 2, rank: "15" },
+          ],
+        });
+        const restricted = ordering({ item: { key: "rank" } })(db)
+          .$extends(
+            permissions({
+              actor: v.object({ userId: v.string() }),
+              models: { item: { read: true, update: { rank: "15" } } },
+            })
+          )
+          .$as({ userId: "u" });
+        const result = await caught(() => restricted.item.rekey());
+        return { result, rows: await rows(db, "item") };
+      }));
+    it("breaks a tie in the key's own order", async () =>
+      compare({ item }, async (db) => {
+        await db.item.createMany({
+          data: [
+            { id: 2, rank: "15" },
+            { id: 10, rank: "15" },
+          ],
+        });
+        const result = await ordering({ item: { key: "rank" } })(
+          db
+        ).item.rekey();
+        return { result, rows: await rows(db, "item") };
       }));
   });
 
