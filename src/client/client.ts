@@ -425,6 +425,28 @@ export type TransactionClient<
     $transaction: TransactionMethod<C, X>;
   } & X["client"];
 
+/**
+ * The interactive transaction client of `Client`, a client `createClient`,
+ * `$extends` or a view such as `$as(actor)` returned: what code that takes
+ * "a client or a transaction" names for its transaction half.
+ *
+ * @example
+ * ```ts
+ * type Tx = TransactionClientOf<typeof db>;
+ * const rename = (tx: typeof db | Tx, id: string) =>
+ *   tx.page.update({ where: { id }, data: { title: "x" } });
+ * ```
+ */
+export type TransactionClientOf<Client> =
+  typeof clientTypeState extends keyof Client
+    ? Client extends ClientTypeState<
+        infer C,
+        infer X extends ExtensionStateConstraint
+      >
+      ? TransactionClient<C, X>
+      : never
+    : never;
+
 /** `$transaction`'s two forms: an interactive callback, or a batch array. */
 type TransactionMethod<
   C extends VibORMConfig,

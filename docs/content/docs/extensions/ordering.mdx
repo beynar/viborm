@@ -286,6 +286,14 @@ tells whether a value is written as a key, as every key a list holds is
 (`orderingKey` also refuses a write setting a key of 10^8 or more). It was
 named `isKey` before 1.9.1, which still works (deprecated).
 
+In a browser, import them from `viborm/ordering/keys`: that entry holds the key
+grammar alone (about 3 kB, no client), with `keysBetween(lower, upper, count)`
+for several keys at once and `keysAfter(last, count)` for appends.
+
+```ts
+import { keyBetween, keysBetween } from "viborm/ordering/keys";
+```
+
 Each generated key holds a random part, so two writers placing into one gap
 at the same moment get distinct keys. A tie (equal keys) is still possible
 with keys you write yourself; reads stay ordered (by the model's key among

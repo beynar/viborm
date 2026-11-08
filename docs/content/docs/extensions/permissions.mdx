@@ -92,6 +92,14 @@ export async function handle(request: Request) {
 }
 ```
 
+`$as` is cheap enough to call per request, or per commit: it validates the
+actor and returns a view, nothing more. The policy is compiled once per client,
+each model's predicates when the model is first used, and the actor's values
+travel as bound parameters, so no view rebuilds them. Model delegates are
+created lazily. Measured on a 30-model schema with a large policy, `$as` costs
+about 10 µs, a small fraction of the statement it governs; a cache of views keyed
+by actor is not needed.
+
 ### What each call sends to the database
 
 The `operations` mapping connects database calls to your named permissions.
@@ -428,10 +436,14 @@ it with the other ways to grant each named permission:
 import type { Rule } from "viborm/permissions";
 
 // Stored grant levels use this policy's action names.
+const LEVELS = ["read", "update", "full"] as const;
+const atOrAbove = (action: string) =>
+  LEVELS.slice(LEVELS.indexOf(action as (typeof LEVELS)[number]));
+
 const shared: Rule = (action) => ({
   grants: {
     some: {
-      level: action,
+      level: { in: atOrAbove(action) },
       OR: [{ userId: { actor: "userId" } }, { everyone: true }],
     },
   },
@@ -467,7 +479,7 @@ At `update`, `shared` is, simplified, this `where`:
   grants: {
     some: {
       AND: [
-        { level: "update" }, // the action where this callback is declared
+        { level: { in: ["update", "full"] } }, // the declared action and above
         { OR: [{ userId: { actor: "userId" } }, { everyone: true }] },
       ],
     },
@@ -481,6 +493,19 @@ The project's effective `update` permission combines the owner's rule, the
 `read`. It is never called again with a different action just because the rule
 was inherited. A read-only share cannot grant updating; an update share cannot
 grant `full`. Here `read: true` already lets every organization member read.
+
+**Why `in` and not `level: action`.** Each level's predicate is the OR of the
+rules of that level and every level above it, so a `shared` written
+`level: action` appears once per level: at `read`, the grant subquery tests
+`level = 'read'`, `level = 'update'` and `level = 'full'` as three branches.
+Written `level: { in: atOrAbove(action) }`, the predicate inherited from
+`update` (`in: ["update", "full"]`) is narrower than the one declared at `read`
+(`in: ["read", "update", "full"]`), so the compiler keeps the wider one alone:
+one branch per action, whatever the number of levels. The statement is shorter,
+binds fewer values and nests less, which counts on a platform with tight
+statement limits (Cloudflare's 100 bound values per statement). Store each
+grant at one level and let `in` do the implication; a comparison of stored
+levels such as `level >= ?` is not expressible.
 
 Rule functions build predicates when their model is first needed; the database
 reads the current grants when a statement runs. A grant deleted by another request
@@ -562,7 +587,7 @@ accessGrant: {
 
 Declare the grant's `level` and `actions` with enum values your application
 supports. A change to either field is also checked against `create`, so editing
-a grant cannot bypass placement. For action-list grants, replace `level: action`
+a grant cannot bypass placement. For action-list grants, replace `level: { in: atOrAbove(action) }`
 in `shared` with `actions: { has: action }`, and assign the callback to every
 permission those lists may grant. The policy graph handles inheritance; no
 second application table needs to repeat its transitive implications.
@@ -632,8 +657,9 @@ only permits reading. This application also chooses to give the owner all
 three permissions. Each declaration builds its own predicate; inheritance
 reuses that predicate unchanged.
 
-The statement walks the tree inside the database, once, with a recursive
-subquery (simplified):
+The statement walks the tree inside the database with a recursive subquery,
+one for each predicate it judges (a `can` asking four actions walks four
+times). Simplified:
 
 ```sql
 SELECT … FROM document d
@@ -712,7 +738,7 @@ application's team and grant schema:
 const shared: Rule = (action) => ({
   grants: {
     some: {
-      level: action,
+      level: { in: atOrAbove(action) },
       OR: [{ userId: { actor: "userId" } }, { everyone: true }, toMyTeams],
     },
   },

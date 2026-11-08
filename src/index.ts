@@ -31,6 +31,8 @@ export type {
   ExtendedClient,
   ExtendedOperationResult,
   ExtensionState,
+  TransactionClient,
+  TransactionClientOf,
   VibORMClient,
   VibORMConfig,
 } from "./client/client.js";

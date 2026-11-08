@@ -199,6 +199,11 @@
       "import": "./dist/ordering.mjs",
       "default": "./dist/ordering.mjs"
     },
+    "./ordering/keys": {
+      "types": "./dist/ordering/keys.d.mts",
+      "import": "./dist/ordering/keys.mjs",
+      "default": "./dist/ordering/keys.mjs"
+    },
     "./adapters": {
       "types": "./dist/adapters.d.mts",
       "import": "./dist/adapters.mjs",

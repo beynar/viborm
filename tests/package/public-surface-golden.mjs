@@ -218,6 +218,8 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "Severity",
       "StatementContext",
       "StatementHandler",
+      "TransactionClient",
+      "TransactionClientOf",
       "UnwrapPendingOperation",
       "UnwrapPendingOperations",
       "ValidationErrorSource",
@@ -770,6 +772,18 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "orderingKey",
     ],
     ["MovePlacement", "OrderingConfig", "OrderingMethods", "OrderingModel"],
+    []
+  ),
+  "./ordering/keys": surface(
+    [
+      "MAX_KEY_LENGTH",
+      "isKey",
+      "isKeyFormat",
+      "keyBetween",
+      "keysAfter",
+      "keysBetween",
+    ],
+    [],
     []
   ),
   "./adapters": surface(

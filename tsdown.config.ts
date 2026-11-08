@@ -86,6 +86,8 @@ const runtime = {
     on: "./src/on/index.ts",
     // List order (viborm/ordering): the official ordering extension.
     ordering: "./src/ordering/index.ts",
+    // Rank-key helpers alone (viborm/ordering/keys): no client, for browsers.
+    "ordering/keys": "./src/ordering/keys.ts",
 
     // Adapters (internal, but exposed for advanced usage)
     adapters: "./src/adapters/index.ts",
