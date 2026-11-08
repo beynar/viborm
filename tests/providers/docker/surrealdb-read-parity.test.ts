@@ -1268,6 +1268,7 @@ reads(
 const lot = s.model({
   amount: s.decimal({ precision: 6, scale: 2 }).id(),
   label: s.string(),
+  floor: s.decimal({ precision: 6, scale: 2 }),
   bids: s.toMany(() => bid),
   offers: s.toMany(() => offer),
 });
@@ -1282,6 +1283,7 @@ const bid = s.model({
 const offer = s.model({
   id: s.string().id(),
   lotAmount: s.decimal({ precision: 6, scale: 2 }),
+  reserve: s.decimal({ precision: 6, scale: 2 }),
   lot: s
     .toOne(() => lot)
     .fields("lotAmount")
@@ -1297,6 +1299,7 @@ reads(
         (amount) => ({
           amount,
           label: amount,
+          floor: "1.75",
         })
       ),
     });
@@ -1311,7 +1314,7 @@ reads(
     });
     await db.offer.createMany({
       data: ["10.00", "2.00", "10.00", "1.00", "-0.50", "9.00"].map(
-        (lotAmount, at) => ({ id: `o${at}`, lotAmount })
+        (lotAmount, at) => ({ id: `o${at}`, lotAmount, reserve: "1.75" })
       ),
     });
     await db.slot.createMany({
@@ -1329,6 +1332,30 @@ reads(
       "lot",
       "findMany",
       { where: { amount: { gt: "1.00" } } },
+    ],
+    [
+      "a decimal key above another field",
+      "lot",
+      "findMany",
+      {
+        where: {
+          amount: {
+            gt: (ctx: { fields: { floor: unknown } }) => ctx.fields.floor,
+          },
+        },
+      },
+    ],
+    [
+      "a link to a decimal key below another field",
+      "offer",
+      "findMany",
+      {
+        where: {
+          lotAmount: {
+            lt: (ctx: { fields: { reserve: unknown } }) => ctx.fields.reserve,
+          },
+        },
+      },
     ],
     [
       "a decimal key's closed range",

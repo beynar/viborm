@@ -2985,6 +2985,8 @@ export class SurrealReadBackend implements ReadBackend {
     const comparedToField =
       predicate.operand?.kind === "field" ||
       predicate.operands?.some((operand) => operand.kind === "field");
+    // What a decimal range reads is the record itself: see #numeric.
+    const record = column;
     if (comparedToField && isRecord) column = sql`record::id(${column})`;
     const read = predicate.insensitive ? asText : column;
     const compared = (member: unknown) =>
@@ -2997,7 +2999,7 @@ export class SurrealReadBackend implements ReadBackend {
       operator !== "equals" &&
       this.#namesDecimal(scalar.model, scalar.field)
     ) {
-      test = sql`${this.#numeric(column, false)} ${sql.raw(COMPARISONS[operator])} ${this.#decimalOperand(value)}`;
+      test = sql`${this.#numeric(record, false)} ${sql.raw(COMPARISONS[operator])} ${this.#decimalOperand(value)}`;
     } else if (COMPARISONS[operator]) {
       test = sql`${fold(read)} ${sql.raw(COMPARISONS[operator])} ${compared(value)}`;
     } else if (FUNCTIONS[operator]) {
