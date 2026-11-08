@@ -36,8 +36,13 @@ export default defineWorkersConfig({
     name: "provider-d1",
     globals: true,
     include: ["tests/providers/workers/**/*.test.ts"],
-    // Its own project (vitest.tenant-do.config.ts): `pg` needs nodejs_compat.
-    exclude: [...configDefaults.exclude, "tests/providers/workers/tenant/**"],
+    // Their own projects: `pg` needs nodejs_compat (vitest.tenant-do.config.ts),
+    // and the driver contracts run in a Durable Object (vitest.durable-object.config.ts).
+    exclude: [
+      ...configDefaults.exclude,
+      "tests/providers/workers/tenant/**",
+      "tests/providers/workers/durable-object/**",
+    ],
     // D1 binds the SQLite migration driver, as `viborm/migrations/sqlite` does.
     setupFiles: ["src/migrations/dialects/sqlite.ts"],
     poolOptions: {

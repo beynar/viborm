@@ -962,7 +962,7 @@ There are no numbered `0001_*.sql` files, no `meta/_journal.json`, no latest sna
 
 ## Provider Limits
 
-No provider inherits a guarantee from its dialect name. Effectful work requires a proven marker compare-and-swap, execution boundary and migration lock: a transaction-scoped advisory lock on PostgreSQL, a session lock on MySQL, and on SQLite the write lock of `BEGIN IMMEDIATE`.
+No provider inherits a guarantee from its dialect name. Effectful work requires a proven marker compare-and-swap, execution boundary and migration lock: a transaction-scoped advisory lock on PostgreSQL, a session lock on MySQL, and on SQLite the write lock of `BEGIN IMMEDIATE` (on a Durable Object, one platform transaction per frame).
 
 | Provider | Effectful migrate / push | Notes |
 |----------|--------------------------|--------|
@@ -971,6 +971,7 @@ No provider inherits a guarantee from its dialect name. Effectful work requires 
 | MySQL2 | Stepwise | DDL implicitly commits. Nominal transactions do not create rollback. Progress is recorded per dispatch. |
 | Neon HTTP | `apply` only | No interactive session: each transactional group is one request, a non-interactive transaction that takes the lock and asserts the marker, the checks and the destination's catalog digest in SQL. Stepwise transitions and a destination the digest cannot prove (a partial index) refuse with `V11021`; a lost reply is decided by the marker, else `V11020`. down/reset/verify/push refuse (`V8002`). See [Neon HTTP](/docs/drivers/postgresql/neon-http#migrations). |
 | PlanetScale | Read-only / offline | VTGate routing does not prove containment. Same offline/read-only split. |
+| Durable Object (`viborm/durable-object`) | Yes; stepwise refused | The migration lock is one `ctx.storage.transaction()` per frame, held open by the migration, and the migration holds the driver's queue; a raw `ctx.storage.sql.exec` joins the open frame. See [Durable Objects](/docs/drivers/sqlite/durable-object#migrations). |
 | D1 | Effectful refused until proven | Table recreation, foreign keys, native-batch atomicity, and marker CAS are not proven together. |
 | LibSQL | Effectful refused until proven | Existing-row constraint validation and safe table reconstruction are not proven. |
 

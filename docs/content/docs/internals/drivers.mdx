@@ -85,7 +85,9 @@ before it reaches the database.
 
 Declare `readonly sqliteMigrationCapability = SQLITE_MIGRATION_CAPABILITY` (from
 `viborm/driver`) to use migrations; see
-[SQLite migrations](/docs/migration/drivers/sqlite#driver-admission).
+[SQLite migrations](/docs/migration/drivers/sqlite#driver-admission). For a
+Durable Object's storage, use [`viborm/durable-object`](/docs/drivers/sqlite/durable-object),
+which declares the Durable Object capability and implements its migration frame.
 
 ## Available Drivers
 
@@ -102,6 +104,7 @@ Declare `readonly sqliteMigrationCapability = SQLITE_MIGRATION_CAPABILITY` (from
 | `LibSQLDriver` | `viborm/libsql` | libSQL | Turso / libSQL |
 | `BunSQLiteDriver` | `viborm/bun-sqlite` | bun:sqlite | SQLite from Bun |
 | `D1Driver` | `viborm/d1` | D1 binding | Cloudflare Workers |
+| `createDurableObjectDriver` | `viborm/durable-object` | `ctx.storage` | Cloudflare Durable Objects |
 
 ## What Drivers Handle
 

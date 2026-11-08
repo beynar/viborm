@@ -202,6 +202,7 @@ test("CI keeps every delegated check and shallow sparse checkout", () => {
     ["platform-providers", "VIBORM_RECURSIVE_WHERE_CHECKERS: bun"],
     ["platform-providers", "--project=provider-d1"],
     ["platform-providers", "--project=provider-tenant-do"],
+    ["platform-providers", "--project=provider-durable-object"],
     ["local-providers", localCommand],
   ]) {
     assert(jobs.get(job).includes(command), `${job} must execute ${command}`);

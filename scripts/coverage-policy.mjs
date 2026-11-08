@@ -312,9 +312,9 @@ export const coverageWaivers = Object.freeze([
   },
   {
     id: "cloudflare-runtime",
-    sources: ["src/drivers/d1/index.ts"],
+    sources: ["src/drivers/d1/index.ts", "src/drivers/durable-object/index.ts"],
     reason:
-      "The D1 binding executes only inside the Cloudflare Workers runtime.",
+      "The D1 binding and Durable Object storage execute only inside the Cloudflare Workers runtime.",
   },
   {
     id: "hosted-provider",

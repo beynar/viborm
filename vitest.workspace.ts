@@ -371,4 +371,5 @@ export default defineWorkspace([
   },
   "./vitest.d1.config.ts",
   "./vitest.tenant-do.config.ts",
+  "./vitest.durable-object.config.ts",
 ]);

@@ -106,6 +106,7 @@ assertWorkerSafeBuiltGraph([
   ".",
   "./schema",
   "./d1",
+  "./durable-object",
   "./permissions",
   "./on",
   "./ordering",

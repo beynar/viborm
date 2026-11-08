@@ -524,3 +524,9 @@ jobs:
           node scripts/run-vitest-safe.mjs run
           --workspace vitest.workspace.ts
           --project=provider-tenant-do
+
+      - name: Run the Durable Object driver suite
+        run: >-
+          node scripts/run-vitest-safe.mjs run
+          --workspace vitest.workspace.ts
+          --project=provider-durable-object

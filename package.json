@@ -94,6 +94,11 @@
       "import": "./dist/d1.mjs",
       "default": "./dist/d1.mjs"
     },
+    "./durable-object": {
+      "types": "./dist/durable-object.d.mts",
+      "import": "./dist/durable-object.mjs",
+      "default": "./dist/durable-object.mjs"
+    },
     "./bun-sqlite": {
       "types": "./dist/bun-sqlite.d.mts",
       "import": "./dist/bun-sqlite.mjs",

@@ -38,6 +38,7 @@ const runtime = {
     sqlite3: "./src/drivers/sqlite3/index.ts",
     libsql: "./src/drivers/libsql/index.ts",
     d1: "./src/drivers/d1/index.ts",
+    "durable-object": "./src/drivers/durable-object/index.ts",
     "bun-sqlite": "./src/drivers/bun-sqlite/index.ts",
 
     // Cache (viborm/cache, viborm/cache/memory, etc.)

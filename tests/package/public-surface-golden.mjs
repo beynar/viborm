@@ -514,6 +514,16 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
     ["D1ClientConfig", "D1DriverOptions"],
     ["D1Driver"]
   ),
+  "./durable-object": surface(
+    ["createClient", "createDurableObjectDriver"],
+    [
+      "DurableObjectClientConfig",
+      "DurableObjectDriver",
+      "DurableObjectDriverOptions",
+      "DurableObjectStorage",
+    ],
+    []
+  ),
   "./bun-sqlite": surface(
     ["BunSQLiteDriver", "createClient"],
     ["BunSQLiteClientConfig", "BunSQLiteDriverOptions", "BunSQLiteOptions"],

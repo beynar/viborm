@@ -6,6 +6,7 @@ import {
 } from "@drivers/bun-sqlite";
 import { createClient as createD1Client, D1Driver } from "@drivers/d1";
 import { Driver, TransactionBoundDriver } from "@drivers/driver";
+import { createClient as createDurableObjectClient } from "@drivers/durable-object";
 // biome-ignore lint/performance/noNamespaceImport: this contract audits the intentional runtime barrels
 import * as driverBase from "@drivers/exports";
 import {
@@ -131,6 +132,7 @@ describe("driver runtime export surface", () => {
     ["bun-sql", createBunSQLClient],
     ["bun-sqlite", createBunSQLiteClient],
     ["d1", createD1Client],
+    ["durable-object", createDurableObjectClient],
     ["libsql", createLibSQLClient],
     ["mysql2", createMySQL2Client],
     ["neon-http", createNeonHTTPClient],

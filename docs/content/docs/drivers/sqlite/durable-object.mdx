@@ -1,0 +1,207 @@
+---
+title: Durable Objects
+description: SQLite driver for a Cloudflare Durable Object's own storage (ctx.storage.sql)
+---
+
+## Requirements
+
+- A SQLite-backed Durable Object: its class is listed under
+  `new_sqlite_classes` in the Wrangler migrations.
+- No `nodejs_compat` flag needed.
+
+## Configuration
+
+Create the client once, in the object's constructor, and keep it for the
+object's lifetime:
+
+```typescript
+import { DurableObject } from "cloudflare:workers";
+import { createClient } from "viborm/durable-object";
+import { schema } from "./schema";
+
+export class Workspace extends DurableObject {
+  readonly db = createClient({ storage: this.ctx.storage, schema });
+
+  async pages() {
+    return this.db.page.findMany({ where: { deletedAt: null } });
+  }
+}
+```
+
+```jsonc
+// wrangler.jsonc
+{
+  "durable_objects": {
+    "bindings": [{ "name": "WORKSPACE", "class_name": "Workspace" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Workspace"] }]
+}
+```
+
+## Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `storage` | `DurableObjectStorage` | The object's `ctx.storage` |
+| `adapter` | `DatabaseAdapter` | Optional. Replaces the default adapter (see [adapter defaults](#adapter-defaults)) |
+
+`createClient` refuses any other key with a `ClientInitializationError` that
+names it.
+
+### One driver per storage
+
+The driver queues the object's transactions and holds that queue for a
+migration, so every client of one storage must share one driver. The entry
+does not export the driver class: `createDurableObjectDriver(storage)` creates
+the storage's driver on its first call and returns that same driver on every
+later one, and `createClient` goes through it. Two clients on one storage
+(two schemas, or a client per request) therefore share it.
+
+An `adapter` is read when the driver is created. A later call that names
+another adapter object for the same storage is refused with a
+`ClientInitializationError`, so create the adapter once and pass that object.
+
+## Statements
+
+Statements run synchronously on `ctx.storage.sql.exec`. A `Date` is bound as
+its ISO string, a boolean as `0`/`1`, a `bigint` as a number inside ±2^53 and
+as its decimal string beyond (SQLite's `INTEGER` affinity stores it exactly),
+and a `Uint8Array` as its own bytes. BLOBs come back as `Uint8Array`. A write
+without `RETURNING` reports its row count from SQLite's `changes()`.
+
+Constraint failures map to `UniqueConstraintError`, `ForeignKeyError`,
+`NotNullConstraintError` and `CheckConstraintError`, with their table and
+columns. The platform's errors carry no code; VibORM reads the message.
+
+## Transactions
+
+A Durable Object refuses `BEGIN` and `SAVEPOINT`. The driver never sends them:
+
+- `$transaction(async (tx) => …)` is one `ctx.storage.transaction()`. It
+  commits when the callback resolves and rolls back every write, before and
+  after any `await`, when it rejects.
+- A nested `$transaction` inside it is a nested `ctx.storage.transaction()`, at
+  any depth. A nested failure rolls back only its own writes.
+- `$transaction([...])` runs the array in one transaction, in order.
+- `isolationLevel: "Serializable"` is accepted (the object has one writer);
+  the weaker levels are refused. `timeout` rolls the transaction back.
+  `maxWait` bounds the wait for the driver's queue.
+
+Top-level transactions and statements queue on the driver, so a statement
+from another request never runs inside an open transaction. Do not await
+non-storage I/O (`fetch`, timers) inside a transaction body: other requests
+wait for it.
+
+## Migrations
+
+`push`, `apply`, `down`, `reset` and `verify` run inside the object, on its
+own storage. Run them before the object serves requests, in the
+constructor's `blockConcurrencyWhile`. With each object's history kept in the
+object itself ([Durable Object storage](/docs/migration/storage/durable-object)):
+
+```typescript
+import { createMigrationClient } from "viborm/migrations/sqlite";
+import { createDurableObjectStorageWriter } from "viborm/migrations/storage/durable-object";
+
+export class Workspace extends DurableObject {
+  readonly db = createClient({ storage: this.ctx.storage, schema });
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    const migrations = createMigrationClient(this.db, {
+      storage: createDurableObjectStorageWriter(ctx.storage),
+      // The history is a table of this same database: name yours.
+      tables: ["page", "grant", "teamspace"],
+    });
+    ctx.blockConcurrencyWhile(() => migrations.apply());
+  }
+}
+```
+
+### What the driver declares
+
+The driver declares the Durable Object
+[migration capability](/docs/migration/drivers/sqlite#driver-admission):
+
+- **Foreign keys.** A table recreation switches foreign keys off with
+  `PRAGMA foreign_keys = OFF` between two transactions. A write still pending
+  in the object turns that pragma into a silent no-op, so the driver first
+  calls `ctx.storage.sync()`. The pragma is read back, and the recreation is
+  refused if it still reads 1.
+- **Platform tables.** Cloudflare's `_cf_*` tables (the KV API's `_cf_KV`,
+  alarms, metadata) are the platform's, and refuse PRAGMAs. Introspection
+  never reads them, so `push` plans nothing for them.
+- **The migration lock.** Where a SQLite migration sends `BEGIN IMMEDIATE`,
+  `COMMIT` and `ROLLBACK`, this driver opens and settles a frame: one
+  `ctx.storage.transaction()` kept open until the migration commits or rolls
+  it back. The migration holds the driver's queue for its whole run, so the
+  application's other statements through the driver wait for it.
+
+:::warning
+Do not bypass the driver while a migration runs. A raw
+`ctx.storage.sql.exec` joins the open frame: it is not queued, and the
+migration's rollback undoes it. Send everything through the client, or run
+migrations inside `blockConcurrencyWhile`.
+:::
+
+### Tables VibORM does not manage
+
+An FTS5 virtual table, or any table you create with raw SQL, must stay outside
+the managed set: list your models' tables in `tables`. FTS5 works on Durable
+Objects; VibORM does not model it.
+
+```typescript
+const migrations = createMigrationClient(db, {
+  storage: estate,
+  tables: ["page", "grant", "teamspace"],
+});
+```
+
+## Limits
+
+- **100 bound values per statement.** The driver declares it: VibORM splits a
+  `createMany` and other splittable statements to fit, binds an `in` list as
+  one value, and refuses a statement that cannot fit with
+  `UnsupportedOperationError` before it reaches SQLite.
+- **100 KB per statement.** A longer statement fails on the platform.
+- **Integers beyond ±2^53.** The platform returns every integer as a
+  JavaScript number. A `bigInt()` field written past ±2^53 is stored exactly;
+  raw SQL reads it rounded. Read such a column as text
+  (`CAST(col AS TEXT)`) in raw SQL.
+- **Expression depth 100.** See [adapter defaults](#adapter-defaults).
+
+## Adapter defaults
+
+The driver renders with
+`new SQLiteAdapter({ temporaryObjects: false, deepExpressions: false })`:
+
+- `temporaryObjects: false`: the platform refuses `CREATE TEMP TABLE`. The
+  engine's batch scratch table is an ordinary table, emptied after each use
+  and left out of introspection.
+- `deepExpressions: false`: workerd compiles SQLite with an expression depth
+  of 100. A permissions policy over a page tree (a recursive walk of the
+  ancestors, four levels) moves a page past that depth with deep expressions
+  ("Expression tree is too large"); this form keeps it inside, for about 5 to
+  10 % more CPU.
+- No `sharedRelationBodies`: it shortens statement text, which the 100 KB
+  limit rarely needs here, and costs 30 to 45 % more CPU on such a policy.
+
+Pass `adapter` to change them, for example to share relation bodies when a
+statement reaches 100 KB:
+
+```typescript
+import { SQLiteAdapter } from "viborm/adapters";
+
+const adapter = new SQLiteAdapter({
+  temporaryObjects: false,
+  deepExpressions: false,
+  sharedRelationBodies: true,
+});
+const db = createClient({ storage: ctx.storage, schema, adapter });
+```
+
+## Limitations
+
+- Only available inside a Durable Object, on its own storage.
+- SQLite dialect: no `LATERAL` joins, limited `FULL OUTER JOIN`.
+- JSON columns are parsed automatically; booleans are stored as `0`/`1`.

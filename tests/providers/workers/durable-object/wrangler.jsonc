@@ -1,0 +1,11 @@
+{
+  "$schema": "../../../../node_modules/wrangler/config-schema.json",
+  "name": "viborm-durable-object-tests",
+  "main": "worker.ts",
+  // Maximum date supported by the Node 18-compatible Workers pool pinned here.
+  "compatibility_date": "2025-10-11",
+  "durable_objects": {
+    "bindings": [{ "name": "SQL_OBJECT", "class_name": "SqlObject" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SqlObject"] }]
+}
