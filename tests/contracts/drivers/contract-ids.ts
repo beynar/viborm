@@ -52,6 +52,7 @@ export const DRIVER_CONTRACT_IDS = {
   prismaParityContract: "drivers.prisma-parity",
   readPathRegressionContract: "drivers.read-path-regression",
   rawArrayTransactionContract: "drivers.raw-array-transaction",
+  rawIndexContract: "drivers.raw-index",
   relationFilterMutationContract: "drivers.relation-filter-mutation",
   relationReadAggregateContract: "drivers.relation-read-aggregate",
   scalarRoundtripContract: "drivers.scalar-roundtrip",
