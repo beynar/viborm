@@ -77,7 +77,9 @@ and says so.
   the wait.
 - **A record's key** is its id, and an id never changes. Changing a key copies the
   record to its new id, and what holds it follows. A key that is a `dateTime` or
-  `decimal` is stored as its text.
+  `decimal` is stored as its text. A decimal key, and a link to one, still compare
+  and sort as numbers, but no index holds that order: a read that sorts by one, or
+  filters it by a range, reads every row, and so does a page of the table it keys.
 - **A foreign key to a unique field**, rather than to the key, is an event on the
   referenced table, not a record link.
 - **`restrict` on a many-to-many** is the driver's: a raw `DELETE` does not hold back.

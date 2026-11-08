@@ -732,7 +732,11 @@ export class SurrealOperationContext extends OperationContext {
     const { model } = selector;
     const { from, where } = this.#source(selector);
     if (limit === undefined) return sql`${from} ${where}`;
-    return sql`(SELECT VALUE id FROM ${from} ${where} ORDER BY ${this.#lowering.order(model, undefined)} LIMIT ${sql.raw(String(Number(limit)))})`;
+    const { extras, order } = this.#lowering.order(model, undefined);
+    const taken = sql`ORDER BY ${order} LIMIT ${sql.raw(String(Number(limit)))}`;
+    return extras.length === 0
+      ? sql`(SELECT VALUE id FROM ${from} ${where} ${taken})`
+      : sql`(SELECT id, ${sql.join(extras, ", ")} FROM ${from} ${where} ${taken}).id`;
   }
 
   /**

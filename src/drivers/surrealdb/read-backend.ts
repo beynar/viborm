@@ -854,7 +854,9 @@ export class SurrealReadBackend implements ReadBackend {
       const column = this.#operand(model, field);
       if (aggregate === "_count")
         return flat(`__count_${field}`, sql`count(${column} != NONE)`);
-      const value = sql`${sql.raw(AGGREGATE_FUNCTIONS[aggregate]!)}(${column})`;
+      const value = sql`${sql.raw(AGGREGATE_FUNCTIONS[aggregate]!)}(${
+        this.#namesDecimal(model, field) ? this.#numeric(column, false) : column
+      })`;
       return flat(
         `_${aggregate}_${field}`,
         aggregate === "_avg"
@@ -972,6 +974,8 @@ export class SurrealReadBackend implements ReadBackend {
       (spec !== "asc" && spec !== "desc") ||
       model["~"].state.scalars[field as string]?.["~"].state.nullable ||
       this.#gatedHere(model, field as string) ||
+      // An index seeks the next text, not the next number.
+      this.#namesDecimal(model, field as string) ||
       !this.#indexed(model, field as string)
     )
       return undefined;
@@ -1036,7 +1040,10 @@ export class SurrealReadBackend implements ReadBackend {
     const physical = selected.every(({ fields }) =>
       fields.every(
         (field) =>
-          !this.#gatedHere(model, field) &&
+          // An index's first row holds the least text, not the least number.
+          !(
+            this.#gatedHere(model, field) || this.#namesDecimal(model, field)
+          ) &&
           this.#operand(model, field).toStatement() ===
             this.physical(model, field).toStatement()
       )
@@ -1180,7 +1187,11 @@ export class SurrealReadBackend implements ReadBackend {
     seen?: Sql
   ): Sql {
     const bind = (value: unknown) =>
-      counted ? sql`${value}` : this.value(model, field, value);
+      counted
+        ? sql`${value}`
+        : this.#namesDecimal(model, field)
+          ? this.#decimalOperand(value)
+          : this.value(model, field, value);
     const given = Object.entries(filter).filter(
       ([, operand]) => operand !== undefined
     );
@@ -1245,6 +1256,13 @@ export class SurrealReadBackend implements ReadBackend {
       }
       order.push(sql`${value} ${sql.raw(sort === "desc" ? "DESC" : "ASC")}`);
     };
+    // A group's field orders by its alias, and one naming a decimal by a number of its own.
+    const grouped = (field: string) => {
+      if (!this.#namesDecimal(model, field)) return name(field);
+      const sorted = name(`__s${flags.length}`);
+      flags.push(sql`${this.#numeric(name(field), false)} AS ${sorted}`);
+      return sorted;
+    };
     for (const entry of input === undefined ? [] : [input].flat()) {
       for (const [key, spec] of Object.entries(entry as Input)) {
         if (spec === undefined) continue;
@@ -1263,7 +1281,7 @@ export class SurrealReadBackend implements ReadBackend {
           typeof spec === "string" ? { sort: spec } : spec
         ) as Input;
         term(
-          name(key),
+          grouped(key),
           nullable(key) ? sql`${name(key)} = NONE` : undefined,
           sort,
           nulls
@@ -1273,22 +1291,24 @@ export class SurrealReadBackend implements ReadBackend {
     if (order.length === 0)
       for (const field of by)
         term(
-          name(field),
+          grouped(field),
           nullable(field) ? sql`${name(field)} = NONE` : undefined,
           "asc"
         );
     return { order, flags };
   }
 
-  /** The key order, as a mutation limit reads it. */
-  order(model: AnyModel, input: Arguments["orderBy"]): Sql {
-    return sql.join(
-      this.#orderTerms(model, input).map(
-        (term) =>
-          sql`${term.expression} ${sql.raw(term.descending ? "DESC" : "ASC")}`
-      ),
-      ", "
-    );
+  /**
+   * The key order, as a mutation limit reads it: what the rows must also select
+   * (`ORDER BY` reads only a field, so an expression is read by its alias), and
+   * the order.
+   */
+  order(
+    model: AnyModel,
+    input: Arguments["orderBy"]
+  ): { readonly extras: Sql[]; readonly order: Sql } {
+    const { extras, order } = this.#ordered(this.#orderTerms(model, input));
+    return { extras, order: sql.join(order, ", ") };
   }
 
   #filter(model: AnyModel, args: Arguments): PreparedPredicate | undefined {
@@ -2075,9 +2095,15 @@ export class SurrealReadBackend implements ReadBackend {
     }
     for (const field of q.keyOrder(model)) {
       if (ordered.has(field)) continue;
+      const plain = !this.#namesDecimal(model, field);
       terms.push({
-        expression: this.#operand(model, field),
-        named: true,
+        expression: plain
+          ? this.#operand(model, field)
+          : this.#numeric(
+              this.#operand(model, field),
+              !this.#gatedHere(model, field)
+            ),
+        named: plain,
         descending: false,
         nullable: false,
       });
@@ -2118,15 +2144,17 @@ export class SurrealReadBackend implements ReadBackend {
       refuse(`ordering by '${field}' with this specification`);
     const state = model["~"].state.scalars[field]?.["~"].state;
     if (!state) refuse(`ordering by '${field}'`);
+    const column = this.#gated(
+      model,
+      field,
+      sql.raw(`${path}${this.physical(model, field).toStatement()}`),
+      path
+    );
+    const plain = !this.#namesDecimal(model, field);
     return {
-      expression: this.#gated(
-        model,
-        field,
-        sql.raw(`${path}${this.physical(model, field).toStatement()}`),
-        path
-      ),
-      named: path === "" && !this.#gatedHere(model, field),
-      field: path === "" ? field : undefined,
+      expression: plain ? column : this.#numeric(column, false),
+      named: plain && path === "" && !this.#gatedHere(model, field),
+      field: plain && path === "" ? field : undefined,
       descending: sort === "desc",
       nullable:
         path !== "" || state.nullable === true || this.#gatedHere(model, field),
@@ -2364,6 +2392,35 @@ export class SurrealReadBackend implements ReadBackend {
 
   #operand(model: AnyModel, field: string): Sql {
     return this.#gated(model, field, this.physical(model, field));
+  }
+
+  /**
+   * Whether `field` holds a record that names a decimal by its text, a key or a link
+   * to one: as text, 10 sorts before 2, so it compares and sorts as {@link #numeric}.
+   * (A dateTime's text is as wide at every instant it holds, and sorts as it does.)
+   */
+  #namesDecimal(model: AnyModel, field: string): boolean {
+    return (
+      model["~"].state.scalars[field]?.["~"].state.type === "decimal" &&
+      this.#isRecord(model, field)
+    );
+  }
+
+  /**
+   * The number the record `column` reads names ({@link #namesDecimal}): no index
+   * holds it, so a read that compares or sorts by it reads every row. A missing
+   * record stays missing; `present` where the row's own key is read, never missing.
+   */
+  #numeric(column: Sql, present: boolean): Sql {
+    const value = sql`<decimal>record::id(${column})`;
+    return present ? value : sql`(IF ${column} { ${value} })`;
+  }
+
+  /** What a {@link #numeric} column compares with: the number a value is. */
+  #decimalOperand(value: unknown): Sql {
+    return value instanceof Sql
+      ? sql`<decimal>${value}`
+      : sql`<decimal>${String(value)}`;
   }
 
   /** Where a read-gated field's row carries it: every gating layer's `read` and predicate. */
@@ -2924,7 +2981,13 @@ export class SurrealReadBackend implements ReadBackend {
         ? sql`string::lowercase(${member})`
         : fold(bind(member));
     let test: Sql;
-    if (COMPARISONS[operator]) {
+    if (
+      COMPARISONS[operator] &&
+      operator !== "equals" &&
+      this.#namesDecimal(scalar.model, scalar.field)
+    ) {
+      test = sql`${this.#numeric(column, false)} ${sql.raw(COMPARISONS[operator])} ${this.#decimalOperand(value)}`;
+    } else if (COMPARISONS[operator]) {
       test = sql`${fold(read)} ${sql.raw(COMPARISONS[operator])} ${compared(value)}`;
     } else if (FUNCTIONS[operator]) {
       test = sql`${sql.raw(FUNCTIONS[operator])}(${fold(asText)}, ${fold(sql`${value}`)})`;

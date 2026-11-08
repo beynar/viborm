@@ -1264,6 +1264,216 @@ reads(
   ]
 );
 
+// A decimal or a dateTime key is stored as its text, which must not be how it sorts.
+const lot = s.model({
+  amount: s.decimal({ precision: 6, scale: 2 }).id(),
+  label: s.string(),
+  bids: s.toMany(() => bid),
+  offers: s.toMany(() => offer),
+});
+const bid = s.model({
+  id: s.string().id(),
+  lotAmount: s.decimal({ precision: 6, scale: 2 }).nullable(),
+  lot: s
+    .toOne(() => lot)
+    .fields("lotAmount")
+    .references("amount"),
+});
+const offer = s.model({
+  id: s.string().id(),
+  lotAmount: s.decimal({ precision: 6, scale: 2 }),
+  lot: s
+    .toOne(() => lot)
+    .fields("lotAmount")
+    .references("amount"),
+});
+const slot = s.model({ at: s.dateTime().id(), label: s.string() });
+reads(
+  "a key stored as its text",
+  { lot, bid, offer, slot },
+  async (db) => {
+    await db.lot.createMany({
+      data: ["2.00", "10.00", "1.00", "-0.50", "1.50", "9.00"].map(
+        (amount) => ({
+          amount,
+          label: amount,
+        })
+      ),
+    });
+    await db.bid.createMany({
+      data: [
+        { id: "a", lotAmount: "10.00" },
+        { id: "b", lotAmount: "2.00" },
+        { id: "c", lotAmount: "10.00" },
+        { id: "d", lotAmount: null },
+        { id: "e", lotAmount: "-0.50" },
+      ],
+    });
+    await db.offer.createMany({
+      data: ["10.00", "2.00", "10.00", "1.00", "-0.50", "9.00"].map(
+        (lotAmount, at) => ({ id: `o${at}`, lotAmount })
+      ),
+    });
+    await db.slot.createMany({
+      data: [
+        "2026-01-02T00:00:00.000Z",
+        "2026-01-10T00:00:00.500Z",
+        "0999-12-31T23:59:59.999Z",
+        "2026-01-01T00:00:00.000Z",
+      ].map((at) => ({ at: new Date(at), label: at })),
+    });
+  },
+  [
+    [
+      "a decimal key's range",
+      "lot",
+      "findMany",
+      { where: { amount: { gt: "1.00" } } },
+    ],
+    [
+      "a decimal key's closed range",
+      "lot",
+      "findMany",
+      { where: { amount: { gte: "-0.5", lte: "2" } } },
+    ],
+    ["a decimal key's own order", "lot", "findMany", {}],
+    [
+      "a decimal key, ascending",
+      "lot",
+      "findMany",
+      { orderBy: { amount: "asc" } },
+    ],
+    [
+      "a decimal key, descending",
+      "lot",
+      "findMany",
+      { orderBy: { amount: "desc" } },
+    ],
+    [
+      "a decimal key's page from a cursor",
+      "lot",
+      "findMany",
+      { cursor: { amount: "1.50" }, take: 2, skip: 1 },
+    ],
+    [
+      "a decimal key's page from a cursor, descending",
+      "lot",
+      "findMany",
+      { orderBy: { amount: "desc" }, cursor: { amount: "2.00" }, take: 2 },
+    ],
+    ["a decimal key's last rows", "lot", "findMany", { take: -2 }],
+    [
+      "a decimal key's extremes",
+      "lot",
+      "aggregate",
+      { _min: { amount: true }, _max: { amount: true } },
+    ],
+    [
+      "a decimal key's aggregates",
+      "lot",
+      "aggregate",
+      {
+        _min: { amount: true },
+        _sum: { amount: true },
+        _avg: { amount: true },
+      },
+    ],
+    [
+      "a link to a decimal key's range",
+      "bid",
+      "findMany",
+      { where: { lotAmount: { lt: "3" } } },
+    ],
+    [
+      "a link to a decimal key, ordered",
+      "bid",
+      "findMany",
+      {
+        orderBy: [
+          { lotAmount: { sort: "asc", nulls: "first" } },
+          { id: "desc" },
+        ],
+      },
+    ],
+    [
+      "a decimal key through its link, ordered",
+      "bid",
+      "findMany",
+      { orderBy: [{ lot: { amount: "desc" } }, { id: "asc" }] },
+    ],
+    [
+      "a decimal key through its link, filtered",
+      "bid",
+      "findMany",
+      { where: { lot: { amount: { gte: "2" } } } },
+    ],
+    [
+      "a link to a decimal key's extremes",
+      "bid",
+      "aggregate",
+      { _min: { lotAmount: true }, _max: { lotAmount: true } },
+    ],
+    [
+      "groups of a link to a decimal key",
+      "bid",
+      "groupBy",
+      { by: ["lotAmount"], _count: { _all: true } },
+    ],
+    [
+      "groups of a link to a decimal key, a page of them",
+      "bid",
+      "groupBy",
+      {
+        by: ["lotAmount"],
+        _count: { _all: true },
+        orderBy: { lotAmount: "desc" },
+        take: 2,
+      },
+    ],
+    [
+      "groups of a link to a decimal key that is always there, a page of them",
+      "offer",
+      "groupBy",
+      { by: ["lotAmount"], _count: { _all: true }, take: 2 },
+    ],
+    [
+      "groups of a link to a decimal key that is always there, descending",
+      "offer",
+      "groupBy",
+      {
+        by: ["lotAmount"],
+        _count: { _all: true },
+        orderBy: { lotAmount: "desc" },
+        take: 2,
+      },
+    ],
+    [
+      "groups whose extremes are a decimal key",
+      "bid",
+      "groupBy",
+      {
+        by: ["id"],
+        _max: { lotAmount: true },
+        having: { lotAmount: { _max: { gt: "9" } } },
+        orderBy: { id: "asc" },
+      },
+    ],
+    [
+      "a dateTime key's range",
+      "slot",
+      "findMany",
+      { where: { at: { gt: new Date("2026-01-01T00:00:00.000Z") } } },
+    ],
+    ["a dateTime key's own order", "slot", "findMany", {}],
+    [
+      "a dateTime key, descending",
+      "slot",
+      "findMany",
+      { orderBy: { at: "desc" } },
+    ],
+  ]
+);
+
 describe.skipIf(!surrealUrl)("a write's own answer", () => {
   it("reads the children as the write left them", async () => {
     const db: any = createClient({

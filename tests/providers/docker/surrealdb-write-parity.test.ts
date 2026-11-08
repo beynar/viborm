@@ -1935,6 +1935,35 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
       }));
   });
 
+  describe("a decimal key, stored as its text", () => {
+    const lot = s.model({
+      amount: s.decimal({ precision: 6, scale: 2 }).id(),
+      label: s.string(),
+    });
+    const seeded = async (db: any) =>
+      db.lot.createMany({
+        data: ["2.00", "10.00", "1.00", "9.00"].map((amount) => ({
+          amount,
+          label: "before",
+        })),
+      });
+    const all = (db: any) => db.lot.findMany({ orderBy: { amount: "asc" } });
+    it.each([
+      ["updateMany", { data: { label: "after" }, limit: 2 }],
+      ["deleteMany", { limit: 2 }],
+      [
+        "updateMany",
+        { where: { amount: { gt: "2" } }, data: { label: "after" } },
+      ],
+      ["deleteMany", { where: { amount: { lte: "2" } } }],
+    ] as const)("a %s takes its rows in the key's order: %j", async (verb, args) =>
+      compare({ lot }, async (db) => {
+        await seeded(db);
+        const result = await caught(() => db.lot[verb](args));
+        return { result, rows: await all(db) };
+      }));
+  });
+
   describe("what differs by design", () => {
     it("optimism: of callbacks that meet, the rest refuse rather than wait, and none half commits", async () => {
       const item = s.model({ id: s.string().id(), n: s.int() });
