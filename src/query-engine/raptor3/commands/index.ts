@@ -12,6 +12,7 @@ import type {
 import { admitProjected } from "../shared/projected";
 import type { Leaf, ProjectionShape, Read } from "../shared/query";
 import { PreparedDomain, type Queries } from "../shared/query";
+import { engineBackend } from "../shared/query-backend";
 import {
   type CallRows,
   type CallScope,
@@ -215,7 +216,10 @@ class PreparedCommand implements PreparedOperation {
     attribution?: QueryExecutionContext,
     binding?: ExecutionBinding
   ): OperationContext {
-    const Context = this.#config.driver.backend?.context ?? SqlOperationContext;
+    const { backend } = this.#config.driver;
+    const Context = backend
+      ? engineBackend(backend).context
+      : SqlOperationContext;
     return new Context(
       this.#schema,
       this.#config.driver,
@@ -367,7 +371,9 @@ function sharedQueries(config: EngineConfig): Queries {
   const createQueries = (
     ...args: ConstructorParameters<typeof SqlQueries>
   ): Queries =>
-    backend ? new backend.queries(...args) : new SqlQueries(...args);
+    backend
+      ? new (engineBackend(backend).queries)(...args)
+      : new SqlQueries(...args);
   const key = config.resolved?.registry;
   let shared = key && sharedEngines.get(key);
   if (!shared) {
