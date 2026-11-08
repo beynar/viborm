@@ -26,6 +26,7 @@ const localExtendedMigrationTests = Object.freeze([
   "sqlite-recreation-indexes.test.ts",
   "sqlite-unique-constraint.test.ts",
   "sqlite-verified-foreign-key-lift.test.ts",
+  "sqlite-without-rowid.test.ts",
   "table-drop-order.test.ts",
   "tenant-migrator.test.ts",
 ]);
