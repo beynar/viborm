@@ -68,6 +68,8 @@ export interface ModelDocument {
   uniques?: CompoundKeyDocument[];
   /** `.omit({ ... })` as a sorted array of scalar field keys. */
   omit?: string[];
+  /** `.withoutRowid()`: present only as `true`. */
+  withoutRowid?: true;
 }
 
 /**

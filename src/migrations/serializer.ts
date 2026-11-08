@@ -332,6 +332,9 @@ export function serializeResolvedModels(
       primaryKey = {
         columns: pkColumns,
         name: `${tableName}_pkey`,
+        ...(model["~"].withoutRowid && migrationDriver.dialect === "sqlite"
+          ? { withoutRowid: true as const }
+          : {}),
       };
     }
 

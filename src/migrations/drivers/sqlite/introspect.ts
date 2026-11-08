@@ -194,6 +194,14 @@ function partialIndexPredicate(sql: string | null): string | undefined {
 // INTROSPECTION
 // =============================================================================
 
+/** `CREATE TABLE … (…) WITHOUT ROWID`: the two words at the statement's top level. */
+function isWithoutRowid(sql: string): boolean {
+  const words = sqliteDefinitionKeywords(sql);
+  return words.some(
+    (word, index) => word === "WITHOUT" && words[index + 1] === "ROWID"
+  );
+}
+
 export async function introspect(
   executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>,
   managedTables?: readonly string[],
@@ -361,6 +369,8 @@ export async function introspect(
       primaryKey = {
         name: `${tableName}_pkey`,
         columns: pkColumns.map((p) => p.name),
+        // The table's options follow its definitions, outside any paren.
+        ...(isWithoutRowid(tableSql ?? "") ? { withoutRowid: true } : {}),
       };
     }
 

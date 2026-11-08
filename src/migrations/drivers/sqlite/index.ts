@@ -1186,7 +1186,9 @@ export class SQLite3MigrationDriver extends SqlMigrationDriver {
       parts.push(fkDef);
     }
 
-    return `CREATE TABLE ${this.escapeIdentifier(table.name)} (\n  ${parts.join(",\n  ")}\n)`;
+    // A recreation builds from this definition too, so it keeps the option.
+    const options = table.primaryKey?.withoutRowid ? " WITHOUT ROWID" : "";
+    return `CREATE TABLE ${this.escapeIdentifier(table.name)} (\n  ${parts.join(",\n  ")}\n)${options}`;
   }
 
   /**

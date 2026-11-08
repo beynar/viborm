@@ -163,7 +163,7 @@ export const docsFenceCorpus: DocsFenceCase[] = [
     },
   },
   {
-    id: "model.mdx#7",
+    id: "model.mdx#8",
     coded: () => ({
       membership: s
         .model({
@@ -184,7 +184,7 @@ export const docsFenceCorpus: DocsFenceCase[] = [
     },
   },
   {
-    id: "model.mdx#8",
+    id: "model.mdx#9",
     coded: () => ({
       user: s
         .model({

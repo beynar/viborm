@@ -106,6 +106,32 @@ export function modelMappedNameValid(
   return [];
 }
 
+/**
+ * M008: `.withoutRowid()` refuses a key `.increment()` generates. SQLite's
+ * AUTOINCREMENT is a rowid's, so `CREATE TABLE` would refuse the pair; the
+ * model is refused here instead, before any migration names it.
+ */
+export function withoutRowidKeyIsNotIncremented(
+  _s: Schema,
+  name: string,
+  model: Model<any>
+): SchemaValidationIssue[] {
+  if (!model["~"].withoutRowid) return [];
+  const issues: SchemaValidationIssue[] = [];
+  for (const [field, scalar] of getScalars(model)) {
+    const state = scalar["~"].state;
+    if (state.isId && state.autoGenerate?.kind === "increment")
+      issues.push({
+        code: "M008",
+        message: `'${name}' is declared withoutRowid, and its ID '${field}' uses .increment(): SQLite's AUTOINCREMENT needs a rowid`,
+        severity: "error",
+        model: name,
+        field,
+      });
+  }
+  return issues;
+}
+
 /** M006: A model must not occupy the client Promise-assimilation hook. */
 export function modelNameNotReserved(
   _s: Schema,
@@ -608,6 +634,7 @@ export const modelRules = [
   modelNameValid,
   modelNameNotReserved,
   modelMappedNameValid,
+  withoutRowidKeyIsNotIncremented,
   // Single-pass field validation (M001, F001-F008)
   validateFieldsSinglePass,
   // Index checks (iterate indexes, not fields)
