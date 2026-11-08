@@ -5,6 +5,91 @@ Versioning.
 
 ## Unreleased
 
+## 1.13.0 — 2026-11-08
+
+SurrealDB 4 joins the databases VibORM writes for, in its own language. An index
+the declaration cannot say (an HNSW, an expression) can now be declared in each
+database's own words, and a vector order can ask a nearest-neighbour index to
+answer it.
+
+### Added
+
+- **SurrealDB, through SurrealQL** (`viborm/surrealdb`, with the `surrealdb`
+  package as an optional peer). A record's key is its id, a relation is a record
+  link (`REFERENCE`), a many-to-many is a graph edge, and a filter on a relation
+  walks the graph. Queries, nested writes, interactive transactions and the
+  official extensions (permissions, soft delete, ordering, `on` hooks) work as on
+  the other databases. Migrations (`viborm/migrations/surrealdb`): `push`,
+  `generate`, `apply`, `verify`, `down` and `reset`, with SurrealQL in the
+  generated files. What differs is on the
+  [SurrealDB](https://viborm.dev/docs/drivers/surrealdb) and
+  [SurrealDB migration driver](https://viborm.dev/docs/migration/drivers/surrealdb)
+  pages:
+  - transactions read a snapshot, and `Serializable` is refused;
+  - there are no row locks;
+  - with no savepoint, a nested `$transaction` and a commit conflict replay their
+    statements. `rerunsOnConflict` retries a callback;
+  - renaming a table or a field, or changing a key, copies the rows, so it is not
+    atomic;
+  - a concurrent delete and insert can leave an orphan.
+- **Raw indexes:**
+  `.rawIndex(name, { pg?, mysql?, sqlite?, surrealdb? })` declares an index in
+  each database's own language: pgvector's or SurrealDB's HNSW, an expression, a
+  prefix, a key order. Each text is a template:
+  - `{name}`, `{table}` (qualified by the bound namespace) and `{field}` become
+    escaped identifiers, so one declaration serves every tenant namespace and
+    follows renames;
+  - migrations create it, recognize it by a marker kept beside it, re-create it
+    when its text changes, and drop it when the declaration goes;
+  - it is never a key and never covers a foreign key;
+  - a JSON schema document cannot carry one (`J009`).
+- **`approximate: true` on a vector `orderBy._distance`.** The read may be
+  answered by a nearest-neighbour index: approximate, and possibly short of
+  `take`.
+  - It applies to a root `findMany` or `findFirst` whose first order term is the
+    distance, nearest first, with `take` and no cursor, skip or distinct.
+    Elsewhere the read stays exact.
+  - On PostgreSQL the order becomes the bare `<=>`/`<->` an HNSW or IVFFlat index
+    serves. pgvector's `hnsw.ef_search` (40 by default) caps the rows, and
+    filters apply after the index.
+  - On SurrealDB it is a `<|k,ef|>` search, when the model declares one HNSW
+    raw index on that field with the same metric and dimension. If that search
+    answers nothing, the exact read answers instead.
+- **A driver may supply its own query backend** (`driver.backend`): the engine
+  states no SQL word, and the `MigrationDriver` contract holds no SQL.
+
+### Changed
+
+- **PostgreSQL l2 orders without `approximate` stay exact even beside an HNSW
+  index:** the order key is now `(col <-> v) + 0`, which no index serves. A table
+  that has a pgvector index made outside VibORM's migrations used to have its l2
+  orders served by it, silently approximate; pass `approximate: true` to keep
+  that.
+- **SurrealDB refuses indexes it did not define:** an index VibORM did not
+  define in a managed table (another kind, or someone else's comment) refuses
+  synchronization before effects (`V8001`), as PostgreSQL and SQLite do. Before,
+  the next `push` dropped it.
+- **Types a TypeScript consumer may meet at compile time:**
+  - `Dialect` (from `viborm/driver`) and the migration target's `dialect` gain
+    `"surrealql"`, so an exhaustive `switch` or a `Record<Dialect, …>` needs the
+    new member;
+  - `Driver.adapter`, and so `client.$driver.adapter`, is typed `EngineFacts`,
+    the facts every driver states. A SQL caller that read SQL-adapter members
+    through it (`identifiers`, `operators`, …) needs a cast.
+
+  Nothing changes at run time.
+- **Snapshots may hold `junction` and `raw` keys.** Snapshots without them keep
+  their bytes and hashes. A history holding one cannot be read by 1.12.x.
+- **`viborm/migrations` registers the SurrealDB migration driver too,**
+  measured +8.8 kB gzip on the every-entry bundle. It never loads the
+  `surrealdb` package. A Worker that migrates one database should import its
+  dialect's entry (`viborm/migrations/postgres`, `/sqlite`, `/mysql`,
+  `/surrealdb`). The pg and D1 application bundles do not carry it.
+- **Size budgets (owner-approved, OD-17):** pg application +0.31 kB and D1
+  Worker +0.26 kB gzip, for `.rawIndex()` and the approximate order; pg +
+  migrations Worker +2.6 kB, for raw-index migrations. The release contract's
+  tarball limits rise for the SurrealDB driver.
+
 ## 1.12.1 — 2026-11-04
 
 Two fixes for large permission reads on Neki.
