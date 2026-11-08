@@ -1510,7 +1510,7 @@ export class SQLite3MigrationDriver extends SqlMigrationDriver {
       refuseRawIndexStatement(
         index,
         rendered,
-        readExecutableStatements(rendered, "sqlite"),
+        (text) => readExecutableStatements(text, "sqlite"),
         []
       );
       // SQLite keeps an index's text as written, a trailing comment included,

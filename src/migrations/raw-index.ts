@@ -45,7 +45,8 @@ const SQL_HEADER =
   /^\s*CREATE\s+(?:UNIQUE\s+)?INDEX\s+\{name\}\s+ON\s+\{table\}/i;
 const SURREAL_HEADER =
   /^\s*DEFINE\s+INDEX\s+\{name\}\s+ON\s+(?:TABLE\s+)?\{table\}/i;
-const TERMINATED = /;\s*$/;
+/** A word read after the text: it ends the only statement unless a `;` or an open comment came first. */
+const END = "VIBORM_END";
 
 /** The fields a template names, each once, in the order they first appear. */
 export function rawIndexFields(template: string): string[] {
@@ -139,20 +140,22 @@ export function renderRawIndex(
 }
 
 /**
- * Refuses a rendered template the marker cannot be attached to: more than one
- * statement, a terminating `;`, or a word VibORM writes itself (`refused`), as
- * an executable word of the statement, so a quoted identifier or a string
- * that spells one is no refusal.
+ * Refuses a rendered template the marker cannot be attached to: one whose
+ * marker would land outside its statement (a top-level `;` anywhere, a
+ * comment left open), or a word VibORM writes itself (`refused`), as an
+ * executable word of the statement, so a quoted identifier or a string that
+ * spells one is no refusal. The dialect's own statement reader decides both.
  */
 export function refuseRawIndexStatement(
   index: IndexDef,
   rendered: string,
-  statements: readonly (readonly string[])[],
+  read: (text: string) => readonly (readonly string[])[],
   refused: readonly string[]
 ): void {
-  if (statements.length !== 1 || TERMINATED.test(rendered))
+  const statements = read(`${rendered}\n${END}`);
+  if (statements.length !== 1 || statements[0]!.at(-1)?.toUpperCase() !== END)
     throw new MigrationError(
-      `The raw index "${index.name}" must be one statement without a terminating semicolon: VibORM attaches its marker to it.`,
+      `The raw index "${index.name}" must be one statement, with no semicolon and no comment left open: VibORM attaches its marker to it.`,
       VibORMErrorCode.FEATURE_NOT_SUPPORTED,
       { meta: { indexName: index.name } }
     );

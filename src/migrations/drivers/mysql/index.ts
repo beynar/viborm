@@ -989,7 +989,7 @@ export class MySQLMigrationDriver
       refuseRawIndexStatement(
         index,
         rendered,
-        readExecutableStatements(rendered, "mysql"),
+        (text) => readExecutableStatements(text, "mysql"),
         ["COMMENT", "ALGORITHM", "LOCK"]
       );
       const marker = RAW_INDEX_MARKER_PREFIX + rawIndexMarker(index);

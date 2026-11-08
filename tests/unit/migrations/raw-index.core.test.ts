@@ -47,13 +47,15 @@ const NO_TEMPLATE = /missing template/;
 const NOT_ONLY_RAW = /cannot also be unique/;
 const COLUMNS_MISMATCH = /columns are not the fields its template names/;
 const NEEDS_NAME = /needs a name/;
+const TAKEN_NAME = /has the name of another index/;
 const COMMENT_TOO_LONG = /1024-byte index comment/;
 const CONCURRENT_HEADER = /must start with|says CONCURRENTLY/;
 const SAYS_CONCURRENTLY = /says CONCURRENTLY/;
 const SAYS_COMMENT = /says COMMENT/;
 const SAYS_ALGORITHM = /says ALGORITHM/;
 const SAYS_LOCK = /says LOCK/;
-const ONE_STATEMENT = /one statement without a terminating semicolon/;
+const ONE_STATEMENT =
+  /one statement, with no semicolon and no comment left open/;
 const UNDECLARED = /this schema does not declare/;
 const KEY_HOLDS_RAW_FIELD =
   /holding a field the raw index 'documents_slug_raw'/;
@@ -217,6 +219,21 @@ describe("the serializer records a raw index for its own dialect", () => {
         { migrationDriver: postgresMigrationDriver }
       )
     ).toThrow(NEEDS_NAME);
+    // The name an `.index()` without one derives is taken too.
+    expect(() =>
+      serializeModels(
+        {
+          document: s
+            .model({ id: s.string().id(), title: s.string() })
+            .index(["title"])
+            .rawIndex("documents_title_idx", {
+              pg: "CREATE INDEX {name} ON {table} (lower({title}))",
+            })
+            .map("documents"),
+        },
+        { migrationDriver: postgresMigrationDriver }
+      )
+    ).toThrow(TAKEN_NAME);
     expect(() =>
       serializeModels(
         {
@@ -589,6 +606,24 @@ describe("each driver renders a raw index with its marker", () => {
       "CREATE INDEX {name} ON {table} ({title}); DROP TABLE x",
       ONE_STATEMENT
     );
+    // A `;` the text hides behind a comment still ends the statement before
+    // the marker, and an open comment would swallow it.
+    for (const driver of [
+      sqlite3MigrationDriver,
+      mysqlMigrationDriver,
+      getMigrationDriver(pgEstateDriver("reporting")),
+    ]) {
+      refused(
+        driver,
+        "CREATE INDEX {name} ON {table} ({title}); -- note",
+        ONE_STATEMENT
+      );
+      refused(
+        driver,
+        "CREATE INDEX {name} ON {table} ({title}) /* open",
+        ONE_STATEMENT
+      );
+    }
     // A quoted identifier or a string spelling a refused word is no refusal.
     expect(() =>
       mysqlMigrationDriver.compileStatements(

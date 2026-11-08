@@ -152,6 +152,10 @@ function supersededIndexDrops(operations: DiffOperation[]): Set<DiffOperation> {
   for (const op of operations) {
     if (
       op.type === "dropIndex" &&
+      // A raw index covers no foreign key, so 1553 never holds it; and a table
+      // rebuild before its drop would have to re-create it, from a template
+      // a removed declaration no longer has.
+      !op.raw &&
       !createdIndexNames.has(op.indexName) &&
       !tablesLosingColumns.has(op.tableName)
     ) {

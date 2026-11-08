@@ -619,7 +619,7 @@ export class SurrealMigrationDriver extends MigrationDriver {
       table: this.escapeIdentifier(table.name),
       column: (column) => this.escapeIdentifier(partName(table, column)),
     });
-    refuseRawIndexStatement(index, rendered, readSurrealStatements(rendered), [
+    refuseRawIndexStatement(index, rendered, readSurrealStatements, [
       "COMMENT",
       "CONCURRENTLY",
     ]);
@@ -980,10 +980,26 @@ export class SurrealMigrationDriver extends MigrationDriver {
     const key = table!.primaryKey?.columns ?? [];
     const retarget = (fk: ForeignKeyDef): ForeignKeyDef =>
       fk.referencedTable === from ? { ...fk, referencedTable: to } : fk;
+    // A raw index the program drops, before or after, is not re-created here:
+    // its declaration may be gone, and with it the text to render.
+    const dropped = new Set(
+      [
+        ...(context.precedingOperations ?? []),
+        ...(context.followingOperations ?? []),
+      ].flatMap((operation) =>
+        operation.type === "dropIndex" &&
+        (operation.tableName === from || operation.tableName === to)
+          ? [operation.indexName]
+          : []
+      )
+    );
     const renamed: TableDef = {
       ...table!,
       name: to,
       foreignKeys: table!.foreignKeys.map(retarget),
+      indexes: table!.indexes.filter(
+        (index) => !(index.raw && dropped.has(index.name))
+      ),
     };
     const old = this.escapeIdentifier(from);
     const self = this.escapeIdentifier(to);
@@ -1364,7 +1380,20 @@ export class SurrealMigrationDriver extends MigrationDriver {
     );
   }
 
-  generateDropIndex({ tableName, indexName }: DropIndexOperation): string[] {
+  generateDropIndex(
+    { tableName, indexName, raw }: DropIndexOperation,
+    context?: DDLContext
+  ): string[] {
+    // A table rename re-creates the table without the raw indexes the program
+    // drops (generateRenameTable): there is nothing left to remove.
+    if (
+      raw &&
+      context?.precedingOperations?.some(
+        (operation) =>
+          operation.type === "renameTable" && operation.to === tableName
+      )
+    )
+      return [];
     return [
       `REMOVE INDEX ${this.escapeIdentifier(indexName)} ON ${this.escapeIdentifier(tableName)};`,
       `REMOVE FIELD IF EXISTS ${this.escapeIdentifier(partialField(indexName))} ON ${this.escapeIdentifier(tableName)};`,

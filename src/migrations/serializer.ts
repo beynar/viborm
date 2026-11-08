@@ -386,6 +386,14 @@ export function serializeResolvedModels(
     for (const rawIndex of model["~"].rawIndexes) {
       const template = rawIndex.templates[templateKey];
       if (template === undefined) continue;
+      // I002 sees explicit names only; an `.index()` without one takes its
+      // name here, and two indexes under one name fail the second CREATE.
+      if (indexes.some(({ name }) => name === rawIndex.name))
+        throw new MigrationError(
+          `The raw index "${modelName}.${rawIndex.name}" has the name of another index of "${modelName}": give one of them another name.`,
+          VibORMErrorCode.INVALID_INPUT,
+          { meta: { model: modelName, indexName: rawIndex.name } }
+        );
       indexes.push(
         declaredRawIndex(
           modelName,

@@ -247,6 +247,32 @@ export function runRawIndexBehavior({
       }
     );
 
+    test.runIf(push)(
+      "a removal beside a table rebuild drops it before the rebuild",
+      async () => {
+        await withDriver(async (driver, _dialect, clientOf) => {
+          const first: Version = {
+            field: "title",
+            text: "first",
+            nullableScore: false,
+          };
+          await createMigrationClient(clientOf(first)).push();
+          // On SQLite the nullable score rebuilds the table, in the same push
+          // that drops the index its declaration no longer names.
+          const gone: Version = {
+            ...first,
+            text: undefined,
+            nullableScore: true,
+          };
+          await createMigrationClient(clientOf(gone)).push();
+          expect(await liveIndex(driver)).toBeUndefined();
+          await expect(
+            createMigrationClient(clientOf(gone)).push()
+          ).resolves.toMatchObject({ outcome: "noop", operations: [] });
+        });
+      }
+    );
+
     test.runIf(!push)(
       "what generation renders is read back, through a column rename",
       async () => {

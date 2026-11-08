@@ -103,6 +103,48 @@ describe.skipIf(!surrealUrl)("SurrealDB raw indexes", () => {
     }
   });
 
+  test("a table renamed as its raw index goes is not re-created with it", async () => {
+    const driver = freshDriver();
+    const named = (table: string, raw: boolean) => {
+      const model = s.model({
+        id: s.string().id(),
+        embedding: s.vector().dimension(3),
+      });
+      return {
+        document: (raw
+          ? model.rawIndex("surreal_raw_hnsw", { surrealdb: HNSW })
+          : model
+        ).map(table),
+      };
+    };
+    const before = createClient({
+      schema: named("surreal_raw_before", true),
+      driver,
+    });
+    const after = createClient({
+      schema: named("surreal_raw_after", false),
+      driver,
+    });
+    try {
+      await createMigrationClient(before).push();
+      // Renaming copies the rows: the push is destructive, and takes consent.
+      const resolve = ((change: { type: string; rename?: () => unknown }) =>
+        change.type === "ambiguous" ? change.rename?.() : undefined) as never;
+      const migrations = createMigrationClient(after);
+      const plan = await migrations.push({ dryRun: true, resolve });
+      await migrations.push({ consent: plan.consent, resolve });
+      const info = await tableInfo(driver, "surreal_raw_after");
+      expect(info.indexes.map(({ name }) => name)).not.toContain(
+        "surreal_raw_hnsw"
+      );
+      await expect(createMigrationClient(after).push()).resolves.toMatchObject({
+        outcome: "noop",
+      });
+    } finally {
+      await before.$disconnect();
+    }
+  });
+
   test("a hand-made HNSW index in a managed table refuses before effects and survives", async () => {
     const driver = freshDriver();
     const client = createClient({ schema: documents(false), driver });

@@ -1307,7 +1307,7 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
     refuseRawIndexStatement(
       index,
       rendered,
-      readExecutableStatements(rendered, "postgresql"),
+      (text) => readExecutableStatements(text, "postgresql"),
       ["CONCURRENTLY"]
     );
     return [rendered, this.rawIndexComment(index)];
