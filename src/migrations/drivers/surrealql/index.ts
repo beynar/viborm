@@ -352,9 +352,18 @@ export class SurrealMigrationDriver extends MigrationDriver {
    * orders those columns. A part of a compound key can only be indexed under a name,
    * which a `decimal` part has none of.
    */
-  override finalizeTable(table: TableDef): TableDef {
-    const key = table.primaryKey?.columns ?? [];
-    if (table.junction || key.length === 0) return table;
+  override finalizeTable(declared: TableDef): TableDef {
+    if (declared.junction || !declared.primaryKey) return declared;
+    // An array id holds its parts in the order the engine writes them, its
+    // fields' declaration order, whatever order the key lists them in.
+    const listed = declared.primaryKey.columns;
+    const key = declared.columns
+      .map(({ name }) => name)
+      .filter((name) => listed.includes(name));
+    const table: TableDef = {
+      ...declared,
+      primaryKey: { ...declared.primaryKey, columns: key },
+    };
     const named = namedKeyParts(table, key, () => true) !== undefined;
     const whole = (columns: readonly string[]) =>
       key.every((part) => columns.includes(part));
@@ -453,22 +462,49 @@ export class SurrealMigrationDriver extends MigrationDriver {
   // Tables
   // ---------------------------------------------------------------------------
 
+  /** A table as the program has it: `own`, one it creates, or the live one. */
+  private tableNamed(
+    table: string,
+    context: DDLContext,
+    own?: TableDef
+  ): TableDef | undefined {
+    if (own?.name === table) return own;
+    for (const operation of [
+      ...(context.precedingOperations ?? []),
+      ...(context.followingOperations ?? []),
+    ])
+      if (operation.type === "createTable" && operation.table.name === table)
+        return operation.table;
+    return context.currentSchema?.tables.find(({ name }) => name === table);
+  }
+
   private keyOf(
     table: string,
     context: DDLContext,
     own?: TableDef
   ): readonly string[] {
-    if (own?.name === table) return own.primaryKey?.columns ?? [];
-    for (const operation of context.precedingOperations ?? [])
-      if (operation.type === "createTable" && operation.table.name === table)
-        return operation.table.primaryKey?.columns ?? [];
-    for (const operation of context.followingOperations ?? [])
-      if (operation.type === "createTable" && operation.table.name === table)
-        return operation.table.primaryKey?.columns ?? [];
-    return (
-      context.currentSchema?.tables.find(({ name }) => name === table)
-        ?.primaryKey?.columns ?? []
-    );
+    return this.tableNamed(table, context, own)?.primaryKey?.columns ?? [];
+  }
+
+  /**
+   * The table a column holds a record of, as the engine writes it: one naming a
+   * single key whole, a field or a part of a compound key. A key of one column is
+   * its record's id, which holds the value.
+   */
+  private linkedTable(
+    table: TableDef,
+    column: string,
+    context: DDLContext
+  ): string | undefined {
+    const key = table.primaryKey?.columns ?? [];
+    if (key.length === 1 && key[0] === column) return undefined;
+    return table.foreignKeys.find(
+      (fk) =>
+        fk.columns.length === 1 &&
+        fk.columns[0] === column &&
+        this.keyOf(fk.referencedTable, context, table).join() ===
+          fk.referencedColumns.join()
+    )?.referencedTable;
   }
 
   /** A foreign key a field can hold: one column, naming a record's whole key. */
@@ -669,10 +705,15 @@ export class SurrealMigrationDriver extends MigrationDriver {
       at += 1;
       return true;
     };
+    const key = table.primaryKey?.columns ?? [];
     const column = (): string => {
       const token = tokens[at++] ?? refused();
       const name = token.startsWith('"') ? token.slice(1, -1) : token;
       if (!PREDICATE_NAME.test(name)) refused();
+      // A key's value is its record's id, whatever its parts are named.
+      const part = key.indexOf(name);
+      if (part >= 0)
+        return key.length === 1 ? "record::id(id)" : `record::id(id)[${part}]`;
       return this.escapeIdentifier(partName(table, name));
     };
     const value = (): string => {
@@ -728,13 +769,112 @@ export class SurrealMigrationDriver extends MigrationDriver {
     return condition;
   }
 
-  /** The events that do what a foreign key holding no record says. */
-  private events(
-    table: string,
+  /**
+   * The event that checks, on the rows holding a foreign key that holds no record,
+   * that what they name is there, as a `REFERENCE` field asserts `$value.exists()`.
+   * A row with any of its columns unset names nothing; an update checks only a
+   * changed reference, since a record's key never changes in place.
+   */
+  private existence(
+    table: TableDef,
     fk: ForeignKeyDef,
     ownKey: readonly string[],
-    theirs: readonly string[]
+    theirs: readonly string[],
+    context: DDLContext
+  ): string {
+    const position = (column: string) => ownKey.indexOf(column);
+    // What a column of the row names, as a value, whether it is held as one.
+    const named = (column: string) => {
+      const at = position(column);
+      const read =
+        at < 0
+          ? `$after.${this.escapeIdentifier(column)}`
+          : ownKey.length === 1
+            ? "record::id($after.id)"
+            : `record::id($after.id)[${at}]`;
+      if (this.linkedTable(table, column, context))
+        return `record::id(${read})`;
+      // An array id holds a part as its key kind: an `i32` column's value is an `int` there.
+      const type = table.columns.find(({ name }) => name === column)?.type;
+      return at >= 0 || type === undefined || keyKind(type) === type
+        ? read
+        : `<${keyKind(type)}>${read}`;
+    };
+    const target = this.tableNamed(fk.referencedTable, context, table);
+    // That value as the target holds it.
+    const held = (referenced: string, value: string) => {
+      const linked = target && this.linkedTable(target, referenced, context);
+      return linked
+        ? `type::record(${JSON.stringify(linked)}, ${value})`
+        : value;
+    };
+    const value = (referenced: string) =>
+      held(
+        referenced,
+        named(fk.columns[fk.referencedColumns.indexOf(referenced)]!)
+      );
+    const whole =
+      theirs.length > 0 &&
+      theirs.length === fk.referencedColumns.length &&
+      theirs.every((column) => fk.referencedColumns.includes(column));
+    const theirsAt = (referenced: string) => {
+      const at = theirs.indexOf(referenced);
+      if (at < 0) return this.escapeIdentifier(referenced);
+      return theirs.length === 1 ? "record::id(id)" : `record::id(id)[${at}]`;
+    };
+    // The record itself where the key is whole, which no scan has to find.
+    const found = whole
+      ? `record::exists(type::record(${JSON.stringify(fk.referencedTable)}, ${theirs.length === 1 ? value(theirs[0]!) : `[${theirs.map(value).join(", ")}]`}))`
+      : `array::len(SELECT VALUE id FROM ${this.escapeIdentifier(fk.referencedTable)} WHERE ${fk.referencedColumns
+          .map((referenced) => `${theirsAt(referenced)} = ${value(referenced)}`)
+          .join(" AND ")} LIMIT 1) > 0`;
+    const unkeyed = fk.columns
+      .filter((column) => position(column) < 0)
+      .map((column) => this.escapeIdentifier(column));
+    const changed = unkeyed
+      .map((column) => `$before.${column} != $after.${column}`)
+      .join(" OR ");
+    // A record moving to a new key is written with a stand-in for a unique
+    // field until the copy is whole, and only the update that writes it back
+    // holds the reference: a new row holding one is checked by that update.
+    const stood = new Set(
+      [
+        ...table.uniqueConstraints,
+        ...table.indexes.filter(({ unique, raw }) => unique && !raw),
+      ]
+        .map(({ columns }) => columns)
+        .filter((columns) => !columns.some((column) => position(column) >= 0))
+        .flat()
+    );
+    const created = !fk.columns.some((column) => stood.has(column));
+    const updated = changed ? `($event = "UPDATE" AND (${changed}))` : "";
+    const when = [
+      created && updated
+        ? `($event = "CREATE" OR ${updated})`
+        : created
+          ? `$event = "CREATE"`
+          : updated,
+      ...unkeyed.map((column) => `$after.${column} != NONE`),
+    ].join(" AND ");
+    // In the words the driver reads a refused reference by.
+    const refusal = `Found no ${fk.referencedTable} row for ${fk.name}, but a reference must conform to: its target exists()`;
+    return `DEFINE EVENT ${this.escapeIdentifier(`${fk.name}_exists`)} ON ${this.escapeIdentifier(table.name)} WHEN ${when} THEN { IF !(${found}) { THROW ${JSON.stringify(refusal)} } };`;
+  }
+
+  /**
+   * The events that do what a foreign key holding no record says: on its target,
+   * what a delete or an update there does to the rows holding it, and on those rows
+   * that what they name is there (an edge's ends are the engine's to check).
+   */
+  private events(
+    holding: TableDef,
+    fk: ForeignKeyDef,
+    ownKey: readonly string[],
+    theirs: readonly string[],
+    context: DDLContext,
+    edge = false
   ): string[] {
+    const table = holding.name;
     const target = this.escapeIdentifier(fk.referencedTable);
     const self = this.escapeIdentifier(table);
     const heldRecord =
@@ -790,6 +930,7 @@ export class SurrealMigrationDriver extends MigrationDriver {
       // A record moving to a new key answers for what holds it, and its old copy says so.
       `DEFINE FIELD IF NOT EXISTS ${MOVED_FIELD} ON ${target} TYPE option<bool>;`,
       `DEFINE EVENT ${this.escapeIdentifier(fk.name)} ON ${target} WHEN ${when("DELETE", ...present, `$before.${MOVED_FIELD} != true`)} THEN { ${onDelete} } COMMENT ${facts};`,
+      ...(edge ? [] : [this.existence(holding, fk, ownKey, theirs, context)]),
     ];
     // A record's key never changes in place: a move answers for what holds it.
     if (named.length === 0) return statements;
@@ -933,10 +1074,11 @@ export class SurrealMigrationDriver extends MigrationDriver {
         this.holdsRecord(fk, context, table, key)
           ? []
           : this.events(
-              table.name,
+              table,
               fk,
               key,
-              this.keyOf(fk.referencedTable, context, table)
+              this.keyOf(fk.referencedTable, context, table),
+              context
             )
       ),
     ];
@@ -959,11 +1101,13 @@ export class SurrealMigrationDriver extends MigrationDriver {
     ];
   }
 
-  private removeEvents(fk: ForeignKeyDef): string[] {
+  /** What {@link events} defines, on the target and on `table`, which holds the key. */
+  private removeEvents(fk: ForeignKeyDef, table: string): string[] {
     const target = this.escapeIdentifier(fk.referencedTable);
     return [
       `REMOVE EVENT IF EXISTS ${this.escapeIdentifier(fk.name)} ON ${target};`,
       `REMOVE EVENT IF EXISTS ${this.escapeIdentifier(`${fk.name}_update`)} ON ${target};`,
+      `REMOVE EVENT IF EXISTS ${this.escapeIdentifier(`${fk.name}_exists`)} ON ${this.escapeIdentifier(table)};`,
     ];
   }
 
@@ -1000,6 +1144,19 @@ export class SurrealMigrationDriver extends MigrationDriver {
       indexes: table!.indexes.filter(
         (index) => !(index.raw && dropped.has(index.name))
       ),
+    };
+    // The program as it stands once the new table is there.
+    const arrived: DDLContext = {
+      ...context,
+      currentSchema: {
+        ...context.currentSchema!,
+        tables: [
+          ...(context.currentSchema?.tables ?? []).filter(
+            ({ name }) => name !== from
+          ),
+          renamed,
+        ],
+      },
     };
     const old = this.escapeIdentifier(from);
     const self = this.escapeIdentifier(to);
@@ -1067,8 +1224,12 @@ export class SurrealMigrationDriver extends MigrationDriver {
       }
       for (const fk of pointing) {
         const target = retarget(fk);
+        // The old table's events go before its rows do, which they would act on.
         if (!this.holdsRecord(fk, context, other, otherKey)) {
-          others.push(...this.events(other.name, target, otherKey, key));
+          others.push(
+            ...this.removeEvents(fk, other.name),
+            ...this.events(other, target, otherKey, key, arrived)
+          );
           continue;
         }
         const column = other.columns.find(
@@ -1083,21 +1244,20 @@ export class SurrealMigrationDriver extends MigrationDriver {
         );
       }
     }
+    // Its own events are defined anew for the new table, and the old ones, on
+    // their targets or on itself, would act on the rows the move deletes.
+    const released = table!.junction
+      ? []
+      : table!.foreignKeys.flatMap((fk) =>
+          this.holdsRecord(fk, context, table!, key)
+            ? []
+            : this.removeEvents(fk, from)
+        );
     return [
+      ...released,
       ...this.generateCreateTable(
         { type: "createTable", table: renamed },
-        {
-          ...context,
-          currentSchema: {
-            ...context.currentSchema!,
-            tables: [
-              ...(context.currentSchema?.tables ?? []).filter(
-                ({ name }) => name !== from
-              ),
-              renamed,
-            ],
-          },
-        }
+        arrived
       ),
       ...rows,
       ...others,
@@ -1190,12 +1350,13 @@ export class SurrealMigrationDriver extends MigrationDriver {
       if (!fk) return [];
       if (!this.holdsRecord(fk, context, table, key))
         return [
-          ...this.removeEvents(fk),
+          ...this.removeEvents(fk, owner),
           ...this.events(
-            owner,
+            { ...table, name: owner },
             { ...fk, name: to },
             key,
-            this.keyOf(fk.referencedTable, context, table)
+            this.keyOf(fk.referencedTable, context, table),
+            context
           ),
         ];
       const column = table.columns.find(({ name }) => name === fk.columns[0])!;
@@ -1296,18 +1457,36 @@ export class SurrealMigrationDriver extends MigrationDriver {
             true
           )
         );
+    // The table as its events read it once the field has moved.
+    const projected: TableDef = {
+      ...renamed,
+      foreignKeys: renamed.foreignKeys.map((fk) => ({
+        ...fk,
+        columns: swap(fk.columns),
+      })),
+    };
+    const renamedContext: DDLContext = {
+      ...context,
+      currentSchema: context.currentSchema && {
+        ...context.currentSchema,
+        tables: context.currentSchema.tables.map((other) =>
+          other.name === tableName ? projected : other
+        ),
+      },
+    };
     for (const fk of table!.foreignKeys)
       if (
         fk.columns.includes(from) &&
         !this.holdsRecord(fk, context, table!, key)
       )
         statements.push(
-          ...this.removeEvents(fk),
+          ...this.removeEvents(fk, tableName),
           ...this.events(
-            tableName,
+            projected,
             { ...fk, columns: swap(fk.columns) },
             renamed.primaryKey?.columns ?? [],
-            this.keyOf(fk.referencedTable, context, table)
+            this.keyOf(fk.referencedTable, context, table),
+            renamedContext
           )
         );
     for (const other of context.currentSchema?.tables ?? [])
@@ -1318,12 +1497,13 @@ export class SurrealMigrationDriver extends MigrationDriver {
           !other.junction
         )
           statements.push(
-            ...this.removeEvents(fk),
+            ...this.removeEvents(fk, other.name),
             ...this.events(
-              other.name,
+              other,
               { ...fk, referencedColumns: swap(fk.referencedColumns) },
               other.primaryKey?.columns ?? [],
-              renamed.primaryKey?.columns ?? []
+              renamed.primaryKey?.columns ?? [],
+              renamedContext
             )
           );
     if (!key.includes(from))
@@ -1451,17 +1631,32 @@ export class SurrealMigrationDriver extends MigrationDriver {
     const key = table.primaryKey?.columns ?? [];
     if (table.junction)
       return this.events(
-        tableName,
+        table,
         fk,
         key,
-        this.keyOf(fk.referencedTable, context, table)
+        this.keyOf(fk.referencedTable, context, table),
+        context,
+        true
       ).filter((statement) => !statement.startsWith("DEFINE FIELD"));
     if (!this.holdsRecord(fk, context, table, key))
       return this.events(
-        tableName,
+        // Its columns may have come in this program.
+        {
+          ...table,
+          columns: [
+            ...table.columns,
+            ...(context.precedingOperations ?? []).flatMap((operation) =>
+              operation.type === "addColumn" &&
+              operation.tableName === tableName
+                ? [operation.column]
+                : []
+            ),
+          ],
+        },
         fk,
         key,
-        this.keyOf(fk.referencedTable, context, table)
+        this.keyOf(fk.referencedTable, context, table),
+        context
       );
     const added = (context.precedingOperations ?? []).some(
       (operation) =>
@@ -1486,7 +1681,7 @@ export class SurrealMigrationDriver extends MigrationDriver {
     if (!(table && fk)) return ["RETURN NONE"];
     const key = table.primaryKey?.columns ?? [];
     if (!this.holdsRecord(fk, context, table, key))
-      return this.removeEvents(fk);
+      return this.removeEvents(fk, tableName);
     // Going with its column, it has nothing left to say.
     const removed = (context.followingOperations ?? []).some(
       (operation) =>
@@ -1516,6 +1711,7 @@ export class SurrealMigrationDriver extends MigrationDriver {
     if (!table) refuse(`a new key on '${tableName}', which is not there`);
     const old = table!.primaryKey?.columns ?? [];
     const key = primaryKey.columns;
+    const keyed: TableDef = { ...table!, primaryKey };
     const dropped = new Set(
       (context.precedingOperations ?? []).flatMap((operation) =>
         operation.type === "dropForeignKey" ? [operation.fkName] : []
@@ -1535,7 +1731,6 @@ export class SurrealMigrationDriver extends MigrationDriver {
         return `$row.${this.escapeIdentifier(partName(table!, column))}`;
       return old.length === 1 ? "record::id($row.id)" : `$row.id[${at}]`;
     };
-    const record = `type::record(${JSON.stringify(tableName)}, ${key.length === 1 ? part(key[0]!) : `[${key.map(part).join(", ")}]`})`;
     const operations = [
       ...(context.precedingOperations ?? []),
       ...(context.followingOperations ?? []),
@@ -1560,9 +1755,18 @@ export class SurrealMigrationDriver extends MigrationDriver {
           ? [operation.column]
           : []
       )[0];
+    // An array id keeps a part's value as stored, which its named part must
+    // match: an `i32` is an `int` there.
+    const member = (column: string) => {
+      const { type } = columnOf(column)!;
+      return keyKind(type) === type
+        ? part(column)
+        : `<${keyKind(type)}>${part(column)}`;
+    };
+    const record = `type::record(${JSON.stringify(tableName)}, ${key.length === 1 ? part(key[0]!) : `[${key.map(member).join(", ")}]`})`;
     const keptValues = kept.map(
       (column) =>
-        `${this.escapeIdentifier(partName({ ...table!, primaryKey }, column.name))}: ${part(column.name)}`
+        `${this.escapeIdentifier(partName(keyed, column.name))}: ${part(column.name)}`
     );
     const newFields = key
       .filter((column) => !old.includes(column))
@@ -1576,9 +1780,53 @@ export class SurrealMigrationDriver extends MigrationDriver {
         type: columnOf(column)!.type,
       })),
     };
+    // A compound key's parts are named in its id, where an index reads them.
+    const parts = namedKeyParts(
+      keyed,
+      key,
+      (fk) =>
+        this.keyOf(fk.referencedTable, context, keyed).join() ===
+        fk.referencedColumns.join()
+    );
+    // An index or a unique naming either key reads a field that changes place,
+    // and SurrealDB names no part of an id an index reads as a stored field: each
+    // goes ahead of the move and comes back after it. A raw index's text cannot
+    // follow a field into the id.
+    const moving = (columns: readonly string[]) =>
+      columns.some((column) => old.includes(column) || key.includes(column));
+    const goes = (type: "dropIndex" | "dropUniqueConstraint", name: string) =>
+      operations.some(
+        (operation) =>
+          operation.type === type &&
+          operation.tableName === tableName &&
+          (operation.type === "dropIndex"
+            ? operation.indexName
+            : operation.constraintName) === name
+      );
+    // A partial index's predicate may read a key's value where it now stands.
+    const indexes = table!.indexes.filter(
+      (index) =>
+        (moving(index.columns) ||
+          (index.where !== undefined &&
+            this.partialCondition(table!, index) !==
+              this.partialCondition(keyed, index))) &&
+        !goes("dropIndex", index.name)
+    );
+    for (const index of indexes)
+      if (index.raw && index.columns.some((column) => key.includes(column)))
+        refuse(
+          `a new key on '${tableName}' holding a field the raw index '${index.name}' names`
+        );
+    const uniques = table!.uniqueConstraints.filter(
+      ({ name, columns }) =>
+        moving(columns) && !goes("dropUniqueConstraint", name)
+    );
     return [
       `ALTER TABLE ${self} COMMENT ${JSON.stringify(JSON.stringify(facts))};`,
       `ALTER TABLE ${self} SCHEMALESS;`,
+      ...[...indexes, ...uniques].map(
+        ({ name }) => `REMOVE INDEX ${this.escapeIdentifier(name)} ON ${self};`
+      ),
       [
         `LET $rows = (SELECT * FROM ${self});`,
         `REMOVE FIELD IF EXISTS id ON ${self};`,
@@ -1591,7 +1839,7 @@ export class SurrealMigrationDriver extends MigrationDriver {
             tableName,
             {
               ...column,
-              name: partName({ ...table!, primaryKey }, column.name),
+              name: partName(keyed, column.name),
             },
             undefined
           )
@@ -1602,32 +1850,20 @@ export class SurrealMigrationDriver extends MigrationDriver {
         ? [
             `DEFINE FIELD id ON ${self} TYPE ${wholeKeyKind(columnOf(key[0]!)!.type)};`,
           ]
-        : []),
-      // An index naming either key read a field that has just changed place.
-      // A raw index's text cannot follow a field into the id.
-      ...table!.indexes
-        .filter(
-          ({ name, columns }) =>
-            columns.some(
-              (column) => old.includes(column) || key.includes(column)
-            ) &&
-            !operations.some(
-              (operation) =>
-                operation.type === "dropIndex" &&
-                operation.tableName === tableName &&
-                operation.indexName === name
-            )
+        : parts
+          ? [
+              `DEFINE FIELD id ON ${self} TYPE [${parts.map(({ part, kind }) => `${part}: ${kind}`).join(", ")}];`,
+            ]
+          : []),
+      ...indexes.flatMap((index) => this.plainIndex(keyed, index, true)),
+      ...uniques.map((unique) =>
+        this.index(
+          tableName,
+          unique.name,
+          unique.columns.map((column) => partName(keyed, column)),
+          true
         )
-        .flatMap((index) => {
-          if (index.raw && index.columns.some((column) => key.includes(column)))
-            refuse(
-              `a new key on '${tableName}' holding a field the raw index '${index.name}' names`
-            );
-          return [
-            `REMOVE INDEX ${this.escapeIdentifier(index.name)} ON ${self};`,
-            ...this.plainIndex({ ...table!, primaryKey }, index, true),
-          ];
-        }),
+      ),
       `ALTER TABLE ${self} SCHEMAFULL;`,
     ];
   }

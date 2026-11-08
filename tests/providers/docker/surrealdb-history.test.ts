@@ -305,6 +305,84 @@ describe.skipIf(!surrealUrl)("what SQL can change in place", () => {
     }
   });
 
+  it("a renamed table held by a unique field leaves what holds it, which follows it", async () => {
+    const family = (map: string) => {
+      const parent = s
+        .model({
+          id: s.string().id(),
+          email: s.string().unique(),
+          children: s.toMany(() => child),
+        })
+        .map(map);
+      const child = s.model({
+        id: s.string().id(),
+        email: s.string(),
+        parent: s
+          .toOne(() => parent)
+          .fields("email")
+          .references("email")
+          .onDelete("cascade")
+          .onUpdate("cascade"),
+      });
+      return { parent, child };
+    };
+    const driver = createSurrealTestDriver();
+    const first: any = createClient({ schema: family("parent"), driver });
+    try {
+      await pushing(first);
+      await first.parent.create({
+        data: { id: "p", email: "e", children: { create: { id: "c" } } },
+      });
+      const second: any = createClient({ schema: family("renamed"), driver });
+      await pushing(second);
+      expect(await second.child.findMany()).toEqual([{ id: "c", email: "e" }]);
+      await expect(createMigrationClient(second).push()).resolves.toMatchObject(
+        { outcome: "noop" }
+      );
+      await second.parent.update({ where: { id: "p" }, data: { email: "f" } });
+      expect(await second.child.findMany()).toEqual([{ id: "c", email: "f" }]);
+      await second.parent.delete({ where: { id: "p" } });
+      expect(await second.child.findMany()).toEqual([]);
+    } finally {
+      await first.$disconnect();
+    }
+  });
+
+  it("a new compound key names its parts, which a unique over one reads", async () => {
+    const before = () => ({
+      item: s.model({
+        legacy: s.string().id(),
+        a: s.string().unique(),
+        b: s.int(),
+      }),
+    });
+    const after = () => ({
+      item: s
+        .model({ legacy: s.string(), a: s.string().unique(), b: s.int() })
+        .id(["a", "b"]),
+    });
+    const driver = createSurrealTestDriver();
+    const first: any = createClient({ schema: before(), driver });
+    try {
+      await pushing(first);
+      await first.item.create({ data: { legacy: "old", a: "A", b: 1 } });
+      const second: any = createClient({ schema: after(), driver });
+      await pushing(second);
+      expect(await second.item.findMany()).toEqual([
+        { legacy: "old", a: "A", b: 1 },
+      ]);
+      await expect(
+        second.item.create({ data: { legacy: "second", a: "A", b: 2 } })
+      ).rejects.toThrow(UNIQUE_FAILURE);
+      await second.item.create({ data: { legacy: "third", a: "B", b: 2 } });
+      await expect(createMigrationClient(second).push()).resolves.toMatchObject(
+        { outcome: "noop" }
+      );
+    } finally {
+      await first.$disconnect();
+    }
+  });
+
   it("a partial index's predicate in another spelling is no change, a new one is", async () => {
     const declared = (where: string) => ({
       seat: s
