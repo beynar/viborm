@@ -1162,6 +1162,108 @@ reads(
   ]
 );
 
+const author = s.model({
+  id: s.string().id(),
+  profile: s.toOne(() => profile),
+  posts: s.toMany(() => post),
+});
+const profile = s.model({
+  id: s.string().id(),
+  rank: s.int(),
+  userId: s.string().unique(),
+  user: s
+    .toOne(() => author)
+    .fields("userId")
+    .references("id"),
+  badge: s.toOne(() => badge),
+});
+const badge = s.model({
+  id: s.string().id(),
+  level: s.int(),
+  profileId: s.string().unique(),
+  profile: s
+    .toOne(() => profile)
+    .fields("profileId")
+    .references("id"),
+});
+const post = s.model({
+  id: s.string().id(),
+  authorId: s.string(),
+  author: s
+    .toOne(() => author)
+    .fields("authorId")
+    .references("id"),
+});
+reads(
+  "an order through to-one relations",
+  { author, profile, badge, post },
+  async (db) => {
+    // Neither order is the key order that breaks ties.
+    for (const [user, rank, level, id] of [
+      ["u1", 20, 20, "a"],
+      ["u2", 1, 300, "b"],
+      ["u3", 300, 1, "c"],
+    ] as const)
+      await db.author.create({
+        data: {
+          id: user,
+          profile: {
+            create: {
+              id: `p-${user}`,
+              rank,
+              badge: { create: { id: `b-${user}`, level } },
+            },
+          },
+          posts: { create: { id } },
+        },
+      });
+  },
+  [
+    [
+      "an inverse hop after a link",
+      "post",
+      "findMany",
+      { orderBy: { author: { profile: { rank: "asc" } } } },
+    ],
+    [
+      "an inverse hop after a link, descending",
+      "post",
+      "findMany",
+      { orderBy: { author: { profile: { rank: "desc" } } } },
+    ],
+    [
+      "two inverse hops after a link",
+      "post",
+      "findMany",
+      { orderBy: { author: { profile: { badge: { level: "asc" } } } } },
+    ],
+    [
+      "two inverse hops after a link, descending",
+      "post",
+      "findMany",
+      { orderBy: { author: { profile: { badge: { level: "desc" } } } } },
+    ],
+    [
+      "two inverse hops",
+      "author",
+      "findMany",
+      { orderBy: { profile: { badge: { level: "asc" } } } },
+    ],
+    [
+      "a link after an inverse hop",
+      "author",
+      "findMany",
+      { orderBy: { profile: { user: { id: "desc" } } } },
+    ],
+    [
+      "a link back after an inverse hop",
+      "badge",
+      "findMany",
+      { orderBy: { profile: { user: { profile: { rank: "asc" } } } } },
+    ],
+  ]
+);
+
 describe.skipIf(!surrealUrl)("a write's own answer", () => {
   it("reads the children as the write left them", async () => {
     const db: any = createClient({
@@ -1302,6 +1404,46 @@ describe.skipIf(!surrealUrl)("a page's reach", () => {
 });
 
 describe.skipIf(!surrealUrl)("what a server refuses", () => {
+  it("an order through a relation stored in its row's own key, behind another, names it", async () => {
+    const holder = s.model({
+      id: s.string().id(),
+      accountId: s.string(),
+      account: s
+        .toOne(() => account)
+        .fields("accountId")
+        .references("id"),
+    });
+    const account = s.model({
+      id: s.string().id(),
+      card: s.toOne(() => card),
+      holders: s.toMany(() => holder),
+    });
+    // The card's key is its account's: no record link to walk from the account.
+    const card = s.model({
+      accountId: s.string().id(),
+      label: s.string(),
+      account: s
+        .toOne(() => account)
+        .fields("accountId")
+        .references("id"),
+    });
+    const db: any = createClient({
+      schema: { holder, account, card },
+      driver: createSurrealTestDriver(),
+    });
+    try {
+      await syncLiveSchema(db);
+      const failure = await db.holder
+        .findMany({ orderBy: { account: { card: { label: "asc" } } } })
+        .catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(UnsupportedOperationError);
+      expect((failure as Error).message).toContain(
+        "ordering by the relation 'card' through another relation"
+      );
+    } finally {
+      await db.$disconnect();
+    }
+  });
   it("a read past the parser's depth names what to change", async () => {
     const node = s.model({
       id: s.string().id(),

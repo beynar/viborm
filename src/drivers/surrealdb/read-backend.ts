@@ -2160,10 +2160,15 @@ export class SurrealReadBackend implements ReadBackend {
     }
     const [nested, inner] = Object.entries(spec)[0]!;
     if (edge.many) refuse(`ordering by the relation '${field}'`);
+    const linked = edge.kind === "reference" && this.#linked(edge);
+    if (path && !linked)
+      refuse(`ordering by the relation '${field}' through another relation`);
+    // A link is the row's own field; the other side is a lookup of the records
+    // referencing the row the path has reached, which a path's last record leads.
     const prefix =
-      edge.kind === "reference" && edge.owner === "source" && this.#linked(edge)
+      linked && edge.owner === "source"
         ? `${path}${this.physical(edge.source, edge.pairs[0]!.source).toStatement()}.`
-        : `(${this.#members(edge).toStatement()})[0].`;
+        : `(${path.slice(0, -1)}${this.#members(edge).toStatement()})[0].`;
     const term = edge.target["~"].state.relations[nested]
       ? this.#relationOrder(edge.target, nested, inner as Input, prefix)
       : this.#scalarOrder(edge.target, nested, inner, prefix);
