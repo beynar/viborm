@@ -34,11 +34,17 @@ export function isConflict(error: unknown): boolean {
   );
 }
 
-/** A statement that cannot have written, whatever it answers. */
-const READS_ONLY =
-  /^SELECT\b(?!.*\b(?:CREATE|UPDATE|UPSERT|DELETE|INSERT|RELATE|fn::))/s;
+/**
+ * What may write wherever it stands in a text: a statement, a subquery or a block
+ * (keywords are any case), or a function defined in the database or a module.
+ */
+const MAY_WRITE =
+  /\b(?:CREATE|UPDATE|UPSERT|DELETE|INSERT|RELATE|DEFINE|REMOVE|ALTER|REBUILD)\b|\b(?:fn|mod|silo|api)::/i;
+const SELECTS = /^SELECT\b/i;
 /** The form that reports a conflict by answering nothing, having written nothing. */
-const IGNORES_CONFLICT = /^INSERT IGNORE\b/;
+const IGNORES_CONFLICT = /^INSERT IGNORE\b/i;
+/** A clause after which an insert answers nothing, whether it wrote or not. */
+const ANSWERS_NOTHING = /\bRETURN\s+(?:NONE|BEFORE|VALUE\s+NONE)\b/i;
 const NEXT_VALUE = /sequence::nextval\(\$(p\d+)\)/g;
 
 /** Each attempt is won by someone, so this bounds the writers that can meet at once. */
@@ -51,11 +57,22 @@ interface Statement {
   answer?: unknown;
 }
 
-const wroteNothing = ({ text, answer }: Statement) =>
-  READS_ONLY.test(text) ||
-  (IGNORES_CONFLICT.test(text) &&
+/**
+ * A read that writes nowhere in its text, or one ignored insert, alone in its text,
+ * that answers no row although it answers each row it writes.
+ */
+const wroteNothing = ({ text, answer }: Statement) => {
+  if (SELECTS.test(text)) return !MAY_WRITE.test(text);
+  const rest = text.replace(IGNORES_CONFLICT, "");
+  return (
+    rest !== text &&
+    !(MAY_WRITE.test(rest) || ANSWERS_NOTHING.test(rest)) &&
     Array.isArray(answer) &&
-    answer.flat().length === 0);
+    answer.length === 1 &&
+    Array.isArray(answer[0]) &&
+    answer[0].length === 0
+  );
+};
 
 const asText = (answer: unknown) =>
   JSON.stringify(answer, (_key, value) =>

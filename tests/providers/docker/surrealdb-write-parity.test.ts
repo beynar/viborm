@@ -1559,14 +1559,19 @@ describe.skipIf(!surrealUrl)("SurrealDB writes against SQL", () => {
         expect(await rows(db, "parent")).toEqual([]);
       });
     });
-    it("a raw SELECT that writes goes back like any write", async () => {
+    it.each([
+      "SELECT * FROM (CREATE parent:raw SET name = 'raw')",
+      // Keywords are any case.
+      "SELECT * FROM (create parent:raw SET name = 'raw')",
+      // It answers nothing whether it wrote or not.
+      "INSERT IGNORE INTO parent [{ id: 'raw', name: 'raw' }] RETURN NONE",
+      "insert ignore into parent [{ id: 'raw', name: 'raw' }] return none",
+    ])("a raw statement that writes goes back like any write: %s", async (text) => {
       await within(async (db) => {
         await db.$transaction(async (tx: any) => {
           await tx
             .$transaction(async (t2: any) => {
-              await t2.$executeRaw(
-                sql.raw("SELECT * FROM (CREATE parent:raw SET name = 'raw')")
-              );
+              await t2.$executeRaw(sql.raw(text));
               throw new TypeError("scope");
             })
             .catch(() => undefined);
