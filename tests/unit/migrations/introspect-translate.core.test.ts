@@ -260,6 +260,15 @@ describe("PostgreSQL defaults", () => {
     ]);
   });
 
+  it("keeps a year below 100 as written", () => {
+    const { field } = pgField(
+      column("c", "timestamp(3) with time zone", {
+        default: "'0050-06-01 00:00:00+00'",
+      })
+    );
+    expect(field).toMatchObject({ default: "0050-06-01T00:00:00.000Z" });
+  });
+
   it("skips an impossible date rather than rolling it into another day", () => {
     for (const def of [
       column("c", "timestamp(3) with time zone", {
@@ -837,6 +846,8 @@ describe("MySQL", () => {
             column("email", "varchar(191)"),
             column("note", "TEXT", { default: String.raw`'line\nbreak'` }),
             column("at", "datetime(3)", { default: "CURRENT_TIMESTAMP(3)" }),
+            column("body", "TEXT", { default: "('it''s')" }),
+            column("data", "JSON", { default: `('{"a": 1}')` }),
           ],
           {
             indexes: [
@@ -859,6 +870,8 @@ describe("MySQL", () => {
       role: { type: "enum", enum: ["a", "b"], default: "a" },
       email: { type: "string", unique: true },
       note: { type: "string", default: "line\nbreak" },
+      body: { type: "string", default: "it's" },
+      data: { type: "json", default: { a: 1 } },
       at: { type: "datetime", generate: { kind: "now" } },
     });
     expect(result.document.models.t!.indexes).toBeUndefined();

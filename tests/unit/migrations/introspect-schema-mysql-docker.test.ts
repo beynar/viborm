@@ -41,6 +41,8 @@ const RICH_MYSQL_SQL = [
     settings JSON,
     avatar BLOB,
     bio LONGTEXT,
+    motto TEXT NOT NULL DEFAULT ('it''s'),
+    preferences JSON NOT NULL DEFAULT ('{"theme": "dark"}'),
     birthday DATE,
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     UNIQUE KEY account_email_key (email)

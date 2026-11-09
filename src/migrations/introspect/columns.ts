@@ -119,6 +119,7 @@ function jsonDefault(value: JsonValue): JsonValue {
   return value;
 }
 
+const MYSQL_EXPRESSION_LITERAL = /^\(('[\s\S]*')\)$/;
 const MYSQL_ESCAPE = /\\(.)/g;
 
 /**
@@ -158,9 +159,10 @@ function coefficientText(coefficient: string, scale: number): string {
 function isCalendarDate(day: string, clock: string): boolean {
   const [year, month, date] = day.split("-").map(Number);
   const [hours, minutes, seconds] = clock.split(":").map(Number);
-  const instant = new Date(
-    Date.UTC(year!, month! - 1, date!, hours!, minutes!, Math.trunc(seconds!))
-  );
+  // `Date.UTC` reads years 0–99 as 1900–1999; `setUTCFullYear` does not.
+  const instant = new Date(0);
+  instant.setUTCFullYear(year!, month! - 1, date!);
+  instant.setUTCHours(hours!, minutes!, Math.trunc(seconds!));
   return (
     instant.getUTCFullYear() === year &&
     instant.getUTCMonth() === month! - 1 &&
@@ -267,7 +269,14 @@ function readDefault(
     return;
   }
 
-  const quoted = QUOTED.exec(sqlText.trim());
+  // MySQL spells the default of a TEXT, BLOB or JSON column as an expression:
+  // the literal in one pair of parentheses.
+  const spelled = sqlText.trim();
+  const expression =
+    dialect === "mysql"
+      ? MYSQL_EXPRESSION_LITERAL.exec(spelled)?.[1]
+      : undefined;
+  const quoted = QUOTED.exec(expression ?? spelled);
   const literal = quoted ? unquote(quoted[1]!, dialect) : sqlText.trim();
   if (literal === undefined) return unsupported;
   if (field.array) {
