@@ -7,7 +7,10 @@ description: SQLite driver for a Cloudflare Durable Object's own storage (ctx.st
 
 - A SQLite-backed Durable Object: its class is listed under
   `new_sqlite_classes` in the Wrangler migrations.
-- No `nodejs_compat` flag needed.
+- `nodejs_compat` (or `nodejs_als` alone) recommended. The driver works
+  without it, but `AsyncLocalStorage` is how it knows that a statement comes
+  from inside a `$transaction` callback; see
+  [the originating client](#the-originating-client-inside-a-transaction).
 
 ## Configuration
 
@@ -69,8 +72,20 @@ another adapter object for the same storage is refused with a
 Statements run synchronously on `ctx.storage.sql.exec`. A `Date` is bound as
 its ISO string, a boolean as `0`/`1`, a `bigint` as a number inside ±2^53 and
 as its decimal string beyond (SQLite's `INTEGER` affinity stores it exactly),
-and a `Uint8Array` as its own bytes. BLOBs come back as `Uint8Array`. A write
-without `RETURNING` reports its row count from SQLite's `changes()`.
+and a `Uint8Array` as its own bytes. A model read returns a BLOB column as a
+`Uint8Array`; raw SQL (`$queryRaw`, `$queryRawUnsafe`) returns the platform's
+value, an `ArrayBuffer` (wrap it: `new Uint8Array(row.avatar)`).
+
+A write without `RETURNING` reports its row count from SQLite's `changes()`,
+read with one more `SELECT changes()` on the object's own SQLite: a
+synchronous call, with no I/O. There is no marker to skip it (an
+application-side driver used a `/*quiet*/` prefix for that). A write with
+`RETURNING`, and every read, needs no such call.
+
+The driver reports no `insertId` (`last_insert_rowid()`). VibORM never needs
+it: a create reads the generated values back with `RETURNING`. In raw SQL, add
+`RETURNING id` to the `INSERT` and read it with `$queryRaw`, or select
+`last_insert_rowid()` inside the same `$transaction`.
 
 Constraint failures map to `UniqueConstraintError`, `ForeignKeyError`,
 `NotNullConstraintError` and `CheckConstraintError`, with their table and
@@ -102,6 +117,25 @@ Top-level transactions and statements queue on the driver, so a statement
 from another request never runs inside an open transaction. Do not await
 non-storage I/O (`fetch`, timers) inside a transaction body: other requests
 wait for it.
+
+### The originating client inside a transaction
+
+Inside `$transaction(async (tx) => …)`, use `tx`. A statement sent through
+the client that opened the transaction would wait for that transaction, which
+waits for it:
+
+- With `nodejs_compat` or `nodejs_als`, the driver knows the statement comes
+  from inside the callback and refuses it at once with a `TransactionError`
+  (`V5001`) that says to use `tx`.
+- Without either flag, it cannot tell that statement from a concurrent one of
+  the same request (`Promise.all([db.$transaction(…), db.page.count()])`),
+  which must wait its turn. The statement then waits, and fails after 5
+  seconds with `V5002` (`maxWait`), the transaction with it.
+
+```jsonc
+// wrangler.jsonc
+{ "compatibility_flags": ["nodejs_compat"] }
+```
 
 ## Migrations
 

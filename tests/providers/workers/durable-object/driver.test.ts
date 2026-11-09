@@ -178,6 +178,13 @@ describe("Durable Object driver: statements", () => {
         where: { id: "u1" },
       });
       expect([...(updated.avatar ?? [])]).toEqual([8, 7]);
+      expect(updated.avatar).toBeInstanceOf(Uint8Array);
+      // Raw SQL returns the platform's value, an ArrayBuffer.
+      const [raw] = (await client.$queryRawUnsafe(
+        "SELECT avatar FROM users WHERE id = 'u1'"
+      )) as { avatar: unknown }[];
+      expect(raw?.avatar).toBeInstanceOf(ArrayBuffer);
+      expect([...new Uint8Array(raw?.avatar as ArrayBuffer)]).toEqual([8, 7]);
     });
   });
 
