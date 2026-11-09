@@ -130,8 +130,8 @@ for (const [label, next] of [
     await onB.generate({ name: "fresh-again" });
     expect((await onB.status()).markerState).toBe("unknown");
 
-    for (const running of [onB.reset({ dryRun: true }), onB.reset()]) {
-      await expect(running).rejects.toMatchObject({
+    for (const run of [() => onB.reset({ dryRun: true }), () => onB.reset()]) {
+      await expect(run()).rejects.toMatchObject({
         code: VibORMErrorCode.MIGRATION_INVALID_STATE,
         message: expect.stringMatching(UNACCOUNTED),
         meta: { table: "fresh" },
