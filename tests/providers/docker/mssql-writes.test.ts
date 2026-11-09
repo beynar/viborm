@@ -8,8 +8,8 @@ import { bulkWriteLimitContract } from "@tests/contracts/drivers/behaviors/bulk-
 import { clientRawContract } from "@tests/contracts/drivers/behaviors/client-raw-behavior";
 import { createManyReturnFoldContract } from "@tests/contracts/drivers/behaviors/create-many-return-fold-behavior";
 import { implicitReturningContract } from "@tests/contracts/drivers/behaviors/implicit-returning-behavior";
-import { nestedWriteContract } from "@tests/contracts/drivers/behaviors/nested-write-behavior";
 import { nestedWriteAdvancedContract } from "@tests/contracts/drivers/behaviors/nested-write-advanced-behavior";
+import { nestedWriteContract } from "@tests/contracts/drivers/behaviors/nested-write-behavior";
 import { nestedWriteConcurrencyContract } from "@tests/contracts/drivers/behaviors/nested-write-concurrency-behavior";
 import { nestedWriteJsonEnvelopeContract } from "@tests/contracts/drivers/behaviors/nested-write-json-envelope-behavior";
 import { rawArrayTransactionContract } from "@tests/contracts/drivers/behaviors/raw-array-transaction-behavior";

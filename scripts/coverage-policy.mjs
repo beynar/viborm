@@ -338,8 +338,13 @@ export const coverageWaivers = Object.freeze([
   {
     id: "docker-provider",
     sources: [
+      "src/adapters/databases/mssql/mssql-adapter.ts",
+      "src/drivers/mssql/errors.ts",
+      "src/drivers/mssql/index.ts",
       "src/drivers/mysql2/index.ts",
       "src/drivers/pg/index.ts",
+      "src/migrations/drivers/mssql/index.ts",
+      "src/migrations/drivers/mssql/introspect.ts",
       "src/drivers/postgres/index.ts",
     ],
     reason: "Live provider branches require the corresponding Docker service.",

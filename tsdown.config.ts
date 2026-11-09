@@ -35,6 +35,8 @@ const runtime = {
 
     // MySQL drivers (viborm/mysql2, viborm/planetscale)
     mysql2: "./src/drivers/mysql2/index.ts",
+    // SQL Server (viborm/mssql)
+    mssql: "./src/drivers/mssql/index.ts",
     // SurrealDB (viborm/surrealdb)
     surrealdb: "./src/drivers/surrealdb/index.ts",
     planetscale: "./src/drivers/planetscale/index.ts",
@@ -58,6 +60,7 @@ const runtime = {
     "migrations/surrealdb": "./src/migrations/dialects/surrealql.ts",
     "migrations/sqlite": "./src/migrations/dialects/sqlite.ts",
     "migrations/mysql": "./src/migrations/dialects/mysql.ts",
+    "migrations/mssql": "./src/migrations/dialects/mssql.ts",
     "migrations/storage/fs": "./src/migrations/storage/fs.ts",
     "migrations/storage/durable-object":
       "./src/migrations/storage/durable-object.ts",
@@ -134,6 +137,7 @@ const runtime = {
     "@planetscale/database",
     "@libsql/client",
     "mysql2",
+    "mssql",
     "surrealdb",
     "better-sqlite3",
     "postgres",

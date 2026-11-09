@@ -79,6 +79,11 @@
       "import": "./dist/mysql2.mjs",
       "default": "./dist/mysql2.mjs"
     },
+    "./mssql": {
+      "types": "./dist/mssql.d.mts",
+      "import": "./dist/mssql.mjs",
+      "default": "./dist/mssql.mjs"
+    },
     "./planetscale": {
       "types": "./dist/planetscale.d.mts",
       "import": "./dist/planetscale.mjs",
@@ -148,6 +153,11 @@
       "types": "./dist/migrations/mysql.d.mts",
       "import": "./dist/migrations/mysql.mjs",
       "default": "./dist/migrations/mysql.mjs"
+    },
+    "./migrations/mssql": {
+      "types": "./dist/migrations/mssql.d.mts",
+      "import": "./dist/migrations/mssql.mjs",
+      "default": "./dist/migrations/mssql.mjs"
     },
     "./migrations/storage/fs": {
       "types": "./dist/migrations/storage/fs.d.mts",
@@ -238,7 +248,8 @@
     "./dist/migrations.mjs",
     "./dist/migrations/postgres.mjs",
     "./dist/migrations/sqlite.mjs",
-    "./dist/migrations/mysql.mjs"
+    "./dist/migrations/mysql.mjs",
+    "./dist/migrations/mssql.mjs"
   ],
   "scripts": {
     "build": "node scripts/run-typecheck.mjs",
@@ -390,6 +401,7 @@
     "@opentelemetry/api": "^1.9.0",
     "@planetscale/database": "^1.19.0",
     "better-sqlite3": "^12.11.1 || ^13.0.3",
+    "mssql": "^12.0.0",
     "mysql2": "^3.14.1",
     "pg": "^8.16.0",
     "postgres": "^3.4.0",
@@ -418,6 +430,9 @@
       "optional": true
     },
     "better-sqlite3": {
+      "optional": true
+    },
+    "mssql": {
       "optional": true
     },
     "mysql2": {

@@ -28,7 +28,10 @@ const post = s
     title: s.string(),
     views: s.int(),
     authorId: s.string(),
-    author: s.toOne(() => user).fields("authorId").references("id"),
+    author: s
+      .toOne(() => user)
+      .fields("authorId")
+      .references("id"),
   })
   .map("smoke_posts");
 
@@ -37,8 +40,8 @@ const schema = { user, post };
 const DDL = [
   `IF OBJECT_ID('dbo.smoke_posts') IS NOT NULL DROP TABLE dbo.smoke_posts`,
   `IF OBJECT_ID('dbo.smoke_users') IS NOT NULL DROP TABLE dbo.smoke_users`,
-  `CREATE TABLE dbo.smoke_users (id NVARCHAR(450) NOT NULL CONSTRAINT smoke_users_pkey PRIMARY KEY, email NVARCHAR(450) NOT NULL CONSTRAINT smoke_users_email_key UNIQUE, name NVARCHAR(MAX) NOT NULL, age INT NULL, active BIT NOT NULL)`,
-  `CREATE TABLE dbo.smoke_posts (id INT IDENTITY(1,1) NOT NULL CONSTRAINT smoke_posts_pkey PRIMARY KEY, title NVARCHAR(MAX) NOT NULL, views INT NOT NULL, authorId NVARCHAR(450) NOT NULL CONSTRAINT smoke_posts_author_fkey FOREIGN KEY REFERENCES dbo.smoke_users(id) ON DELETE CASCADE)`,
+  "CREATE TABLE dbo.smoke_users (id NVARCHAR(450) NOT NULL CONSTRAINT smoke_users_pkey PRIMARY KEY, email NVARCHAR(450) NOT NULL CONSTRAINT smoke_users_email_key UNIQUE, name NVARCHAR(MAX) NOT NULL, age INT NULL, active BIT NOT NULL)",
+  "CREATE TABLE dbo.smoke_posts (id INT IDENTITY(1,1) NOT NULL CONSTRAINT smoke_posts_pkey PRIMARY KEY, title NVARCHAR(MAX) NOT NULL, views INT NOT NULL, authorId NVARCHAR(450) NOT NULL CONSTRAINT smoke_posts_author_fkey FOREIGN KEY REFERENCES dbo.smoke_users(id) ON DELETE CASCADE)",
 ];
 
 describeIf("SQL Server smoke", () => {
@@ -59,7 +62,12 @@ describeIf("SQL Server smoke", () => {
         name: "Ada",
         age: 36,
         active: true,
-        posts: { create: [{ title: "Notes", views: 3 }, { title: "Engine", views: 9 }] },
+        posts: {
+          create: [
+            { title: "Notes", views: 3 },
+            { title: "Engine", views: 9 },
+          ],
+        },
       },
       include: { posts: { orderBy: { views: "desc" } } },
     });
@@ -68,8 +76,20 @@ describeIf("SQL Server smoke", () => {
 
     await client.user.createMany({
       data: [
-        { id: "b", email: "bob@example.com", name: "Bob", age: null, active: false },
-        { id: "c", email: "cy@example.com", name: "cyril", age: 20, active: true },
+        {
+          id: "b",
+          email: "bob@example.com",
+          name: "Bob",
+          age: null,
+          active: false,
+        },
+        {
+          id: "c",
+          email: "cy@example.com",
+          name: "cyril",
+          age: 20,
+          active: true,
+        },
       ],
     });
 
@@ -112,7 +132,11 @@ describeIf("SQL Server smoke", () => {
       _avg: { views: true },
       _count: true,
     });
-    expect(aggregate).toMatchObject({ _sum: { views: 12 }, _avg: { views: 6 }, _count: 2 });
+    expect(aggregate).toMatchObject({
+      _sum: { views: 12 },
+      _avg: { views: 6 },
+      _count: 2,
+    });
 
     const grouped = await client.post.groupBy({
       by: ["authorId"],
@@ -135,6 +159,8 @@ describeIf("SQL Server smoke", () => {
     await client.$transaction(async (tx) => {
       await tx.user.update({ where: { id: "b" }, data: { active: true } });
     });
-    expect((await client.user.findUnique({ where: { id: "b" } }))?.active).toBe(true);
+    expect((await client.user.findUnique({ where: { id: "b" } }))?.active).toBe(
+      true
+    );
   });
 });

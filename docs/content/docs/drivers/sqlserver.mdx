@@ -1,0 +1,89 @@
+---
+title: SQL Server
+description: Use VibORM with Microsoft SQL Server 2022 and Azure SQL
+---
+
+`viborm/mssql` reads and writes SQL Server through the `mssql` package
+(tedious). SQL Server 2022 (16.x) is the oldest version it supports, and Azure
+SQL works too: 2022 is the first release with `JSON_OBJECT` and `JSON_ARRAY`,
+which nested reads are built from.
+
+```bash
+npm install viborm mssql
+```
+
+```ts
+import { createClient } from "viborm/mssql";
+import { schema } from "./schema";
+
+const db = createClient({
+  schema,
+  databaseUrl:
+    "mssql://app:secret@db.example.com:1433/shop?encrypt=true&trustServerCertificate=false",
+});
+```
+
+To keep control of the connection pool, pass your own; the driver never closes
+it:
+
+```ts
+import sql from "mssql";
+import { MssqlDriver } from "viborm/mssql";
+import { createClient } from "viborm";
+
+const pool = new sql.ConnectionPool({ server: "db.example.com", database: "shop", user: "app", password: "secret" });
+const db = createClient({ schema, driver: new MssqlDriver({ pool }) });
+```
+
+Tables live in the `dbo` schema unless you pass `namespace`.
+
+## Your tables
+
+VibORM writes no DDL for SQL Server: `createMigrationClient` refuses a SQL
+Server client, so you create the tables yourself (or with your own migration
+tool). The SQL Server migration driver (`viborm/migrations/mssql`) implements
+only `introspect()`: it reads an existing schema's tables, columns, keys,
+indexes and foreign keys from `sys.*`, and refuses every DDL statement.
+
+The column types VibORM reads and writes:
+
+| Scalar | Column |
+| --- | --- |
+| `string`, enum | `NVARCHAR(n)` / `NVARCHAR(MAX)` (a key or index column at most `NVARCHAR(450)`) |
+| `int`, `bigInt` | `INT`, `BIGINT` (`IDENTITY(1,1)` for `.increment()`) |
+| `float` | `FLOAT` |
+| `decimal` | `DECIMAL(p,s)` |
+| `boolean` | `BIT` |
+| `dateTime`, `date`, `time` | `DATETIME2(3)` (UTC), `DATE`, `TIME(3)` |
+| `json`, every list | `NVARCHAR(MAX)` holding JSON text |
+| `blob` | `VARBINARY(MAX)` |
+| identifiers (`uuid`, `ulid`, …) | text: `NVARCHAR(450)` |
+
+Declare text columns with a binary collation, `COLLATE Latin1_General_100_BIN2`:
+VibORM's filters are case-sensitive and its string order is code-point order,
+as on the tables it creates elsewhere. On a case-insensitive column, `orderBy`,
+`distinct` and unique keys follow that column's collation instead.
+
+## Differences
+
+- **Recursive queries** (`recurse` in a filter or a projection) are refused: T-SQL
+  allows no `WITH` inside a subquery and no `UNION` in a recursive member.
+- **Trailing spaces**: SQL Server ignores them when it compares strings, so a
+  unique key holds `"a"` and `"a "` as the same value. VibORM's own text filters
+  (`equals` on a string, `contains`, `startsWith`, `endsWith`) still tell them
+  apart.
+- **Cascades**: SQL Server refuses `ON DELETE CASCADE` on two paths into one
+  table and on a self-reference; declare such keys `NO ACTION`, and deleting a
+  row its children still reference fails.
+- **A JSON column holding a scalar** (`42`, `"text"`) is read and written
+  normally, and path filters do not match inside it.
+- **Geographic points and vectors** are not supported.
+- **Bound values**: one statement binds at most 2,098 values; VibORM splits
+  bulk writes to stay under it.
+
+## Cloudflare Workers
+
+The driver runs on Node.js. tedious cannot run in a Worker or a Durable
+Object: an encrypted SQL Server connection layers TLS over its own TDS packets
+(or, with `encrypt: "strict"`, needs the `tds/8.0` ALPN protocol), and a Worker
+socket offers neither. Reach SQL Server from a Node.js service instead.

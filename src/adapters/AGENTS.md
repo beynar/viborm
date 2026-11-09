@@ -212,6 +212,23 @@ may only be conservative index prefilters before exact public semantics.
 
 **Important:** When PostgreSQL has a feature others lack, the adapter must either emulate it or the capability check must prevent its use.
 
+### SQL Server (`databases/mssql/`)
+
+T-SQL has no boolean VALUE: a predicate is not an expression and an expression
+is not a predicate. `literals.true()`/`false()` are `bit` values, and every
+member taking a condition reads those two instances back as `1 = 1`/`1 = 0`;
+in the other direction, a predicate the adapter built met in a value position
+(`aliased`, a JSON member, a `CASE` arm) becomes `CASE WHEN … THEN 1 ELSE 0
+END`. Both are identity facts the adapter holds; the engine is unchanged.
+No `RETURNING` (the driver reads `SCOPE_IDENTITY()` in the INSERT's own
+request), no targeted upsert (the locked branch, as on MySQL), no `LIMIT`
+(`TOP`/`OFFSET … FETCH`; an ordered derived table states `OFFSET 0 ROWS`),
+`CROSS`/`OUTER APPLY` for `LATERAL`, table hints for `FOR UPDATE`. The to-many
+carrier is `STRING_AGG` (no `JSON_ARRAYAGG` before 2025); an ordered page read
+by it carries a `ROW_NUMBER()` the aggregate states `WITHIN GROUP`, since
+`STRING_AGG` promises no input order. Recursive CTEs are refused (no `WITH` in
+a subquery, no `UNION` in a recursive member).
+
 `capabilities.sharesRelationBodies` is a transport fact, never a dialect
 one: declared by D1 (`SQLiteAdapter({ sharedRelationBodies: true })`) and by
 every PostgreSQL driver by default (`installPostgresAdapter`;

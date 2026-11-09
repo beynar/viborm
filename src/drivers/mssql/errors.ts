@@ -43,10 +43,16 @@ function namedObjects(
   switch (number) {
     // "Violation of UNIQUE KEY constraint 'c'. … in object 'dbo.t'. …"
     case 2627:
-      return { constraint: quoted[0], table: quoted[1] && objectName(quoted[1]) };
+      return {
+        constraint: quoted[0],
+        table: quoted[1] && objectName(quoted[1]),
+      };
     // "Cannot insert duplicate key row in object 'dbo.t' with unique index 'i'."
     case 2601:
-      return { table: quoted[0] && objectName(quoted[0]), constraint: quoted[1] };
+      return {
+        table: quoted[0] && objectName(quoted[0]),
+        constraint: quoted[1],
+      };
     // "… conflicted with the FOREIGN KEY constraint "c". … database "d", table "dbo.t", column 'x'."
     case 547:
       return {

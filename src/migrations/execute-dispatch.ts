@@ -329,7 +329,10 @@ function refusedWhole(
   dialect: AnyDriver["dialect"]
 ): error is VibORMError {
   if (!providerRefused(error)) return false;
-  const statements = readExecutableStatements(sql, dialect as ClassifiedDialect);
+  const statements = readExecutableStatements(
+    sql,
+    dialect as ClassifiedDialect
+  );
   const [leader = "", ...rest] = statements[0] ?? [];
   return (
     statements.length === 1 &&

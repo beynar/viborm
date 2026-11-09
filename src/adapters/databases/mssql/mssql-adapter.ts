@@ -26,10 +26,7 @@ import {
   logicalDecimalDivide,
   logicalDecimalMultiply,
 } from "../../shared/decimal-arithmetic";
-import {
-  parseIntegerBoolean,
-
-} from "../../shared/result-parsing";
+import { parseIntegerBoolean } from "../../shared/result-parsing";
 import {
   buildJsonPath,
   createAggregateFunctions,
@@ -269,8 +266,7 @@ function sortJsonKeys(value: unknown): unknown {
   return sorted;
 }
 
-const jsonListValue = (values: unknown[]): Sql =>
-  sql`${stringifyJson(values)}`;
+const jsonListValue = (values: unknown[]): Sql => sql`${stringifyJson(values)}`;
 
 /** The emulated `NULLS FIRST`/`LAST`: SQL Server sorts NULL lowest. */
 const nullsKey = (column: Sql, rank: string, direction: "asc" | "desc"): Sql =>
@@ -280,8 +276,10 @@ const nullsKey = (column: Sql, rank: string, direction: "asc" | "desc"): Sql =>
  * A datetime operand as T-SQL reads it into `DATETIME2`: ISO 8601 with the
  * `T` separator (never language- or DATEFORMAT-dependent), naive UTC.
  */
+const UTC_OFFSET = /[+-]00:00$/;
+
 const naiveIso = (iso: string): string =>
-  iso.length === 10 ? iso : iso.replace("Z", "").replace(/[+-]00:00$/, "");
+  iso.length === 10 ? iso : iso.replace("Z", "").replace(UTC_OFFSET, "");
 
 const NAIVE_DATETIME_REGEX =
   /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(\.\d+)?$/;
@@ -372,7 +370,10 @@ export class MssqlAdapter implements DatabaseAdapter {
     endsWithText: (column: Sql, value: Sql): Sql =>
       sql`(RIGHT(${binary(column)}, ${textLength(value)}) = ${binary(value)} AND ${textLength(column)} >= ${textLength(value)})`,
     insensitiveText: (kind: TextMatch, column: Sql, value: Sql): Sql =>
-      this.operators[`${kind}Text`](sql`LOWER(${column})`, sql`LOWER(${value})`),
+      this.operators[`${kind}Text`](
+        sql`LOWER(${column})`,
+        sql`LOWER(${value})`
+      ),
     // The collation-native `LIKE` ranges an index; the exact conjunct decides.
     startsWithPrefix: (column: Sql, value: string): Sql =>
       sql`(${column} LIKE ${`${escapeLikeLiteral(value).replaceAll("[", "\\[")}%`} ESCAPE '\\' AND ${this.operators.startsWithText(column, sql`${value}`)})`,
@@ -441,7 +442,10 @@ export class MssqlAdapter implements DatabaseAdapter {
     coalesce: (...exprs: Sql[]): Sql => sql`COALESCE(${sql.join(exprs, ", ")})`,
     greatest: (...exprs: Sql[]): Sql => sql`GREATEST(${sql.join(exprs, ", ")})`,
     least: (...exprs: Sql[]): Sql => sql`LEAST(${sql.join(exprs, ", ")})`,
-    cast: (expr: Sql, type: "text" | "integer" | "bigint" | "boolean" | "numeric") =>
+    cast: (
+      expr: Sql,
+      type: "text" | "integer" | "bigint" | "boolean" | "numeric"
+    ) =>
       sql`CAST(${expr} AS ${sql.raw(
         {
           text: "NVARCHAR(MAX)",
@@ -451,7 +455,8 @@ export class MssqlAdapter implements DatabaseAdapter {
           numeric: "FLOAT",
         }[type]
       )})`,
-    blobToHex: (expr: Sql): Sql => sql`LOWER(CONVERT(VARCHAR(MAX), ${expr}, 2))`,
+    blobToHex: (expr: Sql): Sql =>
+      sql`LOWER(CONVERT(VARCHAR(MAX), ${expr}, 2))`,
   };
 
   aggregates = {
@@ -473,8 +478,8 @@ export class MssqlAdapter implements DatabaseAdapter {
     // Both sides are canonical text (see `canonicalJson`).
     equals: (left: Sql, right: Sql): Sql =>
       predicate(
-      sql`(${binary(left)} = ${right} AND ${textLength(left)} = ${textLength(right)})`
-    ),
+        sql`(${binary(left)} = ${right} AND ${textLength(left)} = ${textLength(right)})`
+      ),
     boolean: (inner: Sql): Sql =>
       sql`CASE WHEN ${condition(inner)} THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END`,
     document: (expression: Sql): Sql => {
@@ -512,8 +517,8 @@ export class MssqlAdapter implements DatabaseAdapter {
     // Every member of `value` is a member of `target`, compared as JSON text.
     contains: (target: Sql, value: Sql): Sql =>
       predicate(
-      sql`(ISJSON(${target}, ARRAY) = 1 AND NOT EXISTS (SELECT 1 FROM OPENJSON(${container(value)}) AS "c" WHERE NOT EXISTS (SELECT 1 FROM OPENJSON(${container(target)}) AS "t" WHERE "t"."type" = "c"."type" AND "t"."value" ${BINARY_COLLATION} = "c"."value")))`
-    ),
+        sql`(ISJSON(${target}, ARRAY) = 1 AND NOT EXISTS (SELECT 1 FROM OPENJSON(${container(value)}) AS "c" WHERE NOT EXISTS (SELECT 1 FROM OPENJSON(${container(target)}) AS "t" WHERE "t"."type" = "c"."type" AND "t"."value" ${BINARY_COLLATION} = "c"."value")))`
+      ),
     lastElement: (target: Sql): Sql =>
       sql`(SELECT TOP (1) CASE "type" WHEN 0 THEN N'null' WHEN 1 THEN N'"' + STRING_ESCAPE("value", 'json') + N'"' ELSE "value" END FROM OPENJSON(CASE WHEN ISJSON(${target}, ARRAY) = 1 THEN ${target} END) ORDER BY CAST("key" AS INT) DESC)`,
     value: (v: unknown): Sql => sql`${canonicalJson(v)}`,
@@ -525,20 +530,20 @@ export class MssqlAdapter implements DatabaseAdapter {
     enumValue: jsonListValue,
     has: (column: Sql, value: Sql): Sql =>
       predicate(
-      sql`EXISTS (SELECT 1 FROM OPENJSON(${column}) AS "m" WHERE "m"."value" = ${value})`
-    ),
+        sql`EXISTS (SELECT 1 FROM OPENJSON(${column}) AS "m" WHERE "m"."value" = ${value})`
+      ),
     hasEvery: (column: Sql, values: Sql): Sql =>
       predicate(
-      sql`NOT EXISTS (SELECT 1 FROM OPENJSON(${values}) AS "v" WHERE NOT EXISTS (SELECT 1 FROM OPENJSON(${column}) AS "m" WHERE "m"."value" = "v"."value"))`
-    ),
+        sql`NOT EXISTS (SELECT 1 FROM OPENJSON(${values}) AS "v" WHERE NOT EXISTS (SELECT 1 FROM OPENJSON(${column}) AS "m" WHERE "m"."value" = "v"."value"))`
+      ),
     hasSome: (column: Sql, values: Sql): Sql =>
       predicate(
-      sql`EXISTS (SELECT 1 FROM OPENJSON(${column}) AS "m" INNER JOIN OPENJSON(${values}) AS "v" ON "m"."value" = "v"."value")`
-    ),
+        sql`EXISTS (SELECT 1 FROM OPENJSON(${column}) AS "m" INNER JOIN OPENJSON(${values}) AS "v" ON "m"."value" = "v"."value")`
+      ),
     isEmpty: (column: Sql): Sql =>
       predicate(
-      sql`(${column} IS NULL OR NOT EXISTS (SELECT 1 FROM OPENJSON(${column})))`
-    ),
+        sql`(${column} IS NULL OR NOT EXISTS (SELECT 1 FROM OPENJSON(${column})))`
+      ),
     exactNumericProjection: (column: Sql): Sql => column,
     length: (column: Sql): Sql =>
       sql`(SELECT COUNT(*) FROM OPENJSON(${column}))`,
@@ -672,7 +677,8 @@ export class MssqlAdapter implements DatabaseAdapter {
     if (ordered) fragments.push(sql`ORDER BY ${parts.orderBy}`);
     else if (parts.offset || (limit && !top))
       fragments.push(sql.raw("ORDER BY (SELECT NULL)"));
-    if (!top) this.#window(fragments, limit, parts.offset, ordered || unbounded);
+    if (!top)
+      this.#window(fragments, limit, parts.offset, ordered || unbounded);
     return sql.join(fragments, " ");
   }
 
@@ -697,7 +703,8 @@ export class MssqlAdapter implements DatabaseAdapter {
   /** `DISTINCT ON` as one `ROW_NUMBER()` window, as on MySQL. */
   #distinct(parts: QueryParts, ordinal = false): Sql {
     const order = parts.distinctOrder;
-    const rowNumberOrder = parts.distinctOrderBy ?? parts.orderBy ?? parts.distinct!;
+    const rowNumberOrder =
+      parts.distinctOrderBy ?? parts.orderBy ?? parts.distinct!;
     const columns: Sql[] = [parts.columns];
     if (order) columns.push(order.keys);
     columns.push(
@@ -721,7 +728,8 @@ export class MssqlAdapter implements DatabaseAdapter {
     ];
     const limit = parts.limit === this.noLimitValue ? undefined : parts.limit;
     if (order) outer.push(sql`ORDER BY ${order.orderBy}`);
-    else if (limit || parts.offset) outer.push(sql.raw("ORDER BY (SELECT NULL)"));
+    else if (limit || parts.offset)
+      outer.push(sql.raw("ORDER BY (SELECT NULL)"));
     this.#window(outer, limit, parts.offset, order !== undefined);
     return sql.join(outer, " ");
   }
@@ -757,7 +765,8 @@ export class MssqlAdapter implements DatabaseAdapter {
       Array.isArray(source) && source.length > 1000
         ? this.#insertRows(table, columns, source)
         : this.#insert(table, columns, source, prefix),
-    insertDefault: (table: Sql): Sql => sql`INSERT INTO ${table} DEFAULT VALUES`,
+    insertDefault: (table: Sql): Sql =>
+      sql`INSERT INTO ${table} DEFAULT VALUES`,
     update: (table: Sql, sets: Sql, where?: Sql): Sql =>
       where
         ? sql`UPDATE ${table} SET ${sets} WHERE ${condition(where)}`
@@ -809,7 +818,8 @@ export class MssqlAdapter implements DatabaseAdapter {
     ...createCoreJoins(),
     inner: (table: Sql, on: Sql): Sql =>
       sql`INNER JOIN ${table} ON ${condition(on)}`,
-    left: (table: Sql, on: Sql): Sql => sql`LEFT JOIN ${table} ON ${condition(on)}`,
+    left: (table: Sql, on: Sql): Sql =>
+      sql`LEFT JOIN ${table} ON ${condition(on)}`,
     right: (table: Sql, on: Sql): Sql =>
       sql`RIGHT JOIN ${table} ON ${condition(on)}`,
     full: (table: Sql, on: Sql): Sql =>
@@ -834,6 +844,7 @@ export class MssqlAdapter implements DatabaseAdapter {
     supportsMutationRowLimit: false,
     supportsRowLocks: true,
     locksMissingKeys: true,
+    padsTrailingSpaces: true,
   };
 
   lastInsertId = (): Sql => sql.raw("SCOPE_IDENTITY()");

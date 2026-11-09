@@ -19,9 +19,9 @@ import type { Schema } from "@client/types";
 import { ClientInitializationError, QueryError } from "@errors";
 import type { Sql } from "@sql";
 import type {
-  config as MssqlConfig,
   ConnectionPool,
   IResult,
+  config as MssqlConfig,
   Request,
   Transaction,
 } from "mssql";
@@ -154,7 +154,7 @@ function parseMssqlUrl(databaseUrl: string): Partial<MssqlConfig> {
   };
   const encrypt = flag("encrypt");
   const trustServerCertificate = flag("trustServerCertificate");
-  const database = decodeURIComponent(url.pathname.replace(/^\//, ""));
+  const database = decodeURIComponent(url.pathname.slice(1));
   return {
     server: url.hostname,
     ...(url.port ? { port: Number(url.port) } : {}),
@@ -315,7 +315,9 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
       if (!this.suppliedPool.connected) await this.suppliedPool.connect();
       return this.suppliedPool;
     }
-    const pool = new mssql.ConnectionPool(this.connectionOptions as MssqlConfig);
+    const pool = new mssql.ConnectionPool(
+      this.connectionOptions as MssqlConfig
+    );
     await pool.connect();
     return pool;
   }
@@ -380,13 +382,12 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
   ): Promise<QueryResult<T>> {
     const mssql = await this.#provider();
     const request = client.request();
-    bind(mssql, request, params);
     let result: IResult<unknown>;
     try {
+      bind(mssql, request, params);
       result = await request.query(sql);
     } catch (error) {
       if (raw) throw error;
-      if (process.env.VIBORM_MSSQL_DEBUG) console.error("MSSQL-DEBUG", (error as Error).message, "\n", sql, "\n", JSON.stringify(params)); // DEBUG-REMOVE
       throw normalizeMssqlError(error);
     }
     return toQueryResult<T>(result, operation, identity);

@@ -504,6 +504,11 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
     ["MySQL2ClientConfig", "MySQL2DriverOptions", "MySQL2Options"],
     ["MySQL2Driver"]
   ),
+  "./mssql": surface(
+    ["MssqlDriver", "createClient"],
+    ["MssqlClientConfig", "MssqlDriverOptions", "MssqlOptions"],
+    ["MssqlDriver"]
+  ),
   "./planetscale": surface(
     ["PlanetScaleDriver", "createClient"],
     [
@@ -570,6 +575,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
   "./migrations/sqlite": MIGRATIONS_SURFACE,
   "./migrations/surrealdb": MIGRATIONS_SURFACE,
   "./migrations/mysql": MIGRATIONS_SURFACE,
+  "./migrations/mssql": MIGRATIONS_SURFACE,
   "./migrations/storage/fs": surface(["createFsStorageWriter"], [], []),
   "./migrations/storage/durable-object": surface(
     ["createDurableObjectStorageWriter"],

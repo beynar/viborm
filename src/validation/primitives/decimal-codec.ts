@@ -477,8 +477,7 @@ export function decimalColumnType(
 ): string {
   const { precision, scale } = descriptor;
   if (dialect === "pg") return `NUMERIC(${precision},${scale})`;
-  if (dialect === "mysql" || dialect === "mssql")
-    return `DECIMAL(${precision},${scale})`;
+  if (dialect === "mysql") return `DECIMAL(${precision},${scale})`;
   return "INTEGER";
 }
 

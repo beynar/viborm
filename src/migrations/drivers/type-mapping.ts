@@ -362,6 +362,7 @@ export function getMySQLType(context: ScalarTypeContext): string {
 export function getMssqlType(context: ScalarTypeContext): string {
   if (context.array) return MSSQL_TYPE_DEFAULTS.json;
   return context.type === "decimal"
-    ? decimalColumnType("mssql", requireDecimalDomain(context))
+    ? // T-SQL spells it as MySQL does: `DECIMAL(p,s)`.
+      decimalColumnType("mysql", requireDecimalDomain(context))
     : defaultType(MSSQL_TYPE_DEFAULTS, context.type);
 }

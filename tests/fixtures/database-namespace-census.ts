@@ -23,7 +23,7 @@ import ts from "typescript";
  *  4. `rejectedAliasMember` — the §13 alias spellings in member position;
  *  5. `modelScopeNamespace` — `namespace` as model/query-scope state;
  *  6. `configurableSource`  — `namespace` on any option/config type outside the
- *                             eight admitted driver option types;
+ *                             nine admitted driver option types;
  *  7. `sqliteAttachment`    — an `ATTACH`/`DETACH` statement, or an attachment
  *                             or namespace member on a SQLite surface;
  *  8. `attestationInference`— the MySQL2 attestation produced from transport or
@@ -91,6 +91,7 @@ export const MIGRATION_ATTESTATION_MEMBER = "migrationNamespaceAttestation";
  */
 export const ADMITTED_DRIVER_OPTION_TYPES = [
   "BunSQLDriverOptions",
+  "MssqlDriverOptions",
   "MySQL2DriverOptions",
   "NeonHTTPDriverOptions",
   "PGliteDriverOptions",
@@ -623,7 +624,7 @@ export function modelScopeNamespaceEntries(
 
 /**
  * §13 "Generic `VibORMConfig` namespace options": one configurable source per
- * driver, and only on the eight admitted option types. Any other declaration whose
+ * driver, and only on the nine admitted option types. Any other declaration whose
  * name ends in `Options` or `Config` that grows a `namespace` member is a
  * second answer to the same question.
  *

@@ -323,9 +323,10 @@ const REJECTED_ALIAS_SPELLINGS = [
   "searchPath",
 ];
 
-/** The eight admitted option types, spelled independently for the same reason. */
+/** The nine admitted option types, spelled independently for the same reason. */
 const ADMITTED_OPTION_TYPE_SPELLINGS = [
   "BunSQLDriverOptions",
+  "MssqlDriverOptions",
   "MySQL2DriverOptions",
   "NeonHTTPDriverOptions",
   "PGliteDriverOptions",
@@ -547,11 +548,11 @@ describe("database-namespace census: model and query-scope state", () => {
  * ------------------------------------------------------------------ */
 
 describe("database-namespace census: second configurable source", () => {
-  it("configures the namespace from the eight driver option types only", () => {
+  it("configures the namespace from the nine driver option types only", () => {
     expect(census.configurableSources).toEqual([]);
   });
 
-  it("admits the eight, counts every other option type, and yields its regions", () => {
+  it("admits the nine, counts every other option type, and yields its regions", () => {
     expect(
       configurableSourceEntries(
         "src/client/client.ts",

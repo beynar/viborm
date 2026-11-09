@@ -210,7 +210,12 @@ export async function pushMssqlSchema(
           ACTIONS[key.onDelete ?? "noAction"],
           ACTIONS[key.onUpdate ?? "noAction"]
         ),
-        fallback: add("NO ACTION", "NO ACTION"),
+        // The delete action kept first: SQL Server counts update paths too,
+        // and a key loses less without its update cascade.
+        fallbacks: [
+          add(ACTIONS[key.onDelete ?? "noAction"], "NO ACTION"),
+          add("NO ACTION", "NO ACTION"),
+        ],
       };
     })
   );
@@ -219,16 +224,24 @@ export async function pushMssqlSchema(
     if (reset) sql.push(...foreignKeys.map(({ declared }) => declared));
   } else if (reset) {
     for (const statement of sql) await run(statement);
-    for (const { declared, fallback } of foreignKeys) {
+    for (const { declared, fallbacks } of foreignKeys) {
       // The driver redacts the server's message, so any refusal retries:
-      // a key SQL Server refuses for another reason fails the retry too.
-      const statement = await run(declared).then(
-        () => declared,
-        async () => {
-          await run(fallback);
-          return fallback;
+      // a key SQL Server refuses for another reason fails the last retry too.
+      let statement: string | undefined;
+      for (const attempt of [declared, ...fallbacks.slice(0, -1)]) {
+        const created = await run(attempt).then(
+          () => true,
+          () => false
+        );
+        if (created) {
+          statement = attempt;
+          break;
         }
-      );
+      }
+      if (statement === undefined) {
+        statement = fallbacks.at(-1)!;
+        await run(statement);
+      }
       sql.push(statement);
     }
   }
@@ -237,7 +250,13 @@ export async function pushMssqlSchema(
   return {
     outcome: applied ? "applied" : "planned",
     applied,
-    operations,
+    // In a push outcome's shape: what callers read is the kind of change.
+    operations: operations.map((operation) => ({
+      id: operation.type,
+      label: operation.type,
+      risk: "safe" as const,
+      type: operation.type,
+    })),
     sql,
     statements: sql.map((statement) => ({ sql: statement })),
     warnings: [],

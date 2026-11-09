@@ -10,7 +10,10 @@ import { jsonNullSentinelContract } from "@tests/contracts/drivers/behaviors/jso
 import { likeEscapeContract } from "@tests/contracts/drivers/behaviors/like-escape-behavior";
 import { listJsonFilterContract } from "@tests/contracts/drivers/behaviors/list-json-filter-behavior";
 import { prismaParityContract } from "@tests/contracts/drivers/behaviors/prisma-parity-behavior";
-import { fullScalarRoundtripContract, scalarRoundtripContract } from "@tests/contracts/drivers/behaviors/scalar-roundtrip-behavior";
+import {
+  fullScalarRoundtripContract,
+  scalarRoundtripContract,
+} from "@tests/contracts/drivers/behaviors/scalar-roundtrip-behavior";
 import { beforeEach, describe } from "vitest";
 import {
   createMssqlDriver,

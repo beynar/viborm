@@ -538,6 +538,21 @@ export function runFieldReferenceBehavior({
       // which is what the column would have to contain for this to be true. The
       // compact column holds sixteen bytes without the prefix, so the
       // comparison answered `[]` and looked like an honest empty result.
+      // Where the adapter stores the token as its public text (SQL Server
+      // keeps every identifier as text), the comparison is exactly what it
+      // appears to ask, and answers.
+      const stored = db().$driver.adapter.result.idRepresentation?.(
+        { format: "uuid", prefix: "tok-" },
+        undefined
+      );
+      if (stored === "text") {
+        await expect(
+          db().post.findMany({
+            where: { token: { equals: (ctx: PostCtx) => ctx.fields.slug } },
+          })
+        ).resolves.toBeInstanceOf(Array);
+        return;
+      }
       await expect(
         db().post.findMany({
           where: { token: { equals: (ctx: PostCtx) => ctx.fields.slug } },
