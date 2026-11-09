@@ -780,6 +780,19 @@ export interface DatabaseAdapter {
      * bounds expression depth and the dialect sums nested heights.
      */
     isolated: (condition: Sql) => Sql;
+    /**
+     * A raw read's `FROM` item for one model's rows (`$rows`): `from` read
+     * as `row`, filtered by `where` (every row without one), named `alias`.
+     * `implicitRowid`: the table keeps a rowid `SELECT *` leaves out; SQLite
+     * carries it as `rowid`, the key an FTS5 table joins on.
+     */
+    rows: (
+      from: Sql,
+      row: string,
+      where: Sql | undefined,
+      alias: string,
+      implicitRowid: boolean
+    ) => Sql;
   };
 
   /**

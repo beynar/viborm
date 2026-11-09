@@ -989,13 +989,13 @@ export class SqlQueries extends Queries {
   rowsOf(model: AnyModel, alias: string): Sql {
     const row = this.#rootAlias();
     const domain = this.domainOf(model, "root");
-    const columns =
-      this.adapter.capabilities.hasRowid && !model["~"].withoutRowid
-        ? sql`${this.adapter.identifiers.column(row, "rowid")} AS rowid, *`
-        : sql.raw("*");
-    return sql`(SELECT ${columns} FROM ${this.table(model, row)} WHERE ${
-      (domain && this.lowerSelector(domain, row)) ?? sql.raw("1 = 1")
-    }) AS ${this.adapter.identifiers.escape(alias)}`;
+    return this.adapter.subqueries.rows(
+      this.table(model, row),
+      row,
+      domain && this.lowerSelector(domain, row),
+      alias,
+      !model["~"].withoutRowid
+    );
   }
   /**
    * The one destination-aware operand owner: filters, cursors, order operands,

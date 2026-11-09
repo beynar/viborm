@@ -828,7 +828,6 @@ const SQLITE_CAPABILITIES = {
   supportsMutationRowLimit: false,
   supportsRowLocks: false,
   joinsJunctionFilters: true,
-  hasRowid: true,
 };
 
 const SQLITE_RESULT: AdapterResultParser = {
@@ -872,7 +871,8 @@ const SQLITE_CLAUSES = createStandardClauses();
 
 const SQLITE_FILTERS = createRelationFilters();
 
-const SQLITE_SUBQUERIES = createSubqueries(quoteIdent);
+// Every table but a WITHOUT ROWID one keeps an implicit rowid.
+const SQLITE_SUBQUERIES = createSubqueries(quoteIdent, true);
 
 // A member is written once and inlined at every use: one a nested body reads
 // is compiled again inside each use of that body, so it is materialized.

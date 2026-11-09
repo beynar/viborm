@@ -168,7 +168,7 @@ class DurableObjectDriver extends Driver<
    * The object has one SQLite connection, so every statement sent meanwhile
    * belongs to it.
    */
-  protected override async openMigrationFrame(): Promise<MigrationFrame> {
+  async openMigrationFrame(): Promise<MigrationFrame> {
     let settle: (commit: boolean) => void = () => undefined;
     const decision = new Promise<boolean>((resolve) => {
       settle = resolve;

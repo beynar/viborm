@@ -114,6 +114,19 @@ export interface MigrationFrame {
   rollback(): Promise<void>;
 }
 
+/**
+ * What a driver whose capability says `exclusion: "frame"` implements: the
+ * migration lock opens a frame where it would send `BEGIN IMMEDIATE`, and
+ * settles it where it would send `COMMIT` or `ROLLBACK`; the statements it
+ * sends meanwhile run through the driver as usual and belong to the frame.
+ * Structural, like a dialect's `resolveCommandNamespace`: a driver declares
+ * it by implementing it, so the base class, which every client type compares,
+ * carries no member for it.
+ */
+export interface MigrationFrameDriver {
+  openMigrationFrame(): Promise<MigrationFrame>;
+}
+
 // biome-ignore lint/suspicious/noUnsafeDeclarationMerging: the `Driver` interface below is a deliberate merge — it declares the `await using` member, which is installed on the prototype (guarded on the runtime key) rather than in this body.
 export abstract class Driver<
   TClient,
@@ -306,16 +319,6 @@ export abstract class Driver<
    * either way, and the recreation is refused when it still reads 1.
    */
   protected beforeForeignKeysOff?(): Promise<void>;
-
-  /**
-   * Opens one platform transaction for a SQLite migration, on a driver whose
-   * capability says `exclusion: "frame"`, or is absent. The migration lock
-   * opens a frame where it would send `BEGIN IMMEDIATE`, and settles it where
-   * it would send `COMMIT` or `ROLLBACK`; the statements it sends meanwhile
-   * run through this driver as usual and belong to the frame. Absent, the
-   * lock sends those statements.
-   */
-  protected openMigrationFrame?(): Promise<MigrationFrame>;
 
   async disconnect(): Promise<void> {
     return this._disconnect();

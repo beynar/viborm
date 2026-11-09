@@ -434,6 +434,8 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "BatchQuery",
       "Dialect",
       "DriverResultParser",
+      "MigrationFrame",
+      "MigrationFrameDriver",
       "QueryExecutionContext",
       "QueryResult",
       "SqliteMigrationCapability",

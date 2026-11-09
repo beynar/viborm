@@ -8,7 +8,11 @@
  * the bound migration driver.
  */
 
-import type { AnyDriver, MigrationFrame } from "../drivers/driver";
+import type {
+  AnyDriver,
+  MigrationFrame,
+  MigrationFrameDriver,
+} from "../drivers/driver";
 import { normalizeDriverError } from "../drivers/error-mapping";
 import {
   createExecutionContext,
@@ -784,6 +788,25 @@ interface LockedTransactions {
 
 const LOCKED = new WeakMap<object, LockedTransactions>();
 
+/**
+ * A frame from the driver the capability says opens them. A declaration that
+ * claims frames without the hook would lock nothing, so it is refused here,
+ * before the command's first statement.
+ */
+function openFrame(driver: AnyDriver): Promise<MigrationFrame> {
+  if (!opensFrames(driver))
+    throw new MigrationError(
+      `The SQLite driver "${driver.driverName}" declares \`exclusion: "frame"\` and implements no \`openMigrationFrame()\`, so no migration lock can be taken.`,
+      VibORMErrorCode.DRIVER_NOT_SUPPORTED,
+      { meta: { driver: driver.driverName } }
+    );
+  return driver.openMigrationFrame();
+}
+const opensFrames = (
+  driver: AnyDriver
+): driver is AnyDriver & MigrationFrameDriver =>
+  typeof Reflect.get(driver, "openMigrationFrame") === "function";
+
 /** The switch SQLite ignores inside a transaction; its read form runs anywhere. */
 const FOREIGN_KEYS_SWITCH = /^\s*PRAGMA\s+foreign_keys\s*=/i;
 
@@ -839,8 +862,7 @@ function lockTransactions(
   // A frame has no wait to bound: the driver's queue lease is already held.
   const beginImmediate = async (): Promise<void> => {
     if (frames) {
-      // The frame claim is a declaration that the driver implements the hook.
-      frame = await direct["openMigrationFrame"]!();
+      frame = await openFrame(direct);
       return;
     }
     const [own] = (await run<{ timeout: unknown }>("PRAGMA busy_timeout")).rows;

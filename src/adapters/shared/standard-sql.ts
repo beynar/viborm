@@ -349,7 +349,8 @@ export const createIdentifiers = (
 };
 
 export const createSubqueries = (
-  quoteIdent: IdentifierQuoter
+  quoteIdent: IdentifierQuoter,
+  rowid = false
 ): DatabaseAdapter["subqueries"] => ({
   scalar: (query: Sql): Sql => sql`(${query})`,
 
@@ -360,6 +361,15 @@ export const createSubqueries = (
     sql`SELECT 1 FROM ${from} WHERE ${where}`,
 
   isolated: (condition: Sql): Sql => condition,
+
+  rows: (from, row, where, alias, implicitRowid) =>
+    sql`(SELECT ${
+      rowid && implicitRowid
+        ? sql.raw(`${quoteIdent(row)}.${quoteIdent("rowid")} AS rowid, *`)
+        : sql.raw("*")
+    } FROM ${from} WHERE ${where ?? sql.raw("1 = 1")}) AS ${sql.raw(
+      quoteIdent(alias)
+    )}`,
 });
 
 /**

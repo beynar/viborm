@@ -133,11 +133,4 @@ export interface DatabaseAdapterCapabilities {
    * Absent: false.
    */
   countsCascadedChanges?: boolean;
-  /**
-   * Whether a table not declared `.withoutRowid()` has an implicit `rowid`
-   * that `SELECT *` leaves out (SQLite): a raw read's `$rows` derived table
-   * then carries it as `rowid`, the key an FTS5 table joins on. Absent:
-   * false.
-   */
-  hasRowid?: boolean;
 }
