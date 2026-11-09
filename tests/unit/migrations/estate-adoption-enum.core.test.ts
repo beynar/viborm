@@ -44,6 +44,9 @@ describe("adopting a table whose enum a new table shares", () => {
     );
     expect(adopted.outcome).toBe("published");
     expect(adopted.sql).toMatch(CREATE_JOBS);
+    // The enum exists at the edge's origin, so its name is qualified like
+    // one the transition created; the live apply is postgres-adoption-docker.
+    expect(adopted.sql).toContain('"status" "alpha"."status" NOT NULL');
     expect(adopted.sql).not.toMatch(CREATE_DEPENDENCY);
     expect(adopted.sql).not.toMatch(CREATE_TYPE);
   });

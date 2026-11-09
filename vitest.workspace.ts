@@ -309,6 +309,7 @@ export default defineWorkspace([
   providerProject("pg", [
     "tests/providers/docker/pg*.test.ts",
     "tests/unit/migrations/pinned-session-docker.test.ts",
+    "tests/unit/migrations/postgres-adoption-docker.test.ts",
     "tests/unit/migrations/postgres-catalog-digest-docker.test.ts",
     "tests/unit/migrations/postgres-namespace-docker.test.ts",
     "tests/unit/migrations/postgres-neki-boundaries-docker.test.ts",

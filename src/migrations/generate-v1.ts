@@ -246,9 +246,15 @@ export async function generateV1(
           ? applyResolvedEnumMappings([operation], enumMappings)[0]!
           : operation
       );
+      const adoption = withoutAdoptedTables(
+        withEnumMappings,
+        adopts,
+        desired,
+        current
+      );
       const staged = prepareSchemaProgram(
-        withoutAdoptedTables(withEnumMappings, adopts, desired),
-        current,
+        adoption.operations,
+        adoption.current,
         driver
       );
       reported.push(...staged);
@@ -274,7 +280,7 @@ export async function generateV1(
           "lowLock: this change keeps its blocking index builds and validating foreign keys, because it merges several parents or changes something other than an index or a foreign key after its first index build. Generate those indexes and keys in a migration of their own to get their step form."
         );
       }
-      let origin = { from, current, approvals };
+      let origin = { from, current: adoption.current, approvals };
       const before = split?.states.slice(0, -1) ?? [];
       for (const [index, state] of before.entries()) {
         const step = sealLowLockState(
@@ -463,13 +469,19 @@ function admitAdoption(
  * too, so it is never created, and a rollback, which drops only what the
  * program created, never drops it. It runs no DDL for them; the destination
  * proof proves the live table and the enum equal the declaration.
+ *
+ * The program's origin is the parent's schema plus those enums, because the
+ * database already has them: the DDL of a new table naming one qualifies it
+ * as it would an enum it created (`managedEnumNames`). The origin proof still
+ * compares the parent's own snapshot.
  */
 function withoutAdoptedTables(
   operations: DiffOperation[],
   adopts: readonly string[],
-  desired: SchemaSnapshot
-): DiffOperation[] {
-  if (adopts.length === 0) return operations;
+  desired: SchemaSnapshot,
+  current: SchemaSnapshot
+): { operations: DiffOperation[]; current: SchemaSnapshot } {
+  if (adopts.length === 0) return { operations, current };
   const enumsOf = (tables: readonly SchemaSnapshot["tables"][number][]) =>
     new Set(
       tables.flatMap((table) =>
@@ -481,15 +493,28 @@ function withoutAdoptedTables(
   const adoptedEnums = enumsOf(
     desired.tables.filter((table) => adopts.includes(table.name))
   );
-  return operations.filter((operation) => {
-    if (operation.type === "createTable") {
-      return !adopts.includes(operation.table.name);
-    }
-    if (operation.type === "createEnum") {
-      return !adoptedEnums.has(operation.enumDef.name);
-    }
-    return !("tableName" in operation && adopts.includes(operation.tableName));
-  });
+  const broughtEnums = (desired.enums ?? []).filter(
+    (enumDef) =>
+      adoptedEnums.has(enumDef.name) &&
+      !current.enums?.some(({ name }) => name === enumDef.name)
+  );
+  return {
+    operations: operations.filter((operation) => {
+      if (operation.type === "createTable") {
+        return !adopts.includes(operation.table.name);
+      }
+      if (operation.type === "createEnum") {
+        return !adoptedEnums.has(operation.enumDef.name);
+      }
+      return !(
+        "tableName" in operation && adopts.includes(operation.tableName)
+      );
+    }),
+    current:
+      broughtEnums.length === 0
+        ? current
+        : { ...current, enums: [...(current.enums ?? []), ...broughtEnums] },
+  };
 }
 
 /** Decision 8: two snapshots that differ only in field and model order. */
