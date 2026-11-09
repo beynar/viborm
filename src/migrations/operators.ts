@@ -1533,7 +1533,8 @@ function assertExpectedRevision(
  * are diffed: a manual rollback is SQL its author wrote and published, often
  * to move the rows back before a drop, so it is not asked again. An ambiguous
  * change counts as the drop it may be. A table an earlier edge of the path
- * recreates is absent live, and holds no rows.
+ * recreates is absent live, and holds no rows. A table the edge adopts is
+ * not dropped at all.
  */
 async function approveRollbackLosses(
   producer: Parameters<typeof appendLedger>[0],
@@ -1554,6 +1555,8 @@ async function approveRollbackLosses(
     for (const change of [...operations, ...ambiguousChanges.map(asDrop)]) {
       if (
         "tableName" in change &&
+        // An adopted table is released with no DDL: its rows stay.
+        !item.parent.adopts?.includes(change.tableName) &&
         isDestructiveOperation(change) &&
         (await holdsRows(producer, command, change.tableName))
       ) {

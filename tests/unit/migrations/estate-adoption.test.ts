@@ -365,6 +365,23 @@ describe("a widened `tables` list", () => {
     expect(await next.verify()).toEqual({ ok: true });
   });
 
+  it("does not ask to drop an adopted table when down also drops a table the edge created", async () => {
+    const { driver, storage, baseState } = await estateWithRawTable();
+    const jobs = s.model({ id: s.string().id() }).map("jobs");
+    const next = migrationsOf(driver, storage, { a, dependency, jobs }, [
+      "a",
+      "dependency",
+      "jobs",
+    ]);
+    await next.generate({ name: "adopt", adopt: ["dependency"] });
+    await next.apply();
+    // No resolve: only a loss the rollback really makes would be asked.
+    await next.down();
+    expect((await next.status()).marker?.stateId).toBe(baseState);
+    expect(await tableSql(driver, "jobs")).toBeUndefined();
+    expect(await rows(driver)).toEqual([{ x: "kept", n: 1 }]);
+  });
+
   it("reanchor compares each state with what it manages, from one read", async () => {
     const { driver, storage, baseState } = await estateWithRawTable();
     await migrationsOf(driver, storage, { a, dependency }, [
