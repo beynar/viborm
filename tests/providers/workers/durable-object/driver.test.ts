@@ -86,6 +86,48 @@ describe("Durable Object driver: statements", () => {
     });
   });
 
+  test("a wrapper keeping the storage's sql shares its driver, so its write waits for the open transaction", async () => {
+    await withClient(async (client, state) => {
+      expect(state.storage.sql).toBe(state.storage.sql);
+      const wrapped = {
+        sql: state.storage.sql,
+        transaction: state.storage.transaction.bind(state.storage),
+        sync: state.storage.sync.bind(state.storage),
+      } as DurableObjectStorage;
+      const other = clientOf(wrapped);
+      expect(other.$driver).toBe(client.$driver);
+      let opened: () => void = () => undefined;
+      const open = new Promise<void>((resolve) => {
+        opened = resolve;
+      });
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const rolledBack = client
+        .$transaction(async (tx) => {
+          await tx.user.create({ data: { id: "in-tx", name: "x" } });
+          opened();
+          await gate;
+          throw new Error("roll back");
+        })
+        .catch((error: Error) => error.message);
+      await open;
+      // `.then` starts the operation, which runs only once awaited.
+      const written = other
+        .$executeRawUnsafe("INSERT INTO users (id, name) VALUES ('other', 'o')")
+        .then((count) => count);
+      // Time for a second driver's write to reach SQLite inside the open one.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      release();
+      expect(await rolledBack).toBe("roll back");
+      expect(await written).toBe(1);
+      expect(
+        state.storage.sql.exec("SELECT id FROM users ORDER BY id").toArray()
+      ).toEqual([{ id: "other" }]);
+    });
+  });
+
   test("an adapter is read when the storage's driver is created, and another one is refused later", async () => {
     await inObject(async (state) => {
       const adapter = new SQLiteAdapter({ temporaryObjects: false });

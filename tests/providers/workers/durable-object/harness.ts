@@ -37,15 +37,17 @@ const root: Scope = { parent: undefined, before: [], after: [] };
 let collecting: Scope = root;
 let running: DurableObjectState | undefined;
 
-const detached = createDurableObjectDriver(
-  new Proxy({} as DurableObjectStorage, {
-    get() {
-      throw new Error(
-        "This driver has no storage: create the driver inside a test."
-      );
-    },
-  })
-);
+const unusable = (): never => {
+  throw new Error(
+    "This driver has no storage: create the driver inside a test."
+  );
+};
+const detached = createDurableObjectDriver({
+  // The driver's key: one object, whose every use throws.
+  sql: new Proxy({} as DurableObjectStorage["sql"], { get: unusable }),
+  transaction: unusable,
+  sync: unusable,
+});
 
 /** The driver of the Durable Object the current test runs in. */
 export function durableObjectDriver() {

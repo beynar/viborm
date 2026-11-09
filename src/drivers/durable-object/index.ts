@@ -220,26 +220,29 @@ class DurableObjectTransactionDriver extends TransactionBoundDriver<
   }
 }
 
-const drivers = new WeakMap<DurableObjectStorage, DurableObjectDriver>();
+// Keyed on the SQL handle, not the storage: a wrapper around `ctx.storage`
+// that keeps its `sql` is the same database, and a second driver's statements
+// would join the first one's open transaction.
+const drivers = new WeakMap<object, DurableObjectDriver>();
 
 /**
  * The driver of one Durable Object's storage, created on the first call and
- * returned by every later one. One per storage is the contract: the driver
- * queues its transactions and its migration lock, so every client of that
- * storage must share it.
+ * returned by every later one. One per SQL handle (`storage.sql`) is the
+ * contract: the driver queues its transactions and its migration lock, so
+ * every client of that database must share it.
  */
 export function createDurableObjectDriver(
   storage: DurableObjectStorage,
   adapter?: DatabaseAdapter
 ): DurableObjectDriver {
-  const existing = drivers.get(storage);
+  const existing = drivers.get(storage.sql);
   if (existing === undefined) {
     const driver = new DurableObjectDriver(
       storage,
       adapter ??
         new SQLiteAdapter({ temporaryObjects: false, deepExpressions: false })
     );
-    drivers.set(storage, driver);
+    drivers.set(storage.sql, driver);
     return driver;
   }
   if (adapter !== undefined && adapter !== existing.adapter)
@@ -251,7 +254,7 @@ export function createDurableObjectDriver(
 }
 
 // The class is a type only: `createDurableObjectDriver` is the one way to a
-// driver, so a storage never has two.
+// driver, so a database never has two.
 export type { DurableObjectDriver };
 
 export function createClient<S extends Schema, C extends DriverConfig<S>>(

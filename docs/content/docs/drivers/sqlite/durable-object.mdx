@@ -55,7 +55,10 @@ migration, so every client of one storage must share one driver. The entry
 does not export the driver class: `createDurableObjectDriver(storage)` creates
 the storage's driver on its first call and returns that same driver on every
 later one, and `createClient` goes through it. Two clients on one storage
-(two schemas, or a client per request) therefore share it.
+(two schemas, or a client per request) therefore share it. The driver is the
+SQL handle's (`storage.sql`): a wrapper around `ctx.storage` that keeps its
+`sql` gets the same driver. A wrapper with its own `sql` object gets another
+one, whose statements do not wait for the first one's transactions.
 
 An `adapter` is read when the driver is created. A later call that names
 another adapter object for the same storage is refused with a
