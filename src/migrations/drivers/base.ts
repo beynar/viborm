@@ -369,6 +369,15 @@ export abstract class MigrationDriver {
     executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>
   ): Promise<PushTargetIdentity>;
 
+  /**
+   * What a committed program of `statements` left running, waited for before
+   * the command goes on (SurrealDB's indexes built in the background).
+   */
+  awaitIndexBuilds?(
+    producer: AnyDriver,
+    statements: readonly string[]
+  ): Promise<void>;
+
   /** A driver's own hold on a command, where no pinned session can take one. */
   holdLock?<T>(
     driver: AnyDriver,

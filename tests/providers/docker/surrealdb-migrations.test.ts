@@ -10,6 +10,7 @@ import {
 } from "@migrations/dialects/surrealql";
 import { s } from "@schema";
 import {
+  createSurrealRecordingDriver,
   createSurrealTestDriver,
   surrealUrl,
 } from "@tests/fixtures/drivers/surrealdb";
@@ -17,6 +18,9 @@ import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { describe, expect, it } from "vitest";
 
 type Client = any;
+
+const BUILD_FAILED =
+  /^SurrealDB index "item\.item_email_key" failed to build: .*already contains/;
 
 function clientOf(schema: object, driver = createSurrealTestDriver()): Client {
   return createClient({ schema: schema as never, driver });
@@ -500,7 +504,10 @@ describe.skipIf(!surrealUrl)("a change on a populated table", () => {
       await db.item.create({ data: { id: "a", name: "A" } });
       const next = nextVersion(schema(true), db);
       const applied = await push(next);
-      expect(statements(applied).join()).toContain("DEFINE INDEX");
+      // Built at once, as before: only a new table's indexes build in the background.
+      expect(statements(applied)).toEqual([
+        "DEFINE INDEX item_name_idx ON item FIELDS name;",
+      ]);
       expect((await preview(next)).outcome).toBe("noop");
     });
   });
@@ -905,6 +912,83 @@ describe.skipIf(!surrealUrl)("the command's lock", () => {
         db
       );
       await expect(push(next)).rejects.toThrow();
+      expect(await raw(db, "SELECT * FROM viborm_migration_lock")).toEqual([]);
+    });
+  });
+});
+
+describe.skipIf(!surrealUrl)("the indexes of a new table", () => {
+  const schema = () => ({
+    item: s
+      .model({ id: s.string().id(), email: s.string().unique(), rank: s.int() })
+      .index(["rank"]),
+  });
+
+  it("build in the background, and push returns once each is ready", async () => {
+    const driver = createSurrealRecordingDriver();
+    const db = clientOf(schema(), driver);
+    await using(db, async () => {
+      await (driver as unknown as { fresh(): Promise<void> }).fresh();
+      const applied = await push(db);
+      expect(
+        statements(applied).filter((sql) => sql.startsWith("DEFINE INDEX"))
+      ).toEqual([
+        "DEFINE INDEX item_email_key ON item FIELDS email UNIQUE CONCURRENTLY;",
+        "DEFINE INDEX item_rank_idx ON item FIELDS rank CONCURRENTLY;",
+      ]);
+      // Their builds were read once the program had run, and push returned after.
+      const defined = driver.statements.findLastIndex((sql) =>
+        sql.includes("CONCURRENTLY")
+      );
+      expect(
+        driver.statements
+          .slice(defined)
+          .some((sql) => sql.includes("INFO FOR INDEX"))
+      ).toBe(true);
+      expect(
+        await raw(
+          db,
+          "RETURN [{ email: (INFO FOR INDEX item_email_key ON item).building.status, rank: (INFO FOR INDEX item_rank_idx ON item).building.status }]"
+        )
+      ).toEqual([{ email: "ready", rank: "ready" }]);
+      await db.item.create({ data: { id: "a", email: "same", rank: 1 } });
+      await expect(
+        db.item.create({ data: { id: "b", email: "same", rank: 2 } })
+      ).rejects.toThrow();
+      expect((await preview(db)).outcome).toBe("noop");
+    });
+  });
+
+  it("a build that fails refuses the push by name, its statements committed", async () => {
+    const driver = createSurrealRecordingDriver();
+    // Two rows holding one email, written in the push's own transaction just
+    // ahead of the unique index over it.
+    const execute = (driver as any).execute.bind(driver);
+    (driver as any).execute = (
+      client: never,
+      statement: string,
+      params: unknown[]
+    ) =>
+      execute(
+        client,
+        statement.includes("UNIQUE CONCURRENTLY")
+          ? `CREATE item:a SET email = "same", rank = 1; CREATE item:b SET email = "same", rank = 2; ${statement}`
+          : statement,
+        params
+      );
+    const db = clientOf(schema(), driver);
+    await using(db, async () => {
+      await (driver as unknown as { fresh(): Promise<void> }).fresh();
+      await expect(push(db)).rejects.toMatchObject({
+        code: "V11023",
+        message: expect.stringMatching(BUILD_FAILED),
+        meta: { table: "item", indexName: "item_email_key" },
+      });
+      // What the program did is there, and the lock is let go.
+      expect(await raw(db, "SELECT email FROM item ORDER BY id")).toEqual([
+        { email: "same" },
+        { email: "same" },
+      ]);
       expect(await raw(db, "SELECT * FROM viborm_migration_lock")).toEqual([]);
     });
   });

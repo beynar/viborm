@@ -334,7 +334,17 @@ describe.skipIf(!surrealUrl)("what SQL can change in place", () => {
         data: { id: "p", email: "e", children: { create: { id: "c" } } },
       });
       const second: any = createClient({ schema: family("renamed"), driver });
-      await pushing(second);
+      const moved = await pushing(second);
+      // The copy writes rows into the new table: its unique refuses a duplicate
+      // at once, not in a build behind the push.
+      expect(
+        moved.statements
+          .map(({ sql }: { sql: string }) => sql)
+          .filter((sql: string) => sql.startsWith("DEFINE INDEX"))
+      ).toEqual([
+        "DEFINE INDEX parent_email_key ON renamed FIELDS email UNIQUE;",
+        "DEFINE INDEX renamed_email_key ON renamed FIELDS email UNIQUE;",
+      ]);
       expect(await second.child.findMany()).toEqual([{ id: "c", email: "e" }]);
       await expect(createMigrationClient(second).push()).resolves.toMatchObject(
         { outcome: "noop" }

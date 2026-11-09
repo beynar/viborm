@@ -60,12 +60,20 @@ assertion and no MySQL- or SQLite-style provider limit applies.
 - A plain or unique index is `DEFINE INDEX … FIELDS … [UNIQUE]`. A `spatial`, `gin` or `fulltext`
   declaration is kept as a plain index (its kind is in the comment), and reads through it scan as
   they would without.
+- An index of a table the same migration creates (its uniques, its plain and partial indexes, a
+  generated junction's) ends in `CONCURRENTLY`: it builds in the background once the transaction
+  commits, instead of inside it, which on SurrealDB Cloud is a fraction of a second per index instead
+  of up to a minute. No row can be in that table yet. An index added to a table that already exists
+  is built at once, without `CONCURRENTLY`, so a unique the rows break refuses before anything
+  commits. A renamed table, whose rows are copied into a new one, and a key change are built at
+  once too. `INFO FOR TABLE` reads both forms back alike.
 - A partial unique index is a computed field the index covers. Its predicate may hold comparisons,
   `IN`, `IS [NOT] NULL`, `AND`, `OR` and `NOT` over columns and values, a key's column reading its
   record's id; anything else is refused by name.
 - An HNSW, a search or any other index kind is declared with
   [`.rawIndex()`](/docs/schema/model#rawindexname-templates). Its `surrealdb` text cannot say
-  `COMMENT` or `CONCURRENTLY`: VibORM appends the comment that marks it as its own.
+  `COMMENT` or `CONCURRENTLY`: VibORM appends the comment that marks it as its own, and builds it at
+  once, on a new table too.
 - An index VibORM did not define (another kind, or a comment of someone else's) refuses
   synchronization before effects while its table is managed, and is left as it is: drop it, and
   declare it. A table or field comment that is not VibORM's JSON refuses the same way. Outside the
@@ -80,6 +88,16 @@ a state the next `push` plans from.
 
 - **Renaming a table or a field, and changing a key,** copy the rows, since SurrealDB has no rename
   and a record's id never changes. The copy is not atomic.
+- **An index built in the background** is waited for before the command returns, the lock still
+  held: once the program commits, VibORM reads `INFO FOR INDEX` of every index of the managed tables
+  until none is building, pausing from 50 ms to 2 s between reads, for at most 5 minutes. Until its
+  build is `ready` a unique index lets a duplicate in, after which the build fails and its table
+  refuses every write. A build that failed, or one still going after 5 minutes, fails the command
+  with `V11023` (`MIGRATION_INVALID_INDEX`), naming the index, its table and the server's reason;
+  the migration's statements stay committed. Remove the duplicate values and run `REBUILD INDEX`, or
+  `REMOVE INDEX`. A program defining no index `CONCURRENTLY` reads nothing more. A row a hand-written
+  step of the same migration writes into the new table is in the build: a duplicate there fails it
+  the same way.
 - **`reset`** replays the whole history. A history holding a column rename conflicts with itself
   there (`V5001`); `push` and `apply` are not affected.
 - **Concurrent commands** take a lock record, `viborm_migration_lock:command`, with a 15-minute lease:
