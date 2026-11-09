@@ -1228,8 +1228,11 @@ included) fails V11014 before the marker moves. What changes behaviour and no
 snapshot states (triggers, conflict clauses, collations, engine, storage, row
 security, CHECK, deferrable keys: each dialect's `adoptionHazards`) is
 refused, V11014 naming table and feature, by `proof.ts` `assertAdoptable`,
-which apply and reset run before effects over the tables their path adopts
-and nothing else asks. The enum an adopted table uses joins the program's
+which apply, reset, baseline, reanchor and resolve (complete or retry) run
+before effects over the tables their path adopts, and nothing else asks. Known
+gap, documented (Arnaud, 2026-11-09): a stepwise apply (MySQL, Neki) whose
+later edge CREATEs a table that already exists by hand skips that proven step,
+as a resume does, and takes the table over without `adopts`. The enum an adopted table uses joins the program's
 origin, so a new table's DDL qualifies it. `down` releases it with no
 DDL. Manual, low-lock and checkpoint states adopt nothing.
 
