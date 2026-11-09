@@ -339,6 +339,14 @@ export function serializeResolvedModels(
         VibORMErrorCode.INVALID_INPUT,
         { meta: { model: modelName, field: incremented.name } }
       );
+    // A model without an ID (M001, refused by validation unless the caller
+    // skipped it) has no key to cluster on: the option would be dropped.
+    if (withoutRowid && pkColumns.length === 0)
+      throw new MigrationError(
+        `"${modelName}" is declared withoutRowid and has no ID: SQLite's WITHOUT ROWID needs a primary key`,
+        VibORMErrorCode.INVALID_INPUT,
+        { meta: { model: modelName } }
+      );
     if (pkColumns.length > 0) {
       primaryKey = {
         columns: pkColumns,

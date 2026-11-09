@@ -26,6 +26,7 @@ const ENDS_WITHOUT_ROWID = /\)\s*WITHOUT ROWID$/;
 const NOTE_NOT_NULL = /"note" TEXT NOT NULL/;
 const ONLY_TRUE = /withoutRowid must be true/;
 const NEEDS_ROWID = /AUTOINCREMENT needs a rowid/;
+const NEEDS_KEY = /WITHOUT ROWID needs a primary key/;
 
 const tableSql = async (
   driver: ReturnType<typeof createInMemorySQLite3Driver>
@@ -199,5 +200,30 @@ describe("withoutRowid in the snapshot", () => {
       serializeModels({ counter }, { migrationDriver: postgresMigrationDriver })
         .tables[0]!.primaryKey
     ).toEqual({ columns: ["id"], name: "counter_pkey" });
+  });
+});
+
+describe("withoutRowid on a model without an ID", () => {
+  // Validation refuses the model itself (M001); without validation the
+  // serializer is the only place that sees the option would be dropped.
+  const keyless = () =>
+    s.model({ a: s.string(), b: s.int() }).map("nopk").withoutRowid();
+
+  it("is refused on SQLite instead of being dropped", () => {
+    expect(validateSchema({ keyless: keyless() }).errors).toMatchObject([
+      { code: "M001" },
+    ]);
+    expect(() =>
+      serializeModels(
+        { keyless: keyless() },
+        { migrationDriver: sqlite3MigrationDriver }
+      )
+    ).toThrow(NEEDS_KEY);
+    expect(
+      serializeModels(
+        { keyless: keyless() },
+        { migrationDriver: postgresMigrationDriver }
+      ).tables[0]!.primaryKey
+    ).toBeUndefined();
   });
 });
