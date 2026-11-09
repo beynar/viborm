@@ -10,6 +10,7 @@ export default defineMeta({
     "scalars",
     "relations",
     "json",
+    "introspect",
     "native-types",
     "validation",
   ],

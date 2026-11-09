@@ -10,7 +10,11 @@
 import { PgDriver } from "@drivers/pg";
 import { introspectSchema } from "@migrations/introspect";
 import { afterAll, describe, expect, it } from "vitest";
-import { RICH_POSTGRES_SQL, RICH_SKIPPED_SQL, RICH_TABLES } from "./_introspect-fixtures";
+import {
+  RICH_POSTGRES_SQL,
+  RICH_SKIPPED_SQL,
+  RICH_TABLES,
+} from "./_introspect-fixtures";
 import { postgresIntrospectionSuite } from "./_introspect-postgres-suite";
 
 const CONNECTION_STRING = process.env.PG_TEST_CONNECTION_STRING;
@@ -44,7 +48,10 @@ describeIfDocker("introspectSchema on PostgreSQL (docker)", () => {
     const admin = new PgDriver({ databaseUrl: CONNECTION_STRING });
     try {
       for (const name of created)
-        await admin._executeRaw(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`, []);
+        await admin._executeRaw(
+          `DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`,
+          []
+        );
     } finally {
       await admin.disconnect();
     }
@@ -52,7 +59,9 @@ describeIfDocker("introspectSchema on PostgreSQL (docker)", () => {
 
   postgresIntrospectionSuite({
     async fresh() {
-      const driver = new PgDriver({ databaseUrl: urlFor(await freshDatabase()) });
+      const driver = new PgDriver({
+        databaseUrl: urlFor(await freshDatabase()),
+      });
       opened.push(driver);
       return driver;
     },
@@ -67,13 +76,23 @@ describeIfDocker("introspectSchema on PostgreSQL (docker)", () => {
     } finally {
       await setup.disconnect();
     }
-    const scoped = await introspectSchema({ url: urlFor(name), tables: RICH_TABLES });
+    const scoped = await introspectSchema({
+      url: urlFor(name),
+      tables: RICH_TABLES,
+    });
     expect(scoped.dialect).toBe("postgresql");
-    expect(scoped.warnings.filter((warning) => warning.kind === "drift")).toEqual([]);
+    expect(
+      scoped.warnings.filter((warning) => warning.kind === "drift")
+    ).toEqual([]);
     const all = await introspectSchema({ url: urlFor(name) });
     expect(all.document).toEqual(scoped.document);
     expect(all.skipped.map((item) => item.name)).toEqual(
-      expect.arrayContaining(["audit_log", "account_emails", "ledger", "account_email_shape"])
+      expect.arrayContaining([
+        "audit_log",
+        "account_emails",
+        "ledger",
+        "account_email_shape",
+      ])
     );
     const probe = new PgDriver({ databaseUrl: CONNECTION_STRING });
     try {

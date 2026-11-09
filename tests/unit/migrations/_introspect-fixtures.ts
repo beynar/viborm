@@ -1,3 +1,5 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: expectEmptyRoundTrip is the shared contract each round-trip test calls inside its own it().
+
 /**
  * Shared estates for `introspectSchema` round trips.
  *

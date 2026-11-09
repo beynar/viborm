@@ -6,12 +6,12 @@
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers/driver";
 import { createMigrationClient } from "@migrations";
+import { diff } from "@migrations/differ";
+import { getMigrationDriver } from "@migrations/drivers";
 import { introspectSchema } from "@migrations/introspect";
 import { serializeModels } from "@migrations/serializer";
-import { getMigrationDriver } from "@migrations/drivers";
 import { parseSchema, serializeSchema } from "@schema/json";
 import { describe, expect, it } from "vitest";
-import { diff } from "@migrations/differ";
 import {
   codedSchema,
   expectEmptyRoundTrip,
@@ -34,7 +34,10 @@ export function postgresIntrospectionSuite(estate: PostgresEstate) {
     it("round-trips to an EMPTY push plan, and serves relation queries", async () => {
       const driver = await estate.fresh();
       await run(driver, RICH_POSTGRES_SQL);
-      const { result, client } = await expectEmptyRoundTrip(driver, RICH_TABLES);
+      const { result, client } = await expectEmptyRoundTrip(
+        driver,
+        RICH_TABLES
+      );
       const { document } = result;
 
       // Names are the database's own. `post_tag` is exactly the junction a
@@ -62,8 +65,14 @@ export function postgresIntrospectionSuite(estate: PostgresEstate) {
         name: "post_reviewer_id_fkey",
       });
       const account = document.models.account!.fields;
-      expect(account.post_by_author).toMatchObject({ type: "toMany", target: "post" });
-      expect(account.post_by_reviewer).toMatchObject({ type: "toMany", target: "post" });
+      expect(account.post_by_author).toMatchObject({
+        type: "toMany",
+        target: "post",
+      });
+      expect(account.post_by_reviewer).toMatchObject({
+        type: "toMany",
+        target: "post",
+      });
       expect(account.profile).toEqual({ type: "toOne", target: "profile" });
       expect(account.email).toEqual({
         type: "string",
@@ -71,16 +80,22 @@ export function postgresIntrospectionSuite(estate: PostgresEstate) {
         unique: true,
       });
       expect(account.role).toMatchObject({ type: "enum", default: "member" });
-      expect(account.id).toMatchObject({ type: "string", id: true, generate: { kind: "uuid" } });
+      expect(account.id).toMatchObject({
+        type: "string",
+        id: true,
+        generate: { kind: "uuid" },
+      });
       expect(document.models.category!.fields.parent).toMatchObject({
         type: "toOne",
         target: "category",
         name: "category_parent_id_fkey",
       });
-      expect(document.models.category!.fields.category_by_parent).toMatchObject({
-        type: "toMany",
-        target: "category",
-      });
+      expect(document.models.category!.fields.category_by_parent).toMatchObject(
+        {
+          type: "toMany",
+          target: "category",
+        }
+      );
       // The pure join table: a many-to-many on both ends.
       expect(post.tag).toMatchObject({ type: "toMany", target: "tag" });
       expect(document.models.tag!.fields.post).toMatchObject({
@@ -107,7 +122,9 @@ export function postgresIntrospectionSuite(estate: PostgresEstate) {
       });
       expect(typeof created.id).toBe("bigint");
       expect(created.author.email).toBe("ada@example.com");
-      expect(created.tag.map((item: { label: string }) => item.label)).toEqual(["orm"]);
+      expect(created.tag.map((item: { label: string }) => item.label)).toEqual([
+        "orm",
+      ]);
       const authors = await db.account.findMany({
         include: { post_by_author: { include: { tag: true } } },
       });
@@ -121,14 +138,20 @@ export function postgresIntrospectionSuite(estate: PostgresEstate) {
         where: { id: root.id },
         include: { category_by_parent: true },
       });
-      expect(tree.category_by_parent.map((c: { name: string }) => c.name)).toEqual(["child"]);
+      expect(
+        tree.category_by_parent.map((c: { name: string }) => c.name)
+      ).toEqual(["child"]);
     });
 
     it("lists what it cannot state, and still round-trips the rest", async () => {
       const driver = await estate.fresh();
       await run(driver, [...RICH_POSTGRES_SQL, ...RICH_SKIPPED_SQL]);
       const result = await introspectSchema({ driver });
-      const skipped = result.skipped.map((item) => [item.kind, item.table ?? "", item.name]);
+      const skipped = result.skipped.map((item) => [
+        item.kind,
+        item.table ?? "",
+        item.name,
+      ]);
       expect(skipped).toEqual(
         expect.arrayContaining([
           ["table", "", "audit_log"],
@@ -137,11 +160,41 @@ export function postgresIntrospectionSuite(estate: PostgresEstate) {
           ["check", "account", "account_email_shape"],
         ])
       );
-      expect(result.skipped.find((item) => item.name === "ledger")?.reason).toContain("generated");
+      expect(
+        result.skipped.find((item) => item.name === "ledger")?.reason
+      ).toContain("generated");
       expect(Object.keys(result.document.models)).not.toContain("audit_log");
       // The rest is exact.
-      expect(result.warnings.filter((warning) => warning.kind === "drift")).toEqual([]);
+      expect(
+        result.warnings.filter((warning) => warning.kind === "drift")
+      ).toEqual([]);
     });
+  });
+
+  it("reports, as drift, what a document states exactly but push would still change", async () => {
+    const driver = await estate.fresh();
+    await run(driver, [
+      "CREATE TABLE owner (id integer PRIMARY KEY)",
+      "CREATE TABLE pet (id integer PRIMARY KEY, owner_id integer NOT NULL, born timestamptz NOT NULL DEFAULT now(), CONSTRAINT fk_pet_owner FOREIGN KEY (owner_id) REFERENCES owner(id))",
+    ]);
+    const result = await introspectSchema({ driver });
+    expect(result.document.models.pet!.fields.owner).toMatchObject({
+      type: "toOne",
+      target: "owner",
+    });
+    expect(
+      result.warnings.map((warning) => [
+        warning.kind,
+        warning.table,
+        warning.name,
+      ])
+    ).toEqual([
+      ["drift", "pet", "fk_pet_owner"],
+      ["drift", "pet", "born"],
+      ["drift", "pet", "pet_owner_id_idx"],
+    ]);
+    expect(result.warnings[0]!.message).toContain('"pet_owner_id_fkey"');
+    expect(result.warnings[1]!.message).toContain("date_trunc('milliseconds'");
   });
 
   describe("a database VibORM pushed", () => {
@@ -168,7 +221,11 @@ export function postgresIntrospectionSuite(estate: PostgresEstate) {
       // The relations are found again: the same pairs, the many-to-many as a
       // generated junction.
       const { models } = result.document;
-      expect(Object.keys(models).sort()).toEqual(["article", "members", "topic"]);
+      expect(Object.keys(models).sort()).toEqual([
+        "article",
+        "members",
+        "topic",
+      ]);
       expect(models.article!.fields.author).toMatchObject({
         type: "toOne",
         target: "members",
@@ -187,8 +244,13 @@ export function postgresIntrospectionSuite(estate: PostgresEstate) {
         target: "topic",
         junction: { table: "article_topic" },
       });
-      expect(models.members!.fields.role).toMatchObject({ type: "enum", enum: "member_role" });
-      expect(serializeSchema(parseSchema(result.document))).toEqual(result.document);
+      expect(models.members!.fields.role).toMatchObject({
+        type: "enum",
+        enum: "member_role",
+      });
+      expect(serializeSchema(parseSchema(result.document))).toEqual(
+        result.document
+      );
     });
   });
 }

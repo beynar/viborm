@@ -66,11 +66,19 @@ const RICH_SQLITE_SQL = [
   )`,
   "CREATE INDEX post_tag_tag_id_idx ON post_tag (tag_id)",
 ];
-const RICH_TABLES = ["account", "profile", "category", "post", "tag", "post_tag"];
+const RICH_TABLES = [
+  "account",
+  "profile",
+  "category",
+  "post",
+  "tag",
+  "post_tag",
+];
 
 const directories: string[] = [];
 afterAll(() => {
-  for (const directory of directories) rmSync(directory, { recursive: true, force: true });
+  for (const directory of directories)
+    rmSync(directory, { recursive: true, force: true });
 });
 
 function richDatabase(): Database.Database {
@@ -85,7 +93,13 @@ describe("introspectSchema on SQLite", () => {
     const driver = new SQLite3Driver({ client: richDatabase() });
     const { result, client } = await expectEmptyRoundTrip(driver, RICH_TABLES);
     const { models } = result.document;
-    expect(Object.keys(models).sort()).toEqual(["account", "category", "post", "profile", "tag"]);
+    expect(Object.keys(models).sort()).toEqual([
+      "account",
+      "category",
+      "post",
+      "profile",
+      "tag",
+    ]);
     expect(models.post!.fields.author).toMatchObject({
       type: "toOne",
       target: "account",
@@ -102,12 +116,20 @@ describe("introspectSchema on SQLite", () => {
       type: "datetime",
       generate: { kind: "now" },
     });
-    expect(models.account!.fields.profile).toEqual({ type: "toOne", target: "profile" });
-    expect(models.post!.fields.tag).toMatchObject({ type: "toMany", target: "tag" });
+    expect(models.account!.fields.profile).toEqual({
+      type: "toOne",
+      target: "profile",
+    });
+    expect(models.post!.fields.tag).toMatchObject({
+      type: "toMany",
+      target: "tag",
+    });
     expect(result.warnings).toEqual([]);
 
     const db = client as any;
-    const author = await db.account.create({ data: { email: "ada@example.com" } });
+    const author = await db.account.create({
+      data: { email: "ada@example.com" },
+    });
     expect(author.created_at).toBeInstanceOf(Date);
     const tag = await db.tag.create({ data: { id: 1, label: "orm" } });
     await db.post.create({
@@ -127,7 +149,9 @@ describe("introspectSchema on SQLite", () => {
     const driver = new SQLite3Driver({ dataDir: ":memory:" });
     const pusher = createClient({ schema: codedSchema(), driver });
     const migrations = createMigrationClient(pusher);
-    await migrations.push({ consent: (await migrations.push({ dryRun: true })).consent });
+    await migrations.push({
+      consent: (await migrations.push({ dryRun: true })).consent,
+    });
     const { result } = await expectEmptyRoundTrip(driver, [
       "members",
       "article",
@@ -135,13 +159,28 @@ describe("introspectSchema on SQLite", () => {
       "article_topic",
     ]);
     const migrationDriver = getMigrationDriver(driver);
-    const fromDocument = serializeModels(parseSchema(result.document), { migrationDriver });
+    const fromDocument = serializeModels(parseSchema(result.document), {
+      migrationDriver,
+    });
     const fromCode = serializeModels(codedSchema(), { migrationDriver });
-    expect((await diff(fromCode, fromDocument, { matchConstraintsByShape: true })).operations).toEqual([]);
-    expect((await diff(fromDocument, fromCode, { matchConstraintsByShape: true })).operations).toEqual([]);
+    expect(
+      (await diff(fromCode, fromDocument, { matchConstraintsByShape: true }))
+        .operations
+    ).toEqual([]);
+    expect(
+      (await diff(fromDocument, fromCode, { matchConstraintsByShape: true }))
+        .operations
+    ).toEqual([]);
     const { models } = result.document;
-    expect(models.members!.fields.createdAt).toEqual({ type: "datetime", generate: { kind: "now" } });
-    expect(models.members!.fields.balance).toMatchObject({ type: "decimal", precision: 10, scale: 2 });
+    expect(models.members!.fields.createdAt).toEqual({
+      type: "datetime",
+      generate: { kind: "now" },
+    });
+    expect(models.members!.fields.balance).toMatchObject({
+      type: "decimal",
+      precision: 10,
+      scale: 2,
+    });
     expect(models.topic!.fields.article).toMatchObject({
       type: "toMany",
       target: "article",
@@ -158,7 +197,12 @@ describe("introspectSchema on SQLite", () => {
         .filter((warning) => warning.kind === "approximated")
         .map((warning) => `${warning.table}.${warning.name}`)
         .sort()
-    ).toEqual(["article.authorId", "article.editorId", "members.id", "members.mentorId"]);
+    ).toEqual([
+      "article.authorId",
+      "article.editorId",
+      "members.id",
+      "members.mentorId",
+    ]);
   });
 
   it("opens a file: URL read-only, closes it, and reports views and keyless tables", async () => {
@@ -184,6 +228,17 @@ describe("introspectSchema on SQLite", () => {
     const again = new Database(path);
     again.exec("DROP VIEW account_emails");
     again.close();
-    await expect(introspectSchema({ url: `file:${join(directory, "missing.db")}` })).rejects.toThrow();
+    await expect(
+      introspectSchema({ url: `file:${join(directory, "missing.db")}` })
+    ).rejects.toThrow();
+  });
+
+  it("refuses, by name, a database it does not translate yet", async () => {
+    await expect(
+      introspectSchema({ url: "mysql://root@127.0.0.1:3307/app" })
+    ).rejects.toThrow("does not translate MySQL yet");
+    await expect(
+      introspectSchema({ url: "redis://127.0.0.1" })
+    ).rejects.toThrow("cannot tell which database");
   });
 });

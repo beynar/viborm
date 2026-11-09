@@ -318,6 +318,7 @@ export default defineWorkspace([
     "tests/unit/migrations/postgres-transaction-pooler-docker.test.ts",
     "tests/unit/migrations/neon-http-batch-apply-docker.test.ts",
     "tests/unit/migrations/shared-pool-estates-docker.test.ts",
+    "tests/unit/migrations/introspect-schema-docker.test.ts",
   ]),
   // Push, generate and apply again, through a transaction-mode PgBouncer. Only
   // PGBOUNCER_TEST_CONNECTION_STRING is read: unset, the project skips rather

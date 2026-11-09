@@ -28,7 +28,10 @@ interface PullCliOptions {
   readonly tables?: readonly string[];
 }
 
-function located(item: { table?: string | undefined; name?: string | undefined }) {
+function located(item: {
+  table?: string | undefined;
+  name?: string | undefined;
+}) {
   return [item.table, item.name].filter(Boolean).join(".");
 }
 
@@ -46,7 +49,9 @@ export function formatPullReport(
   if (warnings.length > 0) {
     lines.push(`Warnings (${warnings.length}):`);
     for (const warning of warnings)
-      lines.push(`  - [${warning.kind}] ${located(warning)}: ${warning.message}`);
+      lines.push(
+        `  - [${warning.kind}] ${located(warning)}: ${warning.message}`
+      );
   }
   return lines.length === 0
     ? "The document states the whole database; a push of it plans nothing.\n"
@@ -95,7 +100,10 @@ export function createPullCommand(): Command {
       "Only these tables (exact physical names, space- or comma-separated)",
       (value: string, previous: string[] | undefined) => [
         ...(previous ?? []),
-        ...value.split(",").map((name) => name.trim()).filter(Boolean),
+        ...value
+          .split(",")
+          .map((name) => name.trim())
+          .filter(Boolean),
       ]
     )
     .action(runPull);

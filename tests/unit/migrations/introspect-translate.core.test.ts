@@ -77,7 +77,9 @@ function translate(
     snapshot: { tables, enums: options.enums },
     dialect,
     migrationDriver:
-      dialect === "postgresql" ? postgresMigrationDriver : sqlite3MigrationDriver,
+      dialect === "postgresql"
+        ? postgresMigrationDriver
+        : sqlite3MigrationDriver,
     identityColumns: new Set(options.identity ?? []),
     junctionModels: new Set(options.junctionModels ?? []),
   });
@@ -87,10 +89,9 @@ function translate(
 
 /** One column of a one-table PostgreSQL database, as a field. */
 function pgField(def: ColumnDef, enums?: EnumDef[]) {
-  const result = translate(
-    [table("t", [column("id", "integer"), def])],
-    { enums }
-  );
+  const result = translate([table("t", [column("id", "integer"), def])], {
+    enums,
+  });
   return {
     field: result.document.models.t?.fields[def.name],
     skipped: result.skipped,
@@ -102,12 +103,18 @@ function pgField(def: ColumnDef, enums?: EnumDef[]) {
 describe("PostgreSQL types", () => {
   it.each([
     ["text", { type: "string" }],
-    ["character varying(80)", { type: "string", native: { db: "pg", type: "varchar(80)" } }],
+    [
+      "character varying(80)",
+      { type: "string", native: { db: "pg", type: "varchar(80)" } },
+    ],
     ["character(2)", { type: "string", native: { db: "pg", type: "char(2)" } }],
     ["citext", { type: "string", native: { db: "pg", type: "citext" } }],
     ["inet", { type: "string", native: { db: "pg", type: "inet" } }],
     ["uuid", { type: "string", generate: { kind: "uuid", generate: false } }],
-    ["uuid[]", { type: "string", native: { db: "pg", type: "uuid" }, array: true }],
+    [
+      "uuid[]",
+      { type: "string", native: { db: "pg", type: "uuid" }, array: true },
+    ],
     ["integer", { type: "int" }],
     ["smallint", { type: "int", native: { db: "pg", type: "smallint" } }],
     ["bigint", { type: "bigint" }],
@@ -119,11 +126,30 @@ describe("PostgreSQL types", () => {
     ["jsonb", { type: "json" }],
     ["json", { type: "json", native: { db: "pg", type: "json" } }],
     ["timestamp(3) with time zone", { type: "datetime" }],
-    ["timestamp with time zone", { type: "datetime", native: { db: "pg", type: "timestamptz" } }],
-    ["timestamp(3) without time zone", { type: "datetime", withoutTimezone: true }],
-    ["timestamp(6) without time zone", { type: "datetime", withoutTimezone: true, native: { db: "pg", type: "timestamp(6)" } }],
-    ["time without time zone", { type: "time", native: { db: "pg", type: "time" } }],
-    ["time(3) with time zone", { type: "time", native: { db: "pg", type: "timetz(3)" } }],
+    [
+      "timestamp with time zone",
+      { type: "datetime", native: { db: "pg", type: "timestamptz" } },
+    ],
+    [
+      "timestamp(3) without time zone",
+      { type: "datetime", withoutTimezone: true },
+    ],
+    [
+      "timestamp(6) without time zone",
+      {
+        type: "datetime",
+        withoutTimezone: true,
+        native: { db: "pg", type: "timestamp(6)" },
+      },
+    ],
+    [
+      "time without time zone",
+      { type: "time", native: { db: "pg", type: "time" } },
+    ],
+    [
+      "time(3) with time zone",
+      { type: "time", native: { db: "pg", type: "timetz(3)" } },
+    ],
     ["integer[]", { type: "int", array: true }],
   ])("%s", (type, expected) => {
     expect(pgField(column("c", type)).field).toMatchObject(expected);
@@ -131,8 +157,11 @@ describe("PostgreSQL types", () => {
 
   it("reads a decimal from the column's own descriptor", () => {
     expect(
-      pgField(column("c", "numeric(12,4)", { decimal: { precision: 12, scale: 4 } as never }))
-        .field
+      pgField(
+        column("c", "numeric(12,4)", {
+          decimal: { precision: 12, scale: 4 } as never,
+        })
+      ).field
     ).toMatchObject({ type: "decimal", precision: 12, scale: 4 });
   });
 
@@ -146,7 +175,12 @@ describe("PostgreSQL types", () => {
     const { field, skipped } = pgField(column("c", type));
     expect(field).toBeUndefined();
     expect(skipped).toEqual([
-      expect.objectContaining({ kind: "column", table: "t", name: "c", reason: expect.stringContaining(reason) }),
+      expect.objectContaining({
+        kind: "column",
+        table: "t",
+        name: "c",
+        reason: expect.stringContaining(reason),
+      }),
     ]);
   });
 
@@ -163,15 +197,37 @@ describe("PostgreSQL defaults", () => {
     [column("c", "text", { default: "'it''s'" }), { default: "it's" }],
     [column("c", "integer", { default: "42" }), { default: 42 }],
     [column("c", "double precision", { default: "2.5" }), { default: 2.5 }],
-    [column("c", "bigint", { default: "'9007199254740993'" }), { default: { $bigint: "9007199254740993" } }],
+    [
+      column("c", "bigint", { default: "'9007199254740993'" }),
+      { default: { $bigint: "9007199254740993" } },
+    ],
     [column("c", "boolean", { default: "false" }), { default: false }],
     [column("c", "jsonb", { default: `'{"a": 1}'` }), { default: { a: 1 } }],
-    [column("c", "jsonb", { default: `'{"$date": "x"}'` }), { default: { $raw: { $date: "x" } } }],
+    [
+      column("c", "jsonb", { default: `'{"$date": "x"}'` }),
+      { default: { $raw: { $date: "x" } } },
+    ],
     [column("c", "text[]", { default: "'{a,b}'" }), { default: ["a", "b"] }],
-    [column("c", "timestamp(3) with time zone", { default: "CURRENT_TIMESTAMP" }), { generate: { kind: "now" } }],
-    [column("c", "timestamp(3) with time zone", { default: "'2020-01-02 03:04:05+00'" }), { default: "2020-01-02T03:04:05.000Z" }],
-    [column("c", "uuid", { default: "gen_random_uuid()" }), { generate: { kind: "uuid" } }],
-    [column("c", "integer", { autoIncrement: true }), { generate: { kind: "increment" } }],
+    [
+      column("c", "timestamp(3) with time zone", {
+        default: "CURRENT_TIMESTAMP",
+      }),
+      { generate: { kind: "now" } },
+    ],
+    [
+      column("c", "timestamp(3) with time zone", {
+        default: "'2020-01-02 03:04:05+00'",
+      }),
+      { default: "2020-01-02T03:04:05.000Z" },
+    ],
+    [
+      column("c", "uuid", { default: "gen_random_uuid()" }),
+      { generate: { kind: "uuid" } },
+    ],
+    [
+      column("c", "integer", { autoIncrement: true }),
+      { generate: { kind: "increment" } },
+    ],
   ])("%o", (def, expected) => {
     const { field, skipped } = pgField(def);
     expect(field).toMatchObject(expected);
@@ -179,9 +235,12 @@ describe("PostgreSQL defaults", () => {
   });
 
   it("reads an identity column as an increment", () => {
-    const result = translate([table("t", [column("id", "bigint"), column("n", "integer")])], {
-      identity: ["t\0id"],
-    });
+    const result = translate(
+      [table("t", [column("id", "bigint"), column("n", "integer")])],
+      {
+        identity: ["t\0id"],
+      }
+    );
     expect(result.document.models.t?.fields.id).toEqual({
       type: "bigint",
       id: true,
@@ -190,7 +249,9 @@ describe("PostgreSQL defaults", () => {
   });
 
   it("skips a default it cannot read, and keeps the column", () => {
-    const { field, skipped } = pgField(column("c", "text", { default: "lower('X'::text)" }));
+    const { field, skipped } = pgField(
+      column("c", "text", { default: "lower('X'::text)" })
+    );
     expect(field).toEqual({ type: "string" });
     expect(skipped).toEqual([
       expect.objectContaining({ kind: "default", table: "t", name: "c" }),
@@ -199,7 +260,10 @@ describe("PostgreSQL defaults", () => {
 
   it("skips an enum default that is not a member", () => {
     const enums = [{ name: "mood", values: ["sad", "ok"] }];
-    const { skipped } = pgField(column("c", "mood", { default: "'happy'" }), enums);
+    const { skipped } = pgField(
+      column("c", "mood", { default: "'happy'" }),
+      enums
+    );
     expect(skipped.map((item) => item.kind)).toEqual(["default"]);
   });
 });
@@ -207,7 +271,11 @@ describe("PostgreSQL defaults", () => {
 describe("keys and names", () => {
   it("keeps database names, maps a reserved one, and skips one `.map()` cannot take", () => {
     const result = translate([
-      table("sales", [column("id", "integer"), column("first name", "text"), column("_count", "integer")]),
+      table("sales", [
+        column("id", "integer"),
+        column("first name", "text"),
+        column("_count", "integer"),
+      ]),
       table("2024 sales", [column("id", "integer")]),
     ]);
     expect(result.document.models).toEqual({
@@ -235,7 +303,9 @@ describe("keys and names", () => {
 
   it("states a compound primary key as `ids`", () => {
     const result = translate([
-      table("t", [column("a", "integer"), column("b", "integer")], { pk: ["a", "b"] }),
+      table("t", [column("a", "integer"), column("b", "integer")], {
+        pk: ["a", "b"],
+      }),
     ]);
     expect(result.document.models.t?.ids).toEqual([{ fields: ["a", "b"] }]);
   });
@@ -265,10 +335,18 @@ describe("keys and names", () => {
 describe("unique constraints and indexes", () => {
   const users = (uniques: UniqueConstraintDef[], indexes: IndexDef[] = []) =>
     translate([
-      table("users", [column("id", "integer"), column("email", "text"), column("org", "integer")], {
-        uniques,
-        indexes,
-      }),
+      table(
+        "users",
+        [
+          column("id", "integer"),
+          column("email", "text"),
+          column("org", "integer"),
+        ],
+        {
+          uniques,
+          indexes,
+        }
+      ),
     ]);
 
   it("reads PostgreSQL's default names as `.unique()` and compound uniques", () => {
@@ -300,10 +378,30 @@ describe("unique constraints and indexes", () => {
     const result = users(
       [],
       [
-        { name: "users_org_idx", columns: ["org"], unique: false, type: "btree" },
-        { name: "users_email_hash", columns: ["email"], unique: false, type: "hash" },
-        { name: "users_live", columns: ["email"], unique: false, where: "org > 0" },
-        { name: "users_raw", columns: ["email"], unique: false, raw: { hash: "x" } },
+        {
+          name: "users_org_idx",
+          columns: ["org"],
+          unique: false,
+          type: "btree",
+        },
+        {
+          name: "users_email_hash",
+          columns: ["email"],
+          unique: false,
+          type: "hash",
+        },
+        {
+          name: "users_live",
+          columns: ["email"],
+          unique: false,
+          where: "org > 0",
+        },
+        {
+          name: "users_raw",
+          columns: ["email"],
+          unique: false,
+          raw: { hash: "x" },
+        },
       ]
     );
     expect(result.document.models.users!.indexes).toEqual([
@@ -324,8 +422,12 @@ describe("relations", () => {
     const result = translate([
       account,
       table("post", [column("id", "integer"), column("author_id", "integer")], {
-        fks: [fk("post", ["author_id"], "account", ["id"], { onDelete: "cascade" })],
-        indexes: [{ name: "post_author_id_idx", columns: ["author_id"], unique: false }],
+        fks: [
+          fk("post", ["author_id"], "account", ["id"], { onDelete: "cascade" }),
+        ],
+        indexes: [
+          { name: "post_author_id_idx", columns: ["author_id"], unique: false },
+        ],
       }),
     ]);
     expect(result.document.models.post!.fields.author).toEqual({
@@ -347,68 +449,118 @@ describe("relations", () => {
       account,
       table(
         "post",
-        [column("id", "integer"), column("author_id", "integer"), column("editor_id", "integer", { nullable: true })],
+        [
+          column("id", "integer"),
+          column("author_id", "integer"),
+          column("editor_id", "integer", { nullable: true }),
+        ],
         {
-          fks: [fk("post", ["author_id"], "account"), fk("post", ["editor_id"], "account")],
+          fks: [
+            fk("post", ["author_id"], "account"),
+            fk("post", ["editor_id"], "account"),
+          ],
         }
       ),
     ]);
     const { post, account: target } = result.document.models;
     expect(post!.fields.author).toMatchObject({ name: "post_author_id_fkey" });
     expect(post!.fields.editor).toMatchObject({ name: "post_editor_id_fkey" });
-    expect(target!.fields.post_by_author).toEqual({ type: "toMany", target: "post", name: "post_author_id_fkey" });
-    expect(target!.fields.post_by_editor).toEqual({ type: "toMany", target: "post", name: "post_editor_id_fkey" });
+    expect(target!.fields.post_by_author).toEqual({
+      type: "toMany",
+      target: "post",
+      name: "post_author_id_fkey",
+    });
+    expect(target!.fields.post_by_editor).toEqual({
+      type: "toMany",
+      target: "post",
+      name: "post_editor_id_fkey",
+    });
   });
 
   it("names a self relation, and a one-to-one inverse is a to-one", () => {
     const result = translate([
-      table("node", [column("id", "integer"), column("parent_id", "integer", { nullable: true })], {
-        fks: [fk("node", ["parent_id"], "node")],
-        uniques: [{ name: "node_parent_id_key", columns: ["parent_id"] }],
-      }),
+      table(
+        "node",
+        [
+          column("id", "integer"),
+          column("parent_id", "integer", { nullable: true }),
+        ],
+        {
+          fks: [fk("node", ["parent_id"], "node")],
+          uniques: [{ name: "node_parent_id_key", columns: ["parent_id"] }],
+        }
+      ),
     ]);
     expect(result.document.models.node!.fields).toMatchObject({
       parent: { type: "toOne", target: "node", name: "node_parent_id_fkey" },
-      node_by_parent: { type: "toOne", target: "node", name: "node_parent_id_fkey" },
+      node_by_parent: {
+        type: "toOne",
+        target: "node",
+        name: "node_parent_id_fkey",
+      },
     });
   });
 
   it("does not let a relation take a column's key", () => {
     const result = translate([
       account,
-      table("post", [column("id", "integer"), column("author_id", "integer"), column("author", "text")], {
-        fks: [fk("post", ["author_id"], "account")],
-      }),
+      table(
+        "post",
+        [
+          column("id", "integer"),
+          column("author_id", "integer"),
+          column("author", "text"),
+        ],
+        {
+          fks: [fk("post", ["author_id"], "account")],
+        }
+      ),
     ]);
-    expect(result.document.models.post!.fields.author).toEqual({ type: "string" });
-    expect(result.document.models.post!.fields.author_2).toMatchObject({ type: "toOne" });
+    expect(result.document.models.post!.fields.author).toEqual({
+      type: "string",
+    });
+    expect(result.document.models.post!.fields.author_2).toMatchObject({
+      type: "toOne",
+    });
   });
 
   it.each([
     [fk("post", ["author_id"], "missing"), "does not declare"],
     [fk("post", ["author_id"], "account", ["code"]), "as a key"],
-    [fk("post", ["author_id"], "account", ["id"], { onDelete: "setDefault" }), "SET DEFAULT"],
+    [
+      fk("post", ["author_id"], "account", ["id"], { onDelete: "setDefault" }),
+      "SET DEFAULT",
+    ],
   ])("skips a foreign key it cannot state: %o", (foreignKey, reason) => {
     const result = translate([
       table("account", [column("id", "integer"), column("code", "integer")]),
-      table("post", [column("id", "integer"), column("author_id", "integer")], { fks: [foreignKey] }),
+      table("post", [column("id", "integer"), column("author_id", "integer")], {
+        fks: [foreignKey],
+      }),
     ]);
     expect(result.document.models.post!.fields.author).toBeUndefined();
     expect(result.skipped).toEqual([
-      expect.objectContaining({ kind: "foreignKey", reason: expect.stringContaining(reason) }),
+      expect.objectContaining({
+        kind: "foreignKey",
+        reason: expect.stringContaining(reason),
+      }),
     ]);
   });
 
   const joinTables = () => [
     table("post", [column("id", "integer")]),
     table("tag", [column("id", "integer")]),
-    table("post_tag", [column("post_id", "integer"), column("tag_id", "integer")], {
-      pk: ["post_id", "tag_id"],
-      fks: [
-        fk("post_tag", ["post_id"], "post", ["id"], { onDelete: "cascade" }),
-        fk("post_tag", ["tag_id"], "tag", ["id"], { onDelete: "cascade" }),
-      ],
-    }),
+    table(
+      "post_tag",
+      [column("post_id", "integer"), column("tag_id", "integer")],
+      {
+        pk: ["post_id", "tag_id"],
+        fks: [
+          fk("post_tag", ["post_id"], "post", ["id"], { onDelete: "cascade" }),
+          fk("post_tag", ["tag_id"], "tag", ["id"], { onDelete: "cascade" }),
+        ],
+      }
+    ),
   ];
 
   it("writes a pure join table as the generated junction of a many-to-many", () => {
@@ -417,9 +569,18 @@ describe("relations", () => {
     expect(result.document.models.post!.fields.tag).toEqual({
       type: "toMany",
       target: "tag",
-      junction: { table: "post_tag", source: "post_id", target: "tag_id", onDelete: "cascade", onUpdate: "noAction" },
+      junction: {
+        table: "post_tag",
+        source: "post_id",
+        target: "tag_id",
+        onDelete: "cascade",
+        onUpdate: "noAction",
+      },
     });
-    expect(result.document.models.tag!.fields.post).toEqual({ type: "toMany", target: "post" });
+    expect(result.document.models.tag!.fields.post).toEqual({
+      type: "toMany",
+      target: "post",
+    });
     expect([...result.generatedJunctions]).toEqual(["post_tag"]);
   });
 
@@ -435,7 +596,10 @@ describe("relations", () => {
       target: "tag",
       junction: { model: "post_tag", source: "post", target: "tag" },
     });
-    expect(post!.fields.post_tag).toEqual({ type: "toMany", target: "post_tag" });
+    expect(post!.fields.post_tag).toEqual({
+      type: "toMany",
+      target: "post_tag",
+    });
   });
 });
 
@@ -466,13 +630,20 @@ describe("enums", () => {
       role: { type: "enum", enum: "member_role" },
       roles: { type: "enum", enum: "member_role", array: true },
     });
-    expect(result.skipped).toEqual([expect.objectContaining({ kind: "enum", name: "orphan" })]);
+    expect(result.skipped).toEqual([
+      expect.objectContaining({ kind: "enum", name: "orphan" }),
+    ]);
   });
 });
 
 describe("SQLite", () => {
-  const sqlite = (columns: ColumnDef[], extra: Parameters<typeof table>[2] = {}) =>
-    translate([table("t", [column("id", "INTEGER"), ...columns], extra)], { dialect: "sqlite" });
+  const sqlite = (
+    columns: ColumnDef[],
+    extra: Parameters<typeof table>[2] = {}
+  ) =>
+    translate([table("t", [column("id", "INTEGER"), ...columns], extra)], {
+      dialect: "sqlite",
+    });
 
   it("reads VibORM's own spellings exactly", () => {
     const result = sqlite([
@@ -480,9 +651,14 @@ describe("SQLite", () => {
       column("score", "REAL", { default: "1.5" }),
       column("data", "JSON", { nullable: true }),
       column("bytes", "BLOB", { nullable: true }),
-      column("at", "TEXT", { default: "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))" }),
+      column("at", "TEXT", {
+        default: "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
+      }),
       column("role", `TEXT CHECK("role" IN ('a', 'b'))`, { default: "'a'" }),
-      column("price", "INTEGER", { default: "150", decimal: { precision: 10, scale: 2 } as never }),
+      column("price", "INTEGER", {
+        default: "150",
+        decimal: { precision: 10, scale: 2 } as never,
+      }),
     ]);
     expect(result.document.models.t!.fields).toMatchObject({
       name: { type: "string" },
@@ -507,7 +683,11 @@ describe("SQLite", () => {
       flag: { type: "boolean", default: false },
       at: { type: "datetime" },
     });
-    expect(result.warnings.map((warning) => warning.name)).toEqual(["name", "flag", "at"]);
+    expect(result.warnings.map((warning) => warning.name)).toEqual([
+      "name",
+      "flag",
+      "at",
+    ]);
   });
 
   it("reads a BLOB key, and a foreign key to it, as the uuid key VibORM stores there", () => {
@@ -525,10 +705,11 @@ describe("SQLite", () => {
       type: "string",
       generate: { kind: "uuid", generate: false },
     });
-    expect(result.document.models.b!.fields.a_id).toMatchObject({ type: "string" });
-    expect(result.warnings.map((warning) => `${warning.table}.${warning.name}`)).toEqual([
-      "a.id",
-      "b.a_id",
-    ]);
+    expect(result.document.models.b!.fields.a_id).toMatchObject({
+      type: "string",
+    });
+    expect(
+      result.warnings.map((warning) => `${warning.table}.${warning.name}`)
+    ).toEqual(["a.id", "b.a_id"]);
   });
 });

@@ -113,7 +113,8 @@ export async function readCatalog(
 
   const identityColumns = new Set<string>();
   if (dialect === "postgresql") {
-    const namespace = migrationDriver.namespace ?? "public";
+    // Binding proved the estate's namespace for PostgreSQL.
+    const namespace = migrationDriver.namespace;
     for (const row of await rows<{ table_name: string; column_name: string }>(
       driver,
       "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = $1 AND is_identity = 'YES'",

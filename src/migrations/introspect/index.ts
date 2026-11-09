@@ -134,7 +134,10 @@ async function introspectDriver(
     const document: SchemaDocument = serializeSchema(
       parseSchema(translation.document)
     );
-    const skipped: SkippedObject[] = [...catalog.skipped, ...translation.skipped];
+    const skipped: SkippedObject[] = [
+      ...catalog.skipped,
+      ...translation.skipped,
+    ];
     const warnings: IntrospectionWarning[] = [
       ...translation.warnings,
       ...verification.warnings,

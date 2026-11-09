@@ -22,6 +22,9 @@ second kind of schema — it is the same models. `createClient`, `push` and the
 query engine consume it unchanged and refuse a bad graph with their own
 diagnostics.
 
+To start from a database that already exists, [`introspectSchema`](/docs/schema/introspect)
+reads it into a document of this format.
+
 The one thing you give up is **type inference**: the model names are strings, so
 the client is an `UntypedClient` — see [The untyped
 client](#the-untyped-client).

@@ -411,6 +411,18 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
     ],
     []
   ),
+  "./schema/introspect": surface(
+    ["introspectSchema"],
+    [
+      "IntrospectSchemaOptions",
+      "IntrospectSchemaResult",
+      "IntrospectionDialect",
+      "IntrospectionWarning",
+      "SkippedKind",
+      "SkippedObject",
+    ],
+    []
+  ),
   "./driver": surface(
     [
       "CheckConstraintError",

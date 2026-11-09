@@ -23,7 +23,11 @@ function describeColumn(column: ColumnDef): string {
 }
 
 function describe(operation: DiffOperation): IntrospectionWarning {
-  const push = (table: string | undefined, name: string | undefined, message: string) => ({
+  const push = (
+    table: string | undefined,
+    name: string | undefined,
+    message: string
+  ) => ({
     kind: "drift" as const,
     table,
     name,
@@ -31,13 +35,29 @@ function describe(operation: DiffOperation): IntrospectionWarning {
   });
   switch (operation.type) {
     case "createTable":
-      return push(operation.table.name, undefined, `create table "${operation.table.name}"`);
+      return push(
+        operation.table.name,
+        undefined,
+        `create table "${operation.table.name}"`
+      );
     case "dropTable":
-      return push(operation.tableName, undefined, `drop table "${operation.tableName}"`);
+      return push(
+        operation.tableName,
+        undefined,
+        `drop table "${operation.tableName}"`
+      );
     case "addColumn":
-      return push(operation.tableName, operation.column.name, `add column "${operation.column.name}" (${describeColumn(operation.column)})`);
+      return push(
+        operation.tableName,
+        operation.column.name,
+        `add column "${operation.column.name}" (${describeColumn(operation.column)})`
+      );
     case "dropColumn":
-      return push(operation.tableName, operation.columnName, `drop column "${operation.columnName}"`);
+      return push(
+        operation.tableName,
+        operation.columnName,
+        `drop column "${operation.columnName}"`
+      );
     case "alterColumn":
       return push(
         operation.tableName,
@@ -45,31 +65,83 @@ function describe(operation: DiffOperation): IntrospectionWarning {
         `alter column "${operation.columnName}" from ${describeColumn(operation.from)} to ${describeColumn(operation.to)}`
       );
     case "createIndex":
-      return push(operation.tableName, operation.index.name, `create index "${operation.index.name}" on (${operation.index.columns.join(", ")})`);
+      return push(
+        operation.tableName,
+        operation.index.name,
+        `create index "${operation.index.name}" on (${operation.index.columns.join(", ")})`
+      );
     case "dropIndex":
-      return push(operation.tableName, operation.indexName, `drop index "${operation.indexName}"`);
+      return push(
+        operation.tableName,
+        operation.indexName,
+        `drop index "${operation.indexName}"`
+      );
     case "addForeignKey":
-      return push(operation.tableName, operation.fk.name, `add foreign key "${operation.fk.name}" on (${operation.fk.columns.join(", ")})`);
+      return push(
+        operation.tableName,
+        operation.fk.name,
+        `add foreign key "${operation.fk.name}" on (${operation.fk.columns.join(", ")})`
+      );
     case "dropForeignKey":
-      return push(operation.tableName, operation.fkName, `drop foreign key "${operation.fkName}"`);
+      return push(
+        operation.tableName,
+        operation.fkName,
+        `drop foreign key "${operation.fkName}"`
+      );
     case "addUniqueConstraint":
-      return push(operation.tableName, operation.constraint.name, `add unique constraint "${operation.constraint.name}" on (${operation.constraint.columns.join(", ")})`);
+      return push(
+        operation.tableName,
+        operation.constraint.name,
+        `add unique constraint "${operation.constraint.name}" on (${operation.constraint.columns.join(", ")})`
+      );
     case "dropUniqueConstraint":
-      return push(operation.tableName, operation.constraintName, `drop unique constraint "${operation.constraintName}"`);
+      return push(
+        operation.tableName,
+        operation.constraintName,
+        `drop unique constraint "${operation.constraintName}"`
+      );
     case "addPrimaryKey":
-      return push(operation.tableName, operation.primaryKey.name, `add a primary key on (${operation.primaryKey.columns.join(", ")})`);
+      return push(
+        operation.tableName,
+        operation.primaryKey.name,
+        `add a primary key on (${operation.primaryKey.columns.join(", ")})`
+      );
     case "dropPrimaryKey":
-      return push(operation.tableName, operation.constraintName, `drop primary key "${operation.constraintName}"`);
+      return push(
+        operation.tableName,
+        operation.constraintName,
+        `drop primary key "${operation.constraintName}"`
+      );
     case "createEnum":
-      return push(undefined, operation.enumDef.name, `create enum "${operation.enumDef.name}"`);
+      return push(
+        undefined,
+        operation.enumDef.name,
+        `create enum "${operation.enumDef.name}"`
+      );
     case "dropEnum":
-      return push(undefined, operation.enumName, `drop enum "${operation.enumName}"`);
+      return push(
+        undefined,
+        operation.enumName,
+        `drop enum "${operation.enumName}"`
+      );
     case "alterEnum":
-      return push(undefined, operation.enumName, `alter enum "${operation.enumName}"`);
+      return push(
+        undefined,
+        operation.enumName,
+        `alter enum "${operation.enumName}"`
+      );
     case "renameTable":
-      return push(operation.from, undefined, `rename table "${operation.from}" to "${operation.to}"`);
+      return push(
+        operation.from,
+        undefined,
+        `rename table "${operation.from}" to "${operation.to}"`
+      );
     case "renameColumn":
-      return push(operation.tableName, operation.from, `rename column "${operation.from}" to "${operation.to}"`);
+      return push(
+        operation.tableName,
+        operation.from,
+        `rename column "${operation.from}" to "${operation.to}"`
+      );
     default:
       return push(undefined, undefined, (operation as { type: string }).type);
   }
@@ -108,7 +180,63 @@ export async function verifyDocument(
     matchConstraintsByShape: !readsNames,
     refuseConstraintNameChurn: false,
   });
-  const warnings = result.operations.map(describe);
+  // On a dialect that reads constraint names, a constraint the database holds
+  // under another name is a drop and an add of one shape. `push` refuses that
+  // rather than renaming it, so the pair is reported as the one fact it is.
+  const renamed = new Set<DiffOperation>();
+  const warnings: IntrospectionWarning[] = [];
+  for (const added of result.operations) {
+    if (added.type !== "addForeignKey" && added.type !== "addUniqueConstraint")
+      continue;
+    const columns = (
+      added.type === "addForeignKey" ? added.fk : added.constraint
+    ).columns.join("\0");
+    const live = current.tables.find((table) => table.name === added.tableName);
+    const dropped = result.operations.find((operation) => {
+      if (renamed.has(operation)) return false;
+      if (
+        added.type === "addForeignKey" &&
+        operation.type === "dropForeignKey" &&
+        operation.tableName === added.tableName
+      )
+        return live?.foreignKeys.some(
+          (fk) =>
+            fk.name === operation.fkName &&
+            fk.columns.join("\0") === columns &&
+            fk.referencedTable === added.fk.referencedTable
+        );
+      if (
+        added.type === "addUniqueConstraint" &&
+        operation.type === "dropUniqueConstraint" &&
+        operation.tableName === added.tableName
+      )
+        return live?.uniqueConstraints.some(
+          (unique) =>
+            unique.name === operation.constraintName &&
+            unique.columns.join("\0") === columns
+        );
+      return false;
+    });
+    if (dropped === undefined) continue;
+    renamed.add(added);
+    renamed.add(dropped);
+    const actual =
+      dropped.type === "dropForeignKey"
+        ? dropped.fkName
+        : dropped.type === "dropUniqueConstraint"
+          ? dropped.constraintName
+          : "";
+    const wanted =
+      added.type === "addForeignKey" ? added.fk.name : added.constraint.name;
+    warnings.push({
+      kind: "drift",
+      table: added.tableName,
+      name: actual,
+      message: `push refuses this table: the constraint "${actual}" is the one VibORM names "${wanted}", and a document cannot name it`,
+    });
+  }
+  for (const operation of result.operations)
+    if (!renamed.has(operation)) warnings.push(describe(operation));
   for (const change of result.ambiguousChanges)
     warnings.push(
       change.type === "ambiguousColumn"
@@ -127,7 +255,9 @@ export async function verifyDocument(
   // A primary key's name is matched by name, never by diff: push refuses one
   // it would have to rename rather than planning anything.
   if (readsNames) {
-    const desiredTables = new Map(desired.tables.map((table) => [table.name, table]));
+    const desiredTables = new Map(
+      desired.tables.map((table) => [table.name, table])
+    );
     for (const table of current.tables) {
       const actual = table.primaryKey?.name;
       const wanted = desiredTables.get(table.name)?.primaryKey?.name;

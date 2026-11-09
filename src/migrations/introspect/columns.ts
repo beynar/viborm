@@ -91,6 +91,7 @@ const NOW_DEFAULTS = new Set([
   // SQLite: VibORM's own millisecond UTC clock.
   "strftime('%Y-%m-%dT%H:%M:%fZ','now')",
 ]);
+const DATE_LITERAL = /^\d{4}-\d{2}-\d{2}$/;
 const PG_TIMESTAMP_LITERAL =
   /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2}(?:\.\d+)?)([+-]\d{2}(?::?\d{2})?|Z)?$/;
 
@@ -137,7 +138,9 @@ function literalValue(
         ? Number(text)
         : undefined;
     case "bigint":
-      return INTEGER.test(text) ? { $bigint: BigInt(text).toString() } : undefined;
+      return INTEGER.test(text)
+        ? { $bigint: BigInt(text).toString() }
+        : undefined;
     case "decimal":
       return NUMBER.test(text) ? text : undefined;
     case "boolean": {
@@ -155,12 +158,14 @@ function literalValue(
     case "datetime": {
       const match = PG_TIMESTAMP_LITERAL.exec(text);
       if (!match) return;
+      // PostgreSQL prints an offset as `+00`; ISO 8601 wants `+00:00`.
       const zone = match[3] ?? "Z";
-      const date = new Date(`${match[1]}T${match[2]}${zone === "Z" ? "Z" : zone.length === 3 ? `${zone}:00` : zone}`);
+      const offset = zone.length === 3 ? `${zone}:00` : zone;
+      const date = new Date(`${match[1]}T${match[2]}${offset}`);
       return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
     }
     case "date":
-      return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : undefined;
+      return DATE_LITERAL.test(text) ? text : undefined;
     default:
       return;
   }
@@ -181,7 +186,11 @@ function readDefault(
   const unsupported = `the default \`${sqlText}\` has no document spelling`;
 
   if (NOW_DEFAULTS.has(normalized)) {
-    if (field.type === "datetime" || field.type === "date" || field.type === "time") {
+    if (
+      field.type === "datetime" ||
+      field.type === "date" ||
+      field.type === "time"
+    ) {
       if (field.array) return unsupported;
       field.generate = { kind: "now" };
       return;
@@ -214,8 +223,7 @@ function readDefault(
                 typeof value === "string"
               )
         );
-        if (members.some((member) => member === undefined))
-          return unsupported;
+        if (members.some((member) => member === undefined)) return unsupported;
         field.default = members as JsonValue[];
         return;
       } catch {

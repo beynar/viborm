@@ -55,8 +55,17 @@ export async function openDriver(url: string): Promise<OpenedDriver> {
       dialect: "sqlite",
     };
   }
+  if (scheme === "mysql" || scheme === "surrealdb" || scheme === "surreal")
+    throw new MigrationError(
+      `introspectSchema does not translate ${scheme === "mysql" ? "MySQL" : "SurrealDB"} yet; PostgreSQL and SQLite are supported.`,
+      VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+      { meta: { feature: "introspect-schema" } }
+    );
   const path = sqlitePath(url);
-  if (path !== undefined && (scheme !== undefined || SQLITE_FILE.test(path) || path === ":memory:")) {
+  if (
+    path !== undefined &&
+    (scheme !== undefined || SQLITE_FILE.test(path) || path === ":memory:")
+  ) {
     const { SQLite3Driver } = await import("../../drivers/sqlite3");
     // Read-only, and only an existing file: introspection never creates a
     // database it was asked to read.

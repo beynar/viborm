@@ -25,16 +25,15 @@ function keyCandidate(name: string): string {
 /** One namespace of keys: a document's models, or one model's members. */
 export class KeyAllocator {
   readonly #taken = new Set<string>();
+  readonly #reserved: ReadonlySet<string>;
 
-  constructor(private readonly reserved: ReadonlySet<string> = new Set()) {}
-
-  has(key: string): boolean {
-    return this.#taken.has(key);
+  constructor(reserved: ReadonlySet<string> = new Set()) {
+    this.#reserved = reserved;
   }
 
   #free(key: string): boolean {
     return (
-      !(this.#taken.has(key) || this.reserved.has(key)) &&
+      !(this.#taken.has(key) || this.#reserved.has(key)) &&
       isValidSchemaIdentifier(key)
     );
   }

@@ -7,6 +7,7 @@
  * its foreign key by one deterministic rule (see `relationNames`).
  */
 
+import { isValidSchemaIdentifier } from "../../schema/identifier";
 import type {
   EnumDocument,
   FieldDocument,
@@ -16,7 +17,6 @@ import type {
   ModelTargetDocument,
   SchemaDocument,
 } from "../../schema/json/document";
-import { isValidSchemaIdentifier } from "../../schema/identifier";
 import type { MigrationDriver } from "../drivers/base";
 import type {
   EnumDef,
@@ -32,11 +32,7 @@ import {
   translatePostgresColumn,
   translateSqliteColumn,
 } from "./columns";
-import {
-  KeyAllocator,
-  memberAllocator,
-  relationNameFromColumn,
-} from "./names";
+import { KeyAllocator, memberAllocator, relationNameFromColumn } from "./names";
 import type {
   IntrospectionDialect,
   IntrospectionWarning,
@@ -131,7 +127,11 @@ export function translateSnapshot(input: TranslateInput): Translation {
           fk.columns.forEach((column, position) => {
             const id = `${table.name}\0${column}`;
             const referenced = `${fk.referencedTable}\0${fk.referencedColumns[position]}`;
-            if (!binaryKeys.has(id) && binaryKeys.has(referenced) && isBlob(table, column)) {
+            if (
+              !binaryKeys.has(id) &&
+              binaryKeys.has(referenced) &&
+              isBlob(table, column)
+            ) {
               binaryKeys.add(id);
               grew = true;
             }
@@ -156,8 +156,7 @@ export function translateSnapshot(input: TranslateInput): Translation {
       skipped.push({
         kind: "table",
         name: table.name,
-        reason:
-          "it has no primary key, and a VibORM model is addressed by one",
+        reason: "it has no primary key, and a VibORM model is addressed by one",
       });
       continue;
     }
@@ -252,7 +251,9 @@ export function translateSnapshot(input: TranslateInput): Translation {
     }
 
     // The primary key
-    const pkFields = primaryKey.columns.map((column) => build.fieldOf.get(column)!);
+    const pkFields = primaryKey.columns.map(
+      (column) => build.fieldOf.get(column)!
+    );
     if (pkFields.length === 1) {
       const field = fields[pkFields[0]!]!;
       if (field.type !== "toOne" && field.type !== "toMany") {
@@ -295,7 +296,10 @@ export function translateSnapshot(input: TranslateInput): Translation {
       const keys = constraint.columns.map((column) => fieldOf.get(column)!);
       const derived = (name: string) =>
         derivedMigrationName(`${table.name}_${name}_key`);
-      if (keys.length === 1 && (!readsNames || constraint.name === derived(constraint.columns[0]!))) {
+      if (
+        keys.length === 1 &&
+        (!readsNames || constraint.name === derived(constraint.columns[0]!))
+      ) {
         Object.assign(fields[keys[0]!]!, { unique: true });
         build.keys.push(sorted(constraint.columns));
         continue;
@@ -310,7 +314,7 @@ export function translateSnapshot(input: TranslateInput): Translation {
         constraint.name.startsWith(prefix) && constraint.name.endsWith("_key")
           ? constraint.name.slice(prefix.length, -"_key".length)
           : undefined;
-      if (named !== undefined && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(named)) {
+      if (named !== undefined && isValidSchemaIdentifier(named)) {
         uniques.push({ fields: keys, name: named });
         build.keys.push(sorted(constraint.columns));
         continue;
@@ -431,7 +435,10 @@ export function translateSnapshot(input: TranslateInput): Translation {
       !sameSet(union, columns) ||
       !sameSet(table.primaryKey?.columns ?? [], columns) ||
       !edges.every((edge) =>
-        sameSet(edge.fk.referencedColumns, edge.target.table.primaryKey?.columns ?? [])
+        sameSet(
+          edge.fk.referencedColumns,
+          edge.target.table.primaryKey?.columns ?? []
+        )
       )
     )
       continue;
@@ -505,8 +512,14 @@ export function translateSnapshot(input: TranslateInput): Translation {
         );
         const sides = (one: ReferentialAction, other: ReferentialAction) =>
           one === other ? { one } : { source: one, target: other };
-        const onDelete = sides(action(first.fk.onDelete), action(second.fk.onDelete));
-        const onUpdate = sides(action(first.fk.onUpdate), action(second.fk.onUpdate));
+        const onDelete = sides(
+          action(first.fk.onDelete),
+          action(second.fk.onDelete)
+        );
+        const onUpdate = sides(
+          action(first.fk.onUpdate),
+          action(second.fk.onUpdate)
+        );
         const junction = {
           table: owner.table.name,
           source: first.fk.columns[0]!,
@@ -581,7 +594,8 @@ export function translateSnapshot(input: TranslateInput): Translation {
   // model relates to itself: the label is the foreign key's (or the join
   // table's) name, unique per pair of models.
   for (const list of pairs.values()) {
-    const ambiguous = list.length > 1 || list[0]!.models[0] === list[0]!.models[1];
+    const ambiguous =
+      list.length > 1 || list[0]!.models[0] === list[0]!.models[1];
     if (!ambiguous) continue;
     for (const pair of list)
       for (const slot of pair.slots)
@@ -609,7 +623,11 @@ export function translateSnapshot(input: TranslateInput): Translation {
     const only = uses.length === 1 ? uses[0]! : undefined;
     if (
       only &&
-      migrationDriver.getEnumColumnType(only.build.table.name, only.column, def.values) === name
+      migrationDriver.getEnumColumnType(
+        only.build.table.name,
+        only.column,
+        def.values
+      ) === name
     )
       continue; // the column's own derived type: inline values say exactly this
     const key = enumKeys.claimName(name);
