@@ -15,6 +15,7 @@ import {
   parseStateManifest,
 } from "@migrations/v1-parse";
 import { s } from "@schema";
+import { introspect } from "@src/migrations/drivers/sqlite/introspect";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { describe, expect, it } from "vitest";
 
@@ -145,6 +146,14 @@ describe("a widened `tables` list", () => {
         "a missing index",
         [
           `CREATE TABLE "dependency" ("x" TEXT NOT NULL, "n" INTEGER NOT NULL, PRIMARY KEY ("x"))`,
+        ],
+      ],
+      [
+        // SQLite lets this key hold NULL, which the declared ID cannot read.
+        "a key column without NOT NULL",
+        [
+          `CREATE TABLE "dependency" ("x" TEXT, "n" INTEGER NOT NULL, PRIMARY KEY ("x"))`,
+          `CREATE INDEX "dependency_n_idx" ON "dependency" ("n")`,
         ],
       ],
       [
@@ -445,5 +454,38 @@ describe("a widened `tables` list", () => {
     );
     expect(refused.code).toBe("V11012");
     expect(refused.message).toContain('adopts "a"');
+  });
+});
+
+describe("SQLite key-column nullability", () => {
+  it("reads what SQLite enforces, not only what was declared", async () => {
+    const cases: [string, string, boolean][] = [
+      ["TEXT key", `("x" TEXT, PRIMARY KEY ("x"))`, true],
+      ["TEXT key NOT NULL", `("x" TEXT NOT NULL, PRIMARY KEY ("x"))`, false],
+      ["compound key", `("x" INTEGER, "y" TEXT, PRIMARY KEY ("x", "y"))`, true],
+      ["rowid alias", `("x" INTEGER PRIMARY KEY)`, false],
+      ["table-level rowid alias", `("x" integer, PRIMARY KEY ("x"))`, false],
+      ["autoincrement", `("x" INTEGER PRIMARY KEY AUTOINCREMENT)`, false],
+      ["WITHOUT ROWID", `("x" TEXT, PRIMARY KEY ("x")) WITHOUT ROWID`, false],
+    ];
+    for (const [label, definition, nullable] of cases) {
+      const driver = createInMemorySQLite3Driver();
+      await driver._executeRaw(`CREATE TABLE "t" ${definition}`);
+      const accepted = await driver
+        ._executeRaw(`INSERT INTO "t" ("x") VALUES (NULL)`)
+        .then(
+          async () =>
+            (await driver._executeRaw(`SELECT "x" FROM "t"`)).rows[0]?.x ===
+            null,
+          () => false
+        );
+      // The oracle: what the database stores, not what the reader says.
+      expect(accepted, label).toBe(nullable);
+      const { tables } = await introspect(
+        (sql, params) => driver._executeRaw(sql, params) as never
+      );
+      expect(tables[0]?.columns[0]?.nullable, label).toBe(nullable);
+      await driver.disconnect();
+    }
   });
 });

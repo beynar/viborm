@@ -384,6 +384,18 @@ export function sqliteControlDefinitionAnswer(
       pk: index === 0 ? 1 : 0,
     }));
   }
+  // The log's TEXT key is backed by SQLite's own index, as on a real
+  // database; the state's INTEGER key is the rowid alias and has none.
+  const logKeyIndex = "sqlite_autoindex__viborm_migration_log_1";
+  if (sql.startsWith("PRAGMA index_list") && table === "log") {
+    return [{ seq: 0, name: logKeyIndex, unique: 1, origin: "pk", partial: 0 }];
+  }
+  if (sql.startsWith("PRAGMA index_xinfo") && sql.includes(logKeyIndex)) {
+    return [
+      { seqno: 0, cid: 0, name: "event_id", desc: 0, coll: "BINARY", key: 1 },
+      { seqno: 1, cid: -1, name: null, desc: 0, coll: "BINARY", key: 0 },
+    ];
+  }
   if (
     sql.startsWith("PRAGMA index_list") ||
     sql.startsWith("PRAGMA foreign_key_list") ||

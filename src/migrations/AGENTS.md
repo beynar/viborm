@@ -187,8 +187,13 @@ through that function. Do not compare an introspected snapshot with
 physical fact. Catalog aliases (`int4[]` / `integer[]`, `NOW()` / `now()`)
 are the same physical fact; `normalizeType` and `normalizeDefault` in
 `push-fingerprint.ts` are the one owner, including the differ. SQLite
-primary-key columns are not nullable even when `PRAGMA table_info` reports
-`notnull = 0`. SQLite `autoIncrement` is the `AUTOINCREMENT` keyword, not
+nullability is what the database enforces (`sqliteColumnNullable`, shared by
+introspection and the storage audit): `PRAGMA table_info` reports the
+declaration, a WITHOUT ROWID key already reads `notnull = 1`, and the rowid
+alias — the one key with no `pk`-origin index — cannot hold NULL; any other
+key column of a rowid table declared without NOT NULL accepts NULL and reads
+nullable (so a hand-made one is drift, and the SQLite ledger's
+`event_id TEXT PRIMARY KEY` reads nullable). SQLite `autoIncrement` is the `AUTOINCREMENT` keyword, not
 every `INTEGER PRIMARY KEY`. SQLite enum types keep the `CHECK (... IN ...)`
 suffix the driver writes; introspection reconstructs it from table SQL because
 `PRAGMA table_info` returns only `TEXT`. Transactional wrap uses the live producer's

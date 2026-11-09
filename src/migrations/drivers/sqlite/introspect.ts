@@ -203,6 +203,22 @@ function isWithoutRowid(sql: string): boolean {
   );
 }
 
+/**
+ * Whether a column holds NULL. `PRAGMA table_info` reports what was declared,
+ * and SQLite enforces more only in two places: a WITHOUT ROWID key, which it
+ * already reports as `notnull = 1`, and the rowid alias — a rowid table's
+ * one-column INTEGER key, the only key with no backing `pk` index (the
+ * `INTEGER PRIMARY KEY DESC` quirk has one, and holds NULL). Any other key
+ * column of a rowid table accepts NULL unless it is declared NOT NULL.
+ */
+export function sqliteColumnNullable(
+  notnull: number,
+  pk: number,
+  keyIndexed: boolean
+): boolean {
+  return notnull === 0 && (pk === 0 || keyIndexed);
+}
+
 export async function introspect(
   executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>,
   managedTables?: readonly string[],
@@ -274,6 +290,7 @@ export async function introspect(
     const indexesResult = await executeRaw<SqliteIndex>(
       `PRAGMA index_list(${escapeIdentifier(tableName)})`
     );
+    const keyIndexed = indexesResult.rows.some(({ origin }) => origin === "pk");
 
     // The pragma reports that an index is partial but not what its predicate
     // is; only the stored statement carries that.
@@ -300,7 +317,7 @@ export async function introspect(
     for (const col of columnsResult.rows) {
       const pk = int(col.pk);
       const type = col.type || "TEXT";
-      const nullable = int(col.notnull) === 0 && pk === 0;
+      const nullable = sqliteColumnNullable(int(col.notnull), pk, keyIndexed);
       const geoPointEncoding = readSqliteGeoPointColumn(
         tableSql,
         { name: col.name, type, nullable },

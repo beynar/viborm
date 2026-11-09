@@ -375,7 +375,8 @@ async function assertSurrealControlAuthentic(
 
 /**
  * The definition VibORM creates, as introspection reads it back: the declared
- * columns, NOT NULL with no default, and the primary key alone. MySQL reports
+ * columns, NOT NULL with no default (SQLite's TEXT key aside), and the primary
+ * key alone. MySQL reports
  * the singleton's INTEGER as `int`.
  */
 function hasExpectedShape(
@@ -394,7 +395,12 @@ function hasExpectedShape(
         (name === "singleton"
           ? normalizeType(column.type) === normalizeType(mysql ? "INT" : type)
           : column.type.toLowerCase() === type.toLowerCase()) &&
-        column.nullable === false &&
+        // SQLite lets a rowid table's key hold NULL unless it is the rowid
+        // alias, and the definition writes the key without NOT NULL.
+        column.nullable ===
+          (driver.target.dialect === "sqlite" &&
+            index === 0 &&
+            type !== "INTEGER") &&
         column.default === undefined &&
         column.autoIncrement !== true &&
         column.decimal === undefined

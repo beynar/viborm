@@ -25,6 +25,7 @@ import { type AnyModel, getTableName, type ModelState } from "../schema/model";
 import { sqliteDateTimePhysicalForm } from "../schema/scalars/datetime/physical";
 import { createIdentifierQuoter } from "../sql/identifiers";
 import type { DecimalDescriptor } from "../validation/primitives/decimal-codec";
+import { sqliteColumnNullable } from "./drivers/sqlite/introspect";
 import { executeExactSql } from "./execute-dispatch";
 import type { MigrationClient } from "./push/planner";
 import type { ColumnDef, SchemaSnapshot } from "./types";
@@ -103,15 +104,22 @@ async function readCatalog(
   table: string
 ): Promise<CatalogColumn[]> {
   const { rows } = await driver._executeRaw<
-    Omit<CatalogColumn, "nullable"> & { notnull: number; pk: number }
+    Omit<CatalogColumn, "nullable"> & {
+      notnull: number;
+      pk: number;
+      keyed: number;
+    }
   >(
-    `SELECT s.sql AS definition, p.name, p.type, p."notnull", p.pk FROM sqlite_schema AS s JOIN pragma_table_info(s.name) AS p WHERE s.type = 'table' AND s.name = ?`,
+    `SELECT s.sql AS definition, p.name, p.type, p."notnull", p.pk, EXISTS (SELECT 1 FROM pragma_index_list(s.name) WHERE origin = 'pk') AS keyed FROM sqlite_schema AS s JOIN pragma_table_info(s.name) AS p WHERE s.type = 'table' AND s.name = ?`,
     [table]
   );
-  // SQLite reports a primary key nullable; VibORM writes it NOT NULL.
-  return rows.map(({ notnull, pk, ...column }) => ({
+  return rows.map(({ notnull, pk, keyed, ...column }) => ({
     ...column,
-    nullable: Number(notnull) === 0 && Number(pk) === 0,
+    nullable: sqliteColumnNullable(
+      Number(notnull),
+      Number(pk),
+      Number(keyed) === 1
+    ),
   }));
 }
 

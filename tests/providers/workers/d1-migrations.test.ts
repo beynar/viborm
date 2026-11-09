@@ -10,7 +10,7 @@ import { expect, it, vi } from "vitest";
 
 it("reads the D1 user catalog without touching protected metadata or enabling migration writes", async () => {
   await env.DB.exec(
-    'CREATE TABLE "viborm_d1_catalog_user" ("id" TEXT PRIMARY KEY); CREATE TABLE "_cfX_notes" ("id" TEXT PRIMARY KEY);'
+    'CREATE TABLE "viborm_d1_catalog_user" ("id" TEXT NOT NULL PRIMARY KEY); CREATE TABLE "_cfX_notes" ("id" TEXT NOT NULL PRIMARY KEY);'
   );
   const driver = new D1Driver({ database: env.DB });
   const client = createClient({
