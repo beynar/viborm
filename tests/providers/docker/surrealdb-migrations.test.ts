@@ -1000,6 +1000,47 @@ describe.skipIf(!surrealUrl)("the indexes of a new table", () => {
     });
   });
 
+  it("are waited for when a later statement of the program fails", async () => {
+    const driver = createSurrealRecordingDriver();
+    const db = clientOf(schema(), driver);
+    await using(db, async () => {
+      await syncLiveSchema(db);
+      await db.item.createMany({
+        data: [
+          { id: "a", email: "a", rank: 1 },
+          { id: "b", email: "b", rank: 1 },
+        ],
+      });
+      // Run statement by statement (a backfilled field and its index), the new
+      // table first, then a unique the rows break.
+      const next = nextVersion(
+        {
+          item: s
+            .model({
+              id: s.string().id(),
+              email: s.string().unique(),
+              rank: s.int().unique(),
+              level: s.int().default(3),
+            })
+            .index(["level"]),
+          tag: s.model({ id: s.string().id(), label: s.string().unique() }),
+        },
+        db
+      );
+      driver.statements.length = 0;
+      await expect(push(next)).rejects.toThrow();
+      const defined = driver.statements
+        .map((sql) => sql.includes("CONCURRENTLY"))
+        .lastIndexOf(true);
+      expect(defined).toBeGreaterThan(-1);
+      expect(
+        driver.statements
+          .slice(defined)
+          .some((sql) => sql.includes("INFO FOR INDEX"))
+      ).toBe(true);
+    });
+  });
+
   it("a build that fails refuses the push by name, its statements committed", async () => {
     const driver = createSurrealRecordingDriver();
     // Two rows holding one email, written in the push's own transaction just

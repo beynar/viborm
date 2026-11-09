@@ -1269,9 +1269,12 @@ export async function runProgram<T>(
       program.transactional && !command.commitsSchemaChangesAlone()
     )
   ) {
-    const result = await body(pinned, false);
-    await command.awaitIndexBuilds?.(pinned, program.statements);
-    return result;
+    // A statement that fails leaves the ones before it committed, builds too.
+    try {
+      return await body(pinned, false);
+    } finally {
+      await command.awaitIndexBuilds?.(pinned, program.statements);
+    }
   }
   const { phase } = program;
   return withForeignKeysLifted(pinned, bracket, async (inside) => {
