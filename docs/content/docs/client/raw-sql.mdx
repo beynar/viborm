@@ -212,6 +212,68 @@ Raw operations implement the complete `Promise` surface, so `await`,
 `Promise.resolve`, `Promise.all`, and assignment to `Promise<T>` keep working.
 They are deliberately not native `Promise` instances.
 
+## Governed raw reads
+
+Raw SQL runs as the base client: on a view that filters rows (a
+[permissions](/docs/extensions/permissions) actor, [soft
+delete](/docs/extensions/soft-delete), a bound control), `$queryRaw` still
+sees every row. To keep a hand-written read inside the view, take the
+model's rows from it with `$rows(alias)` and use them as a `FROM` item:
+
+```ts
+const view = db.$as(actor);
+
+const hits = await view.$queryRaw<{ id: string; title: string }>`
+  SELECT p.id, p.title
+  FROM ${view.page.$rows("p")}
+  JOIN page_fts ON page_fts.rowid = p.rowid
+  WHERE page_fts MATCH ${query}
+  ORDER BY rank
+`;
+```
+
+`view.page.$rows("p")` renders a derived table holding exactly the rows a
+`view.page.findMany()` would filter to, controls bound to the view included:
+
+```sql
+(SELECT * FROM "main"."page" AS "q0" WHERE <the view's row domain>) AS "p"
+```
+
+Every table it reads is named with its database or schema (`"main"` on
+SQLite, the namespace on PostgreSQL and MySQL), so a CTE your text defines
+under a table's name cannot stand for that table inside the filter. A MySQL
+client without a bound database (a supplied pool without `namespace`)
+refuses `$rows` for that reason.
+
+On SQLite it also carries the table's implicit `rowid` (`SELECT "q0"."rowid"
+AS rowid, * ...`), the key an FTS5 table joins on, unless the model is
+declared `.withoutRowid()`.
+
+- It is a `FROM` (or `JOIN`) item, so the text around it cannot put the
+  filter under an `OR` or an outer join's `ON`. Several may appear in one
+  statement, each from its own model, sharing one instant.
+- Take it on the handle you run the read on: the same view (the same
+  `$extends` chain and `$as` or `$bind` values) or a transaction of it. A
+  fragment from another client or view, the base client included, is
+  refused.
+- The alias is lowercase letters, digits and `_` (at most 63, not starting
+  with a digit), so an unquoted `p.id` reads it on every dialect.
+- A model with read-gated fields (permissions `fields: { x: { read: ... } }`)
+  is refused: `SELECT *` would disclose them.
+- Under permissions, a model the policy does not list reads no row (where its
+  `findMany` throws `ForbiddenError`).
+- Only the tagged `$queryRaw` accepts it, interpolated directly into its
+  template, on the client or a transaction client. `$executeRaw`, the Unsafe
+  forms, a prebuilt `` sql`...` `` fragment holding it and any ORM query
+  refuse it. Compose around it instead:
+  `` $queryRaw`${select} FROM ${view.page.$rows("p")} ${rest}` ``.
+- The statement binds the domain's values: past the driver's bound-value
+  limit (D1: 100) it is refused before it runs.
+
+Raw SQL is still trusted code: nothing stops it from reading the table
+directly. `$rows` is how a read you write takes the view's rows, not a
+sandbox.
+
 ## Rows are driver-native
 
 Raw results are not passed through the ORM's typed read path. A column comes

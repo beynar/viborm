@@ -62,7 +62,13 @@ export function selectManagedSnapshot(
       "The schema declares a physical table outside the authenticated managed-table list",
       VibORMErrorCode.MIGRATION_INVALID_STATE
     );
-  for (const table of snapshot.tables)
+  // A control-only selection (the control-table read) draws no user
+  // boundary: a user table's keys must not make the control plane unreadable,
+  // whatever scope the command selects.
+  const userScope = names.some(
+    (name) => name !== CONTROL_TABLES.state && name !== CONTROL_TABLES.log
+  );
+  for (const table of userScope ? snapshot.tables : [])
     for (const fk of table.foreignKeys) {
       if (selected(table.name) !== selected(fk.referencedTable))
         throw new MigrationError(
@@ -283,14 +289,29 @@ export function formatMigrationTarget(
  * A stored estate is bound to one durable target. PostgreSQL artifacts are
  * schema-qualified, so `alpha` cannot generate or apply as `beta`. MySQL and
  * SQLite compare dialect only.
+ *
+ * A managed-table list may only grow: the client's list is the estate's
+ * frozen list plus tables it adds (adopted or created later). A name of the
+ * estate's list missing from the client's, or a list on one side only,
+ * refuses.
  */
 export function assertEstateTargetMatches(
   stored: MigrationTarget,
   live: MigrationTarget
 ): void {
-  if (JSON.stringify(stored.tables) !== JSON.stringify(live.tables)) {
+  if ((stored.tables === undefined) !== (live.tables === undefined)) {
     throw new MigrationError(
-      "Estate managed-table scope does not match this client",
+      stored.tables === undefined
+        ? "Estate managed-table scope does not match this client: the estate manages the whole database, and this client passes a `tables` list"
+        : "Estate managed-table scope does not match this client: the estate manages an exact `tables` list, and this client passes none",
+      VibORMErrorCode.MIGRATION_DIALECT_MISMATCH
+    );
+  }
+  const missing =
+    stored.tables?.filter((name) => !live.tables?.includes(name)) ?? [];
+  if (missing.length > 0) {
+    throw new MigrationError(
+      `Estate managed-table scope does not match this client: its \`tables\` list omits ${missing.map((name) => `"${name}"`).join(", ")}, which the estate manages. A list may only grow.`,
       VibORMErrorCode.MIGRATION_DIALECT_MISMATCH
     );
   }
@@ -310,4 +331,42 @@ export function assertEstateTargetMatches(
       VibORMErrorCode.MIGRATION_DIALECT_MISMATCH
     );
   }
+}
+
+/**
+ * The tables a history command manages: the estate's frozen list, every table
+ * of `snapshots`, less `unmanaged` (a table adopted by a transition, on the
+ * side where it is not yet managed). Undefined for an estate without a list,
+ * which manages the whole database. Never the client's list: a name only the
+ * client lists is a table nothing adopted yet, and it stays the user's.
+ */
+export function managedTables(
+  listed: readonly string[] | undefined,
+  snapshots: readonly SchemaSnapshot[],
+  unmanaged: readonly string[] = []
+): readonly string[] | undefined {
+  if (listed === undefined) return;
+  const names = new Set(listed);
+  for (const snapshot of snapshots)
+    for (const table of snapshot.tables) names.add(table.name);
+  for (const name of unmanaged) names.delete(name);
+  return Object.freeze([...names].sort());
+}
+
+/**
+ * A view of `driver` whose target selects `tables` (the whole namespace when
+ * undefined): every inventory it reads — introspection, the PostgreSQL
+ * catalog digest, invalid indexes, the reset inventory — selects that set.
+ * Like every execution view of this layer, it restates `target` only.
+ */
+export function withManagedTables<
+  D extends { readonly target: MigrationTarget },
+>(driver: D, tables: readonly string[] | undefined): D {
+  const { tables: _replaced, ...target } = driver.target;
+  const scoped: D = Object.create(driver);
+  Object.defineProperty(scoped, "target", {
+    value: Object.freeze(tables === undefined ? target : { ...target, tables }),
+    enumerable: true,
+  });
+  return Object.freeze(scoped);
 }

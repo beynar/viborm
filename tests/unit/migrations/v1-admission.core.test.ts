@@ -8,6 +8,7 @@ import { getMigrationDriver } from "@src/migrations/drivers";
 import { previewPush, pushV1 } from "@src/migrations/push-v1";
 import { describe, expect, test } from "vitest";
 import {
+  d1EstateDriver,
   mysqlEstateDriver,
   pgEstateDriver,
   RecordingDriver,
@@ -38,9 +39,9 @@ describe("migration v1 live admission", () => {
   });
 
   test("D1 refuses effectful work and still admits reads", () => {
-    const driver = getMigrationDriver(
-      new RecordingDriver("sqlite", "d1", new SQLiteAdapter())
-    );
+    // D1 declares the read-only capability: no PRAGMA foreign_keys switch and
+    // no migration lock, `_cf_` reserved.
+    const driver = getMigrationDriver(d1EstateDriver());
     expect(() =>
       admitLiveMigrationCapability(driver, "read-only", "status()")
     ).not.toThrow();

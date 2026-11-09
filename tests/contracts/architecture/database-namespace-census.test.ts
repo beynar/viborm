@@ -160,6 +160,10 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   // Neki refuses mixing it with a transaction lock).
   "src/migrations/pinned-session.ts executeRaw 8",
   "src/migrations/pinned-session.ts queryExecutorFactory 2",
+  // Flarion fixes (2026-11-09): the adoption proof's one read of what each
+  // adopted table carries (`assertAdoptable`, through the dialect's
+  // `adoptionHazards`), on the producer apply or reset hands it.
+  "src/migrations/proof.ts executeRaw 1",
   // A driver's own answer to what a push targets, on the producer it is handed.
   "src/migrations/push-fingerprint.ts executeRaw 3",
   // Selected-table population proof uses the handed producer and its adapter's

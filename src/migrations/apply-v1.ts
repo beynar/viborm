@@ -53,9 +53,11 @@ import {
   withLockedMigrationProducer,
 } from "./pinned-session";
 import {
+  assertAdoptable,
   assertEmptyManaged,
   assertLockedSinceDecision,
   assertNoDrift,
+  managedAt,
   markedSnapshotHash,
   markerStanding,
   proveLive,
@@ -166,12 +168,22 @@ export async function applyV1(
         // One request per group holds no part's progress: refused instead.
         !runsMigrationBatches(pinned)
       );
+      await assertAdoptable(pinned, command, graph, origin, path);
       // A resumed edge's committed parts are already past the marker's
       // snapshot: the destination proof of its last part proves the rest.
+      // Across the first edge: a table it adopts is not proven yet.
       if (resume === undefined && marker) {
-        await assertNoDrift(pinned, command, graph, marker);
+        await assertNoDrift(
+          pinned,
+          managedAt(command, graph, origin, path[0]),
+          graph,
+          marker
+        );
       } else if (resume === undefined) {
-        await assertEmptyManaged(pinned, command);
+        await assertEmptyManaged(
+          pinned,
+          managedAt(command, graph, null, path[0])
+        );
       }
       if (origin === target) {
         return { outcome: "noop", path: [], statements: [] };
@@ -199,7 +211,14 @@ export async function applyV1(
     },
     driver.target.dialect === "postgresql"
       ? (session, lockFree) =>
-          provenNoop(session, lockFree, driver, graph, target, options)
+          provenNoop(
+            session,
+            lockFree,
+            managedAt(driver, graph, target),
+            graph,
+            target,
+            options
+          )
       : undefined
   );
   return keepCommittedOutcome(committed, locked);
@@ -438,7 +457,12 @@ async function applyPathUnderLock(
           [...nextPath],
           snapshotHash,
           1,
-          await proveLive(producer, command, graph, snapshotHash)
+          await proveLive(
+            producer,
+            managedAt(command, graph, item.to, item.from),
+            graph,
+            snapshotHash
+          )
         );
         await appendLedger(
           producer,
@@ -609,9 +633,11 @@ async function executeAtomicGroup(
   }
   const last = items.at(-1)!;
   const { snapshotHash } = last.state;
+  // The destination proves every table the last edge adopts.
+  const destination = managedAt(command, graph, last.to, last.from);
   let next: MigrationMarkerV1;
   if (batch) {
-    assertDigest(batch, command, requireStateSnapshot(graph, last.to));
+    assertDigest(batch, destination, requireStateSnapshot(graph, last.to));
     next = markerFromPath(
       graph.estateHash,
       snapshotHash,
@@ -630,7 +656,7 @@ async function executeAtomicGroup(
       [...nextPath],
       snapshotHash,
       items.length,
-      await proveLive(producer, command, graph, snapshotHash)
+      await proveLive(producer, destination, graph, snapshotHash)
     );
   }
   await appendLedger(producer, command, ...arrivals);
@@ -1218,7 +1244,12 @@ async function applySplitEdge(
             [...nextPath],
             snapshotHash,
             1,
-            await proveLive(producer, command, graph, snapshotHash)
+            await proveLive(
+              producer,
+              managedAt(command, graph, item.to, item.from),
+              graph,
+              snapshotHash
+            )
           );
           await appendLedger(
             producer,

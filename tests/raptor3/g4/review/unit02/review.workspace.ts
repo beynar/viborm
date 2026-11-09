@@ -7,17 +7,21 @@
  * the ordinary bounded runner and the workspace lock:
  *
  *   node scripts/run-vitest-safe.mjs run \
- *     --workspace=tests/raptor3/g4/review/unit02/review.workspace.ts \
+ *     --config=tests/raptor3/g4/review/unit02/review.workspace.ts \
  *     tests/raptor3/g4/review/unit02/<file>
  */
-import { defineWorkspace } from "vitest/config";
+import { defineConfig } from "vitest/config";
 
-export default defineWorkspace([
-  {
-    extends: "../../../../../vitest.config.ts",
-    test: {
-      name: "g4-review-unit02",
-      include: ["tests/raptor3/g4/review/unit02/*.test.ts"],
-    },
+export default defineConfig({
+  test: {
+    projects: [
+      {
+        extends: "./vitest.config.ts",
+        test: {
+          name: "g4-review-unit02",
+          include: ["tests/raptor3/g4/review/unit02/*.test.ts"],
+        },
+      },
+    ],
   },
-]);
+});

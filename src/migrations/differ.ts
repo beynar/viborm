@@ -686,7 +686,8 @@ function diffTable(
   } else if (
     currentPk &&
     desiredPk &&
-    !arraysEqual(currentPk.columns, desiredPk.columns)
+    (!arraysEqual(currentPk.columns, desiredPk.columns) ||
+      currentPk.withoutRowid !== desiredPk.withoutRowid)
   ) {
     operations.push({
       type: "dropPrimaryKey",

@@ -34,7 +34,7 @@ const FENCE = /^```(\w+)[^\n]*\n([\s\S]*?)^```/gm;
  * The three fences the format refuses, by address. Two carry the function
  * default; the third is prose — `s.model({ ... })` with a literal ellipsis.
  */
-const REFUSED_FENCE_IDS = ["index.mdx#1", "model.mdx#0", "model.mdx#9"];
+const REFUSED_FENCE_IDS = ["index.mdx#1", "model.mdx#0", "model.mdx#10"];
 
 /**
  * Every fence in the schema docs that SPELLS a model, addressed as
@@ -209,7 +209,7 @@ describe("refusal witnesses for the excluded fences", () => {
     expect(() => serializeSchema({ user })).toThrow(ValidationError);
   });
 
-  it("model.mdx#9 — `.extends()` flattens, but its function default does not", () => {
+  it("model.mdx#10 — `.extends()` flattens, but its function default does not", () => {
     const baseModel = s.model({
       id: s.string().id(),
       createdAt: s.dateTime().default(() => new Date()),

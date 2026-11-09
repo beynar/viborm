@@ -7,17 +7,21 @@
  * workspace lock:
  *
  *   node scripts/run-vitest-safe.mjs run \
- *     --workspace=tests/raptor3/g4/review/g3-02-specimen/g3-02-review.workspace.ts \
+ *     --config=tests/raptor3/g4/review/g3-02-specimen/g3-02-review.workspace.ts \
  *     tests/raptor3/g4/review/g3-02-specimen/
  */
-import { defineWorkspace } from "vitest/config";
+import { defineConfig } from "vitest/config";
 
-export default defineWorkspace([
-  {
-    extends: "../../../../../vitest.config.ts",
-    test: {
-      name: "g3-02-specimen-review",
-      include: ["tests/raptor3/g4/review/g3-02-specimen/*.review.test.ts"],
-    },
+export default defineConfig({
+  test: {
+    projects: [
+      {
+        extends: "./vitest.config.ts",
+        test: {
+          name: "g3-02-specimen-review",
+          include: ["tests/raptor3/g4/review/g3-02-specimen/*.review.test.ts"],
+        },
+      },
+    ],
   },
-]);
+});

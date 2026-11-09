@@ -41,6 +41,7 @@ timeouts and recovery are covered in [Production connections](/docs/drivers/prod
 | [libsql](/docs/drivers/sqlite/libsql) | `@libsql/client` | Turso cloud or local libSQL |
 | [bun-sqlite](/docs/drivers/sqlite/bun-sqlite) | `bun:sqlite` | Bun runtime with SQLite |
 | [d1](/docs/drivers/sqlite/d1) | Cloudflare Workers | Cloudflare D1 in Workers |
+| [durable-object](/docs/drivers/sqlite/durable-object) | Cloudflare Workers | A Durable Object's own SQLite storage |
 
 ## Feature Matrix
 
@@ -57,6 +58,7 @@ timeouts and recovery are covered in [Production connections](/docs/drivers/prod
 | libsql | ✅ Local; hosted conditional | ✅ Local; hosted conditional | ❌ Effectful V1 commands refused | Any |
 | bun-sqlite | ✅ Full | ✅ Full | ✅ Full | Bun |
 | d1 | ❌ Unsupported | ✅ Full | ❌ Effectful V1 commands refused | Workers |
+| durable-object | ✅ Full | ✅ Full | ✅ Full | Durable Objects |
 
 :::info
 **Dynamic Transactions** use the callback API: `$transaction(async (tx) => { ... })`
@@ -99,6 +101,7 @@ differs by driver, and these are the facts the engine relies on and verifies:
 | sqlite3, libsql, bun-sqlite | one interactive transaction | rolled back | 32 766 | actual better-sqlite3 and local libSQL regressions; Bun uses its own provider tests |
 | neon-http | atomic batches, one per segment; work that must observe an earlier write takes another committed batch | the failing batch rolls back; earlier acknowledged batches remain committed, reported through `committedSegments`; an uncertain outcome uses `mayHaveCommittedSegment` | 65 535 | actual Neon HTTP 1.2: failed-batch atomicity, Serializable batch options, durable commit notification, and post-commit result failure; credential-gated by `NEON_DATABASE_URL` or `NEON_TEST_DATABASE_URL` |
 | d1 | committed segments; generated references use the ordinary emptied `__viborm_batch_refs` scratch table | the failing batch rolls back; earlier acknowledged batches remain committed | 100 | local Workers D1 tests (`provider-d1`); no hosted Cloudflare D1 qualification |
+| durable-object | one `ctx.storage.transaction()` | rolled back | 100 | local workerd tests (`provider-durable-object`); no hosted Cloudflare qualification |
 
 A scalar `in` / `notIn` list is one bound value on PostgreSQL (pg, postgres, pglite, bun-sql, neon-http), SQLite (sqlite3, libsql, bun-sqlite) and D1, so it does not count against these limits. On mysql2 and planetscale each member is one bound value. On every driver a `mode: "insensitive"` list binds one value per member. On SQLite, libSQL, bun-sqlite and D1 a list of non-integer numbers also binds one value per member.
 

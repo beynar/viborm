@@ -886,7 +886,7 @@ async function run(request) {
     [
       "scripts/run-vitest-safe.mjs",
       "run",
-      "--workspace",
+      "--config",
       "vitest.workspace.ts",
       provider ? "--project=raptor3-live-provider" : "--project=raptor3",
       `--wall-limit-ms=${request.wallMs}`,

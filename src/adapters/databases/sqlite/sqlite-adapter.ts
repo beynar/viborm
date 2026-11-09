@@ -866,12 +866,15 @@ const SQLITE_RESULT: AdapterResultParser = {
 };
 
 const SQLITE_IDENTIFIERS = createIdentifiers(quoteIdent);
+// The main database's tables: a caller's CTE cannot stand for one of them.
+const SQLITE_PINNED_TABLE = createIdentifiers(quoteIdent, "main").table;
 
 const SQLITE_CLAUSES = createStandardClauses();
 
 const SQLITE_FILTERS = createRelationFilters();
 
-const SQLITE_SUBQUERIES = createSubqueries(quoteIdent);
+// Every table but a WITHOUT ROWID one keeps an implicit rowid.
+const SQLITE_SUBQUERIES = createSubqueries(quoteIdent, true);
 
 // A member is written once and inlined at every use: one a nested body reads
 // is compiled again inside each use of that body, so it is materialized.
@@ -947,6 +950,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
         return batchRefs;
       },
       constraints: sqliteConstraintIdentities,
+      pinnedTable: SQLITE_PINNED_TABLE,
       select: this.#assemble.select,
     });
   }

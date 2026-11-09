@@ -103,6 +103,7 @@ import type {
 } from "./projected-types";
 import {
   createRawSurface,
+  createRowsFragment,
   RAW_METHOD_NAMES,
   type RawOperation,
   type RawSurface,
@@ -163,6 +164,7 @@ function createModelProxy<S extends Schema, R>(
     args: unknown;
   }) => R,
   modelMethods?: ExtensionMethods["model"],
+  rowsOf?: (model: keyof S, alias: unknown) => unknown,
   path: string[] = []
 ): unknown {
   // A model's own methods, read (and their factories invoked) only once the
@@ -172,7 +174,11 @@ function createModelProxy<S extends Schema, R>(
     path.length === 0
       ? Object.keys(schema)
       : path.length === 1
-        ? [...ROUTED_OPERATIONS, ...Object.keys(methods ?? {})]
+        ? [
+            ...ROUTED_OPERATIONS,
+            ...(rowsOf ? ["$rows"] : []),
+            ...Object.keys(methods ?? {}),
+          ]
         : []
   );
   const children = new Map<string, unknown>();
@@ -184,10 +190,13 @@ function createModelProxy<S extends Schema, R>(
     }
     let child = children.get(key);
     if (child === undefined) {
-      child = createModelProxy(schema, createOperation, modelMethods, [
-        ...path,
-        key,
-      ]);
+      child =
+        key === "$rows" && rowsOf
+          ? (alias: unknown) => rowsOf(path[0]!, alias)
+          : createModelProxy(schema, createOperation, modelMethods, rowsOf, [
+              ...path,
+              key,
+            ]);
       children.set(key, child);
     }
     return child;
@@ -424,6 +433,28 @@ export type TransactionClient<
     readonly $schema: ClientSchema<C>;
     $transaction: TransactionMethod<C, X>;
   } & X["client"];
+
+/**
+ * The interactive transaction client of `Client`, a client `createClient`,
+ * `$extends` or a view such as `$as(actor)` returned: what code that takes
+ * "a client or a transaction" names for its transaction half.
+ *
+ * @example
+ * ```ts
+ * type Tx = TransactionClientOf<typeof db>;
+ * const rename = (tx: typeof db | Tx, id: string) =>
+ *   tx.page.update({ where: { id }, data: { title: "x" } });
+ * ```
+ */
+export type TransactionClientOf<Client> =
+  typeof clientTypeState extends keyof Client
+    ? Client extends ClientTypeState<
+        infer C,
+        infer X extends ExtensionStateConstraint
+      >
+      ? TransactionClient<C, X>
+      : never
+    : never;
 
 /** `$transaction`'s two forms: an interactive callback, or a batch array. */
 type TransactionMethod<
@@ -796,7 +827,9 @@ export class VibORM<C extends VibORMConfig> {
           args,
           clientOmit
         ),
-      modelMethods
+      modelMethods,
+      (modelName, alias) =>
+        createRowsFragment(engine, this.#schema[modelName]!, alias)
     ) as Client<C>;
   }
 

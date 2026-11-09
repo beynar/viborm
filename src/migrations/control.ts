@@ -18,6 +18,7 @@ import type { BoundMigrationDriver } from "./drivers";
 import { throwIfCatalogRefusal } from "./drivers/postgres/catalog-refusal";
 import { providerFacts } from "./execute-dispatch";
 import { isSha256, type Sha256 } from "./identity";
+import { withManagedTables } from "./target";
 import type { SchemaSnapshot, TableDef } from "./types";
 import { encodePathHash, eventIdFor, parseLedgerEvent } from "./v1-parse";
 import { parseMarkerPayload } from "./v1-parse-control";
@@ -229,17 +230,10 @@ function introspectControlTables(
   producer: AnyDriver,
   driver: BoundMigrationDriver
 ): Promise<SchemaSnapshot> {
-  const scoped: BoundMigrationDriver = Object.create(driver);
-  Object.defineProperty(scoped, "target", {
-    value: Object.freeze({
-      ...driver.target,
-      tables: [CONTROL_TABLES.log, CONTROL_TABLES.state],
-    }),
-    enumerable: true,
-  });
-  return Object.freeze(scoped).introspect((sql, params) =>
-    producer._executeRaw(sql, params)
-  );
+  return withManagedTables(driver, [
+    CONTROL_TABLES.log,
+    CONTROL_TABLES.state,
+  ]).introspect((sql, params) => producer._executeRaw(sql, params));
 }
 
 /** The refusals of the pair, and of a state table left without its log. */
@@ -381,7 +375,8 @@ async function assertSurrealControlAuthentic(
 
 /**
  * The definition VibORM creates, as introspection reads it back: the declared
- * columns, NOT NULL with no default, and the primary key alone. MySQL reports
+ * columns, NOT NULL with no default (SQLite's TEXT key aside), and the primary
+ * key alone. MySQL reports
  * the singleton's INTEGER as `int`.
  */
 function hasExpectedShape(
@@ -400,7 +395,12 @@ function hasExpectedShape(
         (name === "singleton"
           ? normalizeType(column.type) === normalizeType(mysql ? "INT" : type)
           : column.type.toLowerCase() === type.toLowerCase()) &&
-        column.nullable === false &&
+        // SQLite lets a rowid table's key hold NULL unless it is the rowid
+        // alias, and the definition writes the key without NOT NULL.
+        column.nullable ===
+          (driver.target.dialect === "sqlite" &&
+            index === 0 &&
+            type !== "INTEGER") &&
         column.default === undefined &&
         column.autoIncrement !== true &&
         column.decimal === undefined

@@ -1,10 +1,10 @@
 /** Public type contract for lazy raw transaction operations. */
 
 import { createClient } from "@client/client";
-import type { RawOperation } from "@client/raw";
+import type { RawOperation, RowsFragment } from "@client/raw";
 import { PGliteDriver } from "@drivers/pglite";
 import { s } from "@schema";
-import { sql } from "@sql";
+import { type Sql, sql } from "@sql";
 
 const item = s.model({ id: s.string().id(), active: s.boolean() });
 const client = createClient({ schema: { item }, driver: new PGliteDriver() });
@@ -54,4 +54,19 @@ const _safeFragmentArguments = () => {
   // @ts-expect-error - bare strings belong to the explicit unsafe family
   client.$queryRaw("SELECT 1");
   return typedRows;
+};
+
+// `$rows` is a core model member: an opaque fragment, interpolated into a
+// tagged `$queryRaw`, on the client and on a transaction client.
+const _rowsFragment = async () => {
+  const fragment: RowsFragment = client.item.$rows("i");
+  const _isSql: Sql = fragment;
+  client.$queryRaw<{ id: string }>`SELECT i.id FROM ${fragment}`;
+  await client.$transaction(async (tx) => {
+    const _inTransaction: RowsFragment = tx.item.$rows("i");
+  });
+  // @ts-expect-error - the alias is a string
+  client.item.$rows(1);
+  // @ts-expect-error - a plain fragment is not a rows fragment
+  const _plain: RowsFragment = sql`SELECT 1`;
 };

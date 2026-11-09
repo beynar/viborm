@@ -14,7 +14,7 @@ Use Node.js 22+ and pnpm 10.11.0. Install the committed dependencies with
 | `pnpm test:package` | Build and test package exports and packed consumers |
 | `pnpm --dir docs validate` | Documentation structure, links and examples supported by the docs tool |
 
-Use `node scripts/run-vitest-safe.mjs run --workspace vitest.workspace.ts
+Use `node scripts/run-vitest-safe.mjs run --config vitest.workspace.ts
 --project=layer-validation path/to/test.core.test.ts` for a focused runtime check.
 The command belongs on one line. For a live PGlite test, use
 `node scripts/run-credential-free-tests.mjs --only <filename>` so its existing

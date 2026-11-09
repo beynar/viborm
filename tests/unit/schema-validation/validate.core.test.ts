@@ -530,6 +530,17 @@ describe("model and field rules", () => {
     expect(codes(validateSchema({ user }))).toContain("F006");
   });
 
+  it("errors F006 on a nullable member of a compound ID", () => {
+    const pair = s
+      .model({ a: s.string(), b: s.string().nullable() })
+      .id(["a", "b"]);
+    const issues = validateSchema({ pair }).errors;
+    expect(issues).toContainEqual(
+      expect.objectContaining({ code: "F006", model: "pair", field: "b" })
+    );
+    expect(issues.filter((issue) => issue.code === "F006")).toHaveLength(1);
+  });
+
   it("errors I002 on duplicate index names", () => {
     const user = s
       .model({ id: s.string().id(), a: s.string(), b: s.string() })

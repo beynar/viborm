@@ -1184,7 +1184,11 @@ export abstract class OperationContext {
     const context = model
       ? this.statementContext(model, this.operation)
       : this.attribution;
-    return this.dispatch(1, terminal, () =>
+    // Awaited, not returned: an `async` frame adopts a returned promise a
+    // microtask later, and workerd's process emulation reports one rejected in
+    // between (a pre-I/O refusal such as V8003) as unhandled
+    // (`nodejs-compat-rejections.test.ts`).
+    return await this.dispatch(1, terminal, () =>
       this.transport._execute<Input>(query.sql, context)
     );
   }

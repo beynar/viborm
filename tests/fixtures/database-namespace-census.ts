@@ -137,6 +137,7 @@ const SQLITE_REGIONS = [
   "src/adapters/databases/sqlite/",
   "src/drivers/bun-sqlite/",
   "src/drivers/d1/",
+  "src/drivers/durable-object/",
   "src/drivers/libsql/",
   "src/drivers/sqlite3/",
 ] as const;

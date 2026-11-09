@@ -26,6 +26,7 @@ export function normalizeGenerateOptions(options: unknown): GenerateV1Options {
       "skipValidation",
       "manualMigration",
       "lowLock",
+      "adopt",
     ],
     "generate options",
     refuseGenerateOptions
@@ -38,6 +39,7 @@ export function normalizeGenerateOptions(options: unknown): GenerateV1Options {
     skipValidation,
     manualMigration,
     lowLock,
+    adopt,
   } = record;
   if (name !== undefined && typeof name !== "string") {
     return refuseGenerateOptions("generate name must be a string");
@@ -58,6 +60,7 @@ export function normalizeGenerateOptions(options: unknown): GenerateV1Options {
     return refuseGenerateOptions("generate resolve must be a function");
   }
   return Object.freeze({
+    ...(adopt === undefined ? {} : { adopt: snapshotAdopt(adopt) }),
     ...(name === undefined ? {} : { name }),
     ...(from === undefined ? {} : { from }),
     ...(dryRun === undefined ? {} : { dryRun }),
@@ -68,6 +71,29 @@ export function normalizeGenerateOptions(options: unknown): GenerateV1Options {
       ? {}
       : { manualMigration: snapshotManualMigration(manualMigration) }),
   });
+}
+
+/** The physical table names `adopt` lists, detached, sorted, unrepeated. */
+function snapshotAdopt(value: unknown): readonly string[] {
+  const names = snapshotExactArray(
+    value,
+    "generate adopt",
+    refuseGenerateOptions
+  );
+  if (names.length === 0) {
+    return refuseGenerateOptions("generate adopt must name at least one table");
+  }
+  for (const [index, name] of names.entries()) {
+    if (typeof name !== "string" || name.length === 0) {
+      return refuseGenerateOptions(
+        "generate adopt must contain non-empty physical table names"
+      );
+    }
+    if (names.indexOf(name) !== index) {
+      return refuseGenerateOptions(`generate adopt repeats "${name}"`);
+    }
+  }
+  return Object.freeze([...(names as string[])].sort());
 }
 
 function snapshotManualMigration(value: unknown): ManualMigrationInput {

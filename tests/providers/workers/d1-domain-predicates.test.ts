@@ -47,9 +47,11 @@ import {
 } from "./d1-composed-rows";
 import { RecordingD1 } from "./d1-statements";
 
-declare module "cloudflare:test" {
-  interface ProvidedEnv {
-    DB: D1Database;
+declare global {
+  namespace Cloudflare {
+    interface Env {
+      DB: D1Database;
+    }
   }
 }
 

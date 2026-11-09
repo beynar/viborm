@@ -361,7 +361,7 @@ jobs:
       - name: Run Docker provider contracts
         run: >-
           node scripts/run-vitest-safe.mjs --wall-limit-ms=1800000 run
-          --workspace vitest.workspace.ts
+          --config vitest.workspace.ts
           --project=provider-pg
           --project=provider-postgres
           --project=provider-mysql2
@@ -374,7 +374,7 @@ jobs:
           PGBOUNCER_TEST_CONNECTION_STRING: postgres://postgres:password@127.0.0.1:6432/viborm
         run: >-
           node scripts/run-vitest-safe.mjs run
-          --workspace vitest.workspace.ts
+          --config vitest.workspace.ts
           --project=provider-pgbouncer
 
   surrealdb-provider:
@@ -423,7 +423,7 @@ jobs:
         env:
           SURREAL_TEST_URL: ws://127.0.0.1:8765/rpc
           NODE_OPTIONS: --max-old-space-size=3072
-        run: node node_modules/vitest/vitest.mjs run --project provider-surrealdb --testTimeout=120000 --hookTimeout=240000 --bail=0
+        run: node node_modules/vitest/vitest.mjs run --config vitest.workspace.ts --project provider-surrealdb --testTimeout=120000 --hookTimeout=240000 --bail=0
 
   platform-providers:
     name: Bun and D1 providers
@@ -492,7 +492,7 @@ jobs:
       - name: Run Bun contracts
         run: >-
           node scripts/run-vitest-safe.mjs run
-          --workspace vitest.workspace.ts
+          --config vitest.workspace.ts
           --project=provider-bun
 
       # Keep the entry suite apart from the other permissions contracts: together
@@ -500,14 +500,14 @@ jobs:
       - name: Run D1 permissions entry contracts
         run: >-
           node scripts/run-vitest-safe.mjs run
-          --workspace vitest.workspace.ts
+          --config vitest.workspace.ts
           --project=provider-d1
           tests/providers/workers/d1-permissions-entry.test.ts
 
       - name: Run D1 permissions contracts
         run: >-
           node scripts/run-vitest-safe.mjs run
-          --workspace vitest.workspace.ts
+          --config vitest.workspace.ts
           --project=provider-d1
           tests/providers/workers/d1-permissions
           --exclude 'tests/providers/workers/d1-permissions-entry.test.ts'
@@ -515,12 +515,18 @@ jobs:
       - name: Run D1 contracts
         run: >-
           node scripts/run-vitest-safe.mjs run
-          --workspace vitest.workspace.ts
+          --config vitest.workspace.ts
           --project=provider-d1
           --exclude 'tests/providers/workers/d1-permissions*'
 
       - name: Run the tenant Durable Object suite
         run: >-
           node scripts/run-vitest-safe.mjs run
-          --workspace vitest.workspace.ts
+          --config vitest.workspace.ts
           --project=provider-tenant-do
+
+      - name: Run the Durable Object driver suite
+        run: >-
+          node scripts/run-vitest-safe.mjs run
+          --config vitest.workspace.ts
+          --project=provider-durable-object

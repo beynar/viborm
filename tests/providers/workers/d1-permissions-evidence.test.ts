@@ -15,9 +15,11 @@ import { loadPermissionsSeed } from "@tests/contracts/public-client/permissions-
 import { runPermissionsEvidenceBehavior } from "@tests/contracts/public-client/permissions-evidence-behavior";
 import { SAMPLED_ACTORS } from "@tests/contracts/public-client/permissions-sampled-actors";
 
-declare module "cloudflare:test" {
-  interface ProvidedEnv {
-    DB: D1Database;
+declare global {
+  namespace Cloudflare {
+    interface Env {
+      DB: D1Database;
+    }
   }
 }
 

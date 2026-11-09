@@ -128,9 +128,14 @@ export function createMigrateCommand(): Command {
       "--accept-data-loss",
       "Approve destructive changes (drops, type changes) for this generate"
     )
+    .option(
+      "--adopt <table...>",
+      "Adopt existing listed tables without DDL; apply proves each equals its declaration"
+    )
     .option("--json", "Print machine-readable output")
     .action(
       async (opts: {
+        adopt?: string[];
         name?: string;
         dir?: string;
         from?: string;
@@ -185,6 +190,7 @@ export function createMigrateCommand(): Command {
             from,
             dryRun: opts.dryRun,
             ...(opts.lowLock ? { lowLock: true } : {}),
+            ...(opts.adopt ? { adopt: opts.adopt } : {}),
             ...(approve ? { resolve: approve } : {}),
             ...(manualMigration ? { manualMigration } : {}),
           });

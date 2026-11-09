@@ -1,6 +1,8 @@
+import { adapterPinnedTable } from "@adapters/adapter-internals";
 import type { Operations } from "@client/types";
 import type { QueryExecutionContext } from "@drivers/types";
-import { NotFoundError } from "@errors";
+import { NotFoundError, UnsupportedOperationError } from "@errors";
+import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
 import { baseOperation } from "../../routed-operations";
 import type { PreparedBatchOperation } from "../../types";
@@ -148,13 +150,8 @@ class PreparedCommand implements PreparedOperation {
     // The call's one instant lives with the prepared call, so a replan and
     // every occurrence it re-admits share it.
     let instant: Date | undefined;
-    const defaults = rows && preparedDomain(queries, rows.defaults);
-    this.#scope = rows && {
-      rows,
-      domain: preparedDomain(queries, rows.domain, defaults),
-      defaults: defaults!,
-      instant: () => (instant ??= new Date()),
-    };
+    this.#scope =
+      rows && callScope(queries, rows, () => (instant ??= new Date()));
     this.#config = config;
     this.#schema = schema;
     this.#queries = queries;
@@ -366,6 +363,21 @@ function preparedDomain(
   );
 }
 
+/** One call's row facts, its domains prepared for `queries`. */
+function callScope(
+  queries: Queries,
+  rows: CallRows,
+  instant: () => Date
+): CallScope {
+  const defaults = preparedDomain(queries, rows.defaults);
+  return {
+    rows,
+    domain: preparedDomain(queries, rows.domain, defaults),
+    defaults,
+    instant,
+  };
+}
+
 function sharedQueries(config: EngineConfig): Queries {
   const { adapter, result, backend } = config.driver;
   const createQueries = (
@@ -422,5 +434,31 @@ export function createCommandEngine(config: EngineConfig) {
       rawArgs,
       rows
     );
-  return { prepare };
+  /**
+   * `$rows`: `model`'s rows a root read under `rows` takes, as a raw read's
+   * `FROM` item named `alias`. A model whose layers gate a field's reads is
+   * refused: `SELECT *` would disclose it to every row.
+   */
+  const rowsOf = (
+    model: AnyModel,
+    alias: string,
+    rows: CallRows | undefined,
+    instant: () => Date
+  ): Sql => {
+    if (config.driver.backend)
+      throw new UnsupportedOperationError("$rows() needs an SQL driver");
+    if (adapterPinnedTable(queries.adapter) === undefined)
+      throw new UnsupportedOperationError(
+        "$rows() needs a driver bound to its database (a MySQL namespace): a caller's CTE could otherwise stand for a table its rows read"
+      );
+    const scope = rows && callScope(queries, rows, instant);
+    const gated = scope?.domain.projected(model)?.gates;
+    if (gated !== undefined && gated.size > 0)
+      throw new UnsupportedOperationError(
+        `${model["~"].names.ts}.$rows() refuses read-gated fields: ${[...gated.keys()]}`
+      );
+    const view = (scope ? scope.domain.reads(scope) : queries) as SqlQueries;
+    return view.rowsOf(model, alias);
+  };
+  return { prepare, rowsOf };
 }

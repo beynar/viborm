@@ -327,11 +327,43 @@ export function serializeResolvedModels(
       }
     }
 
-    // Set primary key
+    // Set primary key. `WITHOUT ROWID` is SQLite's alone, and SQLite's
+    // AUTOINCREMENT is a rowid's: the pair is refused here, before any
+    // migration names the table, and never on a dialect that ignores it.
+    const withoutRowid =
+      model["~"].withoutRowid && migrationDriver.dialect === "sqlite";
+    const incremented = columns.find((column) => column.autoIncrement);
+    if (withoutRowid && incremented)
+      throw new MigrationError(
+        `"${modelName}" is declared withoutRowid, and its ID "${incremented.name}" uses .increment(): SQLite's AUTOINCREMENT needs a rowid`,
+        VibORMErrorCode.INVALID_INPUT,
+        { meta: { model: modelName, field: incremented.name } }
+      );
+    // A model without an ID (M001, refused by validation unless the caller
+    // skipped it) has no key to cluster on: the option would be dropped.
+    if (withoutRowid && pkColumns.length === 0)
+      throw new MigrationError(
+        `"${modelName}" is declared withoutRowid and has no ID: SQLite's WITHOUT ROWID needs a primary key`,
+        VibORMErrorCode.INVALID_INPUT,
+        { meta: { model: modelName } }
+      );
+    // F006 refuses a nullable key member on the validated path; this is the
+    // one for `skipValidation`, which would publish a column every dialect
+    // builds NOT NULL, so every later proof of the state would refuse it.
+    const nullableKey = columns.find(
+      (column) => column.nullable && pkColumns.includes(column.name)
+    );
+    if (nullableKey)
+      throw new MigrationError(
+        `"${modelName}.${nullableKey.name}" is nullable and a member of the ID: every database builds a primary-key column NOT NULL`,
+        VibORMErrorCode.INVALID_INPUT,
+        { meta: { model: modelName, field: nullableKey.name } }
+      );
     if (pkColumns.length > 0) {
       primaryKey = {
         columns: pkColumns,
         name: `${tableName}_pkey`,
+        ...(withoutRowid ? { withoutRowid: true as const } : {}),
       };
     }
 

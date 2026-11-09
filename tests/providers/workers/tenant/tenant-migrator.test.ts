@@ -37,10 +37,12 @@ import {
 import pg from "pg";
 import type { TenantObject } from "./tenant-object";
 
-declare module "cloudflare:test" {
-  interface ProvidedEnv {
-    TENANT: DurableObjectNamespace;
-    TENANT_PG_URL: string;
+declare global {
+  namespace Cloudflare {
+    interface Env {
+      TENANT: DurableObjectNamespace;
+      TENANT_PG_URL: string;
+    }
   }
 }
 
@@ -130,11 +132,23 @@ describeIfPg("tenant migrator in a Durable Object (PostgreSQL)", () => {
 
   it("serializes concurrent requests, so the history stays linear", async () => {
     const stub = await seededTenant();
-    const results = await Promise.all(
-      [noteDocument, noteTagDocument, noteTagDocument].map((doc) =>
-        request(stub, (tenant) => tenant.migrator.change(schemaOf(doc)))
-      )
-    );
+    // The pool's Durable Object wrapper awaits a module import before a
+    // request reaches the object, so requests sent together may arrive in any
+    // order. Each is sent once the one before it has arrived, and all three
+    // are still in flight together.
+    let arrived = 0;
+    const pending: Promise<TenantChangeResult>[] = [];
+    for (const doc of [noteDocument, noteTagDocument, noteTagDocument]) {
+      const sent = pending.length;
+      pending.push(
+        request(stub, (tenant) => {
+          arrived += 1;
+          return tenant.migrator.change(schemaOf(doc));
+        })
+      );
+      while (arrived === sent) await wait(1);
+    }
+    const results = await Promise.all(pending);
     expect(results.map(kindOf)).toEqual(["applied", "applied", "noop"]);
     await request(stub, async (tenant, state) => {
       const { leaves, states } = await createMigrationClient(tenant.client, {
@@ -246,17 +260,17 @@ describeIfPg("tenant migrator in a Durable Object (PostgreSQL)", () => {
 
   it("an object reset before the change publishes loses only that request; the next one applies", async () => {
     let stub = await seededTenant();
-    let reached = (): void => undefined;
-    const parked = new Promise<void>((resolve) => {
-      reached = resolve;
-    });
+    // Seen on the test's own timers: a promise the object's request resolved
+    // would resume this test inside that object's I/O context, where the
+    // runner's stub cannot be used (the pool runs tests in a Durable Object).
+    let parked = false;
     // The request dies with the object: its rejection is read at once.
     const dying = request(stub, (tenant) =>
       tenant.migrator.change(schemaOf(droppedLegacyRefDocument), {
         decisions: [approveLegacyRefDrop],
         // Parked until the reset: the restore point never finishes.
         beforeDestructive: () => {
-          reached();
+          parked = true;
           return new Promise<never>(() => undefined);
         },
       })
@@ -264,7 +278,7 @@ describeIfPg("tenant migrator in a Durable Object (PostgreSQL)", () => {
       (result) => `completed ${result.kind}`,
       (error: Error) => error.message
     );
-    await parked;
+    while (!parked) await wait(5);
     expect(await reset(stub)).toBe("reset");
     expect(await dying).toBe("reset");
     // A new instance: the queue is gone, the history and the database stay.

@@ -187,8 +187,13 @@ through that function. Do not compare an introspected snapshot with
 physical fact. Catalog aliases (`int4[]` / `integer[]`, `NOW()` / `now()`)
 are the same physical fact; `normalizeType` and `normalizeDefault` in
 `push-fingerprint.ts` are the one owner, including the differ. SQLite
-primary-key columns are not nullable even when `PRAGMA table_info` reports
-`notnull = 0`. SQLite `autoIncrement` is the `AUTOINCREMENT` keyword, not
+nullability is what the database enforces (`sqliteColumnNullable`, shared by
+introspection and the storage audit): `PRAGMA table_info` reports the
+declaration, a WITHOUT ROWID key already reads `notnull = 1`, and the rowid
+alias — the one key with no `pk`-origin index — cannot hold NULL; any other
+key column of a rowid table declared without NOT NULL accepts NULL and reads
+nullable (so a hand-made one is drift, and the SQLite ledger's
+`event_id TEXT PRIMARY KEY` reads nullable). SQLite `autoIncrement` is the `AUTOINCREMENT` keyword, not
 every `INTEGER PRIMARY KEY`. SQLite enum types keep the `CHECK (... IN ...)`
 suffix the driver writes; introspection reconstructs it from table SQL because
 `PRAGMA table_info` returns only `TEXT`. Transactional wrap uses the live producer's
@@ -1185,12 +1190,51 @@ recording driver or in the extended or provider estate.
 
 ## V1 remediation contracts
 
-An optional exact physical `tables` list is normalized once at `target.ts`,
-frozen into the estate identity, and selects desired/catalog inventories.
-All authored user tables must fit the list; cross-boundary foreign keys and
-shared PostgreSQL enums refuse before effects. Control-table proofs remain
-visible. Live clients accept `{ tables }` without requiring a storage writer.
-A rename needs both names in the initial immutable scope.
+An optional exact physical `tables` list is normalized once at `target.ts`
+and recorded in the estate identity (T0). A client's list L may only grow
+from it: `assertEstateTargetMatches` (V11004) refuses a T0 name missing from
+L and a list on one side only, and says which. L selects the desired check
+(every authored user table must fit it) and `push`, nothing else. Every
+history command selects what the estate manages, never L: `openCommand`
+binds T0, and each proof restates its states' set through `proof.ts`
+`managedAt` (T0 ∪ S(x), and across an edge x→y T0 ∪ S(x) ∪ S(y), less the
+edge's `adopts` on the parent's side), built by `target.ts`
+`managedTables` / `withManagedTables` — one view whose `target` every
+inventory reads (introspection through the bound driver's `this.target`, the
+PostgreSQL digest, invalid indexes, the reset inventory), so a proof's digest
+and introspection select the same set. Commands comparing one read with
+several states (`reanchor`, `resolve`) read the widest set once and select
+in memory with `selectManagedSnapshot`. `reset` clears T0 ∪ the tables of
+its marker's arrival path, so a table only L names (not adopted yet) is never
+dropped, and refuses before effects a replay that adopts a table it clears,
+and (`planClear`, dry run and run alike) a live table the replay creates that
+the clear keeps — not adopted yet, or created by a history the marker names
+and this estate does not hold — naming it.
+A control-only selection draws no user boundary. Cross-boundary foreign keys
+and shared PostgreSQL enums still refuse before effects. Live clients accept
+`{ tables }` without requiring a storage writer. A rename needs both names in
+the estate's scope.
+
+Adoption (`generate({ adopt })`, CLI `--adopt`) records `adopts` (sorted,
+non-empty) on each parent transition, hashed only when present like
+`approvals`, so a transition without it keeps its bytes and ids. Generation
+admits a name only when the desired snapshot declares it, T0 does not hold
+it, and no parent's snapshot does; `graph.ts` `assertAdoption` refuses a
+stored `adopts` breaking the last two, since `managedAt` relies on them. The
+program omits the table's CREATE, indexes, keys and an enum only adopted
+tables use; apply's origin proof excludes it and its destination proof
+includes it, so a live table unequal to the declaration (WITHOUT ROWID
+included) fails V11014 before the marker moves. What changes behaviour and no
+snapshot states (triggers, conflict clauses, collations, engine, storage, row
+security, CHECK, deferrable keys: each dialect's `adoptionHazards`) is
+refused, V11014 naming table and feature, by `proof.ts` `assertAdoptable`,
+which apply, reset, baseline, reanchor and resolve (complete or retry) run
+before effects over the tables their path adopts, and nothing else asks. Known
+gap, documented (Arnaud, 2026-11-09): a stepwise apply (MySQL, Neki) whose
+later edge CREATEs a table that already exists by hand skips that proven step,
+as a resume does, and takes the table over without `adopts`. The enum an adopted table uses joins the program's
+origin, so a new table's DDL qualifies it. `down` releases it with no
+DDL. Manual, low-lock and checkpoint states adopt nothing.
 
 Generation uses the strict resolver for every parent, including merges. Missing
 rename or enum-removal decisions refuse; nullable does not imply NULL consent.
