@@ -383,6 +383,51 @@ export const projects: TestProjectConfiguration[] = [
   "./vitest.durable-object.config.ts",
 ];
 
+/** The project a file entry of {@link projects} names. */
+const FILE_PROJECT_NAMES: Record<string, string> = {
+  "./vitest.d1.config.ts": "provider-d1",
+  "./vitest.tenant-do.config.ts": "provider-tenant-do",
+  "./vitest.durable-object.config.ts": "provider-durable-object",
+};
+const projectName = (project: TestProjectConfiguration) =>
+  typeof project === "string"
+    ? FILE_PROJECT_NAMES[project]
+    : (project as { test?: { name?: unknown } }).test?.name;
+
+/** This run's `--project` filters (`--project x`, `--project=x`). */
+const requestedProjects = process.argv.flatMap((argument, index, argv) => {
+  if (argument === "--project") return argv[index + 1] ?? [];
+  return argument.startsWith("--project=")
+    ? argument.slice("--project=".length)
+    : [];
+});
+const REGEX_SPECIAL = /[.+?^${}()|[\]\\]/g;
+const matches = (pattern: string, name: string) =>
+  new RegExp(
+    `^${pattern.replace(REGEX_SPECIAL, "\\$&").replaceAll("*", ".*")}$`
+  ).test(name);
+
+/**
+ * Vitest 4 resolves every project of the root, the Workers plugin's
+ * included, even when `--project` selects one: about 175 MiB of the ordinary
+ * 1536 MiB ceiling. A run that names its projects resolves only those (a
+ * negated or unmatched filter keeps them all); Vitest still applies its own.
+ */
+const named = projects.filter((project) => {
+  const name = projectName(project);
+  return (
+    typeof name !== "string" ||
+    requestedProjects.some((pattern) => matches(pattern, name))
+  );
+});
+// No match keeps them all, so Vitest's refusal lists the names it knows.
+const selectedProjects =
+  requestedProjects.length === 0 ||
+  requestedProjects.some((pattern) => pattern.startsWith("!")) ||
+  named.length === 0
+    ? projects
+    : named;
+
 /**
  * Run-wide options. Vitest reads coverage only from the root, and the pool
  * honours the root's worker count across projects: one worker, no file
@@ -394,6 +439,6 @@ export default defineConfig({
     coverage: baseConfig.test?.coverage,
     fileParallelism: false,
     maxWorkers: 1,
-    projects,
+    projects: selectedProjects,
   },
 });

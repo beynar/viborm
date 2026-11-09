@@ -423,7 +423,7 @@ jobs:
         env:
           SURREAL_TEST_URL: ws://127.0.0.1:8765/rpc
           NODE_OPTIONS: --max-old-space-size=3072
-        run: node node_modules/vitest/vitest.mjs run --project provider-surrealdb --testTimeout=120000 --hookTimeout=240000 --bail=0
+        run: node node_modules/vitest/vitest.mjs run --config vitest.workspace.ts --project provider-surrealdb --testTimeout=120000 --hookTimeout=240000 --bail=0
 
   platform-providers:
     name: Bun and D1 providers
