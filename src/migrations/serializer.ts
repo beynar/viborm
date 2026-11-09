@@ -347,6 +347,18 @@ export function serializeResolvedModels(
         VibORMErrorCode.INVALID_INPUT,
         { meta: { model: modelName } }
       );
+    // F006 refuses a nullable key member on the validated path; this is the
+    // one for `skipValidation`, which would publish a column every dialect
+    // builds NOT NULL, so every later proof of the state would refuse it.
+    const nullableKey = columns.find(
+      (column) => column.nullable && pkColumns.includes(column.name)
+    );
+    if (nullableKey)
+      throw new MigrationError(
+        `"${modelName}.${nullableKey.name}" is nullable and a member of the ID: every database builds a primary-key column NOT NULL`,
+        VibORMErrorCode.INVALID_INPUT,
+        { meta: { model: modelName, field: nullableKey.name } }
+      );
     if (pkColumns.length > 0) {
       primaryKey = {
         columns: pkColumns,
