@@ -405,6 +405,10 @@ export class MySQLAdapter implements DatabaseAdapter {
     installAdapterInternals(this, {
       batchRefs: this.#batchRefs,
       constraints: MYSQL_CONSTRAINTS,
+      // Qualified by the bound database; an unbound adapter cannot pin.
+      ...(this.namespace !== undefined && {
+        pinnedTable: this.identifiers.table,
+      }),
       select: this.#assemble.select,
     });
   }

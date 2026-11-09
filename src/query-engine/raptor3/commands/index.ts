@@ -1,3 +1,4 @@
+import { adapterPinnedTable } from "@adapters/adapter-internals";
 import type { Operations } from "@client/types";
 import type { QueryExecutionContext } from "@drivers/types";
 import { NotFoundError, UnsupportedOperationError } from "@errors";
@@ -446,6 +447,10 @@ export function createCommandEngine(config: EngineConfig) {
   ): Sql => {
     if (config.driver.backend)
       throw new UnsupportedOperationError("$rows() needs an SQL driver");
+    if (adapterPinnedTable(queries.adapter) === undefined)
+      throw new UnsupportedOperationError(
+        "$rows() needs a driver bound to its database (a MySQL namespace): a caller's CTE could otherwise stand for a table its rows read"
+      );
     const scope = rows && callScope(queries, rows, instant);
     const gated = scope?.domain.projected(model)?.gates;
     if (gated !== undefined && gated.size > 0)

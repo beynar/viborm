@@ -866,6 +866,8 @@ const SQLITE_RESULT: AdapterResultParser = {
 };
 
 const SQLITE_IDENTIFIERS = createIdentifiers(quoteIdent);
+// The main database's tables: a caller's CTE cannot stand for one of them.
+const SQLITE_PINNED_TABLE = createIdentifiers(quoteIdent, "main").table;
 
 const SQLITE_CLAUSES = createStandardClauses();
 
@@ -948,6 +950,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
         return batchRefs;
       },
       constraints: sqliteConstraintIdentities,
+      pinnedTable: SQLITE_PINNED_TABLE,
       select: this.#assemble.select,
     });
   }

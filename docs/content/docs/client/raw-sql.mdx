@@ -236,8 +236,14 @@ const hits = await view.$queryRaw<{ id: string; title: string }>`
 `view.page.findMany()` would filter to, controls bound to the view included:
 
 ```sql
-(SELECT * FROM "page" AS "q0" WHERE <the view's row domain>) AS "p"
+(SELECT * FROM "main"."page" AS "q0" WHERE <the view's row domain>) AS "p"
 ```
+
+Every table it reads is named with its database or schema (`"main"` on
+SQLite, the namespace on PostgreSQL and MySQL), so a CTE your text defines
+under a table's name cannot stand for that table inside the filter. A MySQL
+client without a bound database (a supplied pool without `namespace`)
+refuses `$rows` for that reason.
 
 On SQLite it also carries the table's implicit `rowid` (`SELECT "q0"."rowid"
 AS rowid, * ...`), the key an FTS5 table joins on, unless the model is
@@ -246,9 +252,10 @@ declared `.withoutRowid()`.
 - It is a `FROM` (or `JOIN`) item, so the text around it cannot put the
   filter under an `OR` or an outer join's `ON`. Several may appear in one
   statement, each from its own model, sharing one instant.
-- The rows are the ones the client it was **taken on** may read: take it on
-  the view (or the transaction client) you run the read on. A fragment from
-  another client, schema or database is refused.
+- Take it on the handle you run the read on: the same view (the same
+  `$extends` chain and `$as` or `$bind` values) or a transaction of it. A
+  fragment from another client or view, the base client included, is
+  refused.
 - The alias is lowercase letters, digits and `_` (at most 63, not starting
   with a digit), so an unquoted `p.id` reads it on every dialect.
 - A model with read-gated fields (permissions `fields: { x: { read: ... } }`)

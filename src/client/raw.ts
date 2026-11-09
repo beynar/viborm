@@ -120,9 +120,8 @@ export function createRowsFragment(
 
 /**
  * The `FROM` item a `$rows` fragment stands for in a raw call of `engine`:
- * the domain the call of a `findMany` of its model on its own client would
- * take, controls bound to that client included, read at the raw call's one
- * instant.
+ * the domain a `findMany` of its model on that same view would take,
+ * controls bound to it included, read at the raw call's one instant.
  */
 function settleRawRows(
   engine: QueryEngine,
@@ -131,10 +130,16 @@ function settleRawRows(
   instant: () => Date
 ): Sql {
   const { client, model, alias } = rows;
-  if (client.route !== engine.route) {
+  // The raw call's own view only: its chain and the controls it binds. A
+  // fragment of the base client or another `$as` would read other rows.
+  if (
+    client.route !== engine.route ||
+    client.extensionChain !== engine.extensionChain ||
+    client.bound !== engine.bound
+  ) {
     throw rawInputError(
       method,
-      "received a $rows() fragment of another client"
+      "received a $rows() fragment of another client or view: take it from the handle the raw call runs on"
     );
   }
   const chain = client.extensionChain;

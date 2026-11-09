@@ -71,6 +71,7 @@ const tenancy = defineExtension<typeof schema>()({
 });
 
 type Row = Record<string, unknown>;
+const ANOTHER_VIEW = /received a \$rows\(\) fragment of another client or view/;
 const ids = (rows: unknown) => (rows as Row[]).map((row) => row.id).sort();
 
 let base: ReturnType<typeof open>;
@@ -114,7 +115,7 @@ describe("$rows", () => {
       await seen.$queryRaw`SELECT p.id FROM ${seen.page.$rows("p")} ORDER BY p.id`;
     expect(ids(rows)).toEqual(["a", "b", "c"]);
     expect(statement).toBe(
-      'SELECT p.id FROM (SELECT "q0"."rowid" AS rowid, * FROM "page" AS "q0" WHERE 1 = 1) AS "p" ORDER BY p.id'
+      'SELECT p.id FROM (SELECT "q0"."rowid" AS rowid, * FROM "main"."page" AS "q0" WHERE 1 = 1) AS "p" ORDER BY p.id'
     );
   });
 
@@ -141,7 +142,7 @@ describe("$rows", () => {
     });
     await seen.$queryRaw`SELECT t.id FROM ${seen.tag.$rows("t")}`;
     expect(statement).toBe(
-      'SELECT t.id FROM (SELECT * FROM "tag" AS "q0" WHERE 1 = 1) AS "t"'
+      'SELECT t.id FROM (SELECT * FROM "main"."tag" AS "q0" WHERE 1 = 1) AS "t"'
     );
   });
 
@@ -159,11 +160,54 @@ describe("$rows", () => {
     expect(ids(await alice.page.findMany({ select: { id: true } }))).toEqual(
       ids(rows)
     );
-    // The fragment's own client decides, not the raw call's.
+  });
+
+  test("a fragment of another view is refused, the base client's included", async () => {
+    const db = base.$extends(policy);
+    const alice = db.$as({ userId: "alice" });
     const bob = db.$as({ userId: "bob" });
-    expect(
-      ids(await base.$queryRaw`SELECT p.id FROM ${bob.page.$rows("p")}`)
-    ).toEqual(["c"]);
+    await expect(
+      alice.$queryRaw`SELECT p.id FROM ${base.page.$rows("p")}`
+    ).rejects.toThrow(ANOTHER_VIEW);
+    await expect(
+      alice.$queryRaw`SELECT p.id FROM ${bob.page.$rows("p")}`
+    ).rejects.toThrow(ANOTHER_VIEW);
+    await expect(
+      base.$queryRaw`SELECT p.id FROM ${alice.page.$rows("p")}`
+    ).rejects.toThrow(ANOTHER_VIEW);
+    await expect(
+      alice.$queryRaw`SELECT p.id FROM ${db.page.$rows("p")}`
+    ).rejects.toThrow(ANOTHER_VIEW);
+    // A transaction of the view keeps it.
+    await expect(
+      alice.$transaction(
+        (tx) => tx.$queryRaw`SELECT p.id FROM ${alice.page.$rows("p")}`
+      )
+    ).resolves.toHaveLength(2);
+  });
+
+  test("a caller's CTE named like a table cannot stand for it", async () => {
+    const bob = base
+      .$extends(
+        permissions({
+          actor: v.object({ name: v.string() }),
+          models: {
+            user: { read: true },
+            page: { read: { author: { name: { actor: "name" } } } },
+          },
+        })
+      )
+      .$as({ name: "Bob" });
+    const plain = ids(
+      await bob.$queryRaw`SELECT p.id FROM ${bob.page.$rows("p")}`
+    );
+    expect(plain).toEqual(["c"]);
+    // A CTE naming every user Bob, and one replacing the page table.
+    const shadowed = await bob.$queryRaw`
+      WITH "user" AS (SELECT u0.id AS id, ${"Bob"} AS name FROM "main"."user" AS u0),
+      page AS (SELECT 'x' AS id)
+      SELECT p.id FROM ${bob.page.$rows("p")}`;
+    expect(ids(shadowed)).toEqual(plain);
   });
 
   test("a domain through a relation lowers its own subquery, whatever the alias", async () => {
@@ -298,7 +342,7 @@ describe("$rows", () => {
       await expect(
         base.$queryRaw`SELECT p.id FROM ${other.page.$rows("p")}`
       ).rejects.toThrow(
-        "$queryRaw received a $rows() fragment of another client"
+        "$queryRaw received a $rows() fragment of another client or view"
       );
     } finally {
       await other.$disconnect();
