@@ -18,12 +18,15 @@ import type { Schema } from "@client/types";
 import type { D1Database, D1DatabaseSession } from "@cloudflare/workers-types";
 import { QueryError } from "@errors";
 import type { Sql } from "@sql";
+import { assertStatementBindParameterCapacity } from "../bind-parameter-capacity";
 import {
   type AnyDriver,
+  D1_MIGRATION_CAPABILITY,
   Driver,
   type DriverResultParser,
   type QueryExecutionContext,
 } from "../driver";
+import { isVerbatimBatchQuery } from "../driver-batch-query-kind";
 import {
   assertNormalizedQueryResult,
   isNormalizedResultRow,
@@ -210,6 +213,8 @@ export class D1Driver extends Driver<
   readonly supportsTransactions = false;
   readonly supportsBatch = true;
   readonly supportsOrderedCommittedSegments = true;
+  /** Read-only: no foreign-key switch outside a batch, no migration lock. */
+  readonly sqliteMigrationCapability = D1_MIGRATION_CAPABILITY;
 
   private readonly driverOptions: D1DriverOptions;
   private readonly canonicalAdapter = this.adapter;
@@ -363,10 +368,19 @@ export class D1Driver extends Driver<
     params: unknown[] | undefined,
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    return this.executeStatement<T>(
+    // A typed statement was checked when it was built; a raw one's values
+    // are D1's binds as given, and its 100 is a hard limit.
+    const values = params ?? [];
+    assertStatementBindParameterCapacity(
+      { values },
+      this.driverName,
+      this.maxBindParametersPerStatement,
+      "raw statement"
+    );
+    return await this.executeStatement<T>(
       client,
       sql,
-      params ?? [],
+      values,
       context ?? { operation: "executeRaw" }
     );
   }
@@ -411,6 +425,14 @@ export class D1Driver extends Driver<
     const statements: ReturnType<D1Database["prepare"]>[] = [];
     for (const query of queries) {
       const statementContext = query.context ?? batchContext;
+      // A raw member, unlike a typed one, was never checked against it.
+      if (isVerbatimBatchQuery(query))
+        assertStatementBindParameterCapacity(
+          { values: query.params ?? [] },
+          this.driverName,
+          this.maxBindParametersPerStatement,
+          "raw statement"
+        );
       try {
         const values = query.params ? convertD1Parameters(query.params) : [];
         statements.push(client.prepare(query.sql).bind(...values));

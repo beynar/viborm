@@ -15,11 +15,13 @@ import { createR2StorageWriter } from "@src/migrations/storage/r2";
 import { encodeSqlBlob } from "@src/migrations/v1-parse";
 import { s } from "@src/schema";
 
-declare module "cloudflare:test" {
-  interface ProvidedEnv {
-    DB: D1Database;
-    ESTATE_HISTORY: DurableObjectNamespace;
-    HISTORY: R2Bucket;
+declare global {
+  namespace Cloudflare {
+    interface Env {
+      DB: D1Database;
+      ESTATE_HISTORY: DurableObjectNamespace;
+      HISTORY: R2Bucket;
+    }
   }
 }
 

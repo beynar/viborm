@@ -394,7 +394,8 @@ to:
 - linking and unlinking (`connect`, `disconnect`, `set`) beyond the rules above;
 - which fields a query may use;
 - raw SQL (`$queryRaw`, `$executeRaw`) and statement transforms, which see
-  every row.
+  every row; a raw read skips tombstones through a model's
+  [`$rows(alias)`](/docs/client/raw-sql#governed-raw-reads).
 
 `deleted: "with"` and raw SQL reach every tombstone: soft delete is not
 erasure. A marker is not a version: deleting, restoring and deleting again

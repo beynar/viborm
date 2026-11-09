@@ -38,10 +38,12 @@ import {
 } from "@tests/fixtures/tenant-member";
 import type { TenantObject } from "./tenant-object";
 
-declare module "cloudflare:test" {
-  interface ProvidedEnv {
-    TENANT: DurableObjectNamespace;
-    TENANT_PG_URL: string;
+declare global {
+  namespace Cloudflare {
+    interface Env {
+      TENANT: DurableObjectNamespace;
+      TENANT_PG_URL: string;
+    }
   }
 }
 

@@ -824,26 +824,26 @@ pnpm test:all --ci-local # CI partition: extended-local and local providers; sib
 pnpm test:coverage       # Sequential subsystem shards, merged global report, and working-tree metadata
 # CI splits the same work: run-coverage.mjs shard <id,...> per runner, then run-coverage.mjs merge
 
-# Nine subsystems hold 100% statements, branches, functions and lines.
+# Eight subsystems hold 100% statements, branches, functions and lines.
 pnpm test:coverage:public # Public root surface; 100% in all four metrics
 pnpm test:coverage:schema # Whole schema subsystem; 100% in all four metrics
 pnpm test:coverage:validation # Validation subsystem; 100% in all four metrics
 pnpm test:coverage:sql   # SQL subsystem; 100% in all four metrics
 pnpm test:coverage:instrumentation # Instrumentation subsystem; 100% in all four metrics
 pnpm test:coverage:extensions # Extension subsystem; 100% in all four metrics
-pnpm test:coverage:errors # Error subsystem; 100% in all four metrics
 pnpm test:coverage:adapters # Adapter subsystem; 100% in all four metrics
 pnpm test:coverage:cli   # CLI subsystem; 100% in all four metrics
 
-# The other five are APPROVED EXCEPTIONS below 100 and do NOT share one number.
+# The other six are APPROVED EXCEPTIONS below 100 and do NOT share one number.
 # The floors below are statements / branches / functions / lines exactly as
 # scripts/coverage-policy.mjs enforces them, each with its measured evidence
 # recorded beside it there.
 pnpm test:coverage:query-engine-core # 87 / 91 / 90 / 87 - the whole engine is in scope, measured by its own deterministic test tree (coverage-raptor3) beside the contract layers
 pnpm test:coverage:drivers # 96 / 92.5 / 96 / 96 - per-provider index.ts needs a live connection this lane must not open
 pnpm test:coverage:client # 96 / 94 / 96 / 96 - `default:` arms over closed unions, and functions with no public caller
-pnpm test:coverage:cache # 98 / 98 / 98 / 98
-pnpm test:coverage:migrations # 98 / 97.3 / 98 / 98 - 30 unreachable defensive branches in serializer.ts and graph.ts
+pnpm test:coverage:errors # 100 / 99 / 100 / 100 - Vitest 4 counts branch arms Vitest 3 did not (Arnaud, 2026-11-09)
+pnpm test:coverage:cache # 98 / 97.5 / 98 / 98 - the same Vitest 4 re-measure (Arnaud, 2026-11-09)
+pnpm test:coverage:migrations # 97 / 97.3 / 98 / 97 - 30 unreachable defensive branches in serializer.ts and graph.ts
 pnpm test:coverage:policy # Static ownership and bounded-runner policy tests
 pnpm test:package        # Build once and validate every declared export
 pnpm test:providers      # Docker and hosted projects only; missing environment values skip visibly

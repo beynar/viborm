@@ -126,6 +126,7 @@ export async function generateV1(
   const desiredEncoded = encodeSnapshot(desired);
   const parents = resolveParents(loaded, request, desired);
   refuseUnprovedMerge(loaded, parents, request.manualMigration);
+  const adopts = admitAdoption(request, loaded, desired, parents);
   const parentState =
     parents.length === 1 && parents[0]
       ? loaded.states.get(parents[0])
@@ -245,7 +246,17 @@ export async function generateV1(
           ? applyResolvedEnumMappings([operation], enumMappings)[0]!
           : operation
       );
-      const staged = prepareSchemaProgram(withEnumMappings, current, driver);
+      const adoption = withoutAdoptedTables(
+        withEnumMappings,
+        adopts,
+        desired,
+        current
+      );
+      const staged = prepareSchemaProgram(
+        adoption.operations,
+        adoption.current,
+        driver
+      );
       reported.push(...staged);
       operationsByParent.push({ fromState: from, operations: staged });
       // T2: the plan has asked every decision once its last parent is
@@ -269,7 +280,7 @@ export async function generateV1(
           "lowLock: this change keeps its blocking index builds and validating foreign keys, because it merges several parents or changes something other than an index or a foreign key after its first index build. Generate those indexes and keys in a migration of their own to get their step form."
         );
       }
-      let origin = { from, current, approvals };
+      let origin = { from, current: adoption.current, approvals };
       const before = split?.states.slice(0, -1) ?? [];
       for (const [index, state] of before.entries()) {
         const step = sealLowLockState(
@@ -307,7 +318,9 @@ export async function generateV1(
             split?.steps
           );
       warnings.push(...transitionWarnings(compiled));
-      parentBodies.push(sealParent(origin.from, compiled, origin.approvals));
+      parentBodies.push(
+        sealParent(origin.from, compiled, origin.approvals, adopts)
+      );
     }
   }
 
@@ -387,6 +400,121 @@ export async function generateV1(
     await storage.publishState(manifest.stateId, manifest.bytes);
   }
   return { outcome: "published", ...candidate };
+}
+
+/**
+ * The tables `adopt` names, once each is admitted: declared by the desired
+ * snapshot (which the serializer already keeps inside the client's list),
+ * outside the estate's frozen list (a name there is managed already, so a raw
+ * table of that name is drift), and absent from every parent's snapshot. An
+ * estate without a list manages the whole database and adopts nothing, nor
+ * does a manual, low-lock or checkpoint state.
+ */
+function admitAdoption(
+  request: GenerateV1Options,
+  graph: MigrationGraph,
+  desired: SchemaSnapshot,
+  parents: readonly (Sha256 | null)[]
+): readonly string[] {
+  const names = request.adopt ?? [];
+  if (names.length === 0) return names;
+  const refuse = (message: string): never => {
+    throw new MigrationError(message, VibORMErrorCode.MIGRATION_INVALID_STATE);
+  };
+  if (request.manualMigration || request.lowLock) {
+    refuse("generate adopt cannot be combined with manualMigration or lowLock");
+  }
+  if (request.from === null && graph.states.size > 0) {
+    refuse(
+      "An authored checkpoint creates its whole schema: it adopts nothing"
+    );
+  }
+  const frozen = graph.descriptor.target.tables;
+  if (frozen === undefined) {
+    return refuse(
+      "generate adopt needs an estate with a `tables` list: without one the estate manages the whole database, so an existing table is drift"
+    );
+  }
+  for (const name of names) {
+    if (!desired.tables.some((table) => table.name === name)) {
+      refuse(
+        `generate adopt names "${name}", which the schema does not declare`
+      );
+    }
+    if (frozen.includes(name)) {
+      refuse(
+        `generate adopt names "${name}", which the estate already manages: a raw table of that name is drift, not something to adopt`
+      );
+    }
+    for (const parent of parents) {
+      if (
+        requireStateSnapshot(graph, parent).tables.some(
+          (table) => table.name === name
+        )
+      ) {
+        refuse(
+          `generate adopt names "${name}", which parent ${parent ?? "empty"} already has`
+        );
+      }
+    }
+  }
+  return names;
+}
+
+/**
+ * The program without what creates an adopted table: its CREATE TABLE, its
+ * indexes and keys, and every enum an adopted table uses. That enum already
+ * exists with the table (a PostgreSQL type is the database's, not the
+ * table's), even where a new managed table of the same transition uses it
+ * too, so it is never created, and a rollback, which drops only what the
+ * program created, never drops it. It runs no DDL for them; the destination
+ * proof proves the live table and the enum equal the declaration.
+ *
+ * The program's origin is the parent's schema plus those enums, because the
+ * database already has them: the DDL of a new table naming one qualifies it
+ * as it would an enum it created (`managedEnumNames`). The origin proof still
+ * compares the parent's own snapshot.
+ */
+function withoutAdoptedTables(
+  operations: DiffOperation[],
+  adopts: readonly string[],
+  desired: SchemaSnapshot,
+  current: SchemaSnapshot
+): { operations: DiffOperation[]; current: SchemaSnapshot } {
+  if (adopts.length === 0) return { operations, current };
+  const enumsOf = (tables: readonly SchemaSnapshot["tables"][number][]) =>
+    new Set(
+      tables.flatMap((table) =>
+        table.columns.map((column) =>
+          column.type.endsWith("[]") ? column.type.slice(0, -2) : column.type
+        )
+      )
+    );
+  const adoptedEnums = enumsOf(
+    desired.tables.filter((table) => adopts.includes(table.name))
+  );
+  const broughtEnums = (desired.enums ?? []).filter(
+    (enumDef) =>
+      adoptedEnums.has(enumDef.name) &&
+      !current.enums?.some(({ name }) => name === enumDef.name)
+  );
+  return {
+    operations: operations.filter((operation) => {
+      if (operation.type === "createTable") {
+        return !adopts.includes(operation.table.name);
+      }
+      if (operation.type === "createEnum") {
+        return !adoptedEnums.has(operation.enumDef.name);
+      }
+      return !(
+        "tableName" in operation && adopts.includes(operation.tableName)
+      );
+    }),
+    current:
+      broughtEnums.length === 0
+        ? current
+        : { ...current, enums: [...(current.enums ?? []), ...broughtEnums] },
+  };
 }
 
 /** Decision 8: two snapshots that differ only in field and model order. */

@@ -38,14 +38,13 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
  * invariants below red and names the file, pattern, or script at fault.
  */
 
-// `defineWorkspace` and `defineConfig` are identity functions, but the real
-// `vitest/config` drags the whole Vite Node API into this worker to supply them.
-// The stub keeps the census inside the core lane's memory budget; the resolved
-// project list is the same either way, so this is a cost control and not a
-// correctness dependency.
+// `defineConfig` is an identity function, but the real `vitest/config` drags
+// the whole Vite Node API into this worker to supply it. The stub keeps the
+// census inside the core lane's memory budget; the resolved project list is
+// the same either way, so this is a cost control and not a correctness
+// dependency.
 vi.mock("vitest/config", () => ({
   defineConfig: (config: unknown) => config,
-  defineWorkspace: (projects: unknown) => projects,
 }));
 
 const CORE_TEST_SUFFIX = ".core.test.ts";
@@ -105,9 +104,9 @@ function patternList(value: unknown, description: string): string[] {
 }
 
 async function loadLayerProjects(): Promise<LayerProject[]> {
-  const workspace: unknown = (await import("@root/vitest.workspace")).default;
+  const workspace: unknown = (await import("@root/vitest.workspace")).projects;
   if (!Array.isArray(workspace)) {
-    throw new Error("vitest.workspace.ts must default-export a project list.");
+    throw new Error("vitest.workspace.ts must export its project list.");
   }
   const projects: LayerProject[] = [];
   for (const entry of workspace) {

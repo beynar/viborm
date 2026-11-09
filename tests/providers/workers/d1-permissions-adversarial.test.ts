@@ -4,9 +4,11 @@ import { D1Driver } from "@src/drivers/d1";
 import { createMigrationClient } from "@src/migrations/client";
 import { runPermissionsAdversarialBehavior } from "@tests/contracts/public-client/permissions-adversarial-behavior";
 
-declare module "cloudflare:test" {
-  interface ProvidedEnv {
-    DB: D1Database;
+declare global {
+  namespace Cloudflare {
+    interface Env {
+      DB: D1Database;
+    }
   }
 }
 

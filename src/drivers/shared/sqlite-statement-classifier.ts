@@ -60,6 +60,12 @@ export function classifySQLiteStatementResult(
   return NO_ROW_COMMANDS.has(command) ? "no-rows" : "unknown";
 }
 
+/** Whether SQLite's `changes()` counts this statement's rows: INSERT, REPLACE, UPDATE or DELETE. */
+export function isSQLiteMutationStatement(sql: string): boolean {
+  const command = topLevelCommand(getTopLevelStatementTokens(sql))?.value;
+  return command !== undefined && MUTATION_COMMANDS.has(command);
+}
+
 /** Whether D1/SQLite's statement-local generated-row metadata belongs to this SQL. */
 export function isSQLiteInsertStatement(sql: string): boolean {
   const command = topLevelCommand(getTopLevelStatementTokens(sql))?.value;

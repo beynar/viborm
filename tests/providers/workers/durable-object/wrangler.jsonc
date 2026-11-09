@@ -1,0 +1,12 @@
+{
+  "$schema": "../../../../node_modules/wrangler/config-schema.json",
+  "name": "viborm-durable-object-tests",
+  "main": "worker.ts",
+  // The latest date the Vitest 3 Workers pool supported, kept as it was: the
+  // current pool's workerd accepts later ones.
+  "compatibility_date": "2025-10-11",
+  "durable_objects": {
+    "bindings": [{ "name": "SQL_OBJECT", "class_name": "SqlObject" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SqlObject"] }]
+}

@@ -195,6 +195,7 @@ function serializeModel(
     // Canonical order: `omit` is a set spelled as an array.
     document.omit = Object.keys(state.omit).sort();
   }
+  if (model["~"].withoutRowid) document.withoutRowid = true;
   return document;
 }
 

@@ -38,6 +38,7 @@ const runtime = {
     sqlite3: "./src/drivers/sqlite3/index.ts",
     libsql: "./src/drivers/libsql/index.ts",
     d1: "./src/drivers/d1/index.ts",
+    "durable-object": "./src/drivers/durable-object/index.ts",
     "bun-sqlite": "./src/drivers/bun-sqlite/index.ts",
 
     // Cache (viborm/cache, viborm/cache/memory, etc.)
@@ -86,6 +87,8 @@ const runtime = {
     on: "./src/on/index.ts",
     // List order (viborm/ordering): the official ordering extension.
     ordering: "./src/ordering/index.ts",
+    // Rank-key helpers alone (viborm/ordering/keys): no client, for browsers.
+    "ordering/keys": "./src/ordering/keys.ts",
 
     // Adapters (internal, but exposed for advanced usage)
     adapters: "./src/adapters/index.ts",

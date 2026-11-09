@@ -17,6 +17,7 @@ import {
   SQLITE_GEO_POINT_TYPE,
 } from "../../../adapters/databases/sqlite/storage/geo-point";
 import { skipSqlNonStructuralRegion } from "../../../adapters/databases/sqlite/storage/sql-lexing";
+import type { SqliteMigrationCapability } from "../../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import { RAW_INDEX_MARKER_PREFIX, readRawIndexMarker } from "../../raw-index";
 import type {
@@ -194,10 +195,62 @@ function partialIndexPredicate(sql: string | null): string | undefined {
 // INTROSPECTION
 // =============================================================================
 
+/** `CREATE TABLE … (…) WITHOUT ROWID`: the two words at the statement's top level. */
+function isWithoutRowid(sql: string): boolean {
+  const words = sqliteDefinitionKeywords(sql);
+  return words.some(
+    (word, index) => word === "WITHOUT" && words[index + 1] === "ROWID"
+  );
+}
+
+/**
+ * What a stored `CREATE TABLE` declares beyond the snapshot's vocabulary and
+ * that changes how the table behaves: `STRICT` typing, an `ON CONFLICT`
+ * resolution on a key or NOT NULL (`REPLACE` overwrites a row a create would
+ * have refused), and a column collation other than BINARY, which the
+ * declaration never writes. A quoted collation name is not read, so it counts.
+ * An indexed column's collation is refused by every reader already (V8001),
+ * and a CHECK by introspection (V11009).
+ */
+export function sqliteTableHazards(sql: string): string[] {
+  const hazards: string[] = [];
+  if (sqliteDefinitionKeywords(sql).includes("STRICT")) hazards.push("STRICT");
+  for (const { text, columnName } of sqliteTableDefinitions(sql)) {
+    const words = sqliteDefinitionKeywords(text);
+    const where =
+      columnName === undefined
+        ? "a table constraint"
+        : `column "${columnName}"`;
+    if (words.some((word, i) => word === "ON" && words[i + 1] === "CONFLICT"))
+      hazards.push(`ON CONFLICT on ${where}`);
+    if (
+      words.some((word, i) => word === "COLLATE" && words[i + 1] !== "BINARY")
+    )
+      hazards.push(`a collation on ${where}`);
+  }
+  return hazards;
+}
+
+/**
+ * Whether a column holds NULL. `PRAGMA table_info` reports what was declared,
+ * and SQLite enforces more only in two places: a WITHOUT ROWID key, which it
+ * already reports as `notnull = 1`, and the rowid alias — a rowid table's
+ * one-column INTEGER key, the only key with no backing `pk` index (the
+ * `INTEGER PRIMARY KEY DESC` quirk has one, and holds NULL). Any other key
+ * column of a rowid table accepts NULL unless it is declared NOT NULL.
+ */
+export function sqliteColumnNullable(
+  notnull: number,
+  pk: number,
+  keyIndexed: boolean
+): boolean {
+  return notnull === 0 && (pk === 0 || keyIndexed);
+}
+
 export async function introspect(
   executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>,
   managedTables?: readonly string[],
-  excludeD1SystemTables = false
+  reservedTablePrefixes: SqliteMigrationCapability["reservedTablePrefixes"] = "none"
 ): Promise<SchemaSnapshot> {
   // Get all tables. `sql` rides along on the query that was already being made
   // — the reserved decimal constraints are read out of it, and a second live
@@ -206,9 +259,10 @@ export async function introspect(
   // user's schema: it is TEMP where the transport admits temporary objects and
   // never appears here, but on D1 it is an ordinary table in `main`, and a
   // snapshot that carried it would have push and diff plan its drop.
-  // D1 also exposes provider-owned `_cf_` tables but forbids their PRAGMAs.
-  // Filter that exact reserved prefix only for D1; GLOB treats `_` literally,
-  // and an ordinary SQLite application's similarly named tables stay visible.
+  // Cloudflare (D1, Durable Objects) owns the `_cf_` tables and forbids their
+  // PRAGMAs. Filter that exact prefix only where the driver's capability
+  // reserves it; GLOB treats `_` literally, and an ordinary SQLite
+  // application's similarly named tables stay visible.
   const tablesResult = await executeRaw<SqliteTable>(
     `
     SELECT name, sql
@@ -216,7 +270,7 @@ export async function introspect(
     WHERE type = 'table'
       AND name NOT LIKE 'sqlite_%'
       AND name <> ?
-      ${excludeD1SystemTables ? "AND name NOT GLOB '_cf_*'" : ""}
+      ${reservedTablePrefixes === "_cf_" ? "AND name NOT GLOB '_cf_*'" : ""}
     ORDER BY name
   `,
     [BATCH_REFS_TABLE]
@@ -264,6 +318,7 @@ export async function introspect(
     const indexesResult = await executeRaw<SqliteIndex>(
       `PRAGMA index_list(${escapeIdentifier(tableName)})`
     );
+    const keyIndexed = indexesResult.rows.some(({ origin }) => origin === "pk");
 
     // The pragma reports that an index is partial but not what its predicate
     // is; only the stored statement carries that.
@@ -290,7 +345,7 @@ export async function introspect(
     for (const col of columnsResult.rows) {
       const pk = int(col.pk);
       const type = col.type || "TEXT";
-      const nullable = int(col.notnull) === 0 && pk === 0;
+      const nullable = sqliteColumnNullable(int(col.notnull), pk, keyIndexed);
       const geoPointEncoding = readSqliteGeoPointColumn(
         tableSql,
         { name: col.name, type, nullable },
@@ -361,6 +416,8 @@ export async function introspect(
       primaryKey = {
         name: `${tableName}_pkey`,
         columns: pkColumns.map((p) => p.name),
+        // The table's options follow its definitions, outside any paren.
+        ...(isWithoutRowid(tableSql ?? "") ? { withoutRowid: true } : {}),
       };
     }
 

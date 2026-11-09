@@ -42,7 +42,7 @@ export type {
 export { defaultOmit } from "./default-omit-extension";
 // Result types
 export type { ProjectedModelOperations } from "./projected-types";
-export type { RawOperation } from "./raw";
+export type { RawOperation, RowsFragment } from "./raw";
 export type {
   AggregateResultType,
   BatchPayload,

@@ -62,3 +62,20 @@ await client.post.update({
   }
 });
 ```
+
+## Exact reads and raw SQL
+
+Model reads are exact on every driver: VibORM selects a bigint column as text
+and parses it into a `bigint`, so a value beyond ±2^53 survives a driver that
+returns JavaScript numbers (Cloudflare D1 and Durable Objects, among others).
+
+Raw SQL returns what the driver returns. On those drivers an integer beyond
+±2^53 read by `$queryRaw` loses precision before VibORM sees it. Select it as
+text and convert it yourself:
+
+```ts
+const rows = await client.$queryRaw<{ id: string }>`
+  SELECT CAST("id" AS TEXT) AS "id" FROM "post"
+`;
+const ids = rows.map((row) => BigInt(row.id));
+```

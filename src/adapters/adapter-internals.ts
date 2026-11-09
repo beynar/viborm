@@ -12,6 +12,12 @@ interface AdapterInternals {
   readonly select: (parts: QueryParts) => Sql;
   readonly batchRefs: BatchReferenceSqlAdapter;
   readonly constraints: ConstraintIdentities;
+  /**
+   * A persistent table named so that no name a statement's own text defines
+   * (a caller's CTE) can stand for it; absent where the adapter cannot (an
+   * unbound MySQL adapter).
+   */
+  readonly pinnedTable?: (tableName: string, alias?: string) => Sql;
 }
 
 interface AdapterWithInternals extends DatabaseAdapter {
@@ -64,4 +70,13 @@ export function assembleAdapterSelect(
   parts: QueryParts
 ): Sql {
   return getAdapterInternals(adapter).select(parts);
+}
+
+/** {@link AdapterInternals.pinnedTable}, where the adapter installs one. */
+export function adapterPinnedTable(
+  adapter: EngineFacts
+): ((tableName: string, alias?: string) => Sql) | undefined {
+  return ADAPTER_INTERNALS in adapter
+    ? (adapter as AdapterWithInternals)[ADAPTER_INTERNALS].pinnedTable
+    : undefined;
 }

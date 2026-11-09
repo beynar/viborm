@@ -18,7 +18,10 @@ page goes from a simple policy to permissions inherited through folders and team
 the [reference](#reference) at the end lists every option.
 
 **Raw SQL is not filtered.** `$queryRaw`, `$executeRaw`, their unsafe forms
-and statement transforms see every row, even on a governed client. See
+and statement transforms see every row, even on a governed client. A raw read
+takes the actor's rows of a model with
+[`$rows`](/docs/client/raw-sql#governed-raw-reads):
+`` call.$queryRaw`SELECT p.id FROM ${call.post.$rows("p")}` ``. See
 [Boundaries](#boundaries).
 
 ## 1. A blog: authors edit their own posts
@@ -91,6 +94,14 @@ export async function handle(request: Request) {
   await call.post.create({ data: { title, authorId: session.userId } });
 }
 ```
+
+`$as` is cheap enough to call per request, or per commit: it validates the
+actor and returns a view, nothing more. The policy is compiled once per client,
+each model's predicates when the model is first used, and the actor's values
+travel as bound parameters, so no view rebuilds them. Model delegates are
+created lazily. Measured on a 30-model schema with a large policy, `$as` costs
+about 10 µs, a small fraction of the statement it governs; a cache of views keyed
+by actor is not needed.
 
 ### What each call sends to the database
 
@@ -247,7 +258,9 @@ post satisfies `post`'s own `read` rule". It is how one model's permission
 follows another's, without writing it twice.
 
 - Every foreign key a create writes must point at a row the caller can see
-  (a hidden target and a missing one give the same `ForbiddenError`).
+  (a hidden target and a missing one give the same `ForbiddenError`), unless
+  the `create` rule says it equals the same key of a row the create already
+  reads: see [a key taken from the parent](#a-key-taken-from-the-parent).
 - **Moving a row is judged like a create.** An update that changes a field
   the `create` rule reads (here `postId` or `authorId`) must leave a row the
   `create` rule accepts, and the new row must still pass the rules that let
@@ -261,6 +274,48 @@ follows another's, without writing it twice.
   `actions: { create: ["read"] }` when the creation predicate should also grant
   reads. With that explicit implication, `create: true` grants reading every row
   that passes the restrictions, unless `read: false` denies it.
+
+### A key taken from the parent
+
+A guest who may edit one shared page may add a subpage under it, but cannot read
+the page's teamspace. A subpage stores the same `teamspaceId` as its parent, so
+say it in the rule: compare the key with the parent's own, through `$row`:
+
+```ts
+page: {
+  // …
+  create: {
+    AND: [
+      { parent: "update" },
+      {
+        OR: [
+          { teamspaceId: null, parent: { is: { teamspaceId: null } } },
+          { parent: { is: { teamspaceId: { $row: "teamspaceId", up: 1 } } } },
+        ],
+      },
+    ],
+  },
+},
+```
+
+Where the rule compares every field of a foreign key with the fields of the
+same foreign key on a related row (`parent.teamspaceId`, onto the same
+teamspace), the created row may name that target without the caller reading
+it, provided the caller reads the related row: its key names a target that
+exists, so nothing new is disclosed. Any other value still needs a visible
+target, and a hidden teamspace and a missing one still fail alike. The same
+holds when an update moves the key.
+
+The related row must be visible by its own read rule, never because its key
+is itself taken from another row: two keys taken from each other prove
+nothing. Where every branch of `create` already proves that row visible
+(`parent: "update"` here) or sets its key to null, as in the rule above, the
+comparison adds no bound value to the statement; otherwise the related row's
+read rule is added beside it. Without such a comparison in the rule, nothing
+changes, the statement included.
+
+Write the foreign key's field to use it: a `connect` to the teamspace still
+looks the target up among the rows the caller reads.
 
 ## 4. A team: the organization, and roles
 
@@ -428,10 +483,14 @@ it with the other ways to grant each named permission:
 import type { Rule } from "viborm/permissions";
 
 // Stored grant levels use this policy's action names.
+const LEVELS = ["read", "update", "full"] as const;
+const atOrAbove = (action: string) =>
+  LEVELS.slice(LEVELS.indexOf(action as (typeof LEVELS)[number]));
+
 const shared: Rule = (action) => ({
   grants: {
     some: {
-      level: action,
+      level: { in: atOrAbove(action) },
       OR: [{ userId: { actor: "userId" } }, { everyone: true }],
     },
   },
@@ -467,7 +526,7 @@ At `update`, `shared` is, simplified, this `where`:
   grants: {
     some: {
       AND: [
-        { level: "update" }, // the action where this callback is declared
+        { level: { in: ["update", "full"] } }, // the declared action and above
         { OR: [{ userId: { actor: "userId" } }, { everyone: true }] },
       ],
     },
@@ -481,6 +540,19 @@ The project's effective `update` permission combines the owner's rule, the
 `read`. It is never called again with a different action just because the rule
 was inherited. A read-only share cannot grant updating; an update share cannot
 grant `full`. Here `read: true` already lets every organization member read.
+
+**Why `in` and not `level: action`.** Each level's predicate is the OR of the
+rules of that level and every level above it, so a `shared` written
+`level: action` appears once per level: at `read`, the grant subquery tests
+`level = 'read'`, `level = 'update'` and `level = 'full'` as three branches.
+Written `level: { in: atOrAbove(action) }`, the predicate inherited from
+`update` (`in: ["update", "full"]`) is narrower than the one declared at `read`
+(`in: ["read", "update", "full"]`), so the compiler keeps the wider one alone:
+one branch per action, whatever the number of levels. The statement is shorter,
+binds fewer values and nests less, which counts on a platform with tight
+statement limits (Cloudflare's 100 bound values per statement). Store each
+grant at one level and let `in` do the implication; a comparison of stored
+levels such as `level >= ?` is not expressible.
 
 Rule functions build predicates when their model is first needed; the database
 reads the current grants when a statement runs. A grant deleted by another request
@@ -562,7 +634,7 @@ accessGrant: {
 
 Declare the grant's `level` and `actions` with enum values your application
 supports. A change to either field is also checked against `create`, so editing
-a grant cannot bypass placement. For action-list grants, replace `level: action`
+a grant cannot bypass placement. For action-list grants, replace `level: { in: atOrAbove(action) }`
 in `shared` with `actions: { has: action }`, and assign the callback to every
 permission those lists may grant. The policy graph handles inheritance; no
 second application table needs to repeat its transitive implications.
@@ -632,8 +704,9 @@ only permits reading. This application also chooses to give the owner all
 three permissions. Each declaration builds its own predicate; inheritance
 reuses that predicate unchanged.
 
-The statement walks the tree inside the database, once, with a recursive
-subquery (simplified):
+The statement walks the tree inside the database with a recursive subquery,
+one for each predicate it judges (a `can` asking four actions walks four
+times). Simplified:
 
 ```sql
 SELECT … FROM document d
@@ -712,7 +785,7 @@ application's team and grant schema:
 const shared: Rule = (action) => ({
   grants: {
     some: {
-      level: action,
+      level: { in: atOrAbove(action) },
       OR: [{ userId: { actor: "userId" } }, { everyone: true }, toMyTeams],
     },
   },
@@ -1784,6 +1857,10 @@ internal accessors, so it is versioned with the core it ships in.
 **not** apply to:
 
 - **Raw SQL.** `$queryRaw`, `$executeRaw` and the unsafe forms see every row.
+  A raw read keeps to the actor's rows only through a model's
+  [`$rows(alias)`](/docs/client/raw-sql#governed-raw-reads), taken on the
+  view; a model the policy does not list reads no row there, and one with
+  read-gated fields is refused.
 - **Statement transforms.** They are trusted rewrites after the policy, and
   can remove it.
 - **`call` is not a sandbox.** It runs raw SQL and can bind another actor:

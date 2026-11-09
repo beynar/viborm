@@ -983,7 +983,7 @@ function createArtifact(options) {
       [
         "scripts/run-vitest-safe.mjs",
         "run",
-        "--workspace",
+        "--config",
         "vitest.workspace.ts",
         "--project=package",
       ],

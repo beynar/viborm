@@ -58,7 +58,7 @@ const describeError = (error) =>
 function vitestArguments(project, files) {
   return [
     "run",
-    "--workspace",
+    "--config",
     "vitest.workspace.ts",
     "--project",
     project,

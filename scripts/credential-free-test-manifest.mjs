@@ -523,28 +523,46 @@ export const EXTENDED_LOCAL_IMPORTED_PGLITE_SHARDS = Object.freeze(
   )
 );
 
+/**
+ * Ordinary files that run ALONE, under the same 1536 MiB ceiling: their
+ * process group holds more than one Node process running the ORM, so the
+ * footprint does not support packing. `sqlite-exactly-once` races two child
+ * processes against one database; packed with two other files it peaked at
+ * 1271 MiB on Linux under Vitest 3 and 1440-1565 MiB under Vitest 4.
+ */
+const EXTENDED_LOCAL_SOLO_TESTS = Object.freeze([
+  "tests/unit/migrations/sqlite-exactly-once.test.ts",
+]);
+
 const EXTENDED_LOCAL_ORDINARY_TESTS = EXTENDED_LOCAL_TESTS.filter(
   (file) => !bootsLivePGlite(file)
 );
 
+const EXTENDED_LOCAL_PACKED_TESTS = EXTENDED_LOCAL_ORDINARY_TESTS.filter(
+  (file) => !EXTENDED_LOCAL_SOLO_TESTS.includes(file)
+);
+
 const EXTENDED_LOCAL_SHARD_SIZE = 3;
 
-export const EXTENDED_LOCAL_TEST_SHARDS = Object.freeze(
-  Array.from(
+export const EXTENDED_LOCAL_TEST_SHARDS = Object.freeze([
+  ...Array.from(
     {
       length: Math.ceil(
-        EXTENDED_LOCAL_ORDINARY_TESTS.length / EXTENDED_LOCAL_SHARD_SIZE
+        EXTENDED_LOCAL_PACKED_TESTS.length / EXTENDED_LOCAL_SHARD_SIZE
       ),
     },
     (_, index) =>
       Object.freeze(
-        EXTENDED_LOCAL_ORDINARY_TESTS.slice(
+        EXTENDED_LOCAL_PACKED_TESTS.slice(
           index * EXTENDED_LOCAL_SHARD_SIZE,
           (index + 1) * EXTENDED_LOCAL_SHARD_SIZE
         )
       )
-  )
-);
+  ),
+  ...EXTENDED_LOCAL_SOLO_TESTS.filter((file) =>
+    EXTENDED_LOCAL_ORDINARY_TESTS.includes(file)
+  ).map((file) => Object.freeze([file])),
+]);
 
 /**
  * Provider suites are enumerated FROM DISK, by filename prefix.
