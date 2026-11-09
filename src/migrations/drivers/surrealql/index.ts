@@ -68,8 +68,9 @@ const LOCK_RETRY_MS = 50;
 /**
  * How long a command waits for the indexes its program builds in the background,
  * and how often it looks. An index on a table no row is in yet is ready well
- * under a second: five minutes leave a slow server room, and stay well inside
- * the lock's lease. The pause doubles from the first to the last.
+ * under a second: five minutes leave a slow server room, inside the lock's lease
+ * unless the program itself took most of it. The pause doubles from the first to
+ * the last.
  */
 const INDEX_BUILD_WAIT_MS = 300_000;
 const INDEX_BUILD_FIRST_PAUSE_MS = 50;
@@ -120,6 +121,8 @@ const PREDICATE_NAME = /^[A-Za-z_]\w*$/;
 const PREDICATE_VALUE = /^(?:-?\d+(?:\.\d+)?|true|false)$/i;
 const PREDICATE_OPERATOR = /^(?:=|<>|!=|<|>|<=|>=)$/;
 const partialField = (index: string) => `partial_${index}`;
+/** A program building an index in the background, however it is spelled. */
+const CONCURRENTLY = /\bconcurrently\b/i;
 
 /** What a table's comment says: the names and types a record's key does not hold. */
 type TableFacts = {
@@ -150,11 +153,15 @@ type FieldInfo = {
   readonly default?: string;
   readonly reference?: { readonly on_delete?: string };
 };
+/** An index, with its build as `INFO FOR INDEX` tells it. */
 type IndexInfo = {
   readonly name: string;
+  readonly table: string;
   readonly cols: readonly string[];
   readonly index?: unknown;
   readonly comment?: string;
+  readonly status: string;
+  readonly error?: string;
 };
 /** What a partial index's comment says, since its fields are a computed one. */
 type PartialFacts = {
@@ -162,13 +169,6 @@ type PartialFacts = {
   readonly columns: readonly string[];
 };
 type EventInfo = { readonly name: string; readonly comment?: string };
-/** An index whose build is not `ready`, as `INFO FOR INDEX` tells it. */
-type IndexBuild = {
-  readonly table: string;
-  readonly index: string;
-  readonly status: string;
-  readonly error?: string;
-};
 type TableInfo = {
   readonly fields: readonly FieldInfo[];
   readonly indexes: readonly IndexInfo[];
@@ -437,13 +437,19 @@ export class SurrealMigrationDriver extends MigrationDriver {
     const managed = (name: string) =>
       managedTables === undefined || managedTables.includes(name);
     const infos = new Map<string, TableInfo>();
-    for (const { name } of known)
-      infos.set(
-        name,
-        await one<TableInfo>(
-          `(INFO FOR TABLE ${this.escapeIdentifier(name)} STRUCTURE).{ fields, indexes, events }`
-        )
+    for (const { name } of known) {
+      const table = this.escapeIdentifier(name);
+      const info = await one<TableInfo>(
+        `(INFO FOR TABLE ${table} STRUCTURE).{ fields, indexes: indexes.map(|$i| $i + (INFO FOR INDEX $i.name ON ${table}).building), events }`
       );
+      // A failed build leaves its table refusing every write, which its
+      // definition does not show: refused before effects, as PostgreSQL
+      // refuses an INVALID index.
+      const failed =
+        managed(name) && info.indexes.find(({ status }) => status === "error");
+      if (failed) throw unbuilt(failed, `failed to build: ${failed.error}`);
+      infos.set(name, info);
+    }
     const tables = known.map((table) => {
       const info = infos.get(table.name)!;
       const facts = parsed<TableFacts>(
@@ -2007,10 +2013,6 @@ export class SurrealMigrationDriver extends MigrationDriver {
   }
 
   /**
-   * No session holds anything here, so a record holds the lock. It carries a lease
-   * because a command that dies cannot let go of it: a later one takes it over.
-   */
-  /**
    * Waits, the lock still held, until every index of the managed tables is
    * `ready` once a program building one in the background has committed: until
    * then a unique one lets a duplicate in, which leaves it failed and its table
@@ -2022,31 +2024,32 @@ export class SurrealMigrationDriver extends MigrationDriver {
     producer: AnyDriver,
     statements: readonly string[]
   ): Promise<void> {
-    // Only VibORM's own index definitions say it: elsewhere it costs one read.
-    if (!statements.some((sql) => sql.includes(" CONCURRENTLY"))) return;
+    // Said in a string or a comment, it only costs one read.
+    if (!statements.some((sql) => CONCURRENTLY.test(sql))) return;
     const tables = this.target?.tables;
     const deadline = Date.now() + INDEX_BUILD_WAIT_MS;
     for (let pause = INDEX_BUILD_FIRST_PAUSE_MS; ; ) {
-      const { rows } = await producer._executeRaw<IndexBuild>(
-        `RETURN (INFO FOR DB STRUCTURE).tables${tables ? ".filter(|$t| $t.name IN $p1)" : ""}.map(|$t| (INFO FOR TABLE $t.name STRUCTURE).indexes.map(|$i| { table: $t.name, index: $i.name } + (INFO FOR INDEX $i.name ON $t.name).building)).flatten().filter(|$i| $i.status != "ready")`,
+      const { rows } = await producer._executeRaw<IndexInfo>(
+        `RETURN (INFO FOR DB STRUCTURE).tables${tables ? ".filter(|$t| $t.name IN $p1)" : ""}.map(|$t| (INFO FOR TABLE $t.name STRUCTURE).indexes.map(|$i| $i + (INFO FOR INDEX $i.name ON $t.name).building)).flatten().filter(|$i| $i.status != "ready")`,
         [tables]
       );
       const [first] = rows;
       if (!first) return;
       const failed = rows.find(({ status }) => status === "error");
-      if (failed || Date.now() >= deadline) {
-        const { table, index, error } = failed ?? first;
-        throw new MigrationError(
-          `SurrealDB index "${table}.${index}" ${failed ? `failed to build: ${error}` : "is not ready"} (the migration committed).`,
-          VibORMErrorCode.MIGRATION_INVALID_INDEX,
-          { meta: { table, indexName: index } }
+      if (failed || Date.now() >= deadline)
+        throw unbuilt(
+          failed ?? first,
+          `${failed ? `failed to build: ${failed.error}` : "is not ready"} (the migration committed)`
         );
-      }
       await new Promise((resolve) => setTimeout(resolve, pause));
       pause = Math.min(pause * 2, INDEX_BUILD_LAST_PAUSE_MS);
     }
   }
 
+  /**
+   * No session holds anything here, so a record holds the lock. It carries a lease
+   * because a command that dies cannot let go of it: a later one takes it over.
+   */
   override async holdLock<T>(
     driver: AnyDriver,
     lockWait: number,
@@ -2074,6 +2077,15 @@ export class SurrealMigrationDriver extends MigrationDriver {
       );
     }
   }
+}
+
+/** V11023: an index whose build failed, or has not finished. */
+function unbuilt({ table, name }: IndexInfo, reason: string): MigrationError {
+  return new MigrationError(
+    `SurrealDB index "${table}.${name}" ${reason}.`,
+    VibORMErrorCode.MIGRATION_INVALID_INDEX,
+    { meta: { table, indexName: name } }
+  );
 }
 
 /** One try: a conflict at commit is another command taking it. */

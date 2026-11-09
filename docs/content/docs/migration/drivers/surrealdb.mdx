@@ -95,9 +95,11 @@ a state the next `push` plans from.
   refuses every write. A build that failed, or one still going after 5 minutes, fails the command
   with `V11023` (`MIGRATION_INVALID_INDEX`), naming the index, its table and the server's reason;
   the migration's statements stay committed. Remove the duplicate values and run `REBUILD INDEX`, or
-  `REMOVE INDEX`. A program run statement by statement waits for them even when a later statement
-  fails, and reports that statement's failure. A program whose statements never say `CONCURRENTLY`
-  reads nothing more. A row a
+  `REMOVE INDEX`. Until then every later command that reads the schema (`push`, `apply`, `verify`,
+  `down`, `reset`) refuses with the same `V11023` before any effect, as PostgreSQL refuses an
+  INVALID index: a failed build is invisible in the index's definition. A program run statement by statement waits for its builds even when a
+  later statement fails, and reports that statement's failure. A hand-written step is waited for
+  however it spells `CONCURRENTLY`; a program that never says it reads nothing more. A row a
   hand-written step of the same migration writes into the new table is in the build: a duplicate
   there fails it the same way.
 - **`reset`** replays the whole history. A history holding a column rename conflicts with itself

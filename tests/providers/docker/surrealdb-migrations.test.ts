@@ -18,6 +18,9 @@ import {
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { describe, expect, it } from "vitest";
 
+/** The read that waits for builds in the background (`awaitIndexBuilds`). */
+const BUILDS_READ = '.status != "ready"';
+
 type Client = any;
 
 const BUILD_FAILED =
@@ -294,6 +297,8 @@ describe.skipIf(!surrealUrl)("push on SurrealDB", () => {
         "DEFINE FIELD age ON authors TYPE option<i32>",
         "DEFINE FIELD visits ON authors TYPE int DEFAULT",
         "ON member FIELDS org, email UNIQUE",
+        // A new junction's edges hold no row yet either.
+        "FIELDS in, out UNIQUE CONCURRENTLY",
       ])
         expect(text).toContain(form);
     });
@@ -944,7 +949,7 @@ describe.skipIf(!surrealUrl)("the indexes of a new table", () => {
       expect(
         driver.statements
           .slice(defined)
-          .some((sql) => sql.includes("INFO FOR INDEX"))
+          .some((sql) => sql.includes(BUILDS_READ))
       ).toBe(true);
       expect(
         await raw(
@@ -962,6 +967,18 @@ describe.skipIf(!surrealUrl)("the indexes of a new table", () => {
 
   it("are waited for in a program run statement by statement too", async () => {
     const driver = createSurrealRecordingDriver();
+    // Whether each background build was defined inside a transaction.
+    const inTransaction: boolean[] = [];
+    const execute = (driver as any).execute.bind(driver);
+    (driver as any).execute = (
+      client: object,
+      statement: string,
+      params: unknown[]
+    ) => {
+      if (statement.includes("CONCURRENTLY"))
+        inTransaction.push(client.constructor.name === "ReplayedTransaction");
+      return execute(client, statement, params);
+    };
     const db = clientOf(schema(), driver);
     await using(db, async () => {
       await syncLiveSchema(db);
@@ -983,7 +1000,9 @@ describe.skipIf(!surrealUrl)("the indexes of a new table", () => {
         db
       );
       driver.statements.length = 0;
+      inTransaction.length = 0;
       const applied = await push(next);
+      expect(inTransaction).toEqual([false]);
       expect(statements(applied)).toContain(
         "DEFINE INDEX tag_label_key ON tag FIELDS label UNIQUE CONCURRENTLY;"
       );
@@ -996,7 +1015,7 @@ describe.skipIf(!surrealUrl)("the indexes of a new table", () => {
       expect(
         driver.statements
           .slice(defined)
-          .some((sql) => sql.includes("INFO FOR INDEX"))
+          .some((sql) => sql.includes(BUILDS_READ))
       ).toBe(true);
     });
   });
@@ -1060,7 +1079,7 @@ describe.skipIf(!surrealUrl)("the indexes of a new table", () => {
       expect(
         driver.statements
           .slice(defined)
-          .some((sql) => sql.includes("INFO FOR INDEX"))
+          .some((sql) => sql.includes(BUILDS_READ))
       ).toBe(true);
     });
   });

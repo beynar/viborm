@@ -471,6 +471,8 @@ async function applyPathUnderLock(
         phase.committing &&
         (await commitLanded(pinned, command, group.items, current, failure))
       ) {
+        // Its COMMIT landed: what it builds in the background is waited for.
+        await command.awaitIndexBuilds?.(pinned, program.statements);
         continue;
       }
       await recordFailedAttempt(pinned, command, running, failure);
