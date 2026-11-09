@@ -173,6 +173,11 @@ budget. The same applies to a many-to-many `connect`/`set` junction insert over
 an already captured target-key list. The complete operation still succeeds or
 rolls back as one D1 batch.
 
+A raw statement (`$queryRawUnsafe`, `$executeRawUnsafe`, and the tagged forms)
+is never split: past 100 bound values it is refused before D1 with
+`UnsupportedOperationError` naming the count, inside an array `$transaction`
+too, instead of D1's opaque error.
+
 ### The `__viborm_batch_refs` table
 
 A batch that carries a value one statement produced into a later statement —

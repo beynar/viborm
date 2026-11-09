@@ -679,6 +679,36 @@ describe("D1 binding provider", () => {
     expect(parsed.value).toMatch(CUID_PATTERN);
   });
 
+  it("refuses a raw statement past 100 bound values before D1, naming both counts", async () => {
+    const client = createClient({ schema: {}, database: env.DB });
+    const marks = (n: number) => Array.from({ length: n }, () => "?").join();
+    const values = (n: number) => Array.from({ length: n }, (_, i) => i);
+    const refusal = {
+      name: "UnsupportedOperationError",
+      message: expect.stringContaining(
+        "needs 101 bound values, above the verified limit of 100"
+      ),
+    };
+    await expect(
+      client.$queryRawUnsafe(`SELECT ${marks(101)}`, ...values(101))
+    ).rejects.toMatchObject(refusal);
+    await expect(
+      client.$executeRawUnsafe(
+        `SELECT 1 WHERE ${marks(101).replaceAll(",", " IS NOT NULL AND ")} IS NOT NULL`,
+        ...values(101)
+      )
+    ).rejects.toMatchObject(refusal);
+    await expect(
+      client.$transaction([
+        client.$executeRawUnsafe(`SELECT ${marks(101)}`, ...values(101)),
+      ])
+    ).rejects.toMatchObject(refusal);
+    // At the limit, D1 runs it.
+    expect(
+      await client.$queryRawUnsafe(`SELECT ${marks(100)}`, ...values(100))
+    ).toHaveLength(1);
+  });
+
   it("executes bound writes and normalizes rows", async () => {
     const driver = new D1Driver({ database: env.DB });
     const id = crypto.randomUUID();
