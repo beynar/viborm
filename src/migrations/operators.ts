@@ -59,6 +59,7 @@ import {
   withLockedMigrationProducer,
 } from "./pinned-session";
 import {
+  assertAdoptable,
   assertLockedSinceDecision,
   assertNoDrift,
   managedAt,
@@ -274,6 +275,7 @@ export async function baselineV1(
         (sql, params) => pinned._executeRaw(sql, params),
         []
       );
+      await assertAdoptable(pinned, command, graph, null, path);
       // Committed before the proof, which then runs under the lock taken
       // again, as does the marker it publishes.
       if (control.presence.kind !== "present") {
@@ -395,6 +397,7 @@ export async function reanchorV1(
         (sql, params) => pinned._executeRaw(sql, params),
         []
       );
+      await assertAdoptable(pinned, command, graph, null, path);
       await adoptRoute(pinned, command, graph, path, marker);
       return { stateId: target };
     }
@@ -868,6 +871,11 @@ export async function resolveV1(
         // On Neki each statement commits alone.
         true
       );
+      // Completing or retrying lands on the destination, which manages a
+      // table the edge adopts; rolling back leaves it outside.
+      if (options.outcome !== "rolled-back") {
+        await assertAdoptable(pinned, command, graph, from, [to]);
+      }
       // Both ends of the edge, read once: the destination manages a table
       // the edge adopts, the origin does not.
       const across = managedAt(command, graph, to, from);

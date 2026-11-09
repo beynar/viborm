@@ -7,11 +7,16 @@
  */
 
 import { createClient } from "@client/client";
+import { appendLedger } from "@migrations/control";
 import { createMigrationClient } from "@migrations/dialects/all";
+import { loadMigrationGraph, parentTransition } from "@migrations/graph";
+import type { Sha256 } from "@migrations/identity";
+import { getPushMigrationDriver } from "@migrations/push/planner";
 import { MemoryEstateStorage } from "@migrations/storage/memory";
 import {
   encodeStateManifest,
   encodeTransitionHash,
+  eventIdFor,
   parseStateManifest,
 } from "@migrations/v1-parse";
 import { s } from "@schema";
@@ -287,6 +292,116 @@ describe("a widened `tables` list", () => {
     await later.generate({ name: "note" });
     expect((await later.apply()).outcome).toBe("applied");
     expect(await later.verify()).toEqual({ ok: true });
+  });
+
+  it("refuses it at baseline, reanchor and resolve too, which also bring an adoption into the estate", async () => {
+    const trigger = `CREATE TRIGGER "no_inserts" BEFORE INSERT ON "dependency" BEGIN SELECT RAISE(ABORT, 'no'); END`;
+    const dropTrigger = `DROP TRIGGER "no_inserts"`;
+    const refused = async (running: Promise<unknown>, label: string) => {
+      const error = await rejection(running);
+      expect(error.code, label).toBe("V11014");
+      expect(error.message, label).toContain(
+        `Cannot adopt "dependency": it has trigger "no_inserts"`
+      );
+    };
+    const both = { a, dependency };
+    const listed = ["a", "dependency"];
+
+    // baseline: an unmarked database already holding both tables.
+    const source = await estateWithRawTable();
+    const adopted = (
+      await migrationsOf(source.driver, source.storage, both, listed).generate({
+        name: "adopt",
+        adopt: ["dependency"],
+      })
+    ).stateId!;
+    const unmarked = createInMemorySQLite3Driver();
+    for (const sql of [
+      (await tableSql(source.driver, "a"))!,
+      ...RAW_DEPENDENCY,
+      trigger,
+    ]) {
+      await unmarked._executeRaw(sql);
+    }
+    const baselined = migrationsOf(unmarked, source.storage, both, listed);
+    await refused(baselined.baseline({ to: { id: adopted } }), "baseline");
+    await unmarked._executeRaw(dropTrigger);
+    expect(await baselined.baseline({ to: { id: adopted } })).toEqual({
+      stateId: adopted,
+    });
+
+    // reanchor: the adoption applied, then a trigger, then a restored history.
+    const anchored = await estateWithRawTable();
+    await migrationsOf(
+      anchored.driver,
+      anchored.storage,
+      both,
+      listed
+    ).generate({ name: "adopt", adopt: ["dependency"] });
+    await migrationsOf(anchored.driver, anchored.storage, both, listed).apply();
+    await anchored.driver._executeRaw(trigger);
+    const restored = new MemoryEstateStorage();
+    await migrationsOf(anchored.driver, restored, { a }, ["a"]).generate({
+      name: "a",
+    });
+    const history = migrationsOf(anchored.driver, restored, both, listed);
+    const readopted = (
+      await history.generate({ name: "adopt again", adopt: ["dependency"] })
+    ).stateId!;
+    await refused(history.reanchor({ to: { id: readopted } }), "reanchor");
+    await anchored.driver._executeRaw(dropTrigger);
+    expect(await history.reanchor({ to: { id: readopted } })).toEqual({
+      stateId: readopted,
+    });
+
+    // resolve: an adopting apply that started and never finished.
+    const { driver, storage, baseState } = await estateWithRawTable([
+      ...RAW_DEPENDENCY,
+      trigger,
+    ]);
+    const resolving = migrationsOf(driver, storage, both, listed);
+    const to = (
+      await resolving.generate({ name: "adopt", adopt: ["dependency"] })
+    ).stateId! as Sha256;
+    const client = createClient({ schema: both as never, driver });
+    const graph = await loadMigrationGraph(storage);
+    const state = graph.states.get(to)!;
+    const started = {
+      format: "1" as const,
+      kind: "started" as const,
+      estateHash: graph.estateHash,
+      snapshotHash: state.snapshotHash,
+      sqlHash: state.sqlHash,
+      fromState: baseState as Sha256,
+      toState: to,
+      transitionHash: parentTransition(graph, baseState as Sha256, to)
+        .transitionHash,
+      direction: "forward" as const,
+      operationId: null,
+      dispatchId: null,
+      effectState: "none" as const,
+      startedAt: new Date().toISOString(),
+      finishedAt: null,
+      toolVersion: "v1",
+      failure: null,
+    };
+    const event = {
+      ...started,
+      attemptId: eventIdFor({ ...started, attemptId: "0".repeat(64) }),
+    };
+    await appendLedger(driver, getPushMigrationDriver(client as never), {
+      ...event,
+      eventId: eventIdFor(event),
+    });
+    for (const outcome of ["complete", "retry"] as const) {
+      await refused(resolving.resolve({ outcome }), `resolve ${outcome}`);
+    }
+    // Rolling back leaves the table outside the estate: not refused.
+    expect(await resolving.resolve({ outcome: "rolled-back" })).toEqual({
+      outcome: "rolled-back",
+    });
+    expect((await resolving.status()).marker?.stateId).toBe(baseState);
+    expect(await rows(driver)).toEqual([{ x: "kept", n: 1 }]);
   });
 
   it("adopts a WITHOUT ROWID table declared `.withoutRowid()`", async () => {
