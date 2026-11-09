@@ -90,6 +90,14 @@ A Durable Object refuses `BEGIN` and `SAVEPOINT`. The driver never sends them:
   the weaker levels are refused. `timeout` rolls the transaction back.
   `maxWait` bounds the wait for the driver's queue.
 
+Raw SQL cannot open or end a transaction. `BEGIN`, `SAVEPOINT`,
+`ROLLBACK [TO]`, `RELEASE`, `COMMIT`, `END` and `PRAGMA busy_timeout`, sent
+through `$executeRaw`, `$queryRaw` or their `Unsafe` forms, are refused with
+an `UnsupportedOperationError` before they reach the platform, whose message
+points to `$transaction`. VibORM does not emulate them on top of
+`ctx.storage.transaction()`: write the transaction as a `$transaction`
+callback, nested where the SQL used a `SAVEPOINT`.
+
 Top-level transactions and statements queue on the driver, so a statement
 from another request never runs inside an open transaction. Do not await
 non-storage I/O (`fetch`, timers) inside a transaction body: other requests

@@ -3,9 +3,9 @@
  *
  * Statements run synchronously on `storage.sql.exec`. A Durable Object refuses
  * `BEGIN`, `SAVEPOINT` and `PRAGMA busy_timeout`, so this driver never sends
- * them: a transaction, at any depth, is `storage.transaction()`, which nests
- * natively, and the SQLite migration lock is a pending one of those
- * (`openMigrationFrame`).
+ * them, and refuses them in raw SQL: a transaction, at any depth, is
+ * `storage.transaction()`, which nests natively, and the SQLite migration lock
+ * is a pending one of those (`openMigrationFrame`).
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
@@ -19,7 +19,7 @@ import {
 } from "@client/client";
 import type { Schema } from "@client/types";
 import type { DurableObjectStorage as PlatformStorage } from "@cloudflare/workers-types";
-import { ClientInitializationError } from "@errors";
+import { ClientInitializationError, UnsupportedOperationError } from "@errors";
 import {
   Driver,
   type DriverResultParser,
@@ -78,6 +78,70 @@ function toBindValue(parameter: unknown): unknown {
   return value;
 }
 
+/** Past whitespace, line comments and block comments from `at`. */
+function skipBlank(sql: string, at: number): number {
+  let index = at;
+  for (;;) {
+    const code = sql.charCodeAt(index);
+    const next = sql.charCodeAt(index + 1);
+    if (code === 32 || (code >= 9 && code <= 13)) index += 1;
+    else if (code === 45 && next === 45) {
+      const line = sql.indexOf("\n", index);
+      index = line < 0 ? sql.length : line + 1;
+    } else if (code === 47 && next === 42) {
+      const close = sql.indexOf("*/", index + 2);
+      index = close < 0 ? sql.length : close + 2;
+    } else return index;
+  }
+}
+
+/** The end of the identifier-like word at `at`. */
+function wordEnd(sql: string, at: number): number {
+  let index = at;
+  for (;;) {
+    const code = sql.charCodeAt(index);
+    const word =
+      (code >= 65 && code <= 90) ||
+      (code >= 97 && code <= 122) ||
+      (code >= 48 && code <= 57) ||
+      code === 95;
+    if (!word) return index;
+    index += 1;
+  }
+}
+
+/** The word at `at` past blanks, upper-cased, and where it ends. */
+function readWord(sql: string, at: number): [word: string, end: number] {
+  const start = skipBlank(sql, at);
+  const end = wordEnd(sql, start);
+  return [sql.slice(start, end).toUpperCase(), end];
+}
+
+const TRANSACTION_CONTROL = new Set([
+  "BEGIN",
+  "COMMIT",
+  "END",
+  "RELEASE",
+  "ROLLBACK",
+  "SAVEPOINT",
+]);
+
+/**
+ * The transaction-control statement `sql` is, if it is one: the platform
+ * refuses `BEGIN`, `SAVEPOINT` and `PRAGMA busy_timeout`, and the others would
+ * end what `storage.transaction()` opened under the driver.
+ */
+function transactionControl(sql: string): string | undefined {
+  const [first, end] = readWord(sql, 0);
+  if (TRANSACTION_CONTROL.has(first)) return first;
+  if (first !== "PRAGMA") return undefined;
+  let [name, nameEnd] = readWord(sql, end);
+  const dot = skipBlank(sql, nameEnd);
+  // `PRAGMA main.busy_timeout`
+  if (sql.charCodeAt(dot) === 46) [name, nameEnd] = readWord(sql, dot + 1);
+  return name === "BUSY_TIMEOUT" ? "PRAGMA busy_timeout" : undefined;
+}
+
 class DurableObjectDriver extends Driver<
   DurableObjectStorage,
   DurableObjectStorage
@@ -121,6 +185,11 @@ class DurableObjectDriver extends Driver<
     sql: string,
     params: unknown[]
   ): Promise<QueryResult<T>> {
+    const control = transactionControl(sql);
+    if (control !== undefined)
+      throw new UnsupportedOperationError(
+        `Driver 'durable-object' does not send ${control}: a transaction on a Durable Object is a ctx.storage.transaction() call. Use $transaction(async (tx) => ...), which nests at any depth and has no lock to wait for.`
+      );
     const cursor = storage.sql.exec(sql, ...params.map(toBindValue));
     const rows = cursor.toArray() as T[];
     if (cursor.columnNames.length > 0 || !isSQLiteMutationStatement(sql))

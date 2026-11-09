@@ -17,7 +17,7 @@ import {
 import { createMigrationClient } from "@src/migrations/client";
 import { s } from "@src/schema";
 import { sql } from "@src/sql/sql";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { inObject } from "./objects";
 
 const user = s
@@ -347,6 +347,48 @@ describe("Durable Object driver: errors", () => {
 });
 
 describe("Durable Object driver: transactions", () => {
+  test("raw transaction-control statements are refused before the platform, pointing to $transaction", async () => {
+    await withClient(async (client, state) => {
+      const sent = vi.spyOn(state.storage.sql, "exec");
+      const refused = [
+        "BEGIN IMMEDIATE",
+        "begin",
+        "  -- a note\n/* a comment */ SAVEPOINT s1",
+        "ROLLBACK TO SAVEPOINT s1",
+        "RELEASE SAVEPOINT s1",
+        "COMMIT",
+        "END TRANSACTION",
+        "ROLLBACK",
+        "PRAGMA busy_timeout",
+        "PRAGMA busy_timeout = 10",
+        "PRAGMA main . busy_timeout",
+      ];
+      for (const statement of refused) {
+        await expect(client.$executeRawUnsafe(statement)).rejects.toMatchObject(
+          {
+            name: "UnsupportedOperationError",
+            message: expect.stringContaining("$transaction(async (tx)"),
+          }
+        );
+      }
+      await expect(client.$executeRaw(sql`BEGIN`)).rejects.toMatchObject({
+        name: "UnsupportedOperationError",
+      });
+      await expect(client.$queryRawUnsafe("COMMIT")).rejects.toMatchObject({
+        name: "UnsupportedOperationError",
+      });
+      expect(sent).not.toHaveBeenCalled();
+      // Only the leading word counts.
+      expect(
+        await client.$queryRawUnsafe("/* BEGIN */ SELECT 'COMMIT' AS word")
+      ).toEqual([{ word: "COMMIT" }]);
+      expect(await client.$queryRawUnsafe("PRAGMA foreign_keys")).toEqual([
+        { foreign_keys: 1 },
+      ]);
+      expect(sent).toHaveBeenCalledTimes(2);
+    });
+  });
+
   test("commits when the callback resolves and returns its value", async () => {
     await withClient(async (client) => {
       const result = await client.$transaction(async (tx) => {
