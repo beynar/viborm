@@ -194,6 +194,8 @@ export function fingerprintSnapshot(
             ...(driver.dialect === "postgresql"
               ? { name: table.primaryKey.name || `${table.name}_pkey` }
               : {}),
+            // Present only where set, so every other key hashes as before.
+            ...(table.primaryKey.withoutRowid ? { withoutRowid: true } : {}),
           }
         : null,
       indexes: table.indexes

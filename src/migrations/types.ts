@@ -143,6 +143,15 @@ export interface ColumnDef {
 export interface PrimaryKeyDef {
   columns: string[];
   name?: string | undefined;
+  /**
+   * SQLite only: the table is `WITHOUT ROWID`, clustered by this key
+   * (`Model.withoutRowid`). It lives on the key because it is a property of
+   * how the key stores rows: a table without one cannot carry it, and a
+   * change of it is the key's change (`dropPrimaryKey` + `addPrimaryKey`, a
+   * recreation on SQLite). Absent on every other table and dialect, so their
+   * snapshots and hashes are unchanged.
+   */
+  withoutRowid?: true | undefined;
 }
 
 export interface IndexDef {

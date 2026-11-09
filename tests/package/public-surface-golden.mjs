@@ -214,10 +214,13 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "PrismaErrorCode",
       "RawOperation",
       "RawValue",
+      "RowsFragment",
       "SchemaValidationIssue",
       "Severity",
       "StatementContext",
       "StatementHandler",
+      "TransactionClient",
+      "TransactionClientOf",
       "UnwrapPendingOperation",
       "UnwrapPendingOperations",
       "ValidationErrorSource",
@@ -431,6 +434,8 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "BatchQuery",
       "Dialect",
       "DriverResultParser",
+      "MigrationFrame",
+      "MigrationFrameDriver",
       "QueryExecutionContext",
       "QueryResult",
       "SqliteMigrationCapability",
@@ -510,6 +515,16 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
     ["D1Driver", "createClient"],
     ["D1ClientConfig", "D1DriverOptions"],
     ["D1Driver"]
+  ),
+  "./durable-object": surface(
+    ["createClient", "createDurableObjectDriver"],
+    [
+      "DurableObjectClientConfig",
+      "DurableObjectDriver",
+      "DurableObjectDriverOptions",
+      "DurableObjectStorage",
+    ],
+    []
   ),
   "./bun-sqlite": surface(
     ["BunSQLiteDriver", "createClient"],
@@ -618,6 +633,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "OperationResult",
       "Operations",
       "RawOperation",
+      "RowsFragment",
       "Schema",
       "StatementContext",
       "StatementHandler",
@@ -770,6 +786,18 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "orderingKey",
     ],
     ["MovePlacement", "OrderingConfig", "OrderingMethods", "OrderingModel"],
+    []
+  ),
+  "./ordering/keys": surface(
+    [
+      "MAX_KEY_LENGTH",
+      "isKey",
+      "isKeyFormat",
+      "keyBetween",
+      "keysAfter",
+      "keysBetween",
+    ],
+    [],
     []
   ),
   "./adapters": surface(

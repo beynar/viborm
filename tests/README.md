@@ -119,15 +119,15 @@ pnpm test:coverage:validation # Validation subsystem; 100% in all four metrics
 pnpm test:coverage:sql   # SQL subsystem; 100% in all four metrics
 pnpm test:coverage:instrumentation # Instrumentation subsystem; 100% in all four metrics
 pnpm test:coverage:extensions # Extensions subsystem; 100% in all four metrics
-pnpm test:coverage:errors # Errors subsystem; 100% in all four metrics
 pnpm test:coverage:adapters # Adapters subsystem; 100% in all four metrics
 pnpm test:coverage:cli   # CLI subsystem; 100% in all four metrics
-# Five approved exceptions. Floors are statements/branches/functions/lines.
+# Six approved exceptions. Floors are statements/branches/functions/lines.
 pnpm test:coverage:query-engine-core # Query-engine core; 87/91/90/87 - the engine's own deterministic tree (coverage-raptor3) measures it beside the contract layers
 pnpm test:coverage:drivers # Drivers; 96/92.5/96/96 - per-provider index.ts needs a live connection
 pnpm test:coverage:client # Client; 96/94/96/96 - unreachable defensive arms, uncalled functions
-pnpm test:coverage:cache # Cache; 98/98/98/98
-pnpm test:coverage:migrations # Migrations; 98/97.3/98/98 - 30 unreachable defensive branches
+pnpm test:coverage:errors # Errors; 100/99/100/100 - Vitest 4 counts branch arms Vitest 3 did not
+pnpm test:coverage:cache # Cache; 98/97.5/98/98 - the same Vitest 4 re-measure
+pnpm test:coverage:migrations # Migrations; 97/97.3/98/97 - 30 unreachable defensive branches
 pnpm test:coverage:policy # Static ownership and launcher-policy tests
 pnpm test:package         # One build, all runtime exports, all type entries, package probes
 pnpm test:providers       # Docker and hosted projects only; missing environment values skip by name
@@ -153,10 +153,10 @@ test file. Provider and runtime waivers explain evidence that is unavailable in 
 environment. Waived source stays in the denominator. There are no coverage
 exclusions or ignore pragmas.
 
-Nine subsystems require 100% statements, branches, functions, and lines: public,
-schema, validation, SQL, instrumentation, extensions, errors, adapters, and CLI.
+Eight subsystems require 100% statements, branches, functions, and lines: public,
+schema, validation, SQL, instrumentation, extensions, adapters, and CLI.
 
-The other six are not a uniform 98 and do not share one number. Each floor below
+The other seven are not a uniform 98 and do not share one number. Each floor below
 is the number actually enforced, and every departure from 100 is an APPROVED
 EXCEPTION whose measured evidence is recorded in `scripts/coverage-policy.mjs`.
 `scripts/merge-coverage.mjs` prints every measured metric beside its resolved
@@ -168,8 +168,9 @@ merge, so the enforced value is always visible rather than inferred.
 | Query-engine core | 87 | 91 | 90 | 87 | Re-measured by follow-up F-3 with the engine's own deterministic test tree (`coverage-raptor3`) as the scope's fourth part. |
 | Drivers | 96 | 92.5 | 96 | 96 | Closing every provider-agnostic line reaches 97.39%; the ten per-provider `index.ts` files need a live connection this lane must not open |
 | Client | 96 | 94 | 96 | 96 | `default:` arms over closed unions, and seven functions with no public caller |
-| Cache | 98 | 98 | 98 | 98 | Subsystem target is 98 in all four; no per-metric exception on top of it |
-| Migrations | 98 | 97.3 | 98 | 98 | 30 unreachable defensive branches: 18 in `serializer.ts`, 12 in `graph.ts` |
+| Errors | 100 | 99 | 100 | 100 | Re-measured under Vitest 4 (Arnaud, 2026-11-09): its V8 remapping counts arms Vitest 3 did not (three implicit `if` arms without a source position, `ForbiddenError`'s absent `reason`); 99.17 rounded down to the half-point |
+| Cache | 98 | 97.5 | 98 | 98 | The same Vitest 4 re-measure: 97.61 branches with the same tests |
+| Migrations | 97 | 97.3 | 98 | 97 | 30 unreachable defensive branches: 18 in `serializer.ts`, 12 in `graph.ts` |
 
 None of these hides untested behaviour. The suites the query-engine and driver
 lanes exclude all execute, and pass, in `pnpm test:all`. Every floor is a

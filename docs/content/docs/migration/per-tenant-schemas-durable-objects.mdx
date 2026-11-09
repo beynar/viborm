@@ -194,6 +194,7 @@ marker's compare-and-swap.
 | Neon HTTP (`viborm/neon-http`) | `change` (its `apply`) only, one HTTP request per transactional group. A lost response is decided by re-reading the marker, and is `ambiguous` (`V11020`) only when it cannot be: read `status()`. Stepwise and `CONCURRENTLY` steps, and a destination with a partial index, are refused (`V11021`); `resolve`, `down` and `reanchor` (so the switch to a pruned history) need a session transport (`V8002`). See [Neon HTTP](/docs/drivers/postgresql/neon-http#migrations). |
 | Hyperdrive, a Neon `-pooler` host | Refused with `V8002` (`change` is `refused` before it publishes anything), unless you attest `migrationSessionAttestation: "dedicated-session"`. See [migrations through a pooler](/docs/drivers/production#migrations-through-a-pooler). |
 | D1 | Effectful migrations refused. See [provider limits](/docs/migration/migrate#provider-limits). |
+| The object's own SQLite (`viborm/durable-object`) | Supported, inside the object. See [Durable Objects](/docs/drivers/sqlite/durable-object#migrations). |
 
 Application queries may use any of them, including a pooler.
 

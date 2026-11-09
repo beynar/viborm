@@ -136,7 +136,15 @@ const isScalarTypeName = (value: unknown): value is ScalarType =>
 
 const DOCUMENT_KEYS = ["version", "enums", "models"];
 const ENUM_KEYS = ["values", "name"];
-const MODEL_KEYS = ["table", "fields", "indexes", "ids", "uniques", "omit"];
+const MODEL_KEYS = [
+  "table",
+  "fields",
+  "indexes",
+  "ids",
+  "uniques",
+  "omit",
+  "withoutRowid",
+];
 const INDEX_KEYS = ["fields", "name", "unique", "type", "where"];
 const COMPOUND_KEYS = ["fields", "name"];
 const NATIVE_KEYS = ["db", "type"];
@@ -535,6 +543,16 @@ function readModelNode(
   if (uniques !== undefined) model.uniques = uniques;
   const omit = readOmit(node, path, issues);
   if (omit !== undefined) model.omit = omit;
+  const withoutRowid = member(node, "withoutRowid", path, issues);
+  if (withoutRowid !== undefined) {
+    const flag = asBoolean(
+      withoutRowid,
+      pointer(path, "withoutRowid"),
+      issues,
+      "`withoutRowid`"
+    );
+    if (flag === true) model.withoutRowid = true;
+  }
   return model;
 }
 

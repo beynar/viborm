@@ -6,7 +6,10 @@
  */
 
 import type { ArithmeticTarget } from "@adapters/adapter-core-types";
-import { assembleAdapterSelect } from "@adapters/adapter-internals";
+import {
+  adapterPinnedTable,
+  assembleAdapterSelect,
+} from "@adapters/adapter-internals";
 import type { QueryParts } from "@adapters/adapter-query-parts";
 import type {
   DatabaseAdapter,
@@ -132,7 +135,7 @@ import {
   wholeValue,
 } from "./query";
 import { type CallScope, Parameter, type RowPurpose } from "./row-scope";
-import { RowsOf } from "./rows-of";
+import { RawRows, RowsOf } from "./rows-of";
 import {
   type Arguments,
   entries,
@@ -937,8 +940,13 @@ export class SqlQueries extends Queries {
   }
   table(model: AnyModel, alias?: string): Sql {
     if (alias !== undefined) this.#rows.set(alias, model);
-    return this.adapter.identifiers.table(model["~"].names.sql!, alias);
+    return this.#tableNamed(model["~"].names.sql!, alias);
   }
+  /** Every persistent table this lowering names: pinned under {@link rowsOf}. */
+  #tableNamed(name: string, alias?: string): Sql {
+    return (this.#pinned ?? this.adapter.identifiers.table)(name, alias);
+  }
+  #pinned: ((name: string, alias?: string) => Sql) | undefined;
   column(model: AnyModel, field: string, alias?: string): Sql {
     const name = this.columnName(model, field);
     return alias
@@ -955,6 +963,11 @@ export class SqlQueries extends Queries {
     Sql.each(fragment, (node) => {
       if (!(node instanceof RowsOf)) return;
       const { model } = node;
+      // Settled here, it would take this call's domain, not its own client's.
+      if (node instanceof RawRows)
+        throw new UnsupportedOperationError(
+          `${model["~"].names.ts}.$rows() is for a tagged $queryRaw only`
+        );
       const domain = this.domainOf(model, "root", node.judgement);
       // A `where` the extension passes on is admitted as a `findMany`'s.
       const named =
@@ -973,6 +986,31 @@ export class SqlQueries extends Queries {
       );
     });
     return fragment;
+  }
+  /**
+   * The rows of `model` this view's call may read, as a `FROM` item named
+   * `alias` (`$rows`): the domain a root `findMany` takes, in a derived
+   * table, so the text around it cannot place it under an `OR` or an outer
+   * join's `ON`. Inside, its own statement scope reads the row under a minted
+   * alias, so no name the caller chooses meets one the lowering writes.
+   */
+  rowsOf(model: AnyModel, alias: string): Sql {
+    const row = this.#rootAlias();
+    const domain = this.domainOf(model, "root");
+    // Every table pinned: the caller's text around it may define a CTE named
+    // like a table the domain reads, which would otherwise stand for it.
+    this.#pinned = adapterPinnedTable(this.adapter);
+    try {
+      return this.adapter.subqueries.rows(
+        this.table(model, row),
+        row,
+        domain && this.lowerSelector(domain, row),
+        alias,
+        !model["~"].withoutRowid
+      );
+    } finally {
+      this.#pinned = undefined;
+    }
   }
   /**
    * The one destination-aware operand owner: filters, cursors, order operands,
@@ -1287,7 +1325,7 @@ export class SqlQueries extends Queries {
     return {
       sql: assembleAdapterSelect(a, {
         columns: sql.join(columns, ", "),
-        from: a.identifiers.table(edge.table, alias),
+        from: this.#tableNamed(edge.table, alias),
         where: this.junctionWhere(edge, values, alias),
         forUpdate,
       }),
@@ -3267,7 +3305,7 @@ export class SqlQueries extends Queries {
     }
     const link = this.alias();
     const linked = a.joins.inner(
-      a.identifiers.table(edge.table, link),
+      this.#tableNamed(edge.table, link),
       a.operators.and(
         ...this.junctionSideConditions(edge.targetSide, link, into),
         ...this.#linkBound(edge, link)
@@ -3323,7 +3361,7 @@ export class SqlQueries extends Queries {
   ): { readonly from: Sql; readonly correlation: Sql } {
     const a = this.adapter;
     return {
-      from: sql`${a.identifiers.table(edge.table, link)} ${a.joins.inner(
+      from: sql`${this.#tableNamed(edge.table, link)} ${a.joins.inner(
         this.table(edge.target, child),
         a.operators.and(
           ...edge.targetSide.members.map((field) =>
@@ -3580,7 +3618,7 @@ export class SqlQueries extends Queries {
             ),
             ", "
           ),
-          from: a.identifiers.table(edge.table, junction),
+          from: this.#tableNamed(edge.table, junction),
           where: a.operators.and(
             ...this.junctionSideConditions(edge.sourceSide, junction, source),
             ...this.#linkBound(edge, junction)
@@ -5071,7 +5109,7 @@ export class SqlQueries extends Queries {
     const members = a.subqueries.scalar(
       assembleAdapterSelect(a, {
         columns: a.aggregates.count(),
-        from: a.identifiers.table(edge.table, junction),
+        from: this.#tableNamed(edge.table, junction),
         where: a.operators.and(
           ...this.junctionSideConditions(edge.sourceSide, junction, parentAlias)
         ),
@@ -5097,7 +5135,7 @@ export class SqlQueries extends Queries {
     return a.subqueries.scalar(
       assembleAdapterSelect(a, {
         columns: a.aggregates.count(),
-        from: a.identifiers.table(edge.table, junction),
+        from: this.#tableNamed(edge.table, junction),
         where: a.operators.and(
           ...this.junctionSideConditions(
             edge.sourceSide,
@@ -5358,7 +5396,7 @@ export class SqlQueries extends Queries {
       );
     const link = this.alias();
     return sql`${a.joins.inner(
-      a.identifiers.table(edge.table, link),
+      this.#tableNamed(edge.table, link),
       a.operators.and(
         ...this.junctionSideConditions(edge.sourceSide, link, current),
         ...this.#linkBound(edge, link)
@@ -5389,7 +5427,7 @@ export class SqlQueries extends Queries {
     const link = this.alias();
     return {
       link,
-      from: this.adapter.identifiers.table(edge.table, link),
+      from: this.#tableNamed(edge.table, link),
       joins: [this.#junctionTarget(edge, link, child)],
       where: this.adapter.operators.and(
         ...this.junctionSideConditions(edge.sourceSide, link, parent)

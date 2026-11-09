@@ -106,6 +106,7 @@ assertWorkerSafeBuiltGraph([
   ".",
   "./schema",
   "./d1",
+  "./durable-object",
   "./permissions",
   "./on",
   "./ordering",
@@ -360,6 +361,34 @@ if (
   );
 }
 requireRuntimeFunction("./on", "on");
+requireRuntimeFunction("./ordering/keys", "keyBetween");
+// `viborm/ordering/keys` is the key grammar alone, safe in a browser bundle:
+// its whole built graph is a few kilobytes, so it reaches no client module.
+{
+  const pending = [
+    resolve(repositoryRoot, packageJson.exports["./ordering/keys"].import),
+  ];
+  const visited = new Set();
+  let bytes = 0;
+  while (pending.length > 0) {
+    const file = pending.pop();
+    if (visited.has(file)) continue;
+    visited.add(file);
+    const source = readFileSync(file, "utf8");
+    bytes += source.length;
+    for (const [, specifier] of source.matchAll(staticModuleSpecifier)) {
+      if (!specifier.startsWith(".")) {
+        throw new Error(`Export ./ordering/keys imports ${specifier}`);
+      }
+      pending.push(resolve(dirname(file), specifier));
+    }
+  }
+  if (bytes > 8000) {
+    throw new Error(
+      `Export ./ordering/keys loads ${bytes} bytes over ${visited.size} files: it reaches more than the key grammar`
+    );
+  }
+}
 requireRuntimeFunction("./soft-delete", "softDelete");
 // `viborm/soft-delete` is built from public capabilities only, and raises the
 // library's own error (a marker that is not a nullable DateTime) from the

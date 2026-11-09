@@ -217,6 +217,8 @@ export class PostgresAdapter implements DatabaseAdapter {
     installAdapterInternals(this, {
       batchRefs: this.#batchRefs,
       constraints: POSTGRES_CONSTRAINTS,
+      // Always qualified by its schema.
+      pinnedTable: this.identifiers.table,
       select: this.#assemble.select,
     });
   }

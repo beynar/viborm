@@ -31,6 +31,24 @@ await client.$transaction(async (tx) => {
 });
 ```
 
+Name the callback's client with `TransactionClientOf<typeof client>` (a client,
+an extended client or a view such as `$as(actor)`), for code that takes either
+a client or a transaction:
+
+```ts
+import type { TransactionClientOf } from "viborm";
+
+type Tx = TransactionClientOf<typeof client>;
+const rename = (db: typeof client | Tx, id: string, title: string) =>
+  db.post.update({ where: { id }, data: { title } });
+
+await rename(client, id, "Outside");
+await client.$transaction((tx) => rename(tx, id, "Inside"));
+```
+
+`TransactionClient<Config, ExtensionState>` is the same type spelled from a
+client's configuration.
+
 ## Transaction options
 
 `$transaction` accepts a second argument with the same shape Prisma uses:

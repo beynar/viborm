@@ -50,6 +50,8 @@ export interface MigrationEdgeMetadata {
   readonly risks: readonly ("safe" | "destructive" | "opaque")[];
   /** The destructive changes approved at `generate`; empty when none was asked. */
   readonly approvals: readonly MigrationApprovalV1[];
+  /** The existing tables this edge adopts without DDL; empty when none. */
+  readonly adopts: readonly string[];
   readonly rollback: MigrationRollbackMetadata;
 }
 
@@ -162,6 +164,7 @@ function edgeMetadata(
         Object.freeze({ ...approval })
       )
     ),
+    adopts: Object.freeze([...(transition.adopts ?? [])]),
     rollback: rollbackMetadata(transition),
   });
 }
@@ -250,6 +253,10 @@ export function renderMigrationReview(
   };
   for (const parent of parents) {
     lines.push(`\n-- Parent ${parent.fromState ?? "empty"}`);
+    for (const table of parent.adopts ?? [])
+      lines.push(
+        `-- Adopts existing table ${oneLine(table)}: no DDL; apply proves its live shape equals the declaration`
+      );
     for (const { operation, table, column } of parent.approvals ?? [])
       lines.push(
         `-- ${approvalLabel}: ${oneLine(`${operation} ${table}${column === null ? "" : `.${column}`}`)}`

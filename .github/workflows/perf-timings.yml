@@ -59,7 +59,7 @@ jobs:
       - name: Assert schema and validation timing budgets
         run: >-
           node scripts/run-vitest-safe.mjs run
-          --workspace vitest.workspace.ts
+          --config vitest.workspace.ts
           --project=layer-operation-schemas
           --project=layer-validation
           tests/unit/operation-schemas/args/speed.core.test.ts
@@ -68,6 +68,6 @@ jobs:
       - name: Assert SQLite temporal-scale timing budgets
         run: >-
           node scripts/run-vitest-safe.mjs run
-          --workspace vitest.workspace.ts
+          --config vitest.workspace.ts
           --project=provider-sqlite3
           tests/providers/local/sqlite3-temporal-scale.test.ts

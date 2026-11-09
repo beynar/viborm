@@ -74,7 +74,7 @@ const COLUMN_KEYS = [
   "type",
 ] as const;
 const DECIMAL_KEYS = ["precision", "scale"] as const;
-const PRIMARY_KEY_KEYS = ["columns", "name"] as const;
+const PRIMARY_KEY_KEYS = ["columns", "name", "withoutRowid"] as const;
 const INDEX_KEYS = [
   "columns",
   "name",
@@ -218,6 +218,11 @@ function parsePrimaryKey(value: unknown, label: string): PrimaryKeyDef {
   };
   if ("name" in record) {
     primaryKey.name = parseRequiredString(record.name, `${label}.name`);
+  }
+  if ("withoutRowid" in record) {
+    if (record.withoutRowid !== true)
+      refuse(`${label}.withoutRowid must be true when present`);
+    primaryKey.withoutRowid = true;
   }
   return primaryKey;
 }

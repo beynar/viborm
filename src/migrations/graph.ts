@@ -17,7 +17,7 @@ import {
 import { sliceDispatch, validateSqlRanges } from "./sql-blob";
 import { assertArtifactExecutionSafe } from "./statement-safety";
 import type { MigrationStorageReader } from "./storage/contract";
-import type { SchemaSnapshot } from "./types";
+import type { MigrationTarget, SchemaSnapshot } from "./types";
 import {
   encodeSnapshot,
   encodeSqlBlob,
@@ -297,6 +297,13 @@ export async function loadMigrationGraph(
 
   for (const [id, manifest] of states) {
     for (const parent of manifest.parents) {
+      assertAdoption(id, parent, descriptor.target, (stateId) => {
+        const hash =
+          stateId === null
+            ? emptySnapshotHash
+            : states.get(stateId)?.snapshotHash;
+        return hash === undefined ? undefined : snapshots.get(hash);
+      });
       if (parent.fromState === null) continue;
       if (!states.has(parent.fromState)) {
         throw new MigrationError(
@@ -335,6 +342,37 @@ export async function loadMigrationGraph(
     leaves,
     emptySnapshotHash,
   };
+}
+
+/**
+ * An adoption names only tables of its state that its parent lacks, outside
+ * the estate's frozen list: the proofs leave an adopted table out on the
+ * parent's side (`managedAt`), which is sound only for such a table.
+ */
+function assertAdoption(
+  stateId: Sha256,
+  parent: MigrationParentTransitionV1,
+  target: MigrationTarget,
+  snapshotOf: (stateId: Sha256 | null) => SchemaSnapshot | undefined
+): void {
+  if (parent.adopts === undefined) return;
+  const has = (snapshot: SchemaSnapshot | undefined, name: string) =>
+    snapshot?.tables.some((table) => table.name === name) === true;
+  const own = snapshotOf(stateId);
+  const before = snapshotOf(parent.fromState);
+  for (const name of parent.adopts) {
+    if (
+      target.tables === undefined ||
+      target.tables.includes(name) ||
+      !has(own, name) ||
+      has(before, name)
+    ) {
+      throw new MigrationError(
+        `State ${stateId} adopts "${name}", which is not a table it adds to an estate with a \`tables\` list outside that list`,
+        VibORMErrorCode.MIGRATION_INVALID_ESTATE
+      );
+    }
+  }
 }
 
 /**

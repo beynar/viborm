@@ -1071,6 +1071,7 @@ export function captureRaptor3Identity(root = RAPTOR3_ROOT) {
       ...sourceFiles(root, "tests/raptor3"),
       ...sourceFiles(root, "scripts"),
       ...sourceFiles(root, "benchmarks"),
+      "tests/fixtures/reset-modules-per-file.ts",
       "tests/contracts/public-client/cli/_clack.ts",
       ...configuration,
     ]),

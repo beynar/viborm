@@ -23,7 +23,7 @@
       "node",
       "bun",
       "vitest/globals",
-      "@cloudflare/vitest-pool-workers"
+      "@cloudflare/vitest-plugin/types"
     ],
     "paths": {
       "viborm": ["./src/index.ts"],

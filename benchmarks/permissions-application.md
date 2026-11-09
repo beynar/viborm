@@ -163,7 +163,7 @@ covers both a reused base client and a fresh client with those same objects.
 
 ```sh
 VIBORM_POLICY_TIMINGS=1 node scripts/run-vitest-safe.mjs run \
-  --workspace vitest.workspace.ts --project=provider-sqlite3 \
+  --config vitest.workspace.ts --project=provider-sqlite3 \
   tests/providers/local/sqlite3-permissions-reuse.test.ts
 ```
 
@@ -177,7 +177,7 @@ samples:
 
 ```sh
 VIBORM_POLICY_COLD_TIMINGS=1 node scripts/run-vitest-safe.mjs run \
-  --workspace vitest.workspace.ts --project=provider-sqlite3 \
+  --config vitest.workspace.ts --project=provider-sqlite3 \
   tests/providers/local/sqlite3-permissions-reuse.test.ts \
   -t 'measure cold permissions'
 ```

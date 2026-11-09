@@ -11,9 +11,11 @@ import { createMigrationClient } from "@src/migrations/client";
 import { runThroughModelGovernedBehavior } from "@tests/contracts/engine/query/through-model-governed-behavior";
 import { runThroughModelBehavior } from "@tests/contracts/engine/write/through-model-behavior";
 
-declare module "cloudflare:test" {
-  interface ProvidedEnv {
-    DB: D1Database;
+declare global {
+  namespace Cloudflare {
+    interface Env {
+      DB: D1Database;
+    }
   }
 }
 

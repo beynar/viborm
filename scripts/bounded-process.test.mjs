@@ -290,7 +290,6 @@ test("Vitest arguments end with the enforced single-worker policy", () => {
   assert.deepEqual(vitestArgumentsWithSingleWorker(["run"]), [
     "run",
     "--maxWorkers=1",
-    "--minWorkers=1",
     "--no-file-parallelism",
   ]);
 });
@@ -419,12 +418,7 @@ it("must not start a successor", () => { writeFileSync(${JSON.stringify(successo
       const config = join(root, "vitest.config.mjs");
       writeFileSync(
         config,
-        `export default { root: ${JSON.stringify(root)}, test: { pool: "forks", maxWorkers: 1, minWorkers: 1, fileParallelism: false } };`
-      );
-      const workspace = join(root, "vitest.workspace.mjs");
-      writeFileSync(
-        workspace,
-        `export default [{ test: { root: ${JSON.stringify(root)}, name: "package", include: ["timeout.test.ts"], bail: 1 } }];`
+        `export default { root: ${JSON.stringify(root)}, test: { pool: "forks", maxWorkers: 1, fileParallelism: false, projects: [{ test: { root: ${JSON.stringify(root)}, name: "package", include: ["timeout.test.ts"], bail: 1 } }] } };`
       );
       const outcome = await startBoundedProcess({
         command: process.execPath,
@@ -433,8 +427,6 @@ it("must not start a successor", () => { writeFileSync(${JSON.stringify(successo
           "run",
           "--config",
           config,
-          "--workspace",
-          workspace,
           "--project",
           "package",
         ],

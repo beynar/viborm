@@ -59,6 +59,7 @@ import type {
   AddForeignKeyOperation,
   AddPrimaryKeyOperation,
   AddUniqueConstraintOperation,
+  AdoptionHazard,
   AlterColumnOperation,
   AlterEnumOperation,
   ControlTableNames,
@@ -325,6 +326,19 @@ function readsAddedValue(
   return false;
 }
 
+/** Per named table of the estate's schema, what `adoptionHazards` reports. */
+const ADOPTION_HAZARDS_QUERY = `SELECT c.relname AS "table", c.relpersistence = 'u' AS unlogged,
+  c.relrowsecurity OR c.relforcerowsecurity AS "rowSecurity",
+  EXISTS (SELECT 1 FROM pg_catalog.pg_trigger g WHERE g.tgrelid = c.oid AND NOT g.tgisinternal) AS triggers,
+  EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite w WHERE w.ev_class = c.oid AND w.rulename <> '_RETURN') AS rules,
+  EXISTS (SELECT 1 FROM pg_catalog.pg_constraint k WHERE k.conrelid = c.oid AND k.contype = 'c') AS checks,
+  EXISTS (SELECT 1 FROM pg_catalog.pg_constraint k WHERE k.conrelid = c.oid AND k.condeferrable) AS deferrable,
+  (SELECT string_agg('column "' || a.attname || '"', ', ' ORDER BY a.attnum) FROM pg_catalog.pg_attribute a JOIN pg_catalog.pg_type t ON t.oid = a.atttypid
+    WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped AND a.attcollation <> 0 AND a.attcollation <> t.typcollation) AS collated
+FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = $1 AND c.relname = ANY($2::text[]) AND c.relkind IN ('r', 'p')
+ORDER BY c.relname`;
+
 /**
  * The CHECK constraints of the estate's tables on a column of each named enum
  * or of its array, one row per enum and constraint. `type` is the enum as this
@@ -547,6 +561,44 @@ export class PostgresMigrationDriver extends SqlMigrationDriver {
     control: ControlTableNames
   ): Promise<Sha256 | undefined> {
     return postgresCatalogDigest(producer, this, control);
+  }
+
+  /**
+   * A trigger, a rule, row security, `UNLOGGED`, a CHECK, a DEFERRABLE key,
+   * and a column collation other than its type's default — the declaration
+   * writes no COLLATE, so the database default is what it states.
+   */
+  override async adoptionHazards(
+    tables: readonly string[],
+    executeRaw: RawExecutor
+  ): Promise<readonly AdoptionHazard[]> {
+    if (tables.length === 0) return [];
+    const { rows } = await executeRaw<{
+      table: string;
+      unlogged: boolean;
+      rowSecurity: boolean;
+      triggers: boolean;
+      rules: boolean;
+      checks: boolean;
+      deferrable: boolean;
+      collated: string | null;
+    }>(ADOPTION_HAZARDS_QUERY, [
+      this.requireEstateNamespace(),
+      arrayLiteralText(tables),
+    ]);
+    return rows.flatMap((row) =>
+      [
+        row.triggers && "triggers",
+        row.rules && "rules",
+        row.rowSecurity && "row-level security",
+        row.unlogged && "UNLOGGED storage",
+        row.checks && "CHECK constraints",
+        row.deferrable && "DEFERRABLE keys",
+        row.collated && `a collation on ${row.collated}`,
+      ]
+        .filter((feature): feature is string => typeof feature === "string")
+        .map((feature) => ({ table: row.table, feature }))
+    );
   }
 
   override async preflightSchemaRequirements(

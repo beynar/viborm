@@ -214,12 +214,7 @@ export function parseHeapLimitArgument(arguments_, { defaultMb, maxMb }) {
 }
 
 export function vitestArgumentsWithSingleWorker(arguments_) {
-  return [
-    ...arguments_,
-    "--maxWorkers=1",
-    "--minWorkers=1",
-    "--no-file-parallelism",
-  ];
+  return [...arguments_, "--maxWorkers=1", "--no-file-parallelism"];
 }
 
 function processGroupRssKb(processGroupId) {

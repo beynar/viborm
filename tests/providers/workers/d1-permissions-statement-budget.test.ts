@@ -41,9 +41,11 @@ import { policy } from "@tests/types/permissions/acceptance-policy";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { RecordingD1 } from "./d1-statements";
 
-declare module "cloudflare:test" {
-  interface ProvidedEnv {
-    DB: D1Database;
+declare global {
+  namespace Cloudflare {
+    interface Env {
+      DB: D1Database;
+    }
   }
 }
 

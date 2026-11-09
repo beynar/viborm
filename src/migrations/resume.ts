@@ -20,14 +20,19 @@ import type { BoundMigrationDriver } from "./drivers";
 import type { MigrationGraph } from "./graph";
 import type { Sha256 } from "./identity";
 import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
-import { assertEstateTargetMatches } from "./target";
+import { assertEstateTargetMatches, withManagedTables } from "./target";
 import type {
   LedgerEventV1,
   MigrationOperationV1,
   MigrationStepV1,
 } from "./v1-types";
 
-/** The client's migration driver, proven to address this estate's target. */
+/**
+ * The client's migration driver, proven to address this estate's target, its
+ * inventories selecting the estate's own frozen list rather than the client's
+ * (which may name tables nothing adopted yet). Each proof restates the tables
+ * its states manage (`managedAt`).
+ */
 export function openCommand(
   client: MigrationClient,
   graph: MigrationGraph,
@@ -37,7 +42,7 @@ export function openCommand(
   const driver = getPushMigrationDriver(client);
   assertEstateTargetMatches(graph.descriptor.target, driver.target);
   admitLiveMigrationCapability(driver, requirement, label);
-  return driver;
+  return withManagedTables(driver, graph.descriptor.target.tables);
 }
 
 /**

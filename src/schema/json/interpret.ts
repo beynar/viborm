@@ -179,6 +179,9 @@ function buildModel(
     for (const name of document.omit) hidden[name] = true;
     model = call(pointer(path, "omit"), () => model.omit(hidden));
   }
+  if (document.withoutRowid === true) {
+    model = call(pointer(path, "withoutRowid"), () => model.withoutRowid());
+  }
   return model;
 }
 

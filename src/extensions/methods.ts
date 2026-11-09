@@ -1,5 +1,9 @@
 import type { TransactionClient, VibORMConfig } from "@client/client";
-import { RAW_METHOD_NAMES, type RawSurface } from "@client/raw";
+import {
+  RAW_METHOD_NAMES,
+  type RawSurface,
+  type RowsFragment,
+} from "@client/raw";
 import type { ClientSchema } from "@client/schema-links";
 import type {
   Client,
@@ -175,7 +179,26 @@ export type ExtensionModelDelegate<
         ModelName
       >) &
   MethodsForModel<X, ModelName> &
-  DelegateLink<C, X, ModelName>;
+  DelegateLink<C, X, ModelName> &
+  ModelRows;
+
+/** The core member every model delegate has beside its operations. */
+interface ModelRows {
+  /**
+   * The rows of this model this client may read, as a `FROM` item of a
+   * tagged `$queryRaw` named `alias`: a derived table filtered by the row
+   * domain a `findMany` of this model on this client takes (permissions,
+   * soft delete, bound controls). Refused anywhere else.
+   *
+   * @example
+   * ```ts
+   * await db.$as(actor).$queryRaw`
+   *   SELECT p.id FROM ${db.$as(actor).page.$rows("p")} WHERE p.title LIKE ${q}
+   * `;
+   * ```
+   */
+  $rows(alias: string): RowsFragment;
+}
 
 /**
  * One model's delegate on a chain that declares `result`: its projecting
@@ -310,7 +333,7 @@ type ClientFactoryGuard<
  * state: the runtime refuses that replacement when the extension is applied.
  */
 type ModelFactoryGuard = (...args: never[]) => object & {
-  readonly [Name in Operations | "then"]?: never;
+  readonly [Name in Operations | "$rows" | "then"]?: never;
 };
 
 /**
@@ -687,6 +710,7 @@ export function bindExtensionMethods(
                     if (
                       taken ||
                       method === "then" ||
+                      method === "$rows" ||
                       ROUTED_OPERATIONS.has(method)
                     ) {
                       extensionError(

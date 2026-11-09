@@ -539,16 +539,18 @@ export function compileTrustedCheck(
 export function sealParent(
   fromState: string | null,
   compiled: CompiledTransition,
-  approvals: readonly MigrationApprovalV1[] = []
+  approvals: readonly MigrationApprovalV1[] = [],
+  adopts: readonly string[] = []
 ): Omit<MigrationParentTransitionV1, "transitionHash"> {
-  const parent = {
+  return {
     fromState,
     originChecks: compiled.originChecks,
     requestedForwardBoundary: compiled.requestedForwardBoundary,
     operations: compiled.operations,
     rollback: compiled.rollback,
+    ...(approvals.length === 0 ? {} : { approvals }),
+    ...(adopts.length === 0 ? {} : { adopts }),
   };
-  return approvals.length === 0 ? parent : { ...parent, approvals };
 }
 
 export function hashParent(

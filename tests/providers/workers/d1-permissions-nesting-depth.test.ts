@@ -21,9 +21,11 @@ import { s } from "@src/schema";
 import { v } from "@src/validation";
 import { expect, test } from "vitest";
 
-declare module "cloudflare:test" {
-  interface ProvidedEnv {
-    DB: D1Database;
+declare global {
+  namespace Cloudflare {
+    interface Env {
+      DB: D1Database;
+    }
   }
 }
 

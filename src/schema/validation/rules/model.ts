@@ -165,6 +165,7 @@ export function validateFieldsSinglePass(
   // Accumulators for cross-scalar checks
   let idCount = 0;
   const columnToFields = new Map<string, string[]>();
+  const compoundIdMembers = new Set(getCompoundIdFields(model));
 
   for (const [fname, scalar] of getScalars(model)) {
     const st = scalar["~"].state;
@@ -230,11 +231,15 @@ export function validateFieldsSinglePass(
       }
     }
 
-    // F006: ID not nullable
-    if (st.isId && st.nullable) {
+    // F006: no member of a primary key is nullable. Every dialect makes a
+    // primary-key column NOT NULL, so a nullable member declares a column the
+    // database never builds: migration proofs would refuse it forever.
+    if (st.nullable && (st.isId || compoundIdMembers.has(fname))) {
       errors.push({
         code: "F006",
-        message: `ID '${fname}' in '${name}' cannot be nullable`,
+        message: st.isId
+          ? `ID '${fname}' in '${name}' cannot be nullable`
+          : `'${fname}' in '${name}' is a member of the compound ID and cannot be nullable`,
         severity: "error",
         model: name,
         field: fname,

@@ -668,7 +668,10 @@ export class SqlOperationContext extends OperationContext {
         }
       });
     }
-    return this.dispatchSetMutations(statements, parse, judged);
+    // Awaited, not returned: the envelope sentinel rejects this promise before
+    // any I/O, and an `async` frame would adopt it a microtask later, which
+    // workerd's process emulation reports as unhandled ({@link answer}).
+    return await this.dispatchSetMutations(statements, parse, judged);
   }
   /**
    * The operation's own set-oriented statements on the plain execute path, and

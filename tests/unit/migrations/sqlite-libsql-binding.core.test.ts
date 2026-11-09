@@ -1,13 +1,15 @@
 /**
  * How the stock D1 and libSQL drivers bind under SQLite positive admission
- * (the rest of it is `sqlite-migration-capability.core.test.ts`).
+ * (the rest of it is `sqlite-migration-capability.core.test.ts`). D1 declares
+ * the read-only capability and binds by it; libSQL declares none and binds by
+ * name.
  *
  * Kept apart because it names the libSQL driver module, which the in-memory
  * SQLite exception does not extend to. Nothing here opens a database: the
  * libSQL driver connects lazily, and binding and admission run before any I/O.
  */
 
-import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
+import { D1Driver } from "@drivers/d1";
 import { SQLITE_MIGRATION_CAPABILITY } from "@drivers/driver";
 import { LibSQLDriver } from "@drivers/libsql";
 import { VibORMErrorCode } from "@src/errors";
@@ -15,7 +17,6 @@ import { admitLiveMigrationCapability } from "@src/migrations/admission";
 import { getMigrationDriver } from "@src/migrations/drivers";
 import { LibSQLMigrationDriver } from "@src/migrations/drivers/libsql";
 import { describe, expect, test } from "vitest";
-import { RecordingDriver } from "./_estate";
 
 function refusalCode(run: () => unknown): unknown {
   try {
@@ -27,9 +28,9 @@ function refusalCode(run: () => unknown): unknown {
 }
 
 describe("SQLite positive admission: the stock D1 and libSQL bindings", () => {
-  test("D1 and libSQL bind by name for reads and stay refused for effects", () => {
+  test("D1 and libSQL bind for reads and stay refused for effects", () => {
     for (const execution of [
-      new RecordingDriver("sqlite", "d1", new SQLiteAdapter()),
+      new D1Driver({ database: Object.create(null) }),
       new LibSQLDriver({ databaseUrl: ":memory:" }),
     ]) {
       const driver = getMigrationDriver(execution);

@@ -1,5 +1,6 @@
 import type { AnyModel } from "@schema/model";
 import { Sql } from "../../../sql/sql";
+import type { QueryEngine } from "../../query-engine";
 import type { RowJudgement } from "./row-scope";
 
 /**
@@ -32,5 +33,19 @@ export class RowsOf extends Sql {
   }
   settle(condition: Sql): void {
     RowsOf.fill(this, condition);
+  }
+}
+
+/**
+ * `<model>.$rows(alias)`: the rows a `findMany` of `model` on `client` would
+ * read, as a raw read's `FROM` item named `alias`. Only the tagged
+ * `$queryRaw` it is interpolated into settles it (`src/client/raw.ts`), from
+ * `client`'s own chain and bound controls; an ORM statement refuses it.
+ */
+export class RawRows extends RowsOf {
+  readonly client: QueryEngine;
+  constructor(model: AnyModel, alias: string, client: QueryEngine) {
+    super(model, alias);
+    this.client = client;
   }
 }

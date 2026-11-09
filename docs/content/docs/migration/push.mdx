@@ -249,8 +249,12 @@ so push never sees that application's tables.
 ## Managed tables and CLI decisions
 
 `migrations.tables` selects exact physical table names, including junction tables.
-An omitted list manages the whole namespace. An explicit list is frozen into the
-estate identity; include both old and new names before publishing a rename.
+An omitted list manages the whole namespace. An explicit list is recorded in the
+estate identity, and a migration client's list may only grow from it; include
+both old and new names before publishing a rename. Migration history commands
+select what the estate manages, never a name only the client lists, so a table
+you list before adopting it stays yours: see
+[Adopt an Existing Table](/docs/migration/migrate#adopt-an-existing-table).
 A foreign key or PostgreSQL enum shared across the selected boundary is refused.
 
 ```ts title="viborm.config.ts"

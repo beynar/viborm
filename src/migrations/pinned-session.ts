@@ -8,7 +8,11 @@
  * the bound migration driver.
  */
 
-import type { AnyDriver } from "../drivers/driver";
+import type {
+  AnyDriver,
+  MigrationFrame,
+  MigrationFrameDriver,
+} from "../drivers/driver";
 import { normalizeDriverError } from "../drivers/error-mapping";
 import {
   createExecutionContext,
@@ -562,9 +566,16 @@ function createPinnedSessionView<D extends AnyDriver>(
             throw failure;
           }
         };
-        return locked === undefined
-          ? run()
-          : run().catch((failure: unknown) => locked.failed(failure));
+        // Awaited, never returned or chained: `run` and `failed` can reject
+        // before an `async` frame or a `.catch` adopts their promise a
+        // microtask later, which workerd's process emulation reports as
+        // unhandled (`nodejs-compat-rejections.test.ts`).
+        try {
+          return await run();
+        } catch (failure) {
+          if (locked === undefined) throw failure;
+          return await locked.failed(failure);
+        }
       },
     },
     // The lease holds the queue for the whole session, so there is no queue
@@ -784,6 +795,25 @@ interface LockedTransactions {
 
 const LOCKED = new WeakMap<object, LockedTransactions>();
 
+/**
+ * A frame from the driver the capability says opens them. A declaration that
+ * claims frames without the hook would lock nothing, so it is refused here,
+ * before the command's first statement.
+ */
+function openFrame(driver: AnyDriver): Promise<MigrationFrame> {
+  if (!opensFrames(driver))
+    throw new MigrationError(
+      `The SQLite driver "${driver.driverName}" declares \`exclusion: "frame"\` and implements no \`openMigrationFrame()\`, so no migration lock can be taken.`,
+      VibORMErrorCode.DRIVER_NOT_SUPPORTED,
+      { meta: { driver: driver.driverName } }
+    );
+  return driver.openMigrationFrame();
+}
+const opensFrames = (
+  driver: AnyDriver
+): driver is AnyDriver & MigrationFrameDriver =>
+  typeof Reflect.get(driver, "openMigrationFrame") === "function";
+
 /** The switch SQLite ignores inside a transaction; its read form runs anywhere. */
 const FOREIGN_KEYS_SWITCH = /^\s*PRAGMA\s+foreign_keys\s*=/i;
 
@@ -794,10 +824,24 @@ function lockTransactions(
   limits: PostgresSessionLimits | undefined
 ): LockedTransactions {
   const sqlite = migrationDriver.target.dialect === "sqlite";
+  // `exclusion: "frame"`: the driver's platform transaction is the lock, and
+  // it stands where the statements below would be sent.
+  const frames =
+    migrationDriver.sqliteMigrationCapability?.exclusion === "frame";
   // The protocol's own statements, on the same session, past `before`.
   const direct: AnyDriver = Object.create(pinned);
   const run = <T = Record<string, unknown>>(sql: string) =>
     direct._executeRaw<T>(sql);
+  let frame: MigrationFrame | undefined;
+  const end = async (outcome: "commit" | "rollback"): Promise<void> => {
+    if (frame === undefined) {
+      await run(outcome === "commit" ? "COMMIT" : "ROLLBACK");
+      return;
+    }
+    const settled = frame;
+    frame = undefined;
+    await settled[outcome]();
+  };
   let open = false;
   let sessionLocked = false;
   // Held from the command's start (`hold`): each committed group still ends
@@ -812,17 +856,24 @@ function lockTransactions(
     if (!open) return;
     open = false;
     continuous &&= sessionLocked && !heldAlone;
-    if (control.lost()) return;
-    await control.cleanup(() => run("ROLLBACK"));
+    // A frame is the driver's own pending transaction, not a statement on the
+    // connection: left unsettled, it would hold every later statement.
+    if (control.lost() && frame === undefined) return;
+    await control.cleanup(() => end("rollback"));
   };
   const commit = async (): Promise<void> => {
-    await run("COMMIT");
+    await end("commit");
     open = false;
     continuous &&= sessionLocked && !heldAlone;
   };
   // SQLite's lock IS its BEGIN IMMEDIATE: `lockWait` bounds that one
   // statement's busy wait, then the connection's own timeout is restored.
+  // A frame has no wait to bound: the driver's queue lease is already held.
   const beginImmediate = async (): Promise<void> => {
+    if (frames) {
+      frame = await openFrame(direct);
+      return;
+    }
     const [own] = (await run<{ timeout: unknown }>("PRAGMA busy_timeout")).rows;
     await run(`PRAGMA busy_timeout = ${migrationDriver.limits.lockWait}`);
     try {
@@ -882,7 +933,7 @@ function lockTransactions(
       if (held) return;
       // Nothing was read under a lock never held: not a gap in `continuous`.
       open = false;
-      await control.cleanup(() => run("ROLLBACK"));
+      await control.cleanup(() => end("rollback"));
       do {
         await wait();
       } while (!(await lockHeld(direct, migrationDriver, control, tryLock)));

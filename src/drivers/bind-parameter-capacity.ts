@@ -12,7 +12,7 @@ export function normalizedBindParameterLimit(
 
 /** Refuse one materialized statement before it reaches provider I/O. */
 export function assertStatementBindParameterCapacity(
-  statement: Sql,
+  statement: Pick<Sql, "values">,
   driverName: string,
   limit: number | undefined,
   subject: string
