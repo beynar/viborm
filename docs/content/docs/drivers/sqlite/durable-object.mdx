@@ -173,7 +173,9 @@ const migrations = createMigrationClient(db, {
 - **100 bound values per statement.** The driver declares it: VibORM splits a
   `createMany` and other splittable statements to fit, binds an `in` list as
   one value, and refuses a statement that cannot fit with
-  `UnsupportedOperationError` before it reaches SQLite.
+  `UnsupportedOperationError` before it reaches SQLite. A raw statement
+  (`$queryRaw`, `$executeRaw` and their `Unsafe` forms) with more than 100
+  values is refused the same way, naming its count and the limit.
 - **100 KB per statement.** A longer statement fails on the platform.
 - **Integers beyond ±2^53.** The platform returns every integer as a
   JavaScript number. A `bigInt()` field written past ±2^53 is stored exactly;

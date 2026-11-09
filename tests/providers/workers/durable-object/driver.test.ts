@@ -281,6 +281,35 @@ describe("Durable Object driver: statements", () => {
       expect(String((failure as Error).message)).toMatch(ONE_HUNDRED);
     });
   });
+  test("a raw statement with more than 100 bound values is refused before SQLite, naming both counts", async () => {
+    await withClient(async (client, state) => {
+      const marks = (n: number) => Array.from({ length: n }, () => "?").join();
+      const values = (n: number) =>
+        Array.from({ length: n }, (_, i) => `v${i}`);
+      const sent = vi.spyOn(state.storage.sql, "exec");
+      await expect(
+        client.$queryRawUnsafe(`SELECT ${marks(101)}`, ...values(101))
+      ).rejects.toMatchObject({
+        name: "UnsupportedOperationError",
+        message: expect.stringContaining(
+          "raw statement because one indivisible statement needs 101 bound values, above the verified limit of 100"
+        ),
+      });
+      await expect(
+        client.$executeRawUnsafe(
+          `INSERT INTO users (id, name) SELECT ${marks(2)} WHERE ${marks(99)} IS NOT NULL`,
+          ...values(101)
+        )
+      ).rejects.toMatchObject({ name: "UnsupportedOperationError" });
+      expect(sent).not.toHaveBeenCalled();
+      expect(
+        await client.$queryRawUnsafe(
+          `SELECT json_array(${marks(100)}) AS bound`,
+          ...values(100)
+        )
+      ).toEqual([{ bound: JSON.stringify(values(100)) }]);
+    });
+  });
 });
 
 describe("Durable Object driver: errors", () => {

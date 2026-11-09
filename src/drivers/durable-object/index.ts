@@ -20,6 +20,7 @@ import {
 import type { Schema } from "@client/types";
 import type { DurableObjectStorage as PlatformStorage } from "@cloudflare/workers-types";
 import { ClientInitializationError, UnsupportedOperationError } from "@errors";
+import { assertStatementBindParameterCapacity } from "../bind-parameter-capacity";
 import {
   Driver,
   type DriverResultParser,
@@ -201,12 +202,21 @@ class DurableObjectDriver extends Driver<
     return { rows, rowCount: changes };
   }
 
-  protected executeRaw<T>(
+  protected async executeRaw<T>(
     storage: DurableObjectStorage,
     sql: string,
     params: unknown[] | undefined
   ): Promise<QueryResult<T>> {
-    return this.execute<T>(storage, sql, params ?? []);
+    // A typed statement was checked when it was built; a raw one's values
+    // are the platform's binds as given, and its limit is a hard one.
+    const values = params ?? [];
+    assertStatementBindParameterCapacity(
+      { values },
+      this.driverName,
+      this.maxBindParametersPerStatement,
+      "raw statement"
+    );
+    return await this.execute<T>(storage, sql, values);
   }
 
   protected override transactionOptionSupport(): TransactionOptionSupport {
