@@ -12,7 +12,15 @@ import { PgDriver } from "@drivers/pg";
 import { createMigrationClient } from "@migrations/dialects/all";
 import { MemoryEstateStorage } from "@migrations/storage/memory";
 import { s } from "@schema";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest";
 
 const CONNECTION_STRING = process.env.PG_TEST_CONNECTION_STRING;
 const describeIfDocker = CONNECTION_STRING ? describe : describe.skip;
@@ -28,8 +36,16 @@ const jobs = s
   .map("jobs");
 
 describeIfDocker("PostgreSQL adoption (docker)", () => {
-  const admin = new PgDriver({ databaseUrl: CONNECTION_STRING });
+  // Created in a hook: a skipped describe still runs its body to collect it.
+  let admin: PgDriver;
   let driver: PgDriver;
+
+  beforeAll(() => {
+    admin = new PgDriver({ databaseUrl: CONNECTION_STRING });
+  });
+  afterAll(async () => {
+    await admin.disconnect();
+  });
 
   beforeEach(async () => {
     await admin._executeRaw(`DROP SCHEMA IF EXISTS "${NS}" CASCADE`);
