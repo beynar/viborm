@@ -10,6 +10,7 @@ import { registerEveryMigrationDriver } from "../migrations/dialects/every";
 import { VIBORM_VERSION } from "../version";
 import { checkCommand } from "./commands/check";
 import { migrateCommand } from "./commands/migrate";
+import { pullCommand } from "./commands/pull";
 import { pushCommand } from "./commands/push";
 
 registerEveryMigrationDriver();
@@ -25,6 +26,7 @@ program
 program.addCommand(checkCommand);
 program.addCommand(pushCommand);
 program.addCommand(migrateCommand);
+program.addCommand(pullCommand);
 
 // Parse arguments
 try {

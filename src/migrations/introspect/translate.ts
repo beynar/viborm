@@ -16,6 +16,7 @@ import type {
   ModelTargetDocument,
   SchemaDocument,
 } from "../../schema/json/document";
+import { isValidSchemaIdentifier } from "../../schema/identifier";
 import type { MigrationDriver } from "../drivers/base";
 import type {
   EnumDef,
@@ -74,6 +75,10 @@ interface ModelBuild {
   /** Column sets the document declares unique (id, unique, uniques), sorted. */
   readonly keys: string[][];
 }
+
+/** `.map()` takes identifiers only, so a name outside them has no spelling. */
+const UNMAPPABLE =
+  "its name is not an identifier (ASCII letters, digits and _, at most 63 bytes), which is all `.map()` accepts";
 
 const JUNCTION_ACTIONS = new Set<ReferentialAction>([
   "cascade",
@@ -156,8 +161,20 @@ export function translateSnapshot(input: TranslateInput): Translation {
       });
       continue;
     }
+    if (!isValidSchemaIdentifier(table.name)) {
+      skipped.push({
+        kind: "table",
+        name: table.name,
+        reason: UNMAPPABLE,
+      });
+      continue;
+    }
     const translated = new Map<string, ColumnTranslation>();
     for (const column of table.columns) {
+      if (!isValidSchemaIdentifier(column.name)) {
+        translated.set(column.name, { skip: UNMAPPABLE });
+        continue;
+      }
       translated.set(
         column.name,
         translateColumn({

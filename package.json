@@ -29,6 +29,11 @@
       "import": "./dist/schema/json.mjs",
       "default": "./dist/schema/json.mjs"
     },
+    "./schema/introspect": {
+      "types": "./dist/schema/introspect.d.mts",
+      "import": "./dist/schema/introspect.mjs",
+      "default": "./dist/schema/introspect.mjs"
+    },
     "./driver": {
       "types": "./dist/driver.d.mts",
       "import": "./dist/driver.mjs",
@@ -219,6 +224,7 @@
     "access": "public"
   },
   "sideEffects": [
+    "./dist/schema/introspect.mjs",
     "./dist/migrations.mjs",
     "./dist/migrations/postgres.mjs",
     "./dist/migrations/sqlite.mjs",
