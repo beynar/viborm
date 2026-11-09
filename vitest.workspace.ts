@@ -356,6 +356,7 @@ export const projects: TestProjectConfiguration[] = [
     "tests/unit/migrations/table-rename-derived-names-mysql-docker.test.ts",
     "tests/unit/migrations/introspect-schema-mysql-docker.test.ts",
   ]),
+  providerProject("mssql", ["tests/providers/docker/mssql*.test.ts"]),
   providerProject("transaction-options", [
     "tests/providers/docker/transaction-options-live.test.ts",
   ]),

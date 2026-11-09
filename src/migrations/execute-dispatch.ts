@@ -6,7 +6,6 @@ import { errorCause } from "../errors/diagnostic-safety";
 
 import type { AnyDriver, CommitRerunningDriver } from "../drivers/driver";
 import { attachMissingMeta } from "../drivers/driver-error-context";
-import type { SqlDialect } from "../drivers/types";
 import {
   ConnectionError,
   isVibORMError,
@@ -18,7 +17,10 @@ import {
 import { decodeParameter } from "./compile";
 import type { MigrationBatch } from "./pinned-session";
 import { sliceDispatch } from "./sql-blob";
-import { readExecutableStatements } from "./statement-safety";
+import {
+  type ClassifiedDialect,
+  readExecutableStatements,
+} from "./statement-safety";
 import { readFlag } from "./v1-parse-shared";
 import type {
   LedgerEffectStateV1,
@@ -327,7 +329,7 @@ function refusedWhole(
   dialect: AnyDriver["dialect"]
 ): error is VibORMError {
   if (!providerRefused(error)) return false;
-  const statements = readExecutableStatements(sql, dialect as SqlDialect);
+  const statements = readExecutableStatements(sql, dialect as ClassifiedDialect);
   const [leader = "", ...rest] = statements[0] ?? [];
   return (
     statements.length === 1 &&

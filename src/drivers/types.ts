@@ -7,7 +7,7 @@
 /**
  * Supported database dialects
  */
-export type Dialect = "postgresql" | "mysql" | "sqlite" | "surrealql";
+export type Dialect = "postgresql" | "mysql" | "sqlite" | "surrealql" | "mssql";
 
 /** The dialects with migrations and a write path: every SQL one. */
 export type SqlDialect = Exclude<Dialect, "surrealql">;

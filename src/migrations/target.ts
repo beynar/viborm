@@ -239,7 +239,7 @@ export function resolveMigrationEstate(driver: AnyDriver): MigrationEstate {
   const dialect = normalizeDialect(driver.dialect);
   const namespace = readAdapterNamespace(driver);
 
-  if (dialect === "postgresql") {
+  if (dialect === "postgresql" || dialect === "mssql") {
     if (namespace === undefined) {
       throw new MigrationError(
         `The PostgreSQL driver "${driver.driverName}" exposes no adapter namespace, so its migration estate has no proven schema. ` +

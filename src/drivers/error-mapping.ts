@@ -83,6 +83,8 @@ const FOREIGN_ASSERTION_SIGNATURE: Record<Dialect, RegExp> = {
   sqlite: JSON_ACCESS_SIGNATURE,
   // It raises no batch assertion: nothing it runs can collide with one.
   surrealql: /(?!)/,
+  // Its premises fail only on their own sentinel's conversion.
+  mssql: /(?!)/,
 };
 
 /**

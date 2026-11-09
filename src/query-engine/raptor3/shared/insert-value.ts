@@ -11,7 +11,7 @@ export interface InsertValueContext {
   /** The field the value is written to. */
   readonly field: string;
   readonly queries: Queries;
-  readonly dialect: "postgresql" | "mysql" | "sqlite";
+  readonly dialect: "postgresql" | "mysql" | "sqlite" | "mssql";
   /**
    * Run one read in the operation (its transaction, if any) and return its
    * raw rows; absent where the operation cannot read before writing (an

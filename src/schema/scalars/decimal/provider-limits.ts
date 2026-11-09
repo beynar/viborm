@@ -16,7 +16,7 @@ import {
   describeProviderLimitRefusal,
 } from "@validation/primitives/decimal-codec";
 
-type ProviderDialect = "postgresql" | "mysql" | "sqlite";
+type ProviderDialect = "postgresql" | "mysql" | "sqlite" | "mssql";
 
 export interface DecimalProviderLimitRefusal {
   readonly modelName: string;
@@ -29,8 +29,8 @@ export interface DecimalProviderLimitRefusal {
 /** The driver's dialect in the decimal codec's physical vocabulary. */
 function decimalDialectOf(dialect: ProviderDialect): DecimalDialect {
   if (dialect === "postgresql") return "pg";
-  if (dialect === "mysql") return "mysql";
-  return "sqlite";
+  if (dialect === "sqlite") return "sqlite";
+  return dialect;
 }
 
 /** Return the first declared decimal domain the selected provider cannot hold. */
