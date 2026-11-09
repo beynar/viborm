@@ -398,6 +398,9 @@ describe("Durable Object driver: transactions", () => {
         "PRAGMA busy_timeout",
         "PRAGMA busy_timeout = 10",
         "PRAGMA main . busy_timeout",
+        ";COMMIT",
+        "\ufeffCOMMIT",
+        " ; ; ROLLBACK",
       ];
       for (const statement of refused) {
         await expect(client.$executeRawUnsafe(statement)).rejects.toMatchObject(
@@ -422,6 +425,21 @@ describe("Durable Object driver: transactions", () => {
         { foreign_keys: 1 },
       ]);
       expect(sent).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  test("a control statement past the first one is the platform's refusal, and the transaction still rolls back", async () => {
+    await withClient(async (client) => {
+      await expect(
+        client.$transaction(async (tx) => {
+          await tx.user.create({ data: { id: "kept?", name: "Ann" } });
+          await expect(
+            tx.$executeRawUnsafe("SELECT 1; COMMIT")
+          ).rejects.toBeInstanceOf(Error);
+          throw new Error("undo");
+        })
+      ).rejects.toThrow("undo");
+      expect(await client.user.count()).toBe(0);
     });
   });
 

@@ -1760,7 +1760,7 @@ export function policyCompiler(
           const either = members[0]?.OR;
           return Array.isArray(either) && either.every(proves);
         };
-        const proven = proves(create as Where);
+        const proven = create !== false && proves(create);
         accepted = or([
           own,
           proven ? inherited.member : and([inherited.member, through]),

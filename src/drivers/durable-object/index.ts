@@ -79,13 +79,22 @@ function toBindValue(parameter: unknown): unknown {
   return value;
 }
 
-/** Past whitespace, line comments and block comments from `at`. */
+/**
+ * Past whitespace, a byte order mark, empty statements (`;`), line comments
+ * and block comments from `at`: what SQLite skips before a statement.
+ */
 function skipBlank(sql: string, at: number): number {
   let index = at;
   for (;;) {
     const code = sql.charCodeAt(index);
     const next = sql.charCodeAt(index + 1);
-    if (code === 32 || (code >= 9 && code <= 13)) index += 1;
+    if (
+      code === 32 ||
+      (code >= 9 && code <= 13) ||
+      code === 0xfe_ff ||
+      code === 59
+    )
+      index += 1;
     else if (code === 45 && next === 45) {
       const line = sql.indexOf("\n", index);
       index = line < 0 ? sql.length : line + 1;
@@ -128,9 +137,10 @@ const TRANSACTION_CONTROL = new Set([
 ]);
 
 /**
- * The transaction-control statement `sql` is, if it is one: the platform
- * refuses `BEGIN`, `SAVEPOINT` and `PRAGMA busy_timeout`, and the others would
- * end what `storage.transaction()` opened under the driver.
+ * The transaction-control statement `sql` is, if it is one. The platform
+ * refuses every one of them itself, wherever it stands in the text, with an
+ * opaque error; this names `$transaction` instead, for a statement that
+ * starts with one.
  */
 function transactionControl(sql: string): string | undefined {
   const [first, end] = readWord(sql, 0);
