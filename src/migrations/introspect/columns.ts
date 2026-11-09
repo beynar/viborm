@@ -154,6 +154,23 @@ function coefficientText(coefficient: string, scale: number): string {
   return `${negative ? "-" : ""}${digits.slice(0, -scale)}.${digits.slice(-scale)}`;
 }
 
+/** Whether a date and a clock name a real instant, with nothing rolled over. */
+function isCalendarDate(day: string, clock: string): boolean {
+  const [year, month, date] = day.split("-").map(Number);
+  const [hours, minutes, seconds] = clock.split(":").map(Number);
+  const instant = new Date(
+    Date.UTC(year!, month! - 1, date!, hours!, minutes!, Math.trunc(seconds!))
+  );
+  return (
+    instant.getUTCFullYear() === year &&
+    instant.getUTCMonth() === month! - 1 &&
+    instant.getUTCDate() === date &&
+    instant.getUTCHours() === hours &&
+    instant.getUTCMinutes() === minutes &&
+    instant.getUTCSeconds() === Math.trunc(seconds!)
+  );
+}
+
 /** One literal default member, read as the field's own domain. */
 function literalValue(
   field: FieldDraft,
@@ -187,13 +204,17 @@ function literalValue(
     }
     case "json":
       try {
-        return jsonDefault(JSON.parse(text) as JsonValue);
+        const parsed: JsonValue = JSON.parse(text);
+        return jsonDefault(parsed);
       } catch {
         return;
       }
     case "datetime": {
       const match = PG_TIMESTAMP_LITERAL.exec(text);
       if (!match) return;
+      // `Date` rolls an impossible date (`2020-02-30`) into another day; such
+      // a literal is no instant, so it has no value here.
+      if (!isCalendarDate(match[1]!, match[2]!)) return;
       // PostgreSQL prints an offset as `+00`; ISO 8601 wants `+00:00`.
       const zone = match[3] ?? "Z";
       const offset = zone.length === 3 ? `${zone}:00` : zone;
@@ -201,7 +222,9 @@ function literalValue(
       return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
     }
     case "date":
-      return DATE_LITERAL.test(text) ? text : undefined;
+      return DATE_LITERAL.test(text) && isCalendarDate(text, "00:00:00")
+        ? text
+        : undefined;
     default:
       return;
   }
@@ -254,17 +277,20 @@ function readDefault(
       try {
         const values: unknown = JSON.parse(literal);
         if (!Array.isArray(values)) return unsupported;
-        const members = values.map((value) =>
-          value === null
-            ? null
-            : literalValue(
-                field,
-                typeof value === "string" ? value : JSON.stringify(value),
-                typeof value === "string"
-              )
-        );
-        if (members.some((member) => member === undefined)) return unsupported;
-        field.default = members as JsonValue[];
+        const members: JsonValue[] = [];
+        for (const value of values) {
+          const member =
+            value === null
+              ? null
+              : literalValue(
+                  field,
+                  typeof value === "string" ? value : JSON.stringify(value),
+                  typeof value === "string"
+                );
+          if (member === undefined) return unsupported;
+          members.push(member);
+        }
+        field.default = members;
         return;
       } catch {
         return unsupported;
@@ -272,11 +298,13 @@ function readDefault(
     }
     const members = readArrayLiteralText(literal);
     if (members === undefined) return unsupported;
-    const values = members.map((member) =>
-      member === null ? null : literalValue(field, member, true)
-    );
-    if (values.some((value) => value === undefined)) return unsupported;
-    field.default = values as JsonValue[];
+    const values: JsonValue[] = [];
+    for (const member of members) {
+      const value = member === null ? null : literalValue(field, member, true);
+      if (value === undefined) return unsupported;
+      values.push(value);
+    }
+    field.default = values;
     return;
   }
   // SQLite stores a scalar decimal default as its coefficient.
@@ -434,7 +462,7 @@ function finish(
     skippedDefault = readDefault(draft, column, column.default, dialect);
   }
   return {
-    field: draft as ScalarFieldDocument,
+    field: draft,
     enumType,
     skippedDefault,
     approximated,

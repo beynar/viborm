@@ -22,6 +22,11 @@ function describeColumn(column: ColumnDef): string {
   return `${column.type}${column.nullable ? " NULL" : " NOT NULL"}${column.default === undefined ? "" : ` DEFAULT ${column.default}`}`;
 }
 
+/** An operation's kind, for one this file has no sentence for. */
+function operationType(operation: { readonly type: string }): string {
+  return operation.type;
+}
+
 function describe(operation: DiffOperation): IntrospectionWarning {
   const push = (
     table: string | undefined,
@@ -143,7 +148,7 @@ function describe(operation: DiffOperation): IntrospectionWarning {
         `rename column "${operation.from}" to "${operation.to}"`
       );
     default:
-      return push(undefined, undefined, (operation as { type: string }).type);
+      return push(undefined, undefined, operationType(operation));
   }
 }
 

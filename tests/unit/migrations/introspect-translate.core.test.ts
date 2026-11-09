@@ -260,6 +260,19 @@ describe("PostgreSQL defaults", () => {
     ]);
   });
 
+  it("skips an impossible date rather than rolling it into another day", () => {
+    for (const def of [
+      column("c", "timestamp(3) with time zone", {
+        default: "'2020-02-30 00:00:00+00'",
+      }),
+      column("c", "date", { default: "'2021-02-29'" }),
+    ]) {
+      const { field, skipped } = pgField(def);
+      expect(field).not.toHaveProperty("default");
+      expect(skipped.map((item) => item.kind)).toEqual(["default"]);
+    }
+  });
+
   it("skips an enum default that is not a member", () => {
     const enums = [{ name: "mood", values: ["sad", "ok"] }];
     const { skipped } = pgField(
@@ -584,6 +597,34 @@ describe("relations", () => {
       target: "post",
     });
     expect([...result.generatedJunctions]).toEqual(["post_tag"]);
+  });
+
+  it("keeps a join table another foreign key references as a model", () => {
+    const result = translate([
+      ...joinTables(),
+      table(
+        "vote",
+        [
+          column("id", "integer"),
+          column("post_id", "integer"),
+          column("tag_id", "integer"),
+        ],
+        {
+          fks: [
+            fk("vote", ["post_id", "tag_id"], "post_tag", [
+              "post_id",
+              "tag_id",
+            ]),
+          ],
+        }
+      ),
+    ]);
+    expect(Object.keys(result.document.models)).toContain("post_tag");
+    expect(result.document.models.vote!.fields.post_tag).toMatchObject({
+      type: "toOne",
+      target: "post_tag",
+    });
+    expect([...result.generatedJunctions]).toEqual([]);
   });
 
   it("keeps it as a junction model when the generated junction is another table", () => {

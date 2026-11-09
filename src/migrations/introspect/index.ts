@@ -71,7 +71,17 @@ export type IntrospectSchemaOptions =
       readonly tables?: readonly string[];
     };
 
-const DIALECTS = new Set<string>(["postgresql", "sqlite", "mysql"]);
+const DIALECTS: readonly IntrospectionDialect[] = [
+  "postgresql",
+  "sqlite",
+  "mysql",
+];
+
+function isIntrospectionDialect(
+  dialect: string
+): dialect is IntrospectionDialect {
+  return DIALECTS.some((item) => item === dialect);
+}
 
 /** The live tables the document declares, and the enums their columns use. */
 function declaredSnapshot(
@@ -97,14 +107,13 @@ async function introspectDriver(
   driver: AnyDriver,
   tables: readonly string[] | undefined
 ): Promise<IntrospectSchemaResult> {
-  const dialect = driver.dialect;
-  if (!DIALECTS.has(dialect))
+  const introspectionDialect = driver.dialect;
+  if (!isIntrospectionDialect(introspectionDialect))
     throw new MigrationError(
-      `introspectSchema does not translate ${dialect} yet; PostgreSQL, SQLite and MySQL are supported.`,
+      `introspectSchema does not translate ${introspectionDialect} yet; PostgreSQL, SQLite and MySQL are supported.`,
       VibORMErrorCode.FEATURE_NOT_SUPPORTED,
-      { meta: { dialect, feature: "introspect-schema" } }
+      { meta: { dialect: introspectionDialect, feature: "introspect-schema" } }
     );
-  const introspectionDialect = dialect as IntrospectionDialect;
   const catalog = await readCatalog(driver, introspectionDialect, tables);
 
   // A pure join table is first written as the generated junction of its pair;

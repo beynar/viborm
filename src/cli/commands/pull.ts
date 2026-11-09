@@ -80,7 +80,7 @@ async function runPull(options: PullCliOptions): Promise<void> {
     else writeFileSync(resolve(process.cwd(), options.out), text);
     process.stderr.write(formatPullReport(result.skipped, result.warnings));
   } catch (error) {
-    failCli(error, false);
+    failCli(error, options.json === true);
   }
 }
 

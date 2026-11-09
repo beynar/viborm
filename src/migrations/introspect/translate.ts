@@ -13,10 +13,12 @@ import type {
   FieldDocument,
   IndexDocument,
   JunctionDocument,
+  JunctionSidesDocument,
   ModelDocument,
   ModelTargetDocument,
   SchemaDocument,
 } from "../../schema/json/document";
+import type { JunctionReferentialAction } from "../../schema/relation/types";
 import type { MigrationDriver } from "../drivers/base";
 import type {
   EnumDef,
@@ -92,11 +94,62 @@ const BINARY_KEY_TYPES: Record<IntrospectionDialect, string | undefined> = {
 const UNMAPPABLE =
   "its name is not an identifier (ASCII letters, digits and _, at most 63 bytes), which is all `.map()` accepts";
 
-const JUNCTION_ACTIONS = new Set<ReferentialAction>([
-  "cascade",
-  "restrict",
-  "noAction",
-]);
+/** A junction foreign key's action: cascade, restrict or no action only. */
+function junctionAction(
+  value: ReferentialAction | undefined
+): JunctionReferentialAction | undefined {
+  const spelled = value ?? "noAction";
+  return spelled === "cascade" ||
+    spelled === "restrict" ||
+    spelled === "noAction"
+    ? spelled
+    : undefined;
+}
+
+/** One action for both junction keys, or one per side (`source` first). */
+type DeleteSpelling =
+  | { onDelete: JunctionReferentialAction; onDeleteSides?: never }
+  | { onDelete?: never; onDeleteSides: JunctionSidesDocument };
+type UpdateSpelling =
+  | { onUpdate: JunctionReferentialAction; onUpdateSides?: never }
+  | { onUpdate?: never; onUpdateSides: JunctionSidesDocument };
+
+/**
+ * The generated junction a pure join table is, named by its two key columns,
+ * or `undefined` when either key has an action a junction cannot declare.
+ */
+function generatedJunction(
+  table: string,
+  first: ForeignKeyDef,
+  second: ForeignKeyDef
+): JunctionDocument | undefined {
+  const deleteSource = junctionAction(first.onDelete);
+  const deleteTarget = junctionAction(second.onDelete);
+  const updateSource = junctionAction(first.onUpdate);
+  const updateTarget = junctionAction(second.onUpdate);
+  if (
+    deleteSource === undefined ||
+    deleteTarget === undefined ||
+    updateSource === undefined ||
+    updateTarget === undefined
+  )
+    return;
+  const deletes: DeleteSpelling =
+    deleteSource === deleteTarget
+      ? { onDelete: deleteSource }
+      : { onDeleteSides: { source: deleteSource, target: deleteTarget } };
+  const updates: UpdateSpelling =
+    updateSource === updateTarget
+      ? { onUpdate: updateSource }
+      : { onUpdateSides: { source: updateSource, target: updateTarget } };
+  return {
+    table,
+    source: first.columns[0]!,
+    target: second.columns[0]!,
+    ...deletes,
+    ...updates,
+  };
+}
 
 function sameSet(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((item) => b.includes(item));
@@ -476,9 +529,20 @@ export function translateSnapshot(input: TranslateInput): Translation {
    */
   const joinTables = new Map<ModelBuild, readonly [Edge, Edge]>();
   for (const [owner, edges] of edgesByOwner) {
-    if (edges.length !== 2) continue;
-    const [first, second] = edges as [Edge, Edge];
+    const [first, second] = edges;
+    if (edges.length !== 2 || first === undefined || second === undefined)
+      continue;
     const table = owner.table;
+    // A table another foreign key references is a row of its own, never a
+    // junction: the reference would have no model to reach.
+    if (
+      snapshot.tables.some(
+        (other) =>
+          other !== table &&
+          other.foreignKeys.some((fk) => fk.referencedTable === table.name)
+      )
+    )
+      continue;
     const columns = table.columns.map((column) => column.name);
     const union = [...first.fk.columns, ...second.fk.columns];
     if (
@@ -504,7 +568,8 @@ export function translateSnapshot(input: TranslateInput): Translation {
     label: string,
     slots: Array<{ model: ModelBuild; key: string }>
   ) => {
-    const models = [a.key, b.key].sort() as [string, string];
+    const models: readonly [string, string] =
+      a.key < b.key ? [a.key, b.key] : [b.key, a.key];
     const id = models.join("\0");
     const list = pairs.get(id) ?? [];
     list.push({ models, label, slots });
@@ -539,15 +604,12 @@ export function translateSnapshot(input: TranslateInput): Translation {
     const join = joinTables.get(owner);
     if (join) {
       const [first, second] = join;
+      const junction =
+        first.fk.columns.length === 1 && second.fk.columns.length === 1
+          ? generatedJunction(owner.table.name, first.fk, second.fk)
+          : undefined;
       const asGenerated =
-        !input.junctionModels.has(owner.table.name) &&
-        first.fk.columns.length === 1 &&
-        second.fk.columns.length === 1 &&
-        [first.fk, second.fk].every(
-          (fk) =>
-            JUNCTION_ACTIONS.has(action(fk.onDelete)) &&
-            JUNCTION_ACTIONS.has(action(fk.onUpdate))
-        );
+        !input.junctionModels.has(owner.table.name) && junction !== undefined;
       if (asGenerated) {
         // The table is the generated junction of one many-to-many pair; it is
         // not a model. `verify.ts` keeps this form only when the junction the
@@ -562,27 +624,6 @@ export function translateSnapshot(input: TranslateInput): Translation {
         const bName = b.members.claim(
           relationNameFromColumn(first.fk.columns[0]!) ?? a.key
         );
-        const sides = (one: ReferentialAction, other: ReferentialAction) =>
-          one === other ? { one } : { source: one, target: other };
-        const onDelete = sides(
-          action(first.fk.onDelete),
-          action(second.fk.onDelete)
-        );
-        const onUpdate = sides(
-          action(first.fk.onUpdate),
-          action(second.fk.onUpdate)
-        );
-        const junction = {
-          table: owner.table.name,
-          source: first.fk.columns[0]!,
-          target: second.fk.columns[0]!,
-          ...("one" in onDelete
-            ? { onDelete: onDelete.one }
-            : { onDeleteSides: onDelete }),
-          ...("one" in onUpdate
-            ? { onUpdate: onUpdate.one }
-            : { onUpdateSides: onUpdate }),
-        } as JunctionDocument;
         a.fields[aName] = { type: "toMany", target: b.key, junction };
         b.fields[bName] = { type: "toMany", target: a.key };
         addPair(a, b, owner.table.name, [
