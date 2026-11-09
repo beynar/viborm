@@ -5,7 +5,7 @@
  * (`deepExpressions: false`) every statement fits. With deep expressions,
  * the move of the per-kind policy is past the limit ("Expression tree is too
  * large"); `can` for four levels fits either way on this workerd
- * (1.20251011), as on 1.20260310 (viborm-evidence/flarion-2026-11).
+ * (1.20260310, the vitest pool's; viborm-evidence/flarion-2026-11).
  */
 import type { DurableObjectStorage } from "@cloudflare/workers-types";
 import { SQLiteAdapter } from "@src/adapters/databases/sqlite/sqlite-adapter";

@@ -118,6 +118,16 @@ from another request never runs inside an open transaction. Do not await
 non-storage I/O (`fetch`, timers) inside a transaction body: other requests
 wait for it.
 
+:::warning
+On workerd up to at least 1.20261006 (a `wrangler dev`, or the
+`@cloudflare/vitest-pool-workers` 0.12 test pool, which runs 1.20260310), a
+`ctx.storage.transaction()` whose body awaits a timer never settles when
+another timer of the same request falls due meanwhile: the object hangs.
+This is the platform's, with or without VibORM; workerd 1.20261104 no longer
+does it. Keep timers out of `$transaction` bodies, or run a recent workerd
+locally.
+:::
+
 ### The originating client inside a transaction
 
 Inside `$transaction(async (tx) => …)`, use `tx`. A statement sent through
