@@ -437,4 +437,76 @@ describe("Durable Object driver: the migration frame", () => {
       ).toEqual({ c: 0 });
     });
   });
+
+  test("a migration whose statement reports a lost connection still rolls its frame back, and the object stays usable", async () => {
+    await inObject(async (state) => {
+      const client1 = await pushed(state.storage);
+      await client1.user.create({ data: { id: "u1", name: "Ada" } });
+      const driver = createDurableObjectDriver(state.storage);
+      const client2 = createClient({ storage: state.storage, schema: v2 });
+      const migrations = createMigrationClient(client2);
+      const consent = (await migrations.push({ dryRun: true })).consent;
+
+      // Every frame the driver opens, to see whether it ends.
+      const frames: Promise<unknown>[] = [];
+      const transaction = state.storage.transaction;
+      vi.spyOn(state.storage, "transaction").mockImplementation(function (
+        this: DurableObjectStorage,
+        ...args: Parameters<DurableObjectStorage["transaction"]>
+      ) {
+        const frame = transaction.apply(this, args);
+        frames.push(frame.catch(() => undefined));
+        return frame;
+      } as DurableObjectStorage["transaction"]);
+      // The copy into the rebuilt table fails as a dropped connection does:
+      // the migration takes its connection for lost.
+      const provider = driver as unknown as {
+        execute(
+          storage: unknown,
+          sql: string,
+          params: unknown[]
+        ): Promise<unknown>;
+      };
+      const execute = provider.execute;
+      vi.spyOn(provider, "execute").mockImplementation(function (
+        this: unknown,
+        storage,
+        sql,
+        params
+      ) {
+        if (sql.includes('INSERT INTO "__new_users"'))
+          return Promise.reject(
+            Object.assign(new Error("Network connection lost."), {
+              code: "ECONNRESET",
+            })
+          );
+        return execute.call(this, storage, sql, params);
+      });
+
+      await expect(migrations.push({ consent })).rejects.toMatchObject({
+        name: "ConnectionError",
+      });
+      vi.mocked(provider.execute).mockRestore();
+      expect(frames.length).toBeGreaterThan(0);
+      const pending = Symbol("pending");
+      const settled = await Promise.race([
+        Promise.all(frames),
+        new Promise((resolve) => setTimeout(() => resolve(pending), 200)),
+      ]);
+      expect(settled).not.toBe(pending);
+      // The frame's work is undone: no rebuilt table, the v1 columns.
+      expect(tableNames(state.storage)).not.toContain("__new_users");
+      expect(
+        sqlOf(state)("SELECT name FROM pragma_table_info('users')").map(
+          (column) => (column as { name: string }).name
+        )
+      ).toEqual(["id", "name"]);
+      // The object takes writes and transactions again, and keeps them.
+      await client1.user.create({ data: { id: "u2", name: "Bob" } });
+      await client1.$transaction(async (tx) => {
+        await tx.user.create({ data: { id: "u3", name: "Cy" } });
+      });
+      expect(await client1.user.count()).toBe(3);
+    });
+  });
 });

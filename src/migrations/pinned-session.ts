@@ -849,7 +849,9 @@ function lockTransactions(
     if (!open) return;
     open = false;
     continuous &&= sessionLocked && !heldAlone;
-    if (control.lost()) return;
+    // A frame is the driver's own pending transaction, not a statement on the
+    // connection: left unsettled, it would hold every later statement.
+    if (control.lost() && frame === undefined) return;
     await control.cleanup(() => end("rollback"));
   };
   const commit = async (): Promise<void> => {
