@@ -26,7 +26,10 @@ import {
   logicalDecimalDivide,
   logicalDecimalMultiply,
 } from "../../shared/decimal-arithmetic";
-import { parseIntegerBoolean } from "../../shared/result-parsing";
+import {
+  parseIntegerBoolean,
+
+} from "../../shared/result-parsing";
 import {
   buildJsonPath,
   createAggregateFunctions,
@@ -80,7 +83,15 @@ const BINARY_COLLATION = sql.raw("COLLATE Latin1_General_100_BIN2");
  */
 const textLength = (value: Sql): Sql => sql`(LEN(${value} + N'.') - 1)`;
 
-const binary = (expr: Sql): Sql => sql`${expr} ${BINARY_COLLATION}`;
+/** Expressions already under the binary collation: T-SQL takes one `COLLATE`. */
+const collated = new WeakSet<Sql>();
+
+const binary = (expr: Sql): Sql => {
+  if (collated.has(expr)) return expr;
+  const result = sql`${expr} ${BINARY_COLLATION}`;
+  collated.add(result);
+  return result;
+};
 
 /**
  * T-SQL has no boolean value: a predicate (`a = b`) is not an expression and
@@ -93,6 +104,35 @@ const TRUE_VALUE = sql.raw("CAST(1 AS BIT)");
 const FALSE_VALUE = sql.raw("CAST(0 AS BIT)");
 const TRUE_CONDITION = sql.raw("1 = 1");
 const FALSE_CONDITION = sql.raw("1 = 0");
+
+/**
+ * The reverse direction: a predicate this adapter built, met where T-SQL wants
+ * a value (a select-list column, a JSON member, a `CASE` arm), becomes the
+ * `bit` it answers. Every predicate-producing member marks its result here.
+ */
+const predicates = new WeakSet<Sql>();
+
+const predicate = (expr: Sql): Sql => {
+  predicates.add(expr);
+  return expr;
+};
+
+const asValue = (expr: Sql): Sql =>
+  predicates.has(expr)
+    ? sql`CASE WHEN ${expr} THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END`
+    : expr;
+
+/** `members`, each function's result marked as a predicate. */
+function markingPredicates<T extends Record<string, unknown>>(members: T): T {
+  for (const [name, member] of Object.entries(members))
+    if (typeof member === "function")
+      Reflect.set(members, name, (...args: unknown[]) => {
+        const result: unknown = member(...args);
+        if (result instanceof Sql) predicates.add(result);
+        return result;
+      });
+  return members;
+}
 
 const condition = (value: Sql): Sql => {
   if (value === TRUE_VALUE) return TRUE_CONDITION;
@@ -119,13 +159,56 @@ const decimalType = (descriptor: DecimalDescriptor): Sql =>
  * back as JSON so the carrier holding it embeds it as a document. Over no
  * rows `STRING_AGG` is NULL, hence the empty array.
  */
-const jsonAgg = (expr: Sql): Sql =>
-  sql`JSON_QUERY(COALESCE(N'[' + STRING_AGG(CAST(${expr} AS NVARCHAR(MAX)), N',') + N']', N'[]'))`;
+const jsonAgg = (expr: Sql, order?: Sql): Sql =>
+  sql`JSON_QUERY(COALESCE(N'[' + STRING_AGG(CAST(${expr} AS NVARCHAR(MAX)), N',')${
+    order ? sql` WITHIN GROUP (ORDER BY ${order})` : sql.empty
+  } + N']', N'[]'))`;
 
+/**
+ * The member each carrier aggregate was built over, so the select reading it
+ * from an ordered page can state that order (`MssqlAdapter.#select`).
+ */
+const aggregated = new WeakMap<Sql, Sql>();
+
+/** The ordinal column an ordered page carries for the aggregate reading it. */
+const ORDINAL = "__viborm_ord";
+
+/**
+ * Stored JSON documents embedded in a carrier, by the text they read: a
+ * document may be a scalar (`1.5`, `"x"`), which `JSON_QUERY` refuses.
+ */
+const documents = new WeakMap<Sql, Sql>();
+
+/**
+ * A JSON column's document where T-SQL's JSON functions can read it: an object
+ * or an array. They refuse a scalar document (`42`, `"x"`) as malformed JSON,
+ * so a scalar document reads as SQL NULL, which no path filter matches.
+ */
+const container = (column: Sql): Sql =>
+  sql`(CASE WHEN ISJSON(${column}, OBJECT) = 1 OR ISJSON(${column}, ARRAY) = 1 THEN ${column} END)`;
+
+/**
+ * A carrier object. `JSON_OBJECT` encodes every SQL value by its type; a
+ * member that is a stored document is spliced as the JSON text it holds, so
+ * an object holding one is written as text: each other member's encoding is
+ * cut out of a one-member `JSON_OBJECT` (`{"v":` … `}`).
+ */
 const jsonObject = (pairs: [string, Sql][]): Sql => {
   if (pairs.length === 0) return sql.raw("JSON_OBJECT()");
+  if (pairs.some(([, value]) => documents.has(value))) {
+    const members = pairs.map(([key, value], index) => {
+      const text = documents.get(value);
+      const encoded = sql`JSON_OBJECT('v': ${asValue(value)} NULL ON NULL)`;
+      return sql`${`${index === 0 ? "{" : ","}${JSON.stringify(key)}:`} + ${
+        text === undefined
+          ? sql`SUBSTRING(${encoded}, 6, LEN(${encoded}) - 6)`
+          : sql`COALESCE(${text}, N'null')`
+      }`;
+    });
+    return sql`JSON_QUERY(${sql.join(members, " + ")} + N'}')`;
+  }
   return sql`JSON_OBJECT(${sql.join(
-    pairs.map(([key, value]) => sql`${key}: ${value}`),
+    pairs.map(([key, value]) => sql`${key}: ${asValue(value)}`),
     ", "
   )} NULL ON NULL)`;
 };
@@ -138,18 +221,33 @@ const jsonObject = (pairs: [string, Sql][]): Sql => {
  */
 const jsonAt = (column: Sql, path: string[]): Sql => {
   if (path.length === 0) return column;
+  return scalarAt(column, path);
+};
+
+/**
+ * A path into `column`, the document root included: T-SQL's JSON functions
+ * read only an object or an array, so the root is read as the one member of
+ * an array holding it.
+ */
+const rooted = (column: Sql, path: string[]): [Sql, string[]] =>
+  path.length === 0 ? [sql`(N'[' + ${column} + N']')`, ["0"]] : [column, path];
+
+const scalarAt = (column: Sql, path: string[]): Sql => {
   const parent = buildJsonPath(path.slice(0, -1));
   const key = path.at(-1)!;
-  return sql`(SELECT CASE "type" WHEN 0 THEN N'null' WHEN 1 THEN N'"' + STRING_ESCAPE("value", 'json') + N'"' ELSE "value" END FROM OPENJSON(${column}, ${parent}) WHERE "key" = ${key})`;
+  return sql`(SELECT CASE "type" WHEN 0 THEN N'null' WHEN 1 THEN N'"' + STRING_ESCAPE("value", 'json') + N'"' ELSE "value" END FROM OPENJSON(${container(column)}, ${parent}) WHERE "key" = ${key})`;
 };
 
 /** The JSON type code `OPENJSON` reports at `path`, NULL where absent. */
 const jsonTypeAt = (column: Sql, path: string[]): Sql => {
-  const parent = buildJsonPath(path.slice(0, -1));
-  const key = path.at(-1);
-  return key === undefined
-    ? sql`(CASE WHEN ISJSON(${column}, OBJECT) = 1 THEN 5 WHEN ISJSON(${column}, ARRAY) = 1 THEN 4 END)`
-    : sql`(SELECT "type" FROM OPENJSON(${column}, ${parent}) WHERE "key" = ${key})`;
+  const [document, at] = rooted(column, path);
+  return sql`(SELECT "type" FROM OPENJSON(${container(document)}, ${buildJsonPath(at.slice(0, -1))}) WHERE "key" = ${at.at(-1)!})`;
+};
+
+/** The scalar text at `path` (`JSON_VALUE`), the root included. */
+const jsonValueAt = (column: Sql, path: string[]): Sql => {
+  const [document, at] = rooted(column, path);
+  return sql`JSON_VALUE(${container(document)}, ${buildJsonPath(at)})`;
 };
 
 /**
@@ -230,7 +328,12 @@ export class MssqlAdapter implements DatabaseAdapter {
       enumerable: true,
       configurable: false,
     });
-    this.identifiers = createIdentifiers(quoteIdent, this.namespace);
+    const identifiers = createIdentifiers(quoteIdent, this.namespace);
+    this.identifiers = {
+      ...identifiers,
+      aliased: (expression: Sql, alias: string): Sql =>
+        identifiers.aliased(asValue(expression), alias),
+    };
     installGeoPointSql(this, undefined);
     installAdapterInternals(this, {
       batchRefs: this.#batchRefs,
@@ -258,7 +361,7 @@ export class MssqlAdapter implements DatabaseAdapter {
       sql`${physical}`,
   };
 
-  operators = {
+  operators = markingPredicates({
     ...createComparisonOperators(),
 
     // `CHARINDEX` answers 0 for an empty needle, which every string contains.
@@ -298,7 +401,7 @@ export class MssqlAdapter implements DatabaseAdapter {
 
     exists: (subquery: Sql): Sql => sql`EXISTS (${subquery})`,
     notExists: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
-  };
+  });
 
   expressions = {
     caseWhen: (
@@ -309,10 +412,11 @@ export class MssqlAdapter implements DatabaseAdapter {
         ? otherwise
         : sql`CASE ${sql.join(
             branches.map(
-              (branch) => sql`WHEN ${condition(branch.when)} THEN ${branch.then}`
+              (branch) =>
+                sql`WHEN ${condition(branch.when)} THEN ${asValue(branch.then)}`
             ),
             " "
-          )} ELSE ${otherwise} END`,
+          )} ELSE ${asValue(otherwise)} END`,
     add: (left: Sql, right: Sql): Sql => sql`(${left} + ${right})`,
     subtract: (left: Sql, right: Sql): Sql => sql`(${left} - ${right})`,
     multiply: (left: Sql, right: Sql): Sql => sql`(${left} * ${right})`,
@@ -368,10 +472,16 @@ export class MssqlAdapter implements DatabaseAdapter {
   json = {
     // Both sides are canonical text (see `canonicalJson`).
     equals: (left: Sql, right: Sql): Sql =>
-      sql`(${binary(left)} = ${right} AND ${textLength(left)} = ${textLength(right)})`,
+      predicate(
+      sql`(${binary(left)} = ${right} AND ${textLength(left)} = ${textLength(right)})`
+    ),
     boolean: (inner: Sql): Sql =>
       sql`CASE WHEN ${condition(inner)} THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END`,
-    document: (expression: Sql): Sql => sql`JSON_QUERY(${expression})`,
+    document: (expression: Sql): Sql => {
+      const embedded = sql`JSON_QUERY(${expression})`;
+      documents.set(embedded, expression);
+      return embedded;
+    },
     // `float` inside `JSON_OBJECT` keeps 16 digits; style 3 keeps 17.
     number: (expression: Sql): Sql =>
       sql`CONVERT(VARCHAR(32), CAST(${expression} AS FLOAT), 3)`,
@@ -379,26 +489,33 @@ export class MssqlAdapter implements DatabaseAdapter {
     array: (items: Sql[]): Sql =>
       items.length === 0
         ? sql.raw("JSON_ARRAY()")
-        : sql`JSON_ARRAY(${sql.join(items, ", ")} NULL ON NULL)`,
+        : sql`JSON_ARRAY(${sql.join(items.map(asValue), ", ")} NULL ON NULL)`,
     emptyArray: (): Sql => sql.raw("JSON_QUERY(N'[]')"),
-    agg: jsonAgg,
+    agg: (expr: Sql): Sql => {
+      const aggregate = jsonAgg(expr);
+      aggregated.set(aggregate, expr);
+      return aggregate;
+    },
     objectFromColumns: jsonObject,
     extract: jsonAt,
+    // A string unquoted, an object or array as its text.
     extractText: (column: Sql, path: string[]): Sql =>
       path.length === 0
-        ? column
-        : sql`COALESCE(JSON_VALUE(${column}, ${buildJsonPath(path)}), JSON_QUERY(${column}, ${buildJsonPath(path)}))`,
+        ? sql`COALESCE(${jsonValueAt(column, path)}, ${column})`
+        : sql`COALESCE(${jsonValueAt(column, path)}, JSON_QUERY(${container(column)}, ${buildJsonPath(path)}))`,
     numberAtPath: (column: Sql, path: string[]): Sql =>
-      sql`(CASE WHEN ${jsonTypeAt(column, path)} = 2 THEN CAST(JSON_VALUE(${column}, ${buildJsonPath(path)}) AS FLOAT) END)`,
+      sql`(CASE WHEN ${jsonTypeAt(column, path)} = 2 THEN CAST(${jsonValueAt(column, path)} AS FLOAT) END)`,
     stringAtPath: (column: Sql, path: string[]): Sql =>
-      sql`(CASE WHEN ${jsonTypeAt(column, path)} = 1 THEN JSON_VALUE(${column}, ${buildJsonPath(path)}) ${BINARY_COLLATION} END)`,
+      sql`(CASE WHEN ${jsonTypeAt(column, path)} = 1 THEN ${jsonValueAt(column, path)} ${BINARY_COLLATION} END)`,
     foldableStringAtPath: (column: Sql, path: string[]): Sql =>
-      sql`(CASE WHEN ${jsonTypeAt(column, path)} = 1 THEN JSON_VALUE(${column}, ${buildJsonPath(path)}) END)`,
+      sql`(CASE WHEN ${jsonTypeAt(column, path)} = 1 THEN ${jsonValueAt(column, path)} END)`,
     // Every member of `value` is a member of `target`, compared as JSON text.
     contains: (target: Sql, value: Sql): Sql =>
-      sql`(ISJSON(${target}, ARRAY) = 1 AND NOT EXISTS (SELECT 1 FROM OPENJSON(${value}) AS "c" WHERE NOT EXISTS (SELECT 1 FROM OPENJSON(${target}) AS "t" WHERE "t"."type" = "c"."type" AND "t"."value" ${BINARY_COLLATION} = "c"."value")))`,
+      predicate(
+      sql`(ISJSON(${target}, ARRAY) = 1 AND NOT EXISTS (SELECT 1 FROM OPENJSON(${container(value)}) AS "c" WHERE NOT EXISTS (SELECT 1 FROM OPENJSON(${container(target)}) AS "t" WHERE "t"."type" = "c"."type" AND "t"."value" ${BINARY_COLLATION} = "c"."value")))`
+    ),
     lastElement: (target: Sql): Sql =>
-      sql`(SELECT TOP (1) CASE "type" WHEN 0 THEN N'null' WHEN 1 THEN N'"' + STRING_ESCAPE("value", 'json') + N'"' ELSE "value" END FROM OPENJSON(${target}) ORDER BY CAST("key" AS INT) DESC)`,
+      sql`(SELECT TOP (1) CASE "type" WHEN 0 THEN N'null' WHEN 1 THEN N'"' + STRING_ESCAPE("value", 'json') + N'"' ELSE "value" END FROM OPENJSON(CASE WHEN ISJSON(${target}, ARRAY) = 1 THEN ${target} END) ORDER BY CAST("key" AS INT) DESC)`,
     value: (v: unknown): Sql => sql`${canonicalJson(v)}`,
   };
 
@@ -407,13 +524,21 @@ export class MssqlAdapter implements DatabaseAdapter {
     value: jsonListValue,
     enumValue: jsonListValue,
     has: (column: Sql, value: Sql): Sql =>
-      sql`EXISTS (SELECT 1 FROM OPENJSON(${column}) AS "m" WHERE "m"."value" = ${value})`,
+      predicate(
+      sql`EXISTS (SELECT 1 FROM OPENJSON(${column}) AS "m" WHERE "m"."value" = ${value})`
+    ),
     hasEvery: (column: Sql, values: Sql): Sql =>
-      sql`NOT EXISTS (SELECT 1 FROM OPENJSON(${values}) AS "v" WHERE NOT EXISTS (SELECT 1 FROM OPENJSON(${column}) AS "m" WHERE "m"."value" = "v"."value"))`,
+      predicate(
+      sql`NOT EXISTS (SELECT 1 FROM OPENJSON(${values}) AS "v" WHERE NOT EXISTS (SELECT 1 FROM OPENJSON(${column}) AS "m" WHERE "m"."value" = "v"."value"))`
+    ),
     hasSome: (column: Sql, values: Sql): Sql =>
-      sql`EXISTS (SELECT 1 FROM OPENJSON(${column}) AS "m" INNER JOIN OPENJSON(${values}) AS "v" ON "m"."value" = "v"."value")`,
+      predicate(
+      sql`EXISTS (SELECT 1 FROM OPENJSON(${column}) AS "m" INNER JOIN OPENJSON(${values}) AS "v" ON "m"."value" = "v"."value")`
+    ),
     isEmpty: (column: Sql): Sql =>
-      sql`(${column} IS NULL OR NOT EXISTS (SELECT 1 FROM OPENJSON(${column})))`,
+      predicate(
+      sql`(${column} IS NULL OR NOT EXISTS (SELECT 1 FROM OPENJSON(${column})))`
+    ),
     exactNumericProjection: (column: Sql): Sql => column,
     length: (column: Sql): Sql =>
       sql`(SELECT COUNT(*) FROM OPENJSON(${column}))`,
@@ -477,12 +602,16 @@ export class MssqlAdapter implements DatabaseAdapter {
     return sql`(SELECT N'[' + COALESCE(STRING_AGG(CAST("j" AS NVARCHAR(MAX)), N',') WITHIN GROUP (ORDER BY "r", "k"), N'') + N']' FROM (${members(first, 0)} UNION ALL ${members(second, 1)}) AS "l")`;
   }
 
-  filters = createRelationFilters();
+  filters = markingPredicates(createRelationFilters());
 
   subqueries = {
     scalar: (query: Sql): Sql => sql`(${query})`,
-    correlate: (query: Sql, alias: string): Sql =>
-      sql`(${query}) AS ${sql.raw(quoteIdent(alias))}`,
+    correlate: (query: Sql, alias: string): Sql => {
+      const correlated = sql`(${query}) AS ${sql.raw(quoteIdent(alias))}`;
+      const page = this.#pages.get(query);
+      if (page) this.#correlated.set(correlated, { page, alias });
+      return correlated;
+    },
     existsCheck: (from: Sql, where: Sql): Sql =>
       sql`SELECT 1 FROM ${from} WHERE ${condition(where)}`,
     isolated: (inner: Sql): Sql => condition(inner),
@@ -497,15 +626,44 @@ export class MssqlAdapter implements DatabaseAdapter {
    * `FROM` item, the one place T-SQL spells them.
    */
   readonly #select = (parts: QueryParts): Sql => {
-    if (parts.distinct) return this.#distinct(parts);
+    const member = aggregated.get(parts.columns);
+    const read = this.#correlated.get(parts.from);
+    if (member && read) {
+      // A carrier aggregating an ordered page: `STRING_AGG` reads its rows in
+      // no promised order, so the page numbers them and the aggregate states it.
+      const alias = sql.raw(quoteIdent(read.alias));
+      return this.#assemble({
+        ...parts,
+        columns: jsonAgg(member, sql`${alias}.${sql.raw(quoteIdent(ORDINAL))}`),
+        from: sql`(${this.#assemble(read.page, true)}) AS ${alias}`,
+      });
+    }
+    const assembled = this.#assemble(parts);
+    if (parts.orderBy || parts.distinctOrder) this.#pages.set(assembled, parts);
+    return assembled;
+  };
+
+  /** Ordered pages, by the statement assembled for them. */
+  readonly #pages = new WeakMap<Sql, QueryParts>();
+  /** Ordered pages read as a derived table, by that `FROM` item. */
+  readonly #correlated = new WeakMap<
+    Sql,
+    { readonly page: QueryParts; readonly alias: string }
+  >();
+
+  /** `ordinal`: the page also numbers its rows in its order, `ORDINAL`. */
+  #assemble(parts: QueryParts, ordinal = false): Sql {
+    if (parts.distinct) return this.#distinct(parts, ordinal);
     const unbounded = parts.limit === this.noLimitValue;
     const limit = unbounded ? undefined : parts.limit;
     const ordered = parts.orderBy !== undefined;
     const top = limit && !ordered && !parts.offset;
+    const columns =
+      ordinal && parts.orderBy
+        ? sql`${asValue(parts.columns)}, ROW_NUMBER() OVER (ORDER BY ${parts.orderBy}) AS ${sql.raw(quoteIdent(ORDINAL))}`
+        : asValue(parts.columns);
     const fragments: Sql[] = [
-      top
-        ? sql`SELECT TOP (${limit}) ${parts.columns}`
-        : sql`SELECT ${parts.columns}`,
+      top ? sql`SELECT TOP (${limit}) ${columns}` : sql`SELECT ${columns}`,
       parts.forUpdate
         ? sql`FROM ${parts.from} WITH (UPDLOCK, HOLDLOCK, ROWLOCK)`
         : sql`FROM ${parts.from}`,
@@ -516,7 +674,7 @@ export class MssqlAdapter implements DatabaseAdapter {
       fragments.push(sql.raw("ORDER BY (SELECT NULL)"));
     if (!top) this.#window(fragments, limit, parts.offset, ordered || unbounded);
     return sql.join(fragments, " ");
-  };
+  }
 
   #filters(fragments: Sql[], parts: QueryParts): void {
     if (parts.joins && parts.joins.length > 0) fragments.push(...parts.joins);
@@ -537,7 +695,7 @@ export class MssqlAdapter implements DatabaseAdapter {
   }
 
   /** `DISTINCT ON` as one `ROW_NUMBER()` window, as on MySQL. */
-  #distinct(parts: QueryParts): Sql {
+  #distinct(parts: QueryParts, ordinal = false): Sql {
     const order = parts.distinctOrder;
     const rowNumberOrder = parts.distinctOrderBy ?? parts.orderBy ?? parts.distinct!;
     const columns: Sql[] = [parts.columns];
@@ -550,8 +708,15 @@ export class MssqlAdapter implements DatabaseAdapter {
       sql`FROM ${parts.from}`,
     ];
     this.#filters(inner, parts);
+    const outerColumns = parts.distinctColumnAliases!.map((alias) =>
+      sql.raw(quoteIdent(alias))
+    );
+    if (ordinal && order)
+      outerColumns.push(
+        sql`ROW_NUMBER() OVER (ORDER BY ${order.orderBy}) AS ${sql.raw(quoteIdent(ORDINAL))}`
+      );
     const outer: Sql[] = [
-      sql`SELECT ${sql.join(parts.distinctColumnAliases!.map((alias) => sql.raw(quoteIdent(alias))), ", ")} FROM (${sql.join(inner, " ")}) AS "_distinct_subquery"`,
+      sql`SELECT ${sql.join(outerColumns, ", ")} FROM (${sql.join(inner, " ")}) AS "_distinct_subquery"`,
       sql.raw(`WHERE "_rn" = 1`),
     ];
     const limit = parts.limit === this.noLimitValue ? undefined : parts.limit;
@@ -715,6 +880,13 @@ export class MssqlAdapter implements DatabaseAdapter {
         );
         if (parsed !== undefined) return next(parsed);
       }
+      // A JSON column is NVARCHAR(MAX) text; tedious hands it back as such.
+      // A scalar document (`1`, `"a"`, `null`) is text like any other.
+      if (scalarType === "json" && typeof value === "string")
+        return next(JSON.parse(value));
+      // tedious reads `TIME` as a Date on 1970-01-01 UTC.
+      if (scalarType === "time" && value instanceof Date)
+        return next(value.toISOString().slice(11, 23));
       if (scalarType === "datetime" && typeof value === "string") {
         const iso = naiveDateTimeToIso(value);
         if (iso !== undefined) return next(iso);

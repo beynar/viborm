@@ -46,7 +46,7 @@ import {
 } from "../shared";
 import { refuseUnknownDriverConfigKeys } from "../shared/driver-options";
 import type { QueryResult } from "../types";
-import { normalizeMssqlError } from "./errors";
+import { normalizeMssqlError, readErrorNumber } from "./errors";
 
 export type MssqlOptions = MssqlConfig;
 
@@ -88,6 +88,26 @@ const INSERT_ID_COLUMN = "__viborm_insert_id";
  * request (one `sp_executesql` is one scope), so it is read there.
  */
 const INSERT_STATEMENT = /^\s*(?:WITH\b[\s\S]*\)\s*)?INSERT\b/i;
+
+/** The target of a VibORM `INSERT INTO "schema"."table"`. */
+const INSERT_TARGET = /\bINSERT\s+INTO\s+((?:"(?:[^"]|"")*"\.)?"(?:[^"]|"")*")/;
+
+/** "Cannot insert explicit value for identity column … IDENTITY_INSERT is OFF." */
+const EXPLICIT_IDENTITY = 544;
+
+const IDENTITY_SELECT = `;SELECT CAST(SCOPE_IDENTITY() AS BIGINT) AS "${INSERT_ID_COLUMN}"`;
+
+/**
+ * An `INSERT` that spells an identity column's value, as every other dialect
+ * admits: the same statement with `IDENTITY_INSERT` on for its table, and off
+ * again whether it succeeds or fails (the setting is the session's). The row
+ * spelled its identity, so there is no generated one to report.
+ */
+function withExplicitIdentity(sql: string): string | undefined {
+  const table = INSERT_TARGET.exec(sql)?.[1];
+  if (table === undefined) return undefined;
+  return `SET IDENTITY_INSERT ${table} ON; BEGIN TRY ;${sql}; END TRY BEGIN CATCH SET IDENTITY_INSERT ${table} OFF; THROW; END CATCH; SET IDENTITY_INSERT ${table} OFF`;
+}
 
 /**
  * The shared savepoint protocol (`runSavepoint`), in T-SQL: `SAVE TRANSACTION`
@@ -311,16 +331,26 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
     params: unknown[],
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    const identity = INSERT_STATEMENT.test(sql);
-    return this.#run<T>(
-      client,
-      identity
-        ? `${sql};SELECT CAST(SCOPE_IDENTITY() AS BIGINT) AS "${INSERT_ID_COLUMN}"`
-        : sql,
-      params,
-      context?.operation ?? "execute",
-      identity
-    );
+    const operation = context?.operation ?? "execute";
+    if (!INSERT_STATEMENT.test(sql))
+      return this.#run<T>(client, sql, params, operation, false);
+    try {
+      return await this.#run<T>(
+        client,
+        `${sql}${IDENTITY_SELECT}`,
+        params,
+        operation,
+        true,
+        true
+      );
+    } catch (error) {
+      const explicit =
+        readErrorNumber(error) === EXPLICIT_IDENTITY
+          ? withExplicitIdentity(sql)
+          : undefined;
+      if (explicit === undefined) throw normalizeMssqlError(error);
+      return this.#run<T>(client, explicit, params, operation, false);
+    }
   }
 
   protected async executeRaw<T>(
@@ -345,7 +375,8 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
     sql: string,
     params: unknown[],
     operation: string,
-    identity: boolean
+    identity: boolean,
+    raw = false
   ): Promise<QueryResult<T>> {
     const mssql = await this.#provider();
     const request = client.request();
@@ -354,6 +385,7 @@ export class MssqlDriver extends Driver<ConnectionPool, Transaction> {
     try {
       result = await request.query(sql);
     } catch (error) {
+      if (raw) throw error;
       if (process.env.VIBORM_MSSQL_DEBUG) console.error("MSSQL-DEBUG", (error as Error).message, "\n", sql, "\n", JSON.stringify(params)); // DEBUG-REMOVE
       throw normalizeMssqlError(error);
     }

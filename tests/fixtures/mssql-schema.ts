@@ -73,7 +73,12 @@ function createTable(schema: string, table: TableDef): string[] {
       column.default === undefined || column.autoIncrement
         ? ""
         : ` DEFAULT ${column.default}`;
-    return `${quote(column.name)} ${column.type}${identity} ${column.nullable ? "NULL" : "NOT NULL"}${fallback}`;
+    // Text compares and sorts by code point, as on the tables VibORM creates
+    // elsewhere (MySQL's `utf8mb4_0900_bin`): the binary collation.
+    const collation = column.type.startsWith("NVARCHAR")
+      ? " COLLATE Latin1_General_100_BIN2"
+      : "";
+    return `${quote(column.name)} ${column.type}${collation}${identity} ${column.nullable ? "NULL" : "NOT NULL"}${fallback}`;
   });
   if (table.primaryKey)
     parts.push(

@@ -172,6 +172,17 @@ export function runPolymorphicCollectionReadBehavior(
         }
         return;
       }
+      if (dialect === "mssql") {
+        const named = await client.$queryRaw<{ name: string }>(
+          sql`SELECT name FROM sys.foreign_keys WHERE parent_object_id = OBJECT_ID(${catalogName(client, table)})`
+        );
+        for (const row of named) {
+          await client.$executeRaw(
+            sql`ALTER TABLE ${tableRef(table)} DROP CONSTRAINT ${ident(row.name)}`
+          );
+        }
+        return;
+      }
       const rows = await client.$queryRaw<{ conname: string }>(
         sql`SELECT conname FROM pg_constraint WHERE conrelid = ${catalogName(client, table)}::regclass AND contype = 'f'`
       );
@@ -212,6 +223,24 @@ export function runPolymorphicCollectionReadBehavior(
         for (const row of named) {
           await client.$executeRaw(
             sql`ALTER TABLE ${tableRef(table)} DROP INDEX ${ident(row.name)}`
+          );
+        }
+        return true;
+      }
+      if (dialect === "mssql") {
+        // A UNIQUE constraint, or the filtered unique index a nullable side
+        // takes (a SQL Server UNIQUE constraint admits one NULL).
+        const named = await client.$queryRaw<{
+          name: string;
+          is_unique_constraint: boolean;
+        }>(
+          sql`SELECT name, is_unique_constraint FROM sys.indexes WHERE object_id = OBJECT_ID(${catalogName(client, table)}) AND is_unique = 1 AND is_primary_key = 0`
+        );
+        for (const row of named) {
+          await client.$executeRaw(
+            row.is_unique_constraint
+              ? sql`ALTER TABLE ${tableRef(table)} DROP CONSTRAINT ${ident(row.name)}`
+              : sql`DROP INDEX ${ident(row.name)} ON ${tableRef(table)}`
           );
         }
         return true;

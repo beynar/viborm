@@ -80,15 +80,21 @@ function sqlStateOf(number: number, message: string): string | undefined {
  */
 export function normalizeMssqlError(error: unknown): unknown {
   if (!(error instanceof Error)) return error;
-  const number =
-    readNumber(error, "number") ??
-    readNumber(readObject(readObject(error, "originalError"), "info"), "number");
+  const number = readErrorNumber(error);
   if (number === undefined) return error;
   const sqlstate = sqlStateOf(number, error.message);
   if (sqlstate === undefined) return error;
   const shaped = new Error(error.message, { cause: error });
   Object.assign(shaped, { sqlstate, ...namedObjects(number, error.message) });
   return shaped;
+}
+
+/** The SQL Server message number of a tedious or `mssql` request error. */
+export function readErrorNumber(error: unknown): number | undefined {
+  return (
+    readNumber(error, "number") ??
+    readNumber(readObject(readObject(error, "originalError"), "info"), "number")
+  );
 }
 
 function readObject(value: unknown, key: string): object | undefined {
