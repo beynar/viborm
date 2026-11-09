@@ -4,9 +4,11 @@ import type {
   DurableObjectState,
 } from "@cloudflare/workers-types";
 
-declare module "cloudflare:test" {
-  interface ProvidedEnv {
-    SQL_OBJECT: DurableObjectNamespace;
+declare global {
+  namespace Cloudflare {
+    interface Env {
+      SQL_OBJECT: DurableObjectNamespace;
+    }
   }
 }
 

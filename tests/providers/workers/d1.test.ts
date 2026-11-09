@@ -26,9 +26,11 @@ import {
 import { rawIndexContract } from "@tests/contracts/drivers/behaviors/raw-index-behavior";
 import { vi } from "vitest";
 
-declare module "cloudflare:test" {
-  interface ProvidedEnv {
-    DB: D1Database;
+declare global {
+  namespace Cloudflare {
+    interface Env {
+      DB: D1Database;
+    }
   }
 }
 

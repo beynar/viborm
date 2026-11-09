@@ -36,7 +36,8 @@ export default defineConfig({
     ],
   },
   // The pool isolates storage per test file (its `isolatedStorage` and
-  // `singleWorker` are gone); one worker runs the files one after another.
+  // `singleWorker` are gone); `isolated-storage.ts` frames each test inside
+  // it, and one worker runs the files one after another.
   plugins: [
     cloudflareTest({ wrangler: { configPath: "./wrangler.test.jsonc" } }),
   ],
@@ -51,8 +52,12 @@ export default defineConfig({
       "tests/providers/workers/tenant/**",
       "tests/providers/workers/durable-object/**",
     ],
-    // D1 binds the SQLite migration driver, as `viborm/migrations/sqlite` does.
-    setupFiles: ["src/migrations/dialects/sqlite.ts"],
+    setupFiles: [
+      // D1 binds the SQLite migration driver, as `viborm/migrations/sqlite` does.
+      "src/migrations/dialects/sqlite.ts",
+      // The per-test and per-describe frames `isolatedStorage` used to keep.
+      "tests/providers/workers/isolated-storage.ts",
+    ],
     maxWorkers: 1,
   },
 });

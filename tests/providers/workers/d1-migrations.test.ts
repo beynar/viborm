@@ -24,7 +24,13 @@ it("reads the D1 user catalog without touching protected metadata or enabling mi
     const catalog = await driver._executeRaw<{ name: string }>(
       "SELECT name FROM sqlite_master WHERE type = 'table'"
     );
-    expect(catalog.rows.map(({ name }) => name)).toContain("_cf_METADATA");
+    // From workerd 1.20261104 a local D1 lists no `_cf_METADATA` table (the
+    // runtime before it did) yet still refuses to describe one. The Durable
+    // Object suite holds the filter against a `_cf_KV` that is really there.
+    expect(catalog.rows.map(({ name }) => name).sort()).toEqual([
+      "_cfX_notes",
+      "viborm_d1_catalog_user",
+    ]);
     await expect(
       driver._executeRaw('PRAGMA table_info("_cf_METADATA")')
     ).rejects.toThrow();
