@@ -145,6 +145,20 @@ describe("introspectSchema on SQLite", () => {
     expect(found[0].post_by_author[0].tag[0].label).toBe("orm");
   });
 
+  it("keeps a WITHOUT ROWID table's clustering, to an EMPTY push plan", async () => {
+    const db = new Database(":memory:");
+    db.exec(
+      "CREATE TABLE setting (scope TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (scope, key)) WITHOUT ROWID"
+    );
+    const driver = new SQLite3Driver({ client: db });
+    const { result } = await expectEmptyRoundTrip(driver, ["setting"]);
+    expect(result.document.models.setting).toMatchObject({
+      ids: [{ fields: ["scope", "key"] }],
+      withoutRowid: true,
+    });
+    expect(result.warnings).toEqual([]);
+  });
+
   it("finds a database VibORM pushed, with the facts SQLite cannot prove said", async () => {
     const driver = new SQLite3Driver({ dataDir: ":memory:" });
     const pusher = createClient({ schema: codedSchema(), driver });

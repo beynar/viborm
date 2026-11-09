@@ -350,6 +350,8 @@ export function translateSnapshot(input: TranslateInput): Translation {
     } else {
       document.ids = [{ fields: pkFields }];
     }
+    // SQLite's `WITHOUT ROWID`: the rows are clustered by this key.
+    if (primaryKey.withoutRowid) document.withoutRowid = true;
     build.keys.push(sorted(primaryKey.columns));
     builds.set(table.name, build);
   }
