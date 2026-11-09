@@ -4,6 +4,7 @@
  */
 
 import { createClient } from "@client/client";
+import { readSuppressedFailures } from "@drivers/shared/suppressed-failure";
 import {
   addDropResolver,
   createMigrationClient,
@@ -1000,8 +1001,25 @@ describe.skipIf(!surrealUrl)("the indexes of a new table", () => {
     });
   });
 
-  it("are waited for when a later statement of the program fails", async () => {
+  it("are waited for when a later statement of the program fails, whose failure is the one reported", async () => {
     const driver = createSurrealRecordingDriver();
+    // Two rows holding one label, written just ahead of the unique over it:
+    // its build fails too.
+    const execute = (driver as any).execute.bind(driver);
+    (driver as any).execute = (
+      client: never,
+      statement: string,
+      params: unknown[]
+    ) =>
+      execute(
+        client,
+        statement.includes(
+          "tag_label_key ON tag FIELDS label UNIQUE CONCURRENTLY"
+        )
+          ? `CREATE tag:a SET label = "same"; CREATE tag:b SET label = "same"; ${statement}`
+          : statement,
+        params
+      );
     const db = clientOf(schema(), driver);
     await using(db, async () => {
       await syncLiveSchema(db);
@@ -1028,7 +1046,13 @@ describe.skipIf(!surrealUrl)("the indexes of a new table", () => {
         db
       );
       driver.statements.length = 0;
-      await expect(push(next)).rejects.toThrow();
+      const failure = await push(next).catch((error: unknown) => error);
+      expect(failure).toMatchObject({
+        message: expect.stringContaining("rank"),
+      });
+      expect(readSuppressedFailures(failure)).toMatchObject([
+        { code: "V11023", meta: { table: "tag", indexName: "tag_label_key" } },
+      ]);
       const defined = driver.statements
         .map((sql) => sql.includes("CONCURRENTLY"))
         .lastIndexOf(true);

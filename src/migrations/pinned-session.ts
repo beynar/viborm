@@ -1260,6 +1260,8 @@ export async function runProgram<T>(
   }
   if (!program) return body(pinned, false);
   const { bracket } = liftForeignKeyPragmas(pinned, program.statements);
+  // What the program builds in the background, once it has committed.
+  const settle = () => command.awaitIndexBuilds?.(pinned, program.statements);
   // Neki refuses any statement after a schema change in its transaction:
   // the body's own ledger and marker writes run outside one.
   if (
@@ -1269,12 +1271,16 @@ export async function runProgram<T>(
       program.transactional && !command.commitsSchemaChangesAlone()
     )
   ) {
-    // A statement that fails leaves the ones before it committed, builds too.
-    try {
-      return await body(pinned, false);
-    } finally {
-      await command.awaitIndexBuilds?.(pinned, program.statements);
-    }
+    // A statement that fails leaves the ones before it committed, builds too:
+    // they are waited for, and the statement's failure stays the one reported.
+    const result = await body(pinned, false).catch(async (failure) => {
+      await settle()?.catch((wait) => {
+        throw withSuppressedFailure(failure, wait);
+      });
+      throw failure;
+    });
+    await settle();
+    return result;
   }
   const { phase } = program;
   return withForeignKeysLifted(pinned, bracket, async (inside) => {
@@ -1286,8 +1292,7 @@ export async function runProgram<T>(
       return value;
     });
     if (phase) phase.committed = true;
-    // What the program builds in the background, once it has committed.
-    await command.awaitIndexBuilds?.(pinned, program.statements);
+    await settle();
     return result;
   });
 }

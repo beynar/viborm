@@ -2037,7 +2037,7 @@ export class SurrealMigrationDriver extends MigrationDriver {
       if (failed || Date.now() >= deadline) {
         const { table, index, error } = failed ?? first;
         throw new MigrationError(
-          `SurrealDB index "${table}.${index}" ${failed ? `failed to build: ${error}` : "is not ready"}; the migration committed: fix the rows, then REBUILD or REMOVE the index.`,
+          `SurrealDB index "${table}.${index}" ${failed ? `failed to build: ${error}` : "is not ready"} (the migration committed).`,
           VibORMErrorCode.MIGRATION_INVALID_INDEX,
           { meta: { table, indexName: index } }
         );
