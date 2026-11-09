@@ -431,6 +431,15 @@ even when no marker exists yet. A stepwise failure is different: its effects
 stay, its attempt stays unfinished, and it is recovered with `resolve` (see
 below).
 
+Drift is read in the snapshot's vocabulary, from what the database enforces.
+Two SQLite facts that are easy to make by hand read as drift: a table stored
+`WITHOUT ROWID` under a model that does not declare
+[`.withoutRowid()`](/docs/schema/model) (or the reverse), and a key column
+declared without `NOT NULL` in an ordinary rowid table, which SQLite lets hold
+NULL (only an `INTEGER PRIMARY KEY`, the rowid itself, cannot), so it reads as
+nullable while the model's ID is not. VibORM writes every key column `NOT
+NULL`, so the tables it made are unaffected.
+
 There is no `pending()` method. Pending work is a field on `status()`.
 `log()` requires an existing, authentic control-table pair. When it is absent,
 `log()` throws `MIGRATION_NOT_FOUND`; it does not return an empty successful
