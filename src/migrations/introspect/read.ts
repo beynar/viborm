@@ -147,6 +147,35 @@ export async function readCatalog(
           name: row.name,
           reason: `a document has no CHECK constraint (${row.definition}); the database keeps enforcing it`,
         });
+  } else if (dialect === "mysql") {
+    // Binding proved the estate's database for MySQL.
+    const database = migrationDriver.namespace;
+    for (const row of await rows<{ name: string }>(
+      driver,
+      "SELECT TABLE_NAME AS name FROM information_schema.VIEWS WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME",
+      [database]
+    ))
+      skipped.push({
+        kind: "view",
+        name: row.name,
+        reason: "it is a view, and a document declares tables only",
+      });
+    for (const row of await rows<{
+      table_name: string;
+      name: string;
+      definition: string;
+    }>(
+      driver,
+      "SELECT tc.TABLE_NAME AS table_name, tc.CONSTRAINT_NAME AS name, cc.CHECK_CLAUSE AS definition FROM information_schema.TABLE_CONSTRAINTS tc JOIN information_schema.CHECK_CONSTRAINTS cc ON cc.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA AND cc.CONSTRAINT_NAME = tc.CONSTRAINT_NAME WHERE tc.CONSTRAINT_SCHEMA = ? AND tc.CONSTRAINT_TYPE = 'CHECK' ORDER BY 1, 2",
+      [database]
+    ))
+      if (selected(row.table_name))
+        skipped.push({
+          kind: "check",
+          table: row.table_name,
+          name: row.name,
+          reason: `a document has no CHECK constraint (${row.definition}); the database keeps enforcing it`,
+        });
   } else {
     for (const row of await rows<{ name: string }>(
       driver,

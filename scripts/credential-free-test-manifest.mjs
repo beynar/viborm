@@ -212,6 +212,7 @@ const extendedLocalExclusions = new Set([
   "tests/unit/migrations/neon-http-batch-apply-docker.test.ts",
   "tests/unit/migrations/shared-pool-estates-docker.test.ts",
   "tests/unit/migrations/introspect-schema-docker.test.ts",
+  "tests/unit/migrations/introspect-schema-mysql-docker.test.ts",
   ...RQ01_PGLITE_TESTS,
   ...RQ01_SQLITE_TESTS,
   ...RQ06_GRAPH_ORACLE_TESTS,

@@ -235,8 +235,8 @@ describe("introspectSchema on SQLite", () => {
 
   it("refuses, by name, a database it does not translate yet", async () => {
     await expect(
-      introspectSchema({ url: "mysql://root@127.0.0.1:3307/app" })
-    ).rejects.toThrow("does not translate MySQL yet");
+      introspectSchema({ url: "surrealdb://127.0.0.1:8000" })
+    ).rejects.toThrow("does not translate SurrealDB yet");
     await expect(
       introspectSchema({ url: "redis://127.0.0.1" })
     ).rejects.toThrow("cannot tell which database");

@@ -14,7 +14,7 @@ then discovers `viborm.config.ts` (also `.mts`, `.js`, or `.mjs`). See
 | --- | --- |
 | `viborm check` | Validate the configured schema, including advisory checks |
 | `viborm check --db` | Also audit SQLite storage of the pushed schema: one catalog read per table reports missing columns and decimal columns without VibORM's checked scaled-integer storage, and each existing DateTime/Time text column's noncanonical values are counted (one full scan each); see [repairing timestamps](/docs/migration/drivers/sqlite#repairing-foreign-timestamp-and-time-text) and [adopting decimals](/docs/migration/drivers/sqlite#adopting-decimal-columns-from-another-tool) |
-| `viborm pull --json [--url <url>] [--out <file>] [--tables …]` | Read an existing PostgreSQL or SQLite database into a [JSON schema document](/docs/schema/introspect); what it leaves out goes to stderr |
+| `viborm pull --json [--url <url>] [--out <file>] [--tables …]` | Read an existing PostgreSQL, MySQL or SQLite database into a [JSON schema document](/docs/schema/introspect); what it leaves out goes to stderr |
 | `viborm push --dry-run` | Preview direct synchronization without applying it |
 | `viborm push --yes` | Apply a non-destructive synchronization without a prompt |
 | `viborm migrate generate --name change` | Generate the next migration state |

@@ -50,7 +50,7 @@ export interface IntrospectionWarning {
 }
 
 /** The dialects `introspectSchema` translates. */
-export type IntrospectionDialect = "postgresql" | "sqlite";
+export type IntrospectionDialect = "postgresql" | "sqlite" | "mysql";
 
 export interface IntrospectSchemaResult {
   /** The schema, in canonical form (`serializeSchema(parseSchema(document))`). */

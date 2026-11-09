@@ -55,9 +55,13 @@ export async function openDriver(url: string): Promise<OpenedDriver> {
       dialect: "sqlite",
     };
   }
-  if (scheme === "mysql" || scheme === "surrealdb" || scheme === "surreal")
+  if (scheme === "mysql") {
+    const { MySQL2Driver } = await import("../../drivers/mysql2");
+    return { driver: new MySQL2Driver({ databaseUrl: url }), dialect: "mysql" };
+  }
+  if (scheme === "surrealdb" || scheme === "surreal")
     throw new MigrationError(
-      `introspectSchema does not translate ${scheme === "mysql" ? "MySQL" : "SurrealDB"} yet; PostgreSQL and SQLite are supported.`,
+      "introspectSchema does not translate SurrealDB yet; PostgreSQL, SQLite and MySQL are supported.",
       VibORMErrorCode.FEATURE_NOT_SUPPORTED,
       { meta: { feature: "introspect-schema" } }
     );
@@ -78,7 +82,7 @@ export async function openDriver(url: string): Promise<OpenedDriver> {
     };
   }
   throw new MigrationError(
-    `introspectSchema cannot tell which database "${scheme ?? url}" names. Use postgres:// or postgresql:// for PostgreSQL, file: or sqlite: (or a .db / .sqlite file) for SQLite, and libsql:// for libSQL; or pass a driver.`,
+    `introspectSchema cannot tell which database "${scheme ?? url}" names. Use postgres:// or postgresql:// for PostgreSQL, mysql:// for MySQL, file: or sqlite: (or a .db / .sqlite file) for SQLite, and libsql:// for libSQL; or pass a driver.`,
     VibORMErrorCode.INVALID_INPUT,
     { meta: { feature: "introspect-url" } }
   );

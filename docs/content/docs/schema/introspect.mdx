@@ -1,6 +1,6 @@
 ---
 title: From an existing database
-description: "Read a PostgreSQL or SQLite database into a JSON schema document, and query it at once"
+description: "Read a PostgreSQL, MySQL or SQLite database into a JSON schema document, and query it at once"
 icon: database-zap
 ---
 
@@ -38,6 +38,7 @@ TypeScript schema is not generated yet; it will be written from this document.
 | URL | Driver |
 | --- | --- |
 | `postgres://…`, `postgresql://…` | `pg` |
+| `mysql://…/database` | `mysql2` |
 | `file:./app.db`, `sqlite:./app.db`, `./app.db` (`.db`, `.sqlite`, `.sqlite3`) | `better-sqlite3`, opened **read-only**; a missing file is an error, never created |
 | `libsql://…`, `https://…`, `ws(s)://…` (`?authToken=…`) | `@libsql/client` |
 
@@ -53,7 +54,7 @@ interface IntrospectSchemaResult {
   document: SchemaDocument;
   skipped: SkippedObject[];          // { kind, name, table?, reason }
   warnings: IntrospectionWarning[];  // { kind: "approximated" | "drift", table?, name?, message }
-  dialect: "postgresql" | "sqlite";
+  dialect: "postgresql" | "sqlite" | "mysql";
 }
 ```
 
@@ -128,6 +129,28 @@ the way PostgreSQL names one by default (`<table>_<columns>_key`) is `unique` /
 `uniques`; any other name is kept as a unique index of that name, which enforces
 the same key but is not a `findUnique` key (an `approximated` warning).
 
+## MySQL
+
+| Column | Field |
+| --- | --- |
+| `TEXT`, and `VARCHAR(191)` on a keyed column (VibORM's spelling of an indexed string) | `string` |
+| `VARCHAR(n)`, `CHAR(n)`, `TINYTEXT`, `MEDIUMTEXT`, `LONGTEXT`, `BIT(n)` | `string` with that `native` type |
+| `TINYINT(1)` | `boolean` |
+| `INT`; `TINYINT`, `SMALLINT`, `MEDIUMINT`, their `UNSIGNED`, `INT UNSIGNED`, `YEAR` | `int` (`native` for all but `INT`) |
+| `BIGINT`, `BIGINT UNSIGNED` | `bigint` (`native` for the second) |
+| `DOUBLE`, `FLOAT` | `number` (`native: FLOAT`) |
+| `DECIMAL(p, s)` | `decimal` |
+| `JSON` | `json` |
+| `BLOB`, `TINYBLOB`, `MEDIUMBLOB`, `LONGBLOB`, `BINARY(n)`, `VARBINARY(n)` | `blob` (`native` for all but `BLOB`) |
+| `BINARY(16)` key, or a foreign key to one | `string` uuid key (`approximated`: VibORM's uuid key storage) |
+| `DATE`, `DATETIME(3)`, `TIME(3)` | `date`, `datetime`, `time`; another precision, and `TIMESTAMP`, keep their `native` type |
+| `ENUM(…)` | `enum`, inline: MySQL has no enum object |
+
+`AUTO_INCREMENT` is `increment`, `CURRENT_TIMESTAMP(3)` is `now()`, and literal
+defaults are read with MySQL's escapes. MySQL has one unique namespace: a unique
+index named the way VibORM names a key (`<table>_<columns>_key`) is that key.
+A list is `JSON` on MySQL, as on SQLite, and reads back as `json`.
+
 ## SQLite
 
 SQLite proves less: a column's declared type is free text, and VibORM stores
@@ -177,6 +200,6 @@ would drop the tables it skipped.
 
 ## Not yet
 
-MySQL and SurrealDB are not translated yet (`introspectSchema` refuses them by
-name), nor are pgvector and PostGIS columns. A TypeScript schema file will be
+SurrealDB is not translated yet (`introspectSchema` refuses it by name), nor
+are pgvector and PostGIS columns. A TypeScript schema file will be
 generated from the document later.

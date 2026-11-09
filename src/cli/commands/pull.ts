@@ -92,7 +92,7 @@ export function createPullCommand(): Command {
     .option("--json", "Write the JSON schema document")
     .option(
       "--url <url>",
-      "Connection string (postgres://, file:, libsql://); defaults to DATABASE_URL"
+      "Connection string (postgres://, mysql://, file:, libsql://); defaults to DATABASE_URL"
     )
     .option("--out <path>", "Write the document to this file instead of stdout")
     .option(

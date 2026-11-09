@@ -5,6 +5,7 @@
  * validate, because the document is the product.
  */
 
+import { mysqlMigrationDriver } from "@migrations/drivers/mysql";
 import { postgresMigrationDriver } from "@migrations/drivers/postgres";
 import { sqlite3MigrationDriver } from "@migrations/drivers/sqlite";
 import { relationNameFromColumn } from "@migrations/introspect/names";
@@ -66,7 +67,7 @@ const fk = (
 function translate(
   tables: TableDef[],
   options: {
-    dialect?: "postgresql" | "sqlite";
+    dialect?: "postgresql" | "sqlite" | "mysql";
     enums?: EnumDef[];
     identity?: string[];
     junctionModels?: string[];
@@ -76,10 +77,11 @@ function translate(
   const result = translateSnapshot({
     snapshot: { tables, enums: options.enums },
     dialect,
-    migrationDriver:
-      dialect === "postgresql"
-        ? postgresMigrationDriver
-        : sqlite3MigrationDriver,
+    migrationDriver: {
+      postgresql: postgresMigrationDriver,
+      sqlite: sqlite3MigrationDriver,
+      mysql: mysqlMigrationDriver,
+    }[dialect],
     identityColumns: new Set(options.identity ?? []),
     junctionModels: new Set(options.junctionModels ?? []),
   });
@@ -711,5 +713,114 @@ describe("SQLite", () => {
     expect(
       result.warnings.map((warning) => `${warning.table}.${warning.name}`)
     ).toEqual(["a.id", "b.a_id"]);
+  });
+});
+
+describe("MySQL", () => {
+  const mysql = (
+    columns: ColumnDef[],
+    extra: Parameters<typeof table>[2] = {}
+  ) =>
+    translate([table("t", [column("id", "INT"), ...columns], extra)], {
+      dialect: "mysql",
+    });
+
+  it.each([
+    ["TEXT", { type: "string" }],
+    [
+      "varchar(80)",
+      { type: "string", native: { db: "mysql", type: "VARCHAR(80)" } },
+    ],
+    ["LONGTEXT", { type: "string", native: { db: "mysql", type: "LONGTEXT" } }],
+    ["tinyint(1)", { type: "boolean" }],
+    ["INT", { type: "int" }],
+    [
+      "int unsigned",
+      { type: "int", native: { db: "mysql", type: "INT UNSIGNED" } },
+    ],
+    ["BIGINT", { type: "bigint" }],
+    [
+      "bigint unsigned",
+      { type: "bigint", native: { db: "mysql", type: "BIGINT UNSIGNED" } },
+    ],
+    ["DOUBLE", { type: "number" }],
+    ["FLOAT", { type: "number", native: { db: "mysql", type: "FLOAT" } }],
+    ["JSON", { type: "json" }],
+    ["BLOB", { type: "blob" }],
+    [
+      "binary(16)",
+      { type: "blob", native: { db: "mysql", type: "BINARY(16)" } },
+    ],
+    ["DATE", { type: "date" }],
+    ["datetime(3)", { type: "datetime" }],
+    [
+      "TIMESTAMP",
+      { type: "datetime", native: { db: "mysql", type: "TIMESTAMP" } },
+    ],
+    ["time(3)", { type: "time" }],
+  ])("%s", (type, expected) => {
+    expect(
+      mysql([column("c", type)]).document.models.t!.fields.c
+    ).toMatchObject(expected);
+  });
+
+  it("reads VARCHAR(191) as VibORM's keyed string only where the column is keyed", () => {
+    const result = mysql(
+      [column("keyed", "varchar(191)"), column("plain", "varchar(191)")],
+      {
+        indexes: [
+          {
+            name: "t_keyed_idx",
+            columns: ["keyed"],
+            unique: false,
+            type: "btree",
+          },
+        ],
+      }
+    );
+    expect(result.document.models.t!.fields).toMatchObject({
+      keyed: { type: "string" },
+      plain: { type: "string", native: { db: "mysql", type: "VARCHAR(191)" } },
+    });
+    expect(result.document.models.t!.fields.keyed).not.toHaveProperty("native");
+  });
+
+  it("reads an inline ENUM, a derived-name unique index as a key, and MySQL escapes", () => {
+    const result = translate(
+      [
+        table(
+          "t",
+          [
+            column("id", "INT"),
+            column("role", "ENUM('a', 'b')", { default: "'a'" }),
+            column("email", "varchar(191)"),
+            column("note", "TEXT", { default: String.raw`'line\nbreak'` }),
+            column("at", "datetime(3)", { default: "CURRENT_TIMESTAMP(3)" }),
+          ],
+          {
+            indexes: [
+              {
+                name: "t_email_key",
+                columns: ["email"],
+                unique: true,
+                type: "btree",
+              },
+            ],
+          }
+        ),
+      ],
+      {
+        dialect: "mysql",
+        enums: [{ name: "ENUM('a', 'b')", values: ["a", "b"] }],
+      }
+    );
+    expect(result.document.models.t!.fields).toMatchObject({
+      role: { type: "enum", enum: ["a", "b"], default: "a" },
+      email: { type: "string", unique: true },
+      note: { type: "string", default: "line\nbreak" },
+      at: { type: "datetime", generate: { kind: "now" } },
+    });
+    expect(result.document.models.t!.indexes).toBeUndefined();
+    expect(result.skipped).toEqual([]);
   });
 });

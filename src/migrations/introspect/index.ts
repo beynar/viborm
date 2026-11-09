@@ -52,7 +52,7 @@ export type {
 export type IntrospectSchemaOptions =
   | {
       /**
-       * The database: `postgres://` / `postgresql://`, `file:` / `sqlite:` or a
+       * The database: `postgres://` / `postgresql://`, `mysql://`, `file:` / `sqlite:` or a
        * `.db` / `.sqlite` path (opened read-only), or `libsql://`. The
        * connection is opened for this call and always closed.
        */
@@ -71,7 +71,7 @@ export type IntrospectSchemaOptions =
       readonly tables?: readonly string[];
     };
 
-const DIALECTS = new Set<string>(["postgresql", "sqlite"]);
+const DIALECTS = new Set<string>(["postgresql", "sqlite", "mysql"]);
 
 /** The live tables the document declares, and the enums their columns use. */
 function declaredSnapshot(
@@ -100,7 +100,7 @@ async function introspectDriver(
   const dialect = driver.dialect;
   if (!DIALECTS.has(dialect))
     throw new MigrationError(
-      `introspectSchema does not translate ${dialect} yet; PostgreSQL and SQLite are supported.`,
+      `introspectSchema does not translate ${dialect} yet; PostgreSQL, SQLite and MySQL are supported.`,
       VibORMErrorCode.FEATURE_NOT_SUPPORTED,
       { meta: { dialect, feature: "introspect-schema" } }
     );

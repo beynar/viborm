@@ -29,6 +29,7 @@ import { derivedMigrationName } from "../utils";
 import {
   type ColumnContext,
   type ColumnTranslation,
+  translateMysqlColumn,
   translatePostgresColumn,
   translateSqliteColumn,
 } from "./columns";
@@ -72,6 +73,21 @@ interface ModelBuild {
   readonly keys: string[][];
 }
 
+const TRANSLATORS: Record<
+  IntrospectionDialect,
+  (context: ColumnContext) => ColumnTranslation
+> = {
+  postgresql: translatePostgresColumn,
+  sqlite: translateSqliteColumn,
+  mysql: translateMysqlColumn,
+};
+
+const BINARY_KEY_TYPES: Record<IntrospectionDialect, string | undefined> = {
+  postgresql: undefined,
+  sqlite: "BLOB",
+  mysql: "BINARY(16)",
+};
+
 /** `.map()` takes identifiers only, so a name outside them has no spelling. */
 const UNMAPPABLE =
   "its name is not an identifier (ASCII letters, digits and _, at most 63 bytes), which is all `.map()` accepts";
@@ -107,16 +123,17 @@ export function translateSnapshot(input: TranslateInput): Translation {
     (snapshot.enums ?? []).map((item) => [item.name, item])
   );
   const translateColumn: (context: ColumnContext) => ColumnTranslation =
-    dialect === "postgresql" ? translatePostgresColumn : translateSqliteColumn;
+    TRANSLATORS[dialect];
 
-  // SQLite stores a uuid key as a BLOB, and a blob is never a key: a BLOB
-  // primary-key column, and every foreign-key column reaching one, is read as
-  // the uuid key it is VibORM's spelling of.
+  // SQLite and MySQL store a uuid key as bytes (`BLOB`, `BINARY(16)`), and a
+  // blob is never a key: such a primary-key column, and every foreign-key
+  // column reaching one, is read as the uuid key it is VibORM's spelling of.
   const binaryKeys = new Set<string>();
-  if (dialect === "sqlite") {
+  const binaryKeyType = BINARY_KEY_TYPES[dialect];
+  if (binaryKeyType !== undefined) {
     const isBlob = (table: TableDef, column: string) =>
       table.columns.find((item) => item.name === column)?.type.toUpperCase() ===
-      "BLOB";
+      binaryKeyType;
     for (const table of snapshot.tables)
       for (const column of table.primaryKey?.columns ?? [])
         if (isBlob(table, column)) binaryKeys.add(`${table.name}\0${column}`);
@@ -138,6 +155,16 @@ export function translateSnapshot(input: TranslateInput): Translation {
           });
     }
   }
+
+  // MySQL writes an indexed string as VARCHAR(191): the columns of a key, an
+  // index or a foreign key.
+  const keyedColumns = (table: TableDef) =>
+    new Set([
+      ...(table.primaryKey?.columns ?? []),
+      ...table.uniqueConstraints.flatMap((unique) => unique.columns),
+      ...table.indexes.flatMap((index) => (index.raw ? [] : index.columns)),
+      ...table.foreignKeys.flatMap((foreignKey) => foreignKey.columns),
+    ]);
 
   const modelKeys = new KeyAllocator();
   const builds = new Map<string, ModelBuild>();
@@ -169,6 +196,7 @@ export function translateSnapshot(input: TranslateInput): Translation {
       continue;
     }
     const translated = new Map<string, ColumnTranslation>();
+    const keyed = keyedColumns(table);
     for (const column of table.columns) {
       if (!isValidSchemaIdentifier(column.name)) {
         translated.set(column.name, { skip: UNMAPPABLE });
@@ -183,6 +211,7 @@ export function translateSnapshot(input: TranslateInput): Translation {
           enumColumnType: (values) =>
             migrationDriver.getEnumColumnType(table.name, column.name, values),
           binaryKey: binaryKeys.has(`${table.name}\0${column.name}`),
+          keyed: keyed.has(column.name),
         })
       );
     }
@@ -282,7 +311,29 @@ export function translateSnapshot(input: TranslateInput): Translation {
     const missing = (columns: readonly string[]) =>
       columns.find((column) => !fieldOf.has(column));
 
-    for (const constraint of table.uniqueConstraints) {
+    // A total unique btree index IS a unique constraint to the differ (and
+    // the only spelling MySQL has): one named the way a declared key is named
+    // is read as that key, so it stays a `findUnique` key.
+    const derivedUnique = (name: string, columns: readonly string[]) =>
+      name.startsWith(`${table.name}_`) &&
+      name.endsWith("_key") &&
+      columns.every((column) => fieldOf.has(column));
+    const keyIndexes = table.indexes.filter(
+      (index) =>
+        index.unique &&
+        !index.raw &&
+        index.where === undefined &&
+        (index.type === undefined || index.type === "btree") &&
+        derivedUnique(index.name, index.columns)
+    );
+    const uniqueConstraints = [
+      ...table.uniqueConstraints,
+      ...keyIndexes.map((index) => ({
+        name: index.name,
+        columns: index.columns,
+      })),
+    ];
+    for (const constraint of uniqueConstraints) {
       const lost = missing(constraint.columns);
       if (lost !== undefined) {
         skipped.push({
@@ -332,6 +383,7 @@ export function translateSnapshot(input: TranslateInput): Translation {
     }
 
     for (const index of table.indexes) {
+      if (keyIndexes.includes(index)) continue;
       const lost = missing(index.columns);
       const reason = index.raw
         ? "it is a raw index (`.rawIndex()`), which a document cannot declare: keep it in a TypeScript schema"
@@ -607,7 +659,9 @@ export function translateSnapshot(input: TranslateInput): Translation {
   // ---------------------------------------------------------------------------
   const enumDocuments: Record<string, EnumDocument> = {};
   const enumKeys = new KeyAllocator();
-  for (const [name, def] of enums) {
+  // Only PostgreSQL has enums of its own; a MySQL enum IS its column's type,
+  // already inline on the field.
+  for (const [name, def] of dialect === "postgresql" ? enums : []) {
     const uses = (enumUses.get(name) ?? []).filter((use) =>
       builds.has(use.build.table.name)
     );

@@ -17,8 +17,10 @@ import type {
   ValueFieldDocument,
 } from "../../schema/json/document";
 import type { JsonValue } from "../../validation/primitives/json";
+import { MYSQL_PRINTED_CHARACTERS } from "../drivers/type-mapping";
 import { normalizeDefault, normalizeType } from "../push-fingerprint";
 import type { ColumnDef, EnumDef } from "../types";
+import type { IntrospectionDialect } from "./types";
 
 /** What a column becomes, before keys, keys and relations are settled. */
 export interface ColumnField {
@@ -46,6 +48,11 @@ export interface ColumnContext {
    * key there as sixteen bytes, and a blob cannot be a key.
    */
   readonly binaryKey: boolean;
+  /**
+   * MySQL: the column is in a key, an index or a foreign key, where VibORM
+   * writes a string as `VARCHAR(191)` (an indexed TEXT needs a length).
+   */
+  readonly keyed: boolean;
 }
 
 /** The scalar types that have `.array()`. */
@@ -90,6 +97,10 @@ const NOW_DEFAULTS = new Set([
   "timezone('utc',current_time(3))",
   // SQLite: VibORM's own millisecond UTC clock.
   "strftime('%Y-%m-%dT%H:%M:%fZ','now')",
+  // MySQL: a fractional-second clock.
+  "current_timestamp(3)",
+  "current_timestamp(6)",
+  "(current_timestamp(3))",
 ]);
 const DATE_LITERAL = /^\d{4}-\d{2}-\d{2}$/;
 const PG_TIMESTAMP_LITERAL =
@@ -106,6 +117,31 @@ function jsonDefault(value: JsonValue): JsonValue {
   )
     return { $raw: value };
   return value;
+}
+
+const MYSQL_ESCAPE = /\\(.)/g;
+
+/**
+ * A quoted literal's value. MySQL prints `\\`, `\n`, `\r`, `\0`, `\Z` and `\'`
+ * (`MYSQL_PRINTED_CHARACTERS`); an escape outside that table is not one it
+ * printed for a value VibORM can name, so there is no value.
+ */
+function unquote(
+  body: string,
+  dialect: IntrospectionDialect
+): string | undefined {
+  const doubled = body.replaceAll("''", "'");
+  if (dialect !== "mysql") return doubled;
+  let known = true;
+  const value = doubled.replace(
+    MYSQL_ESCAPE,
+    (_sequence, character: string) => {
+      const printed = MYSQL_PRINTED_CHARACTERS.get(character);
+      if (printed === undefined) known = false;
+      return printed ?? character;
+    }
+  );
+  return known ? value : undefined;
 }
 
 /** A decimal's text from its unscaled integer coefficient. */
@@ -179,13 +215,16 @@ function readDefault(
   field: FieldDraft,
   column: ColumnDef,
   sqlText: string,
-  postgres: boolean
+  dialect: IntrospectionDialect
 ): string | undefined {
   const normalized = normalizeDefault(sqlText, column.type);
   if (normalized === undefined) return; // NULL: no default
   const unsupported = `the default \`${sqlText}\` has no document spelling`;
 
-  if (NOW_DEFAULTS.has(normalized)) {
+  if (
+    NOW_DEFAULTS.has(normalized) ||
+    NOW_DEFAULTS.has(normalized.toLowerCase())
+  ) {
     if (
       field.type === "datetime" ||
       field.type === "date" ||
@@ -206,9 +245,10 @@ function readDefault(
   }
 
   const quoted = QUOTED.exec(sqlText.trim());
-  const literal = quoted ? quoted[1]!.replaceAll("''", "'") : sqlText.trim();
+  const literal = quoted ? unquote(quoted[1]!, dialect) : sqlText.trim();
+  if (literal === undefined) return unsupported;
   if (field.array) {
-    if (!(quoted && postgres)) {
+    if (!(quoted && dialect === "postgresql")) {
       // SQLite and MySQL hold a list as one JSON text.
       if (!quoted) return unsupported;
       try {
@@ -239,9 +279,9 @@ function readDefault(
     field.default = values as JsonValue[];
     return;
   }
-  // SQLite and MySQL store a scalar decimal default as its coefficient.
+  // SQLite stores a scalar decimal default as its coefficient.
   const text =
-    field.type === "decimal" && !postgres && INTEGER.test(literal)
+    field.type === "decimal" && dialect === "sqlite" && INTEGER.test(literal)
       ? coefficientText(literal, field.scale)
       : literal;
   const value = literalValue(field, text, quoted !== null);
@@ -365,7 +405,7 @@ export function translatePostgresColumn(
     if (typeof base === "string") return { skip: base };
     draft = base;
   }
-  return finish(draft, context, array, true, enumDef?.name);
+  return finish(draft, context, array, "postgresql", enumDef?.name);
 }
 
 /** The modifiers every dialect reads the same way: list, null, default. */
@@ -373,7 +413,7 @@ function finish(
   draft: FieldDraft,
   context: ColumnContext,
   array: boolean,
-  postgres: boolean,
+  dialect: IntrospectionDialect,
   enumType?: string,
   approximated?: string
 ): ColumnTranslation {
@@ -391,7 +431,7 @@ function finish(
     else
       skippedDefault = `an auto-increment ${draft.type} has no document spelling`;
   } else if (column.default !== undefined) {
-    skippedDefault = readDefault(draft, column, column.default, postgres);
+    skippedDefault = readDefault(draft, column, column.default, dialect);
   }
   return {
     field: draft as ScalarFieldDocument,
@@ -449,13 +489,13 @@ export function translateSqliteColumn(
       },
       context,
       type === "TEXT",
-      false
+      "sqlite"
     );
   if (SQLITE_ENUM.test(column.type)) {
     const values = sqliteEnumValues(context);
     if (values === undefined)
       return { skip: `the CHECK in \`${column.type}\` is not a VibORM enum` };
-    return finish({ type: "enum", enum: values }, context, false, false);
+    return finish({ type: "enum", enum: values }, context, false, "sqlite");
   }
   let draft: FieldDraft;
   let approximated: string | undefined;
@@ -486,5 +526,114 @@ export function translateSqliteColumn(
       draft = sqliteAffinity(type);
       approximated = `the declared type \`${column.type}\` is read by SQLite's affinity rules as ${draft.type}, which VibORM spells \`${draft.type === "string" ? "TEXT" : draft.type === "number" ? "REAL" : draft.type === "blob" ? "BLOB" : draft.type === "datetime" || draft.type === "date" ? "TEXT" : "INTEGER"}\``;
   }
-  return finish(draft, context, false, false, undefined, approximated);
+  return finish(draft, context, false, "sqlite", undefined, approximated);
+}
+
+// =============================================================================
+// MYSQL
+// =============================================================================
+
+const MYSQL_SIZED = /^(varchar|char|binary|varbinary|bit)\((\d+)\)$/;
+const MYSQL_TEMPORAL = /^(datetime|timestamp|time)(?:\((\d)\))?$/;
+const MYSQL_INTEGERS = new Set([
+  "tinyint",
+  "tinyint unsigned",
+  "smallint",
+  "smallint unsigned",
+  "mediumint",
+  "mediumint unsigned",
+  "int unsigned",
+  "year",
+]);
+const MYSQL_TEXTS = new Set(["tinytext", "mediumtext", "longtext"]);
+const MYSQL_BLOBS = new Set(["tinyblob", "mediumblob", "longblob"]);
+const MYSQL_DISPLAY_WIDTH = /^(tinyint|smallint|mediumint|int|bigint)\(\d+\)/;
+
+function mysqlNative(type: string): { db: "mysql"; type: string } {
+  return { db: "mysql", type };
+}
+
+/** MySQL's column type (lowercased, display width dropped) as a field draft. */
+function mysqlBase(type: string, context: ColumnContext): FieldDraft | string {
+  const { column } = context;
+  if (type === "text") return { type: "string" };
+  if (type === "tinyint(1)") return { type: "boolean" };
+  const base = type.replace(MYSQL_DISPLAY_WIDTH, "$1");
+  if (base === "int") return { type: "int" };
+  if (base === "bigint") return { type: "bigint" };
+  if (base === "bigint unsigned")
+    return { type: "bigint", native: mysqlNative("BIGINT UNSIGNED") };
+  if (MYSQL_INTEGERS.has(base))
+    return { type: "int", native: mysqlNative(base.toUpperCase()) };
+  if (base === "double") return { type: "number" };
+  if (base === "float") return { type: "number", native: mysqlNative("FLOAT") };
+  if (base === "json") return { type: "json" };
+  if (base === "blob") return { type: "blob" };
+  if (MYSQL_BLOBS.has(base))
+    return { type: "blob", native: mysqlNative(base.toUpperCase()) };
+  if (MYSQL_TEXTS.has(base))
+    return { type: "string", native: mysqlNative(base.toUpperCase()) };
+  if (base === "date") return { type: "date" };
+  if (base.startsWith("decimal(")) {
+    const descriptor = column.decimal;
+    if (descriptor === undefined)
+      return `${column.type} is outside VibORM's fixed-decimal domain`;
+    return {
+      type: "decimal",
+      precision: descriptor.precision,
+      scale: descriptor.scale,
+    };
+  }
+  const sized = MYSQL_SIZED.exec(base);
+  if (sized) {
+    const [, name, size] = sized;
+    if (name === "binary" && size === "16" && context.binaryKey)
+      return { type: "string", generate: { kind: "uuid", generate: false } };
+    if (name === "varchar" && size === "191" && context.keyed)
+      return { type: "string" };
+    const native = mysqlNative(`${name!.toUpperCase()}(${size})`);
+    return name === "binary" || name === "varbinary"
+      ? { type: "blob", native }
+      : { type: "string", native };
+  }
+  const temporal = MYSQL_TEMPORAL.exec(base);
+  if (temporal) {
+    const [, name, precision] = temporal;
+    const draft: ValueDraft = { type: name === "time" ? "time" : "datetime" };
+    if (name === "timestamp" || precision !== "3")
+      draft.native = mysqlNative(
+        precision === undefined
+          ? name!.toUpperCase()
+          : `${name!.toUpperCase()}(${precision})`
+      );
+    return draft;
+  }
+  return `the type \`${column.type}\` has no VibORM scalar`;
+}
+
+export function translateMysqlColumn(
+  context: ColumnContext
+): ColumnTranslation {
+  const { column } = context;
+  if (column.type.toUpperCase().startsWith("ENUM(")) {
+    const enumDef = context.enums.get(column.type);
+    if (
+      enumDef === undefined ||
+      context.enumColumnType(enumDef.values) !== column.type
+    )
+      return { skip: `the enum \`${column.type}\` is not one VibORM spells` };
+    return finish(
+      { type: "enum", enum: [...enumDef.values] },
+      context,
+      false,
+      "mysql"
+    );
+  }
+  const base = mysqlBase(column.type.trim().toLowerCase(), context);
+  if (typeof base === "string") return { skip: base };
+  const approximated =
+    base.type === "string" && base.generate?.kind === "uuid"
+      ? "a BINARY(16) key is read as a UUID, the key VibORM stores as sixteen bytes on MySQL; a key holding other bytes does not decode"
+      : undefined;
+  return finish(base, context, false, "mysql", undefined, approximated);
 }
