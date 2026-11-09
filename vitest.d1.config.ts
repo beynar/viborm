@@ -1,37 +1,45 @@
 import { resolve } from "node:path";
-import { defineWorkersConfig } from "@cloudflare/vitest-pool-workers/config";
-import { configDefaults } from "vitest/config";
+import { cloudflareTest } from "@cloudflare/vitest-plugin";
+import { configDefaults, defineConfig } from "vitest/config";
 
-export default defineWorkersConfig({
+export default defineConfig({
   resolve: {
     alias: [
       // Bare `@drivers` is the custom-driver entry; `@drivers/*` stays a prefix.
       {
         find: /^@drivers$/,
-        replacement: resolve(__dirname, "src/drivers/exports.ts"),
+        replacement: resolve(import.meta.dirname, "src/drivers/exports.ts"),
       },
       // The package's root entry, as a consumer imports it: the Permissions
       // acceptance fixture (tests/package/fixtures/permissions-app) is written
       // against "viborm" so a packed-tarball consumer compiles it unchanged.
-      { find: /^viborm$/, replacement: resolve(__dirname, "src/index.ts") },
+      {
+        find: /^viborm$/,
+        replacement: resolve(import.meta.dirname, "src/index.ts"),
+      },
       ...Object.entries({
-        "@src": resolve(__dirname, "src"),
-        "@tests": resolve(__dirname, "tests"),
-        "@schema": resolve(__dirname, "src/schema"),
-        "@client": resolve(__dirname, "src/client"),
-        "@extensions": resolve(__dirname, "src/extensions"),
-        "@validation": resolve(__dirname, "src/validation"),
-        "@query-engine": resolve(__dirname, "src/query-engine"),
-        "@adapters": resolve(__dirname, "src/adapters"),
-        "@drivers": resolve(__dirname, "src/drivers"),
-        "@migrations": resolve(__dirname, "src/migrations"),
-        "@errors": resolve(__dirname, "src/errors.ts"),
-        "@instrumentation": resolve(__dirname, "src/instrumentation"),
-        "@cache": resolve(__dirname, "src/cache"),
-        "@sql": resolve(__dirname, "src/sql/sql.ts"),
+        "@src": resolve(import.meta.dirname, "src"),
+        "@tests": resolve(import.meta.dirname, "tests"),
+        "@schema": resolve(import.meta.dirname, "src/schema"),
+        "@client": resolve(import.meta.dirname, "src/client"),
+        "@extensions": resolve(import.meta.dirname, "src/extensions"),
+        "@validation": resolve(import.meta.dirname, "src/validation"),
+        "@query-engine": resolve(import.meta.dirname, "src/query-engine"),
+        "@adapters": resolve(import.meta.dirname, "src/adapters"),
+        "@drivers": resolve(import.meta.dirname, "src/drivers"),
+        "@migrations": resolve(import.meta.dirname, "src/migrations"),
+        "@errors": resolve(import.meta.dirname, "src/errors.ts"),
+        "@instrumentation": resolve(import.meta.dirname, "src/instrumentation"),
+        "@cache": resolve(import.meta.dirname, "src/cache"),
+        "@sql": resolve(import.meta.dirname, "src/sql/sql.ts"),
       }).map(([find, replacement]) => ({ find, replacement })),
     ],
   },
+  // The pool isolates storage per test file (its `isolatedStorage` and
+  // `singleWorker` are gone); one worker runs the files one after another.
+  plugins: [
+    cloudflareTest({ wrangler: { configPath: "./wrangler.test.jsonc" } }),
+  ],
   test: {
     name: "provider-d1",
     globals: true,
@@ -45,12 +53,6 @@ export default defineWorkersConfig({
     ],
     // D1 binds the SQLite migration driver, as `viborm/migrations/sqlite` does.
     setupFiles: ["src/migrations/dialects/sqlite.ts"],
-    poolOptions: {
-      workers: {
-        isolatedStorage: true,
-        singleWorker: true,
-        wrangler: { configPath: "./wrangler.test.jsonc" },
-      },
-    },
+    maxWorkers: 1,
   },
 });

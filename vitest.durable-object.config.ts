@@ -1,10 +1,14 @@
 import { resolve } from "node:path";
-import { defineWorkersConfig } from "@cloudflare/vitest-pool-workers/config";
+import { cloudflareTest } from "@cloudflare/vitest-plugin";
+import { defineConfig } from "vitest/config";
 import d1 from "./vitest.d1.config";
 
-const BEHAVIORS = resolve(__dirname, "tests/contracts/drivers/behaviors");
+const BEHAVIORS = resolve(
+  import.meta.dirname,
+  "tests/contracts/drivers/behaviors"
+);
 const HARNESS = resolve(
-  __dirname,
+  import.meta.dirname,
   "tests/providers/workers/durable-object/harness.ts"
 );
 
@@ -13,7 +17,7 @@ const HARNESS = resolve(
  * directly; here that import resolves to `harness.ts`, which runs each of
  * their tests inside a fresh SQLite Durable Object.
  */
-export default defineWorkersConfig({
+export default defineConfig({
   resolve: d1.resolve,
   plugins: [
     {
@@ -25,6 +29,12 @@ export default defineWorkersConfig({
         return null;
       },
     },
+    // Storage is isolated per test file; one worker runs the files in turn.
+    cloudflareTest({
+      wrangler: {
+        configPath: "./tests/providers/workers/durable-object/wrangler.jsonc",
+      },
+    }),
   ],
   test: {
     name: "provider-durable-object",
@@ -32,14 +42,6 @@ export default defineWorkersConfig({
     include: ["tests/providers/workers/durable-object/**/*.test.ts"],
     // The driver binds the SQLite migration driver, as `viborm/migrations/sqlite` does.
     setupFiles: ["src/migrations/dialects/sqlite.ts"],
-    poolOptions: {
-      workers: {
-        isolatedStorage: true,
-        singleWorker: true,
-        wrangler: {
-          configPath: "./tests/providers/workers/durable-object/wrangler.jsonc",
-        },
-      },
-    },
+    maxWorkers: 1,
   },
 });

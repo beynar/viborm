@@ -1,4 +1,4 @@
-import { defineWorkspace } from "vitest/config";
+import { defineConfig, type TestProjectConfiguration } from "vitest/config";
 import { CLIENT_COVERAGE_TESTS } from "./scripts/client-test-manifest.mjs";
 import { EXTENDED_LOCAL_TESTS } from "./scripts/credential-free-test-manifest.mjs";
 import {
@@ -58,7 +58,13 @@ const RAPTOR3_COVERAGE_SPLIT = Math.ceil(
   RAPTOR3_DETERMINISTIC_TESTS.length / 2
 );
 
-export default defineWorkspace([
+/**
+ * Every project, in declaration order. Vitest 4 removed workspace files and
+ * the `--workspace` flag: this file is now the root configuration that holds
+ * them (`--config vitest.workspace.ts`), and the list stays a named export so
+ * the census reads it without loading Vitest's Node API.
+ */
+export const projects: TestProjectConfiguration[] = [
   // The engine measured by its own deterministic estate: the query-engine
   // coverage subsystem runs these two projects beside the contract layers.
   // Two halves of one list, each its own process: instrumented whole, the
@@ -286,8 +292,9 @@ export default defineWorkspace([
     test: {
       name: "coverage-write-engine",
       include: [...WRITE_ENGINE_COVERAGE_TESTS],
+      // One thread, not isolated: Vitest 3's `singleThread`, as the base
+      // configuration's `maxWorkers: 1, isolate: false` already spells it.
       pool: "threads",
-      poolOptions: { threads: { singleThread: true } },
     },
   },
   {
@@ -374,4 +381,19 @@ export default defineWorkspace([
   "./vitest.d1.config.ts",
   "./vitest.tenant-do.config.ts",
   "./vitest.durable-object.config.ts",
-]);
+];
+
+/**
+ * Run-wide options. Vitest reads coverage only from the root, and the pool
+ * honours the root's worker count across projects: one worker, no file
+ * parallelism, so projects run one after another as they did when
+ * `vitest.config.ts` was the root of the workspace.
+ */
+export default defineConfig({
+  test: {
+    coverage: baseConfig.test?.coverage,
+    fileParallelism: false,
+    maxWorkers: 1,
+    projects,
+  },
+});
