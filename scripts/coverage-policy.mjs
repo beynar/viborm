@@ -157,6 +157,12 @@ const definitions = [
     id: "errors",
     label: "errors",
     target: 100,
+    // Branches re-measured under Vitest 4 (Arnaud, 2026-11-09): its V8
+    // remapping counts arms Vitest 3 did not (three implicit `if` arms with no
+    // source position, the absent `reason` of ForbiddenError's message), so
+    // the same tests measure 99.17. Floor: that number rounded down to the
+    // half-point; the other metrics hold 100.
+    metricTargets: { branches: 99 },
     root: "src/errors/",
     files: new Set(["src/errors.ts"]),
     projects: ["coverage-errors"],
@@ -274,6 +280,10 @@ const definitions = [
     id: "cache",
     label: "cache",
     target: 98,
+    // Branches re-measured under Vitest 4 (Arnaud, 2026-11-09): 97.61 with the
+    // same tests (Vitest 3 counted fewer arms); floor rounded down to the
+    // half-point. Statements 98.52, functions 100, lines 99.31 hold 98.
+    metricTargets: { branches: 97.5 },
     root: "src/cache/",
     projects: ["coverage-cache"],
     tests: cacheCoverageTests,
