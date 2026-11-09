@@ -1665,8 +1665,8 @@ export function policyCompiler(
    * (its own key's clause, R4), and its foreign key names a target that
    * exists, so a value equal to it discloses nothing: a missing target and a
    * hidden one still fail the same comparison (R4's oracle stays closed).
-   * The member found, which R4 then accepts beside the target's visibility,
-   * and the relation whose key clause must hold with it.
+   * The member found, which R4 then accepts beside the target's visibility
+   * where that row is visible, and the relation that reaches it.
    */
   const inheritedKey = (
     name: string,
@@ -1708,22 +1708,32 @@ export function policyCompiler(
     }
     return;
   };
+  /** The rows `relation` reaches that the actor views: `P(T, read)`, false
+   * where T holds none (R9, fail closed). */
+  const visibleThrough = (name: string, relation: string): Clause => {
+    const target = targetOf(name, relation)!;
+    const action = config.models[target] && verbsFor(target).read;
+    const held = action ? P(target, action) : false;
+    return held === false ? false : { [relation]: { is: held } };
+  };
   /**
    * Each foreign key `name` holds, with what R4 asks of a value written to
    * it: null where every field of the key may be, or a target the actor
-   * views, `P(T, read)` (false where T holds none: R9, fail closed), or the
-   * key of a row the placement reads, where `create` equates them
-   * ({@link inheritedKey}; `through` is that row's relation).
+   * views, or the key of a row the actor views, where `create` equates them
+   * ({@link inheritedKey}). That row's own visibility is asked, never its
+   * key's clause, which may itself be inherited: two keys inherited through
+   * each other would vouch for each other with neither row proven readable.
+   * `create` stands beside every use of the member (PLACE conjoins it, and
+   * the member compares the key's fields, so their moves place the row
+   * again): where each of its branches proves that row visible, or states
+   * its key null (where the member, which needs the row, cannot hold), the
+   * member alone.
    */
   const keysOf = (name: string, create: Clause) =>
     Object.entries(stateOf(name).relations).flatMap(([relation, declared]) => {
       const key = declared["~"].state.foreignKey;
       if (key === undefined) return [];
-      const target = targetOf(name, relation)!;
-      const action = config.models[target] && verbsFor(target).read;
-      const held = action ? P(target, action) : false;
-      const visible: Clause =
-        held === false ? false : { [relation]: { is: held } };
+      const visible = visibleThrough(name, relation);
       const nullable = key.fields.every(
         (field) => stateOf(name).scalars[field]?.["~"].state.nullable === true
       );
@@ -1731,15 +1741,32 @@ export function policyCompiler(
         ? or([and(key.fields.map((field) => ({ [field]: null }))), visible])
         : visible;
       const inherited = inheritedKey(name, create, relation, key);
-      const accepted = inherited ? or([own, inherited.member]) : own;
-      return [
-        {
-          relation,
-          fields: key.fields,
-          clause: accepted,
-          through: inherited?.through,
-        },
-      ];
+      let accepted = own;
+      if (inherited) {
+        const through = visibleThrough(name, inherited.through);
+        const absent = and(
+          relationOf(name, inherited.through)!.state.foreignKey!.fields.map(
+            (field) => ({ [field]: null })
+          )
+        );
+        const proves = (clause: Where): boolean => {
+          if (
+            (through !== false && implies(name, clause, through)) ||
+            (absent !== false && implies(name, clause, absent))
+          )
+            return true;
+          const members = conjuncts(clause);
+          if (members.length > 1) return members.some(proves);
+          const either = members[0]?.OR;
+          return Array.isArray(either) && either.every(proves);
+        };
+        const proven = proves(create as Where);
+        accepted = or([
+          own,
+          proven ? inherited.member : and([inherited.member, through]),
+        ]);
+      }
+      return [{ relation, fields: key.fields, clause: accepted }];
     });
   /**
    * The fields of `name`'s row a clause read at `name` reads: a scalar, the
@@ -2021,14 +2048,7 @@ export function policyCompiler(
             placed.has(field) ? create : {},
             ...keys
               .filter(({ fields }) => fields.includes(field))
-              .flatMap(({ clause, through }) => [
-                clause,
-                // A key inherited from a row holds only where that row is
-                // one the actor reads: its own key's clause, as in PLACE.
-                ...keys
-                  .filter(({ relation }) => relation === through)
-                  .map((holder) => holder.clause),
-              ]),
+              .map(({ clause }) => clause),
           ],
           judged
         ) || FALSE

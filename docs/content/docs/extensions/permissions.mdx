@@ -301,12 +301,18 @@ page: {
 Where the rule compares every field of a foreign key with the fields of the
 same foreign key on a related row (`parent.teamspaceId`, onto the same
 teamspace), the created row may name that target without the caller reading
-it: the related row is one the caller reads (its own key must point at a
-visible row, as always), and its key names a target that exists, so nothing
-new is disclosed. Any other value still needs a visible target, and a hidden
-teamspace and a missing one still fail alike. The same holds when an update
-moves the key. Without such a comparison in the rule, nothing changes, the
-statement included.
+it, provided the caller reads the related row: its key names a target that
+exists, so nothing new is disclosed. Any other value still needs a visible
+target, and a hidden teamspace and a missing one still fail alike. The same
+holds when an update moves the key.
+
+The related row must be visible by its own read rule, never because its key
+is itself taken from another row: two keys taken from each other prove
+nothing. Where every branch of `create` already proves that row visible
+(`parent: "update"` here) or sets its key to null, as in the rule above, the
+comparison adds no bound value to the statement; otherwise the related row's
+read rule is added beside it. Without such a comparison in the rule, nothing
+changes, the statement included.
 
 Write the foreign key's field to use it: a `connect` to the teamspace still
 looks the target up among the rows the caller reads.

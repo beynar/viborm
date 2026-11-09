@@ -5,7 +5,8 @@
  * and a hidden one fail alike, so the existence oracle stays closed.
  */
 
-import { createClient } from "@drivers/sqlite3";
+import { createClient as createDriverClient } from "@client/client";
+import { createClient, SQLite3Driver } from "@drivers/sqlite3";
 import { s } from "@schema";
 import { permissions } from "@src/permissions";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -204,5 +205,187 @@ describe("R4: a key equal to the readable parent's", () => {
     await expect(
       guest.page.update({ where: { id: "M1" }, data: { teamspaceId: "ts0" } })
     ).resolves.toMatchObject({ teamspaceId: "ts0" });
+  });
+});
+
+describe("R4: an inherited key vouches only through a visible row", () => {
+  const project = s.model({
+    id: s.string().id(),
+    memberId: s.string(),
+    currentMilestoneId: s.string().nullable(),
+    currentMilestone: s
+      .toOne(() => milestone)
+      .fields("currentMilestoneId")
+      .references("id")
+      .name("current"),
+    milestones: s.toMany(() => milestone).name("owned"),
+    tasks: s.toMany(() => task),
+  });
+  const milestone = s.model({
+    id: s.string().id(),
+    projectId: s.string(),
+    project: s
+      .toOne(() => project)
+      .fields("projectId")
+      .references("id")
+      .name("owned"),
+    currentOf: s.toMany(() => project).name("current"),
+    tasks: s.toMany(() => task),
+  });
+  const task = s.model({
+    id: s.string().id(),
+    projectId: s.string(),
+    project: s
+      .toOne(() => project)
+      .fields("projectId")
+      .references("id"),
+    milestoneId: s.string(),
+    milestone: s
+      .toOne(() => milestone)
+      .fields("milestoneId")
+      .references("id"),
+  });
+
+  it("refuses two keys inherited through each other alike, hidden or missing", async () => {
+    const base = createClient({
+      schema: { project, milestone, task },
+      dataDir: ":memory:",
+    });
+    await syncLiveSchema(base);
+    await base.project.create({ data: { id: "X", memberId: "bob" } });
+    await base.milestone.create({ data: { id: "M", projectId: "X" } });
+    await base.project.update({
+      where: { id: "X" },
+      data: { currentMilestoneId: "M" },
+    });
+    // The milestone is of the task's project, and is its current one: each
+    // key is equated with the other row's, neither row readable.
+    const eve = base
+      .$extends(
+        permissions({
+          actor: v.object({ userId: v.string() }),
+          models: {
+            project: { read: { memberId: { actor: "userId" } } },
+            milestone: { read: { project: "read" } },
+            task: {
+              read: { project: "read" },
+              create: {
+                AND: [
+                  {
+                    milestone: {
+                      is: { projectId: { $row: "projectId", up: 1 } },
+                    },
+                  },
+                  {
+                    project: {
+                      is: {
+                        currentMilestoneId: { $row: "milestoneId", up: 1 },
+                      },
+                    },
+                  },
+                ],
+              },
+            } as never,
+          },
+        })
+      )
+      .$as({ userId: "eve" });
+    const hidden = await eve.task
+      .create({ data: { id: "t1", projectId: "X", milestoneId: "M" } })
+      .catch((error: unknown) => error);
+    const missing = await eve.task
+      .create({ data: { id: "t2", projectId: "Q", milestoneId: "Z" } })
+      .catch((error: unknown) => error);
+    expect(hidden).toBeInstanceOf(Error);
+    expect((hidden as Error).message).toBe((missing as Error).message);
+    expect(await base.task.count()).toBe(0);
+    await base.$disconnect();
+  });
+
+  const isMember = { teamspace: { is: { memberId: { actor: "userId" } } } };
+  const ownedPolicy = permissions({
+    actor: v.object({ userId: v.string() }),
+    models: {
+      teamspace: { read: { memberId: { actor: "userId" } } },
+      page: {
+        "read, update": {
+          OR: [{ teamspaceId: { equals: null } }, isMember],
+        },
+        // Under a page you edit, in its teamspace; or in a teamspace of yours.
+        create: {
+          OR: [{ AND: [{ parent: "update" }, sameTeamspace] }, isMember],
+        },
+      } as never,
+      grant: { read: { page: "read" } },
+    },
+  });
+
+  it("keeps a move another branch accepts under a hidden parent", async () => {
+    const base = createClient({ schema, dataDir: ":memory:" });
+    await syncLiveSchema(base);
+    await base.teamspace.createMany({
+      data: [
+        { id: "bobs", memberId: "bob" },
+        { id: "alices", memberId: "alice" },
+      ],
+    });
+    await base.page.create({ data: { id: "P", teamspaceId: "bobs" } });
+    await base.page.create({ data: { id: "X", parentId: "P" } });
+    const alice = base.$extends(ownedPolicy).$as({ userId: "alice" });
+    expect(await alice.page.count({ where: { id: "P" } })).toBe(0);
+    await expect(
+      alice.page.update({ where: { id: "X" }, data: { teamspaceId: "alices" } })
+    ).resolves.toMatchObject({ teamspaceId: "alices" });
+    await base.$disconnect();
+  });
+});
+
+describe("R4: the equality costs no bound value where create proves the parent", () => {
+  class Counting extends SQLite3Driver {
+    readonly counts: number[] = [];
+    protected override execute<T>(
+      client: never,
+      sql: string,
+      params: unknown[],
+      context?: never
+    ) {
+      this.counts.push(params.length);
+      return super.execute<T>(client, sql, params, context);
+    }
+  }
+  // The same rule shape, its last member comparing a value without `$row`.
+  const rule = (member: Record<string, unknown>) => ({
+    OR: [
+      { AND: [{ parent: "update" }, { OR: [{ teamspaceId: null }, member] }] },
+      { parentId: null, teamspace: { is: { memberId: { actor: "userId" } } } },
+    ],
+  });
+  const moveCost = async (member: Record<string, unknown>) => {
+    const driver = new Counting({ dataDir: ":memory:" });
+    const base = createDriverClient({ schema, driver });
+    await syncLiveSchema(base);
+    await base.teamspace.createMany({
+      data: [
+        { id: "ts0", memberId: "bob" },
+        { id: "ts1", memberId: "bob" },
+      ],
+    });
+    await base.page.create({ data: { id: "R", teamspaceId: "ts0" } });
+    const bob = base.$extends(policyWith(rule(member))).$as({ userId: "bob" });
+    const from = driver.counts.length;
+    await bob.page.update({ where: { id: "R" }, data: { teamspaceId: "ts1" } });
+    const cost = Math.max(...driver.counts.slice(from));
+    await base.$disconnect();
+    return cost;
+  };
+
+  it("moves a root page's key with the bound values of a rule without it", async () => {
+    const inherited = await moveCost({
+      parent: { is: { teamspaceId: { $row: "teamspaceId", up: 1 } } },
+    });
+    const plain = await moveCost({
+      parent: { is: { teamspaceId: { not: null } } },
+    });
+    expect(inherited).toBe(plain);
   });
 });
