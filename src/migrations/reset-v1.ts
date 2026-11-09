@@ -3,6 +3,7 @@
  * Never re-enters applyV1.
  */
 
+import type { AnyDriver } from "../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { canonicalizeJson } from "./canonical-json";
 import { tableExistsProbe } from "./catalog-probes";
@@ -18,6 +19,7 @@ import {
   appendLedger,
   attemptEvents,
   ensureControlTables,
+  isTableMissing,
   ledgerEvent,
   markerFromPath,
   readControlState,
@@ -104,10 +106,7 @@ export async function resetV1(
         ? null
         : (await readControlState(client.$driver, command, { ledger: "open" }))
             .marker;
-    const plan = await planLiveNamespaceReset(
-      client.$driver,
-      clearedBy(command, graph, marker, path)
-    );
+    const plan = await planClear(client.$driver, command, graph, marker, path);
     await command.preflightSchemaRequirements(
       path.map((stateId) => requireStateSnapshot(graph, stateId)),
       (sql, params) => client.$driver._executeRaw(sql, params),
@@ -229,10 +228,7 @@ export async function resetV1(
         : false;
       const livePlan = hasReplayEvidence
         ? undefined
-        : await planLiveNamespaceReset(
-            pinned,
-            clearedBy(command, graph, marker, path)
-          );
+        : await planClear(pinned, command, graph, marker, path);
       const clearDispatches = resetProgram(livePlan, []).map((sql) =>
         dispatchForClearSql(sql)
       );
@@ -393,6 +389,50 @@ function clearedBy(
     }
   }
   return withManagedTables(command, cleared);
+}
+
+/**
+ * The clear, once every table the replay creates is accounted for. A live
+ * table the replay creates and the clear keeps (no state of the marker's
+ * path managed it: it is not adopted yet, or the marker names a history this
+ * estate does not hold) is refused before effects: dropping it could drop a
+ * user's table, and keeping it would let the replay's CREATE find it.
+ */
+async function planClear(
+  producer: AnyDriver,
+  command: BoundMigrationDriver,
+  graph: MigrationGraph,
+  marker: MigrationMarkerV1 | null,
+  path: readonly Sha256[]
+): Promise<Awaited<ReturnType<typeof planLiveNamespaceReset>>> {
+  const cleared = clearedBy(command, graph, marker, path);
+  const kept = managedByMarker(graph, marker);
+  if (kept !== undefined) {
+    const route = routeEdges(graph, null, path);
+    const adopted = route.flatMap(({ transition }) => transition.adopts ?? []);
+    const created = new Set(
+      route.flatMap(({ to }) =>
+        requireStateSnapshot(graph, to).tables.map(({ name }) => name)
+      )
+    );
+    for (const table of [...created].sort()) {
+      if (
+        kept.includes(table) ||
+        adopted.includes(table) ||
+        (await isTableMissing(producer, command, table))
+      )
+        continue;
+      const foreign = marker?.path.some(
+        ({ stateId }) => !graph.states.has(stateId)
+      );
+      throw new MigrationError(
+        `reset cannot account for table "${table}": it exists, the replay creates it, and no state of this estate the marker reached managed it${foreign ? " (the marker names states this estate does not hold, so whether it belongs to that history or is yours cannot be told)" : ""}. reset never drops such a table. Drop or rename it yourself if its rows can go, then reset again. Nothing ran.`,
+        VibORMErrorCode.MIGRATION_INVALID_STATE,
+        { meta: { table } }
+      );
+    }
+  }
+  return planLiveNamespaceReset(producer, cleared);
 }
 
 /** The command, proving the replay's target and that the clear left nothing. */

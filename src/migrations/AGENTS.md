@@ -1206,7 +1206,10 @@ and introspection select the same set. Commands comparing one read with
 several states (`reanchor`, `resolve`) read the widest set once and select
 in memory with `selectManagedSnapshot`. `reset` clears T0 ∪ the tables of
 its marker's arrival path, so a table only L names (not adopted yet) is never
-dropped, and refuses before effects a replay that adopts a table it clears.
+dropped, and refuses before effects a replay that adopts a table it clears,
+and (`planClear`, dry run and run alike) a live table the replay creates that
+the clear keeps — not adopted yet, or created by a history the marker names
+and this estate does not hold — naming it.
 A control-only selection draws no user boundary. Cross-boundary foreign keys
 and shared PostgreSQL enums still refuse before effects. Live clients accept
 `{ tables }` without requiring a storage writer. A rename needs both names in

@@ -885,7 +885,15 @@ before any effect: an adoption has no DDL to recreate it.
 not hold (`status().markerState` is `"ahead"` or `"unknown"`, say after the
 estate was replaced by a fresh history): what it drops is the live inventory,
 which needs no snapshot of the old state, and its dry run and its run plan the
-same clear and replay. Before 1.4.3 the run refused with `V11022`.
+same clear and replay. Before 1.4.3 the run refused with `V11022`. On an
+estate with a `tables` list that inventory is the estate's list plus the
+tables of the states this estate holds on the marker's path: a table the old
+history created through its own grown list cannot be told from one you made
+and have not adopted. When the replay creates such a table and it exists,
+`reset` (and its dry run) refuses before any effect with `V11009`, naming the
+table (`meta.table`); it never drops it. Drop or rename it yourself if its
+rows can go, then reset again. The same refusal covers a table you made by
+hand that a later state of this estate creates.
 
 There is no squash or inferred compaction command. History is bounded by an explicitly authored, fully checked direct transition instead: see [Bounded History with Checkpoints](#bounded-history-with-checkpoints).
 
