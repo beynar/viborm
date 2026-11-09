@@ -623,7 +623,10 @@ export abstract class DriverTransactionBase<
     const forwardedOptions =
       timeoutMs === undefined ? options : withoutTimeout(options);
     let txDriver: TransactionScopeDriver<TClient, TTransaction> | undefined;
-    return this._transaction(
+    // Awaited, not returned: a refusal (`supportsTransactions` false) rejects
+    // before any I/O, and an `async` frame would adopt that promise a microtask
+    // later, which workerd's process emulation reports as unhandled.
+    return await this._transaction(
       async (tx) => {
         txDriver = this.createTransactionBoundDriver(tx, executionContext);
         const boundDriver = txDriver;

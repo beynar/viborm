@@ -373,6 +373,48 @@ describe("Durable Object driver: errors", () => {
     });
   });
 
+  // workerd's process emulation reports a promise rejected while it has no
+  // handler, even when one arrives a microtask later (`async` adoption of a
+  // returned promise). The engine's own sentinel and its pre-I/O refusals must
+  // reach their caller on a promise the caller already holds.
+  test("the envelope sentinel and a pre-I/O refusal leave no rejection without a handler", async () => {
+    await withClient(async (client) => {
+      const unhandled: unknown[] = [];
+      const record = (reason: unknown) => unhandled.push(reason);
+      process.on("unhandledRejection", record);
+      try {
+        await client.user.create({ data: { id: "u1", name: "A" } });
+        // 30 rows of 4 columns exceed 100 bound values: two statements, so
+        // the first construction raises the envelope sentinel and the body
+        // runs again inside a frame.
+        await client.post.createMany({
+          data: Array.from({ length: 30 }, (_, index) => ({
+            id: `p${index}`,
+            title: `t${index}`,
+            views: index,
+            authorId: "u1",
+          })),
+        });
+        await expect(client.post.count()).resolves.toBe(30);
+        await expect(
+          client.user.findMany({
+            where: {
+              OR: Array.from({ length: 150 }, (_, i) => ({
+                name: `n${i}`,
+                age: i,
+              })),
+            },
+          })
+        ).rejects.toMatchObject({ code: "V8003" });
+        // workerd reports from a later task: give it one.
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      } finally {
+        process.off("unhandledRejection", record);
+      }
+      expect(unhandled).toEqual([]);
+    });
+  });
+
   test("a statement over the platform's 100 KB fails", async () => {
     await withClient(async (client) => {
       await expect(

@@ -31,7 +31,11 @@ const post = s
   })
   .map("posts");
 
-it("a V8003 refusal on D1 leaves no rejection without a handler", async () => {
+/**
+ * A D1 client whose database throws on any use, recording what it touched and
+ * every rejection reported without a handler until `process.off`.
+ */
+function refusingClient() {
   const touched: string[] = [];
   const database = new Proxy(
     {},
@@ -48,6 +52,11 @@ it("a V8003 refusal on D1 leaves no rejection without a handler", async () => {
   const unhandled: unknown[] = [];
   const record = (reason: unknown) => unhandled.push(reason);
   process.on("unhandledRejection", record);
+  return { touched, unhandled, client, record };
+}
+
+it("a V8003 refusal on D1 leaves no rejection without a handler", async () => {
+  const { touched, unhandled, client, record } = refusingClient();
   try {
     await expect(
       client.post.createMany({
@@ -61,6 +70,20 @@ it("a V8003 refusal on D1 leaves no rejection without a handler", async () => {
         skipDuplicates: true,
       })
     ).rejects.toMatchObject({ code: "V8003" });
+    // workerd reports from a later task: give it one.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  } finally {
+    process.off("unhandledRejection", record);
+  }
+  expect({ touched, unhandled }).toEqual({ touched: [], unhandled: [] });
+});
+
+it("D1's callback-transaction refusal leaves no rejection without a handler", async () => {
+  const { touched, unhandled, client, record } = refusingClient();
+  try {
+    await expect(
+      client.$transaction(async (tx) => tx.post.count())
+    ).rejects.toMatchObject({ code: "V5001" });
     // workerd reports from a later task: give it one.
     await new Promise((resolve) => setTimeout(resolve, 20));
   } finally {

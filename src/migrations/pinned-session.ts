@@ -566,9 +566,16 @@ function createPinnedSessionView<D extends AnyDriver>(
             throw failure;
           }
         };
-        return locked === undefined
-          ? run()
-          : run().catch((failure: unknown) => locked.failed(failure));
+        // Awaited, never returned or chained: `run` and `failed` can reject
+        // before an `async` frame or a `.catch` adopts their promise a
+        // microtask later, which workerd's process emulation reports as
+        // unhandled (`nodejs-compat-rejections.test.ts`).
+        try {
+          return await run();
+        } catch (failure) {
+          if (locked === undefined) throw failure;
+          return await locked.failed(failure);
+        }
       },
     },
     // The lease holds the queue for the whole session, so there is no queue
