@@ -72,6 +72,7 @@ import type {
   AddForeignKeyOperation,
   AddPrimaryKeyOperation,
   AddUniqueConstraintOperation,
+  AdoptionHazard,
   AlterColumnOperation,
   AlterEnumOperation,
   CreateEnumOperation,
@@ -107,6 +108,14 @@ import {
   mysqlSelectTargetStatement,
   proveMySQLExactValueSession,
 } from "./pinned-session";
+
+/**
+ * The engine and collation every table VibORM creates is spelled with; its
+ * columns write none, so each character column carries the table's. The
+ * declaration an adoption is proven against states both.
+ */
+const MYSQL_TABLE_ENGINE = "InnoDB";
+const MYSQL_TABLE_COLLATION = "utf8mb4_0900_bin";
 
 const MYSQL_POINT_ATTRIBUTE_START = MYSQL_TYPE_DEFAULTS.point.indexOf(" ");
 const MYSQL_POINT_BASE_TYPE = MYSQL_TYPE_DEFAULTS.point.slice(
@@ -279,6 +288,57 @@ export class MySQLMigrationDriver
 
   introspect(executeRaw: CatalogReader): Promise<SchemaSnapshot> {
     return introspectMySQL(executeRaw, this.namespace, this.target?.tables);
+  }
+
+  /**
+   * A trigger, a CHECK, an engine other than InnoDB, and a table or column
+   * collation other than the one VibORM's CREATE TABLE writes.
+   */
+  override async adoptionHazards(
+    tables: readonly string[],
+    executeRaw: CatalogReader
+  ): Promise<readonly AdoptionHazard[]> {
+    if (tables.length === 0) return [];
+    const namespace = await resolveCatalogNamespace(executeRaw, this.namespace);
+    const hazards: AdoptionHazard[] = [];
+    for (const table of tables) {
+      const scope = [namespace, table];
+      const [shape] = (
+        await executeRaw<{
+          ENGINE: string | null;
+          TABLE_COLLATION: string | null;
+        }>(
+          "SELECT ENGINE, TABLE_COLLATION FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?",
+          scope
+        )
+      ).rows;
+      const triggers = await executeRaw<{ name: string }>(
+        "SELECT TRIGGER_NAME AS name FROM information_schema.TRIGGERS WHERE EVENT_OBJECT_SCHEMA = ? AND EVENT_OBJECT_TABLE = ? ORDER BY TRIGGER_NAME",
+        scope
+      );
+      const checks = await executeRaw<{ name: string }>(
+        "SELECT CONSTRAINT_NAME AS name FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND CONSTRAINT_TYPE = 'CHECK' ORDER BY CONSTRAINT_NAME",
+        scope
+      );
+      const collated = await executeRaw<{ name: string }>(
+        "SELECT COLUMN_NAME AS name FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLLATION_NAME IS NOT NULL AND COLLATION_NAME <> ? ORDER BY ORDINAL_POSITION",
+        [...scope, MYSQL_TABLE_COLLATION]
+      );
+      const features = [
+        ...triggers.rows.map(({ name }) => `trigger "${name}"`),
+        ...checks.rows.map(({ name }) => `CHECK constraint "${name}"`),
+        ...(shape?.ENGINE && shape.ENGINE !== MYSQL_TABLE_ENGINE
+          ? [`ENGINE=${shape.ENGINE}`]
+          : []),
+        ...(shape?.TABLE_COLLATION &&
+        shape.TABLE_COLLATION !== MYSQL_TABLE_COLLATION
+          ? [`the table collation ${shape.TABLE_COLLATION}`]
+          : []),
+        ...collated.rows.map(({ name }) => `a collation on column "${name}"`),
+      ];
+      hazards.push(...features.map((feature) => ({ table, feature })));
+    }
+    return hazards;
   }
 
   // ===========================================================================
@@ -680,7 +740,7 @@ export class MySQLMigrationDriver
       columnDefs.push(this.foreignKeyClause(fk, context));
     }
 
-    const sql = `CREATE TABLE ${this.tableRef(table.name, context.destination)} (\n  ${columnDefs.join(",\n  ")}\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin`;
+    const sql = `CREATE TABLE ${this.tableRef(table.name, context.destination)} (\n  ${columnDefs.join(",\n  ")}\n) ENGINE=${MYSQL_TABLE_ENGINE} DEFAULT CHARSET=utf8mb4 COLLATE=${MYSQL_TABLE_COLLATION}`;
 
     const statements = [sql];
 

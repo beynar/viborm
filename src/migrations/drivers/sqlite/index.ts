@@ -60,6 +60,7 @@ import type {
   AddForeignKeyOperation,
   AddPrimaryKeyOperation,
   AddUniqueConstraintOperation,
+  AdoptionHazard,
   AlterColumnOperation,
   AlterEnumOperation,
   CreateEnumOperation,
@@ -79,7 +80,7 @@ import type {
 import { SqlMigrationDriver } from "../sql";
 import { getSQLiteType } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
-import { introspect } from "./introspect";
+import { introspect, sqliteTableHazards } from "./introspect";
 
 const COMPUTED_DEFAULT_PREFIX = /^(?:CURRENT_(?:TIME|DATE|TIMESTAMP)|\()/i;
 
@@ -454,6 +455,32 @@ export class SQLite3MigrationDriver extends SqlMigrationDriver {
   // ===========================================================================
   // INTROSPECTION
   // ===========================================================================
+
+  /** A trigger on the table, and what its stored definition declares beyond the snapshot. */
+  override async adoptionHazards(
+    tables: readonly string[],
+    executeRaw: Parameters<typeof introspect>[0]
+  ): Promise<readonly AdoptionHazard[]> {
+    const hazards: AdoptionHazard[] = [];
+    for (const table of tables) {
+      const { rows } = await executeRaw<{
+        type: string;
+        name: string;
+        sql: string | null;
+      }>(
+        "SELECT type, name, sql FROM sqlite_master WHERE type IN ('table', 'trigger') AND lower(tbl_name) = lower(?) ORDER BY type, name",
+        [table]
+      );
+      for (const row of rows) {
+        const features =
+          row.type === "trigger"
+            ? [`trigger "${row.name}"`]
+            : sqliteTableHazards(row.sql ?? "");
+        hazards.push(...features.map((feature) => ({ table, feature })));
+      }
+    }
+    return hazards;
+  }
 
   /**
    * Also refuses, by name, every trigger and view a table recreation in

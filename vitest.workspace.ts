@@ -341,6 +341,7 @@ export default defineWorkspace([
   providerProject("mysql2", [
     "tests/providers/docker/mysql2*.test.ts",
     "tests/contracts/engine/query/decimal-wide-arithmetic-docker.test.ts",
+    "tests/unit/migrations/mysql-adoption-docker.test.ts",
     "tests/unit/migrations/mysql-strict-mode-docker.test.ts",
     "tests/unit/migrations/decimal-list-defaults-mysql-docker.test.ts",
     "tests/unit/migrations/mysql-defaults-docker.test.ts",

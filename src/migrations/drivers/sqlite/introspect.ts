@@ -204,6 +204,34 @@ function isWithoutRowid(sql: string): boolean {
 }
 
 /**
+ * What a stored `CREATE TABLE` declares beyond the snapshot's vocabulary and
+ * that changes how the table behaves: `STRICT` typing, an `ON CONFLICT`
+ * resolution on a key or NOT NULL (`REPLACE` overwrites a row a create would
+ * have refused), and a column collation other than BINARY, which the
+ * declaration never writes. A quoted collation name is not read, so it counts.
+ * An indexed column's collation is refused by every reader already (V8001),
+ * and a CHECK by introspection (V11009).
+ */
+export function sqliteTableHazards(sql: string): string[] {
+  const hazards: string[] = [];
+  if (sqliteDefinitionKeywords(sql).includes("STRICT")) hazards.push("STRICT");
+  for (const { text, columnName } of sqliteTableDefinitions(sql)) {
+    const words = sqliteDefinitionKeywords(text);
+    const where =
+      columnName === undefined
+        ? "a table constraint"
+        : `column "${columnName}"`;
+    if (words.some((word, i) => word === "ON" && words[i + 1] === "CONFLICT"))
+      hazards.push(`ON CONFLICT on ${where}`);
+    if (
+      words.some((word, i) => word === "COLLATE" && words[i + 1] !== "BINARY")
+    )
+      hazards.push(`a collation on ${where}`);
+  }
+  return hazards;
+}
+
+/**
  * Whether a column holds NULL. `PRAGMA table_info` reports what was declared,
  * and SQLite enforces more only in two places: a WITHOUT ROWID key, which it
  * already reports as `notnull = 1`, and the rowid alias — a rowid table's

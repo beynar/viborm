@@ -186,6 +186,109 @@ describe("a widened `tables` list", () => {
     }
   });
 
+  it("refuses before any effect a table carrying behaviour its declaration does not state", async () => {
+    const table = (definition: string, tail = "") =>
+      `CREATE TABLE "dependency" (${definition})${tail}`;
+    const plain = `"x" TEXT NOT NULL, "n" INTEGER NOT NULL, PRIMARY KEY ("x")`;
+    const index = `CREATE INDEX "dependency_n_idx" ON "dependency" ("n")`;
+    const hazards: [string, readonly string[]][] = [
+      [
+        'trigger "no_inserts"',
+        [
+          table(plain),
+          index,
+          `CREATE TRIGGER "no_inserts" BEFORE INSERT ON "dependency" BEGIN SELECT RAISE(ABORT, 'no'); END`,
+        ],
+      ],
+      // A create on a taken id would overwrite the row instead of failing.
+      [
+        "ON CONFLICT on a table constraint",
+        [
+          table(
+            `"x" TEXT NOT NULL, "n" INTEGER NOT NULL, PRIMARY KEY ("x") ON CONFLICT REPLACE`
+          ),
+          index,
+        ],
+      ],
+      [
+        'ON CONFLICT on column "n"',
+        [
+          table(
+            `"x" TEXT NOT NULL, "n" INTEGER NOT NULL ON CONFLICT IGNORE, PRIMARY KEY ("x")`
+          ),
+          index,
+        ],
+      ],
+      ["STRICT", [table(plain, " STRICT"), index]],
+      [
+        'a collation on column "note"',
+        [
+          table(
+            `"x" TEXT NOT NULL, "n" INTEGER NOT NULL, "note" TEXT COLLATE NOCASE, PRIMARY KEY ("x")`
+          ),
+          index,
+        ],
+      ],
+    ];
+    const noted = s
+      .model({ x: s.string().id(), n: s.int(), note: s.string().nullable() })
+      .index(["n"])
+      .map("dependency");
+    for (const [feature, ddl] of hazards) {
+      const [create, ...rest] = ddl;
+      const { driver, storage, baseState } = await estateWithRawTable([
+        create!,
+        `INSERT INTO "dependency" ("x", "n") VALUES ('kept', 1)`,
+        ...rest,
+      ]);
+      const before = await tableSql(driver);
+      const declared = feature.includes('"note"') ? noted : dependency;
+      const next = migrationsOf(driver, storage, { a, dependency: declared }, [
+        "a",
+        "dependency",
+      ]);
+      await next.generate({ name: "adopt", adopt: ["dependency"] });
+      for (const run of [
+        () => next.apply(),
+        () => next.reset({ dryRun: true }),
+      ]) {
+        const refused = await rejection(run());
+        expect(refused.code, feature).toBe("V11014");
+        expect(refused.message, feature).toContain(
+          `Cannot adopt "dependency": it has ${feature}`
+        );
+      }
+      expect((await next.status()).marker?.stateId, feature).toBe(baseState);
+      expect(await tableSql(driver), feature).toBe(before);
+      expect(await rows(driver), feature).toHaveLength(1);
+    }
+  });
+
+  it("asks only of the tables a path adopts: a managed table keeps its trigger", async () => {
+    const { driver, storage } = await estateWithRawTable();
+    const next = migrationsOf(driver, storage, { a, dependency }, [
+      "a",
+      "dependency",
+    ]);
+    await next.generate({ name: "adopt", adopt: ["dependency"] });
+    await next.apply();
+    await driver._executeRaw(
+      `CREATE TRIGGER "audit" AFTER INSERT ON "dependency" BEGIN SELECT 1; END`
+    );
+    expect(await next.verify()).toEqual({ ok: true });
+    const grown = s
+      .model({ x: s.string().id(), n: s.int(), note: s.string().nullable() })
+      .index(["n"])
+      .map("dependency");
+    const later = migrationsOf(driver, storage, { a, dependency: grown }, [
+      "a",
+      "dependency",
+    ]);
+    await later.generate({ name: "note" });
+    expect((await later.apply()).outcome).toBe("applied");
+    expect(await later.verify()).toEqual({ ok: true });
+  });
+
   it("adopts a WITHOUT ROWID table declared `.withoutRowid()`", async () => {
     const clustered = s
       .model({ x: s.string().id(), n: s.int() })

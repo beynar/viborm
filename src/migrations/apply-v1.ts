@@ -53,6 +53,7 @@ import {
   withLockedMigrationProducer,
 } from "./pinned-session";
 import {
+  assertAdoptable,
   assertEmptyManaged,
   assertLockedSinceDecision,
   assertNoDrift,
@@ -167,6 +168,7 @@ export async function applyV1(
         // One request per group holds no part's progress: refused instead.
         !runsMigrationBatches(pinned)
       );
+      await assertAdoptable(pinned, command, graph, origin, path);
       // A resumed edge's committed parts are already past the marker's
       // snapshot: the destination proof of its last part proves the rest.
       // Across the first edge: a table it adopts is not proven yet.

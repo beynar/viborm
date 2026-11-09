@@ -1224,7 +1224,13 @@ stored `adopts` breaking the last two, since `managedAt` relies on them. The
 program omits the table's CREATE, indexes, keys and an enum only adopted
 tables use; apply's origin proof excludes it and its destination proof
 includes it, so a live table unequal to the declaration (WITHOUT ROWID
-included) fails V11014 before the marker moves. `down` releases it with no
+included) fails V11014 before the marker moves. What changes behaviour and no
+snapshot states (triggers, conflict clauses, collations, engine, storage, row
+security, CHECK, deferrable keys: each dialect's `adoptionHazards`) is
+refused, V11014 naming table and feature, by `proof.ts` `assertAdoptable`,
+which apply and reset run before effects over the tables their path adopts
+and nothing else asks. The enum an adopted table uses joins the program's
+origin, so a new table's DDL qualifies it. `down` releases it with no
 DDL. Manual, low-lock and checkpoint states adopt nothing.
 
 Generation uses the strict resolver for every parent, including merges. Missing

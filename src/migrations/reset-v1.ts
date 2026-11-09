@@ -53,7 +53,7 @@ import {
   runProgram,
   withLockedMigrationProducer,
 } from "./pinned-session";
-import { assertLockedSinceDecision, proveLive } from "./proof";
+import { assertAdoptable, assertLockedSinceDecision, proveLive } from "./proof";
 import type { MigrationClient } from "./push/planner";
 import { fingerprintLive } from "./push-fingerprint";
 import { introspectManaged } from "./push-plan";
@@ -121,6 +121,7 @@ export async function resetV1(
       ),
       true
     );
+    await assertAdoptable(client.$driver, command, graph, null, path);
     return {
       preview: true,
       path,
@@ -287,6 +288,7 @@ export async function resetV1(
         // Where Neki needs a commit, each statement commits alone.
         true
       );
+      await assertAdoptable(pinned, command, graph, null, path);
       const begin = resetAttempt
         ? undefined
         : (producer: Parameters<typeof appendLedger>[0]) =>

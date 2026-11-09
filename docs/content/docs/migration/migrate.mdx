@@ -649,12 +649,39 @@ checkpoint.
 The transition records the names in an `adopts` field (shown by `show` and in
 the review SQL) and emits no DDL for the table, its indexes or its foreign
 keys. `apply` proves the origin without it, then proves the destination with
-it: the live table must equal the declaration, columns, types, keys, indexes,
-foreign keys and SQLite's `WITHOUT ROWID` included
-([`.withoutRowid()`](/docs/schema/model)). A table that differs fails with
-`V11014` and its differences before the marker moves; nothing ran, and the
-table and its rows are untouched. Fix the table or the model and apply again.
-Rows are kept. From then on the table is managed like any other.
+it: the live table must equal the declaration in what a schema snapshot
+states — its columns (name, type, nullability, default, auto-increment), its
+primary key, indexes (name, columns, uniqueness, method, partial predicate),
+unique constraints, foreign keys (columns, target, `ON DELETE`/`ON UPDATE`),
+and SQLite's `WITHOUT ROWID` ([`.withoutRowid()`](/docs/schema/model)). A
+table that differs fails with `V11014` and its differences before the marker
+moves; nothing ran, and the table and its rows are untouched. Fix the table or
+the model and apply again. Rows are kept. From then on the table is managed
+like any other.
+
+Some of what a hand-made table can carry changes how it behaves and is not in
+that vocabulary, so before any effect `apply` (and a `reset` replaying the
+adoption) also refuses, with `V11014` naming the table and the feature, an
+adopted table that has:
+
+- on SQLite: a trigger, `STRICT`, an `ON CONFLICT` clause (on the key, a NOT
+  NULL or a UNIQUE: `REPLACE` would overwrite a row a create should refuse),
+  or a column collation other than `BINARY`. A CHECK constraint is refused by
+  every SQLite command already (`V11009`), as is a non-`BINARY` collation on a
+  key or index column (`V8001`).
+- on PostgreSQL: a trigger, a rule, row-level security (enabled or forced),
+  `UNLOGGED` storage, a CHECK constraint, a `DEFERRABLE` key, or a column
+  collation other than its type's default (the declaration writes no
+  `COLLATE`, so the database default is what it states).
+- on MySQL: a trigger, a CHECK constraint, an engine other than InnoDB, or a
+  table or column collation other than `utf8mb4_0900_bin`, the one VibORM's
+  `CREATE TABLE` writes (a table made with the database default
+  `utf8mb4_0900_ai_ci` compares case-insensitively, and the columns VibORM
+  adds later would take it).
+
+Only the tables a transition adopts are read this way: a managed table keeps
+whatever triggers or settings you give it, and `verify` and every other
+command behave as before.
 
 `down` of an adopting state releases the table: no DDL runs, its rows stay,
 and the parent state no longer manages it. Applying again adopts it again,

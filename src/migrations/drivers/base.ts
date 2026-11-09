@@ -39,6 +39,12 @@ const ARRAY_TYPE = /\[\]$/;
 /** How the serializer ends an index, unique or foreign key name it derives. */
 const DERIVED_TAIL = /_(?:idx|f?key)$/;
 
+/** A feature of a live table that its adoption would take over unseen. */
+export interface AdoptionHazard {
+  readonly table: string;
+  readonly feature: string;
+}
+
 /** A name a native rename carries along, and the statement kind that does. */
 export interface DerivedRename {
   readonly kind: "constraint" | "index" | "type";
@@ -264,6 +270,21 @@ export abstract class MigrationDriver {
   ): Promise<boolean> {
     // Most dialects have no external schema requirement to prove.
     return false;
+  }
+
+  /**
+   * What each named live table carries that changes how it behaves and that
+   * no snapshot describes, so the adoption proof cannot see it (a trigger, a
+   * conflict clause, a collation the declaration does not state): one entry
+   * per table and feature, none when there is nothing. Asked only of the
+   * tables a command's path adopts (`assertAdoptable`, `proof.ts`): a managed
+   * table keeps whatever it has, and `verify` never asks.
+   */
+  async adoptionHazards(
+    _tables: readonly string[],
+    _executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>
+  ): Promise<readonly AdoptionHazard[]> {
+    return [];
   }
 
   /**

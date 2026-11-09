@@ -98,4 +98,103 @@ describeIfDocker("PostgreSQL adoption (docker)", () => {
       (await admin._executeRaw(`SELECT * FROM "${NS}"."dependency"`)).rows
     ).toEqual([{ id: "kept", status: "done" }]);
   }, 60_000);
+
+  const labelled = s
+    .model({ x: s.string().id(), n: s.int(), label: s.string() })
+    .index(["n"])
+    .map("dependency");
+  const COLUMNS = `"x" TEXT NOT NULL, "n" INTEGER NOT NULL, "label" TEXT NOT NULL`;
+  const KEY = `CONSTRAINT "dependency_pkey" PRIMARY KEY ("x")`;
+  const table = (body = `${COLUMNS}, ${KEY}`, kind = "TABLE") =>
+    `CREATE ${kind} "${NS}"."dependency" (${body})`;
+  const INDEX = `CREATE INDEX "dependency_n_idx" ON "${NS}"."dependency" ("n")`;
+  const SEED = `INSERT INTO "${NS}"."dependency" VALUES ('kept', 1, 'k')`;
+
+  it("refuses before any effect a table carrying behaviour its declaration does not state", async () => {
+    const hazards: [string, readonly string[]][] = [
+      ["CHECK constraints", [table(`${COLUMNS}, ${KEY}, CHECK ("n" > 0)`)]],
+      [
+        'a collation on column "label"',
+        [
+          table(
+            `"x" TEXT NOT NULL, "n" INTEGER NOT NULL, "label" TEXT COLLATE "C" NOT NULL, ${KEY}`
+          ),
+        ],
+      ],
+      [
+        "triggers",
+        [
+          table(),
+          `CREATE FUNCTION "${NS}".refuse() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'no'; END $$`,
+          `CREATE TRIGGER no_inserts BEFORE INSERT ON "${NS}"."dependency" FOR EACH ROW EXECUTE FUNCTION "${NS}".refuse()`,
+        ],
+      ],
+      [
+        "rules",
+        [
+          table(),
+          `CREATE RULE no_deletes AS ON DELETE TO "${NS}"."dependency" DO INSTEAD NOTHING`,
+        ],
+      ],
+      ["UNLOGGED storage", [table(undefined, "UNLOGGED TABLE")]],
+      [
+        "row-level security",
+        [
+          table(),
+          `ALTER TABLE "${NS}"."dependency" ENABLE ROW LEVEL SECURITY`,
+          `ALTER TABLE "${NS}"."dependency" FORCE ROW LEVEL SECURITY`,
+        ],
+      ],
+      [
+        "DEFERRABLE keys",
+        [table(`${COLUMNS}, ${KEY} DEFERRABLE INITIALLY DEFERRED`)],
+      ],
+    ];
+    for (const [feature, ddl] of hazards) {
+      await admin._executeRaw(`DROP SCHEMA IF EXISTS "${NS}" CASCADE`);
+      await admin._executeRaw(`CREATE SCHEMA "${NS}"`);
+      const [create, ...rest] = ddl;
+      const storage = await estateWithRawTable([create!, INDEX, SEED, ...rest]);
+      const next = migrationsOf(storage, { users, dependency: labelled }, [
+        "dependency",
+        "users",
+      ]);
+      const base = (await next.status()).marker?.stateId;
+      await next.generate({ name: "adopt", adopt: ["dependency"] });
+      for (const run of [
+        () => next.apply(),
+        () => next.reset({ dryRun: true }),
+      ]) {
+        await expect(run(), feature).rejects.toMatchObject({
+          code: "V11014",
+          message: expect.stringContaining(
+            `Cannot adopt "dependency": it has ${feature}`
+          ),
+        });
+      }
+      expect((await next.status()).marker?.stateId, feature).toBe(base);
+      expect(
+        (await admin._executeRaw(`SELECT * FROM "${NS}"."dependency"`)).rows,
+        feature
+      ).toHaveLength(1);
+    }
+  }, 120_000);
+
+  it("adopts the declaration's own shape, and never asks again once it is managed", async () => {
+    const storage = await estateWithRawTable([table(), INDEX, SEED]);
+    const next = migrationsOf(storage, { users, dependency: labelled }, [
+      "dependency",
+      "users",
+    ]);
+    await next.generate({ name: "adopt", adopt: ["dependency"] });
+    expect((await next.apply()).outcome).toBe("applied");
+    // Managed now: a trigger is the user's business, as on any managed table.
+    await admin._executeRaw(
+      `CREATE FUNCTION "${NS}".touch() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$`
+    );
+    await admin._executeRaw(
+      `CREATE TRIGGER touch BEFORE INSERT ON "${NS}"."dependency" FOR EACH ROW EXECUTE FUNCTION "${NS}".touch()`
+    );
+    expect(await next.verify()).toEqual({ ok: true });
+  }, 60_000);
 });
