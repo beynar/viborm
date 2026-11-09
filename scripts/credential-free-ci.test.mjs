@@ -182,6 +182,7 @@ test("CI keeps every delegated check and shallow sparse checkout", () => {
       "local-providers",
       "docker-providers",
       "surrealdb-provider",
+      "mssql-provider",
       "platform-providers",
     ]
   );
@@ -198,6 +199,7 @@ test("CI keeps every delegated check and shallow sparse checkout", () => {
     ["docker-providers", "--project=provider-pg\n"],
     ["docker-providers", "--project=provider-pgbouncer\n"],
     ["surrealdb-provider", "--project provider-surrealdb"],
+    ["mssql-provider", "--project provider-mssql"],
     ["platform-providers", "--project=provider-bun"],
     ["platform-providers", "VIBORM_RECURSIVE_WHERE_CHECKERS: bun"],
     ["platform-providers", "--project=provider-d1"],
@@ -213,9 +215,11 @@ test("CI keeps every delegated check and shallow sparse checkout", () => {
   assert.doesNotMatch(workflow, pullRequestPathCoverage);
   assert.doesNotMatch(workflow, perfTimingsVariable);
   // The release proof is exactly the set of jobs this workflow runs, the
-  // prototype's excepted: it reports, and no release waits on it.
+  // prototypes' excepted: they report, and no release waits on them.
   assert.deepEqual(
-    expandedJobNames(jobs).filter((name) => name !== "SurrealDB provider"),
+    expandedJobNames(jobs).filter(
+      (name) => name !== "SurrealDB provider" && name !== "SQL Server provider"
+    ),
     RELEASE_CI_JOBS
   );
 

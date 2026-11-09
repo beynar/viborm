@@ -31,8 +31,8 @@ interface ColumnRow {
   column_name: string;
   type_name: string;
   max_length: number;
-  precision: number;
-  scale: number;
+  numeric_precision: number;
+  numeric_scale: number;
   is_nullable: boolean;
   is_identity: boolean;
   is_computed: boolean;
@@ -86,7 +86,7 @@ export const catalogParams = (schema: string): unknown[] => [
 const TABLE_SCOPE =
   "t.schema_id = SCHEMA_ID(@p1) AND t.is_ms_shipped = 0 AND t.name NOT IN (@p2, @p3)";
 
-const COLUMNS_QUERY = `SELECT t.name AS table_name, c.name AS column_name, ty.name AS type_name, c.max_length, c.precision, c.scale, c.is_nullable, CAST(CASE WHEN ic.column_id IS NULL THEN 0 ELSE 1 END AS BIT) AS is_identity, c.is_computed, dc.definition AS default_definition
+const COLUMNS_QUERY = `SELECT t.name AS table_name, c.name AS column_name, ty.name AS type_name, c.max_length, c.precision AS numeric_precision, c.scale AS numeric_scale, c.is_nullable, CAST(CASE WHEN ic.column_id IS NULL THEN 0 ELSE 1 END AS BIT) AS is_identity, c.is_computed, dc.definition AS default_definition
 FROM sys.columns AS c
 JOIN sys.tables AS t ON t.object_id = c.object_id
 JOIN sys.types AS ty ON ty.user_type_id = c.user_type_id
@@ -140,8 +140,8 @@ function spellType(row: ColumnRow): string {
   if (LENGTH_TYPES.has(row.type_name))
     return `${name}(${length ?? row.max_length})`;
   if (row.type_name === "decimal" || row.type_name === "numeric")
-    return `${name}(${row.precision},${row.scale})`;
-  if (SCALED_TYPES.has(row.type_name)) return `${name}(${row.scale})`;
+    return `${name}(${row.numeric_precision},${row.numeric_scale})`;
+  if (SCALED_TYPES.has(row.type_name)) return `${name}(${row.numeric_scale})`;
   return name;
 }
 
@@ -192,7 +192,11 @@ function readColumn(row: ColumnRow, managed: boolean): ColumnDef {
     );
   const decimal =
     row.type_name === "decimal" || row.type_name === "numeric"
-      ? readStoredDecimalDescriptor(row.precision, row.scale, "mssql")
+      ? readStoredDecimalDescriptor(
+          row.numeric_precision,
+          row.numeric_scale,
+          "mssql"
+        )
       : undefined;
   return {
     name: row.column_name,
