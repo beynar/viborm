@@ -95,9 +95,9 @@ a state the next `push` plans from.
   refuses every write. A build that failed, or one still going after 5 minutes, fails the command
   with `V11023` (`MIGRATION_INVALID_INDEX`), naming the index, its table and the server's reason;
   the migration's statements stay committed. Remove the duplicate values and run `REBUILD INDEX`, or
-  `REMOVE INDEX`. A program defining no index `CONCURRENTLY` reads nothing more. A row a hand-written
-  step of the same migration writes into the new table is in the build: a duplicate there fails it
-  the same way.
+  `REMOVE INDEX`. A program whose statements never say `CONCURRENTLY` reads nothing more. A row a
+  hand-written step of the same migration writes into the new table is in the build: a duplicate
+  there fails it the same way.
 - **`reset`** replays the whole history. A history holding a column rename conflicts with itself
   there (`V5001`); `push` and `apply` are not affected.
 - **Concurrent commands** take a lock record, `viborm_migration_lock:command`, with a 15-minute lease:

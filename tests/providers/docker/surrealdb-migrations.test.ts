@@ -937,9 +937,9 @@ describe.skipIf(!surrealUrl)("the indexes of a new table", () => {
         "DEFINE INDEX item_rank_idx ON item FIELDS rank CONCURRENTLY;",
       ]);
       // Their builds were read once the program had run, and push returned after.
-      const defined = driver.statements.findLastIndex((sql) =>
-        sql.includes("CONCURRENTLY")
-      );
+      const defined = driver.statements
+        .map((sql) => sql.includes("CONCURRENTLY"))
+        .lastIndexOf(true);
       expect(
         driver.statements
           .slice(defined)
@@ -956,6 +956,47 @@ describe.skipIf(!surrealUrl)("the indexes of a new table", () => {
         db.item.create({ data: { id: "b", email: "same", rank: 2 } })
       ).rejects.toThrow();
       expect((await preview(db)).outcome).toBe("noop");
+    });
+  });
+
+  it("are waited for in a program run statement by statement too", async () => {
+    const driver = createSurrealRecordingDriver();
+    const db = clientOf(schema(), driver);
+    await using(db, async () => {
+      await syncLiveSchema(db);
+      await db.item.create({ data: { id: "a", email: "a", rank: 1 } });
+      // A backfilled field and an index over it cannot share a transaction.
+      const next = nextVersion(
+        {
+          item: s
+            .model({
+              id: s.string().id(),
+              email: s.string().unique(),
+              rank: s.int(),
+              level: s.int().default(3),
+            })
+            .index(["rank"])
+            .index(["level"]),
+          tag: s.model({ id: s.string().id(), label: s.string().unique() }),
+        },
+        db
+      );
+      driver.statements.length = 0;
+      const applied = await push(next);
+      expect(statements(applied)).toContain(
+        "DEFINE INDEX tag_label_key ON tag FIELDS label UNIQUE CONCURRENTLY;"
+      );
+      expect(statements(applied)).toContain(
+        "DEFINE INDEX item_level_idx ON item FIELDS level;"
+      );
+      const defined = driver.statements
+        .map((sql) => sql.includes("CONCURRENTLY"))
+        .lastIndexOf(true);
+      expect(
+        driver.statements
+          .slice(defined)
+          .some((sql) => sql.includes("INFO FOR INDEX"))
+      ).toBe(true);
     });
   });
 
@@ -979,7 +1020,12 @@ describe.skipIf(!surrealUrl)("the indexes of a new table", () => {
     const db = clientOf(schema(), driver);
     await using(db, async () => {
       await (driver as unknown as { fresh(): Promise<void> }).fresh();
-      await expect(push(db)).rejects.toMatchObject({
+      // Within a managed scope, which is what the builds are read over.
+      const migrations = createMigrationClient(db, { tables: ["item"] });
+      const plan = await migrations.push({ dryRun: true });
+      await expect(
+        migrations.push({ consent: plan.consent })
+      ).rejects.toMatchObject({
         code: "V11023",
         message: expect.stringMatching(BUILD_FAILED),
         meta: { table: "item", indexName: "item_email_key" },

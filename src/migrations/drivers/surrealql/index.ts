@@ -166,7 +166,8 @@ type EventInfo = { readonly name: string; readonly comment?: string };
 type IndexBuild = {
   readonly table: string;
   readonly index: string;
-  readonly building: { readonly status: string; readonly error?: string };
+  readonly status: string;
+  readonly error?: string;
 };
 type TableInfo = {
   readonly fields: readonly FieldInfo[];
@@ -615,8 +616,8 @@ export class SurrealMigrationDriver extends MigrationDriver {
     name: string,
     columns: readonly string[],
     unique: boolean,
-    comment?: unknown,
-    concurrently = false
+    concurrently = false,
+    comment?: unknown
   ): string {
     const facts =
       comment === undefined
@@ -648,17 +649,17 @@ export class SurrealMigrationDriver extends MigrationDriver {
           index.name,
           columns,
           index.unique,
+          concurrently,
           index.type && index.type !== "btree"
             ? { type: index.type }
-            : undefined,
-          concurrently
+            : undefined
         ),
       ];
     const condition = this.partialCondition(table, index);
     const facts: PartialFacts = { where: index.where, columns: index.columns };
     if (!index.unique)
       return [
-        this.index(table.name, index.name, columns, false, facts, concurrently),
+        this.index(table.name, index.name, columns, false, concurrently, facts),
       ];
     const self = this.escapeIdentifier(table.name);
     const read = columns.map((column) => this.escapeIdentifier(column));
@@ -667,7 +668,7 @@ export class SurrealMigrationDriver extends MigrationDriver {
     return [
       `DEFINE FIELD OVERWRITE ${this.escapeIdentifier(field)} ON ${self} TYPE any VALUE IF ${condition} { ${value} } ELSE { NONE } COMMENT ${JSON.stringify(JSON.stringify({ partial: true }))};`,
       ...(populated ? [`UPDATE ${self} RETURN NONE;`] : []),
-      this.index(table.name, index.name, [field], true, facts, concurrently),
+      this.index(table.name, index.name, [field], true, concurrently, facts),
     ];
   }
 
@@ -1012,7 +1013,6 @@ export class SurrealMigrationDriver extends MigrationDriver {
               unique.name,
               [end === 0 ? "in" : "out"],
               true,
-              undefined,
               concurrently
             ),
           ];
@@ -1030,7 +1030,6 @@ export class SurrealMigrationDriver extends MigrationDriver {
             `${table.name}_pair`,
             ["in", "out"],
             true,
-            undefined,
             concurrently
           ),
           ...singular,
@@ -1112,7 +1111,6 @@ export class SurrealMigrationDriver extends MigrationDriver {
           unique.name,
           unique.columns.map((column) => partName(table, column)),
           true,
-          undefined,
           empty
         )
       ),
@@ -2024,33 +2022,26 @@ export class SurrealMigrationDriver extends MigrationDriver {
     producer: AnyDriver,
     statements: readonly string[]
   ): Promise<void> {
-    if (!statements.some(buildsIndexConcurrently)) return;
+    // Only VibORM's own index definitions say it: elsewhere it costs one read.
+    if (!statements.some((sql) => sql.includes(" CONCURRENTLY"))) return;
     const tables = this.target?.tables;
     const deadline = Date.now() + INDEX_BUILD_WAIT_MS;
     for (let pause = INDEX_BUILD_FIRST_PAUSE_MS; ; ) {
       const { rows } = await producer._executeRaw<IndexBuild>(
-        `RETURN array::flatten((INFO FOR DB STRUCTURE).tables${tables ? ".filter(|$t| $t.name IN $p1)" : ""}.map(|$t| (INFO FOR TABLE $t.name STRUCTURE).indexes.map(|$i| { table: $t.name, index: $i.name, building: (INFO FOR INDEX $i.name ON $t.name).building }))).filter(|$i| $i.building.status != "ready")`,
-        tables ? [tables] : []
+        `RETURN (INFO FOR DB STRUCTURE).tables${tables ? ".filter(|$t| $t.name IN $p1)" : ""}.map(|$t| (INFO FOR TABLE $t.name STRUCTURE).indexes.map(|$i| { table: $t.name, index: $i.name } + (INFO FOR INDEX $i.name ON $t.name).building)).flatten().filter(|$i| $i.status != "ready")`,
+        [tables]
       );
-      const failed = rows.find(({ building }) => building.status === "error");
-      if (failed) {
-        const named = `${this.escapeIdentifier(failed.index)} ON ${this.escapeIdentifier(failed.table)}`;
+      const [first] = rows;
+      if (!first) return;
+      const failed = rows.find(({ status }) => status === "error");
+      if (failed || Date.now() >= deadline) {
+        const { table, index, error } = failed ?? first;
         throw new MigrationError(
-          `SurrealDB index "${failed.table}.${failed.index}" failed to build: ${failed.building.error ?? "the server gave no reason"}. The migration's statements committed, but the table refuses every write until the index is fixed: remove the duplicate values and run REBUILD INDEX ${named}, or REMOVE INDEX ${named}.`,
+          `SurrealDB index "${table}.${index}" ${failed ? `failed to build: ${error}` : "is not ready"}; the migration committed: fix the rows, then REBUILD or REMOVE the index.`,
           VibORMErrorCode.MIGRATION_INVALID_INDEX,
-          { meta: { table: failed.table, indexName: failed.index } }
+          { meta: { table, indexName: index } }
         );
       }
-      const [unfinished] = rows;
-      if (!unfinished) return;
-      if (Date.now() >= deadline)
-        throw new MigrationError(
-          `SurrealDB index "${unfinished.table}.${unfinished.index}" is still building ${INDEX_BUILD_WAIT_MS / 1000} s after the migration committed (status "${unfinished.building.status}"). The migration's statements committed; a unique index lets a duplicate in until its build is ready. Read its progress with INFO FOR INDEX ${this.escapeIdentifier(unfinished.index)} ON ${this.escapeIdentifier(unfinished.table)}.`,
-          VibORMErrorCode.MIGRATION_INVALID_INDEX,
-          {
-            meta: { table: unfinished.table, indexName: unfinished.index },
-          }
-        );
       await new Promise((resolve) => setTimeout(resolve, pause));
       pause = Math.min(pause * 2, INDEX_BUILD_LAST_PAUSE_MS);
     }
@@ -2083,14 +2074,6 @@ export class SurrealMigrationDriver extends MigrationDriver {
       );
     }
   }
-}
-
-/** Whether a statement of `sql` defines an index built in the background. */
-function buildsIndexConcurrently(sql: string): boolean {
-  return readSurrealStatements(sql).some(
-    ([verb, noun, ...rest]) =>
-      verb === "DEFINE" && noun === "INDEX" && rest.includes("CONCURRENTLY")
-  );
 }
 
 /** One try: a conflict at commit is another command taking it. */

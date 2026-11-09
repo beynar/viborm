@@ -1274,24 +1274,19 @@ export async function runProgram<T>(
     return result;
   }
   const { phase } = program;
-  const result = await withForeignKeysLifted(
-    pinned,
-    bracket,
-    async (inside) => {
-      const value = await pinned.withTransaction(async (transaction) => {
-        const done = await inside(transaction, (producer) =>
-          body(producer, true)
-        );
-        if (phase) phase.committing = true;
-        return done;
-      });
-      if (phase) phase.committed = true;
+  return withForeignKeysLifted(pinned, bracket, async (inside) => {
+    const result = await pinned.withTransaction(async (transaction) => {
+      const value = await inside(transaction, (producer) =>
+        body(producer, true)
+      );
+      if (phase) phase.committing = true;
       return value;
-    }
-  );
-  // What the program builds in the background, once it has committed.
-  await command.awaitIndexBuilds?.(pinned, program.statements);
-  return result;
+    });
+    if (phase) phase.committed = true;
+    // What the program builds in the background, once it has committed.
+    await command.awaitIndexBuilds?.(pinned, program.statements);
+    return result;
+  });
 }
 
 /**
