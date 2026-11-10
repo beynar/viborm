@@ -35,7 +35,11 @@ import {
   Surreal,
   Uuid,
 } from "surrealdb";
-import { Driver, TransactionBoundDriver } from "../driver";
+import {
+  type CommitRerunningDriver,
+  Driver,
+  TransactionBoundDriver,
+} from "../driver";
 import { getExecutionTransactionPhases } from "../execution-context";
 import type {
   DriverTransactionOptions,
@@ -235,7 +239,10 @@ export interface SurrealDriverOptions {
   readonly rerunsOnConflict?: number;
 }
 
-export class SurrealDriver extends Driver<Surreal, ReplayedTransaction> {
+export class SurrealDriver
+  extends Driver<Surreal, ReplayedTransaction>
+  implements CommitRerunningDriver
+{
   readonly adapter = FACTS;
   override readonly backend = queryBackend({
     queries: SurrealQueries,
@@ -377,10 +384,10 @@ export class SurrealDriver extends Driver<Surreal, ReplayedTransaction> {
    * transaction, implements this, so a conflict inside a transaction stays
    * that transaction's.
    */
-  protected override async rerunRefusedCommit<T>(
+  async rerunRefusedCommit(
     statement: string,
-    send: () => Promise<T>
-  ): Promise<T> {
+    send: () => Promise<unknown>
+  ): Promise<unknown> {
     for (let attempt = 1; ; attempt++) {
       try {
         return await send();

@@ -4,7 +4,7 @@ import { errorCause } from "../errors/diagnostic-safety";
  * Apply, down, reset, and push consume this. There is no second executor.
  */
 
-import type { AnyDriver } from "../drivers/driver";
+import type { AnyDriver, CommitRerunningDriver } from "../drivers/driver";
 import { attachMissingMeta } from "../drivers/driver-error-context";
 import type { SqlDialect } from "../drivers/types";
 import {
@@ -39,7 +39,8 @@ export async function executeExactSql(
   parameters: readonly unknown[] = []
 ): Promise<void> {
   const send = () => producer._executeRaw(sql, [...parameters]);
-  await (producer["rerunRefusedCommit"]?.(sql, send) ?? send());
+  const rerunning = producer as AnyDriver & Partial<CommitRerunningDriver>;
+  await (rerunning.rerunRefusedCommit?.(sql, send) ?? send());
 }
 
 /** A dispatch's exact text and its decoded parameters. */
