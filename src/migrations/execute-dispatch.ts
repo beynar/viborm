@@ -39,9 +39,13 @@ export async function executeExactSql(
   parameters: readonly unknown[] = []
 ): Promise<void> {
   const send = () => producer._executeRaw(sql, [...parameters]);
-  const rerunning = producer as AnyDriver & Partial<CommitRerunningDriver>;
-  await (rerunning.rerunRefusedCommit?.(sql, send) ?? send());
+  await (reruns(producer) ? producer.rerunRefusedCommit(sql, send) : send());
 }
+
+const reruns = (
+  driver: AnyDriver
+): driver is AnyDriver & CommitRerunningDriver =>
+  typeof Reflect.get(driver, "rerunRefusedCommit") === "function";
 
 /** A dispatch's exact text and its decoded parameters. */
 function dispatchQuery(
