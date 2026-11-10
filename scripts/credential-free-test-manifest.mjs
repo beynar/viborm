@@ -530,7 +530,10 @@ export const EXTENDED_LOCAL_IMPORTED_PGLITE_SHARDS = Object.freeze(
  * process group holds more than one Node process running the ORM, so the
  * footprint does not support packing. `sqlite-exactly-once` races two child
  * processes against one database; packed with two other files it peaked at
- * 1271 MiB on Linux under Vitest 3 and 1440-1565 MiB under Vitest 4.
+ * 1271 MiB on Linux under Vitest 3 and 1440-1565 MiB under Vitest 4, and alone
+ * 1543-1572 MiB. That peak was its first race: both children transpiling the
+ * sources on a cold jiti cache at once, each about twice its warm footprint.
+ * One child now warms the cache first (1010 -> 757 MiB on macOS).
  */
 const EXTENDED_LOCAL_SOLO_TESTS = Object.freeze([
   "tests/unit/migrations/sqlite-exactly-once.test.ts",

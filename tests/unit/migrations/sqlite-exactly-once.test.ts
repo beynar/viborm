@@ -13,7 +13,11 @@
  * outlasted better-sqlite3's 5 s, and the loser reported V11005 instead.
  *
  * The children run the repository's sources through jiti, so the race needs no
- * build. Within one process, two `apply()` calls on one client are serialized
+ * build. One child loads them first, alone: on a cold jiti cache the racing
+ * pair would otherwise transpile them at the same instant, each child then
+ * holding about twice its warm footprint (250 MiB instead of 130 on macOS),
+ * and that moment was this file's process-group peak - over the 1536 MiB
+ * ceiling on Linux CI. The race starts from the same instant either way. Within one process, two `apply()` calls on one client are serialized
  * by the driver's connection queue, and the second is a no-op.
  */
 
@@ -30,7 +34,7 @@ import type { Sha256 } from "@migrations/identity";
 import { createFsStorageWriter } from "@migrations/storage/fs";
 import { sql } from "@sql";
 import Database from "better-sqlite3";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { publishLegacyStepwise } from "./_legacy-stepwise";
 import { type RaceVersion, raceSchema } from "./_sqlite-race-schema";
 
@@ -74,6 +78,23 @@ interface RunnerResult {
   readonly message?: string;
 }
 
+function startChild(args: readonly string[]) {
+  return spawn(process.execPath, [jiti, child, ...args], {
+    cwd: root,
+    env: { ...process.env, JITI_ALIAS },
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: CHILD_TIMEOUT_MS,
+  });
+}
+
+beforeAll(
+  () =>
+    new Promise<void>((done) => {
+      startChild(["--warm"]).on("exit", () => done());
+    }),
+  CHILD_TIMEOUT_MS
+);
+
 function runChild(
   file: string,
   estate: string,
@@ -81,16 +102,7 @@ function runChild(
   version: RaceVersion
 ): Promise<RunnerResult> {
   return new Promise((done) => {
-    const proc = spawn(
-      process.execPath,
-      [jiti, child, file, estate, String(startAt), version],
-      {
-        cwd: root,
-        env: { ...process.env, JITI_ALIAS },
-        stdio: ["ignore", "pipe", "pipe"],
-        timeout: CHILD_TIMEOUT_MS,
-      }
-    );
+    const proc = startChild([file, estate, String(startAt), version]);
     let out = "";
     let err = "";
     proc.stdout.on("data", (chunk) => {
