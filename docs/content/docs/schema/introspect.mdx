@@ -1,0 +1,205 @@
+---
+title: From an existing database
+description: "Read a PostgreSQL, MySQL or SQLite database into a JSON schema document, and query it at once"
+icon: database-zap
+---
+
+`viborm/schema/introspect` reads an existing database into a [JSON schema
+document](/docs/schema/json). The document gives a client directly:
+
+```ts
+import { createClient } from "viborm/pg";
+import { introspectSchema } from "viborm/schema/introspect";
+import { parseSchema } from "viborm/schema/json";
+
+const { document, skipped, warnings } = await introspectSchema({ url });
+const db = createClient({ schema: parseSchema(document), databaseUrl: url });
+```
+
+Or from the command line:
+
+```bash
+npx viborm pull --json --url "$DATABASE_URL" --out schema.json
+npx viborm pull --json --tables account post tag   # only these tables
+```
+
+`pull` writes the document (to `--out`, else stdout) and prints what it left
+out and every warning on stderr. `--url` defaults to `DATABASE_URL`, read from
+`.env` like every command.
+
+The document is the ordinary format, in [canonical
+form](/docs/schema/json#the-canonical-form): there is no second format, the
+client is an [`UntypedClient`](/docs/schema/json#the-untyped-client), and
+`push`, `serializeSchema` and every other consumer read it unchanged. A
+TypeScript schema is not generated yet; it will be written from this document.
+
+## The connection string
+
+| URL | Driver |
+| --- | --- |
+| `postgres://…`, `postgresql://…` | `pg` |
+| `mysql://…/database` | `mysql2` |
+| `file:./app.db`, `sqlite:./app.db`, `./app.db` (`.db`, `.sqlite`, `.sqlite3`) | `better-sqlite3`, opened **read-only**; a missing file is an error, never created |
+| `libsql://…`, `https://…`, `ws(s)://…` (`?authToken=…`) | `@libsql/client` |
+
+The driver's package is imported only for the URL that names it, and the
+connection is always closed, success or failure. To read through a driver you
+built — a D1 binding, a PostgreSQL `namespace`, a custom pool — pass it instead:
+`introspectSchema({ driver })`. That driver is yours and stays open.
+
+## What it returns
+
+```ts
+interface IntrospectSchemaResult {
+  document: SchemaDocument;
+  skipped: SkippedObject[];          // { kind, name, table?, reason }
+  warnings: IntrospectionWarning[];  // { kind: "approximated" | "drift", table?, name?, message }
+  dialect: "postgresql" | "sqlite" | "mysql";
+}
+```
+
+**Nothing is invented.** A fact the catalog does not prove is not in the
+document. Everything else is said:
+
+- `skipped` lists each object the document does not carry, with the reason.
+- An `approximated` warning names a field whose meaning is weaker than the
+  database proves.
+- A `drift` warning names a place where `push` with this document would change
+  the database. The document is parsed, serialized exactly as `push` serializes
+  a schema, and diffed against the snapshot the database was read into, with
+  push's own differ. **A result with no drift warning pushes as a no-op.**
+
+## Names
+
+Table and column names are kept as they are: no camelCase, no mapping. A model's
+key is its table name and a field's key is its column name. A column named like
+a reserved member (`_count`, `_distance`) gets another key and keeps its name
+through `column`. A table or column whose name is not an identifier (ASCII
+letters, digits and `_`, at most 63 bytes) cannot be mapped at all and is
+skipped.
+
+A relation has no database name, so it is named from its foreign key, the same
+way every time:
+
+| Foreign key | To-one on the owner | Inverse on the target |
+| --- | --- | --- |
+| `post.author_id → account` (one to `account`) | `author` (the column without `_id` / `Id`) | `post` |
+| `post.author_id`, `post.reviewer_id → account` | `author`, `reviewer` | `post_by_author`, `post_by_reviewer` |
+| `category.parent_id → category` | `parent` | `category_by_parent` |
+| `profile.account_id → account`, unique | `account` | `profile`, a to-one |
+| a column not ending in `_id` / `Id` | the target's key | as above |
+
+A name already taken by a column or another relation gets `_2`, `_3` …. Where two
+models share more than one relation, or a model relates to itself, each pair
+carries the foreign key's name as its pairing label (`name`). Referential
+actions are kept as declared.
+
+**Many-to-many.** A pure join table — two foreign keys that together are all of
+its columns and its primary key — becomes a many-to-many on both ends (`post.tag`
+and `tag.post`). When the table is exactly the junction VibORM would generate
+for that pair, the document states it as one (`junction: { table, source,
+target }`). Otherwise the table stays a model and the many-to-many walks through
+it (`junction: { model, source, target }`, see [a model as the
+junction](/docs/schema/relations/many-to-many#a-model-as-the-junction)), so its
+own indexes and actions are kept.
+
+## PostgreSQL
+
+| Column | Field |
+| --- | --- |
+| `text` | `string` |
+| `varchar(n)`, `char(n)`, `citext`, `inet`, `cidr`, `macaddr(8)`, `xml`, `tsvector`, `tsquery`, `bit(n)`, `varbit` | `string` with that `native` type |
+| `uuid` | `string` in the uuid domain (`generate: { kind: "uuid", generate: false }`); `DEFAULT gen_random_uuid()` makes it generated |
+| `integer`, `smallint`, `oid` | `int` (`native` for the last two) |
+| `bigint` | `bigint` |
+| `serial`, `GENERATED … AS IDENTITY` | `int` / `bigint` with `generate: { kind: "increment" }` |
+| `double precision`, `real` | `number` (`native: real`) |
+| `numeric(p, s)` | `decimal` with `precision` and `scale` |
+| `boolean`, `date`, `bytea` | `boolean`, `date`, `blob` |
+| `jsonb`, `json` | `json` (`native: json`) |
+| `timestamptz(3)`, `timestamp(3)` | `datetime`, `withoutTimezone` for the second; any other precision keeps its `native` type |
+| `time(p)`, `timetz(p)` | `time` with its `native` type |
+| an enum type | `enum`: inline when it is the column's own derived type (`<table>_<column>_enum`), else a named `enums` entry shared by its columns |
+| `T[]` | the element's field with `array: true` |
+
+Defaults read: literals of every type above (strings, numbers, booleans, JSON,
+arrays written `'{…}'`, timestamps), `now()` / `CURRENT_TIMESTAMP` (`generate:
+now`), `gen_random_uuid()`, sequences and identity. A unique constraint named
+the way PostgreSQL names one by default (`<table>_<columns>_key`) is `unique` /
+`uniques`; any other name is kept as a unique index of that name, which enforces
+the same key but is not a `findUnique` key (an `approximated` warning).
+
+## MySQL
+
+| Column | Field |
+| --- | --- |
+| `TEXT`, and `VARCHAR(191)` on a keyed column (VibORM's spelling of an indexed string) | `string` |
+| `VARCHAR(n)`, `CHAR(n)`, `TINYTEXT`, `MEDIUMTEXT`, `LONGTEXT`, `BIT(n)` | `string` with that `native` type |
+| `TINYINT(1)` | `boolean` |
+| `INT`; `TINYINT`, `SMALLINT`, `MEDIUMINT`, their `UNSIGNED`, `INT UNSIGNED`, `YEAR` | `int` (`native` for all but `INT`) |
+| `BIGINT`, `BIGINT UNSIGNED` | `bigint` (`native` for the second) |
+| `DOUBLE`, `FLOAT` | `number` (`native: FLOAT`) |
+| `DECIMAL(p, s)` | `decimal` |
+| `JSON` | `json` |
+| `BLOB`, `TINYBLOB`, `MEDIUMBLOB`, `LONGBLOB`, `BINARY(n)`, `VARBINARY(n)` | `blob` (`native` for all but `BLOB`) |
+| `BINARY(16)` key, or a foreign key to one | `string` uuid key (`approximated`: VibORM's uuid key storage) |
+| `DATE`, `DATETIME(3)`, `TIME(3)` | `date`, `datetime`, `time`; another precision, and `TIMESTAMP`, keep their `native` type |
+| `ENUM(…)` | `enum`, inline: MySQL has no enum object |
+
+`AUTO_INCREMENT` is `increment`, `CURRENT_TIMESTAMP(3)` is `now()`, and literal
+defaults are read with MySQL's escapes. MySQL has one unique namespace: a unique
+index named the way VibORM names a key (`<table>_<columns>_key`) is that key.
+A list is `JSON` on MySQL, as on SQLite, and reads back as `json`.
+
+## SQLite
+
+SQLite proves less: a column's declared type is free text, and VibORM stores
+several domains in one storage class. VibORM's own spellings are read exactly:
+`TEXT`, `INTEGER` (`AUTOINCREMENT` as `increment`), `REAL`, `BLOB`, `JSON`, the
+enum `TEXT CHECK("col" IN (…))`, a decimal's checked scaled `INTEGER`, and a
+DateTime whose default is VibORM's `now()`. Any other declared type
+(`VARCHAR(20)`, `BOOLEAN`, `DATETIME`, `NUMERIC`) is read by SQLite's affinity
+rules and is an `approximated` warning, since `push` would retype it.
+
+What a SQLite catalog cannot tell apart:
+
+| Stored as | Read as | Could also be |
+| --- | --- | --- |
+| `TEXT` | `string` | a `datetime`, `date` or `time` without `now()` |
+| `INTEGER` | `int` | a `boolean` or `bigint` |
+| `JSON` | `json` | a list (`array: true`) of any scalar |
+| `BLOB` key, or a foreign key to one | `string` uuid key (`approximated`) | a key of other bytes |
+
+A database VibORM pushed from a TypeScript schema therefore comes back with
+the same tables and an empty push plan, but those fields in their storage
+domain.
+
+## What is skipped
+
+| Object | Why |
+| --- | --- |
+| a view or materialized view | a document declares tables |
+| a table without a primary key | a model is addressed by one |
+| a table migration introspection refuses (generated column, partitioned table, an index it cannot spell, a type from another schema, PostGIS) | `push` refuses it too; the rest of the database is still read |
+| a column of a type with no scalar (`interval`, `money`, unconstrained `numeric`, bare `varchar`, `json[]`, `vector`, …) | push would drop it: the `drift` warning says so |
+| a default with no document spelling (`lower(…)`, `CURRENT_DATE`, `ARRAY[…]`) | the column is kept, the default is not |
+| a partial index, a raw (`.rawIndex()`) index | a document has no `where` and no raw index |
+| a foreign key to a skipped or unselected table, to columns that are not a key, or with `SET DEFAULT` | a relation needs both ends and a key |
+| a CHECK constraint (PostgreSQL) | the database keeps enforcing it |
+| an enum no translated column uses | a document declares an enum through its fields |
+
+Some exact facts a document cannot carry are drift rather than skips: a
+`timestamptz DEFAULT now()` (precision 6) is VibORM's `now()`, which truncates
+to milliseconds, so `push` would rewrite the default; a foreign key with no
+index gets the one VibORM creates; a constraint whose name is not the one
+VibORM derives is refused by `push` rather than renamed.
+
+To push a document against the database it came from, scope the push to the
+tables it declares (`createMigrationClient(client, { tables })`), or `push`
+would drop the tables it skipped.
+
+## Not yet
+
+SurrealDB is not translated yet (`introspectSchema` refuses it by name), nor
+are pgvector and PostGIS columns. A TypeScript schema file will be
+generated from the document later.

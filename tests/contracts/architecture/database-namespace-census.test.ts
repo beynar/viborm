@@ -128,6 +128,11 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   // between two counts of the referencing tables, all on the pinned session
   // or the transaction it opened.
   "src/migrations/foreign-keys.ts executeRaw 8",
+  // introspectSchema (viborm/schema/introspect) reads, never writes: the
+  // dialect's own introspection, the table inventory, and the identity,
+  // view and CHECK catalog reads, all on the one driver the call opened or
+  // was handed. It takes no lock and runs no migration DDL.
+  "src/migrations/introspect/read.ts executeRaw 2",
   // Compression (1.2.0): the unused `executeLiveNamespaceReset` executor and
   // its four `executeRaw` sites were deleted; the plan's `clear` statements now
   // run through the reset and push programs' own dispatch.
