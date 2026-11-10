@@ -570,12 +570,12 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
       );
       throw withSuppressedFailure(disconnectFailure, background);
     }
-    // AFTER a proven end, not before it: `end()` disposes idle clients whose
-    // own listeners can still re-emit on the pool. If end rejects, the still
-    // live pool keeps containment; its pre-start evidence travels on the public
-    // disconnect failure, exactly once.
+    // The pool keeps its listener for good. `end()` resolves once it has told
+    // its idle clients to close, not once their sockets have: pg's idle
+    // listener on each still re-emits on the pool what the server says on the
+    // way out, a terminated backend or a shutdown, after this has returned.
+    // Nothing reads it any more, and nothing throws it.
     if (errorState !== undefined) {
-      pool.off("error", errorState.retain);
       errorState.backgroundFailure = undefined;
       this.ownedPoolErrors.delete(pool);
     }
