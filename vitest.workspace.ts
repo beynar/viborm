@@ -326,6 +326,7 @@ export const projects: TestProjectConfiguration[] = [
     "tests/unit/migrations/postgres-transaction-pooler-docker.test.ts",
     "tests/unit/migrations/neon-http-batch-apply-docker.test.ts",
     "tests/unit/migrations/shared-pool-estates-docker.test.ts",
+    "tests/unit/migrations/introspect-schema-docker.test.ts",
   ]),
   // Push, generate and apply again, through a transaction-mode PgBouncer. Only
   // PGBOUNCER_TEST_CONNECTION_STRING is read: unset, the project skips rather
@@ -353,6 +354,7 @@ export const projects: TestProjectConfiguration[] = [
     "tests/unit/migrations/decimal-list-defaults-mysql-docker.test.ts",
     "tests/unit/migrations/mysql-defaults-docker.test.ts",
     "tests/unit/migrations/table-rename-derived-names-mysql-docker.test.ts",
+    "tests/unit/migrations/introspect-schema-mysql-docker.test.ts",
   ]),
   providerProject("transaction-options", [
     "tests/providers/docker/transaction-options-live.test.ts",

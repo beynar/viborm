@@ -15,6 +15,11 @@ const runtime = {
     // JSON-defined schemas (viborm/schema/json)
     "schema/json": "./src/schema/json/index.ts",
 
+    // A schema document from an existing database (viborm/schema/introspect):
+    // tooling, never imported by an application. It registers every migration
+    // driver and imports the driver a URL names on demand.
+    "schema/introspect": "./src/migrations/introspect/index.ts",
+
     // Driver base (viborm/driver)
     driver: "./src/drivers/exports.ts",
 
