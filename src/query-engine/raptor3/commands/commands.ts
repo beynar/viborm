@@ -9,10 +9,13 @@ import {
 import type { AnyModel } from "@schema/model";
 import { createFailureError } from "../../batch-error-attribution";
 import type { PreparedGuardFailure } from "../../types";
+import { writeSinks } from "../../write-sinks";
+import { InsertValue, Stored } from "../shared/insert-value";
 import type { OperationContext } from "../shared/operation-context";
 import {
   InvalidScalarResult,
   type PreparedSelector,
+  returningSafeProjection,
   type SelectorFacts,
 } from "../shared/query";
 import {
@@ -74,6 +77,8 @@ type Junction = Extract<Membership, { kind: "junction" }>;
 export interface RecordCommand {
   kind: "record";
   model: AnyModel;
+  /** The `$through` its nested write stated, for the link it is a target of. */
+  linkValues?: Input;
   fields: Assignments;
   body: CommandOccurrence[];
   transitions: Reference[];
@@ -133,6 +138,8 @@ export interface Condition {
 export interface Choose {
   kind: "choose";
   model: AnyModel;
+  /** The `$through` its nested write stated, for the link it is a target of. */
+  linkValues?: Input;
   fields: Assignments;
   lookup: Selection;
   foundRequirement?: MembershipRequirement;
@@ -154,10 +161,20 @@ export interface Choose {
     matched: Error;
   };
 }
+/** A column of a declared junction both rows of a link supply. */
+export interface SharedLinkColumn {
+  readonly column: string;
+  readonly source: FieldValue;
+  readonly target: FieldValue;
+}
 export interface Link {
   kind: "link";
   edge: Junction;
   values: Record<string, FieldValue>;
+  /** Checked when the values are known: two rows that disagree are no link. */
+  shared?: readonly SharedLinkColumn[];
+  /** The columns a `$through` states: an existing link takes them too. */
+  written?: Input;
   captured?: JunctionCapture;
   removals?: (Removal & { edge: Junction })[];
   /** The mutation this link is an effect of (its placement's origin, kept). */
@@ -405,6 +422,14 @@ export class Commands {
     };
     if (incoming)
       this.assignMembership(incoming.edge, command.fields, incoming.source);
+    // A write hook reads a created row back by its key.
+    if (
+      writeSinks
+        .get(this.context.attribution)
+        ?.wants(model["~"].names.ts!, "create")
+    )
+      for (const field of this.context.schema.keys(model))
+        command.fields.field(field);
     this.#relations(command, admitted, raw);
     return command;
   }
@@ -512,18 +537,36 @@ export class Commands {
         written.add(foreignField);
     }
     const kept: Input = {};
+    const computed: Input = {};
     for (const [field, value] of Object.entries(stamp))
-      if (raw[field] === undefined && !written.has(field))
+      if (raw[field] === undefined && !written.has(field)) {
+        // A value computed once the INSERT's rows are final is written as
+        // is: the insert asks it for its value (`InsertValue`).
+        if (value instanceof InsertValue) computed[field] = value;
         // `{ now: true }` writes the call's one instant (R7).
-        kept[field] =
-          value instanceof Parameter ? this.context.scope!.instant() : value;
+        else
+          kept[field] =
+            value instanceof Parameter ? this.context.scope!.instant() : value;
+      }
     // A create's stamps are admitted as a create admits them: a field only a
-    // create takes (an insert-only timestamp) is no update field.
+    // create takes (an insert-only timestamp) is no update field. An update's
+    // keep only their own fields: the update-data schema also generates the
+    // model's other update values (`updatedAt()`), which the occurrence's own
+    // admission already decided, over a caller's value or a field an
+    // extension keeps as stored.
     const values =
       kind === "create"
         ? this.context.schema.createValues(model, kept)
-        : this.context.schema.update(model, kept, true);
-    return this.context.schema.scalars(model, { ...admitted, ...values });
+        : Object.fromEntries(
+            Object.entries(
+              this.context.schema.update(model, kept, true)
+            ).filter(([field]) => field in kept)
+          );
+    return this.context.schema.scalars(model, {
+      ...admitted,
+      ...values,
+      ...computed,
+    });
   }
   /**
    * What an update occurrence of `model` is judged at (R3): the fields the
@@ -550,7 +593,8 @@ export class Commands {
     const writes: string[] = [];
     const slots = this.context.schema.index.get(model)!;
     for (const [field, value] of Object.entries(raw)) {
-      if (value === undefined) continue;
+      // A field kept as stored is not written (`Stored`).
+      if (value === undefined || value instanceof Stored) continue;
       const edge = slots.get(field)?.edge;
       if (edge === undefined) {
         writes.push(field);
@@ -1066,12 +1110,16 @@ export class Commands {
   }
   #readTarget(write: DependencyWrite, read: DependencyRead): void {
     const { lookup } = read;
-    if (
-      !lookup.origin ||
-      lookup.membershipOnly ||
-      lookup.source.kind === "producer"
-    )
-      return;
+    if (!lookup.origin || lookup.source.kind === "producer") return;
+    // A target that only takes a membership (a junction or child-held
+    // `connect`) is a guard its collection's phase order places ahead of its
+    // relation's clears and deletes (G3P-05); it is never moved. Where the
+    // schedule already reads it behind a write, it is read behind that write
+    // on the batch route too (`dependent`), as the interactive route reads
+    // it there: a connect by a unique an earlier update rewrote links the row
+    // holding it now, and one of a row an earlier delete removed fails as a
+    // missing target.
+    const placedOnly = lookup.membershipOnly === true;
     const scopes = [
       {
         model: lookup.model,
@@ -1092,12 +1140,17 @@ export class Commands {
           observed.scope.edge === mutation.edge.scope.edge;
         if (!sameEdge) continue;
         const origin = lookup.origin;
-        this.#depend(write, read, () =>
-          dependsOn(origin.operation, origin.relation, "membership write", {
-            conflictsWith: mutation.kind === "link" ? "connect" : "disconnect",
-            dependency: "membership",
-            overlap: "unknown",
-          })
+        this.#depend(
+          write,
+          read,
+          () =>
+            dependsOn(origin.operation, origin.relation, "membership write", {
+              conflictsWith:
+                mutation.kind === "link" ? "connect" : "disconnect",
+              dependency: "membership",
+              overlap: "unknown",
+            }),
+          placedOnly
         );
         return;
       }
@@ -1155,20 +1208,24 @@ export class Commands {
             (mutation.kind === "delete"
               ? "delete"
               : mutation.fields.operation));
-      this.#depend(write, read, () =>
-        dependsOn(
-          origin.operation,
-          origin.relation,
-          `'${operation}' target write`,
-          {
-            conflictsWith: operation,
-            dependency: "targetExistence",
-            overlap:
-              scope.exact && matched > 0 && matched === scope.fields.size
-                ? "equal"
-                : "unknown",
-          }
-        )
+      this.#depend(
+        write,
+        read,
+        () =>
+          dependsOn(
+            origin.operation,
+            origin.relation,
+            `'${operation}' target write`,
+            {
+              conflictsWith: operation,
+              dependency: "targetExistence",
+              overlap:
+                scope.exact && matched > 0 && matched === scope.fields.size
+                  ? "equal"
+                  : "unknown",
+            }
+          ),
+        placedOnly
       );
       return;
     }
@@ -1215,7 +1272,8 @@ export class Commands {
   #depend(
     write: DependencyWrite,
     read: DependencyRead,
-    refusal: () => NestedWriteError
+    refusal: () => NestedWriteError,
+    placedOnly = false
   ): void {
     const owner = read.owner;
     // A mutation's own effects are placed behind its read by construction: a
@@ -1277,6 +1335,7 @@ export class Commands {
       ? this.#runsBefore(producer, consumer, ancestor)
       : consumer.placement !== "before";
     if (!follows) {
+      if (placedOnly) return;
       const consumed =
         isRecordOccurrence(ancestor) &&
         (ancestor.command.fields.consumes(read.lookup.fields) ||
@@ -1813,14 +1872,22 @@ export class Commands {
    * Measured on PostgreSQL: without the lock both interleavings of a
    * create-with-connect leave a live child under a tombstone. Without a limit
    * no key is needed, so the lock is answered as one count
-   * ({@link Queries.lockAll}), and skipped where the provider has no row lock.
+   * ({@link Queries.lockAll}), and skipped where the provider has no row lock;
+   * but where the effect captures its rows' keys under a lock anyway (it is
+   * not `single`: no RETURNING carries its result), the lock IS that
+   * capture, read here and handed to the effect, which then locks nothing
+   * again (MySQL: the lock, the check, the UPDATE and the result's read).
    */
   #unreferenced(
     candidates: PreparedSelector,
     limit: number | undefined,
     single: boolean,
     effectBinds: (rows: number) => number,
-    effect: (window: PreparedSelector, limit?: number) => Promise<unknown>
+    effect: (
+      window: PreparedSelector,
+      limit?: number,
+      captured?: readonly Input[]
+    ) => Promise<unknown>
   ): PhysicalPlan {
     const blocked = this.blocked(candidates);
     if (!blocked) return { single, run: () => effect(candidates, limit) };
@@ -1848,6 +1915,8 @@ export class Commands {
         // candidates, the first `limit` in key order (`Queries.select`).
         let taken = candidates;
         let effectLimit: number | undefined;
+        // The keys the lock read, where the effect takes exactly them.
+        let captured: readonly Input[] | undefined;
         // A batch's window is SQL beside the candidates: the write re-checks
         // both on a row a concurrent writer changed (READ COMMITTED), so the
         // window alone would take a row that no longer matches.
@@ -1856,7 +1925,7 @@ export class Commands {
             candidates,
             queries.window(candidates, limit),
           ]);
-        else if (limit !== undefined) {
+        else if (limit !== undefined || !(single || ctx.usesBatch)) {
           // The effect takes exactly the rows the lock took, still under the
           // candidates' own predicates: a lock holds the row, not the related
           // rows a filter or a row domain reads.
@@ -1886,8 +1955,13 @@ export class Commands {
                 (queries.lowerSelector(exact, "budget")?.values.length ?? 0) +
                   effectBinds(rows.length) <=
                   budget));
-          if (exact && (fits || rows.length === 0)) taken = exact;
-          else {
+          if (exact && (fits || rows.length === 0)) {
+            taken = exact;
+            // Only an effect that captures takes them (else `exact` is its
+            // window, in one statement).
+            if (!single)
+              captured = rows.map((row) => ctx.schema.identity(model, row));
+          } else if (limit !== undefined) {
             // Too long to bind as keys: the candidates up to the last locked
             // key, and the effect keeps the limit, so a row that becomes a
             // candidate below that key after the lock still cannot make the
@@ -1908,7 +1982,7 @@ export class Commands {
         if (ctx.preparesBatch)
           ctx.packageGuard(model, query.sql, "notExists", failure);
         else await ctx.requireAbsent(query, this.restrictFailure(model)());
-        return effect(taken, effectLimit);
+        return effect(taken, effectLimit, captured);
       },
     };
   }
@@ -1993,8 +2067,11 @@ export class Commands {
    * premise). Both need scalar arms, a non-empty update naming no key of the
    * model and a RETURNING-safe projection on a RETURNING adapter; everything
    * else keeps the conditional form and, on this route, its existing answer.
-   * The targeted fold serves the live route too. Stamped writes retain their
-   * existing route, keeping stamp admission with the selected arm.
+   * The targeted fold serves the live route too, but for a model whose stamps
+   * admit a value: those keep their existing route, keeping stamp admission
+   * with the selected arm. A value the INSERT computes (`InsertValue`, an
+   * appended ordering key) is never admitted, and another model's stamps are
+   * not this write's.
    */
   #rootUpsert(
     model: AnyModel,
@@ -2003,8 +2080,26 @@ export class Commands {
   ): PhysicalPlan | undefined {
     const ctx = this.context;
     const capabilities = ctx.driver.adapter.capabilities;
-    if (!ctx.preparesBatch && ctx.scope?.rows.stamps !== undefined)
-      return undefined;
+    // A root upsert a hook concerns reports its arm: the fold says it through
+    // the adapter's marker, or else through a probe of its key in the same
+    // unit; an insert a policy judges keeps the found-or-missing form.
+    const name = model["~"].names.ts!;
+    const reporting = writeSinks.get(ctx.attribution);
+    const sink =
+      reporting?.wants(name, "create") || reporting?.wants(name, "update")
+        ? reporting
+        : undefined;
+    const probes =
+      sink !== undefined && ctx.driver.adapter.mutations.upserted === undefined;
+    const folds = !(probes && ctx.queries.domain?.produced(model));
+    const stamps = ctx.scope?.rows.stamps?.get(name);
+    const admits =
+      stamps !== undefined &&
+      (Object.keys(stamps.update ?? {}).length > 0 ||
+        Object.values(stamps.create ?? {}).some(
+          (value) => !(value instanceof InsertValue)
+        ));
+    if (!ctx.preparesBatch && (!folds || admits)) return undefined;
     if (args.targetWhere || args.setWhere) return undefined;
     if (!capabilities.supportsReturning) return undefined;
     if (
@@ -2068,15 +2163,24 @@ export class Commands {
       fields.every((field) =>
         ctx.queries.namesUpdate(model, field, updates[field])
       );
-    if (spelled)
+    if (spelled && folds && (!sink || returningSafeProjection(projection)))
       return {
-        single: true,
+        single: !probes,
         run: () =>
-          ctx.upsertOne(model, values, updates, key!.fields, projection, () => {
-            throw new TypeError(
-              "INSERT … ON CONFLICT did not produce the required record"
-            );
-          }),
+          ctx.upsertOne(
+            model,
+            values,
+            updates,
+            key!.fields,
+            projection,
+            () => {
+              throw new TypeError(
+                "INSERT … ON CONFLICT did not produce the required record"
+              );
+            },
+            sink?.upserted,
+            probes ? lookup.query() : undefined
+          ),
       };
     if (!ctx.preparesBatch) return undefined;
     // The locate read precedes the arm, so this form is never one statement.
@@ -2085,6 +2189,7 @@ export class Commands {
       run: async () => {
         const rows = await ctx.planningLocate(lookup.query(), model);
         const captured = rows[0];
+        sink?.upserted(!captured);
         if (!captured) return missing();
         // The row the unlocked probe found is updated only while it is still
         // a candidate: one hidden since then is the other's race, not found.
@@ -2245,8 +2350,18 @@ export class Commands {
               .length;
           return bound;
         },
-        (window, limit) =>
-          ctx.updateMany(model, window, values, limit, projection, missing)
+        // Keys the lock captured: the candidates, written where they hold
+        // one of those keys, as the effect's own capture would.
+        (window, limit, captured) =>
+          ctx.updateMany(
+            model,
+            captured ? selector : window,
+            values,
+            limit,
+            projection,
+            missing,
+            captured
+          )
       );
     }
     if (ctx.operation === "upsert") {

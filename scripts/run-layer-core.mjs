@@ -34,6 +34,7 @@ const LAYERS = new Set([
   "instrumentation",
   "migrations",
   "permissions",
+  "studio",
 ]);
 
 const layer = process.argv[2];
@@ -206,13 +207,12 @@ try {
     vitestEntry,
     [
       "run",
-      "--workspace",
+      "--config",
       "vitest.workspace.ts",
       "--project",
       `layer-${layer}`,
       "--reporter=dot",
       "--maxWorkers=1",
-      "--minWorkers=1",
       "--no-file-parallelism",
     ],
     768

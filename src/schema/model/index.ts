@@ -30,6 +30,8 @@ export type {
   InitialModelState,
   // State types
   ModelState,
+  RawIndexDefinition,
+  RawIndexTemplates,
 } from "./model";
 export {
   type AnyModel,

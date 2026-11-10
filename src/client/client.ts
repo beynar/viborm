@@ -9,6 +9,7 @@ import type { CacheExecutionOptions } from "@cache/driver";
 import type { WithCacheOptions } from "@cache/schema";
 import { ASYNC_DISPOSE, type AsyncDisposeMember } from "@drivers/async-dispose";
 import { readDriverIdentity } from "@drivers/driver-identity";
+import { CLIENT_DIAGNOSTICS } from "@drivers/execution-context";
 import type { AnyDriver } from "@drivers/exports";
 import type {
   BatchTransactionOptions,
@@ -32,6 +33,7 @@ import type {
 import {
   type AccumulatedExtensionState,
   bindExtensionMethods,
+  type DelegateState,
   type EmptyClientExtensionState,
   type EnableExtensionCache,
   type ExtensionMethods,
@@ -42,11 +44,14 @@ import {
   type HasResultConsumingExtension,
   type MergeModelMethods,
 } from "@extensions/methods";
+import { getOfficialInstrumentationChainCapability } from "@extensions/observation";
 import { TransactionWriteOutcomes } from "@extensions/query";
 import { applyRequestTransforms } from "@extensions/request";
 import { planResultFields } from "@extensions/result";
 import type { ResultInference } from "@extensions/result-types";
+import type { WritePlan } from "@extensions/writes";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
+import { enableFindUniqueBatching } from "@query-engine/find-unique-batch";
 import {
   attachPendingCacheExecution,
   type PendingOperation,
@@ -90,11 +95,15 @@ import {
 } from "./omit";
 import type {
   DeclaresEvidence,
+  DelegateCallArgs,
+  DelegateProjectedArgs,
+  DelegateProjectedResult,
   GatedConfig,
   ProjectedModelOperations,
 } from "./projected-types";
 import {
   createRawSurface,
+  createRowsFragment,
   RAW_METHOD_NAMES,
   type RawOperation,
   type RawSurface,
@@ -104,9 +113,12 @@ import type {
   CachedClient,
   Client,
   ClientRowsContext,
+  ComputedOperation,
+  ComputedResultContext,
   ContextualOperationResult,
   Operations,
   Schema,
+  WithComputedResult,
 } from "./types";
 
 export type {
@@ -152,6 +164,7 @@ function createModelProxy<S extends Schema, R>(
     args: unknown;
   }) => R,
   modelMethods?: ExtensionMethods["model"],
+  rowsOf?: (model: keyof S, alias: unknown) => unknown,
   path: string[] = []
 ): unknown {
   // A model's own methods, read (and their factories invoked) only once the
@@ -161,7 +174,11 @@ function createModelProxy<S extends Schema, R>(
     path.length === 0
       ? Object.keys(schema)
       : path.length === 1
-        ? [...ROUTED_OPERATIONS, ...Object.keys(methods ?? {})]
+        ? [
+            ...ROUTED_OPERATIONS,
+            ...(rowsOf ? ["$rows"] : []),
+            ...Object.keys(methods ?? {}),
+          ]
         : []
   );
   const children = new Map<string, unknown>();
@@ -173,10 +190,13 @@ function createModelProxy<S extends Schema, R>(
     }
     let child = children.get(key);
     if (child === undefined) {
-      child = createModelProxy(schema, createOperation, modelMethods, [
-        ...path,
-        key,
-      ]);
+      child =
+        key === "$rows" && rowsOf
+          ? (alias: unknown) => rowsOf(path[0]!, alias)
+          : createModelProxy(schema, createOperation, modelMethods, rowsOf, [
+              ...path,
+              key,
+            ]);
       children.set(key, child);
     }
     return child;
@@ -235,6 +255,14 @@ export interface VibORMConfig<S extends Schema = Schema> {
    * table and selector names, and the absence of required-relation cycles.
    */
   skipSchemaValidation?: boolean;
+  /**
+   * Answer the `findUnique` calls issued in the same tick with one read over
+   * their keys (Prisma's dataloader), instead of one read each. Off by
+   * default: the shared read runs in the first call's async context, so a
+   * driver that picks its database by `AsyncLocalStorage`, or a trace per
+   * request, sees that call's context for every call of the batch.
+   */
+  findUniqueBatching?: boolean;
 }
 
 export interface DriverConfig<S extends Schema = Schema>
@@ -406,6 +434,28 @@ export type TransactionClient<
     $transaction: TransactionMethod<C, X>;
   } & X["client"];
 
+/**
+ * The interactive transaction client of `Client`, a client `createClient`,
+ * `$extends` or a view such as `$as(actor)` returned: what code that takes
+ * "a client or a transaction" names for its transaction half.
+ *
+ * @example
+ * ```ts
+ * type Tx = TransactionClientOf<typeof db>;
+ * const rename = (tx: typeof db | Tx, id: string) =>
+ *   tx.page.update({ where: { id }, data: { title: "x" } });
+ * ```
+ */
+export type TransactionClientOf<Client> =
+  typeof clientTypeState extends keyof Client
+    ? Client extends ClientTypeState<
+        infer C,
+        infer X extends ExtensionStateConstraint
+      >
+      ? TransactionClient<C, X>
+      : never
+    : never;
+
 /** `$transaction`'s two forms: an interactive callback, or a batch array. */
 type TransactionMethod<
   C extends VibORMConfig,
@@ -423,6 +473,17 @@ type TransactionMethod<
   ): Promise<{ [K in keyof T]: Awaited<T[K]> }>;
 };
 
+/**
+ * What a factory given to `$extends` returns: a client. A conditional, not
+ * `Result & { readonly $schema: Schema }`: inferring `Result` against an
+ * intersection rebuilds the returned client without its alias, so an exported
+ * extended client's declaration spelled every delegate out (one ordered model:
+ * 1.2 MB). Inference reaches a conditional's branch with the type as returned.
+ */
+type FactoryResult<Result> = Result extends { readonly $schema: Schema }
+  ? Result
+  : { readonly $schema: Schema };
+
 declare const clientTypeState: unique symbol;
 
 /**
@@ -435,9 +496,16 @@ declare const clientTypeState: unique symbol;
 export type ClientTypeState<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
-> = [C] extends [unknown]
-  ? { readonly [clientTypeState]?: readonly [C, X] | object }
-  : never;
+> = [C] extends [unknown] ? ClientTypeStateMember<C, X> : never;
+
+/**
+ * The metadata's one member. An interface, so an inferred client's
+ * declaration names it rather than spelling its symbol-keyed member, which a
+ * declaration file cannot name.
+ */
+export interface ClientTypeStateMember<C, X> {
+  readonly [clientTypeState]?: readonly [C, X] | object;
+}
 
 /**
  * Extended client type with utility methods
@@ -477,7 +545,7 @@ export type VibORMClient<
  * The client members no extension state removes. An interface outside the
  * `Omit` above, so a body generic over the extension state still reaches them.
  */
-interface VibORMClientMembers<
+export interface VibORMClientMembers<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
 > {
@@ -532,9 +600,7 @@ interface VibORMClientMembers<
   // Check the factory output here: constraining the client-valued default
   // eagerly expands every delegate, even when applying a plain definition.
   $extends<Result = VibORMClient<C, X>>(
-    factory: (client: NoInfer<VibORMClient<C, X>>) => Result & {
-      readonly $schema: Schema;
-    }
+    factory: (client: NoInfer<VibORMClient<C, X>>) => FactoryResult<Result>
   ): Result;
   $extends<
     const Definition extends OfficialAwareDefinition<C, X, Definition>,
@@ -627,6 +693,82 @@ export type ExtendedOperationResult<
   : never;
 
 /**
+ * One operation's arguments on the model delegate `Delegate` it would run on:
+ * `Payload`, whose `select` and `include` admit the keys that delegate's chain
+ * projects (`$access`), as the operation's own projected overloads admit
+ * them. A model method constrains its arguments with it beside
+ * `DelegateOperationResult`: `restore<Self, A extends
+ * DelegateOperationArgs<Self, RestoreArgs>>(this: Self, args: A)`.
+ */
+export type DelegateOperationArgs<Delegate, Payload> =
+  Delegate extends DelegateState<unknown, unknown, unknown, infer K>
+    ? DelegateProjectedArgs<Delegate, Payload, K>
+    : Payload;
+
+/**
+ * One operation's result on the model delegate `Delegate` it would run on,
+ * as `ExtendedOperationResult` types it for that delegate's client. A model
+ * method declared with a `this` parameter types its result with it, so the
+ * result follows every extension applied after the method's own:
+ * `restore<Self, A>(this: Self, args: A): PendingOperation<
+ * DelegateOperationResult<Self, "update", A>>`.
+ */
+export type DelegateOperationResult<
+  Delegate,
+  O extends Operations,
+  Args,
+> = Delegate extends DelegateState<
+  infer C extends VibORMConfig,
+  infer Rows extends string,
+  infer Result extends object,
+  infer K
+>
+  ? // A key the chain projects (`$access`) reads as the operation's own
+    // projected overload reads it.
+    DelegateProjectedResult<
+      Delegate,
+      O,
+      K,
+      Args,
+      DelegateComputedRow<
+        C,
+        Rows,
+        Result,
+        K,
+        O,
+        DelegateCallArgs<Delegate, Args>
+      >
+    >
+  : // Called off a delegate (a destructured method): nothing to read the
+    // result from, and `unknown` makes using it a type error.
+    unknown;
+type DelegateComputedRow<
+  C extends VibORMConfig,
+  Rows extends string,
+  Result extends object,
+  K,
+  O extends Operations,
+  Args,
+> = [keyof Result] extends [never]
+  ? DelegateRow<C, Rows, K & keyof ClientSchema<C>, O, Args>
+  : // Computed fields reach the rows an operation returns, nothing else.
+    O extends Exclude<Operations, ComputedOperation>
+    ? DelegateRow<C, Rows, K & keyof ClientSchema<C>, O, Args>
+    : WithComputedResult<
+        DelegateRow<C, Rows, K & keyof ClientSchema<C>, O, Args>,
+        ClientSchema<C>[K & keyof ClientSchema<C>],
+        Args,
+        ComputedResultContext<Result, ClientSchema<C>, K>
+      >;
+type DelegateRow<
+  C extends VibORMConfig,
+  Rows extends string,
+  K extends keyof ClientSchema<C>,
+  O extends Operations,
+  Args,
+> = ContextualOperationResult<C, K, O, Args, ClientRowsContext<C, Rows>>;
+
+/**
  * VibORM Client
  */
 export class VibORM<C extends VibORMConfig> {
@@ -662,6 +804,8 @@ export class VibORM<C extends VibORMConfig> {
         registry: schemaRegistry,
       })
     );
+    if (config.findUniqueBatching === true)
+      enableFindUniqueBatching(this.#engine.route);
   }
 
   /**
@@ -683,7 +827,9 @@ export class VibORM<C extends VibORMConfig> {
           args,
           clientOmit
         ),
-      modelMethods
+      modelMethods,
+      (modelName, alias) =>
+        createRowsFragment(engine, this.#schema[modelName]!, alias)
     ) as Client<C>;
   }
 
@@ -725,23 +871,30 @@ export class VibORM<C extends VibORMConfig> {
     let prepareInput: PrepareOperationInput | undefined;
     const resultFields = chain?.result;
     let finishResult: ((value: unknown) => unknown) | undefined;
+    const writes = isWrite ? chain?.writes : undefined;
+    let writePlan: WritePlan | undefined;
     // Apply the client omit, then refuse an empty unique where, then plan
-    // the chain's computed fields.
+    // the chain's computed fields, then widen a write to the rows its hooks
+    // receive.
     const finish = (requestArgs: Record<string, unknown>) => {
       const omittedArgs = clientOmit
         ? applyClientOmit(model, operation, requestArgs, clientOmit)
         : requestArgs;
       assertNonEmptyUniqueWhere(modelNameStr, operation, omittedArgs);
-      if (resultFields === undefined) return omittedArgs;
-      const planned = planResultFields(
-        resultFields,
-        this.#relations,
-        model,
-        operation,
-        omittedArgs
-      );
-      finishResult = planned?.finish;
-      return planned?.args ?? omittedArgs;
+      let planned = omittedArgs;
+      if (resultFields !== undefined) {
+        const fields = planResultFields(
+          resultFields,
+          this.#relations,
+          model,
+          operation,
+          omittedArgs
+        );
+        finishResult = fields?.finish;
+        planned = fields?.args ?? omittedArgs;
+      }
+      writePlan = writes?.plan(model, operation, planned, chain!, omittedArgs);
+      return writePlan?.args ?? planned;
     };
 
     if (
@@ -775,17 +928,23 @@ export class VibORM<C extends VibORMConfig> {
     const prepareWriteOutcomeRegistration:
       | PrepareWriteOutcomeRegistration
       | undefined =
-      officialCache === undefined || !isWrite
+      (officialCache === undefined && writes === undefined) || !isWrite
         ? undefined
-        : (context, controls) =>
-            officialCacheRuntime().prepareMutationCacheWriteOutcome(
-              officialCache.driver,
-              modelNameStr,
-              operation,
-              officialCacheRuntime().readMutationCacheOptions(controls),
-              context,
-              officialCache.scope
-            );
+        : (context, controls) => {
+            const cached =
+              officialCache &&
+              officialCacheRuntime().prepareMutationCacheWriteOutcome(
+                officialCache.driver,
+                modelNameStr,
+                operation,
+                officialCacheRuntime().readMutationCacheOptions(controls),
+                context,
+                officialCache.scope
+              );
+            return writePlan
+              ? writePlan.register(context, controls, cached)
+              : cached;
+          };
 
     // Engine handles OrThrow suffix internally. Routing to the V2 operation is
     // decided lazily — before any I/O — for the whole payload. A cached read
@@ -794,14 +953,22 @@ export class VibORM<C extends VibORMConfig> {
       model,
       operation,
       operationArgs,
-      resultFields === undefined
+      resultFields === undefined && writes === undefined
         ? officialReadCache
           ? { skipSpan: true }
           : undefined
         : {
             ...(officialReadCache ? { skipSpan: true } : {}),
+            ...(writes && {
+              takeResult: (value: unknown, settle?: true) =>
+                writePlan ? writePlan.take(value, settle) : value,
+            }),
             finishResult: (value) =>
-              finishResult === undefined ? value : finishResult(value),
+              writePlan
+                ? writePlan.finish(value, finishResult)
+                : finishResult === undefined
+                  ? value
+                  : finishResult(value),
           },
       prepareInput,
       prepareWriteOutcomeRegistration
@@ -897,7 +1064,8 @@ export class VibORM<C extends VibORMConfig> {
         const key = runtime.cacheKeyOf(
           cacheResult.args,
           cacheResult.controls,
-          engine.extensionChain?.rows
+          engine.extensionChain?.rows,
+          engine.extensionChain?.order
         );
         if (key === undefined) return execute();
         return runtime.executeCachedResultOperation(
@@ -1047,6 +1215,7 @@ export class VibORM<C extends VibORMConfig> {
       const outcomes =
         chain?.hasQueryHandlers ||
         chain?.hasCache ||
+        chain?.writes ||
         (chain?.observe.length ?? 0) > 0
           ? new TransactionWriteOutcomes()
           : undefined;
@@ -1102,6 +1271,8 @@ export class VibORM<C extends VibORMConfig> {
       eager,
       (prop) => {
         if (prop === "$driver") return engine.driver;
+        if (prop === CLIENT_DIAGNOSTICS)
+          return getOfficialInstrumentationChainCapability(chain)?.diagnostics;
         if (prop === "$extends") {
           return (
             extension:
@@ -1197,9 +1368,14 @@ export class VibORM<C extends VibORMConfig> {
       // schema rather than at the first UPDATE that could not compute inside it.
       // On SQLite the refusal is load-bearing: past 18 digits its range CHECK
       // stops being exact (see the SQLite adapter's arithmetic guards).
-      const decimalRefusal = reused?.fittingDialects.has(config.driver.dialect)
-        ? undefined
-        : findDecimalProviderLimitRefusal(config.schema, config.driver.dialect);
+      const decimalRefusal =
+        config.driver.dialect === "surrealql" ||
+        reused?.fittingDialects.has(config.driver.dialect)
+          ? undefined
+          : findDecimalProviderLimitRefusal(
+              config.schema,
+              config.driver.dialect
+            );
       if (decimalRefusal !== undefined) {
         throw new ClientInitializationError(
           describeDecimalProviderLimitRefusal(decimalRefusal)
@@ -1356,11 +1532,12 @@ export const createClientFromDriverConfig = <
     C & { driver: D }
   >[P];
 }> => {
-  const { schema, skipSchemaValidation } = config;
+  const { schema, skipSchemaValidation, findUniqueBatching } = config;
   const coreConfig = {
     schema,
     driver,
     ...(skipSchemaValidation === undefined ? {} : { skipSchemaValidation }),
+    ...(findUniqueBatching === undefined ? {} : { findUniqueBatching }),
   };
   return VibORM.create<
     typeof coreConfig,

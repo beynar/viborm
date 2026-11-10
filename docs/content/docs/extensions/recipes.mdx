@@ -220,7 +220,10 @@ await db.post.update({ where: { id }, data, expectedVersion: 3 }); // NotFoundEr
 - **Cached reads are keyed on the value**, so two tenants never share a
   cache entry.
 - **Combine them freely.** Apply them in any order, before any extension
-  that adds model-mapped `query` handlers or `client`/`model` methods. When
+  whose model-mapped `query` handlers or `client`/`model` factories are typed
+  against the client they extend (TypeScript refuses `rows` after those; see
+  [Methods typed from the client they are called
+  on](/docs/extensions/create#methods-typed-from-the-client-they-are-called-on)). When
   two extensions write the same field, the one applied later wins. Their
   control names differ; two extensions that declare one name are refused
   where the second is applied, and one that names a control an earlier one

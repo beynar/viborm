@@ -25,6 +25,7 @@ import {
   type DatabaseAdapter,
   type GeoPointSql,
   installGeoPointSql,
+  type TextMatch,
 } from "../../database-adapter";
 import {
   BATCH_REFS_TABLE,
@@ -337,6 +338,12 @@ export interface SQLiteAdapterOptions {
    * they test (`capabilities.relationsPerStatement`). Absent: unbounded.
    */
   readonly relationsPerStatement?: number;
+  /**
+   * Whether the transport's affected-row count also counts the rows a foreign
+   * key's cascade changed (`capabilities.countsCascadedChanges`): Cloudflare
+   * D1's `meta.changes` does. Defaults to `false`, SQLite's own count.
+   */
+  readonly countsCascadedChanges?: boolean;
 }
 
 /**
@@ -403,21 +410,16 @@ const SQLITE_LITERALS = {
 const SQLITE_OPERATORS = {
   ...createComparisonOperators(),
 
-  // Explicit ESCAPE '\' pairs with wildcard escaping in the where-builder
-  like: (column: Sql, pattern: Sql): Sql =>
-    sql`${column} LIKE ${pattern} ESCAPE '\\'`,
-  notLike: (column: Sql, pattern: Sql): Sql =>
-    sql`${column} NOT LIKE ${pattern} ESCAPE '\\'`,
-  ilike: (column: Sql, pattern: Sql): Sql =>
-    sql`lower(${column}) LIKE lower(${pattern}) ESCAPE '\\'`,
-  notIlike: (column: Sql, pattern: Sql): Sql =>
-    sql`lower(${column}) NOT LIKE lower(${pattern}) ESCAPE '\\'`,
   containsText: (column: Sql, value: Sql): Sql =>
     sql`instr(${column}, ${value}) > 0`,
   startsWithText: (column: Sql, value: Sql): Sql =>
     sql`substr(${column}, 1, length(${value})) COLLATE BINARY = ${value}`,
   endsWithText: (column: Sql, value: Sql): Sql =>
     sql`substr(${column}, length(${column}) - length(${value}) + 1) COLLATE BINARY = ${value}`,
+  // SQLite's own `lower` folds ASCII only, unless the ICU extension replaced it.
+  insensitiveText(kind: TextMatch, column: Sql, value: Sql): Sql {
+    return this[`${kind}Text`](sql`lower(${column})`, sql`lower(${value})`);
+  },
   // GLOB, not LIKE — and this is the one place the "portable escaped LIKE"
   // premise of Decision 7.3 does not survive contact with SQLite. Both of
   // SQLite's LIKE-optimization preconditions fail here: an ESCAPE clause
@@ -463,7 +465,7 @@ const SQLITE_EXPRESSIONS = {
   ...createCommonExpressions(),
 
   // SQLite lower() intentionally provides the portable ASCII-only contract.
-  asciiCaseFold: (expr: Sql): Sql => sql`lower(${expr})`,
+  caseFold: (expr: Sql): Sql => sql`lower(${expr})`,
   caseSensitiveText: (expr: Sql): Sql => sql`${expr} COLLATE BINARY`,
 
   concat: (...parts: Sql[]): Sql => {
@@ -613,6 +615,10 @@ const SQLITE_JSON = {
   // the code-point ordering contract explicit alongside PG's COLLATE "C"
   stringAtPath: (column: Sql, path: string[]): Sql =>
     sql`((CASE WHEN json_type(${jsonExtract(column, path)}) = 'text' THEN ${jsonExtractText(column, path)} END) COLLATE BINARY)`,
+  // `lower` folds the same way under any collation, so the pin can stay.
+  foldableStringAtPath(column: Sql, path: string[]): Sql {
+    return this.stringAtPath(column, path);
+  },
 
   contains: (target: Sql, value: Sql): Sql =>
     sql`(json_type(${target}) = 'array' AND NOT EXISTS (SELECT 1 FROM json_each(${value}) AS required WHERE NOT EXISTS (SELECT 1 FROM json_each(${target}) AS candidate WHERE ${sqliteJsonEquals(sql`${target} -> candidate.fullkey`, sql`${value} -> required.fullkey`)})))`,
@@ -860,12 +866,15 @@ const SQLITE_RESULT: AdapterResultParser = {
 };
 
 const SQLITE_IDENTIFIERS = createIdentifiers(quoteIdent);
+// The main database's tables: a caller's CTE cannot stand for one of them.
+const SQLITE_PINNED_TABLE = createIdentifiers(quoteIdent, "main").table;
 
 const SQLITE_CLAUSES = createStandardClauses();
 
 const SQLITE_FILTERS = createRelationFilters();
 
-const SQLITE_SUBQUERIES = createSubqueries(quoteIdent);
+// Every table but a WITHOUT ROWID one keeps an implicit rowid.
+const SQLITE_SUBQUERIES = createSubqueries(quoteIdent, true);
 
 // A member is written once and inlined at every use: one a nested body reads
 // is compiled again inside each use of that body, so it is materialized.
@@ -913,6 +922,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
     sharedRelationBodies = false,
     compoundSelectTerms,
     relationsPerStatement,
+    countsCascadedChanges,
   }: SQLiteAdapterOptions = {}) {
     installGeoPointSql(this, this.geoPoint);
     if (!deepExpressions) {
@@ -930,6 +940,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
       this.capabilities.compoundSelectTerms = compoundSelectTerms;
     if (relationsPerStatement !== undefined)
       this.capabilities.relationsPerStatement = relationsPerStatement;
+    if (countsCascadedChanges) this.capabilities.countsCascadedChanges = true;
     // Only batches read the reference-table SQL, so it is built on first use.
     let batchRefs: BatchReferenceSqlAdapter | undefined;
     const createBatchRefs = () => this.#createBatchRefs(temporaryObjects);
@@ -939,6 +950,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
         return batchRefs;
       },
       constraints: sqliteConstraintIdentities,
+      pinnedTable: SQLITE_PINNED_TABLE,
       select: this.#assemble.select,
     });
   }

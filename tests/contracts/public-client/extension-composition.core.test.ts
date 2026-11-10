@@ -182,9 +182,8 @@ type AsMethods = {
 
 /**
  * The entry's two steps. `$as` binds the actor, so it lives where the actor
- * is declared: the rows step. That makes the rows step a client consumer,
- * after which no other `rows` may come (the order guard), so it is the last
- * rows step of a chain.
+ * is declared: the rows step. Its factory takes its scope untyped (it reads
+ * no result), so it is no result consumer and any `rows` may follow it.
  */
 const policy = {
   rows: <C extends VibORMConfig, X extends ExtensionState>(
@@ -194,11 +193,12 @@ const policy = {
       name: "permissionsLike",
       controls: { actor: { schema: v.string(), bound: true, required: true } },
       rows: { control: "as", default: "view", models: rowModes },
-      client: (scope: {
-        $bind(values: Readonly<Record<string, unknown>>): unknown;
-      }): AsMethods => {
+      client: (scope: unknown): AsMethods => {
+        const { $bind } = scope as {
+          $bind(values: Readonly<Record<string, unknown>>): unknown;
+        };
         const methods: AsMethods = {
-          $as: (actor) => scope.$bind({ actor }) as never,
+          $as: (actor) => $bind({ actor }) as never,
         };
         return methods;
       },
@@ -419,11 +419,10 @@ describe("composition: rows steps first (K7(b), OD-1 option (2))", () => {
     );
     await expect(db.page.findMany()).rejects.toBeInstanceOf(ValidationError);
 
-    // The guard stays: a rows step after the entry's `$as`, or after a model
-    // method typed before it, is refused where it is applied.
-    expect(() => tombstones.rows(policy.rows(base))).toThrow(
-      "cannot follow an extension that defines model-mapped query, client, or model behavior"
-    );
+    // A method runs through the whole chain it is called on: one typed
+    // before a later rows step reads what those rows hide as missing. Only
+    // its types could lie, so TypeScript refuses that order (below); the
+    // runtime does not.
     const typedBefore = base.$extends({
       name: "mine",
       model: {
@@ -433,6 +432,44 @@ describe("composition: rows steps first (K7(b), OD-1 option (2))", () => {
         }),
       },
     });
-    expect(() => policy.rows(typedBefore)).toThrow(ClientInitializationError);
+    const late = Reflect.apply(policy.rows, undefined, [typedBefore]) as {
+      $as(actor: string): typeof typedBefore;
+    };
+    expect(await late.$as("u3").document.withOrg("d2")).toEqual(
+      expect.objectContaining({ id: "d2", organization: null })
+    );
+    // A rows step after a method typed against its client types as never.
+    expectTypeOf(tombstones(typedBefore)).toBeNever();
+  });
+
+  test("soft delete is one step, applied before or after the rows-with-controls entry: the same rows, restores and refusals", async () => {
+    const base = await seeded();
+    const before = policy.methods(policy.rows(base.$extends(tombstones)));
+    const after = tombstones(policy.methods(policy.rows(base)));
+    for (const db of [before, after]) {
+      const u1 = db.$as("u1");
+      const u2 = db.$as("u2");
+      expect(sorted(await u1.page.findMany())).toEqual(["p1"]);
+      expect(sorted(await u1.page.findMany({ deleted: "only" }))).toEqual([
+        "p2",
+      ]);
+      // u2's tombstoned membership of o1 grants nothing, in either order.
+      expect(sorted(await u2.page.findMany())).toEqual(["p3"]);
+      expect(await u1.page.can("view", { id: "p1" })).toBe(true);
+      await expect(
+        u2.page.restore({ where: { id: "p2" } })
+      ).rejects.toBeInstanceOf(NotFoundError);
+      const restored = await u1.page.restore({
+        where: { id: "p2" },
+        include: { organization: true },
+      });
+      expectTypeOf(restored.organization).toEqualTypeOf<{
+        id: string;
+        name: string;
+      } | null>();
+      expect(restored.organization?.id).toBe("o1");
+      await u1.page.delete({ where: { id: "p2" } });
+      expect(sorted(await u1.page.findMany())).toEqual(["p1"]);
+    }
   });
 });

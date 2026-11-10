@@ -32,6 +32,8 @@ export const vectorDistanceOrderSchema = v.object(
         to: v.array(v.number()),
         metric: vectorDistanceMetricSchema,
         sort: orderEnum,
+        /** Nearest first, an index may answer: approximate, possibly short of `take`. */
+        approximate: v.boolean(),
       },
       { atLeast: ["to", "metric"] }
     ),

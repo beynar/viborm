@@ -68,8 +68,9 @@ import {
   ValidationError,
   VibORMError,
 } from "@errors";
-import { Queries } from "@query-engine/raptor3/shared/query";
+import type { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Database from "better-sqlite3";
@@ -297,8 +298,8 @@ function spyAdmission(driver: CompositionDriver) {
 
 /** Log every prepared read's construction on the provider's timeline. */
 function spyPreparedReads(driver: CompositionDriver) {
-  const read = Queries.prototype.read;
-  return vi.spyOn(Queries.prototype, "read").mockImplementation(function (
+  const read = SqlQueries.prototype.read;
+  return vi.spyOn(SqlQueries.prototype, "read").mockImplementation(function (
     this: Queries,
     ...args
   ) {
@@ -1609,12 +1610,11 @@ describe("RQ-06 recursive projections composed through the shipped client", () =
       { id: "z", children: [] },
       whole,
     ]);
-    // Reads asking the same projection by key in the same tick share one
-    // batched `findMany` (admitted once more): `a` with `z`, and `a1` with the
-    // exhaustive `r`. Each depth-bounded read keeps its own statement.
-    assert.equal(driver.statements.length, 4);
-    assert.equal(admissions.mock.calls.length, 8);
-    assert.equal(recursiveStatements(driver.statements).length, 4);
+    // `findUnique` batching is opt-in (1.4.1), so every read keeps its own
+    // statement, as in 1.3.3.
+    assert.equal(driver.statements.length, 6);
+    assert.equal(admissions.mock.calls.length, 6);
+    assert.equal(recursiveStatements(driver.statements).length, 6);
     const [, two, fromA, , , fromR] = values as {
       children: { children: object[] }[];
     }[];

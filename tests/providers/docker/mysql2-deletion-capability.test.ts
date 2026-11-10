@@ -24,5 +24,6 @@ describeIf("MySQL2 Driver", () => {
   runDeletionCapabilityBehavior({
     name: "MySQL2",
     createDriver: createMySQL2Driver,
+    restrictedDelete: 4,
   });
 });

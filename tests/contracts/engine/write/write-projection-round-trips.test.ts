@@ -792,7 +792,8 @@ test("a projection repeating a relation body: PostgreSQL shares it inside the fo
   // The same body twice — the include's filter and the `_count`'s — is stated
   // once in a `WITH` where the transport shares bodies (PostgreSQL by default,
   // D1). A data-modifying `WITH` has room for it (a derived table); a
-  // `RETURNING` has none, so that write keeps its re-read.
+  // `RETURNING` has none, so that write keeps its re-read: the UPDATE, which
+  // locates its own row, then the read.
   const repeated = { comments: { some: { body: "c100" } } };
   const args = {
     where: { id: 1 },
@@ -808,7 +809,7 @@ test("a projection repeating a relation body: PostgreSQL shares it inside the fo
   shared.adapter.capabilities.sharesRelationBodies = true;
   for (const [driver, statements] of [
     [pglite(), 1],
-    [shared, 3],
+    [shared, 2],
   ] as const) {
     const client = await boot(driver);
     const { traffic, value } = await traced(driver, () =>

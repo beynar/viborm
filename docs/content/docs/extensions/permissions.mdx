@@ -18,7 +18,10 @@ page goes from a simple policy to permissions inherited through folders and team
 the [reference](#reference) at the end lists every option.
 
 **Raw SQL is not filtered.** `$queryRaw`, `$executeRaw`, their unsafe forms
-and statement transforms see every row, even on a governed client. See
+and statement transforms see every row, even on a governed client. A raw read
+takes the actor's rows of a model with
+[`$rows`](/docs/client/raw-sql#governed-raw-reads):
+`` call.$queryRaw`SELECT p.id FROM ${call.post.$rows("p")}` ``. See
 [Boundaries](#boundaries).
 
 ## 1. A blog: authors edit their own posts
@@ -91,6 +94,14 @@ export async function handle(request: Request) {
   await call.post.create({ data: { title, authorId: session.userId } });
 }
 ```
+
+`$as` is cheap enough to call per request, or per commit: it validates the
+actor and returns a view, nothing more. The policy is compiled once per client,
+each model's predicates when the model is first used, and the actor's values
+travel as bound parameters, so no view rebuilds them. Model delegates are
+created lazily. Measured on a 30-model schema with a large policy, `$as` costs
+about 10 µs, a small fraction of the statement it governs; a cache of views keyed
+by actor is not needed.
 
 ### What each call sends to the database
 
@@ -247,7 +258,9 @@ post satisfies `post`'s own `read` rule". It is how one model's permission
 follows another's, without writing it twice.
 
 - Every foreign key a create writes must point at a row the caller can see
-  (a hidden target and a missing one give the same `ForbiddenError`).
+  (a hidden target and a missing one give the same `ForbiddenError`), unless
+  the `create` rule says it equals the same key of a row the create already
+  reads: see [a key taken from the parent](#a-key-taken-from-the-parent).
 - **Moving a row is judged like a create.** An update that changes a field
   the `create` rule reads (here `postId` or `authorId`) must leave a row the
   `create` rule accepts, and the new row must still pass the rules that let
@@ -261,6 +274,48 @@ follows another's, without writing it twice.
   `actions: { create: ["read"] }` when the creation predicate should also grant
   reads. With that explicit implication, `create: true` grants reading every row
   that passes the restrictions, unless `read: false` denies it.
+
+### A key taken from the parent
+
+A guest who may edit one shared page may add a subpage under it, but cannot read
+the page's teamspace. A subpage stores the same `teamspaceId` as its parent, so
+say it in the rule: compare the key with the parent's own, through `$row`:
+
+```ts
+page: {
+  // …
+  create: {
+    AND: [
+      { parent: "update" },
+      {
+        OR: [
+          { teamspaceId: null, parent: { is: { teamspaceId: null } } },
+          { parent: { is: { teamspaceId: { $row: "teamspaceId", up: 1 } } } },
+        ],
+      },
+    ],
+  },
+},
+```
+
+Where the rule compares every field of a foreign key with the fields of the
+same foreign key on a related row (`parent.teamspaceId`, onto the same
+teamspace), the created row may name that target without the caller reading
+it, provided the caller reads the related row: its key names a target that
+exists, so nothing new is disclosed. Any other value still needs a visible
+target, and a hidden teamspace and a missing one still fail alike. The same
+holds when an update moves the key.
+
+The related row must be visible by its own read rule, never because its key
+is itself taken from another row: two keys taken from each other prove
+nothing. Where every branch of `create` already proves that row visible
+(`parent: "update"` here) or sets its key to null, as in the rule above, the
+comparison adds no bound value to the statement; otherwise the related row's
+read rule is added beside it. Without such a comparison in the rule, nothing
+changes, the statement included.
+
+Write the foreign key's field to use it: a `connect` to the teamspace still
+looks the target up among the rows the caller reads.
 
 ## 4. A team: the organization, and roles
 
@@ -428,10 +483,14 @@ it with the other ways to grant each named permission:
 import type { Rule } from "viborm/permissions";
 
 // Stored grant levels use this policy's action names.
+const LEVELS = ["read", "update", "full"] as const;
+const atOrAbove = (action: string) =>
+  LEVELS.slice(LEVELS.indexOf(action as (typeof LEVELS)[number]));
+
 const shared: Rule = (action) => ({
   grants: {
     some: {
-      level: action,
+      level: { in: atOrAbove(action) },
       OR: [{ userId: { actor: "userId" } }, { everyone: true }],
     },
   },
@@ -467,7 +526,7 @@ At `update`, `shared` is, simplified, this `where`:
   grants: {
     some: {
       AND: [
-        { level: "update" }, // the action where this callback is declared
+        { level: { in: ["update", "full"] } }, // the declared action and above
         { OR: [{ userId: { actor: "userId" } }, { everyone: true }] },
       ],
     },
@@ -481,6 +540,19 @@ The project's effective `update` permission combines the owner's rule, the
 `read`. It is never called again with a different action just because the rule
 was inherited. A read-only share cannot grant updating; an update share cannot
 grant `full`. Here `read: true` already lets every organization member read.
+
+**Why `in` and not `level: action`.** Each level's predicate is the OR of the
+rules of that level and every level above it, so a `shared` written
+`level: action` appears once per level: at `read`, the grant subquery tests
+`level = 'read'`, `level = 'update'` and `level = 'full'` as three branches.
+Written `level: { in: atOrAbove(action) }`, the predicate inherited from
+`update` (`in: ["update", "full"]`) is narrower than the one declared at `read`
+(`in: ["read", "update", "full"]`), so the compiler keeps the wider one alone:
+one branch per action, whatever the number of levels. The statement is shorter,
+binds fewer values and nests less, which counts on a platform with tight
+statement limits (Cloudflare's 100 bound values per statement). Store each
+grant at one level and let `in` do the implication; a comparison of stored
+levels such as `level >= ?` is not expressible.
 
 Rule functions build predicates when their model is first needed; the database
 reads the current grants when a statement runs. A grant deleted by another request
@@ -562,7 +634,7 @@ accessGrant: {
 
 Declare the grant's `level` and `actions` with enum values your application
 supports. A change to either field is also checked against `create`, so editing
-a grant cannot bypass placement. For action-list grants, replace `level: action`
+a grant cannot bypass placement. For action-list grants, replace `level: { in: atOrAbove(action) }`
 in `shared` with `actions: { has: action }`, and assign the callback to every
 permission those lists may grant. The policy graph handles inheritance; no
 second application table needs to repeat its transitive implications.
@@ -632,8 +704,9 @@ only permits reading. This application also chooses to give the owner all
 three permissions. Each declaration builds its own predicate; inheritance
 reuses that predicate unchanged.
 
-The statement walks the tree inside the database, once, with a recursive
-subquery (simplified):
+The statement walks the tree inside the database with a recursive subquery,
+one for each predicate it judges (a `can` asking four actions walks four
+times). Simplified:
 
 ```sql
 SELECT … FROM document d
@@ -678,7 +751,7 @@ const toMyTeams = {
   team: {
     is: {
       children: {
-        recurse: { depth: false },
+        recurse: { depth: false, selective: true }, // few teams hold me
         self: true,
         some: { members: { some: { userId: { actor: "userId" } } } },
       },
@@ -686,6 +759,21 @@ const toMyTeams = {
   },
 };
 ```
+
+`selective: true` says what only you know about the data: the teams the
+caller belongs to, and the teams above them, are few. A policy repeats this
+walk in every rule that reads a grant, inside bodies each statement computes
+over the whole grant table; stated selective, the walk is computed there once,
+from the caller's memberships up, instead of once per grant. On a 40-model
+policy at 500 organizations (PostgreSQL 18), opening a page went from 1.4 s
+to 89 ms (2.0 to 0.8 ms with [`tenant`](#one-tenant-per-call-tenant)). Where the walk is read by
+one row's key (a body the statement keeps inlined, a unique read through it),
+it stays in place and keeps its index. Index what `some` reads (`teamMember.userId`):
+computed once, the walk starts by finding every row it matches. Leave it out
+on a walk whose matches are many, such as "every team with a member":
+computed once, it would read most of the team table. Without it, the engine guesses nothing and nothing
+moves. It is ignored under `every`, and accepted only in a filter's
+`recurse`, never in a `select`/`include`'s.
 
 Add that predicate to the grant's recipients. These constants describe this
 application's team and grant schema:
@@ -697,7 +785,7 @@ application's team and grant schema:
 const shared: Rule = (action) => ({
   grants: {
     some: {
-      level: action,
+      level: { in: atOrAbove(action) },
       OR: [{ userId: { actor: "userId" } }, { everyone: true }, toMyTeams],
     },
   },
@@ -1056,25 +1144,25 @@ These choices belong to the application; Permissions supplies no authentication 
 
 ## 11. With soft delete and other extensions
 
-Extensions combine by intersection: a row must pass every one of them.
-Apply every `rows` step first, `permissions`'s last among them, then the `methods`
-steps:
+Extensions combine by intersection: a row must pass every one of them. Each
+official extension is one step, applied in any order:
 
 ```ts
 import { softDelete } from "viborm/soft-delete";
 
-const tombstones = softDelete({ models: { document: { deletedAt: "deletedAt" } } });
 const db = base
-  .$extends(tombstones.rows)
-  .$extends(policy)
-  .$extends(tombstones.methods);
+  .$extends(softDelete({ models: { document: { deletedAt: "deletedAt" } } }))
+  .$extends(policy);
+// or base.$extends(policy).$extends(softDelete(…)): the same client
 ```
 
 - A deleted grant, membership or team member grants nothing.
-- A soft delete is a delete: it needs the delete action, and so does writing
-  `deletedAt` by hand or restoring a row.
-- `base.$extends(tombstones).$extends(policy)` is refused with a `ClientInitializationError`
-  naming the order.
+- A soft delete is a delete: it needs the delete action, and so do writing
+  `deletedAt` by hand, restoring a row and purging a tombstone.
+- `restore` and `purge` are typed from the governed client: a to-one relation
+  the policy can hide reads `| null` in their results, whatever the order.
+- A chain written before 1.8, `base.$extends(tombstones.rows).$extends(policy)
+  .$extends(tombstones.methods)`, still works unchanged.
 
 An extension applied after `permissions` can read the bound actor:
 `{ control: "actor", path: "userId" }` in a `data` stamp writes the caller's
@@ -1584,8 +1672,11 @@ transaction's members) takes 256, which on plain PostgreSQL changes only a
 statement past 256 relations, and only its plan. `viborm/bun-sql` and a pool
 you supply keep no such message: there Neki's first refusal (54000) teaches
 the driver its limit, that statement fails and the next ones fit, so set the
-option. A stated `relationsPerStatement` always wins. A statement within the bound keeps every walk in place. Only a statement past
-it changes form, as far as it needs: first each walk it repeats becomes one
+option. A stated `relationsPerStatement` always wins. A statement within the bound keeps every walk in place, but a
+[selective](#8-team-hierarchies) one read only in bodies computed over their
+whole tables, which it computes once with or without a bound (it changes no
+other part's form). Only a statement past the bound changes form, as far as it
+needs: first each walk it repeats becomes one
 `WITH` member, the keys of the rows it holds for; if still over, a row tested
 against the same shared sets several times reads them as arrays computed once
 per statement. With 256, the acceptance policy's nine `$access` reads count
@@ -1593,8 +1684,12 @@ per statement. With 256, the acceptance policy's nine `$access` reads count
 answers; the six past 256 were refused before. `page`, `page` with its group
 and `document` stay in place. `accessGrant` (278 in place) states one walk as
 a set and the root documents three levels deep (393) four; the four largest
-(462 to 634) state eight and read 23 to 42 sets as arrays. This is not a
-bound for every policy.
+(462 to 634) state eight and read 23 to 42 sets as arrays. Since 1.12.1, a
+statement still over takes a last form: one row, joined once at the root read,
+holds the sets that read tests and its `$exists` answers. A set only that row
+reads is written inside it. This is not a bound for every policy: a statement
+still over after that is sent as it is, and Neki refuses it. Asking `$access`
+only for the actions you read (`$access: ["share"]`) makes the statement smaller.
 
 ```ts
 import { createClient, PgDriver } from "viborm/pg";
@@ -1681,6 +1776,72 @@ shared ones where bodies are shared. Measured on a 40-model production policy
 governed reads 15–28 % shorter and 25–35 % faster (an `accessGrant` read:
 26.3 KB, 14.0 ms → 21.5 KB, 10.6 ms).
 
+### One tenant per call: `tenant`
+
+Where a body repeats in a statement, PostgreSQL drivers and D1 compute it
+once, as a set: "the grants that name the actor", "the teams the actor
+belongs to", "the documents the actor may read". The set is computed over
+the whole table, bounded only by what the body itself states. A grant names
+the actor by `userId`, a team by its members: nothing in either says which
+organization. So the set reads every organization's rows, and the policy's
+cost grows with the database rather than with the caller's organization.
+Measured on a 40-model production policy at 500 organizations of 60 members
+(PostgreSQL 18), the sidebar's read took 1.15 s and a document list 7.8 s,
+for an organization whose reads took 9 and 146 ms in a database of 5.
+
+When every governed call stays in the actor's organization, as a policy
+whose every model's `mandatory` holds `organizationId: { actor:
+"organizationId" }` does, say so once:
+
+```ts
+const policy = permissions({
+  actor: Actor,
+  tenant: { field: "organizationId", actor: "organizationId" },
+  models: { … },
+});
+```
+
+Inside the policy's own rules, on every model with a scalar
+`organizationId`, a set the statement computes over the whole table (a
+repeated body; on a driver that bounds the relations of a statement, such
+as PlanetScale's Neki, a walk computed as a set) then holds the actor's
+organization's rows only, where a test reads it positively: `some` or `is`,
+outside a `NOT`, and not in what a `none`, `every` or `isNot` ranges over.
+Nothing else changes: the rows a call reads through a relation, a relation
+a rule reads row by row, the set an `$exists` body is, a field's read gate
+(`fields.x.read`, which masks a value rather than testing a row), and every
+other extension's predicates read rows as they are.
+
+With `tenant`, the measurements above became 11 ms and 200 ms.
+
+Where every row of such a model that a rule reads, through any relation,
+belongs to the actor's organization, the policy answers exactly what it
+answers without `tenant`. Where one does not (a grant written in another
+organization than its page's, a team of another organization reached
+through a person's memberships), a rule may read fewer rows than without
+`tenant`, depending on how the statement computes them, and never more:
+`tenant` only takes access away. Declare `actor` as a required path of the
+actor schema: an actor without it reads every bounded set as empty.
+
+A model whose rows a rule reads beyond the actor's organization is left out
+with `except`: a person's memberships of every organization they belong to
+(an organization switcher's rule), and a model whose rows may belong to no
+organization (a shared catalogue whose `organizationId` is `null`, or a
+sentinel value), which `tenant` would otherwise drop from a rule's sets as
+another organization's:
+
+```ts
+tenant: {
+  field: "organizationId",
+  actor: "organizationId",
+  except: ["member", "integration"],
+},
+```
+
+The declaration is checked when the policy is applied: `actor` is a path of
+the actor schema, `field` a scalar field of some model, each `except` a model
+holding it.
+
 ### Size
 
 `viborm/permissions` is a separate entry point, carried only by an application
@@ -1696,6 +1857,10 @@ internal accessors, so it is versioned with the core it ships in.
 **not** apply to:
 
 - **Raw SQL.** `$queryRaw`, `$executeRaw` and the unsafe forms see every row.
+  A raw read keeps to the actor's rows only through a model's
+  [`$rows(alias)`](/docs/client/raw-sql#governed-raw-reads), taken on the
+  view; a model the policy does not list reads no row there, and one with
+  read-gated fields is refused.
 - **Statement transforms.** They are trusted rewrites after the policy, and
   can remove it.
 - **`call` is not a sandbox.** It runs raw SQL and can bind another actor:
@@ -1711,7 +1876,13 @@ internal accessors, so it is versioned with the core it ships in.
   `createMany({ skipDuplicates })` counts, `connectOrCreate` choosing its arm,
   a visible foreign key whose include reads `null`, and a polymorphic arm
   each reveal that a row exists, never its content. **Include the tenant
-  column in every unique key.**
+  column in every unique key.** [Ordering](/docs/extensions/ordering)'s
+  `move` and `rekey` are not: their reads of anchors, neighbours and list
+  members take the caller's filters, a hidden anchor is refused as a missing
+  one, a key depends on visible rows alone, and `rekey` writes only rows the
+  caller may update, around the others. The keys `rekey` writes sit between
+  the hidden members' keys, so they show where hidden members are in a
+  list, never which.
 - **Credential policy.** The live-credential example accepts either a session
   or a key. Bind one credential per request, or write a different predicate
   if your authentication contract requires another combination.

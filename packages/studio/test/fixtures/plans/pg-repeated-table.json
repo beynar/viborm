@@ -1,0 +1,179 @@
+[
+  {
+    "Plan": {
+      "Node Type": "Limit",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Startup Cost": 5339.99,
+      "Total Cost": 6348.39,
+      "Plan Rows": 20,
+      "Plan Width": 77,
+      "Disabled": false,
+      "Plans": [
+        {
+          "Node Type": "Result",
+          "Parent Relationship": "Outer",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Startup Cost": 5339.99,
+          "Total Cost": 2563313.28,
+          "Plan Rows": 50733,
+          "Plan Width": 77,
+          "Disabled": false,
+          "Plans": [
+            {
+              "Node Type": "Sort",
+              "Parent Relationship": "Outer",
+              "Parallel Aware": false,
+              "Async Capable": false,
+              "Startup Cost": 5339.99,
+              "Total Cost": 5466.82,
+              "Plan Rows": 50733,
+              "Plan Width": 45,
+              "Disabled": false,
+              "Sort Key": ["q0.total DESC", "q0.id"],
+              "Plans": [
+                {
+                  "Node Type": "Seq Scan",
+                  "Parent Relationship": "Outer",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Relation Name": "orders",
+                  "Alias": "q0",
+                  "Startup Cost": 0,
+                  "Total Cost": 3990,
+                  "Plan Rows": 50733,
+                  "Plan Width": 45,
+                  "Disabled": false,
+                  "Filter": "(status = 'paid'::orders_status_enum)"
+                }
+              ]
+            },
+            {
+              "Node Type": "Subquery Scan",
+              "Parent Relationship": "SubPlan",
+              "Subplan Name": "SubPlan 2",
+              "Parallel Aware": false,
+              "Async Capable": false,
+              "Alias": "q4",
+              "Startup Cost": 0.29,
+              "Total Cost": 50.41,
+              "Plan Rows": 1,
+              "Plan Width": 32,
+              "Disabled": false,
+              "Plans": [
+                {
+                  "Node Type": "Limit",
+                  "Parent Relationship": "Subquery",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Startup Cost": 0.29,
+                  "Total Cost": 50.41,
+                  "Plan Rows": 1,
+                  "Plan Width": 79,
+                  "Disabled": false,
+                  "Plans": [
+                    {
+                      "Node Type": "Index Scan",
+                      "Parent Relationship": "Outer",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Scan Direction": "Forward",
+                      "Index Name": "customer_pkey",
+                      "Relation Name": "customer",
+                      "Alias": "q1",
+                      "Startup Cost": 0.29,
+                      "Total Cost": 50.41,
+                      "Plan Rows": 1,
+                      "Plan Width": 79,
+                      "Disabled": false,
+                      "Index Cond": "(id = q0.\"customerId\")",
+                      "Plans": [
+                        {
+                          "Node Type": "Aggregate",
+                          "Strategy": "Plain",
+                          "Partial Mode": "Simple",
+                          "Parent Relationship": "SubPlan",
+                          "Subplan Name": "SubPlan 1",
+                          "Parallel Aware": false,
+                          "Async Capable": false,
+                          "Startup Cost": 42.09,
+                          "Total Cost": 42.1,
+                          "Plan Rows": 1,
+                          "Plan Width": 32,
+                          "Disabled": false,
+                          "Plans": [
+                            {
+                              "Node Type": "Limit",
+                              "Parent Relationship": "Outer",
+                              "Parallel Aware": false,
+                              "Async Capable": false,
+                              "Startup Cost": 42.07,
+                              "Total Cost": 42.08,
+                              "Plan Rows": 2,
+                              "Plan Width": 45,
+                              "Disabled": false,
+                              "Plans": [
+                                {
+                                  "Node Type": "Sort",
+                                  "Parent Relationship": "Outer",
+                                  "Parallel Aware": false,
+                                  "Async Capable": false,
+                                  "Startup Cost": 42.07,
+                                  "Total Cost": 42.08,
+                                  "Plan Rows": 2,
+                                  "Plan Width": 45,
+                                  "Disabled": false,
+                                  "Sort Key": [
+                                    "q2.\"createdAt\" DESC",
+                                    "q2.id"
+                                  ],
+                                  "Plans": [
+                                    {
+                                      "Node Type": "Bitmap Heap Scan",
+                                      "Parent Relationship": "Outer",
+                                      "Parallel Aware": false,
+                                      "Async Capable": false,
+                                      "Relation Name": "orders",
+                                      "Alias": "q2",
+                                      "Startup Cost": 4.37,
+                                      "Total Cost": 42.06,
+                                      "Plan Rows": 2,
+                                      "Plan Width": 45,
+                                      "Disabled": false,
+                                      "Recheck Cond": "(q1.id = \"customerId\")",
+                                      "Filter": "(status = 'pending'::orders_status_enum)",
+                                      "Plans": [
+                                        {
+                                          "Node Type": "Bitmap Index Scan",
+                                          "Parent Relationship": "Outer",
+                                          "Parallel Aware": false,
+                                          "Async Capable": false,
+                                          "Index Name": "orders_customerId_idx",
+                                          "Startup Cost": 0,
+                                          "Total Cost": 4.37,
+                                          "Plan Rows": 10,
+                                          "Plan Width": 0,
+                                          "Disabled": false,
+                                          "Index Cond": "(\"customerId\" = q1.id)"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

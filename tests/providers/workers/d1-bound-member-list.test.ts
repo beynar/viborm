@@ -9,9 +9,11 @@ import type { D1Database } from "@cloudflare/workers-types";
 import { D1Driver } from "@src/drivers/d1";
 import { runBoundMemberListBehavior } from "@tests/contracts/engine/query/bound-member-list-behavior";
 
-declare module "cloudflare:test" {
-  interface ProvidedEnv {
-    DB: D1Database;
+declare global {
+  namespace Cloudflare {
+    interface Env {
+      DB: D1Database;
+    }
   }
 }
 

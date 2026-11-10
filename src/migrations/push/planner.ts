@@ -1,5 +1,10 @@
 import type { AnyDriver } from "../../drivers/driver";
-import { MigrationError, VibORMErrorCode } from "../../errors";
+import { CLIENT_DIAGNOSTICS } from "../../drivers/execution-context";
+import {
+  type DiagnosticDisclosure,
+  MigrationError,
+  VibORMErrorCode,
+} from "../../errors";
 import type { AnyModel } from "../../schema/model";
 import type { ResolvedRelationIndex } from "../../schema/validation/relation-resolution";
 import { admitLiveMigrationCapability } from "../admission";
@@ -55,6 +60,8 @@ export interface MigrationClient {
   $schema: Record<string, AnyModel>;
   readonly [MANAGED_TABLES]?: readonly string[] | undefined;
   readonly [MIGRATION_LIMITS]?: ResolvedMigrationLimits | undefined;
+  /** The client's own `instrumentation({ diagnostics })`, when it has one. */
+  readonly [CLIENT_DIAGNOSTICS]?: DiagnosticDisclosure | undefined;
 }
 
 export interface PushOptions {
@@ -121,7 +128,8 @@ export function getPushMigrationDriver(
   return getMigrationDriver(
     client.$driver,
     client[MANAGED_TABLES],
-    client[MIGRATION_LIMITS]
+    client[MIGRATION_LIMITS],
+    client[CLIENT_DIAGNOSTICS]
   );
 }
 
@@ -255,7 +263,10 @@ export async function planPush(
   // discriminator cannot reveal historical public/stored member mappings.
   // Push therefore compares structure only. Stored-value history is owned by
   // file-based generate(), where both serialized snapshots are available.
-  const current = await introspectSchema(client.$driver, migrationDriver);
+  const current = withDeclaredRawTemplates(
+    await introspectSchema(client.$driver, migrationDriver),
+    desired
+  );
   const diffOptions: DiffOptions = {
     projectRename: migrationDriver.projectNativeRename.bind(migrationDriver),
     canonicalizeIndexPredicate: buildIndexPredicateCanonicalizer(
@@ -282,6 +293,39 @@ export async function planPush(
   return {
     operations: prepareSchemaProgram(operations, current, migrationDriver),
     currentSchema: current,
+  };
+}
+
+/**
+ * The live raw indexes with the templates the schema declares for them. A
+ * database holds a raw index's rendered text and its marker, never the
+ * template, and a statement that re-creates the index as it is (a SQLite table
+ * rebuild, a SurrealDB table moved under a new name) renders that template. A
+ * template is the declared one when its index has the same name and hash.
+ */
+function withDeclaredRawTemplates(
+  current: SchemaSnapshot,
+  desired: SchemaSnapshot
+): SchemaSnapshot {
+  const templates = new Map<string, string>();
+  for (const table of desired.tables)
+    for (const index of table.indexes)
+      if (index.raw?.template !== undefined)
+        templates.set(`${index.name}\0${index.raw.hash}`, index.raw.template);
+  if (templates.size === 0) return current;
+  return {
+    ...current,
+    tables: current.tables.map((table) => ({
+      ...table,
+      indexes: table.indexes.map((index) => {
+        if (!index.raw) return index;
+        const { hash } = index.raw;
+        const template = templates.get(`${index.name}\0${hash}`);
+        return template === undefined
+          ? index
+          : { ...index, raw: { hash, template } };
+      }),
+    })),
   };
 }
 

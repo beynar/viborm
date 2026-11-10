@@ -145,6 +145,30 @@ export function attachExecutionContext(
   return cloneVibORMError(error, mergedMeta, snapshot, context.diagnostics);
 }
 
+/**
+ * Clone one trusted failure with `additions` on the meta keys it lacks, its
+ * class, code, cause and disclosure kept: the inner owner of a fact wins.
+ */
+export function attachMissingMeta(
+  error: VibORMError,
+  additions: VibORMErrorMeta
+): VibORMError {
+  const snapshot = VibORMError.prototype.toJSON.call(error);
+  const snapshotMeta = readProperty(snapshot, "meta");
+  const diagnostics = getTrustedErrorDisclosure(error);
+  const meta = sanitizeErrorMetadata(
+    isRecord(snapshotMeta) ? snapshotMeta : {},
+    diagnostics
+  );
+  let added = false;
+  for (const [key, value] of Object.entries(additions)) {
+    if (value === undefined || meta[key] !== undefined) continue;
+    meta[key] = value;
+    added = true;
+  }
+  return added ? cloneVibORMError(error, meta, snapshot, diagnostics) : error;
+}
+
 /** Clone one trusted failure with the exact durable write state now known. */
 export function attachCommitCertainty(
   error: VibORMError,

@@ -92,6 +92,20 @@ export interface PermissionsConfig {
    * session reaches it only after its TTL. Refused when absent.
    */
   readonly cache?: "allow";
+  /**
+   * The tenant a governed call stays in: on every model with a scalar
+   * `field` but the ones `except` names, a set the policy's rules compute
+   * over a whole table, where a positive test reads it, holds only the rows
+   * whose `field` is the actor's `actor` path (`rows.confine`). Nothing else
+   * reads differently. `except` names the models whose rows a rule reads
+   * beyond the actor's tenant: a person's memberships of other
+   * organizations, a shared catalogue.
+   */
+  readonly tenant?: {
+    readonly field: string;
+    readonly actor: string;
+    readonly except?: readonly string[];
+  };
 }
 
 /**
@@ -147,6 +161,7 @@ const CONFIG_KEYS = new Set([
   "mandatory",
   "models",
   "cache",
+  "tenant",
 ]);
 const FIELD_KEYS = new Set(["read", "write"]);
 
@@ -502,6 +517,8 @@ export interface DeclaredModel {
   readonly update?: string;
   readonly delete?: string;
   readonly modes: { readonly [mode: string]: string };
+  /** What the policy's own whole-table sets of this model hold (`tenant`). */
+  readonly bound?: Where;
 }
 
 /**
@@ -738,6 +755,43 @@ export function policyCompiler(
       refuse(
         `${at} reads actor path "${read}", which the actor schema does not declare`
       );
+  };
+  /** Each model's tenant bound (`tenant`), checked once: undefined where the model has no such field. */
+  const tenantOf = (
+    tenant: PermissionsConfig["tenant"]
+  ): ((name: string) => Where | undefined) => {
+    if (tenant === undefined) return () => undefined;
+    const except = tenant?.except ?? [];
+    if (
+      !isRecord(tenant) ||
+      typeof tenant.field !== "string" ||
+      typeof tenant.actor !== "string" ||
+      !Array.isArray(except) ||
+      except.some((name) => typeof name !== "string") ||
+      Object.keys(tenant).some(
+        (key) => key !== "field" && key !== "actor" && key !== "except"
+      )
+    )
+      refuse(
+        "tenant is { field, actor, except? }: the scalar field that names a row's tenant, the actor path that names the caller's, and the models read beyond it"
+      );
+    path("tenant.actor", tenant.actor);
+    const holds = (name: string) =>
+      Object.hasOwn(stateOf(name).scalars, tenant.field);
+    if (!Object.keys(schema).some(holds))
+      refuse(
+        `tenant.field: no model of the schema has a scalar field "${tenant.field}"`
+      );
+    for (const name of except)
+      if (!(Object.hasOwn(schema, name) && holds(name)))
+        refuse(
+          `tenant.except names ${name}, which is not a model of the schema with a scalar field "${tenant.field}"`
+        );
+    const bound: Where = Object.freeze({
+      [tenant.field]: Object.freeze({ control: "actor", path: tenant.actor }),
+    });
+    return (name) =>
+      holds(name) && !except.includes(name) ? bound : undefined;
   };
   /** A value position: the actor's fields as values, checked. */
   const value = (at: string, input: unknown): unknown => {
@@ -1579,30 +1633,140 @@ export function policyCompiler(
     return verbs;
   };
   /**
+   * The `{ relation: { is: body } }` members `clause`, read at `name`, holds
+   * where it holds: under AND and OR, never under NOT or another quantifier.
+   */
+  const heldRelations = (
+    name: string,
+    clause: Where,
+    into: Array<{ relation: string; body: Where; member: Where }> = []
+  ) => {
+    for (const member of conjuncts(clause)) {
+      const [key, value] = Object.entries(member)[0]!;
+      if (key === "AND" || key === "OR") {
+        for (const item of value as Where[]) heldRelations(name, item, into);
+      } else if (
+        targetOf(name, key) !== undefined &&
+        isRecord(value) &&
+        Object.keys(value).length === 1 &&
+        isRecord(value.is)
+      ) {
+        into.push({ relation: key, body: value.is, member });
+      }
+    }
+    return into;
+  };
+  /**
+   * Where `create` equates a key's fields with a key a row it reads holds:
+   * `{ parent: { is: { teamspaceId: { $row: "teamspaceId", up: 1 } } } }`,
+   * every field of `key` (to `target`'s `references`) compared with the
+   * fields of a foreign key of `relation`'s row onto the same target and
+   * fields. Such a row is one the placement already proves the actor reads
+   * (its own key's clause, R4), and its foreign key names a target that
+   * exists, so a value equal to it discloses nothing: a missing target and a
+   * hidden one still fail the same comparison (R4's oracle stays closed).
+   * The member found, which R4 then accepts beside the target's visibility
+   * where that row is visible, and the relation that reaches it.
+   */
+  const inheritedKey = (
+    name: string,
+    create: Clause,
+    relation: string,
+    key: {
+      readonly fields: readonly string[];
+      readonly references: readonly string[];
+    }
+  ): { member: Where; through: string } | undefined => {
+    if (create === false) return;
+    const target = targetOf(name, relation);
+    for (const held of heldRelations(name, create)) {
+      const holder = relationOf(name, held.relation)?.state.foreignKey;
+      if (held.relation === relation || holder === undefined) continue;
+      const row = targetOf(name, held.relation)!;
+      const compared = new Map<string, string>();
+      for (const member of conjuncts(held.body)) {
+        const [field, operand] = Object.entries(member)[0]!;
+        if (isEnclosingRow(operand) && operand.up === 1)
+          compared.set(field, operand.$row);
+      }
+      const matches = Object.entries(stateOf(row).relations).some(
+        ([other, declared]) => {
+          const foreign = declared["~"].state.foreignKey;
+          return (
+            foreign !== undefined &&
+            targetOf(row, other) === target &&
+            foreign.references.length === key.references.length &&
+            foreign.references.every(
+              (reference, at) =>
+                reference === key.references[at] &&
+                compared.get(foreign.fields[at]!) === key.fields[at]
+            )
+          );
+        }
+      );
+      if (matches) return { member: held.member, through: held.relation };
+    }
+    return;
+  };
+  /** The rows `relation` reaches that the actor views: `P(T, read)`, false
+   * where T holds none (R9, fail closed). */
+  const visibleThrough = (name: string, relation: string): Clause => {
+    const target = targetOf(name, relation)!;
+    const action = config.models[target] && verbsFor(target).read;
+    const held = action ? P(target, action) : false;
+    return held === false ? false : { [relation]: { is: held } };
+  };
+  /**
    * Each foreign key `name` holds, with what R4 asks of a value written to
    * it: null where every field of the key may be, or a target the actor
-   * views, `P(T, read)` (false where T holds none: R9, fail closed).
+   * views, or the key of a row the actor views, where `create` equates them
+   * ({@link inheritedKey}). That row's own visibility is asked, never its
+   * key's clause, which may itself be inherited: two keys inherited through
+   * each other would vouch for each other with neither row proven readable.
+   * `create` stands beside every use of the member (PLACE conjoins it, and
+   * the member compares the key's fields, so their moves place the row
+   * again): where each of its branches proves that row visible, or states
+   * its key null (where the member, which needs the row, cannot hold), the
+   * member alone.
    */
-  const keysOf = (name: string) =>
+  const keysOf = (name: string, create: Clause) =>
     Object.entries(stateOf(name).relations).flatMap(([relation, declared]) => {
       const key = declared["~"].state.foreignKey;
       if (key === undefined) return [];
-      const target = targetOf(name, relation)!;
-      const action = config.models[target] && verbsFor(target).read;
-      const held = action ? P(target, action) : false;
-      const visible: Clause =
-        held === false ? false : { [relation]: { is: held } };
+      const visible = visibleThrough(name, relation);
       const nullable = key.fields.every(
         (field) => stateOf(name).scalars[field]?.["~"].state.nullable === true
       );
-      return [
-        {
-          fields: key.fields,
-          clause: nullable
-            ? or([and(key.fields.map((field) => ({ [field]: null }))), visible])
-            : visible,
-        },
-      ];
+      const own = nullable
+        ? or([and(key.fields.map((field) => ({ [field]: null }))), visible])
+        : visible;
+      const inherited = inheritedKey(name, create, relation, key);
+      let accepted = own;
+      if (inherited) {
+        const through = visibleThrough(name, inherited.through);
+        const absent = and(
+          relationOf(name, inherited.through)!.state.foreignKey!.fields.map(
+            (field) => ({ [field]: null })
+          )
+        );
+        const proves = (clause: Where): boolean => {
+          if (
+            (through !== false && implies(name, clause, through)) ||
+            (absent !== false && implies(name, clause, absent))
+          )
+            return true;
+          const members = conjuncts(clause);
+          if (members.length > 1) return members.some(proves);
+          const either = members[0]?.OR;
+          return Array.isArray(either) && either.every(proves);
+        };
+        const proven = create !== false && proves(create);
+        accepted = or([
+          own,
+          proven ? inherited.member : and([inherited.member, through]),
+        ]);
+      }
+      return [{ relation, fields: key.fields, clause: accepted }];
     });
   /**
    * The fields of `name`'s row a clause read at `name` reads: a scalar, the
@@ -1841,7 +2005,7 @@ export function policyCompiler(
     // adds target visibility; moves reuse the row rule without requiring a
     // create credential scope for an update.
     const create = P(name, "create");
-    const keys = keysOf(name);
+    const keys = keysOf(name, create);
     claim(
       PLACE,
       `models.${name}.create`,
@@ -1959,11 +2123,19 @@ export function policyCompiler(
       )
     )
   );
+  const related = tenantOf(config.tenant);
   const declared = Object.freeze(
     Object.fromEntries(
       Object.keys(schema).map((name) => {
         const known = declarations.get(name);
-        if (known === undefined) return [name, UNLISTED];
+        const bound = related(name);
+        if (known === undefined)
+          return [
+            name,
+            bound === undefined
+              ? UNLISTED
+              : Object.freeze({ ...UNLISTED, bound }),
+          ];
         const { read, update, delete: remove, modes } = known;
         return [
           name,
@@ -1972,6 +2144,7 @@ export function policyCompiler(
             ...(update !== undefined && { update }),
             ...(remove !== undefined && { delete: remove }),
             modes,
+            ...(bound !== undefined && { bound }),
           }),
         ];
       })

@@ -131,7 +131,7 @@ type RelationName<R> =
     ? Name
     : undefined;
 
-type ForeignKeyOf<R> =
+export type ForeignKeyOf<R> =
   StateOf<R> extends {
     readonly foreignKey: infer ForeignKey extends ForeignKeyDeclaration;
   }
@@ -326,6 +326,48 @@ type ProvenPartner<SourceModel, FieldKey, R> =
     ? [Key] extends [keyof RelationsOf<TargetModelOf<R>>]
       ? RelationsOf<TargetModelOf<R>>[Key]
       : never
+    : never;
+
+/**
+ * The declared model holding a slot's junction, read from whichever endpoint
+ * declared it: `never` for a string `.through()`, no junction at all, and
+ * anything but a to-many slot. It stands apart from the membership because only
+ * a node that names `$through` needs it, and it reads the getter it finds, which
+ * is what the state keeping it unresolved until now is for.
+ */
+export type JunctionModelOf<SourceModel, FieldKey, R> =
+  Cardinality<R> extends "many"
+    ? DeclaredJunctionModel<R> extends infer Declared
+      ? [Declared] extends [never]
+        ? DeclaredJunctionModel<ProvenPartner<SourceModel, FieldKey, R>>
+        : Declared
+      : never
+    : never;
+
+type DeclaredJunctionModel<R> = R extends {
+  readonly "~": {
+    readonly state: { readonly junction: { readonly model: () => infer M } };
+  };
+}
+  ? M
+  : never;
+
+/**
+ * The junction state a declaring endpoint holds, `.source()` / `.target()`
+ * names included where it states them, read from either endpoint.
+ */
+export type JunctionFactsOf<SourceModel, FieldKey, R> = [
+  DeclaredJunctionModel<R>,
+] extends [never]
+  ? ProvenPartner<SourceModel, FieldKey, R> extends {
+      readonly "~": { readonly state: { readonly junction: infer Facts } };
+    }
+    ? Facts
+    : never
+  : R extends {
+        readonly "~": { readonly state: { readonly junction: infer Facts } };
+      }
+    ? Facts
     : never;
 
 // =============================================================================

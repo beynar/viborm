@@ -39,11 +39,8 @@ export function normalizeDialect(dialect: string): Dialect {
   if (dialect === "postgresql" || dialect === "postgres") {
     return "postgresql";
   }
-  if (dialect === "sqlite") {
-    return "sqlite";
-  }
-  if (dialect === "mysql") {
-    return "mysql";
+  if (dialect === "sqlite" || dialect === "mysql" || dialect === "surrealql") {
+    return dialect;
   }
   throw new MigrationError(
     `Unsupported dialect for migrations: "${dialect}". ` +
@@ -155,6 +152,10 @@ function supersededIndexDrops(operations: DiffOperation[]): Set<DiffOperation> {
   for (const op of operations) {
     if (
       op.type === "dropIndex" &&
+      // A raw index covers no foreign key, so 1553 never holds it; and a table
+      // rebuild before its drop would have to re-create it, from a template
+      // a removed declaration no longer has.
+      !op.raw &&
       !createdIndexNames.has(op.indexName) &&
       !tablesLosingColumns.has(op.tableName)
     ) {
@@ -272,7 +273,8 @@ function operationTargetsColumn(
   columnName: string
 ): boolean {
   // A drop names a key as the rename left it: on PostgreSQL a derived key
-  // name follows its column.
+  // name follows its column. A raw index's name never does.
+  if (operation.type === "dropIndex" && operation.raw) return false;
   if (
     operation.type === "dropIndex" ||
     operation.type === "dropUniqueConstraint" ||

@@ -15,6 +15,11 @@ const runtime = {
     // JSON-defined schemas (viborm/schema/json)
     "schema/json": "./src/schema/json/index.ts",
 
+    // A schema document from an existing database (viborm/schema/introspect):
+    // tooling, never imported by an application. It registers every migration
+    // driver and imports the driver a URL names on demand.
+    "schema/introspect": "./src/migrations/introspect/index.ts",
+
     // Driver base (viborm/driver)
     driver: "./src/drivers/exports.ts",
 
@@ -30,12 +35,15 @@ const runtime = {
 
     // MySQL drivers (viborm/mysql2, viborm/planetscale)
     mysql2: "./src/drivers/mysql2/index.ts",
+    // SurrealDB (viborm/surrealdb)
+    surrealdb: "./src/drivers/surrealdb/index.ts",
     planetscale: "./src/drivers/planetscale/index.ts",
 
     // SQLite drivers (viborm/sqlite3, viborm/libsql, etc.)
     sqlite3: "./src/drivers/sqlite3/index.ts",
     libsql: "./src/drivers/libsql/index.ts",
     d1: "./src/drivers/d1/index.ts",
+    "durable-object": "./src/drivers/durable-object/index.ts",
     "bun-sqlite": "./src/drivers/bun-sqlite/index.ts",
 
     // Cache (viborm/cache, viborm/cache/memory, etc.)
@@ -47,6 +55,7 @@ const runtime = {
     // driver, viborm/migrations/<dialect> only its own.
     migrations: "./src/migrations/dialects/all.ts",
     "migrations/postgres": "./src/migrations/dialects/postgres.ts",
+    "migrations/surrealdb": "./src/migrations/dialects/surrealql.ts",
     "migrations/sqlite": "./src/migrations/dialects/sqlite.ts",
     "migrations/mysql": "./src/migrations/dialects/mysql.ts",
     "migrations/storage/fs": "./src/migrations/storage/fs.ts",
@@ -68,13 +77,23 @@ const runtime = {
     instrumentation: "./src/instrumentation/exports.ts",
 
     // Soft delete (viborm/soft-delete): an extension built from public
-    // capabilities only; the root entry never imports it.
+    // capabilities only; the root entry never imports it. It raises the
+    // library's own `ClientInitializationError` (a marker that is not a
+    // nullable DateTime), so it shares the root's chunks: one class.
     "soft-delete": "./src/soft-delete/index.ts",
 
     // Permissions (viborm/permissions): an extension built from public capabilities only.
     // It raises the library's own errors, so it shares the root's chunks
-    // (one `ClientInitializationError` class), unlike soft delete.
+    // (one `ClientInitializationError` class), as soft delete does.
     permissions: "./src/permissions/index.ts",
+
+    // Write hooks (viborm/on): the official `on` extension, carried by
+    // identity like the cache, so it shares the root's chunks.
+    on: "./src/on/index.ts",
+    // List order (viborm/ordering): the official ordering extension.
+    ordering: "./src/ordering/index.ts",
+    // Rank-key helpers alone (viborm/ordering/keys): no client, for browsers.
+    "ordering/keys": "./src/ordering/keys.ts",
 
     // Adapters (internal, but exposed for advanced usage)
     adapters: "./src/adapters/index.ts",
@@ -115,6 +134,7 @@ const runtime = {
     "@planetscale/database",
     "@libsql/client",
     "mysql2",
+    "surrealdb",
     "better-sqlite3",
     "postgres",
     // Bun built-ins (only available in Bun runtime). "bun" itself must be
@@ -241,18 +261,8 @@ const declarationExportKinds: Rolldown.Plugin = {
   },
 };
 
-const { "soft-delete": softDelete, ...runtimeEntries } = runtime.entry;
-
 export default defineConfig([
-  { ...runtime, entry: runtimeEntries },
-  {
-    ...runtime,
-    entry: { "soft-delete": softDelete },
-    clean: false,
-    // This type-only consumer has no runtime imports. Preserve that boundary
-    // instead of retaining a shared name-preservation helper after minification.
-    outputOptions: { keepNames: false },
-  },
+  runtime,
   {
     ...runtime,
     clean: false,

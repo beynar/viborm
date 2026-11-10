@@ -118,6 +118,8 @@ export function membershipFields(edge: Membership): string[] {
 /**
  * One junction row's columns: each present side's referenced fields, read
  * through `read` — the planned assignment, or the attempt's executed value.
+ * A column both sides supply takes the source's: the plan checks the target's
+ * against it (`Link.shared`), so no side silently wins.
  */
 export function junctionPairs<T>(
   edge: Extract<Membership, { kind: "junction" }>,
@@ -125,14 +127,15 @@ export function junctionPairs<T>(
   source?: Assignments,
   target?: Assignments
 ): Record<string, T> {
-  const pairs: [string, T][] = [];
+  const pairs = new Map<string, T>();
   for (const [side, owner] of [
     [edge.sourceSide, source],
     [edge.targetSide, target],
   ] as const)
     if (owner)
       for (const pair of side.members)
-        pairs.push([pair.junctionField, read(owner, pair.referencedField)]);
+        if (!pairs.has(pair.junctionField))
+          pairs.set(pair.junctionField, read(owner, pair.referencedField));
   return Object.fromEntries(pairs);
 }
 
@@ -157,9 +160,10 @@ export class Selection {
   dependent?: boolean;
   /**
    * THIS operation inserts the key this selector names when the row is absent:
-   * the missing arm of an `upsert` or a `connectOrCreate`. Such a probe reads
-   * without locking — the PROBE alone ({@link query}); the other reads this
-   * selection answers keep the lock their own answer earns.
+   * the missing arm of an `upsert` or a `connectOrCreate`. Where a locking
+   * read of a miss takes a lock (MySQL) such a probe reads without locking —
+   * the PROBE alone ({@link query}, {@link probesUnlocked}); the other reads
+   * this selection answers keep the lock their own answer earns.
    *
    * A locking read cannot protect an absence, and asking for one costs the
    * operation its own convergence. MySQL answers a miss on a unique index with
@@ -174,8 +178,9 @@ export class Selection {
    * That refusal is the arbiter the create arm already relies on (Pin Rule 2:
    * no `notExists` premise precedes the create INSERT), and the retryable
    * signal {@link CommandExecution.recover} converges on. PostgreSQL locks
-   * nothing for a miss and the batch route asks for no lock at all, so an
-   * unlocked probe is the answer the other two routes already give.
+   * nothing for a miss, so there the probe keeps its lock and holds the row it
+   * finds, which spares the confirmation (`CommandExecution.confirmFound`).
+   * SQLite has no row lock to keep, and the batch route asks for none.
    */
   insertsWhenAbsent?: boolean;
   /**
@@ -340,9 +345,7 @@ export class Selection {
   unrepresentable(field: string) {
     const ctx = this.execution.context;
     return ctx.queries.select(this.model, { take: 1 }, undefined, {
-      condition: ctx.driver.adapter.operators.isNull(
-        ctx.queries.column(this.model, field)
-      ),
+      row: { kind: "fieldNull", field },
       identity: this.execution.identity(this.fields),
       projection: this.#identityProjection,
     });
@@ -374,6 +377,21 @@ export class Selection {
       }
     );
   }
+  /**
+   * Whether the probe reads without holding what it finds: it
+   * {@link insertsWhenAbsent}, and the provider either takes no row lock
+   * (SQLite) or locks a miss too (`locksMissingKeys`, MySQL). Where a locking
+   * read locks only the rows it returns (PostgreSQL) the probe holds its
+   * found row, which is the confirmation's whole answer
+   * (`CommandExecution.confirmFound`).
+   */
+  get probesUnlocked(): boolean {
+    const capabilities = this.execution.context.driver.adapter.capabilities;
+    return (
+      this.insertsWhenAbsent === true &&
+      !(capabilities.supportsRowLocks && !capabilities.locksMissingKeys)
+    );
+  }
   query() {
     const identity =
       this.source.kind === "producer"
@@ -383,8 +401,24 @@ export class Selection {
       this.selector,
       this.membership(),
       identity,
-      this.insertsWhenAbsent
+      this.probesUnlocked
     );
+  }
+  /**
+   * The rows this lookup and others of its model take, as ONE read: the
+   * projection and the lock {@link query} takes for each locking probe, over
+   * the disjunction of their selectors (`CommandExecution.prefetch`).
+   */
+  rows(selections: readonly Selection[]) {
+    const ctx = this.execution.context;
+    return ctx.queries.select(this.model, {}, undefined, {
+      forUpdate: !ctx.usesBatch,
+      projection: this.#rowProjection,
+      selector: ctx.queries.orSelectors(
+        this.model,
+        selections.map((selection) => selection.selector)
+      ),
+    });
   }
   /**
    * The premise that states a requirement this operation still owns: the

@@ -99,6 +99,44 @@ dialect target. There is no mutable head or state list.
 
 Snapshots, SQL blobs, and state manifests are immutable content-addressed
 objects. Snapshot and manifest JSON is canonical RFC 8785 UTF-8 without a BOM.
+A snapshot artifact is either a full schema document or a structured delta.
+`snapshotHash` always identifies the reconstructed full canonical schema. A
+delta's exact bytes have their own `snapshot-delta` hash domain and physical
+address in `snapshots/`; a state authenticates that address with the optional
+`snapshotArtifactHash`. Without that field it refers to a full document.
+`snapshot-artifacts.ts` alone owns delta admission, literal JSON-path changes,
+iterative reconstruction, representation selection, and dependency depth. A
+delta is storage, never an execution program or a second DDL differ.
+Generation writes `snapshot-delta-2` (adds `insert` and removal at any array
+index); `snapshot-delta-1` stays readable and is never rewritten. The reader is
+positional; only the encoder matches named elements (by `name`, or a unique
+string) so a mid-array insertion is one change, and it keeps the smaller of
+the keyed and positional encodings. Resolve
+every distinct physical reference and verify its logical hash against every
+referencing state before effects; do not deduplicate admission by schema hash.
+Patch only independently owned documents. A full document has depth zero;
+at most 32 delta links are admitted, including cached bases. Generation reads
+only the actual manifest parents' artifacts: it reuses one that already stores
+the schema, otherwise chooses the smallest delta from them, or a full document.
+A state's id hashes its artifact, so never widen that to other artifacts of the
+graph: a regenerated state must reproduce its id. Authored history checkpoints
+have no parents and are always full. The existing `ArtifactCache`
+shares only exact-byte parsed full/delta documents and manifests; every command
+still reads all dependencies from its own storage before reusing a reconstructed
+schema. Retained reconstructions charge their full canonical size to the same
+bounded cache, alongside the delta bytes. Frozen delta values must be
+detached before applying edits, and graph snapshots remain frozen. Low-lock
+generation includes candidate-owned artifacts in the same selection scope and
+seals every intermediate snapshot reference before publication. `prune` copies
+the retained states' physical dependency closure in base-first order and
+revalidates copied bytes against the graph's authenticated view.
+It materializes the canonical virtual empty snapshot when an implicit empty
+schema has no stored object; explicit artifact dependencies must remain present.
+Fresh estate-descriptor and state-manifest reads must also equal the graph's
+authenticated canonical bytes before publication into the destination.
+Offline check accounts for the committed-state transitive dependency closure
+separately from artifacts visited while validating orphans. Storage interfaces
+and immutable conditional publication are unchanged.
 A state becomes visible only when its manifest is conditionally created after
 all referenced snapshot and SQL bytes are durable.
 
@@ -133,8 +171,10 @@ The authenticated chain is:
 Every read revalidates the chain. A filename is not proof merely because it
 looks like a digest.
 
-Stored snapshot identity (`encodeSnapshot` / `hashSnapshot`) is those exact
-canonical bytes. Live physical comparison uses `fingerprintLive` in
+Logical snapshot identity (`encodeSnapshot` / `hashSnapshot`) is the exact
+canonical full-schema bytes, independently of full or delta representation.
+Stored delta identity authenticates the exact canonical delta bytes in its
+separate frozen hash domain. Live physical comparison uses `fingerprintLive` in
 `push-fingerprint.ts`. That path is the dialect canonicalization owner: it
 projects partial-index predicates through the live database, drops constraint
 names when `introspectionReadsConstraintNames` is false, keeps PostgreSQL
@@ -147,8 +187,13 @@ through that function. Do not compare an introspected snapshot with
 physical fact. Catalog aliases (`int4[]` / `integer[]`, `NOW()` / `now()`)
 are the same physical fact; `normalizeType` and `normalizeDefault` in
 `push-fingerprint.ts` are the one owner, including the differ. SQLite
-primary-key columns are not nullable even when `PRAGMA table_info` reports
-`notnull = 0`. SQLite `autoIncrement` is the `AUTOINCREMENT` keyword, not
+nullability is what the database enforces (`sqliteColumnNullable`, shared by
+introspection and the storage audit): `PRAGMA table_info` reports the
+declaration, a WITHOUT ROWID key already reads `notnull = 1`, and the rowid
+alias — the one key with no `pk`-origin index — cannot hold NULL; any other
+key column of a rowid table declared without NOT NULL accepts NULL and reads
+nullable (so a hand-made one is drift, and the SQLite ledger's
+`event_id TEXT PRIMARY KEY` reads nullable). SQLite `autoIncrement` is the `AUTOINCREMENT` keyword, not
 every `INTEGER PRIMARY KEY`. SQLite enum types keep the `CHECK (... IN ...)`
 suffix the driver writes; introspection reconstructs it from table SQL because
 `PRAGMA table_info` returns only `TEXT`. Transactional wrap uses the live producer's
@@ -726,6 +771,20 @@ providers record durable progress and honest `partial` or
 the system never claims rollback merely because code opened a nominal
 transaction.
 
+**Neki's `checkTaint` (1.5.1, supersedes the committed parts above on
+Neki).** Some Neki routers refuse to plan any statement against any relation
+once its transaction changed the schema, VibORM's own ledger and marker
+writes included (`NK013 [817]`). A schema change and its record can then
+never commit together, so on Neki (`commitsSchemaChangesAlone`, the lock
+protocol's answer for the command) every boundary is stepwise
+(`classifyStoredAtomicity`) and `runProgram` opens no transaction: each
+statement commits alone and each control write is a statement of its own.
+Never put a control statement after a schema statement in one transaction on
+Neki. The committed-parts path (`splitAtCatalogBoundaries` with `splits`) is
+then never taken there; its preflight still refuses two statements of one
+dispatch that need a commit between them. A reset's preflight passes
+`splits` too, since its statements commit alone on Neki.
+
 **Neki's lock (1.2.3, amends plan D1 on Neki).** Neki refuses a session
 advisory lock and a transaction advisory lock in one session, in either
 order (`NK013 [61]`). On Neki (`holdsSessionLock`, asked on the pinned
@@ -903,6 +962,7 @@ dependency-safe clear are compiled before anything is dropped.
 | Closed V1 persisted and operation-input shapes | `v1-types.ts` |
 | Frozen non-executable graph views | `public-view.ts` |
 | Hostile artifact, marker, and ledger admission; derived hashes | `v1-parse.ts` |
+| Stored snapshot delta admission, reconstruction, representation choice and bounded dependencies | `snapshot-artifacts.ts`, reusing the full snapshot parser |
 | SQL blob framing, range validation, and exact slicing | `sql-blob.ts` |
 | Semantic estate storage promises | `storage/contract.ts` |
 | Atomic filesystem publication | `storage/fs-estate.ts` |
@@ -924,6 +984,7 @@ dependency-safe clear are compiled before anything is dropped.
 | Which native type a scalar selects on this dialect (shorthand or per-dialect map) | `@schema/scalars/native-types` `nativeTypeFor` — each driver asks for its own dialect; a snapshot records only that answer |
 | Refusal of an alteration INTO a binary column | `binary-conversion.ts` `refuseBinaryReencoding`, from the one `alterColumn` dispatch |
 | Text→identifier conversion pre-checks, and the message PostgreSQL's `col::uuid` does not give | `identifier-conversion.ts` |
+| A raw index's template reading, hash, rendering, refused words and marker | `raw-index.ts` |
 
 If a new check cannot be assigned to exactly one row, fix the ownership before
 adding it. Consumers use trusted projections; they do not re-derive the fact.
@@ -1072,14 +1133,15 @@ contradict each other.
 ## Coverage Gate
 
 `pnpm test:coverage:migrations` is the exact migration-subsystem report. It
-passes the deterministic core and selected local extended list from
-`scripts/migration-test-manifest.mjs` to one bounded `coverage-migrations`
-invocation and writes `coverage/migrations/index.html`.
+passes the deterministic core and selected local extended groups from
+`scripts/migration-test-manifest.mjs` to bounded `coverage-migrations`
+invocations and writes `coverage/migrations/index.html`.
 
-Its enforced floors are 98% statements, 98% functions and 98% lines, with
-branches at 97.3%. Statements, lines and functions hold the full 98; the branch
-floor is an APPROVED EXCEPTION with recorded evidence in
-`scripts/coverage-policy.mjs`. The 30 residual arms are unreachable defensive
+Its enforced floors are 97% statements, 98% functions and 97% lines, with
+branches at 97.3%. The statement/line exception covers the PostgreSQL-only Neki
+commit-boundary paths (approved 2026-10-13); live PGlite cannot fit this lane's
+1536 MiB coverage ceiling. The branch-floor exception has recorded evidence in
+`scripts/coverage-policy.mjs`. Its 30 documented residual arms are unreachable defensive
 guards, each with a named upstream invariant: all 18 in `serializer.ts`
 (hydration always assigns `names.sql`; `EnumScalar.enumValues` returns `[]`, never
 `undefined`) and all 12 in `graph.ts` (a cycle there would need a SHA-256 preimage
@@ -1128,12 +1190,51 @@ recording driver or in the extended or provider estate.
 
 ## V1 remediation contracts
 
-An optional exact physical `tables` list is normalized once at `target.ts`,
-frozen into the estate identity, and selects desired/catalog inventories.
-All authored user tables must fit the list; cross-boundary foreign keys and
-shared PostgreSQL enums refuse before effects. Control-table proofs remain
-visible. Live clients accept `{ tables }` without requiring a storage writer.
-A rename needs both names in the initial immutable scope.
+An optional exact physical `tables` list is normalized once at `target.ts`
+and recorded in the estate identity (T0). A client's list L may only grow
+from it: `assertEstateTargetMatches` (V11004) refuses a T0 name missing from
+L and a list on one side only, and says which. L selects the desired check
+(every authored user table must fit it) and `push`, nothing else. Every
+history command selects what the estate manages, never L: `openCommand`
+binds T0, and each proof restates its states' set through `proof.ts`
+`managedAt` (T0 ∪ S(x), and across an edge x→y T0 ∪ S(x) ∪ S(y), less the
+edge's `adopts` on the parent's side), built by `target.ts`
+`managedTables` / `withManagedTables` — one view whose `target` every
+inventory reads (introspection through the bound driver's `this.target`, the
+PostgreSQL digest, invalid indexes, the reset inventory), so a proof's digest
+and introspection select the same set. Commands comparing one read with
+several states (`reanchor`, `resolve`) read the widest set once and select
+in memory with `selectManagedSnapshot`. `reset` clears T0 ∪ the tables of
+its marker's arrival path, so a table only L names (not adopted yet) is never
+dropped, and refuses before effects a replay that adopts a table it clears,
+and (`planClear`, dry run and run alike) a live table the replay creates that
+the clear keeps — not adopted yet, or created by a history the marker names
+and this estate does not hold — naming it.
+A control-only selection draws no user boundary. Cross-boundary foreign keys
+and shared PostgreSQL enums still refuse before effects. Live clients accept
+`{ tables }` without requiring a storage writer. A rename needs both names in
+the estate's scope.
+
+Adoption (`generate({ adopt })`, CLI `--adopt`) records `adopts` (sorted,
+non-empty) on each parent transition, hashed only when present like
+`approvals`, so a transition without it keeps its bytes and ids. Generation
+admits a name only when the desired snapshot declares it, T0 does not hold
+it, and no parent's snapshot does; `graph.ts` `assertAdoption` refuses a
+stored `adopts` breaking the last two, since `managedAt` relies on them. The
+program omits the table's CREATE, indexes, keys and an enum only adopted
+tables use; apply's origin proof excludes it and its destination proof
+includes it, so a live table unequal to the declaration (WITHOUT ROWID
+included) fails V11014 before the marker moves. What changes behaviour and no
+snapshot states (triggers, conflict clauses, collations, engine, storage, row
+security, CHECK, deferrable keys: each dialect's `adoptionHazards`) is
+refused, V11014 naming table and feature, by `proof.ts` `assertAdoptable`,
+which apply, reset, baseline, reanchor and resolve (complete or retry) run
+before effects over the tables their path adopts, and nothing else asks. Known
+gap, documented (Arnaud, 2026-11-09): a stepwise apply (MySQL, Neki) whose
+later edge CREATEs a table that already exists by hand skips that proven step,
+as a resume does, and takes the table over without `adopts`. The enum an adopted table uses joins the program's
+origin, so a new table's DDL qualifies it. `down` releases it with no
+DDL. Manual, low-lock and checkpoint states adopt nothing.
 
 Generation uses the strict resolver for every parent, including merges. Missing
 rename or enum-removal decisions refuse; nullable does not imply NULL consent.
@@ -1170,4 +1271,43 @@ PostgreSQL catalog index proof refuses unrepresentable expressions/order/INCLUDE
 opclass/collation/methods in selected tables. SQLite `index_xinfo` proves key
 members, BINARY collation and ascending order, including PK/unique backing indexes.
 Unsupported artifacts in unselected tables do not widen owned scope. The refusal
-preserves artifacts; it is not a native index DSL or importer.
+preserves artifacts; it is not an importer. SurrealDB introspection
+refuses the same way in a managed table: an index whose
+kind is not plain or `UNIQUE`, or whose comment is not one of VibORM's facts,
+and a table or field comment that is not JSON; elsewhere they are skipped.
+
+### Raw indexes
+
+`Model.rawIndex(name, templates)` is the native index language: one text per
+dialect, with `{name}`, `{table}` and `{field}` placeholders. `raw-index.ts` is
+its one owner: the header and placeholder reading (`declaredRawIndex`, from the
+serializer, for the bound dialect), `rawIndexHash` (own frozen domain),
+rendering (`renderRawIndex`: the i-th field placeholder becomes the i-th of
+`IndexDef.columns`, so a snapshot needs no field map), the refusal of what the
+driver writes itself (`refuseRawIndexStatement`, over the executable words of
+the rendered text), and the marker (`rawIndexMarker`, canonical JSON of
+columns, name and hash, exactly the projection `fingerprintSnapshot` hashes).
+`IndexDef.raw = { hash, template? }`: stored snapshots require the template
+and `v1-parse-snapshot.ts` refuses a hash that is not its template's, raw with
+unique/type/where, and columns that are not its fields; only an introspected
+snapshot lacks it, and `planPush` fills it from the declared index of the same
+name and hash (`withDeclaredRawTemplates`) so a SQLite rebuild or a SurrealDB
+re-definition can render it.
+
+A raw index is never a key, never covers a foreign key, never folds into a
+unique (`unique: false` always; the PostgreSQL digest excludes it from
+`total_unique` by itself), is skipped by MySQL and SurrealDB key handling in
+`finalizeTable`, is never a low-lock build, and is excluded from derived
+renames. Equality is name, hash and columns; a non-raw index of its name is
+replaced. A column rename projects its columns like any index; the database's
+index follows, its marker does not, so each driver writes the marker again in
+the rename (`rawIndexesRenamedBy`: the program's indexes at that point, minus
+those a later operation drops): PostgreSQL a `COMMENT ON INDEX`, MySQL and
+SQLite drop and re-create, SurrealDB re-defines. Its `dropIndex` carries
+`raw: true`, which lets it run before a column rename, so a rollback restores
+it after the rename back. Markers: PostgreSQL `obj_description` (`viborm:raw:`
+prefix; its COMMENT step has its own probe), MySQL `INDEX_COMMENT`, SQLite a
+trailing `/* viborm:raw:… */` in `sqlite_master.sql` (`/` escaped), SurrealDB
+the index comment `{columns, name, raw}`. Introspection reads a marker naming
+that index as the raw index, whatever its structure; a hand-made index carries
+none and keeps today's refusal (V8001), so declaring one does not adopt it.

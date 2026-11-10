@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: Shared assertion helpers are invoked only from registered tests.
 /**
  * G3P-05's recursive read fit, re-expressed through the ORDINARY projection.
  *
@@ -18,13 +19,21 @@
  */
 import assert from "node:assert/strict";
 import type { QueryResult } from "@drivers";
-import { QueryEngineError, ValidationError } from "@errors";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
+import { QueryEngineError, ValidationError } from "@errors";
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
+
+const WITH_RECURSIVE = /WITH RECURSIVE\b/;
+const SIBLING_RANK_ASC = /"sibling_rank"\s+ASC/;
+const DISPLAY_LABEL_ASC = /"display_label"\s+ASC/;
+const NOTE_POSITION_ASC = /"note_position"\s+ASC/;
+const DEPTH_REFUSAL =
+  /recurse\.depth must be a positive safe integer between 1 and 1000/;
+const WHERE_REFUSAL = /where/;
 
 interface StatementObservation {
   readonly sql: string;
@@ -252,7 +261,8 @@ async function refused(
   const statementCount = world.driver.statements.length;
   await assert.rejects(
     world.engine.execute("recursiveNode", "findMany", args),
-    (error: unknown) => error instanceof ValidationError && reason.test(error.message)
+    (error: unknown) =>
+      error instanceof ValidationError && reason.test(error.message)
   );
   assert.equal(world.driver.statements.length, statementCount);
 }
@@ -360,7 +370,11 @@ describe("G3P-05 recursive read fit through the ordinary projection", () => {
             rank: 20,
             notes: [{ text: "alpha note" }],
             children: [
-              { label: "Alpha two", rank: 10, notes: [{ text: "alpha two note" }] },
+              {
+                label: "Alpha two",
+                rank: 10,
+                notes: [{ text: "alpha two note" }],
+              },
               { label: "Alpha one", rank: 20, notes: [] },
             ],
           },
@@ -382,10 +396,13 @@ describe("G3P-05 recursive read fit through the ordinary projection", () => {
       };
       assert.deepEqual(rows, [expectedRoot, expectedAlpha]);
       // Representation change — the recursive CTE is now a scalar subquery inside the ordinary SELECT's relation column (recursive-query.md §3.2/§3.6), not the statement's prefix.
-      assert.match(statement.sql, /WITH RECURSIVE\b/);
-      assert.match(statement.sql, /"sibling_rank"\s+ASC/);
-      assert.match(statement.sql, /"display_label"\s+ASC/);
-      assert.match(statement.sql, /"note_position"\s+ASC/);
+      assert.match(statement.sql, WITH_RECURSIVE);
+      assert.match(statement.sql, SIBLING_RANK_ASC);
+      // A non-key sibling order (the mapped label) is read from the child
+      // joined to the walk after its `UNION`; a key-only order would read the
+      // walk's own columns and join nothing.
+      assert.match(statement.sql, DISPLAY_LABEL_ASC);
+      assert.match(statement.sql, NOTE_POSITION_ASC);
 
       const root = rows[0]!;
       const standaloneAlpha = rows[1]!;
@@ -451,23 +468,30 @@ describe("G3P-05 recursive read fit through the ordinary projection", () => {
         },
       ];
       assert.deepEqual((await upward(2)).rows, chain(root));
-      assert.deepEqual((await upward(3)).rows, chain({ ...root, parent: null }));
+      assert.deepEqual(
+        (await upward(3)).rows,
+        chain({ ...root, parent: null })
+      );
 
       // Contract change — singular nodes admit select/include/omit only
       // (§2.3). The private fit's per-level filter on the upward chain (which
       // stopped `pruned-child` at its inactive parent) is refused before any
       // statement, never silently ignored.
-      await refused(world, {
-        where: { tenant: "tree", code: "pruned-child" },
-        select: {
-          label: true,
-          parent: {
-            recurse: { depth: 32 },
-            where: { active: 1 },
-            select: { label: true },
+      await refused(
+        world,
+        {
+          where: { tenant: "tree", code: "pruned-child" },
+          select: {
+            label: true,
+            parent: {
+              recurse: { depth: 32 },
+              where: { active: 1 },
+              select: { label: true },
+            },
           },
         },
-      }, /where/);
+        WHERE_REFUSAL
+      );
     } finally {
       await closeRecursiveWorld(world);
     }
@@ -480,13 +504,17 @@ describe("G3P-05 recursive read fit through the ordinary projection", () => {
       // level 1, so the private fit's depth-0 root rows have no public
       // spelling. Both directions are refused before any statement.
       for (const relation of ["children", "parent"])
-        await refused(world, {
-          where: { tenant: "tree", code: "root" },
-          select: {
-            label: true,
-            [relation]: { recurse: { depth: 0 }, select: { rank: true } },
+        await refused(
+          world,
+          {
+            where: { tenant: "tree", code: "root" },
+            select: {
+              label: true,
+              [relation]: { recurse: { depth: 0 }, select: { rank: true } },
+            },
           },
-        }, /recurse\.depth must be a positive safe integer between 1 and 1000/);
+          DEPTH_REFUSAL
+        );
 
       const downwardEmpty = await read(world, {
         where: { tenant: "tree", code: "empty" },
@@ -622,7 +650,7 @@ describe("G3P-05 recursive read fit through the ordinary projection", () => {
         });
         assert.deepEqual(rows, [expectedSpine(0, depth)]);
         // Representation change — the recursive CTE is now a scalar subquery inside the ordinary SELECT's relation column (recursive-query.md §3.2/§3.6), not the statement's prefix.
-        assert.match(statement.sql, /WITH RECURSIVE\b/);
+        assert.match(statement.sql, WITH_RECURSIVE);
         const publicCounts = countDownwardOutput(rows[0]!);
         // Contract change — cutoff: the private fit gave every occurrence a
         // `children` array (1 + 2·depth); now only occurrences before the

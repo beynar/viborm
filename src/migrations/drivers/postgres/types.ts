@@ -78,6 +78,8 @@ export interface PgIndex {
   is_unique: boolean;
   index_type: string;
   filter_condition: string | null;
+  /** The index's comment, where VibORM keeps a raw index's marker. */
+  index_comment: string | null;
   ordinal_position: number;
 }
 

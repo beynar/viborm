@@ -1,0 +1,32 @@
+[
+  {
+    "id": "6",
+    "parent": "0",
+    "detail": "SCAN q0"
+  },
+  {
+    "id": "14",
+    "parent": "0",
+    "detail": "CORRELATED SCALAR SUBQUERY 2"
+  },
+  {
+    "id": "17",
+    "parent": "14",
+    "detail": "CO-ROUTINE q2"
+  },
+  {
+    "id": "24",
+    "parent": "17",
+    "detail": "SEARCH q1 USING INDEX orders_customerId_idx (customerId=?)"
+  },
+  {
+    "id": "46",
+    "parent": "17",
+    "detail": "USE TEMP B-TREE FOR ORDER BY"
+  },
+  {
+    "id": "59",
+    "parent": "14",
+    "detail": "SCAN q2"
+  }
+]

@@ -206,10 +206,13 @@ const extendedLocalExclusions = new Set([
   "tests/unit/migrations/postgres-namespace-docker.test.ts",
   "tests/unit/migrations/postgres-neki-boundaries-docker.test.ts",
   "tests/unit/migrations/postgres-recoverable-steps-docker.test.ts",
+  "tests/unit/migrations/postgres-failure-facts-docker.test.ts",
   "tests/unit/migrations/postgres-session-limits-docker.test.ts",
   "tests/unit/migrations/postgres-transaction-pooler-docker.test.ts",
   "tests/unit/migrations/neon-http-batch-apply-docker.test.ts",
   "tests/unit/migrations/shared-pool-estates-docker.test.ts",
+  "tests/unit/migrations/introspect-schema-docker.test.ts",
+  "tests/unit/migrations/introspect-schema-mysql-docker.test.ts",
   ...RQ01_PGLITE_TESTS,
   ...RQ01_SQLITE_TESTS,
   ...RQ06_GRAPH_ORACLE_TESTS,
@@ -522,28 +525,49 @@ export const EXTENDED_LOCAL_IMPORTED_PGLITE_SHARDS = Object.freeze(
   )
 );
 
+/**
+ * Ordinary files that run ALONE, under the same 1536 MiB ceiling: their
+ * process group holds more than one Node process running the ORM, so the
+ * footprint does not support packing. `sqlite-exactly-once` races two child
+ * processes against one database; packed with two other files it peaked at
+ * 1271 MiB on Linux under Vitest 3 and 1440-1565 MiB under Vitest 4, and alone
+ * 1543-1572 MiB. That peak was its first race: both children transpiling the
+ * sources on a cold jiti cache at once, each about twice its warm footprint.
+ * One child now warms the cache first (1010 -> 757 MiB on macOS).
+ */
+const EXTENDED_LOCAL_SOLO_TESTS = Object.freeze([
+  "tests/unit/migrations/sqlite-exactly-once.test.ts",
+]);
+
 const EXTENDED_LOCAL_ORDINARY_TESTS = EXTENDED_LOCAL_TESTS.filter(
   (file) => !bootsLivePGlite(file)
 );
 
+const EXTENDED_LOCAL_PACKED_TESTS = EXTENDED_LOCAL_ORDINARY_TESTS.filter(
+  (file) => !EXTENDED_LOCAL_SOLO_TESTS.includes(file)
+);
+
 const EXTENDED_LOCAL_SHARD_SIZE = 3;
 
-export const EXTENDED_LOCAL_TEST_SHARDS = Object.freeze(
-  Array.from(
+export const EXTENDED_LOCAL_TEST_SHARDS = Object.freeze([
+  ...Array.from(
     {
       length: Math.ceil(
-        EXTENDED_LOCAL_ORDINARY_TESTS.length / EXTENDED_LOCAL_SHARD_SIZE
+        EXTENDED_LOCAL_PACKED_TESTS.length / EXTENDED_LOCAL_SHARD_SIZE
       ),
     },
     (_, index) =>
       Object.freeze(
-        EXTENDED_LOCAL_ORDINARY_TESTS.slice(
+        EXTENDED_LOCAL_PACKED_TESTS.slice(
           index * EXTENDED_LOCAL_SHARD_SIZE,
           (index + 1) * EXTENDED_LOCAL_SHARD_SIZE
         )
       )
-  )
-);
+  ),
+  ...EXTENDED_LOCAL_SOLO_TESTS.filter((file) =>
+    EXTENDED_LOCAL_ORDINARY_TESTS.includes(file)
+  ).map((file) => Object.freeze([file])),
+]);
 
 /**
  * Provider suites are enumerated FROM DISK, by filename prefix.

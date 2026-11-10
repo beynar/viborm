@@ -261,8 +261,14 @@ statement is built;
 `chain.ts` owns the one resolved chain,
 handler lookup, the chain's one control name space (one declaration per
 control name; a definition's references to an earlier extension's controls)
-and placed controls, one `deletion` entry per model, and the order guard
-(`rows` after a result consumer is refused); `controls.ts` owns control
+and placed controls, and one `deletion` entry per model. There is no runtime order guard: every method runs
+through the whole chain of the client it is called on, so the order rule
+is TypeScript's alone (`methods.ts`, `ResultConsumerContextOf`: a client or
+model factory taking a typed argument is a result consumer, and `rows` or
+`defaultOmit` after one types as `never`; one taking `never`, `unknown` or
+nothing is not, and types its methods' results from their delegate through
+a `this` parameter and `DelegateOperationResult`, which reads the
+declaration-only `DelegateState` link). `controls.ts` owns control
 placement, the call's one admission (taken out of the arguments before
 request transforms, validated once, handed only to the declaring extension's
 handlers; `bound` controls only from a view's `$bind`) and the control types the model
@@ -291,8 +297,11 @@ implemented only in `src/cache/extension.ts`,
 replace their old `createClient()` config keys. The official `softDelete()`
 (`src/soft-delete/index.ts`, entry `viborm/soft-delete`) is the other kind: an
 ordinary definition built only from public exports (its imports are the files
-behind `viborm` and `viborm/client`, type-only), with no identity, no private
-fact and no runtime import; `tests/package/soft-delete-consumer-smoke.mjs`
+behind `viborm` and `viborm/client`; its one runtime import is
+`ClientInitializationError`, for the marker it checks when applied), with no
+identity and no private fact, one `$extends` in any order (its `rows` and
+`methods` steps stay for chains written before 1.8);
+`tests/package/soft-delete-consumer-smoke.mjs`
 rebuilds it from the packed package. Keep it that way: a need it cannot meet
 through the public capabilities is a capability to add, not a friend import.
 The cache's mutation `cache` argument is a declared control on writes.
@@ -352,6 +361,79 @@ distinguish scalar from whole-list parameters. Unproved or unsupported shapes
 remain unchanged.
 `tests/package/permissions-consumer-smoke.mjs` runs §1.1 and the blog from the
 packed package.
+
+The official `on()` (`src/on/index.ts`, entry `viborm/on`) is authenticated
+by identity like the cache: its `query` is the plan function core recognizes
+(`src/extensions/writes.ts`) and keeps out of the chain's handlers. For each
+write a hook concerns, the client asks it once for a plan: the arguments
+widened to whole rows (the caller's `select` moved to `include`, a bulk write
+given `omit: {}`), the value cut back to the caller's projection, and the
+write's one registration on the `TransactionWriteOutcomes` rail (after the
+cache's), so hooks run after the outermost commit and never after a rollback.
+A write no hook concerns is planned as written. Raptor 3 reports to the
+write's sink, `src/query-engine/write-sinks.ts` (keyed by the operation's
+attribution, registered before any planning). A root upsert reports its arm:
+its
+`INSERT … ON CONFLICT` fold returns the adapter's `mutations.upserted` marker
+(PostgreSQL's `xmax = 0`) beside the row, and where an adapter has none a
+probe of the key rides the same unit just before it. Nested writes report
+through the same sink: where it `wants` a model, `OperationContext.captureRows`
+reads each written row by key (before a delete; a cleared foreign key's rows
+before, reported cleared) in the operation's own unit — at once on the
+interactive route, queued in the same batch and decoded with its answer on
+the batch route — and a nested `updateMany`/`deleteMany` returns its rows from
+its own `RETURNING` (members captured one by one where there is none). The
+client cuts a hooked write's value back to the call's own projection
+(`takeResult`) before any extension sees it, so query handlers never see the
+hook's whole rows. A failing hook never fails its write: its error goes to
+`on(hooks, { onError })`, else `console.error`.
+
+The official `ordering()` (`src/ordering/`, entry `viborm/ordering`; plan
+`docs/architecture/ordering-extension-plan-2026-10-31.md`) is one ordinary
+definition plus one engine seam, applied in any order (its `keys` and
+`methods` steps stay for chains written before 1.8). It declares the generic `order`
+capability (a model's default `orderBy`, threaded as `RowDomain.order` with
+the call's row facts and applied by `Queries.#ordered` at root
+`findMany`/`findFirst`, `#prepareRelationProjection` for to-many edges, and
+paged aggregate windows; never in `#page`, whose internal selects keep key
+order; keyed into cached reads by `cacheKeyOf`) and a `data` create stamp that
+is an `InsertValue` (`raptor3/shared/insert-value.ts`): `Commands.stamp` keeps
+it out of create admission, and every INSERT path of `OperationContext`
+(`insert`, `insertMany`, the upsert fold) asks it, through `#computed`, for its
+values once the rows are final (incoming foreign keys assigned). `AppendKey`
+answers with one SQL expression per row over `MAX(key)` of the row's list
+(PostgreSQL, SQLite), or, on MySQL outside batch preparation, with keys it
+computes after one consistent read (the one-statement form deadlocks under
+concurrent appends there). Its methods add `move` and `rekey` from
+the delegate and the client scope a model factory now receives; both are lazy
+thenables, so an array transaction refuses them before any statement.
+Ordering writes no SQL past the client. The SQL it writes (the move's
+subqueries, respacing's ranks) reads `model AS alias` beside a `RowsOf`
+(`raptor3/shared/rows-of.ts`), which the operation's `Queries` settles to the
+call's root domain at that alias when it lowers the caller's fragment
+(`Queries.#settleRows`, in `value` and `#scalarValue`; `#prepareOperand`
+peeks a caller's `Sql` rather than flattening it, so the node survives):
+every extension applies to it as to any read, and rendered elsewhere its
+text is not SQL. So a move is still one UPDATE under soft delete or
+permissions (a hidden anchor is a missing one, a hidden member no
+neighbour). Respacing (`rekey`, and `move` on a tie or a used-up gap) is one
+`updateMany` through the delegate, its key a `JoinedValue`
+(`raptor3/shared/insert-value.ts`): a derived table ranking the lists'
+members (window functions over the table, the call's `RowsOf` under the
+update judgement of the key marking the members it may write, a `RowsOf`
+under the call's admitted `where` naming the lists) maps each to a short key
+between the keys of the others around the place it takes, so every viewer
+keeps the order and no other row is written. The UPDATE joins it
+(`adapter.mutations.updateFrom`: `UPDATE … FROM` on PostgreSQL and SQLite,
+`UPDATE … JOIN` on MySQL, which materializes it), never a correlated
+subquery, because SQLite's subqueries see the rows its UPDATE already
+rewrote. A row is written only while it holds the list and the key it was
+ranked with, so a member moved meanwhile stays where its writer put it. An
+`updateMany` that captures its rows first (no RETURNING, as on MySQL under
+an `on` hook) captures, and claims in a batch's premises, only the rows the
+join names (`condition` of `Queries.select`, a function of the root alias). Running window frames
+only (`UNBOUNDED PRECEDING`, the upper bound read backwards): a frame that
+ends at `UNBOUNDED FOLLOWING` is rescanned per row, quadratic in a list.
 
 `cache()` produces a namespace-free DEFINITION; the client composition root
 binds it to the concrete driver, deriving one scope from the private snapshot
@@ -498,6 +580,24 @@ Client uses types:     orm.user.findMany({ where: { name: ... }})  // Fully type
 | Add cache invalidation option | [cache/](src/cache/AGENTS.md) | Update `schema.ts` |
 | Add tracing span/attribute | [instrumentation/](src/instrumentation/AGENTS.md) | Update `spans.ts`, `presentation.ts`; core only publishes neutral facts |
 | Add logging level | [instrumentation/](src/instrumentation/AGENTS.md) | Update `types.ts`, `logger.ts` |
+| Change list ordering | `src/ordering/` (`keys.ts` decimal keys, `append.ts` per-dialect appends, `index.ts` config, `move`, `rekey`); `order` capability in `src/extensions/definition.ts` + `query.ts`; `InsertValue` seam in `raptor3/shared/insert-value.ts` | Keys stay digits only (collation-proof); appends go through `InsertValue`, never a read in `Commands`; `tests/contracts/public-client/ordering*.ts`, `extension-order.core.test.ts`, provider `*-ordering.test.ts` |
+| Change VibORM Studio | `packages/studio/` (`@viborm/studio`: `src/` server, API, config discovery and watching; `ui/` Svelte app) | Reads and writes only through the loaded client; bundles VibORM internals from `src/`, so its version follows `viborm`'s; no `viborm` source imports it (`packages/studio/test/studio-boundary.core.test.ts`) |
+
+Studio's project store keeps `views`, `queries`, and `layout` independently in
+one file. Saved views and queries share `ui/src/lib/saved-items.svelte.ts` for
+loading, browser migration, and ordered persistence; their content and actions
+remain in their respective collection classes. Saved query URLs use `/query/<id>`.
+`ui/src/router.ts` owns typed routes and link/navigation helpers through
+`sv-router`. `App.svelte` is the persistent layout; route pages read its
+project state through `lib/studio-context.ts`. API and event URLs are root-relative.
+`lib/legacy-url.ts` upgrades old hash bookmarks before the router mounts.
+Query code is one read call parsed by `src/query-code.ts` into the existing
+model/operation/args API; never evaluate it as JavaScript. Code runs explicitly,
+and saved queries retain their source. The builder keeps its automatic reads.
+The builder's `lib/query-builder.ts` owns the saved projection tree and its
+translation to client arguments; retain legacy relation-name strings as all-column
+selections. `SelectionEditor.svelte` navigates that finite tree, including independent
+polymorphic target selections, without traversing the schema's cyclic graph.
 
 ---
 
@@ -724,26 +824,26 @@ pnpm test:all --ci-local # CI partition: extended-local and local providers; sib
 pnpm test:coverage       # Sequential subsystem shards, merged global report, and working-tree metadata
 # CI splits the same work: run-coverage.mjs shard <id,...> per runner, then run-coverage.mjs merge
 
-# Nine subsystems hold 100% statements, branches, functions and lines.
+# Eight subsystems hold 100% statements, branches, functions and lines.
 pnpm test:coverage:public # Public root surface; 100% in all four metrics
 pnpm test:coverage:schema # Whole schema subsystem; 100% in all four metrics
 pnpm test:coverage:validation # Validation subsystem; 100% in all four metrics
 pnpm test:coverage:sql   # SQL subsystem; 100% in all four metrics
 pnpm test:coverage:instrumentation # Instrumentation subsystem; 100% in all four metrics
 pnpm test:coverage:extensions # Extension subsystem; 100% in all four metrics
-pnpm test:coverage:errors # Error subsystem; 100% in all four metrics
 pnpm test:coverage:adapters # Adapter subsystem; 100% in all four metrics
 pnpm test:coverage:cli   # CLI subsystem; 100% in all four metrics
 
-# The other five are APPROVED EXCEPTIONS below 100 and do NOT share one number.
+# The other six are APPROVED EXCEPTIONS below 100 and do NOT share one number.
 # The floors below are statements / branches / functions / lines exactly as
 # scripts/coverage-policy.mjs enforces them, each with its measured evidence
 # recorded beside it there.
 pnpm test:coverage:query-engine-core # 87 / 91 / 90 / 87 - the whole engine is in scope, measured by its own deterministic test tree (coverage-raptor3) beside the contract layers
 pnpm test:coverage:drivers # 96 / 92.5 / 96 / 96 - per-provider index.ts needs a live connection this lane must not open
 pnpm test:coverage:client # 96 / 94 / 96 / 96 - `default:` arms over closed unions, and functions with no public caller
-pnpm test:coverage:cache # 98 / 98 / 98 / 98
-pnpm test:coverage:migrations # 98 / 97.3 / 98 / 98 - 30 unreachable defensive branches in serializer.ts and graph.ts
+pnpm test:coverage:errors # 100 / 99 / 100 / 100 - Vitest 4 counts branch arms Vitest 3 did not (Arnaud, 2026-11-09)
+pnpm test:coverage:cache # 98 / 97.5 / 98 / 98 - the same Vitest 4 re-measure (Arnaud, 2026-11-09)
+pnpm test:coverage:migrations # 97 / 97.3 / 98 / 97 - 30 unreachable defensive branches in serializer.ts and graph.ts
 pnpm test:coverage:policy # Static ownership and bounded-runner policy tests
 pnpm test:package        # Build once and validate every declared export
 pnpm test:providers      # Docker and hosted projects only; missing environment values skip visibly

@@ -470,18 +470,41 @@ describe("dialect physical SQL vocabulary", () => {
 
     for (const adapter of [postgres, mysql, sqlite]) {
       expectComposable([
-        adapter.operators.like(column, value),
-        adapter.operators.notLike(column, value),
-        adapter.operators.ilike(column, value),
-        adapter.operators.notIlike(column, value),
         adapter.operators.containsText(column, value),
         adapter.operators.startsWithText(column, value),
         adapter.operators.endsWithText(column, value),
+        adapter.operators.insensitiveText("contains", column, value),
+        adapter.operators.insensitiveText("startsWith", column, value),
+        adapter.operators.insensitiveText("endsWith", column, value),
         adapter.operators.startsWithPrefix(column, "A%_\\"),
         adapter.operators.exactTextEq(column, value),
         adapter.operators.exactTextIn(column, sql`(${"A"}, ${"B"})`),
       ]);
     }
+
+    // PostgreSQL escapes a plain string here and binds the finished pattern;
+    // only an operand the server computes is escaped in SQL.
+    const contains = postgres.operators.containsText(column, value);
+    expect(contains.toStatement()).toBe("name LIKE ? ESCAPE '\\'");
+    expect(contains.values).toEqual(["%A\\%\\_\\\\%"]);
+    const folded = postgres.operators.insensitiveText(
+      "endsWith",
+      column,
+      value
+    );
+    expect(folded.toStatement()).toBe("name ILIKE ? ESCAPE '\\'");
+    expect(folded.values).toEqual(["%A\\%\\_\\\\"]);
+    expect(
+      postgres.operators
+        .insensitiveText("startsWith", column, sql.raw`other`)
+        .toStatement()
+    ).toContain("REPLACE(REPLACE(REPLACE(CAST(other AS TEXT)");
+    expect(
+      mysql.operators.insensitiveText("contains", column, value).toStatement()
+    ).toBe("LOCATE(BINARY LOWER(?), BINARY LOWER(name)) > 0");
+    expect(
+      sqlite.operators.insensitiveText("contains", column, value).toStatement()
+    ).toBe("instr(lower(name), lower(?)) > 0");
 
     expect(postgres.operators.startsWithPrefix(column, "A%_\\").values).toEqual(
       ["A\\%\\_\\\\%"]
@@ -501,7 +524,7 @@ describe("dialect physical SQL vocabulary", () => {
       expect(adapter.expressions.concat(only)).toBe(only);
       expectComposable([
         adapter.expressions.concat(sql`${1}`, sql`${2}`),
-        adapter.expressions.asciiCaseFold(sql.raw`name`),
+        adapter.expressions.caseFold(sql.raw`name`),
         adapter.expressions.caseSensitiveText(sql.raw`name`),
         adapter.expressions.greatest(sql`${1}`, sql`${2}`),
         adapter.expressions.least(sql`${1}`, sql`${2}`),
@@ -757,6 +780,20 @@ describe("dialect physical SQL vocabulary", () => {
       ),
     ]);
 
+    for (const adapter of [postgres, sqlite]) {
+      expect(adapter.mutations.onConflictNothing!().toStatement()).toBe(
+        "NOTHING"
+      );
+    }
+    expect("onConflictNothing" in mysql.mutations).toBe(false);
+    for (const adapter of [postgres, mysql, sqlite]) {
+      const member = [{ name: "m", query: sql`SELECT ${1}` }];
+      const opened = sql`${adapter.cte.with(member)} SELECT ${2}`;
+      expect(adapter.cte.opens(opened)).toBe(true);
+      expect(adapter.cte.opens(sql`  ${opened}`)).toBe(true);
+      expect(adapter.cte.opens(sql`SELECT ${1}`)).toBe(false);
+    }
+
     expect(mysql.mutations.returning(sql.raw`id`).toStatement()).toBe("");
     expect(postgres.mutations.returning(sql.raw`id`).toStatement()).toBe(
       "RETURNING id"
@@ -834,6 +871,7 @@ describe("dialect physical SQL vocabulary", () => {
       supportsMutationRowLimit: false,
       supportsRowLocks: true,
       joinsJunctionFilters: "unbounded",
+      readsNodesByKey: true,
     });
     expect(mysql.capabilities).toEqual({
       supportsReturning: false,
@@ -846,6 +884,7 @@ describe("dialect physical SQL vocabulary", () => {
       supportsMutationTargetInSubquery: false,
       supportsMutationRowLimit: true,
       supportsRowLocks: true,
+      locksMissingKeys: true,
       boundsRecursionIterations: true,
     });
     expect(sqlite.capabilities).toEqual({

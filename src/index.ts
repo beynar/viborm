@@ -26,14 +26,18 @@
 
 export type {
   ClientTypeState,
+  DelegateOperationArgs,
+  DelegateOperationResult,
   ExtendedClient,
   ExtendedOperationResult,
   ExtensionState,
+  TransactionClient,
+  TransactionClientOf,
   VibORMClient,
   VibORMConfig,
 } from "./client/client.js";
 export { createClient } from "./client/client.js";
-export type { RawOperation } from "./client/raw.js";
+export type { RawOperation, RowsFragment } from "./client/raw.js";
 export {
   getOperationPayloadSchema,
   renderOperationResultType,
@@ -112,6 +116,7 @@ export type {
   RelationCardinality,
   RelationSlot,
   Scalar,
+  ScalarKeys,
   ScalarState,
   ScalarUpdateState,
   StringScalar,

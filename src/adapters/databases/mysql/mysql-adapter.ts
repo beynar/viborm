@@ -24,6 +24,7 @@ import {
   type DatabaseAdapter,
   type GeoPointSql,
   installGeoPointSql,
+  type TextMatch,
 } from "../../database-adapter";
 import { createMySqlBatchRefs } from "../../shared/batch-refs";
 import {
@@ -346,18 +347,11 @@ const mysqlDecimalAverage = (
   );
   return mysqlLogical(coefficient, descriptor);
 };
-const ASCII_UPPERCASE = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-const ASCII_LOWERCASE = "abcdefghijklmnopqrstuvwxyz";
-
-const asciiCaseFold = (expr: Sql): Sql => {
-  let folded = expr;
-  for (let index = 0; index < ASCII_UPPERCASE.length; index++) {
-    const upper = sql.raw(`'${ASCII_UPPERCASE[index]}'`);
-    const lower = sql.raw(`'${ASCII_LOWERCASE[index]}'`);
-    folded = sql`REPLACE(${folded}, ${upper}, ${lower})`;
-  }
-  return folded;
-};
+// MySQL's own case folding: `LOWER` maps every letter by the string's
+// character set (Unicode for utf8mb4). It must see the raw text — on a
+// `BINARY` string it does nothing — and its result is compared as bytes, so a
+// case- AND accent-insensitive collation (`utf8mb4_0900_ai_ci`) never decides.
+const caseFold = (expr: Sql): Sql => sql`LOWER(${expr})`;
 
 // MySQL DATETIME rejects ISO-8601's 'Z' suffix ("Incorrect datetime value"),
 // so datetimes are stored as naive UTC wall-clock 'YYYY-MM-DD HH:MM:SS.mmm'.
@@ -411,6 +405,10 @@ export class MySQLAdapter implements DatabaseAdapter {
     installAdapterInternals(this, {
       batchRefs: this.#batchRefs,
       constraints: MYSQL_CONSTRAINTS,
+      // Qualified by the bound database; an unbound adapter cannot pin.
+      ...(this.namespace !== undefined && {
+        pinnedTable: this.identifiers.table,
+      }),
       select: this.#assemble.select,
     });
   }
@@ -459,24 +457,14 @@ export class MySQLAdapter implements DatabaseAdapter {
   operators = {
     ...createComparisonOperators(),
 
-    // Explicit ESCAPE '\' pairs with wildcard escaping in the where-builder.
-    // The literal is doubled ('\\') because MySQL's default mode treats
-    // backslash as a string-literal escape; under NO_BACKSLASH_ESCAPES it
-    // fails loudly rather than silently matching wildcards.
-    like: (column: Sql, pattern: Sql): Sql =>
-      sql`${column} LIKE ${pattern} ESCAPE '\\\\'`,
-    notLike: (column: Sql, pattern: Sql): Sql =>
-      sql`${column} NOT LIKE ${pattern} ESCAPE '\\\\'`,
-    ilike: (column: Sql, pattern: Sql): Sql =>
-      sql`${asciiCaseFold(column)} LIKE ${asciiCaseFold(pattern)} ESCAPE '\\\\'`,
-    notIlike: (column: Sql, pattern: Sql): Sql =>
-      sql`${asciiCaseFold(column)} NOT LIKE ${asciiCaseFold(pattern)} ESCAPE '\\\\'`,
     containsText: (column: Sql, value: Sql): Sql =>
       sql`LOCATE(BINARY ${value}, BINARY ${column}) > 0`,
     startsWithText: (column: Sql, value: Sql): Sql =>
       sql`LEFT(BINARY ${column}, OCTET_LENGTH(${value})) = BINARY ${value}`,
     endsWithText: (column: Sql, value: Sql): Sql =>
       sql`RIGHT(BINARY ${column}, OCTET_LENGTH(${value})) = BINARY ${value}`,
+    insensitiveText: (kind: TextMatch, column: Sql, value: Sql): Sql =>
+      this.operators[`${kind}Text`](caseFold(column), caseFold(value)),
     // Two conjuncts, because on MySQL no single predicate is both exact and
     // index-usable. The index stores the column's own collation's sort keys —
     // `utf8mb4_0900_ai_ci` on a default install, which is case- AND
@@ -539,7 +527,7 @@ export class MySQLAdapter implements DatabaseAdapter {
   expressions = {
     ...createCommonExpressions(),
 
-    asciiCaseFold,
+    caseFold,
     caseSensitiveText: (expr: Sql): Sql => sql`BINARY ${expr}`,
 
     // String operations - MySQL uses CONCAT() function
@@ -632,6 +620,10 @@ export class MySQLAdapter implements DatabaseAdapter {
     stringAtPath: (column: Sql, path: string[]): Sql => {
       const jsonPath = buildJsonPath(path);
       return sql`(CASE WHEN JSON_TYPE(JSON_EXTRACT(${column}, ${jsonPath})) = 'STRING' THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(${column}, ${jsonPath})) AS BINARY) END)`;
+    },
+    foldableStringAtPath: (column: Sql, path: string[]): Sql => {
+      const jsonPath = buildJsonPath(path);
+      return sql`(CASE WHEN JSON_TYPE(JSON_EXTRACT(${column}, ${jsonPath})) = 'STRING' THEN JSON_UNQUOTE(JSON_EXTRACT(${column}, ${jsonPath})) END)`;
     },
 
     contains: (target: Sql, value: Sql): Sql =>
@@ -793,6 +785,10 @@ export class MySQLAdapter implements DatabaseAdapter {
     insertDefault: (table: Sql): Sql => sql`INSERT INTO ${table} () VALUES ()`,
 
     ...createMutationCommands(),
+    updateFrom: (table, sets, source, on, where) =>
+      sql`UPDATE ${table} JOIN ${source} ON ${on} SET ${sets}${
+        where ? sql` WHERE ${where}` : sql.empty
+      }`,
 
     // MySQL doesn't support RETURNING - returns empty
     // Use LAST_INSERT_ID() or SELECT after mutation
@@ -878,6 +874,9 @@ export class MySQLAdapter implements DatabaseAdapter {
     // mutated table and trip the same ERROR 1093 as above.
     supportsMutationRowLimit: true,
     supportsRowLocks: true,
+    // InnoDB answers a locking miss on a unique index with a gap lock that
+    // concurrent misses share and their INSERTs wait on (`ER_LOCK_DEADLOCK`).
+    locksMissingKeys: true,
     boundsRecursionIterations: true,
   };
 

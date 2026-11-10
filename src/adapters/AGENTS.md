@@ -84,6 +84,8 @@ Every interface method MUST be implemented in postgres, mysql, AND sqlite. TypeS
 ### Rule 3: No Query Logic
 Adapters transform syntax only. Don't decide which tables to join or what conditions to apply - that's query engine's job.
 
+The other half holds too: the query engine states no SQL word. `tests/contracts/adapters/engine-sql-words.core.test.ts` reads every template, raw string and `sql.join` separator of `src/query-engine` from the AST and refuses a keyword. Punctuation and operands such as `*`, `1` or `1 = 1` are not words and stay out of its scope; see `docs/architecture/query-backend-frontier.md`.
+
 ### Rule 4: Test Across All Databases
 A change that works in PostgreSQL might break MySQL or SQLite. Always run the full test suite.
 
@@ -246,6 +248,13 @@ recursive CTE past `cte_max_recursion_depth` iterations (1000 by default), so
 its recursive filters keep their walk in place, whose anchor holds the first
 hop, even where it shares bodies; a reaching set would spend one iteration
 per depth from its anchor. Absent elsewhere.
+`capabilities.readsNodesByKey` is a planner fact: PostgreSQL, which guesses
+ten rows a level of a recursive CTE, plans the join of a walk's nodes to their
+table as a hash of the whole table, once per outer row of a recursive
+projection, so where the caller states that each walk reaches few rows
+(`recurse.fewRows`) it reads each node by key in a scalar subquery. SQLite and
+MySQL join by index; the subquery measured 3–17 % slower there (SQLite parses
+its document again, `json()`), so they ignore `fewRows`. Absent elsewhere.
 `capabilities.compoundSelectTerms` is a transport fact: D1 compiles SQLite
 with 5 terms per compound `SELECT` ("too many terms in compound SELECT"), so
 a flag member's union over more key sets nests in derived tables of 5.
@@ -281,7 +290,9 @@ repeated recursive walks as reaching sets, then joins key sets per row, only
 as far as it needs; one within it keeps every walk in place. PostgreSQL
 holds a joined one-column key set as an array (`arrays.ofRows`, `ARRAY(…)`,
 tested by `arrays.has`), computed once per statement; a dialect without
-`ofRows` joins a flag member. D1 bounds no relations and takes 256
+`ofRows` joins a flag member. Still over, PostgreSQL's last form joins one
+row at the root read for all it tests of one column or none, `$exists`
+answers included. D1 bounds no relations and takes 256
 (`SQLiteAdapter({ relationsPerStatement })`): on better-sqlite3 no read is
 slower with it (the 10× page read three depths: 385 ms without, 260 ms
 with), and the largest reads stay well inside 100 KB. Absent, nothing

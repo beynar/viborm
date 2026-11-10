@@ -9,7 +9,6 @@ import { formatOperation } from "./push/format";
 import type { AnyDriver } from "../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import type { ResolvedRelationIndex } from "../schema/validation/relation-resolution";
-import { sql } from "../sql/sql";
 import { isRecord } from "../validation/value-guards";
 import { canonicalizeJson, canonicalizeJsonText } from "./canonical-json";
 import { classifyGeneratedAtomicity, dispatchAt } from "./compile";
@@ -147,7 +146,11 @@ export async function buildPushPlan(
       relations
     );
     current = planned.currentSchema;
-    operations = planned.operations;
+    operations = await withEnumDependentChecks(
+      producer,
+      command,
+      planned.operations
+    );
   }
   if (!options.forceReset)
     for (const operation of operations) {
@@ -160,11 +163,7 @@ export async function buildPushPlan(
         continue;
       const tableName = liveTableName(operations, operation.tableName);
       if (!current.tables.some((table) => table.name === tableName)) continue;
-      const reference = producer.adapter.identifiers.table(tableName);
-      const populated = await producer._executeRaw(
-        `SELECT 1 AS present FROM ${reference.toStatement()} LIMIT 1`
-      );
-      if (populated.rows.length > 0)
+      if (await command.tableHoldsRows(producer, tableName))
         throw new MigrationError(
           `Cannot add required column "${operation.tableName}.${operation.column.name}" without a database default to a populated table. Application function/generator defaults do not backfill stored rows. Author a manual data migration that adds a nullable column, fills it, and then makes it required. No migration effects were executed.`,
           VibORMErrorCode.MIGRATION_INVALID_STATE,
@@ -179,7 +178,13 @@ export async function buildPushPlan(
         );
     }
   if (!options.forceReset)
-    await refuseOrphanedDiscriminators(producer, desired, current, operations);
+    await refuseOrphanedDiscriminators(
+      producer,
+      command,
+      desired,
+      current,
+      operations
+    );
   const resolutions = controller.finish();
   const target = await pushTargetIdentity(producer, command);
   const sourceFingerprint = await fingerprintLive(current, command, producer);
@@ -196,7 +201,9 @@ export async function buildPushPlan(
     (sql, params) => producer._executeRaw(sql, params),
     compiled.statements.map((statement) =>
       sliceDispatch(compiled.bytes, statement.dispatch)
-    )
+    ),
+    // On Neki each statement commits alone.
+    true
   );
   const reportedOperations: PushOperation[] = operations.map(
     (operation, index) => ({
@@ -210,7 +217,7 @@ export async function buildPushPlan(
           : "safe",
     })
   );
-  const atomicity = classifyGeneratedAtomicity(command, operations);
+  const atomicity = classifyGeneratedAtomicity(command, operations, !!reset);
   const destructive =
     mode === "force-reset" ||
     reportedOperations.some((operation) => operation.risk === "destructive");
@@ -374,6 +381,40 @@ function withoutControlTables(snapshot: SchemaSnapshot): SchemaSnapshot {
   };
 }
 
+/**
+ * A schema snapshot models no CHECK constraint, so the ones on the columns an
+ * enum change converts are read from the live catalog here and closed into its
+ * operation: the preview shows their DROP and ADD, the plan hash covers them,
+ * and the locked replan reads them again, so one added or changed after the
+ * preview refuses its consent.
+ */
+async function withEnumDependentChecks(
+  producer: AnyDriver,
+  command: BoundMigrationDriver,
+  operations: readonly DiffOperation[]
+): Promise<readonly DiffOperation[]> {
+  const enumNames = operations.flatMap((operation) =>
+    operation.type === "alterEnum" && operation.dependentColumns
+      ? [operation.enumName]
+      : []
+  );
+  if (!command.readEnumDependentChecks || enumNames.length === 0)
+    return operations;
+  const checks = await command.readEnumDependentChecks(
+    enumNames,
+    (sql, params) => producer._executeRaw(sql, params)
+  );
+  return operations.map((operation) => {
+    if (operation.type !== "alterEnum") return operation;
+    const dependentChecks = checks.flatMap(({ enumName, ...check }) =>
+      enumName === operation.enumName ? [check] : []
+    );
+    return dependentChecks.length === 0
+      ? operation
+      : { ...operation, dependentChecks };
+  });
+}
+
 /** The live name of a desired table: an accepted rename still reads the old one. */
 function liveTableName(
   operations: readonly DiffOperation[],
@@ -395,11 +436,11 @@ function liveTableName(
  */
 async function refuseOrphanedDiscriminators(
   producer: AnyDriver,
+  command: BoundMigrationDriver,
   desired: SchemaSnapshot,
   current: SchemaSnapshot,
   operations: readonly DiffOperation[]
 ): Promise<void> {
-  const { identifiers, literals, operators } = producer.adapter;
   for (const slot of desired.polymorphicStorage ?? []) {
     if (slot.kind !== "toOne") continue;
     const tableName = liveTableName(operations, slot.ownerTable);
@@ -413,16 +454,12 @@ async function refuseOrphanedDiscriminators(
       rename?.type === "renameColumn" ? rename.from : slot.storageRef;
     const live = current.tables.find((table) => table.name === tableName);
     if (!live?.columns.some((column) => column.name === columnName)) continue;
-    const column = identifiers.escape(columnName);
-    const declared = literals.list(
-      slot.members.map((member) => literals.value(member.storedType))
+    const orphan = await command.undeclaredValue(
+      producer,
+      tableName,
+      columnName,
+      slot.members.map((member) => member.storedType)
     );
-    const probe = producer._prepare(
-      sql`SELECT ${identifiers.aliased(column, "stored")} FROM ${identifiers.table(tableName)} WHERE ${operators.notIn(column, declared)} LIMIT 1`
-    );
-    const [orphan] = (
-      await producer._executeRaw<{ stored: unknown }>(probe.sql, probe.params)
-    ).rows;
     if (orphan)
       throw new MigrationError(
         `Polymorphic storage "${slot.ownerTable}.${slot.relation}" stores "${String(orphan.stored)}", which the desired schema no longer declares; those rows would lose their target. Author an explicit manual data transition that rewrites the stored values. No migration effects were executed.`,

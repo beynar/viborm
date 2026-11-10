@@ -7,7 +7,9 @@
     // without this the project's own `biome check` cannot be run from the
     // repository root while any agent worktree exists. Only the worktrees are
     // excluded; the rest of `.claude` is tracked and stays checked.
-    "includes": ["!.claude/worktrees"]
+    // An estate written by a released engine is canonical bytes addressed by
+    // their hashes; formatting it would corrupt the history it pins.
+    "includes": ["!.claude/worktrees", "!tests/fixtures/migrations/estate-*"]
   },
   "linter": {
     "rules": {
@@ -49,6 +51,25 @@
       // JSONC files (the Workers test config) carry comments by definition.
       "includes": ["**/*.jsonc"],
       "json": { "parser": { "allowComments": true } }
+    },
+    {
+      // Svelte components are PascalCase by convention, and Biome does not
+      // connect a component's script bindings to their uses in its markup,
+      // nor see the snippets its markup declares.
+      "includes": ["packages/studio/ui/**/*.svelte"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUnusedVariables": "off",
+            "noUnusedImports": "off",
+            "noUndeclaredVariables": "off"
+          },
+          "style": {
+            "useFilenamingConvention": "off",
+            "useConst": "off"
+          }
+        }
+      }
     },
     {
       // Blume page overrides use PascalCase component names, and Biome does not

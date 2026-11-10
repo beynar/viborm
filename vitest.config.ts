@@ -17,20 +17,20 @@ const coverage = process.env.VIBORM_COVERAGE_SUBSYSTEM
 export default defineConfig({
   server: {
     fs: {
-      allow: [resolve(__dirname), realpathSync(tmpdir())],
+      allow: [resolve(import.meta.dirname), realpathSync(tmpdir())],
     },
   },
   test: {
     globals: true,
     fileParallelism: false,
+    // Vitest 4 spells Vitest 3's `poolOptions.forks.singleFork` as one worker
+    // that is not isolated: every file runs in the same child process.
+    // `tests/fixtures/reset-modules-per-file.ts` restores the per-file module
+    // and mock reset `singleFork` performed and Vitest 4 now reserves for
+    // `isolate: true`, which would instead start a process per file.
     maxWorkers: 1,
-    minWorkers: 1,
+    isolate: false,
     pool: "forks",
-    poolOptions: {
-      forks: {
-        singleFork: true,
-      },
-    },
     // File-local teardown must release clients before imported lifecycle
     // fixtures close the borrowed provider handles they own.
     sequence: { hooks: "stack" },
@@ -41,6 +41,9 @@ export default defineConfig({
     // rationale. It only mocks a module the non-CLI suites never import, so it
     // is inert everywhere else.
     setupFiles: [
+      // First: it resets what the previous file evaluated and mocked, so the
+      // setup files after it register into a clean graph.
+      "tests/fixtures/reset-modules-per-file.ts",
       "tests/contracts/public-client/cli/_clack.ts",
       "tests/fixtures/register-migration-drivers.ts",
     ],
@@ -60,29 +63,32 @@ export default defineConfig({
       // Bare `@drivers` is the custom-driver entry; `@drivers/*` stays a prefix.
       {
         find: /^@drivers$/,
-        replacement: resolve(__dirname, "src/drivers/exports.ts"),
+        replacement: resolve(import.meta.dirname, "src/drivers/exports.ts"),
       },
       // The package's root entry, as a consumer imports it: the Permissions
       // acceptance fixture (tests/package/fixtures/permissions-app) is written
       // against "viborm" so a packed-tarball consumer compiles it unchanged.
-      { find: /^viborm$/, replacement: resolve(__dirname, "src/index.ts") },
+      {
+        find: /^viborm$/,
+        replacement: resolve(import.meta.dirname, "src/index.ts"),
+      },
       ...Object.entries({
-        "@src": resolve(__dirname, "src"),
-        "@tests": resolve(__dirname, "tests"),
-        "@root": resolve(__dirname),
-        "@schema": resolve(__dirname, "src/schema"),
-        "@types": resolve(__dirname, "src/types"),
-        "@adapters": resolve(__dirname, "src/adapters"),
-        "@sql": resolve(__dirname, "src/sql/sql.ts"),
-        "@drivers": resolve(__dirname, "src/drivers"),
-        "@client": resolve(__dirname, "src/client"),
-        "@extensions": resolve(__dirname, "src/extensions"),
-        "@validation": resolve(__dirname, "src/validation"),
-        "@query-engine": resolve(__dirname, "src/query-engine"),
-        "@migrations": resolve(__dirname, "src/migrations"),
-        "@errors": resolve(__dirname, "src/errors"),
-        "@instrumentation": resolve(__dirname, "src/instrumentation"),
-        "@cache": resolve(__dirname, "src/cache"),
+        "@src": resolve(import.meta.dirname, "src"),
+        "@tests": resolve(import.meta.dirname, "tests"),
+        "@root": resolve(import.meta.dirname),
+        "@schema": resolve(import.meta.dirname, "src/schema"),
+        "@types": resolve(import.meta.dirname, "src/types"),
+        "@adapters": resolve(import.meta.dirname, "src/adapters"),
+        "@sql": resolve(import.meta.dirname, "src/sql/sql.ts"),
+        "@drivers": resolve(import.meta.dirname, "src/drivers"),
+        "@client": resolve(import.meta.dirname, "src/client"),
+        "@extensions": resolve(import.meta.dirname, "src/extensions"),
+        "@validation": resolve(import.meta.dirname, "src/validation"),
+        "@query-engine": resolve(import.meta.dirname, "src/query-engine"),
+        "@migrations": resolve(import.meta.dirname, "src/migrations"),
+        "@errors": resolve(import.meta.dirname, "src/errors"),
+        "@instrumentation": resolve(import.meta.dirname, "src/instrumentation"),
+        "@cache": resolve(import.meta.dirname, "src/cache"),
       }).map(([find, replacement]) => ({ find, replacement })),
     ],
   },

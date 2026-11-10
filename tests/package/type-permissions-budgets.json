@@ -4,15 +4,15 @@
   "checkers": {
     "tsc5": {
       "typescript": "5.9.3",
-      "instantiations": 627189
+      "instantiations": 278440
     },
     "tsc6": {
       "typescript": "6.0.3",
-      "instantiations": 752765
+      "instantiations": 280640
     },
     "tsc7": {
       "typescript": "7.0.2",
-      "instantiations": 1114768
+      "instantiations": 313429
     }
   }
 }

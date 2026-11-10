@@ -54,7 +54,7 @@ a write stores a coefficient before its returned row fails to decode.
 import { s } from "viborm";
 
 const user = s.model({
-  id: s.int().id().autoIncrement(),
+  id: s.int().id().increment(),
   status: s.enum(["active", "inactive"]).default("active"),
   createdAt: s.dateTime().now(),
 }).map("users");
@@ -171,18 +171,37 @@ An attempt 1.1.0 left unfinished on such a transition is still settled by
 
 ## Driver admission
 
-Effectful migration commands run only on a SQLite driver that declares
-`sqliteMigrationCapability`. The stock `sqlite3` and `bun-sqlite` drivers declare
-it. D1 and libSQL do not, so they keep offline generation, check and read-only
-previews, while effectful commands are refused with `V8002`.
+A SQLite driver declares what its platform guarantees in
+`sqliteMigrationCapability`, as one of three whole declarations:
 
-A custom SQLite driver binds to migrations only by declaring it, after
-confirming its three claims:
+| Declaration | `foreignKeys` | `reservedTablePrefixes` | `exclusion` | Declared by | Admits |
+|---|---|---|---|---|---|
+| `SQLITE_MIGRATION_CAPABILITY` | `"pragma"` | `"none"` | `"database-write-lock"` | `sqlite3`, `bun-sqlite` | every command |
+| Durable Object | `"pragma"` | `"_cf_"` | `"frame"` | [`durable-object`](/docs/drivers/sqlite/durable-object) | every command |
+| D1 | `"none"` | `"_cf_"` | `"none"` | `d1` | read-only commands |
 
-- `PRAGMA foreign_keys` run between transactions on its connection takes effect
-  and reads back;
-- the platform reserves no table names;
-- every transaction it opens begins with `BEGIN IMMEDIATE`.
+Any other combination is no declaration. libSQL declares none. A driver
+without an effectful declaration keeps offline generation, check and
+read-only previews, while effectful commands are refused with `V8002`; D1's
+refusal says why: it can neither switch foreign keys off for a table
+recreation nor hold a migration lock.
+
+The claims:
+
+- `foreignKeys: "pragma"`: `PRAGMA foreign_keys` run between transactions on
+  its connection takes effect and reads back.
+- `reservedTablePrefixes: "_cf_"`: Cloudflare owns the `_cf_*` tables and
+  refuses their PRAGMAs; introspection never reads them. `"none"`: every
+  table outside `sqlite_*` is the application's.
+- `exclusion: "database-write-lock"`: every transaction the driver opens
+  begins with `BEGIN IMMEDIATE`. `"frame"`: the driver implements
+  `openMigrationFrame()`, one platform transaction per frame, opened where the
+  lock would send `BEGIN IMMEDIATE` and settled where it would send `COMMIT`
+  or `ROLLBACK`; the platform has one connection, the application one driver,
+  and the migration holds that driver's queue for its whole run.
+
+A custom SQLite driver binds to migrations only by declaring one, after
+confirming its claims:
 
 ```ts
 import { Driver, SQLITE_MIGRATION_CAPABILITY } from "viborm/driver";
@@ -352,4 +371,11 @@ An expression, descending or non-BINARY key refuses synchronization before
 effects because the current index declaration cannot recreate it faithfully.
 This includes primary/unique backing indexes. The existing index and rows remain
 untouched. An explicitly excluded table does not block a closed managed-table
-scope. Native expression/collation declarations remain a product gap.
+scope.
+
+Such an index is declared with
+[`.rawIndex()`](/docs/schema/model#rawindexname-templates). SQLite keeps an
+index's text as written, so VibORM ends it with a `/* viborm:raw:… */` comment
+and recognizes the index by it; a table rebuild re-creates it from its text, and
+a renamed column re-creates it with its marker. A hand-made index of the same
+name carries no marker and still refuses: drop it, and declare it.

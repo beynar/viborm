@@ -42,6 +42,7 @@ import {
 } from "../schema/validation/relation-resolution";
 import { resolveSchemaOrThrow } from "../schema/validation/validator";
 import type { MigrationDriver } from "./drivers";
+import { declaredRawIndex, RAW_INDEX_TEMPLATE_KEY } from "./raw-index";
 import type {
   ColumnDef,
   EnumDef,
@@ -70,6 +71,8 @@ export function assertMigrationDecimalDomainsFitProvider(
   models: Record<string, AnyModel>,
   dialect: Dialect
 ): void {
+  // SurrealDB's `decimal` holds any precision and scale: there is no limit to fit.
+  if (dialect === "surrealql") return;
   const refusal = findDecimalProviderLimitRefusal(models, dialect);
   if (refusal === undefined) return;
   throw new MigrationError(
@@ -117,7 +120,9 @@ function stageEdges(index: ResolvedRelationIndex): {
   };
   for (const edge of resolvedEdges(index)) {
     if (edge.kind === "junction") {
-      junctions.push(edge);
+      // A declared model's table is that model's: the loop over models owns it,
+      // and each side's foreign key arrives as its own edge below.
+      if (!edge.topology.declared) junctions.push(edge);
       continue;
     }
     if (edge.kind === "foreignKey") {
@@ -322,11 +327,43 @@ export function serializeResolvedModels(
       }
     }
 
-    // Set primary key
+    // Set primary key. `WITHOUT ROWID` is SQLite's alone, and SQLite's
+    // AUTOINCREMENT is a rowid's: the pair is refused here, before any
+    // migration names the table, and never on a dialect that ignores it.
+    const withoutRowid =
+      model["~"].withoutRowid && migrationDriver.dialect === "sqlite";
+    const incremented = columns.find((column) => column.autoIncrement);
+    if (withoutRowid && incremented)
+      throw new MigrationError(
+        `"${modelName}" is declared withoutRowid, and its ID "${incremented.name}" uses .increment(): SQLite's AUTOINCREMENT needs a rowid`,
+        VibORMErrorCode.INVALID_INPUT,
+        { meta: { model: modelName, field: incremented.name } }
+      );
+    // A model without an ID (M001, refused by validation unless the caller
+    // skipped it) has no key to cluster on: the option would be dropped.
+    if (withoutRowid && pkColumns.length === 0)
+      throw new MigrationError(
+        `"${modelName}" is declared withoutRowid and has no ID: SQLite's WITHOUT ROWID needs a primary key`,
+        VibORMErrorCode.INVALID_INPUT,
+        { meta: { model: modelName } }
+      );
+    // F006 refuses a nullable key member on the validated path; this is the
+    // one for `skipValidation`, which would publish a column every dialect
+    // builds NOT NULL, so every later proof of the state would refuse it.
+    const nullableKey = columns.find(
+      (column) => column.nullable && pkColumns.includes(column.name)
+    );
+    if (nullableKey)
+      throw new MigrationError(
+        `"${modelName}.${nullableKey.name}" is nullable and a member of the ID: every database builds a primary-key column NOT NULL`,
+        VibORMErrorCode.INVALID_INPUT,
+        { meta: { model: modelName, field: nullableKey.name } }
+      );
     if (pkColumns.length > 0) {
       primaryKey = {
         columns: pkColumns,
         name: `${tableName}_pkey`,
+        ...(withoutRowid ? { withoutRowid: true as const } : {}),
       };
     }
 
@@ -371,6 +408,36 @@ export function serializeResolvedModels(
       if (isTotalIndex(declared)) {
         declaredIndexColumns.push(columns);
       }
+    }
+
+    // A raw index is never a key and never covers a foreign key: its text may
+    // index an expression of the columns it names, or not in their order. It is
+    // listed before the foreign-key indexes so that an automatic one yields
+    // its name to it. A dialect it has no text for has no such index.
+    const templateKey = RAW_INDEX_TEMPLATE_KEY[migrationDriver.dialect];
+    for (const rawIndex of model["~"].rawIndexes) {
+      const template = rawIndex.templates[templateKey];
+      if (template === undefined) continue;
+      // I002 sees explicit names only; an `.index()` without one takes its
+      // name here, and two indexes under one name fail the second CREATE.
+      if (indexes.some(({ name }) => name === rawIndex.name))
+        throw new MigrationError(
+          `The raw index "${modelName}.${rawIndex.name}" has the name of another index of "${modelName}": give one of them another name.`,
+          VibORMErrorCode.INVALID_INPUT,
+          { meta: { model: modelName, indexName: rawIndex.name } }
+        );
+      indexes.push(
+        declaredRawIndex(
+          modelName,
+          rawIndex.name,
+          template,
+          migrationDriver.dialect,
+          (field) =>
+            Object.hasOwn(modelState.scalars, field)
+              ? model["~"].getFieldName(field).sql
+              : undefined
+        )
+      );
     }
 
     // Variant storage is relation-owned, so it never appears in the public
@@ -798,7 +865,7 @@ export function serializeResolvedModels(
 
   // Append junction tables to the tables array
   for (const { def } of junctionTables.values()) {
-    tables.push(def);
+    tables.push(migrationDriver.markJunction?.(def) ?? def);
   }
 
   const snapshot: SchemaSnapshot = {

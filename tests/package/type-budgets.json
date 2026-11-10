@@ -22,20 +22,20 @@
     },
     "100": {
       "base": {
-        "instantiations": 146369,
-        "types": 31101
+        "instantiations": 146424,
+        "types": 31131
       },
       "deep": {
-        "instantiations": 311299,
-        "types": 44259
+        "instantiations": 311161,
+        "types": 44285
       },
       "filter": {
-        "instantiations": 310975,
-        "types": 46095
+        "instantiations": 311550,
+        "types": 46220
       },
       "create": {
-        "instantiations": 346815,
-        "types": 47255
+        "instantiations": 346939,
+        "types": 47321
       }
     }
   }

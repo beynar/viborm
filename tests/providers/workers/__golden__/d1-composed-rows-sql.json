@@ -158,7 +158,7 @@
   ],
   "updateMany": [
     {
-      "sql": "UPDATE \"post\" SET \"title\" = ? WHERE (\"post\".\"title\" COLLATE BINARY = ? AND (\"post\".\"tenantId\" COLLATE BINARY = ? AND \"post\".\"deletedAt\" IS NULL))",
+      "sql": "UPDATE \"post\" SET \"title\" = ? WHERE (\"post\".\"title\" COLLATE BINARY = ? AND (\"post\".\"tenantId\" COLLATE BINARY = ? AND \"post\".\"deletedAt\" IS NULL)) RETURNING 1",
       "params": ["u2", "u", "acme"]
     }
   ],
@@ -241,7 +241,7 @@
   ],
   "deleteMany": [
     {
-      "sql": "UPDATE \"comment\" SET \"deletedAt\" = ? WHERE (\"comment\".\"body\" COLLATE BINARY = ? AND (\"comment\".\"tenantId\" COLLATE BINARY = ? AND \"comment\".\"deletedAt\" IS NULL))",
+      "sql": "UPDATE \"comment\" SET \"deletedAt\" = ? WHERE (\"comment\".\"body\" COLLATE BINARY = ? AND (\"comment\".\"tenantId\" COLLATE BINARY = ? AND \"comment\".\"deletedAt\" IS NULL)) RETURNING 1",
       "params": ["<instant>", "zz", "acme"]
     }
   ],

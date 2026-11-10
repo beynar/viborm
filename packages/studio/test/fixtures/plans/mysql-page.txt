@@ -1,0 +1,7 @@
+-> Limit: 20 row(s)  (cost=20116 rows=20) (actual time=45.8..45.9 rows=20 loops=1)
+    -> Sort: q0.createdAt DESC, q0.id, limit input to 20 row(s) per chunk  (cost=20116 rows=199642) (actual time=45.8..45.9 rows=20 loops=1)
+        -> Filter: ((q0.`status` = 'paid') and (q0.total > 500))  (cost=20116 rows=199642) (actual time=1.12..43.3 rows=24875 loops=1)
+            -> Table scan on q0  (cost=20116 rows=199642) (actual time=0.952..34.2 rows=200000 loops=1)
+-> Select #2 (subquery in projection; dependent)
+    -> Aggregate: json_arrayagg(i.quantity)  (cost=1.35 rows=1) (actual time=0.00848..0.00849 rows=1 loops=20)
+        -> Index lookup on i using order_items_orderId_idx (orderId=q0.id)  (cost=1.05 rows=2.99) (actual time=0.00724..0.00747 rows=3 loops=20)

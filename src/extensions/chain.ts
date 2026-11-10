@@ -46,6 +46,11 @@ import {
   type RowsBinding,
   undeclaredControlReferencesOf,
 } from "./rows";
+import {
+  OFFICIAL_ON_NAME,
+  officialWritesOf,
+  type WritesCapability,
+} from "./writes";
 
 /** The fixed name admission reserves for the official instrumentation extension. */
 export const OFFICIAL_INSTRUMENTATION_NAME = "viborm.instrumentation";
@@ -133,17 +138,23 @@ export interface ResolvedExtensionChain {
   /** Per model, every extension's `data` fields: a later one wins a field. */
   readonly data?: Readonly<Record<string, ModelStamps>>;
   /**
+   * Per model, the order its reads take when the caller gives none: a later
+   * extension's entry replaces an earlier one's. Also a cached read's key.
+   */
+  readonly order?: Readonly<Record<string, readonly Input[]>>;
+  /**
    * Derived from `rows`, `deletion` and `data`: what each call's controls
    * resolve to.
    */
   readonly callRows?: RowsBinding;
   /** Per model, every extension's computed fields, in chain order. */
   readonly result?: ResolvedResultFields;
+  /** The official `on` extension's writes, when the chain carries it. */
+  readonly writes?: WritesCapability;
   readonly extensions: readonly ResolvedExtension[];
   readonly hasCache: boolean;
   readonly hasRequestHandlers: boolean;
   readonly hasQueryHandlers: boolean;
-  readonly hasResultConsumers: boolean;
   readonly request: ResolvedExtensionOperationLookup;
   readonly query: ResolvedExtensionOperationLookup;
   readonly statement: readonly ResolvedExtensionHandler[];
@@ -427,22 +438,16 @@ function asOfficialCacheDefinition(
   });
 }
 
-function stripOfficialDefaultOmitRequest(
-  definition: RuntimeExtensionDefinition
+/**
+ * An official extension's member that is its identity rather than a handler
+ * (default omit's `request`, `on`'s `query`) leaves the chain's handlers.
+ */
+function withoutIdentity(
+  definition: RuntimeExtensionDefinition,
+  member: "request" | "query"
 ): RuntimeExtensionDefinition {
-  const { request: _officialDefaultOmitRequest, ...ordinaryDefinition } =
-    definition;
+  const { [member]: _identity, ...ordinaryDefinition } = definition;
   return Object.freeze(ordinaryDefinition);
-}
-
-function consumesOperationResults(
-  definition: RuntimeExtensionDefinition
-): boolean {
-  return (
-    (definition.query !== undefined && !isFunction(definition.query)) ||
-    definition.client !== undefined ||
-    definition.model !== undefined
-  );
 }
 
 function assertOfficialExtensionAdmission(options: {
@@ -502,18 +507,6 @@ export function appendResolvedExtension(
     isAlreadyPresent: false,
     duplicateMessage: `Extension "${OFFICIAL_DEFAULT_OMIT_NAME}" is already present on this client.`,
   });
-  if (incomingDefaultOmit !== undefined && chain?.hasResultConsumers === true) {
-    extensionError(
-      "The default omit extension cannot follow an extension that defines model-mapped query, client, or model behavior.",
-      definition.name
-    );
-  }
-  if (definition.rows !== undefined && chain?.hasResultConsumers === true) {
-    extensionError(
-      `Extension "${definition.name}" declares rows, which cannot follow an extension that defines model-mapped query, client, or model behavior.`,
-      definition.name
-    );
-  }
   const incomingOfficial = getTrustedProtectedObserverCapability(
     definition.observe
   );
@@ -535,11 +528,23 @@ export function appendResolvedExtension(
       definition.name
     );
   }
+  const incomingWrites = officialWritesOf(definition.query);
+  assertOfficialExtensionAdmission({
+    definitionName: definition.name,
+    officialName: OFFICIAL_ON_NAME,
+    label: "on",
+    hasIdentity: incomingWrites !== undefined,
+    isAlreadyPresent: chain?.writes !== undefined,
+    duplicateMessage:
+      "The official on extension is already present on this client.",
+  });
   const effectiveDefinition =
     incomingCache === undefined
       ? incomingDefaultOmit === undefined
-        ? definition
-        : stripOfficialDefaultOmitRequest(definition)
+        ? incomingWrites === undefined
+          ? definition
+          : withoutIdentity(definition, "query")
+        : withoutIdentity(definition, "request")
       : asOfficialCacheDefinition(definition);
   const declaredControls =
     effectiveDefinition.controls === undefined &&
@@ -629,10 +634,23 @@ export function appendResolvedExtension(
   // The binding reads `required` from the controls, already appended: a
   // filter names only controls its own or an earlier extension declares, so
   // a later definition that declares only controls changes nothing it binds.
+  const order =
+    effectiveDefinition.order === undefined
+      ? chain?.order
+      : Object.freeze({
+          ...chain?.order,
+          // Admission left each entry a frozen array of terms.
+          ...(effectiveDefinition.order.models as Readonly<
+            Record<string, readonly Input[]>
+          >),
+        });
   const callRows =
-    rows === chain?.rows && deletion === chain?.deletion && data === chain?.data
+    rows === chain?.rows &&
+    deletion === chain?.deletion &&
+    data === chain?.data &&
+    order === chain?.order
       ? chain?.callRows
-      : bindRows(rows, deletion, data, controls);
+      : bindRows(rows, deletion, data, controls, order);
   const result =
     effectiveDefinition.result === undefined
       ? chain?.result
@@ -642,20 +660,20 @@ export function appendResolvedExtension(
           effectiveDefinition.result,
           schema
         );
+  const writes = incomingWrites ?? chain?.writes;
   const resolvedChain = Object.freeze({
     ...(controls === undefined ? {} : { controls }),
     ...(rows === undefined ? {} : { rows }),
     ...(deletion === undefined ? {} : { deletion }),
     ...(data === undefined ? {} : { data }),
+    ...(order === undefined ? {} : { order }),
     ...(callRows === undefined ? {} : { callRows }),
     ...(result === undefined ? {} : { result }),
+    ...(writes === undefined ? {} : { writes }),
     extensions,
     hasCache: incomingCache !== undefined || chain?.hasCache === true,
     hasRequestHandlers: hasCompiledHandlers(request),
     hasQueryHandlers: hasCompiledHandlers(query),
-    hasResultConsumers:
-      chain?.hasResultConsumers === true ||
-      consumesOperationResults(effectiveDefinition),
     request,
     query,
     statement: appendFlatHandler(

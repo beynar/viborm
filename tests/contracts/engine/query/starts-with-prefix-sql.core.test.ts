@@ -168,38 +168,46 @@ describe.each(dialectCases)("$name startsWith SQL", (dialectCase) => {
   });
 
   test("endsWith uses exact suffix semantics without a literal prefix range", () => {
-    const { predicate } = predicateOf(dialectCase, {
-      where: { title: { endsWith: "abc" } },
+    const { predicate, values } = predicateOf(dialectCase, {
+      where: { title: { endsWith: "a%c" } },
     });
     if (dialectCase.dialect === "postgresql") {
-      expect(predicate).toContain("LIKE");
-      expect(predicate).toContain("REPLACE(REPLACE(REPLACE(");
-      expect(predicate).toContain("ESCAPE");
+      // A plain string is escaped client-side and bound as the pattern.
+      expect(predicate).toContain("LIKE $1 ESCAPE");
+      expect(predicate).not.toContain("REPLACE(");
+      expect(values).toEqual(["%a\\%c"]);
     } else expect(predicate).not.toContain("LIKE");
     expect(predicate).not.toContain("GLOB");
   });
 
   test("contains keeps its own spelling", () => {
-    const { predicate } = predicateOf(dialectCase, {
+    const { predicate, values } = predicateOf(dialectCase, {
       where: { title: { contains: "abc" } },
     });
     if (dialectCase.dialect === "postgresql") {
-      expect(predicate).toContain("LIKE");
-      expect(predicate).toContain("REPLACE(REPLACE(REPLACE(");
-      expect(predicate).toContain("ESCAPE");
+      expect(predicate).toContain("LIKE $1 ESCAPE");
+      expect(predicate).not.toContain("REPLACE(");
+      expect(values).toEqual(["%abc%"]);
     } else expect(predicate).not.toContain("LIKE");
     expect(predicate).not.toContain("GLOB");
   });
 
-  test("insensitive startsWith keeps the fold spelling", () => {
-    // The fold wraps the COLUMN, so the range is gone either way; routing this
-    // to the pattern operator would silently drop the fold and change answers.
+  test("insensitive startsWith keeps the database's own fold", () => {
+    // Routing this to the case-sensitive pattern operator would silently drop
+    // the fold and change answers. PostgreSQL folds with ILIKE, which keeps
+    // the column bare; the other dialects fold both sides with `lower`.
     const { predicate, values } = predicateOf(dialectCase, {
       where: { title: { startsWith: "abc", mode: "insensitive" } },
     });
     expect(predicate).not.toContain("GLOB");
-    expect(predicate).not.toContain("LIKE $1 ESCAPE");
-    expect(values).toContain("abc");
+    if (dialectCase.dialect === "postgresql") {
+      expect(predicate).toContain("ILIKE $1 ESCAPE");
+      expect(values).toEqual(["abc%"]);
+    } else {
+      expect(predicate.toLowerCase()).toContain("lower(");
+      expect(predicate).not.toContain("LIKE $1 ESCAPE");
+      expect(values).toContain("abc");
+    }
   });
 
   test("a referenced-column pattern is escaped at execution without bound literals", () => {

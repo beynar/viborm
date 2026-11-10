@@ -4,14 +4,21 @@
  * Tests for serializeModels() function, particularly junction table generation.
  */
 
+import { createClient } from "@client/client";
+import { VibORMErrorCode } from "@src/errors";
 import { libsqlMigrationDriver } from "@src/migrations/drivers/libsql";
 import { mysqlMigrationDriver } from "@src/migrations/drivers/mysql";
 import { postgresMigrationDriver } from "@src/migrations/drivers/postgres";
 import { sqlite3MigrationDriver } from "@src/migrations/drivers/sqlite";
+import { generateV1 } from "@src/migrations/generate-v1";
 import { serializeModels } from "@src/migrations/serializer";
+import { MemoryEstateStorage } from "@src/migrations/storage/memory";
 import { s, TYPES } from "@src/schema";
 import { hydrateSchemaNames } from "@src/schema/hydration";
+import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { describe, expect, it } from "vitest";
+
+const NULLABLE_KEY_MEMBER = /"m\.b" is nullable and a member of the ID/;
 
 // =============================================================================
 // JUNCTION TABLE TESTS
@@ -1673,5 +1680,37 @@ describe("decimal descriptor serialization", () => {
 
     // A scalar with no domain carries none — the key is not written blank.
     expect(columns.get("id")?.decimal).toBeUndefined();
+  });
+});
+
+// =============================================================================
+// PRIMARY-KEY NULLABILITY WITHOUT VALIDATION
+// =============================================================================
+
+describe("a nullable ID member", () => {
+  const nullableMember = () =>
+    s.model({ a: s.string(), b: s.int().nullable() }).id(["a", "b"]).map("m");
+
+  it("is refused by generate even when validation is skipped", async () => {
+    const storage = new MemoryEstateStorage();
+    const client = createClient({
+      schema: { m: nullableMember() },
+      driver: new PlanningDriver("sqlite"),
+    });
+    try {
+      // F006 owns the validated path; the serializer owns this one.
+      await expect(
+        generateV1(client, storage, { name: "x" })
+      ).rejects.toMatchObject({ issues: [{ code: "F006" }] });
+      await expect(
+        generateV1(client, storage, { name: "x", skipValidation: true })
+      ).rejects.toMatchObject({
+        code: VibORMErrorCode.INVALID_INPUT,
+        message: expect.stringMatching(NULLABLE_KEY_MEMBER),
+      });
+      expect(await storage.listStates()).toEqual([]);
+    } finally {
+      await client.$disconnect();
+    }
   });
 });

@@ -14,9 +14,19 @@ import type {
 
 /** Database observations and field transports belonging to one command attempt. */
 export class CommandAttempt {
-  constructor(readonly transport = new TransportAttempt()) {}
+  readonly transport: TransportAttempt;
+  constructor(transport = new TransportAttempt()) {
+    this.transport = transport;
+  }
   readonly rows = new Map<Selection, Input>();
   readonly retained = new Set<Selection>();
+  /** Lookups a sibling run already tried to read together (`CommandExecution.prefetch`). */
+  readonly prefetched = new Set<Selection>();
+  /**
+   * The batch route's lookups read ahead (`CommandExecution.readAhead`), each
+   * with its own query's rows, as of the submit count they were read at.
+   */
+  ahead?: { readonly epoch: number; readonly rows: Map<Selection, Input[]> };
   readonly junctions = new Map<JunctionCapture, Input>();
   readonly missingChoices = new Map<object, Choose>();
   readonly conditionalSkips = new Map<unknown, Choose>();

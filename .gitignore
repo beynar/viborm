@@ -21,3 +21,10 @@ dist/**/*.d.ts.map
 /release
 benchmarks/baseline.json
 benchmarks/baseline.json
+
+# @viborm/studio: its build, the demo's SQLite file, the Bun binary.
+packages/studio/dist/
+packages/studio/ui/dist/
+packages/studio/demo/*.db*
+packages/studio/viborm-studio
+release-studio/

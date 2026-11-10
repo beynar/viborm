@@ -3,6 +3,7 @@
  * Snapshot and SQL are published before the state manifest.
  */
 
+import type { SqlDialect } from "../drivers/types";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import {
   assertManualStepwiseProof,
@@ -46,6 +47,10 @@ import {
   strictResolver,
 } from "./resolver";
 import { serializeResolvedModels } from "./serializer";
+import {
+  type EncodedSnapshotArtifact,
+  encodeSnapshotArtifact,
+} from "./snapshot-artifacts";
 import { SqlAssembly } from "./sql-assembly";
 import { sliceDispatch } from "./sql-blob";
 import { assertArtifactExecutionSafe } from "./statement-safety";
@@ -106,6 +111,8 @@ export async function generateV1(
     client,
     request.skipValidation ?? false
   );
+  // An estate's own format admits no dialect without a history.
+  const dialect = driver.target.dialect as SqlDialect;
   const publishedEstate = await storage.readEstate();
   const estateBytes =
     publishedEstate ?? encodeEstateDescriptor(driver.target).bytes;
@@ -119,6 +126,7 @@ export async function generateV1(
   const desiredEncoded = encodeSnapshot(desired);
   const parents = resolveParents(loaded, request, desired);
   refuseUnprovedMerge(loaded, parents, request.manualMigration);
+  const adopts = admitAdoption(request, loaded, desired, parents);
   const parentState =
     parents.length === 1 && parents[0]
       ? loaded.states.get(parents[0])
@@ -140,6 +148,35 @@ export async function generateV1(
   const destinationPlaceholders: MigrationBooleanCheckV1[] = [];
   // Each state a low-lock split publishes before this one, parent first.
   const stepStates: SealedLowLockState[] = [];
+  const snapshotArtifacts = new Map(loaded.snapshotArtifacts);
+  const snapshotFor = (
+    snapshot: SchemaSnapshot,
+    fromStates: readonly (Sha256 | null)[]
+  ) => {
+    const bases = fromStates.flatMap((from) => {
+      if (from === null) return [];
+      const manifest =
+        loaded.states.get(from) ??
+        stepStates.find((step) => step.encoded.stateId === from)!.encoded
+          .manifest;
+      return [manifest.snapshotArtifactHash ?? manifest.snapshotHash].filter(
+        (hash) => snapshotArtifacts.has(hash)
+      );
+    });
+    const encoded = encodeSnapshotArtifact(snapshot, snapshotArtifacts, bases);
+    if (encoded.bytes) {
+      snapshotArtifacts.set(encoded.artifactHash, {
+        snapshot,
+        snapshotHash: encoded.snapshotHash,
+        depth: encoded.depth,
+        bytes: encoded.bytes,
+        ...(encoded.baseArtifactHash
+          ? { baseArtifactHash: encoded.baseArtifactHash }
+          : {}),
+      });
+    }
+    return encoded;
+  };
 
   if (request.manualMigration) {
     assertManualParents(loaded, request.manualMigration.transitions);
@@ -147,7 +184,7 @@ export async function generateV1(
       const compiled = compileManualTransition(
         transition.up,
         transition.rollback,
-        driver.target.dialect,
+        dialect,
         transition.execution,
         transition.originChecks,
         assembly
@@ -158,12 +195,7 @@ export async function generateV1(
       request.manualMigration.destinationChecks ?? []
     ).entries()) {
       destinationPlaceholders.push(
-        compileTrustedCheck(
-          check,
-          driver.target.dialect,
-          assembly,
-          `destination:${index}`
-        )
+        compileTrustedCheck(check, dialect, assembly, `destination:${index}`)
       );
     }
     for (const compiled of parentBodies) {
@@ -214,7 +246,17 @@ export async function generateV1(
           ? applyResolvedEnumMappings([operation], enumMappings)[0]!
           : operation
       );
-      const staged = prepareSchemaProgram(withEnumMappings, current, driver);
+      const adoption = withoutAdoptedTables(
+        withEnumMappings,
+        adopts,
+        desired,
+        current
+      );
+      const staged = prepareSchemaProgram(
+        adoption.operations,
+        adoption.current,
+        driver
+      );
       reported.push(...staged);
       operationsByParent.push({ fromState: from, operations: staged });
       // T2: the plan has asked every decision once its last parent is
@@ -238,7 +280,7 @@ export async function generateV1(
           "lowLock: this change keeps its blocking index builds and validating foreign keys, because it merges several parents or changes something other than an index or a foreign key after its first index build. Generate those indexes and keys in a migration of their own to get their step form."
         );
       }
-      let origin = { from, current, approvals };
+      let origin = { from, current: adoption.current, approvals };
       const before = split?.states.slice(0, -1) ?? [];
       for (const [index, state] of before.entries()) {
         const step = sealLowLockState(
@@ -247,7 +289,8 @@ export async function generateV1(
           `${request.name?.trim() || generateMigrationName(staged)} (step ${index + 1} of ${before.length + 1})`,
           origin,
           state,
-          split?.steps
+          split?.steps,
+          snapshotFor
         );
         warnings.push(...step.warnings);
         stepStates.push(step);
@@ -275,11 +318,17 @@ export async function generateV1(
             split?.steps
           );
       warnings.push(...transitionWarnings(compiled));
-      parentBodies.push(sealParent(origin.from, compiled, origin.approvals));
+      parentBodies.push(
+        sealParent(origin.from, compiled, origin.approvals, adopts)
+      );
     }
   }
 
   const named = request.name?.trim() || generateMigrationName(reported);
+  const storedSnapshot = snapshotFor(
+    desired,
+    parentBodies.map((parent) => parent.fromState)
+  );
   const { sealed, hashedParents, destinationChecks, encoded } = sealState(
     assembly,
     parentBodies,
@@ -287,7 +336,7 @@ export async function generateV1(
     driver.target.dialect,
     estateHash,
     named,
-    desiredEncoded.snapshotHash
+    storedSnapshot
   );
 
   // Decision 8: field and model order is cosmetic, so a document that only
@@ -311,7 +360,7 @@ export async function generateV1(
     };
   }
 
-  const final = { snapshot: desiredEncoded, sealed, encoded };
+  const final = { snapshot: storedSnapshot, sealed, encoded };
   const states = [...stepStates, final];
   const sqlText = states
     .map((state) => new TextDecoder().decode(state.sealed.bytes))
@@ -345,11 +394,127 @@ export async function generateV1(
   // Every state is complete before the first publishes. A low-lock split's
   // states publish parent first, each manifest after its snapshot and SQL.
   for (const { snapshot, sealed: sql, encoded: manifest } of states) {
-    await storage.publishSnapshot(snapshot.snapshotHash, snapshot.bytes);
+    if (snapshot.bytes)
+      await storage.publishSnapshot(snapshot.artifactHash, snapshot.bytes);
     await storage.publishSql(sql.sqlHash, sql.bytes);
     await storage.publishState(manifest.stateId, manifest.bytes);
   }
   return { outcome: "published", ...candidate };
+}
+
+/**
+ * The tables `adopt` names, once each is admitted: declared by the desired
+ * snapshot (which the serializer already keeps inside the client's list),
+ * outside the estate's frozen list (a name there is managed already, so a raw
+ * table of that name is drift), and absent from every parent's snapshot. An
+ * estate without a list manages the whole database and adopts nothing, nor
+ * does a manual, low-lock or checkpoint state.
+ */
+function admitAdoption(
+  request: GenerateV1Options,
+  graph: MigrationGraph,
+  desired: SchemaSnapshot,
+  parents: readonly (Sha256 | null)[]
+): readonly string[] {
+  const names = request.adopt ?? [];
+  if (names.length === 0) return names;
+  const refuse = (message: string): never => {
+    throw new MigrationError(message, VibORMErrorCode.MIGRATION_INVALID_STATE);
+  };
+  if (request.manualMigration || request.lowLock) {
+    refuse("generate adopt cannot be combined with manualMigration or lowLock");
+  }
+  if (request.from === null && graph.states.size > 0) {
+    refuse(
+      "An authored checkpoint creates its whole schema: it adopts nothing"
+    );
+  }
+  const frozen = graph.descriptor.target.tables;
+  if (frozen === undefined) {
+    return refuse(
+      "generate adopt needs an estate with a `tables` list: without one the estate manages the whole database, so an existing table is drift"
+    );
+  }
+  for (const name of names) {
+    if (!desired.tables.some((table) => table.name === name)) {
+      refuse(
+        `generate adopt names "${name}", which the schema does not declare`
+      );
+    }
+    if (frozen.includes(name)) {
+      refuse(
+        `generate adopt names "${name}", which the estate already manages: a raw table of that name is drift, not something to adopt`
+      );
+    }
+    for (const parent of parents) {
+      if (
+        requireStateSnapshot(graph, parent).tables.some(
+          (table) => table.name === name
+        )
+      ) {
+        refuse(
+          `generate adopt names "${name}", which parent ${parent ?? "empty"} already has`
+        );
+      }
+    }
+  }
+  return names;
+}
+
+/**
+ * The program without what creates an adopted table: its CREATE TABLE, its
+ * indexes and keys, and every enum an adopted table uses. That enum already
+ * exists with the table (a PostgreSQL type is the database's, not the
+ * table's), even where a new managed table of the same transition uses it
+ * too, so it is never created, and a rollback, which drops only what the
+ * program created, never drops it. It runs no DDL for them; the destination
+ * proof proves the live table and the enum equal the declaration.
+ *
+ * The program's origin is the parent's schema plus those enums, because the
+ * database already has them: the DDL of a new table naming one qualifies it
+ * as it would an enum it created (`managedEnumNames`). The origin proof still
+ * compares the parent's own snapshot.
+ */
+function withoutAdoptedTables(
+  operations: DiffOperation[],
+  adopts: readonly string[],
+  desired: SchemaSnapshot,
+  current: SchemaSnapshot
+): { operations: DiffOperation[]; current: SchemaSnapshot } {
+  if (adopts.length === 0) return { operations, current };
+  const enumsOf = (tables: readonly SchemaSnapshot["tables"][number][]) =>
+    new Set(
+      tables.flatMap((table) =>
+        table.columns.map((column) =>
+          column.type.endsWith("[]") ? column.type.slice(0, -2) : column.type
+        )
+      )
+    );
+  const adoptedEnums = enumsOf(
+    desired.tables.filter((table) => adopts.includes(table.name))
+  );
+  const broughtEnums = (desired.enums ?? []).filter(
+    (enumDef) =>
+      adoptedEnums.has(enumDef.name) &&
+      !current.enums?.some(({ name }) => name === enumDef.name)
+  );
+  return {
+    operations: operations.filter((operation) => {
+      if (operation.type === "createTable") {
+        return !adopts.includes(operation.table.name);
+      }
+      if (operation.type === "createEnum") {
+        return !adoptedEnums.has(operation.enumDef.name);
+      }
+      return !(
+        "tableName" in operation && adopts.includes(operation.tableName)
+      );
+    }),
+    current:
+      broughtEnums.length === 0
+        ? current
+        : { ...current, enums: [...(current.enums ?? []), ...broughtEnums] },
+  };
 }
 
 /** Decision 8: two snapshots that differ only in field and model order. */
@@ -390,7 +555,7 @@ function sealState(
   dialect: Parameters<typeof assertArtifactExecutionSafe>[1],
   estateHash: Sha256,
   name: string,
-  snapshotHash: Sha256
+  snapshot: EncodedSnapshotArtifact
 ) {
   const sealed = assembly.seal();
   assertArtifactExecutionSafe(
@@ -414,7 +579,10 @@ function sealState(
     format: "1",
     estateHash,
     name,
-    snapshotHash,
+    snapshotHash: snapshot.snapshotHash,
+    ...(snapshot.artifactHash === snapshot.snapshotHash
+      ? {}
+      : { snapshotArtifactHash: snapshot.artifactHash }),
     sqlHash: sealed.sqlHash,
     destinationChecks,
     parents: hashedParents,
@@ -439,7 +607,11 @@ function sealLowLockState(
     readonly approvals: readonly MigrationApprovalV1[];
   },
   state: LowLockState,
-  steps: ReadonlySet<DiffOperation> | undefined
+  steps: ReadonlySet<DiffOperation> | undefined,
+  encode: (
+    snapshot: SchemaSnapshot,
+    fromStates: readonly (Sha256 | null)[]
+  ) => EncodedSnapshotArtifact
 ) {
   const assembly = new SqlAssembly();
   const compiled = compileGeneratedTransition(
@@ -451,7 +623,7 @@ function sealLowLockState(
     assembly,
     steps
   );
-  const snapshot = encodeSnapshot(state.snapshot);
+  const snapshot = encode(state.snapshot, [origin.from]);
   const sealed = sealState(
     assembly,
     [sealParent(origin.from, compiled, origin.approvals)],
@@ -459,7 +631,7 @@ function sealLowLockState(
     driver.target.dialect,
     estateHash,
     name,
-    snapshot.snapshotHash
+    snapshot
   );
   return {
     ...sealed,
@@ -559,6 +731,7 @@ function emptyGraph(
     descriptor,
     states: new Map(),
     snapshots: new Map([[emptySnapshotHash, emptyManagedSnapshot()]]),
+    snapshotArtifacts: new Map(),
     sql: new Map(),
     roots: [],
     leaves: [],

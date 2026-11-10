@@ -60,6 +60,7 @@ deliberately small so the query protocol is visible.
 | Hide rows from every query | `rows` | Filters per model, chosen per call, with the call's values |
 | Change what a delete does | `deletion` | An update with fixed data and the call's time |
 | Supply defaults on creates and updates | `data` | Fixed values or control values; explicit caller data wins |
+| Order a model's reads by default | `order` | `orderBy` terms per model; an explicit `orderBy` wins |
 | Add fields computed from a row | `result` | `needs` and `compute` per field; on every row of the model a call returns |
 
 Do not put every concern into `query`. Each capability exposes only the facts
@@ -108,9 +109,10 @@ await db.$postCount();
 await db.post.findPublished();
 ```
 
-The factories receive the client or delegate for the current scope. Use that
-supplied value so the methods also work inside callback and nested
-transactions. Capturing an unrelated root client in the extension closure
+The factories receive the client or delegate for the current scope (a model
+factory receives the delegate, then the client scope a client factory
+receives: `model: { post(delegate, scope) { … } }`). Use that supplied value
+so the methods also work inside callback and nested transactions. Capturing an unrelated root client in the extension closure
 deliberately escapes that transaction scope.
 
 Definition normalization runs when the extension is applied, and the client
@@ -436,10 +438,11 @@ await db.project.findMany({ archived: "only" }); // archived projects
   own definition is not seen: declare `rows` in an earlier `$extends` step.
 - A client with `rows` keys its cached reads on the declarations, so it never
   shares a cache entry with a client without them.
-- Apply an extension with `rows` before any extension that adds model-mapped
-  `query` handlers or `client`/`model` methods: after one, the application is
-  refused, as `defaultOmit()` is. An entry that has both offers them as two
-  steps, applied with every `rows` step first ([compose](#rows-steps-first)).
+- An extension with `rows` may follow any other: its rows apply to every
+  call of the chain, methods' calls included. TypeScript refuses it only
+  after a factory typed against the client it extends, whose types it would
+  make lie, as it refuses `defaultOmit()` there
+  ([compose](#methods-typed-from-the-client-they-are-called-on)).
 - `rows` decides which rows are visible. It is not authorization by itself:
   any caller can choose another mode or pass another value, unless that value
   is a `bound`, `required` control (as [`viborm/permissions`](/docs/extensions/permissions)'s
@@ -703,6 +706,36 @@ await db.document.findMany({ user: "ada", select: { id: true, notes: true } }); 
   declare the same key on a model: both are refused when the extension is
   applied.
 
+### Confine the sets your predicates compute with `confine`
+
+On PostgreSQL drivers and D1, a body your predicates repeat in one statement
+is computed once, as a set over its model's whole table, bounded only by what
+the body states. "The grants that name the caller" reads every tenant's
+grants. `confine` says, per model, what every row of such a set holds, as a
+`where` of the model's own columns (no relation):
+
+```ts
+rows: {
+  control: "scope",
+  default: "member",
+  models: { … },
+  verbs: { … },
+  confine: { grant: { tenantId: { control: "tenant" } } },
+},
+```
+
+- It applies to a set your own predicates compute over a whole table: a
+  repeated body, and, on a driver that bounds the relations of a statement
+  (PlanetScale's Neki), a recursive filter computed as a set. A relation they
+  read row by row is not confined: from a row you admit, it reaches rows of
+  the same tenant already.
+- It applies where a test reads the set positively: `some` or `is`, outside
+  a `NOT`, and not in what a `none`, `every` or `isNot` ranges over.
+  `confine` can only take rows away from what your predicates grant.
+- It holds in every mode, and states a promise: a row a set would lose to it
+  must be one your predicates never need. `permissions`' `tenant` states its
+  tenant here.
+
 ## Change what a delete does with `deletion`
 
 For the models `deletion.models` names, a delete (root, bulk, nested, or a
@@ -822,6 +855,37 @@ Both capabilities together make an optimistic lock: the row is filtered on the
 version the call expects, and every update moves the version on. The
 [recipes](/docs/extensions/recipes) give it in full, with tenancy and audit
 stamping.
+
+## Order reads with `order`
+
+`order.models` gives a model the order its reads take when the caller gives
+no `orderBy`:
+
+```ts
+const byRank = defineExtension<typeof schema>()({
+  name: "by-rank",
+  order: { models: { card: [{ columnId: "asc" }, { rank: "asc" }] } },
+});
+```
+
+- It applies to a root `findMany` and `findFirst` (a negative `take` reads
+  from its end), a to-many relation read at any depth (`include`, `select`,
+  recursive), and the window of a paged `count` or `aggregate` (`take`,
+  `skip`, `cursor`), so the rows a page counts are the rows it reads. A
+  `cursor` pages through it.
+- An explicit `orderBy` replaces it, whole; `orderBy: []` reads in key order.
+  `findUnique`, `groupBy` and unpaged aggregates are not ordered by it.
+- The model's key always ends the order, so equal values read in a stable
+  order.
+- Each term names one scalar field, `"asc"` or `"desc"`: not a relation, a
+  list, JSON, a vector or a point. The model must have a primary or unique
+  key. `$extends()` refuses anything else with a `ClientInitializationError`.
+- A later extension's entry for a model replaces an earlier one's. Cached
+  reads are keyed on the chain's orders, so two clients that order a model
+  differently never share a cached entry.
+
+The official [ordering](/docs/extensions/ordering) extension declares its
+lists' order this way.
 
 ## Compute fields with `result`
 
@@ -965,25 +1029,60 @@ const db = client
   .$extends(postTools);
 ```
 
-### Rows steps first
+### Methods typed from the client they are called on
 
-An extension that declares `rows` cannot follow one that adds methods, since
-those were typed against rows that the later step would hide. An entry with
-both, as the official soft delete, is two steps as well as one:
-`softDelete(config).rows` (its controls, `rows` and `deletion`) and
-`softDelete(config).methods` (`restore`). Apply every `rows` step of the
-chain, then the methods:
+Every extension's `rows`, `defaultOmit` and the rest apply to every call,
+methods' calls included, whatever the order of the chain: a method runs
+through the whole chain of the client it is called on.
+
+Only its **types** can fall behind. A factory that takes its delegate (or
+scope) typed, `(delegate) => …`, is typed against the client it extends: a
+later `rows` step can make a to-one relation it reads `null`, and a later
+`defaultOmit` can drop a field it reads. So TypeScript refuses a `rows` or
+`defaultOmit` step after such a factory (the result is `never`); the
+runtime does not.
+
+A factory that reads nothing typed, taking its delegate as `never` (or no
+argument), may be followed by anything. Type each method's result from the
+delegate it is called on with a `this` parameter and
+`DelegateOperationResult`:
 
 ```ts
-const tombstones = softDelete({ models: { post: { deletedAt: "deletedAt" } } });
+import type { DelegateOperationResult, PendingOperation } from "viborm";
 
-const db = tombstones.methods(tombstones.rows(client).$extends(tenancy));
+type Archive = {
+  archive<Self, A extends { where: { id: string } }>(
+    this: Self,
+    args: A
+  ): PendingOperation<DelegateOperationResult<Self, "update", A>>;
+};
+
+const archiving = {
+  name: "archive",
+  model: {
+    post: (delegate: never): Archive => {
+      const { update } = delegate as {
+        update: (args: object) => PendingOperation<never>;
+      };
+      return {
+        archive: (args) => update({ ...args, data: { archived: true } }),
+      };
+    },
+  },
+};
 ```
 
+`db.post.archive(…)` then returns what `db.post.update(…)` returns on that
+client, after every extension applied later, computed `result` fields
+included. Called off its delegate (`const { archive } = db.post`), its
+result is `unknown`. TypeScript reads an overloaded factory by its last four
+signatures: one that takes a typed argument in any of them is a consumer. The official soft delete,
+ordering and permissions are written this way, so each is one step,
+applied in any order.
+
 A method that binds a control belongs to the extension that declares it
-(`$bind` takes no other's), so an entry whose `rows` step declares a bound
-control carries that method there, and that step is the last `rows` step of
-the chain.
+(`$bind` takes no other's), so an entry whose `rows` declare a bound control
+carries that method in the same definition.
 
 ### Name the complete client type
 

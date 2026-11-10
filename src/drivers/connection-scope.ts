@@ -24,6 +24,15 @@ export function physicalConnectionQueue(handle: object): SavepointQueue {
   return queue;
 }
 
+/**
+ * Whether this runtime cannot track connection scopes: `node:async_hooks`
+ * failed to load (a browser, Workers without `nodejs_compat`), so
+ * {@link isConnectionScope} answers false everywhere, inside the scope too.
+ */
+export function connectionScopeUntracked(): boolean {
+  return scope === null;
+}
+
 export function isConnectionScope(queue: SavepointQueue): boolean {
   const current = scope?.getStore();
   return current !== undefined && current.queue === queue && current.active;

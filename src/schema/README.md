@@ -603,7 +603,7 @@ F001  Field names must be valid identifiers
 F002  ID definitions cannot conflict
 F003  Two scalars cannot map to the same column
 F004  A direct default must satisfy its scalar schema
-F006  An ID cannot be nullable
+F006  An ID, or a member of a compound ID, cannot be nullable
 F007  An ID cannot be an array
 F008  Automatic generation without an ID produces a warning
 F009  Mapped column names must be valid identifiers

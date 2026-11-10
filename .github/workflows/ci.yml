@@ -53,13 +53,13 @@ jobs:
             xargs -0 -r git checkout --ignore-skip-worktree-bits HEAD --
 
       - name: Install pnpm
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: ${{ env.PNPM_VERSION }}
           run_install: false
 
       - name: Install Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -102,7 +102,7 @@ jobs:
         run: pnpm --dir docs build
 
       - name: Preserve the exact documentation build for render verification
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: viborm-docs-${{ github.sha }}
           path: docs/dist/
@@ -129,6 +129,14 @@ jobs:
       - name: Check public types
         run: pnpm test:types
 
+      # @viborm/studio: its Svelte app type-checked, then its package built
+      # (the app, then the CLI that bundles VibORM's internals).
+      - name: Check the studio app
+        run: pnpm --filter @viborm/studio check
+
+      - name: Build the studio package
+        run: pnpm --filter @viborm/studio build
+
   core:
     name: Core tests
     runs-on: ubuntu-latest
@@ -146,13 +154,13 @@ jobs:
             !/docs/architecture/raptor3-evidence/
 
       - name: Install pnpm
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: ${{ env.PNPM_VERSION }}
           run_install: false
 
       - name: Install Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -186,13 +194,13 @@ jobs:
             !/docs/architecture/raptor3-evidence/
 
       - name: Install pnpm
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: ${{ env.PNPM_VERSION }}
           run_install: false
 
       - name: Install Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node }}
           cache: pnpm
@@ -254,13 +262,13 @@ jobs:
             !/docs/architecture/raptor3-evidence/
 
       - name: Install pnpm
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: ${{ env.PNPM_VERSION }}
           run_install: false
 
       - name: Install Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -336,13 +344,13 @@ jobs:
             !/docs/architecture/raptor3-evidence/
 
       - name: Install pnpm
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: ${{ env.PNPM_VERSION }}
           run_install: false
 
       - name: Install Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -353,7 +361,7 @@ jobs:
       - name: Run Docker provider contracts
         run: >-
           node scripts/run-vitest-safe.mjs --wall-limit-ms=1800000 run
-          --workspace vitest.workspace.ts
+          --config vitest.workspace.ts
           --project=provider-pg
           --project=provider-postgres
           --project=provider-mysql2
@@ -366,17 +374,65 @@ jobs:
           PGBOUNCER_TEST_CONNECTION_STRING: postgres://postgres:password@127.0.0.1:6432/viborm
         run: >-
           node scripts/run-vitest-safe.mjs run
-          --workspace vitest.workspace.ts
+          --config vitest.workspace.ts
           --project=provider-pgbouncer
+
+  surrealdb-provider:
+    name: SurrealDB provider
+    runs-on: ubuntu-latest
+    # The shared contracts' local wall is about 7 minutes, and a CI runner takes
+    # about twice that; + 5 for setup and starting the server.
+    timeout-minutes: 30
+    steps:
+      - name: Check out the exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/docs/architecture/raptor3-evidence/
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Start SurrealDB 4.0.0
+        run: |
+          curl -fsSL https://download.surrealdb.com/v4.0.0/surreal-v4.0.0.linux-amd64.tgz | tar xz
+          SURREAL_MAX_QUERY_PARSING_DEPTH=128 nohup ./surreal start --user root --pass root --bind 127.0.0.1:8765 --query-timeout 20s rocksdb://surreal-data > surreal.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            curl -fs http://127.0.0.1:8765/health && exit 0
+            sleep 1
+          done
+          cat surreal.log
+          exit 1
+
+      - name: Run the shared contracts on SurrealDB
+        env:
+          SURREAL_TEST_URL: ws://127.0.0.1:8765/rpc
+          NODE_OPTIONS: --max-old-space-size=3072
+        run: node node_modules/vitest/vitest.mjs run --config vitest.workspace.ts --project provider-surrealdb --testTimeout=120000 --hookTimeout=240000 --bail=0
 
   platform-providers:
     name: Bun and D1 providers
     runs-on: ubuntu-latest
-    # Three Vitest runs at run-vitest-safe.mjs's 300000 ms default ceiling, so
-    # at most 15 min of test time, + 5 min setup, + the Bun install and the
+    # Four Vitest runs at run-vitest-safe.mjs's 300000 ms default ceiling, so
+    # at most 20 min of test time, + 5 min setup, + the Bun install and the
     # PostgreSQL service's health check; the package build and `bun check`
     # leg add 7 min at their own ceilings.
-    timeout-minutes: 32
+    timeout-minutes: 37
     services:
       postgres:
         image: postgis/postgis@sha256:8828b03e9a95269f808abe62aa83215b22a2d3710f54a55e8040327b7b5f9932 # 16-3.5
@@ -403,13 +459,13 @@ jobs:
             !/docs/architecture/raptor3-evidence/
 
       - name: Install pnpm
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: ${{ env.PNPM_VERSION }}
           run_install: false
 
       - name: Install Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -436,17 +492,41 @@ jobs:
       - name: Run Bun contracts
         run: >-
           node scripts/run-vitest-safe.mjs run
-          --workspace vitest.workspace.ts
+          --config vitest.workspace.ts
           --project=provider-bun
+
+      # Keep the entry suite apart from the other permissions contracts: together
+      # they can exceed the 300 s wall on a slow runner. Resource limits stay fixed.
+      - name: Run D1 permissions entry contracts
+        run: >-
+          node scripts/run-vitest-safe.mjs run
+          --config vitest.workspace.ts
+          --project=provider-d1
+          tests/providers/workers/d1-permissions-entry.test.ts
+
+      - name: Run D1 permissions contracts
+        run: >-
+          node scripts/run-vitest-safe.mjs run
+          --config vitest.workspace.ts
+          --project=provider-d1
+          tests/providers/workers/d1-permissions
+          --exclude 'tests/providers/workers/d1-permissions-entry.test.ts'
 
       - name: Run D1 contracts
         run: >-
           node scripts/run-vitest-safe.mjs run
-          --workspace vitest.workspace.ts
+          --config vitest.workspace.ts
           --project=provider-d1
+          --exclude 'tests/providers/workers/d1-permissions*'
 
       - name: Run the tenant Durable Object suite
         run: >-
           node scripts/run-vitest-safe.mjs run
-          --workspace vitest.workspace.ts
+          --config vitest.workspace.ts
           --project=provider-tenant-do
+
+      - name: Run the Durable Object driver suite
+        run: >-
+          node scripts/run-vitest-safe.mjs run
+          --config vitest.workspace.ts
+          --project=provider-durable-object

@@ -71,6 +71,7 @@ function graph(): MigrationGraph {
       [EMPTY_SNAPSHOT_HASH, emptyManagedSnapshot()],
       [STATE_SNAPSHOT_HASH, emptyManagedSnapshot()],
     ]),
+    snapshotArtifacts: new Map(),
     sql: new Map([[SQL_HASH, new Uint8Array()]]),
     roots: [STATE_A],
     leaves: [STATE_B],

@@ -34,7 +34,7 @@ const FENCE = /^```(\w+)[^\n]*\n([\s\S]*?)^```/gm;
  * The three fences the format refuses, by address. Two carry the function
  * default; the third is prose — `s.model({ ... })` with a literal ellipsis.
  */
-const REFUSED_FENCE_IDS = ["index.mdx#1", "model.mdx#0", "model.mdx#8"];
+const REFUSED_FENCE_IDS = ["index.mdx#1", "model.mdx#0", "model.mdx#10"];
 
 /**
  * Every fence in the schema docs that SPELLS a model, addressed as
@@ -107,8 +107,8 @@ describe("docs acceptance corpus", () => {
       [...accepted, ...REFUSED_FENCE_IDS].sort()
     );
     // The counts, recorded rather than left to the reader.
-    expect(declared).toHaveLength(41);
-    expect(accepted).toHaveLength(38);
+    expect(declared).toHaveLength(42);
+    expect(accepted).toHaveLength(39);
     expect(REFUSED_FENCE_IDS).toHaveLength(3);
   });
 
@@ -118,11 +118,12 @@ describe("docs acceptance corpus", () => {
       byLanguage[fence.language] = (byLanguage[fence.language] ?? 0) + 1;
     }
     expect(byLanguage).toEqual({
-      ts: 164,
-      sql: 8,
+      ts: 175,
+      sql: 7,
       json: 5,
       text: 3,
       mermaid: 1,
+      bash: 1,
     });
   });
 
@@ -197,7 +198,7 @@ describe("documented JSON documents", () => {
 });
 
 describe("refusal witnesses for the excluded fences", () => {
-  // `model.mdx` #0 and #8 both spell `.default(() => new Date())`.
+  // `model.mdx` #0 and #9 both spell `.default(() => new Date())`.
   it("model.mdx#0 — a function default has no document spelling", () => {
     const user = s.model({
       id: s.string().id().ulid(),
@@ -208,7 +209,7 @@ describe("refusal witnesses for the excluded fences", () => {
     expect(() => serializeSchema({ user })).toThrow(ValidationError);
   });
 
-  it("model.mdx#8 — `.extends()` flattens, but its function default does not", () => {
+  it("model.mdx#10 — `.extends()` flattens, but its function default does not", () => {
     const baseModel = s.model({
       id: s.string().id(),
       createdAt: s.dateTime().default(() => new Date()),

@@ -320,6 +320,58 @@ export type ScalarSelectSchema<M extends AnyModel> = V.Object<
   SelectRefusal
 >;
 
+/**
+ * A relation node's `$through`: the link row of a declared model's junction,
+ * `true` for its projectable scalars or `{ select }` of them. Scalars only, and
+ * only plain ones, so a relation or a computed distance is an unknown key: what
+ * a link row holds is what its columns hold.
+ */
+export type ThroughSelectSchema<M extends AnyModel> = V.Union<
+  readonly [
+    V.Coerce<V.Boolean, { select: Record<string, true> } | false>,
+    V.Object<
+      {
+        select: V.Object<
+          V.FromKeys<
+            ProjectableScalarKeys<M>[],
+            typeof scalarSelectSchema
+          >["entries"],
+          SelectRefusal
+        >;
+      },
+      { partial: false }
+    >,
+  ]
+>;
+
+export const getThroughSelectSchema = <M extends AnyModel>(
+  model: M
+): ThroughSelectSchema<M> => {
+  const names = projectableScalarNames(model);
+  return v.union([
+    // Fresh per parse: the engine must never hold a schema-level singleton.
+    v.coerce(v.boolean(), (value: boolean) =>
+      value
+        ? {
+            select: Object.fromEntries(
+              names.map((field): [string, true] => [field, true])
+            ),
+          }
+        : (false as const)
+    ),
+    v.object(
+      {
+        select: v.object(
+          v.fromKeys(names as ProjectableScalarKeys<M>[], scalarSelectSchema)
+            .entries,
+          { refuse: requireSelectedField }
+        ),
+      },
+      { partial: false }
+    ),
+  ]) as never;
+};
+
 export const getScalarSelectSchema = <M extends AnyModel>(
   model: M
 ): ScalarSelectSchema<M> =>

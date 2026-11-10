@@ -21,6 +21,8 @@ export {
 export type {
   AnyDriver,
   DriverResultParser,
+  MigrationFrame,
+  MigrationFrameDriver,
   QueryExecutionContext,
   SqliteMigrationCapability,
 } from "./driver";

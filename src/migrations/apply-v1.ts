@@ -28,7 +28,11 @@ import {
   unfinishedAttempts,
 } from "./control";
 import type { BoundMigrationDriver } from "./drivers";
-import { assertAllChecks, executeOperations } from "./execute-dispatch";
+import {
+  annotateMigrationFailure,
+  assertAllChecks,
+  executeOperations,
+} from "./execute-dispatch";
 import {
   loadMigrationGraph,
   type MigrationGraph,
@@ -49,9 +53,11 @@ import {
   withLockedMigrationProducer,
 } from "./pinned-session";
 import {
+  assertAdoptable,
   assertEmptyManaged,
   assertLockedSinceDecision,
   assertNoDrift,
+  managedAt,
   markedSnapshotHash,
   markerStanding,
   proveLive,
@@ -162,12 +168,22 @@ export async function applyV1(
         // One request per group holds no part's progress: refused instead.
         !runsMigrationBatches(pinned)
       );
+      await assertAdoptable(pinned, command, graph, origin, path);
       // A resumed edge's committed parts are already past the marker's
       // snapshot: the destination proof of its last part proves the rest.
+      // Across the first edge: a table it adopts is not proven yet.
       if (resume === undefined && marker) {
-        await assertNoDrift(pinned, command, graph, marker);
+        await assertNoDrift(
+          pinned,
+          managedAt(command, graph, origin, path[0]),
+          graph,
+          marker
+        );
       } else if (resume === undefined) {
-        await assertEmptyManaged(pinned, command);
+        await assertEmptyManaged(
+          pinned,
+          managedAt(command, graph, null, path[0])
+        );
       }
       if (origin === target) {
         return { outcome: "noop", path: [], statements: [] };
@@ -195,7 +211,14 @@ export async function applyV1(
     },
     driver.target.dialect === "postgresql"
       ? (session, lockFree) =>
-          provenNoop(session, lockFree, driver, graph, target, options)
+          provenNoop(
+            session,
+            lockFree,
+            managedAt(driver, graph, target),
+            graph,
+            target,
+            options
+          )
       : undefined
   );
   return keepCommittedOutcome(committed, locked);
@@ -367,6 +390,8 @@ async function applyPathUnderLock(
       continue;
     }
     const running: { attempt?: ForwardAttempt } = {};
+    // The edge the group is running, which a failure no statement named is.
+    const runningEdge: { to?: Sha256 } = {};
     // A resumed stepwise edge: its attempt stays open, as apply left it.
     const resumed = group.items[0] === first ? resume : undefined;
     const run = async (
@@ -398,6 +423,7 @@ async function applyPathUnderLock(
       }
       // Edge by edge, each step probed and recorded as it runs.
       for (const [index, item] of group.items.entries()) {
+        runningEdge.to = item.to;
         const own = index === 0 ? resumed : undefined;
         const attempt = forwardAttempt(graph, item, own?.attempt.attemptId);
         if (own === undefined) {
@@ -431,7 +457,12 @@ async function applyPathUnderLock(
           [...nextPath],
           snapshotHash,
           1,
-          await proveLive(producer, command, graph, snapshotHash)
+          await proveLive(
+            producer,
+            managedAt(command, graph, item.to, item.from),
+            graph,
+            snapshotHash
+          )
         );
         await appendLedger(
           producer,
@@ -451,13 +482,21 @@ async function applyPathUnderLock(
       await (command.target.dialect === "mysql"
         ? run(pinned, false)
         : runProgram(pinned, command, program, run));
-    } catch (failure) {
+    } catch (raised) {
+      // A failure no statement named is this group's: its commit, its lock.
+      const failure = annotateMigrationFailure(raised, {
+        step: "apply",
+        strategy: group.boundary,
+        stateId: running.attempt?.item.to ?? runningEdge.to,
+      });
       // Past the commit only the foreign-key restore can fail: it is reported.
       if (phase.committed) throw failure;
       if (
         phase.committing &&
         (await commitLanded(pinned, command, group.items, current, failure))
       ) {
+        // Its COMMIT landed: what it builds in the background is waited for.
+        await command.awaitIndexBuilds?.(pinned, program.statements);
         continue;
       }
       await recordFailedAttempt(pinned, command, running, failure);
@@ -534,7 +573,7 @@ async function runForwardEdge(
           )
       : undefined,
     command.namespace,
-    { fromState: from, toState: to }
+    { fromState: from, toState: to, step: "apply" }
   );
   if (!(part?.destination ?? true)) return;
   // Manual SQL may store text typed queries cannot compare (`datetime('now')`).
@@ -596,9 +635,11 @@ async function executeAtomicGroup(
   }
   const last = items.at(-1)!;
   const { snapshotHash } = last.state;
+  // The destination proves every table the last edge adopts.
+  const destination = managedAt(command, graph, last.to, last.from);
   let next: MigrationMarkerV1;
   if (batch) {
-    assertDigest(batch, command, requireStateSnapshot(graph, last.to));
+    assertDigest(batch, destination, requireStateSnapshot(graph, last.to));
     next = markerFromPath(
       graph.estateHash,
       snapshotHash,
@@ -617,7 +658,7 @@ async function executeAtomicGroup(
       [...nextPath],
       snapshotHash,
       items.length,
-      await proveLive(producer, command, graph, snapshotHash)
+      await proveLive(producer, destination, graph, snapshotHash)
     );
   }
   await appendLedger(producer, command, ...arrivals);
@@ -1205,7 +1246,12 @@ async function applySplitEdge(
             [...nextPath],
             snapshotHash,
             1,
-            await proveLive(producer, command, graph, snapshotHash)
+            await proveLive(
+              producer,
+              managedAt(command, graph, item.to, item.from),
+              graph,
+              snapshotHash
+            )
           );
           await appendLedger(
             producer,

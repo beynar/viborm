@@ -515,8 +515,9 @@ for (const [route, make] of [
       assert.deepEqual(await client.node.findMany(), [
         { id: 1, label: "one", containerId: 10, ownerId: null },
       ]);
+      // The planning reads' batch, then the unit the requirement aborts.
       if (batch)
-        assert.equal(driver.batchCalls, 1, `batches: ${driver.batchCalls}`);
+        assert.equal(driver.batchCalls, 2, `batches: ${driver.batchCalls}`);
     });
 
     it("a sibling behind a moved parent-held choice is still analysed: its own dependent read observes on every route", async () => {

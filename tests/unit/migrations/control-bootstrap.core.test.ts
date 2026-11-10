@@ -367,7 +367,8 @@ function commandWithStateDefinition(
                   {
                     name: "event_id",
                     type: dialect === "mysql" ? "VARCHAR(64)" : "TEXT",
-                    nullable: false,
+                    // SQLite's TEXT key of a rowid table holds NULL.
+                    nullable: dialect === "sqlite",
                   },
                   {
                     name: "attempt_id",

@@ -193,6 +193,8 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "PlacedControl",
       "VibSchema",
       "ClientExtension",
+      "DelegateOperationArgs",
+      "DelegateOperationResult",
       "DiagnosticDisclosure",
       "ExtendedClient",
       "ExtendedOperationResult",
@@ -212,10 +214,13 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "PrismaErrorCode",
       "RawOperation",
       "RawValue",
+      "RowsFragment",
       "SchemaValidationIssue",
       "Severity",
       "StatementContext",
       "StatementHandler",
+      "TransactionClient",
+      "TransactionClientOf",
       "UnwrapPendingOperation",
       "UnwrapPendingOperations",
       "ValidationErrorSource",
@@ -267,6 +272,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "RelationCardinality",
       "RelationSlot",
       "Scalar",
+      "ScalarKeys",
       "ScalarState",
       "ScalarUpdateState",
       "StringScalar",
@@ -367,6 +373,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "NumberSchema",
       "PointScalar",
       "PointSchema",
+      "ScalarKeys",
       "ScalarState",
       "ScalarUpdateState",
       "StringScalar",
@@ -407,6 +414,18 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
     ],
     []
   ),
+  "./schema/introspect": surface(
+    ["introspectSchema"],
+    [
+      "IntrospectSchemaOptions",
+      "IntrospectSchemaResult",
+      "IntrospectionDialect",
+      "IntrospectionWarning",
+      "SkippedKind",
+      "SkippedObject",
+    ],
+    []
+  ),
   "./driver": surface(
     [
       "CheckConstraintError",
@@ -427,6 +446,8 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "BatchQuery",
       "Dialect",
       "DriverResultParser",
+      "MigrationFrame",
+      "MigrationFrameDriver",
       "QueryExecutionContext",
       "QueryResult",
       "SqliteMigrationCapability",
@@ -473,6 +494,11 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
     ["BunSQLClientConfig", "BunSQLDriverOptions", "BunSQLOptions"],
     ["BunSQLDriver"]
   ),
+  "./surrealdb": surface(
+    ["SurrealDriver", "createClient"],
+    ["SurrealClientConfig", "SurrealDriverOptions"],
+    ["SurrealDriver"]
+  ),
   "./mysql2": surface(
     ["MySQL2Driver", "createClient"],
     ["MySQL2ClientConfig", "MySQL2DriverOptions", "MySQL2Options"],
@@ -501,6 +527,16 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
     ["D1Driver", "createClient"],
     ["D1ClientConfig", "D1DriverOptions"],
     ["D1Driver"]
+  ),
+  "./durable-object": surface(
+    ["createClient", "createDurableObjectDriver"],
+    [
+      "DurableObjectClientConfig",
+      "DurableObjectDriver",
+      "DurableObjectDriverOptions",
+      "DurableObjectStorage",
+    ],
+    []
   ),
   "./bun-sqlite": surface(
     ["BunSQLiteDriver", "createClient"],
@@ -532,6 +568,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
   "./migrations": MIGRATIONS_SURFACE,
   "./migrations/postgres": MIGRATIONS_SURFACE,
   "./migrations/sqlite": MIGRATIONS_SURFACE,
+  "./migrations/surrealdb": MIGRATIONS_SURFACE,
   "./migrations/mysql": MIGRATIONS_SURFACE,
   "./migrations/storage/fs": surface(["createFsStorageWriter"], [], []),
   "./migrations/storage/durable-object": surface(
@@ -575,6 +612,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "Client",
       "ClientSchema",
       "ClientTypeState",
+      "ClientHiddenContext",
       "ExtensionCacheState",
       "ExtensionResultConsumerState",
       "FlatSchema",
@@ -586,9 +624,14 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "IndexOptions",
       "ObjectSchema",
       "PlacedControl",
+      "ProjectedContribution",
+      "ProjectedModelOperations",
+      "RowsVerbs",
+      "StampedFields",
       "VibSchema",
       "ClientExtension",
       "CountResultType",
+      "DefinitionControls",
       "ExtendedClient",
       "GroupByResultType",
       "InferDatabase",
@@ -602,6 +645,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "OperationResult",
       "Operations",
       "RawOperation",
+      "RowsFragment",
       "Schema",
       "StatementContext",
       "StatementHandler",
@@ -709,7 +753,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
   ),
   "./soft-delete": surface(
     ["softDelete"],
-    ["SoftDeleteConfig", "SoftDeleteModel"],
+    ["SoftDeleteConfig", "SoftDeleteMethods", "SoftDeleteModel"],
     []
   ),
   "./permissions": surface(
@@ -719,13 +763,53 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "ActorPaths",
       "CompiledModel",
       "CompiledPolicy",
+      "ModelAnswers",
       "ModelPolicy",
       "PermissionsConfig",
       "Policy",
       "PolicyModel",
       "Rule",
+      "ScopeSchema",
       "Where",
     ],
+    []
+  ),
+  "./on": surface(
+    ["on"],
+    [
+      "OnEvent",
+      "OnExtension",
+      "OnHook",
+      "OnHooks",
+      "OnKind",
+      "OnOperation",
+      "OnOptions",
+      "OnRow",
+    ],
+    []
+  ),
+  "./ordering": surface(
+    [
+      "MAX_KEY_LENGTH",
+      "isKey",
+      "isKeyFormat",
+      "keyBetween",
+      "ordering",
+      "orderingKey",
+    ],
+    ["MovePlacement", "OrderingConfig", "OrderingMethods", "OrderingModel"],
+    []
+  ),
+  "./ordering/keys": surface(
+    [
+      "MAX_KEY_LENGTH",
+      "isKey",
+      "isKeyFormat",
+      "keyBetween",
+      "keysAfter",
+      "keysBetween",
+    ],
+    [],
     []
   ),
   "./adapters": surface(

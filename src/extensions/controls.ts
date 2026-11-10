@@ -96,6 +96,16 @@ export type RowsContribution = {
   readonly verbs?: {
     readonly [model: string]: RowsVerbs | (() => RowsVerbs);
   };
+  /**
+   * Per model, a `where` every row of a set this member's own predicates
+   * compute over the model's whole table holds, in every mode: what the
+   * statement shares once (a repeated body) or walks as a set (a recursive
+   * filter under a relation budget), where a positive test reads it (never
+   * under `NOT`, `none`, `every` or `isNot`). A relation those predicates
+   * read row by row is not bounded: from a row the member admits, it reaches
+   * such rows already. `permissions`' `tenant` states its tenant here.
+   */
+  readonly confine?: { readonly [model: string]: ScalarFields };
 };
 
 /**
@@ -183,6 +193,23 @@ export type DataContribution = {
       readonly create?: ScalarFields;
       readonly update?: ScalarFields;
     };
+  };
+};
+
+/** One `order` term: a scalar field and its direction. */
+export type OrderTerm = { readonly [field: string]: "asc" | "desc" };
+
+/**
+ * Per model, the order its reads take when the caller gives no `orderBy`: a
+ * root `findMany` or `findFirst`, a to-many relation read at any depth
+ * (`include`, `select`, recursive), and the window of a paged aggregate. An
+ * explicit `orderBy` replaces it (`orderBy: []` reads in key order). The
+ * model's key always ends the order. A later extension's entry for a model
+ * replaces an earlier one's.
+ */
+export type OrderContribution = {
+  readonly models: {
+    readonly [model: string]: OrderTerm | readonly OrderTerm[];
   };
 };
 

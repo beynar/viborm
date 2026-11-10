@@ -485,6 +485,82 @@ type UnionToIntersection<Value> = (
   : never;
 
 /**
+ * Every key's arm at once (a chain declaring two keys admits and reads
+ * both). Each arm is boxed, so a union inside one (`move`'s placements) is
+ * not intersected with itself.
+ */
+type EachKey<Arms extends Record<string, [unknown]>> = (UnionToIntersection<
+  Arms[keyof Arms]
+> &
+  [unknown])[0];
+
+/** The projection facts a delegate's chain declares, keyed by the key. */
+type DelegateProjections<Delegate> =
+  typeof projectedModelState extends keyof Delegate
+    ? NonNullable<Delegate[typeof projectedModelState]>
+    : never;
+
+/**
+ * A model method's arguments on the delegate it is called on: `Payload`,
+ * whose every `select` and `include` admits each key the delegate's chain
+ * declares, as the projected overloads of the operation it delegates to
+ * admit it.
+ */
+export type DelegateProjectedArgs<Delegate, Payload, ModelName> =
+  DelegateProjections<Delegate> extends infer Projections extends Record<
+    string,
+    ProjectionModelsConstraint
+  >
+    ? [Projections] extends [never]
+      ? Payload
+      : EachKey<{
+          [Key in keyof Projections & string]: [
+            ProjectedArgs<
+              Payload,
+              Projections[Key],
+              ModelName & keyof Projections[Key],
+              Key
+            >,
+          ];
+        }>
+    : Payload;
+
+/** A model method's call with every key its delegate's chain declares taken out. */
+export type DelegateCallArgs<Delegate, Args> = [
+  DelegateProjections<Delegate>,
+] extends [never]
+  ? Args
+  : WithoutKey<Args, keyof DelegateProjections<Delegate> & string>;
+
+/**
+ * A model method's result on the delegate it is called on (`Row`, typed from
+ * `DelegateCallArgs`), with each declared key's member wherever the call
+ * spelled it, as the projected overloads of the operation it delegates to
+ * type theirs.
+ */
+export type DelegateProjectedResult<Delegate, O, ModelName, Args, Row> =
+  O extends ProjectedOperation
+    ? DelegateProjections<Delegate> extends infer Projections extends Record<
+        string,
+        ProjectionModelsConstraint
+      >
+      ? [Projections] extends [never]
+        ? Row
+        : EachKey<{
+            [Key in keyof Projections & string]: [
+              Overlay<
+                Row,
+                Args,
+                Projections[Key],
+                ModelName & keyof Projections[Key],
+                Key
+              >,
+            ];
+          }>
+      : Row
+    : Row;
+
+/**
  * Whether a definition's verbs declare a projection key. A definition with no
  * `rows.verbs` is answered by its shape alone, before any model is read.
  */

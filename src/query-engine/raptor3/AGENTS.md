@@ -221,10 +221,40 @@ slots (`#settled`) and recounting: first the walks it repeats become members,
 those saving the most relations first (`#rankedWalks`, an estimate by place),
 until the estimate fits; then key sets are joined (below), the largest saving
 first; an estimate still short takes the most compact form, every repeated
-walk a member and every set joined. Each step costs plans (a reaching set is
+walk a member and every set joined. Bound or not, one walk leaves its
+place first: a walk its author states selective (`recurse: { …, selective:
+true }` in a `where`, `Closure.selective`; never one an `every` judges, which
+reaches back from the rows its predicate does not hold of) whose every place
+is inside a body the plain settlement already computes over its whole table
+(`materialized`: a correlated body reading another stated body, so not
+hinted inlined, and read at two places or more, so PostgreSQL materializes it
+rather than inline a single read; SQLite is told `MATERIALIZED`; a related
+domain's walk is lowered inside its own body's frame, `#inside`) is its reaching set from
+the start (`lifted`): "the teams the actor belongs to" is read back from the
+actor's memberships once, not walked per row of each body (a 40-model policy
+at 500 organizations: a page opened in 1.4 s → 89 ms, 2.0 → 0.8 ms under a
+tenant bound). Lifting one changes no body's form, which is why it needs no
+bound and escalation starts from it (`#rankedWalks` ranks the others).
+Anywhere else a selective walk stays in place: lifted inside an inlined body
+it would make that body read a set, so computed over its whole table, and a
+keyed read lose its index (a unique read 0.08 → 55 ms where most rows share
+the seed; on SQLite and D1 a keyed read became a full scan), or find its seeds
+over their whole table where one row's walk reads a few (a single-read team
+body over 300,000 seats: 0.025 → 5.5 ms). Nothing is
+guessed from the schema: an indexed column may hold one value in most rows
+(#133 guessed, #134 reverted it), so a walk nobody states selective is
+exactly 1.9.1's. Two walks over one range merge whatever they state
+(`mergeQuantifiers`; split, the first runs to its end before the second may
+hold: 0.18 → 184 ms over 300,000 teams), and the merged walk is selective
+only where every arm is: its seeds are all of theirs. A selective walk is the same rows wherever
+it is read, so one place stating it states the body (`SharedBody.selective`). Each step costs plans (a reaching set is
 computed for its whole table; a joined flag member is read again per row of
 a correlated subquery where the test it replaces was hashed once), so a
-statement that fits pays none of them, and plain PostgreSQL states no bound. A walk escalated is its REACHING
+statement that fits pays none of them, and plain PostgreSQL states no bound. Still over in its
+most compact form, a PostgreSQL statement takes `whole`: one row at the root read (`SharedBodies.root`)
+holds what its projection and `WHERE` test of one column or none, an `$exists` answer included,
+aliases of stored bodies join their `$exists` answers likewise, and a set only one row reads is
+written inside it. Only that form changes; below it, every statement keeps its text. A walk escalated is its REACHING
 SET (`#reachingSet`), the keys of the stored rows from which the walk reaches
 a row its predicate holds of, read backwards from those rows (the anchor
 states them, at depth 0 with `self`, else their predecessors at depth 1; the
@@ -568,7 +598,12 @@ vector sentences in the shipped order and words
 (`builders/distance-builder.ts:142-188`), then the GeoPoint `distance` tier —
 and never emulates a tier in JavaScript. One distance expression serves the
 filter, the order key and the projected `_distance` leaf, so a provider tier is
-asked about once and the output name is stated once.
+asked about once and the output name is stated once. A vector ORDER KEY is the
+one place the adapter spells it differently (`vector.l2/cosine(…, order)`): an
+`"exact"` key no nearest-neighbour index can serve, so a declared HNSW index
+never makes an exact order approximate, and a `"servable"` key only for the
+first term of a read `approximateOrder` (`shared/query.ts`) admits — the one
+eligibility answer the SurrealDB backend reads too.
 
 `Queries.prepareProjection` owns one immutable alias-free projection description
 and decoder shape. `lowerProjection` binds that description to fresh statement
@@ -1070,6 +1105,125 @@ and `deleteMany` before they choose a capture route. Pins:
 `tests/contracts/engine/write/write-projection-round-trips.test.ts` and
 `mutation-projection-cte-fold.test.ts`.
 
+A root `create` or `update` that DOES name relations ends with a read of the
+root row by its key, after its children ran (`CommandExecution.complete`). On
+the interactive route that read is answered by the root record's own INSERT or
+UPDATE instead (`StatementAnswer`, `OperationContext.finishAnswered`) when
+`answersInStatement` admits the projection, the projection is RETURNING-safe (a
+relation projection reads the children, which have not run yet), and nothing
+written after the root's statement can change the row
+(`CommandExecution.#answeredByRoot`). A statement changes rows of the model it
+writes and, where it deletes or rewrites a key, rows holding a foreign key to
+those, transitively; an INSERT changes no other row. So no later write may name
+the root's model, and no later write but an INSERT may name a model the root
+reaches through the foreign keys it holds (`#reachedThroughKeys`). An update
+that assigns nothing issues no statement to answer and keeps the read; so does
+a provider without RETURNING, and the batch route, whose read rides the batch
+already. Pins: `tests/contracts/engine/write/nested-write-round-trips.test.ts`
+(each clause of the guard has a case whose answer is wrong without it).
+
+**Addendum (2026-10-22): the probe keeps its lock where a miss takes none.**
+The unlocked `insertsWhenAbsent` probe and the `confirmFound` read that
+re-takes its found row under lock exist because a MySQL locking miss takes a
+gap lock (`locksMissingKeys`, see the R2c addendum). PostgreSQL locks only the
+rows a read returns, so there the probe reads `FOR UPDATE`: a miss holds
+nothing, a hit holds the very row the confirmation would have re-read, and
+`confirmFound` returns the probe's row (`Selection.probesUnlocked`). A found
+requirement (a correlated to-many `upsert`'s membership) is a question the
+probe never asked, so its confirmation stays on every provider. SQLite takes
+no row lock (`supportsRowLocks`), so its confirmation stays too: it is the read
+that sees a change landed between the probe and the effect
+(`tests/raptor3/post-prep/row-scopes.test.ts`, the moved-tenant and
+soft-delete cells). Pins: `nested-write-round-trips.test.ts` (one read on
+PGlite, two on SQLite and under `locksMissingKeys`) and
+`tests/providers/local/pglite-shared-bodies.test.ts`.
+
+That same root `update` locates its row in its own UPDATE on the interactive
+route (`OperationContext.updateLocated`, `CommandExecution.#updateLocates`)
+instead of a `SELECT … FOR UPDATE` followed by an UPDATE by identity: the
+UPDATE's WHERE is the selector the read would have taken (the root candidates,
+judgement included), it takes the row lock the read took and re-evaluates the
+selector over the row's current version as the read did, and it returns the
+stored row the read would have bound. The read is only an address and a lock
+when nothing runs between it and the UPDATE, so the fold is taken only where
+the root has no `before` child (a `connect` it holds the key of, a nested
+target's locking read: reordering those would change which failure a call with
+two missing rows reports) and no key transition to require (`#requireTransitions`
+reads the row as located). An UPDATE that writes nothing issues no statement
+and keeps the read. The located row is then bound as the UPDATE leaves it, so
+the UPDATE may write no field a later step reads off the located row: a nested
+lookup correlated by a key the root holds reads it there, and an UPDATE that
+clears that key (a lax `delete: true` of the root's parent under a permissions
+entry, which places the lookup after the UPDATE) would leave it finding
+nothing — `tests/providers/local/pglite-permissions-entry.test.ts` W-W12. A
+key the CHILDREN hold is not read there: a rewritten primary key or referenced
+unique key reaches them through the stated assignment (`CommandAttempt.read`),
+measured identical under every nested verb, so keys are not excluded as such.
+
+**Addendum (2026-10-22): a to-many write reads its targets together.** A run
+of sibling lookups of one model — a to-many `connect` or `set`, its targets
+one lookup each, with the junction links between them — is read in one
+statement (`CommandExecution.#prefetch`,
+`Selection.rows`): the disjunction of the lookups' own selectors, under the
+lock each probe takes, after every write ahead of the run. Each row is bound
+as the lookup's own read binds it, and only an exact answer is kept: every
+lookup matched by exactly one row holding the key values its selector pins,
+no row twice; anything else binds nothing and each lookup reads alone where it
+runs, raising what it always raised. A lookup joins a run unless the shared
+read could answer differently from its own read where it stands: one reading
+by a membership its selector does not hold (`nested-write-round-trips`, the
+to-many `update` through a membership), one whose selector reads through a
+relation, which a link or move of the run can change (the scope that hides a
+tag beside a secret one), and a probe whose other arm inserts what it looks
+for, whose ordinary miss would cost a second read (the `connectOrCreate`
+statement count). The links of such a run then go as one INSERT per bind
+budget (`#linkTogether`, `OperationContext.linkMany`) where the dialect has a
+targeted upsert: the choices run first — with their rows found they write
+nothing — and a choice whose lookup is still unanswered ends the run, its
+read possibly depending on a link ahead of it. A link that captured its
+slot's owner stays out: it vacates the slot first, which the shared INSERT
+does not (`nested-write-round-trips`, a `set` moving two singular polymorphic
+members; Devin review of #109).
+
+Where each target of such a run HOLDS the key (a user's `posts`), every
+answered choice's found arm is the same UPDATE of its located row, so the run
+writes them as one per bind budget (`#updateTogether`, `#updatesAlone`,
+`OperationContext.updateRows`), `WHERE` the rows' identities. A choice joins
+only where its `run` would do nothing else: no found requirement, no
+condition, a probe that kept its lock (`confirmFound` takes no read), and a
+found arm writing that located row with no child, transition, refusal or
+demanded output; the run's members share the model, operation, judgement,
+refusal and written values. A shared UPDATE judging its produced rows judges
+each as its own UPDATE did, in the one statement, so one refused row refuses
+the write (`nested-write-round-trips`, the shared UPDATE refusing one produced
+row). The batch route keeps one UPDATE per row: they ride one batch anyway.
+
+**Addendum (2026-10-23): the batch route reads ahead.** On the batch route a
+lone read sees what the last submitted unit left, and nothing changes that
+until the next submit (`OperationContext.submissions`). So the first lone
+read of an epoch (`CommandExecution.#readAhead`, from `runSelection`) reads
+every lookup of the operation that would answer alike where it runs, in ONE
+native batch of reads (`OperationContext.readTogether`, each statement under
+its own model's context), and each lookup takes its own query's rows where it
+runs, found or not, as if it had read them there; a submit starts a new epoch
+and discards what is held. A lookup qualifies (`lookupsAhead`) unless its
+answer is not knowable now: one after a captured series (its members are known
+only once it captures, and the capture flushes), a series member's (it claims
+its own boundary, N5), a choice's arm's (it runs on the choice's answer, and
+an untaken arm must read nothing: CS-01), one reading by a membership or a
+producer's identity a later binding supplies, and an ordered observation
+(`dependent`, which reads behind the barrier). A held answer is still taken
+at the lookup's position, so the boundary its lone read would claim is
+claimed first (`claimMemberBoundary`, N5: a held "absent" bypassing it was the
+member-boundary-packaging unique violation). The reads' batch commits
+nothing, so it is no dispatch of the unit: a rejection of the unit that
+follows "dispatched nothing" (FC-02C), and a planted race lands before the
+first batch carrying a write (`BatchOnlyDriver.plant`). `#prefetch` still
+reads a run of siblings the read-ahead did not hold. Pins:
+`nested-write-round-trips` (an update with a to-many `connect`: one batch of
+reads and the unit; a target missing from it fails as its own read did),
+`member-boundary-packaging`, `lax-to-one` (N3), `ordered-observation`.
+
 Whether a nested write's unique target selector names its row through the
 CONSTRAINT is one predicate, `nestedTargetAddressesConstraint(edge, verb)` in
 `commands/selection.ts`, consulted at the three nested target sites in
@@ -1240,7 +1394,38 @@ materializes a correlated CTE that is read twice once per statement and would
 hand every later outer row the first row's facts; SQLite has no `LATERAL` and
 evaluates the correlated CTE per row as written, once per reader — twice per
 carrier (nodes and edges) — where PostgreSQL materializes it once per outer
-row.
+row. The walk carries the reached row's identity, its parent, its hop
+columns and its depth, nothing else: a value carried through the recursion
+joins `UNION`'s identity (a sort value that changes within the statement
+defeated cycle deduplication: Sol E, 2026-11-03) and widens every iteration
+(an 8 KiB sort key on SQLite 4.9×: Sol F). Each parent's siblings are ordered
+by `Queries.completeOrder` after the walk: an order of ungated key columns
+alone (the default) is read from the walk's own child columns and joins no
+table — joined only to be ordered, PostgreSQL, which guesses ten rows a level
+of a walk, could scan the whole table once per outer row — and any other term is
+read from the child joined to the walk. The node reader joins the table
+unless the caller states `recurse.fewRows` (each walk reaches few rows, a
+fact of the data no schema says) on a dialect whose planner may scan the
+whole table to join it (`capabilities.readsNodesByKey`, PostgreSQL): each node is
+then read by its key in a scalar subquery, and nothing else changes (walk,
+edges, carrier, decoder). Read by key, PostgreSQL won about 10× on a
+1,040-row list of a 5,000-row tree but lost on a walk reaching most of its
+table (9,999 descendants of one root 1.21×, PGlite 1.18–1.22×); SQLite and MySQL join by index and lost 3–17 %,
+so they ignore it. Absent, the statement is byte-identical to the unstated
+one (the provider SQL pins). An order term read by key lost on broad walks
+(PGlite 5-term order 1.6×) and is never taken: the walk carries no sort
+value (a value carried through `UNION` joins its identity).
+
+A list's recursive projection keeps one walk per row. A set form walking
+once for the whole page (a page member seeding one walk, its facts grouped
+per root and joined back; `docs/architecture/v4-set-lists-plan-2026-11-03.md`)
+was measured against it with nodes and orders read by key (2026-11-03): on
+PostgreSQL it tied where the per-row plans were sound and lost on large
+tables, where its walk and readers hash the table (1,000-row pages of a
+100,000-row tree 1.2–1.7× the per-row form; overlapping subtrees 1.47×); on
+SQLite it lost everywhere (1.1–1.4×), MySQL reorders its grouped facts, and
+it cost 0.9 kB gzip on the application bundle. Do not bring it back without
+a shape it wins.
 `Queries.decodeRecursiveCarrier` validates that carrier — every bounded edge
 reachable at its recorded level, every bounded hop below the cutoff carrying
 the parent's one set of children at the next level, every fact consumed, every
@@ -2631,3 +2816,21 @@ and a batch-only non-returning driver cannot resolve a single-row mutation's
 identity inside its own unit. One class (`TransactionError`), one
 `meta { driver, operation }`, the two registered sentences, and no provider
 dispatch — the position of the shipped `assertRoutedAtomicResolution`.
+
+## A declared junction and `$through`
+
+A junction a declared model holds is the same `junction` membership with
+`declared` (the model and the physical key a link conflicts on). `linkMembers` is
+the one list of a link's distinct columns: a column both sides hold is named once,
+and a link whose rows disagree on it is refused (`#requireAgreement`), never
+last-wins. A link fills the model's defaults, conflicts on `declared.key`, and a
+`$through` write updates only what it stated: one `ON CONFLICT DO UPDATE` where the
+dialect has a targeted upsert, the anti-join insert and an `UPDATE` elsewhere.
+
+`$through` is a read or a write of that model, unlike the hop beside it. The read
+projects the link the page already joins (`#memberSource`), the filter forces the
+join so a link's and a target's conditions test one pair, and what a direct call
+would hide or judge refuses it (`#refuseHiddenLinkRow`, `restrictsLinkWrite`,
+`#admitLink`). `#linkBound` applies a model's `tenant` bound at every hop's link
+alias, under the same polarity as `#setBound`, only over columns both of the
+link's keys hold: over any other, a link may disagree with the rows it joins.

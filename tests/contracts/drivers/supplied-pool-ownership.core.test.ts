@@ -611,26 +611,22 @@ describe("pg listens only on the pool it owns", () => {
     await driver._disconnect();
   });
 
-  it("unsubscribes only after that pool has ended", async () => {
+  it("still listens once that pool has ended", async () => {
     const driver = new PgDriver({ options: { host: "127.0.0.1", port: 1 } });
     await driver._connect();
     const pool = createdPgPool(driver);
-    const duringEnd: number[] = [];
-    Object.defineProperty(pool, "end", {
-      configurable: true,
-      value: () => {
-        duringEnd.push(pool.listenerCount("error"));
-        return Promise.resolve();
-      },
-    });
 
     await driver._disconnect();
 
-    // `end()` disposes the idle clients, and each one still carries pg's own
-    // idle listener, which re-emits on this pool for a socket that dies on the
-    // way out. Unsubscribing first reopens the crash for exactly that window.
-    expect(duringEnd).toEqual([1]);
-    expect(pool.listenerCount("error")).toBe(0);
+    // `end()` resolves once it has told the idle clients to close, not once
+    // their sockets have, and pg's own idle listener on each re-emits on this
+    // pool what the server says on the way out. Unheard, that ended the
+    // process after $disconnect() had returned.
+    const late = Object.assign(
+      new Error("terminating connection due to administrator command"),
+      { code: "57P01" }
+    );
+    expect(() => pool.emit("error", late)).not.toThrow();
   });
 
   it("keeps containment and retained evidence when the pool refuses to end", async () => {
@@ -688,7 +684,6 @@ describe("pg listens only on the pool it owns", () => {
     });
     await driver._disconnect();
     expect(endAttempts).toBe(2);
-    expect(pool.listenerCount("error")).toBe(0);
 
     // Only proven cleanup reopens initialization. The old pool stays ended and
     // a fresh owned pool receives its own one listener.
@@ -701,7 +696,6 @@ describe("pg listens only on the pool it owns", () => {
       value: () => Promise.resolve(),
     });
     await driver._disconnect();
-    expect(replacement.listenerCount("error")).toBe(0);
   });
 
   it("subscribes to a supplied pool never, and unsubscribes never", async () => {

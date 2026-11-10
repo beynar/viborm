@@ -104,6 +104,7 @@ const TALLY_COLUMN: Record<AnyDriver["dialect"], RegExp> = {
   postgresql: /"_count" smallint NOT NULL/,
   mysql: /`_count` SMALLINT NOT NULL/,
   sqlite: /"_count" INTEGER NOT NULL/,
+  surrealql: /(?!)/,
 };
 
 type RelationReadAggregateClientConfig = VibORMConfig<typeof schema>;

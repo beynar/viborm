@@ -42,37 +42,45 @@ import {
 } from "../../decimal";
 import { foreignKeyPragmasCannotBeLifted } from "../../foreign-keys";
 import { applyNativeRename } from "../../native-rename";
+import {
+  RAW_INDEX_MARKER_PREFIX,
+  rawIndexMarker,
+  refuseRawIndexStatement,
+  renderRawIndex,
+} from "../../raw-index";
+import { readExecutableStatements } from "../../statement-safety";
 import type {
   ColumnDef,
   DiffOperation,
   SchemaSnapshot,
   TableDef,
 } from "../../types";
-import {
-  type AddColumnOperation,
-  type AddForeignKeyOperation,
-  type AddPrimaryKeyOperation,
-  type AddUniqueConstraintOperation,
-  type AlterColumnOperation,
-  type AlterEnumOperation,
-  type CreateEnumOperation,
-  type CreateIndexOperation,
-  type CreateTableOperation,
-  type DDLContext,
-  type DropColumnOperation,
-  type DropEnumOperation,
-  type DropForeignKeyOperation,
-  type DropIndexOperation,
-  type DropPrimaryKeyOperation,
-  type DropTableOperation,
-  type DropUniqueConstraintOperation,
-  MigrationDriver,
-  type RenameColumnOperation,
-  type RenameTableOperation,
+import type {
+  AddColumnOperation,
+  AddForeignKeyOperation,
+  AddPrimaryKeyOperation,
+  AddUniqueConstraintOperation,
+  AdoptionHazard,
+  AlterColumnOperation,
+  AlterEnumOperation,
+  CreateEnumOperation,
+  CreateIndexOperation,
+  CreateTableOperation,
+  DDLContext,
+  DropColumnOperation,
+  DropEnumOperation,
+  DropForeignKeyOperation,
+  DropIndexOperation,
+  DropPrimaryKeyOperation,
+  DropTableOperation,
+  DropUniqueConstraintOperation,
+  RenameColumnOperation,
+  RenameTableOperation,
 } from "../base";
+import { SqlMigrationDriver } from "../sql";
 import { getSQLiteType } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
-import { introspect } from "./introspect";
+import { introspect, sqliteTableHazards } from "./introspect";
 
 const COMPUTED_DEFAULT_PREFIX = /^(?:CURRENT_(?:TIME|DATE|TIMESTAMP)|\()/i;
 
@@ -394,7 +402,7 @@ export function sqliteTableBearsRelations(
  *
  * LibSQL extends this class and overrides methods for operations it supports.
  */
-export class SQLite3MigrationDriver extends MigrationDriver {
+export class SQLite3MigrationDriver extends SqlMigrationDriver {
   readonly dialect = "sqlite" as const;
   readonly driverName: string = "sqlite3";
 
@@ -447,6 +455,32 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   // ===========================================================================
   // INTROSPECTION
   // ===========================================================================
+
+  /** A trigger on the table, and what its stored definition declares beyond the snapshot. */
+  override async adoptionHazards(
+    tables: readonly string[],
+    executeRaw: Parameters<typeof introspect>[0]
+  ): Promise<readonly AdoptionHazard[]> {
+    const hazards: AdoptionHazard[] = [];
+    for (const table of tables) {
+      const { rows } = await executeRaw<{
+        type: string;
+        name: string;
+        sql: string | null;
+      }>(
+        "SELECT type, name, sql FROM sqlite_master WHERE type IN ('table', 'trigger') AND lower(tbl_name) = lower(?) ORDER BY type, name",
+        [table]
+      );
+      for (const row of rows) {
+        const features =
+          row.type === "trigger"
+            ? [`trigger "${row.name}"`]
+            : sqliteTableHazards(row.sql ?? "");
+        hazards.push(...features.map((feature) => ({ table, feature })));
+      }
+    }
+    return hazards;
+  }
 
   /**
    * Also refuses, by name, every trigger and view a table recreation in
@@ -505,8 +539,11 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   introspect(
     executeRaw: Parameters<typeof introspect>[0]
   ): Promise<SchemaSnapshot> {
-    const provider = this.executionDriver?.driverName;
-    return introspect(executeRaw, this.target?.tables, provider === "d1");
+    return introspect(
+      executeRaw,
+      this.target?.tables,
+      this.sqliteMigrationCapability?.reservedTablePrefixes
+    );
   }
 
   // ===========================================================================
@@ -1179,7 +1216,9 @@ export class SQLite3MigrationDriver extends MigrationDriver {
       parts.push(fkDef);
     }
 
-    return `CREATE TABLE ${this.escapeIdentifier(table.name)} (\n  ${parts.join(",\n  ")}\n)`;
+    // A recreation builds from this definition too, so it keeps the option.
+    const options = table.primaryKey?.withoutRowid ? " WITHOUT ROWID" : "";
+    return `CREATE TABLE ${this.escapeIdentifier(table.name)} (\n  ${parts.join(",\n  ")}\n)${options}`;
   }
 
   /**
@@ -1343,7 +1382,24 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     // SQLite 3.25.0+ supports RENAME COLUMN
     const nativeRename = `ALTER TABLE ${this.escapeIdentifier(op.tableName)} RENAME COLUMN ${this.escapeIdentifier(op.from)} TO ${this.escapeIdentifier(op.to)}`;
     if (currentTable === undefined || renamed?.decimal === undefined) {
-      return nativeRename;
+      // SQLite rewrites the index's text, but not the marker in its comment.
+      return [
+        nativeRename,
+        ...this.rawIndexesRenamedBy(op, context).flatMap((index) => [
+          this.generateDropIndex(
+            {
+              type: "dropIndex",
+              tableName: op.tableName,
+              indexName: index.name,
+            },
+            context
+          ),
+          this.generateCreateIndex(
+            { type: "createIndex", tableName: op.tableName, index },
+            context
+          ),
+        ]),
+      ];
     }
 
     const renamedTable = applyNativeRename({ tables: [currentTable] }, op)
@@ -1477,6 +1533,23 @@ export class SQLite3MigrationDriver extends MigrationDriver {
 
   generateCreateIndex(op: CreateIndexOperation, _context: DDLContext): string {
     const { tableName, index } = op;
+    if (index.raw) {
+      const rendered = renderRawIndex(index, {
+        name: this.escapeIdentifier(index.name),
+        table: this.escapeIdentifier(tableName),
+        column: (column) => this.escapeIdentifier(column),
+      });
+      refuseRawIndexStatement(
+        index,
+        rendered,
+        (text) => readExecutableStatements(text, "sqlite"),
+        []
+      );
+      // SQLite keeps an index's text as written, a trailing comment included,
+      // and rewrites only identifiers on a rename: the comment is its marker.
+      // Every `/` is escaped so that no name can close the comment early.
+      return `${rendered} /* ${RAW_INDEX_MARKER_PREFIX}${rawIndexMarker(index).replaceAll("/", "\\/")} */`;
+    }
 
     // Validate index type against capabilities (SQLite only supports btree)
     this.validateIndexType(index.type, index.name);

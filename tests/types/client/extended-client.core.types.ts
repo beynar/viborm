@@ -158,10 +158,32 @@ type OmitThenMethods = ExtendedClient<
 type _omitBeforeResultConsumerIsValid = Expect<
   Equal<OmitThenMethods extends never ? true : false, false>
 >;
+// A factory typed against the client it extends reads its results: omit
+// after it is refused. One that reads nothing typed (no argument, or one
+// taken as `never`) is no result consumer: omit may follow it.
+const reader = {
+  name: "reader",
+  model: {
+    user: (delegate: BaseClient["user"]) => ({
+      $first: () => delegate.findFirst(),
+    }),
+  },
+} as const;
 type _resultConsumerBeforeOmitIsRejected = Expect<
   Equal<
-    ExtendedClient<BaseClient, readonly [typeof methods, typeof hidden]>,
+    ExtendedClient<BaseClient, readonly [typeof reader, typeof hidden]>,
     never
+  >
+>;
+type _blindMethodsBeforeOmitAreValid = Expect<
+  Equal<
+    ExtendedClient<
+      BaseClient,
+      readonly [typeof methods, typeof hidden]
+    > extends never
+      ? true
+      : false,
+    false
   >
 >;
 

@@ -223,7 +223,8 @@ for (const [route, make] of [
           },
         });
       });
-      assert.equal(driver.batchCalls, 1, `batches: ${driver.batchCalls}`);
+      // The planning reads' batch, then the unit: no recovery.
+      assert.equal(driver.batchCalls, 2, `batches: ${driver.batchCalls}`);
       assert.deepEqual(await client.user.findMany(), [
         { id: "u1", name: "Owner" },
       ]);
@@ -240,7 +241,8 @@ for (const [route, make] of [
       // W(delete profile) read. The plant re-parented the member, so the
       // batch aborts at the profile premise and the re-probe attributes it.
       // Read as "nothing but premises ahead of it", the claim would re-plan
-      // and converge in two batches; bounded by the LAST premise, which
+      // and converge in four batches (each attempt reads ahead once);
+      // bounded by the LAST premise, which
       // stands behind a write, the rejection keeps its uncertainty and the
       // transport's rollback is all that happened.
       if (route !== "batch-only without a statement index") return;
@@ -271,7 +273,8 @@ for (const [route, make] of [
           error.message ===
             "Cannot delete relation 'profile': a member was removed after the plan-time read; retry to converge."
       );
-      assert.equal(driver.batchCalls, 1, `batches: ${driver.batchCalls}`);
+      // The planning reads' batch, then the unit: no recovery.
+      assert.equal(driver.batchCalls, 2, `batches: ${driver.batchCalls}`);
       assert.deepEqual(await client.user.findMany({ orderBy: { id: "asc" } }), [
         { id: "u1", name: "Owner" },
         { id: "u2", name: "Other" },

@@ -1,6 +1,6 @@
 /** Driver connection lifecycle and transaction-bound execution surface. */
 
-import type { DatabaseAdapter } from "@adapters/database-adapter";
+import type { EngineFacts } from "@adapters/database-adapter";
 import { TransactionError } from "@errors";
 import type { Sql } from "@sql";
 import { ASYNC_DISPOSE, type AsyncDisposeMember } from "./async-dispose";
@@ -41,36 +41,91 @@ export type { QueryExecutionContext } from "./types";
 export type MigrationSessionAttestation = "dedicated-session";
 
 /**
- * What a SQLite driver states to run effectful migration work. Each member is a
- * safety claim with one admitted value; a driver that cannot make all of them
- * does not declare the capability. Whether it runs callback transactions stays
- * the driver's own `supportsTransactions` declaration, read beside this one.
+ * What a SQLite driver states about its platform for migration work. Each
+ * member is a safety claim, and only three whole declarations exist: the
+ * frozen {@link SQLITE_MIGRATION_CAPABILITY}, {@link DURABLE_OBJECT_MIGRATION_CAPABILITY}
+ * and D1's read-only one. Any other combination is no declaration. Whether the
+ * driver runs callback transactions stays its own `supportsTransactions`,
+ * read beside this one.
  */
 export interface SqliteMigrationCapability {
   /**
-   * `PRAGMA foreign_keys` run between transactions on the migration's
-   * connection takes effect there and reads back.
+   * `"pragma"`: `PRAGMA foreign_keys` run between transactions on the
+   * migration's connection takes effect there and reads back. `"none"`: it
+   * cannot be switched off for a table recreation (D1).
    */
-  readonly foreignKeys: "pragma";
+  readonly foreignKeys: "pragma" | "none";
   /**
-   * The platform reserves no table names: every table outside `sqlite_*` is
-   * the caller's. Cloudflare's `_cf_*` tables are why D1 cannot declare it.
+   * `"none"`: every table outside `sqlite_*` is the caller's. `"_cf_"`:
+   * Cloudflare owns the `_cf_*` tables (its KV API, alarms and metadata) and
+   * refuses their PRAGMAs, so introspection never names them.
    */
-  readonly reservedTablePrefixes: "none";
+  readonly reservedTablePrefixes: "none" | "_cf_";
   /**
-   * Every transaction this driver opens holds SQLite's database write lock
-   * from its BEGIN (`BEGIN IMMEDIATE`), so no other writer interleaves with a
-   * migration transaction before it commits or rolls back.
+   * What keeps other writers out of a migration transaction until it commits
+   * or rolls back.
+   *
+   * - `"database-write-lock"`: every transaction this driver opens holds
+   *   SQLite's database write lock from its BEGIN (`BEGIN IMMEDIATE`).
+   * - `"frame"`: the driver implements `openMigrationFrame`, and each frame is
+   *   ONE platform transaction that every statement sent while it is open
+   *   belongs to. The platform has one connection per database and the
+   *   application has one driver per database, whose queue lease the
+   *   migration holds for its whole run: that lease is what keeps the
+   *   application's other writes through this driver out. A statement sent
+   *   around the driver joins the open frame.
+   * - `"none"`: nothing does, so only read-only commands are admitted (D1).
    */
-  readonly exclusion: "database-write-lock";
+  readonly exclusion: "database-write-lock" | "frame" | "none";
 }
 
+/** Stock SQLite (sqlite3, bun-sqlite): the claim effectful migrations start from. */
 export const SQLITE_MIGRATION_CAPABILITY: SqliteMigrationCapability =
   Object.freeze({
     foreignKeys: "pragma",
     reservedTablePrefixes: "none",
     exclusion: "database-write-lock",
   });
+
+// The two below are plain literals, so a bundle that never names them drops
+// them; binding reads their values and keeps the table's own frozen entry.
+
+/** A Cloudflare Durable Object's SQLite storage (`viborm/durable-object`). */
+export const DURABLE_OBJECT_MIGRATION_CAPABILITY: SqliteMigrationCapability = {
+  foreignKeys: "pragma",
+  reservedTablePrefixes: "_cf_",
+  exclusion: "frame",
+};
+
+/** Cloudflare D1: its catalog can be read, nothing can be migrated. */
+export const D1_MIGRATION_CAPABILITY: SqliteMigrationCapability = {
+  foreignKeys: "none",
+  reservedTablePrefixes: "_cf_",
+  exclusion: "none",
+};
+
+/**
+ * One platform transaction a SQLite migration runs its statements in, opened
+ * by a driver whose capability says `exclusion: "frame"`. It settles exactly
+ * once, by `commit()` or `rollback()`.
+ */
+export interface MigrationFrame {
+  commit(): Promise<void>;
+  rollback(): Promise<void>;
+}
+
+/**
+ * What a driver whose capability says `exclusion: "frame"` implements: the
+ * migration lock opens a frame where it would send `BEGIN IMMEDIATE`, and
+ * settles it where it would send `COMMIT` or `ROLLBACK`; the statements it
+ * sends meanwhile run through the driver as usual and belong to the frame.
+ * Structural, like a dialect's `resolveCommandNamespace`: a driver declares
+ * it by implementing it, so the base class, which every client type compares,
+ * carries no member for it.
+ */
+export interface MigrationFrameDriver {
+  openMigrationFrame(): Promise<MigrationFrame>;
+}
 
 // biome-ignore lint/suspicious/noUnsafeDeclarationMerging: the `Driver` interface below is a deliberate merge — it declares the `await using` member, which is installed on the prototype (guarded on the runtime key) rather than in this body.
 export abstract class Driver<
@@ -247,8 +302,9 @@ export abstract class Driver<
   /**
    * This SQLite driver's migration capability, or absent. Its presence binds a
    * custom SQLite driver to VibORM's SQLite migration implementation, and
-   * effectful migration work is admitted only on a driver that declares it.
-   * Only the exact {@link SQLITE_MIGRATION_CAPABILITY} values count.
+   * effectful migration work is admitted only on a driver that declares one of
+   * its two effectful forms. Only the exact values of the three declarations
+   * count.
    */
   declare readonly sqliteMigrationCapability:
     | SqliteMigrationCapability
@@ -324,7 +380,7 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
   private isSavepointActive = false;
   private hasAdmittedWithTransactionDispatch = false;
   private rollbackOnlyError: Error | undefined;
-  declare readonly adapter: DatabaseAdapter;
+  declare readonly adapter: EngineFacts;
   override readonly result?: DriverResultParser;
   protected override readonly inTransaction = true;
   override readonly supportsTransactions: boolean;
@@ -552,16 +608,17 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
   }
 
   /**
-   * A nested `$transaction` is a SAVEPOINT inside an already-open transaction,
-   * which changes what each option can honestly mean here.
+   * A nested `$transaction` runs inside an already-open transaction (as a
+   * SAVEPOINT, or a platform's own nested transaction), which changes what
+   * each option can honestly mean here.
    */
   protected override transactionOptionSupport(): TransactionOptionSupport {
     return {
       isolationLevel: "unsupported",
       isolationLevelReason:
-        "a nested transaction runs as a SAVEPOINT inside the outer transaction, whose isolation level is already fixed and cannot be changed mid-transaction — set it on the outermost $transaction",
-      // The savepoint body is a real interactive callback: racing it out rolls
-      // back to the savepoint, exactly as any other nested failure would.
+        "a nested transaction runs inside the outer transaction, whose isolation level is already fixed and cannot be changed mid-transaction — set it on the outermost $transaction",
+      // The nested body is a real interactive callback: racing it out rolls
+      // it back, exactly as any other nested failure would.
       timeout: true,
       maxWait: "unsupported",
       maxWaitReason:

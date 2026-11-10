@@ -6,6 +6,7 @@ import {
 import type { AnyDriver } from "@drivers";
 import { DbNull, s } from "@schema";
 import { defineContract } from "@tests/contracts/contract";
+import { foldsNonAscii } from "@tests/fixtures/case-folding";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
@@ -729,9 +730,9 @@ export function runListJsonFilterBehavior({
           ).toEqual([]);
         });
 
-        test("folds ASCII only — accents are never case-folded", async () => {
+        test("folds case as the database does — accents are never folded", async () => {
           await seedJsonDocs();
-          // 'Écl' folds to 'Écl' (É is outside A-Z), so it still matches
+          // An exact-case 'É' matches on every database
           expect(
             await findNames({
               metadata: {
@@ -741,13 +742,25 @@ export function runListJsonFilterBehavior({
               },
             })
           ).toEqual(["dark"]);
-          // 'écl' does NOT fold to 'Écl' — same ASCII-only contract the
-          // scalar insensitive filters pin in prisma-parity-behavior
+          // 'écl' matches 'Écl' where the database's own LOWER folds 'É' —
+          // the same rule the scalar filters pin in prisma-parity-behavior
           expect(
             await findNames({
               metadata: {
                 path: ["accent"],
                 string_starts_with: "écl",
+                mode: "insensitive",
+              },
+            })
+          ).toEqual(
+            (await foldsNonAscii(requireClient(client))) ? ["dark"] : []
+          );
+          // An unaccented 'e' never matches 'É'
+          expect(
+            await findNames({
+              metadata: {
+                path: ["accent"],
+                string_starts_with: "ecl",
                 mode: "insensitive",
               },
             })

@@ -425,7 +425,7 @@ export function gatePlan(current) {
     ...["provider-mysql2", "provider-pg"].map((project) => {
       const files = projectFiles(current, project);
       return stage(`native ${project}`, "files", {
-        command: `<${CREDENTIAL_ENVIRONMENT[project]}> node scripts/run-vitest-safe.mjs run --workspace vitest.workspace.ts --project=${project} <file>`,
+        command: `<${CREDENTIAL_ENVIRONMENT[project]}> node scripts/run-vitest-safe.mjs run --config vitest.workspace.ts --project=${project} <file>`,
         credentialEnvironment: CREDENTIAL_ENVIRONMENT[project],
         files,
         totals: stageTotals(files, current),

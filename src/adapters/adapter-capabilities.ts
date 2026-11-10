@@ -49,6 +49,18 @@ export interface DatabaseAdapterCapabilities {
    */
   supportsRowLocks: boolean;
   /**
+   * Whether a locking read whose exact match finds NOTHING still takes a lock.
+   * MySQL (InnoDB) does: a gap or next-key lock that two concurrent misses
+   * both hold and that each one's INSERT then waits on, a deadlock. So a read
+   * whose other arm inserts the key it looked for reads unlocked there and is
+   * confirmed under lock once it finds a row. PostgreSQL locks only the rows a
+   * read returns, so there that read locks what it finds and needs no
+   * confirmation. SQLite takes no row lock at all (`supportsRowLocks`), so
+   * its confirmation stays: it is the read that sees what changed. Absent:
+   * false.
+   */
+  locksMissingKeys?: boolean;
+  /**
    * Whether a statement states each relation filter body it repeats ONCE, in
    * a `WITH`, as the key set every arm repeating it tests (a semijoin on the
    * correlated columns), rather than once per arm. A driver declares it for
@@ -80,6 +92,15 @@ export interface DatabaseAdapterCapabilities {
    */
   boundsRecursionIterations?: boolean;
   /**
+   * Whether a recursive projection whose caller states `recurse.fewRows`
+   * reads each node it reached by key, in a scalar subquery, rather than
+   * joining the table to the walk: PostgreSQL, guessing ten rows a level,
+   * plans that join as a hash of the whole table, once per outer row (1,040
+   * rows of a 5,000-row tree with their ancestors: 128 → 13 ms). SQLite and
+   * MySQL join by index, and the subquery costs them 3–17 %. Absent: false.
+   */
+  readsNodesByKey?: boolean;
+  /**
    * The most terms one compound `SELECT` may chain, where the transport
    * bounds it below anything the engine writes: Cloudflare D1, 5. The engine
    * nests a longer union in derived tables of at most that many. Absent:
@@ -102,4 +123,14 @@ export interface DatabaseAdapterCapabilities {
    * unbounded, so neither.
    */
   relationsPerStatement?: number;
+  /**
+   * Whether the transport's affected-row count of an `UPDATE` or `DELETE`
+   * also counts the rows a foreign key's cascade changed: Cloudflare D1's
+   * `meta.changes` reports 3 for one post deleted with its two junction rows,
+   * where SQLite's own count is 1. The engine then counts the rows such a
+   * statement writes by returning one marker per row, where the count is an
+   * answer (`updateMany` / `deleteMany`) or a check (a captured mutation).
+   * Absent: false.
+   */
+  countsCascadedChanges?: boolean;
 }

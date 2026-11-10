@@ -15,12 +15,51 @@ import {
 } from "./control";
 import { diff } from "./differ";
 import type { BoundMigrationDriver } from "./drivers";
-import type { MigrationGraph } from "./graph";
+import { type MigrationGraph, requireStateSnapshot, routeEdges } from "./graph";
 import type { Sha256 } from "./identity";
 import { lockedSinceDecision } from "./pinned-session";
 import { fingerprintLive } from "./push-fingerprint";
 import { introspectManaged } from "./push-plan";
+import { managedTables, withManagedTables } from "./target";
 import type { MarkerIndexPredicateV1, MigrationMarkerV1 } from "./v1-types";
+
+/**
+ * The command, its inventories selecting what an estate with a `tables` list
+ * manages at state `at` (`managedTables`): the estate's frozen list and the
+ * state's tables. Across the edge to or from `beside`, the other end's tables
+ * too, so a proof on either side of a transition also sees what it creates or
+ * drops — except a table the edge adopts, on the parent's side, where it is
+ * still the user's raw table. Never the client's list. Without a list, the
+ * command as it is.
+ */
+export function managedAt(
+  command: BoundMigrationDriver,
+  graph: MigrationGraph,
+  at: Sha256 | null,
+  beside?: Sha256 | null
+): BoundMigrationDriver {
+  const listed = graph.descriptor.target.tables;
+  if (listed === undefined) return command;
+  const own = requireStateSnapshot(graph, at);
+  if (beside === undefined) {
+    return withManagedTables(command, managedTables(listed, [own]));
+  }
+  // The graph admits an adoption only of a table the parent lacks.
+  const edge =
+    beside === null
+      ? undefined
+      : graph.states
+          .get(beside)
+          ?.parents.find((parent) => parent.fromState === at);
+  return withManagedTables(
+    command,
+    managedTables(
+      listed,
+      [own, requireStateSnapshot(graph, beside)],
+      edge?.adopts
+    )
+  );
+}
 
 /**
  * Where the live marker stands relative to this history. A marker naming a
@@ -199,6 +238,40 @@ export async function proveLive(
         ? [{ table: table.name, index: index.name, deparsed: index.where }]
         : []
     )
+  );
+}
+
+/**
+ * Refuses, before any effect, a path that adopts a live table carrying what
+ * changes how it behaves and no snapshot describes (`adoptionHazards`, each
+ * dialect's own reading): the destination proof compares the snapshot's
+ * vocabulary only, so it would call that table equal to the declaration. It
+ * reads only the tables the path adopts; every other command and table is
+ * left as it was.
+ */
+export async function assertAdoptable(
+  producer: Parameters<typeof introspectManaged>[0],
+  command: BoundMigrationDriver,
+  graph: MigrationGraph,
+  origin: Sha256 | null,
+  path: readonly Sha256[]
+): Promise<void> {
+  const adopted = routeEdges(graph, origin, path).flatMap(
+    ({ transition }) => transition.adopts ?? []
+  );
+  if (adopted.length === 0) return;
+  const hazards = await command.adoptionHazards(adopted, (sql, params) =>
+    producer._executeRaw(sql, params)
+  );
+  const [first] = hazards;
+  if (first === undefined) return;
+  const features = hazards
+    .filter(({ table }) => table === first.table)
+    .map(({ feature }) => feature);
+  throw new MigrationError(
+    `Cannot adopt "${first.table}": it has ${features.join(", ")}, which its declaration does not state and the adoption proof cannot compare, so the table would not behave as declared. Remove them, or keep the table outside the estate. Nothing ran.`,
+    VibORMErrorCode.MIGRATION_DRIFT,
+    { meta: { table: first.table } }
   );
 }
 

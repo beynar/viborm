@@ -1,4 +1,4 @@
-import type { DatabaseAdapter } from "@adapters/database-adapter";
+import type { EngineFacts } from "@adapters/database-adapter";
 import type { AnyDriver } from "@drivers/exports";
 import { UnsupportedOperationError } from "@errors";
 import { hydrateSchemaNames, type Schema } from "@schema/hydration";
@@ -17,6 +17,7 @@ import { createResolvedSchemaRegistry } from "@validation/builder";
 import type { NormalizedRecurrence } from "@validation/relations/recurrence";
 import type { VibSchema } from "@validation/types";
 import { isRecord } from "@validation/value-guards";
+import { InsertValue, Stored } from "./insert-value";
 import { parseValidated, upsertEnvelopeSchema } from "./parse-boundary";
 import type { Leaf, PreparedProjection } from "./query";
 import {
@@ -180,6 +181,8 @@ const createQueryViews = (): QueryViews => ({
 export class EngineSchema {
   readonly index;
   readonly registry;
+  readonly #linkDefaults = new WeakMap<AnyModel, readonly string[]>();
+  readonly #linkRequired = new WeakMap<AnyModel, readonly string[]>();
   readonly #membershipViews = new WeakMap<
     AnyModel,
     Map<string, Map<string | undefined, Membership>>
@@ -227,21 +230,50 @@ export class EngineSchema {
     raw: unknown
   ): Arguments {
     const schema = this.registry.getModelSchemas(model).args[operation];
+    // A value an official extension computes in the statement (`InsertValue`)
+    // is no payload: it is set aside here and written as it is. A field kept
+    // as stored (`Stored`) is set aside too, so no generated update value
+    // (`updatedAt()`) fills it, and is then not written at all.
+    const computed: Input = {};
+    const kept: string[] = [];
     const input =
-      operation === "update" && isRecord(raw) && isRecord(raw.data)
+      (operation === "update" || operation === "updateMany") &&
+      isRecord(raw) &&
+      isRecord(raw.data)
         ? {
             ...raw,
             data: Object.fromEntries(
-              Object.entries(raw.data).sort(([left], [right]) => {
-                const isVariant = (name: string) =>
-                  model["~"].state.relations[name]?.["~"].state.target.kind ===
-                  "variants";
-                return Number(isVariant(left)) - Number(isVariant(right));
-              })
+              Object.entries(raw.data)
+                .filter(([field, value]) => {
+                  if (!(value instanceof InsertValue)) return true;
+                  if (value instanceof Stored) kept.push(field);
+                  else computed[field] = value;
+                  return false;
+                })
+                .sort(([left], [right]) => {
+                  const isVariant = (name: string) =>
+                    model["~"].state.relations[name]?.["~"].state.target
+                      .kind === "variants";
+                  return Number(isVariant(left)) - Number(isVariant(right));
+                })
             ),
           }
         : raw;
-    return parseValidated(schema, input, operation, "", model) as Arguments;
+    const admitted = parseValidated(
+      schema,
+      input,
+      operation,
+      "",
+      model
+    ) as Arguments;
+    if (Object.keys(computed).length === 0 && kept.length === 0)
+      return admitted;
+    const data: Record<string, unknown> = {
+      ...(admitted.data as Input),
+      ...computed,
+    };
+    for (const field of kept) delete data[field];
+    return { ...admitted, data };
   }
   /**
    * Does this payload name a relation of the model? One spelling, asked by the
@@ -507,6 +539,51 @@ export class EngineSchema {
       );
     return admitted;
   }
+  /**
+   * The fields a link through a declared junction writes beside its members:
+   * each one its own create schema fills when it is given nothing. A field
+   * whose schema answers nothing (nullable, or the database's own default)
+   * stays out of the INSERT, and the column takes what it takes for any row.
+   * Asked once per model: a junction model holds one pair (JT010).
+   */
+  /**
+   * The columns of a declared junction a link cannot fill itself: not one of its
+   * two sides', and required as a create requires them. A write must state them.
+   */
+  linkRequired(
+    model: AnyModel,
+    members: ReadonlySet<string>
+  ): readonly string[] {
+    return memo(this.#linkRequired, model, () => {
+      const scalars = model["~"].state.scalars;
+      return Object.freeze(
+        Object.keys(scalars).filter((field) => {
+          const state = scalars[field]!["~"].state;
+          return (
+            !members.has(this.physicalField(model, field).name) &&
+            state.optional !== true
+          );
+        })
+      );
+    });
+  }
+  linkDefaults(
+    model: AnyModel,
+    members: ReadonlySet<string>
+  ): readonly string[] {
+    return memo(this.#linkDefaults, model, () => {
+      const scalars = model["~"].state.scalars;
+      return Object.freeze(
+        Object.keys(scalars).filter(
+          (field) =>
+            !members.has(this.physicalField(model, field).name) &&
+            scalars[field]!["~"].state.hasDefault === true &&
+            this.createValues(model, { [field]: undefined })[field] !==
+              undefined
+        )
+      );
+    });
+  }
   update(
     model: AnyModel,
     source: Input,
@@ -635,8 +712,8 @@ export class EngineSchema {
    * `scope(adapter, create)` would hand a second caller the first caller's
    * object under the second caller's type, and the cast would hide it.
    */
-  readonly #queryViewsByAdapter = new WeakMap<DatabaseAdapter, QueryViews>();
-  queryViews(adapter: DatabaseAdapter): QueryViews {
+  readonly #queryViewsByAdapter = new WeakMap<EngineFacts, QueryViews>();
+  queryViews(adapter: EngineFacts): QueryViews {
     return memo(this.#queryViewsByAdapter, adapter, createQueryViews);
   }
   storedFields(model: AnyModel): readonly string[] {

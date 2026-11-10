@@ -44,6 +44,23 @@ changing the workflow to `npm stage publish`, changing the trusted publisher to
 allow stage publishing only, and requiring a maintainer to approve every stage
 with 2FA. Change those three facts together.
 
+### npm: @viborm/studio
+
+`@viborm/studio` is released by the same run, at the same version, from the
+same commit. Before its first release:
+
+1. Create the npm organization `viborm` (the `@viborm` scope) and add the
+   maintainer account to it.
+2. Give `@viborm/studio` the same trusted publisher as `viborm`: GitHub
+   Actions, `beynar`/`viborm`, workflow `release.yml`, environment
+   `npm-production`. If npm offers the setting only once the package exists,
+   publish the release run's own tested tarball once (the
+   `viborm-studio-release` artifact of a run that stopped at approval,
+   `npm publish viborm-studio-X.Y.Z.tgz --access public` with 2FA), then add
+   the trusted publisher; every later version goes through the workflow.
+3. Set **Require two-factor authentication and disallow tokens** on it, as
+   on `viborm`.
+
 ### GitHub
 
 1. Create an environment named `npm-production`.
@@ -90,6 +107,20 @@ candidates:
 
 The workflow rejects other prerelease spellings. A version already present on
 npm is immutable and cannot be reused.
+
+### The studio's half
+
+The release PR also sets `packages/studio/package.json`'s `version` to the
+release version and its `viborm` peer range to `~X.Y.Z`;
+`scripts/release-studio.mjs` refuses anything else. The run builds the
+studio, packs exactly its CLI, its app, its manifest and its notices, and
+smoke-tests it against the exact `viborm` tarball (a clean project with a
+PGlite config, the studio started as a user starts it). `publish` waits for
+that proof, so both packages ship or neither does. `publish-studio` then
+publishes the studio after `viborm` is published and verified, in its own
+job behind the same `npm-production` approval, so a studio failure never
+holds back `viborm` or its GitHub release. A re-run skips a studio version
+already on npm with the same bytes and refuses one with other bytes.
 
 ## Required release evidence
 

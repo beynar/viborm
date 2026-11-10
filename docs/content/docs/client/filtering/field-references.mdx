@@ -160,8 +160,9 @@ await client.post.findMany({
 });
 ```
 
-The fold is ASCII `A-Z` only, and it is the same portable fold literal operands get —
-`'É'` and `'é'` stay distinct on every provider. Default mode is byte-exact on both sides
+The fold is the database's own `LOWER`, the same one literal operands get, so whether
+`'É'` and `'é'` match depends on the database (see
+[String filters](/docs/client/filtering/string)). Default mode is byte-exact on both sides
 regardless of the server's own collation, so a MySQL database configured with a
 case-insensitive default collation still answers a default-mode comparison
 case-sensitively.

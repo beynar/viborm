@@ -1,4 +1,5 @@
 import { VibORMError, VibORMErrorCode, type VibORMErrorMeta } from "./base";
+import { getTrustedErrorDisclosure } from "./diagnostics";
 
 /**
  * Migration error metadata
@@ -90,7 +91,13 @@ export class MigrationError extends VibORMError {
       meta?: MigrationErrorMeta | undefined;
     }
   ) {
-    super(message, code, options);
+    // A migration failure discloses its cause as the cause's own failure
+    // was allowed to (its client's `diagnostics`): wrapping never redacts.
+    const cause = options?.cause;
+    super(message, code, {
+      ...options,
+      diagnostics: cause ? getTrustedErrorDisclosure(cause) : undefined,
+    });
   }
 }
 

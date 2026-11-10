@@ -28,13 +28,14 @@ Drivers abstract these differences behind a common interface.
 
 ## Driver Interface
 
-Drivers extend the abstract `Driver` base class (see `src/drivers/driver.ts`). It is generic over the underlying client and transaction handle, carries the SQL adapter for its dialect, and manages lazy connection, transaction queuing, and error mapping. Subclasses implement five methods and provide their typed result parser:
+Drivers extend the abstract `Driver` base class (see `src/drivers/driver.ts`). It is generic over the underlying client and transaction handle, carries its dialect's facts (a SQL driver's are its SQL adapter), and manages lazy connection, transaction queuing, and error mapping. Subclasses implement five methods and provide their typed result parser:
 
 ```typescript
 abstract class Driver<TClient, TTransaction> {
-  readonly dialect: Dialect;                    // "postgres" | "mysql" | "sqlite"
+  readonly dialect: Dialect;                    // "postgresql" | "mysql" | "sqlite" | "surrealql"
   readonly driverName: string;
-  abstract readonly adapter: DatabaseAdapter;   // SQL adapter for this dialect
+  abstract readonly adapter: EngineFacts;       // what the engine asks of every driver; a SQL driver's is its DatabaseAdapter
+  readonly backend?: QueryBackend;              // what writes its statements where the database reads no SQL (SurrealDB)
   abstract readonly result: DriverResultParser; // physical-to-logical result codecs
   readonly supportsTransactions: boolean;       // false for batch-only clients (D1 binding, Neon HTTP)
   readonly supportsBatch: boolean;              // true for atomic-batch APIs (D1, Neon HTTP)
@@ -62,9 +63,31 @@ class CustomSQLiteDriver extends Driver<CustomClient, CustomTransaction> {
 The parser is required for typed SQLite booleans, integers, dates, JSON and
 other physical representations. Raw execution returns physical provider values.
 
+Its `adapter` is a `SQLiteAdapter` (from `viborm/adapters`) whose options state
+what the transport refuses. Each one defaults to plain SQLite; set only what
+your platform differs on:
+
+| Option | Set it when | Example |
+|---|---|---|
+| `temporaryObjects: false` | the transport refuses `CREATE TEMP TABLE` (`SQLITE_AUTH`) | D1, Durable Objects |
+| `deepExpressions: false` | SQLite was compiled with a small expression depth ("Expression tree is too large") | D1, Durable Objects (depth 100) |
+| `sharedRelationBodies: true` | the transport bounds statement text and repeated relation filters reach it | D1 (100 KB) |
+| `compoundSelectTerms: n` | a compound `SELECT` admits at most `n` terms | D1 (5) |
+| `relationsPerStatement: n` | the planner bounds the relations one statement references | D1 (256) |
+| `countsCascadedChanges: true` | the affected-row count includes rows a cascade changed | D1 |
+
+`sharedRelationBodies` trades CPU for text: measured on a Durable Object with a
+large permissions policy, `can` costs about 40 % more with it. Leave it off
+unless statements reach the text limit. Also declare
+`maxBindParametersPerStatement` when the platform bounds bound values (100 on
+D1 and Durable Objects): VibORM then splits or refuses an oversized statement
+before it reaches the database.
+
 Declare `readonly sqliteMigrationCapability = SQLITE_MIGRATION_CAPABILITY` (from
 `viborm/driver`) to use migrations; see
-[SQLite migrations](/docs/migration/drivers/sqlite#driver-admission).
+[SQLite migrations](/docs/migration/drivers/sqlite#driver-admission). For a
+Durable Object's storage, use [`viborm/durable-object`](/docs/drivers/sqlite/durable-object),
+which declares the Durable Object capability and implements its migration frame.
 
 ## Available Drivers
 
@@ -81,6 +104,7 @@ Declare `readonly sqliteMigrationCapability = SQLITE_MIGRATION_CAPABILITY` (from
 | `LibSQLDriver` | `viborm/libsql` | libSQL | Turso / libSQL |
 | `BunSQLiteDriver` | `viborm/bun-sqlite` | bun:sqlite | SQLite from Bun |
 | `D1Driver` | `viborm/d1` | D1 binding | Cloudflare Workers |
+| `createDurableObjectDriver` | `viborm/durable-object` | `ctx.storage` | Cloudflare Durable Objects |
 
 ## What Drivers Handle
 

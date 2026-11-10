@@ -40,6 +40,7 @@ internal.
 | `viborm/libsql` | LibSQL/Turso driver and bound client factory |
 | `viborm/d1` | Cloudflare D1 driver and bound client factory |
 | `viborm/bun-sqlite` | Bun SQLite driver and bound client factory |
+| `viborm/surrealdb` | SurrealDB driver and bound client factory (SurrealQL, no SQL adapter) |
 
 `DatabaseAdapter` remains the advanced dialect vocabulary. External
 customization extends `PostgresAdapter`, `MySQLAdapter`, or `SQLiteAdapter`; a
@@ -68,6 +69,7 @@ does not export obsolete build/validate/parse spans or cache keys.
 | `viborm/migrations/postgres` | The same API with only the PostgreSQL migration driver |
 | `viborm/migrations/sqlite` | The same API with only the SQLite migration drivers (SQLite, Bun SQLite, D1, libSQL) |
 | `viborm/migrations/mysql` | The same API with only the MySQL migration driver |
+| `viborm/migrations/surrealdb` | The same API with only the SurrealDB migration driver |
 | `viborm/migrations/storage/fs` | `createFsStorageWriter` only |
 | `viborm/migrations/storage/durable-object` | `createDurableObjectStorageWriter` only |
 | `viborm/migrations/storage/r2` | `createR2StorageWriter` only |

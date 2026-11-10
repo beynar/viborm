@@ -367,6 +367,41 @@ describe("migration scalar type mapping", () => {
 
 describe("coverage low value", () => {
   test.each([
+    getPostgresType,
+    getSQLiteType,
+    getMySQLType,
+  ])("reads the scalar kind once when choosing a default", (mapType) => {
+    let reads = 0;
+    expect(
+      mapType({
+        get type() {
+          reads++;
+          return "string";
+        },
+      }).toLowerCase()
+    ).toBe("text");
+    expect(reads).toBe(1);
+  });
+
+  test.each([
+    "constructor",
+    "toString",
+    "hasOwnProperty",
+    "__proto__",
+    "datetimetz",
+    "timetz",
+  ])("preserves scalar-kind fallback for %s rather than reading a table alias or prototype", (type) => {
+    expect(getPostgresType({ type, withTimezone: true })).toBe("text");
+    expect(getSQLiteType({ type, withTimezone: true })).toBe("TEXT");
+    expect(getMySQLType({ type, withTimezone: true })).toBe("TEXT");
+    expect(getPostgresType({ type, withTimezone: true, array: true })).toBe(
+      "text[]"
+    );
+    expect(getSQLiteType({ type, array: true })).toBe("JSON");
+    expect(getMySQLType({ type, array: true })).toBe("JSON");
+  });
+
+  test.each([
     [getPostgresType, "text"],
     [getSQLiteType, "TEXT"],
     [getMySQLType, "TEXT"],

@@ -1,6 +1,8 @@
 # Shared relation bodies: PostgreSQL measurement
 
-**Decision: keep the current PostgreSQL default (`false`).** With the current implementation, sharing helps list and count queries but causes repeatable point-lookup regressions. It is an execution strategy with workload-dependent cost, not a universally beneficial SQL compression.
+**Status: a record of the 2026-10-17 measurement, not the current default.** Every PostgreSQL driver shares relation bodies by default since 1.3.0 (`sharedRelationBodies: false` turns it off): a server that bounds the relations one statement references, PlanetScale Neki's 256, needs the shared form. The point-lookup regressions below come from PostgreSQL materializing the shared `WITH` member and producing it row by row before the lookup finds its key. Since 1.3.3 a body that reads no other shared body is written `NOT MATERIALIZED`, so PostgreSQL inlines it into each use (`benchmarks/perf-1.3.3.md` §0: a nested include under a `posts some` policy went from 19.7 ms to 1.5 ms at 100k posts). This invoice fixture has not been re-run since, so the table below shows the materialized form only.
+
+At the time, the conclusion was: sharing helps list and count queries but causes repeatable point-lookup regressions. It is an execution strategy with workload-dependent cost, not a universally beneficial SQL compression.
 
 Five fresh Node processes compared the same freshly built package with the public `PgDriver({ sharedRelationBodies: false/true })` option. Every query ran through `base.$extends(rbac(...)).$as(actor)`. No handwritten SQL substituted for the timed ORM operation. Production source and defaults were not changed.
 

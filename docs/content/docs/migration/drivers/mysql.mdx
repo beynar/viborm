@@ -110,7 +110,7 @@ deliberately; a code upgrade alone does not change existing schema semantics.
 
 ```ts
 const user = s.model({
-  id: s.int().id().autoIncrement(),
+  id: s.int().id().increment(),
 }).map("users");
 ```
 
@@ -153,6 +153,8 @@ Changing an enum's values therefore issues a `MODIFY COLUMN` for every column us
 ## Index Types
 
 The driver generates and introspects btree (default), `FULLTEXT`, and `SPATIAL` indexes. InnoDB does not support user-defined hash indexes. See [Index Options](/docs/schema/model#index-options) for declaring indexes on models.
+
+A prefix or functional index is declared with [`.rawIndex()`](/docs/schema/model#rawindexname-templates). VibORM appends its marker as the index's `COMMENT` (so the text cannot say `COMMENT`, `ALGORITHM` or `LOCK`) and recognizes the index by it. MySQL changes an index comment only by re-creating the index, so renaming a column a raw index names re-creates it.
 
 ## Indexed TEXT Columns
 

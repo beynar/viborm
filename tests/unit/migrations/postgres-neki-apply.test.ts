@@ -22,7 +22,6 @@
 
 import { createClient } from "@drivers/pglite";
 import { CLEANUP_BOUND_MS } from "@drivers/shared/pinned-session";
-import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { VibORMErrorCode } from "@errors";
 import { createMigrationClient, MemoryEstateStorage } from "@migrations";
 import { s } from "@schema";
@@ -33,233 +32,15 @@ import {
   reportSchema,
   seedReportRows,
 } from "@tests/fixtures/neki-report-states";
+import {
+  asNeki,
+  COMPUTED_SETTING,
+  SESSION_LOCK,
+  XACT_LOCK,
+} from "@tests/fixtures/neki-simulation";
 import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
 import { beforeAll, describe, expect, it } from "vitest";
 import { softDeleteAccounts } from "./_catalog-digest-corpus";
-
-const TEMPORARY = /\bTEMP(?:ORARY)?\s+(?:VIEW|TABLE)\b/i;
-const NAME = String.raw`(?:"[^"]+"\.)?("[^"]+")`;
-const CREATED = new RegExp(
-  String.raw`^CREATE\s+(?:OR\s+REPLACE\s+)?(?:UNIQUE\s+)?(TABLE|VIEW|TYPE|SEQUENCE|FUNCTION|INDEX)\s+(?:IF\s+NOT\s+EXISTS\s+)?${NAME}`,
-  "i"
-);
-const ALTERED = new RegExp(
-  String.raw`^ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?${NAME}\s+([\s\S]*)$`,
-  "i"
-);
-const ADDED = /\bADD\s+(?:COLUMN\s+)?(?!CONSTRAINT\b)("[^"]+")/gi;
-const RENAMED = /\bRENAME\s+(?:COLUMN\s+)?("[^"]+")\s+TO\s+("[^"]+")/gi;
-const RENAMED_TO = /^RENAME\s+TO\s+("[^"]+")/i;
-const RETYPED =
-  /\bALTER\s+(?:COLUMN\s+)?("[^"]+")\s+(?:SET\s+DATA\s+)?TYPE\b/gi;
-const DROPPED = /\bDROP\s+(?:COLUMN\s+)?(?:IF\s+EXISTS\s+)?("[^"]+")/gi;
-const ROWS = /^(?:INSERT|UPDATE|DELETE|MERGE|SELECT|WITH|DO)\b/i;
-const SESSION_LOCK = /\bpg_try_advisory_lock\(/;
-const XACT_LOCK = /\bpg_try_advisory_xact_lock\(/;
-const UNLOCK = /\bpg_advisory_unlock\(/;
-const UNLOCK_ALL = /\bpg_advisory_unlock_all\(/;
-const COMPUTED_SETTING = /\bset_config\(\s*name\b/i;
-const ROUTINE = /^\s*DO\b/i;
-const VERB = /^\s*(\w+)/;
-
-/** What one transaction changed that Neki's planner does not see. */
-interface Unseen {
-  /** Names it introduced, renamed, retyped or dropped. */
-  readonly names: Set<string>;
-  /** Relations whose columns it changed: their `*` is stale. */
-  readonly columns: Set<string>;
-  /** Relations it created or renamed: Neki has not registered them. */
-  readonly fresh: Set<string>;
-}
-
-const nothingUnseen = (): Unseen => ({
-  names: new Set(),
-  columns: new Set(),
-  fresh: new Set(),
-});
-
-/** Records what `text`, a schema statement, changed, or refuses it (NK316). */
-function track(text: string, unseen: Unseen, refuse: (code: string) => never) {
-  const created = CREATED.exec(text);
-  if (created) {
-    unseen.names.add(created[2]!);
-    if (created[1]!.toUpperCase() === "TABLE") unseen.fresh.add(created[2]!);
-    return;
-  }
-  const altered = ALTERED.exec(text);
-  if (!altered) return;
-  const [, table = "", clause = ""] = altered;
-  const added = [...clause.matchAll(ADDED)].map((match) => match[1]!);
-  const renamed = [...clause.matchAll(RENAMED)].flatMap((match) => [
-    match[1]!,
-    match[2]!,
-  ]);
-  const retyped = [...clause.matchAll(RETYPED)].map((match) => match[1]!);
-  const dropped = [...clause.matchAll(DROPPED)].map((match) => match[1]!);
-  if (
-    unseen.fresh.has(table) &&
-    [...renamed, ...retyped, ...dropped].length > 0
-  ) {
-    refuse("NK316");
-  }
-  const to = RENAMED_TO.exec(clause.trim())?.[1];
-  if (to) {
-    unseen.names.add(to);
-    unseen.fresh.add(to);
-  }
-  for (const name of [...added, ...renamed, ...retyped, ...dropped]) {
-    unseen.names.add(name);
-  }
-  if ([...added, ...renamed, ...dropped].length > 0) unseen.columns.add(table);
-}
-
-/**
- * Makes `database` refuse what Neki refuses while `enabled` is set, records
- * the refusals it made, and logs every statement it is sent. `fail` makes
- * the next statement that includes it, past `skip` of them, fail as a
- * provider would; `before.sql` runs once, before the session's statement
- * that is `before.text` past `before.skip` of them.
- */
-function asNeki(database: PGlite): {
-  enabled: boolean;
-  refusals: string[];
-  log: string[];
-  fail?: string;
-  /** A statement containing this text is never answered (once). */
-  hang?: string;
-  /** Every statement containing `text` answers only after `ms`. */
-  slow?: { readonly text: string; readonly ms: number };
-  skip: number;
-  before?: { readonly text: string; skip: number; readonly sql: string };
-} {
-  const simulation = {
-    enabled: false,
-    refusals: [] as string[],
-    log: [] as string[],
-    fail: undefined as string | undefined,
-    hang: undefined as string | undefined,
-    slow: undefined as
-      | { readonly text: string; readonly ms: number }
-      | undefined,
-    skip: 0,
-    before: undefined as
-      | { readonly text: string; skip: number; readonly sql: string }
-      | undefined,
-  };
-  const { refusals, log } = simulation;
-  let unseen = nothingUnseen();
-  // The session's advisory locks: session ones held, and whether the open
-  // transaction took a transaction one.
-  let sessionLocks = 0;
-  let transactionLock = false;
-  const refuse = (code: string, message = code): never => {
-    refusals.push(code);
-    throw Object.assign(new Error(message), { code });
-  };
-  const check = (text: string, inTransaction: boolean) => {
-    log.push(text);
-    if (simulation.fail && text.includes(simulation.fail)) {
-      if (simulation.skip === 0) {
-        simulation.fail = undefined;
-        throw Object.assign(new Error("injected failure"), { code: "XX000" });
-      }
-      simulation.skip -= 1;
-    }
-    const verb = VERB.exec(text)?.[1]?.toUpperCase();
-    if (verb === "BEGIN" || verb === "COMMIT" || verb === "ROLLBACK") {
-      transactionLock = false;
-    }
-    if (UNLOCK_ALL.test(text)) sessionLocks = 0;
-    else if (UNLOCK.test(text)) sessionLocks = Math.max(0, sessionLocks - 1);
-    if (!simulation.enabled) {
-      if (SESSION_LOCK.test(text)) sessionLocks += 1;
-      return;
-    }
-    if (TEMPORARY.test(text)) refuse("NK013", "temporary relations");
-    if (COMPUTED_SETTING.test(text)) {
-      if (ROUTINE.test(text)) {
-        refuse(
-          "42501",
-          "set_config with a non-constant setting name is not allowed in a routine body"
-        );
-      }
-      refuse("NK013", "not implemented: [101]");
-    }
-    const mixed =
-      "not implemented: [61] Mixing session and transaction advisory locks is unavailable.";
-    if (XACT_LOCK.test(text)) {
-      if (sessionLocks > 0) refuse("NK013", mixed);
-      if (inTransaction) transactionLock = true;
-    }
-    if (SESSION_LOCK.test(text)) {
-      if (transactionLock) refuse("NK013", mixed);
-      sessionLocks += 1;
-    }
-    if (verb === "BEGIN" || verb === "COMMIT" || verb === "ROLLBACK") {
-      unseen = nothingUnseen();
-      return;
-    }
-    if (!inTransaction) return;
-    const statement = text.trim();
-    if (ROWS.test(statement)) {
-      const name = [...unseen.names].find((item) => statement.includes(item));
-      if (name) refuse("42703", `relation or column ${name} does not exist`);
-      const stale = [...unseen.columns].find((item) =>
-        statement.includes(item)
-      );
-      if (stale && statement.includes("*")) refuse("42703", "stale *");
-      return;
-    }
-    track(statement, unseen, refuse);
-  };
-  // Neki's version string; PGlite's own is kept everywhere else.
-  const version = (text: string) =>
-    simulation.enabled && text.includes("'%(Neki)%'")
-      ? text.replace("pg_catalog.version()", "'PostgreSQL 18.6 (Neki)'")
-      : text;
-  let open = false;
-  const query = database.query.bind(database);
-  const transaction = database.transaction.bind(database);
-  Object.defineProperty(database, "query", {
-    value: async (text: string, params?: unknown[], options?: object) => {
-      if (simulation.hang && text.includes(simulation.hang)) {
-        simulation.hang = undefined;
-        return new Promise(() => undefined);
-      }
-      if (simulation.slow && text.includes(simulation.slow.text)) {
-        const { ms } = simulation.slow;
-        await new Promise((resolve) => setTimeout(resolve, ms));
-      }
-      const { before } = simulation;
-      if (before && text === before.text && before.skip-- === 0) {
-        simulation.before = undefined;
-        await query(before.sql);
-      }
-      const verb = VERB.exec(text)?.[1]?.toUpperCase();
-      if (verb === "BEGIN") open = true;
-      if (verb === "COMMIT" || verb === "ROLLBACK") open = false;
-      check(text, open);
-      return query(version(text), params, options);
-    },
-  });
-  Object.defineProperty(database, "transaction", {
-    value: <T>(callback: (tx: Transaction) => Promise<T>) =>
-      transaction((tx) => {
-        unseen = nothingUnseen();
-        const inner = tx.query.bind(tx);
-        Object.defineProperty(tx, "query", {
-          value: (text: string, params?: unknown[], options?: object) => {
-            check(text, true);
-            return inner(version(text), params, options);
-          },
-        });
-        return callback(tx).finally(() => {
-          unseen = nothingUnseen();
-        });
-      }),
-  });
-  return simulation;
-}
 
 const ADD_NICKNAME = (namespace: string) =>
   sql.raw(`ALTER TABLE "${namespace}"."accounts" ADD COLUMN "nickname" text`);
@@ -281,6 +62,15 @@ const filled = (namespace: string, all: boolean) => ({
 /** The transactions one command committed, as its log shows them. */
 const commitsIn = (log: readonly string[]) =>
   log.filter((text) => text === "COMMIT").length;
+/**
+ * One forward attempt run stepwise, as every one is on Neki: an opaque step
+ * is announced, then answered (two `step-confirmed`), a proven one answered.
+ */
+const stepwise = (confirmed: number) => [
+  "started",
+  ...new Array<string>(confirmed).fill("step-confirmed"),
+  "applied",
+];
 
 const database = openTestPGlite();
 const simulation = asNeki(database);
@@ -460,7 +250,7 @@ describe.each([
     }
   });
 
-  it("applies a state that adds a column and backfills it, committing between the two on Neki only", async () => {
+  it("applies a state that adds a column and backfills it: one transaction on PostgreSQL, each statement committed alone on Neki", async () => {
     const namespace = `neki_combined_${neki}`;
     const migrations = await estate(namespace);
     const v1 = await migrations().generate({ name: "v1" });
@@ -480,13 +270,12 @@ describe.each([
     expect(status.unfinished).toBe(false);
     await expect(migrations(true).verify()).resolves.toEqual({ ok: true });
     // PostgreSQL: one transaction, whose rollback is the proof of each step.
-    // Neki: the column commits first, then the backfill, its checks and the
-    // marker, each step recorded in the transaction it ran in.
-    expect(commits).toBe(neki ? 2 : 1);
+    // Neki: no transaction, which its router may refuse every statement
+    // after a schema change in: each step commits alone, announced and
+    // answered in its own, then the checks and the marker.
+    expect(commits).toBe(neki ? 0 : 1);
     expect(await eventsOf(migrations, v2.stateId)).toEqual(
-      neki
-        ? ["started", "step-confirmed", "step-confirmed", "applied"]
-        : ["applied"]
+      neki ? stepwise(4) : ["applied"]
     );
     expect(refusals).toEqual([]);
   });
@@ -529,26 +318,20 @@ describe.each([
     expect(
       await count(`SELECT count(*)::int AS n FROM "${namespace}"."notes"`)
     ).toBe(REPORT_ROWS - REPORT_ROWS / 10);
-    // PostgreSQL: the whole path is one transaction, as before. Neki: the
-    // first state commits its columns before its backfill; the schema state
-    // starts a group the data cleanup cannot join, and so does the index
-    // the last data state follows (a literal naming it would not see it).
-    expect(commits).toBe(neki ? 5 : 1);
+    // PostgreSQL: the whole path is one transaction, as before. Neki: every
+    // state stepwise, each statement committed alone.
+    expect(commits).toBe(neki ? 0 : 1);
     const events = (await at(3).log()).filter(
       (event) => event.direction === "forward" && path.includes(event.toState!)
     );
     expect(events.map((event) => event.kind)).toEqual(
       neki
         ? [
-            "started",
-            "step-confirmed",
-            "step-confirmed",
-            "step-confirmed",
-            "applied",
-            "applied",
-            "applied",
-            "applied",
-            "applied",
+            ...stepwise(6),
+            ...stepwise(2),
+            ...stepwise(4),
+            ...stepwise(1),
+            ...stepwise(2),
           ]
         : ["applied", "applied", "applied", "applied", "applied"]
     );
@@ -575,8 +358,13 @@ describe.each([
       expect(failed.unfinished).toBe(true);
       expect(await columns(namespace)).toContain("nickname");
       expect(await backfilled(namespace)).toBe(0);
+      // The column's step answered; the backfill's announced, then answered
+      // as refused whole: nothing of it committed.
       expect(await eventsOf(migrations, v2.stateId)).toEqual([
         "started",
+        "step-confirmed",
+        "step-confirmed",
+        "step-confirmed",
         "step-confirmed",
       ]);
       await expect(
@@ -606,16 +394,14 @@ describe.each([
     expect(log.some((text) => text.includes('ADD COLUMN "nickname"'))).toBe(
       !neki
     );
-    expect(commitsIn(log)).toBe(1);
+    expect(commitsIn(log)).toBe(neki ? 0 : 1);
     expect(await backfilled(namespace)).toBe(ROW_COUNT);
     const done = await migrations(true).status();
     expect(done.marker?.stateId).toBe(v2.stateId);
     expect(done.unfinished).toBe(false);
     await expect(migrations(true).verify()).resolves.toEqual({ ok: true });
     expect(await eventsOf(migrations, v2.stateId)).toEqual(
-      neki
-        ? ["started", "step-confirmed", "step-confirmed", "applied"]
-        : ["failed", "applied"]
+      neki ? stepwise(6) : ["failed", "applied"]
     );
     expect(refusals).toEqual([]);
   });
@@ -703,8 +489,8 @@ describe.each([
       outcome: "applied",
       path: [schema.stateId, backfill.stateId],
     });
-    // Neki: the backfill's group starts after the column committed.
-    expect(commitsIn(log)).toBe(neki ? 2 : 1);
+    // Neki: no transaction; each statement commits alone.
+    expect(commitsIn(log)).toBe(neki ? 0 : 1);
     expect(await backfilled(namespace)).toBe(ROW_COUNT);
     expect((await migrations(true).status()).marker?.stateId).toBe(
       backfill.stateId
@@ -862,7 +648,7 @@ describe.each([
   });
 });
 
-describe("a state split in three parts on Neki", () => {
+describe("a state of four statements on Neki, each committed alone", () => {
   beforeAll(() => {
     simulation.enabled = true;
   });
@@ -938,56 +724,57 @@ describe("a state split in three parts on Neki", () => {
       .map((event) => event.kind);
 
   it.each([
-    ["the first part's COMMIT", "COMMIT", 0, 0],
-    ["the second part's first step", 'SET "a" = "name"', 0, 1],
-    ["the second part's second step", 'ADD COLUMN "b"', 0, 1],
-    ["the second part's COMMIT", "COMMIT", 1, 1],
-    ["the last part's step", 'SET "b" =', 0, 3],
-    ["the destination check", '"b" IS NULL', 0, 3],
-  ])("fails at %s: the marker stays, resolve refuses, and apply resumes", async (_label, fail, skip, committed) => {
+    ["its first statement", 'ADD COLUMN "a"', 2],
+    ["its second statement", 'SET "a" = "name"', 4],
+    ["its third statement", 'ADD COLUMN "b"', 6],
+    ["its last statement", 'SET "b" =', 8],
+  ])("fails at %s: the marker stays, resolve refuses, and apply resumes from it", async (_label, fail, confirmed) => {
     // Lower case: no statement may include `fail` by its namespace.
-    const namespace = `neki_parts_${fail.replace(/\W/g, "").toLowerCase()}_${skip}`;
+    const namespace = `neki_steps_${fail.replace(/\W/g, "").toLowerCase()}`;
     const { at, v1, v2, filled } = await estate(namespace);
     simulation.fail = fail;
-    simulation.skip = skip;
-    await expect(at(1).apply()).rejects.toBeDefined();
+    await expect(at(1).apply()).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_FAILED,
+    });
     simulation.fail = undefined;
-    simulation.skip = 0;
     const failed = await at(1).status();
     expect(failed.marker?.stateId).toBe(v1);
-    expect(failed.unfinished).toBe(committed > 0);
-    expect(await eventsOf(at(1), v2)).toEqual(
-      committed > 0
-        ? ["started", ...new Array(committed).fill("step-confirmed")]
-        : ["failed"]
-    );
-    if (committed > 0) {
-      // Neither outcome is proven: the committed manual steps are an effect,
-      // and the destination does not hold.
-      await expect(
-        at(1).resolve({ outcome: "rolled-back" })
-      ).rejects.toMatchObject({
-        code: VibORMErrorCode.MIGRATION_PARTIAL_EFFECT,
-      });
-      await expect(
-        at(1).resolve({ outcome: "complete" })
-      ).rejects.toMatchObject({
-        code: VibORMErrorCode.MIGRATION_INVALID_STATE,
-      });
-      await expect(at(1).resolve({ outcome: "retry" })).rejects.toMatchObject({
-        code: VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER,
-      });
-      expect((await at(1).status()).marker?.stateId).toBe(v1);
-    }
+    expect(failed.unfinished).toBe(true);
+    // Each statement announced, then answered; the failed one as refused
+    // whole, so nothing of it committed.
+    expect(await eventsOf(at(1), v2)).toEqual([
+      "started",
+      ...new Array<string>(confirmed).fill("step-confirmed"),
+    ]);
+    // Neither outcome is proven: the committed steps are an effect (or, the
+    // first refused, an attempt resolve does not close), and the destination
+    // does not hold. Apply resumes it.
+    await expect(
+      at(1).resolve({ outcome: "rolled-back" })
+    ).rejects.toMatchObject({
+      code:
+        confirmed === 2
+          ? VibORMErrorCode.MIGRATION_INVALID_STATE
+          : VibORMErrorCode.MIGRATION_PARTIAL_EFFECT,
+    });
+    await expect(at(1).resolve({ outcome: "complete" })).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_INVALID_STATE,
+    });
+    // Its manual steps are opaque: a retry has no proof to start from, as on
+    // PostgreSQL (no longer refused as a one-transaction program on Neki).
+    await expect(at(1).resolve({ outcome: "retry" })).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_INVALID_STATE,
+    });
+    expect((await at(1).status()).marker?.stateId).toBe(v1);
 
     simulation.log.length = 0;
     await expect(at(1).apply()).resolves.toMatchObject({
       outcome: "applied",
       path: [v2],
     });
-    // A committed part is never sent again.
+    // A committed statement is never sent again.
     expect(simulation.log.some((text) => text.includes('ADD COLUMN "a"'))).toBe(
-      committed === 0
+      confirmed === 2
     );
     expect(await filled()).toBe(50);
     const done = await at(1).status();
@@ -1000,59 +787,21 @@ describe("a state split in three parts on Neki", () => {
     expect(simulation.refusals).toEqual([]);
   });
 
-  it("records no failure for a split state whose marker another command moved first", async () => {
-    const namespace = "neki_parts_overtaken";
-    await database.exec(`CREATE SCHEMA "${namespace}"`);
-    const storage = new MemoryEstateStorage();
-    const at = (nickname: boolean) =>
-      createMigrationClient(
-        createClient({
-          client: database,
-          schema: softDeleteAccounts(nickname),
-          namespace,
-        }),
-        { storage }
-      );
-    await at(false).generate({ name: "v1" });
-    await at(false).apply();
-    const v2 = await at(true).generate({ name: "nickname" });
-    const table = `"${namespace}"."accounts"`;
-    const v3 = await at(true).generate({
-      name: "flag-and-fill",
-      manualMigration: {
-        transitions: [
-          {
-            from: v2.stateId!,
-            execution: "transactional",
-            up: [
-              sql.raw(`ALTER TABLE ${table} ADD COLUMN "flag" text`),
-              sql.raw(`UPDATE ${table} SET "flag" = 'x'`),
-            ],
-            rollback: { kind: "irreversible", reason: "test" },
-          },
-        ],
-      },
-    });
-    // v2 commits on its own; before v3's first part takes the lock again,
-    // another command moves the marker (revision 2, v2's).
-    simulation.before = {
-      text: "BEGIN",
-      skip: 1,
-      sql: `UPDATE ${`"${namespace}"."_viborm_migration_state"`} SET payload = replace(payload::text, '"revision":2', '"revision":9')::json`,
-    };
-    await expect(at(true).apply()).rejects.toMatchObject({
-      code: VibORMErrorCode.MIGRATION_MARKER_CONFLICT,
-    });
-    simulation.before = undefined;
-    // Nothing of v3 ran: no attempt of it is open, and none failed.
-    const events = (await at(true).log()).filter(
-      (event) => event.toState === v3.stateId
-    );
-    expect(events).toEqual([]);
-    const { rows } = await database.query(
-      `SELECT 1 FROM information_schema.columns WHERE table_schema = '${namespace}' AND column_name = 'flag'`
-    );
-    expect(rows).toEqual([]);
+  it("fails at its destination check after every statement committed: resolve proves the destination and completes", async () => {
+    const namespace = "neki_steps_check";
+    const { at, v1, v2, filled } = await estate(namespace);
+    simulation.fail = '"b" IS NULL';
+    await expect(at(1).apply()).rejects.toBeDefined();
+    simulation.fail = undefined;
+    const failed = await at(1).status();
+    expect(failed.marker?.stateId).toBe(v1);
+    expect(failed.unfinished).toBe(true);
+    expect(await filled()).toBe(50);
+    await expect(at(1).resolve({ outcome: "complete" })).resolves.toBeDefined();
+    const done = await at(1).status();
+    expect(done.marker?.stateId).toBe(v2);
+    expect(done.unfinished).toBe(false);
+    await expect(at(1).verify()).resolves.toEqual({ ok: true });
     expect(simulation.refusals).toEqual([]);
   });
 });

@@ -5,12 +5,13 @@
  * constraints and compound constraints.
  */
 
+import { s } from "@schema";
 import {
   compoundIdSchemas,
   compoundUniqueSchemas,
   simpleSchemas,
 } from "@tests/unit/operation-schemas/fixtures";
-import { type InferInput, parse } from "@validation";
+import { createSchemaRegistry, type InferInput, parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 // =============================================================================
@@ -140,5 +141,62 @@ describe("Where Unique Schema - Compound Unique Model Runtime", () => {
   test("runtime: rejects empty object", () => {
     const result = parse(schema, {});
     expect(result.issues?.[0]?.message).toBe("Object cannot be empty");
+  });
+});
+
+// =============================================================================
+// RUNTIME TESTS - a null selector names no row
+// =============================================================================
+
+// A unique index admits any number of NULLs, so a selector holding one matches
+// every such row: `update` and `delete` wrote them all. Refused in every
+// unique position, as Prisma refuses it.
+const NULL_REFUSAL = /^A unique selector cannot be null/;
+
+describe("Where Unique Schema - null selectors", () => {
+  const box = s
+    .model({
+      id: s.int().id(),
+      code: s.string().nullable().unique(),
+      a: s.int(),
+      b: s.string().nullable(),
+    })
+    .unique(["a", "b"]);
+  const registry = createSchemaRegistry({ box });
+  const unique = () => registry.proxy.box.core.whereUnique;
+  const extended = () => registry.proxy.box.core.whereUniqueExtended;
+
+  test.each([
+    ["whereUnique", unique],
+    ["whereUniqueExtended", extended],
+  ] as const)("%s: refuses a nullable unique spelled null", (_, schema) => {
+    const result = parse(schema(), { code: null });
+    expect(result.issues?.[0]?.path).toEqual(["code"]);
+    expect(result.issues?.[0]?.message).toMatch(NULL_REFUSAL);
+  });
+
+  test.each([
+    ["whereUnique", unique],
+    ["whereUniqueExtended", extended],
+  ] as const)("%s: refuses a compound selector with a null member", (_, schema) => {
+    const result = parse(schema(), { a_b: { a: 1, b: null } });
+    expect(result.issues?.[0]?.path).toEqual(["a_b", "b"]);
+  });
+
+  test.each([
+    ["whereUnique", unique],
+    ["whereUniqueExtended", extended],
+  ] as const)("%s: refuses a null even beside a selector that names the row", (_, schema) => {
+    expect(parse(schema(), { id: 1, code: null }).issues?.[0]?.path).toEqual([
+      "code",
+    ]);
+    expect(
+      parse(schema(), { a_b: { a: 1, b: "x" }, code: null }).issues?.[0]?.path
+    ).toEqual(["code"]);
+  });
+
+  test("accepts non-null values of nullable members", () => {
+    expect(parse(unique(), { code: "c" }).issues).toBeUndefined();
+    expect(parse(unique(), { a_b: { a: 1, b: "x" } }).issues).toBeUndefined();
   });
 });

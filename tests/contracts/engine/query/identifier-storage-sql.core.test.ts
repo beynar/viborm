@@ -18,11 +18,9 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { type Dialect, Driver } from "@drivers";
 import { D1Driver } from "@drivers/d1";
 import { QueryEngineError, ValidationError } from "@errors";
-import {
-  InvalidScalarResult,
-  Queries,
-} from "@query-engine/raptor3/shared/query";
+import { InvalidScalarResult } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { s } from "@schema";
 import { createModelFieldRefs } from "@schema/field-ref";
 import { MYSQL, PG, SQLITE } from "@schema/scalars/native-types";
@@ -273,7 +271,7 @@ function decode(
   rows: Record<string, unknown>[],
   options: { internal?: boolean; driver?: Driver<unknown, unknown> } = {}
 ): Record<string, unknown>[] {
-  const queries = new Queries(
+  const queries = new SqlQueries(
     new EngineSchema(models),
     adapter,
     options.driver?.result
@@ -361,7 +359,7 @@ describe("what the engine reads about an identifier column", () => {
     if (edge?.kind !== "variantRowCarrier")
       throw new Error("Expected the row carrier");
     for (const adapter of [pg, mysql, sqlite]) {
-      const queries = new Queries(new EngineSchema(models), adapter);
+      const queries = new SqlQueries(new EngineSchema(models), adapter);
       const carried = queries.fieldValue(
         note,
         edge.storage.idColumn.name,
@@ -656,13 +654,14 @@ describe("filtering an identifier column", () => {
 
   test("a SUBSTRING operand binds as the fragment it is, never as a value", () => {
     // `contains: "tz4a"` asks about part of a cuid, not about a cuid; only a
-    // text-stored domain can be asked at all.
+    // text-stored domain can be asked at all. PostgreSQL binds the fragment as
+    // its finished `LIKE` pattern.
     expect(
       build(pg, user, "findMany", {
         where: { slug: { contains: "tz4a" } },
         select: { id: true },
       }).values
-    ).toEqual(["tz4a"]);
+    ).toEqual(["%tz4a%"]);
     // The whole value still binds as a domain value on the same field.
     expect(
       build(pg, user, "findMany", {

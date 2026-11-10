@@ -404,9 +404,10 @@ export function cacheAndPolicyComposition() {
 export function rowDefinitionOrdering() {
   const post = s.model({ id: s.string().id() });
   const base = createClient({ schema: { post }, dataDir: ":memory:" });
+  // A factory typed against the client it extends reads its results.
   const consumer = base.$extends({
     name: "consumer",
-    client: () => ({ $ready: () => true }),
+    client: (scope) => ({ $ready: () => scope.post !== undefined }),
   });
   const rowsOnly = {
     name: "visibility",
@@ -417,6 +418,10 @@ export function rowDefinitionOrdering() {
     },
   } as const;
   base.$extends(rowsOnly);
+  // One that reads nothing typed is no result consumer.
+  base
+    .$extends({ name: "blind", client: () => ({ $ready: () => true }) })
+    .$extends(rowsOnly);
   // @ts-expect-error - result consumers precede no later row-filter definition
   consumer.$extends(rowsOnly);
   consumer.$extends({

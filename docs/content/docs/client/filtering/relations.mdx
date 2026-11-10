@@ -86,13 +86,16 @@ await client.page.updateMany({
 | `recurse: { depth: n }` | follow it up to `n` hops, `1 ≤ n ≤ 1000` |
 | `recurse: { depth: false }` | **exhaustive**: follow it until the data ends |
 | `recurse: { preventCycles }` | junction relations only; accepted for parity with `select`, the closure is the same set either way |
+| `recurse: { selective: true }` | you state that the rows `some`/`none` names, and the rows that reach them, are few (see **Selective walks** below) |
 | `self: true` | include the row itself (hop 0); default `false` |
 | `some: where` | at least one row of the closure matches |
 | `every: where` | every row of the closure matches; true when the closure is empty |
 | `none: where` | no row of the closure matches; true when the closure is empty |
 
-`recurse` takes the same options as in [`select`/`include`](/docs/client/selecting#recursive-relations)
-and is admitted on the same relations: an ordinary self relation, foreign key
+`recurse` takes the same options as in [`select`/`include`](/docs/client/selecting#recursive-relations),
+except `maxOccurrences`, which a filter has nothing to bound, and
+`fewRows`, which reads each output row's walk by key (a filter outputs no
+walk), plus `selective`, which only a filter states. It is admitted on the same relations: an ordinary self relation, foreign key
 or junction, whose model has a complete primary key. Anywhere else it is
 refused with a `ValidationError`. At least one of `some`, `every` and `none`
 is required, several are combined with `AND`, and each takes the related
@@ -134,6 +137,24 @@ same statement as the rest of the query.
   level reached; `{ depth: false }` visits each row once. On PostgreSQL, `ANALYZE` a table
   after loading it in bulk: without statistics the planner overestimates the
   walk, and JIT compilation can then add seconds to every statement.
+- **Selective walks.** `recurse: { depth: false, selective: true }` states a
+  fact about your data that the schema cannot: few rows match the walk's
+  `some` (or `none`), and few rows reach them, such as "the teams the actor
+  belongs to, through their subteams". Where a statement shares relation
+  bodies (PostgreSQL drivers, D1) and reads the walk only inside bodies it
+  already computes over their whole tables, as a permissions policy's
+  repeated rules do, the walk is then computed once, from those few rows
+  back, instead of once per row of each body. Everywhere else it stays in
+  place, so a unique read or a keyed write keeps its index. It is never
+  applied to `every`, which reaches back from the rows its predicate does
+  not hold of, nor to a walk merged with one that does not state it. Index
+  the columns its `some` reads (`userId`): computed once, the walk first
+  finds every row they match. State it only when it is true: on a walk
+  whose rows are many, computing it once reads most of its table (on SQLite,
+  a read over 30,000 teams went from 45 to 61 ms). Without it, nothing is
+  guessed: the walk is computed for each row that reads it. The SQL and the plans with
+  and without it are in
+  [Performance opt-ins](/docs/client/opt-ins#selective-a-walk-to-few-rows-computed-once).
 
 ## Polymorphic Relations
 

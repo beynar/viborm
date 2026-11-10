@@ -1,0 +1,122 @@
+---
+title: SurrealDB Driver
+description: SurrealQL schema, records and references, indexes, and what SurrealDB migrations do differently
+icon: database
+---
+
+SurrealDB migrations write SurrealQL from the same snapshot every driver shares.
+`push`, `generate`, `apply`, `verify`, `down` and `reset` all work, and generated
+files hold SurrealQL. Introspection reads the schema back with
+`INFO FOR TABLE … STRUCTURE`. What a definition cannot say (a field's schema name,
+a foreign key's actions, an index's kind) is kept in that object's `COMMENT`, as
+JSON VibORM writes.
+
+```ts
+import { createMigrationClient } from "viborm/migrations/surrealdb";
+
+const migrations = createMigrationClient(db, { storage });
+await migrations.push();
+```
+
+`viborm/migrations` registers this driver too; `viborm/migrations/surrealdb`
+holds it alone.
+
+## Physical types
+
+Every table is `SCHEMAFULL`, and a nullable field is `option<…>`.
+
+| Declaration | Field type |
+| --- | --- |
+| `s.string()`, `s.enum([...])`, `s.date()`, `s.time()` | `string` |
+| `s.int()` | `i32` |
+| `s.bigInt()` | `int` |
+| `s.number()` | `float` |
+| `s.decimal({ precision, scale })` | `decimal`, with an `ASSERT` on its integer digits |
+| `s.boolean()` | `bool` |
+| `s.dateTime()` | `datetime` |
+| `s.json()` | `any` |
+| `s.blob()` | `bytes` |
+| `s.vector()` | `array<float>` |
+| `s.point()` | `geometry<point>` |
+
+A `decimal` holds any precision and scale, so the declared precision is an
+assertion and no MySQL- or SQLite-style provider limit applies.
+
+## Keys and references
+
+- A record's key is its id. A compound key is an array id, its parts named and in its fields'
+  declaration order, whatever order `.id([...])` lists them in; a field named `id` beside a key of
+  another name is stored as `id_field`.
+- A foreign key to a record's key is a `record<table> REFERENCE` field, `ON DELETE` `REJECT`,
+  `CASCADE` or `UNSET` (for `setNull`), with an `ASSERT` that the record exists.
+- A foreign key over several columns, to another unique field, or onto part of the row's own key is
+  events: on the table it names, its actions; on its own table, that the row it names exists. A
+  reference holding a unique field of its own row is checked when that field is updated, not when
+  the row is created (a record moving to a new key holds a stand-in there until its copy is whole).
+- A generated many-to-many junction is an edge table, written with `RELATE`.
+
+## Indexes
+
+- A plain or unique index is `DEFINE INDEX … FIELDS … [UNIQUE]`. A `spatial`, `gin` or `fulltext`
+  declaration is kept as a plain index (its kind is in the comment), and reads through it scan as
+  they would without.
+- An index of a table the same migration creates (its uniques, its plain and partial indexes, a
+  generated junction's) ends in `CONCURRENTLY`: it builds in the background once the transaction
+  commits, instead of inside it, which on SurrealDB Cloud is a fraction of a second per index instead
+  of up to a minute. No row can be in that table yet. An index added to a table that already exists
+  is built at once, without `CONCURRENTLY`, so a unique the rows break refuses before anything
+  commits. A renamed table, whose rows are copied into a new one, and a key change are built at
+  once too. `INFO FOR TABLE` reads both forms back alike.
+- A partial unique index is a computed field the index covers. Its predicate may hold comparisons,
+  `IN`, `IS [NOT] NULL`, `AND`, `OR` and `NOT` over columns and values, a key's column reading its
+  record's id; anything else is refused by name.
+- An HNSW, a search or any other index kind is declared with
+  [`.rawIndex()`](/docs/schema/model#rawindexname-templates). Its `surrealdb` text cannot say
+  `COMMENT` or `CONCURRENTLY`: VibORM appends the comment that marks it as its own, and builds it at
+  once, on a new table too.
+- An index VibORM did not define (another kind, or a comment of someone else's) refuses
+  synchronization before effects while its table is managed, and is left as it is: drop it, and
+  declare it. A table or field comment that is not VibORM's JSON refuses the same way. Outside the
+  managed tables (`migrations.tables`) both are skipped. A generated junction's indexes are not read.
+
+## Statements and failures
+
+A migration's statements run in one transaction when they can. A table or field rename, a key
+change, a `reset`, an index over rows the same migration backfills, and a partial unique index
+need committed rows first: those programs run statement by statement, and a failure part-way leaves
+a state the next `push` plans from.
+
+- **Renaming a table or a field, and changing a key,** copy the rows, since SurrealDB has no rename
+  and a record's id never changes. The copy is not atomic.
+- **An index built in the background** is waited for before the command returns, the lock still
+  held: once the program commits, VibORM reads `INFO FOR INDEX` of every index of the managed tables
+  until none is building, pausing from 50 ms to 2 s between reads, for at most 5 minutes. Until its
+  build is `ready` a unique index lets a duplicate in, after which the build fails and its table
+  refuses every write. A build that failed, or one still going after 5 minutes, fails the command
+  with `V11023` (`MIGRATION_INVALID_INDEX`), naming the index, its table and the server's reason;
+  the migration's statements stay committed. Remove the duplicate values and run `REBUILD INDEX`, or
+  `REMOVE INDEX`. Until then every later command that reads the schema (`push`, `apply`, `verify`,
+  `down`, `reset`) refuses with the same `V11023` before any effect, as PostgreSQL refuses an
+  INVALID index: a failed build is invisible in the index's definition. A program run statement by statement waits for its builds even when a
+  later statement fails, and reports that statement's failure. A hand-written step is waited for
+  however it spells `CONCURRENTLY`; a program that never says it reads nothing more. A row a
+  hand-written step of the same migration writes into the new table is in the build: a duplicate
+  there fails it the same way.
+- **`reset`** replays the whole history. A history holding a column rename conflicts with itself
+  there (`V5001`); `push` and `apply` are not affected.
+- **Concurrent commands** take a lock record, `viborm_migration_lock:command`, with a 15-minute lease:
+  a command that died releases it when the lease ends.
+
+## Limitations
+
+- A concurrent delete and insert can leave an orphan: `REFERENCE` is checked in each transaction's
+  own snapshot, and neither sees the other. See the
+  [SurrealDB driver](/docs/drivers/surrealdb#what-differs-from-sql) for what differs at query time.
+- Native enums do not exist: an enum is a `string`, whose values the client checks on its writes
+  and the database does not.
+
+## Next Steps
+
+- [SurrealDB driver](/docs/drivers/surrealdb): connecting, server settings, transactions
+- [Raw indexes](/docs/schema/model#rawindexname-templates): HNSW and other index kinds
+- [Push](/docs/migration/push) and [migrations](/docs/migration) overview

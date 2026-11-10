@@ -288,6 +288,47 @@ describe("normalizeDriverError fixtures", () => {
     expect(error.isRetryable()).toBe(true);
   });
 
+  test.each([
+    "NK013",
+    "NK316",
+    "XX000",
+  ])("keeps the SQLSTATE-shaped provider code %s, standard class or not", (code) => {
+    // PlanetScale Neki raises its own class (`RAISE … USING ERRCODE`): the
+    // code is what names the refusal when its text is redacted.
+    const error = normalizeDriverError(
+      Object.assign(new Error("refused"), { code }),
+      { driverName: "pg", dialect: "postgresql" }
+    );
+    expect(error).toMatchObject({
+      code: "V2001",
+      meta: { providerCode: code },
+    });
+    expect((error.cause as { code?: unknown }).code).toBe(code);
+  });
+
+  test.each([
+    "Connection terminated unexpectedly",
+    "Client has encountered a connection error and is not queryable",
+  ])("a PostgreSQL connection lost under a statement is a retryable ConnectionError: %s", (message) => {
+    // node-postgres gives these no code: unrecognized, they read as V2001.
+    const error = normalizeDriverError(new Error(message), {
+      driverName: "pg",
+      dialect: "postgresql",
+    });
+    expect(error).toMatchObject({
+      name: "ConnectionError",
+      code: VibORMErrorCode.CONNECTION_FAILED,
+    });
+    expect(error.isRetryable()).toBe(true);
+    // The message names nothing outside PostgreSQL's drivers.
+    expect(
+      normalizeDriverError(new Error(message), {
+        driverName: "sqlite3",
+        dialect: "sqlite",
+      })
+    ).toMatchObject({ name: "QueryError", code: "V2001" });
+  });
+
   test("strips D1's SQLITE_CONSTRAINT suffix from constraint columns", () => {
     const raw = new Error(
       "D1_ERROR: UNIQUE constraint failed: users.email: SQLITE_CONSTRAINT"

@@ -301,9 +301,24 @@ test("release reuses exact-main CI and retains artifact gates", () => {
       `${name} must limit checkout files`
     );
   }
-  for (const name of ["docs", "artifact"]) {
+  for (const name of ["docs", "artifact", "studio-artifact"]) {
     assert.ok(releaseJobs.get(name)?.includes("!/docs/architecture/"));
   }
+  // @viborm/studio: proven against the exact viborm tarball before anything
+  // is published, then published in its own approved job after viborm.
+  assert.ok(publishJob.includes("      - studio-artifact\n"));
+  assert.ok(
+    releaseJobs
+      .get("studio-artifact")
+      ?.includes("node scripts/release-studio.mjs artifact")
+  );
+  const studioJob = releaseJobs.get("publish-studio");
+  assert.ok(studioJob?.includes("      - publish\n"));
+  assert.ok(studioJob?.includes("name: npm-production"));
+  assert.ok(
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: a shell expansion in the workflow
+    studioJob?.includes('npm publish "./release-studio/${STUDIO_TARBALL}"')
+  );
 });
 // Without ./, npm parses release/<archive> as GitHub owner/repository shorthand.
 if (!/npm publish "\.\/release\/\$\{RELEASE_TARBALL\}"/.test(releaseWorkflow)) {

@@ -179,6 +179,14 @@ function serializeModel(
   if (state.tableName !== undefined) document.table = state.tableName;
   const indexes = serializeIndexes(state.indexes, path, issues);
   if (indexes.length > 0) document.indexes = indexes;
+  if (model["~"].rawIndexes.length > 0) {
+    addIssue(
+      issues,
+      pointer(path, "rawIndexes"),
+      "J009",
+      "This model declares a raw index — SQL the v1 document refuses to carry, for the reason it refuses a `where` predicate. Keep this schema in code"
+    );
+  }
   const ids = serializeCompound(state.compoundId);
   if (ids.length > 0) document.ids = ids;
   const uniques = serializeCompound(state.compoundUniques);
@@ -187,6 +195,7 @@ function serializeModel(
     // Canonical order: `omit` is a set spelled as an array.
     document.omit = Object.keys(state.omit).sort();
   }
+  if (model["~"].withoutRowid) document.withoutRowid = true;
   return document;
 }
 
@@ -535,7 +544,10 @@ function serializeRelation(
           type,
           target: resolveTargetKey(state.target.getter, schema, path, issues),
         },
-        state
+        state,
+        schema,
+        path,
+        issues
       );
   if (state.name !== undefined) document.name = state.name;
   return document;
@@ -543,7 +555,10 @@ function serializeRelation(
 
 function withModelTargetFacts(
   document: ModelTargetDocument,
-  state: RelationState
+  state: RelationState,
+  schema: Schema,
+  path: string,
+  issues: DocumentIssues
 ): ModelTargetDocument {
   const foreignKey = state.foreignKey;
   if (foreignKey !== undefined) {
@@ -560,6 +575,8 @@ function withModelTargetFacts(
   if (junction !== undefined) {
     const names: JunctionNamesDocument = {};
     if (junction.table !== undefined) names.table = junction.table;
+    if (junction.model !== undefined)
+      names.model = resolveTargetKey(junction.model, schema, path, issues);
     if (junction.source !== undefined) names.source = junction.source;
     if (junction.target !== undefined) names.target = junction.target;
     const onDelete = canonicalJunctionActions(junction.onDelete);

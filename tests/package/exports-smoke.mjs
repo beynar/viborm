@@ -102,7 +102,15 @@ function assertWorkerSafeBuiltGraph(exportNames) {
 }
 
 // `viborm/permissions` governs a Worker's client too: its graph is held to the same rule.
-assertWorkerSafeBuiltGraph([".", "./schema", "./d1", "./permissions"]);
+assertWorkerSafeBuiltGraph([
+  ".",
+  "./schema",
+  "./d1",
+  "./durable-object",
+  "./permissions",
+  "./on",
+  "./ordering",
+]);
 
 function requireRuntimeFunction(exportName, member) {
   const namespace = runtimeExports.get(exportName);
@@ -352,20 +360,62 @@ if (
     `Export ./permissions must raise the root's ClientInitializationError for a policy naming no schema model, got ${permissionsRefusal?.constructor?.name ?? "no refusal"}`
   );
 }
+requireRuntimeFunction("./on", "on");
+requireRuntimeFunction("./ordering/keys", "keyBetween");
+// `viborm/ordering/keys` is the key grammar alone, safe in a browser bundle:
+// its whole built graph is a few kilobytes, so it reaches no client module.
+{
+  const pending = [
+    resolve(repositoryRoot, packageJson.exports["./ordering/keys"].import),
+  ];
+  const visited = new Set();
+  let bytes = 0;
+  while (pending.length > 0) {
+    const file = pending.pop();
+    if (visited.has(file)) continue;
+    visited.add(file);
+    const source = readFileSync(file, "utf8");
+    bytes += source.length;
+    for (const [, specifier] of source.matchAll(staticModuleSpecifier)) {
+      if (!specifier.startsWith(".")) {
+        throw new Error(`Export ./ordering/keys imports ${specifier}`);
+      }
+      pending.push(resolve(dirname(file), specifier));
+    }
+  }
+  if (bytes > 8000) {
+    throw new Error(
+      `Export ./ordering/keys loads ${bytes} bytes over ${visited.size} files: it reaches more than the key grammar`
+    );
+  }
+}
 requireRuntimeFunction("./soft-delete", "softDelete");
-// `viborm/soft-delete` is built from public capabilities only: it reaches the
-// client through the `$extends` of the client it receives, so its runtime
-// module imports nothing and adds only its own bytes to an application.
-staticModuleSpecifier.lastIndex = 0;
-const softDeleteImports = [
-  ...readFileSync(
-    resolve(repositoryRoot, packageJson.exports["./soft-delete"].import),
-    "utf8"
-  ).matchAll(staticModuleSpecifier),
-].map((match) => match[1]);
-if (softDeleteImports.length > 0) {
+// `viborm/soft-delete` is built from public capabilities only, and raises the
+// library's own error (a marker that is not a nullable DateTime) from the
+// root's shared chunks: an instance of the class `viborm` exports.
+let softDeleteRefusal;
+try {
+  const { s } = runtimeExports.get(".");
+  const model = s.model({ id: s.string().id(), deletedAt: s.string() });
+  runtimeExports
+    .get("./soft-delete")
+    .softDelete({ models: { model: { deletedAt: "deletedAt" } } })({
+    $schema: { model },
+    $extends: () => {
+      throw new Error("the marker is checked before the definition applies");
+    },
+  });
+} catch (error) {
+  softDeleteRefusal = error;
+}
+if (
+  !(
+    softDeleteRefusal instanceof
+    runtimeExports.get(".").ClientInitializationError
+  )
+) {
   throw new Error(
-    `Export ./soft-delete must import nothing at runtime, found ${softDeleteImports.join(", ")}`
+    `Export ./soft-delete must raise the root's ClientInitializationError for a string marker, got ${softDeleteRefusal?.constructor?.name ?? "no refusal"}: ${softDeleteRefusal?.message}`
   );
 }
 

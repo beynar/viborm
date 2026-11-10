@@ -1,16 +1,20 @@
+import { adapterPinnedTable } from "@adapters/adapter-internals";
 import type { Operations } from "@client/types";
 import type { QueryExecutionContext } from "@drivers/types";
-import { NotFoundError } from "@errors";
+import { NotFoundError, UnsupportedOperationError } from "@errors";
+import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
 import { baseOperation } from "../../routed-operations";
 import type { PreparedBatchOperation } from "../../types";
-import {
-  type ExecutionBinding,
+import { renderers } from "../shared/insert-value";
+import type {
+  ExecutionBinding,
   OperationContext,
 } from "../shared/operation-context";
 import { admitProjected } from "../shared/projected";
 import type { Leaf, ProjectionShape, Read } from "../shared/query";
-import { PreparedDomain, Queries } from "../shared/query";
+import { PreparedDomain, type Queries } from "../shared/query";
+import { engineBackend } from "../shared/query-backend";
 import {
   type CallRows,
   type CallScope,
@@ -25,6 +29,8 @@ import {
   memo,
   type Operation,
 } from "../shared/schema";
+import { SqlOperationContext } from "../shared/sql-operation-context";
+import { SqlQueries } from "../shared/sql-queries";
 import { Commands, type PhysicalPlan } from "./commands";
 
 /**
@@ -120,6 +126,7 @@ export interface PreparedOperation {
 class PreparedCommand implements PreparedOperation {
   readonly #config: EngineConfig;
   readonly #schema: EngineSchema;
+  /** {@link Queries} itself, unless the driver supplies another language. */
   readonly #queries: Queries;
   readonly #operation: Operation;
   readonly #model: EngineConfig["schema"][string];
@@ -143,13 +150,8 @@ class PreparedCommand implements PreparedOperation {
     // The call's one instant lives with the prepared call, so a replan and
     // every occurrence it re-admits share it.
     let instant: Date | undefined;
-    const defaults = rows && preparedDomain(queries, rows.defaults);
-    this.#scope = rows && {
-      rows,
-      domain: preparedDomain(queries, rows.domain, defaults),
-      defaults: defaults!,
-      instant: () => (instant ??= new Date()),
-    };
+    this.#scope =
+      rows && callScope(queries, rows, () => (instant ??= new Date()));
     this.#config = config;
     this.#schema = schema;
     this.#queries = queries;
@@ -211,7 +213,11 @@ class PreparedCommand implements PreparedOperation {
     attribution?: QueryExecutionContext,
     binding?: ExecutionBinding
   ): OperationContext {
-    return new OperationContext(
+    const { backend } = this.#config.driver;
+    const Context = backend
+      ? engineBackend(backend).context
+      : SqlOperationContext;
+    return new Context(
       this.#schema,
       this.#config.driver,
       this.#modelName,
@@ -357,8 +363,29 @@ function preparedDomain(
   );
 }
 
+/** One call's row facts, its domains prepared for `queries`. */
+function callScope(
+  queries: Queries,
+  rows: CallRows,
+  instant: () => Date
+): CallScope {
+  const defaults = preparedDomain(queries, rows.defaults);
+  return {
+    rows,
+    domain: preparedDomain(queries, rows.domain, defaults),
+    defaults,
+    instant,
+  };
+}
+
 function sharedQueries(config: EngineConfig): Queries {
-  const { adapter, result } = config.driver;
+  const { adapter, result, backend } = config.driver;
+  const createQueries = (
+    ...args: ConstructorParameters<typeof SqlQueries>
+  ): Queries =>
+    backend
+      ? new (engineBackend(backend).queries)(...args)
+      : new SqlQueries(...args);
   const key = config.resolved?.registry;
   let shared = key && sharedEngines.get(key);
   if (!shared) {
@@ -372,11 +399,11 @@ function sharedQueries(config: EngineConfig): Queries {
   if (!byResult)
     shared.queries.set(adapter, (byResult = { parsers: new WeakMap() }));
   if (!result) {
-    return (byResult.none ??= new Queries(shared.schema, adapter, result));
+    return (byResult.none ??= createQueries(shared.schema, adapter, result));
   }
   let queries = byResult.parsers.get(result);
   if (!queries) {
-    queries = new Queries(shared.schema, adapter, result);
+    queries = createQueries(shared.schema, adapter, result);
     byResult.parsers.set(result, queries);
   }
   return queries;
@@ -388,6 +415,9 @@ export function createCommandEngine(config: EngineConfig) {
   // `baseDriver.adapter`), so the statement and shape prepared here are valid for
   // every binding of this driver's lineage.
   const queries = sharedQueries(config);
+  let byAdapter = renderers.get(config.schema);
+  if (!byAdapter) renderers.set(config.schema, (byAdapter = new WeakMap()));
+  byAdapter.set(config.driver.adapter, queries);
   const { schema } = queries;
   const prepare = (
     modelName: string,
@@ -404,5 +434,31 @@ export function createCommandEngine(config: EngineConfig) {
       rawArgs,
       rows
     );
-  return { prepare };
+  /**
+   * `$rows`: `model`'s rows a root read under `rows` takes, as a raw read's
+   * `FROM` item named `alias`. A model whose layers gate a field's reads is
+   * refused: `SELECT *` would disclose it to every row.
+   */
+  const rowsOf = (
+    model: AnyModel,
+    alias: string,
+    rows: CallRows | undefined,
+    instant: () => Date
+  ): Sql => {
+    if (config.driver.backend)
+      throw new UnsupportedOperationError("$rows() needs an SQL driver");
+    if (adapterPinnedTable(queries.adapter) === undefined)
+      throw new UnsupportedOperationError(
+        "$rows() needs a driver bound to its database (a MySQL namespace): a caller's CTE could otherwise stand for a table its rows read"
+      );
+    const scope = rows && callScope(queries, rows, instant);
+    const gated = scope?.domain.projected(model)?.gates;
+    if (gated !== undefined && gated.size > 0)
+      throw new UnsupportedOperationError(
+        `${model["~"].names.ts}.$rows() refuses read-gated fields: ${[...gated.keys()]}`
+      );
+    const view = (scope ? scope.domain.reads(scope) : queries) as SqlQueries;
+    return view.rowsOf(model, alias);
+  };
+  return { prepare, rowsOf };
 }

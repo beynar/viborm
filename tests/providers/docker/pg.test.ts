@@ -35,7 +35,7 @@ import {
 import { vectorContract } from "@tests/contracts/drivers/behaviors/vector-behavior";
 import { PgBatchForcedDriver } from "@tests/fixtures/drivers/batch-forced-pg";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 import { dropEveryLiveTable, TEST_CONNECTION_STRING } from "./pg-fixtures";
 
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
@@ -245,6 +245,68 @@ describeIf("pg Driver", () => {
 
       expect(result.rowCount).toBe(1);
     });
+  });
+
+  describe("Disconnecting", () => {
+    // pg-pool resolves end() once it has told its idle clients to close, not
+    // once their sockets have. A backend that dies in between (a terminated
+    // session, a server shutting down) reaches the pool through pg's own idle
+    // listener, after $disconnect() has returned. Unheard, it ended the process.
+    test("a backend that dies while its client closes is heard, not thrown", async () => {
+      const own = new PgDriver({ databaseUrl: TEST_CONNECTION_STRING });
+      const killer = new Pool({
+        connectionString: TEST_CONNECTION_STRING,
+        max: 1,
+      });
+      let release = () => undefined as void;
+      try {
+        await own._connect();
+        const pool = Reflect.get(own, "client") as Pool;
+        const opened = new Promise<PoolClient>((resolve) =>
+          pool.once("connect", resolve)
+        );
+        const { rows } = await own._executeRaw<{ pid: number }>(
+          "SELECT pg_backend_pid() AS pid"
+        );
+        // Its goodbye waits, so the socket is still open once end() resolved,
+        // as it was on a loaded runner.
+        const connection = Reflect.get(await opened, "connection") as {
+          end(): void;
+        };
+        const goodbye = connection.end.bind(connection);
+        const held = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        connection.end = () => {
+          held.then(goodbye);
+        };
+        const thrown: unknown[] = [];
+        let heard = () => undefined as void;
+        const reached = new Promise<void>((resolve) => {
+          heard = resolve;
+        });
+        const emit = pool.emit.bind(pool);
+        pool.emit = (event: string | symbol, ...args: unknown[]) => {
+          if (event !== "error") return emit(event, ...args);
+          heard();
+          try {
+            return emit(event, ...args);
+          } catch (error) {
+            thrown.push(error);
+            return false;
+          }
+        };
+
+        await own.disconnect();
+        await killer.query("SELECT pg_terminate_backend($1)", [rows[0]?.pid]);
+        await reached;
+
+        expect(thrown).toEqual([]);
+      } finally {
+        release();
+        await killer.end();
+      }
+    }, 30_000);
   });
 
   describe("Transactions", () => {

@@ -33,6 +33,11 @@ export class SavepointQueue {
   private head = 0;
   private processing = false;
 
+  /** Whether a job holds the queue (runs or waits to be flushed). */
+  get busy(): boolean {
+    return this.processing;
+  }
+
   /**
    * Enqueue a savepoint operation to be executed sequentially.
    * Operations enqueued in the same tick are batched and executed in order.
@@ -56,7 +61,14 @@ export class SavepointQueue {
           reject(wait.onMaxWaitExceeded());
         }, wait.maxWaitMs);
       }
-      this.queue.push(async () => {
+      // The job is chained HERE, so it runs in the async context of the call
+      // that queued it (its trace, its `AsyncLocalStorage` stores), not in
+      // the context of whichever call happens to drain the queue.
+      let start!: () => void;
+      const started = new Promise<void>((begin) => {
+        start = begin;
+      });
+      const done = started.then(async () => {
         if (timer) clearTimeout(timer);
         if (abandoned) return;
         try {
@@ -64,6 +76,10 @@ export class SavepointQueue {
         } catch (e) {
           reject(e);
         }
+      });
+      this.queue.push(() => {
+        start();
+        return done;
       });
       this.scheduleFlush();
     });

@@ -224,6 +224,12 @@ export interface StatementCompletionFacts {
   readonly failure?: Error;
   /** Failure evidence can serve tracing when core selected no log. */
   readonly skipLog?: true;
+  /**
+   * The statement failed and its owner recovered (a `findUnique` batch's
+   * shared read, whose callers each ran alone): no log, and its span ends
+   * without an error.
+   */
+  readonly recovered?: true;
 }
 
 export interface StatementFacts {

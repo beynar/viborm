@@ -179,7 +179,10 @@ export function lowLockStates(
   return { states, steps };
 }
 
-/** The index builds and keys of `operations` on tables it does not create. */
+/**
+ * The index builds and keys of `operations` on tables it does not create. A
+ * raw index is not one: its text is the author's, and it is built blocking.
+ */
 export function lowLockSteps(
   operations: readonly DiffOperation[]
 ): ReadonlySet<DiffOperation> {
@@ -189,7 +192,8 @@ export function lowLockSteps(
   return new Set(
     operations.filter(
       (op) =>
-        (op.type === "createIndex" || op.type === "addForeignKey") &&
+        ((op.type === "createIndex" && !op.index.raw) ||
+          op.type === "addForeignKey") &&
         !created.has(op.tableName)
     )
   );
@@ -535,16 +539,18 @@ export function compileTrustedCheck(
 export function sealParent(
   fromState: string | null,
   compiled: CompiledTransition,
-  approvals: readonly MigrationApprovalV1[] = []
+  approvals: readonly MigrationApprovalV1[] = [],
+  adopts: readonly string[] = []
 ): Omit<MigrationParentTransitionV1, "transitionHash"> {
-  const parent = {
+  return {
     fromState,
     originChecks: compiled.originChecks,
     requestedForwardBoundary: compiled.requestedForwardBoundary,
     operations: compiled.operations,
     rollback: compiled.rollback,
+    ...(approvals.length === 0 ? {} : { approvals }),
+    ...(adopts.length === 0 ? {} : { adopts }),
   };
-  return approvals.length === 0 ? parent : { ...parent, approvals };
 }
 
 export function hashParent(
@@ -753,9 +759,11 @@ function isNonTransactionalSql(driver: MigrationDriver, sql: string): boolean {
 
 export function classifyGeneratedAtomicity(
   driver: MigrationDriver,
-  operations: readonly DiffOperation[]
+  operations: readonly DiffOperation[],
+  reset?: boolean
 ): AtomicityClass {
-  if (driver.dialect === "mysql") return "stepwise";
+  if (driver.dialect === "mysql" || driver.buildsApart?.(operations, reset))
+    return "stepwise";
   if (
     operations.some(
       (operation) =>
@@ -808,15 +816,17 @@ export function classifyStoredAtomicity(
   operations: readonly MigrationOperationV1[],
   blob?: Uint8Array
 ): AtomicityClass {
-  if (requested === "transactional") {
-    if (driver.dialect === "mysql") {
-      throw new MigrationError(
-        "This provider cannot honor a transactional manual boundary",
-        VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER
-      );
-    }
-    return "transactional";
+  if (requested === "transactional" && driver.dialect === "mysql") {
+    throw new MigrationError(
+      "This provider cannot honor a transactional manual boundary",
+      VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER
+    );
   }
+  // Neki refuses any statement after a schema change in its transaction, a
+  // control write included: there every step commits alone, as before an
+  // edge whose statements needed a commit was already cut into parts.
+  if (driver.commitsSchemaChangesAlone()) return "stepwise";
+  if (requested === "transactional") return "transactional";
   if (requested === "stepwise") return "stepwise";
   if (driver.dialect === "mysql") return "stepwise";
   if (

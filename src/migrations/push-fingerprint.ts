@@ -57,7 +57,11 @@ export async function pushTargetIdentity(
       database: driver.namespace,
     };
   }
-  return { dialect: "sqlite", location: null };
+  return (
+    (await driver.pushTarget?.((sql, params) =>
+      producer._executeRaw(sql, params)
+    )) ?? { dialect: "sqlite", location: null }
+  );
 }
 
 export function hashSnapshot(snapshot: SchemaSnapshot): Sha256 {
@@ -190,16 +194,24 @@ export function fingerprintSnapshot(
             ...(driver.dialect === "postgresql"
               ? { name: table.primaryKey.name || `${table.name}_pkey` }
               : {}),
+            // Present only where set, so every other key hashes as before.
+            ...(table.primaryKey.withoutRowid ? { withoutRowid: true } : {}),
           }
         : null,
       indexes: table.indexes
-        .map((index) => ({
-          name: index.name,
-          columns: index.columns,
-          unique: index.unique ?? false,
-          type: index.type ?? "btree",
-          where: index.where?.trim() || null,
-        }))
+        .map((index) =>
+          // A raw index is its text: what the database calls its method, its
+          // uniqueness or its predicate is the text's, and the hash says it.
+          index.raw
+            ? { name: index.name, raw: index.raw.hash, columns: index.columns }
+            : {
+                name: index.name,
+                columns: index.columns,
+                unique: index.unique ?? false,
+                type: index.type ?? "btree",
+                where: index.where?.trim() || null,
+              }
+        )
         .sort(byName),
       foreignKeys: table.foreignKeys
         .map((foreignKey) => ({

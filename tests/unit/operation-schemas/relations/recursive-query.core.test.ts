@@ -180,6 +180,52 @@ describe("recursive relation admission", () => {
     });
   });
 
+  test("carries a stated fewRows on both topologies; false is unstated", () => {
+    expect(
+      parse(schemas.node.relations.parent.include, {
+        recurse: { depth: false, fewRows: true },
+      })
+    ).toMatchObject({
+      value: { recurse: { depth: false, cycles: "reject", fewRows: true } },
+    });
+    expect(
+      parse(schemas.graphNode.relations.links.include, {
+        recurse: { fewRows: true, maxOccurrences: 50 },
+      })
+    ).toMatchObject({
+      value: {
+        recurse: {
+          depth: 100,
+          cycles: "prevent",
+          maxOccurrences: 50,
+          fewRows: true,
+        },
+      },
+    });
+    const unstated = parse(schemas.node.relations.children.include, {
+      recurse: { depth: 2, fewRows: false },
+    });
+    expect(unstated).toMatchObject({
+      value: { recurse: { depth: 2, cycles: "reject" } },
+    });
+    expect(unstated).not.toHaveProperty("value.recurse.fewRows");
+    expect(
+      parse(schemas.node.relations.children.include, {
+        recurse: { fewRows: "yes" },
+      }).issues
+    ).toBeDefined();
+  });
+
+  test("refuses a selectivity, which only a filter's walk states", () => {
+    for (const include of [
+      schemas.node.relations.children.include,
+      schemas.graphNode.relations.links.include,
+    ])
+      expect(
+        parse(include, { recurse: { depth: false, selective: true } }).issues
+      ).toBeDefined();
+  });
+
   test.each([
     0,
     -1,

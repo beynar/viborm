@@ -164,6 +164,9 @@ const MYSQL_LOCK_FUNCTIONS = new Set([
 
 /** The tag body of a PostgreSQL dollar quote: `$tag$`. */
 const DOLLAR_TAG_PART = /[A-Za-z0-9_]/;
+const WORD_START = /[A-Za-z_]/;
+const WORD_PART = /\w/;
+const WHITESPACE = /\s/;
 /** The optional server-version prefix of a MySQL executable comment. */
 const VERSION_DIGIT = /[0-9]/;
 
@@ -690,6 +693,14 @@ function refuse(
   );
 }
 
+const SURREAL_QUOTES: Readonly<Record<string, string>> = {
+  "'": "'",
+  '"': '"',
+  "`": "`",
+  "\u27E8": "\u27E9",
+};
+const SURREAL_TRANSACTION_WORDS = new Set(["BEGIN", "COMMIT", "CANCEL"]);
+
 /**
  * Refuses an artifact that DIRECTLY reframes the execution boundary.
  *
@@ -702,15 +713,104 @@ export function assertArtifactExecutionSafe(
   dialect: MigrationTarget["dialect"],
   artifact: string
 ): void {
+  if (dialect === "surrealql") {
+    for (const chunk of statements) assertSurrealStatementSafe(chunk, artifact);
+    return;
+  }
+  const sqlDialect = dialect as ClassifiedDialect;
   for (const chunk of statements) {
-    const scanned = scanStatements(chunk, dialect);
+    const scanned = scanStatements(chunk, sqlDialect);
     if (dialect === "sqlite" && isSqliteTrigger(scanned[0])) {
       continue;
     }
     for (const words of scanned) {
-      classifyOne(words, chunk, dialect, artifact);
+      classifyOne(words, chunk, sqlDialect, artifact);
     }
   }
+}
+
+/**
+ * SurrealQL's own lexical grammar, kept apart from SQL's: a comment is `--`, `//`, `#`
+ * or a block, a string or a name is quoted four ways, and a block is `{ … }`.
+ * `visit` sees each bare word, uppercased, whether it opens its statement, and
+ * how deep in brackets it stands; `end` sees each top-level `;`.
+ */
+function scanSurreal(
+  chunk: string,
+  visit: (word: string, atStart: boolean, depth: number) => void,
+  end: () => void = () => undefined
+): void {
+  let depth = 0;
+  let atStart = true;
+  for (let index = 0; index < chunk.length; ) {
+    const char = chunk.charAt(index);
+    const two = chunk.slice(index, index + 2);
+    if (two === "--" || two === "//" || char === "#") {
+      const close = chunk.indexOf("\n", index);
+      index = close < 0 ? chunk.length : close + 1;
+      continue;
+    }
+    if (two === "/*") {
+      const close = chunk.indexOf("*/", index + 2);
+      index = close < 0 ? chunk.length : close + 2;
+      continue;
+    }
+    const closing = SURREAL_QUOTES[char];
+    if (closing) {
+      index += 1;
+      while (index < chunk.length && chunk.charAt(index) !== closing)
+        index += chunk.charAt(index) === "\\" ? 2 : 1;
+      index += 1;
+      atStart = false;
+      continue;
+    }
+    if (char === "(" || char === "[" || char === "{") depth += 1;
+    else if (char === ")" || char === "]" || char === "}") depth -= 1;
+    if (char === ";" && depth === 0) {
+      atStart = true;
+      end();
+      index += 1;
+      continue;
+    }
+    if (WORD_START.test(char)) {
+      let stop = index + 1;
+      while (stop < chunk.length && WORD_PART.test(chunk.charAt(stop)))
+        stop += 1;
+      visit(chunk.slice(index, stop).toUpperCase(), atStart, depth);
+      atStart = false;
+      index = stop;
+      continue;
+    }
+    if (!WHITESPACE.test(char)) atStart = false;
+    index += 1;
+  }
+}
+
+/** A transaction control at the top level would end the boundary the command opened. */
+function assertSurrealStatementSafe(chunk: string, artifact: string): void {
+  scanSurreal(chunk, (word, atStart, depth) => {
+    if (atStart && depth === 0 && SURREAL_TRANSACTION_WORDS.has(word))
+      throw refuse(
+        artifact,
+        chunk,
+        `the transaction-control statement "${word}", which would end the transaction the command runs it in`
+      );
+  });
+}
+
+/**
+ * The executable bare words of a SurrealQL chunk, grouped per top-level
+ * statement: what {@link readExecutableStatements} is for SQL. A quoted name,
+ * a string and a comment hold none.
+ */
+export function readSurrealStatements(chunk: string): string[][] {
+  const statements: string[][] = [[]];
+  scanSurreal(
+    chunk,
+    (word) => statements.at(-1)!.push(word),
+    () => statements.push([])
+  );
+  return statements.filter((words) => words.length > 0);
 }
 
 /**

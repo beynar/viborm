@@ -45,7 +45,7 @@ BC spelling rather than asking the server to parse unsupported ISO year `0000`.
 import { s } from "viborm";
 
 const user = s.model({
-  id: s.int().id().autoIncrement(),
+  id: s.int().id().increment(),
   status: s.enum(["active", "inactive"]).name("user_status"),
 }).map("users");
 ```
@@ -71,9 +71,18 @@ the same transaction refuses its added values until they commit.
 Removing or reordering values replaces the type in one transaction: dependent
 columns are cast through text, defaults are dropped first and restored after,
 and every table using the enum is rewritten. Any replacement (a removal, a
-reorder, or a new value used in the same migration) is blocked by a view, rule,
-CHECK constraint or partial-index predicate over such a column; drop it first
-and recreate it afterwards.
+reorder, or a new value used in the same migration) is blocked by a view, rule
+or partial-index predicate over such a column; drop it first and recreate it
+afterwards.
+
+`push` keeps the CHECK constraints on those columns: it reads them from the
+database, drops them before the columns become text and adds them back once
+they are the enum again, under the same name and definition (`NOT VALID`
+included), in the same transaction. The preview shows both statements. A CHECK
+naming a value being removed cannot come back, so the plan is refused, naming
+the constraint: drop or rewrite it first. `generate` reads no database and
+cannot see a CHECK, so a generated replacement is still blocked by one; drop
+it before applying and recreate it afterwards.
 
 Removed values require explicit per-column mappings, including nullable columns.
 `useNull()` is a deliberate decision. Enum arrays preserve their order and NULL
@@ -266,28 +275,39 @@ Neki differences shape how:
   `to_regclass('…')` or `'…'::regclass`, still answers for the committed
   schema.
 
-`apply()` commits where Neki needs it, and only there:
+Some Neki routers go further (`checkTaint`, met on a production branch while
+its `pre-prod` branch accepted the same reset): once a transaction changed the
+schema, they refuse to plan any statement against any relation, VibORM's own
+writes to `_viborm_migration_log` and `_viborm_migration_state` included
+(`NK013`, "[817] Planning against relation … is unavailable: earlier DDL in
+this transaction is not reflected in the router's schema view"). A schema
+change and its record cannot then commit together, so since 1.5.1 every
+migration command on Neki (`apply`, `down`, `reset`, `resolve`, `push`) runs
+stepwise, on any router: no transaction is opened, each statement commits
+alone, and each step's ledger record (announced before an unproven step,
+answered after it) and the marker move run as statements of their own.
 
-- States that follow each other share a transaction until one would read a
-  change an earlier one made (a data state after a schema state, a check
-  that reads a new column). That state starts the next transaction, after
-  the earlier ones committed and the marker moved.
-- A state whose own statements need a commit inside it, such as a manual
-  transition that adds a column and then fills it, runs as committed parts.
-  Its first part runs the origin checks and opens the state's ledger
-  attempt; each part records its steps (`step-confirmed`) in the
-  transaction they ran in; its last part runs the destination checks, proves
-  the state and moves the marker. Between two parts the application can see
-  the intermediate schema.
-- If a later part fails, the marker stays on the previous state and the
-  attempt stays open: `status()` reports `unfinished: true`, other commands
-  refuse to start (`V11016`), and the next `apply()` resumes it, running only
-  the parts that did not commit. `apply({ dryRun: true })` previews those.
-  A failure in the first part leaves nothing behind, as on PostgreSQL.
+- A data statement after a schema change it depends on, such as a manual
+  transition that adds a column and then fills it, therefore always sees the
+  change. Between two statements the application can see the intermediate
+  schema.
+- If a statement fails, what committed stays: the marker stays on the
+  previous state and the attempt stays open. `status()` reports
+  `unfinished: true` and other commands refuse to start (`V11016`). A
+  `reset()` resumes from its stored plan. For `apply()`, a manual statement
+  the server refused whole is re-run by the next `apply()` (previewed by
+  `apply({ dryRun: true })`), never what committed; any other failure (a
+  generated statement, a check, a lost connection) is resumed with
+  `resolve({ outcome: "retry" })`, or closed with
+  `resolve({ outcome: "complete" })` when the destination already holds.
 - Two statements of one dispatch (one `sql` fragment such as
-  `ALTER TABLE …; UPDATE …`) cannot be divided: a migration that needs a
-  commit between them is refused before any effect (`V11021`, naming both).
-  Write them as two `sql` fragments.
+  `ALTER TABLE …; UPDATE …`) run as one request, which no commit divides: a
+  migration that needs a commit between them is refused before any effect
+  (`V11021`, naming both). Write them as two `sql` fragments.
+- An `execution: "transactional"` transition is run stepwise too: Neki cannot
+  commit it with its record.
+- `push()` keeps no ledger: a failed push leaves what committed, as a failed
+  stepwise migration would without its resume.
 
 ```ts
 await migrations.generate({
@@ -306,20 +326,16 @@ await migrations.generate({
     ],
   },
 });
-await migrations.apply(); // two committed parts on Neki, one transaction elsewhere
+await migrations.apply(); // each statement committed alone on Neki, one transaction elsewhere
 ```
 
-Which relation a data statement reads cannot be told from its text (a
-function, a view, a literal such as `nextval('…')` can reach any), so on Neki
-any data statement after a change it needs committed gets the commit. A
-statement position in a refusal counts the transitions' checks with their
-statements. `down`, `reset`, `resolve({ outcome: "retry" })` and `push` run
-their program in one transaction: on Neki they refuse a program whose
-statements would need a commit (`V11021`) before any effect; apply its states
-with `apply()` instead. They read their statements, not their checks: a check
-that needs a commit after a statement fails inside the transaction, which
-rolls back. A `DO` block's own schema changes cannot be read from its text
-either: a column change of a table one created fails the same way (`NK316`).
+Before 1.5.1, `apply()` ran states in transactions and committed only where a
+statement needed it, recording each step in the transaction it ran in, and
+`down`, `reset`, `resolve({ outcome: "retry" })` and `push` ran their program
+in one transaction: on a router that enforces `checkTaint` they all failed at
+their first record after a schema change. A `DO` block's own schema changes
+cannot be read from its text: a column change of a table one created fails
+(`NK316`).
 
 Neki refuses a session advisory lock and a transaction advisory lock in the
 same session (`NK013`, "Mixing session and transaction advisory locks is
@@ -339,25 +355,35 @@ in the same `apply()` as transactional ones. 1.2.2 refused them with
 A catalog read the server refuses fails with `V11001` and names itself and its
 SQLSTATE, for example `PostgreSQL catalog query "indexes" failed with SQLSTATE
 0A000`, instead of reporting control tables that cannot be authenticated. The
-SQLSTATE is in `meta.providerSqlState`. The server's own message is not: drivers
-redact provider messages, and migration commands do not run under the
+SQLSTATE is in `meta.providerSqlState`. The server's own message is redacted
+unless the client handed to `createMigrationClient` was extended with the
 [instrumentation](/docs/extensions/instrumentation) extension's
-`diagnostics.includeProviderDetails`, which opts query errors into them.
+`diagnostics.includeProviderDetails`: since 1.5.1 a migration command discloses
+its failures as its client's `diagnostics` allow, `includeSql` included.
+PlanetScale Neki's own codes (`NK013`, `NK316`, …) are kept in
+`meta.providerCode` like standard SQLSTATEs.
 
 ## Native index and constraint fidelity
 
 Indexes with expressions, descending keys, INCLUDE columns, `NULLS NOT DISTINCT`,
 nondefault opclasses or collations, or methods outside the declaration language
-refuse synchronization
-while their table is managed. VibORM preserves the existing artifact and refuses
-before effects; it does not turn a hand-authored HNSW or trigram index into an
-ordinary index. Excluding the table through `migrations.tables` requires the same
-closed dependency boundary as any selected scope.
+are declared with [`.rawIndex()`](/docs/schema/model#rawindexname-templates).
+VibORM writes its marker as the index's comment (`COMMENT ON INDEX`, a statement
+of its own with its own stepwise probe) and recognizes the index by it, whatever
+its method or structure; the one-statement catalog digest projects it too. A
+raw index is never built `CONCURRENTLY`.
+
+Any other such index refuses synchronization while its table is managed.
+VibORM preserves the existing artifact and refuses before effects; it does not
+turn a hand-authored HNSW or trigram index into an ordinary index, nor adopt it
+as a raw one (it carries no marker): drop it, and declare it. Excluding the table
+through `migrations.tables` requires the same closed dependency boundary as any
+selected scope.
 
 Equivalent primary, unique and foreign-key constraints whose physical names
 cannot be represented also refuse adoption before effects. Compound-key `name`
 is a query selector name; no physical constraint-name declaration is available.
-A faithful importer/native-index DSL remains a product gap.
+There is no importer for hand-made indexes.
 
 Vector migrations require `pgvector: true` and prove every required visible
 extension-owned vector type before effects. Install the extension yourself;

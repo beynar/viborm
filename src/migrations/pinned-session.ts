@@ -8,8 +8,16 @@
  * the bound migration driver.
  */
 
-import type { AnyDriver } from "../drivers/driver";
+import type {
+  AnyDriver,
+  MigrationFrame,
+  MigrationFrameDriver,
+} from "../drivers/driver";
 import { normalizeDriverError } from "../drivers/error-mapping";
+import {
+  createExecutionContext,
+  snapshotExecutionContext,
+} from "../drivers/execution-context";
 import {
   CLEANUP_BOUND_MS,
   leasePinnedCommand,
@@ -23,12 +31,15 @@ import { runTransactionLifecycle } from "../drivers/shared/transactions";
 import type { BatchQuery, QueryExecutionContext } from "../drivers/types";
 import {
   ConnectionError,
+  type DiagnosticDisclosure,
   FeatureNotSupportedError,
   MigrationError,
   VibORMError,
   VibORMErrorCode,
 } from "../errors";
 import { errorCause } from "../errors/diagnostic-safety";
+import type { ResolvedExtensionChain } from "../extensions/chain";
+import { registerOfficialInstrumentationChain } from "../extensions/observation";
 import type { BoundMigrationDriver } from "./drivers";
 import { providerFacts, providerRefused } from "./execute-dispatch";
 import { liftForeignKeyPragmas, withForeignKeysLifted } from "./foreign-keys";
@@ -182,6 +193,8 @@ export interface PinnedSessionScope {
   readonly connectionWait: number;
   readonly limits?: PostgresSessionLimits | undefined;
   readonly session?: () => Promise<PinnedSessionReservation<unknown>>;
+  /** The command's `diagnostics`, disclosed by every statement of the session. */
+  readonly diagnostics?: DiagnosticDisclosure | undefined;
 }
 
 /** The statements that impose, lift and reset one PostgreSQL session's limits. */
@@ -243,7 +256,8 @@ export async function withPinnedSession<D extends AnyDriver, T>(
       driver,
       reservation.session,
       control,
-      limits
+      limits,
+      scope.diagnostics
     );
 
     // Converted only when the failure IS the loss: a failure the command hit
@@ -439,6 +453,41 @@ function connectionWaitError(driverName: string, ms: number): ConnectionError {
   );
 }
 
+const NO_HANDLERS = Object.freeze({
+  global: Object.freeze([]),
+  models: Object.freeze({}),
+});
+
+/**
+ * A chain of no extension whose official capability is `diagnostics` alone:
+ * a driver discloses a failure as an official instrumentation says, and this
+ * one has no observer, transform or row scope of the client's to bring.
+ */
+function disclosingChain(
+  diagnostics: DiagnosticDisclosure
+): ResolvedExtensionChain {
+  const chain: ResolvedExtensionChain = Object.freeze({
+    extensions: Object.freeze([]),
+    hasCache: false,
+    hasRequestHandlers: false,
+    hasQueryHandlers: false,
+    request: NO_HANDLERS,
+    query: NO_HANDLERS,
+    statement: Object.freeze([]),
+    observe: Object.freeze([]),
+  });
+  registerOfficialInstrumentationChain(
+    chain,
+    Object.freeze({
+      observesLifecycle: false,
+      diagnostics,
+      wants: () => false,
+      warn: () => false,
+    })
+  );
+  return chain;
+}
+
 /**
  * This driver, viewed with its client pinned to one reserved session: the
  * same driver in every other respect, with the transport assertion forwarded
@@ -448,9 +497,20 @@ function createPinnedSessionView<D extends AnyDriver>(
   driver: D,
   session: unknown,
   control: PinnedSessionControl,
-  limits: PostgresSessionLimits | undefined
+  limits: PostgresSessionLimits | undefined,
+  diagnostics: DiagnosticDisclosure | undefined
 ): D {
   const view: D = Object.create(driver);
+  // The session's statements, its transactions' included, disclose failures
+  // as the command's client does: only its `diagnostics`, not its chain.
+  if (diagnostics !== undefined) {
+    Object.defineProperty(view, "boundContext", {
+      value: snapshotExecutionContext(
+        createExecutionContext({}, undefined, disclosingChain(diagnostics)),
+        driver["boundContext"]
+      ),
+    });
+  }
   const support = driver["transactionOptionSupport"]();
   const executeRaw = driver["executeRaw"];
   const beforeForeignKeysOff = driver["beforeForeignKeysOff"];
@@ -506,9 +566,16 @@ function createPinnedSessionView<D extends AnyDriver>(
             throw failure;
           }
         };
-        return locked === undefined
-          ? run()
-          : run().catch((failure: unknown) => locked.failed(failure));
+        // Awaited, never returned or chained: `run` and `failed` can reject
+        // before an `async` frame or a `.catch` adopts their promise a
+        // microtask later, which workerd's process emulation reports as
+        // unhandled (`nodejs-compat-rejections.test.ts`).
+        try {
+          return await run();
+        } catch (failure) {
+          if (locked === undefined) throw failure;
+          return await locked.failed(failure);
+        }
       },
     },
     // The lease holds the queue for the whole session, so there is no queue
@@ -592,14 +659,17 @@ export function withLockedMigrationProducer<T>(
 ): Promise<T> {
   const { dialect } = migrationDriver.target;
   const limits = migrationDriver.limits;
-  const lockFree = migrationLockFree(migrationDriver);
   const run = async (producer: AnyDriver) =>
     body(
       producer,
       await validateAndSelectMigrationTarget(producer, migrationDriver)
     );
+  if (migrationDriver.holdLock)
+    return migrationDriver.holdLock(driver, limits.lockWait, () => run(driver));
+  const lockFree = migrationLockFree(migrationDriver);
   const scope: PinnedSessionScope = {
     connectionWait: limits.connectionWait,
+    diagnostics: migrationDriver.diagnostics,
     limits:
       dialect === "postgresql" ? postgresSessionLimits(limits) : undefined,
     session:
@@ -725,6 +795,25 @@ interface LockedTransactions {
 
 const LOCKED = new WeakMap<object, LockedTransactions>();
 
+/**
+ * A frame from the driver the capability says opens them. A declaration that
+ * claims frames without the hook would lock nothing, so it is refused here,
+ * before the command's first statement.
+ */
+function openFrame(driver: AnyDriver): Promise<MigrationFrame> {
+  if (!opensFrames(driver))
+    throw new MigrationError(
+      `The SQLite driver "${driver.driverName}" declares \`exclusion: "frame"\` and implements no \`openMigrationFrame()\`, so no migration lock can be taken.`,
+      VibORMErrorCode.DRIVER_NOT_SUPPORTED,
+      { meta: { driver: driver.driverName } }
+    );
+  return driver.openMigrationFrame();
+}
+const opensFrames = (
+  driver: AnyDriver
+): driver is AnyDriver & MigrationFrameDriver =>
+  typeof Reflect.get(driver, "openMigrationFrame") === "function";
+
 /** The switch SQLite ignores inside a transaction; its read form runs anywhere. */
 const FOREIGN_KEYS_SWITCH = /^\s*PRAGMA\s+foreign_keys\s*=/i;
 
@@ -735,10 +824,24 @@ function lockTransactions(
   limits: PostgresSessionLimits | undefined
 ): LockedTransactions {
   const sqlite = migrationDriver.target.dialect === "sqlite";
+  // `exclusion: "frame"`: the driver's platform transaction is the lock, and
+  // it stands where the statements below would be sent.
+  const frames =
+    migrationDriver.sqliteMigrationCapability?.exclusion === "frame";
   // The protocol's own statements, on the same session, past `before`.
   const direct: AnyDriver = Object.create(pinned);
   const run = <T = Record<string, unknown>>(sql: string) =>
     direct._executeRaw<T>(sql);
+  let frame: MigrationFrame | undefined;
+  const end = async (outcome: "commit" | "rollback"): Promise<void> => {
+    if (frame === undefined) {
+      await run(outcome === "commit" ? "COMMIT" : "ROLLBACK");
+      return;
+    }
+    const settled = frame;
+    frame = undefined;
+    await settled[outcome]();
+  };
   let open = false;
   let sessionLocked = false;
   // Held from the command's start (`hold`): each committed group still ends
@@ -753,17 +856,24 @@ function lockTransactions(
     if (!open) return;
     open = false;
     continuous &&= sessionLocked && !heldAlone;
-    if (control.lost()) return;
-    await control.cleanup(() => run("ROLLBACK"));
+    // A frame is the driver's own pending transaction, not a statement on the
+    // connection: left unsettled, it would hold every later statement.
+    if (control.lost() && frame === undefined) return;
+    await control.cleanup(() => end("rollback"));
   };
   const commit = async (): Promise<void> => {
-    await run("COMMIT");
+    await end("commit");
     open = false;
     continuous &&= sessionLocked && !heldAlone;
   };
   // SQLite's lock IS its BEGIN IMMEDIATE: `lockWait` bounds that one
   // statement's busy wait, then the connection's own timeout is restored.
+  // A frame has no wait to bound: the driver's queue lease is already held.
   const beginImmediate = async (): Promise<void> => {
+    if (frames) {
+      frame = await openFrame(direct);
+      return;
+    }
     const [own] = (await run<{ timeout: unknown }>("PRAGMA busy_timeout")).rows;
     await run(`PRAGMA busy_timeout = ${migrationDriver.limits.lockWait}`);
     try {
@@ -823,7 +933,7 @@ function lockTransactions(
       if (held) return;
       // Nothing was read under a lock never held: not a gap in `continuous`.
       open = false;
-      await control.cleanup(() => run("ROLLBACK"));
+      await control.cleanup(() => end("rollback"));
       do {
         await wait();
       } while (!(await lockHeld(direct, migrationDriver, control, tryLock)));
@@ -1175,6 +1285,8 @@ export function mayWrapTransaction(
  * {@link mayWrapTransaction} admits one, SQLite's foreign-key pragmas lifted
  * around it (a recreation is refused where nothing can lift them), and
  * directly otherwise; without one, directly. `atomic` tells the body which.
+ * Once a given program has committed, what it left building is waited for
+ * (`awaitIndexBuilds`), the lock still held.
  * `phase` records how far a transaction got: past its body and checks
  * (`committing`), past its COMMIT (`committed`), for a caller that classifies
  * a failure at COMMIT (plan S3).
@@ -1199,8 +1311,27 @@ export async function runProgram<T>(
   }
   if (!program) return body(pinned, false);
   const { bracket } = liftForeignKeyPragmas(pinned, program.statements);
-  if (!mayWrapTransaction(pinned, dialect, program.transactional)) {
-    return body(pinned, false);
+  // What the program builds in the background, once it has committed.
+  const settle = () => command.awaitIndexBuilds?.(pinned, program.statements);
+  // Neki refuses any statement after a schema change in its transaction:
+  // the body's own ledger and marker writes run outside one.
+  if (
+    !mayWrapTransaction(
+      pinned,
+      dialect,
+      program.transactional && !command.commitsSchemaChangesAlone()
+    )
+  ) {
+    // A statement that fails leaves the ones before it committed, builds too:
+    // they are waited for, and the statement's failure stays the one reported.
+    const result = await body(pinned, false).catch(async (failure) => {
+      await settle()?.catch((wait) => {
+        throw withSuppressedFailure(failure, wait);
+      });
+      throw failure;
+    });
+    await settle();
+    return result;
   }
   const { phase } = program;
   return withForeignKeysLifted(pinned, bracket, async (inside) => {
@@ -1212,6 +1343,7 @@ export async function runProgram<T>(
       return value;
     });
     if (phase) phase.committed = true;
+    await settle();
     return result;
   });
 }
@@ -1389,6 +1521,7 @@ async function releaseLock(
 function describeEstate(migrationDriver: BoundMigrationDriver): string {
   const { target } = migrationDriver;
   if (target.dialect === "sqlite") return "the SQLite database";
+  if (target.dialect === "surrealql") return "the SurrealDB database";
   return target.dialect === "postgresql"
     ? `schema "${target.namespace}"`
     : `database "${migrationDriver.namespace ?? "(unbound)"}"`;

@@ -100,6 +100,14 @@ export interface MigrationParentTransitionV1 {
    * and the ids it had before approvals existed.
    */
   readonly approvals?: readonly MigrationApprovalV1[];
+  /**
+   * The existing tables this transition adopts: tables of its state that its
+   * parent lacks, which it creates no DDL for. Apply proves each live table
+   * equals its declaration before the marker moves. Present, non-empty,
+   * sorted and part of `transitionHash` only when the transition adopts one,
+   * so a transition without one keeps its bytes and ids.
+   */
+  readonly adopts?: readonly string[];
 }
 
 export interface MigrationStateManifestV1 {
@@ -108,9 +116,34 @@ export interface MigrationStateManifestV1 {
   readonly name: string;
   readonly stateId: Sha256;
   readonly snapshotHash: Sha256;
+  /** Exact stored delta bytes; absent for a full snapshot document. */
+  readonly snapshotArtifactHash?: Sha256;
   readonly sqlHash: Sha256;
   readonly destinationChecks: readonly MigrationBooleanCheckV1[];
   readonly parents: readonly MigrationParentTransitionV1[];
+}
+
+/**
+ * `snapshot-delta-1` sets a path, appends at an array's length, or removes a
+ * key or an array's final element. `snapshot-delta-2` adds `insert` at an
+ * array index and lets `remove` take any array index; generation writes only
+ * delta-2, and both stay readable.
+ */
+export type SnapshotChangeV1 =
+  | {
+      readonly op: "set" | "insert";
+      readonly path: readonly (string | number)[];
+      readonly value: unknown;
+    }
+  | { readonly op: "remove"; readonly path: readonly (string | number)[] };
+
+export type SnapshotDeltaFormat = "snapshot-delta-1" | "snapshot-delta-2";
+
+export interface SnapshotDeltaV1 {
+  readonly format: SnapshotDeltaFormat;
+  readonly baseArtifactHash: Sha256;
+  readonly snapshotHash: Sha256;
+  readonly changes: readonly SnapshotChangeV1[];
 }
 
 export interface MigrationSqlRangeV1 {
@@ -275,6 +308,15 @@ export interface ResolveV1Options {
 
 export interface GenerateV1Options {
   readonly name?: string;
+  /**
+   * Existing tables this state adopts into an estate with a `tables` list:
+   * each is declared by the schema, listed by the client, absent from every
+   * parent's snapshot and from the estate's own frozen list. The transition
+   * runs no DDL for it; apply proves the live table equals its declaration
+   * (columns, keys, indexes, foreign keys, `WITHOUT ROWID`) before the marker
+   * moves, and `down` releases it, rows kept.
+   */
+  readonly adopt?: readonly string[];
   /** Full parent state id, or `null` for the virtual empty root. */
   readonly from?: Sha256 | null;
   readonly dryRun?: boolean;
@@ -391,6 +433,10 @@ export type PushTargetIdentity =
     }
   | {
       readonly dialect: "mysql";
+      readonly database: string;
+    }
+  | {
+      readonly dialect: "surrealql";
       readonly database: string;
     }
   | {

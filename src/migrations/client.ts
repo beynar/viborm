@@ -1,9 +1,11 @@
 /** One capability-sensitive migration client composition root. */
 
+import { CLIENT_DIAGNOSTICS } from "../drivers/execution-context";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { errorCause } from "../errors/diagnostic-safety";
 import { type ApplyV1Result, applyV1 } from "./apply-v1";
 import { type CheckResult, checkEstate } from "./check";
+import { annotateMigrationFailure } from "./execute-dispatch";
 import { type GenerateV1Result, generateV1 } from "./generate-v1";
 import { loadMigrationGraph, resolveStateSelector } from "./graph";
 import { snapshotExactRecord } from "./input-boundary";
@@ -186,6 +188,7 @@ export function createMigrationClient(
           $schema: client.$schema,
           [MANAGED_TABLES]: tables,
           [MIGRATION_LIMITS]: limits,
+          [CLIENT_DIAGNOSTICS]: client[CLIENT_DIAGNOSTICS],
         };
   const live: LiveMigrations = Object.freeze({
     log: () => logV1(executionClient),
@@ -232,16 +235,25 @@ export function createMigrationClient(
     status: () => statusV1(executionClient, readableStorage),
     verify: () => verifyV1(executionClient, readableStorage),
     apply: (applyOptions) =>
-      applyV1(executionClient, readableStorage, applyOptions),
+      named("apply", applyV1(executionClient, readableStorage, applyOptions)),
     down: (downOptions) =>
-      downV1(executionClient, readableStorage, downOptions),
+      named("down", downV1(executionClient, readableStorage, downOptions)),
     baseline: (baselineOptions) =>
-      baselineV1(executionClient, readableStorage, baselineOptions),
+      named(
+        "baseline",
+        baselineV1(executionClient, readableStorage, baselineOptions)
+      ),
     reanchor: (reanchorOptions) =>
-      reanchorV1(executionClient, readableStorage, reanchorOptions),
+      named(
+        "reanchor",
+        reanchorV1(executionClient, readableStorage, reanchorOptions)
+      ),
     prune: (pruneOptions) => pruneV1(readableStorage, pruneOptions),
     resolve: (resolveOptions) =>
-      resolveV1(executionClient, readableStorage, resolveOptions),
+      named(
+        "resolve",
+        resolveV1(executionClient, readableStorage, resolveOptions)
+      ),
   });
   let writableStorage: MigrationStorageWriter;
   try {
@@ -259,7 +271,17 @@ export function createMigrationClient(
     generate: (generateOptions) =>
       generateV1(executionClient, writableStorage, generateOptions),
     reset: (resetOptions) =>
-      resetV1(executionClient, writableStorage, resetOptions),
+      named("reset", resetV1(executionClient, writableStorage, resetOptions)),
+  });
+}
+
+/**
+ * The command's result, its failure naming the step it failed in when no
+ * statement or boundary inside it did: a lock wait, a marker write.
+ */
+function named<T>(step: string, running: Promise<T>): Promise<T> {
+  return running.catch((failure: unknown) => {
+    throw annotateMigrationFailure(failure, { step });
   });
 }
 

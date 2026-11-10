@@ -68,6 +68,8 @@ export interface ModelDocument {
   uniques?: CompoundKeyDocument[];
   /** `.omit({ ... })` as a sorted array of scalar field keys. */
   omit?: string[];
+  /** `.withoutRowid()`: present only as `true`. */
+  withoutRowid?: true;
 }
 
 /**
@@ -300,9 +302,14 @@ export type JunctionDocument = JunctionNamesDocument &
     | { onUpdate?: never; onUpdateSides?: JunctionSidesDocument }
   );
 
-/** The junction's physical names: its table and its two side tokens. */
+/**
+ * The junction's physical names: its table and its two side tokens. `model`
+ * instead of `table` names a declared model (its schema key) as the junction,
+ * and `source` / `target` then name that model's to-one relations.
+ */
 export interface JunctionNamesDocument {
   table?: string;
+  model?: string;
   source?: string;
   target?: string;
 }

@@ -34,7 +34,10 @@ type NumericSetOperations = Pick<
   "assign" | "increment" | "decrement"
 >;
 
-type MutationCommands = Pick<DatabaseAdapter["mutations"], "update" | "delete">;
+type MutationCommands = Pick<
+  DatabaseAdapter["mutations"],
+  "update" | "updateFrom" | "delete"
+>;
 
 export const createRawSql = (): DatabaseAdapter["raw"] => {
   return (sqlString: string): Sql => sql.raw(sqlString);
@@ -231,6 +234,10 @@ export const createMutationCommands = (): MutationCommands => ({
     }
     return sql`UPDATE ${table} SET ${sets}`;
   },
+  updateFrom: (table, sets, source, on, where) =>
+    sql`UPDATE ${table} SET ${sets} FROM ${source} WHERE (${on})${
+      where ? sql` AND (${where})` : sql.empty
+    }`,
   delete: (table: Sql, where?: Sql): Sql => {
     if (where) {
       return sql`DELETE FROM ${table} WHERE ${where}`;
@@ -342,7 +349,8 @@ export const createIdentifiers = (
 };
 
 export const createSubqueries = (
-  quoteIdent: IdentifierQuoter
+  quoteIdent: IdentifierQuoter,
+  rowid = false
 ): DatabaseAdapter["subqueries"] => ({
   scalar: (query: Sql): Sql => sql`(${query})`,
 
@@ -353,6 +361,15 @@ export const createSubqueries = (
     sql`SELECT 1 FROM ${from} WHERE ${where}`,
 
   isolated: (condition: Sql): Sql => condition,
+
+  rows: (from, row, where, alias, implicitRowid) =>
+    sql`(SELECT ${
+      rowid && implicitRowid
+        ? sql.raw(`${quoteIdent(row)}.${quoteIdent("rowid")} AS rowid, *`)
+        : sql.raw("*")
+    } FROM ${from} WHERE ${where ?? sql.raw("1 = 1")}) AS ${sql.raw(
+      quoteIdent(alias)
+    )}`,
 });
 
 /**
@@ -403,6 +420,9 @@ export const createCteBuilders = (
         ${recursive}
       )`;
   },
+
+  opens: (query: Sql): boolean =>
+    Sql.peek(query).strings[0]!.trimStart().startsWith("WITH"),
 });
 
 export const createInsertStatement =
@@ -434,7 +454,7 @@ export const createInsertStatement =
  */
 export const createOnConflictBuilders = (): Pick<
   DatabaseAdapter["mutations"],
-  "onConflict" | "onConflictUpdate" | "skipDuplicates"
+  "onConflict" | "onConflictUpdate" | "onConflictNothing" | "skipDuplicates"
 > => ({
   onConflict: (target: Sql | null, action: Sql, targetWhere?: Sql): Sql => {
     if (target) {
@@ -454,6 +474,8 @@ export const createOnConflictBuilders = (): Pick<
     }
     return sql`UPDATE SET ${sets}`;
   },
+
+  onConflictNothing: (): Sql => sql`NOTHING`,
 
   // The UNTARGETED skip, and the only caller left is top-level `createMany`,
   // whose `skipDuplicates: true` means "any unique constraint". Junction

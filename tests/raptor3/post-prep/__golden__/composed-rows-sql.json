@@ -7,16 +7,12 @@
   ],
   "create post nested comments": [
     {
-      "sql": "INSERT INTO \"post\" (\"id\", \"tenantId\", \"title\", \"authorId\", \"deletedAt\", \"version\") VALUES (?, ?, ?, ?, NULL, ?)",
+      "sql": "INSERT INTO \"post\" (\"id\", \"tenantId\", \"title\", \"authorId\", \"deletedAt\", \"version\") VALUES (?, ?, ?, ?, NULL, ?) RETURNING \"id\" AS \"id\", \"tenantId\" AS \"tenantId\", \"title\" AS \"title\", \"authorId\" AS \"authorId\", \"deletedAt\" AS \"deletedAt\", \"version\" AS \"version\"",
       "params": [10, "acme", "t", 1, 0]
     },
     {
       "sql": "INSERT INTO \"comment\" (\"id\", \"tenantId\", \"body\", \"deletedAt\", \"version\", \"postId\") VALUES (?, ?, ?, NULL, ?, ?)",
       "params": [100, "acme", "b", 0, 10]
-    },
-    {
-      "sql": "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"tenantId\" AS \"tenantId\", \"q0\".\"title\" AS \"title\", \"q0\".\"authorId\" AS \"authorId\", \"q0\".\"deletedAt\" AS \"deletedAt\", \"q0\".\"version\" AS \"version\" FROM \"post\" AS \"q0\" WHERE \"q0\".\"id\" = ? ORDER BY \"q0\".\"id\" ASC",
-      "params": [10]
     }
   ],
   "createMany posts": [

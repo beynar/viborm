@@ -81,6 +81,29 @@ export function installGeoPointSql(
  * then composes them into complete queries. The adapter never
  * needs to understand query semantics - just SQL syntax.
  */
+/** The three substring filters, as `insensitiveText` names them. */
+export type TextMatch = "contains" | "startsWith" | "endsWith";
+
+/** A vector distance as an order key: see {@link DatabaseAdapter.vector}. */
+export type VectorOrderKey = "exact" | "servable";
+
+/**
+ * What the engine reads of a driver in any language: strategy and decoding, and
+ * nothing that spells a statement. A database with no SQL declares only this.
+ */
+export interface EngineFacts
+  extends Pick<DatabaseAdapter, "namespace" | "capabilities" | "result"> {
+  /** Set when this database holds a geographic point, however it writes one. */
+  readonly geoPoint?: object;
+  readonly mutations: Pick<
+    DatabaseAdapter["mutations"],
+    "skipDuplicatesStrategy" | "upserted"
+  >;
+  readonly aggregates: Partial<
+    Pick<DatabaseAdapter["aggregates"], "numberSum" | "integerSum">
+  >;
+}
+
 export interface DatabaseAdapter {
   /**
    * NAMESPACE
@@ -216,15 +239,26 @@ export interface DatabaseAdapter {
     gte: (left: Sql, right: Sql) => Sql;
 
     // Pattern matching
-    like: (column: Sql, pattern: Sql) => Sql;
-    notLike: (column: Sql, pattern: Sql) => Sql;
-    /** Case-insensitive LIKE. */
-    ilike: (column: Sql, pattern: Sql) => Sql;
-    notIlike: (column: Sql, pattern: Sql) => Sql;
     /** Case-sensitive substring predicates, independent of database collation. */
     containsText: (column: Sql, value: Sql) => Sql;
     startsWithText: (column: Sql, value: Sql) => Sql;
     endsWithText: (column: Sql, value: Sql) => Sql;
+    /**
+     * The same three predicates under `mode: "insensitive"`: letter case is
+     * ignored the way THIS database folds it (its own `LOWER`/`ILIKE`), so the
+     * answer for a non-ASCII letter follows the database and its locale.
+     * Accents and every other difference still count.
+     *
+     * Both operands arrive raw: neither folded nor wrapped in
+     * `caseSensitiveText`. A plain string `value` is a bare bound parameter,
+     * which an adapter matching with `LIKE` escapes client-side.
+     */
+    insensitiveText: (
+      kind: TextMatch,
+      column: Sql,
+      value: Sql,
+      nativeType?: NativeTypeDeclaration
+    ) => Sql;
     /**
      * `startsWithText` for a plain string operand, spelled so the dialect's
      * planner can turn it into an index range.
@@ -338,8 +372,14 @@ export interface DatabaseAdapter {
     concat: (...parts: Sql[]) => Sql;
     upper: (expr: Sql) => Sql;
     lower: (expr: Sql) => Sql;
-    /** Fold ASCII A-Z to a-z without provider-native Unicode case folding. */
-    asciiCaseFold: (expr: Sql) => Sql;
+    /**
+     * Fold letter case the way this database does natively (its own `LOWER`),
+     * for `mode: "insensitive"` equality, membership and ranges. The caller
+     * compares the result under `caseSensitiveText`, so case is the only
+     * difference it ignores. `expr` arrives raw, never wrapped in
+     * `caseSensitiveText`, with the native type of the column it reads.
+     */
+    caseFold: (expr: Sql, nativeType?: NativeTypeDeclaration) => Sql;
     /** Force exact text comparison semantics independent of column/database collation. */
     caseSensitiveText: (
       expr: Sql,
@@ -522,6 +562,13 @@ export interface DatabaseAdapter {
      * JSON lt/lte/gt/gte with string operands.
      */
     stringAtPath: (column: Sql, path: string[]) => Sql;
+    /**
+     * `stringAtPath` in the database's own text type and collation, for
+     * `mode: "insensitive"`: the byte-ordered pin stops a database folding
+     * case (`LOWER`/`ILIKE` under PG `COLLATE "C"` fold `A`-`Z` only, and
+     * MySQL's `LOWER` leaves a binary string as it is).
+     */
+    foldableStringAtPath: (column: Sql, path: string[]) => Sql;
     /**
      * JSON array containment: target is an array containing every element
      * of the candidate JSON array value (PG @>, MySQL JSON_CONTAINS,
@@ -733,6 +780,19 @@ export interface DatabaseAdapter {
      * bounds expression depth and the dialect sums nested heights.
      */
     isolated: (condition: Sql) => Sql;
+    /**
+     * A raw read's `FROM` item for one model's rows (`$rows`): `from` read
+     * as `row`, filtered by `where` (every row without one), named `alias`.
+     * `implicitRowid`: the table keeps a rowid `SELECT *` leaves out; SQLite
+     * carries it as `rowid`, the key an FTS5 table joins on.
+     */
+    rows: (
+      from: Sql,
+      row: string,
+      where: Sql | undefined,
+      alias: string,
+      implicitRowid: boolean
+    ) => Sql;
   };
 
   /**
@@ -769,6 +829,8 @@ export interface DatabaseAdapter {
       recursive: Sql,
       union?: "all" | "distinct"
     ) => Sql;
+    /** Whether `query` opens with its own `WITH`: a statement holds only one. */
+    opens: (query: Sql) => boolean;
   };
 
   /**
@@ -789,10 +851,29 @@ export interface DatabaseAdapter {
     insertDefault: (table: Sql) => Sql;
     /** UPDATE table SET ... WHERE ... */
     update: (table: Sql, sets: Sql, where?: Sql) => Sql;
+    /**
+     * UPDATE table SET ... from `source` (a derived table, aliased) joined
+     * `on` the row written, WHERE ...: `UPDATE … FROM` (PostgreSQL, SQLite),
+     * `UPDATE … JOIN` (MySQL).
+     */
+    updateFrom: (
+      table: Sql,
+      sets: Sql,
+      source: Sql,
+      on: Sql,
+      where?: Sql
+    ) => Sql;
     /** DELETE FROM table WHERE ... */
     delete: (table: Sql, where?: Sql) => Sql;
     /** RETURNING clause (PG/SQLite) or empty (MySQL) */
     returning: (columns: Sql) => Sql;
+    /**
+     * A `RETURNING` expression true where an `INSERT … ON CONFLICT DO UPDATE`
+     * inserted its row rather than updated it (PostgreSQL: `xmax = 0`).
+     * Absent where the statement cannot say: an upsert that must report its
+     * arm then reads the row first.
+     */
+    upserted?: Sql;
     /**
      * ON CONFLICT / ON DUPLICATE KEY
      * @param target - Conflict target columns (e.g., "id")
@@ -808,6 +889,12 @@ export interface DatabaseAdapter {
      *                   PostgreSQL: ... DO UPDATE SET x = y WHERE <setWhere>
      */
     onConflictUpdate: (sets: Sql, setWhere?: Sql) => Sql;
+    /**
+     * The action that leaves a row in conflict as it is. Present where the
+     * dialect has a targeted upsert (PostgreSQL, SQLite): MySQL's
+     * `ON DUPLICATE KEY UPDATE` has no such action.
+     */
+    onConflictNothing?: () => Sql;
     /**
      * Skip duplicate key errors (for createMany with skipDuplicates: true)
      * PostgreSQL/SQLite: ON CONFLICT DO NOTHING (suffix)
@@ -937,20 +1024,23 @@ export interface DatabaseAdapter {
    * VECTOR
    * Vector operations for similarity search (pgvector)
    *
-   * Matches filter schema: { l2, cosine }
-   * Drivers that don't support vector operations can override
-   * this property with an object that throws FeatureNotSupportedError.
+   * The `_distance` metrics `{ l2, cosine }`: the selected distance, and the
+   * order key of a distance `orderBy`. Drivers that don't support vector
+   * operations can override this property with an object that throws
+   * FeatureNotSupportedError.
    *
-   * Reserved — the query engine does not call these yet; vector filters are
-   * rejected in the where-builder today.
+   * Without `order` a metric is the distance VALUE. With it, an order key: an
+   * `"exact"` key is one no index can serve, so the order is exact whatever
+   * index the column has; a `"servable"` key is one a nearest-neighbour index
+   * may serve, and is approximate where it does.
    */
   vector: {
     /** Create a vector literal from number array: '[1,2,3]'::vector */
     literal: (values: number[]) => Sql;
-    /** L2 (Euclidean) distance operator for ORDER BY: column <-> vector */
-    l2: (column: Sql, vector: Sql) => Sql;
-    /** Cosine distance operator for ORDER BY: column <=> vector */
-    cosine: (column: Sql, vector: Sql) => Sql;
+    /** L2 (Euclidean) distance: column <-> vector */
+    l2: (column: Sql, vector: Sql, order?: VectorOrderKey) => Sql;
+    /** Cosine distance: column <=> vector */
+    cosine: (column: Sql, vector: Sql, order?: VectorOrderKey) => Sql;
   };
 
   /**

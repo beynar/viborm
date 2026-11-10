@@ -107,4 +107,29 @@ describe("serialized transactions without async-context support", () => {
     await outside;
     expect(driver.events).toEqual(["BEGIN", "COMMIT", "OUTSIDE"]);
   });
+
+  // Without async context a call cannot tell whether it runs inside the
+  // transaction that holds the connection, so `findUnique` batching treats
+  // any holder as its own: a merged read would otherwise wait behind it.
+  it("counts any holder of the connection as the caller's own", async () => {
+    const driver = new BrowserConnectionDriver();
+    expect(driver.holdsConnectionScope()).toBe(false);
+    let release: () => void = () => undefined;
+    const body = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let started: () => void = () => undefined;
+    const start = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const held = driver.withTransaction(async () => {
+      started();
+      await body;
+    });
+    await start;
+    expect(driver.holdsConnectionScope()).toBe(true);
+    release();
+    await held;
+    expect(driver.holdsConnectionScope()).toBe(false);
+  });
 });

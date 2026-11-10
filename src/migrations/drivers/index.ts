@@ -12,7 +12,11 @@ import type {
   AnyDriver,
   SqliteMigrationCapability,
 } from "../../drivers/driver";
-import { MigrationError, VibORMErrorCode } from "../../errors";
+import {
+  type DiagnosticDisclosure,
+  MigrationError,
+  VibORMErrorCode,
+} from "../../errors";
 import {
   DEFAULT_MIGRATION_LIMITS,
   type ResolvedMigrationLimits,
@@ -71,20 +75,32 @@ const driverRegistry = new Map<string, MigrationDriver>();
 const STOCK_SQLITE_BINDINGS: ReadonlyMap<string, string> = new Map([
   ["sqlite3", "sqlite3"],
   ["bun-sqlite", "sqlite3"],
-  ["d1", "sqlite3"],
   ["libsql", "libsql"],
 ]);
 
 /**
- * The one admitted declaration, as bound. Its type admits no other value, so
- * it cannot drift from the `SQLITE_MIGRATION_CAPABILITY` drivers declare; it is
- * spelled here so the migration bundle does not import the driver module.
+ * The closed table of admitted declarations, as bound: stock SQLite, a
+ * Durable Object, and D1 (read-only). They restate the drivers' own
+ * declarations in `src/drivers/driver.ts`, spelled here so the migration
+ * bundle does not import the driver module.
  */
-const SQLITE_MIGRATION_CAPABILITY: SqliteMigrationCapability = Object.freeze({
-  foreignKeys: "pragma",
-  reservedTablePrefixes: "none",
-  exclusion: "database-write-lock",
-});
+const SQLITE_MIGRATION_CAPABILITIES: readonly SqliteMigrationCapability[] = [
+  Object.freeze({
+    foreignKeys: "pragma",
+    reservedTablePrefixes: "none",
+    exclusion: "database-write-lock",
+  }),
+  Object.freeze({
+    foreignKeys: "pragma",
+    reservedTablePrefixes: "_cf_",
+    exclusion: "frame",
+  }),
+  Object.freeze({
+    foreignKeys: "none",
+    reservedTablePrefixes: "_cf_",
+    exclusion: "none",
+  }),
+];
 
 /**
  * Registers a migration driver.
@@ -111,6 +127,11 @@ export interface BoundMigrationDriver extends MigrationDriver {
   readonly sqliteMigrationCapability: SqliteMigrationCapability | undefined;
   /** The command's limits: the client's own, or the defaults. */
   readonly limits: ResolvedMigrationLimits;
+  /**
+   * What the command's failures disclose: its client's own instrumentation
+   * `diagnostics`, carried by the session its statements run on.
+   */
+  readonly diagnostics: DiagnosticDisclosure | undefined;
 }
 
 /**
@@ -139,7 +160,8 @@ export interface BoundMigrationDriver extends MigrationDriver {
 export function getMigrationDriver(
   driver: AnyDriver,
   tables?: readonly string[],
-  limits: ResolvedMigrationLimits = DEFAULT_MIGRATION_LIMITS
+  limits: ResolvedMigrationLimits = DEFAULT_MIGRATION_LIMITS,
+  diagnostics?: DiagnosticDisclosure
 ): BoundMigrationDriver {
   const { target: baseTarget, namespace } = resolveMigrationEstate(driver);
   const target =
@@ -163,14 +185,17 @@ export function getMigrationDriver(
     namespace: { value: namespace, enumerable: true },
     sqliteMigrationCapability: { value: capability, enumerable: true },
     limits: { value: limits, enumerable: true },
+    diagnostics: { value: diagnostics, enumerable: true },
     introspect: {
       async value(
         this: MigrationDriver,
         executeRaw: Parameters<MigrationDriver["introspect"]>[0]
       ) {
+        // `this.target`, not the bound one: a history command restates the
+        // managed set on a view of this driver (`withManagedTables`).
         return selectManagedSnapshot(
           await implementation.introspect.call(this, executeRaw),
-          target
+          (this as BoundMigrationDriver).target
         );
       },
     },
@@ -180,19 +205,28 @@ export function getMigrationDriver(
 }
 
 /**
- * The driver's SQLite migration capability, read ONCE, or undefined when it
- * declares none. Only the exact values count: each is a safety claim, and a
- * mistyped claim must not read as an approximate one.
+ * The driver's SQLite migration capability, read ONCE, as the table's own
+ * frozen entry, or undefined when it declares none of them. Only whole exact
+ * declarations count: each member is a safety claim, and a mistyped or mixed
+ * claim must not read as an approximate one.
  */
 function readSqliteMigrationCapability(
   driver: AnyDriver
 ): SqliteMigrationCapability | undefined {
   const declared: unknown = driver.sqliteMigrationCapability;
   if (typeof declared !== "object" || declared === null) return;
-  for (const [key, value] of Object.entries(SQLITE_MIGRATION_CAPABILITY)) {
-    if (Reflect.get(declared, key) !== value) return;
-  }
-  return SQLITE_MIGRATION_CAPABILITY;
+  const foreignKeys: unknown = Reflect.get(declared, "foreignKeys");
+  const reservedTablePrefixes: unknown = Reflect.get(
+    declared,
+    "reservedTablePrefixes"
+  );
+  const exclusion: unknown = Reflect.get(declared, "exclusion");
+  return SQLITE_MIGRATION_CAPABILITIES.find(
+    (capability) =>
+      capability.foreignKeys === foreignKeys &&
+      capability.reservedTablePrefixes === reservedTablePrefixes &&
+      capability.exclusion === exclusion
+  );
 }
 
 /** Resolves the registered implementation this driver binds to. */

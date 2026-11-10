@@ -19,6 +19,7 @@ import {
   parseJsonBytes,
 } from "./canonical-json";
 import { domainHash, HASH_DOMAIN, type Sha256 } from "./identity";
+import { rawIndexFields, rawIndexHash } from "./raw-index";
 import type {
   ColumnDef,
   EnumDef,
@@ -37,6 +38,7 @@ import type {
 import {
   exactObject,
   parseIdentifierArray,
+  parseItems,
   parseMember,
   parseRequiredString,
   parseStringArray,
@@ -48,6 +50,7 @@ const TABLE_KEYS = [
   "columns",
   "foreignKeys",
   "indexes",
+  "junction",
   "name",
   "primaryKey",
   "relationStorage",
@@ -71,8 +74,16 @@ const COLUMN_KEYS = [
   "type",
 ] as const;
 const DECIMAL_KEYS = ["precision", "scale"] as const;
-const PRIMARY_KEY_KEYS = ["columns", "name"] as const;
-const INDEX_KEYS = ["columns", "name", "type", "unique", "where"] as const;
+const PRIMARY_KEY_KEYS = ["columns", "name", "withoutRowid"] as const;
+const INDEX_KEYS = [
+  "columns",
+  "name",
+  "raw",
+  "type",
+  "unique",
+  "where",
+] as const;
+const RAW_INDEX_KEYS = ["hash", "template"] as const;
 const FOREIGN_KEY_KEYS = [
   "columns",
   "name",
@@ -208,6 +219,11 @@ function parsePrimaryKey(value: unknown, label: string): PrimaryKeyDef {
   if ("name" in record) {
     primaryKey.name = parseRequiredString(record.name, `${label}.name`);
   }
+  if ("withoutRowid" in record) {
+    if (record.withoutRowid !== true)
+      refuse(`${label}.withoutRowid must be true when present`);
+    primaryKey.withoutRowid = true;
+  }
   return primaryKey;
 }
 
@@ -240,6 +256,23 @@ function parseIndex(value: unknown, label: string): IndexDef {
   if ("where" in record) {
     if (!isString(record.where)) refuse(`${label}.where must be a string`);
     index.where = record.where;
+  }
+  if ("raw" in record) {
+    const raw = exactObject(
+      record.raw,
+      RAW_INDEX_KEYS,
+      RAW_INDEX_KEYS,
+      `${label}.raw`
+    );
+    if (!isString(raw.template))
+      refuse(`${label}.raw.template must be a string`);
+    if (raw.hash !== rawIndexHash(raw.template))
+      refuse(`${label}.raw.hash does not match its template`);
+    if (index.unique || index.type !== undefined || index.where !== undefined)
+      refuse(`${label} is raw and cannot also be unique, typed or partial`);
+    if (rawIndexFields(raw.template).length !== index.columns.length)
+      refuse(`${label}.columns are not the fields its template names`);
+    index.raw = { hash: raw.hash, template: raw.template };
   }
   return index;
 }
@@ -356,17 +389,17 @@ function parseTable(value: unknown, label: string): TableDef {
   }
   const table: TableDef = {
     name: parseRequiredString(record.name, `${label}.name`),
-    columns: record.columns.map((column, index) =>
-      parseColumn(column, `${label}.columns[${index}]`)
+    columns: parseItems(record.columns, `${label}.columns`, parseColumn),
+    indexes: parseItems(record.indexes, `${label}.indexes`, parseIndex),
+    foreignKeys: parseItems(
+      record.foreignKeys,
+      `${label}.foreignKeys`,
+      parseForeignKey
     ),
-    indexes: record.indexes.map((index, position) =>
-      parseIndex(index, `${label}.indexes[${position}]`)
-    ),
-    foreignKeys: record.foreignKeys.map((foreignKey, index) =>
-      parseForeignKey(foreignKey, `${label}.foreignKeys[${index}]`)
-    ),
-    uniqueConstraints: record.uniqueConstraints.map((constraint, index) =>
-      parseUniqueConstraint(constraint, `${label}.uniqueConstraints[${index}]`)
+    uniqueConstraints: parseItems(
+      record.uniqueConstraints,
+      `${label}.uniqueConstraints`,
+      parseUniqueConstraint
     ),
   };
   if ("primaryKey" in record) {
@@ -381,6 +414,7 @@ function parseTable(value: unknown, label: string): TableDef {
       `${label}.relationStorage`
     );
   }
+  if (record.junction === true) table.junction = true;
   return table;
 }
 
@@ -463,9 +497,7 @@ function parsePolymorphicStorage(
       relation: parseRequiredString(record.relation, `${label}.relation`),
       kind: "toOne",
       storageRef: parseRequiredString(record.storageRef, `${label}.storageRef`),
-      members: record.members.map((member, index) =>
-        parseToOneMember(member, `${label}.members[${index}]`)
-      ),
+      members: parseItems(record.members, `${label}.members`, parseToOneMember),
     };
   }
   if (value.kind === "toMany") {
@@ -482,8 +514,10 @@ function parsePolymorphicStorage(
       ownerTable: parseRequiredString(record.ownerTable, `${label}.ownerTable`),
       relation: parseRequiredString(record.relation, `${label}.relation`),
       kind: "toMany",
-      members: record.members.map((member, index) =>
-        parseToManyMember(member, `${label}.members[${index}]`)
+      members: parseItems(
+        record.members,
+        `${label}.members`,
+        parseToManyMember
       ),
     };
   }
@@ -498,15 +532,11 @@ export function parseSnapshotDocument(
   const record = exactObject(parsed, SNAPSHOT_KEYS, ["tables"], "snapshot");
   if (!Array.isArray(record.tables)) refuse("snapshot.tables must be an array");
   const snapshot: SchemaSnapshot = {
-    tables: record.tables.map((table, index) =>
-      parseTable(table, `snapshot.tables[${index}]`)
-    ),
+    tables: parseItems(record.tables, "snapshot.tables", parseTable),
   };
   if ("enums" in record) {
     if (!Array.isArray(record.enums)) refuse("snapshot.enums must be an array");
-    snapshot.enums = record.enums.map((enumDef, index) =>
-      parseEnum(enumDef, `snapshot.enums[${index}]`)
-    );
+    snapshot.enums = parseItems(record.enums, "snapshot.enums", parseEnum);
   }
   if ("polymorphicStorage" in record) {
     if (!Array.isArray(record.polymorphicStorage)) {

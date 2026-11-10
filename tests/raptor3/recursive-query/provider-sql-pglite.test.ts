@@ -8,6 +8,7 @@ import {
   type ColumnType,
   columnDefinitions,
   FILTER_SQL_PINS,
+  fewRowsWorld,
   GRAPH_WORLD,
   HIERARCHY_WORLD,
   PLACEMENT_MATRIX_TABLES,
@@ -16,6 +17,7 @@ import {
   runPlacementMatrix,
   SELECT_SQL_PINS,
   sqlPins,
+  statingFewRows,
 } from "./provider-sql-fixture";
 
 class ObservedPGliteDriver extends PGliteDriver {
@@ -109,12 +111,34 @@ describe("recursive relation provider SQL on PGlite", () => {
     driver.rows.length = 0;
   });
 
+  // `fewRows: false` is the option unstated; stated, each node is read by key.
+  it("pins the select SQL that states fewRows byte for byte", async () => {
+    const engine = createTestCommandEngine({ schema: providerSchema, driver });
+    for (const [fewRows, pinned] of [
+      [false, SELECT_SQL],
+      [true, FEW_ROWS_SELECT_SQL],
+    ] as const)
+      assert.deepEqual(
+        await sqlPins(
+          engine,
+          driver,
+          SELECT_SQL_PINS.map((pin) => statingFewRows(pin, fewRows))
+        ),
+        pinned
+      );
+    driver.statements.length = 0;
+    driver.rows.length = 0;
+  });
+
   it("projects the recursive placement matrix through provider SQL", async () => {
     const engine = createTestCommandEngine({ schema: providerSchema, driver });
     await runPlacementMatrix(engine, driver);
   });
 
-  for (const world of [HIERARCHY_WORLD, GRAPH_WORLD])
+  for (const world of [HIERARCHY_WORLD, GRAPH_WORLD].flatMap((owned) => [
+    owned,
+    fewRowsWorld(owned),
+  ]))
     for (const group of world.groups)
       it(group.name, async () => {
         const engine = createTestCommandEngine({
@@ -126,35 +150,37 @@ describe("recursive relation provider SQL on PGlite", () => {
       });
 });
 
-/** The PostgreSQL adapter's exact text for each pinned case. */
+/** The PostgreSQL adapter's exact text for each pinned case. Every case orders
+ * its siblings by key alone, so its edges are ordered from the walk's own
+ * child columns and join no table; the walk carries no sort value. */
 const SELECT_SQL: Readonly<Record<string, readonly string[]>> = {
   "foreign key up, bounded": [
     `SELECT "q0"."label", (SELECT json_build_object($1::text, json_build_array("q0"."tenant_key", "q0"."node_code"), $2::text, "q11"."__q1_nodes", $3::text, "q11"."__q1_edges") FROM (SELECT 1) AS "q10" JOIN LATERAL (WITH RECURSIVE "__q1_recursive" AS (
         SELECT "q0"."tenant_key" AS "__q1_parent_0", "q0"."node_code" AS "__q1_parent_1", "q2"."tenant_key" AS "__q1_child_0", "q2"."node_code" AS "__q1_child_1", "q2"."parent_tenant" AS "__q1_hop_0", "q2"."parent_code" AS "__q1_hop_1", CAST($4 AS INTEGER) AS "__q1_depth" FROM "public"."rq_provider_nodes" AS "q2" WHERE ("q0"."parent_tenant" = "q2"."tenant_key" AND "q0"."parent_code" = "q2"."node_code")
         UNION
         SELECT "q3"."__q1_child_0" AS "__q1_parent_0", "q3"."__q1_child_1" AS "__q1_parent_1", "q4"."tenant_key" AS "__q1_child_0", "q4"."node_code" AS "__q1_child_1", "q4"."parent_tenant" AS "__q1_hop_0", "q4"."parent_code" AS "__q1_hop_1", ("q3"."__q1_depth" + $5) AS "__q1_depth" FROM "__q1_recursive" AS "q3" INNER JOIN "public"."rq_provider_nodes" AS "q4" ON ("q3"."__q1_hop_0" = "q4"."tenant_key" AND "q3"."__q1_hop_1" = "q4"."node_code") WHERE "q3"."__q1_depth" < $6
-      ) SELECT (SELECT COALESCE(json_agg(json_build_object($7::text, json_build_array("q6"."tenant_key", "q6"."node_code"), $8::text, json_build_object($9::text, "q6"."label"))), '[]'::json) FROM (SELECT DISTINCT ON ("q3"."__q1_child_0", "q3"."__q1_child_1") "q3"."__q1_child_0" AS "__q1_id_0", "q3"."__q1_child_1" AS "__q1_id_1" FROM "__q1_recursive" AS "q3") AS "q5" INNER JOIN "public"."rq_provider_nodes" AS "q6" ON ("q6"."tenant_key" = "q5"."__q1_id_0" AND "q6"."node_code" = "q5"."__q1_id_1")) AS "__q1_nodes", (SELECT COALESCE(json_agg("q9"."__q1_edge"), '[]'::json) FROM (SELECT json_build_object($10::text, json_build_array("q7"."__q1_parent_0", "q7"."__q1_parent_1"), $11::text, json_build_array("q7"."__q1_child_0", "q7"."__q1_child_1"), $12::text, "q7"."__q1_depth") AS "__q1_edge" FROM "__q1_recursive" AS "q7" INNER JOIN "public"."rq_provider_nodes" AS "q8" ON ("q8"."tenant_key" = "q7"."__q1_child_0" AND "q8"."node_code" = "q7"."__q1_child_1") ORDER BY "q7"."__q1_parent_0" ASC, "q7"."__q1_parent_1" ASC, "q8"."tenant_key" ASC, "q8"."node_code" ASC) AS "q9") AS "__q1_edges") AS "q11" ON TRUE) AS "parent" FROM "public"."rq_provider_nodes" AS "q0" WHERE ("q0"."tenant_key" = $13 AND "q0"."node_code" = $14) ORDER BY "q0"."tenant_key" ASC, "q0"."node_code" ASC`,
+      ) SELECT (SELECT COALESCE(json_agg(json_build_object($7::text, json_build_array("q6"."tenant_key", "q6"."node_code"), $8::text, json_build_object($9::text, "q6"."label"))), '[]'::json) FROM (SELECT DISTINCT ON ("q3"."__q1_child_0", "q3"."__q1_child_1") "q3"."__q1_child_0" AS "__q1_id_0", "q3"."__q1_child_1" AS "__q1_id_1" FROM "__q1_recursive" AS "q3") AS "q5" INNER JOIN "public"."rq_provider_nodes" AS "q6" ON ("q6"."tenant_key" = "q5"."__q1_id_0" AND "q6"."node_code" = "q5"."__q1_id_1")) AS "__q1_nodes", (SELECT COALESCE(json_agg("q9"."__q1_edge"), '[]'::json) FROM (SELECT json_build_object($10::text, json_build_array("q7"."__q1_parent_0", "q7"."__q1_parent_1"), $11::text, json_build_array("q7"."__q1_child_0", "q7"."__q1_child_1"), $12::text, "q7"."__q1_depth") AS "__q1_edge" FROM "__q1_recursive" AS "q7" ORDER BY "q7"."__q1_parent_0" ASC, "q7"."__q1_parent_1" ASC, "q7"."__q1_child_0" ASC, "q7"."__q1_child_1" ASC) AS "q9") AS "__q1_edges") AS "q11" ON TRUE) AS "parent" FROM "public"."rq_provider_nodes" AS "q0" WHERE ("q0"."tenant_key" = $13 AND "q0"."node_code" = $14) ORDER BY "q0"."tenant_key" ASC, "q0"."node_code" ASC`,
   ],
   "foreign key down, exhaustive, selector": [
     `SELECT "q0"."label", (SELECT json_build_object($1::text, json_build_array("q0"."tenant_key", "q0"."node_code"), $2::text, "q11"."__q1_nodes", $3::text, "q11"."__q1_edges") FROM (SELECT 1) AS "q10" JOIN LATERAL (WITH RECURSIVE "__q1_recursive" AS (
         SELECT "q0"."tenant_key" AS "__q1_parent_0", "q0"."node_code" AS "__q1_parent_1", "q2"."tenant_key" AS "__q1_child_0", "q2"."node_code" AS "__q1_child_1" FROM "public"."rq_provider_nodes" AS "q2" WHERE (("q0"."tenant_key" = "q2"."parent_tenant" AND "q0"."node_code" = "q2"."parent_code") AND "q2"."visible" = $4)
         UNION
         SELECT "q3"."__q1_child_0" AS "__q1_parent_0", "q3"."__q1_child_1" AS "__q1_parent_1", "q4"."tenant_key" AS "__q1_child_0", "q4"."node_code" AS "__q1_child_1" FROM "__q1_recursive" AS "q3" INNER JOIN "public"."rq_provider_nodes" AS "q4" ON ("q3"."__q1_child_0" = "q4"."parent_tenant" AND "q3"."__q1_child_1" = "q4"."parent_code") WHERE "q4"."visible" = $5
-      ) SELECT (SELECT COALESCE(json_agg(json_build_object($6::text, json_build_array("q6"."tenant_key", "q6"."node_code"), $7::text, json_build_object($8::text, "q6"."label"))), '[]'::json) FROM (SELECT DISTINCT ON ("q3"."__q1_child_0", "q3"."__q1_child_1") "q3"."__q1_child_0" AS "__q1_id_0", "q3"."__q1_child_1" AS "__q1_id_1" FROM "__q1_recursive" AS "q3") AS "q5" INNER JOIN "public"."rq_provider_nodes" AS "q6" ON ("q6"."tenant_key" = "q5"."__q1_id_0" AND "q6"."node_code" = "q5"."__q1_id_1")) AS "__q1_nodes", (SELECT COALESCE(json_agg("q9"."__q1_edge"), '[]'::json) FROM (SELECT json_build_object($9::text, json_build_array("q7"."__q1_parent_0", "q7"."__q1_parent_1"), $10::text, json_build_array("q7"."__q1_child_0", "q7"."__q1_child_1")) AS "__q1_edge" FROM "__q1_recursive" AS "q7" INNER JOIN "public"."rq_provider_nodes" AS "q8" ON ("q8"."tenant_key" = "q7"."__q1_child_0" AND "q8"."node_code" = "q7"."__q1_child_1") ORDER BY "q7"."__q1_parent_0" ASC, "q7"."__q1_parent_1" ASC, "q8"."tenant_key" ASC, "q8"."node_code" ASC) AS "q9") AS "__q1_edges") AS "q11" ON TRUE) AS "children" FROM "public"."rq_provider_nodes" AS "q0" WHERE ("q0"."tenant_key" = $11 AND "q0"."node_code" = $12) ORDER BY "q0"."tenant_key" ASC, "q0"."node_code" ASC`,
+      ) SELECT (SELECT COALESCE(json_agg(json_build_object($6::text, json_build_array("q6"."tenant_key", "q6"."node_code"), $7::text, json_build_object($8::text, "q6"."label"))), '[]'::json) FROM (SELECT DISTINCT ON ("q3"."__q1_child_0", "q3"."__q1_child_1") "q3"."__q1_child_0" AS "__q1_id_0", "q3"."__q1_child_1" AS "__q1_id_1" FROM "__q1_recursive" AS "q3") AS "q5" INNER JOIN "public"."rq_provider_nodes" AS "q6" ON ("q6"."tenant_key" = "q5"."__q1_id_0" AND "q6"."node_code" = "q5"."__q1_id_1")) AS "__q1_nodes", (SELECT COALESCE(json_agg("q9"."__q1_edge"), '[]'::json) FROM (SELECT json_build_object($9::text, json_build_array("q7"."__q1_parent_0", "q7"."__q1_parent_1"), $10::text, json_build_array("q7"."__q1_child_0", "q7"."__q1_child_1")) AS "__q1_edge" FROM "__q1_recursive" AS "q7" ORDER BY "q7"."__q1_parent_0" ASC, "q7"."__q1_parent_1" ASC, "q7"."__q1_child_0" ASC, "q7"."__q1_child_1" ASC) AS "q9") AS "__q1_edges") AS "q11" ON TRUE) AS "children" FROM "public"."rq_provider_nodes" AS "q0" WHERE ("q0"."tenant_key" = $11 AND "q0"."node_code" = $12) ORDER BY "q0"."tenant_key" ASC, "q0"."node_code" ASC`,
   ],
   "junction, bounded, selector": [
     `SELECT "q0"."label", (SELECT json_build_object($1::text, json_build_array("q0"."tenant_key", "q0"."node_code"), $2::text, "q13"."__q1_nodes", $3::text, "q13"."__q1_edges") FROM (SELECT 1) AS "q12" JOIN LATERAL (WITH RECURSIVE "__q1_recursive" AS (
         SELECT "q0"."tenant_key" AS "__q1_parent_0", "q0"."node_code" AS "__q1_parent_1", "q2"."tenant_key" AS "__q1_child_0", "q2"."node_code" AS "__q1_child_1", CAST($4 AS INTEGER) AS "__q1_depth" FROM "public"."rq_provider_nodes" AS "q2" WHERE (("q2"."tenant_key", "q2"."node_code") IN (SELECT "q3"."to_1", "q3"."to_2" FROM "public"."rq_provider_links" AS "q3" WHERE ("q3"."from_1" = "q0"."tenant_key" AND "q3"."from_2" = "q0"."node_code")) AND "q2"."visible" = $5)
         UNION
         SELECT "q4"."__q1_child_0" AS "__q1_parent_0", "q4"."__q1_child_1" AS "__q1_parent_1", "q5"."tenant_key" AS "__q1_child_0", "q5"."node_code" AS "__q1_child_1", ("q4"."__q1_depth" + $6) AS "__q1_depth" FROM "__q1_recursive" AS "q4" INNER JOIN "public"."rq_provider_links" AS "q6" ON ("q6"."from_1" = "q4"."__q1_child_0" AND "q6"."from_2" = "q4"."__q1_child_1") INNER JOIN "public"."rq_provider_nodes" AS "q5" ON ("q6"."to_1" = "q5"."tenant_key" AND "q6"."to_2" = "q5"."node_code") WHERE ("q4"."__q1_depth" < $7 AND "q5"."visible" = $8)
-      ) SELECT (SELECT COALESCE(json_agg(json_build_object($9::text, json_build_array("q8"."tenant_key", "q8"."node_code"), $10::text, json_build_object($11::text, "q8"."label"))), '[]'::json) FROM (SELECT DISTINCT ON ("q4"."__q1_child_0", "q4"."__q1_child_1") "q4"."__q1_child_0" AS "__q1_id_0", "q4"."__q1_child_1" AS "__q1_id_1" FROM "__q1_recursive" AS "q4") AS "q7" INNER JOIN "public"."rq_provider_nodes" AS "q8" ON ("q8"."tenant_key" = "q7"."__q1_id_0" AND "q8"."node_code" = "q7"."__q1_id_1")) AS "__q1_nodes", (SELECT COALESCE(json_agg("q11"."__q1_edge"), '[]'::json) FROM (SELECT json_build_object($12::text, json_build_array("q9"."__q1_parent_0", "q9"."__q1_parent_1"), $13::text, json_build_array("q9"."__q1_child_0", "q9"."__q1_child_1"), $14::text, "q9"."__q1_depth") AS "__q1_edge" FROM "__q1_recursive" AS "q9" INNER JOIN "public"."rq_provider_nodes" AS "q10" ON ("q10"."tenant_key" = "q9"."__q1_child_0" AND "q10"."node_code" = "q9"."__q1_child_1") ORDER BY "q9"."__q1_parent_0" ASC, "q9"."__q1_parent_1" ASC, "q10"."node_code" ASC, "q10"."tenant_key" ASC) AS "q11") AS "__q1_edges") AS "q13" ON TRUE) AS "neighbors" FROM "public"."rq_provider_nodes" AS "q0" WHERE ("q0"."tenant_key" = $15 AND "q0"."node_code" = $16) ORDER BY "q0"."tenant_key" ASC, "q0"."node_code" ASC`,
+      ) SELECT (SELECT COALESCE(json_agg(json_build_object($9::text, json_build_array("q8"."tenant_key", "q8"."node_code"), $10::text, json_build_object($11::text, "q8"."label"))), '[]'::json) FROM (SELECT DISTINCT ON ("q4"."__q1_child_0", "q4"."__q1_child_1") "q4"."__q1_child_0" AS "__q1_id_0", "q4"."__q1_child_1" AS "__q1_id_1" FROM "__q1_recursive" AS "q4") AS "q7" INNER JOIN "public"."rq_provider_nodes" AS "q8" ON ("q8"."tenant_key" = "q7"."__q1_id_0" AND "q8"."node_code" = "q7"."__q1_id_1")) AS "__q1_nodes", (SELECT COALESCE(json_agg("q11"."__q1_edge"), '[]'::json) FROM (SELECT json_build_object($12::text, json_build_array("q9"."__q1_parent_0", "q9"."__q1_parent_1"), $13::text, json_build_array("q9"."__q1_child_0", "q9"."__q1_child_1"), $14::text, "q9"."__q1_depth") AS "__q1_edge" FROM "__q1_recursive" AS "q9" ORDER BY "q9"."__q1_parent_0" ASC, "q9"."__q1_parent_1" ASC, "q9"."__q1_child_1" ASC, "q9"."__q1_child_0" ASC) AS "q11") AS "__q1_edges") AS "q13" ON TRUE) AS "neighbors" FROM "public"."rq_provider_nodes" AS "q0" WHERE ("q0"."tenant_key" = $15 AND "q0"."node_code" = $16) ORDER BY "q0"."tenant_key" ASC, "q0"."node_code" ASC`,
   ],
   "junction, exhaustive": [
     `SELECT "q0"."label", (SELECT json_build_object($1::text, json_build_array("q0"."tenant_key", "q0"."node_code"), $2::text, "q13"."__q1_nodes", $3::text, "q13"."__q1_edges") FROM (SELECT 1) AS "q12" JOIN LATERAL (WITH RECURSIVE "__q1_recursive" AS (
         SELECT "q0"."tenant_key" AS "__q1_parent_0", "q0"."node_code" AS "__q1_parent_1", "q2"."tenant_key" AS "__q1_child_0", "q2"."node_code" AS "__q1_child_1" FROM "public"."rq_provider_nodes" AS "q2" WHERE ("q2"."tenant_key", "q2"."node_code") IN (SELECT "q3"."to_1", "q3"."to_2" FROM "public"."rq_provider_links" AS "q3" WHERE ("q3"."from_1" = "q0"."tenant_key" AND "q3"."from_2" = "q0"."node_code"))
         UNION
         SELECT "q4"."__q1_child_0" AS "__q1_parent_0", "q4"."__q1_child_1" AS "__q1_parent_1", "q5"."tenant_key" AS "__q1_child_0", "q5"."node_code" AS "__q1_child_1" FROM "__q1_recursive" AS "q4" INNER JOIN "public"."rq_provider_links" AS "q6" ON ("q6"."from_1" = "q4"."__q1_child_0" AND "q6"."from_2" = "q4"."__q1_child_1") INNER JOIN "public"."rq_provider_nodes" AS "q5" ON ("q6"."to_1" = "q5"."tenant_key" AND "q6"."to_2" = "q5"."node_code")
-      ) SELECT (SELECT COALESCE(json_agg(json_build_object($4::text, json_build_array("q8"."tenant_key", "q8"."node_code"), $5::text, json_build_object($6::text, "q8"."label"))), '[]'::json) FROM (SELECT DISTINCT ON ("q4"."__q1_child_0", "q4"."__q1_child_1") "q4"."__q1_child_0" AS "__q1_id_0", "q4"."__q1_child_1" AS "__q1_id_1" FROM "__q1_recursive" AS "q4") AS "q7" INNER JOIN "public"."rq_provider_nodes" AS "q8" ON ("q8"."tenant_key" = "q7"."__q1_id_0" AND "q8"."node_code" = "q7"."__q1_id_1")) AS "__q1_nodes", (SELECT COALESCE(json_agg("q11"."__q1_edge"), '[]'::json) FROM (SELECT json_build_object($7::text, json_build_array("q9"."__q1_parent_0", "q9"."__q1_parent_1"), $8::text, json_build_array("q9"."__q1_child_0", "q9"."__q1_child_1")) AS "__q1_edge" FROM "__q1_recursive" AS "q9" INNER JOIN "public"."rq_provider_nodes" AS "q10" ON ("q10"."tenant_key" = "q9"."__q1_child_0" AND "q10"."node_code" = "q9"."__q1_child_1") ORDER BY "q9"."__q1_parent_0" ASC, "q9"."__q1_parent_1" ASC, "q10"."node_code" ASC, "q10"."tenant_key" ASC) AS "q11") AS "__q1_edges") AS "q13" ON TRUE) AS "neighbors" FROM "public"."rq_provider_nodes" AS "q0" WHERE ("q0"."tenant_key" = $9 AND "q0"."node_code" = $10) ORDER BY "q0"."tenant_key" ASC, "q0"."node_code" ASC`,
+      ) SELECT (SELECT COALESCE(json_agg(json_build_object($4::text, json_build_array("q8"."tenant_key", "q8"."node_code"), $5::text, json_build_object($6::text, "q8"."label"))), '[]'::json) FROM (SELECT DISTINCT ON ("q4"."__q1_child_0", "q4"."__q1_child_1") "q4"."__q1_child_0" AS "__q1_id_0", "q4"."__q1_child_1" AS "__q1_id_1" FROM "__q1_recursive" AS "q4") AS "q7" INNER JOIN "public"."rq_provider_nodes" AS "q8" ON ("q8"."tenant_key" = "q7"."__q1_id_0" AND "q8"."node_code" = "q7"."__q1_id_1")) AS "__q1_nodes", (SELECT COALESCE(json_agg("q11"."__q1_edge"), '[]'::json) FROM (SELECT json_build_object($7::text, json_build_array("q9"."__q1_parent_0", "q9"."__q1_parent_1"), $8::text, json_build_array("q9"."__q1_child_0", "q9"."__q1_child_1")) AS "__q1_edge" FROM "__q1_recursive" AS "q9" ORDER BY "q9"."__q1_parent_0" ASC, "q9"."__q1_parent_1" ASC, "q9"."__q1_child_1" ASC, "q9"."__q1_child_0" ASC) AS "q11") AS "__q1_edges") AS "q13" ON TRUE) AS "neighbors" FROM "public"."rq_provider_nodes" AS "q0" WHERE ("q0"."tenant_key" = $9 AND "q0"."node_code" = $10) ORDER BY "q0"."tenant_key" ASC, "q0"."node_code" ASC`,
   ],
 };
 
@@ -211,5 +237,40 @@ const FILTER_SQL: Readonly<Record<string, readonly string[]>> = {
         UNION
         SELECT "q5"."tenant_key" AS "__q2_child_0", "q5"."node_code" AS "__q2_child_1", ("q4"."__q2_depth" + $3) AS "__q2_depth" FROM "__q2_recursive" AS "q4" INNER JOIN "public"."rq_provider_nodes" AS "q5" ON ("q4"."__q2_child_0" = "q5"."parent_tenant" AND "q4"."__q2_child_1" = "q5"."parent_code") WHERE "q4"."__q2_depth" < $4
       ) SELECT 1 FROM "__q2_recursive" AS "q4" INNER JOIN "public"."rq_provider_nodes" AS "q1" ON ("q1"."tenant_key" = "q4"."__q2_child_0" AND "q1"."node_code" = "q4"."__q2_child_1") WHERE "q1"."node_code" = $5)))`,
+  ],
+};
+
+/**
+ * The same cases stating `fewRows`: each reached node is read by its key in a
+ * scalar subquery instead of the join; the walk and the edges are unchanged.
+ */
+const FEW_ROWS_SELECT_SQL: Readonly<Record<string, readonly string[]>> = {
+  "foreign key up, bounded": [
+    `SELECT "q0"."label", (SELECT json_build_object($1::text, json_build_array("q0"."tenant_key", "q0"."node_code"), $2::text, "q11"."__q1_nodes", $3::text, "q11"."__q1_edges") FROM (SELECT 1) AS "q10" JOIN LATERAL (WITH RECURSIVE "__q1_recursive" AS (
+        SELECT "q0"."tenant_key" AS "__q1_parent_0", "q0"."node_code" AS "__q1_parent_1", "q2"."tenant_key" AS "__q1_child_0", "q2"."node_code" AS "__q1_child_1", "q2"."parent_tenant" AS "__q1_hop_0", "q2"."parent_code" AS "__q1_hop_1", CAST($4 AS INTEGER) AS "__q1_depth" FROM "public"."rq_provider_nodes" AS "q2" WHERE ("q0"."parent_tenant" = "q2"."tenant_key" AND "q0"."parent_code" = "q2"."node_code")
+        UNION
+        SELECT "q3"."__q1_child_0" AS "__q1_parent_0", "q3"."__q1_child_1" AS "__q1_parent_1", "q4"."tenant_key" AS "__q1_child_0", "q4"."node_code" AS "__q1_child_1", "q4"."parent_tenant" AS "__q1_hop_0", "q4"."parent_code" AS "__q1_hop_1", ("q3"."__q1_depth" + $5) AS "__q1_depth" FROM "__q1_recursive" AS "q3" INNER JOIN "public"."rq_provider_nodes" AS "q4" ON ("q3"."__q1_hop_0" = "q4"."tenant_key" AND "q3"."__q1_hop_1" = "q4"."node_code") WHERE "q3"."__q1_depth" < $6
+      ) SELECT (SELECT COALESCE(json_agg((SELECT json_build_object($7::text, json_build_array("q6"."tenant_key", "q6"."node_code"), $8::text, json_build_object($9::text, "q6"."label")) FROM "public"."rq_provider_nodes" AS "q6" WHERE ("q6"."tenant_key" = "q5"."__q1_id_0" AND "q6"."node_code" = "q5"."__q1_id_1"))), '[]'::json) FROM (SELECT DISTINCT ON ("q3"."__q1_child_0", "q3"."__q1_child_1") "q3"."__q1_child_0" AS "__q1_id_0", "q3"."__q1_child_1" AS "__q1_id_1" FROM "__q1_recursive" AS "q3") AS "q5") AS "__q1_nodes", (SELECT COALESCE(json_agg("q9"."__q1_edge"), '[]'::json) FROM (SELECT json_build_object($10::text, json_build_array("q7"."__q1_parent_0", "q7"."__q1_parent_1"), $11::text, json_build_array("q7"."__q1_child_0", "q7"."__q1_child_1"), $12::text, "q7"."__q1_depth") AS "__q1_edge" FROM "__q1_recursive" AS "q7" ORDER BY "q7"."__q1_parent_0" ASC, "q7"."__q1_parent_1" ASC, "q7"."__q1_child_0" ASC, "q7"."__q1_child_1" ASC) AS "q9") AS "__q1_edges") AS "q11" ON TRUE) AS "parent" FROM "public"."rq_provider_nodes" AS "q0" WHERE ("q0"."tenant_key" = $13 AND "q0"."node_code" = $14) ORDER BY "q0"."tenant_key" ASC, "q0"."node_code" ASC`,
+  ],
+  "foreign key down, exhaustive, selector": [
+    `SELECT "q0"."label", (SELECT json_build_object($1::text, json_build_array("q0"."tenant_key", "q0"."node_code"), $2::text, "q11"."__q1_nodes", $3::text, "q11"."__q1_edges") FROM (SELECT 1) AS "q10" JOIN LATERAL (WITH RECURSIVE "__q1_recursive" AS (
+        SELECT "q0"."tenant_key" AS "__q1_parent_0", "q0"."node_code" AS "__q1_parent_1", "q2"."tenant_key" AS "__q1_child_0", "q2"."node_code" AS "__q1_child_1" FROM "public"."rq_provider_nodes" AS "q2" WHERE (("q0"."tenant_key" = "q2"."parent_tenant" AND "q0"."node_code" = "q2"."parent_code") AND "q2"."visible" = $4)
+        UNION
+        SELECT "q3"."__q1_child_0" AS "__q1_parent_0", "q3"."__q1_child_1" AS "__q1_parent_1", "q4"."tenant_key" AS "__q1_child_0", "q4"."node_code" AS "__q1_child_1" FROM "__q1_recursive" AS "q3" INNER JOIN "public"."rq_provider_nodes" AS "q4" ON ("q3"."__q1_child_0" = "q4"."parent_tenant" AND "q3"."__q1_child_1" = "q4"."parent_code") WHERE "q4"."visible" = $5
+      ) SELECT (SELECT COALESCE(json_agg((SELECT json_build_object($6::text, json_build_array("q6"."tenant_key", "q6"."node_code"), $7::text, json_build_object($8::text, "q6"."label")) FROM "public"."rq_provider_nodes" AS "q6" WHERE ("q6"."tenant_key" = "q5"."__q1_id_0" AND "q6"."node_code" = "q5"."__q1_id_1"))), '[]'::json) FROM (SELECT DISTINCT ON ("q3"."__q1_child_0", "q3"."__q1_child_1") "q3"."__q1_child_0" AS "__q1_id_0", "q3"."__q1_child_1" AS "__q1_id_1" FROM "__q1_recursive" AS "q3") AS "q5") AS "__q1_nodes", (SELECT COALESCE(json_agg("q9"."__q1_edge"), '[]'::json) FROM (SELECT json_build_object($9::text, json_build_array("q7"."__q1_parent_0", "q7"."__q1_parent_1"), $10::text, json_build_array("q7"."__q1_child_0", "q7"."__q1_child_1")) AS "__q1_edge" FROM "__q1_recursive" AS "q7" ORDER BY "q7"."__q1_parent_0" ASC, "q7"."__q1_parent_1" ASC, "q7"."__q1_child_0" ASC, "q7"."__q1_child_1" ASC) AS "q9") AS "__q1_edges") AS "q11" ON TRUE) AS "children" FROM "public"."rq_provider_nodes" AS "q0" WHERE ("q0"."tenant_key" = $11 AND "q0"."node_code" = $12) ORDER BY "q0"."tenant_key" ASC, "q0"."node_code" ASC`,
+  ],
+  "junction, bounded, selector": [
+    `SELECT "q0"."label", (SELECT json_build_object($1::text, json_build_array("q0"."tenant_key", "q0"."node_code"), $2::text, "q13"."__q1_nodes", $3::text, "q13"."__q1_edges") FROM (SELECT 1) AS "q12" JOIN LATERAL (WITH RECURSIVE "__q1_recursive" AS (
+        SELECT "q0"."tenant_key" AS "__q1_parent_0", "q0"."node_code" AS "__q1_parent_1", "q2"."tenant_key" AS "__q1_child_0", "q2"."node_code" AS "__q1_child_1", CAST($4 AS INTEGER) AS "__q1_depth" FROM "public"."rq_provider_nodes" AS "q2" WHERE (("q2"."tenant_key", "q2"."node_code") IN (SELECT "q3"."to_1", "q3"."to_2" FROM "public"."rq_provider_links" AS "q3" WHERE ("q3"."from_1" = "q0"."tenant_key" AND "q3"."from_2" = "q0"."node_code")) AND "q2"."visible" = $5)
+        UNION
+        SELECT "q4"."__q1_child_0" AS "__q1_parent_0", "q4"."__q1_child_1" AS "__q1_parent_1", "q5"."tenant_key" AS "__q1_child_0", "q5"."node_code" AS "__q1_child_1", ("q4"."__q1_depth" + $6) AS "__q1_depth" FROM "__q1_recursive" AS "q4" INNER JOIN "public"."rq_provider_links" AS "q6" ON ("q6"."from_1" = "q4"."__q1_child_0" AND "q6"."from_2" = "q4"."__q1_child_1") INNER JOIN "public"."rq_provider_nodes" AS "q5" ON ("q6"."to_1" = "q5"."tenant_key" AND "q6"."to_2" = "q5"."node_code") WHERE ("q4"."__q1_depth" < $7 AND "q5"."visible" = $8)
+      ) SELECT (SELECT COALESCE(json_agg((SELECT json_build_object($9::text, json_build_array("q8"."tenant_key", "q8"."node_code"), $10::text, json_build_object($11::text, "q8"."label")) FROM "public"."rq_provider_nodes" AS "q8" WHERE ("q8"."tenant_key" = "q7"."__q1_id_0" AND "q8"."node_code" = "q7"."__q1_id_1"))), '[]'::json) FROM (SELECT DISTINCT ON ("q4"."__q1_child_0", "q4"."__q1_child_1") "q4"."__q1_child_0" AS "__q1_id_0", "q4"."__q1_child_1" AS "__q1_id_1" FROM "__q1_recursive" AS "q4") AS "q7") AS "__q1_nodes", (SELECT COALESCE(json_agg("q11"."__q1_edge"), '[]'::json) FROM (SELECT json_build_object($12::text, json_build_array("q9"."__q1_parent_0", "q9"."__q1_parent_1"), $13::text, json_build_array("q9"."__q1_child_0", "q9"."__q1_child_1"), $14::text, "q9"."__q1_depth") AS "__q1_edge" FROM "__q1_recursive" AS "q9" ORDER BY "q9"."__q1_parent_0" ASC, "q9"."__q1_parent_1" ASC, "q9"."__q1_child_1" ASC, "q9"."__q1_child_0" ASC) AS "q11") AS "__q1_edges") AS "q13" ON TRUE) AS "neighbors" FROM "public"."rq_provider_nodes" AS "q0" WHERE ("q0"."tenant_key" = $15 AND "q0"."node_code" = $16) ORDER BY "q0"."tenant_key" ASC, "q0"."node_code" ASC`,
+  ],
+  "junction, exhaustive": [
+    `SELECT "q0"."label", (SELECT json_build_object($1::text, json_build_array("q0"."tenant_key", "q0"."node_code"), $2::text, "q13"."__q1_nodes", $3::text, "q13"."__q1_edges") FROM (SELECT 1) AS "q12" JOIN LATERAL (WITH RECURSIVE "__q1_recursive" AS (
+        SELECT "q0"."tenant_key" AS "__q1_parent_0", "q0"."node_code" AS "__q1_parent_1", "q2"."tenant_key" AS "__q1_child_0", "q2"."node_code" AS "__q1_child_1" FROM "public"."rq_provider_nodes" AS "q2" WHERE ("q2"."tenant_key", "q2"."node_code") IN (SELECT "q3"."to_1", "q3"."to_2" FROM "public"."rq_provider_links" AS "q3" WHERE ("q3"."from_1" = "q0"."tenant_key" AND "q3"."from_2" = "q0"."node_code"))
+        UNION
+        SELECT "q4"."__q1_child_0" AS "__q1_parent_0", "q4"."__q1_child_1" AS "__q1_parent_1", "q5"."tenant_key" AS "__q1_child_0", "q5"."node_code" AS "__q1_child_1" FROM "__q1_recursive" AS "q4" INNER JOIN "public"."rq_provider_links" AS "q6" ON ("q6"."from_1" = "q4"."__q1_child_0" AND "q6"."from_2" = "q4"."__q1_child_1") INNER JOIN "public"."rq_provider_nodes" AS "q5" ON ("q6"."to_1" = "q5"."tenant_key" AND "q6"."to_2" = "q5"."node_code")
+      ) SELECT (SELECT COALESCE(json_agg((SELECT json_build_object($4::text, json_build_array("q8"."tenant_key", "q8"."node_code"), $5::text, json_build_object($6::text, "q8"."label")) FROM "public"."rq_provider_nodes" AS "q8" WHERE ("q8"."tenant_key" = "q7"."__q1_id_0" AND "q8"."node_code" = "q7"."__q1_id_1"))), '[]'::json) FROM (SELECT DISTINCT ON ("q4"."__q1_child_0", "q4"."__q1_child_1") "q4"."__q1_child_0" AS "__q1_id_0", "q4"."__q1_child_1" AS "__q1_id_1" FROM "__q1_recursive" AS "q4") AS "q7") AS "__q1_nodes", (SELECT COALESCE(json_agg("q11"."__q1_edge"), '[]'::json) FROM (SELECT json_build_object($7::text, json_build_array("q9"."__q1_parent_0", "q9"."__q1_parent_1"), $8::text, json_build_array("q9"."__q1_child_0", "q9"."__q1_child_1")) AS "__q1_edge" FROM "__q1_recursive" AS "q9" ORDER BY "q9"."__q1_parent_0" ASC, "q9"."__q1_parent_1" ASC, "q9"."__q1_child_1" ASC, "q9"."__q1_child_0" ASC) AS "q11") AS "__q1_edges") AS "q13" ON TRUE) AS "neighbors" FROM "public"."rq_provider_nodes" AS "q0" WHERE ("q0"."tenant_key" = $9 AND "q0"."node_code" = $10) ORDER BY "q0"."tenant_key" ASC, "q0"."node_code" ASC`,
   ],
 };

@@ -169,23 +169,18 @@ export function runCreateManyReturnFoldBehavior(options: {
         // statement count is not a semantic contract by itself, and only an
         // obsolete physical pin may be replaced).
         //
-        // A driver with no RETURNING still needs one INSERT PER INPUT ROW —
-        // each row's created identity is addressable only as its own
-        // statement. The shape below is derived from `rows`, the value
-        // `createMany` RETURNED, so what it states is "one INSERT per returned
-        // row, each ahead of the read-back, and nothing else on the wire" —
-        // the per-row regression in the statement stream. A LOST row is caught
-        // by the exact id list asserted above, which is pinned to a literal.
-        // The read-back is NOT per row: the created
+        // A driver with no RETURNING reads the rows back by their keys. Every
+        // row here supplies its own key, so nothing about a row is learned
+        // from its INSERT: the rows are ONE grouped INSERT, and the created
         // identities are read back by ONE series select, ordered by input
         // ordinal, whose own missing-row guard is what refuses a row it
         // cannot find (the read-back of a series wider than the driver's bind
-        // budget is windowed, which four rows are not). The rows asserted
-        // above are the same statement's rows, in the input order.
-        expect(statements.map(isInsert)).toEqual([
-          ...rows.map(() => true),
-          false,
-        ]);
+        // budget is windowed, which four rows are not). A row whose key the
+        // database generates still needs its own INSERT (the next test). A
+        // LOST row is caught by the exact id list asserted above, which is
+        // pinned to a literal; the rows asserted above are the read's rows, in
+        // the input order.
+        expect(statements.map(isInsert)).toEqual([true, false]);
         expect(statements.filter(isSelect)).toHaveLength(1);
       }
 

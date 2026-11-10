@@ -25,8 +25,9 @@ const MUTATION_STATEMENT = /^\s*(?:insert|update|delete)\b/i;
 
 /**
  * A native batch, no callback transaction. `plant` runs once, against the
- * database, right before the first batch after it is set — a change between
- * the plan-time read and the batch. `plantBeforeFirstWrite` runs once INSIDE
+ * database, right before the first batch after it is set that carries a
+ * write — a change between the plan-time reads, a batch of them included,
+ * and the atomic unit. `plantBeforeFirstWrite` runs once INSIDE
  * that batch's transaction, between the unit's last premise and the first
  * statement they stand in front of: a premise and the effect it protects are
  * two statements, and this substrate's select assembly omits `FOR UPDATE`, so
@@ -46,7 +47,7 @@ export class BatchOnlyDriver extends RecordingSQLiteDriver {
     queries: BatchQuery[]
   ): Promise<QueryResult<T>[]> {
     const plant = this.plant;
-    if (plant) {
+    if (plant && queries.some((query) => MUTATION_STATEMENT.test(query.sql))) {
       this.plant = undefined;
       plant(client);
     }

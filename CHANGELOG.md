@@ -3,14 +3,894 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
-## 1.4.0 — unreleased
+## Unreleased
 
-Fewer round trips, permission reads D1 can run, faster `distinct` and
-junction filters, `$extends({ result })` computed fields, and bulk writes
-that refuse a `where` emptied by `undefined`. Measurements are in
-`benchmarks/perf-1.4.0.md`.
+## 1.13.0 — 2026-11-08
+
+SurrealDB 4 joins the databases VibORM writes for, in its own language. An index
+the declaration cannot say (an HNSW, an expression) can now be declared in each
+database's own words, and a vector order can ask a nearest-neighbour index to
+answer it.
+
+### Added
+
+- **SurrealDB, through SurrealQL** (`viborm/surrealdb`, with the `surrealdb`
+  package as an optional peer). A record's key is its id, a relation is a record
+  link (`REFERENCE`), a many-to-many is a graph edge, and a filter on a relation
+  walks the graph. Queries, nested writes, interactive transactions and the
+  official extensions (permissions, soft delete, ordering, `on` hooks) work as on
+  the other databases. Migrations (`viborm/migrations/surrealdb`): `push`,
+  `generate`, `apply`, `verify`, `down` and `reset`, with SurrealQL in the
+  generated files. What differs is on the
+  [SurrealDB](https://viborm.dev/docs/drivers/surrealdb) and
+  [SurrealDB migration driver](https://viborm.dev/docs/migration/drivers/surrealdb)
+  pages:
+  - transactions read a snapshot, and `Serializable` is refused;
+  - there are no row locks;
+  - with no savepoint, a nested `$transaction` and a commit conflict replay their
+    statements. `rerunsOnConflict` retries a callback;
+  - renaming a table or a field, or changing a key, copies the rows, so it is not
+    atomic;
+  - a concurrent delete and insert can leave an orphan.
+- **Raw indexes:**
+  `.rawIndex(name, { pg?, mysql?, sqlite?, surrealdb? })` declares an index in
+  each database's own language: pgvector's or SurrealDB's HNSW, an expression, a
+  prefix, a key order. Each text is a template:
+  - `{name}`, `{table}` (qualified by the bound namespace) and `{field}` become
+    escaped identifiers, so one declaration serves every tenant namespace and
+    follows renames;
+  - migrations create it, recognize it by a marker kept beside it, re-create it
+    when its text changes, and drop it when the declaration goes;
+  - it is never a key and never covers a foreign key;
+  - a JSON schema document cannot carry one (`J009`).
+- **`approximate: true` on a vector `orderBy._distance`.** The read may be
+  answered by a nearest-neighbour index: approximate, and possibly short of
+  `take`.
+  - It applies to a root `findMany` or `findFirst` whose first order term is the
+    distance, nearest first, with `take` and no cursor, skip or distinct.
+    Elsewhere the read stays exact.
+  - On PostgreSQL the order becomes the bare `<=>`/`<->` an HNSW or IVFFlat index
+    serves. pgvector's `hnsw.ef_search` (40 by default) caps the rows, and
+    filters apply after the index.
+  - On SurrealDB it is a `<|k,ef|>` search, when the model declares one HNSW
+    raw index on that field with the same metric and dimension. If that search
+    answers nothing, the exact read answers instead.
+- **A driver may supply its own query backend** (`driver.backend`): the engine
+  states no SQL word, and the `MigrationDriver` contract holds no SQL.
 
 ### Changed
+
+- **PostgreSQL l2 orders without `approximate` stay exact even beside an HNSW
+  index:** the order key is now `(col <-> v) + 0`, which no index serves. A table
+  that has a pgvector index made outside VibORM's migrations used to have its l2
+  orders served by it, silently approximate; pass `approximate: true` to keep
+  that.
+- **SurrealDB refuses indexes it did not define:** an index VibORM did not
+  define in a managed table (another kind, or someone else's comment) refuses
+  synchronization before effects (`V8001`), as PostgreSQL and SQLite do. Before,
+  the next `push` dropped it.
+- **Types a TypeScript consumer may meet at compile time:**
+  - `Dialect` (from `viborm/driver`) and the migration target's `dialect` gain
+    `"surrealql"`, so an exhaustive `switch` or a `Record<Dialect, …>` needs the
+    new member;
+  - `Driver.adapter`, and so `client.$driver.adapter`, is typed `EngineFacts`,
+    the facts every driver states. A SQL caller that read SQL-adapter members
+    through it (`identifiers`, `operators`, …) needs a cast.
+
+  Nothing changes at run time.
+- **Snapshots may hold `junction` and `raw` keys.** Snapshots without them keep
+  their bytes and hashes. A history holding one cannot be read by 1.12.x.
+- **`viborm/migrations` registers the SurrealDB migration driver too,**
+  measured +8.8 kB gzip on the every-entry bundle. It never loads the
+  `surrealdb` package. A Worker that migrates one database should import its
+  dialect's entry (`viborm/migrations/postgres`, `/sqlite`, `/mysql`,
+  `/surrealdb`). The pg and D1 application bundles do not carry it.
+- **Size budgets (owner-approved, OD-17):** pg application +0.31 kB and D1
+  Worker +0.26 kB gzip, for `.rawIndex()` and the approximate order; pg +
+  migrations Worker +2.6 kB, for raw-index migrations. The release contract's
+  tarball limits rise for the SurrealDB driver.
+
+## 1.12.1 — 2026-11-04
+
+Two fixes for large permission reads on Neki.
+
+- A statement still past `relationsPerStatement` in its most compact form now
+  takes one more form, on PostgreSQL drivers only: one row, computed once and
+  joined at the root read, holds the key sets that read tests and its `$exists`
+  answers, a stored body joining such answers once too. Before, Neki refused
+  such a read with 54000. A real policy's two largest reads go from 394 and 474
+  relations to 238 and 245. A statement that fit its bound before keeps its form,
+  and without a bound nothing changes. This is still not a bound for every
+  policy: a larger one can stay past 256.
+- A walk from a node of a recursive selection can now share its reaching set when
+  its hop reads more than the key, as a compound declared junction's does. In
+  1.12.0 such a walk stayed in place, once per row read, and the statement counted
+  more relations than with a generated junction. Answers were right.
+
+## 1.12.0 — 2026-11-04
+
+A model as a many-to-many's junction, with its link row readable, filterable
+and writable through `$through`. Studio's schema diagram lays itself out by what
+joins what.
+
+### Added
+
+- **A declared model as a many-to-many's junction:**
+  `s.toMany(() => team).through(() => teamParent).source("child").target("parent")`.
+  The model keeps its delegate, table, columns and constraints, and VibORM
+  generates no junction for it. Reads, filters, `recurse`, `selective`,
+  `fewRows` and counts work as on any many-to-many. Its side to-ones need no
+  inverse. Refused at schema check: `JT004`–`JT010`, each with a repair. Moving a
+  generated junction to a model of the same table keeps the table and its rows.
+- **`$through`, the link row.** Read in a nested `select` or `include` (`true`, or
+  `{ select }` of its scalars); filter beside the target's conditions in `some`,
+  `none`, `every` and a nested `where`, both holding on one link and its target;
+  write on `connect`, `create`, `connectOrCreate` and `set`. `include:
+  { parents: true }` still returns target rows only. A link that exists takes
+  the stated columns and keeps the others. Refused on a string `.through()`, on a
+  `recurse` walk, and for relations inside it. A required column with no default
+  makes `$through` required on those verbs.
+- **A governed walk reads its tenant's links.** With `permissions({ tenant })`, a
+  junction model whose two foreign keys both hold the tenant's field is bound at
+  each hop of a positive test. A tenant column outside those keys is not bound: a
+  link may disagree with the rows it joins, and a bound would change a rule's
+  answer. Measured on PGlite, 40 organizations of 30 teams: 109,070 → 94 link rows
+  read, same answers. That is rows read, not time.
+
+### Changed
+
+- **Applying `softDelete` (or any `deletion`) to a junction model is refused** when
+  it is applied: a tombstoned link hops still follow would be wrong.
+- `$through` is refused where an extension would hide or judge what it reads or
+  writes (`rows`, a read gate on a named field, verbs, a stamp, a write hook).
+  `defaultOmit` is honoured on `$through: true`.
+- **Studio: the schema diagram lays itself out by what joins what.** Models
+  that join each other stand together as a group, with more room between
+  groups than inside one, and the groups joined most sit side by side, on a
+  sheet about as wide as a screen. A model many others point to (a `user`, an
+  `organization`) no longer pulls the whole schema into one group or one tall
+  column, and lines run level where they can. On a 58-model schema the sheet
+  goes from 2,280 × 13,332 px to 6,480 × 4,883 px and the mean line from 4,281
+  to 1,376 px. A project that already has a kept layout keeps it until **Reset
+  layout**.
+
+### Fixed
+
+- **Studio: a line between two cards one above the other** brackets them on
+  their right, rather than crossing the card it leaves.
+- **Studio: the diagram opens on its cards.** A kept layout far from the
+  computed one opened on an empty canvas until **Fit the schema**; the view now
+  follows the cards when the kept layout is read and on **Reset layout**.
+
+## 1.11.0 — 2026-11-03
+
+Fixes from a review of every change since 1.4.2, two API names made
+single, and code nothing used removed.
+
+### Breaking
+
+- **`rows.confine` replaces `rows.bound`** in an extension's `rows`.
+  `bound` named two things: a control set once per client
+  (`controls.<name>.bound`) and the `where` every row of a layer's
+  whole-table sets holds. The second is now `confine`. A definition still
+  writing `rows.bound` fails at `$extends`, naming `rows.confine`, rather
+  than losing its confinement. `permissions({ tenant })` is unchanged.
+- **`ordering(config).keys` and `.methods` are removed.** They were the
+  1.7 form, superseded in 1.8 by applying `ordering(config)` once, in any
+  order with the other extensions.
+
+### Fixed
+
+- **An extension's update stamp writes its own fields only.** With a
+  `data` stamp on updates (an `updatedBy`, say), the stamp's admission
+  generated `updatedAt()` again: a `move` or `rekey` refreshed the
+  timestamp ordering keeps as stored (1.9.1), and an `update` that gave
+  `updatedAt` a value had it replaced by the current time. Given none, an
+  update still generates it.
+- **A client built with `$extends` can be exported from a file compiled
+  with `declaration: true`.** With `ordering`, `softDelete`, `permissions`
+  or `on` applied, its declaration failed (TS4023, TS2742, or TS7056 for a
+  type too long to write), or spelled every delegate out: 1.2 MB for one
+  ordered model, 4.3 MB with soft delete. It now names
+  `VibORMClient<…>`: 8 KB ordered, 10 KB with soft delete, 51 KB with
+  all four. The package exports the type names those declarations use.
+- **`move`, `restore` and `purge` type a selected `$access`.** They
+  returned it but typed their result without it; they now type it as the
+  operation they delegate to does, nested selections included.
+- **`move` refuses misspelled keys beside real ones in TypeScript**, in
+  `where`, `after`/`before`, `data` and `to`, as the runtime already did.
+- **`ordering()` refuses a misspelled `key` or `within` field in
+  TypeScript**, as it refused a misspelled model.
+- **`viborm/ordering`'s published declaration compiles with
+  `skipLibCheck: false`.** It failed with TS2536; 1.10.0's failed twice.
+
+### Removed
+
+- The adapters' `like`, `notLike`, `ilike` and `notIlike` operators, which
+  nothing called. Text filters use `containsText`, `startsWithText`,
+  `endsWithText` and `insensitiveText`.
+
+## 1.10.0 — 2026-11-03
+
+Recursive lists stop scanning their table once per row, and two documented
+opt-ins let an application state what only its data knows: that a walk is
+short (`fewRows`, in a select) or selective (`selective`, in a filter or a
+policy rule).
+
+### Performance
+
+- **A list's `recurse` select no longer scans its table once per row to
+  order its edges.** Reading a recursive relation (`parent: { recurse: {
+  depth: false }, select: { … } }`: each document's folder chain), each
+  listed row joined the rows its walk reached back to their table only to
+  order them; PostgreSQL, which guesses ten rows a level of a recursive
+  walk, could scan the whole table for every listed row to do it. An
+  order of key columns alone (the default) is now read from the walk
+  itself. PostgreSQL 18: 1,040 rows of a 5,000-row tree with their
+  ancestors 255 → 133 ms, a governed 100-row page of a 10,000-row tree
+  11.8 → 6.8 ms, 5,000 rows with large ancestor documents 1.27 s → 680 ms;
+  PGlite pages about 2× faster. A caller's own sibling order (`orderBy` on
+  a non-key field, a relation, a count) reads as before. The values are
+  unchanged.
+
+### Added
+
+- **`recurse: { selective: true }`: a walk you state is few is computed once
+  per statement.** Inside a policy's repeated rules, a recursive walk such as
+  "the teams the actor belongs to, through their subteams" (`children: {
+  recurse: { depth: false, selective: true }, some: { members: { some: {
+  userId: { actor: "userId" } } } } }`) was walked again for every grant row
+  each rule read. Stated `selective`, it is read back once from the actor's
+  rows wherever every body reading it is already computed over its whole
+  table. Measured on a 40-model production policy at 500 organizations
+  (PostgreSQL 18): opening a page 2.0 → 0.8 ms with `tenant` (1.4 s → 89 ms
+  without). Anywhere else (a body read by one row's key, a unique read, a
+  keyed write, SQLite's keyed reads) the walk stays in place. Nothing is
+  guessed: without the option every statement is the one 1.9.1 sent.
+- **`recurse: { fewRows: true }`: a recursive select whose walks are short
+  reads its rows by key on PostgreSQL.** State it on a `recurse` in
+  `select`/`include` when each row's walk reaches few rows of its table (a
+  document's folder chain, a category's ancestors). On every PostgreSQL
+  driver each reached row is then read by its primary key instead of
+  joining the table to the walk, which may scan the whole table for every
+  listed row. PostgreSQL 18: 1,040 rows of a
+  5,000-row tree with their ancestors 129 → 13 ms, all 5,000 558 → 68 ms,
+  a governed 100-row page of a 10,000-row tree 6.3 → 1.7 ms; PGlite lists
+  4–20× faster. On a walk that reaches most of its table it is slower (the
+  9,999 descendants of one root 1.21×), so it is never guessed. SQLite, D1
+  and MySQL accept it and ignore it. The values are the same either way;
+  unstated, the statement is unchanged. `where` filters do not take it.
+
+## 1.9.1 — 2026-11-02
+
+### Fixed
+
+- **An upsert is one `INSERT … ON CONFLICT` again under `ordering()`.**
+  A client with any extension writing values (a `data` stamp, the
+  ordering key's append) took the emulated upsert on **every** model, the
+  ones the extension never writes too: a locating read, then the INSERT or
+  the UPDATE, then a read (3–5 statements, in a transaction). An upsert now
+  folds into one statement wherever it did without the extension, and on
+  an ordered model too: its appended key is computed in the INSERT, as a
+  create's is. A model whose extension writes a value the call admits (a
+  stamped constant, an update stamp) keeps the emulated path, so that
+  value is still admitted only by the arm that writes it. MySQL, which
+  has no `RETURNING`, never folds and is unchanged.
+- **Ordering's own writes leave `updatedAt()` as stored.** A `move`
+  refreshed the moved row's `updatedAt()` fields, and a respace (`rekey`,
+  or a move whose gap was used up) every row of the list, rows nobody
+  edited included: a row placed elsewhere is not a row changed. `move`,
+  `rekey` and respacing now leave such fields out of their UPDATE, unless
+  a move's `data` writes one (a field `data` gives `undefined` is left
+  out, as in any update), and a model's `verbs` do not judge them as
+  written. An app that kept the date
+  by locking and reading the row before `move` can drop that read.
+- **An anchor's other fields work on every move path.** `after: { id,
+  groupId }` was accepted where the move is one statement, but a move that
+  reads first (MySQL, a used-up gap, a row already in place) passed the
+  whole anchor as a `cursor` and failed (`V4001 cursor.groupId: Unknown
+  key`). That path now reads the anchor by all it states (`NotFoundError`
+  where it no longer holds them), then its neighbours from the anchor's own
+  key; an anchor that changes list between the two reads is read again, not
+  replaced by the row after it. On that path the condition holds when the
+  anchor is read, not inside the UPDATE.
+- **A move next to an anchor named by a nullable field lands next to it.**
+  The one-statement move told the anchor and the moved row apart from the
+  other members by the fields their selectors name; a member holding `NULL`
+  in one of them dropped out of the neighbours, and the row could land past
+  them (an anchor `{ due, columnId }` among rows without `due`).
+- **Tied keys in a model of one list (or a `first` / `last` move) never
+  write a `NULL` key.** The one-statement move's guard lost its parentheses
+  (`AND` over `OR`): where its key could not be computed between two tied
+  keys, it wrote `NULL` (`NotNullConstraintError`) instead of respacing.
+  Since 1.7.0.
+- **A model with a column named `k`, `nk`, `i0` or `w0` can be respaced.**
+  Respacing's joined table named its columns so; under a write hook (its
+  `RETURNING`) PostgreSQL refused the column as ambiguous. They are now
+  named as no schema identifier can be.
+
+### Changed
+
+Three names that said less than they meant, from an audit of the API added
+since 1.6.0. Each former spelling still works; the docs and the type
+comments use the new one.
+
+- **`softDelete({ actorId })`**, formerly `actor`: the value a delete writes
+  into `deletedBy`, fixed per client. `actor` is what `permissions` calls
+  the request's actor schema, a different thing. Giving both is refused.
+- **`ordering({ models: { card: { key, within } } })`**, as `softDelete`
+  and `permissions` take their models. `ordering({ card: … })` still works.
+- **`isKeyFormat(value)`**, formerly `isKey`: whether a value is written as
+  a key, as every key a list holds is. `orderingKey` also refuses a write
+  setting a key of 10^8 or more, so a value `isKeyFormat` accepts may still
+  be refused as written data.
+
+## 1.9.0 — 2026-11-02
+
+A policy declares the tenant its calls stay in, and its cost stops growing
+with every other tenant of the database.
+
+### Added
+
+- **`permissions({ tenant: { field, actor, except? } })`.** Inside the
+  policy's own rules, on every model with the scalar `field` (but the ones
+  `except` names), a set computed over a whole table holds only the rows
+  whose `field` is the actor's `actor` path, where a positive test reads
+  it: a body the statement repeats, and, on a driver that bounds relations
+  per statement (Neki), a walk computed as a set. Without it, those sets
+  read every tenant's rows: "the teams the actor belongs to", "the grants
+  that name them", "the documents they may read". Measured on a 40-model
+  production policy at 500 organizations of 60 members (PostgreSQL 18):
+  the sidebar's read 1,152 → 11 ms, a document list 7.8 s → 200 ms, a team
+  list 8.4 s → 124 ms, opening a page 1,013 → 5 ms; at 5 organizations,
+  unchanged. Nothing else reads differently: relations a call reads, a
+  field's read gate, other extensions' predicates. Where every row of such a model a rule reads is
+  the actor's tenant's, the policy answers what it answered; where one is
+  not, `tenant` only takes access away: what a negative test (`none`,
+  `every`, `isNot`, `NOT`) reads, or ranges over, is never bounded.
+  Checked when the policy is applied: `actor` a path of the actor schema
+  (also in its type), `field` a scalar of some model, each `except` a
+  model holding it.
+- **`move({ where, after | before | first | last | key | to, data })`**:
+  `data` writes other fields in the same UPDATE as the key, judged as an
+  update writing them. With one order for the whole table (no `within`), a
+  Kanban grouped by any field changes a card's column and its place in one
+  statement. `data` writes the model's own fields: never the key, a `within`
+  field nor a relation.
+- **`rows.bound`**, the capability `tenant` is built on: per model, a
+  `where` of its own columns every row of a set an extension's own
+  predicates compute over a whole table holds, where a positive test reads
+  it. Any extension may
+  state one; without it, nothing changes.
+
+### Fixed
+
+- **A key with `.default("")` and `orderingKey`**, the documented adoption
+  path: a create through `ordering` that left the key out was refused, its
+  default `""` validated before the append replaced it. A field an
+  extension's stamp writes, and the caller leaves out, now takes neither
+  its default nor its validator: the stamp's value is the one written.
+
+### Changed
+
+- **A default its field's own validator (`.schema()`) refuses is no longer
+  refused when the schema is checked (`F004`) or pushed (its DDL)**, as long
+  as it has the field's type: it is validated where a create takes it, and
+  refused there, as before. One of the wrong type is still `F004`.
+
+## 1.8.0 — 2026-11-02
+
+Soft delete and ordering are one `$extends` each, applied in any order with
+permissions, `on`, the cache, `defaultOmit` and your own extensions. Soft
+delete gains `purge` and `purgeMany`; `move` no longer reveals a hidden
+anchor; a MySQL soft delete takes one statement fewer.
+
+### Changed
+
+- **The chain no longer refuses `rows` or `defaultOmit` after an extension
+  with methods or model-mapped `query` handlers.** Every method already runs
+  through the whole chain of the client it is called on; the rule only ever
+  protected types, so it is now TypeScript's alone: `rows` or `defaultOmit`
+  after a client or model factory that takes a typed argument types as
+  `never`. A factory that takes its delegate as `never` (or `unknown`, or no
+  argument) reads nothing typed at its step and may be followed by anything.
+  The two `ClientInitializationError`s ("declares rows, which cannot
+  follow…", "The default omit extension cannot follow…") are gone.
+- **`softDelete(config)`** is one definition: `db.$extends(softDelete(c))`
+  composes with `permissions` in either order, and `defaultOmit` may follow
+  it. `restore` (and `purge`) type their result from the client they are
+  called on, so a later `rows` step types a to-one relation it can hide as
+  `| null` and a later `defaultOmit` drops its fields. `softDelete(c).rows`
+  and `.methods` still work, for chains written before.
+- **`ordering(config)`** is one definition too; `move`'s result is typed from
+  the client it is called on. `ordering(c).keys` and `.methods` still work.
+- **`rekey` (and a move's respacing) is an `updateMany` through the client**,
+  no longer a raw UPDATE: rows, permissions, write hooks, `updatedAt` and the
+  cache apply as to any update, whichever order the extensions came in. It
+  writes only the members the caller may update, each with a short key
+  between the keys of the other members around it, so whoever sees the
+  whole list reads it in the order it had (1.7.0 rewrote whole lists,
+  hidden members included). With `orderBy`, the caller's members are
+  re-sorted among the places they held. A member moved meanwhile keeps the
+  key its writer gave it. It is one statement on every database (1.7.0
+  read the lists first, and MySQL wrote a `CASE` arm per member): the
+  UPDATE ranks the members in a derived table it joins.
+- A soft delete behind `restrict` children on MySQL sends 4 statements, not
+  5: the lock before the live-child check is the capture of the rows' keys,
+  and the write no longer locks them again. PostgreSQL keeps its 3 (lock,
+  check, `UPDATE … RETURNING`), in the same order; a PostgreSQL delete whose
+  result RETURNING cannot carry (a relation `include`) also goes from 5 to 4.
+
+### Added
+
+- **`purge` and `purgeMany`** on soft-deleted models: tombstones only,
+  deleted physically. A live row is never purged (`purge` of one is
+  `NotFoundError`). `mode: "hard"` keeps working.
+- **`DelegateOperationResult<Self, Operation, Args>`**: a model method
+  declared with a `this` parameter types its result from the delegate it is
+  called on, after every extension applied later (computed `result` fields
+  included; `unknown` when called off its delegate).
+
+### Fixed
+
+- **Ordering: `move` was an existence oracle under `rows`.** Its one UPDATE
+  read the anchor and neighbours from the table, so `move({ after: { id } })`
+  succeeded for a hidden row and failed for a missing one, and the key it
+  wrote showed whether a list held hidden members. Its subqueries now take
+  the caller's row filters, as every read of the engine does (a `RowsOf`
+  node the operation settles): still one statement, a hidden anchor is a
+  `NotFoundError` as a missing one is, and the key depends on visible rows
+  alone.
+- **Soft delete checks its marker when applied.** A `deletedAt` that is not
+  a nullable `DateTime` is a `ClientInitializationError` naming the field; a
+  string marker was accepted and failed at the first delete, a required one
+  was refused with an unclear message.
+
+### Documentation
+
+- Soft delete: indexes for the marker (partial indexes over live rows on
+  PostgreSQL and SQLite, the marker in composite indexes on MySQL).
+
+## 1.7.0 — 2026-11-01
+
+`viborm/ordering`: the members of a list (cards in kanban columns) in the
+order you choose, read back in that order, appended by their INSERT and
+moved by one UPDATE that computes the new key. On MySQL, an `update` takes
+one statement fewer.
+
+### Added
+
+- **`viborm/ordering`**: user-defined order for the members of a list
+  (cards in kanban columns), `ordering({ card: { key: "rank", within:
+  ["columnId"] } })(client)`.
+  - Keys are decimal fractional keys: digit strings, so they sort the same
+    under every collation that orders digits as digits (letters do not:
+    Czech `ch`, Danish `aa`; measured on 89 ICU locales). No column
+    collation, no migration.
+  - Reads of an ordered model without `orderBy` come back in list order, at
+    the root and in to-many relation reads at any depth.
+  - A row created without its key goes last of its list, on every create
+    path (nested creates, `createMany` in array order, `upsert`,
+    `connectOrCreate`). The INSERT computes the key from the list's last
+    key: no read first, on PostgreSQL, SQLite, libSQL, PGlite and D1. On
+    MySQL, where that statement deadlocks under concurrent appends, a
+    plain read of the last key comes first.
+  - `move({ where, after | before | first | last | to })` is one `update`
+    through the client (permissions, soft delete, `updatedAt`, write hooks
+    apply), the new key computed by the UPDATE from the keys around the
+    row's place: one statement within a list, two into another, on
+    PostgreSQL, SQLite, libSQL and D1 (MySQL reads the neighbours first).
+    The key alone is written where the row stays in its list. It respaces a
+    list by itself when a gap is used up or neighbours tie.
+    `move({ where, key, to? })` writes a key the caller computed with
+    `keyBetween`, reading nothing: one `update`.
+  - `rekey({ where, orderBy })` respaces whole lists, hidden members
+    included, in one statement (more where the driver bounds a statement's
+    values), the lists named through the caller's view. It is how an
+    existing table adopts the extension: the key field may default to a
+    literal (`s.string().default("")`).
+  - `orderingKey`, a validator for the key field (keys below 10^8, so an
+    append always fits); `isKey` tells whether a value is a key.
+- **The `order` extension capability**: `order: { models: { card: [{ rank:
+  "asc" }] } }` gives a model the order its reads take when the caller gives
+  no `orderBy`: root `findMany`/`findFirst`, to-many relation reads at any
+  depth, and paged `count`/`aggregate` windows. An explicit `orderBy`
+  replaces it; cached reads are keyed on it.
+- On MySQL, an `update` reads its result back with the read that confirms
+  its write: 3 statements instead of 4 (lock, write, read).
+- A model method factory receives the client scope after its delegate:
+  `model: { post(delegate, scope) { … } }`, the same scope a client factory
+  receives.
+
+## 1.6.0 — 2026-10-30
+
+VibORM Studio: the schema as a diagram, and the rows to browse and edit
+through your own client, in a new package, `@viborm/studio`. And `viborm/on`:
+hooks that run after a write commits, root and nested writes alike.
+
+### Added
+
+- **`npx @viborm/studio`**, at this release's version (it requires `viborm`
+  `~1.6.0`). It finds the project's config by itself: `viborm.config.*` in
+  the working directory or a parent up to the repository root, else a file
+  below that imports `defineConfig` from `"viborm/config"`. It serves a local
+  app on `127.0.0.1:5577`:
+  - the schema as an ERD: columns with their types, nullability, primary and
+    unique keys; one-to-one, one-to-many, many-to-many and polymorphic
+    relations in crow's foot notation; a clicked model or relation lights up
+    what it reaches; find a model; export as PNG or SVG; cards kept where you
+    move them; an icon for each model, guessed from its name (some 1,300
+    words for 171 icons, compound and generic words read as such) or its
+    shape, measured on 2,384 names from open-source schemas;
+  - each model's rows: paging, search, filters of nested AND/OR/NOT groups (through relations,
+    values picked by type), sorting, columns hidden, moved, resized and
+    pinned, related rows opened under their row (polymorphic relations
+    included), CSV and JSON export of what a filter reaches;
+  - saved views: a table's filter, search, order, page size and columns,
+    named, given an icon and listed in the sidebar, kept with the diagram's layout by the
+    studio per project (`~/.viborm/studio`);
+  - editing through the client: cells in place with an editor of their type
+    (switch, calendar, time, select), a row drawer, a foreign-key picker,
+    related rows linked and unlinked through nested writes, polymorphic
+    relations included;
+  - changes stacked, not written as you edit: reviewed, dropped, or saved
+    together in one transaction of the client, all or none, a refused one
+    named with the client's own message;
+  - an "Aa" toggle that ignores case in search and text conditions;
+  - a query page: a read built with pickers (conditions, order, page,
+    columns, related rows; counts, sums, averages and extremes, per group),
+    run through the client as it is built, with its rows (related rows open
+    under their row), the SQL it ran, its trace (the instrumentation's spans
+    on a waterfall, database time against VibORM time) and the call to write
+    in the application;
+  - a banner when the database differs from the schema: what `viborm push`
+    would change (a dry run) and its SQL, red when it would lose data;
+  - ⌘K to go to a model, a view or a row by its key; ⌘S saves, ⌘Z undoes.
+
+  It watches the config and every project file it imports: a saved schema
+  reloads the page, a broken one keeps the previous schema and says why.
+  `--readonly` refuses every write. The server answers only `127.0.0.1` and
+  its own page. `viborm` carries none of the studio: it adds no runtime
+  entry, bundle or dependency to `viborm`.
+
+- **`viborm/on`: hooks that run after a write commits.** Name a model and what
+  happened to its rows (`create`, `update`, `delete`), and VibORM calls your
+  function after the commit, with the rows as the write left them (as they
+  were before, for a delete):
+
+  ```ts
+  import { on } from "viborm/on";
+
+  const db = base.$extends(on({
+    user: { update: (rows, { certainty }) => syncToMyOtherDatabase(rows) },
+  }));
+  ```
+
+  - Every write calls them: `create`, `createMany`, `update`, `updateMany`,
+    `upsert` (its arm decides `create` or `update`), `delete`, `deleteMany`,
+    and every nested write of the same kinds, with the nested model's rows
+    (a nested `connect` or `disconnect` is an `update` of the row whose
+    foreign key moved). A soft delete is an `update` of the marker.
+  - Inside a transaction, hooks wait for the outermost commit and are dropped
+    on rollback, savepoints included; `$transaction([...])` runs them after the
+    commit, member by member. Each hook receives `certainty`
+    (`"committed"` or `"may-have-committed"`).
+  - VibORM awaits what a hook returns before the write resolves: return the
+    promise to wait for it, or pass it to `ctx.waitUntil()` yourself. A
+    failing hook never fails its write: the write committed and resolves, and
+    the failure goes to `on(hooks, { onError })` as a `QueryError` whose
+    `meta.commitCertainty` says it committed and whose `cause` is the hook's
+    error (to `console.error` without `onError`). A retry never writes twice
+    because of a hook.
+  - A write no hook concerns runs exactly as before. One a hook concerns
+    returns whole rows through its own `RETURNING` (an upsert stays one
+    atomic `INSERT … ON CONFLICT`, which reports its arm through `xmax = 0`
+    on PostgreSQL and a probe of its key in the same unit on SQLite); on
+    MySQL, a `createMany`, `updateMany` or `deleteMany` it concerns reads its
+    rows in the same transaction (see the docs' cost table).
+  - Many-to-many links, database cascades and raw SQL call no hook.
+
+### Fixed
+
+- **`createMany({ skipDuplicates: true, select })` without `RETURNING`
+  (MySQL)** inserted each row without skipping duplicates, so a duplicate
+  failed with a unique-constraint error instead of being skipped. It now skips
+  it, counts only the rows inserted and returns only those.
+- **PostgreSQL `push` removing an enum value no longer fails on a CHECK
+  constraint of its column (#85).** A CHECK you added by hand that compares
+  the column to a value (`CHECK ("kind" <> 'a' OR "note" IS NOT NULL)`) made
+  the type replacement fail with SQLSTATE 42883. Push now reads the CHECK
+  constraints on the columns it converts, drops them before the conversion
+  and adds them back, under the same name and definition (`NOT VALID` kept),
+  once the column is the enum again, in the same transaction; the preview
+  shows both statements and its consent covers them. A CHECK naming the value
+  being removed is refused while planning, naming the constraint. `generate`
+  cannot see CHECKs (it reads no database), so a generated migration does not
+  carry them: drop such a constraint around it by hand.
+
+### Changed
+
+- **MySQL: fewer statements for writes that return rows without `RETURNING`.**
+  `createMany({ select })` whose rows all carry their keys inserts them in one
+  statement and reads them back in one (it was one INSERT per row);
+  `delete` and `deleteMany({ select })` with a scalar `select` naming the key
+  lock and read their rows in one `SELECT … FOR UPDATE` (it was a key capture
+  then a read).
+- **`mode: "insensitive"` ignores letter case the way the database does.** It
+  used to fold `A`-`Z` only, identically everywhere, with a `TRANSLATE` on
+  PostgreSQL and 26 nested `REPLACE` calls on MySQL. It now uses each
+  database's own case folding:
+  - PostgreSQL: `ILIKE` for `contains`/`startsWith`/`endsWith`, on the bare
+    column so a trigram index serves it, and `LOWER(column) = LOWER(value)`
+    for equality, `in`, `not` and ranges;
+  - MySQL: `LOWER` on both sides, compared as bytes;
+  - SQLite, libSQL, D1: `lower`, as before.
+
+  **Results can differ between databases for non-ASCII letters.** `"école"`
+  now matches `"École"` on MySQL and on PostgreSQL with a libc or ICU locale
+  (the `initdb` default). It still doesn't on SQLite (whose `lower()` folds
+  `A`-`Z` only) or on a `C`-locale PostgreSQL such as PGlite. Accents are
+  never folded: `"ecole"` matches `"École"` nowhere. JSON-path string filters
+  and field references follow the same rule.
+- **PostgreSQL binds a plain search string as one escaped pattern.**
+  `contains`, `startsWith` and `endsWith` with a string escape `%`, `_` and
+  `\` before binding (`"title" LIKE $1`, `$1 = '%50\%%'`) instead of
+  escaping it in SQL with three nested `REPLACE` calls. A column or JSON-path
+  operand is still escaped by the server.
+
+## 1.5.1 — 2026-10-26
+
+A `reset()` on a PlanetScale Postgres (Neki) production branch failed every
+time, as a bare, redacted `V2001 { driver, operation: "transaction" }`; this
+release fixes it, and the four gaps that hid its cause.
+
+### Fixed
+
+- **Migrations run on every PlanetScale Neki router.** Some Neki routers
+  (`checkTaint`) refuse to plan any statement against any relation once its
+  transaction changed the schema: `NK013`, "[817] Planning against relation
+  public._viborm_migration_log is unavailable: earlier DDL in this
+  transaction is not reflected in the router's schema view". `reset()` ran
+  its drops, then wrote its ledger row in the same transaction, and failed
+  there; `apply()`, `down()`, `resolve({ outcome: "retry" })` and `push()`
+  wrote their ledger rows and marker after their schema changes the same
+  way. Another branch of the same database, whose router does not refuse,
+  passed. Every migration command on Neki now runs stepwise: no
+  transaction, each statement committed alone, each step's ledger record and
+  the marker move in statements of their own. A command stopped part way
+  leaves its attempt open, and the next `apply()` (or `reset()`, from its
+  stored plan) resumes it from what did not commit. A created table's index
+  statement is now proven against its own index rather than one whose name
+  it extends (`by_email` for `by_email_b`), which a stepwise run would
+  otherwise have skipped (states generated before 1.5.1 keep the probe they
+  were generated with; a wrongly skipped index fails the state's destination
+  proof before the marker moves).
+- **Migration commands honour their client's `diagnostics`.** A client
+  extended with `instrumentation({ diagnostics })` disclosed provider text and
+  SQL for its own operations, but `createMigrationClient(client)` runs its
+  statements through `$driver`, which carried none of it: a migration failure
+  stayed redacted, a `lock_timeout` in `reset()` included. Every statement of
+  a migration's session now discloses as its client's `diagnostics` allow
+  (only those: the client's observers and statement transforms do not reach
+  migration SQL), a `MigrationError` keeps the disclosure of the failure it
+  wraps, and with `includeSql` a refused statement is in its `meta.query`.
+  Drivers that run migrations without a session (Neon HTTP) are unchanged.
+  Direct `$driver` calls are unchanged too: the driver API has no client.
+- **A provider's own SQLSTATE class is kept.** `meta.providerCode` kept a
+  five-character code only when its class was one of the SQL standard's, so
+  Neki's `NK013` or `NK316` (and any `RAISE … USING ERRCODE`) became a bare
+  `V2001` with no code. Any `[0-9A-Z]{5}` code is now kept as `providerCode`
+  (`providerSqlState` still admits only standard classes), and a migration
+  statement Neki refuses is the located `MigrationError` V11001 a refusal is,
+  rather than an unexplained transport failure.
+- **A PostgreSQL connection dropped under a statement is a `ConnectionError`.**
+  node-postgres reports it ("Connection terminated unexpectedly", then "Client
+  has encountered a connection error and is not queryable") without a code, so
+  it read as a refused query (`V2001`). It is now a retryable
+  `ConnectionError` V1001 (`CONNECTION_FAILED`), like `ECONNRESET`, so a
+  caller can tell "retry" from "the database refused".
+- **Migration failures say where they happened.** A failure inside `reset()`
+  carried only `{ driver, operation }`. Every dispatched statement's failure
+  now names its `step` (`apply`, `down`, `resolve`, `reset-clear`,
+  `reset-replay`), `stateId`, `statementIndex`, `strategy` (its boundary),
+  `operationId` and `dispatchId`: reset's replay names its edge, and reset's
+  clear statements are located (and, refused, are a `MigrationError` V11001
+  like any dispatch). A failure outside any statement (a commit, a lock wait)
+  keeps its class and code and names its `step`, and inside an `apply` or
+  `reset` transaction its `strategy` and `stateId`.
+
+## 1.5.0 — 2026-10-25
+
+### Changed
+
+- **Snapshot deltas address named collections by name, so inserting a table,
+  column or enum value mid-list stores one change.** The incremental snapshots
+  of 1.4.0 paired array elements by position: inserting a table in the middle
+  of a schema rewrote every table after it, field by field. A one-table
+  migration of a 59-table schema stored a 68,588-byte delta (795 changes, 78%
+  of the full snapshot); the same migration now stores 1,802 bytes, one
+  `insert`. Tables, columns, indexes, foreign keys, unique constraints, enums,
+  enum values and column lists are matched by name; the elements that keep
+  their order are edited in place, the others removed and inserted where they
+  land. Generation writes the new `snapshot-delta-2` format, with an `insert`
+  change and removals at any array index, and keeps whichever of the keyed and
+  the positional encoding is smaller, so no delta grows. Existing deltas are
+  never rewritten: their bytes are their address and their states' ids.
+
+### Upgrade order
+
+- **Upgrade every reader of an estate before generating with 1.5.0.** VibORM
+  1.5.0 reads the `snapshot-delta-1` artifacts of 1.4.x, but 1.4.x refuses a
+  `snapshot-delta-2` one, with `MIGRATION_INVALID_ESTATE` ("snapshot delta
+  format or changes is invalid") from `check()`, `apply()` and the other
+  commands that load the estate; it never misreads a schema. Every machine
+  that loads the estate (CI, deploys, Durable Objects that apply tenant
+  schemas) needs 1.5.0 before a state is generated with it. A later format
+  is refused by name, as written by a newer VibORM.
+
+## 1.4.3 — 2026-10-25
+
+### Fixed
+
+- **`reset()` works on a database whose marker this estate does not hold.**
+  After an estate was replaced by a fresh history (a new root, no shared
+  states), a database still carrying the old marker (`status().markerState`
+  `"unknown"`, or `"ahead"`) could not be reset: `reset({ dryRun: true })`
+  returned a plan, but `reset()` refused with `MigrationError` V11022, "A
+  selected state is missing its authenticated snapshot"
+  (`MIGRATION_CORRUPTION`), though nothing was corrupt. It asked the estate
+  for the marker's own snapshot, for checks that run on the replay's states;
+  a marker the estate does not hold now contributes none, as in the dry run,
+  and the clear drops the live inventory as planned. A reset of such a marker
+  that was interrupted also resumes: its plan's source (the marker's own
+  revision and snapshot hash) is proved against the live marker, not looked
+  up in the estate.
+
+## 1.4.2 — 2026-10-25
+
+Two D1 and Neon HTTP bugs older than 1.4.0, left open by its adversarial
+review.
+
+### Fixed
+
+- **On D1 and Neon HTTP, a `connect` sees the earlier writes of its own
+  call.** A nested write's lookups read outside the batch its writes are
+  queued in, and a `connect` whose target sits behind a junction or holds the
+  key itself was never ordered behind them: one by a unique an earlier nested
+  `update` rewrote linked the row that held it before (`items: { update: …
+  code: "x" … }, liked: { connect: { code: "x" } }` linked the old row), and
+  one of a row an earlier nested `delete` removed failed on the foreign key
+  instead of as a missing target. Such a lookup now reads behind those
+  writes, as it does on every other driver; the order a collection checks its
+  targets in before its clears is unchanged.
+- **On D1, `deleteMany` counts the rows it deleted, and a `delete` that
+  answers a relation succeeds.** D1's affected-row count also counts the rows
+  a foreign key's cascade changed, so `deleteMany` over rows with
+  many-to-many links returned their links in its `count` (2 posts with 2 tags
+  each: 6), and a `delete` with an `include` failed with `TransactionError`
+  ("selected-row cardinality changed") after deleting the row. Those
+  statements now count their own rows (`RETURNING 1`); `SQLiteAdapter` takes
+  `countsCascadedChanges` for a transport that counts like D1.
+
+## 1.4.1 — 2026-10-24
+
+Fixes found by two rounds of adversarial review of 1.4.0, and the 1.4.0
+behaviour changes its notes left out.
+
+### Changed
+
+- **`findUnique` batching is opt-in: `createClient({ findUniqueBatching: true
+  })`.** In 1.4.0 the `findUnique` calls of one tick always shared one read,
+  and that read ran in the async context of the first call of the tick, on
+  any client. A driver that picks its database or session from
+  `AsyncLocalStorage` (a per-request tenant router) answered every call of
+  the batch from the first request's tenant, and the statement was traced
+  under the first request's span. With the option on, a batch's read now runs
+  in its own first call's context (never another client's), but calls of
+  different requests on one client still share it: turn it on where nothing
+  below the client reads the caller's async context. A failed shared read
+  that every call recovers from by running alone no longer logs an error.
+
+### Fixed
+
+- **A unique `where` holding `null` no longer writes every row it matches.**
+  A unique index admits any number of NULLs, so `delete({ where: { code: null
+  } })` on a nullable `.unique()` field, or an `update` by a compound selector
+  with a `null` member, deleted or updated every row holding that NULL (since
+  1.0; 1.4.0 added the nested-write `update` to the calls that did). A unique
+  selector member is now never `null`, as in Prisma: the types refuse it, and
+  validation refuses it with a `ValidationError` before any statement, in
+  `findUnique`, `update`, `delete`, `upsert`, cursors, every nested target and
+  the permissions extension's `can`/`assert`, also beside another selector
+  (`{ id: 1, code: null }`). Address rows by a NULL with `findFirst`,
+  `updateMany` or `deleteMany`.
+- **A `findUnique` on the originating client inside its own callback
+  transaction no longer hangs the client.** On drivers that run a callback
+  transaction on their single connection (SQLite3, PGlite, local libSQL, Bun
+  SQLite), that call is refused with a `TransactionError`, as it was in
+  1.3.3; in 1.4.0, joined to a `findUnique` issued outside the transaction in
+  the same tick, its shared read waited behind the transaction that waited for
+  it, and every later call on the client waited too.
+- **A large to-many `connect` or `set` is no longer quadratic in its
+  targets.** 1.4.0 matched the rows of the shared target read to each target
+  by scanning them all; 8,000 targets took 8.6 s (24 s where the targets hold
+  the key), against 5.0 s and 11.8 s in 1.3.3. They are now matched through an
+  index: 4.9 s either way.
+- **On D1 and Neon HTTP, a to-many `connect` or `set` sends a few
+  statements, not two per target.** 1.4.0 read a nested write's lookups
+  ahead in one batch, one statement each, and the targets read that way
+  were never grouped: 260 targets sent 261 SELECTs and 260 INSERTs (D1
+  counts every statement of a batch). Lookups of one model that pin a unique
+  key now share one statement per bind budget, and their junction links one
+  INSERT per bind budget: the same call sends 14 statements. Round trips are
+  unchanged.
+- **A statement queued on a single-connection driver runs in its own call's
+  async context.** SQLite3, PGlite, local libSQL and Bun SQLite run one
+  statement at a time, and the statements of concurrent calls wait behind
+  each other. The queue ran each waiting statement in the async context of
+  the call that drained it (since 1.0), so a driver that picks its database
+  from `AsyncLocalStorage` could answer one request from another's, and a
+  statement's span could land in another request's trace.
+- **A created row's `now()` and `updatedAt()` fields hold the same instant.**
+  Each generator read the clock on its own, so `createdAt` and `updatedAt`
+  could differ by a millisecond. Every generator of one call's admission now
+  reads one instant.
+- **A libSQL client opened on `databaseUrl: ":memory:"` serializes its
+  transactions** like `file::memory:`: a call on the originating client
+  inside a callback transaction is refused with `TransactionError` instead of
+  reaching another connection that has no tables.
+- **Without async context (a browser, Workers without `nodejs_compat`), a
+  batched `findUnique` no longer joins a batch while a transaction holds the
+  connection**, which made a misused call wait out the queue bound twice.
+- **`ExtensionContributionState` takes six type arguments again.** 1.4.0
+  added a seventh (`Result`) without a default; it now defaults to no result
+  fields.
+
+### 1.4.0 changes its notes did not list
+
+- **A nested write's returned row does not show what a trigger changed.** A
+  `create` or `update` with nested relation writes and no relation in its
+  result returns the row its own INSERT or UPDATE answered; a trigger that
+  later changes that row (a counter a child's INSERT bumps) is in the
+  database but not in the returned object. Add an `include` or re-read the row
+  where a trigger maintains it.
+- **`findUnique` waits one tick before it runs**, to share a read with the
+  other `findUnique` calls of the same tick. A write issued after it in the
+  same tick (`Promise.all([findUnique, update])`) can run first; await the read
+  where the order matters.
+- **The `undefined` bulk-where refusal (V4001) does not cover a to-one
+  relation filter.** `deleteMany({ where: { author: { is: { id: undefined } }
+  } })` asks that an author exists, which on a required relation is every row,
+  and is not refused (as the compatibility page states).
+- **An estate regenerated on 1.4.0 gets new state ids.** A state lost from a
+  1.3.3 history and generated again on 1.4.0 is stored as a delta, so its id
+  differs from the lost one; regenerate lost states with the version that
+  wrote them.
+
+## 1.4.0 — 2026-10-24
+
+Fewer round trips, permission reads D1 can run, faster `distinct` and
+junction filters, `$extends({ result })` computed fields, bulk writes that
+refuse a `where` emptied by `undefined`, and incremental migration snapshots.
+Measurements are in `benchmarks/perf-1.4.0.md`.
+
+### Changed
+
+- **A to-many `connect` or `set` whose targets hold the foreign key rewrites
+  them in one UPDATE.** Connecting or setting a user's `posts` sent one
+  `UPDATE … WHERE id = ?` per post; the posts of one call now share one
+  `UPDATE` naming them all (`= ANY(…)` on PostgreSQL, `IN (…)` elsewhere; one
+  per bind budget), on PostgreSQL, MySQL, SQLite and libSQL. A row policy
+  judging the rows it produces judges each in that statement, and refuses the
+  write as before. D1 and Neon HTTP already sent these UPDATEs in one batch.
+- **On D1 and Neon HTTP, a nested write's planning reads go in one batch.** The
+  reads that decide the plan (the root row, a `connect` or `set` target, an
+  `upsert` probe) were sent one at a time before the write's batch; the ones
+  that answer alike wherever they run now share one native batch of reads. An
+  `update` with a to-many `connect`, `set` or `upsert` goes from 3 round trips
+  to 2; over the 72-call census, D1 goes from 166 to 148 and Neon HTTP from 164
+  to 146, every result unchanged. A read that waits for a write of the same
+  call, a series member's read and a branch's read are still sent alone.
 
 - **`updateMany` and `deleteMany` refuse a `where` that `undefined`
   emptied.** `deleteMany({ where: { tenantId: undefined } })` deleted every
@@ -29,6 +909,33 @@ that refuse a `where` emptied by `undefined`. Measurements are in
   2 to 1 on D1 and Neon HTTP. The old route is kept where the answer could
   differ (a projection reading the written table, an update of a referenced
   key, a decoding refusal, a SQLite delete). MySQL is unchanged.
+- **Nested writes no longer read the row back at the end.** A `create` or
+  `update` with nested relation writes and no relation in its result returns
+  the row its own INSERT or UPDATE answered, one round trip fewer on
+  PostgreSQL, SQLite and libSQL (create with a nested create: 5 to 4). The
+  read is kept where a later nested write can change the row: one writing
+  the same model, or one deleting or re-keying a row it references.
+- **A nested `update` no longer reads and locks its row before updating
+  it.** On PostgreSQL, SQLite and libSQL the UPDATE finds the row itself,
+  takes the same lock and fails with the same `NotFoundError` when the row
+  is missing: one round trip fewer (update with a nested create: 6 to 4
+  with the change above). The read stays where something must run between
+  it and the UPDATE: a `connect` of a relation the row holds the key of, a
+  nested target's lookup, or a change of a relation key.
+- **`upsert` and `connectOrCreate` read their row once on PostgreSQL.** The
+  lookup that decides between update and create now locks the row it finds
+  (a miss locks nothing there), so the second, locking read of the same row
+  is gone: one round trip fewer. MySQL keeps the unlocked lookup, because a
+  locking miss there takes a gap lock that deadlocks two concurrent creates;
+  SQLite keeps both reads, having no row lock. A to-many nested `upsert`
+  still confirms that the row it found belongs to the parent.
+- **A to-many `connect` or `set` reads its targets in one statement and
+  links them in one INSERT.** `tags: { connect: [a, b, c] }` went from a
+  locking read and a junction INSERT per target to one of each: a `create`
+  connecting three tags is 10 to 5 round trips on PostgreSQL and SQLite with
+  the changes above, and 4 to 2 on D1 and Neon HTTP. Where a target is
+  missing, each is read again on its own and the call fails as before. MySQL
+  reads the targets together and keeps one INSERT per link.
 - **`findUnique` calls issued in the same tick share one statement**, as in
   Prisma: same model, unique key and projection, outside transactions, a
   `where` that is the key alone (string, int or bigint members). 50
@@ -98,6 +1005,16 @@ that refuse a `where` emptied by `undefined`. Measurements are in
   as in Prisma. `compute` is typed to its `needs`. Not yet:
   polymorphic variant rows, and types for a nested `select`/`omit` naming a
   computed field.
+- **Incremental migration snapshots.** Generation stores the first schema in
+  full and each later state as a delta against a parent artifact when that is
+  smaller, with a full checkpoint at most 32 deltas apart; a data-only
+  migration reuses its parent's artifact. A state's `snapshotHash` still names
+  the complete schema, and the delta's own address is `snapshotArtifactHash`.
+  Existing full snapshots stay valid and nothing needs converting, but **an
+  engine older than 1.4.0 cannot read a delta**: upgrade every reader of an
+  estate before generating with 1.4.0. `check` validates every artifact,
+  `prune` keeps the bases retained states need, and custom storage needs no new
+  method. Keep the whole estate when copying or bundling migrations.
 
 ## 1.3.3 — 2026-10-19
 

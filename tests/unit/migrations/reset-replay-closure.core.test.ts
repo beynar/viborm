@@ -1034,3 +1034,73 @@ describe("reset marker proof", () => {
     expect(driver.statements).not.toContain("SELECT 'child-forward-0'");
   });
 });
+
+describe("reset from a marker this estate does not hold", () => {
+  // The estate was replaced by a fresh history and the database still carries
+  // the old one's marker (`status().markerState === "unknown"`). The plan
+  // records that marker's own revision and snapshot hash as its source, and a
+  // resumed reset proves the live marker is still that one; nothing about
+  // the source comes from this estate's graph, which never held it.
+  test("resumes the unfinished reset of a foreign marker", async () => {
+    const chain = await publishResetChain([
+      {
+        name: "root",
+        forward: ["SELECT 'root-forward-0'", "SELECT 'root-forward-1'"],
+      },
+    ]);
+    const foreign = {
+      estateHash: "e".repeat(64),
+      stateId: "f".repeat(64),
+      snapshotHash: "d".repeat(64),
+      transitionHash: "c".repeat(64),
+    };
+    const marker = markerFromPath(
+      foreign.estateHash,
+      foreign.snapshotHash,
+      [
+        {
+          stateId: foreign.stateId,
+          transitionHash: foreign.transitionHash,
+          baselineBoundary: false,
+        },
+      ],
+      3
+    );
+    const replayPath = chain.states.map((state) => state.stateId);
+    const body = {
+      estateHash: chain.estateHash,
+      targetIdentity: "sqlite:",
+      sourceRevision: marker.revision,
+      sourceFingerprint: foreign.snapshotHash,
+      replayPath,
+      clearDispatches: [],
+      referencedStates: replayPath,
+    };
+    const plan: ResetPlanV1 = {
+      ...body,
+      resetPlanHash: domainHash(HASH_DOMAIN.resetPlan, canonicalizeJson(body)),
+    };
+    const started = resetStartedEvent(chain, plan);
+    const { eventId: _eventId, ...fields } = started;
+    const fromForeign = { ...fields, fromState: foreign.stateId };
+    const driver = sqliteEstateDriver();
+    driver.respond = controlRespond({
+      ledger: [
+        { ...fromForeign, eventId: eventIdFor(fromForeign) },
+        replayStepEvent(chain, plan.resetPlanHash, 0, 0),
+      ],
+      answer: (sql) =>
+        sql.includes("SELECT payload FROM") &&
+        sql.includes("_viborm_migration_state")
+          ? [{ payload: canonicalizeJsonText(marker) }]
+          : undefined,
+    });
+
+    await expect(resetV1(clientFor(driver), chain.storage)).resolves.toEqual({
+      preview: false,
+      path: replayPath,
+    });
+    expect(driver.statements).not.toContain("SELECT 'root-forward-0'");
+    expect(driver.statements).toContain("SELECT 'root-forward-1'");
+  });
+});

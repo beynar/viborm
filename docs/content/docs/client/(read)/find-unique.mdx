@@ -198,11 +198,14 @@ One place viborm goes **further** than Prisma:
 
 ## Batching concurrent calls
 
-Like Prisma, VibORM merges the `findUnique` and `findUniqueOrThrow` calls
-issued in the same tick into one read. This is the GraphQL N+1 case, where each
-resolver looks up one row:
+With `findUniqueBatching: true`, VibORM merges the `findUnique` and
+`findUniqueOrThrow` calls issued in the same tick into one read, as Prisma's
+dataloader does. This is the GraphQL N+1 case, where each resolver looks up one
+row:
 
 ```ts
+const client = createClient({ schema, driver, findUniqueBatching: true });
+
 // One statement: SELECT … WHERE "id" IN (…)
 const authors = await Promise.all(
   posts.map((post) =>
@@ -216,6 +219,14 @@ separate object, also when two calls name the same key), `null`, or
 `NotFoundError`. Request transforms, query interceptors, the cache, observers
 and [permissions](/docs/extensions/permissions) still see one operation per
 call. Only the statement is shared.
+
+Batching is off by default (it was on in 1.4.0). The merged read runs in the
+async context of the batch's first call, and the calls of one tick on one
+client can come from different requests: a driver that picks its database or
+its session settings from `AsyncLocalStorage` would read the first request's
+for all of them, and the statement is traced under the first request's span.
+Turn it on where every call of a client belongs to one request, or where
+nothing below the client reads the caller's async context.
 
 Calls are merged only when all of these hold:
 
@@ -249,7 +260,9 @@ A few things change:
   allows 100 per statement). PostgreSQL binds a single-field key list as one
   array parameter.
 - **Tracing.** Each call keeps its operation span. The merged statement appears
-  under the first call's span.
+  under the first call's span; the other calls' operations have no statement
+  span. When the merged read fails and every call recovers on its own, the
+  failure is not logged as an error.
 - **Ordering.** A `findUnique` you do not `await` can now run after a write you
   start later in the same tick, so it may see that write. If the read must not
   see the write, `await` the read first.

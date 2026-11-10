@@ -26,7 +26,7 @@ const ISOLATION_SQL = /SET TRANSACTION ISOLATION LEVEL/i;
 const SELECT_SQL = /select/i;
 const ANY_LEVEL_SQL =
   /READ UNCOMMITTED|READ COMMITTED|REPEATABLE READ|SERIALIZABLE/;
-const SAVEPOINT_REASON = /SAVEPOINT/;
+const NESTED_REASON = /runs inside the outer transaction/;
 
 /**
  * One PGlite for the whole worker, one private schema for this file, emptied
@@ -307,7 +307,7 @@ describe("nested $transaction: the savepoint option contract", () => {
   };
   const nestedOf = (tx: unknown) => tx as unknown as NestedTransactionClient;
 
-  test("a nested isolationLevel is refused, naming the savepoint reason", async () => {
+  test("a nested isolationLevel is refused, naming the outer transaction as the reason", async () => {
     const driver = pgliteDriver();
     const client = createClient({ schema: clientUserPostSchema, driver });
 
@@ -321,7 +321,7 @@ describe("nested $transaction: the savepoint option contract", () => {
       });
       await expect(
         nestedOf(tx).$transaction(nested, { isolationLevel: "Serializable" })
-      ).rejects.toThrow(SAVEPOINT_REASON);
+      ).rejects.toThrow(NESTED_REASON);
       expect(nested).not.toHaveBeenCalled();
     });
   });

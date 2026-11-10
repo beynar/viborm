@@ -18,7 +18,9 @@ icon: cpu
 | [PostgreSQL](/docs/migration/drivers/postgresql) | PostgreSQL | Yes | Yes | btree, hash, gin, gist | Providers with a proven pinned session |
 | [MySQL](/docs/migration/drivers/mysql) | MySQL | Yes (inline `ENUM`) | No (JSON) | btree, fulltext, spatial | MySQL2 with namespace attestation; stepwise DDL |
 | [SQLite](/docs/migration/drivers/sqlite) | SQLite3, Bun SQLite | No (CHECK) | No (JSON) | btree | Yes |
+| [SQLite](/docs/drivers/sqlite/durable-object#migrations) | Durable Objects | No (CHECK) | No (JSON) | btree | Yes |
 | [SQLite](/docs/migration/drivers/sqlite#libsql--turso) | LibSQL / Turso | No (CHECK) | No (JSON) | btree | Refused until constraint alteration and reconstruction are proven |
+| [SurrealDB](/docs/migration/drivers/surrealdb) | SurrealDB 4 | No (`string`) | Yes | plain and unique; others through `.rawIndex()` | Yes |
 
 ## Driver Capabilities
 

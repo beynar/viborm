@@ -48,6 +48,7 @@ Everything else is DERIVED, once per schema, by the topology owner in
 | foreign-key ownership | which endpoint completed `.fields(...).references(...)` |
 | one-to-one vs many-to-one | the partner slot's cardinality |
 | junction vs foreign key | both endpoints being collections |
+| a declared model holds the junction | `.through(() => model)` on one endpoint: the same `junction` edge, with `topology.declared` |
 | remote uniqueness | the partner slot's cardinality |
 | may the slot be empty | the stored tuple's nullability, or non-ownership |
 
@@ -287,3 +288,18 @@ posts: s.toMany(() => post)
   membership index because one database FK cannot target several tables; a
   variant `s.toMany` slot adds one member junction table per variant, each
   with real foreign keys on both sides
+
+## A declared model as the junction
+
+`.through(() => model)` keeps the one junction edge. `ResolvedJunctionSide.members`
+come from each to-one's stored reference: `junctionField` is the model's physical
+column (`.map()` respected), `referencedField` the endpoint's field, and a column
+both to-ones hold appears in both sides. Nothing past the resolver asks whether a
+junction is declared except where its answer differs: `topology.declared` carries
+the model and the physical key a link conflicts on, the serializer generates no
+table for it, and a link writes its model's defaults and distinct columns.
+
+A side with no inverse of its own publishes a foreign-key edge (`junctionSide`)
+whose second endpoint is the collection that hops through it: a real slot on the
+model the reference targets, so every reader of `endpoints` reaches the right
+model, while that slot itself still resolves to the junction.

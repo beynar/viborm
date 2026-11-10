@@ -61,6 +61,20 @@ export type ExactJunctionActions<Action> = Record<
 >;
 
 /**
+ * `.source()` / `.target()` after a declared model's `.through()` names one of
+ * its relations, which is what `$through` keeps a link's own columns apart by.
+ * On any other junction a token is only a name and the state stays as it was.
+ */
+type WithJunctionSide<State, Side extends string, Token> = State extends {
+  readonly junction: { readonly model: unknown };
+}
+  ? Replace<
+      State,
+      { readonly junction: State["junction"] & { readonly [K in Side]: Token } }
+    >
+  : State;
+
+/**
  * A model-target collection slot.
  *
  * The junction overrides are independent, meaningful facts rather than stages of
@@ -77,8 +91,24 @@ export type ModelToManyRelation<State> = {
     name: Name
   ): ModelToManyRelation<Replace<State, { readonly name: Name }>>;
   through(table: string): ModelToManyRelation<State>;
-  source(token: string): ModelToManyRelation<State>;
-  target(token: string): ModelToManyRelation<State>;
+  /**
+   * A declared model as the junction: its table, columns and delegate stay its
+   * own and `.source()` / `.target()` name its to-one relations. The getter is
+   * kept as a target's is and read only where a query asks for `$through`: the
+   * junction model's relations point back here, so `.source()` naming them in
+   * its own signature would resolve a circular const.
+   */
+  through<const G>(
+    model: G & GetterOnly<G>
+  ): ModelToManyRelation<
+    Replace<State, { readonly junction: { readonly model: G } }>
+  >;
+  source<const Token extends string>(
+    token: Token
+  ): ModelToManyRelation<WithJunctionSide<State, "source", Token>>;
+  target<const Token extends string>(
+    token: Token
+  ): ModelToManyRelation<WithJunctionSide<State, "target", Token>>;
   onDelete<const Action extends JunctionActionDeclaration>(
     action: Action & ExactJunctionActions<Action>
   ): ModelToManyRelation<State>;
@@ -100,6 +130,9 @@ class ModelToMany {
     this.#internal = Object.freeze({
       state: this.#state,
       settleTarget: createTargetSettlement(() => this.#state.target.getter),
+      settleJunctionModel: createTargetSettlement(
+        () => this.#state.junction?.model
+      ),
     });
   }
 
@@ -110,11 +143,16 @@ class ModelToMany {
     });
   }
 
-  through(table: string): ModelToMany {
-    return this.#withJunction({
-      ...this.#state.junction,
-      table: normalizeJunctionToken("through", table),
-    });
+  through(junction: unknown): ModelToMany {
+    const { table, model, ...overrides } = this.#state.junction ?? {};
+    return this.#withJunction(
+      typeof junction === "function"
+        ? { ...overrides, model: junction as () => any }
+        : {
+            ...overrides,
+            table: normalizeJunctionToken("through", junction),
+          }
+    );
   }
 
   source(token: string): ModelToMany {

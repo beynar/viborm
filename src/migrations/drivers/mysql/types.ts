@@ -45,6 +45,8 @@ export interface MySQLIndex {
   COLUMN_NAME: string;
   NON_UNIQUE: number; // 0 = unique, 1 = non-unique
   INDEX_TYPE: string; // BTREE, HASH, FULLTEXT, SPATIAL
+  /** Where VibORM keeps a raw index's marker. */
+  INDEX_COMMENT: string | null;
   SEQ_IN_INDEX: number;
 }
 

@@ -1,4 +1,4 @@
-import { getAdapterInternals } from "@adapters/adapter-internals";
+import { adapterConstraints } from "@adapters/adapter-internals";
 import {
   NestedWriteError,
   NotFoundError,
@@ -10,18 +10,26 @@ import {
   getModelKeyCatalog,
   type OrderedModelKey,
 } from "@schema/model";
+import { Sql } from "@sql";
+import {
+  compileBindBudgetChunks,
+  normalizedBindParameterLimit,
+} from "../../bind-budget";
 import type { PreparedGuardFailure } from "../../types";
+import { writeSinks } from "../../write-sinks";
 import {
   type Member,
   type MembershipParent,
   nestedRefusal,
   type ObservationPremise,
   type OperationContext,
+  type StatementAnswer,
 } from "../shared/operation-context";
-import type {
-  PreparedProjection,
-  PreparedSelector,
-  Query,
+import {
+  type PreparedProjection,
+  type PreparedSelector,
+  type Query,
+  returningSafeProjection,
 } from "../shared/query";
 import { parseStamped } from "../shared/row-scope";
 import { type Arguments, entries, type Input, record } from "../shared/schema";
@@ -38,6 +46,7 @@ import type {
   Command,
   CommandOccurrence,
   Commands,
+  Link,
   MembershipRequirement,
   RecordCommand,
   SelectedSeriesMember,
@@ -56,15 +65,170 @@ import {
   type Selection,
 } from "./selection";
 
+/**
+ * Every write `occurrence` and the occurrences under it may issue: the model
+ * whose rows it changes, and whether it only inserts them. A junction row
+ * belongs to no model, and no foreign key references it.
+ */
+function* writesUnder(
+  occurrence: CommandOccurrence
+): Generator<{ readonly model: AnyModel; readonly inserts: boolean }> {
+  const command = occurrence.command;
+  switch (command.kind) {
+    case "record":
+      yield { model: command.model, inserts: command.located === undefined };
+      break;
+    case "choose":
+    case "set":
+      yield { model: command.model, inserts: false };
+      break;
+    case "delete":
+      yield { model: command.located.model, inserts: false };
+      break;
+    case "selectedSeries":
+      yield { model: command.series.selection.model, inserts: false };
+      yield* writesUnder(command.template);
+      break;
+    case "captureSeries":
+      yield* writesUnder(command.target);
+      break;
+    case "remove":
+      if (command.edge.kind === "reference")
+        yield {
+          model:
+            command.edge.owner === "source"
+              ? command.edge.source
+              : command.edge.target,
+          inserts: false,
+        };
+      break;
+    default:
+      break;
+  }
+  for (const child of occurrence.children) yield* writesUnder(child);
+}
+
+/**
+ * The lookups under `root` that a read ahead may answer, in run order: none
+ * after a captured series, whose members are known only once it captures (and
+ * the capture flushes), none of a series member, which claims its own
+ * boundary (N5), and none inside a choice's arms, which run on its answer.
+ */
+function lookupsAhead(root: CommandOccurrence): Selection[] {
+  const found: Selection[] = [];
+  let stopped = false;
+  const walk = (occurrence: CommandOccurrence): void => {
+    const command = occurrence.command;
+    if (command.kind === "selectedSeries" || command.kind === "captureSeries")
+      stopped = true;
+    if (stopped || command.kind === "series" || occurrence.role === "member")
+      return;
+    if (command.kind === "choose") {
+      found.push(command.lookup);
+      return;
+    }
+    if (command.kind === "lookup") found.push(command);
+    else if (command.kind === "record" && command.located)
+      found.push(command.located);
+    else if (command.kind === "delete") found.push(command.located);
+    for (const child of occurrence.children) walk(child);
+  };
+  walk(root);
+  return found;
+}
+
 /** What a captured series prepared, as its owner (`CommandAttempt`) states it. */
 type PreparedSeries = NonNullable<ReturnType<CommandAttempt["series"]["get"]>>;
 
+/** Whether two stored assignments write the same fields with the same values. */
+/** Whether two read or stated values of one column are one stored value. */
+function sameStoredValue(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  // An expression a batch's own unit computes names no value to compare, and
+  // NULL is no value: neither can be shown to agree with anything.
+  if (a === null || b === null || a instanceof Sql || b instanceof Sql)
+    return false;
+  const comparable = (value: unknown) =>
+    value instanceof Date ? value.getTime() : String(value);
+  return comparable(a) === comparable(b);
+}
+function sameValues(a: Input, b: Input): boolean {
+  const keys = Object.keys(a);
+  return (
+    keys.length === Object.keys(b).length &&
+    keys.every((key) => Object.hasOwn(b, key) && Object.is(a[key], b[key]))
+  );
+}
+/** A merged read's owners, as opposed to one lookup's. */
+const isSelectionGroup = (
+  owner: Selection | readonly Selection[]
+): owner is readonly Selection[] => Array.isArray(owner);
+/**
+ * One level of a key index: the rows whose key values end here, and the next
+ * level by the next field's value.
+ */
+interface KeyNode {
+  readonly rows: Input[];
+  readonly next: Map<unknown, KeyNode>;
+}
+const keyNode = (): KeyNode => ({ rows: [], next: new Map() });
+/**
+ * For each lookup of a run, the rows holding every unique key value it pins
+ * (`facts.keys`), compared with `Object.is`. The rows are indexed once per
+ * pinned field list, so a run of N lookups over N rows costs N descents into
+ * an index rather than N × N comparisons (a 4,000-target `connect` spent most
+ * of its time here).
+ */
+function keyedMatches(
+  rows: readonly Input[]
+): (lookup: Selection) => readonly Input[] {
+  const indexes = new Map<string, KeyNode>();
+  return (lookup) => {
+    const pins = [...lookup.facts.keys].sort(([left], [right]) =>
+      left < right ? -1 : left > right ? 1 : 0
+    );
+    if (pins.length === 0) return rows;
+    const fields = pins.map(([field]) => field);
+    const signature = fields.join("\u0000");
+    let index = indexes.get(signature);
+    if (!index) {
+      index = keyNode();
+      for (const row of rows) {
+        let level = index;
+        for (const field of fields) {
+          let child = level.next.get(row[field]);
+          if (!child) {
+            child = keyNode();
+            level.next.set(row[field], child);
+          }
+          level = child;
+        }
+        level.rows.push(row);
+      }
+      indexes.set(signature, index);
+    }
+    let level: KeyNode | undefined = index;
+    for (const [, value] of pins) {
+      level = level.next.get(value);
+      if (level === undefined) return [];
+    }
+    // A `Map` compares with SameValueZero; the pins compare with `Object.is`,
+    // which tells 0 from -0.
+    return level.rows.filter((row) =>
+      pins.every(([field, value]) => Object.is(row[field], value))
+    );
+  };
+}
 /** Interprets the prepared command tree through one replaceable execution attempt. */
 export class CommandExecution {
   readonly commands: Commands;
   readonly context;
   #currentAttempt: CommandAttempt;
   readonly #entered = new Set<CommandOccurrence>();
+  /** The result the root record's own statement answers, where it may ({@link complete}). */
+  #answer?: StatementAnswer & { readonly occurrence: CommandOccurrence };
+  /** The occurrence {@link complete} runs: the one record whose UPDATE may locate its row. */
+  #root?: CommandOccurrence;
   constructor(commands: Commands) {
     this.commands = commands;
     this.context = commands.context;
@@ -106,6 +270,19 @@ export class CommandExecution {
   #membershipValues(edge: Membership, parent: Assignments): Input {
     return this.attempt.select(parent, membershipFields(edge));
   }
+  /**
+   * What names the row a removal unlinks: its identity, and on a declared
+   * junction the target side's fields, which may read past its key. A generated
+   * side is the row key, so both answers are the identity.
+   */
+  #removalTarget(edge: Membership, target: Assignments): Input {
+    return edge.kind === "junction" && edge.declared
+      ? this.attempt.select(
+          target,
+          edge.targetSide.members.map((pair) => pair.referencedField)
+        )
+      : this.identity(target);
+  }
   #linkValues(
     edge: Extract<Membership, { kind: "junction" }>,
     source?: Assignments,
@@ -118,10 +295,26 @@ export class CommandExecution {
       target
     );
   }
+  /**
+   * Both rows of a link supply a shared column, and one column holds one value.
+   * The foreign keys would refuse most of these, but not on a provider enforcing
+   * none, and neither key says what happened: two rows that disagree are refused
+   * here, before the statement.
+   */
+  #requireAgreement(link: Link): void {
+    for (const { column, source, target } of link.shared ?? []) {
+      const { a, b } = this.attempt.resolve({ a: source, b: target });
+      if (sameStoredValue(a, b)) continue;
+      throw new NestedWriteError(
+        `Cannot link relation '${link.edge.name}': the two rows hold different values for '${column}'.`,
+        link.edge.name,
+        { meta: { field: column, relation: link.edge.name } }
+      );
+    }
+  }
   async #requireTransitions(command: RecordCommand): Promise<void> {
     const ctx = this.context;
     const q = ctx.queries;
-    const a = ctx.driver.adapter;
     for (const edge of command.transitions) {
       const before = this.#membershipValues(edge, command.located!.fields);
       const after = this.#membershipValues(edge, command.fields);
@@ -145,21 +338,6 @@ export class CommandExecution {
         edge.pairs.some((pair) => before[pair.source] === null)
       )
         continue;
-      const changed = a.operators.or(
-        ...edge.pairs.map((pair) =>
-          a.operators.not(
-            a.operators.eq(
-              q.fieldValue(command.model, pair.source, before[pair.source]),
-              q.updateValue(
-                command.model,
-                pair.source,
-                after[pair.source],
-                q.fieldValue(command.model, pair.source, before[pair.source])
-              )
-            )
-          )
-        )
-      );
       const failure = new NestedWriteError(
         `Cannot update relation '${edge.name}' with onUpdate('${edge.reference.onUpdate ?? "restrict"}') while the current relation is occupied.`,
         edge.name,
@@ -175,7 +353,15 @@ export class CommandExecution {
           edge.target,
           { take: 1 },
           { edge, parent: before },
-          { condition: changed }
+          {
+            row: {
+              kind: "keyChanges",
+              model: command.model,
+              fields: edge.pairs.map((pair) => pair.source),
+              before,
+              after,
+            },
+          }
         ),
         failure
       );
@@ -472,9 +658,14 @@ export class CommandExecution {
     root: CommandOccurrence<RecordCommand | Choose>,
     args: Arguments
   ): Promise<unknown> {
+    const projection = this.#answeredByRoot(root, args);
+    this.#root = root;
     while (true) {
       try {
+        this.#answer = projection && { occurrence: root, projection };
         await this.run(root);
+        if (this.#answer?.row !== undefined)
+          return await this.context.finishAnswered(this.#answer);
         return await this.context.finishOne(
           this.context.queries.select(
             root.command.model,
@@ -492,6 +683,142 @@ export class CommandExecution {
       }
     }
   }
+  /**
+   * The projection the root record's own INSERT or UPDATE answers in place of
+   * the read {@link complete} otherwise ends with, on the interactive route:
+   * one its `RETURNING` carries ({@link OperationContext.answersInStatement};
+   * RETURNING-safe only, since a relation projection reads rows the children
+   * have not written yet), and only where nothing written after that statement
+   * can change the row. A statement changes rows of the table it writes and,
+   * where it deletes or rewrites a key, rows holding a foreign key to those,
+   * transitively; an INSERT changes no other row. So no later write may name
+   * the root's model, and no later write but an INSERT may name a model the
+   * root's row reaches through the keys it holds. A user trigger is the one
+   * change this cannot see, as the folded root write's `RETURNING` never did.
+   */
+  #answeredByRoot(
+    root: CommandOccurrence<RecordCommand | Choose>,
+    args: Arguments
+  ): PreparedProjection | undefined {
+    const ctx = this.context;
+    const command = root.command;
+    if (ctx.usesBatch || command.kind !== "record") return undefined;
+    const model = command.model;
+    const projection = ctx.queries.prepareProjection(model, args);
+    if (
+      !(
+        returningSafeProjection(projection) &&
+        (ctx.answersInStatement(
+          model,
+          projection,
+          command.located ? "update" : "insert"
+        ) ||
+          (command.located !== undefined &&
+            (command.operation ?? "update") === "update" &&
+            ctx.answersAfterUpdate(projection)))
+      )
+    )
+      return undefined;
+    const reached = this.#reachedThroughKeys(model);
+    for (const child of root.children) {
+      if (child.placement === "before") continue;
+      for (const write of writesUnder(child))
+        if (
+          write.model === model ||
+          (!write.inserts && reached.has(write.model))
+        )
+          return undefined;
+    }
+    return projection;
+  }
+  /**
+   * The values the root record's UPDATE writes when that UPDATE also locates
+   * the row ({@link OperationContext.updateLocated}), in place of the locking
+   * read that otherwise precedes it; `undefined` where the read stays. The read
+   * is only an address and a lock when nothing runs between it and the UPDATE
+   * — no `before` child, no key transition to require — and the row is a
+   * plain root lookup. Its binding is then the row as the UPDATE leaves it,
+   * which is the row as it was read in every field the UPDATE does not write:
+   * so the UPDATE may write no field a later step reads off the located row (a
+   * nested lookup correlated by the key the root holds, which the UPDATE
+   * clears: W-W12). An UPDATE that writes nothing issues no statement, and
+   * keeps the read.
+   */
+  #updateLocates(occurrence: CommandOccurrence): Input | undefined {
+    const ctx = this.context;
+    const command = occurrence.command;
+    if (occurrence !== this.#root || command.kind !== "record")
+      return undefined;
+    if (
+      ctx.usesBatch ||
+      !ctx.driver.adapter.capabilities.supportsReturning ||
+      command.located === undefined ||
+      command.transitions.length > 0 ||
+      occurrence.children.some((child) => child.placement === "before")
+    )
+      return undefined;
+    const values = this.stored(command.fields);
+    const fields = Object.keys(values);
+    if (
+      fields.length === 0 ||
+      fields.some((field) => command.located!.fields.demands.has(field))
+    )
+      return undefined;
+    return values;
+  }
+  /**
+   * The root record's UPDATE locating its row ({@link #updateLocates}): the
+   * located row is bound to what it returns, as the locating read would have
+   * bound it, and the record to the fields its dependents demand.
+   */
+  async #locatingUpdate(
+    command: RecordCommand,
+    values: Input,
+    answer: StatementAnswer | undefined
+  ): Promise<Input> {
+    const ctx = this.context;
+    const model = command.model;
+    const located = command.located!;
+    const returned = new Set([
+      ...storedFields(ctx.schema, model),
+      ...command.fields.demands,
+    ]);
+    const row = await ctx.updateLocated(
+      model,
+      located.selector,
+      values,
+      ctx.queries.prepareProjection(
+        model,
+        { select: Object.fromEntries([...returned].map((f) => [f, true])) },
+        true
+      ),
+      located.required!,
+      command.operation,
+      this.#refusal(command),
+      answer
+    );
+    this.attempt.rows.set(located, row);
+    this.attempt.bind(located.fields, row);
+    return Object.fromEntries(
+      [...command.fields.demands].map((field) => [field, row[field]])
+    );
+  }
+  /** The models `model`'s rows reach through the foreign keys they hold, transitively. */
+  #reachedThroughKeys(model: AnyModel): ReadonlySet<AnyModel> {
+    const schema = this.context.schema;
+    const reached = new Set<AnyModel>();
+    const pending = [model];
+    for (let next = pending.pop(); next; next = pending.pop())
+      for (const [name, { edge }] of schema.index.get(next) ?? []) {
+        if (edge.kind !== "foreignKey") continue;
+        const view = schema.membership(next, name);
+        if (view.kind !== "reference" || view.owner !== "source") continue;
+        if (reached.has(view.target)) continue;
+        reached.add(view.target);
+        pending.push(view.target);
+      }
+    return reached;
+  }
   private async runSelection(
     selection: Selection,
     member?: Member,
@@ -499,6 +826,8 @@ export class CommandExecution {
   ): Promise<void> {
     const attempt = this.attempt;
     if (attempt.rows.has(selection)) return;
+    const pinned = this.context.pin(selection);
+    if (pinned) return this.#observed(selection, pinned);
     const source = selection.source;
     if (
       source.kind === "producer" &&
@@ -527,12 +856,13 @@ export class CommandExecution {
                 failure: required,
               })
           )
-        : await this.context.read(
+        : ((await this.#readAhead(selection)) ??
+          (await this.context.read(
             selection.query(),
             true,
             false,
             selection.model
-          );
+          )));
     const found = rows[0];
     if (!found) {
       if (selection.required) throw selection.required();
@@ -544,8 +874,174 @@ export class CommandExecution {
         );
       return;
     }
-    attempt.rows.set(selection, found);
-    attempt.bind(selection.fields, found);
+    this.#observed(selection, found);
+  }
+  /**
+   * The batch route's answer to `selection`, out of ONE native batch of every
+   * lookup of the operation whose lone read answers alike wherever it runs:
+   * one its query states whole now — no membership or producer's identity a
+   * later binding supplies — and that reads outside the queue rather than
+   * behind it (`dependent`, N1). Such a read sees what the last submitted unit
+   * left, so until the next submit its answer is the same at its own position:
+   * the first lone read after a submit reads them all, and each lookup takes
+   * its own query's rows where it runs, found or not, as if it had read them
+   * there. `undefined` where nothing is held for it.
+   */
+  async #readAhead(selection: Selection): Promise<Input[] | undefined> {
+    const ctx = this.context;
+    const root = this.#root;
+    if (!(ctx.usesBatch && root)) return;
+    const attempt = this.attempt;
+    // The boundary this lone read would claim is claimed before any answer,
+    // held or not (N5).
+    await ctx.claimMemberBoundary();
+    let ahead = attempt.ahead;
+    if (!ahead || ahead.epoch !== ctx.submissions) {
+      const selections = [
+        ...new Set([selection, ...lookupsAhead(root)]),
+      ].filter(
+        (candidate) =>
+          candidate.source.kind === "query" &&
+          !candidate.membership() &&
+          !candidate.dependent &&
+          !attempt.rows.has(candidate)
+      );
+      ahead = attempt.ahead = {
+        epoch: ctx.submissions,
+        rows:
+          selections.length < 2
+            ? new Map()
+            : await this.#readTogether(selections),
+      };
+    }
+    const rows = ahead.rows.get(selection);
+    ahead.rows.delete(selection);
+    return rows;
+  }
+  /**
+   * The row the batch route's read ahead found for `lookup` and still holds
+   * (no submit since), or `undefined`. Nothing is consumed.
+   */
+  #held(lookup: Selection): Input | undefined {
+    const ahead = this.attempt.ahead;
+    if (!ahead || ahead.epoch !== this.context.submissions) return;
+    return ahead.rows.get(lookup)?.[0];
+  }
+  /**
+   * Bind the held answers of a run's choices before the run, as each one's
+   * own read would bind it where it runs ({@link readAhead}): the run's
+   * choices with their rows found write nothing, so no submit falls between
+   * here and them. The boundary their reads would claim is claimed first
+   * (N5); a claim that submits makes the held answers stale, and then nothing
+   * is bound and the run is not taken (`false`).
+   */
+  async #bindHeld(run: readonly CommandOccurrence[]): Promise<boolean> {
+    const pending = run.flatMap(({ command }) =>
+      command.kind === "choose" && !this.attempt.rows.has(command.lookup)
+        ? [command.lookup]
+        : []
+    );
+    if (pending.length === 0) return true;
+    await this.context.claimMemberBoundary();
+    const rows = pending.map((lookup) => this.#held(lookup));
+    if (rows.some((row) => row === undefined)) return false;
+    for (const [position, lookup] of pending.entries()) {
+      this.attempt.ahead!.rows.delete(lookup);
+      this.#observed(lookup, rows[position]!);
+    }
+    return true;
+  }
+  /**
+   * The answers of `selections`, read in one native batch. Lookups of one
+   * model that each pin a unique key (a to-many `connect` or `set`'s targets)
+   * share ONE statement per bind budget, the disjunction of their selectors
+   * ({@link prefetch}'s read), where each would be its own: D1 counts every
+   * statement of a batch. Only an exact answer is kept, as there: every
+   * lookup matched by exactly one row holding its pins and no row twice;
+   * otherwise those lookups are read again, one statement each, in one more
+   * batch (a missing target, a key the database compares differently).
+   */
+  async #readTogether(
+    selections: readonly Selection[]
+  ): Promise<Map<Selection, Input[]>> {
+    const ctx = this.context;
+    const groups = new Map<AnyModel, Selection[]>();
+    const alone: Selection[] = [];
+    for (const selection of selections)
+      if (
+        selection.facts.keys.size > 0 &&
+        selection.facts.reads.length === 0 &&
+        !selection.insertsWhenAbsent
+      ) {
+        const group = groups.get(selection.model);
+        if (group) group.push(selection);
+        else groups.set(selection.model, [selection]);
+      } else alone.push(selection);
+    const merged: (readonly Selection[])[] = [];
+    for (const group of groups.values())
+      if (group.length > 1) merged.push(group);
+      else alone.push(...group);
+    const limit = normalizedBindParameterLimit(
+      ctx.driver.maxBindParametersPerStatement
+    );
+    const reads: { readonly query: Query; readonly model: AnyModel }[] = [];
+    const owners: (Selection | readonly Selection[])[] = [];
+    for (const selection of alone) {
+      reads.push({ query: selection.query(), model: selection.model });
+      owners.push(selection);
+    }
+    for (const group of merged) {
+      const [first] = group;
+      for (const chunk of compileBindBudgetChunks(
+        group.length,
+        limit,
+        (start, end) => first!.rows(group.slice(start, end)).sql
+      )) {
+        reads.push({
+          query: first!.rows(group.slice(chunk.start, chunk.end)),
+          model: first!.model,
+        });
+        owners.push(group);
+      }
+    }
+    const answers = await ctx.readTogether(reads);
+    const held = new Map<Selection, Input[]>();
+    const groupRows = new Map<readonly Selection[], Input[]>();
+    for (const [index, owner] of owners.entries()) {
+      if (isSelectionGroup(owner)) {
+        const rows = groupRows.get(owner);
+        if (rows) rows.push(...answers[index]!);
+        else groupRows.set(owner, [...answers[index]!]);
+      } else held.set(owner, answers[index]!);
+    }
+    const reread: Selection[] = [];
+    for (const [group, rows] of groupRows) {
+      const found = group.map(keyedMatches(rows));
+      if (
+        rows.length === group.length &&
+        found.every((matches) => matches.length === 1) &&
+        new Set(found.map(([row]) => row)).size === group.length
+      )
+        for (const [position, selection] of group.entries())
+          held.set(selection, [found[position]![0]!]);
+      else reread.push(...group);
+    }
+    if (reread.length > 0) {
+      const again = await ctx.readTogether(
+        reread.map((selection) => ({
+          query: selection.query(),
+          model: selection.model,
+        }))
+      );
+      for (const [index, selection] of reread.entries())
+        held.set(selection, again[index]!);
+    }
+    return held;
+  }
+  /** `selection` FOUND `found`: its binding, and on the batch route its premise. */
+  #observed(selection: Selection, found: Input): void {
+    this.attempt.rows.set(selection, found);
+    this.attempt.bind(selection.fields, found);
     // The requirement this premise proves must last through the effect that
     // consumes it, and a probe that read UNLOCKED (`Selection.insertsWhenAbsent`)
     // holds nothing of its own answer — so on the batch route, where no
@@ -564,6 +1060,270 @@ export class CommandExecution {
         ),
         selection.retained()
       );
+  }
+  /**
+   * The lookup `occurrence` reads, where a sibling run may read it with
+   * others ({@link prefetch}). The run's read states each lookup's own
+   * selector where the first would read — after every write ahead of the
+   * run, or on the batch route outside its queue, as each lookup's own lone
+   * read is — so a lookup qualifies unless
+   * that read could answer differently from its own read where it stands: it
+   * reads by a membership the selector does not hold, or its selector reads
+   * through a relation, which a link or a move of the run may change (a
+   * scope's relation filter reading a junction row a link writes). A
+   * producer's continuation never stands in a run of two: the arm that
+   * supplies its row stands between it and any other. Nor does a probe whose
+   * other arm inserts what it looks for: a miss is its ordinary answer, and a
+   * run with a miss binds nothing, so it would read twice.
+   */
+  #prefetchable(occurrence: CommandOccurrence): Selection | undefined {
+    const command = occurrence.command;
+    const lookup =
+      command.kind === "lookup"
+        ? command
+        : command.kind === "choose"
+          ? command.lookup
+          : undefined;
+    const ahead = this.attempt.ahead;
+    if (
+      !lookup ||
+      lookup.dependent ||
+      lookup.membership() ||
+      lookup.facts.reads.length > 0 ||
+      lookup.insertsWhenAbsent ||
+      this.attempt.rows.has(lookup) ||
+      this.attempt.prefetched.has(lookup) ||
+      (ahead !== undefined &&
+        ahead.epoch === this.context.submissions &&
+        ahead.rows.has(lookup))
+    )
+      return;
+    return lookup;
+  }
+  /**
+   * The rows a run of sibling lookups takes, in one read (per bind budget)
+   * where each would take its own: the lookup at `index` and every
+   * {@link prefetchable} one of its model up to the first sibling
+   * that is neither such a lookup nor a junction link. The read is the
+   * disjunction of their selectors under the lock each probe takes, and each
+   * row is bound as that lookup's own read binds it, so the lookups then read
+   * nothing.
+   *
+   * Only an exact answer is kept: every lookup matched by exactly one row
+   * holding the unique key values its selector pins, no row matched twice.
+   * A row the read returns satisfies some lookup's selector and so holds that
+   * lookup's pins, so in such an answer each row satisfies its own lookup's.
+   * Anything else — a missing row, a lookup that pins no key, a key the
+   * database compares differently (a collation, a numeric type) — binds
+   * nothing, and each lookup reads alone where it runs, raising what it
+   * always raised.
+   */
+  async #prefetch(
+    children: readonly CommandOccurrence[],
+    index: number
+  ): Promise<void> {
+    const first = this.#prefetchable(children[index]!);
+    if (!first) return;
+    const run = [first];
+    for (const sibling of children.slice(index + 1)) {
+      if (sibling.placement !== children[index]!.placement) break;
+      const lookup = this.#prefetchable(sibling);
+      if (lookup?.model === first.model) run.push(lookup);
+      else if (!lookup && sibling.command.kind !== "link") break;
+    }
+    for (const lookup of run) this.attempt.prefetched.add(lookup);
+    if (run.length < 2) return;
+    const ctx = this.context;
+    const rows: Input[] = [];
+    for (const chunk of compileBindBudgetChunks(
+      run.length,
+      normalizedBindParameterLimit(ctx.driver.maxBindParametersPerStatement),
+      (start, end) => first.rows(run.slice(start, end)).sql
+    ))
+      rows.push(
+        ...(await ctx.read(
+          first.rows(run.slice(chunk.start, chunk.end)),
+          true,
+          false,
+          first.model
+        ))
+      );
+    const found = run.map(keyedMatches(rows));
+    if (
+      rows.length !== run.length ||
+      found.some((matches) => matches.length !== 1) ||
+      new Set(found.map(([row]) => row)).size !== run.length
+    )
+      return;
+    for (const [position, lookup] of run.entries())
+      this.#observed(lookup, found[position]![0]!);
+  }
+  /**
+   * A run of links through one junction and the choices they link, once
+   * {@link prefetch} answered those choices' lookups: the choices run first,
+   * in order — a choice beside a junction link is a `connect`, a
+   * `connectOrCreate` or a `set` target, which with its row found writes
+   * nothing — and the links follow as one INSERT
+   * (`OperationContext.linkMany`), where each would be its own. A link that
+   * captured its slot's owner stays out: it vacates that slot first, which
+   * the shared INSERT does not (a `set` of a singular polymorphic member's
+   * slots places its links side by side). A choice
+   * whose lookup is still unanswered ends the run: its read may depend on a
+   * link ahead of it. The count of `children` from `index` it consumed, 0
+   * where it took none.
+   */
+  async #linkTogether(
+    children: readonly CommandOccurrence[],
+    index: number,
+    member: Member
+  ): Promise<number> {
+    if (!this.context.driver.adapter.capabilities.supportsTargetedUpsert)
+      return 0;
+    const run: CommandOccurrence[] = [];
+    const links: CommandOccurrence<Link>[] = [];
+    let edge: Link["edge"] | undefined;
+    for (const sibling of children.slice(index)) {
+      const command = sibling.command;
+      if (sibling.placement !== "after") break;
+      if (
+        command.kind === "choose" &&
+        (this.attempt.rows.has(command.lookup) ||
+          this.#held(command.lookup) !== undefined)
+      )
+        run.push(sibling);
+      else if (
+        command.kind === "link" &&
+        !command.captured &&
+        !command.written &&
+        (edge ??= command.edge) === command.edge
+      ) {
+        run.push(sibling);
+        links.push(sibling as CommandOccurrence<Link>);
+      } else break;
+    }
+    if (links.length < 2) return 0;
+    // Choices after the last link are not this run's.
+    run.length = run.indexOf(links.at(-1)!) + 1;
+    if (!(await this.#bindHeld(run))) return 0;
+    for (const choice of run)
+      if (choice.command.kind === "choose") await this.run(choice, member);
+    for (const link of links) {
+      this.#requireAgreement(link.command);
+      this.#entered.add(link);
+    }
+    await this.context.linkMany(
+      edge!,
+      links.map(({ command }) => this.attempt.resolve(command.values)),
+      member
+    );
+    return run.length;
+  }
+  /**
+   * A run of choices whose found rows each take the same UPDATE, once
+   * {@link prefetch} (or a capture) answered their lookups: a child-held
+   * `connect` or `set` target, rewritten to point at its new holder. Each
+   * UPDATE would write its row's identity and return nothing, so the run
+   * writes them as one statement per bind budget
+   * (`OperationContext.updateRows`), where each would be its own. The batch
+   * route queues every UPDATE into the same native batch anyway and keeps its
+   * own. The count of `children` from `index` it consumed, 0 where it took
+   * none.
+   */
+  async #updateTogether(
+    children: readonly CommandOccurrence[],
+    index: number,
+    member: Member
+  ): Promise<number> {
+    if (this.context.usesBatch) return 0;
+    const sink = writeSinks.get(this.context.attribution);
+    const run: [CommandOccurrence<Choose>, CommandOccurrence<RecordCommand>][] =
+      [];
+    let shared: Input | undefined;
+    for (const sibling of children.slice(index)) {
+      if (sibling.placement !== "after") break;
+      const found = this.#updatesAlone(sibling);
+      // A row a write hook wants is moved by its own record, then read back.
+      if (!found || sink?.wants(found.command.model["~"].names.ts!, "update"))
+        break;
+      found.command.fields.activate();
+      const written = this.stored(found.command.fields);
+      // One statement writes one assignment: the run ends where the model or
+      // the values change (another relation's key, another holder).
+      if (
+        shared === undefined
+          ? Object.keys(written).length === 0
+          : found.command.model !== run[0]![1].command.model ||
+            !sameValues(written, shared)
+      )
+        break;
+      shared ??= written;
+      run.push([sibling as CommandOccurrence<Choose>, found]);
+    }
+    if (run.length < 2) return 0;
+    const first = run[0]![1].command;
+    const model = first.model;
+    await this.context.updateRows(
+      model,
+      run.map(([, found]) =>
+        this.context.schema.identity(
+          model,
+          this.attempt.select(
+            found.command.located!.fields,
+            this.context.schema.keys(model)
+          )
+        )
+      ),
+      shared!,
+      member,
+      first.operation,
+      first.located!.judgement,
+      this.#refusal(first)
+    );
+    for (const [choice, found] of run) {
+      this.#entered.add(choice);
+      this.#entered.add(found);
+      this.attempt.bind(found.command.fields, {});
+      this.attempt.bind(choice.command.fields, {
+        ...this.attempt.rows.get(choice.command.lookup)!,
+        ...this.attempt.select(
+          found.command.fields,
+          choice.command.fields.demands
+        ),
+      });
+    }
+    return run.length;
+  }
+  /**
+   * The found arm of `occurrence` where it is a choice whose answered row
+   * takes a plain UPDATE: on this route the choice's `run` would confirm
+   * nothing ({@link confirmFound}: no requirement, a probe that kept its lock)
+   * and branch on no condition, and its found arm is a record writing that located row
+   * with no child, transition, refusal or demanded output — exactly the
+   * UPDATE {@link OperationContext.update} sends and answers with nothing.
+   */
+  #updatesAlone(
+    occurrence: CommandOccurrence
+  ): CommandOccurrence<RecordCommand> | undefined {
+    const command = occurrence.command;
+    if (
+      command.kind !== "choose" ||
+      command.foundRequirement ||
+      command.conditions ||
+      command.lookup.probesUnlocked ||
+      !this.attempt.rows.has(command.lookup)
+    )
+      return;
+    const found = this.commands.choiceArm(occurrence, "found");
+    if (
+      !found ||
+      found.refusal ||
+      found.children.length > 0 ||
+      found.command.located !== command.lookup ||
+      found.command.transitions.length > 0 ||
+      found.command.fields.demands.size > 0
+    )
+      return;
+    return found;
   }
   /**
    * The shared FOUND-consumption rule: an unlocked positive observation is
@@ -679,7 +1439,7 @@ export class CommandExecution {
   ): Promise<Input> {
     const ctx = this.context;
     const lookup = command.lookup;
-    if (ctx.usesBatch || !(requirement || lookup.insertsWhenAbsent))
+    if (ctx.usesBatch || !(requirement || lookup.probesUnlocked))
       return captured;
     const membership = requirement?.membership ?? lookup.membership();
     // A MATCHED condition is the narrowest requirement the operation owns here,
@@ -753,7 +1513,8 @@ export class CommandExecution {
       case "record": {
         command.fields.activate();
         if (occurrence.refusal) throw occurrence.refusal;
-        if (command.located && !attempt.rows.has(command.located))
+        const locating = this.#updateLocates(occurrence);
+        if (command.located && !(locating || attempt.rows.has(command.located)))
           await this.runSelection(command.located, member);
         if (
           ctx.usesBatch &&
@@ -775,8 +1536,11 @@ export class CommandExecution {
           );
         }
         await this.#requireTransitions(command);
-        for (const child of occurrence.children)
-          if (child.placement === "before") await this.run(child, member);
+        for (const [index, child] of occurrence.children.entries())
+          if (child.placement === "before") {
+            await this.#prefetch(occurrence.children, index);
+            await this.run(child, member);
+          }
         // Every `before` child has run, and one of them may already have moved
         // this row: a correlated arm's target is the row this one points at, so
         // the provider rewrote this row's foreign key when the arm rewrote the
@@ -791,41 +1555,65 @@ export class CommandExecution {
           command.fields.moved((holder) => this.#carried(holder));
         if (moved)
           attempt.materialize(command.located!.fields, attempt.resolve(moved));
-        const values = this.stored(command.fields);
-        attempt.bind(
-          command.fields,
-          command.located
-            ? await ctx.update(
-                command.model,
-                // The row as it stands NOW: the same reader that answers the
-                // address answers every value the update computes from, so a
-                // cascade that moved this row cannot leave the two naming
-                // different rows ({@link CommandAttempt.read}, FC-02A). The
-                // ORIGINAL observation stays in `attempt.rows` for the
-                // consumers that need what was SEEN.
-                attempt.select(command.located.fields, [
-                  ...ctx.schema.keys(command.model),
-                  ...command.fields.demands,
-                ]),
-                values,
-                member,
-                command.operation,
-                command.fields.demands,
-                confirmationFailure,
-                command.located.judgement,
-                this.#refusal(command)
-              )
-            : await ctx.insert(
-                command.model,
-                values,
-                command.fields.demands,
-                member,
-                command.operation,
-                command.fields,
-                this.#membershipParent(command, occurrence.parent?.command),
-                this.#refusal(command)
-              )
-        );
+        const values = locating ?? this.stored(command.fields);
+        const answer =
+          this.#answer?.occurrence === occurrence ? this.#answer : undefined;
+        let written: Input;
+        if (locating)
+          written = await this.#locatingUpdate(command, locating, answer);
+        else if (command.located)
+          written = await ctx.update(
+            command.model,
+            // The row as it stands NOW: the same reader that answers the
+            // address answers every value the update computes from, so a
+            // cascade that moved this row cannot leave the two naming
+            // different rows ({@link CommandAttempt.read}, FC-02A). The
+            // ORIGINAL observation stays in `attempt.rows` for the
+            // consumers that need what was SEEN.
+            attempt.select(command.located.fields, [
+              ...ctx.schema.keys(command.model),
+              ...command.fields.demands,
+            ]),
+            values,
+            member,
+            command.operation,
+            command.fields.demands,
+            confirmationFailure,
+            command.located.judgement,
+            this.#refusal(command),
+            answer
+          );
+        else
+          written = await ctx.insert(
+            command.model,
+            values,
+            command.fields.demands,
+            member,
+            command.operation,
+            command.fields,
+            this.#membershipParent(command, occurrence.parent?.command),
+            this.#refusal(command),
+            answer
+          );
+        attempt.bind(command.fields, written);
+        // A nested row a write hook wants, as this write left it: never the
+        // root's (the call's own value carries it), never an update that
+        // wrote nothing.
+        const series =
+          occurrence.role === "member" ? occurrence.parent?.command : undefined;
+        if (
+          (command.origin ??
+            command.located?.origin ??
+            (series?.kind === "selectedSeries"
+              ? series.series.selection.origin
+              : undefined)) &&
+          (!command.located || Object.keys(values).length > 0)
+        )
+          await ctx.captureRows(
+            command.model,
+            command.located ? "update" : "create",
+            { identity: this.identity(command.fields) }
+          );
         // Every capture still runs before every effect, and the reason is
         // MEASURED, not stylistic: a capture flushes
         // (`OperationContext.captureSeries` → `flush`), and on the batch route a
@@ -848,6 +1636,14 @@ export class CommandExecution {
         for (let index = 0; index < children.length; index++) {
           const child = children[index]!;
           if (child.placement !== "after") continue;
+          await this.#prefetch(children, index);
+          const linked =
+            (await this.#linkTogether(children, index, member)) ||
+            (await this.#updateTogether(children, index, member));
+          if (linked > 0) {
+            index += linked - 1;
+            continue;
+          }
           // The maximal run of consecutive `after` records sharing `child`'s
           // INSERT (`child` itself first, when it qualifies at all).
           const run: CommandOccurrence<RecordCommand>[] = [];
@@ -884,8 +1680,8 @@ export class CommandExecution {
         return;
       }
       case "absent": {
-        const exclude = command.excluding.map((fields) =>
-          ctx.queries.lowerIdentity(command.model, this.identity(fields))
+        const identities = command.excluding.map((fields) =>
+          this.identity(fields)
         );
         const restrict = command.restrict;
         const locked = (selector?: PreparedSelector, take?: number) =>
@@ -909,10 +1705,8 @@ export class CommandExecution {
             },
             {
               forUpdate: !ctx.usesBatch,
-              condition: exclude.length
-                ? ctx.driver.adapter.operators.not(
-                    ctx.driver.adapter.operators.or(...exclude)
-                  )
+              row: identities.length
+                ? { kind: "notIdentity", identities }
                 : undefined,
               selector,
             }
@@ -983,6 +1777,10 @@ export class CommandExecution {
         const captured = attempt.rows.get(command.lookup);
         const found = this.commands.choiceArm(occurrence, "found");
         const missing = this.commands.choiceArm(occurrence, "missing");
+        // A root upsert says which arm wrote its row; a skipped one says none.
+        const sink = occurrence.parent
+          ? undefined
+          : writeSinks.get(ctx.attribution);
         if (captured) {
           if (command.conditions?.probes.length && found) {
             found.command.fields.activate();
@@ -1014,6 +1812,7 @@ export class CommandExecution {
               attempt.retained.add(command.lookup);
             }
           }
+          sink?.upserted(false);
           const confirmationFailure = this.#mutationConfirmationFailure(
             command,
             requirement,
@@ -1045,6 +1844,7 @@ export class CommandExecution {
               await this.folded(command, occurrence.parent?.command, current)
             );
         } else if (missing) {
+          sink?.upserted(true);
           attempt.missingChoices.set(missing.command.fields, command);
           await this.run(missing, member);
           attempt.bind(
@@ -1089,11 +1889,13 @@ export class CommandExecution {
                 matches(this.#linkValues(removal.edge, undefined, retained))
               )
           );
+        this.#requireAgreement(command);
         await ctx.link(
           command.edge,
           attempt.resolve(command.values),
           member,
-          removed ? undefined : captured
+          removed ? undefined : captured,
+          command.written
         );
         return;
       }
@@ -1103,8 +1905,12 @@ export class CommandExecution {
           command.source
             ? this.#membershipValues(command.edge, command.source)
             : undefined,
-          command.target ? this.identity(command.target) : undefined,
-          command.keep.map((target) => this.identity(target)),
+          command.target
+            ? this.#removalTarget(command.edge, command.target)
+            : undefined,
+          command.keep.map((target) =>
+            this.#removalTarget(command.edge, target)
+          ),
           member
         );
         return;
@@ -1117,10 +1923,16 @@ export class CommandExecution {
         const row = attempt.rows.get(command.located);
         if (!row) return;
         const model = command.located.model;
-        // A tombstone updates the row it located, by identity, and keeps it.
-        if (command.values)
+        const identity = { identity: ctx.schema.identity(model, row) };
+        // A tombstone updates the row it located, by identity, and keeps it;
+        // a write hook reads it after, a removed row before.
+        if (command.values) {
           await ctx.update(model, row, command.values, member, "delete");
-        else await ctx.delete(model, row, member);
+          await ctx.captureRows(model, "update", identity);
+        } else {
+          await ctx.captureRows(model, "delete", identity);
+          await ctx.delete(model, row, member);
+        }
         return;
       }
       case "set": {
@@ -1222,6 +2034,13 @@ export class CommandExecution {
     records: CommandOccurrence<RecordCommand>[]
   ): Promise<number | undefined> {
     const [first] = records;
+    // Rows a write hook wants are inserted one by one, each read back.
+    if (
+      writeSinks
+        .get(this.context.attribution)
+        ?.wants(first!.command.model["~"].names.ts!, "create")
+    )
+      return Promise.resolve(undefined);
     return this.context.insertMany(
       first!.command.model,
       () => {
@@ -1838,7 +2657,13 @@ export function namesKeyConstraint(
   const columns = key.fields.map((field) =>
     context.queries.columnName(model, field)
   );
-  const constraints = getAdapterInternals(context.driver.adapter).constraints;
+  const constraints = adapterConstraints(context.driver.adapter);
+  // A database whose refusals name no constraint says which columns it found.
+  if (!constraints)
+    return (
+      error.meta.table === table &&
+      error.meta.columns?.join() === columns.join()
+    );
   const expected = (
     key.kind === "primary"
       ? constraints.primaryKey(table, columns)

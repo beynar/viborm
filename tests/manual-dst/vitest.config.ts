@@ -6,7 +6,7 @@ export default mergeConfig(
   base,
   defineConfig({
     test: {
-      workspace: [
+      projects: [
         {
           extends: true,
           test: {

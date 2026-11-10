@@ -122,6 +122,34 @@ describe("refusal witnesses", () => {
     ]);
   });
 
+  it("names a model declaring a raw index", () => {
+    const document = s
+      .model({ id: s.string().id(), title: s.string() })
+      .rawIndex("documents_title", {
+        pg: "CREATE INDEX {name} ON {table} (lower({title}))",
+      });
+    expect(issues(refusal({ document }))).toEqual([
+      "[J009] /models/document/rawIndexes",
+    ]);
+  });
+
+  it("carries withoutRowid through a round trip", () => {
+    const pair = s
+      .model({ a: s.string(), b: s.string() })
+      .id(["a", "b"])
+      .withoutRowid();
+    const document = serializeSchema({ pair });
+    expect(document).toMatchObject({
+      models: { pair: { withoutRowid: true } },
+    });
+    const parsed = parseSchema(document);
+    expect(parsed.pair!["~"].withoutRowid).toBe(true);
+    expect(serializeSchema(parsed)).toEqual(document);
+    expect(
+      serializeSchema({ plain: s.model({ id: s.string().id() }) })
+    ).not.toHaveProperty("models.plain.withoutRowid");
+  });
+
   it("names the field carrying a function default", () => {
     const user = s.model({
       id: s.string().id(),

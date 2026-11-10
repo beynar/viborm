@@ -1,4 +1,4 @@
-import { defineWorkspace } from "vitest/config";
+import { defineConfig, type TestProjectConfiguration } from "vitest/config";
 import { CLIENT_COVERAGE_TESTS } from "./scripts/client-test-manifest.mjs";
 import { EXTENDED_LOCAL_TESTS } from "./scripts/credential-free-test-manifest.mjs";
 import {
@@ -58,7 +58,13 @@ const RAPTOR3_COVERAGE_SPLIT = Math.ceil(
   RAPTOR3_DETERMINISTIC_TESTS.length / 2
 );
 
-export default defineWorkspace([
+/**
+ * Every project, in declaration order. Vitest 4 removed workspace files and
+ * the `--workspace` flag: this file is now the root configuration that holds
+ * them (`--config vitest.workspace.ts`), and the list stays a named export so
+ * the census reads it without loading Vitest's Node API.
+ */
+export const projects: TestProjectConfiguration[] = [
   // The engine measured by its own deterministic estate: the query-engine
   // coverage subsystem runs these two projects beside the contract layers.
   // Two halves of one list, each its own process: instrumented whole, the
@@ -131,6 +137,8 @@ export default defineWorkspace([
   ]),
   layerProject("migrations", ["tests/unit/migrations/**/*.core.test.ts"]),
   layerProject("permissions", ["tests/unit/permissions/**/*.core.test.ts"]),
+  // @viborm/studio's own tests; its package lives outside tests/.
+  layerProject("studio", ["packages/studio/test/**/*.core.test.ts"]),
   {
     extends: "./vitest.config.ts",
     test: {
@@ -181,6 +189,13 @@ export default defineWorkspace([
         "tests/contracts/public-client/official-cache-extension.core.test.ts",
         "tests/contracts/public-client/official-instrumentation-extension.core.test.ts",
         "tests/contracts/public-client/soft-delete.core.test.ts",
+        "tests/contracts/public-client/on.core.test.ts",
+        "tests/contracts/public-client/ordering-keys.core.test.ts",
+        "tests/contracts/public-client/extension-order.core.test.ts",
+        "tests/contracts/public-client/ordering.core.test.ts",
+        "tests/contracts/public-client/ordering-append.core.test.ts",
+        "tests/contracts/public-client/ordering-composition.core.test.ts",
+        "tests/contracts/public-client/ordering-identity.core.test.ts",
         "tests/contracts/public-client/extension-bound-views.core.test.ts",
         "tests/contracts/public-client/extension-composition.core.test.ts",
         "tests/contracts/public-client/extension-evidence.core.test.ts",
@@ -221,6 +236,13 @@ export default defineWorkspace([
     test: {
       name: "coverage-cli",
       include: ["tests/contracts/public-client/cli/**/*.test.ts"],
+    },
+  },
+  {
+    extends: "./vitest.config.ts",
+    test: {
+      name: "coverage-studio",
+      include: ["packages/studio/test/**/*.core.test.ts"],
     },
   },
   coverageProject("cache", [
@@ -270,8 +292,9 @@ export default defineWorkspace([
     test: {
       name: "coverage-write-engine",
       include: [...WRITE_ENGINE_COVERAGE_TESTS],
+      // One thread, not isolated: Vitest 3's `singleThread`, as the base
+      // configuration's `maxWorkers: 1, isolate: false` already spells it.
       pool: "threads",
-      poolOptions: { threads: { singleThread: true } },
     },
   },
   {
@@ -284,6 +307,7 @@ export default defineWorkspace([
   // Every provider project globs its own prefix. Exact paths silently dropped
   // the pieces when the heavy suites were split for the 1280 MB shard heap.
   providerProject("pglite", ["tests/providers/local/pglite*.test.ts"]),
+  providerProject("surrealdb", ["tests/providers/docker/surrealdb*.test.ts"]),
   providerProject("sqlite3", ["tests/providers/local/sqlite3*.test.ts"]),
   providerProject("libsql", ["tests/providers/local/libsql*.test.ts"]),
   // `pg*` cannot catch postgres*: that name starts "po".
@@ -292,14 +316,17 @@ export default defineWorkspace([
   providerProject("pg", [
     "tests/providers/docker/pg*.test.ts",
     "tests/unit/migrations/pinned-session-docker.test.ts",
+    "tests/unit/migrations/postgres-adoption-docker.test.ts",
     "tests/unit/migrations/postgres-catalog-digest-docker.test.ts",
     "tests/unit/migrations/postgres-namespace-docker.test.ts",
     "tests/unit/migrations/postgres-neki-boundaries-docker.test.ts",
     "tests/unit/migrations/postgres-recoverable-steps-docker.test.ts",
+    "tests/unit/migrations/postgres-failure-facts-docker.test.ts",
     "tests/unit/migrations/postgres-session-limits-docker.test.ts",
     "tests/unit/migrations/postgres-transaction-pooler-docker.test.ts",
     "tests/unit/migrations/neon-http-batch-apply-docker.test.ts",
     "tests/unit/migrations/shared-pool-estates-docker.test.ts",
+    "tests/unit/migrations/introspect-schema-docker.test.ts",
   ]),
   // Push, generate and apply again, through a transaction-mode PgBouncer. Only
   // PGBOUNCER_TEST_CONNECTION_STRING is read: unset, the project skips rather
@@ -322,10 +349,12 @@ export default defineWorkspace([
   providerProject("mysql2", [
     "tests/providers/docker/mysql2*.test.ts",
     "tests/contracts/engine/query/decimal-wide-arithmetic-docker.test.ts",
+    "tests/unit/migrations/mysql-adoption-docker.test.ts",
     "tests/unit/migrations/mysql-strict-mode-docker.test.ts",
     "tests/unit/migrations/decimal-list-defaults-mysql-docker.test.ts",
     "tests/unit/migrations/mysql-defaults-docker.test.ts",
     "tests/unit/migrations/table-rename-derived-names-mysql-docker.test.ts",
+    "tests/unit/migrations/introspect-schema-mysql-docker.test.ts",
   ]),
   providerProject("transaction-options", [
     "tests/providers/docker/transaction-options-live.test.ts",
@@ -353,4 +382,65 @@ export default defineWorkspace([
   },
   "./vitest.d1.config.ts",
   "./vitest.tenant-do.config.ts",
-]);
+  "./vitest.durable-object.config.ts",
+];
+
+/** The project a file entry of {@link projects} names. */
+const FILE_PROJECT_NAMES: Record<string, string> = {
+  "./vitest.d1.config.ts": "provider-d1",
+  "./vitest.tenant-do.config.ts": "provider-tenant-do",
+  "./vitest.durable-object.config.ts": "provider-durable-object",
+};
+const projectName = (project: TestProjectConfiguration) =>
+  typeof project === "string"
+    ? FILE_PROJECT_NAMES[project]
+    : (project as { test?: { name?: unknown } }).test?.name;
+
+/** This run's `--project` filters (`--project x`, `--project=x`). */
+const requestedProjects = process.argv.flatMap((argument, index, argv) => {
+  if (argument === "--project") return argv[index + 1] ?? [];
+  return argument.startsWith("--project=")
+    ? argument.slice("--project=".length)
+    : [];
+});
+const REGEX_SPECIAL = /[.+?^${}()|[\]\\]/g;
+const matches = (pattern: string, name: string) =>
+  new RegExp(
+    `^${pattern.replace(REGEX_SPECIAL, "\\$&").replaceAll("*", ".*")}$`
+  ).test(name);
+
+/**
+ * Vitest 4 resolves every project of the root, the Workers plugin's
+ * included, even when `--project` selects one: about 175 MiB of the ordinary
+ * 1536 MiB ceiling. A run that names its projects resolves only those (a
+ * negated or unmatched filter keeps them all); Vitest still applies its own.
+ */
+const named = projects.filter((project) => {
+  const name = projectName(project);
+  return (
+    typeof name !== "string" ||
+    requestedProjects.some((pattern) => matches(pattern, name))
+  );
+});
+// No match keeps them all, so Vitest's refusal lists the names it knows.
+const selectedProjects =
+  requestedProjects.length === 0 ||
+  requestedProjects.some((pattern) => pattern.startsWith("!")) ||
+  named.length === 0
+    ? projects
+    : named;
+
+/**
+ * Run-wide options. Vitest reads coverage only from the root, and the pool
+ * honours the root's worker count across projects: one worker, no file
+ * parallelism, so projects run one after another as they did when
+ * `vitest.config.ts` was the root of the workspace.
+ */
+export default defineConfig({
+  test: {
+    coverage: baseConfig.test?.coverage,
+    fileParallelism: false,
+    maxWorkers: 1,
+    projects: selectedProjects,
+  },
+});

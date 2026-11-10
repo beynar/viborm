@@ -120,8 +120,6 @@ function runSubsystem(subsystem, mode) {
           ...tests,
           "--config",
           "vitest.subsystem-coverage.config.ts",
-          "--workspace",
-          "vitest.workspace.ts",
           "--project",
           project,
           "--reporter=dot",

@@ -4,12 +4,9 @@
 
 import { loadMigrationGraph } from "./graph";
 import type { Sha256 } from "./identity";
+import { resolveSnapshotArtifacts } from "./snapshot-artifacts";
 import type { MigrationStorageReader } from "./storage/contract";
-import {
-  encodeSqlBlob,
-  parseSnapshotDocument,
-  parseStateManifest,
-} from "./v1-parse";
+import { encodeSqlBlob, parseStateManifest } from "./v1-parse";
 
 export interface CheckFinding {
   readonly code: string;
@@ -33,21 +30,27 @@ export async function checkEstate(
         message: `Estate has ${graph.leaves.length} leaves; apply requires an explicit target or via`,
       });
     }
-    const referencedSnapshots = new Set<Sha256>([graph.emptySnapshotHash]);
+    const referencedSnapshots = new Set<Sha256>([
+      graph.emptySnapshotHash,
+      ...graph.snapshotArtifacts.keys(),
+    ]);
     const referencedSql = new Set<Sha256>();
     for (const state of graph.states.values()) {
-      referencedSnapshots.add(state.snapshotHash);
       referencedSql.add(state.sqlHash);
     }
-    for (const hash of await storage.listSnapshots()) {
+    const inventory = await storage.listSnapshots();
+    await resolveSnapshotArtifacts(
+      storage,
+      inventory,
+      new Map(graph.snapshotArtifacts)
+    );
+    for (const hash of inventory) {
       if (!referencedSnapshots.has(hash)) {
         findings.push({
           code: "orphan-snapshot",
           message: `Snapshot ${hash} is not referenced by any state`,
         });
       }
-      const bytes = await storage.readSnapshot(hash);
-      if (bytes) parseSnapshotDocument(bytes, hash);
     }
     for (const hash of await storage.listSql()) {
       if (!referencedSql.has(hash)) {

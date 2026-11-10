@@ -113,6 +113,8 @@ function referencesOfRows(rows: RowsContribution): readonly string[] {
       collectReferences(mode.root, references, seen);
       collectReferences(mode.related, references, seen);
     }
+  for (const where of Object.values(rows.confine ?? {}))
+    collectReferences(where, references, seen);
   // A lazy entry's references are checked when it is resolved.
   for (const entry of Object.values(rows.verbs ?? {}))
     if (typeof entry !== "function")
@@ -361,6 +363,21 @@ function modelDomain(
   return lazyMap(built, pending);
 }
 
+/** Each member's `confine`, by model and layer; `undefined` where none states one. */
+function confineDomain(
+  rows: readonly RowsContribution[]
+): ModelDomain | undefined {
+  const confine = new Map<string, Input[]>();
+  for (const [layer, member] of rows.entries())
+    for (const [model, where] of Object.entries(member.confine ?? {})) {
+      const list = confine.get(model) ?? [];
+      list[layer] = where;
+      confine.set(model, list);
+    }
+  return confine.size === 0 ? undefined : confine;
+}
+const NO_CONFINE: ModelDomain = new Map();
+
 /** `{ OR: [] }`, false: what a verb a model's `verbs` leaves out takes. */
 const NOTHING: Input = Object.freeze({ OR: Object.freeze([]) });
 
@@ -430,6 +447,11 @@ function modelVerbs(
       if (entry === undefined) continue;
       // One projection key, one layer: a second would hide the first.
       const key = entry.evidence?.as;
+      if (key === "$through")
+        throw new ClientInitializationError(
+          `rows.verbs.${model}.evidence.as "$through" is reserved for a relation's link row.`,
+          { meta: { model } }
+        );
       if (key !== undefined && keys.has(key))
         throw new ClientInitializationError(
           `rows.verbs.${model}.evidence.as "${key}" is declared by two extensions of the chain.`,
@@ -548,7 +570,8 @@ export function bindRows(
   rows: readonly RowsContribution[] | undefined,
   deletion: Readonly<Record<string, ResolvedDeletion>> | undefined,
   data?: Readonly<Record<string, ModelStamps>>,
-  controls?: ResolvedControls
+  controls?: ResolvedControls,
+  order?: Readonly<Record<string, readonly Input[]>>
 ): RowsBinding {
   const declared = rows ?? [];
   let stride = 1;
@@ -568,6 +591,7 @@ export function bindRows(
   });
   const domains: RowDomain[] = [];
   const verbs = modelVerbs(declared);
+  const orders = order && new Map(Object.entries(order));
   // Whether a model may project: a lazy entry may, until it is read.
   const projects = declared.some((member) =>
     Object.values(member.verbs ?? {}).some(
@@ -577,6 +601,7 @@ export function bindRows(
         Object.keys(entry.reads ?? {}).length > 0
     )
   );
+  const confine = confineDomain(declared);
   for (let combination = 0; combination < stride; combination++) {
     const modes = members.map(
       (member) =>
@@ -588,7 +613,9 @@ export function bindRows(
       Object.freeze({
         root: modelDomain(declared, modes, "root"),
         related: modelDomain(declared, modes, "related"),
+        ...(confine && { confine }),
         ...(verbs && { verbs, projects }),
+        ...(orders && { order: orders }),
       })
     );
   }
@@ -635,7 +662,7 @@ export function bindRows(
     );
   const reads = (domain: RowDomain) =>
     verbsRead ||
-    [domain.root, domain.related].some((models) =>
+    [domain.root, domain.related, domain.confine ?? NO_CONFINE].some((models) =>
       [...models.values()].some(readsCall)
     );
   return Object.freeze({

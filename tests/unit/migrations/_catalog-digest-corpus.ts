@@ -112,7 +112,36 @@ const keys = (): Record<string, AnyModel> => {
   return { author, post };
 };
 
+/**
+ * Raw indexes, each projected from its marker: an expression, an order, and a
+ * total unique btree that, being raw, is never folded into the uniques.
+ */
+const rawIndexes = (): Record<string, AnyModel> => ({
+  document: s
+    .model({
+      id: s.string().id(),
+      email: s.string(),
+      title: s.string(),
+      score: s.int(),
+    })
+    .rawIndex("documents_email_lower", {
+      pg: "CREATE INDEX {name} ON {table} (lower({email}))",
+    })
+    .rawIndex("documents_score_title", {
+      pg: "CREATE INDEX {name} ON {table} ({score} DESC, {title})",
+    })
+    .rawIndex("documents_title_unique", {
+      pg: "CREATE UNIQUE INDEX {name} ON {table} ({title})",
+    })
+    .map("documents"),
+});
+
 export const catalogDigestCorpus: readonly DigestCase[] = [
+  {
+    id: "raw indexes",
+    build: rawIndexes,
+    drift: [`DROP INDEX "{ns}"."documents_title_unique"`],
+  },
   {
     id: "scalars",
     build: scalars,

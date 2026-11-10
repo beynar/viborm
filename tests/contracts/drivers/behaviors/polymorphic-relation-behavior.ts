@@ -1,3 +1,4 @@
+import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { createClient } from "@client/client";
 import { QueryEngineError } from "@errors";
 import { instrumentation } from "@instrumentation/extension";
@@ -58,8 +59,10 @@ export function runPolymorphicRelationBehavior(
 
     test("direct writes preserve the generated private storage pair", async () => {
       const { client } = requireDatabase();
-      const ident = client.$driver.adapter.identifiers.escape;
-      const tableRef = client.$driver.adapter.identifiers.table;
+      const ident = (client.$driver.adapter as DatabaseAdapter).identifiers
+        .escape;
+      const tableRef = (client.$driver.adapter as DatabaseAdapter).identifiers
+        .table;
       const post = await client.post.create({
         data: { slug: "connected-post", title: "Connected post" },
       });
@@ -135,8 +138,10 @@ export function runPolymorphicRelationBehavior(
 
     test("inverse create publishes a generated parent identity", async () => {
       const { client } = requireDatabase();
-      const ident = client.$driver.adapter.identifiers.escape;
-      const tableRef = client.$driver.adapter.identifiers.table;
+      const ident = (client.$driver.adapter as DatabaseAdapter).identifiers
+        .escape;
+      const tableRef = (client.$driver.adapter as DatabaseAdapter).identifiers
+        .table;
       const created = await client.post.create({
         data: {
           slug: "inverse-parent",
@@ -168,8 +173,10 @@ export function runPolymorphicRelationBehavior(
 
     test("direct and inverse reads correlate exact variants without N+1", async () => {
       const { client, driver } = requireDatabase();
-      const ident = client.$driver.adapter.identifiers.escape;
-      const tableRef = client.$driver.adapter.identifiers.table;
+      const ident = (client.$driver.adapter as DatabaseAdapter).identifiers
+        .escape;
+      const tableRef = (client.$driver.adapter as DatabaseAdapter).identifiers
+        .table;
       const post = await client.post.create({
         data: { id: 41, slug: "same-id-post", title: "Exact target" },
       });
@@ -378,8 +385,10 @@ export function runPolymorphicRelationBehavior(
 
     test("an arm the selection leaves unnamed reads at its default projection", async () => {
       const { client } = requireDatabase();
-      const ident = client.$driver.adapter.identifiers.escape;
-      const tableRef = client.$driver.adapter.identifiers.table;
+      const ident = (client.$driver.adapter as DatabaseAdapter).identifiers
+        .escape;
+      const tableRef = (client.$driver.adapter as DatabaseAdapter).identifiers
+        .table;
       const post = await client.post.create({
         data: { slug: "named-arm-post", title: "Named arm post" },
       });
@@ -518,8 +527,10 @@ export function runPolymorphicRelationBehavior(
 
     test("empty storage is optional but orphaned membership is invalid", async () => {
       const { client } = requireDatabase();
-      const ident = client.$driver.adapter.identifiers.escape;
-      const tableRef = client.$driver.adapter.identifiers.table;
+      const ident = (client.$driver.adapter as DatabaseAdapter).identifiers
+        .escape;
+      const tableRef = (client.$driver.adapter as DatabaseAdapter).identifiers
+        .table;
       const empty = await client.comment.create({ data: { body: "empty" } });
       const optionalTarget = await client.post.create({
         data: { slug: "optional-orphan", title: "Optional orphan" },

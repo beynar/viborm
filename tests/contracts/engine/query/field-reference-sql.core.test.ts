@@ -92,9 +92,6 @@ function nestNot(depth: number, leaf: Record<string, unknown>) {
   return out;
 }
 
-const ASCII_UPPERCASE = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-const ASCII_LOWERCASE = "abcdefghijklmnopqrstuvwxyz";
-
 type DialectCase = {
   name: string;
   dialect: Dialect;
@@ -113,8 +110,6 @@ type DialectCase = {
    * unchanged — their case-sensitive spelling is already index-usable.
    */
   exactLiteralEquals: (column: string) => { sql: string; values: string[] };
-  /** The dialect's ASCII A-Z fold, spelled as it lands in SQL. */
-  asciiFold: (expr: string) => string;
   /** The dialect's cast-to-text, spelled as it lands in SQL. */
   toText: (expr: string) => string;
 };
@@ -131,8 +126,6 @@ const dialectCases: DialectCase[] = [
       sql: `${column} = $1`,
       values: ["draft"],
     }),
-    asciiFold: (expr) =>
-      `TRANSLATE(${expr}, '${ASCII_UPPERCASE}', '${ASCII_LOWERCASE}')`,
     toText: (expr) => `CAST(${expr} AS TEXT)`,
   },
   {
@@ -145,13 +138,6 @@ const dialectCases: DialectCase[] = [
       sql: `(${column} = $1 AND BINARY ${column} = $2)`,
       values: ["draft", "draft"],
     }),
-    asciiFold: (expr) => {
-      let folded = expr;
-      for (let i = 0; i < ASCII_UPPERCASE.length; i++) {
-        folded = `REPLACE(${folded}, '${ASCII_UPPERCASE[i]}', '${ASCII_LOWERCASE[i]}')`;
-      }
-      return folded;
-    },
     toText: (expr) => `CAST(${expr} AS CHAR)`,
   },
   {
@@ -164,7 +150,6 @@ const dialectCases: DialectCase[] = [
       sql: `${column} COLLATE BINARY = $1`,
       values: ["draft"],
     }),
-    asciiFold: (expr) => `lower(${expr})`,
     toText: (expr) => `CAST(${expr} AS TEXT)`,
   },
 ];
@@ -515,5 +500,47 @@ describe("field-reference typing", () => {
     expect(fieldRefPayload(name).model).toBe("User");
     expect(relationIsAbsent).toBe(true);
     expect(misattributed).toBe(true);
+  });
+});
+
+const FROM_ALIAS = / FROM \S+ AS (\S+)/;
+const TITLE_ILIKE = /"title" ILIKE \$1 ESCAPE '\\'/;
+const TITLE_LIKE = /"title" LIKE \$1 ESCAPE '\\'/;
+
+describe("insensitive mode folds case with the database's own functions", () => {
+  const [postgres, mysql, sqlite] = dialectCases;
+
+  test("PostgreSQL matches a plain string with ILIKE on the bare column and binds the escaped pattern", () => {
+    const query = buildPostQuery(postgres!, {
+      where: { title: { contains: "50%_off", mode: "insensitive" } },
+    });
+    expect(query.statement).toMatch(TITLE_ILIKE);
+    expect(query.statement).not.toContain("TRANSLATE");
+    expect(query.statement).not.toContain("REPLACE");
+    expect(query.values).toEqual(["%50\\%\\_off%"]);
+  });
+
+  test("a case-sensitive plain-string contains binds the escaped pattern too", () => {
+    const query = buildPostQuery(postgres!, {
+      where: { title: { contains: "50%" } },
+    });
+    expect(query.statement).toMatch(TITLE_LIKE);
+    expect(query.values).toEqual(["%50\\%%"]);
+  });
+
+  test("equality and ranges compare LOWER on both sides", () => {
+    for (const [dialectCase, fold] of [
+      [postgres!, (expr: string) => `LOWER(${expr})`],
+      [mysql!, (expr: string) => `BINARY LOWER(${expr})`],
+      [sqlite!, (expr: string) => `lower(${expr}) COLLATE BINARY`],
+    ] as const) {
+      const q = (identifier: string) =>
+        `${dialectCase.quote}${identifier}${dialectCase.quote}`;
+      const { statement } = buildPostQuery(dialectCase, {
+        where: { title: { equals: "Éclair", mode: "insensitive" } },
+      });
+      const alias = statement.match(FROM_ALIAS)?.[1];
+      expect(statement).toContain(`${fold(`${alias}.${q("title")}`)} = `);
+    }
   });
 });

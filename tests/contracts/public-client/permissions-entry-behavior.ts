@@ -1661,7 +1661,7 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
     });
 
     test(
-      "W-C1: with soft delete composed rows steps first (OD-1 option 2), each deleted mode chooses root rows only, restore needs the delete action (it writes the marker), and the order guard stands",
+      "W-C1: with soft delete composed rows steps first (OD-1 option 2), each deleted mode chooses root rows only, restore needs the delete action (it writes the marker), and either order reads the same",
       async () => {
         let restored = 0;
         for (const name of READERS) {
@@ -1701,9 +1701,29 @@ export function runPermissionsEntryBehavior(substrate: EntrySubstrate): void {
             ).toBe(NotFoundError.name);
         }
         expect(restored).toBeGreaterThan(0);
-        expect(() => tombstones.rows(policy.rows(base))).toThrow(
-          ClientInitializationError
-        );
+        // No order guard: soft delete applied whole after the policy reads
+        // exactly what the steps apart read.
+        const reversed = loose(tombstones(policy(base) as never));
+        for (const name of READERS) {
+          const actor = actors[name]!;
+          for (const deleted of ["without", "only"] as const)
+            expect(
+              keys(
+                "page",
+                await reversed
+                  .$as(actor)
+                  .page!.findMany({ deleted, select: { id: true } })
+              ),
+              `${name} ${deleted}`
+            ).toEqual(
+              keys(
+                "page",
+                await db
+                  .$as(actor)
+                  .page!.findMany({ deleted, select: { id: true } })
+              )
+            );
+        }
       },
       timeout
     );

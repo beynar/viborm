@@ -373,7 +373,10 @@ async function observeStatementCompletion(
       attributed?.logger?.error(event);
     }
   }
-  if (outcome.status === "failure")
+  if (
+    outcome.status === "failure" &&
+    !(completionFacts?.kind === "statement" && completionFacts.recovered)
+  )
     throw createObservedFailure(
       completionFacts?.kind === "statement"
         ? completionFacts.failure

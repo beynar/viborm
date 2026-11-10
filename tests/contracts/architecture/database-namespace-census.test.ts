@@ -106,7 +106,7 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   "src/migrations/catalog-probes.ts executeRaw 1",
   // S7 (1.2.0): control authentication no longer interprets managed tables;
   // its two scoped reads became one.
-  "src/migrations/control.ts executeRaw 17",
+  "src/migrations/control.ts executeRaw 18",
   // Consolidation (1.2.0): MySQL's interrupted exact-decimal recovery plan is
   // the dialect's own `programPreamble`, reading on the producer the
   // sequential program hands it (the pinned session). It moved here out of
@@ -116,12 +116,23 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   // producer its caller hands it (the pinned session, or the pre-lock no-op
   // proof's own read).
   "src/migrations/drivers/postgres/catalog-digest.ts executeRaw 1",
+  // The SurrealQL driver takes and lets go of its lock record on the producer
+  // `holdLock` was handed, and reads the builds a program left running
+  // (`awaitIndexBuilds`) on the producer `runProgram` ran it on, the lock
+  // still held. No other statement of its command runs here.
+  "src/migrations/drivers/sql.ts executeRaw 2",
+  "src/migrations/drivers/surrealql/index.ts executeRaw 5",
   "src/migrations/execute-dispatch.ts executeRaw 2",
   // S10 (1.2.0): the verified foreign-key lift reads `PRAGMA foreign_keys`
   // back after each toggle, and its execution view runs each `DROP TABLE`
   // between two counts of the referencing tables, all on the pinned session
   // or the transaction it opened.
   "src/migrations/foreign-keys.ts executeRaw 8",
+  // introspectSchema (viborm/schema/introspect) reads, never writes: the
+  // dialect's own introspection, the table inventory, and the identity,
+  // view and CHECK catalog reads, all on the one driver the call opened or
+  // was handed. It takes no lock and runs no migration DDL.
+  "src/migrations/introspect/read.ts executeRaw 2",
   // Compression (1.2.0): the unused `executeLiveNamespaceReset` executor and
   // its four `executeRaw` sites were deleted; the plan's `clear` statements now
   // run through the reset and push programs' own dispatch.
@@ -151,14 +162,22 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   // Neki refuses mixing it with a transaction lock).
   "src/migrations/pinned-session.ts executeRaw 8",
   "src/migrations/pinned-session.ts queryExecutorFactory 2",
-  "src/migrations/push-fingerprint.ts executeRaw 2",
+  // Flarion fixes (2026-11-09): the adoption proof's one read of what each
+  // adopted table carries (`assertAdoptable`, through the dialect's
+  // `adoptionHazards`), on the producer apply or reset hands it.
+  "src/migrations/proof.ts executeRaw 1",
+  // A driver's own answer to what a push targets, on the producer it is handed.
+  "src/migrations/push-fingerprint.ts executeRaw 3",
   // Selected-table population proof uses the handed producer and its adapter's
   // qualified identifier before refusing an unsafe required-column addition.
   // S11 (1.2.0): push preflights its compiled program on the handed producer,
   // so SQLite refuses a rebuild that would lose a trigger or view.
   // engine-06 (1.2.0): push reads each to-one polymorphic slot once
   // (`LIMIT 1`) for an undeclared stored value, on the handed producer.
-  "src/migrations/push-plan.ts executeRaw 5",
+  // #85 (1.6.0): an enum recreation reads the CHECK constraints on the
+  // columns it converts, one catalog query on the handed producer (the
+  // pinned session under the lock), so it can drop and re-add them.
+  "src/migrations/push-plan.ts executeRaw 4",
   "src/migrations/push/planner.ts executeRaw 2",
   // The added catalog probe uses the pinned producer and bound probe parameters.
   "src/migrations/reset-v1.ts executeRaw 3",
@@ -304,7 +323,7 @@ const REJECTED_ALIAS_SPELLINGS = [
   "searchPath",
 ];
 
-/** §1.1's seven option types, spelled independently for the same reason. */
+/** The eight admitted option types, spelled independently for the same reason. */
 const ADMITTED_OPTION_TYPE_SPELLINGS = [
   "BunSQLDriverOptions",
   "MySQL2DriverOptions",
@@ -313,6 +332,7 @@ const ADMITTED_OPTION_TYPE_SPELLINGS = [
   "PgDriverOptions",
   "PlanetScaleDriverOptions",
   "PostgresDriverOptions",
+  "SurrealDriverOptions",
 ];
 
 /* ------------------------------------------------------------------ *
@@ -527,11 +547,11 @@ describe("database-namespace census: model and query-scope state", () => {
  * ------------------------------------------------------------------ */
 
 describe("database-namespace census: second configurable source", () => {
-  it("configures the namespace from the seven driver option types only", () => {
+  it("configures the namespace from the eight driver option types only", () => {
     expect(census.configurableSources).toEqual([]);
   });
 
-  it("admits the seven, counts every other option type, and yields its regions", () => {
+  it("admits the eight, counts every other option type, and yields its regions", () => {
     expect(
       configurableSourceEntries(
         "src/client/client.ts",

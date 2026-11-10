@@ -103,6 +103,6 @@ it("refuses a key viborm/pglite does not read", () => {
     });
   expect(attempt).toThrow(ClientInitializationError);
   expect(attempt).toThrow(
-    'viborm/pglite does not accept "databaseUrl"; it accepts schema, skipSchemaValidation, client, dataDir, options, pgvector, postgis, sharedRelationBodies, relationsPerStatement, namespace.'
+    'viborm/pglite does not accept "databaseUrl"; it accepts schema, skipSchemaValidation, findUniqueBatching, client, dataDir, options, pgvector, postgis, sharedRelationBodies, relationsPerStatement, namespace.'
   );
 });

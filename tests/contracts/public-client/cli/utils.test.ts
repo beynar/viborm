@@ -130,6 +130,20 @@ describe("loadConfig", () => {
     expect(loaded.driver).toBe(loaded.client.$driver);
   });
 
+  it("imports the config through a runtime's own importer when given one", async () => {
+    writeConfigFixture(project);
+    const imported: string[] = [];
+    const loaded = await loadConfig({
+      config: project.configPath,
+      importer: (path) => {
+        imported.push(path);
+        return loadCliModule(path);
+      },
+    });
+    expect(imported).toEqual([project.configPath]);
+    expect(Object.keys(loaded.models)).toEqual(["user"]);
+  });
+
   it("loads the project's .env before evaluating its TypeScript config", async () => {
     const probe = "VIBORM_TEST_CLI_ENV_ORDER_PROBE";
     const previous = process.env[probe];

@@ -38,11 +38,18 @@ export const extensionCoverageTests = Object.freeze([
   "tests/contracts/architecture/extension-system-census.core.test.ts",
   "tests/contracts/public-client/default-omit-extension.core.test.ts",
   "tests/contracts/public-client/extension-controls.core.test.ts",
+  "tests/contracts/public-client/ordering-keys.core.test.ts",
+  "tests/contracts/public-client/extension-order.core.test.ts",
+  "tests/contracts/public-client/ordering.core.test.ts",
+  "tests/contracts/public-client/ordering-append.core.test.ts",
+  "tests/contracts/public-client/ordering-composition.core.test.ts",
+  "tests/contracts/public-client/ordering-identity.core.test.ts",
   "tests/contracts/public-client/extension-deletion.core.test.ts",
   "tests/contracts/public-client/extensions-foundation.core.test.ts",
   "tests/contracts/public-client/official-cache-extension.core.test.ts",
   "tests/contracts/public-client/official-instrumentation-extension.core.test.ts",
   "tests/contracts/public-client/soft-delete.core.test.ts",
+  "tests/contracts/public-client/on.core.test.ts",
   "tests/contracts/public-client/extension-bound-views.core.test.ts",
   "tests/contracts/public-client/extension-composition.core.test.ts",
   "tests/contracts/public-client/extension-evidence.core.test.ts",
@@ -122,11 +129,17 @@ const definitions = [
     id: "extensions",
     label: "extensions",
     target: 100,
-    // The official soft-delete and permissions extensions: definitions over the
-    // capabilities this subsystem owns, measured by the same lane. They own
-    // their directories, so a file the permissions entry gains is measured at 100%
+    // The official soft-delete, permissions, `on` and ordering extensions: definitions
+    // over the capabilities this subsystem owns, measured by the same lane.
+    // They own their directories, so a file an entry gains is measured at 100%
     // from its first line instead of failing the ownership audit unowned.
-    roots: ["src/extensions/", "src/permissions/", "src/soft-delete/"],
+    roots: [
+      "src/extensions/",
+      "src/on/",
+      "src/ordering/",
+      "src/permissions/",
+      "src/soft-delete/",
+    ],
     projects: ["coverage-extensions"],
     tests: extensionCoverageTests,
     // The complete Permissions oracle sweeps need their own bounded process each.
@@ -144,6 +157,12 @@ const definitions = [
     id: "errors",
     label: "errors",
     target: 100,
+    // Branches re-measured under Vitest 4 (Arnaud, 2026-11-09): its V8
+    // remapping counts arms Vitest 3 did not (three implicit `if` arms with no
+    // source position, the absent `reason` of ForbiddenError's message), so
+    // the same tests measure 99.17. Floor: that number rounded down to the
+    // half-point; the other metrics hold 100.
+    metricTargets: { branches: 99 },
     root: "src/errors/",
     files: new Set(["src/errors.ts"]),
     projects: ["coverage-errors"],
@@ -154,6 +173,15 @@ const definitions = [
     target: 100,
     root: "src/adapters/",
     projects: ["layer-adapters", "coverage-adapter-storage"],
+  },
+  {
+    id: "studio",
+    label: "studio",
+    target: 100,
+    // @viborm/studio: its own package, measured as every source this
+    // repository ships is.
+    root: "packages/studio/src/",
+    projects: ["coverage-studio"],
   },
   {
     id: "cli",
@@ -252,6 +280,10 @@ const definitions = [
     id: "cache",
     label: "cache",
     target: 98,
+    // Branches re-measured under Vitest 4 (Arnaud, 2026-11-09): 97.61 with the
+    // same tests (Vitest 3 counted fewer arms); floor rounded down to the
+    // half-point. Statements 98.52, functions 100, lines 99.31 hold 98.
+    metricTargets: { branches: 97.5 },
     root: "src/cache/",
     projects: ["coverage-cache"],
     tests: cacheCoverageTests,
@@ -290,9 +322,9 @@ export const coverageWaivers = Object.freeze([
   },
   {
     id: "cloudflare-runtime",
-    sources: ["src/drivers/d1/index.ts"],
+    sources: ["src/drivers/d1/index.ts", "src/drivers/durable-object/index.ts"],
     reason:
-      "The D1 binding executes only inside the Cloudflare Workers runtime.",
+      "The D1 binding and Durable Object storage execute only inside the Cloudflare Workers runtime.",
   },
   {
     id: "hosted-provider",
@@ -330,8 +362,13 @@ function readTypeScriptFiles(directory) {
   return files;
 }
 
+/** Every source the repository ships: `viborm`'s, and @viborm/studio's. */
 export function sourceFiles() {
-  return readTypeScriptFiles(resolve(COVERAGE_PROJECT_ROOT, "src")).sort();
+  return ["src", "packages/studio/src"]
+    .flatMap((root) =>
+      readTypeScriptFiles(resolve(COVERAGE_PROJECT_ROOT, root))
+    )
+    .sort();
 }
 
 function owns(definition, source) {

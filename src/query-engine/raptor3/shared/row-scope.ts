@@ -24,6 +24,8 @@ export interface LazyRelations {
 export interface RowDomain {
   readonly root: ModelDomain;
   readonly related: ModelDomain;
+  /** What a layer's own whole-table sets hold (`rows.confine`), in every mode. */
+  readonly confine?: ModelDomain;
   /**
    * Per model (its TS name), indexed by layer as {@link ModelDomain} is, the
    * predicates of the model's verbs. A model absent here judges a write by
@@ -36,6 +38,12 @@ export interface RowDomain {
    * model at a time, so they are never walked to find out.
    */
   readonly projects?: boolean;
+  /**
+   * Per model (its TS name), the order its reads take when the caller gives
+   * none (`orderBy` input, as admitted): a root `findMany`/`findFirst`, a
+   * to-many relation read at any depth, and a paged aggregate's window.
+   */
+  readonly order?: ReadonlyMap<string, readonly Input[]>;
 }
 
 /**

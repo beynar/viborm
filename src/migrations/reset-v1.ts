@@ -3,6 +3,7 @@
  * Never re-enters applyV1.
  */
 
+import type { AnyDriver } from "../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { canonicalizeJson } from "./canonical-json";
 import { tableExistsProbe } from "./catalog-probes";
@@ -18,17 +19,22 @@ import {
   appendLedger,
   attemptEvents,
   ensureControlTables,
+  isTableMissing,
   ledgerEvent,
   markerFromPath,
+  readControlState,
   refuseIncompatibleHistory,
   sameMarker,
   unfinishedAttempts,
 } from "./control";
 import type { BoundMigrationDriver } from "./drivers";
 import {
+  annotateMigrationFailure,
   assertAllChecks,
   executeExactSql,
   executeOperations,
+  providerFacts,
+  providerRefused,
 } from "./execute-dispatch";
 import {
   loadMigrationGraph,
@@ -47,7 +53,7 @@ import {
   runProgram,
   withLockedMigrationProducer,
 } from "./pinned-session";
-import { assertLockedSinceDecision, proveLive } from "./proof";
+import { assertAdoptable, assertLockedSinceDecision, proveLive } from "./proof";
 import type { MigrationClient } from "./push/planner";
 import { fingerprintLive } from "./push-fingerprint";
 import { introspectManaged } from "./push-plan";
@@ -61,6 +67,7 @@ import {
 import { encodeSqlText } from "./sql-blob";
 import { canonicalizeSqliteStorage } from "./sqlite-storage-audit";
 import type { MigrationStorageWriter } from "./storage/contract";
+import { managedTables, withManagedTables } from "./target";
 import { encodeDispatchIdentity, encodeSqlBlob } from "./v1-parse";
 import type {
   LedgerEventV1,
@@ -93,7 +100,13 @@ export async function resetV1(
   );
   if (dryRun) {
     const command = await resolveCommandDriver(client.$driver, driver);
-    const plan = await planLiveNamespaceReset(client.$driver, command);
+    // Without a list the whole namespace is cleared, and the marker is not read.
+    const marker =
+      graph.descriptor.target.tables === undefined
+        ? null
+        : (await readControlState(client.$driver, command, { ledger: "open" }))
+            .marker;
+    const plan = await planClear(client.$driver, command, graph, marker, path);
     await command.preflightSchemaRequirements(
       path.map((stateId) => requireStateSnapshot(graph, stateId)),
       (sql, params) => client.$driver._executeRaw(sql, params),
@@ -105,8 +118,10 @@ export async function resetV1(
           graph,
           path
         )
-      )
+      ),
+      true
     );
+    await assertAdoptable(client.$driver, command, graph, null, path);
     return {
       preview: true,
       path,
@@ -168,7 +183,10 @@ export async function resetV1(
           storedResetPlan
         ) &&
         (await fingerprintLive(
-          await introspectManaged(pinned, command),
+          await introspectManaged(
+            pinned,
+            replayedTo(command, graph, marker, target)
+          ),
           command,
           pinned
         )) === (await fingerprintLive(targetSnapshot, command, pinned))
@@ -211,7 +229,7 @@ export async function resetV1(
         : false;
       const livePlan = hasReplayEvidence
         ? undefined
-        : await planLiveNamespaceReset(pinned, command);
+        : await planClear(pinned, command, graph, marker, path);
       const clearDispatches = resetProgram(livePlan, []).map((sql) =>
         dispatchForClearSql(sql)
       );
@@ -253,14 +271,24 @@ export async function resetV1(
         : prepared;
       // The statements this command runs, as apply hands its path over: the
       // dialect refuses what they would lose (S11, T5a, Neki) before effects.
+      // The source is the marker's state where this estate holds it; a marker
+      // it does not (a history replaced by a fresh one, `markerState:
+      // "unknown"`) has no snapshot here, and the clear drops what the live
+      // inventory names, as the dry run plans it.
+      const source = marker?.stateId ?? null;
       await command.preflightSchemaRequirements(
         [
-          requireStateSnapshot(graph, marker?.stateId ?? null),
+          ...(source === null || graph.states.has(source)
+            ? [requireStateSnapshot(graph, source)]
+            : []),
           ...path.map((stateId) => requireStateSnapshot(graph, stateId)),
         ],
         (sql, params) => pinned._executeRaw(sql, params),
-        resetProgram(livePlan, remaining)
+        resetProgram(livePlan, remaining),
+        // Where Neki needs a commit, each statement commits alone.
+        true
       );
+      await assertAdoptable(pinned, command, graph, null, path);
       const begin = resetAttempt
         ? undefined
         : (producer: Parameters<typeof appendLedger>[0]) =>
@@ -275,7 +303,7 @@ export async function resetV1(
       const finish = async (producer: Parameters<typeof appendLedger>[0]) => {
         await proveLive(
           producer,
-          command,
+          replayedTo(command, graph, marker, target),
           graph,
           targetSnapshotHash,
           () => "Reset replay did not reach the target snapshot"
@@ -323,6 +351,107 @@ export async function resetV1(
   );
 }
 
+/**
+ * The tables an estate with a `tables` list holds while the marker stands:
+ * the estate's own list and every table its arrival path managed. Never a
+ * table only the client lists: nothing adopted it, so it is the user's.
+ */
+function managedByMarker(
+  graph: MigrationGraph,
+  marker: MigrationMarkerV1 | null
+): readonly string[] | undefined {
+  const states = [null, ...(marker?.path ?? []).map((edge) => edge.stateId)];
+  return managedTables(
+    graph.descriptor.target.tables,
+    states
+      .filter((state) => state === null || graph.states.has(state))
+      .map((state) => requireStateSnapshot(graph, state))
+  );
+}
+
+/**
+ * The command, its inventory what reset clears (`managedByMarker`), once the
+ * replay is proven able to recreate it: an adoption has no DDL, so replaying
+ * one whose table the clear drops would lose that table and its rows.
+ */
+function clearedBy(
+  command: BoundMigrationDriver,
+  graph: MigrationGraph,
+  marker: MigrationMarkerV1 | null,
+  path: readonly Sha256[]
+): BoundMigrationDriver {
+  const cleared = managedByMarker(graph, marker);
+  for (const { to, transition } of routeEdges(graph, null, path)) {
+    const lost = transition.adopts?.find((name) => cleared?.includes(name));
+    if (lost !== undefined) {
+      throw new MigrationError(
+        `reset cannot replay state ${to}, which adopts "${lost}": reset clears that table, and an adoption has no DDL to recreate it. Nothing ran.`,
+        VibORMErrorCode.MIGRATION_INVALID_STATE
+      );
+    }
+  }
+  return withManagedTables(command, cleared);
+}
+
+/**
+ * The clear, once every table the replay creates is accounted for. A live
+ * table the replay creates and the clear keeps (no state of the marker's
+ * path managed it: it is not adopted yet, or the marker names a history this
+ * estate does not hold) is refused before effects: dropping it could drop a
+ * user's table, and keeping it would let the replay's CREATE find it.
+ */
+async function planClear(
+  producer: AnyDriver,
+  command: BoundMigrationDriver,
+  graph: MigrationGraph,
+  marker: MigrationMarkerV1 | null,
+  path: readonly Sha256[]
+): Promise<Awaited<ReturnType<typeof planLiveNamespaceReset>>> {
+  const cleared = clearedBy(command, graph, marker, path);
+  const kept = managedByMarker(graph, marker);
+  if (kept !== undefined) {
+    const route = routeEdges(graph, null, path);
+    const adopted = route.flatMap(({ transition }) => transition.adopts ?? []);
+    const created = new Set(
+      route.flatMap(({ to }) =>
+        requireStateSnapshot(graph, to).tables.map(({ name }) => name)
+      )
+    );
+    for (const table of [...created].sort()) {
+      if (
+        kept.includes(table) ||
+        adopted.includes(table) ||
+        (await isTableMissing(producer, command, table))
+      )
+        continue;
+      const foreign = marker?.path.some(
+        ({ stateId }) => !graph.states.has(stateId)
+      );
+      throw new MigrationError(
+        `reset cannot account for table "${table}": it exists, the replay creates it, and no state of this estate the marker reached managed it${foreign ? " (the marker names states this estate does not hold, so whether it belongs to that history or is yours cannot be told)" : ""}. reset never drops such a table. Drop or rename it yourself if its rows can go, then reset again. Nothing ran.`,
+        VibORMErrorCode.MIGRATION_INVALID_STATE,
+        { meta: { table } }
+      );
+    }
+  }
+  return planLiveNamespaceReset(producer, cleared);
+}
+
+/** The command, proving the replay's target and that the clear left nothing. */
+function replayedTo(
+  command: BoundMigrationDriver,
+  graph: MigrationGraph,
+  marker: MigrationMarkerV1 | null,
+  target: Sha256
+): BoundMigrationDriver {
+  return withManagedTables(
+    command,
+    managedTables(managedByMarker(graph, marker), [
+      requireStateSnapshot(graph, target),
+    ])
+  );
+}
+
 function matchingResetPlan(
   attempt: LedgerEventV1,
   graph: MigrationGraph,
@@ -332,10 +461,16 @@ function matchingResetPlan(
 ): ResetPlanV1 {
   const targetState = graph.states.get(target);
   const plan = attempt.resetPlan;
+  // A source this estate holds fixes the plan's fingerprint; a foreign one (a
+  // history replaced by a fresh one) does not, and the plan's own record of
+  // the marker is what `resetSourceMarkerMatches` proves the live marker
+  // still is.
   const sourceSnapshotHash =
     attempt.fromState === null
       ? graph.emptySnapshotHash
-      : graph.states.get(attempt.fromState)?.snapshotHash;
+      : graph.states.has(attempt.fromState)
+        ? graph.states.get(attempt.fromState)!.snapshotHash
+        : plan?.sourceFingerprint;
   if (
     !(targetState && plan) ||
     attempt.direction !== "reset" ||
@@ -472,10 +607,31 @@ async function executeResetClear(
   command: Parameters<typeof planLiveNamespaceReset>[1],
   livePlan: Awaited<ReturnType<typeof planLiveNamespaceReset>>,
   attemptId: Sha256,
-  graph: MigrationGraph
+  graph: MigrationGraph,
+  strategy: "transactional" | "stepwise"
 ): Promise<void> {
+  // Clear statements are numbered in the order they run, as replay ones are.
+  let statementIndex = 0;
+  const runClearStatement = async (sql: string) => {
+    const site = {
+      step: "reset-clear",
+      strategy,
+      statementIndex: statementIndex++,
+      dispatchId: dispatchForClearSql(sql).dispatchId,
+    };
+    try {
+      await executeExactSql(pinned, sql);
+    } catch (error) {
+      if (!providerRefused(error)) throw annotateMigrationFailure(error, site);
+      throw new MigrationError(
+        `Reset clear statement ${site.statementIndex} failed`,
+        VibORMErrorCode.MIGRATION_FAILED,
+        { cause: error, meta: { ...site, ...providerFacts(error) } }
+      );
+    }
+  };
   for (const sql of livePlan.dropForeignKeys) {
-    await executeExactSql(pinned, sql);
+    await runClearStatement(sql);
     await confirmResetStep(pinned, command, graph, attemptId, sql);
   }
   for (const table of livePlan.dropTables) {
@@ -485,7 +641,7 @@ async function executeResetClear(
       await confirmResetStep(pinned, command, graph, attemptId, table.sql);
       continue;
     }
-    await executeExactSql(pinned, table.sql);
+    await runClearStatement(table.sql);
     if (!(await evaluateProbe(pinned, post))) {
       throw new MigrationError(
         `Reset clear did not drop table ${table.name}`,
@@ -495,7 +651,7 @@ async function executeResetClear(
     await confirmResetStep(pinned, command, graph, attemptId, table.sql);
   }
   for (const sql of livePlan.dropEnums) {
-    await executeExactSql(pinned, sql);
+    await runClearStatement(sql);
     await confirmResetStep(pinned, command, graph, attemptId, sql);
   }
 }
@@ -749,6 +905,9 @@ async function executeResetProgram(
     liveClear.map((sql) => dispatchForClearSql(sql).dispatchId)
   );
   let clearPending = liveClear.length > 0 ? livePlan : undefined;
+  // On Neki no program opens a transaction (`runProgram`): what a failure
+  // reports as its boundary is the one it ran under.
+  const neki = command.commitsSchemaChangesAlone();
   let clearEvidencePending = livePlan !== undefined;
   let admissionPending = beforeFirstEffect;
   // `statements` are the ones the boundary runs: apply's program, so SQLite's
@@ -771,14 +930,23 @@ async function executeResetProgram(
       await body(target);
     };
     // On MySQL the reset already runs as one sequential program (`resetV1`).
-    await (command.target.dialect === "mysql"
-      ? guarded(producer)
-      : runProgram(
-          pinned,
-          command,
-          { transactional: boundary === "transactional", statements },
-          guarded
-        ));
+    try {
+      await (command.target.dialect === "mysql"
+        ? guarded(producer)
+        : runProgram(
+            pinned,
+            command,
+            { transactional: boundary === "transactional", statements },
+            guarded
+          ));
+    } catch (failure) {
+      // A failure no statement named is this boundary's: its commit, its lock.
+      throw annotateMigrationFailure(failure, {
+        step: "reset",
+        strategy: neki ? "stepwise" : boundary,
+        stateId: plan.replayPath.at(-1),
+      });
+    }
   };
   const completeClearEvidence = async (
     target: Parameters<typeof appendLedger>[0]
@@ -795,7 +963,12 @@ async function executeResetProgram(
     admissionPending = undefined;
     await pending(target);
   };
-  if (clearPending && groups[0]?.boundary === "stepwise") {
+  // A driver whose index cannot share a transaction with what a clear wrote commits
+  // the clear first, whatever boundary the program that follows asks for.
+  if (
+    clearPending &&
+    (groups[0]?.boundary === "stepwise" || command.buildsApart?.([], true))
+  ) {
     const clear = clearPending;
     clearPending = undefined;
     await runBoundary(
@@ -803,7 +976,14 @@ async function executeResetProgram(
       resetProgram(clear, []),
       async (target) => {
         await admit(target);
-        await executeResetClear(target, command, clear, attemptId, graph);
+        await executeResetClear(
+          target,
+          command,
+          clear,
+          attemptId,
+          graph,
+          neki ? "stepwise" : "transactional"
+        );
         await completeClearEvidence(target);
         clearEvidencePending = false;
       }
@@ -822,7 +1002,8 @@ async function executeResetProgram(
           command,
           clearPending,
           attemptId,
-          graph
+          graph,
+          neki ? "stepwise" : "transactional"
         );
       }
       if (clearEvidencePending) {
@@ -843,7 +1024,8 @@ async function executeResetProgram(
           command,
           clearPending,
           attemptId,
-          graph
+          graph,
+          group.boundary
         );
         clearPending = undefined;
       }
@@ -898,7 +1080,8 @@ async function executeResetReplayEdge(
         command,
         events.event("reset-step-confirmed", effect, progress, failure)
       ),
-    command.namespace
+    command.namespace,
+    { fromState: from, toState: to, step: "reset-replay" }
   );
   // Replayed manual SQL is canonicalized exactly as apply canonicalizes it.
   await canonicalizeSqliteStorage(

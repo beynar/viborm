@@ -64,6 +64,37 @@ describe("migration hostile-input boundaries", () => {
     expect(decodeCanonicalBase64("AA=A")).toBeUndefined();
   });
 
+  it("keeps RFC 4648 bytes canonical, including large views with hostile iteration", () => {
+    for (const [plain, encoded] of [
+      ["", ""],
+      ["f", "Zg=="],
+      ["fo", "Zm8="],
+      ["foo", "Zm9v"],
+      ["foob", "Zm9vYg=="],
+      ["fooba", "Zm9vYmE="],
+      ["foobar", "Zm9vYmFy"],
+    ]) {
+      const bytes = new TextEncoder().encode(plain);
+      expect(encodeBase64(bytes)).toBe(encoded);
+      expect(decodeCanonicalBase64(encoded!)).toEqual(bytes);
+    }
+    const backing = Uint8Array.from(
+      { length: 131_075 },
+      (_, index) => index % 256
+    );
+    const bytes = backing.subarray(1, -1);
+    const expected = Buffer.from(bytes).toString("base64");
+    Object.defineProperty(bytes, Symbol.iterator, {
+      value: () => {
+        throw new Error("The codec must read the byte view by index");
+      },
+    });
+    expect(encodeBase64(bytes)).toBe(expected);
+    expect(decodeCanonicalBase64(expected)).toEqual(backing.subarray(1, -1));
+    for (const malformed of ["AA", "AA=", "AA==\n", "AA-_", "AAB=", "AB=="])
+      expect(decodeCanonicalBase64(malformed)).toBeUndefined();
+  });
+
   it("normalizes one immutable down selector", () => {
     expect(normalizeDownOptions({})).toEqual({ steps: 1, dryRun: false });
     expect(normalizeDownOptions({ steps: 2, dryRun: true })).toEqual({

@@ -9,6 +9,23 @@ import { isGeneratorDefault } from "../../scalars/common";
 import type { Schema, SchemaValidationIssue } from "../types";
 import { getScalars } from "./model-members";
 
+/**
+ * A string field's literal string default under its own validator
+ * (`.schema()`): the column holds it whatever the validator says, and a
+ * create validates it where it takes it (an extension's stamp may replace
+ * it, as an appended ordering key replaces `""`).
+ */
+export const refinedStringDefault = (state: {
+  readonly type: string;
+  readonly array: boolean;
+  readonly schema: unknown;
+  readonly default: unknown;
+}): boolean =>
+  state.schema !== undefined &&
+  state.type === "string" &&
+  !state.array &&
+  typeof state.default === "string";
+
 function validateFieldNames(
   modelName: string,
   model: Model<any>
@@ -148,6 +165,7 @@ export function validateFieldsSinglePass(
   // Accumulators for cross-scalar checks
   let idCount = 0;
   const columnToFields = new Map<string, string[]>();
+  const compoundIdMembers = new Set(getCompoundIdFields(model));
 
   for (const [fname, scalar] of getScalars(model)) {
     const st = scalar["~"].state;
@@ -176,12 +194,16 @@ export function validateFieldsSinglePass(
 
     // F004: Default type match. A decimal literal crossed its complete field
     // codec when `.default()` retained it, so this downstream boundary trusts
-    // that canonical output instead of applying a custom schema twice.
+    // that canonical output instead of applying a custom schema twice. A
+    // string's default its own validator (`.schema()`) refuses is validated
+    // where a create takes it: one an extension's stamp replaces (an
+    // appended ordering key over `""`) is never taken, so never refused.
     if (
       st.hasDefault &&
       st.default !== undefined &&
       typeof st.default !== "function" &&
-      st.type !== "decimal"
+      st.type !== "decimal" &&
+      !refinedStringDefault(st)
     ) {
       const jsonKind =
         st.type === "json" ? jsonNullKindOf(st.default) : undefined;
@@ -209,11 +231,15 @@ export function validateFieldsSinglePass(
       }
     }
 
-    // F006: ID not nullable
-    if (st.isId && st.nullable) {
+    // F006: no member of a primary key is nullable. Every dialect makes a
+    // primary-key column NOT NULL, so a nullable member declares a column the
+    // database never builds: migration proofs would refuse it forever.
+    if (st.nullable && (st.isId || compoundIdMembers.has(fname))) {
       errors.push({
         code: "F006",
-        message: `ID '${fname}' in '${name}' cannot be nullable`,
+        message: st.isId
+          ? `ID '${fname}' in '${name}' cannot be nullable`
+          : `'${fname}' in '${name}' is a member of the compound ID and cannot be nullable`,
         severity: "error",
         model: name,
         field: fname,
@@ -326,6 +352,10 @@ export function indexNameUnique(
     if (idx.options.name) {
       names.set(idx.options.name, (names.get(idx.options.name) ?? 0) + 1);
     }
+  }
+  // A raw index is an index of the same table under the name it is given.
+  for (const { name: rawName } of model["~"].rawIndexes) {
+    names.set(rawName, (names.get(rawName) ?? 0) + 1);
   }
   const errors: SchemaValidationIssue[] = [];
   for (const [iname, count] of names) {

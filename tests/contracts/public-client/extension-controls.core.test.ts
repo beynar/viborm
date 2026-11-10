@@ -1841,19 +1841,16 @@ describe("data: fields an extension writes", () => {
 });
 
 describe("controls: the order a chain takes", () => {
-  test("rows cannot follow a result consumer", () => {
+  test("rows may follow a result consumer: its methods run through the whole chain", () => {
     const consumer = definitionClient().$extends({
       name: "consumer",
       model: { audited: () => ({ ping: () => "pong" }) },
     });
-    expect(
-      refusal(() =>
-        applyUnchecked(consumer, {
-          name: "late-rows",
-          rows: { control: "deleted", default: "a", models: {} },
-        })
-      ).message
-    ).toContain("declares rows, which cannot follow");
+    const late = applyUnchecked(consumer, {
+      name: "late-rows",
+      rows: { control: "deleted", default: "a", models: {} },
+    }) as typeof consumer;
+    expect(late.audited.ping()).toBe("pong");
   });
 });
 

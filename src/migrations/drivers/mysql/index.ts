@@ -59,30 +59,38 @@ function classifyDecimalListDescriptorChange(
   return "same";
 }
 
-import type { CatalogRead, CommandNamespaceResolver } from "../../target";
 import {
-  type AddColumnOperation,
-  type AddForeignKeyOperation,
-  type AddPrimaryKeyOperation,
-  type AddUniqueConstraintOperation,
-  type AlterColumnOperation,
-  type AlterEnumOperation,
-  type CreateEnumOperation,
-  type CreateIndexOperation,
-  type CreateTableOperation,
-  type DDLContext,
-  type DerivedRename,
-  type DropColumnOperation,
-  type DropEnumOperation,
-  type DropForeignKeyOperation,
-  type DropIndexOperation,
-  type DropPrimaryKeyOperation,
-  type DropTableOperation,
-  type DropUniqueConstraintOperation,
-  MigrationDriver,
-  type RenameColumnOperation,
-  type RenameTableOperation,
+  RAW_INDEX_MARKER_PREFIX,
+  rawIndexMarker,
+  refuseRawIndexStatement,
+  renderRawIndex,
+} from "../../raw-index";
+import { readExecutableStatements } from "../../statement-safety";
+import type { CatalogRead, CommandNamespaceResolver } from "../../target";
+import type {
+  AddColumnOperation,
+  AddForeignKeyOperation,
+  AddPrimaryKeyOperation,
+  AddUniqueConstraintOperation,
+  AdoptionHazard,
+  AlterColumnOperation,
+  AlterEnumOperation,
+  CreateEnumOperation,
+  CreateIndexOperation,
+  CreateTableOperation,
+  DDLContext,
+  DerivedRename,
+  DropColumnOperation,
+  DropEnumOperation,
+  DropForeignKeyOperation,
+  DropIndexOperation,
+  DropPrimaryKeyOperation,
+  DropTableOperation,
+  DropUniqueConstraintOperation,
+  RenameColumnOperation,
+  RenameTableOperation,
 } from "../base";
+import { SqlMigrationDriver } from "../sql";
 import {
   getMySQLType,
   MYSQL_TYPE_DEFAULTS,
@@ -100,6 +108,14 @@ import {
   mysqlSelectTargetStatement,
   proveMySQLExactValueSession,
 } from "./pinned-session";
+
+/**
+ * The engine and collation every table VibORM creates is spelled with; its
+ * columns write none, so each character column carries the table's. The
+ * declaration an adoption is proven against states both.
+ */
+const MYSQL_TABLE_ENGINE = "InnoDB";
+const MYSQL_TABLE_COLLATION = "utf8mb4_0900_bin";
 
 const MYSQL_POINT_ATTRIBUTE_START = MYSQL_TYPE_DEFAULTS.point.indexOf(" ");
 const MYSQL_POINT_BASE_TYPE = MYSQL_TYPE_DEFAULTS.point.slice(
@@ -195,7 +211,7 @@ function isMySQLExactIntegerType(type: string): boolean {
   return base === "INT" || base === "INTEGER" || base === "BIGINT";
 }
 export class MySQLMigrationDriver
-  extends MigrationDriver
+  extends SqlMigrationDriver
   implements CommandNamespaceResolver
 {
   readonly dialect = "mysql" as const;
@@ -272,6 +288,57 @@ export class MySQLMigrationDriver
 
   introspect(executeRaw: CatalogReader): Promise<SchemaSnapshot> {
     return introspectMySQL(executeRaw, this.namespace, this.target?.tables);
+  }
+
+  /**
+   * A trigger, a CHECK, an engine other than InnoDB, and a table or column
+   * collation other than the one VibORM's CREATE TABLE writes.
+   */
+  override async adoptionHazards(
+    tables: readonly string[],
+    executeRaw: CatalogReader
+  ): Promise<readonly AdoptionHazard[]> {
+    if (tables.length === 0) return [];
+    const namespace = await resolveCatalogNamespace(executeRaw, this.namespace);
+    const hazards: AdoptionHazard[] = [];
+    for (const table of tables) {
+      const scope = [namespace, table];
+      const [shape] = (
+        await executeRaw<{
+          ENGINE: string | null;
+          TABLE_COLLATION: string | null;
+        }>(
+          "SELECT ENGINE, TABLE_COLLATION FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?",
+          scope
+        )
+      ).rows;
+      const triggers = await executeRaw<{ name: string }>(
+        "SELECT TRIGGER_NAME AS name FROM information_schema.TRIGGERS WHERE EVENT_OBJECT_SCHEMA = ? AND EVENT_OBJECT_TABLE = ? ORDER BY TRIGGER_NAME",
+        scope
+      );
+      const checks = await executeRaw<{ name: string }>(
+        "SELECT CONSTRAINT_NAME AS name FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND CONSTRAINT_TYPE = 'CHECK' ORDER BY CONSTRAINT_NAME",
+        scope
+      );
+      const collated = await executeRaw<{ name: string }>(
+        "SELECT COLUMN_NAME AS name FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLLATION_NAME IS NOT NULL AND COLLATION_NAME <> ? ORDER BY ORDINAL_POSITION",
+        [...scope, MYSQL_TABLE_COLLATION]
+      );
+      const features = [
+        ...triggers.rows.map(({ name }) => `trigger "${name}"`),
+        ...checks.rows.map(({ name }) => `CHECK constraint "${name}"`),
+        ...(shape?.ENGINE && shape.ENGINE !== MYSQL_TABLE_ENGINE
+          ? [`ENGINE=${shape.ENGINE}`]
+          : []),
+        ...(shape?.TABLE_COLLATION &&
+        shape.TABLE_COLLATION !== MYSQL_TABLE_COLLATION
+          ? [`the table collation ${shape.TABLE_COLLATION}`]
+          : []),
+        ...collated.rows.map(({ name }) => `a collation on column "${name}"`),
+      ];
+      hazards.push(...features.map((feature) => ({ table, feature })));
+    }
+    return hazards;
   }
 
   // ===========================================================================
@@ -427,10 +494,12 @@ export class MySQLMigrationDriver
    *    unique-constraint bucket and the index bucket is created as usual.
    */
   override finalizeTable(table: TableDef): TableDef {
+    // A raw index is its author's text: its columns are not keyed for it (a
+    // prefix or an expression may be what it indexes), nor is it a key.
     const keyedColumns = new Set<string>([
       ...(table.primaryKey?.columns ?? []),
       ...table.uniqueConstraints.flatMap((uq) => uq.columns),
-      ...table.indexes.flatMap((index) => index.columns),
+      ...table.indexes.flatMap((index) => (index.raw ? [] : index.columns)),
       ...table.foreignKeys.flatMap((fk) => fk.columns),
     ]);
 
@@ -459,7 +528,7 @@ export class MySQLMigrationDriver
       uniqueConstraints: [],
     };
     const ordinary = finalized.indexes.filter(
-      (index) => !index.type || index.type === "btree"
+      (index) => !(index.raw || (index.type && index.type !== "btree"))
     );
     const keys = [
       { name: "PRIMARY", columns: finalized.primaryKey?.columns ?? [] },
@@ -641,6 +710,7 @@ export class MySQLMigrationDriver
             (index) =>
               (!index.type || index.type === "btree") &&
               !index.where &&
+              !index.raw &&
               index.columns[0] === increment.name
           )
         : undefined;
@@ -670,7 +740,7 @@ export class MySQLMigrationDriver
       columnDefs.push(this.foreignKeyClause(fk, context));
     }
 
-    const sql = `CREATE TABLE ${this.tableRef(table.name, context.destination)} (\n  ${columnDefs.join(",\n  ")}\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin`;
+    const sql = `CREATE TABLE ${this.tableRef(table.name, context.destination)} (\n  ${columnDefs.join(",\n  ")}\n) ENGINE=${MYSQL_TABLE_ENGINE} DEFAULT CHARSET=utf8mb4 COLLATE=${MYSQL_TABLE_COLLATION}`;
 
     const statements = [sql];
 
@@ -738,10 +808,26 @@ export class MySQLMigrationDriver
     return `ALTER TABLE ${this.tableRef(op.tableName, context.destination)} DROP COLUMN ${this.escapeIdentifier(op.columnName)}`;
   }
 
-  generateRenameColumn(op: RenameColumnOperation, context: DDLContext): string {
+  generateRenameColumn(
+    op: RenameColumnOperation,
+    context: DDLContext
+  ): string[] {
     // MySQL 8.0+ supports RENAME COLUMN. Column names stay ONE identifier —
     // only the table position carries the database (§5.1).
-    return `ALTER TABLE ${this.tableRef(op.tableName, context.destination)} RENAME COLUMN ${this.escapeIdentifier(op.from)} TO ${this.escapeIdentifier(op.to)}`;
+    return [
+      `ALTER TABLE ${this.tableRef(op.tableName, context.destination)} RENAME COLUMN ${this.escapeIdentifier(op.from)} TO ${this.escapeIdentifier(op.to)}`,
+      // An index's comment is changed only by re-creating it.
+      ...this.rawIndexesRenamedBy(op, context).flatMap((index) => [
+        this.generateDropIndex(
+          { type: "dropIndex", tableName: op.tableName, indexName: index.name },
+          context
+        ),
+        this.generateCreateIndex(
+          { type: "createIndex", tableName: op.tableName, index },
+          context
+        ),
+      ]),
+    ];
   }
 
   generateAlterColumn(
@@ -954,6 +1040,30 @@ export class MySQLMigrationDriver
 
   generateCreateIndex(op: CreateIndexOperation, context: DDLContext): string {
     const { tableName, index } = op;
+    if (index.raw) {
+      const rendered = renderRawIndex(index, {
+        name: this.escapeIdentifier(index.name),
+        table: this.tableRef(tableName, context.destination),
+        column: (column) => this.escapeIdentifier(column),
+      });
+      refuseRawIndexStatement(
+        index,
+        rendered,
+        (text) => readExecutableStatements(text, "mysql"),
+        ["COMMENT", "ALGORITHM", "LOCK"]
+      );
+      const marker = RAW_INDEX_MARKER_PREFIX + rawIndexMarker(index);
+      // MySQL in strict mode refuses an index comment over 1024 bytes, mid-migration.
+      if (new TextEncoder().encode(marker).length > 1024)
+        throw new MigrationError(
+          `The raw index "${index.name}" names too many or too long columns for MySQL's 1024-byte index comment, which holds VibORM's marker.`,
+          VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+          { meta: { indexName: index.name } }
+        );
+      // Its marker is the index's own comment, on a line of its own so that a
+      // line comment ending the text does not swallow it.
+      return `${rendered}\nCOMMENT ${this.escapeValue(marker)}`;
+    }
 
     // Validate index type
     this.validateIndexType(index.type, index.name);

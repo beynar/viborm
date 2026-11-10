@@ -6,6 +6,7 @@ import {
 import type { AnyDriver } from "@drivers";
 import { s } from "@schema";
 import { defineContract } from "@tests/contracts/contract";
+import { foldsNonAscii } from "@tests/fixtures/case-folding";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { windowUserPostSchema } from "@tests/fixtures/user-post-schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
@@ -91,12 +92,17 @@ export function runPrismaParityBehavior({
         ).toEqual(["alice"]);
       });
 
-      test("insensitive equality and set filters fold ASCII only", async () => {
+      test("insensitive equality and set filters fold case as the database does", async () => {
+        const nonAscii = await foldsNonAscii(requireClient(client));
         expect(
           await findIds({ name: { equals: "ÉCLAIR", mode: "insensitive" } })
         ).toEqual(["accent"]);
         expect(
           await findIds({ name: { equals: "éCLAIR", mode: "insensitive" } })
+        ).toEqual(nonAscii ? ["accent"] : []);
+        // Accents are never folded: only letter case is ignored.
+        expect(
+          await findIds({ name: { equals: "ECLAIR", mode: "insensitive" } })
         ).toEqual([]);
         expect(
           await findIds({ name: { in: ["ÉCLAIR"], mode: "insensitive" } })
@@ -280,7 +286,8 @@ export function runPrismaParityBehavior({
         ).toEqual(["decoy", "percent"]);
       });
 
-      test("insensitive substring filters fold ASCII only", async () => {
+      test("insensitive substring filters fold case as the database does", async () => {
+        const nonAscii = await foldsNonAscii(requireClient(client));
         expect(
           await findIds({ name: { contains: "ÉCL", mode: "insensitive" } })
         ).toEqual(["accent"]);
@@ -292,6 +299,9 @@ export function runPrismaParityBehavior({
         ).toEqual(["accent"]);
         expect(
           await findIds({ name: { contains: "écl", mode: "insensitive" } })
+        ).toEqual(nonAscii ? ["accent"] : []);
+        expect(
+          await findIds({ name: { startsWith: "ecl", mode: "insensitive" } })
         ).toEqual([]);
       });
 

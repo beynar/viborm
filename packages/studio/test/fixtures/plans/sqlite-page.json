@@ -1,0 +1,26 @@
+[
+  {
+    "id": 4,
+    "parent": 0,
+    "notused": 192,
+    "detail": "SCAN q0"
+  },
+  {
+    "id": 19,
+    "parent": 0,
+    "notused": 0,
+    "detail": "CORRELATED SCALAR SUBQUERY 1"
+  },
+  {
+    "id": 25,
+    "parent": 19,
+    "notused": 51,
+    "detail": "SEARCH q3 USING INDEX order_items_orderId_idx (orderId=?)"
+  },
+  {
+    "id": 41,
+    "parent": 0,
+    "notused": 0,
+    "detail": "USE TEMP B-TREE FOR ORDER BY"
+  }
+]

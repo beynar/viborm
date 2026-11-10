@@ -136,9 +136,15 @@ export class LibSQLDriver extends Driver<Client, Client | Transaction> {
     super("sqlite", "libsql");
     this.driverOptions = options;
     this.suppliedClient = options.client;
-    this.serializeTransactions = this.suppliedClient
-      ? this.suppliedClient.protocol === "file"
-      : this.getDatabaseUrl().startsWith("file:");
+    // A local database is one connection, whichever spelling names it:
+    // `@libsql/client` reads `:memory:` as `file::memory:`.
+    if (this.suppliedClient)
+      this.serializeTransactions = this.suppliedClient.protocol === "file";
+    else {
+      const url = this.getDatabaseUrl();
+      this.serializeTransactions =
+        url === ":memory:" || url.startsWith("file:");
+    }
 
     if (this.suppliedClient) {
       this.client = this.suppliedClient;

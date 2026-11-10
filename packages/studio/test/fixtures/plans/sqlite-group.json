@@ -1,0 +1,14 @@
+[
+  {
+    "id": 6,
+    "parent": 0,
+    "notused": 192,
+    "detail": "SCAN q0"
+  },
+  {
+    "id": 8,
+    "parent": 0,
+    "notused": 0,
+    "detail": "USE TEMP B-TREE FOR GROUP BY"
+  }
+]

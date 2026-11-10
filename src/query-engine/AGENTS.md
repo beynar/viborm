@@ -102,7 +102,7 @@ A `having` operand over an aggregate is a number at admission, so it never
 takes an identifier's spelling.
 
 A SUBSTRING is not a value of the domain, and only a text-stored domain can be
-asked one at all. A compactly stored column is never collated or ASCII-folded as
+asked one at all. A compactly stored column is never collated or case-folded as
 text. Every domain field is decoded through the codec: publicly to its
 canonical string, prefix re-applied; internally a compact value decodes to that
 same canonical string, and a text-stored one keeps the spelling the row holds,

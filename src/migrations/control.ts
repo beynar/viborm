@@ -18,6 +18,7 @@ import type { BoundMigrationDriver } from "./drivers";
 import { throwIfCatalogRefusal } from "./drivers/postgres/catalog-refusal";
 import { providerFacts } from "./execute-dispatch";
 import { isSha256, type Sha256 } from "./identity";
+import { withManagedTables } from "./target";
 import type { SchemaSnapshot, TableDef } from "./types";
 import { encodePathHash, eventIdFor, parseLedgerEvent } from "./v1-parse";
 import { parseMarkerPayload } from "./v1-parse-control";
@@ -47,6 +48,7 @@ function placeholder(
   dialect: BoundMigrationDriver["target"]["dialect"],
   index: number
 ): string {
+  if (dialect === "surrealql") return `$p${index}`;
   return dialect === "postgresql" ? `$${index}` : "?";
 }
 
@@ -89,6 +91,32 @@ function controlDefinition(
   return `(\n      ${columns.join(",\n      ")}\n    )`;
 }
 
+/** A control table in SurrealQL: its columns are fields, its key a unique index. */
+function surrealControlDefinition(
+  driver: BoundMigrationDriver,
+  table: ControlTable
+): string {
+  const name = qualifiedName(driver, CONTROL_TABLES[table]);
+  const key = table === "state" ? "singleton" : "event_id";
+  const fields =
+    table === "state"
+      ? ["singleton TYPE int ASSERT $value = 1", "payload TYPE string"]
+      : [
+          "event_id TYPE string",
+          "attempt_id TYPE string",
+          "kind TYPE string",
+          "payload TYPE string",
+        ];
+  return [
+    `DEFINE TABLE ${name} SCHEMAFULL;`,
+    ...fields.map((field) => {
+      const [column, ...rest] = field.split(" ");
+      return `DEFINE FIELD ${column} ON ${name} ${rest.join(" ")};`;
+    }),
+    `DEFINE INDEX ${CONTROL_TABLES[table]}_key ON ${name} FIELDS ${key} UNIQUE;`,
+  ].join(" ");
+}
+
 /** Exact writer-owned state definition; the control owner authenticates its contents separately. */
 export function isSqliteStateControlDefinition(
   name: string,
@@ -107,7 +135,9 @@ export function createControlTableSQL(driver: BoundMigrationDriver): {
   log: string;
 } {
   const create = (table: ControlTable) =>
-    `CREATE TABLE IF NOT EXISTS ${qualifiedName(driver, CONTROL_TABLES[table])} ${controlDefinition(driver.target.dialect, table)}`;
+    driver.target.dialect === "surrealql"
+      ? surrealControlDefinition(driver, table)
+      : `CREATE TABLE IF NOT EXISTS ${qualifiedName(driver, CONTROL_TABLES[table])} ${controlDefinition(driver.target.dialect, table)}`;
   return { state: create("state"), log: create("log") };
 }
 
@@ -200,17 +230,10 @@ function introspectControlTables(
   producer: AnyDriver,
   driver: BoundMigrationDriver
 ): Promise<SchemaSnapshot> {
-  const scoped: BoundMigrationDriver = Object.create(driver);
-  Object.defineProperty(scoped, "target", {
-    value: Object.freeze({
-      ...driver.target,
-      tables: [CONTROL_TABLES.log, CONTROL_TABLES.state],
-    }),
-    enumerable: true,
-  });
-  return Object.freeze(scoped).introspect((sql, params) =>
-    producer._executeRaw(sql, params)
-  );
+  return withManagedTables(driver, [
+    CONTROL_TABLES.log,
+    CONTROL_TABLES.state,
+  ]).introspect((sql, params) => producer._executeRaw(sql, params));
 }
 
 /** The refusals of the pair, and of a state table left without its log. */
@@ -249,6 +272,10 @@ export async function assertControlTablesAuthentic(
     return;
   }
   const refusal = UNAUTHENTIC[scope];
+  if (driver.target.dialect === "surrealql") {
+    await assertSurrealControlAuthentic(producer, driver, scope);
+    return;
+  }
   let snapshot: SchemaSnapshot;
   try {
     snapshot = await introspectControlTables(producer, driver);
@@ -300,9 +327,56 @@ export async function assertControlTablesAuthentic(
   }
 }
 
+/** Each control table's fields, unique key and no event, as SurrealDB reads them back. */
+async function assertSurrealControlAuthentic(
+  producer: AnyDriver,
+  driver: BoundMigrationDriver,
+  scope: keyof typeof UNAUTHENTIC
+): Promise<void> {
+  const refusal = UNAUTHENTIC[scope];
+  for (const table of scope === "pair"
+    ? (["state", "log"] as const)
+    : (["state"] as const)) {
+    const name = qualifiedName(driver, CONTROL_TABLES[table]);
+    let info: {
+      readonly fields: readonly { readonly name: string }[];
+      readonly indexes: readonly { readonly name: string }[];
+      readonly events: readonly unknown[];
+    };
+    try {
+      const { rows } = await producer._executeRaw<typeof info>(
+        `RETURN [(INFO FOR TABLE ${name} STRUCTURE).{ fields, indexes, events }]`
+      );
+      info = rows[0]!;
+    } catch (failure) {
+      throw unreadable(refusal.unreadable, failure);
+    }
+    const expected =
+      table === "state"
+        ? ["payload", "singleton"]
+        : ["attempt_id", "event_id", "kind", "payload"];
+    const fields = info.fields.map((field) => field.name).sort();
+    if (
+      fields.join() !== expected.join() ||
+      info.indexes.length !== 1 ||
+      info.indexes[0]?.name !== `${CONTROL_TABLES[table]}_key`
+    )
+      throw new MigrationError(
+        refusal.unexpected,
+        VibORMErrorCode.MIGRATION_INVALID_STATE
+      );
+    if (info.events.length > 0)
+      throw new MigrationError(
+        refusal.attached,
+        VibORMErrorCode.MIGRATION_INVALID_STATE
+      );
+  }
+}
+
 /**
  * The definition VibORM creates, as introspection reads it back: the declared
- * columns, NOT NULL with no default, and the primary key alone. MySQL reports
+ * columns, NOT NULL with no default (SQLite's TEXT key aside), and the primary
+ * key alone. MySQL reports
  * the singleton's INTEGER as `int`.
  */
 function hasExpectedShape(
@@ -321,7 +395,12 @@ function hasExpectedShape(
         (name === "singleton"
           ? normalizeType(column.type) === normalizeType(mysql ? "INT" : type)
           : column.type.toLowerCase() === type.toLowerCase()) &&
-        column.nullable === false &&
+        // SQLite lets a rowid table's key hold NULL unless it is the rowid
+        // alias, and the definition writes the key without NOT NULL.
+        column.nullable ===
+          (driver.target.dialect === "sqlite" &&
+            index === 0 &&
+            type !== "INTEGER") &&
         column.default === undefined &&
         column.autoIncrement !== true &&
         column.decimal === undefined
@@ -553,7 +632,10 @@ export async function readControlState(
  */
 function ledgerSql(driver: BoundMigrationDriver, all: boolean): string {
   const log = qualifiedName(driver, CONTROL_TABLES.log);
-  if (all) return `SELECT payload FROM ${log}`;
+  // Which attempts are open is `unfinishedAttempts`'s to read: a subquery here
+  // answers rows, not the list SQL's `IN` reads.
+  if (all || driver.target.dialect === "surrealql")
+    return `SELECT payload FROM ${log}`;
   return `SELECT payload FROM ${log} WHERE ${openAttempt(log)}
   OR event_id = (SELECT event_id FROM ${log} WHERE kind = 'failed' ORDER BY ${jsonField(driver.target.dialect, "startedAt")} DESC, event_id DESC LIMIT 1)`;
 }
@@ -594,6 +676,11 @@ function markerAt(
   { revision, pathHash }: MarkerIdentity
 ): { readonly sql: string; readonly params: unknown[] } {
   const slot = placeholder(dialect, first);
+  if (dialect === "surrealql")
+    return {
+      sql: `encoding::json::decode(payload).revision = ${slot} AND encoding::json::decode(payload).pathHash = ${placeholder(dialect, first + 1)}`,
+      params: [revision, pathHash],
+    };
   const revisionMatch =
     dialect === "postgresql"
       ? `(payload::json->>'revision')::bigint = ${slot}`
@@ -970,7 +1057,7 @@ export async function ensureControlTables(
   if (presence.kind === "missing-table") refusePartialControl(presence);
   else {
     await producer._executeRaw(
-      `DROP TABLE ${qualifiedName(driver, CONTROL_TABLES.state)}`
+      `${driver.target.dialect === "surrealql" ? "REMOVE TABLE" : "DROP TABLE"} ${qualifiedName(driver, CONTROL_TABLES.state)}`
     );
   }
   const sql = createControlTableSQL(driver);
