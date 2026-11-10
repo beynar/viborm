@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 import {
   codedSchema,
   expectEmptyRoundTrip,
+  expectLightDocument,
   RICH_POSTGRES_SQL,
   RICH_SKIPPED_SQL,
   RICH_TABLES,
@@ -141,6 +142,62 @@ export function postgresIntrospectionSuite(estate: PostgresEstate) {
       expect(
         tree.category_by_parent.map((c: { name: string }) => c.name)
       ).toEqual(["child"]);
+    });
+
+    it("as a light document: no index, reads and writes, refused by push", async () => {
+      const driver = await estate.fresh();
+      await run(driver, [
+        ...RICH_POSTGRES_SQL,
+        ...RICH_SKIPPED_SQL,
+        'ALTER TABLE tag ALTER COLUMN label TYPE varchar(64) COLLATE "C"',
+      ]);
+      const tables = [...RICH_TABLES, "ledger"];
+      const { full, light, client } = await expectLightDocument(driver, tables);
+      // What only a migration reads: the indexes, the CHECK, the collation.
+      expect(full.document.models.post!.indexes).toHaveLength(3);
+      expect(full.skipped.map(({ kind, name }) => `${kind} ${name}`)).toContain(
+        "check account_email_shape"
+      );
+      expect(full.warnings).toContainEqual({
+        kind: "unstated",
+        table: "tag",
+        message:
+          'the document cannot carry a collation on column "label": the database keeps it and a push of the document plans nothing for it, but a push that recreates the table or the column cannot keep it',
+      });
+      expect(light.document.models.post!.indexes).toBeUndefined();
+      expect(
+        light.skipped.map(({ kind, name }) => `${kind} ${name}`).sort()
+      ).toEqual(["table ledger", "view account_emails"]);
+      expect(light.warnings).toEqual([]);
+      // What a client reads stays: keys, uniques, defaults, native types.
+      expect(light.document.models.account!.fields.email).toEqual({
+        type: "string",
+        native: { db: "pg", type: "varchar(320)" },
+        unique: true,
+      });
+      expect(light.document.models.post!.uniques).toEqual([
+        { fields: ["author_id", "slug"] },
+      ]);
+
+      const db = client as any;
+      const author = await db.account.create({
+        data: { email: "ada@example.com" },
+      });
+      expect(author.role).toBe("member");
+      const tag = await db.tag.create({ data: { label: "orm" } });
+      await db.post.create({
+        data: {
+          slug: "hello",
+          title: "Hello",
+          author: { connect: { id: author.id } },
+          tag: { connect: [{ id: tag.id }] },
+        },
+      });
+      const found = await db.account.findUnique({
+        where: { email: "ada@example.com" },
+        include: { post_by_author: { include: { tag: true } } },
+      });
+      expect(found.post_by_author[0].tag[0].label).toBe("orm");
     });
 
     it("lists what it cannot state, and still round-trips the rest", async () => {

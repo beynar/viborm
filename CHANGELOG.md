@@ -5,6 +5,38 @@ Versioning.
 
 ## Unreleased
 
+### Added
+
+- **A light introspected document:** `introspectSchema({ url, light: true })`
+  and `viborm pull --json --light` write only what a client reads: models,
+  fields with their type, nullability, list-ness, native type, defaults and
+  generators, keys and uniques, relations and names. Every index is left out,
+  since only migrations read one. The document carries `"light": true`, and
+  every migration path refuses its models (`V11009`) before planning, since a
+  push of it would drop every index. `skipped` and `warnings` keep only what a
+  client sees. Without `light` the output is unchanged.
+
+### Fixed
+
+- **SurrealDB:** a raw statement of yours (`$executeRaw`, `$queryRaw`) led by
+  `LET` is sent once again, as in 1.13.0. Refused at its commit, it fails with
+  the conflict instead of running again: a text holding its own
+  `COMMIT; BEGIN;` would have repeated what already committed. Only a
+  migration's own statement (the rewrite of a table's rows on a key change)
+  still runs again after a refused commit.
+- **Introspection says what a table carries beyond the document.** A column
+  collation (SQLite `COLLATE NOCASE`, a PostgreSQL or MySQL collation other than
+  the one VibORM writes), SQLite's `STRICT` and `ON CONFLICT`, a trigger, a
+  PostgreSQL rule, row-level security, `UNLOGGED` storage or a `DEFERRABLE` key,
+  and a MySQL engine other than InnoDB were dropped without a word; each is now
+  an `unstated` warning naming the table and the column. The database keeps it,
+  but a push that recreates the table or the column cannot.
+- **Introspection of a SQLite key that admits NULL** (`id TEXT PRIMARY KEY`)
+  no longer fails the whole read (`F006`). The document declares each such key
+  column NOT NULL, with an `approximated` warning; a push of it against that
+  database rebuilds the table to add NOT NULL, which the warning and a `drift`
+  warning both say.
+
 ## 1.13.0 — 2026-11-08
 
 SurrealDB 4 joins the databases VibORM writes for, in its own language. An index

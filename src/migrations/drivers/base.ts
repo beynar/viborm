@@ -276,9 +276,10 @@ export abstract class MigrationDriver {
    * What each named live table carries that changes how it behaves and that
    * no snapshot describes, so the adoption proof cannot see it (a trigger, a
    * conflict clause, a collation the declaration does not state): one entry
-   * per table and feature, none when there is nothing. Asked only of the
-   * tables a command's path adopts (`assertAdoptable`, `proof.ts`): a managed
-   * table keeps whatever it has, and `verify` never asks.
+   * per table and feature, none when there is nothing. Asked of the tables a
+   * command's path adopts (`assertAdoptable`, `proof.ts`): a managed table
+   * keeps whatever it has, and `verify` never asks. `introspectSchema` asks it
+   * of every table it reads, whose document cannot carry these either.
    */
   async adoptionHazards(
     _tables: readonly string[],

@@ -13,9 +13,12 @@
  * second format, and a TypeScript schema generator can be written from it
  * later without reading the database again. What the document does not carry
  * is listed in `skipped`, what it states with less certainty than the database
- * proves is an `approximated` warning, and every place where a `push` of it
- * would change the database is a `drift` warning, found by running push's own
- * serializer and differ against the snapshot the database was read into.
+ * proves is an `approximated` warning, what a table carries that the document
+ * has no spelling for (a collation, `STRICT`, a trigger: the dialect's
+ * `adoptionHazards`) is an `unstated` warning, and every place where a `push`
+ * of it would change the database is a `drift` warning, found by running
+ * push's own serializer and differ against the snapshot the database was read
+ * into. `light: true` writes only what a client reads (`lighten`).
  *
  * This entry is tooling: it registers every migration driver and imports the
  * driver a URL names on demand. An application never imports it, so the
@@ -49,8 +52,22 @@ export type {
   SkippedObject,
 } from "./types";
 
+interface IntrospectScope {
+  /** Only these tables (exact physical names). */
+  readonly tables?: readonly string[];
+  /**
+   * A light document: only what a client reads (models, fields with their
+   * type, nullability, list-ness, keys, uniques, defaults and generators,
+   * native types, relations, names), without the indexes only migrations
+   * read. It is marked `"light": true`, and every migration path refuses it.
+   * `skipped` and `warnings` then keep only what changes what a client sees:
+   * no index or CHECK constraint, no `unstated` or `drift` warning.
+   */
+  readonly light?: boolean;
+}
+
 export type IntrospectSchemaOptions =
-  | {
+  | (IntrospectScope & {
       /**
        * The database: `postgres://` / `postgresql://`, `mysql://`, `file:` / `sqlite:` or a
        * `.db` / `.sqlite` path (opened read-only), or `libsql://`. The
@@ -58,18 +75,15 @@ export type IntrospectSchemaOptions =
        */
       readonly url: string;
       readonly driver?: never;
-      /** Only these tables (exact physical names). */
-      readonly tables?: readonly string[];
-    }
-  | {
+    })
+  | (IntrospectScope & {
       /**
        * A driver you constructed (a D1 binding, a custom pool, a PostgreSQL
        * `namespace`). It is yours: it is not closed.
        */
       readonly driver: AnyDriver;
       readonly url?: never;
-      readonly tables?: readonly string[];
-    };
+    });
 
 const DIALECTS: readonly IntrospectionDialect[] = [
   "postgresql",
@@ -100,6 +114,37 @@ function declaredSnapshot(
   return {
     tables: kept,
     ...(enums && enums.length > 0 ? { enums } : {}),
+  };
+}
+
+/**
+ * The light form of a canonical document: every index left out, and the
+ * report narrowed to what a client sees. An `approximated` warning naming an
+ * index (a unique constraint written as a unique index) goes with it.
+ */
+function lighten(result: IntrospectSchemaResult): IntrospectSchemaResult {
+  const dropped = new Set<string>();
+  const models: SchemaDocument["models"] = {};
+  for (const [key, { indexes, ...model }] of Object.entries(
+    result.document.models
+  )) {
+    for (const index of indexes ?? [])
+      dropped.add(`${model.table ?? key}\0${index.name}`);
+    models[key] = model;
+  }
+  return {
+    ...result,
+    document: serializeSchema(
+      parseSchema({ ...result.document, light: true, models })
+    ),
+    skipped: result.skipped.filter(
+      (item) => item.kind !== "index" && item.kind !== "check"
+    ),
+    warnings: result.warnings.filter(
+      (warning) =>
+        warning.kind === "approximated" &&
+        !dropped.has(`${warning.table}\0${warning.name}`)
+    ),
   };
 }
 
@@ -149,6 +194,17 @@ async function introspectDriver(
     ];
     const warnings: IntrospectionWarning[] = [
       ...translation.warnings,
+      // Each CHECK constraint is already in `skipped`, with its definition.
+      ...catalog.hazards
+        .filter(
+          ({ table, feature }) =>
+            translation.tables.has(table) && !feature.startsWith("CHECK")
+        )
+        .map(({ table, feature }) => ({
+          kind: "unstated" as const,
+          table,
+          message: `the document cannot carry ${feature}: the database keeps it and a push of the document plans nothing for it, but a push that recreates the table or the column cannot keep it`,
+        })),
       ...verification.warnings,
     ];
     return { document, skipped, warnings, dialect: introspectionDialect };
@@ -164,11 +220,14 @@ async function introspectDriver(
 export async function introspectSchema(
   options: IntrospectSchemaOptions
 ): Promise<IntrospectSchemaResult> {
-  if (options.driver !== undefined)
-    return await introspectDriver(options.driver, options.tables);
+  const read = async (driver: AnyDriver) => {
+    const result = await introspectDriver(driver, options.tables);
+    return options.light ? lighten(result) : result;
+  };
+  if (options.driver !== undefined) return await read(options.driver);
   const { driver } = await openDriver(options.url);
   try {
-    return await introspectDriver(driver, options.tables);
+    return await read(driver);
   } finally {
     await driver.disconnect();
   }

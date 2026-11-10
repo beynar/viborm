@@ -8,6 +8,9 @@
  *
  * `--json` is the only output today. A TypeScript schema will be written from
  * the same document, so the flag names the format rather than defaulting it.
+ *
+ * `--light` writes a light document (`introspectSchema({ light: true })`): what
+ * a client needs, without indexes, which every migration path refuses.
  */
 
 import { existsSync, writeFileSync } from "node:fs";
@@ -26,6 +29,7 @@ interface PullCliOptions {
   readonly json?: boolean;
   readonly out?: string;
   readonly tables?: readonly string[];
+  readonly light?: boolean;
 }
 
 function located(item: {
@@ -74,6 +78,7 @@ async function runPull(options: PullCliOptions): Promise<void> {
     const result = await introspectSchema({
       url,
       ...(options.tables === undefined ? {} : { tables: options.tables }),
+      ...(options.light ? { light: true } : {}),
     });
     const text = `${JSON.stringify(result.document, null, 2)}\n`;
     if (options.out === undefined) process.stdout.write(text);
@@ -95,6 +100,10 @@ export function createPullCommand(): Command {
       "Connection string (postgres://, mysql://, file:, libsql://); defaults to DATABASE_URL"
     )
     .option("--out <path>", "Write the document to this file instead of stdout")
+    .option(
+      "--light",
+      "Only what a client needs (no indexes); migrations refuse the document"
+    )
     .option(
       "--tables <names...>",
       "Only these tables (exact physical names, space- or comma-separated)",

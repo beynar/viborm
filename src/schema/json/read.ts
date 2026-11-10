@@ -134,7 +134,7 @@ const isScalarTypeName = (value: unknown): value is ScalarType =>
 // NODE KEY SETS
 // =============================================================================
 
-const DOCUMENT_KEYS = ["version", "enums", "models"];
+const DOCUMENT_KEYS = ["version", "light", "enums", "models"];
 const ENUM_KEYS = ["values", "name"];
 const MODEL_KEYS = [
   "table",
@@ -420,6 +420,12 @@ export function readDocument(input: string | object): SchemaDocument {
     version: SCHEMA_DOCUMENT_VERSION,
     models: readModels(node, issues),
   };
+  const light = member(node, "light", documentRoot, issues);
+  if (
+    light !== undefined &&
+    asBoolean(light, pointer(documentRoot, "light"), issues, "`light`")
+  )
+    document.light = true;
   const enums = readEnums(node, issues);
   if (enums !== undefined) document.enums = enums;
   resolveReferences(document, issues);

@@ -81,6 +81,7 @@ import {
   refuseDocument,
   throwIfRefused,
 } from "./issues";
+import { lightModels } from "./light";
 import type { ExactSchemaJsonOptions, SchemaJsonOptions } from "./validate";
 import { readValidateOption, validateGraph } from "./validate";
 
@@ -134,6 +135,10 @@ export function serializeSchema<
   throwIfRefused(issues);
   const document: SchemaDocument = {
     version: SCHEMA_DOCUMENT_VERSION,
+    // Light when any model is: a push of the document must stay refused.
+    ...(Object.values(schema).some((model) => lightModels.has(model)) && {
+      light: true,
+    }),
     models,
   };
   if (Object.keys(enums.definitions).length > 0) {

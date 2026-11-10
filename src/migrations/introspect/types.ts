@@ -34,7 +34,15 @@ export interface SkippedObject {
  * Something the document states differently from the database.
  *
  * `approximated`: the document carries the object with a meaning the database
- * does not prove (a SQLite `BLOB` read as bytes when it may hold UUIDs).
+ * does not prove (a SQLite `BLOB` read as bytes when it may hold UUIDs, a
+ * SQLite key column that admits NULL declared NOT NULL).
+ *
+ * `unstated`: the database gives a table a behavior the document has no
+ * spelling for — a column collation, SQLite's `STRICT` or `ON CONFLICT`, a
+ * trigger, row-level security. The database keeps it and a push of the
+ * document plans nothing for it, but a push that recreates the table or the
+ * column (on SQLite, most column changes) cannot keep it: it drops it, or
+ * refuses where it guards it (a SQLite trigger).
  *
  * `drift`: `push` with this document against this database would change it.
  * Every drift is found by the migration differ itself — the document is parsed,
@@ -43,7 +51,7 @@ export interface SkippedObject {
  * no-op.
  */
 export interface IntrospectionWarning {
-  readonly kind: "approximated" | "drift";
+  readonly kind: "approximated" | "unstated" | "drift";
   readonly table?: string | undefined;
   readonly name?: string | undefined;
   readonly message: string;

@@ -8,15 +8,16 @@
  */
 
 import { isValidSchemaIdentifier } from "../../schema/identifier";
-import type {
-  EnumDocument,
-  FieldDocument,
-  IndexDocument,
-  JunctionDocument,
-  JunctionSidesDocument,
-  ModelDocument,
-  ModelTargetDocument,
-  SchemaDocument,
+import {
+  type EnumDocument,
+  type FieldDocument,
+  type IndexDocument,
+  isRelationField,
+  type JunctionDocument,
+  type JunctionSidesDocument,
+  type ModelDocument,
+  type ModelTargetDocument,
+  type SchemaDocument,
 } from "../../schema/json/document";
 import type { JunctionReferentialAction } from "../../schema/relation/types";
 import type { MigrationDriver } from "../drivers/base";
@@ -93,6 +94,10 @@ const BINARY_KEY_TYPES: Record<IntrospectionDialect, string | undefined> = {
 /** `.map()` takes identifiers only, so a name outside them has no spelling. */
 const UNMAPPABLE =
   "its name is not an identifier (ASCII letters, digits and _, at most 63 bytes), which is all `.map()` accepts";
+
+/** The warning a key column the database lets hold NULL carries. */
+const NULLABLE_KEY =
+  "the database lets this primary key column hold NULL (SQLite does unless it is NOT NULL, outside a rowid table's INTEGER key), and the document declares it NOT NULL, as every model key is: a push of the document rebuilds the table to make it NOT NULL, which fails while a row's key is NULL and cannot keep what the table carries beyond the document (its `unstated` warnings)";
 
 /** A junction foreign key's action: cascade, restrict or no action only. */
 function junctionAction(
@@ -336,6 +341,19 @@ export function translateSnapshot(input: TranslateInput): Translation {
     const pkFields = primaryKey.columns.map(
       (column) => build.fieldOf.get(column)!
     );
+    // SQLite admits NULL in a key column other than a rowid table's INTEGER
+    // key unless it is declared NOT NULL; a model key never holds one.
+    pkFields.forEach((fieldKey, position) => {
+      const field = fields[fieldKey]!;
+      if (isRelationField(field) || !field.nullable) return;
+      field.nullable = false;
+      warnings.push({
+        kind: "approximated",
+        table: table.name,
+        name: primaryKey.columns[position],
+        message: NULLABLE_KEY,
+      });
+    });
     if (pkFields.length === 1) {
       const field = fields[pkFields[0]!]!;
       if (field.type !== "toOne" && field.type !== "toMany") {

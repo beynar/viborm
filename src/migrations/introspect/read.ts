@@ -15,7 +15,7 @@ import type { AnyDriver } from "../../drivers/driver";
 import { isVibORMError } from "../../errors";
 import { CONTROL_TABLES } from "../control";
 import { type BoundMigrationDriver, getMigrationDriver } from "../drivers";
-import type { MigrationDriver } from "../drivers/base";
+import type { AdoptionHazard, MigrationDriver } from "../drivers/base";
 import type { SchemaSnapshot } from "../types";
 import type { IntrospectionDialect, SkippedObject } from "./types";
 
@@ -24,6 +24,13 @@ export interface LiveCatalog {
   readonly skipped: SkippedObject[];
   /** PostgreSQL identity columns, keyed `table\0column`. */
   readonly identityColumns: ReadonlySet<string>;
+  /**
+   * What each kept table carries that changes how it behaves and that no
+   * snapshot describes — the dialect's own `adoptionHazards`: a collation,
+   * SQLite's `STRICT` and `ON CONFLICT`, a trigger, row security... A
+   * document cannot carry it either.
+   */
+  readonly hazards: readonly AdoptionHazard[];
   /** The migration driver bound to the whole estate. */
   readonly migrationDriver: BoundMigrationDriver;
 }
@@ -194,6 +201,12 @@ export async function readCatalog(
     snapshot: { ...snapshot, tables: kept },
     skipped,
     identityColumns,
+    hazards: await migrationDriver.adoptionHazards(
+      kept.map((table) => table.name),
+      async <T>(sql: string, params?: unknown[]) => ({
+        rows: await rows<T>(driver, sql, params ?? []),
+      })
+    ),
     migrationDriver,
   };
 }
