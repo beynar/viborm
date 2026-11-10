@@ -384,6 +384,36 @@ describe.skipIf(!surrealUrl)("a change on a populated table", () => {
     });
   });
 
+  it("a rewrite another writer meets at its commit runs again, and lands once", async () => {
+    // A key change's rewrite is one statement led by what it reads, which the
+    // driver makes a transaction of its own; on CI the server's own background
+    // writes met it at COMMIT. Here another connection does, on purpose.
+    const tally = { tally: s.model({ id: s.string().id(), n: s.int() }) };
+    const driver = createSurrealRecordingDriver();
+    const db = clientOf(tally, driver);
+    await using(db, async () => {
+      await syncLiveSchema(db);
+      await db.tally.create({ data: { id: "one", n: 0 } });
+      const other = clientOf(tally);
+      await using(other, async () => {
+        await raw(other, "RETURN 1");
+        const rewrite =
+          "LET $n = (SELECT VALUE n FROM tally:one)[0]; SLEEP 1s; UPDATE tally:one SET n = $n + 1;";
+        const ran = raw(db, rewrite);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        await raw(other, "UPDATE tally:one SET n += 100;");
+        await ran;
+        expect(
+          driver.statements.filter((sent) => sent === rewrite)
+        ).toHaveLength(2);
+        expect(await db.tally.findUnique({ where: { id: "one" } })).toEqual({
+          id: "one",
+          n: 101,
+        });
+      });
+    });
+  });
+
   it("an index over the key alone is the id's, and asks for nothing", async () => {
     const db = clientOf({
       card: s

@@ -4,6 +4,7 @@
  *
  * Usage (through jiti, with the repo's aliases in `JITI_ALIAS`):
  *   _sqlite-race-child.ts <db file> <estate dir> <start at, epoch ms> <version>
+ *   _sqlite-race-child.ts --warm
  *
  * It waits until the start instant so two runners race, applies the estate's
  * head, and prints one `RESULT {...}` line: the outcome, or the error code.
@@ -13,6 +14,10 @@ import { createClient } from "@drivers/sqlite3";
 import { createMigrationClient } from "@migrations/dialects/sqlite";
 import { createFsStorageWriter } from "@migrations/storage/fs";
 import { raceSchema } from "./_sqlite-race-schema";
+
+// `--warm` only loads the modules above, which leaves them in jiti's
+// filesystem cache for the racing pair.
+if (process.argv[2] === "--warm") process.exit(0);
 
 const [file = "", estate = "", startAt = "0", version = "v1"] =
   process.argv.slice(2);

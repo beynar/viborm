@@ -48,7 +48,7 @@ const ANSWERS_NOTHING = /\bRETURN\s+(?:NONE|BEFORE|VALUE\s+NONE)\b/i;
 const NEXT_VALUE = /sequence::nextval\(\$(p\d+)\)/g;
 
 /** Each attempt is won by someone, so this bounds the writers that can meet at once. */
-const COMMITS = 16;
+export const COMMITS = 16;
 
 interface Statement {
   text: string;

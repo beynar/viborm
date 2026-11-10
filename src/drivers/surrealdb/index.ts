@@ -48,11 +48,22 @@ import type { QueryExecutionContext, QueryResult } from "../types";
 import { SurrealOperationContext } from "./operation-context";
 import { SurrealQueries } from "./queries";
 import {
+  COMMITS,
   FORBIDDEN_ROW,
   isConflict,
   ReplayedTransaction,
   WAITING_FAILED,
 } from "./transaction";
+
+/**
+ * A statement that holds what it reads ahead of itself, where no transaction
+ * holds it: this driver makes it one transaction of its own.
+ */
+const standsAlone = (
+  client: Surreal | ReplayedTransaction,
+  statement: string
+): boolean =>
+  !(client instanceof ReplayedTransaction) && statement.startsWith("LET ");
 
 /** What the engine asks of any driver. */
 const FACTS: EngineFacts = {
@@ -325,10 +336,9 @@ export class SurrealDriver extends Driver<Surreal, ReplayedTransaction> {
     );
     try {
       // What a statement holds ahead of itself is read with it, as one transaction.
-      const stated =
-        client instanceof ReplayedTransaction || !statement.startsWith("LET ")
-          ? statement
-          : `BEGIN; ${statement}; COMMIT;`;
+      const stated = standsAlone(client, statement)
+        ? `BEGIN; ${statement}; COMMIT;`
+        : statement;
       // The SDK's client answers the same call.
       const answers = await (client as ReplayedTransaction).query<unknown[]>(
         stated,
@@ -343,13 +353,35 @@ export class SurrealDriver extends Driver<Surreal, ReplayedTransaction> {
     }
   }
 
-  protected executeRaw<T>(
+  /**
+   * A transaction this driver opened for a raw statement, refused at its commit
+   * because another writer met it there, wrote nothing and answered no one: it
+   * runs again, as it would have a moment later. A migration's rewrite of a
+   * table's rows is one, and meets the server's own background writes to that
+   * table. Inside a caller's transaction, the conflict is that transaction's.
+   */
+  protected async executeRaw<T>(
     client: Surreal | ReplayedTransaction,
     statement: string,
     params: unknown[] | undefined,
     _context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    return this.execute<T>(client, statement, params ?? []);
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.execute<T>(client, statement, params ?? []);
+      } catch (error) {
+        if (
+          attempt === COMMITS ||
+          !isConflict(error) ||
+          !standsAlone(client, statement)
+        )
+          throw error;
+      }
+      // Two losers running again together would only meet again.
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.random() * 10 * attempt)
+      );
+    }
   }
 
   protected override transactionOptionSupport(): TransactionOptionSupport {

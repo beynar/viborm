@@ -229,6 +229,10 @@ writes. What the override drops, and a real backend would have to answer:
   `$transaction` callback. It is off by default, since whatever the callback does outside the
   database happens again. An array transaction and an operation's own transaction do not rerun, and
   neither does a callback under an extension that collects its writes.
+  A raw statement led by `LET`, outside any transaction, is one transaction the driver opens for
+  it; refused at its commit, nobody was told anything, so `executeRaw` runs it again, within the
+  same bound. A migration's rewrite of a table's rows is one, and on a loaded server it meets the
+  server's own background writes to that table.
 - **Sequences:** they stand outside transactions, so a statement in one takes its values ahead and
   holds them, which costs a round trip and keeps a replay's answers the same.
 
