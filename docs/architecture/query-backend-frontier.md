@@ -230,9 +230,11 @@ writes. What the override drops, and a real backend would have to answer:
   database happens again. An array transaction and an operation's own transaction do not rerun, and
   neither does a callback under an extension that collects its writes.
   A raw statement led by `LET`, outside any transaction, is one transaction the driver opens for
-  it; refused at its commit, nobody was told anything, so `executeRaw` runs it again, within the
-  same bound. A migration's rewrite of a table's rows is one, and on a loaded server it meets the
-  server's own background writes to that table.
+  it. A migration's statement of that kind, refused at its commit, told nobody anything, so the
+  migration executor (`executeExactSql`, through the driver's `rerunRefusedCommit`) runs it again
+  within the same bound. A migration's rewrite of a table's rows is one, and on a loaded server it
+  meets the server's own background writes to that table. A caller's raw statement is never run
+  again: it may hold its own `COMMIT; BEGIN;`, and what committed before the refusal would repeat.
 - **Sequences:** they stand outside transactions, so a statement in one takes its values ahead and
   holds them, which costs a round trip and keeps a replay's answers the same.
 

@@ -59,10 +59,7 @@ import {
  * A statement that holds what it reads ahead of itself, where no transaction
  * holds it: this driver makes it one transaction of its own.
  */
-const standsAlone = (
-  client: Surreal | ReplayedTransaction,
-  statement: string
-): boolean =>
+const standsAlone = (client: unknown, statement: string): boolean =>
   !(client instanceof ReplayedTransaction) && statement.startsWith("LET ");
 
 /** What the engine asks of any driver. */
@@ -353,27 +350,45 @@ export class SurrealDriver extends Driver<Surreal, ReplayedTransaction> {
     }
   }
 
-  /**
-   * A transaction this driver opened for a raw statement, refused at its commit
-   * because another writer met it there, wrote nothing and answered no one: it
-   * runs again, as it would have a moment later. A migration's rewrite of a
-   * table's rows is one, and meets the server's own background writes to that
-   * table. Inside a caller's transaction, the conflict is that transaction's.
-   */
-  protected async executeRaw<T>(
+  protected executeRaw<T>(
     client: Surreal | ReplayedTransaction,
     statement: string,
     params: unknown[] | undefined,
     _context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
+    return this.execute<T>(client, statement, params ?? []);
+  }
+
+  /**
+   * A migration statement led by `LET` is one transaction this driver opens for
+   * it ({@link standsAlone}). Refused at its commit because another writer met
+   * it there, it wrote nothing and answered no one: it runs again, as it would
+   * have a moment later. A migration's rewrite of a table's rows is one, and
+   * meets the server's own background writes to that table. That transaction
+   * is the whole statement because a migration holds no `BEGIN`, `COMMIT` or
+   * `CANCEL` (`statement-safety.ts`). A caller's raw statement can, and part of
+   * it may have committed before the refusal, so it is never run again: it
+   * fails with the conflict.
+   *
+   * One rerun is not enough: in #171's reproduction the background writes met
+   * the rewrite in 40 of 150 first attempts, and nothing keeps them from
+   * meeting a second one. The bound is the one a replayed transaction's commit
+   * uses ({@link COMMITS}). This driver itself, never one bound to a
+   * transaction, implements this, so a conflict inside a transaction stays
+   * that transaction's.
+   */
+  protected override async rerunRefusedCommit<T>(
+    statement: string,
+    send: () => Promise<T>
+  ): Promise<T> {
     for (let attempt = 1; ; attempt++) {
       try {
-        return await this.execute<T>(client, statement, params ?? []);
+        return await send();
       } catch (error) {
         if (
           attempt === COMMITS ||
           !isConflict(error) ||
-          !standsAlone(client, statement)
+          !standsAlone(this.client, statement)
         )
           throw error;
       }

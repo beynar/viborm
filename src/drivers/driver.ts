@@ -132,6 +132,18 @@ export abstract class Driver<
   TClient,
   TTransaction,
 > extends DriverTransactionBase<TClient, TTransaction> {
+  /**
+   * Sends a statement the migration engine built (`send`), and decides whether
+   * a refusal of it runs it again. Only `executeExactSql` calls it, and only a
+   * driver whose own transaction around such a statement can be refused at its
+   * commit implements it (SurrealDB). A caller's raw statement never goes
+   * through it.
+   */
+  protected rerunRefusedCommit?<T>(
+    statement: string,
+    send: () => Promise<T>
+  ): Promise<T>;
+
   protected createTransactionBoundDriver(
     tx: TTransaction,
     context: QueryExecutionContext
