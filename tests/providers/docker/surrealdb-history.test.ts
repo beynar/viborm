@@ -6,13 +6,19 @@
 import { createClient } from "@client/client";
 import "@migrations/dialects/surrealql";
 import { createMigrationClient } from "@migrations/client";
+import { SurrealMigrationDriver } from "@migrations/drivers/surrealql";
 import { MemoryEstateStorage } from "@migrations/storage/memory";
 import { s } from "@schema";
+import { sql } from "@sql";
 import {
+  createSurrealRecordingDriver,
   createSurrealTestDriver,
   surrealUrl,
 } from "@tests/fixtures/drivers/surrealdb";
 import { describe, expect, it } from "vitest";
+
+/** The read that waits for builds in the background (`awaitIndexBuilds`). */
+const BUILDS_READ = '.status != "ready"';
 
 const UNIQUE_FAILURE = /Unique/;
 
@@ -334,7 +340,17 @@ describe.skipIf(!surrealUrl)("what SQL can change in place", () => {
         data: { id: "p", email: "e", children: { create: { id: "c" } } },
       });
       const second: any = createClient({ schema: family("renamed"), driver });
-      await pushing(second);
+      const moved = await pushing(second);
+      // The copy writes rows into the new table: its unique refuses a duplicate
+      // at once, not in a build behind the push.
+      expect(
+        moved.statements
+          .map(({ sql }: { sql: string }) => sql)
+          .filter((sql: string) => sql.startsWith("DEFINE INDEX"))
+      ).toEqual([
+        "DEFINE INDEX parent_email_key ON renamed FIELDS email UNIQUE;",
+        "DEFINE INDEX renamed_email_key ON renamed FIELDS email UNIQUE;",
+      ]);
       expect(await second.child.findMany()).toEqual([{ id: "c", email: "e" }]);
       await expect(createMigrationClient(second).push()).resolves.toMatchObject(
         { outcome: "noop" }
@@ -601,3 +617,154 @@ describe.skipIf(!surrealUrl)("migration history on SurrealDB", () => {
     }
   });
 });
+
+describe.skipIf(!surrealUrl)(
+  "indexes built in the background, through history",
+  () => {
+    const items = () => ({
+      item: s.model({ id: s.string().id(), email: s.string().unique() }),
+    });
+    const failed = {
+      code: "V11023",
+      meta: { table: "item", indexName: "item_email_key" },
+    };
+
+    /** A recording driver writing two rows holding one email just ahead of `when`. */
+    function duplicating(when: (statement: string) => boolean) {
+      const driver = createSurrealRecordingDriver();
+      const execute = (driver as any).execute.bind(driver);
+      (driver as any).execute = (
+        client: never,
+        statement: string,
+        params: unknown[]
+      ) =>
+        execute(
+          client,
+          when(statement)
+            ? `CREATE item:a SET email = "same"; CREATE item:b SET email = "same"; ${statement}`
+            : statement,
+          params
+        );
+      return driver;
+    }
+
+    it("a build that failed refuses apply's retry and verify, before effects", async () => {
+      const driver = duplicating((statement) =>
+        statement.includes("UNIQUE CONCURRENTLY")
+      );
+      await (driver as unknown as { fresh(): Promise<void> }).fresh();
+      const client: any = createClient({ schema: items(), driver });
+      const migrations = createMigrationClient(client, {
+        storage: new MemoryEstateStorage(),
+      });
+      try {
+        await migrations.generate({ name: "init" });
+        await expect(migrations.apply()).rejects.toMatchObject(failed);
+        // The marker moved with the commit; the index's state is read anew.
+        await expect(migrations.apply()).rejects.toMatchObject(failed);
+        await expect(migrations.verify()).rejects.toMatchObject(failed);
+        await expect(
+          createMigrationClient(client).push({ dryRun: true })
+        ).rejects.toMatchObject(failed);
+      } finally {
+        await client.$disconnect();
+      }
+    });
+
+    it("a COMMIT whose reply is lost still waits for the builds it committed", async () => {
+      const driver = createSurrealRecordingDriver();
+      await (driver as unknown as { fresh(): Promise<void> }).fresh();
+      const client: any = createClient({ schema: items(), driver });
+      const migrations = createMigrationClient(client, {
+        storage: new MemoryEstateStorage(),
+      });
+      try {
+        await migrations.generate({ name: "init" });
+        const transaction = driver.withTransaction.bind(driver);
+        let lost = false;
+        (driver as any).withTransaction = async (...args: unknown[]) => {
+          const result = await (transaction as any)(...args);
+          if (
+            !lost &&
+            driver.statements.some((statement) =>
+              statement.includes("CONCURRENTLY")
+            )
+          ) {
+            lost = true;
+            throw new Error("the COMMIT's reply never came");
+          }
+          return result;
+        };
+        await expect(migrations.apply()).resolves.toMatchObject({
+          outcome: "applied",
+        });
+        expect(lost).toBe(true);
+        const defined = driver.statements
+          .map((statement) => statement.includes("CONCURRENTLY"))
+          .lastIndexOf(true);
+        expect(
+          driver.statements
+            .slice(defined)
+            .some((statement) => statement.includes(BUILDS_READ))
+        ).toBe(true);
+      } finally {
+        await client.$disconnect();
+      }
+    });
+
+    it("a hand-written step is waited for however it spells CONCURRENTLY", async () => {
+      const driver = createSurrealRecordingDriver();
+      await (driver as unknown as { fresh(): Promise<void> }).fresh();
+      const client: any = createClient({ schema: items(), driver });
+      const migrations = createMigrationClient(client, {
+        storage: new MemoryEstateStorage(),
+      });
+      try {
+        const statements = new SurrealMigrationDriver().generateCreateTable(
+          {
+            type: "createTable",
+            table: {
+              name: "item",
+              columns: [
+                { name: "id", type: "string", nullable: false },
+                { name: "email", type: "string", nullable: false },
+              ],
+              primaryKey: { columns: ["id"] },
+              indexes: [],
+              foreignKeys: [],
+              uniqueConstraints: [
+                { name: "item_email_key", columns: ["email"] },
+              ],
+            },
+          },
+          {} as never
+        );
+        // Two rows holding one email, ahead of the unique built over them.
+        statements.splice(
+          -1,
+          0,
+          'CREATE item:a SET email = "same"; CREATE item:b SET email = "same";'
+        );
+        const up = statements
+          .join("\n")
+          .replace(" CONCURRENTLY", "\nconcurrently");
+        await migrations.generate({
+          name: "manual",
+          manualMigration: {
+            transitions: [
+              {
+                from: null,
+                execution: "transactional",
+                up: [sql.raw(up)],
+                rollback: { kind: "irreversible", reason: "a test" },
+              },
+            ],
+          },
+        } as never);
+        await expect(migrations.apply()).rejects.toMatchObject(failed);
+      } finally {
+        await client.$disconnect();
+      }
+    });
+  }
+);

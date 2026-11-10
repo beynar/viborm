@@ -65,6 +65,16 @@ const LOCK_RECORD = `${LOCK_TABLE}:command`;
 /** How long a lock outlives the command that took it, if that command died. */
 const LOCK_LEASE = "15m";
 const LOCK_RETRY_MS = 50;
+/**
+ * How long a command waits for the indexes its program builds in the background,
+ * and how often it looks. An index on a table no row is in yet is ready well
+ * under a second: five minutes leave a slow server room, inside the lock's lease
+ * unless the program itself took most of it. The pause doubles from the first to
+ * the last.
+ */
+const INDEX_BUILD_WAIT_MS = 300_000;
+const INDEX_BUILD_FIRST_PAUSE_MS = 50;
+const INDEX_BUILD_LAST_PAUSE_MS = 2000;
 
 const SCALAR_KINDS: Readonly<Record<string, string>> = {
   string: "string",
@@ -111,6 +121,8 @@ const PREDICATE_NAME = /^[A-Za-z_]\w*$/;
 const PREDICATE_VALUE = /^(?:-?\d+(?:\.\d+)?|true|false)$/i;
 const PREDICATE_OPERATOR = /^(?:=|<>|!=|<|>|<=|>=)$/;
 const partialField = (index: string) => `partial_${index}`;
+/** A program building an index in the background, however it is spelled. */
+const CONCURRENTLY = /\bconcurrently\b/i;
 
 /** What a table's comment says: the names and types a record's key does not hold. */
 type TableFacts = {
@@ -141,11 +153,15 @@ type FieldInfo = {
   readonly default?: string;
   readonly reference?: { readonly on_delete?: string };
 };
+/** An index, with its build as `INFO FOR INDEX` tells it. */
 type IndexInfo = {
   readonly name: string;
+  readonly table: string;
   readonly cols: readonly string[];
   readonly index?: unknown;
   readonly comment?: string;
+  readonly status: string;
+  readonly error?: string;
 };
 /** What a partial index's comment says, since its fields are a computed one. */
 type PartialFacts = {
@@ -421,13 +437,19 @@ export class SurrealMigrationDriver extends MigrationDriver {
     const managed = (name: string) =>
       managedTables === undefined || managedTables.includes(name);
     const infos = new Map<string, TableInfo>();
-    for (const { name } of known)
-      infos.set(
-        name,
-        await one<TableInfo>(
-          `(INFO FOR TABLE ${this.escapeIdentifier(name)} STRUCTURE).{ fields, indexes, events }`
-        )
+    for (const { name } of known) {
+      const table = this.escapeIdentifier(name);
+      const info = await one<TableInfo>(
+        `(INFO FOR TABLE ${table} STRUCTURE).{ fields, indexes: indexes.map(|$i| $i + (INFO FOR INDEX $i.name ON ${table}).building), events }`
       );
+      // A failed build leaves its table refusing every write, which its
+      // definition does not show: refused before effects, as PostgreSQL
+      // refuses an INVALID index.
+      const failed =
+        managed(name) && info.indexes.find(({ status }) => status === "error");
+      if (failed) throw unbuilt(failed, `failed to build: ${failed.error}`);
+      infos.set(name, info);
+    }
     const tables = known.map((table) => {
       const info = infos.get(table.name)!;
       const facts = parsed<TableFacts>(
@@ -589,18 +611,25 @@ export class SurrealMigrationDriver extends MigrationDriver {
     ];
   }
 
+  /**
+   * `concurrently` builds it in the background, after its transaction commits:
+   * only for a table the same program creates, which no row can be in yet
+   * ({@link awaitIndexBuilds} waits for it). On rows already there a build in
+   * the background would let a duplicate through, where this refuses at once.
+   */
   private index(
     table: string,
     name: string,
     columns: readonly string[],
     unique: boolean,
+    concurrently = false,
     comment?: unknown
   ): string {
     const facts =
       comment === undefined
         ? ""
         : ` COMMENT ${JSON.stringify(JSON.stringify(comment))}`;
-    return `DEFINE INDEX ${this.escapeIdentifier(name)} ON ${this.escapeIdentifier(table)} FIELDS ${columns.map((column) => this.escapeIdentifier(column)).join(", ")}${unique ? " UNIQUE" : ""}${facts};`;
+    return `DEFINE INDEX ${this.escapeIdentifier(name)} ON ${this.escapeIdentifier(table)} FIELDS ${columns.map((column) => this.escapeIdentifier(column)).join(", ")}${unique ? " UNIQUE" : ""}${facts}${concurrently ? " CONCURRENTLY" : ""};`;
   }
 
   /**
@@ -612,7 +641,8 @@ export class SurrealMigrationDriver extends MigrationDriver {
   private plainIndex(
     table: TableDef,
     index: IndexDef,
-    populated = false
+    populated = false,
+    concurrently = false
   ): string[] {
     if (index.raw) return [this.rawIndex(table, index)];
     const columns = index.columns.map((column) => partName(table, column));
@@ -625,6 +655,7 @@ export class SurrealMigrationDriver extends MigrationDriver {
           index.name,
           columns,
           index.unique,
+          concurrently,
           index.type && index.type !== "btree"
             ? { type: index.type }
             : undefined
@@ -633,7 +664,9 @@ export class SurrealMigrationDriver extends MigrationDriver {
     const condition = this.partialCondition(table, index);
     const facts: PartialFacts = { where: index.where, columns: index.columns };
     if (!index.unique)
-      return [this.index(table.name, index.name, columns, false, facts)];
+      return [
+        this.index(table.name, index.name, columns, false, concurrently, facts),
+      ];
     const self = this.escapeIdentifier(table.name);
     const read = columns.map((column) => this.escapeIdentifier(column));
     const value = read.length === 1 ? read[0] : `<string>[${read.join(", ")}]`;
@@ -641,7 +674,7 @@ export class SurrealMigrationDriver extends MigrationDriver {
     return [
       `DEFINE FIELD OVERWRITE ${this.escapeIdentifier(field)} ON ${self} TYPE any VALUE IF ${condition} { ${value} } ELSE { NONE } COMMENT ${JSON.stringify(JSON.stringify({ partial: true }))};`,
       ...(populated ? [`UPDATE ${self} RETURN NONE;`] : []),
-      this.index(table.name, index.name, [field], true, facts),
+      this.index(table.name, index.name, [field], true, concurrently, facts),
     ];
   }
 
@@ -962,7 +995,7 @@ export class SurrealMigrationDriver extends MigrationDriver {
     ];
   }
 
-  private edgeTable(table: TableDef): string[] {
+  private edgeTable(table: TableDef, concurrently = false): string[] {
     const [first, second] = table.foreignKeys;
     if (!(first && second)) refuse(`the junction '${table.name}'`);
     const name = this.escapeIdentifier(table.name);
@@ -985,7 +1018,8 @@ export class SurrealMigrationDriver extends MigrationDriver {
               table.name,
               unique.name,
               [end === 0 ? "in" : "out"],
-              true
+              true,
+              concurrently
             ),
           ];
     });
@@ -997,16 +1031,32 @@ export class SurrealMigrationDriver extends MigrationDriver {
         ]
       : [
           `DEFINE TABLE ${name} TYPE RELATION ${ends} ENFORCED SCHEMAFULL COMMENT ${comment};`,
-          this.index(table.name, `${table.name}_pair`, ["in", "out"], true),
+          this.index(
+            table.name,
+            `${table.name}_pair`,
+            ["in", "out"],
+            true,
+            concurrently
+          ),
           ...singular,
         ];
   }
 
+  /** A table the program creates holds no row yet: its indexes build in the background. */
   generateCreateTable(
     { table }: CreateTableOperation,
     context: DDLContext
   ): string[] {
-    if (table.junction) return this.edgeTable(table);
+    return this.createTable(table, context, true);
+  }
+
+  /** `empty`: no row can be in the table when its indexes are defined. */
+  private createTable(
+    table: TableDef,
+    context: DDLContext,
+    empty: boolean
+  ): string[] {
+    if (table.junction) return this.edgeTable(table, empty);
     const key = table.primaryKey?.columns ?? [];
     const name = this.escapeIdentifier(table.name);
     const columnOf = (column: string) =>
@@ -1066,10 +1116,13 @@ export class SurrealMigrationDriver extends MigrationDriver {
           table.name,
           unique.name,
           unique.columns.map((column) => partName(table, column)),
-          true
+          true,
+          empty
         )
       ),
-      ...table.indexes.flatMap((index) => this.plainIndex(table, index)),
+      ...table.indexes.flatMap((index) =>
+        this.plainIndex(table, index, false, empty)
+      ),
       ...table.foreignKeys.flatMap((fk) =>
         this.holdsRecord(fk, context, table, key)
           ? []
@@ -1255,10 +1308,8 @@ export class SurrealMigrationDriver extends MigrationDriver {
         );
     return [
       ...released,
-      ...this.generateCreateTable(
-        { type: "createTable", table: renamed },
-        arrived
-      ),
+      // Its rows are copied in next: its indexes refuse a duplicate at once.
+      ...this.createTable(renamed, arrived, false),
       ...rows,
       ...others,
       ...(table!.junction ? [] : [`DELETE ${old} RETURN NONE;`]),
@@ -1962,6 +2013,40 @@ export class SurrealMigrationDriver extends MigrationDriver {
   }
 
   /**
+   * Waits, the lock still held, until every index of the managed tables is
+   * `ready` once a program building one in the background has committed: until
+   * then a unique one lets a duplicate in, which leaves it failed and its table
+   * refusing every write. A failed build, or one still going past
+   * {@link INDEX_BUILD_WAIT_MS}, is refused by name; what the program did stays
+   * committed.
+   */
+  override async awaitIndexBuilds(
+    producer: AnyDriver,
+    statements: readonly string[]
+  ): Promise<void> {
+    // Said in a string or a comment, it only costs one read.
+    if (!statements.some((sql) => CONCURRENTLY.test(sql))) return;
+    const tables = this.target?.tables;
+    const deadline = Date.now() + INDEX_BUILD_WAIT_MS;
+    for (let pause = INDEX_BUILD_FIRST_PAUSE_MS; ; ) {
+      const { rows } = await producer._executeRaw<IndexInfo>(
+        `RETURN (INFO FOR DB STRUCTURE).tables${tables ? ".filter(|$t| $t.name IN $p1)" : ""}.map(|$t| (INFO FOR TABLE $t.name STRUCTURE).indexes.map(|$i| $i + (INFO FOR INDEX $i.name ON $t.name).building)).flatten().filter(|$i| $i.status != "ready")`,
+        [tables]
+      );
+      const [first] = rows;
+      if (!first) return;
+      const failed = rows.find(({ status }) => status === "error");
+      if (failed || Date.now() >= deadline)
+        throw unbuilt(
+          failed ?? first,
+          `${failed ? `failed to build: ${failed.error}` : "is not ready"} (the migration committed)`
+        );
+      await new Promise((resolve) => setTimeout(resolve, pause));
+      pause = Math.min(pause * 2, INDEX_BUILD_LAST_PAUSE_MS);
+    }
+  }
+
+  /**
    * No session holds anything here, so a record holds the lock. It carries a lease
    * because a command that dies cannot let go of it: a later one takes it over.
    */
@@ -1992,6 +2077,15 @@ export class SurrealMigrationDriver extends MigrationDriver {
       );
     }
   }
+}
+
+/** V11023: an index whose build failed, or has not finished. */
+function unbuilt({ table, name }: IndexInfo, reason: string): MigrationError {
+  return new MigrationError(
+    `SurrealDB index "${table}.${name}" ${reason}.`,
+    VibORMErrorCode.MIGRATION_INVALID_INDEX,
+    { meta: { table, indexName: name } }
+  );
 }
 
 /** One try: a conflict at commit is another command taking it. */

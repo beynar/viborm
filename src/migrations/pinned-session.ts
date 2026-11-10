@@ -1285,6 +1285,8 @@ export function mayWrapTransaction(
  * {@link mayWrapTransaction} admits one, SQLite's foreign-key pragmas lifted
  * around it (a recreation is refused where nothing can lift them), and
  * directly otherwise; without one, directly. `atomic` tells the body which.
+ * Once a given program has committed, what it left building is waited for
+ * (`awaitIndexBuilds`), the lock still held.
  * `phase` records how far a transaction got: past its body and checks
  * (`committing`), past its COMMIT (`committed`), for a caller that classifies
  * a failure at COMMIT (plan S3).
@@ -1309,6 +1311,8 @@ export async function runProgram<T>(
   }
   if (!program) return body(pinned, false);
   const { bracket } = liftForeignKeyPragmas(pinned, program.statements);
+  // What the program builds in the background, once it has committed.
+  const settle = () => command.awaitIndexBuilds?.(pinned, program.statements);
   // Neki refuses any statement after a schema change in its transaction:
   // the body's own ledger and marker writes run outside one.
   if (
@@ -1318,7 +1322,16 @@ export async function runProgram<T>(
       program.transactional && !command.commitsSchemaChangesAlone()
     )
   ) {
-    return body(pinned, false);
+    // A statement that fails leaves the ones before it committed, builds too:
+    // they are waited for, and the statement's failure stays the one reported.
+    const result = await body(pinned, false).catch(async (failure) => {
+      await settle()?.catch((wait) => {
+        throw withSuppressedFailure(failure, wait);
+      });
+      throw failure;
+    });
+    await settle();
+    return result;
   }
   const { phase } = program;
   return withForeignKeysLifted(pinned, bracket, async (inside) => {
@@ -1330,6 +1343,7 @@ export async function runProgram<T>(
       return value;
     });
     if (phase) phase.committed = true;
+    await settle();
     return result;
   });
 }

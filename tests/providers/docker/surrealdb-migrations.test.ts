@@ -4,19 +4,27 @@
  */
 
 import { createClient } from "@client/client";
+import { readSuppressedFailures } from "@drivers/shared/suppressed-failure";
 import {
   addDropResolver,
   createMigrationClient,
 } from "@migrations/dialects/surrealql";
 import { s } from "@schema";
 import {
+  createSurrealRecordingDriver,
   createSurrealTestDriver,
   surrealUrl,
 } from "@tests/fixtures/drivers/surrealdb";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { describe, expect, it } from "vitest";
 
+/** The read that waits for builds in the background (`awaitIndexBuilds`). */
+const BUILDS_READ = '.status != "ready"';
+
 type Client = any;
+
+const BUILD_FAILED =
+  /^SurrealDB index "item\.item_email_key" failed to build: .*already contains/;
 
 function clientOf(schema: object, driver = createSurrealTestDriver()): Client {
   return createClient({ schema: schema as never, driver });
@@ -289,6 +297,8 @@ describe.skipIf(!surrealUrl)("push on SurrealDB", () => {
         "DEFINE FIELD age ON authors TYPE option<i32>",
         "DEFINE FIELD visits ON authors TYPE int DEFAULT",
         "ON member FIELDS org, email UNIQUE",
+        // A new junction's edges hold no row yet either.
+        "FIELDS in, out UNIQUE CONCURRENTLY",
       ])
         expect(text).toContain(form);
     });
@@ -500,7 +510,10 @@ describe.skipIf(!surrealUrl)("a change on a populated table", () => {
       await db.item.create({ data: { id: "a", name: "A" } });
       const next = nextVersion(schema(true), db);
       const applied = await push(next);
-      expect(statements(applied).join()).toContain("DEFINE INDEX");
+      // Built at once, as before: only a new table's indexes build in the background.
+      expect(statements(applied)).toEqual([
+        "DEFINE INDEX item_name_idx ON item FIELDS name;",
+      ]);
       expect((await preview(next)).outcome).toBe("noop");
     });
   });
@@ -905,6 +918,207 @@ describe.skipIf(!surrealUrl)("the command's lock", () => {
         db
       );
       await expect(push(next)).rejects.toThrow();
+      expect(await raw(db, "SELECT * FROM viborm_migration_lock")).toEqual([]);
+    });
+  });
+});
+
+describe.skipIf(!surrealUrl)("the indexes of a new table", () => {
+  const schema = () => ({
+    item: s
+      .model({ id: s.string().id(), email: s.string().unique(), rank: s.int() })
+      .index(["rank"]),
+  });
+
+  it("build in the background, and push returns once each is ready", async () => {
+    const driver = createSurrealRecordingDriver();
+    const db = clientOf(schema(), driver);
+    await using(db, async () => {
+      await (driver as unknown as { fresh(): Promise<void> }).fresh();
+      const applied = await push(db);
+      expect(
+        statements(applied).filter((sql) => sql.startsWith("DEFINE INDEX"))
+      ).toEqual([
+        "DEFINE INDEX item_email_key ON item FIELDS email UNIQUE CONCURRENTLY;",
+        "DEFINE INDEX item_rank_idx ON item FIELDS rank CONCURRENTLY;",
+      ]);
+      // Their builds were read once the program had run, and push returned after.
+      const defined = driver.statements
+        .map((sql) => sql.includes("CONCURRENTLY"))
+        .lastIndexOf(true);
+      expect(
+        driver.statements
+          .slice(defined)
+          .some((sql) => sql.includes(BUILDS_READ))
+      ).toBe(true);
+      expect(
+        await raw(
+          db,
+          "RETURN [{ email: (INFO FOR INDEX item_email_key ON item).building.status, rank: (INFO FOR INDEX item_rank_idx ON item).building.status }]"
+        )
+      ).toEqual([{ email: "ready", rank: "ready" }]);
+      await db.item.create({ data: { id: "a", email: "same", rank: 1 } });
+      await expect(
+        db.item.create({ data: { id: "b", email: "same", rank: 2 } })
+      ).rejects.toThrow();
+      expect((await preview(db)).outcome).toBe("noop");
+    });
+  });
+
+  it("are waited for in a program run statement by statement too", async () => {
+    const driver = createSurrealRecordingDriver();
+    // Whether each background build was defined inside a transaction.
+    const inTransaction: boolean[] = [];
+    const execute = (driver as any).execute.bind(driver);
+    (driver as any).execute = (
+      client: object,
+      statement: string,
+      params: unknown[]
+    ) => {
+      if (statement.includes("CONCURRENTLY"))
+        inTransaction.push(client.constructor.name === "ReplayedTransaction");
+      return execute(client, statement, params);
+    };
+    const db = clientOf(schema(), driver);
+    await using(db, async () => {
+      await syncLiveSchema(db);
+      await db.item.create({ data: { id: "a", email: "a", rank: 1 } });
+      // A backfilled field and an index over it cannot share a transaction.
+      const next = nextVersion(
+        {
+          item: s
+            .model({
+              id: s.string().id(),
+              email: s.string().unique(),
+              rank: s.int(),
+              level: s.int().default(3),
+            })
+            .index(["rank"])
+            .index(["level"]),
+          tag: s.model({ id: s.string().id(), label: s.string().unique() }),
+        },
+        db
+      );
+      driver.statements.length = 0;
+      inTransaction.length = 0;
+      const applied = await push(next);
+      expect(inTransaction).toEqual([false]);
+      expect(statements(applied)).toContain(
+        "DEFINE INDEX tag_label_key ON tag FIELDS label UNIQUE CONCURRENTLY;"
+      );
+      expect(statements(applied)).toContain(
+        "DEFINE INDEX item_level_idx ON item FIELDS level;"
+      );
+      const defined = driver.statements
+        .map((sql) => sql.includes("CONCURRENTLY"))
+        .lastIndexOf(true);
+      expect(
+        driver.statements
+          .slice(defined)
+          .some((sql) => sql.includes(BUILDS_READ))
+      ).toBe(true);
+    });
+  });
+
+  it("are waited for when a later statement of the program fails, whose failure is the one reported", async () => {
+    const driver = createSurrealRecordingDriver();
+    // Two rows holding one label, written just ahead of the unique over it:
+    // its build fails too.
+    const execute = (driver as any).execute.bind(driver);
+    (driver as any).execute = (
+      client: never,
+      statement: string,
+      params: unknown[]
+    ) =>
+      execute(
+        client,
+        statement.includes(
+          "tag_label_key ON tag FIELDS label UNIQUE CONCURRENTLY"
+        )
+          ? `CREATE tag:a SET label = "same"; CREATE tag:b SET label = "same"; ${statement}`
+          : statement,
+        params
+      );
+    const db = clientOf(schema(), driver);
+    await using(db, async () => {
+      await syncLiveSchema(db);
+      await db.item.createMany({
+        data: [
+          { id: "a", email: "a", rank: 1 },
+          { id: "b", email: "b", rank: 1 },
+        ],
+      });
+      // Run statement by statement (a backfilled field and its index), the new
+      // table first, then a unique the rows break.
+      const next = nextVersion(
+        {
+          item: s
+            .model({
+              id: s.string().id(),
+              email: s.string().unique(),
+              rank: s.int().unique(),
+              level: s.int().default(3),
+            })
+            .index(["level"]),
+          tag: s.model({ id: s.string().id(), label: s.string().unique() }),
+        },
+        db
+      );
+      driver.statements.length = 0;
+      const failure = await push(next).catch((error: unknown) => error);
+      expect(failure).toMatchObject({
+        message: expect.stringContaining("rank"),
+      });
+      expect(readSuppressedFailures(failure)).toMatchObject([
+        { code: "V11023", meta: { table: "tag", indexName: "tag_label_key" } },
+      ]);
+      const defined = driver.statements
+        .map((sql) => sql.includes("CONCURRENTLY"))
+        .lastIndexOf(true);
+      expect(defined).toBeGreaterThan(-1);
+      expect(
+        driver.statements
+          .slice(defined)
+          .some((sql) => sql.includes(BUILDS_READ))
+      ).toBe(true);
+    });
+  });
+
+  it("a build that fails refuses the push by name, its statements committed", async () => {
+    const driver = createSurrealRecordingDriver();
+    // Two rows holding one email, written in the push's own transaction just
+    // ahead of the unique index over it.
+    const execute = (driver as any).execute.bind(driver);
+    (driver as any).execute = (
+      client: never,
+      statement: string,
+      params: unknown[]
+    ) =>
+      execute(
+        client,
+        statement.includes("UNIQUE CONCURRENTLY")
+          ? `CREATE item:a SET email = "same", rank = 1; CREATE item:b SET email = "same", rank = 2; ${statement}`
+          : statement,
+        params
+      );
+    const db = clientOf(schema(), driver);
+    await using(db, async () => {
+      await (driver as unknown as { fresh(): Promise<void> }).fresh();
+      // Within a managed scope, which is what the builds are read over.
+      const migrations = createMigrationClient(db, { tables: ["item"] });
+      const plan = await migrations.push({ dryRun: true });
+      await expect(
+        migrations.push({ consent: plan.consent })
+      ).rejects.toMatchObject({
+        code: "V11023",
+        message: expect.stringMatching(BUILD_FAILED),
+        meta: { table: "item", indexName: "item_email_key" },
+      });
+      // What the program did is there, and the lock is let go.
+      expect(await raw(db, "SELECT email FROM item ORDER BY id")).toEqual([
+        { email: "same" },
+        { email: "same" },
+      ]);
       expect(await raw(db, "SELECT * FROM viborm_migration_lock")).toEqual([]);
     });
   });
