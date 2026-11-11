@@ -8,7 +8,7 @@
  * the catalog cannot prove is read as the storage it is, and said.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createClient } from "@client/client";
@@ -19,9 +19,14 @@ import { getMigrationDriver } from "@migrations/drivers";
 import { introspectSchema } from "@migrations/introspect";
 import { serializeModels } from "@migrations/serializer";
 import { parseSchema } from "@schema/json";
+import { createPullCommand } from "@src/cli/commands/pull";
 import Database from "better-sqlite3";
-import { afterAll, describe, expect, it } from "vitest";
-import { codedSchema, expectEmptyRoundTrip } from "./_introspect-fixtures";
+import { afterAll, describe, expect, it, vi } from "vitest";
+import {
+  codedSchema,
+  expectEmptyRoundTrip,
+  expectLightDocument,
+} from "./_introspect-fixtures";
 
 const RICH_SQLITE_SQL = [
   `CREATE TABLE account (
@@ -245,6 +250,184 @@ describe("introspectSchema on SQLite", () => {
     await expect(
       introspectSchema({ url: `file:${join(directory, "missing.db")}` })
     ).rejects.toThrow();
+  });
+
+  it("says what a table carries beyond the document: a collation, STRICT, ON CONFLICT, a trigger", async () => {
+    const db = new Database(":memory:");
+    db.exec(
+      "CREATE TABLE person (id INTEGER PRIMARY KEY, name TEXT COLLATE NOCASE, code TEXT NOT NULL ON CONFLICT REPLACE)"
+    );
+    db.exec(
+      "CREATE TABLE ledger (id INTEGER PRIMARY KEY, amount INTEGER) STRICT"
+    );
+    db.exec(
+      "CREATE TRIGGER ledger_audit AFTER INSERT ON ledger BEGIN SELECT 1; END"
+    );
+    const result = await introspectSchema({
+      driver: new SQLite3Driver({ client: db }),
+    });
+    const lost = (feature: string) =>
+      `the document cannot carry ${feature}: the database keeps it and a push of the document plans nothing for it, but a push that recreates the table or the column cannot keep it`;
+    expect(result.skipped).toEqual([]);
+    expect(result.warnings).toEqual([
+      { kind: "unstated", table: "ledger", message: lost("STRICT") },
+      {
+        kind: "unstated",
+        table: "ledger",
+        message: lost('trigger "ledger_audit"'),
+      },
+      {
+        kind: "unstated",
+        table: "person",
+        message: lost('a collation on column "name"'),
+      },
+      {
+        kind: "unstated",
+        table: "person",
+        message: lost('ON CONFLICT on column "code"'),
+      },
+    ]);
+    // Nothing here is a drift: the push of the document plans nothing.
+    const client = createClient({
+      schema: parseSchema(result.document),
+      driver: new SQLite3Driver({ client: db }),
+    });
+    const preview = await createMigrationClient(client).push({ dryRun: true });
+    expect(preview.operations).toEqual([]);
+  });
+
+  it("declares NOT NULL a key column SQLite lets hold NULL, says so, and push rebuilds the table", async () => {
+    const db = new Database(":memory:");
+    db.exec(
+      "CREATE TABLE token (id TEXT PRIMARY KEY, value TEXT COLLATE NOCASE)"
+    );
+    db.exec("CREATE TABLE pair (a TEXT, b INTEGER, PRIMARY KEY (a, b))");
+    const driver = new SQLite3Driver({ client: db });
+    const result = await introspectSchema({ driver });
+    const { models } = result.document;
+    expect(models.token!.fields.id).toEqual({
+      type: "string",
+      id: true,
+      generate: { kind: "ulid", generate: false, implicit: true },
+    });
+    expect(models.pair!.fields).toMatchObject({
+      a: { type: "string" },
+      b: { type: "int" },
+    });
+    expect(models.pair!.fields.a!).not.toHaveProperty("nullable");
+    expect(models.pair!.fields.b!).not.toHaveProperty("nullable");
+    expect(
+      result.warnings.map(
+        ({ kind, table, name }) => `${kind} ${table}.${name ?? ""}`
+      )
+    ).toEqual([
+      "approximated pair.a",
+      "approximated pair.b",
+      "approximated token.id",
+      "unstated token.",
+      "drift pair.a",
+      "drift pair.b",
+      "drift token.id",
+    ]);
+    expect(result.warnings[0]!.message).toContain(
+      "a push of the document rebuilds the table to make it NOT NULL"
+    );
+    // The schema is valid, and push plans a rebuild of each table.
+    const client = createClient({
+      schema: parseSchema(result.document, { validate: true }),
+      driver,
+    });
+    const preview = await createMigrationClient(client).push({ dryRun: true });
+    expect(preview.operations).toEqual([
+      expect.objectContaining({ id: "alterColumn:0", risk: "destructive" }),
+      expect.objectContaining({ id: "alterColumn:1", risk: "destructive" }),
+      expect.objectContaining({ id: "alterColumn:2", risk: "destructive" }),
+    ]);
+    expect(preview.statements.map(({ sql }) => sql)).toContain(
+      'CREATE TABLE "__new_token" (\n  "id" TEXT NOT NULL,\n  "value" TEXT,\n  PRIMARY KEY ("id")\n)'
+    );
+  });
+
+  it("as a light document: no index, reads and writes, refused by push", async () => {
+    const db = richDatabase();
+    db.exec(
+      "CREATE TABLE token (id TEXT PRIMARY KEY, value TEXT COLLATE NOCASE)"
+    );
+    const driver = new SQLite3Driver({ client: db });
+    const { full, light, client } = await expectLightDocument(driver, [
+      ...RICH_TABLES,
+      "token",
+    ]);
+    expect(full.document.models.post!.indexes).toHaveLength(2);
+    expect(light.document.models.post!.indexes).toBeUndefined();
+    // What matters to a client stays: a key that may hold NULL. A collation,
+    // which only a push could lose, does not.
+    expect(full.warnings.map(({ kind, table }) => `${kind} ${table}`)).toEqual([
+      "approximated token",
+      "unstated token",
+      "drift token",
+    ]);
+    expect(
+      light.warnings.map(({ kind, table, name }) => `${kind} ${table}.${name}`)
+    ).toEqual(["approximated token.id"]);
+    expect(light.document.models.post!.uniques).toEqual([
+      { fields: ["author_id", "title"] },
+    ]);
+    expect(light.document.models.account!.fields.created_at).toEqual({
+      type: "datetime",
+      generate: { kind: "now" },
+    });
+
+    const app = client as any;
+    const author = await app.account.create({
+      data: { email: "ada@example.com" },
+    });
+    expect(author.role).toBe("member");
+    const tag = await app.tag.create({ data: { id: 1, label: "orm" } });
+    await app.post.create({
+      data: {
+        title: "Hello",
+        author: { connect: { id: author.id } },
+        tag: { connect: [{ id: tag.id }] },
+      },
+    });
+    const found = await app.account.findUnique({
+      where: { email: "ada@example.com" },
+      include: { post_by_author: { include: { tag: true } } },
+    });
+    expect(found.post_by_author[0].tag[0].label).toBe("orm");
+    await app.token.create({ data: { id: "t1", value: "Alice" } });
+    expect(await app.token.findUnique({ where: { id: "t1" } })).toEqual({
+      id: "t1",
+      value: "Alice",
+    });
+  });
+
+  it("viborm pull --json --light writes a light document", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "viborm-pull-light-"));
+    directories.push(directory);
+    const path = join(directory, "app.db");
+    const db = new Database(path);
+    for (const statement of RICH_SQLITE_SQL) db.exec(statement);
+    db.close();
+    const out = join(directory, "schema.json");
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    try {
+      await createPullCommand().parseAsync(
+        ["--json", "--light", "--url", `file:${path}`, "--out", out],
+        { from: "user" }
+      );
+    } finally {
+      stderr.mockRestore();
+    }
+    const document = JSON.parse(readFileSync(out, "utf8"));
+    expect(document.light).toBe(true);
+    expect(document.models.post.indexes).toBeUndefined();
+    expect(document).toEqual(
+      (await introspectSchema({ url: `file:${path}`, light: true })).document
+    );
   });
 
   it("refuses, by name, a database it does not translate yet", async () => {

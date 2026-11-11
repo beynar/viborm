@@ -70,9 +70,11 @@ and says so.
   concurrent write changed what they read, the transaction fails with `V5001` and
   can be retried; `rerunsOnConflict` retries a `$transaction` callback for you, and
   everything it does outside the database happens again. A raw statement that begins
-  with `LET`, outside a transaction, runs as one transaction of its own: refused at its
-  commit, it wrote nothing and answered nothing, so it runs again. A migration's rewrite
-  of a table's rows is one.
+  with `LET`, outside a transaction, runs as one transaction of its own. A migration's
+  statement of that kind (the rewrite of a table's rows on a key change) runs again when
+  refused at its commit, since it wrote nothing and answered nothing. Your own
+  `$executeRaw` / `$queryRaw` statement never runs again: it may hold its own `COMMIT`,
+  so part of it may have committed, and the conflict is returned to you.
 - **`isolationLevel`**: a transaction reads a snapshot, which gives what `ReadUncommitted`,
   `ReadCommitted` and `RepeatableRead` ask. `Serializable` is refused: two transactions may each
   read what the other writes. There are no row locks.

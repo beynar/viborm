@@ -4,7 +4,7 @@ import { errorCause } from "../errors/diagnostic-safety";
  * Apply, down, reset, and push consume this. There is no second executor.
  */
 
-import type { AnyDriver } from "../drivers/driver";
+import type { AnyDriver, CommitRerunningDriver } from "../drivers/driver";
 import { attachMissingMeta } from "../drivers/driver-error-context";
 import type { SqlDialect } from "../drivers/types";
 import {
@@ -28,13 +28,24 @@ import type {
   MigrationStepV1,
 } from "./v1-types";
 
+/**
+ * Every statement a migration runs, as the engine built it: the driver may run
+ * it again where its own transaction around it was refused at its commit
+ * (`rerunRefusedCommit`, SurrealDB), which a caller's raw statement never is.
+ */
 export async function executeExactSql(
   producer: AnyDriver,
   sql: string,
   parameters: readonly unknown[] = []
 ): Promise<void> {
-  await producer._executeRaw(sql, [...parameters]);
+  const send = () => producer._executeRaw(sql, [...parameters]);
+  await (reruns(producer) ? producer.rerunRefusedCommit(sql, send) : send());
 }
+
+const reruns = (
+  driver: AnyDriver
+): driver is AnyDriver & CommitRerunningDriver =>
+  typeof Reflect.get(driver, "rerunRefusedCommit") === "function";
 
 /** A dispatch's exact text and its decoded parameters. */
 function dispatchQuery(

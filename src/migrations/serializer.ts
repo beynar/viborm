@@ -14,6 +14,7 @@ import { selectManagedSnapshot } from "./target";
 import type { Dialect } from "../drivers/types";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { hydrateSchemaNames } from "../schema/hydration";
+import { lightModels } from "../schema/json/light";
 import {
   type AnyModel,
   getModelKeyCatalog,
@@ -186,6 +187,12 @@ export function serializeResolvedModels(
   const junctionTables = new Map<string, { def: TableDef; pairKey: string }>();
 
   for (const [modelName, model] of Object.entries(models)) {
+    // Every migration path states its schema here, so this is the one refusal.
+    if (lightModels.has(model))
+      throw new MigrationError(
+        `Model "${modelName}" comes from a light schema document, which leaves out the indexes a migration keeps: a push or a migration of it would drop them. Introspect the database without \`light\` to migrate.`,
+        VibORMErrorCode.MIGRATION_INVALID_STATE
+      );
     const modelState = model["~"].state;
     const tableName =
       model["~"].names.sql || modelState.tableName || modelName.toLowerCase();

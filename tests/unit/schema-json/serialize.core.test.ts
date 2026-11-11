@@ -150,6 +150,30 @@ describe("refusal witnesses", () => {
     ).not.toHaveProperty("models.plain.withoutRowid");
   });
 
+  it("carries light through a round trip, and only as true", () => {
+    const document = {
+      version: 1,
+      light: true,
+      models: { user: { fields: { id: { type: "string", id: true } } } },
+    };
+    const parsed = parseSchema(document);
+    expect(serializeSchema(parsed)).toEqual(document);
+    // Light when any model is, so a schema that mixes one in stays refused.
+    const other = s.model({ id: s.string().id() });
+    expect(serializeSchema({ ...parsed, other })).toHaveProperty("light", true);
+    expect(attachFieldSchemas(parsed, {})).not.toBe(parsed);
+    expect(serializeSchema(attachFieldSchemas(parsed, {}))).toHaveProperty(
+      "light",
+      true
+    );
+    expect(
+      serializeSchema(parseSchema({ ...document, light: false }))
+    ).not.toHaveProperty("light");
+    expect(() => parseSchema({ ...document, light: "yes" })).toThrow(
+      ValidationError
+    );
+  });
+
   it("names the field carrying a function default", () => {
     const user = s.model({
       id: s.string().id(),

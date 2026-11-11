@@ -198,3 +198,46 @@ export async function expectEmptyRoundTrip(
   );
   return { result, client };
 }
+
+/**
+ * The light contract: the full document without its indexes, marked light,
+ * canonical, with a report narrowed to what a client sees; a client reads and
+ * writes through it, and push refuses it before planning anything.
+ */
+export async function expectLightDocument(
+  driver: AnyDriver,
+  tables: readonly string[]
+) {
+  const full = await introspectSchema({ driver, tables });
+  const light = await introspectSchema({ driver, tables, light: true });
+  const { document } = light;
+  expect(document.light).toBe(true);
+  expect(Object.keys(document.models)).toEqual(
+    Object.keys(full.document.models)
+  );
+  for (const [key, { indexes: _indexes, ...model }] of Object.entries(
+    full.document.models
+  ))
+    expect(document.models[key]).toEqual(model);
+  expect(document.enums).toEqual(full.document.enums);
+  expect(serializeSchema(parseSchema(document))).toEqual(document);
+  expect(
+    light.skipped.filter(({ kind }) => kind === "index" || kind === "check")
+  ).toEqual([]);
+  expect(light.warnings.filter(({ kind }) => kind !== "approximated")).toEqual(
+    []
+  );
+
+  const client = createClient({
+    schema: parseSchema(document, { validate: true }),
+    driver,
+  });
+  const refusal = await createMigrationClient(client, { tables: [...tables] })
+    .push({ dryRun: true })
+    .catch((error: unknown) => error);
+  expect(refusal).toMatchObject({
+    code: "V11009",
+    message: expect.stringContaining("comes from a light schema document"),
+  });
+  return { full, light, client };
+}

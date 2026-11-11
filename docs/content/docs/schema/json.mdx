@@ -83,6 +83,13 @@ client](#the-untyped-client).
 Every `json` block on this page is a complete document that the test suite
 parses and round-trips, so an example here cannot drift from the parser.
 
+**`"light": true`** marks a light document, which
+[`introspectSchema({ light: true })`](/docs/schema/introspect#a-light-document)
+writes: what a client reads, without the indexes only migrations read. A client
+reads and writes through it; every migration path refuses its models (`V11009`).
+`false` is the same as no key, and `serializeSchema` writes `"light": true` for a
+schema holding any model of a light document.
+
 **Field order matters for new tables.** DDL column order follows the order of
 the keys in `fields` when a table is created, or rebuilt on SQLite, and the
 format binds it to JSON key order. `JSON.parse` preserves that order; a producer

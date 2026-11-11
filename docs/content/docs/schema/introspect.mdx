@@ -21,6 +21,7 @@ Or from the command line:
 ```bash
 npx viborm pull --json --url "$DATABASE_URL" --out schema.json
 npx viborm pull --json --tables account post tag   # only these tables
+npx viborm pull --json --light --out schema.json    # only what a client needs
 ```
 
 `pull` writes the document (to `--out`, else stdout) and prints what it left
@@ -53,7 +54,7 @@ built — a D1 binding, a PostgreSQL `namespace`, a custom pool — pass it inst
 interface IntrospectSchemaResult {
   document: SchemaDocument;
   skipped: SkippedObject[];          // { kind, name, table?, reason }
-  warnings: IntrospectionWarning[];  // { kind: "approximated" | "drift", table?, name?, message }
+  warnings: IntrospectionWarning[];  // { kind: "approximated" | "unstated" | "drift", table?, name?, message }
   dialect: "postgresql" | "sqlite" | "mysql";
 }
 ```
@@ -64,6 +65,16 @@ document. Everything else is said:
 - `skipped` lists each object the document does not carry, with the reason.
 - An `approximated` warning names a field whose meaning is weaker than the
   database proves.
+- An `unstated` warning names what a table carries that changes how it behaves
+  and that a document has no spelling for: a column or table collation other
+  than the one VibORM writes (SQLite `COLLATE NOCASE`, a PostgreSQL column
+  collation other than its type's, a MySQL collation other than
+  `utf8mb4_0900_bin`, which is every column of a table created with MySQL 8's
+  default `utf8mb4_0900_ai_ci`), SQLite's `STRICT` and `ON CONFLICT`, a
+  trigger, a PostgreSQL rule, row-level security, `UNLOGGED` storage or a
+  `DEFERRABLE` key, a MySQL engine other than InnoDB. The database keeps it and
+  a push of the document plans nothing for it, but a push that recreates the
+  table or the column cannot keep it.
 - A `drift` warning names a place where `push` with this document would change
   the database. The document is parsed, serialized exactly as `push` serializes
   a schema, and diffed against the snapshot the database was read into, with
@@ -174,6 +185,16 @@ A database VibORM pushed from a TypeScript schema therefore comes back with
 the same tables and an empty push plan, but those fields in their storage
 domain.
 
+**A key that admits NULL.** SQLite lets a primary key column hold NULL unless it
+is declared `NOT NULL`, except a rowid table's `INTEGER PRIMARY KEY` (`CREATE
+TABLE t (id TEXT PRIMARY KEY)`). A model key is never nullable, so the document
+declares each such column, and each member of such a compound key, `NOT NULL`,
+with an `approximated` warning. `push` of that document against the unchanged
+database then plans a destructive `alterColumn` per column, a rebuild of the
+table that adds `NOT NULL` (a `drift` warning says so). The rebuild fails while
+a row's key is NULL, and cannot keep what the table carries beyond the document
+(its `unstated` warnings: a collation, `STRICT`, a trigger).
+
 ## What is skipped
 
 | Object | Why |
@@ -197,6 +218,45 @@ VibORM derives is refused by `push` rather than renamed.
 To push a document against the database it came from, scope the push to the
 tables it declares (`createMigrationClient(client, { tables })`), or `push`
 would drop the tables it skipped.
+
+## A light document
+
+`introspectSchema({ url, light: true })` (`viborm pull --json --light`) writes
+only what a client reads, for an application that queries a database whose
+schema something else migrates:
+
+```ts
+const { document } = await introspectSchema({ url, light: true });
+const db = createClient({ schema: parseSchema(document), databaseUrl: url });
+```
+
+The rule is what the client reads at run time, checked against its code:
+
+| Kept (a client reads it) | Left out (only migrations read it) |
+| --- | --- |
+| models, their `table` names, field keys and `column` names | every index in `indexes`: plain, unique, typed (a unique index is not a `findUnique` key) |
+| each field's type, `nullable`, `array`, `enum`, `precision`/`scale` | |
+| keys: `id`, `ids`, `unique`, `uniques` (`findUnique`) | |
+| `default` and `generate` (what makes a field optional on create) | |
+| `native` types: the client reads them to encode and compare values (SQLite date storage, uuid key storage, PostgreSQL case folding) | |
+| `withoutRowid`: the client reads it (`$rows` addresses a rowid table's rows by `rowid`) | |
+| relations whole, junctions, referential actions, `enums` | |
+
+Raw indexes, partial indexes, CHECK constraints and collations are never in a
+document, light or not. Without `light`, the output is exactly the full
+document.
+
+A light document carries `"light": true`, and so does `serializeSchema` of any
+schema holding one of its models. **Every migration path refuses it**: the
+migration serializer, which `push`, `migrate` and every other command go through
+to state the desired schema, fails with `V11009` naming the model, before
+planning anything, since a push of it would drop every index.
+
+`skipped` and `warnings` keep only what changes what a client sees: no index
+or CHECK constraint in `skipped`, no `unstated` or `drift` warning, and no
+`approximated` warning about a unique index the document leaves out. A key
+column that admits NULL keeps its `approximated` warning: the client reads it
+as never NULL.
 
 ## Not yet
 

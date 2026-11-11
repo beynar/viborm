@@ -5,10 +5,12 @@
 
 import { createClient } from "@client/client";
 import { readSuppressedFailures } from "@drivers/shared/suppressed-failure";
+import { TransactionError } from "@errors";
 import {
   addDropResolver,
   createMigrationClient,
 } from "@migrations/dialects/surrealql";
+import { executeExactSql } from "@migrations/execute-dispatch";
 import { s } from "@schema";
 import {
   createSurrealRecordingDriver,
@@ -384,34 +386,58 @@ describe.skipIf(!surrealUrl)("a change on a populated table", () => {
     });
   });
 
-  it("a rewrite another writer meets at its commit runs again, and lands once", async () => {
-    // A key change's rewrite is one statement led by what it reads, which the
-    // driver makes a transaction of its own; on CI the server's own background
-    // writes met it at COMMIT. Here another connection does, on purpose.
+  /**
+   * A key change's rewrite is one statement led by what it reads, which the
+   * driver makes a transaction of its own; on CI the server's own background
+   * writes met it at COMMIT. Here another connection does, on purpose, while
+   * the statement sleeps between its read and its write.
+   */
+  async function meetAtCommit(
+    send: (db: Client, statement: string) => Promise<unknown>
+  ) {
     const tally = { tally: s.model({ id: s.string().id(), n: s.int() }) };
     const driver = createSurrealRecordingDriver();
     const db = clientOf(tally, driver);
+    const rewrite =
+      "LET $n = (SELECT VALUE n FROM tally:one)[0]; SLEEP 1s; UPDATE tally:one SET n = $n + 1;";
+    let outcome: unknown;
+    let row: unknown;
     await using(db, async () => {
       await syncLiveSchema(db);
       await db.tally.create({ data: { id: "one", n: 0 } });
       const other = clientOf(tally);
       await using(other, async () => {
         await raw(other, "RETURN 1");
-        const rewrite =
-          "LET $n = (SELECT VALUE n FROM tally:one)[0]; SLEEP 1s; UPDATE tally:one SET n = $n + 1;";
-        const ran = raw(db, rewrite);
+        const ran = send(db, rewrite).then(
+          () => "committed",
+          (error: unknown) => error
+        );
         await new Promise((resolve) => setTimeout(resolve, 300));
         await raw(other, "UPDATE tally:one SET n += 100;");
-        await ran;
-        expect(
-          driver.statements.filter((sent) => sent === rewrite)
-        ).toHaveLength(2);
-        expect(await db.tally.findUnique({ where: { id: "one" } })).toEqual({
-          id: "one",
-          n: 101,
-        });
+        outcome = await ran;
+        row = await db.tally.findUnique({ where: { id: "one" } });
       });
     });
+    const sends = driver.statements.filter((sent) => sent === rewrite).length;
+    return { outcome, row, sends };
+  }
+
+  it("a migration's rewrite another writer meets at its commit runs again, and lands once", async () => {
+    const { outcome, row, sends } = await meetAtCommit((db, statement) =>
+      executeExactSql(db.$driver, statement)
+    );
+    expect(outcome).toBe("committed");
+    expect(sends).toBe(2);
+    expect(row).toEqual({ id: "one", n: 101 });
+  });
+
+  it("a caller's raw statement another writer meets at its commit is sent once, and fails", async () => {
+    const { outcome, row, sends } = await meetAtCommit((db, statement) =>
+      raw(db, statement)
+    );
+    expect(outcome).toBeInstanceOf(TransactionError);
+    expect(sends).toBe(1);
+    expect(row).toEqual({ id: "one", n: 100 });
   });
 
   it("an index over the key alone is the id's, and asks for nothing", async () => {

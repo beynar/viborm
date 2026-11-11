@@ -28,6 +28,12 @@ export const SCHEMA_DOCUMENT_VERSION = 1;
 export interface SchemaDocument {
   version: typeof SCHEMA_DOCUMENT_VERSION;
   /**
+   * A light document: what a client needs and nothing only migrations read
+   * (`introspectSchema({ light: true })` leaves out every index). A client
+   * reads and writes through it; every migration path refuses its models.
+   */
+  light?: true;
+  /**
    * Enum definitions addressable by a document-local reference. A definition
    * carrying `name` yields ONE database enum type shared by every field that
    * references it; without `name` each column keeps its own derived type,

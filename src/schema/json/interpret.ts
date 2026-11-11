@@ -53,6 +53,7 @@ import {
   refuseDocument,
   refuseFromBuilder,
 } from "./issues";
+import { lightModels } from "./light";
 
 /**
  * Standard Schema validators to attach, keyed `"<model>.<field>"`.
@@ -79,7 +80,7 @@ export function interpret(
   const modelsPath = pointer(documentRoot, "models");
   refuseUnknownFieldSchemas(document, fieldSchemas);
   for (const [modelKey, modelDocument] of Object.entries(document.models)) {
-    registry[modelKey] = buildModel(
+    const model = buildModel(
       modelKey,
       modelDocument,
       document,
@@ -87,6 +88,8 @@ export function interpret(
       pointer(modelsPath, modelKey),
       fieldSchemas
     );
+    registry[modelKey] = model;
+    if (document.light) lightModels.add(model);
   }
   return registry;
 }

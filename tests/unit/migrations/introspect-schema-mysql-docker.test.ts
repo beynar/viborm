@@ -173,7 +173,21 @@ describeIfDocker("introspectSchema on MySQL (docker)", () => {
       type: "toMany",
       target: "tag",
     });
-    expect(result.warnings).toEqual([]);
+    // The server's default collation (utf8mb4_0900_ai_ci on MySQL 8) compares
+    // without case; VibORM's tables are utf8mb4_0900_bin. The document cannot
+    // carry it, so each table and text column says so, and nothing else does.
+    expect(
+      result.warnings.filter(
+        (warning) =>
+          warning.kind !== "unstated" || !warning.message.includes("collation")
+      )
+    ).toEqual([]);
+    expect(result.warnings).toContainEqual({
+      kind: "unstated",
+      table: "account",
+      message:
+        'the document cannot carry a collation on column "email": the database keeps it and a push of the document plans nothing for it, but a push that recreates the table or the column cannot keep it',
+    });
 
     const db = client as any;
     const author = await db.account.create({

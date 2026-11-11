@@ -127,6 +127,20 @@ export interface MigrationFrameDriver {
   openMigrationFrame(): Promise<MigrationFrame>;
 }
 
+/**
+ * A driver whose own transaction around a statement the migration engine built
+ * can be refused at its commit (SurrealDB): it sends that statement (`send`)
+ * and decides whether a refusal runs it again. Only `executeExactSql` calls it;
+ * a caller's raw statement never goes through it. Kept off `Driver` so the
+ * client's types do not carry it.
+ */
+export interface CommitRerunningDriver {
+  rerunRefusedCommit(
+    statement: string,
+    send: () => Promise<unknown>
+  ): Promise<unknown>;
+}
+
 // biome-ignore lint/suspicious/noUnsafeDeclarationMerging: the `Driver` interface below is a deliberate merge — it declares the `await using` member, which is installed on the prototype (guarded on the runtime key) rather than in this body.
 export abstract class Driver<
   TClient,
