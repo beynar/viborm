@@ -5,8 +5,51 @@ Versioning.
 
 ## Unreleased
 
+## 1.14.0 — 2026-11-11
+
+VibORM now runs on a Durable Object's own SQLite storage, takes over tables it
+did not create, and reads an existing database into a schema document. Indexes
+of a new SurrealDB table no longer hold a push for minutes.
+
 ### Added
 
+- **`viborm/durable-object`, a driver for `ctx.storage.sql`.** Transactions are
+  `storage.transaction()` at every depth, which nests natively. Defaults suit
+  the platform: no deep expressions, 100 bound values, one driver per SQL
+  handle. A raw transaction-control statement (`BEGIN`, `SAVEPOINT`,
+  `ROLLBACK`, `RELEASE`, `COMMIT`, `END`, `PRAGMA busy_timeout`) is refused
+  with a pointer to `$transaction`, and a raw statement past 100 bound values
+  fails with `UnsupportedOperationError`. Migrations hold their lock through
+  the platform's own transaction. See the
+  [Durable Object](https://viborm.dev/docs/drivers/sqlite/durable-object)
+  page.
+- **Adopting existing tables:** `generate({ adopt: [...] })` and
+  `viborm migrate generate --adopt <table...>` take over tables already in the
+  database without DDL. `apply` proves that each live table equals its
+  declaration (SQLite `WITHOUT ROWID` and real key nullability included), and
+  refuses before effects (`V11014`, naming the table and the feature) a table
+  carrying what the declaration does not state: a trigger, SQLite
+  `ON CONFLICT` or `STRICT`, a PostgreSQL rule, row-level security, `UNLOGGED`
+  storage or a `DEFERRABLE` key, a MySQL engine other than InnoDB, a CHECK, a
+  collation other than the declared one. A client's `tables` list may now
+  name more tables than the history holds, and the history commands never
+  touch a table that is not adopted yet.
+- **`introspectSchema({ url })` and `viborm pull --json`**
+  (`viborm/schema/introspect`) read an existing PostgreSQL, MySQL or SQLite
+  database into a `viborm/schema/json` document that `parseSchema` turns into
+  a client. What the document cannot say goes into `skipped`, what it says
+  more weakly than the database into an `approximated` warning, and every
+  operation a `push` of it would plan into a `drift` warning: a result with
+  no drift warning pushes as a no-op. A pure join table becomes a
+  many-to-many on both ends. What a table carries beyond the document (a
+  column collation, SQLite `STRICT` or `ON CONFLICT`, a trigger, a PostgreSQL
+  rule, row-level security, `UNLOGGED` storage or a `DEFERRABLE` key, a MySQL
+  engine other than InnoDB) is an `unstated` warning naming the table and the
+  column: the database keeps it, a push that recreates the table cannot. A
+  SQLite key that admits NULL (`id TEXT PRIMARY KEY`) is declared NOT NULL
+  with an `approximated` warning; pushing that document rebuilds the table.
+  SurrealDB is refused by name for now. See the
+  [introspection](https://viborm.dev/docs/schema/introspect) page.
 - **A light introspected document:** `introspectSchema({ url, light: true })`
   and `viborm pull --json --light` write only what a client reads: models,
   fields with their type, nullability, list-ness, native type, defaults and
@@ -14,28 +57,60 @@ Versioning.
   since only migrations read one. The document carries `"light": true`, and
   every migration path refuses its models (`V11009`) before planning, since a
   push of it would drop every index. `skipped` and `warnings` keep only what a
-  client sees. Without `light` the output is unchanged.
+  client sees.
+- **`.withoutRowid()`** declares a SQLite `WITHOUT ROWID` table. Changing it
+  rebuilds the table. It is refused with `.increment()` and on a model without
+  an id. Snapshots without it keep their bytes and hashes.
+- **Permissions: a key taken from a readable row.** When a `create` rule
+  equates every field of a foreign key, through `$row`, with the same key of a
+  related row, the created row may name that target without reading it: the
+  key is accepted when the related row passes its own read rule. A missing
+  target and a hidden one still fail alike. Without such an equality the SQL
+  is unchanged.
+- **`tx.<model>.$rows(alias)`**, a governed raw read: the rows that model's
+  `findMany` may see under the handle's permissions and bounds, as a derived
+  table inside a tagged `$queryRaw`. Every table it reads is pinned to its
+  schema, so a caller's CTE cannot stand in for one. It is refused in
+  `$executeRaw`, the `Unsafe` forms and prebuilt fragments, and for
+  read-gated models. On SQLite the rowid is carried, for FTS5 joins.
+- **`TransactionClient` and `TransactionClientOf<Client>`** are exported, and
+  `viborm/ordering/keys` gives the fractional key functions without a client
+  (about 3 kB).
+
+### Changed
+
+- **A nullable member of a compound id is refused when the schema is
+  validated (`F006`).** `generate` used to publish a state that `apply` and
+  `push` could never satisfy (`V11014` at the final proof).
+- **SurrealDB: a new table's indexes build `CONCURRENTLY`.** A push that
+  creates a table defines its uniques, indexes and generated junction indexes
+  with `CONCURRENTLY` (no row can be in the table yet), then waits, with the
+  lock still held, until each is `ready` (up to 5 minutes). A build that fails
+  is refused by name (`V11023`), the migration being committed. An index added
+  to an existing table, a renamed table, a key change and `.rawIndex()` keep
+  the plain `DEFINE INDEX`, refused at once on a duplicate. A first push of
+  about 130 indexes on SurrealDB Cloud took 30 minutes to 2 hours.
+- **D1 refuses a raw statement past 100 bound values** with
+  `UnsupportedOperationError`, alone or inside an array `$transaction`, before
+  the platform does.
+- **Size budgets (owner-approved, OD-17):** pg application +0.98 kB and D1
+  Worker +1.02 kB gzip, mostly for `$rows`.
 
 ### Fixed
 
-- **SurrealDB:** a raw statement of yours (`$executeRaw`, `$queryRaw`) led by
-  `LET` is sent once again, as in 1.13.0. Refused at its commit, it fails with
-  the conflict instead of running again: a text holding its own
-  `COMMIT; BEGIN;` would have repeated what already committed. Only a
-  migration's own statement (the rewrite of a table's rows on a key change)
-  still runs again after a refused commit.
-- **Introspection says what a table carries beyond the document.** A column
-  collation (SQLite `COLLATE NOCASE`, a PostgreSQL or MySQL collation other than
-  the one VibORM writes), SQLite's `STRICT` and `ON CONFLICT`, a trigger, a
-  PostgreSQL rule, row-level security, `UNLOGGED` storage or a `DEFERRABLE` key,
-  and a MySQL engine other than InnoDB were dropped without a word; each is now
-  an `unstated` warning naming the table and the column. The database keeps it,
-  but a push that recreates the table or the column cannot.
-- **Introspection of a SQLite key that admits NULL** (`id TEXT PRIMARY KEY`)
-  no longer fails the whole read (`F006`). The document declares each such key
-  column NOT NULL, with an `approximated` warning; a push of it against that
-  database rebuilds the table to add NOT NULL, which the warning and a `drift`
-  warning both say.
+- **SurrealDB: a migration that changes a table's key** no longer fails with
+  `Transaction write conflict` on a loaded server. The rewrite of the rows
+  runs again after a refused commit (a refused commit applied nothing), within
+  the same bound as a transaction's replay. Only that statement does: a raw
+  statement of yours is still sent once.
+- **PostgreSQL: a server goodbye during `$disconnect()`** (a shutdown, a
+  `pg_terminate_backend`, a `DROP DATABASE … WITH (FORCE)`) no longer crashes
+  the process with an uncaught `57P01`. The driver's own pool keeps its error
+  listener after closing.
+- **Durable Objects and `nodejs_compat` Workers:** four engine paths (a
+  `createMany` split by the bind budget, the `V8003` and `V5001` refusals, a
+  pinned session's failure) no longer report an unhandled rejection that was
+  handled a microtask later.
 
 ## 1.13.0 — 2026-11-08
 
