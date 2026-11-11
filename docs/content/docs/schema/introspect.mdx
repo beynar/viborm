@@ -1,6 +1,6 @@
 ---
 title: From an existing database
-description: "Read a PostgreSQL, MySQL or SQLite database into a JSON schema document, and query it at once"
+description: "Read a PostgreSQL, MySQL, SQL Server or SQLite database into a JSON schema document, and query it at once"
 icon: database-zap
 ---
 
@@ -40,6 +40,7 @@ TypeScript schema is not generated yet; it will be written from this document.
 | --- | --- |
 | `postgres://…`, `postgresql://…` | `pg` |
 | `mysql://…/database` | `mysql2` |
+| `mssql://…/database`, `sqlserver://…/database` | `mssql` (schema `dbo`; pass a driver with its `namespace` for another) |
 | `file:./app.db`, `sqlite:./app.db`, `./app.db` (`.db`, `.sqlite`, `.sqlite3`) | `better-sqlite3`, opened **read-only**; a missing file is an error, never created |
 | `libsql://…`, `https://…`, `ws(s)://…` (`?authToken=…`) | `@libsql/client` |
 
@@ -55,7 +56,7 @@ interface IntrospectSchemaResult {
   document: SchemaDocument;
   skipped: SkippedObject[];          // { kind, name, table?, reason }
   warnings: IntrospectionWarning[];  // { kind: "approximated" | "unstated" | "drift", table?, name?, message }
-  dialect: "postgresql" | "sqlite" | "mysql";
+  dialect: "postgresql" | "sqlite" | "mysql" | "mssql";
 }
 ```
 
@@ -161,6 +162,28 @@ the same key but is not a `findUnique` key (an `approximated` warning).
 defaults are read with MySQL's escapes. MySQL has one unique namespace: a unique
 index named the way VibORM names a key (`<table>_<columns>_key`) is that key.
 A list is `JSON` on MySQL, as on SQLite, and reads back as `json`.
+
+## SQL Server
+
+| Column | Field |
+| --- | --- |
+| `NVARCHAR(MAX)`, and `NVARCHAR(450)` on a keyed column (VibORM's spelling of an indexed string) | `string` |
+| `NVARCHAR(n)`, `VARCHAR(n)`, `NCHAR(n)`, `CHAR(n)`, `UNIQUEIDENTIFIER` | `string` (`approximated`: VibORM has no SQL Server native type, so the length is not carried and a push would widen it) |
+| `BIT` | `boolean` |
+| `INT`; `SMALLINT`, `TINYINT` (`approximated`) | `int` |
+| `BIGINT` | `bigint` |
+| `FLOAT`; `REAL` (`approximated`) | `number` |
+| `DECIMAL(p, s)`, `NUMERIC(p, s)` | `decimal` |
+| `VARBINARY(MAX)`; `VARBINARY(n)`, `BINARY(n)` (`approximated`) | `blob` |
+| `DATE`, `DATETIME2(3)`, `TIME(3)` | `date`, `datetime`, `time`; another precision, `DATETIME`, `SMALLDATETIME` and `DATETIMEOFFSET` are `approximated` |
+
+`IDENTITY` is `increment`, `SYSUTCDATETIME()` and `GETUTCDATE()` are `now()`,
+and `N'…'` literals are read as strings. A JSON document and a list are
+`NVARCHAR(MAX)` text on SQL Server, so they read back as `string`. A trigger, a
+CHECK constraint, a row-level security policy and a column collation other than
+the database's are `unstated`; a view and a CHECK constraint are skipped. VibORM
+writes no SQL Server DDL, so a drift warning says what a push would change, and
+no push can be run.
 
 ## SQLite
 

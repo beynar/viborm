@@ -183,6 +183,35 @@ export async function readCatalog(
           name: row.name,
           reason: `a document has no CHECK constraint (${row.definition}); the database keeps enforcing it`,
         });
+  } else if (dialect === "mssql") {
+    // Binding proved the estate's schema for SQL Server.
+    const schema = migrationDriver.namespace;
+    for (const row of await rows<{ name: string }>(
+      driver,
+      "SELECT name FROM sys.views WHERE schema_id = SCHEMA_ID(@p1) ORDER BY name",
+      [schema]
+    ))
+      skipped.push({
+        kind: "view",
+        name: row.name,
+        reason: "it is a view, and a document declares tables only",
+      });
+    for (const row of await rows<{
+      table_name: string;
+      name: string;
+      definition: string;
+    }>(
+      driver,
+      "SELECT t.name AS table_name, cc.name AS name, cc.definition AS definition FROM sys.check_constraints AS cc JOIN sys.tables AS t ON t.object_id = cc.parent_object_id WHERE t.schema_id = SCHEMA_ID(@p1) ORDER BY 1, 2",
+      [schema]
+    ))
+      if (selected(row.table_name))
+        skipped.push({
+          kind: "check",
+          table: row.table_name,
+          name: row.name,
+          reason: `a document has no CHECK constraint (${row.definition}); the database keeps enforcing it`,
+        });
   } else {
     for (const row of await rows<{ name: string }>(
       driver,

@@ -101,6 +101,9 @@ const NOW_DEFAULTS = new Set([
   "current_timestamp(3)",
   "current_timestamp(6)",
   "(current_timestamp(3))",
+  // SQL Server: the UTC clock.
+  "sysutcdatetime()",
+  "getutcdate()",
 ]);
 const DATE_LITERAL = /^\d{4}-\d{2}-\d{2}$/;
 const PG_TIMESTAMP_LITERAL =
@@ -120,6 +123,7 @@ function jsonDefault(value: JsonValue): JsonValue {
 }
 
 const MYSQL_EXPRESSION_LITERAL = /^\(('[\s\S]*')\)$/;
+const UNICODE_LITERAL = /^N(?=')/;
 const MYSQL_ESCAPE = /\\(.)/g;
 
 /**
@@ -271,7 +275,11 @@ function readDefault(
 
   // MySQL spells the default of a TEXT, BLOB or JSON column as an expression:
   // the literal in one pair of parentheses.
-  const spelled = sqlText.trim();
+  // SQL Server prefixes a Unicode literal with N.
+  const spelled =
+    dialect === "mssql"
+      ? sqlText.trim().replace(UNICODE_LITERAL, "")
+      : sqlText.trim();
   const expression =
     dialect === "mysql"
       ? MYSQL_EXPRESSION_LITERAL.exec(spelled)?.[1]
@@ -673,4 +681,91 @@ export function translateMysqlColumn(
       ? "a BINARY(16) key is read as a UUID, the key VibORM stores as sixteen bytes on MySQL; a key holding other bytes does not decode"
       : undefined;
   return finish(base, context, false, "mysql", undefined, approximated);
+}
+
+// =============================================================================
+// SQL SERVER
+// =============================================================================
+
+const MSSQL_SIZED = /^(n?varchar|n?char|varbinary|binary)\((\d+|max)\)$/;
+const MSSQL_TEMPORAL = /^(datetime2|time|datetimeoffset)\((\d)\)$/;
+
+/**
+ * SQL Server has no native type vocabulary in VibORM yet: a column of the
+ * type VibORM itself reads and writes for a scalar is that scalar; another
+ * type of the same family is the scalar too, with what the document cannot
+ * say about it (a length, a precision, a narrower range) as the reason.
+ */
+function mssqlBase(
+  type: string,
+  context: ColumnContext
+): { draft: FieldDraft; approximated?: string } | string {
+  const { column } = context;
+  const lossy = (draft: FieldDraft) => ({
+    draft,
+    approximated: `\`${column.type}\` is read as ${draft.type}: the document has no SQL Server native type to keep it`,
+  });
+  if (type === "int") return { draft: { type: "int" } };
+  if (type === "smallint" || type === "tinyint") return lossy({ type: "int" });
+  if (type === "bigint") return { draft: { type: "bigint" } };
+  if (type === "float") return { draft: { type: "number" } };
+  if (type === "real") return lossy({ type: "number" });
+  if (type === "bit") return { draft: { type: "boolean" } };
+  if (type === "date") return { draft: { type: "date" } };
+  if (type === "datetime" || type === "smalldatetime")
+    return lossy({ type: "datetime" });
+  if (type === "uniqueidentifier") return lossy({ type: "string" });
+  if (type.startsWith("decimal(") || type.startsWith("numeric(")) {
+    const descriptor = column.decimal;
+    if (descriptor === undefined)
+      return `${column.type} is outside VibORM's fixed-decimal domain`;
+    return {
+      draft: {
+        type: "decimal",
+        precision: descriptor.precision,
+        scale: descriptor.scale,
+      },
+    };
+  }
+  const temporal = MSSQL_TEMPORAL.exec(type);
+  if (temporal) {
+    const [, name, precision] = temporal;
+    const draft: FieldDraft = { type: name === "time" ? "time" : "datetime" };
+    return name !== "datetimeoffset" && precision === "3"
+      ? { draft }
+      : lossy(draft);
+  }
+  const sized = MSSQL_SIZED.exec(type);
+  if (sized) {
+    const [, name, size] = sized;
+    const binary = name === "varbinary" || name === "binary";
+    const draft: FieldDraft = { type: binary ? "blob" : "string" };
+    // What VibORM spells: NVARCHAR(MAX), NVARCHAR(450) for a keyed string
+    // (an index key holds 900 bytes), VARBINARY(MAX).
+    const own = binary
+      ? name === "varbinary" && size === "max"
+      : name === "nvarchar" &&
+        (size === "max" || (size === "450" && context.keyed));
+    return own ? { draft } : lossy(draft);
+  }
+  return `the type \`${column.type}\` has no VibORM scalar`;
+}
+
+/**
+ * A SQL Server column. A list, a JSON document and a string are all
+ * NVARCHAR(MAX) text, so such a column reads as a string.
+ */
+export function translateMssqlColumn(
+  context: ColumnContext
+): ColumnTranslation {
+  const base = mssqlBase(context.column.type.trim().toLowerCase(), context);
+  if (typeof base === "string") return { skip: base };
+  return finish(
+    base.draft,
+    context,
+    false,
+    "mssql",
+    undefined,
+    base.approximated
+  );
 }

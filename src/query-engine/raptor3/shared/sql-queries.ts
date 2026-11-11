@@ -120,6 +120,7 @@ import {
   relations,
   reversedRows,
   rowIdentity,
+  rowIn,
   rowSet,
   rowValue,
   type ScalarStateOf,
@@ -1704,15 +1705,12 @@ export class SqlQueries extends Queries {
     const set = this.#sharing(judgedSet);
     if (set === undefined) return undefined;
     const table = model["~"].names.sql!;
-    return a.operators.in(
-      rowValue(
-        this.keyOrder(model).map((field) => this.column(model, field, table))
-      ),
-      a.subqueries.scalar(
-        a.capabilities.supportsMutationTargetInSubquery
-          ? set
-          : throughDerived(a, set, this.alias())
-      )
+    return rowIn(
+      a,
+      this.keyOrder(model).map((field) => this.column(model, field, table)),
+      a.capabilities.supportsMutationTargetInSubquery
+        ? set
+        : throughDerived(a, set, this.alias())
     );
   }
   /**
@@ -1957,13 +1955,12 @@ export class SqlQueries extends Queries {
             limit: this.value(limit),
           }),
     });
-    return adapter.operators.in(
-      rowValue(keys.map((field) => this.column(model, field, alias))),
-      adapter.subqueries.scalar(
-        adapter.capabilities.supportsMutationTargetInSubquery
-          ? capped
-          : throughDerived(adapter, capped, this.alias())
-      )
+    return rowIn(
+      adapter,
+      keys.map((field) => this.column(model, field, alias)),
+      adapter.capabilities.supportsMutationTargetInSubquery
+        ? capped
+        : throughDerived(adapter, capped, this.alias())
     );
   }
   /** `<key> ASC, …` in {@link keyOrder}, the keys addressed through `alias`. */
@@ -2035,12 +2032,13 @@ export class SqlQueries extends Queries {
       case "through": {
         const { model, last } = predicate;
         const keys = this.keyOrder(model);
-        return a.operators.lte(
-          rowValue(keys.map((field) => this.column(model, field, alias))),
-          rowValue(
-            keys.map((field) => this.fieldValue(model, field, last[field]))
-          )
+        const row = keys.map((field) => this.column(model, field, alias));
+        const bound = keys.map((field) =>
+          this.fieldValue(model, field, last[field])
         );
+        return a.operators.rows
+          ? a.operators.rows(row, bound)
+          : a.operators.lte(rowValue(row), rowValue(bound));
       }
     }
   }
@@ -3604,27 +3602,24 @@ export class SqlQueries extends Queries {
     const junction = this.alias();
     // Membership first: the index on the source side finds the small target
     // worklist before the provider visits those target identities.
-    return a.operators.in(
-      rowValue(
-        edge.targetSide.members.map((field) =>
-          this.column(edge.target, field.referencedField, target)
-        )
+    return rowIn(
+      a,
+      edge.targetSide.members.map((field) =>
+        this.column(edge.target, field.referencedField, target)
       ),
-      a.subqueries.scalar(
-        assembleAdapterSelect(a, {
-          columns: sql.join(
-            edge.targetSide.members.map((field) =>
-              a.identifiers.column(junction, field.junctionField)
-            ),
-            ", "
+      assembleAdapterSelect(a, {
+        columns: sql.join(
+          edge.targetSide.members.map((field) =>
+            a.identifiers.column(junction, field.junctionField)
           ),
-          from: this.#tableNamed(edge.table, junction),
-          where: a.operators.and(
-            ...this.junctionSideConditions(edge.sourceSide, junction, source),
-            ...this.#linkBound(edge, junction)
-          ),
-        })
-      )
+          ", "
+        ),
+        from: this.#tableNamed(edge.table, junction),
+        where: a.operators.and(
+          ...this.junctionSideConditions(edge.sourceSide, junction, source),
+          ...this.#linkBound(edge, junction)
+        ),
+      })
     );
   }
   #lowerOrder(terms: readonly OrderTerm[]): Sql | undefined {
@@ -4087,7 +4082,7 @@ export class SqlQueries extends Queries {
     const keyColumns = order.map((term) =>
       this.#operand(model, term.field!, sourceAlias)
     );
-    if (sargable)
+    if (sargable && !a.operators.rows)
       return (descending ? a.operators.lte : a.operators.gte)(
         rowValue(order.map((term) => term.expression)),
         a.subqueries.scalar(cursorRow(keyColumns))

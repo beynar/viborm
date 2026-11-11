@@ -336,6 +336,15 @@ export interface DatabaseAdapter {
     // Subquery existence
     exists: (subquery: Sql) => Sql;
     notExists: (subquery: Sql) => Sql;
+
+    /**
+     * `items` compared as ONE row, where the dialect has no row value
+     * (SQL Server): a member of the rows `other` answers when `other` is a
+     * query, lexicographically at most the row `other` lists when it is
+     * values. Absent where `(a, b)` is a row value, which the engine then
+     * writes itself, including the row-value seek of a cursor.
+     */
+    rows?: (items: readonly Sql[], other: Sql | readonly Sql[]) => Sql;
   };
 
   /**

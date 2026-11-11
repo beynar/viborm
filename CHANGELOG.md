@@ -5,6 +5,43 @@ Versioning.
 
 ## Unreleased
 
+VibORM now reads and writes Microsoft SQL Server, and reads an existing SQL
+Server schema into a schema document.
+
+### Added
+
+- **`viborm/mssql`, a SQL Server driver** (the `mssql` package, tedious), for
+  SQL Server 2022 and later and Azure SQL. Every query, nested write,
+  transaction (savepoints are `SAVE TRANSACTION`, the isolation level is
+  `BEGIN TRANSACTION`'s own) and official extension runs on it. To-many
+  includes are built with `STRING_AGG` in their page's order; upserts take the
+  locked branch (no `MERGE`); a statement binds at most 2,098 values, and bulk
+  writes split to stay under it. Tables live in `dbo` unless `namespace` names
+  another schema. See the [SQL Server](https://viborm.dev/docs/drivers/sqlserver)
+  page.
+- **`introspectSchema({ url: "mssql://…" })`** reads a SQL Server schema; the
+  introspection-only migration driver is `viborm/migrations/mssql`. A type the
+  document has no spelling for (`NVARCHAR(n)`, `SMALLINT`, `DATETIME`, …) is
+  read as its scalar with an `approximated` warning; triggers, CHECK
+  constraints, row-level security and column collations are `unstated`.
+- **`adapter.operators.rows`**, an optional adapter member for a dialect with
+  no row value: the engine asks it for `(k1, k2) IN (SELECT …)` and
+  `(k1, k2) <= (v1, v2)`, and takes its general cursor window where it is
+  present. PostgreSQL, MySQL and SQLite do not declare it; their SQL is
+  unchanged.
+- **`capabilities.padsTrailingSpaces`**: SQL Server holds `"a"` and `"a "` as
+  one unique value.
+
+### Not supported on SQL Server
+
+- **Migrations**: `createMigrationClient` refuses a SQL Server client; VibORM
+  generates and applies no DDL for it.
+- **Recursive queries** (`recurse`): T-SQL has no `WITH` inside a subquery and
+  no `UNION` in a recursive member.
+- **Geographic points and vectors.**
+- **Cloudflare Workers and Durable Objects**: tedious layers TLS over its own
+  packets (or needs the `tds/8.0` ALPN), which a Worker socket cannot do.
+
 ## 1.14.0 — 2026-11-11
 
 VibORM now runs on a Durable Object's own SQLite storage, takes over tables it

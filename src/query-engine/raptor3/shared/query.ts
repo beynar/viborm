@@ -441,6 +441,12 @@ export interface SelectorRead {
 export function rowValue(items: Sql[]): Sql {
   return items.length === 1 ? items[0]! : sql`(${sql.join(items, ", ")})`;
 }
+/** `items`, as one row, among the rows `query` answers. */
+export function rowIn(adapter: DatabaseAdapter, items: Sql[], query: Sql): Sql {
+  return adapter.operators.rows
+    ? adapter.operators.rows(items, query)
+    : adapter.operators.in(rowValue(items), adapter.subqueries.scalar(query));
+}
 /** Every column of `query`, read through a derived table named `alias`. */
 export function throughDerived(
   adapter: DatabaseAdapter,

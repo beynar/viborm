@@ -226,7 +226,11 @@ request), no targeted upsert (the locked branch, as on MySQL), no `LIMIT`
 `CROSS`/`OUTER APPLY` for `LATERAL`, table hints for `FOR UPDATE`. The to-many
 carrier is `STRING_AGG` (no `JSON_ARRAYAGG` before 2025); an ordered page read
 by it carries a `ROW_NUMBER()` the aggregate states `WITHIN GROUP`, since
-`STRING_AGG` promises no input order. Recursive CTEs are refused (no `WITH` in
+`STRING_AGG` promises no input order. T-SQL has no row value either:
+`operators.rows` (declared by this adapter alone) spells `(k1, k2) IN (SELECT …)`
+as an `EXISTS` over the query as a derived table with named columns, and
+`(k1, k2) <= (v1, v2)` column by column; where it is present the engine also
+takes its general cursor window instead of the row-value seek. Recursive CTEs are refused (no `WITH` in
 a subquery, no `UNION` in a recursive member).
 
 `capabilities.sharesRelationBodies` is a transport fact, never a dialect

@@ -477,7 +477,7 @@ jobs:
         env:
           MSSQL_TEST_CONNECTION_STRING: mssql://sa:Viborm_Pass1@127.0.0.1:1433/viborm?encrypt=false&trustServerCertificate=true
           NODE_OPTIONS: --max-old-space-size=3072
-        run: node node_modules/vitest/vitest.mjs run --project provider-mssql --testTimeout=120000 --hookTimeout=240000 --bail=0
+        run: node node_modules/vitest/vitest.mjs run --config vitest.workspace.ts --project provider-mssql --testTimeout=120000 --hookTimeout=240000 --bail=0
 
   platform-providers:
     name: Bun and D1 providers

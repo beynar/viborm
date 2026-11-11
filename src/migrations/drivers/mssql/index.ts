@@ -27,6 +27,7 @@ import {
   VibORMErrorCode,
 } from "../../../errors";
 import type { ReferentialAction, SchemaSnapshot, TableDef } from "../../types";
+import type { AdoptionHazard } from "../base";
 import { SqlMigrationDriver } from "../sql";
 import { getMssqlType } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
@@ -38,6 +39,13 @@ import {
 } from "./introspect";
 
 const KEYED_STRING = "NVARCHAR(450)";
+
+/** One row per table feature `adoptionHazards` reports, in a stable order. */
+const MSSQL_HAZARDS_QUERY = `SELECT t.name AS table_name, CONCAT('trigger "', tr.name, '"') AS feature FROM sys.triggers AS tr JOIN sys.tables AS t ON t.object_id = tr.parent_id WHERE t.schema_id = SCHEMA_ID(@p1)
+UNION ALL SELECT t.name, CONCAT('CHECK constraint "', cc.name, '"') FROM sys.check_constraints AS cc JOIN sys.tables AS t ON t.object_id = cc.parent_object_id WHERE t.schema_id = SCHEMA_ID(@p1)
+UNION ALL SELECT DISTINCT t.name, 'row-level security' FROM sys.security_predicates AS sp JOIN sys.tables AS t ON t.object_id = sp.target_object_id WHERE t.schema_id = SCHEMA_ID(@p1)
+UNION ALL SELECT t.name, CONCAT('the collation ', c.collation_name, ' on column "', c.name, '"') FROM sys.columns AS c JOIN sys.tables AS t ON t.object_id = c.object_id WHERE t.schema_id = SCHEMA_ID(@p1) AND c.collation_name IS NOT NULL AND c.collation_name <> CAST(DATABASEPROPERTYEX(DB_NAME(), 'Collation') AS NVARCHAR(128))
+ORDER BY 1, 2`;
 
 /** Every DDL generator's answer: the one statement of what this driver is. */
 function refuseDdl(): never {
@@ -98,6 +106,25 @@ export class MssqlMigrationDriver extends SqlMigrationDriver {
 
   generateInventoryEnums(): null {
     return null; // No standalone enum types.
+  }
+
+  /**
+   * What a SQL Server table carries that a document cannot say: a trigger, a
+   * CHECK constraint, a row-level security policy, and a column collation
+   * other than the database's own.
+   */
+  override async adoptionHazards(
+    tables: readonly string[],
+    executeRaw: CatalogReader
+  ): Promise<readonly AdoptionHazard[]> {
+    if (tables.length === 0) return [];
+    const { rows } = await executeRaw<{ table_name: string; feature: string }>(
+      MSSQL_HAZARDS_QUERY,
+      [this.schema]
+    );
+    return rows
+      .filter((row) => tables.includes(row.table_name))
+      .map((row) => ({ table: row.table_name, feature: row.feature }));
   }
 
   // ===========================================================================
@@ -170,6 +197,13 @@ export class MssqlMigrationDriver extends SqlMigrationDriver {
   }
 
   /** A datetime default is naive UTC, the `DATETIME2` the adapter writes. */
+  /** `now()`: the UTC clock, spelled as the catalog prints it back. */
+  protected override getAutoGenerateExpression(
+    autoGenerate: ScalarState["autoGenerate"]
+  ): string | undefined {
+    return autoGenerate?.kind === "now" ? "sysutcdatetime()" : undefined;
+  }
+
   override getDefaultExpression(
     scalar: Scalar,
     scalarState: ScalarState

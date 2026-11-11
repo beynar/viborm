@@ -41,9 +41,11 @@ Tables live in the `dbo` schema unless you pass `namespace`.
 
 VibORM writes no DDL for SQL Server: `createMigrationClient` refuses a SQL
 Server client, so you create the tables yourself (or with your own migration
-tool). The SQL Server migration driver (`viborm/migrations/mssql`) implements
-only `introspect()`: it reads an existing schema's tables, columns, keys,
-indexes and foreign keys from `sys.*`, and refuses every DDL statement.
+tool). To start from an existing database,
+[`introspectSchema`](/docs/schema/introspect) reads it into a schema document
+(`introspectSchema({ url: "mssql://…" })`): the SQL Server migration driver
+(`viborm/migrations/mssql`) reads its tables, columns, keys, indexes and foreign
+keys from `sys.*`, and refuses every DDL statement.
 
 The column types VibORM reads and writes:
 

@@ -137,6 +137,21 @@ const condition = (value: Sql): Sql => {
   return value;
 };
 
+const isSqlList = (other: Sql | readonly Sql[]): other is readonly Sql[] =>
+  Array.isArray(other);
+
+/** `items` ≤ `bound` lexicographically, from column `index` on. */
+const rowAtMost = (
+  items: readonly Sql[],
+  bound: readonly Sql[],
+  index: number
+): Sql => {
+  const item = items[index]!;
+  const limit = bound[index]!;
+  if (index === items.length - 1) return sql`${item} <= ${limit}`;
+  return sql`(${item} < ${limit} OR (${item} = ${limit} AND ${rowAtMost(items, bound, index + 1)}))`;
+};
+
 /**
  * T-SQL's exact integer arithmetic over `DECIMAL(38, 0)`. `%` is defined on
  * exact numerics, and `n - n % d` is divisible by `d`, so its quotient has no
@@ -402,6 +417,24 @@ export class MssqlAdapter implements DatabaseAdapter {
 
     exists: (subquery: Sql): Sql => sql`EXISTS (${subquery})`,
     notExists: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
+
+    // T-SQL has no row value. Membership reads the rows through a derived
+    // table whose columns it names (`AS "r" ("r0", …)`, whatever the query
+    // calls them); a bound is spelled column by column.
+    rows: (items: readonly Sql[], other: Sql | readonly Sql[]): Sql => {
+      if (isSqlList(other)) return rowAtMost(items, other, 0);
+      if (items.length === 1) return sql`${items[0]!} IN (${other})`;
+      const names = items.map((_, index) => `r${index}`);
+      return sql`EXISTS (SELECT 1 FROM (${other}) AS "r" (${sql.raw(
+        names.map(quoteIdent).join(", ")
+      )}) WHERE ${sql.join(
+        items.map(
+          (item, index) =>
+            sql`${sql.raw(`"r".${quoteIdent(names[index]!)}`)} = ${item}`
+        ),
+        " AND "
+      )})`;
+    },
   });
 
   expressions = {
@@ -620,6 +653,9 @@ export class MssqlAdapter implements DatabaseAdapter {
     existsCheck: (from: Sql, where: Sql): Sql =>
       sql`SELECT 1 FROM ${from} WHERE ${condition(where)}`,
     isolated: (inner: Sql): Sql => condition(inner),
+    // No rowid: a SQL Server table keeps none `SELECT *` leaves out.
+    rows: (from: Sql, _row: string, where: Sql | undefined, alias: string) =>
+      sql`(SELECT * FROM ${from} WHERE ${where ? condition(where) : TRUE_CONDITION}) AS ${sql.raw(quoteIdent(alias))}`,
   };
 
   /**
