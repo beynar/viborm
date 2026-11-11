@@ -216,7 +216,7 @@ export class SnowflakeQueries extends SqlQueries {
       assembleAdapterSelect(a, {
         columns: edge.many
           ? a.expressions.coalesce(aggregated, a.json.emptyArray())
-          : sql`(${aggregated})[0]`,
+          : sql`GET(${aggregated}, 0)`,
         from: a.subqueries.correlate(qualified, pageAlias),
         where: a.operators.and(
           ...keys.map(([, parent], index) =>

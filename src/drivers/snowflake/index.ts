@@ -71,10 +71,11 @@ export interface SnowflakeDriverOptions {
   readonly warehouse?: string;
   readonly database?: string;
   /**
-   * The schema every statement runs in, and the one VibORM qualifies its
-   * tables with, spelled as the catalog spells it (usually upper case).
+   * The Snowflake schema every statement runs in, and the one VibORM
+   * qualifies its tables with (the adapter's namespace), spelled as the
+   * catalog spells it (usually upper case).
    */
-  readonly schema?: string;
+  readonly namespace?: string;
   readonly role?: string;
   /** Seconds a statement may run before Snowflake and the driver stop it. */
   readonly timeout?: number;
@@ -98,7 +99,7 @@ const SNOWFLAKE_CONFIG_KEYS: Record<keyof SnowflakeDriverOptions, true> = {
   tokenType: true,
   warehouse: true,
   database: true,
-  schema: true,
+  namespace: true,
   role: true,
   timeout: true,
   host: true,
@@ -152,7 +153,7 @@ export function parseSnowflakeUrl(url: string): SnowflakeDriverOptions {
       ? { username: decodeURIComponent(parsed.username) }
       : {}),
     ...(database ? { database } : {}),
-    ...(schema ? { schema } : {}),
+    ...(schema ? { namespace: schema } : {}),
     ...(query("warehouse") ? { warehouse: query("warehouse") } : {}),
     ...(query("role") ? { role: query("role") } : {}),
     ...(query("host") ? { host: query("host") } : {}),
@@ -228,7 +229,7 @@ export class SnowflakeDriver extends Driver<
       username: options.username ?? fromUrl.username,
       warehouse: options.warehouse ?? fromUrl.warehouse,
       database: options.database ?? fromUrl.database,
-      schema: options.schema ?? fromUrl.schema,
+      namespace: options.namespace ?? fromUrl.namespace,
       role: options.role ?? fromUrl.role,
       host: options.host ?? fromUrl.host,
     };
@@ -247,13 +248,13 @@ export class SnowflakeDriver extends Driver<
     this.#context = {
       ...(resolved.warehouse ? { warehouse: resolved.warehouse } : {}),
       ...(resolved.database ? { database: resolved.database } : {}),
-      ...(resolved.schema ? { schema: resolved.schema } : {}),
+      ...(resolved.namespace ? { schema: resolved.namespace } : {}),
       ...(resolved.role ? { role: resolved.role } : {}),
     };
     defineImmutableDriverFact(
       this,
       "adapter",
-      new SnowflakeAdapter(resolved.schema)
+      new SnowflakeAdapter(resolved.namespace)
     );
   }
 
@@ -362,7 +363,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     tokenType,
     warehouse,
     database,
-    schema,
+    namespace,
     role,
     timeout,
     host,
@@ -380,7 +381,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
       tokenType,
       warehouse,
       database,
-      schema,
+      namespace,
       role,
       timeout,
       host,

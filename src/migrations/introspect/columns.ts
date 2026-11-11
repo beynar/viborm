@@ -674,3 +674,84 @@ export function translateMysqlColumn(
       : undefined;
   return finish(base, context, false, "mysql", undefined, approximated);
 }
+
+// =============================================================================
+// SNOWFLAKE
+// =============================================================================
+
+const SNOWFLAKE_NUMBER = /^number\((\d+),(\d+)\)$/;
+const SNOWFLAKE_NOW =
+  /^(?:current_timestamp|sysdate|systimestamp|localtimestamp|current_date|current_time|getdate)(?:\(\d*\))?$/i;
+
+/**
+ * Snowflake's column type (as its introspection spells it, lower case) as a
+ * field draft. A `NUMBER(p,0)` wider than nine digits is a `bigint`, so no
+ * integer past 2^53 is read through a JavaScript number; Snowflake's own
+ * `INTEGER` is `NUMBER(38,0)`.
+ */
+function snowflakeBase(column: ColumnDef): FieldDraft | string {
+  const type = column.type.toLowerCase();
+  const number = SNOWFLAKE_NUMBER.exec(type);
+  if (number) {
+    const precision = Number(number[1]);
+    const scale = Number(number[2]);
+    if (scale === 0) return { type: precision <= 9 ? "int" : "bigint" };
+    return { type: "decimal", precision, scale };
+  }
+  const base = type.replace(/\(.*\)$/, "");
+  switch (base) {
+    case "float":
+      return { type: "number" };
+    case "varchar":
+      return { type: "string" };
+    case "boolean":
+      return { type: "boolean" };
+    case "date":
+      return { type: "date" };
+    case "time":
+      return { type: "time" };
+    case "timestamp_ntz":
+    case "timestamp_ltz":
+    case "timestamp_tz":
+      return { type: "datetime" };
+    case "binary":
+      return { type: "blob" };
+    case "variant":
+    case "object":
+    case "array":
+      return { type: "json" };
+    default:
+      return `the type \`${column.type.toUpperCase()}\` has no VibORM scalar`;
+  }
+}
+
+export function translateSnowflakeColumn(
+  context: ColumnContext
+): ColumnTranslation {
+  const { column } = context;
+  const base = snowflakeBase(column);
+  if (typeof base === "string") return { skip: base };
+  const timestamp = column.type.toLowerCase().replace(/\(.*\)$/, "");
+  const approximated =
+    timestamp === "timestamp_ntz"
+      ? "a TIMESTAMP_NTZ holds a wall clock with no zone; VibORM reads it as UTC"
+      : undefined;
+  // Snowflake's clocks are functions VibORM's generator stands for.
+  if (
+    column.default !== undefined &&
+    SNOWFLAKE_NOW.test(column.default.trim()) &&
+    (base.type === "datetime" || base.type === "date" || base.type === "time")
+  ) {
+    base.generate = { kind: "now" };
+    const { default: _clock, ...rest } = column;
+    return finish(
+      base,
+      { ...context, column: rest },
+      false,
+      "snowflake",
+      undefined,
+      approximated
+    );
+  }
+  return finish(base, context, false, "snowflake", undefined, approximated);
+}
