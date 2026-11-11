@@ -141,11 +141,13 @@ export class SnowflakeMigrationDriver extends MigrationDriver {
     supportsIndexTypes: [],
     supportsNativeArrays: false,
     supportsAddForeignKeyViaAlter: true,
-    introspectionReadsConstraintNames: true,
+    // Snowflake reads its constraint names back, but they are whatever its
+    // DDL said: VibORM never wrote them, so a key is recognized by its shape.
+    introspectionReadsConstraintNames: false,
   };
 
   /** The database and schema read: the bound namespace, else the session's. */
-  async #location(
+  private async location(
     executeRaw: ExecuteRaw
   ): Promise<{ database: string; schema: string }> {
     const { rows } = await executeRaw<{
@@ -166,7 +168,7 @@ export class SnowflakeMigrationDriver extends MigrationDriver {
   }
 
   async introspect(executeRaw: ExecuteRaw): Promise<SchemaSnapshot> {
-    const { database, schema } = await this.#location(executeRaw);
+    const { database, schema } = await this.location(executeRaw);
     const scope = `${quote(database)}.${quote(schema)}`;
     const tables = await executeRaw<{ TABLE_NAME: string }>(
       "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME",
