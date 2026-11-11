@@ -62,6 +62,7 @@ import {
   createDirectionOrderBy,
   createExistenceOperators,
   createIdentifiers,
+  createInsertAbsent,
   createInsertStatement,
   createLateralJoins,
   createLogicalOperators,
@@ -603,6 +604,7 @@ export class PostgresAdapter implements DatabaseAdapter {
   mutations = {
     skipDuplicatesStrategy: "sql" as const,
     insert: createInsertStatement(quoteIdent),
+    insertAbsent: createInsertAbsent(quoteIdent),
     insertDefault: (table: Sql): Sql =>
       sql`INSERT INTO ${table} DEFAULT VALUES`,
 

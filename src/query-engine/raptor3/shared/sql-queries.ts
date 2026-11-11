@@ -3529,8 +3529,14 @@ export class SqlQueries extends Queries {
       this.lowerSelector(domain, target)!
     );
   }
-  memberWhere(edge: Membership, parent: Input, alias: string): Sql {
-    return this.#membershipWhere(edge, alias, parent);
+  /** `held` locks the links a junction's membership is read from, where the provider can. */
+  memberWhere(
+    edge: Membership,
+    parent: Input,
+    alias: string,
+    held = false
+  ): Sql {
+    return this.#membershipWhere(edge, alias, parent, held);
   }
   /**
    * The rows OUTSIDE a membership, in three-valued logic: a member-side
@@ -3563,7 +3569,8 @@ export class SqlQueries extends Queries {
   #membershipWhere(
     edge: Membership,
     target: string,
-    source: string | Input | CarriedRow
+    source: string | Input | CarriedRow,
+    held = false
   ): Sql {
     const a = this.adapter;
     if (edge.kind === "reference") {
@@ -3623,6 +3630,7 @@ export class SqlQueries extends Queries {
             ...this.junctionSideConditions(edge.sourceSide, junction, source),
             ...this.#linkBound(edge, junction)
           ),
+          forUpdate: held,
         })
       )
     );

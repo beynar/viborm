@@ -744,9 +744,18 @@ export class SqlOperationContext extends OperationContext {
   /**
    * `rows`, each {@link InsertValue} its stamps left replaced by what it
    * computes for these rows, now that every other value is final; `rows`
-   * itself when none holds one.
+   * itself when none holds one. A value may `read` the database before
+   * the write: on the operation's own transport, unless the caller gives its
+   * own; never where the statements are prepared before any is sent.
    */
-  async #computed(model: AnyModel, rows: Input[]): Promise<Input[]> {
+  async computed(
+    model: AnyModel,
+    rows: Input[],
+    read: false | ((statement: Sql) => Promise<readonly Input[]>) = this
+      .ownership !== "batch-preparation" &&
+      (async (statement) =>
+        (await this.answer({ sql: statement } as Query, false, model)).rows)
+  ): Promise<Input[]> {
     let computed: Input[] | undefined;
     const fields = new Map<string, { value: InsertValue; at: number[] }>();
     for (const [index, row] of rows.entries())
@@ -765,11 +774,7 @@ export class SqlOperationContext extends OperationContext {
           field,
           queries: this.queries,
           dialect: this.driver.dialect as SqlDialect,
-          ...(this.ownership !== "batch-preparation" && {
-            read: async (statement: Sql) =>
-              (await this.answer({ sql: statement } as Query, false, model))
-                .rows,
-          }),
+          ...(read && { read }),
         },
         at
       );
@@ -781,7 +786,7 @@ export class SqlOperationContext extends OperationContext {
   /** An update's `values`, each InsertValue replaced by its expression. */
   async #settled(model: AnyModel, given: Input): Promise<Input> {
     return Object.values(given).some((value) => value instanceof InsertValue)
-      ? (await this.#computed(model, [given]))[0]!
+      ? (await this.computed(model, [given]))[0]!
       : given;
   }
   #insertStatement(
@@ -908,7 +913,7 @@ export class SqlOperationContext extends OperationContext {
     return columns;
   }
   /** `statement` answering with `projection` ({@link answersInStatement}). */
-  #answering(
+  answering(
     model: AnyModel,
     statement: Sql,
     projection: PreparedProjection,
@@ -963,7 +968,7 @@ export class SqlOperationContext extends OperationContext {
   ): Promise<unknown> {
     const counted = projection ? undefined : this.#counted(statement);
     const output = projection
-      ? this.#answering(model, statement, projection, marked && [marked.column])
+      ? this.answering(model, statement, projection, marked && [marked.column])
       : counted!.statement;
     return this.#setMutation(
       output,
@@ -1020,7 +1025,7 @@ export class SqlOperationContext extends OperationContext {
         throw new QueryEngineError("No data to insert for createMany.");
       return this.emptyBulkResult(projection);
     }
-    const rows = await this.#computed(model, given);
+    const rows = await this.computed(model, given);
     const q = this.queries;
     const adapter = this.driver.adapter;
     const placed = this.#produced(model);
@@ -1127,7 +1132,7 @@ export class SqlOperationContext extends OperationContext {
     // answers it (`Commands.rootCreate`, one row): each statement answers.
     const returning =
       projection && !rereads
-        ? (mutation: Sql) => this.#answering(model, mutation, projection)
+        ? (mutation: Sql) => this.answering(model, mutation, projection)
         : undefined;
     const groups: { readonly columns: string[]; readonly rows: Input[] }[] = [];
     for (const row of rows) {
@@ -1259,7 +1264,7 @@ export class SqlOperationContext extends OperationContext {
   ): Promise<unknown> {
     const q = this.queries;
     const adapter = this.driver.adapter;
-    const row = (await this.#computed(model, [given]))[0]!;
+    const row = (await this.computed(model, [given]))[0]!;
     const columns = Object.keys(row);
     const placed = this.#produced(model);
     const insert = this.#insertStatement(model, columns, [row], false, placed);
@@ -1294,11 +1299,7 @@ export class SqlOperationContext extends OperationContext {
             context: this.statementContext(model, this.operation),
           },
           {
-            sql: this.#answering(
-              model,
-              sql`${insert} ${conflict}`,
-              projection!
-            ),
+            sql: this.answering(model, sql`${insert} ${conflict}`, projection!),
             context: this.statementContext(model, this.operation),
           },
         ],
@@ -1878,7 +1879,7 @@ export class SqlOperationContext extends OperationContext {
   ): Promise<Input> {
     const q = this.queries;
     const adapter = this.driver.adapter;
-    const values = (await this.#computed(model, [given]))[0]!;
+    const values = (await this.computed(model, [given]))[0]!;
     const fields = Object.keys(values);
     const placed = this.#produced(model);
     const judged = placed && { model, refusal: refusal ?? this.#forbidden };
@@ -3009,6 +3010,25 @@ export class SqlOperationContext extends OperationContext {
       domain.cycles(model, judgement),
       limit
     );
+  }
+  /**
+   * The refusal of a write of `model` whose statement refused the row it
+   * would produce: the root's own, or `refusal` for a nested write.
+   */
+  refused(
+    model: AnyModel,
+    judgement?: RowJudgement,
+    refusal = this.#updateRefusal(model, judgement)
+  ): Error {
+    return this.refusal({ model, refusal });
+  }
+  /**
+   * PROTOTYPE: what a root write of `model` reports where its statement
+   * refuses the row it would produce, as the data a unit's owner rebuilds
+   * the error from.
+   */
+  refusalOf(model: AnyModel, judgement?: RowJudgement): PreparedGuardFailure {
+    return this.#updateRefusal(model, judgement);
   }
   /** A root write's refusal of the row it produces (§5.3). */
   get #forbidden(): PreparedGuardFailure {

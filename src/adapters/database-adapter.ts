@@ -847,6 +847,21 @@ export interface DatabaseAdapter {
       source: Sql[][] | { readonly select: Sql },
       prefix?: Sql
     ) => Sql;
+    /**
+     * INSERT the rows that are not there, by `key`, the columns of one unique
+     * constraint of `table`: a row that is there stays as it is, or takes
+     * `sets`, unless it holds `unless` already. One statement where the
+     * dialect names a conflict target, and elsewhere the statements that
+     * leave the table the same.
+     */
+    insertAbsent: (
+      table: Sql,
+      columns: string[],
+      rows: Sql[][],
+      key: readonly string[],
+      sets?: Sql,
+      unless?: Sql
+    ) => Sql[];
     /** Insert one row using only database defaults. */
     insertDefault: (table: Sql) => Sql;
     /** UPDATE table SET ... WHERE ... */

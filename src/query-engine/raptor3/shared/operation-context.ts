@@ -892,7 +892,7 @@ export abstract class OperationContext {
   /** A write's envelope, out of line from reads, which need none. */
   async #runWrite<T>(body: () => Promise<T>, single: boolean): Promise<T> {
     try {
-      if (!single) this.#requireAtomicUnit();
+      if (!single) this.requireAtomicUnit();
       const region = this.#region();
       if (!region) return await this.#batchAttempt(body);
       if (!single) return await this.#regionAttempt(region, body);
@@ -941,7 +941,7 @@ export abstract class OperationContext {
    * decision read of an `upsert` used to dispatch first and surface the
    * provider's own error instead of this refusal.
    */
-  #requireAtomicUnit(): void {
+  requireAtomicUnit(): void {
     if (this.ownership !== "standalone") return;
     const driver = this.driver;
     const meta = { driver: driver.driverName, operation: this.operation };
@@ -1765,7 +1765,7 @@ export abstract class OperationContext {
    * `primary` absent means the operation has not failed, which was the shipped
    * `throw outcomeFailure` arm.
    */
-  protected async stateWriteOutcome(
+  async stateWriteOutcome(
     say: (() => Promise<void>) | undefined,
     primary?: unknown
   ): Promise<void> {
@@ -1778,7 +1778,7 @@ export abstract class OperationContext {
     }
   }
   /** Mark a failure as this operation's own answer ({@link answeredFailures}). */
-  protected answered<T>(failure: T): T {
+  answered<T>(failure: T): T {
     if (typeof failure === "object" && failure !== null)
       (this.#answeredFailureSet ??= new WeakSet()).add(failure);
     return failure;
