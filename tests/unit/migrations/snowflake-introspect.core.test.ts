@@ -297,9 +297,9 @@ describe("migrations on Snowflake", () => {
         }
       })();
       expect(failure).toBeInstanceOf(MigrationError);
-      expect((failure as MigrationError).code).toBe(
-        VibORMErrorCode.FEATURE_NOT_SUPPORTED
-      );
+      expect(failure).toMatchObject({
+        code: VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+      });
     }
     // A read-only command reads.
     admitLiveMigrationCapability(migrationDriver, "read-only", "status");
@@ -313,9 +313,10 @@ describe("migrations on Snowflake", () => {
       .push({ dryRun: true })
       .catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(MigrationError);
-    expect((failure as MigrationError).message).toBe(
-      "Snowflake cannot create a table here: VibORM only reads a Snowflake warehouse."
-    );
+    expect(failure).toMatchObject({
+      message:
+        "Snowflake cannot create a table here: VibORM only reads a Snowflake warehouse.",
+    });
     for (const sent of server.statements())
       expect(sent.statement).toMatch(READ_STATEMENT);
   });

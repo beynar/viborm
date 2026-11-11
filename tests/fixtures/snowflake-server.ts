@@ -16,6 +16,7 @@
 
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { gzipSync } from "node:zlib";
+import { isRecord } from "@validation/value-guards";
 
 const CANCEL = /^\/api\/v2\/statements\/([^/]+)\/cancel$/;
 const STATUS = /^\/api\/v2\/statements\/([^/]+)$/;
@@ -55,7 +56,7 @@ export type FakeAnswer =
   | { readonly hang: true }
   /** A 200 whose body is exactly this, partitions read from `partitions`. */
   | {
-      readonly body: unknown;
+      readonly body: Readonly<Record<string, unknown>>;
       readonly partitions?: readonly unknown[];
     };
 
@@ -79,6 +80,15 @@ export interface FakeSnowflake {
 interface Running {
   readonly answer: FakeAnswer;
   pending: number;
+}
+
+/** A POSTed body as the API defines it: a statement, at least. */
+function statementOf(value: unknown): FakeStatement | undefined {
+  return isStatement(value) ? value : undefined;
+}
+
+function isStatement(value: unknown): value is FakeStatement {
+  return isRecord(value) && typeof value.statement === "string";
 }
 
 function resultSet(
@@ -133,8 +143,7 @@ export async function startFakeSnowflake(
     request.on("end", () => {
       const url = new URL(request.url ?? "/", "http://localhost");
       const text = Buffer.concat(chunks).toString("utf8");
-      const body =
-        text.length > 0 ? (JSON.parse(text) as FakeStatement) : undefined;
+      const body = text.length > 0 ? statementOf(JSON.parse(text)) : undefined;
       requests.push({
         method: request.method ?? "GET",
         path: `${url.pathname}${url.search}`,
@@ -149,7 +158,7 @@ export async function startFakeSnowflake(
         const { answer } = run;
         if ("hang" in answer) return; // left open: the client aborts it
         if ("body" in answer) {
-          json(200, { statementHandle: handle, ...(answer.body as object) });
+          json(200, { statementHandle: handle, ...answer.body });
           return;
         }
         if ("error" in answer) {

@@ -116,7 +116,7 @@ describe("Snowflake SQL API transport", () => {
       .run("SELECT SYSTEM$WAIT(10)", undefined)
       .catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(QueryError);
-    expect((failure as QueryError).code).toBe(VibORMErrorCode.QUERY_TIMEOUT);
+    expect(failure).toMatchObject({ code: VibORMErrorCode.QUERY_TIMEOUT });
     expect(
       server!.requests.some(
         (request) =>
@@ -133,7 +133,7 @@ describe("Snowflake SQL API transport", () => {
       rowType: [column],
       partitionInfo: [{ rowCount: 1 }],
     };
-    const answers: unknown[] = [
+    const answers: Readonly<Record<string, unknown>>[] = [
       { resultSetMetaData: meta },
       { data: [["1"]] },
       { resultSetMetaData: meta, data: [] },
@@ -144,9 +144,9 @@ describe("Snowflake SQL API transport", () => {
         .run("SELECT 1", undefined)
         .catch((error: unknown) => error);
       expect(failure).toBeInstanceOf(QueryError);
-      expect((failure as QueryError).code).toBe(
-        VibORMErrorCode.QUERY_RESULT_INVALID
-      );
+      expect(failure).toMatchObject({
+        code: VibORMErrorCode.QUERY_RESULT_INVALID,
+      });
       await server!.close();
       server = undefined;
     }

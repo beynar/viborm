@@ -309,7 +309,7 @@ describe.skipIf(credentials === undefined)("Snowflake, a real account", () => {
       (error: unknown) => error
     );
     expect(failure).toBeInstanceOf(QueryError);
-    expect((failure as QueryError).code).toBe(VibORMErrorCode.QUERY_TIMEOUT);
+    expect(failure).toMatchObject({ code: VibORMErrorCode.QUERY_TIMEOUT });
   }, 60_000);
 
   it("introspects the schema, its declared keys as relations", async () => {

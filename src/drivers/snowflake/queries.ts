@@ -50,6 +50,7 @@ import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { physicalField } from "@query-engine/raptor3/shared/storage";
 import type { AnyModel } from "@schema/model";
 import { type Sql, sql } from "@sql";
+import { isRecord } from "@validation/value-guards";
 
 /** What a nested read on Snowflake does not express. */
 function refused(what: string): never {
@@ -241,9 +242,9 @@ export class SnowflakeQueries extends SqlQueries {
     const ordered = new Set<string>();
     const terms = Array.isArray(input) ? input : input ? [input] : [];
     for (const term of terms) {
-      for (const [field, direction] of Object.entries(
-        term as Record<string, unknown>
-      )) {
+      // Admitted by the orderBy schema already: a record of field terms.
+      if (!isRecord(term)) continue;
+      for (const [field, direction] of Object.entries(term)) {
         if (direction === undefined) continue;
         if (model["~"].state.relations[field])
           refused("an order by a related row or its _count");
@@ -251,13 +252,13 @@ export class SnowflakeQueries extends SqlQueries {
         let nulls: "first" | "last" | undefined;
         if (direction === "asc" || direction === "desc")
           descending = direction === "desc";
-        else {
-          const specification = direction as Record<string, unknown>;
-          if (specification._distance !== undefined)
+        else if (isRecord(direction)) {
+          if (direction._distance !== undefined)
             refused("an order by distance");
-          descending = specification.sort === "desc";
-          nulls = specification.nulls as "first" | "last" | undefined;
-        }
+          descending = direction.sort === "desc";
+          if (direction.nulls === "first" || direction.nulls === "last")
+            nulls = direction.nulls;
+        } else continue;
         ordered.add(field);
         keys.push({
           expression: this.column(model, field, alias),

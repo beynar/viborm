@@ -314,12 +314,12 @@ describe("Snowflake refusals", () => {
     it(`refuses ${name} before sending anything`, async () => {
       const failure = await write(client()).catch((error: unknown) => error);
       expect(failure).toBeInstanceOf(FeatureNotSupportedError);
-      expect((failure as FeatureNotSupportedError).code).toBe(
-        VibORMErrorCode.FEATURE_NOT_SUPPORTED
-      );
-      expect((failure as Error).message).toContain(
-        "VibORM only reads Snowflake"
-      );
+      expect(failure).toMatchObject({
+        code: VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+      });
+      expect(failure).toMatchObject({
+        message: expect.stringContaining("VibORM only reads Snowflake"),
+      });
       expect(server.requests).toEqual([]);
     });
 
@@ -406,9 +406,9 @@ describe("Snowflake failures", () => {
       .author.findMany()
       .catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(QueryError);
-    expect((failure as QueryError).code).toBe(
-      VibORMErrorCode.QUERY_SCHEMA_MISMATCH
-    );
+    expect(failure).toMatchObject({
+      code: VibORMErrorCode.QUERY_SCHEMA_MISMATCH,
+    });
     // Snowflake's own code is a provider detail: disclosed only on request.
   });
 

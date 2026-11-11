@@ -25,6 +25,7 @@ import {
   QueryError,
   VibORMErrorCode,
 } from "@errors";
+import { isRecord } from "@validation/value-guards";
 import type { SnowflakeAuthenticator } from "./auth";
 import type { SnowflakeBinding, SnowflakeColumn } from "./values";
 
@@ -60,18 +61,24 @@ export interface StatementResult {
   readonly handle: string;
 }
 
-interface ResultSetBody {
-  readonly statementHandle?: string;
-  readonly statementStatusUrl?: string;
-  readonly code?: string;
-  readonly sqlState?: string;
-  readonly message?: string;
-  readonly data?: unknown[][];
-  readonly resultSetMetaData?: {
-    readonly numRows?: number;
-    readonly rowType?: SnowflakeColumn[];
-    readonly partitionInfo?: unknown[];
-  };
+/** An answer's JSON body, read field by field: nothing in it is trusted. */
+type Body = Readonly<Record<string, unknown>>;
+
+function text(body: Body | undefined, key: string): string | undefined {
+  const value = body?.[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function isColumn(value: unknown): value is SnowflakeColumn {
+  return (
+    isRecord(value) &&
+    typeof value.name === "string" &&
+    typeof value.type === "string"
+  );
+}
+
+function isRows(value: unknown): value is unknown[][] {
+  return Array.isArray(value) && value.every((row) => Array.isArray(row));
 }
 
 const MAX_POLL_MS = 2000;
@@ -83,17 +90,13 @@ export class SnowflakeApiError extends Error {
   readonly sqlstate: string | undefined;
   readonly status: number;
   readonly statementHandle: string | undefined;
-  constructor(
-    status: number,
-    body: ResultSetBody | undefined,
-    fallback: string
-  ) {
-    super(body?.message ?? fallback);
+  constructor(status: number, body: Body | undefined, fallback: string) {
+    super(text(body, "message") ?? fallback);
     this.name = "SnowflakeApiError";
     this.status = status;
-    this.code = body?.code;
-    this.sqlstate = body?.sqlState;
-    this.statementHandle = body?.statementHandle;
+    this.code = text(body, "code");
+    this.sqlstate = text(body, "sqlState");
+    this.statementHandle = text(body, "statementHandle");
   }
 }
 
@@ -124,15 +127,14 @@ const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
     signal?.addEventListener("abort", onAbort, { once: true });
   });
 
-async function readBody(
-  response: Response
-): Promise<ResultSetBody | undefined> {
-  const text = await response.text();
-  if (text.length === 0) return undefined;
+async function readBody(response: Response): Promise<Body | undefined> {
+  const answered = await response.text();
+  if (answered.length === 0) return undefined;
   try {
-    return JSON.parse(text) as ResultSetBody;
+    const parsed: unknown = JSON.parse(answered);
+    return isRecord(parsed) ? parsed : { message: answered.slice(0, 500) };
   } catch {
-    return { message: text.slice(0, 500) };
+    return { message: answered.slice(0, 500) };
   }
 }
 
@@ -185,7 +187,7 @@ export class SnowflakeTransport {
         { method: "POST", body },
         deadline.signal
       );
-      handle = answer.body?.statementHandle;
+      handle = text(answer.body, "statementHandle");
       let delay = this.#options.pollIntervalMs ?? 100;
       while (answer.status === 202 || answer.status === 429) {
         if (!handle)
@@ -209,14 +211,27 @@ export class SnowflakeTransport {
           `Snowflake answered HTTP ${answer.status}.`
         );
       const result = answer.body;
-      const metadata = result?.resultSetMetaData;
+      const metadata = isRecord(result?.resultSetMetaData)
+        ? result.resultSetMetaData
+        : undefined;
+      const columns = metadata?.rowType;
+      const first = result?.data;
       // A result states its columns and its first partition, empty or not;
       // without them the rows are not known, and no read answers [] for them.
-      if (!(Array.isArray(metadata?.rowType) && Array.isArray(result?.data)))
+      if (
+        !(
+          metadata &&
+          Array.isArray(columns) &&
+          columns.every(isColumn) &&
+          isRows(first)
+        )
+      )
         throw malformedResult("its rowType or its data is missing");
-      handle = result.statementHandle ?? handle ?? "";
-      const partitions = metadata.partitionInfo?.length ?? 1;
-      const rows: (readonly unknown[])[] = [...result.data];
+      handle = text(result, "statementHandle") ?? handle ?? "";
+      const partitions = Array.isArray(metadata.partitionInfo)
+        ? metadata.partitionInfo.length
+        : 1;
+      const rows: (readonly unknown[])[] = [...first];
       if (partitions > 1)
         for (const part of await this.#partitions(
           handle,
@@ -224,14 +239,12 @@ export class SnowflakeTransport {
           deadline.signal
         ))
           for (const row of part) rows.push(row);
-      if (
-        typeof metadata.numRows === "number" &&
-        rows.length !== metadata.numRows
-      )
+      const { numRows } = metadata;
+      if (typeof numRows === "number" && rows.length !== numRows)
         throw malformedResult(
-          `it states ${metadata.numRows} rows and holds ${rows.length}`
+          `it states ${numRows} rows and holds ${rows.length}`
         );
-      return { columns: metadata.rowType, rows, handle };
+      return { columns, rows, handle };
     } catch (error) {
       if (deadline.signal.aborted && handle) await this.cancel(handle);
       throw deadline.signal.aborted && deadline.signal.reason instanceof Error
@@ -279,7 +292,7 @@ export class SnowflakeTransport {
             `Snowflake answered HTTP ${answer.status} for partition ${partition}.`
           );
         const data = answer.body?.data;
-        if (!Array.isArray(data))
+        if (!isRows(data))
           throw malformedResult(`partition ${partition} holds no data`);
         out[partition - 1] = data;
       }
@@ -300,7 +313,7 @@ export class SnowflakeTransport {
     path: (attempt: number) => string,
     init: { method: string; body?: string },
     signal: AbortSignal
-  ): Promise<{ status: number; body: ResultSetBody | undefined }> {
+  ): Promise<{ status: number; body: Body | undefined }> {
     const attempts = this.#options.attempts ?? 3;
     for (let attempt = 0; ; attempt++) {
       let response: Response;
@@ -323,10 +336,10 @@ export class SnowflakeTransport {
       if (response.status === 401 || response.status === 403) {
         const body = await readBody(response);
         throw new ClientInitializationError(
-          `Snowflake refused the credentials: ${body?.message ?? `HTTP ${response.status}`}`,
+          `Snowflake refused the credentials: ${text(body, "message") ?? `HTTP ${response.status}`}`,
           {
             cause: new SnowflakeApiError(response.status, body, "unauthorized"),
-            meta: { driver: "snowflake", providerCode: body?.code },
+            meta: { driver: "snowflake", providerCode: text(body, "code") },
           }
         );
       }
