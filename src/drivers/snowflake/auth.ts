@@ -44,6 +44,9 @@ const LIFETIME_SECONDS = 3600;
 const RENEW_BEFORE_SECONDS = 60;
 const RSA = { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" } as const;
 const PEM = /-----BEGIN ([A-Z ]+)-----([\s\S]*?)-----END \1-----/;
+const PADDING = /=+$/;
+const PLUS = /\+/g;
+const SLASH = /\//g;
 
 function configuration(message: string): ClientInitializationError {
   return new ClientInitializationError(message, {
@@ -66,7 +69,10 @@ function bytesToBase64(bytes: Uint8Array): string {
 }
 
 const base64Url = (bytes: Uint8Array): string =>
-  bytesToBase64(bytes).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+  bytesToBase64(bytes)
+    .replace(PADDING, "")
+    .replace(PLUS, "-")
+    .replace(SLASH, "_");
 
 const utf8 = (text: string): Uint8Array<ArrayBuffer> =>
   new Uint8Array(new TextEncoder().encode(text));
@@ -75,8 +81,9 @@ const utf8 = (text: string): Uint8Array<ArrayBuffer> =>
 function derLength(length: number): number[] {
   if (length < 0x80) return [length];
   const bytes: number[] = [];
-  for (let rest = length; rest > 0; rest >>= 8) bytes.unshift(rest & 0xff);
-  return [0x80 | bytes.length, ...bytes];
+  for (let rest = length; rest > 0; rest = Math.floor(rest / 256))
+    bytes.unshift(rest % 256);
+  return [0x80 + bytes.length, ...bytes];
 }
 
 function der(tag: number, content: Uint8Array): Uint8Array<ArrayBuffer> {
@@ -88,7 +95,9 @@ function der(tag: number, content: Uint8Array): Uint8Array<ArrayBuffer> {
 }
 
 function concat(...parts: Uint8Array[]): Uint8Array<ArrayBuffer> {
-  const out = new Uint8Array(parts.reduce((size, part) => size + part.length, 0));
+  const out = new Uint8Array(
+    parts.reduce((size, part) => size + part.length, 0)
+  );
   let at = 0;
   for (const part of parts) {
     out.set(part, at);
@@ -240,7 +249,10 @@ export class SnowflakeAuthenticator {
       now,
       imported.fingerprint
     );
-    this.#jwt = { token: jwt, renewAt: now + LIFETIME_SECONDS - RENEW_BEFORE_SECONDS };
+    this.#jwt = {
+      token: jwt,
+      renewAt: now + LIFETIME_SECONDS - RENEW_BEFORE_SECONDS,
+    };
     return { token: jwt, type: "KEYPAIR_JWT" };
   }
 }

@@ -27,8 +27,8 @@
  * Snowflake: `snowflake-client.core.test.ts` pins those refusals.
  */
 
-import { SnowflakeAuthenticator } from "@drivers/snowflake/auth";
 import { createClient, SnowflakeDriver } from "@drivers/snowflake";
+import { SnowflakeAuthenticator } from "@drivers/snowflake/auth";
 import { SnowflakeTransport } from "@drivers/snowflake/transport";
 import { introspectSchema } from "@migrations/introspect";
 import { s } from "@schema";
@@ -67,7 +67,10 @@ const post = s
     createdAt: s.dateTime(),
     payload: s.json().nullable(),
     digest: s.blob().nullable(),
-    author: s.toOne(() => author).fields("authorId").references("id"),
+    author: s
+      .toOne(() => author)
+      .fields("authorId")
+      .references("id"),
   })
   .map("POSTS");
 
@@ -208,9 +211,7 @@ describe.skipIf(credentials === undefined)("Snowflake, a real account", () => {
     expect(
       await db!.author.count({ where: { posts: { some: { title: "b1" } } } })
     ).toBe(1);
-    expect(
-      await db!.author.count({ where: { posts: { none: {} } } })
-    ).toBe(1);
+    expect(await db!.author.count({ where: { posts: { none: {} } } })).toBe(1);
     expect(
       await db!.author.count({
         where: { posts: { every: { title: { startsWith: "a" } } } },
@@ -264,7 +265,9 @@ describe.skipIf(credentials === undefined)("Snowflake, a real account", () => {
   it("runs $queryRaw with typed bindings", async () => {
     const rows = await db!.$queryRaw<{ N: number; AT: string }>`
       SELECT ${41} + 1 AS N, ${new Date("2021-03-19T17:06:59.5Z")}::TIMESTAMP_TZ AS AT`;
-    expect(rows).toEqual([{ N: 42, AT: "2021-03-19T17:06:59.500000000+00:00" }]);
+    expect(rows).toEqual([
+      { N: 42, AT: "2021-03-19T17:06:59.500000000+00:00" },
+    ]);
   });
 
   it("introspects the schema, its declared keys as relations", async () => {

@@ -680,6 +680,7 @@ export function translateMysqlColumn(
 // =============================================================================
 
 const SNOWFLAKE_NUMBER = /^number\((\d+),(\d+)\)$/;
+const TYPE_PARAMETERS = /\(.*\)$/;
 const SNOWFLAKE_NOW =
   /^(?:current_timestamp|sysdate|systimestamp|localtimestamp|current_date|current_time|getdate)(?:\(\d*\))?$/i;
 
@@ -698,7 +699,7 @@ function snowflakeBase(column: ColumnDef): FieldDraft | string {
     if (scale === 0) return { type: precision <= 9 ? "int" : "bigint" };
     return { type: "decimal", precision, scale };
   }
-  const base = type.replace(/\(.*\)$/, "");
+  const base = type.replace(TYPE_PARAMETERS, "");
   switch (base) {
     case "float":
       return { type: "number" };
@@ -731,7 +732,7 @@ export function translateSnowflakeColumn(
   const { column } = context;
   const base = snowflakeBase(column);
   if (typeof base === "string") return { skip: base };
-  const timestamp = column.type.toLowerCase().replace(/\(.*\)$/, "");
+  const timestamp = column.type.toLowerCase().replace(TYPE_PARAMETERS, "");
   const approximated =
     timestamp === "timestamp_ntz"
       ? "a TIMESTAMP_NTZ holds a wall clock with no zone; VibORM reads it as UTC"

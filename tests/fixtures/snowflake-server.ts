@@ -17,6 +17,9 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { gzipSync } from "node:zlib";
 
+const CANCEL = /^\/api\/v2\/statements\/([^/]+)\/cancel$/;
+const STATUS = /^\/api\/v2\/statements\/([^/]+)$/;
+
 export interface FakeColumn {
   readonly name: string;
   readonly type: string;
@@ -175,14 +178,12 @@ export async function startFakeSnowflake(
         else finish(handle, run);
         return;
       }
-      const cancel = /^\/api\/v2\/statements\/([^/]+)\/cancel$/.exec(
-        url.pathname
-      );
+      const cancel = CANCEL.exec(url.pathname);
       if (request.method === "POST" && cancel) {
         json(200, { code: "000604", message: "Statement canceled." });
         return;
       }
-      const poll = /^\/api\/v2\/statements\/([^/]+)$/.exec(url.pathname);
+      const poll = STATUS.exec(url.pathname);
       const run = poll ? running.get(poll[1]!) : undefined;
       if (request.method === "GET" && poll && run) {
         const partition = url.searchParams.get("partition");

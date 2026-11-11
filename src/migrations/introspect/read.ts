@@ -188,8 +188,8 @@ export async function readCatalog(
     for (const row of await rows<{ name: string }>(
       driver,
       schema === undefined
-        ? "SELECT TABLE_NAME AS \"name\" FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_SCHEMA = CURRENT_SCHEMA() ORDER BY TABLE_NAME"
-        : "SELECT TABLE_NAME AS \"name\" FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME",
+        ? 'SELECT TABLE_NAME AS "name" FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_SCHEMA = CURRENT_SCHEMA() ORDER BY TABLE_NAME'
+        : 'SELECT TABLE_NAME AS "name" FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME',
       schema === undefined ? [] : [schema]
     ))
       skipped.push({

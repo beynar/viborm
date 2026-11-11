@@ -42,7 +42,10 @@ const post = s
     createdAt: s.dateTime(),
     views: s.bigInt(),
     price: s.decimal({ precision: 10, scale: 2 }),
-    author: s.toOne(() => author).fields("authorId").references("id"),
+    author: s
+      .toOne(() => author)
+      .fields("authorId")
+      .references("id"),
     tags: s.toMany(() => tag),
   })
   .map("POSTS");

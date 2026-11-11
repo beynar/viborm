@@ -93,8 +93,8 @@ describe("Snowflake answers", () => {
 
   it("reads FLOAT, BOOLEAN and the non-finite doubles", () => {
     expect(decodeValue(column("real"), "1.5")).toBe(1.5);
-    expect(decodeValue(column("real"), "inf")).toBe(Infinity);
-    expect(decodeValue(column("real"), "-inf")).toBe(-Infinity);
+    expect(decodeValue(column("real"), "inf")).toBe(Number.POSITIVE_INFINITY);
+    expect(decodeValue(column("real"), "-inf")).toBe(Number.NEGATIVE_INFINITY);
     expect(decodeValue(column("real"), "NaN")).toBeNaN();
     expect(decodeValue(column("boolean"), "true")).toBe(true);
     expect(decodeValue(column("boolean"), "false")).toBe(false);

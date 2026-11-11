@@ -72,6 +72,7 @@ interface ImportedKeyRow {
 }
 
 const quote = (name: string): string => `"${name.replaceAll('"', '""')}"`;
+const GENERATED_DEFAULT = /\.NEXTVAL$|^IDENTITY|^AUTOINCREMENT/i;
 
 function refusal(what: string): MigrationError {
   return new MigrationError(
@@ -153,9 +154,7 @@ export class SnowflakeMigrationDriver extends MigrationDriver {
     const { rows } = await executeRaw<{
       database: string | null;
       schema: string | null;
-    }>(
-      'SELECT CURRENT_DATABASE() AS "database", CURRENT_SCHEMA() AS "schema"'
-    );
+    }>('SELECT CURRENT_DATABASE() AS "database", CURRENT_SCHEMA() AS "schema"');
     const database = rows[0]?.database;
     const schema = this.namespace ?? rows[0]?.schema;
     if (!(database && schema))
@@ -208,7 +207,7 @@ export class SnowflakeMigrationDriver extends MigrationDriver {
       if (row.COLUMN_DEFAULT !== null) column.default = row.COLUMN_DEFAULT;
       if (
         row.IS_IDENTITY === "YES" ||
-        /\.NEXTVAL$|^IDENTITY|^AUTOINCREMENT/i.test(row.COLUMN_DEFAULT ?? "")
+        GENERATED_DEFAULT.test(row.COLUMN_DEFAULT ?? "")
       )
         column.autoIncrement = true;
       // A NUMBER with a scale is a fixed decimal; NUMBER(p,0) is an integer.
@@ -224,8 +223,9 @@ export class SnowflakeMigrationDriver extends MigrationDriver {
       table.columns.push(column);
     }
     const here = (row: { schema_name: string }) => row.schema_name === schema;
-    for (const [name, keys] of byConstraint(primary.rows.filter(here), (row) =>
-      `${row.table_name}\0${row.constraint_name}`
+    for (const [name, keys] of byConstraint(
+      primary.rows.filter(here),
+      (row) => `${row.table_name}\0${row.constraint_name}`
     )) {
       const table = byTable.get(keys[0]!.table_name);
       if (table)
@@ -234,8 +234,9 @@ export class SnowflakeMigrationDriver extends MigrationDriver {
           name: name.split("\0")[1],
         };
     }
-    for (const [name, keys] of byConstraint(unique.rows.filter(here), (row) =>
-      `${row.table_name}\0${row.constraint_name}`
+    for (const [name, keys] of byConstraint(
+      unique.rows.filter(here),
+      (row) => `${row.table_name}\0${row.constraint_name}`
     ))
       byTable.get(keys[0]!.table_name)?.uniqueConstraints.push({
         name: name.split("\0")[1]!,
@@ -245,8 +246,9 @@ export class SnowflakeMigrationDriver extends MigrationDriver {
     const local = imported.rows.filter(
       (row) => row.fk_schema_name === schema && row.pk_schema_name === schema
     );
-    for (const [name, keys] of byConstraint(local, (row) =>
-      `${row.fk_table_name}\0${row.fk_name}`
+    for (const [name, keys] of byConstraint(
+      local,
+      (row) => `${row.fk_table_name}\0${row.fk_name}`
     )) {
       const first = keys[0]!;
       const foreignKey: ForeignKeyDef = {

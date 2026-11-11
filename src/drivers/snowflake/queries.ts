@@ -38,8 +38,6 @@
 
 import { assembleAdapterSelect } from "@adapters/adapter-internals";
 import { UnsupportedOperationError } from "@errors";
-import type { AnyModel } from "@schema/model";
-import { type Sql, sql } from "@sql";
 import type {
   Leaf,
   PreparedProjection,
@@ -49,6 +47,8 @@ import type {
 } from "@query-engine/raptor3/shared/query";
 import { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import { physicalField } from "@query-engine/raptor3/shared/storage";
+import type { AnyModel } from "@schema/model";
+import { type Sql, sql } from "@sql";
 
 /** What a nested read on Snowflake does not express. */
 function refused(what: string): never {
@@ -140,7 +140,8 @@ export class SnowflakeQueries extends SqlQueries {
     // it: on the target row, outside any quantifier.
     const domain = this.domainOf(edge.target, "related");
     if (domain) where.push(this.lowerSelector(domain, childAlias)!);
-    if (nested.selector) where.push(this.lowerSelector(nested.selector, childAlias)!);
+    if (nested.selector)
+      where.push(this.lowerSelector(nested.selector, childAlias)!);
 
     const order = this.#order(edge.target, nested.orderBy, childAlias);
     // A negative `take` reads the window backwards; the decoder restores it.
@@ -231,11 +232,7 @@ export class SnowflakeQueries extends SqlQueries {
    * A nested page's order: the caller's scalar terms, then the target's key,
    * NULLs placed as the SQL backend's page places them.
    */
-  #order(
-    model: AnyModel,
-    input: unknown,
-    alias: string
-  ): OrderKey[] {
+  #order(model: AnyModel, input: unknown, alias: string): OrderKey[] {
     const keys: OrderKey[] = [];
     const ordered = new Set<string>();
     const terms = Array.isArray(input) ? input : input ? [input] : [];

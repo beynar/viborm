@@ -15,8 +15,8 @@
  */
 
 import { FeatureNotSupportedError } from "@errors";
-import { isReadOperation } from "@query-engine/routed-operations";
 import { SqlOperationContext } from "@query-engine/raptor3/shared/sql-operation-context";
+import { isReadOperation } from "@query-engine/routed-operations";
 
 const REASON =
   "VibORM only reads Snowflake: it enforces no primary, unique or foreign key, has no savepoint and no RETURNING, so a write's guarantees would not hold there. Write with Snowflake's own tools.";

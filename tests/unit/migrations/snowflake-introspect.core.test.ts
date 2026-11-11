@@ -26,6 +26,8 @@ import {
 } from "@tests/fixtures/snowflake-server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+const READ_STATEMENT = /^(SELECT|SHOW) /;
+
 const text = (name: string): FakeColumn => ({ name, type: "text" });
 const fixed = (name: string): FakeColumn => ({ name, type: "fixed", scale: 0 });
 
@@ -102,8 +104,7 @@ let server: FakeSnowflake;
 let empty = false;
 
 function answer({ statement }: FakeStatement) {
-  if (empty && !statement.includes("CURRENT_DATABASE()"))
-    return rows([], []);
+  if (empty && !statement.includes("CURRENT_DATABASE()")) return rows([], []);
   if (statement.includes("CURRENT_DATABASE()"))
     return rows([text("database"), text("schema")], [["SALES", "PUBLIC"]]);
   if (statement.includes("INFORMATION_SCHEMA.TABLES"))
@@ -316,6 +317,6 @@ describe("migrations on Snowflake", () => {
       "Snowflake cannot create a table here: VibORM only reads a Snowflake warehouse."
     );
     for (const sent of server.statements())
-      expect(sent.statement).toMatch(/^(SELECT|SHOW) /);
+      expect(sent.statement).toMatch(READ_STATEMENT);
   });
 });

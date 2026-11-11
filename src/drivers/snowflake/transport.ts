@@ -83,7 +83,11 @@ export class SnowflakeApiError extends Error {
   readonly sqlstate: string | undefined;
   readonly status: number;
   readonly statementHandle: string | undefined;
-  constructor(status: number, body: ResultSetBody | undefined, fallback: string) {
+  constructor(
+    status: number,
+    body: ResultSetBody | undefined,
+    fallback: string
+  ) {
     super(body?.message ?? fallback);
     this.name = "SnowflakeApiError";
     this.status = status;
@@ -110,7 +114,9 @@ const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
     signal?.addEventListener("abort", onAbort, { once: true });
   });
 
-async function readBody(response: Response): Promise<ResultSetBody | undefined> {
+async function readBody(
+  response: Response
+): Promise<ResultSetBody | undefined> {
   const text = await response.text();
   if (text.length === 0) return undefined;
   try {

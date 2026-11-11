@@ -53,6 +53,8 @@ const NANOS_PER_SECOND = 1_000_000_000n;
 const NANOS_PER_MILLISECOND = 1_000_000n;
 /** `TIMESTAMP_TZ` offsets travel as minutes plus 1440. */
 const OFFSET_BIAS = 1440;
+const NOT_HEX = /[^0-9a-fA-F]/;
+const INTEGER = /^-?\d+$/;
 
 function hex(bytes: Uint8Array): string {
   let text = "";
@@ -61,7 +63,7 @@ function hex(bytes: Uint8Array): string {
 }
 
 function unhex(text: string): Uint8Array {
-  if (text.length % 2 !== 0 || /[^0-9a-fA-F]/.test(text))
+  if (text.length % 2 !== 0 || NOT_HEX.test(text))
     throw malformed("BINARY", text);
   const bytes = new Uint8Array(text.length / 2);
   for (let index = 0; index < bytes.length; index++)
@@ -81,7 +83,8 @@ function malformed(type: string, value: string): QueryError {
 
 /** One parameter as the SQL API binds it. */
 export function encodeBinding(value: unknown): SnowflakeBinding {
-  if (value === null || value === undefined) return { type: "TEXT", value: null };
+  if (value === null || value === undefined)
+    return { type: "TEXT", value: null };
   switch (typeof value) {
     case "string":
       return { type: "TEXT", value };
@@ -190,14 +193,16 @@ export function decodeValue(column: SnowflakeColumn, value: unknown): unknown {
   switch (type) {
     case "fixed": {
       if ((column.scale ?? 0) > 0) return value;
-      if (!/^-?\d+$/.test(value)) throw malformed("NUMBER", value);
+      if (!INTEGER.test(value)) throw malformed("NUMBER", value);
       const number = Number(value);
       return Number.isSafeInteger(number) ? number : BigInt(value);
     }
     case "real": {
       const lowered = value.toLowerCase();
-      if (lowered === "inf" || lowered === "infinity") return Infinity;
-      if (lowered === "-inf" || lowered === "-infinity") return -Infinity;
+      if (lowered === "inf" || lowered === "infinity")
+        return Number.POSITIVE_INFINITY;
+      if (lowered === "-inf" || lowered === "-infinity")
+        return Number.NEGATIVE_INFINITY;
       if (lowered === "nan") return Number.NaN;
       const number = Number(value);
       if (Number.isNaN(number)) throw malformed("FLOAT", value);
@@ -208,7 +213,7 @@ export function decodeValue(column: SnowflakeColumn, value: unknown): unknown {
       if (value === "false" || value === "0") return false;
       throw malformed("BOOLEAN", value);
     case "date": {
-      if (!/^-?\d+$/.test(value)) throw malformed("DATE", value);
+      if (!INTEGER.test(value)) throw malformed("DATE", value);
       return isoDate(new Date(Number(value) * 86_400_000));
     }
     case "time":

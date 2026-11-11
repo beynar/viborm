@@ -43,7 +43,10 @@ beforeAll(async () => {
   pkcs1Pem = createPrivateKey(pkcs8Pem)
     .export({ type: "pkcs1", format: "pem" })
     .toString();
-  const spki = createPublicKey(pkcs8Pem).export({ type: "spki", format: "der" });
+  const spki = createPublicKey(pkcs8Pem).export({
+    type: "spki",
+    format: "der",
+  });
   expectedFingerprint = `SHA256:${createHash("sha256").update(spki).digest("base64")}`;
 });
 
@@ -66,7 +69,11 @@ describe("Snowflake key-pair JWT", () => {
   it("signs RS256 claims Snowflake reads: upper-case account and user, SPKI fingerprint, one hour", async () => {
     const now = 1_700_000_000_000;
     const auth = new SnowflakeAuthenticator(
-      { account: "myorg-acct.privatelink", username: "reader", privateKey: pkcs8Pem },
+      {
+        account: "myorg-acct.privatelink",
+        username: "reader",
+        privateKey: pkcs8Pem,
+      },
       () => now
     );
     const { token, type } = await auth.authorization();
@@ -176,7 +183,8 @@ describe("Snowflake credentials", () => {
       new SnowflakeAuthenticator({
         account: "a",
         username: "u",
-        privateKey: "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----",
+        privateKey:
+          "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----",
       }).authorization()
     ).rejects.toThrow("could not be imported");
   });

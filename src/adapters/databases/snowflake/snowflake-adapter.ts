@@ -81,6 +81,8 @@ import {
 
 const quoteIdent = createIdentifierQuoter('"');
 
+const ARRAY_INDEX = /^\d+$/;
+
 /** Snowflake's widest `NUMBER`. */
 export const SNOWFLAKE_MAX_PRECISION = 38;
 
@@ -118,7 +120,9 @@ function jsonPath(column: Sql, path: readonly string[]): Sql {
   if (path.length === 0) return column;
   const steps = path
     .map((segment) =>
-      /^\d+$/.test(segment) ? `[${segment}]` : `[${snowflakeString(segment)}]`
+      ARRAY_INDEX.test(segment)
+        ? `[${segment}]`
+        : `[${snowflakeString(segment)}]`
     )
     .join("");
   return sql`(${column})${sql.raw(steps)}`;
@@ -131,7 +135,9 @@ const jsonMember = (value: Sql): Sql =>
 function jsonObject(pairs: [string, Sql][]): Sql {
   if (pairs.length === 0) return sql.raw("OBJECT_CONSTRUCT()");
   return sql`OBJECT_CONSTRUCT_KEEP_NULL(${sql.join(
-    pairs.map(([key, value]) => sql`${sql.raw(snowflakeString(key))}, ${value}`),
+    pairs.map(
+      ([key, value]) => sql`${sql.raw(snowflakeString(key))}, ${value}`
+    ),
     ", "
   )})`;
 }
@@ -244,8 +250,7 @@ export class SnowflakeAdapter implements DatabaseAdapter {
       sql`${column} LIKE ${`${escapeLikeLiteral(value)}%`} ESCAPE '\\\\'`,
 
     exactTextEq: (column: Sql, value: Sql): Sql => sql`${column} = ${value}`,
-    exactTextIn: (column: Sql, values: Sql): Sql =>
-      sql`${column} IN ${values}`,
+    exactTextIn: (column: Sql, values: Sql): Sql => sql`${column} IN ${values}`,
 
     in: (column: Sql, values: Sql): Sql => sql`${column} IN ${values}`,
     notIn: (column: Sql, values: Sql): Sql => sql`${column} NOT IN ${values}`,

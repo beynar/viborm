@@ -14,6 +14,7 @@
  * Node, Bun, Cloudflare Workers and Durable Objects without `snowflake-sdk`.
  */
 
+import { SnowflakeAdapter } from "@adapters/databases/snowflake/snowflake-adapter";
 import {
   createClientFromDriverConfig,
   type DriverConfig,
@@ -22,7 +23,6 @@ import {
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
-import { SnowflakeAdapter } from "@adapters/databases/snowflake/snowflake-adapter";
 import {
   ClientInitializationError,
   isVibORMError,
@@ -116,6 +116,8 @@ const SESSION = {
   TIMEZONE: "UTC",
 } as const;
 
+const TRAILING_SLASHES = /\/+$/;
+
 function configuration(message: string): ClientInitializationError {
   return new ClientInitializationError(message, {
     meta: { driver: "snowflake", operation: "configuration" },
@@ -192,7 +194,8 @@ export function snowflakeFailure(error: unknown): unknown {
   )
     code = VibORMErrorCode.QUERY_SCHEMA_MISMATCH;
   else if (error.code === "001003") code = VibORMErrorCode.QUERY_SYNTAX;
-  else if (error.sqlstate === "22003") code = VibORMErrorCode.QUERY_OUT_OF_RANGE;
+  else if (error.sqlstate === "22003")
+    code = VibORMErrorCode.QUERY_OUT_OF_RANGE;
   return new QueryError(`Snowflake refused the statement: ${error.message}`, {
     cause: error,
     code,
@@ -277,8 +280,9 @@ export class SnowflakeDriver extends Driver<
       );
     return new SnowflakeTransport({
       baseUrl: (
-        options.host ?? `https://${account.toLowerCase()}.snowflakecomputing.com`
-      ).replace(/\/+$/, ""),
+        options.host ??
+        `https://${account.toLowerCase()}.snowflakecomputing.com`
+      ).replace(TRAILING_SLASHES, ""),
       authenticator,
       context: this.#context,
       ...(options.timeout === undefined ? {} : { timeout: options.timeout }),

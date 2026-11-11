@@ -104,9 +104,7 @@ describe("Snowflake SQL API transport", () => {
       partitions: [[["1"]]],
     }));
     server!.failNext(503, 3);
-    await expect(client.run("SELECT 1", undefined)).rejects.toThrow(
-      "HTTP 503"
-    );
+    await expect(client.run("SELECT 1", undefined)).rejects.toThrow("HTTP 503");
   });
 
   it("cancels a statement past its timeout and answers a QUERY_TIMEOUT", async () => {
