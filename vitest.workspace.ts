@@ -308,6 +308,8 @@ export const projects: TestProjectConfiguration[] = [
   // the pieces when the heavy suites were split for the 1280 MB shard heap.
   providerProject("pglite", ["tests/providers/local/pglite*.test.ts"]),
   providerProject("surrealdb", ["tests/providers/docker/surrealdb*.test.ts"]),
+  // A real Snowflake account, when SNOWFLAKE_TEST_CREDENTIALS names one.
+  providerProject("snowflake", ["tests/providers/snowflake/*.test.ts"]),
   providerProject("sqlite3", ["tests/providers/local/sqlite3*.test.ts"]),
   providerProject("libsql", ["tests/providers/local/libsql*.test.ts"]),
   // `pg*` cannot catch postgres*: that name starts "po".

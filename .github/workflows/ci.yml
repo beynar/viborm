@@ -425,6 +425,54 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=3072
         run: node node_modules/vitest/vitest.mjs run --config vitest.workspace.ts --project provider-surrealdb --testTimeout=120000 --hookTimeout=240000 --bail=0
 
+  snowflake-provider:
+    name: Snowflake provider
+    runs-on: ubuntu-latest
+    # Reports, like SurrealDB's: no release waits on it. It reads a real
+    # account only where the repository holds SNOWFLAKE_TEST_CREDENTIALS, and
+    # says so where it does not (a fork's pull request never has it).
+    timeout-minutes: 20
+    env:
+      SNOWFLAKE_TEST_CREDENTIALS: ${{ secrets.SNOWFLAKE_TEST_CREDENTIALS }}
+    steps:
+      - name: Say whether an account is configured
+        run: |
+          if [ -z "$SNOWFLAKE_TEST_CREDENTIALS" ]; then
+            echo "::notice title=Snowflake provider::SNOWFLAKE_TEST_CREDENTIALS is not set: the real-account reads did not run."
+          fi
+
+      - name: Check out the exact revision
+        if: env.SNOWFLAKE_TEST_CREDENTIALS != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/docs/architecture/raptor3-evidence/
+
+      - name: Install pnpm
+        if: env.SNOWFLAKE_TEST_CREDENTIALS != ''
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Install Node.js
+        if: env.SNOWFLAKE_TEST_CREDENTIALS != ''
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        if: env.SNOWFLAKE_TEST_CREDENTIALS != ''
+        run: pnpm install --frozen-lockfile
+
+      - name: Read a real Snowflake account
+        if: env.SNOWFLAKE_TEST_CREDENTIALS != ''
+        run: node node_modules/vitest/vitest.mjs run --config vitest.workspace.ts --project provider-snowflake --testTimeout=120000 --hookTimeout=300000
+
   platform-providers:
     name: Bun and D1 providers
     runs-on: ubuntu-latest
