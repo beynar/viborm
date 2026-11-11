@@ -213,11 +213,9 @@ export class SnowflakeQueries extends SqlQueries {
     const aggregated = within
       ? sql`ARRAY_AGG(${object}) WITHIN GROUP (ORDER BY ${within})`
       : sql`ARRAY_AGG(${object})`;
-    return a.subqueries.scalar(
+    const read = a.subqueries.scalar(
       assembleAdapterSelect(a, {
-        columns: edge.many
-          ? a.expressions.coalesce(aggregated, a.json.emptyArray())
-          : sql`GET(${aggregated}, 0)`,
+        columns: edge.many ? aggregated : sql`GET(${aggregated}, 0)`,
         from: a.subqueries.correlate(qualified, pageAlias),
         where: a.operators.and(
           ...keys.map(([, parent], index) =>
@@ -226,6 +224,11 @@ export class SnowflakeQueries extends SqlQueries {
         ),
       })
     );
+    // Snowflake evaluates the subquery as a grouped join, so a parent with no
+    // row has no group and reads NULL, whatever the aggregate would answer
+    // over zero rows: the empty list is stated outside it (measured on a real
+    // account, 2026-11-11).
+    return edge.many ? a.expressions.coalesce(read, a.json.emptyArray()) : read;
   }
 
   /**

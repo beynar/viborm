@@ -93,11 +93,11 @@ const text = (name: string) => ({ name, type: "text" });
 /** The nested read Snowflake evaluates: uncorrelated pages, keyed aggregates. */
 const NESTED_INCLUDE =
   'SELECT "q0"."id", "q0"."name", "q0"."email", ' +
-  '(SELECT COALESCE(ARRAY_AGG(OBJECT_CONSTRUCT_KEEP_NULL(\'id\', "q5"."id", \'authorId\', "q5"."authorId", \'title\', "q5"."title", \'createdAt\', TO_VARCHAR(CAST("q5"."createdAt" AS TIMESTAMP_TZ), \'YYYY-MM-DD"T"HH24:MI:SS.FF3TZH:TZM\'), \'views\', CAST("q5"."views" AS VARCHAR), \'price\', CAST("q5"."price" AS VARCHAR), \'tags\', "q5"."tags")) WITHIN GROUP (ORDER BY "q5"."$rn" ASC), ARRAY_CONSTRUCT()) ' +
+  'COALESCE((SELECT ARRAY_AGG(OBJECT_CONSTRUCT_KEEP_NULL(\'id\', "q5"."id", \'authorId\', "q5"."authorId", \'title\', "q5"."title", \'createdAt\', TO_VARCHAR(CAST("q5"."createdAt" AS TIMESTAMP_TZ), \'YYYY-MM-DD"T"HH24:MI:SS.FF3TZH:TZM\'), \'views\', CAST("q5"."views" AS VARCHAR), \'price\', CAST("q5"."price" AS VARCHAR), \'tags\', "q5"."tags")) WITHIN GROUP (ORDER BY "q5"."$rn" ASC) ' +
   'FROM (SELECT "q1"."id", "q1"."authorId", "q1"."title", "q1"."createdAt", CAST("q1"."views" AS VARCHAR) AS "views", CAST("q1"."price" AS VARCHAR) AS "price", ' +
-  '(SELECT COALESCE(ARRAY_AGG(OBJECT_CONSTRUCT_KEEP_NULL(\'id\', "q4"."id", \'label\', "q4"."label")) WITHIN GROUP (ORDER BY "q4"."$o0" ASC), ARRAY_CONSTRUCT()) ' +
-  'FROM (SELECT "q2"."id", "q2"."label", "q3"."postId" AS "$k0", "q2"."id" AS "$o0" FROM "PUBLIC"."post_tag" AS "q3" INNER JOIN "PUBLIC"."TAGS" AS "q2" ON "q3"."tagId" = "q2"."id") AS "q4" WHERE "q4"."$k0" = "q1"."id") AS "tags", ' +
-  '"q1"."authorId" AS "$k0", ROW_NUMBER() OVER (PARTITION BY "q1"."authorId" ORDER BY "q1"."id" DESC) AS "$rn" FROM "PUBLIC"."POSTS" AS "q1" QUALIFY "$rn" <= ?) AS "q5" WHERE "q5"."$k0" = "q0"."id") AS "posts" ' +
+  'COALESCE((SELECT ARRAY_AGG(OBJECT_CONSTRUCT_KEEP_NULL(\'id\', "q4"."id", \'label\', "q4"."label")) WITHIN GROUP (ORDER BY "q4"."$o0" ASC) ' +
+  'FROM (SELECT "q2"."id", "q2"."label", "q3"."postId" AS "$k0", "q2"."id" AS "$o0" FROM "PUBLIC"."post_tag" AS "q3" INNER JOIN "PUBLIC"."TAGS" AS "q2" ON "q3"."tagId" = "q2"."id") AS "q4" WHERE "q4"."$k0" = "q1"."id"), ARRAY_CONSTRUCT()) AS "tags", ' +
+  '"q1"."authorId" AS "$k0", ROW_NUMBER() OVER (PARTITION BY "q1"."authorId" ORDER BY "q1"."id" DESC) AS "$rn" FROM "PUBLIC"."POSTS" AS "q1" QUALIFY "$rn" <= ?) AS "q5" WHERE "q5"."$k0" = "q0"."id"), ARRAY_CONSTRUCT()) AS "posts" ' +
   'FROM "PUBLIC"."AUTHORS" AS "q0" WHERE CONTAINS("q0"."name", ?) ORDER BY "q0"."id" ASC LIMIT ?';
 
 describe("Snowflake reads", () => {

@@ -30,6 +30,7 @@
 import { createClient, SnowflakeDriver } from "@drivers/snowflake";
 import { SnowflakeAuthenticator } from "@drivers/snowflake/auth";
 import { SnowflakeTransport } from "@drivers/snowflake/transport";
+import { QueryError, VibORMErrorCode } from "@errors";
 import { introspectSchema } from "@migrations/introspect";
 import { s } from "@schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -78,7 +79,7 @@ const tag = s
   .model({
     id: s.int().id(),
     label: s.string(),
-    authors: s.toMany(() => author).through(() => authorTag),
+    authors: s.toMany(() => author),
   })
   .map("TAGS");
 
@@ -86,6 +87,14 @@ const authorTag = s
   .model({
     authorId: s.int(),
     tagId: s.int(),
+    author: s
+      .toOne(() => author)
+      .fields("authorId")
+      .references("id"),
+    tag: s
+      .toOne(() => tag)
+      .fields("tagId")
+      .references("id"),
   })
   .id(["authorId", "tagId"])
   .map("AUTHOR_TAGS");
@@ -269,6 +278,39 @@ describe.skipIf(credentials === undefined)("Snowflake, a real account", () => {
       { N: 42, AT: "2021-03-19T17:06:59.500000000+00:00" },
     ]);
   });
+
+  it("reads a result of several partitions, in order", async () => {
+    const rows = await db!.$queryRaw<{ N: number }>`
+      SELECT SEQ4() AS N, RANDSTR(64, RANDOM()) AS PAD
+      FROM TABLE(GENERATOR(ROWCOUNT => 200000)) ORDER BY N`;
+    expect(rows).toHaveLength(200_000);
+    expect(rows.every((row, index) => row.N === index)).toBe(true);
+  });
+
+  it("polls a statement Snowflake answers 202 to, past its 45 s", async () => {
+    const [row] = await db!.$queryRaw<{ DONE: string }>`
+      SELECT SYSTEM$WAIT(50) AS DONE`;
+    expect(row!.DONE).toContain("waited");
+  }, 120_000);
+
+  it("cancels a statement past the driver's timeout", async () => {
+    const timed = createClient({
+      schema,
+      account: credentials!.account,
+      username: credentials!.user,
+      privateKey: credentials!.privateKey,
+      warehouse: credentials!.warehouse,
+      database: credentials!.database,
+      namespace: SCHEMA,
+      timeout: 5,
+      ...(credentials!.role ? { role: credentials!.role } : {}),
+    });
+    const failure = await timed.$queryRaw`SELECT SYSTEM$WAIT(60) AS DONE`.catch(
+      (error: unknown) => error
+    );
+    expect(failure).toBeInstanceOf(QueryError);
+    expect((failure as QueryError).code).toBe(VibORMErrorCode.QUERY_TIMEOUT);
+  }, 60_000);
 
   it("introspects the schema, its declared keys as relations", async () => {
     const result = await introspectSchema({
