@@ -1,0 +1,170 @@
+---
+title: Snowflake
+description: Read a Snowflake warehouse with VibORM, over the SQL API
+---
+
+`viborm/snowflake` reads a Snowflake warehouse. It speaks to Snowflake's
+[SQL API v2](https://docs.snowflake.com/en/developer-guide/sql-api/index) with
+`fetch`, and signs its key-pair JWT with WebCrypto, so it runs in Node, Bun,
+Cloudflare Workers and Durable Objects. It needs no `snowflake-sdk`.
+
+VibORM **only reads** Snowflake. Writes and migrations are refused (see
+[What is refused](#what-is-refused)).
+
+```bash
+npm install viborm
+```
+
+```ts
+import { createClient } from "viborm/snowflake";
+import { schema } from "./schema";
+
+const db = createClient({
+  schema,
+  databaseUrl: "snowflake://READER@myorg-myaccount/SALES/PUBLIC?warehouse=WH&role=ANALYST",
+  privateKey: env.SNOWFLAKE_PRIVATE_KEY, // PKCS#8 or PKCS#1 PEM, unencrypted
+});
+
+const customers = await db.customer.findMany({
+  where: { segment: "retail" },
+  include: { orders: { orderBy: { placedAt: "desc" }, take: 5 } },
+});
+```
+
+The URL names the user, the account, the database and the schema. It never
+carries the key or the token: pass `privateKey` or `token` beside it.
+
+## Options
+
+| Option | Meaning |
+| --- | --- |
+| `databaseUrl` | `snowflake://USER@ACCOUNT/DATABASE/SCHEMA?warehouse=…&role=…` |
+| `account` | `ORGNAME-ACCOUNTNAME`, or an account locator (`xy12345.us-east-1`) |
+| `username` | The user the key belongs to |
+| `privateKey` | The RSA private key of key-pair authentication, or an imported `CryptoKey` |
+| `token` | An OAuth token, or a function answering a fresh one (for refreshing) |
+| `tokenType` | `"OAUTH"` (default) or `"PROGRAMMATIC_ACCESS_TOKEN"` |
+| `warehouse`, `database`, `role` | The context every statement runs in |
+| `namespace` | The schema every statement runs in, and the one VibORM qualifies its tables with |
+| `timeout` | Seconds a statement may run; past it, Snowflake and the driver cancel it |
+| `host` | The API's base URL, when it is not `https://<account>.snowflakecomputing.com` |
+| `fetch` | The `fetch` to send with |
+| `parameters` | Session parameters added to every statement's |
+
+A field given beside `databaseUrl` takes precedence over the URL's. Use exactly
+one credential: a `privateKey` (with `username`) or a `token`.
+
+## Names
+
+VibORM quotes every identifier, so a model reads the table whose name it maps to
+**exactly**. Snowflake stores an unquoted name in upper case: a table created as
+`CREATE TABLE orders` is `ORDERS`, and its model needs `.map("ORDERS")`.
+[`introspectSchema`](/docs/schema/introspect) writes each name as the catalog
+spells it, so a schema built from it needs no care.
+
+## What runs
+
+| Operation | Notes |
+| --- | --- |
+| `findMany`, `findFirst`, `findUnique` and their `OrThrow` forms | With nested `include` / `select`, `where`, `orderBy`, `take`, `skip`, `cursor`, `distinct` at the root |
+| Nested relations | `where`, `orderBy` on the related row's own fields, `take` (negative included), `skip`, `_count` |
+| Relation filters | `some`, `every`, `none`, `is`, `isNot` |
+| `count`, `exist`, `aggregate`, `groupBy` | Sums and averages exact on `NUMBER` columns |
+| `$queryRaw`, `$queryRawUnsafe` | Sent as written, with typed bindings |
+
+### How a nested read is written
+
+Snowflake refuses a correlated subquery holding a `LIMIT`, and a derived table
+that reads an outer row. So a relation is read from an **uncorrelated** page of
+the related table: the page states the key it joins its parent on and numbers
+its rows per key (`ROW_NUMBER() … QUALIFY`), and only the `ARRAY_AGG` around it
+is correlated, by an equality, which Snowflake turns into a grouped join.
+
+That page reads the related table set-wise. On a large table, a nested read
+costs what its whole relation costs, not what the parent's rows reach.
+
+## What is refused
+
+Every one of these fails with a `FeatureNotSupportedError` (`V8001`) **before
+anything is sent**:
+
+- `create`, `createMany`, `update`, `updateMany`, `upsert`, `delete`,
+  `deleteMany`, and every nested write;
+- `$executeRaw` and `$executeRawUnsafe`;
+- every migration command that could write (`push`, `apply`, `reset`, …).
+
+A `$transaction`, callback or array, fails with a `TransactionError` before
+anything is sent: the SQL API runs each statement on its own.
+
+And with an `UnsupportedOperationError`, before anything is sent, in a nested
+relation: `cursor`, `distinct`, an order by a related row or a `_count`, a
+recursive relation, a polymorphic slot, a junction's `$through` row.
+
+### Why VibORM does not write to Snowflake
+
+Snowflake enforces no `PRIMARY KEY`, `UNIQUE` or `FOREIGN KEY` (only `NOT NULL`),
+has no savepoint and no `RETURNING`, and every statement takes 100 ms to a second
+on a warehouse that bills while it runs. What a VibORM write promises — the row a
+unique key addresses, a relation that holds, a nested write that rolls back to
+where it failed — would not hold there. Write with Snowflake's own tools
+(`COPY INTO`, `MERGE`, tasks, dbt).
+
+`$queryRaw` sends its text as written: a role with only `SELECT` privileges is
+what guarantees nothing writes.
+
+## Types
+
+The API answers every value as text. The driver reads each one exactly:
+
+| Snowflake | Read as |
+| --- | --- |
+| `NUMBER(p,0)` | `number` while a safe integer, else `bigint` (`$queryRaw`); the field's scalar otherwise |
+| `NUMBER(p,s)`, s > 0 | exact decimal text (`$queryRaw`); a `Decimal` for `s.decimal()` |
+| `FLOAT` | `number`, `Infinity` and `NaN` included |
+| `VARCHAR`, `BOOLEAN` | `string`, `boolean` |
+| `DATE` | `"YYYY-MM-DD"` |
+| `TIME` | `"HH:MM:SS.fffffffff"` |
+| `TIMESTAMP_NTZ`, `TIMESTAMP_LTZ` | an ISO instant to the nanosecond (`$queryRaw`); a `Date` for `s.dateTime()` |
+| `TIMESTAMP_TZ` | the same at its own offset (`…+05:30`) |
+| `BINARY` | `Uint8Array` |
+| `VARIANT`, `OBJECT`, `ARRAY` | the parsed JSON |
+
+Every statement runs with `TIMEZONE = 'UTC'`: a `TIMESTAMP_NTZ` holds a wall
+clock with no zone, and VibORM reads it, and compares it, as UTC. A `Date`
+operand binds as a `TIMESTAMP_TZ` at UTC.
+
+A JSON number inside a `VARIANT` read through `$queryRaw` is parsed by
+`JSON.parse`, so an integer past 2^53 there rounds. VibORM's own reads carry
+`bigint` and `Decimal` values as text inside the documents they build, and lose
+nothing.
+
+## Introspection
+
+[`introspectSchema`](/docs/schema/introspect) reads a Snowflake schema into a
+schema document. Pass a driver, since a URL carries no credential:
+
+```ts
+import { introspectSchema } from "viborm/schema/introspect";
+import { SnowflakeDriver } from "viborm/snowflake";
+
+const { document, skipped, warnings } = await introspectSchema({
+  driver: new SnowflakeDriver({ databaseUrl, privateKey }),
+  light: true,
+});
+```
+
+It reads `INFORMATION_SCHEMA.TABLES` and `COLUMNS`, and the keys a table declares
+from `SHOW PRIMARY KEYS`, `SHOW UNIQUE KEYS` and `SHOW IMPORTED KEYS`. Snowflake
+enforces none of them, and they are still what the warehouse's designer said the
+relations are: each declared foreign key becomes a relation. A warning says so.
+
+- `NUMBER(p,0)` becomes `int` up to nine digits, `bigint` beyond (Snowflake's
+  `INTEGER` is `NUMBER(38,0)`); `NUMBER(p,s)` a `decimal`; `FLOAT` a `number`;
+  `VARCHAR` a `string`; the three timestamps a `dateTime` (a `TIMESTAMP_NTZ`
+  with an `approximated` warning: it is read as UTC); `BINARY` a `blob`;
+  `VARIANT`, `OBJECT` and `ARRAY` a `json`; `CURRENT_TIMESTAMP()` a `now`
+  default.
+- A view, and a column with no VibORM scalar (`GEOGRAPHY`, `GEOMETRY`,
+  `VECTOR`), are listed in `skipped`.
+- No `drift` warning is reported: nothing is ever pushed to Snowflake.
+- A key into another schema is left out.

@@ -5,6 +5,30 @@ Versioning.
 
 ## Unreleased
 
+VibORM reads Snowflake.
+
+### Added
+
+- **`viborm/snowflake`, a read-only driver for Snowflake's SQL API v2.** It
+  sends `fetch` requests and signs its key-pair JWT with WebCrypto (an OAuth or
+  programmatic access token works too), so it runs in Node, Bun, Workers and
+  Durable Objects without `snowflake-sdk`. It polls a statement that answers
+  202, reads every result partition, sends a failed request again with the
+  same `requestId`, and cancels a statement past its `timeout`. `findMany`,
+  `findFirst`, `findUnique`, `count`, `exist`, `aggregate`, `groupBy` and
+  `$queryRaw` run, with nested `include`/`select`: Snowflake refuses a
+  correlated `LIMIT`, so a relation is read from an uncorrelated page numbered
+  per key, and only its `ARRAY_AGG` is correlated. Values cross exactly:
+  `bigint` and `Decimal` as text, timestamps to the nanosecond in a UTC
+  session. Every write, `$executeRaw`, `$transaction` and every migration
+  command that could write fails with `V8001` before anything is sent:
+  Snowflake enforces no key, has no savepoint and no `RETURNING`. See the
+  [Snowflake](https://viborm.dev/docs/drivers/snowflake) page.
+- **`introspectSchema({ driver })` reads a Snowflake schema**, its declared
+  (unenforced) foreign keys as relations, with
+  `viborm/migrations/snowflake` registering only the Snowflake migration
+  driver, which reads and writes no DDL.
+
 ## 1.14.0 — 2026-11-11
 
 VibORM now runs on a Durable Object's own SQLite storage, takes over tables it
