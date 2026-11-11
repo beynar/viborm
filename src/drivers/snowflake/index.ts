@@ -125,7 +125,7 @@ function configuration(message: string): ClientInitializationError {
 }
 
 /** The fields a `snowflake://` URL names. */
-export function parseSnowflakeUrl(url: string): SnowflakeDriverOptions {
+function parseSnowflakeUrl(url: string): SnowflakeDriverOptions {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -163,7 +163,7 @@ export function parseSnowflakeUrl(url: string): SnowflakeDriverOptions {
 }
 
 /** Snowflake's failure in VibORM's words; a VibORM error passes as it is. */
-export function snowflakeFailure(error: unknown): unknown {
+function snowflakeFailure(error: unknown): unknown {
   if (isVibORMError(error) || !(error instanceof SnowflakeApiError))
     return error;
   const meta = {

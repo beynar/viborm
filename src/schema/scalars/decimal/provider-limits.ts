@@ -32,7 +32,9 @@ export interface DecimalProviderLimitRefusal {
  * SurrealDB `decimal` holds any precision and scale, and VibORM stores
  * nothing in Snowflake, so neither has a limit to fit.
  */
-function decimalDialectOf(dialect: ProviderDialect): DecimalDialect | undefined {
+function decimalDialectOf(
+  dialect: ProviderDialect
+): DecimalDialect | undefined {
   if (dialect === "postgresql") return "pg";
   if (dialect === "mysql") return "mysql";
   if (dialect === "sqlite") return "sqlite";
