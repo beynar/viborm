@@ -13,6 +13,7 @@ import { readArrayLiteralText } from "../../adapters/databases/postgres/array-li
 import type {
   DecimalFieldDocument,
   EnumFieldDocument,
+  PointFieldDocument,
   ScalarFieldDocument,
   ValueFieldDocument,
 } from "../../schema/json/document";
@@ -75,7 +76,8 @@ type ValueDraft = Mutable<ValueFieldDocument>;
 type FieldDraft =
   | ValueDraft
   | Mutable<EnumFieldDocument>
-  | Mutable<DecimalFieldDocument>;
+  | Mutable<DecimalFieldDocument>
+  | Mutable<PointFieldDocument>;
 
 // =============================================================================
 // DEFAULTS (shared literal reading)
@@ -681,6 +683,7 @@ export function translateMysqlColumn(
 
 const SNOWFLAKE_NUMBER = /^number\((\d+),(\d+)\)$/;
 const TYPE_PARAMETERS = /\(.*\)$/;
+const SNOWFLAKE_VECTOR = /^vector\((float|int), (\d+)\)$/;
 const SNOWFLAKE_NOW =
   /^(?:current_timestamp|sysdate|systimestamp|localtimestamp|current_date|current_time|getdate)(?:\(\d*\))?$/i;
 
@@ -721,9 +724,19 @@ function snowflakeBase(column: ColumnDef): FieldDraft | string {
     case "object":
     case "array":
       return { type: "json" };
+    case "geography":
+      return { type: "point" };
+    case "geometry":
+      return "a GEOMETRY is planar, in any SRID: VibORM's point is a geographic EPSG:4326 point (a GEOGRAPHY)";
     default:
-      return `the type \`${column.type.toUpperCase()}\` has no VibORM scalar`;
+      break;
   }
+  const vector = SNOWFLAKE_VECTOR.exec(type);
+  if (vector?.[1] === "float")
+    return { type: "vector", dimension: Number(vector[2]) };
+  if (vector)
+    return "a VECTOR(INT) has no VibORM scalar: `s.vector()` holds floats";
+  return `the type \`${column.type.toUpperCase()}\` has no VibORM scalar`;
 }
 
 export function translateSnowflakeColumn(
@@ -736,7 +749,9 @@ export function translateSnowflakeColumn(
   const approximated =
     timestamp === "timestamp_ntz"
       ? "a TIMESTAMP_NTZ holds a wall clock with no zone; VibORM reads it as UTC"
-      : undefined;
+      : timestamp === "geography"
+        ? "a GEOGRAPHY may hold any shape; VibORM reads it as a point, and a row holding another shape does not decode"
+        : undefined;
   // Snowflake's clocks are functions VibORM's generator stands for.
   if (
     column.default !== undefined &&

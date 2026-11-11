@@ -276,6 +276,111 @@ describe("Snowflake reads", () => {
   });
 });
 
+describe("Snowflake vectors and points", () => {
+  const place = s
+    .model({
+      id: s.int().id(),
+      location: s.point().nullable(),
+      embedding: s.vector().dimension(3),
+      score: s.number(),
+    })
+    .map("PLACES");
+  const places = () =>
+    createClient({
+      schema: { place },
+      account: "a",
+      token: "t",
+      host: server.url,
+    });
+
+  it("projects a point, a vector and a double in spellings no print rounds", async () => {
+    await places().place.findMany();
+    expect(server.statements()[0]!.statement).toBe(
+      'SELECT "q0"."id", IFF("q0"."location" IS NULL, NULL, OBJECT_CONSTRUCT_KEEP_NULL(\'longitude\', PARSE_JSON(TO_VARCHAR(ST_X("q0"."location"))), \'latitude\', PARSE_JSON(TO_VARCHAR(ST_Y("q0"."location"))))) AS "location", (\'[\' || ARRAY_TO_STRING(TRANSFORM(CAST("q0"."embedding" AS ARRAY), member VARIANT -> TO_VARCHAR(member::FLOAT)), \',\') || \']\') AS "embedding", "q0"."score" FROM "PLACES" AS "q0" ORDER BY "q0"."id" ASC'
+    );
+  });
+
+  it("reads the projected point and vector back", async () => {
+    respond = () =>
+      rows(
+        [
+          fixed("id"),
+          { name: "location", type: "object" },
+          text("embedding"),
+          { name: "score", type: "real" },
+        ],
+        [
+          [
+            "1",
+            '{"longitude": 2.3522219, "latitude": 48.856614}',
+            "[0.10000000149011612,-2.25,3]",
+            "0.30000000000000004",
+          ],
+        ]
+      );
+    expect(await places().place.findMany()).toEqual([
+      {
+        id: 1,
+        location: { longitude: 2.352_221_9, latitude: 48.856_614 },
+        embedding: [Math.fround(0.1), -2.25, 3],
+        score: 0.300_000_000_000_000_04,
+      },
+    ]);
+  });
+
+  it("binds vector distances, point equality and polygons as Snowflake spells them", async () => {
+    const db = places();
+    await db.place.findMany({
+      select: {
+        id: true,
+        embedding: { _distance: { to: [1, 0, 0], metric: "cosine" } },
+      },
+      orderBy: { embedding: { _distance: { to: [1, 0, 0], metric: "l2" } } },
+    });
+    await db.place.findMany({
+      where: {
+        location: {
+          equals: { longitude: 2.352_221_9, latitude: 48.856_614 },
+        },
+      },
+    });
+    await db.place.findMany({
+      where: {
+        location: {
+          within: {
+            polygon: {
+              outer: [
+                { longitude: 0, latitude: 0 },
+                { longitude: 1, latitude: 0 },
+                { longitude: 1, latitude: 1 },
+              ],
+            },
+          },
+        },
+      },
+    });
+    const [distance, equality, polygon] = server
+      .statements()
+      .map((sent) => sent.statement);
+    expect(distance).toContain(
+      'NULLIF(1 - VECTOR_COSINE_SIMILARITY("q0"."embedding", CAST(PARSE_JSON(?) AS ARRAY)::VECTOR(FLOAT, 3)), \'NaN\'::FLOAT) AS "_distance"'
+    );
+    expect(distance).toContain(
+      'ORDER BY VECTOR_L2_DISTANCE("q0"."embedding", CAST(PARSE_JSON(?) AS ARRAY)::VECTOR(FLOAT, 3)) ASC'
+    );
+    expect(equality).toContain(
+      'WHERE (ST_X("q0"."location") = ? AND ST_Y("q0"."location") = ?)'
+    );
+    expect(polygon).toContain(
+      'ST_INTERSECTS(TO_GEOGRAPHY(?), "q0"."location")'
+    );
+    expect(server.statements()[1]!.bindings).toEqual({
+      "1": { type: "REAL", value: "2.3522219" },
+      "2": { type: "REAL", value: "48.856614" },
+    });
+  });
+});
+
 describe("Snowflake refusals", () => {
   const writes: Record<string, (db: Client) => Promise<unknown>> = {
     create: (db) =>

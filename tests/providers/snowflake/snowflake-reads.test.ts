@@ -33,6 +33,8 @@ import { SnowflakeTransport } from "@drivers/snowflake/transport";
 import { QueryError, VibORMErrorCode } from "@errors";
 import { introspectSchema } from "@migrations/introspect";
 import { s } from "@schema";
+import { GEO_POINT_EARTH_RADIUS_METERS } from "@validation/primitives/geo-area-codec";
+import type { GeoPoint } from "@validation/primitives/geo-values";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 interface Credentials {
@@ -55,6 +57,7 @@ const author = s
     nickname: s.string().nullable(),
     posts: s.toMany(() => post),
     tags: s.toMany(() => tag).through(() => authorTag),
+    places: s.toMany(() => place),
   })
   .map("AUTHORS");
 
@@ -74,6 +77,22 @@ const post = s
       .references("id"),
   })
   .map("POSTS");
+
+const place = s
+  .model({
+    id: s.int().id(),
+    authorId: s.int(),
+    name: s.string(),
+    location: s.point(),
+    optionalLocation: s.point().nullable(),
+    embedding: s.vector().dimension(3),
+    score: s.number(),
+    author: s
+      .toOne(() => author)
+      .fields("authorId")
+      .references("id"),
+  })
+  .map("PLACES");
 
 const tag = s
   .model({
@@ -99,7 +118,7 @@ const authorTag = s
   .id(["authorId", "tagId"])
   .map("AUTHOR_TAGS");
 
-const schema = { author, post, tag, authorTag };
+const schema = { author, post, tag, authorTag, place };
 
 const SEED = [
   `CREATE SCHEMA "${SCHEMA}"`,
@@ -116,6 +135,15 @@ const SEED = [
     (5, 2, 'b1', 4, 5.00, '2024-01-06 00:00:00', NULL, NULL),
     (6, NULL, 'orphan', 5, 6.00, '2024-01-07 00:00:00', NULL, NULL)`,
   `INSERT INTO "${SCHEMA}"."TAGS" VALUES (1, 'sql'), (2, 'warehouse')`,
+  `CREATE TABLE "${SCHEMA}"."PLACES" ("id" NUMBER(9,0) NOT NULL PRIMARY KEY, "authorId" NUMBER(9,0) NOT NULL REFERENCES "${SCHEMA}"."AUTHORS" ("id"), "name" VARCHAR NOT NULL, "location" GEOGRAPHY NOT NULL, "optionalLocation" GEOGRAPHY, "embedding" VECTOR(FLOAT, 3) NOT NULL, "score" FLOAT NOT NULL)`,
+  `INSERT INTO "${SCHEMA}"."PLACES" SELECT column1, column2, column3, ST_MAKEPOINT(column4, column5), IFF(column6 IS NULL, NULL, ST_MAKEPOINT(column6, column7)), PARSE_JSON(column8)::ARRAY::VECTOR(FLOAT, 3), column9 FROM VALUES
+    (1, 1, 'paris', 2.3522219, 48.856614, NULL, NULL, '[1, 0, 0]', 0.30000000000000004::FLOAT),
+    (2, 1, 'london', -0.1276, 51.5072, 0, 0, '[0.1, 0.2, 0.3]', 1e-7::FLOAT),
+    (3, 2, 'outer', 179, 5, NULL, NULL, '[0, 1, 0]', 1.5::FLOAT),
+    (4, 2, 'hole', 179, 0, NULL, NULL, '[-1, 0, 0]', 2::FLOAT),
+    (5, 2, 'outer-boundary', 170, 0, NULL, NULL, '[0, 0, 0]', 3::FLOAT),
+    (6, 2, 'hole-boundary', 175, 0, NULL, NULL, '[0.5, 0.5, 0]', 4::FLOAT),
+    (7, 3, 'west-dateline', -175, 0, NULL, NULL, '[0, 0, 1]', 5::FLOAT)`,
   `INSERT INTO "${SCHEMA}"."AUTHOR_TAGS" VALUES (1, 1), (1, 2), (2, 2)`,
 ];
 
@@ -312,6 +340,143 @@ describe.skipIf(credentials === undefined)("Snowflake, a real account", () => {
     expect(failure).toMatchObject({ code: VibORMErrorCode.QUERY_TIMEOUT });
   }, 60_000);
 
+  const PARIS = { longitude: 2.352_221_9, latitude: 48.856_614 };
+  const LONDON = { longitude: -0.1276, latitude: 51.5072 };
+
+  it("reads points, vectors and doubles exactly, flat and nested", async () => {
+    const paris = await db!.place.findUnique({ where: { id: 1 } });
+    expect(paris).toEqual({
+      id: 1,
+      authorId: 1,
+      name: "paris",
+      location: PARIS,
+      optionalLocation: null,
+      embedding: [1, 0, 0],
+      score: 0.300_000_000_000_000_04,
+    });
+    const london = await db!.place.findUnique({ where: { id: 2 } });
+    expect(london).toMatchObject({
+      location: LONDON,
+      optionalLocation: { longitude: 0, latitude: 0 },
+      // VECTOR(FLOAT) holds float32: each member reads as the exact double
+      // it widens to.
+      embedding: [0.1, 0.2, 0.3].map(Math.fround),
+      score: 1e-7,
+    });
+    const nested = await db!.author.findUnique({
+      where: { id: 1 },
+      include: { places: { orderBy: { id: "asc" } } },
+    });
+    expect(nested!.places).toEqual([paris, london]);
+  });
+
+  it("filters points by equality, by bounds across the antimeridian, and by a polygon with a hole", async () => {
+    const ids = async (args: { where: PlaceWhere }) =>
+      (
+        await db!.place.findMany({
+          ...args,
+          select: { id: true },
+          orderBy: { id: "asc" },
+        })
+      ).map((row) => row.id);
+    expect(await ids({ where: { location: { equals: PARIS } } })).toEqual([1]);
+    expect(
+      await ids({
+        where: {
+          location: {
+            within: {
+              bounds: { south: -10, west: 170, north: 10, east: -170 },
+            },
+          },
+        },
+      })
+    ).toEqual([3, 4, 5, 6, 7]);
+    const outer = [
+      { longitude: 170, latitude: -10 },
+      { longitude: -170, latitude: -10 },
+      { longitude: -170, latitude: 10 },
+      { longitude: 170, latitude: 10 },
+    ];
+    const hole = [
+      { longitude: 175, latitude: -2 },
+      { longitude: -175, latitude: -2 },
+      { longitude: -175, latitude: 2 },
+      { longitude: 175, latitude: 2 },
+    ];
+    // VibORM's polygon holds its holes' boundaries. Snowflake's ST_INTERSECTS
+    // reads a point exactly on a hole's edge as outside (measured: 6 and 7),
+    // while it holds the outer ring's (5): a documented provider reading,
+    // pinned so a change in Snowflake shows here.
+    const rings: [GeoPoint[], GeoPoint[]][] = [
+      [outer, hole],
+      [[...outer].reverse(), [...hole].reverse()],
+    ];
+    for (const [ring, inner] of rings)
+      expect(
+        await ids({
+          where: {
+            location: { within: { polygon: { outer: ring, holes: [inner] } } },
+          },
+        })
+      ).toEqual([3, 5]);
+  });
+
+  it("measures a point distance in the fixed-radius metres every provider uses", async () => {
+    const expected = sphericalDistance(PARIS, LONDON);
+    const rows = await db!.place.findMany({
+      where: {
+        authorId: 1,
+        location: { distance: { to: LONDON, lte: expected + 1 } },
+      },
+      select: { id: true, location: { _distance: { to: LONDON } } },
+      orderBy: { location: { _distance: { to: LONDON, sort: "asc" } } },
+    });
+    expect(rows.map((row) => row.id)).toEqual([2, 1]);
+    expect(rows[0]!._distance).toBeCloseTo(0, 6);
+    expect(rows[1]!._distance).toBeCloseTo(expected, 3);
+    const nullable = await db!.place.findMany({
+      where: { id: { in: [1, 2] } },
+      select: { id: true, optionalLocation: { _distance: { to: LONDON } } },
+      orderBy: { id: "asc" },
+    });
+    expect(nullable[0]!._distance).toBeNull();
+    expect(nullable[1]!._distance).toBeCloseTo(
+      sphericalDistance({ longitude: 0, latitude: 0 }, LONDON),
+      3
+    );
+  });
+
+  it("orders, selects and filters by vector distance, l2 and cosine", async () => {
+    const byL2 = await db!.place.findMany({
+      select: {
+        id: true,
+        embedding: { _distance: { to: [1, 0, 0], metric: "l2" } },
+      },
+      orderBy: { embedding: { _distance: { to: [1, 0, 0], metric: "l2" } } },
+      take: 2,
+    });
+    expect(byL2.map((row) => row.id)).toEqual([1, 6]);
+    expect(byL2[0]!._distance).toBeCloseTo(0, 6);
+    const byCosine = await db!.place.findMany({
+      where: { id: { in: [1, 4, 5] } },
+      select: {
+        id: true,
+        embedding: { _distance: { to: [1, 0, 0], metric: "cosine" } },
+      },
+      orderBy: { id: "asc" },
+    });
+    expect(byCosine[0]!._distance).toBeCloseTo(0, 6);
+    expect(byCosine[1]!._distance).toBeCloseTo(2, 6);
+    // A zero vector has no direction: its cosine distance reads NULL.
+    expect(byCosine[2]!._distance).toBeNull();
+    expect(
+      await db!.place.findMany({
+        where: { embedding: { equals: [0, 1, 0] } },
+        select: { id: true },
+      })
+    ).toEqual([{ id: 3 }]);
+  });
+
   it("introspects the schema, its declared keys as relations", async () => {
     const result = await introspectSchema({
       driver: new SnowflakeDriver({
@@ -326,8 +491,14 @@ describe.skipIf(credentials === undefined)("Snowflake, a real account", () => {
       light: true,
     });
     expect(Object.keys(result.document.models)).toEqual(
-      expect.arrayContaining(["AUTHORS", "POSTS", "TAGS"])
+      expect.arrayContaining(["AUTHORS", "POSTS", "TAGS", "PLACES"])
     );
+    expect(result.document.models.PLACES!.fields).toMatchObject({
+      location: { type: "point" },
+      optionalLocation: { type: "point", nullable: true },
+      embedding: { type: "vector", dimension: 3 },
+      score: { type: "number" },
+    });
     expect(Object.values(result.document.models.POSTS!.fields)).toContainEqual(
       expect.objectContaining({
         type: "toOne",
@@ -338,3 +509,26 @@ describe.skipIf(credentials === undefined)("Snowflake, a real account", () => {
     );
   });
 });
+
+type PlaceWhere = NonNullable<
+  Parameters<ReturnType<typeof client>["place"]["findMany"]>[0]
+>["where"];
+
+function sphericalDistance(
+  left: { longitude: number; latitude: number },
+  right: { longitude: number; latitude: number }
+): number {
+  const radians = Math.PI / 180;
+  const latitudeDelta = (right.latitude - left.latitude) * radians;
+  const longitudeDelta = (right.longitude - left.longitude) * radians;
+  const haversine =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(left.latitude * radians) *
+      Math.cos(right.latitude * radians) *
+      Math.sin(longitudeDelta / 2) ** 2;
+  return (
+    2 *
+    GEO_POINT_EARTH_RADIUS_METERS *
+    Math.asin(Math.min(1, Math.sqrt(haversine)))
+  );
+}

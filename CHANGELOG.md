@@ -22,7 +22,11 @@ VibORM reads Snowflake.
   `bigint` and `Decimal` as text, timestamps to the nanosecond in a UTC
   session. Every write, `$executeRaw`, `$transaction` and every migration
   command that could write fails with `V8001` before anything is sent:
-  Snowflake enforces no key, has no savepoint and no `RETURNING`. See the
+  Snowflake enforces no key, has no savepoint and no `RETURNING`.
+  `s.vector()` reads `VECTOR(FLOAT, n)` (`l2` and `cosine` distances) and
+  `s.point()` reads `GEOGRAPHY` (equality, bounds, polygons, distance in the
+  same metres as every provider; a point exactly on a polygon hole's edge reads
+  as outside there). See the
   [Snowflake](https://viborm.dev/docs/drivers/snowflake) page.
 - **`introspectSchema({ driver })` reads a Snowflake schema**, its declared
   (unenforced) foreign keys as relations, with

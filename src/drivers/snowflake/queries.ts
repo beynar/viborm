@@ -87,6 +87,22 @@ export class SnowflakeQueries extends SqlQueries {
           field.name
         );
       if (field.kind === "variants") refused("a polymorphic slot");
+      // A vector and a point are spelled exactly here: the SQL backend's
+      // projections would read them through prints that round them.
+      const type =
+        field.kind === "scalar"
+          ? physicalField(this.schema, projection.model, field.name).scalar["~"]
+              .state.type
+          : undefined;
+      if (type === "vector" || type === "point") {
+        const column = this.column(projection.model, field.name, alias);
+        return a.identifiers.aliased(
+          type === "vector"
+            ? a.relations.vectorText(column)
+            : a.relations.pointObject(column),
+          field.name
+        );
+      }
       return super.lowerProjection(
         { ...projection, fields: [field] },
         alias,
@@ -314,6 +330,8 @@ export class SnowflakeQueries extends SqlQueries {
       case "decimal":
       case "bigint":
         return a.expressions.cast(column, "text");
+      case "number":
+        return a.json.number(column);
       case "datetime":
         return a.relations.timestampText(column);
       case "date":

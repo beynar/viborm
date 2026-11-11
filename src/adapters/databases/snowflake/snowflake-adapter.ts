@@ -13,7 +13,8 @@
  *   driver's UTC session compares against `TIMESTAMP_NTZ`, `_LTZ` and `_TZ`
  *   columns alike;
  * - `LIKE` patterns escape with a backslash, which a Snowflake string literal
- *   spells `'\\'`.
+ *   spells `'\\'`;
+ * - `s.vector()` is `VECTOR(FLOAT, n)` and `s.point()` a `GEOGRAPHY` point.
  *
  * Nested relation reads are not spelled here: Snowflake refuses a correlated
  * subquery holding a `LIMIT` or a correlated derived table, so the driver's
@@ -26,6 +27,7 @@ import {
   type DecimalDescriptor,
   encodePhysicalDecimal,
 } from "@validation/primitives/decimal-codec";
+import { GEO_POINT_EARTH_RADIUS_METERS } from "@validation/primitives/geo-area-codec";
 import type { IdRepresentation } from "@validation/primitives/id-codec";
 import { createIdentifierQuoter } from "../../../sql/identifiers";
 import type {
@@ -39,6 +41,7 @@ import { passThroughParseResult } from "../../adapter-result-parser";
 import { createNamedConstraintIdentities } from "../../constraint-identity";
 import {
   type DatabaseAdapter,
+  type GeoPointSql,
   installGeoPointSql,
   type TextMatch,
 } from "../../database-adapter";
@@ -48,6 +51,10 @@ import {
   logicalDecimalDivide,
   logicalDecimalMultiply,
 } from "../../shared/decimal-arithmetic";
+import {
+  createGeoPointCoordinatePredicates,
+  geoPolygonJson,
+} from "../../shared/geo-point";
 import {
   assembleDistinctOnEmulation,
   assembleSelectQuery,
@@ -176,6 +183,39 @@ export function normalizeSnowflakeTimestamp(value: string): string {
   return `${date}T${clock}${micros}${zone ?? "Z"}`;
 }
 
+/**
+ * GeoPoint on `GEOGRAPHY`: `ST_MAKEPOINT`, `ST_X`/`ST_Y`, the shared exact
+ * coordinate predicates, `ST_INTERSECTS` with a GeoJSON polygon (geodesic
+ * edges, boundary included, holes excluded, measured on a real account), and
+ * the haversine distance PostgreSQL spells, on the same fixed radius, so the
+ * metres agree across providers.
+ */
+function createSnowflakeGeoPointSql(
+  operators: Parameters<typeof createGeoPointCoordinatePredicates>[2]
+): GeoPointSql {
+  const longitude = (point: Sql): Sql => sql`ST_X(${point})`;
+  const latitude = (point: Sql): Sql => sql`ST_Y(${point})`;
+  return {
+    value: (pointLongitude, pointLatitude) =>
+      sql`ST_MAKEPOINT(${pointLongitude}, ${pointLatitude})`,
+    longitude,
+    latitude,
+    ...createGeoPointCoordinatePredicates(longitude, latitude, operators),
+    withinPolygon: (point, polygon) =>
+      sql`ST_INTERSECTS(TO_GEOGRAPHY(${geoPolygonJson(polygon)}), ${point})`,
+    distance: (left, right) => {
+      const leftLongitude = sql`RADIANS(ST_X(${left}))`;
+      const leftLatitude = sql`RADIANS(ST_Y(${left}))`;
+      const rightLongitude = sql`RADIANS(ST_X(${right}))`;
+      const rightLatitude = sql`RADIANS(ST_Y(${right}))`;
+      const haversine = sql`POWER(SIN((${rightLatitude} - ${leftLatitude}) / 2), 2) + COS(${leftLatitude}) * COS(${rightLatitude}) * POWER(SIN((${rightLongitude} - ${leftLongitude}) / 2), 2)`;
+      // LEAST/GREATEST would answer NULL for a NULL point anyway; the arm
+      // says it where a reader looks for it.
+      return sql`CASE WHEN ${left} IS NULL OR ${right} IS NULL THEN NULL ELSE CAST(${GEO_POINT_EARTH_RADIUS_METERS} AS FLOAT) * 2 * ASIN(SQRT(LEAST(1, GREATEST(0, ${haversine})))) END`;
+    },
+  };
+}
+
 export class SnowflakeAdapter implements DatabaseAdapter {
   /**
    * The schema persistent objects are qualified with, exactly as the
@@ -199,8 +239,8 @@ export class SnowflakeAdapter implements DatabaseAdapter {
       configurable: false,
     });
     this.identifiers = createIdentifiers(quoteIdent, namespace, true);
-    // No point column: Snowflake's GEOGRAPHY is not VibORM's GeoPoint language.
-    installGeoPointSql(this, undefined);
+    // A GeoPoint is a GEOGRAPHY point: WGS 84, VibORM's own EPSG:4326.
+    installGeoPointSql(this, createSnowflakeGeoPointSql(this.operators));
     installAdapterInternals(this, {
       batchRefs: SNOWFLAKE_BATCH_REFS,
       constraints: createNamedConstraintIdentities(
@@ -335,7 +375,10 @@ export class SnowflakeAdapter implements DatabaseAdapter {
     equals: (left: Sql, right: Sql): Sql => sql`(${left}) = (${right})`,
     boolean: (condition: Sql): Sql => condition,
     document: (expression: Sql): Sql => expression,
-    number: (expression: Sql): Sql => expression,
+    // A double inside a VARIANT prints with 16 significant digits, one short
+    // of what reads every double back: it travels as its own shortest text
+    // (`0.30000000000000004`), which every number decoder reads.
+    number: (expression: Sql): Sql => sql`TO_VARCHAR(${expression})`,
     object: jsonObject,
     array: (items: Sql[]): Sql =>
       sql`ARRAY_CONSTRUCT(${sql.join(items.map(jsonMember), ", ")})`,
@@ -418,6 +461,20 @@ export class SnowflakeAdapter implements DatabaseAdapter {
     timestampText: (column: Sql): Sql =>
       sql`TO_VARCHAR(CAST(${column} AS TIMESTAMP_TZ), 'YYYY-MM-DD"T"HH24:MI:SS.FF3TZH:TZM')`,
     dateText: (column: Sql): Sql => sql`TO_VARCHAR(${column}, 'YYYY-MM-DD')`,
+    /**
+     * A vector as the JSON text of its members, each the exact double its
+     * float32 widens to (`0.10000000149011612`): the SQL API prints a VECTOR
+     * with six decimals, and a VARIANT prints a double with sixteen digits,
+     * both short of it. The vector decoder parses the text, flat or carried.
+     */
+    vectorText: (column: Sql): Sql =>
+      sql`('[' || ARRAY_TO_STRING(TRANSFORM(CAST(${column} AS ARRAY), member VARIANT -> TO_VARCHAR(member::FLOAT)), ',') || ']')`,
+    /**
+     * A point as its two coordinates, each a JSON number parsed from the
+     * double's shortest text, so no VARIANT print rounds it; NULL stays NULL.
+     */
+    pointObject: (column: Sql): Sql =>
+      sql`IFF(${column} IS NULL, NULL, OBJECT_CONSTRUCT_KEEP_NULL('longitude', PARSE_JSON(TO_VARCHAR(ST_X(${column}))), 'latitude', PARSE_JSON(TO_VARCHAR(ST_Y(${column})))))`,
   };
 
   /** `LIMIT NULL OFFSET n`: Snowflake has no bare `OFFSET`. */
@@ -494,7 +551,7 @@ export class SnowflakeAdapter implements DatabaseAdapter {
     supportsFullOuterJoin: true,
     // Snowflake refuses most correlated inline views; nothing reads through one.
     supportsLateralJoins: false,
-    supportsVector: false,
+    supportsVector: true,
     supportsUpsertWhere: false,
     supportsTargetedUpsert: false,
     supportsMutationTargetInSubquery: true,
@@ -513,14 +570,19 @@ export class SnowflakeAdapter implements DatabaseAdapter {
 
   setOperations = createSetOperations(quoteIdent);
 
-  // Snowflake has VECTOR; `supportsVector` stays false until it is proven.
+  /**
+   * `VECTOR(FLOAT, n)`: an operand is its JSON array cast into the column's
+   * type. Snowflake has no vector index, so every order is exact, whatever
+   * key the engine asks for.
+   */
   vector = {
     literal: (values: number[]): Sql =>
-      sql`${JSON.stringify(values)}::VECTOR(FLOAT, ${sql.raw(String(values.length))})`,
+      sql`CAST(PARSE_JSON(${JSON.stringify(values)}) AS ARRAY)::VECTOR(FLOAT, ${sql.raw(String(values.length))})`,
     l2: (column: Sql, vector: Sql): Sql =>
       sql`VECTOR_L2_DISTANCE(${column}, ${vector})`,
+    // A zero vector's cosine is NaN; read as NULL, as on PostgreSQL.
     cosine: (column: Sql, vector: Sql): Sql =>
-      sql`(1 - VECTOR_COSINE_SIMILARITY(${column}, ${vector}))`,
+      sql`NULLIF(1 - VECTOR_COSINE_SIMILARITY(${column}, ${vector}), 'NaN'::FLOAT)`,
   };
 
   result: DatabaseAdapter["result"] = {
@@ -535,10 +597,11 @@ export class SnowflakeAdapter implements DatabaseAdapter {
       value: unknown,
       scalarType: string,
       next: (value?: unknown) => unknown
-    ): unknown =>
-      scalarType === "datetime" && typeof value === "string"
-        ? next(normalizeSnowflakeTimestamp(value))
-        : next(),
+    ): unknown => {
+      if (scalarType === "datetime" && typeof value === "string")
+        return next(normalizeSnowflakeTimestamp(value));
+      return next();
+    },
   };
 }
 

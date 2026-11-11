@@ -97,6 +97,10 @@ const CATALOG: Row[] = [
   column("ORDERS", "TOTAL", "NUMBER", false, { precision: 12, scale: 2 }),
   column("ORDERS", "PLACED_AT", "TIMESTAMP_TZ", false, { datetime: 9 }),
   column("ORDERS", "PAID", "BOOLEAN", false),
+  column("ORDERS", "DELIVERED_TO", "GEOGRAPHY", true),
+  column("ORDERS", "EMBEDDING", "VECTOR", true),
+  column("ORDERS", "SIGNATURE", "VECTOR", true),
+  column("ORDERS", "FLOOR_PLAN", "GEOMETRY", true),
 ];
 
 let server: FakeSnowflake;
@@ -116,6 +120,22 @@ function answer({ statement }: FakeStatement) {
     );
   if (statement.includes("INFORMATION_SCHEMA.VIEWS"))
     return rows([text("name")], [["CUSTOMER_TOTALS"]]);
+  if (statement.startsWith("SHOW COLUMNS"))
+    return rows(
+      [text("table_name"), text("column_name"), text("data_type")],
+      [
+        [
+          "ORDERS",
+          "EMBEDDING",
+          '{"type":"VECTOR","nullable":true,"vectorElementType":{"type":"REAL","nullable":false},"dimension":3}',
+        ],
+        [
+          "ORDERS",
+          "SIGNATURE",
+          '{"type":"VECTOR","nullable":true,"vectorElementType":{"type":"FIXED","precision":38,"scale":0,"nullable":false},"dimension":2}',
+        ],
+      ]
+    );
   if (statement.startsWith("SHOW PRIMARY KEYS"))
     return rows(
       [
@@ -201,14 +221,20 @@ describe("introspectSchema on Snowflake", () => {
       CREATED_AT: { type: "datetime", generate: { kind: "now" } },
       PROFILE: { type: "json", nullable: true },
     });
-    expect(customers!.fields).not.toHaveProperty("HOME");
+    expect(customers!.fields).toMatchObject({
+      HOME: { type: "point", nullable: true },
+    });
     expect(orders!.fields).toMatchObject({
       ID: { type: "int", id: true },
       CUSTOMER_ID: { type: "bigint" },
       TOTAL: { type: "decimal", precision: 12, scale: 2 },
       PLACED_AT: { type: "datetime" },
       PAID: { type: "boolean" },
+      DELIVERED_TO: { type: "point", nullable: true },
+      EMBEDDING: { type: "vector", dimension: 3, nullable: true },
     });
+    expect(orders!.fields).not.toHaveProperty("SIGNATURE");
+    expect(orders!.fields).not.toHaveProperty("FLOOR_PLAN");
     // The declared, unenforced foreign key is the relation, both ways.
     const relations = (model: object) =>
       Object.values(model).filter(
@@ -232,8 +258,15 @@ describe("introspectSchema on Snowflake", () => {
         expect.objectContaining({ kind: "view", name: "CUSTOMER_TOTALS" }),
         expect.objectContaining({
           kind: "column",
-          table: "CUSTOMERS",
-          name: "HOME",
+          table: "ORDERS",
+          name: "SIGNATURE",
+          reason: expect.stringContaining("VECTOR(INT)"),
+        }),
+        expect.objectContaining({
+          kind: "column",
+          table: "ORDERS",
+          name: "FLOOR_PLAN",
+          reason: expect.stringContaining("planar"),
         }),
       ])
     );
@@ -247,6 +280,11 @@ describe("introspectSchema on Snowflake", () => {
           kind: "approximated",
           table: "CUSTOMERS",
           name: "CREATED_AT",
+        }),
+        expect.objectContaining({
+          kind: "approximated",
+          table: "ORDERS",
+          name: "DELIVERED_TO",
         }),
       ])
     );
@@ -263,6 +301,7 @@ describe("introspectSchema on Snowflake", () => {
       'SHOW PRIMARY KEYS IN SCHEMA "SALES"."PUBLIC"',
       'SHOW UNIQUE KEYS IN SCHEMA "SALES"."PUBLIC"',
       'SHOW IMPORTED KEYS IN SCHEMA "SALES"."PUBLIC"',
+      'SHOW COLUMNS IN SCHEMA "SALES"."PUBLIC"',
     ]);
   });
 
