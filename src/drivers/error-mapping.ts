@@ -98,7 +98,7 @@ export function batchMayContainAssertionCollision(
   dialect: Dialect,
   ownedAssertions?: ReadonlySet<number>
 ): boolean {
-  const signature = FOREIGN_ASSERTION_SIGNATURE[dialect] ?? /(?!)/;
+  const signature = FOREIGN_ASSERTION_SIGNATURE[dialect];
   for (const [index, statement] of statements.entries()) {
     if (
       statement.sql.includes(ASSERTION_MARKER) ||
@@ -107,7 +107,7 @@ export function batchMayContainAssertionCollision(
       if (ownedAssertions && !ownedAssertions.has(index)) return true;
       continue;
     }
-    if (signature.test(statement.sql)) return true;
+    if (signature?.test(statement.sql)) return true;
   }
   return false;
 }

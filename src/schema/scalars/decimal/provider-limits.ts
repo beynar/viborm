@@ -44,7 +44,7 @@ export function findDecimalProviderLimitRefusal(
   dialect: ProviderDialect
 ): DecimalProviderLimitRefusal | undefined {
   const decimalDialect = decimalDialectOf(dialect);
-  if (decimalDialect === undefined) return undefined;
+  if (!decimalDialect) return;
   for (const [modelName, model] of Object.entries(schema)) {
     const scalars: Record<string, Scalar> = model["~"].state.scalars;
     for (const [fieldName, scalar] of Object.entries(scalars)) {
