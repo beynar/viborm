@@ -7,10 +7,18 @@
 /**
  * Supported database dialects
  */
-export type Dialect = "postgresql" | "mysql" | "sqlite" | "surrealql";
+export type Dialect =
+  | "postgresql"
+  | "mysql"
+  | "sqlite"
+  | "surrealql"
+  | "snowflake";
 
-/** The dialects with migrations and a write path: every SQL one. */
-export type SqlDialect = Exclude<Dialect, "surrealql">;
+/**
+ * The dialects with migrations and a write path: every SQL one but Snowflake,
+ * which VibORM only reads (`viborm/snowflake`).
+ */
+export type SqlDialect = Exclude<Dialect, "surrealql" | "snowflake">;
 
 /** Immutable attribution captured for one driver execution. */
 export interface QueryExecutionContext {

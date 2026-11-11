@@ -37,6 +37,8 @@ const runtime = {
     mysql2: "./src/drivers/mysql2/index.ts",
     // SurrealDB (viborm/surrealdb)
     surrealdb: "./src/drivers/surrealdb/index.ts",
+    // Snowflake, read-only (viborm/snowflake)
+    snowflake: "./src/drivers/snowflake/index.ts",
     planetscale: "./src/drivers/planetscale/index.ts",
 
     // SQLite drivers (viborm/sqlite3, viborm/libsql, etc.)
@@ -56,6 +58,7 @@ const runtime = {
     migrations: "./src/migrations/dialects/all.ts",
     "migrations/postgres": "./src/migrations/dialects/postgres.ts",
     "migrations/surrealdb": "./src/migrations/dialects/surrealql.ts",
+    "migrations/snowflake": "./src/migrations/dialects/snowflake.ts",
     "migrations/sqlite": "./src/migrations/dialects/sqlite.ts",
     "migrations/mysql": "./src/migrations/dialects/mysql.ts",
     "migrations/storage/fs": "./src/migrations/storage/fs.ts",

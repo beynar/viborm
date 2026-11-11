@@ -49,6 +49,16 @@ export function admitLiveMigrationCapability(
 ): void {
   const { target } = migrationDriver;
 
+  // VibORM only reads Snowflake: it states no DDL and keeps no control table
+  // there, so every command that could write is refused before it sends one.
+  if (target.dialect === "snowflake" && requirement !== "read-only") {
+    throw new MigrationError(
+      `${command} cannot run on Snowflake: VibORM only reads a Snowflake warehouse. Introspect it with introspectSchema() and manage its tables with Snowflake's own tools.`,
+      VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+      { meta: { command, dialect: "snowflake" } }
+    );
+  }
+
   if (target.dialect === "postgresql") {
     admitPinnedSessionCapability(migrationDriver, requirement, command);
     return;

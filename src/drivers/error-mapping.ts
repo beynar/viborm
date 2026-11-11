@@ -81,8 +81,9 @@ const FOREIGN_ASSERTION_SIGNATURE: Record<Dialect, RegExp> = {
   postgresql: /[/%]/,
   mysql: JSON_ACCESS_SIGNATURE,
   sqlite: JSON_ACCESS_SIGNATURE,
-  // It raises no batch assertion: nothing it runs can collide with one.
+  // Neither raises a batch assertion: nothing they run can collide with one.
   surrealql: /(?!)/,
+  snowflake: /(?!)/,
 };
 
 /**

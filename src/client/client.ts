@@ -1370,6 +1370,7 @@ export class VibORM<C extends VibORMConfig> {
       // stops being exact (see the SQLite adapter's arithmetic guards).
       const decimalRefusal =
         config.driver.dialect === "surrealql" ||
+        config.driver.dialect === "snowflake" ||
         reused?.fittingDialects.has(config.driver.dialect)
           ? undefined
           : findDecimalProviderLimitRefusal(

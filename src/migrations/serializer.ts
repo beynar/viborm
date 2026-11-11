@@ -72,8 +72,9 @@ export function assertMigrationDecimalDomainsFitProvider(
   models: Record<string, AnyModel>,
   dialect: Dialect
 ): void {
-  // SurrealDB's `decimal` holds any precision and scale: there is no limit to fit.
-  if (dialect === "surrealql") return;
+  // SurrealDB's `decimal` holds any precision and scale: there is no limit to
+  // fit. Snowflake is only read: nothing is stored there.
+  if (dialect === "surrealql" || dialect === "snowflake") return;
   const refusal = findDecimalProviderLimitRefusal(models, dialect);
   if (refusal === undefined) return;
   throw new MigrationError(
@@ -423,7 +424,7 @@ export function serializeResolvedModels(
     // its name to it. A dialect it has no text for has no such index.
     const templateKey = RAW_INDEX_TEMPLATE_KEY[migrationDriver.dialect];
     for (const rawIndex of model["~"].rawIndexes) {
-      const template = rawIndex.templates[templateKey];
+      const template = templateKey && rawIndex.templates[templateKey];
       if (template === undefined) continue;
       // I002 sees explicit names only; an `.index()` without one takes its
       // name here, and two indexes under one name fail the second CREATE.

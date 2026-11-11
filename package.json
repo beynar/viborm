@@ -74,6 +74,11 @@
       "import": "./dist/surrealdb.mjs",
       "default": "./dist/surrealdb.mjs"
     },
+    "./snowflake": {
+      "types": "./dist/snowflake.d.mts",
+      "import": "./dist/snowflake.mjs",
+      "default": "./dist/snowflake.mjs"
+    },
     "./mysql2": {
       "types": "./dist/mysql2.d.mts",
       "import": "./dist/mysql2.mjs",
@@ -143,6 +148,11 @@
       "types": "./dist/migrations/surrealdb.d.mts",
       "import": "./dist/migrations/surrealdb.mjs",
       "default": "./dist/migrations/surrealdb.mjs"
+    },
+    "./migrations/snowflake": {
+      "types": "./dist/migrations/snowflake.d.mts",
+      "import": "./dist/migrations/snowflake.mjs",
+      "default": "./dist/migrations/snowflake.mjs"
     },
     "./migrations/mysql": {
       "types": "./dist/migrations/mysql.d.mts",
