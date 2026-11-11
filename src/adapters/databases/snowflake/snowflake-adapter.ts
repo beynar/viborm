@@ -20,7 +20,7 @@
  * `SnowflakeQueries` writes them as uncorrelated grouped tables.
  */
 
-import { FeatureNotSupportedError } from "@errors";
+import { FeatureNotSupportedError, UnsupportedOperationError } from "@errors";
 import { type Sql, sql } from "@sql";
 import {
   type DecimalDescriptor,
@@ -82,6 +82,7 @@ import {
 const quoteIdent = createIdentifierQuoter('"');
 
 const ARRAY_INDEX = /^\d+$/;
+const LEADING_ZEROS = /^0+/;
 
 /** Snowflake's widest `NUMBER`. */
 export const SNOWFLAKE_MAX_PRECISION = 38;
@@ -225,8 +226,25 @@ export class SnowflakeAdapter implements DatabaseAdapter {
 
     json: parsedJson,
 
-    decimal: (canonical: string, descriptor: DecimalDescriptor): Sql =>
-      sql`CAST(${encodePhysicalDecimal(canonical, descriptor, "text")} AS ${sql.raw(numberType(descriptor))})`,
+    // Snowflake's NUMBER holds 38 digits, so NUMBER(38,s) holds 38 - s of
+    // them before the point: an operand that fits is exact there, and one
+    // that does not is refused rather than rounded or failed by the cast.
+    decimal: (canonical: string, descriptor: DecimalDescriptor): Sql => {
+      const text = encodePhysicalDecimal(canonical, descriptor, "text");
+      const whole = text
+        .replace("-", "")
+        .split(".")[0]!
+        .replace(LEADING_ZEROS, "");
+      if (
+        descriptor.scale >= SNOWFLAKE_MAX_PRECISION ||
+        whole.length > SNOWFLAKE_MAX_PRECISION - descriptor.scale
+      )
+        throw new UnsupportedOperationError(
+          `Snowflake's NUMBER holds ${SNOWFLAKE_MAX_PRECISION} digits, and the decimal ${canonical} at scale ${descriptor.scale} needs more: no stored value can be compared with it.`,
+          { meta: { dialect: "snowflake", scalarType: "decimal" } }
+        );
+      return sql`CAST(${text} AS ${sql.raw(numberType(descriptor))})`;
+    },
 
     // A text-stored identifier compares as text and a byte-stored one as the
     // binary parameter blobs bind; Snowflake has no UUID type.
@@ -379,6 +397,27 @@ export class SnowflakeAdapter implements DatabaseAdapter {
       direction === "desc"
         ? sql`${column} DESC NULLS LAST`
         : sql`${column} ASC NULLS LAST`,
+  };
+
+  /**
+   * The spellings a nested relation read takes here (`SnowflakeQueries`
+   * decides its structure): rows numbered per key, a page kept by its
+   * numbers, an ordered aggregate and its first member, and the text a
+   * timestamp or a date travels as inside a document.
+   */
+  relations = {
+    rank: (partition: readonly Sql[], order: Sql | undefined): Sql =>
+      sql`ROW_NUMBER() OVER (PARTITION BY ${sql.join(partition, ", ")} ORDER BY ${order ?? sql.raw("1")})`,
+    qualify: (select: Sql, condition: Sql): Sql =>
+      sql`${select} QUALIFY ${condition}`,
+    arrayAgg: (value: Sql, order: Sql | undefined): Sql =>
+      order
+        ? sql`ARRAY_AGG(${value}) WITHIN GROUP (ORDER BY ${order})`
+        : sql`ARRAY_AGG(${value})`,
+    first: (array: Sql): Sql => sql`GET(${array}, 0)`,
+    timestampText: (column: Sql): Sql =>
+      sql`TO_VARCHAR(CAST(${column} AS TIMESTAMP_TZ), 'YYYY-MM-DD"T"HH24:MI:SS.FF3TZH:TZM')`,
+    dateText: (column: Sql): Sql => sql`TO_VARCHAR(${column}, 'YYYY-MM-DD')`,
   };
 
   /** `LIMIT NULL OFFSET n`: Snowflake has no bare `OFFSET`. */

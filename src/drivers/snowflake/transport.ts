@@ -97,6 +97,16 @@ export class SnowflakeApiError extends Error {
   }
 }
 
+function malformedResult(reason: string): QueryError {
+  return new QueryError(
+    `Snowflake answered a result VibORM cannot read: ${reason}.`,
+    {
+      code: VibORMErrorCode.QUERY_RESULT_INVALID,
+      meta: { driver: "snowflake" },
+    }
+  );
+}
+
 const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
   new Promise((resolve, reject) => {
     if (signal?.aborted) {
@@ -198,11 +208,15 @@ export class SnowflakeTransport {
           answer.body,
           `Snowflake answered HTTP ${answer.status}.`
         );
-      const result = answer.body ?? {};
+      const result = answer.body;
+      const metadata = result?.resultSetMetaData;
+      // A result states its columns and its first partition, empty or not;
+      // without them the rows are not known, and no read answers [] for them.
+      if (!(Array.isArray(metadata?.rowType) && Array.isArray(result?.data)))
+        throw malformedResult("its rowType or its data is missing");
       handle = result.statementHandle ?? handle ?? "";
-      const columns = result.resultSetMetaData?.rowType ?? [];
-      const partitions = result.resultSetMetaData?.partitionInfo?.length ?? 1;
-      const rows: (readonly unknown[])[] = [...(result.data ?? [])];
+      const partitions = metadata.partitionInfo?.length ?? 1;
+      const rows: (readonly unknown[])[] = [...result.data];
       if (partitions > 1)
         for (const part of await this.#partitions(
           handle,
@@ -210,7 +224,14 @@ export class SnowflakeTransport {
           deadline.signal
         ))
           for (const row of part) rows.push(row);
-      return { columns, rows, handle };
+      if (
+        typeof metadata.numRows === "number" &&
+        rows.length !== metadata.numRows
+      )
+        throw malformedResult(
+          `it states ${metadata.numRows} rows and holds ${rows.length}`
+        );
+      return { columns: metadata.rowType, rows, handle };
     } catch (error) {
       if (deadline.signal.aborted && handle) await this.cancel(handle);
       throw deadline.signal.aborted && deadline.signal.reason instanceof Error
@@ -257,7 +278,10 @@ export class SnowflakeTransport {
             answer.body,
             `Snowflake answered HTTP ${answer.status} for partition ${partition}.`
           );
-        out[partition - 1] = answer.body?.data ?? [];
+        const data = answer.body?.data;
+        if (!Array.isArray(data))
+          throw malformedResult(`partition ${partition} holds no data`);
+        out[partition - 1] = data;
       }
     };
     const workers = Math.min(

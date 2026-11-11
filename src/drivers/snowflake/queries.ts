@@ -37,6 +37,7 @@
  */
 
 import { assembleAdapterSelect } from "@adapters/adapter-internals";
+import type { SnowflakeAdapter } from "@adapters/databases/snowflake/snowflake-adapter";
 import { UnsupportedOperationError } from "@errors";
 import type {
   Leaf,
@@ -70,6 +71,8 @@ const ORDER = (index: number) => `$o${index}`;
 const RANK = "$rn";
 
 export class SnowflakeQueries extends SqlQueries {
+  declare readonly adapter: SnowflakeAdapter;
+
   override lowerProjection(
     projection: PreparedProjection,
     alias?: string,
@@ -162,10 +165,10 @@ export class SnowflakeQueries extends SqlQueries {
     if (windowed) {
       pageColumns.push(
         a.identifiers.aliased(
-          sql`ROW_NUMBER() OVER (PARTITION BY ${sql.join(
+          a.relations.rank(
             keys.map(([child]) => child),
-            ", "
-          )} ORDER BY ${this.#orderList(presented) ?? sql.raw("1")})`,
+            this.#orderList(presented)
+          ),
           RANK
         )
       );
@@ -191,7 +194,7 @@ export class SnowflakeQueries extends SqlQueries {
     const qualified =
       qualify.length === 0
         ? page
-        : sql`${page} QUALIFY ${a.operators.and(...qualify)}`;
+        : a.relations.qualify(page, a.operators.and(...qualify));
 
     const members: [string, Sql][] = Object.entries(
       projection.shape.fields
@@ -210,12 +213,10 @@ export class SnowflakeQueries extends SqlQueries {
             expression: a.identifiers.column(pageAlias, ORDER(index)),
           }))
         );
-    const aggregated = within
-      ? sql`ARRAY_AGG(${object}) WITHIN GROUP (ORDER BY ${within})`
-      : sql`ARRAY_AGG(${object})`;
+    const aggregated = a.relations.arrayAgg(object, within);
     const read = a.subqueries.scalar(
       assembleAdapterSelect(a, {
-        columns: edge.many ? aggregated : sql`GET(${aggregated}, 0)`,
+        columns: edge.many ? aggregated : a.relations.first(aggregated),
         from: a.subqueries.correlate(qualified, pageAlias),
         where: a.operators.and(
           ...keys.map(([, parent], index) =>
@@ -313,9 +314,9 @@ export class SnowflakeQueries extends SqlQueries {
       case "bigint":
         return a.expressions.cast(column, "text");
       case "datetime":
-        return sql`TO_VARCHAR(CAST(${column} AS TIMESTAMP_TZ), 'YYYY-MM-DD"T"HH24:MI:SS.FF3TZH:TZM')`;
+        return a.relations.timestampText(column);
       case "date":
-        return sql`TO_VARCHAR(${column}, 'YYYY-MM-DD')`;
+        return a.relations.dateText(column);
       case "blob":
         return a.expressions.caseWhen(
           [{ when: a.operators.isNull(column), then: a.literals.null() }],

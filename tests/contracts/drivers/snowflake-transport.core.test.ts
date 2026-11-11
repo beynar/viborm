@@ -126,4 +126,49 @@ describe("Snowflake SQL API transport", () => {
     // The server-side timeout is stated too.
     expect(server!.statements()[0]!.timeout).toBe(1);
   });
+
+  it("refuses a 200 that does not state its rows, rather than answering none", async () => {
+    const meta = {
+      numRows: 1,
+      rowType: [column],
+      partitionInfo: [{ rowCount: 1 }],
+    };
+    const answers: unknown[] = [
+      { resultSetMetaData: meta },
+      { data: [["1"]] },
+      { resultSetMetaData: meta, data: [] },
+    ];
+    for (const body of answers) {
+      const client = await transport(() => ({ body }));
+      const failure = await client
+        .run("SELECT 1", undefined)
+        .catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(QueryError);
+      expect((failure as QueryError).code).toBe(
+        VibORMErrorCode.QUERY_RESULT_INVALID
+      );
+      await server!.close();
+      server = undefined;
+    }
+    const empty = await transport(() => ({
+      body: { resultSetMetaData: { ...meta, numRows: 0 }, data: [] },
+    }));
+    expect((await empty.run("SELECT 1", undefined)).rows).toEqual([]);
+  });
+
+  it("refuses a partition that holds no data", async () => {
+    const client = await transport(() => ({
+      body: {
+        resultSetMetaData: {
+          rowType: [column],
+          partitionInfo: [{ rowCount: 1 }, { rowCount: 1 }],
+        },
+        data: [["1"]],
+      },
+      partitions: [undefined, {}],
+    }));
+    await expect(client.run("SELECT 1", undefined)).rejects.toThrow(
+      "partition 1 holds no data"
+    );
+  });
 });

@@ -349,6 +349,34 @@ describe("Snowflake refusals", () => {
     expect(server.requests).toEqual([]);
   });
 
+  it("refuses a decimal operand wider than Snowflake's 38 digits, and binds one that fits", async () => {
+    const db = createClient({
+      schema: {
+        ledger: s
+          .model({
+            id: s.int().id(),
+            amount: s.decimal({ precision: 40, scale: 2 }),
+          })
+          .map("LEDGER"),
+      },
+      account: "a",
+      token: "t",
+      host: server.url,
+    });
+    // 37 integer digits and 2 of scale: 39.
+    await expect(
+      db.ledger.findMany({ where: { amount: { gt: "1".repeat(37) } } })
+    ).rejects.toBeInstanceOf(UnsupportedOperationError);
+    expect(server.requests).toEqual([]);
+    await db.ledger.findMany({ where: { amount: { gt: "1".repeat(36) } } });
+    const sent = server.statements()[0]!;
+    expect(sent.statement).toContain('"q0"."amount" > CAST(? AS NUMBER(38,2))');
+    expect(sent.bindings!["1"]).toEqual({
+      type: "TEXT",
+      value: "1".repeat(36),
+    });
+  });
+
   it("refuses the nested shapes Snowflake cannot evaluate, before sending anything", async () => {
     const db = client();
     const shapes = [

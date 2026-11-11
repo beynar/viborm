@@ -22,6 +22,10 @@ import type { AnyDriver } from "../../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import type { Scalar } from "../../../schema/scalars/base";
 import type { ScalarState } from "../../../schema/scalars/common";
+import {
+  createIdentifierQuoter,
+  renderQualifiedIdentifier,
+} from "../../../sql/identifiers";
 import type {
   ColumnDef,
   ForeignKeyDef,
@@ -71,7 +75,7 @@ interface ImportedKeyRow {
   delete_rule: string | null;
 }
 
-const quote = (name: string): string => `"${name.replaceAll('"', '""')}"`;
+const quote = createIdentifierQuoter('"');
 const GENERATED_DEFAULT = /\.NEXTVAL$|^IDENTITY|^AUTOINCREMENT/i;
 
 function refusal(what: string): MigrationError {
@@ -168,7 +172,7 @@ export class SnowflakeMigrationDriver extends MigrationDriver {
 
   async introspect(executeRaw: ExecuteRaw): Promise<SchemaSnapshot> {
     const { database, schema } = await this.location(executeRaw);
-    const scope = `${quote(database)}.${quote(schema)}`;
+    const scope = renderQualifiedIdentifier(quote, database, schema);
     const tables = await executeRaw<{ TABLE_NAME: string }>(
       "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME",
       [schema]

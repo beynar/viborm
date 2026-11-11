@@ -52,7 +52,12 @@ export type FakeAnswer =
       readonly error: { code: string; sqlState: string; message: string };
     }
   /** Never answers until cancelled or the client gives up. */
-  | { readonly hang: true };
+  | { readonly hang: true }
+  /** A 200 whose body is exactly this, partitions read from `partitions`. */
+  | {
+      readonly body: unknown;
+      readonly partitions?: readonly unknown[];
+    };
 
 export interface RecordedRequest {
   readonly method: string;
@@ -143,6 +148,10 @@ export async function startFakeSnowflake(
       const finish = (handle: string, run: Running) => {
         const { answer } = run;
         if ("hang" in answer) return; // left open: the client aborts it
+        if ("body" in answer) {
+          json(200, { statementHandle: handle, ...(answer.body as object) });
+          return;
+        }
         if ("error" in answer) {
           json(answer.status ?? 422, {
             ...answer.error,
@@ -187,6 +196,10 @@ export async function startFakeSnowflake(
       const run = poll ? running.get(poll[1]!) : undefined;
       if (request.method === "GET" && poll && run) {
         const partition = url.searchParams.get("partition");
+        if (partition !== null && "body" in run.answer) {
+          json(200, run.answer.partitions?.[Number(partition)] ?? {});
+          return;
+        }
         if (partition !== null && "rowType" in run.answer) {
           const data = run.answer.partitions[Number(partition)] ?? [];
           response.writeHead(200, {
