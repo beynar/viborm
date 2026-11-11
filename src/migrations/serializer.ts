@@ -72,9 +72,6 @@ export function assertMigrationDecimalDomainsFitProvider(
   models: Record<string, AnyModel>,
   dialect: Dialect
 ): void {
-  // SurrealDB's `decimal` holds any precision and scale: there is no limit to
-  // fit. Snowflake is only read: nothing is stored there.
-  if (dialect === "surrealql" || dialect === "snowflake") return;
   const refusal = findDecimalProviderLimitRefusal(models, dialect);
   if (refusal === undefined) return;
   throw new MigrationError(

@@ -16,7 +16,8 @@ import {
   describeProviderLimitRefusal,
 } from "@validation/primitives/decimal-codec";
 
-type ProviderDialect = "postgresql" | "mysql" | "sqlite";
+/** A driver's dialect; the codec knows three of them (`decimalDialectOf`). */
+type ProviderDialect = string;
 
 export interface DecimalProviderLimitRefusal {
   readonly modelName: string;
@@ -26,11 +27,15 @@ export interface DecimalProviderLimitRefusal {
   readonly reason: string;
 }
 
-/** The driver's dialect in the decimal codec's physical vocabulary. */
-function decimalDialectOf(dialect: ProviderDialect): DecimalDialect {
+/**
+ * The driver's dialect in the decimal codec's physical vocabulary, or none: a
+ * SurrealDB `decimal` holds any precision and scale, and VibORM stores
+ * nothing in Snowflake, so neither has a limit to fit.
+ */
+function decimalDialectOf(dialect: ProviderDialect): DecimalDialect | undefined {
   if (dialect === "postgresql") return "pg";
   if (dialect === "mysql") return "mysql";
-  return "sqlite";
+  if (dialect === "sqlite") return "sqlite";
 }
 
 /** Return the first declared decimal domain the selected provider cannot hold. */
@@ -39,6 +44,7 @@ export function findDecimalProviderLimitRefusal(
   dialect: ProviderDialect
 ): DecimalProviderLimitRefusal | undefined {
   const decimalDialect = decimalDialectOf(dialect);
+  if (decimalDialect === undefined) return undefined;
   for (const [modelName, model] of Object.entries(schema)) {
     const scalars: Record<string, Scalar> = model["~"].state.scalars;
     for (const [fieldName, scalar] of Object.entries(scalars)) {
