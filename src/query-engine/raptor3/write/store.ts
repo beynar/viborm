@@ -266,7 +266,7 @@ export class Store {
     const answer = await this.#settle(work);
     const written: { statements: Statement[]; step: Step }[] = [];
     try {
-      for (const step of this.#steps(this.#log.length))
+      for (const step of this.#steps(this.#log.length, false))
         written.push({ statements: await step.write(), step });
     } catch (error) {
       // None of its statements may wait for what the database says.
@@ -877,7 +877,7 @@ export class Store {
    * believed must still hold, then every write not sent yet, in order. Rows
    * written the same way side by side travel in one statement.
    */
-  #steps(to: number): Step[] {
+  #steps(to: number, alone = true): Step[] {
     const { writer } = this;
     const { schema } = this.operation;
     const { holds } = this.#transport;
@@ -927,7 +927,7 @@ export class Store {
           (entry.kind === "update" || entry.kind === "delete") &&
           entry.row === row
       );
-      if (first && writer.counts && (holds || writes === 1))
+      if (first && writer.counts && (holds || (alone && writes === 1)))
         confirms.set(first, question);
       else
         steps.push({
@@ -939,14 +939,11 @@ export class Store {
      * call found were found members; a row it took to be there is still to
      * be one.
      */
-    const under = (entry: Extract<Entry, { kind: "update" | "delete" }>) =>
-      confirms.has(entry)
-        ? entry.question
-        : {
-            ...entry.question,
-            member: undefined,
-            through: entry.question.member?.edge ?? entry.question.through,
-          };
+    const under = (entry: Extract<Entry, { kind: "update" | "delete" }>) => ({
+      ...entry.question,
+      member: confirms.get(entry)?.member,
+      through: entry.question.member?.edge ?? entry.question.through,
+    });
     /** Refuses where a write that says whether its row is there found none. */
     const confirmed = (entry: Entry, sent: Sent) => {
       const question = confirms.get(entry);
