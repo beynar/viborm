@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: Shared assertion helpers are invoked only from registered tests.
 import assert from "node:assert/strict";
 import type {
   DefaultObservation,
@@ -121,7 +122,8 @@ export async function runG3TransportWorld(
           ...(observed.subsequentOutcomes ?? []),
         ];
         assert.equal(observedOutcomes.length, jobs.length);
-        jobs.forEach((job, index) => job.assert(observedOutcomes[index]!));
+        for (const [index, job] of jobs.entries())
+          job.assert(observedOutcomes[index]!);
         assert.equal(
           tape.events.filter((event) => event.kind === "injected-failure")
             .length,

@@ -257,7 +257,6 @@ function buildModelKeyCatalog(model: Model<any>): ModelKeyCatalog {
  * the compound key's name where it has one. None where the model has no key.
  */
 export const getRowKey = (
-  // biome-ignore lint/suspicious/noExplicitAny: any model, as the catalog takes it.
   model: Model<any>
 ): { readonly name?: string; readonly fields: readonly string[] } | undefined =>
   getModelKeyCatalog(model).rowKey;

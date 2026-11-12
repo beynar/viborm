@@ -59,7 +59,6 @@ const schema = { numKey, bigKey, decKey, intKey };
 
 const UPDATE_NUM = /^UPDATE "n4_num_keys"/;
 const SELECT_NUM = /^SELECT .* FROM "n4_num_keys"/;
-const STORE = /^INSERT INTO "__viborm_batch_refs"/;
 const UPDATE_INT = /^UPDATE "n4_int_keys"/;
 const SELECT_INT = /^SELECT .* FROM "n4_int_keys"/;
 

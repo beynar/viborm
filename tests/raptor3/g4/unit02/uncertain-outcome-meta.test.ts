@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: Shared assertion helpers are invoked only from registered tests.
 /**
  * G4-02 author check — an UNCERTAIN outcome is not a record series, and the
  * cache still hears about it.
@@ -66,12 +67,12 @@ import assert from "node:assert/strict";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { VibORMError } from "@errors";
-import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { MemoryCache } from "@src/cache/drivers/memory";
 import { cache } from "@src/cache/exports";
 import { createClient } from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { isRecord } from "@validation/value-guards";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
@@ -425,12 +426,16 @@ describe("G4-02 — an uncertain outcome is not a record series", () => {
     const seen = await withWorld(async ({ driver }) => {
       driver.failuresBeforeDispatch = 1;
       const observed = await observe(() =>
-        createTestCommandEngine({ schema, driver }).execute("owner", "createMany", {
-          data: [
-            { id: 1, label: "a", notes: { create: [{ body: "a" }] } },
-            { id: 2, label: "b", notes: { create: [{ body: "b" }] } },
-          ],
-        })
+        createTestCommandEngine({ schema, driver }).execute(
+          "owner",
+          "createMany",
+          {
+            data: [
+              { id: 1, label: "a", notes: { create: [{ body: "a" }] } },
+              { id: 2, label: "b", notes: { create: [{ body: "b" }] } },
+            ],
+          }
+        )
       );
       driver.failuresBeforeDispatch = 0;
       return observed;
@@ -512,8 +517,8 @@ describe("G4-02 — an uncertain outcome is not a record series", () => {
     const diagnostic = JSON.stringify(observed, undefined, 2);
     assert.equal(observed.batches, 1, diagnostic);
     assert.deepEqual(
-      (observed.failure as { cause?: { meta?: Record<string, unknown> } })
-        .cause?.meta?.recordSeriesProgress,
+      (observed.failure as { cause?: { meta?: Record<string, unknown> } }).cause
+        ?.meta?.recordSeriesProgress,
       {
         atomicity: "segment",
         phase: "result",

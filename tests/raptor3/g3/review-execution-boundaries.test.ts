@@ -1,3 +1,4 @@
+// biome-ignore-all lint/performance/useTopLevelRegex: a regex in a test runs a handful of times.
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
@@ -21,7 +22,7 @@ class ObservedSQLiteDriver extends SQLite3Driver {
     client: Database.Database,
     statement: string,
     parameters: unknown[],
-    context?: QueryExecutionContext
+    _context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     this.statements.push({ sql: statement, parameters });
     return super.execute<T>(client, statement, parameters);

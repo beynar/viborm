@@ -1,3 +1,5 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: Shared assertion helpers are invoked only from registered tests.
+// biome-ignore-all lint/performance/useTopLevelRegex: a regex in a test runs a handful of times.
 /**
  * C-01 cutover review probe (independent reviewer, not a registered mode).
  *
@@ -104,9 +106,9 @@ describe("C-01 review — one operation owner on every lineage", () => {
     const { base, driver } = await world();
     const results = await (
       base as unknown as {
-        $transaction(members: readonly PromiseLike<unknown>[]): Promise<
-          unknown[]
-        >;
+        $transaction(
+          members: readonly PromiseLike<unknown>[]
+        ): Promise<unknown[]>;
       }
     ).$transaction([
       base.author.findMany({ where: { name: "Ada" } }),

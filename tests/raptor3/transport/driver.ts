@@ -1,3 +1,5 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: Shared assertion helpers are invoked only from registered tests.
+// biome-ignore-all lint/performance/useTopLevelRegex: a regex in a test runs a handful of times.
 import assert from "node:assert/strict";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { Driver } from "@drivers/driver";
@@ -84,8 +86,10 @@ export class ScriptedTransport extends Driver<object, object> {
 
   constructor(
     scripts: readonly ActorScript[],
+    // biome-ignore lint/style/noParameterProperties: the fake driver's two collaborators, held as given.
     readonly recorder: Recorder,
     profile: TransportProfileId,
+    // biome-ignore lint/style/noParameterProperties: the fake driver's two collaborators, held as given.
     private readonly specimen?:
       | "wrong-publication"
       | "lost-progress"
@@ -116,7 +120,9 @@ export class ScriptedTransport extends Driver<object, object> {
   protected async initClient(): Promise<object> {
     return {};
   }
-  protected async closeClient(): Promise<void> {}
+  protected async closeClient(): Promise<void> {
+    // A scripted transport holds no connection.
+  }
   protected async transaction<T>(): Promise<T> {
     return this.fail(
       new Error("Lane A fixture does not admit interactive transactions")
@@ -207,6 +213,7 @@ export class ScriptedTransport extends Driver<object, object> {
         this.specimen === "wrong-publication" &&
         reply.name.endsWith(":consumer")
       )
+        // biome-ignore lint/style/noParameterAssign: the specimen swaps the batch it was handed for a wrong one.
         queries = queries.map((query, index) =>
           reply.statements[index]!.action === "INSERT"
             ? { ...query, params: [...(query.params ?? []).slice(0, -1), -999] }

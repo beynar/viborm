@@ -1,3 +1,4 @@
+// biome-ignore-all lint/performance/useTopLevelRegex: a regex in a test runs a handful of times.
 /**
  * G4-02 — root `delete` (OP-W03) and the whole-value assignment repair.
  *

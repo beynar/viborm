@@ -33,7 +33,7 @@ import {
   snapshotControlValue,
 } from "@extensions/controls";
 import { defineExtension } from "@extensions/define";
-import { type ExtensionDefinitionInput } from "@extensions/definition";
+import type { ExtensionDefinitionInput } from "@extensions/definition";
 import { bindRows, callRows } from "@extensions/rows";
 import { withRows } from "@extensions/rows-runtime";
 import { Condition, Parameter } from "@query-engine/raptor3/shared/row-scope";

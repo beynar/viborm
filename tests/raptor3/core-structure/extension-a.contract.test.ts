@@ -1,16 +1,13 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: Shared assertion helpers are invoked only from registered tests.
+// biome-ignore-all lint/performance/useTopLevelRegex: a regex in a test runs a handful of times.
 import assert from "node:assert/strict";
+import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import {
-  QueryEngineError,
-  TransactionError,
-  UnsupportedOperationError,
-  ValidationError,
-} from "@errors";
-import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
+import { QueryEngineError, TransactionError, ValidationError } from "@errors";
 import { s } from "@schema";
-import { createClient } from "@client/client";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { it } from "vitest";
 
