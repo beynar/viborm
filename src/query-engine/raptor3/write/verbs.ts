@@ -34,9 +34,18 @@ export function verbs(store: Store) {
   const paired = <T>(admitted: T, raw: unknown): T => {
     if (typeof admitted === "object" && admitted) {
       said.set(admitted, raw);
+      // An update of the one row a relation reaches is written as its data alone.
+      const whole = Object.keys(admitted).every(
+        (key) => key === "data" || key === "where"
+      );
       for (const [key, child] of Object.entries(admitted)) {
         const next = (raw as Input | undefined)?.[key];
-        paired(child, next === undefined && key === "0" ? raw : next);
+        paired(
+          child,
+          next === undefined && (key === "0" || (key === "data" && whole))
+            ? raw
+            : next
+        );
       }
     }
     return admitted;
@@ -373,7 +382,19 @@ export function verbs(store: Store) {
         !edge.pairs.some((pair) => row[pair.source] === null)
       )
         store.none(
-          { model: edge.target, member: { edge, of: { ...row } } },
+          {
+            model: edge.target,
+            // By what its members hold of it now: asked of the row, so a row known by its key alone is read.
+            member: {
+              edge,
+              of: {
+                ...row,
+                ...Object.fromEntries(
+                  edge.pairs.map((pair) => [pair.source, row[pair.source]])
+                ),
+              },
+            },
+          },
           {
             kind: "nestedWrite",
             relation: edge.name,
