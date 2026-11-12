@@ -55,6 +55,8 @@ interface Meta {
   readonly question?: Question;
   /** The call creates it. */
   made?: true;
+  /** Where the call notes that it creates it. */
+  at?: number;
   /** Nothing is known of it but its key: it was taken to be there. */
   partial?: true;
   /** The call removed it. */
@@ -79,11 +81,14 @@ export interface Later {
 class Pending {
   readonly row: Row;
   readonly field: string;
+  /** Where the call notes the write that decides it. */
+  readonly at: number;
   readonly #name: string;
-  constructor(row: Row, field: string, name: string) {
+  constructor(row: Row, field: string, name: string, at: number) {
     this.row = row;
     this.field = field;
     this.#name = name;
+    this.at = at;
   }
   toString(): string {
     return this.#name;
@@ -167,6 +172,8 @@ type Entry = (
       readonly kind: "none";
       readonly question: Question;
       readonly stops?: PreparedGuardFailure;
+      /** What the call read, and goes on from: where it no longer holds, the call runs again. */
+      readonly believed?: true;
     }
   | {
       readonly kind: "read";
@@ -852,11 +859,21 @@ export class Store {
       ...Object.keys(computed),
     ];
     for (const field of decided)
-      row[field] = new Pending(row, field, `@${++this.#made}`);
+      row[field] = new Pending(
+        row,
+        field,
+        `@${++this.#made}`,
+        this.#log.length
+      );
     // A row created under a key another has is the database's to refuse.
     const name = this.#name(model, row);
     if (!this.#known.has(name)) this.#known.set(name, row);
-    this.#meta.set(row, { model, made: true, wrote: new Set() });
+    this.#meta.set(row, {
+      model,
+      made: true,
+      at: this.#log.length,
+      wrote: new Set(),
+    });
     this.#note({
       kind: "insert",
       row,
@@ -975,14 +992,29 @@ export class Store {
           ? { kind: "value" as const, value }
           : readUpdate(value);
       meta.wrote.add(field);
-      if (update.kind === "value") row[field] = update.value;
-      // What the database computes of a row is its to say: a row the call creates is written first as it stood.
-      else {
+      // What the database computes of a row is its to say; so is what a row written after it decides. A row the call creates is written first as it stood.
+      const later =
+        update.kind === "value" &&
+        update.value instanceof Pending &&
+        update.value.at > (meta.at ?? Number.POSITIVE_INFINITY);
+      if (update.kind !== "value" || later) {
         const born = this.#computes.get(row);
-        if (born && !(field in born || row[field] instanceof Pending))
-          born[field] = row[field];
+        const stood = row[field];
+        if (
+          born &&
+          !(field in born || (stood instanceof Pending && stood.row === row))
+        )
+          born[field] = stood;
         computed = true;
-        row[field] = new Pending(row, field, `@${++this.#made}`);
+      }
+      if (update.kind === "value") row[field] = update.value;
+      else {
+        row[field] = new Pending(
+          row,
+          field,
+          `@${++this.#made}`,
+          this.#log.length
+        );
         if (keys.includes(field)) hears.push(field);
       }
     }
@@ -1299,6 +1331,11 @@ export class Store {
   none(question: Question, stops: PreparedGuardFailure): void {
     this.#note({ kind: "none", question, stops });
   }
+  /** The call goes on as no row answers the question: asked again where its writes are sent, where nothing held what it read. */
+  absent(question: Question): void {
+    if (!this.#transport.holds)
+      this.#note({ kind: "none", question, believed: true });
+  }
   /** A row read as `projection` says, where the call's writes stand when this is asked. */
   read(
     row: Row,
@@ -1483,8 +1520,10 @@ export class Store {
       for (const row of rows) needed.set(row, (needed.get(row) ?? 0) + 1);
     };
     let writes = 0;
-    for (const entry of span) {
-      if (!(entry.kind === "none" || entry.kind === "read")) writes++;
+    // What is noted after this unit needs what the database decides in it too.
+    for (const [at, entry] of log.slice(this.#sent).entries()) {
+      if (at < span.length && !(entry.kind === "none" || entry.kind === "read"))
+        writes++;
       if (entry.kind === "insert")
         needs(
           Object.fromEntries(
@@ -1700,16 +1739,14 @@ export class Store {
       if (entry.kind === "insert") {
         const { model } = this.#meta.get(entry.row)!;
         const { decided } = entry;
-        const settled = (row: Row): Input => ({
-          ...Object.fromEntries(
-            Object.entries(row).filter(
+        const settled = (row: Row): Input =>
+          Object.fromEntries(
+            Object.entries({ ...row, ...this.#computes.get(row) }).filter(
               ([, value]) =>
                 value !== undefined &&
                 !(value instanceof Pending && value.row === row)
             )
-          ),
-          ...this.#computes.get(row),
-        });
+          );
         const first = settled(entry.row);
         const fits = (rows: Row[], next: Entry | undefined) =>
           next?.kind === "insert" &&
@@ -1934,7 +1971,12 @@ export class Store {
         });
       else if (entry.kind === "none")
         steps.push({
-          write: () => [writer.none(entry.question, entry.stops)],
+          write: () => [
+            {
+              ...writer.none(entry.question, entry.stops),
+              ...(entry.believed && { believed: "read" as const }),
+            },
+          ],
         });
       else if (!told.has(entry)) {
         // A row read as it goes is answered by the statement that removes it.

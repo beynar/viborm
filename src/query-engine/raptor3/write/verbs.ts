@@ -1017,13 +1017,13 @@ export function verbs(store: Store) {
       const [found] = store.rows(question);
       // Updated where found, and where it holds what the call asks of it besides.
       const where = args.where as Input;
+      const asked = {
+        ...question,
+        where: { ...where, AND: [...list(where.AND), ...guards] },
+      };
       const matched =
-        !found ||
-        guards.length === 0 ||
-        store.rows({
-          ...question,
-          where: { ...where, AND: [...list(where.AND), ...guards] },
-        }).length > 0;
+        !found || guards.length === 0 || store.rows(asked).length > 0;
+      if (!matched) store.absent(asked);
       // An update that says nothing asks nothing of the row found.
       const updates =
         found && matched && Object.keys(stated(update)).length > 0;
