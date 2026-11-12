@@ -2119,7 +2119,7 @@ export class Store {
         confirms.has(entry) === confirms.has(next) &&
         a?.of === b?.of &&
         a?.edge === b?.edge &&
-        !(own.has(next) || spare?.has(next) || spare?.has(entry)) &&
+        !own.has(next) &&
         !(unkeyed(entry) || unkeyed(next))
       );
     };
@@ -2144,20 +2144,12 @@ export class Store {
       { read: Extract<Entry, { kind: "read" }>; place: number }
     >();
     let told: Set<Entry> | undefined;
-    /**
-     * The reads of one row that find it gone are answered by what the row's
-     * own write said of it: something noted between them may remove the row,
-     * and the call answers with the row it wrote.
-     */
-    let spare: Map<Entry, Extract<Entry, { kind: "read" }>> | undefined;
-    let spared: Map<Entry, Sent> | undefined;
     for (let place = this.#sent; place < to; place++) {
       const read = log[place]!;
       if (!(read.kind === "read" && read.projection && read.rows.length === 1))
         continue;
       const [row] = read.rows;
       const { model } = read;
-      let changed = false;
       for (let at = place - 1; at >= this.#sent; at--) {
         const entry = log[at]!;
         if (
@@ -2165,7 +2157,7 @@ export class Store {
           entry.row === row
         ) {
           if (
-            !(own.has(entry) || spare?.has(entry)) &&
+            !own.has(entry) &&
             (at === place - 1 || returningSafeProjection(read.projection)) &&
             (entry.kind === "insert" || entry.hears.length === 0) &&
             this.operation.answersInStatement(
@@ -2175,17 +2167,12 @@ export class Store {
               entry.kind === "update" ? entry.set : undefined
             )
           ) {
-            if (changed) {
-              if (entry.kind === "update")
-                (spare ??= new Map()).set(entry, read);
-            } else {
-              own.set(entry, { read, place });
-              (told ??= new Set()).add(read);
-            }
+            own.set(entry, { read, place });
+            (told ??= new Set()).add(read);
           }
           break;
         }
-        // What may change the row between its write and its read.
+        // What may change the row between its write and its read: the read is asked.
         const touched =
           entry.kind === "all" || entry.kind === "either"
             ? entry.question.model
@@ -2196,7 +2183,7 @@ export class Store {
           touched === model ||
           (touched && dependentsOf(schema, touched).has(model))
         )
-          changed = true;
+          break;
       }
     }
     /** The read of rows that follows `at`, where the statement that writes those rows may answer it. */
@@ -2265,14 +2252,6 @@ export class Store {
       }
     }
     later.sort(([a], [b]) => a - b);
-    /** A read of every row a run of inserts creates, whatever their shapes: each of their statements answers its part. */
-    let series:
-      | {
-          read: NonNullable<ReturnType<typeof answered>>;
-          stop: number;
-          parts: Sent[];
-        }
-      | undefined;
     for (let at = this.#sent; at < to; at++) {
       const entry = log[at]!;
       const place = at;
@@ -2336,24 +2315,7 @@ export class Store {
         let end = at + 1;
         while (!mine && end < to && fits(rows, log[end]))
           rows.push((log[end++] as typeof entry).row);
-        if (!(mine || series)) {
-          const all = [...rows];
-          let stop = end;
-          for (let next = log[stop]; stop < to; next = log[++stop]) {
-            if (
-              next?.kind !== "insert" ||
-              this.#meta.get(next.row)!.model !== model ||
-              next.relation !== entry.relation
-            )
-              break;
-            all.push(next.row);
-          }
-          const asked = answered(stop, all, "insert");
-          if (asked && !all.some((row) => (needed.get(row) ?? 0) > 1))
-            series = { read: asked, stop, parts: [] };
-        }
-        const part = mine ? undefined : series;
-        let read = mine?.read ?? part?.read;
+        let read = mine?.read ?? answered(end, rows, "insert");
         // Another statement needs what the database decides of the row: its statement says it beside the answer, where it can.
         const both = Boolean(mine) && (needed.get(entry.row) ?? 0) > 1;
         if (
@@ -2364,11 +2326,10 @@ export class Store {
           told?.delete(mine.read);
           read = undefined;
         } else if (mine) rows = [entry.row];
-        else if (part) {
-          // The read stands after the last of them.
-          at = end === part.stop ? end : end - 1;
-          if (end === part.stop) series = undefined;
-        } else {
+        else if (read && !rows.some((row) => (needed.get(row) ?? 0) > 1))
+          at = end;
+        else {
+          read = undefined;
           rows = [entry.row];
           // A row of which the database decides what another statement needs is written alone: its statement says it.
           beside<typeof entry>((next) => {
@@ -2418,13 +2379,7 @@ export class Store {
             if (entry.root && writer.passes && sent[0]!.rows.length === 0)
               throw PASSED;
             take(sent);
-            if (!read) return;
-            if (!part) {
-              tells(read, mine!.place)(sent);
-              return;
-            }
-            part.parts.push(...sent);
-            if (end === part.stop) tells(read, part.stop)(part.parts);
+            if (read) tells(read, mine?.place ?? at)(sent);
           },
         });
       } else if (entry.kind === "update") {
@@ -2450,7 +2405,6 @@ export class Store {
         const mine = run.length === 1 ? own.get(entry) : undefined;
         if (!mine && own.has(entry)) told?.delete(own.get(entry)!.read);
         const read = mine?.read;
-        const kept = hears.length === 0 ? spare?.get(entry) : undefined;
         let asked = false;
         let named: Question | undefined;
         push({
@@ -2469,7 +2423,6 @@ export class Store {
                 set,
                 keyed(run),
                 read?.projection ??
-                  kept?.projection ??
                   (hears.length > 0 && !first ? writer.key(model) : undefined),
                 // Counted where its count is what says the rows were there, or still answered.
                 confirms.has(entry) || named.again
@@ -2479,7 +2432,6 @@ export class Store {
           take: read
             ? tells(read, mine!.place)
             : (sent) => {
-                if (kept) (spared ??= new Map()).set(kept, sent.at(-1)!);
                 take(asked ? sent.slice(0, 1) : sent);
                 if (writer.counts("update"))
                   consumed(named!, run.length, sent.at(-1));
@@ -2591,13 +2543,7 @@ export class Store {
               model: entry.model,
             }));
           },
-          take: (sent) =>
-            take(
-              spared?.has(entry) && sent.every((each) => each.rows.length === 0)
-                ? [spared.get(entry)!]
-                : sent,
-              queries
-            ),
+          take: (sent) => take(sent, queries),
         });
       }
     }
