@@ -5,9 +5,10 @@ Versioning.
 
 ## Unreleased
 
-The write half of the SQL engine is rewritten. An application without
-extensions is smaller, a nested write sends fewer statements, and a many-row
-write on a batch-only driver is all-or-nothing when it fits one batch.
+The write half of the engine is rewritten, for SQL and for SurrealDB. An
+application without extensions is smaller, a nested write sends fewer
+statements, and a many-row write on a batch-only driver is all-or-nothing when
+it fits one batch.
 
 ### Changed
 
@@ -19,10 +20,19 @@ write on a batch-only driver is all-or-nothing when it fits one batch.
   row before, and a failure could leave earlier rows written. A call past the
   batch limits still runs in several batches and reports its progress
   (`RecordSeriesProgress`).
-- **A row found and then changed by another session makes the call plan
+- **A row found and then changed by another session makes the call run
   again** where it used to fail with `NestedWriteError` ("replaced by another
-  transaction"). A call that loses the race four times in a row fails with
-  `NotFoundError`.
+  transaction"). On a driver with transactions the call runs again once, in a
+  new transaction. On a batch-only driver it plans again up to three times,
+  then fails with `NotFoundError`.
+- **SurrealDB: a write that needs no answer between its statements is one
+  request**, a transaction of its own. Only `create` was sent so before. A
+  request of several statements that fails runs again, one statement per
+  request, so that the error is the failing statement's own. `logging.query`
+  reports such a request once, under the call's model; a `statement` hook still
+  sees each statement.
+- **SurrealDB: changing a record's key reads the rows first**, under the
+  call's own filters and permissions, then moves them.
 - **A refused produced row on a batch-only driver reports its own error**
   (`ForbiddenError`) where it reported the generic batch failure.
 - **`$transaction([...])` on a batch-only driver accepts more calls**: a write
