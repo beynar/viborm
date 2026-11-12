@@ -21,6 +21,7 @@ import { NotFoundError } from "@errors";
 import type { AnyModel } from "@schema/model";
 import { createFailureError } from "../../batch-error-attribution";
 import type { PreparedGuardFailure } from "../../types";
+import { type WriteKind, type WriteSink, writeSinks } from "../../write-sinks";
 import {
   type PreparedProjection,
   type Query,
@@ -181,6 +182,8 @@ function dependentsOf(schema: EngineSchema, model: AnyModel): Set<AnyModel> {
 export class Store {
   readonly operation: SqlOperationContext;
   readonly writer: Writer;
+  /** What is told the rows the call writes through its relations, where something asks. */
+  readonly sink: WriteSink | undefined;
   readonly #transport: Transport;
   /** What the database answered, by question: kept from one run of the verbs to the next. */
   readonly #answers = new Map<string, Answer>();
@@ -211,6 +214,7 @@ export class Store {
   constructor(operation: SqlOperationContext, transport: Transport) {
     this.operation = operation;
     this.writer = new Writer(operation);
+    this.sink = writeSinks.get(operation.attribution);
     this.#transport = transport;
   }
   /** Runs the verbs until they ran on an image that could answer them. */
@@ -747,7 +751,22 @@ export class Store {
             row[field] = said?.[field] ?? sent!.insertId;
       },
     });
+    if (relation !== undefined) this.#seen(row, "create");
     return row;
+  }
+  /**
+   * A row the call writes through a relation is shown to what asked to see
+   * such rows: read whole where the call's writes stand when this is said.
+   */
+  #seen(row: Row, kind: WriteKind): void {
+    const { model } = this.#meta.get(row)!;
+    const name = model["~"].names.ts!;
+    if (!this.sink?.wants(name, kind)) return;
+    const q = this.operation.queries;
+    const projection = q.prepareProjection(model, {});
+    this.read(row, projection, (rows) =>
+      this.sink!.wrote(name, kind, q.decodeProjection(projection.shape, rows))
+    );
   }
   /** The question a write of one row the call knows is written under: what found it, and what the write is. */
   #writing(row: Row, write: Partial<Question>): Question {
@@ -868,12 +887,15 @@ export class Store {
         for (const field of hears) row[field] = said?.[field];
       },
     });
+    if (meta.question?.verb && !removes) this.#seen(row, "update");
   }
   /** A row is removed: marked, where its model keeps the rows it deletes. */
   delete(row: Row): void {
     const meta = this.#meta.get(row)!;
     const { model, question } = meta;
     const marks = this.writer.marks(model);
+    // As it was before it goes.
+    if (question?.verb) this.#seen(row, "delete");
     if (marks) {
       // A kept row leaves the rows that reference it in place: where the database would have refused its removal, the mark is refused too.
       const stops = this.writer.restriction(model);
@@ -927,23 +949,29 @@ export class Store {
     const later: Later = {};
     // Where no statement both writes rows and answers with them so, they are read, then written by their keys.
     if (
-      projection &&
-      !this.operation.answersInStatement(
-        model,
-        projection,
-        set ? "update" : "delete",
-        set
-      )
+      (question.verb &&
+        this.sink?.wants(model["~"].names.ts!, set ? "update" : "delete")) ||
+      (projection &&
+        !this.operation.answersInStatement(
+          model,
+          projection,
+          set ? "update" : "delete",
+          set
+        ))
     ) {
       const rows = this.rows(question);
       const take = (read: Input[]) => {
         later.sent = { rows: read, rowCount: read.length };
       };
-      if (!set) this.series(model, rows, projection, "updateMany", take);
+      const answer = () =>
+        projection
+          ? this.series(model, rows, projection, "updateMany", take)
+          : take(rows);
+      if (!set) answer();
       for (const row of rows)
         if (set) this.update(row, set, question.writes);
         else this.delete(row);
-      if (set) this.series(model, rows, projection, "updateMany", take);
+      if (set) answer();
       return later;
     }
     this.writable(question);
@@ -993,6 +1021,7 @@ export class Store {
         pins
       ) ||
       selector.scoped ||
+      this.sink ||
       q.domain?.produced(model) ||
       fields.length === 0 ||
       this.operation.schema.keys(model).some((key) => key in set) ||

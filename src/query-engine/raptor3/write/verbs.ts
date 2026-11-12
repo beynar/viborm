@@ -710,7 +710,12 @@ export function verbs(store: Store) {
       // An update that says nothing asks nothing of the row found.
       if (found && Object.keys(stated(update)).length > 0)
         write(model, found, update);
-      return answering(model, found ?? make(model, create, {}), args);
+      const answer = answering(model, found ?? make(model, create, {}), args);
+      return () => {
+        // Which of the two it was is told once the call's writes are made.
+        store.sink?.upserted(!found);
+        return answer();
+      };
     },
     delete(model: AnyModel, args: Arguments) {
       const { projection, said } = one(model, args);

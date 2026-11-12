@@ -9,7 +9,6 @@ import { isVibORMError } from "@errors";
 import type { AnyModel } from "@schema/model";
 import { sql } from "@sql";
 import type { PreparedBatchOperation } from "../../types";
-import { writeSinks } from "../../write-sinks";
 import type { ExecutionBinding } from "../shared/operation-context";
 import type { Arguments, Input } from "../shared/schema";
 import type { SqlOperationContext } from "../shared/sql-operation-context";
@@ -31,7 +30,7 @@ const call =
   () => {
     const { operation } = store;
     const verb = verbs(store)[operation.operation as "create"];
-    if (!verb || writeSinks.get(operation.attribution)) outside();
+    if (!verb) outside();
     return verb(model, args, raw as Input);
   };
 
