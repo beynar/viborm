@@ -103,6 +103,11 @@ export function verbs(store: Store) {
   };
   /** How many rows the call's own verb writes, where it writes several. */
   let several = 1;
+  /** The fields a row took of a relation it holds, in this call, and the verb that gave them. */
+  const slots = new WeakMap<
+    Row,
+    Map<string, { relation: string; verb: string }>
+  >();
 
   /** The relations `data` names of a row of `model`, each with what it asks. */
   const relationsOf = (model: AnyModel, data: Input) =>
@@ -258,8 +263,23 @@ export function verbs(store: Store) {
             : "that membership is stored on the target row, which can belong to only one of them"
         } — the last row updated would take it from the others. Narrow the filter (or add 'limit: 1') so exactly one row matches, or write this relation in a separate call.`
       );
-    if (edge.kind === "junction") store.link(edge, parent, row, through);
-    else store.update(row, born(parent, edge), undefined, edge);
+    if (edge.kind === "junction") {
+      store.link(edge, parent, row, through);
+      return;
+    }
+    const takes = born(parent, edge);
+    // What the row holds of a relation is decided once: by the relation it holds, or by the row that takes it as a member.
+    const mine = slots.get(row);
+    for (const field of Object.keys(takes)) {
+      const by = mine?.get(field);
+      if (by)
+        throw new NestedWriteError(
+          `Nested operation '${by.verb}' on relation '${by.relation}' depends on an earlier '${verb}' membership write in the same nested write. Split these operations into separate queries.`,
+          by.relation,
+          { meta: { operation: by.verb, conflictsWith: verb } }
+        );
+    }
+    store.update(row, takes, undefined, edge);
   };
   /** The one link a relation that reaches one row holds is every link of the row that holds it. */
   const leave = (parent: Row, edge: Membership, row: Row) =>
@@ -342,13 +362,27 @@ export function verbs(store: Store) {
         );
     }
     const own = relations.filter(({ edge }) => holds(edge));
-    const held = own.map(({ edge, payload }) =>
+    const singles = own.map(({ edge, payload }) =>
       single(row, model, edge, payload, said)
     );
+    for (const [at, { edge, payload }] of own.entries()) {
+      const verb = [
+        "upsert",
+        "connectOrCreate",
+        "connect",
+        "create",
+        "delete",
+        "disconnect",
+      ].find((each) => payload[each] !== undefined)!;
+      const fields = slots.get(row) ?? new Map();
+      for (const field of Object.keys(singles[at]!.takes))
+        fields.set(field, { relation: edge.name.split(".")[0]!, verb });
+      slots.set(row, fields);
+    }
     const takes = Object.assign(
       {},
       given && once("update", model, said, given, relation!, true),
-      ...held.map((each) => each.takes)
+      ...singles.map((each) => each.takes)
     );
     // A relation the caller wrote decides the fields the row holds it by: nothing else writes them.
     const decided = Object.fromEntries(
@@ -370,7 +404,7 @@ export function verbs(store: Store) {
       },
       writes(model, data)
     );
-    for (const each of held) for (const next of each.then) next();
+    for (const each of singles) for (const next of each.then) next();
     for (const { edge, payload } of relations)
       if (!holds(edge))
         if (edge.many) relate(row, edge, payload);

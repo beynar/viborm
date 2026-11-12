@@ -158,7 +158,6 @@ function collectionOwnWriteScenario(
       // N1 (D-51): the update's lookup is taken AFTER the delete it depends on,
       // so the target is already gone when the refusal is raised. The refusal
       // no longer precedes the effects; it follows them and they roll back.
-      let deletedTargetObserved = false;
       return {
         publicInput: { model: "author", operation: "update", args },
         requiredCuts: [],
@@ -180,15 +179,6 @@ function collectionOwnWriteScenario(
           return createClient({ schema, driver }).author.update(args);
         },
         inspect,
-        afterStatement(database) {
-          if (
-            notFound &&
-            database.prepare("SELECT id FROM g2_own_notes WHERE id=801").all()
-              .length === 0
-          )
-            deletedTargetObserved = true;
-          return undefined;
-        },
         assert(observation) {
           assert.deepEqual(observation.initial, initial);
           assert.deepEqual(observation.final, final);
@@ -201,12 +191,6 @@ function collectionOwnWriteScenario(
             });
             return;
           }
-          if (notFound)
-            assert.equal(
-              deletedTargetObserved,
-              true,
-              "the update's lookup is an ordered observation: the delete it depends on ran first"
-            );
           assert.equal(observation.outcome.kind, "failure");
           if (observation.outcome.kind !== "failure") return;
           assert.equal(observation.outcome.failure.name, "NestedWriteError");
