@@ -8,7 +8,11 @@ import {
 import { runG3SQLiteBatch } from "./sqlite-campaign";
 
 it("executes one complete G3 SQLite seed batch", async () => {
-  const firstSeed = Number(process.env.VIBORM_RAPTOR3_GENERATED_FIRST_SEED);
+  // Run alone, with no runner to hand it a batch, it runs its campaign's first.
+  const firstSeed = Number(
+    process.env.VIBORM_RAPTOR3_GENERATED_FIRST_SEED ??
+      G3_GENERATED_CAMPAIGN.firstSeed
+  );
   const seedCount = Number(
     process.env.VIBORM_RAPTOR3_GENERATED_SEED_COUNT ??
       G3_GENERATED_CAMPAIGN.batchSize

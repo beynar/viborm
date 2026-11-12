@@ -9,13 +9,17 @@ import {
 import { runG4Batch } from "./campaign";
 
 it("executes one complete G4 SQLite read seed batch", async () => {
-  const firstSeed = Number(process.env.VIBORM_RAPTOR3_GENERATED_FIRST_SEED);
+  // Run alone, with no runner to hand it a batch, it runs its campaign's first.
+  const firstSeed = Number(
+    process.env.VIBORM_RAPTOR3_GENERATED_FIRST_SEED ??
+      G4_GENERATED_CAMPAIGN.firstSeed
+  );
   assert(Number.isInteger(firstSeed), "Missing generated G4 first seed");
   // The child holds the frozen batch, never an ambient count, and its subject
   // is the runner's: `scripts/run-raptor3.mjs` deletes any inherited
-  // VIBORM_RAPTOR3_G4_SUBJECT and writes the one the command asked for, so a
-  // missing or unknown value here is a harness failure, not a default.
-  const subject = process.env.VIBORM_RAPTOR3_G4_SUBJECT;
+  // VIBORM_RAPTOR3_G4_SUBJECT and writes the one the command asked for. Run
+  // alone, the subject is the engine; an unknown value is a harness failure.
+  const subject = process.env.VIBORM_RAPTOR3_G4_SUBJECT ?? "candidate";
   assert(
     subject === "candidate" || subject === "shipped",
     "The runner must name the G4 campaign subject"
