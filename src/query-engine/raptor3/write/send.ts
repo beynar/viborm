@@ -8,7 +8,12 @@ import type { AnyDriver } from "@drivers";
 import { deriveStatementExecutionContext } from "@drivers/execution-context";
 import { transferPreparedStatement } from "@drivers/prepared-statement-provenance";
 import type { QueryExecutionContext } from "@drivers/types";
-import { NestedWriteAssertionError } from "@errors";
+import {
+  NESTED_WRITE_ASSERTION_FLOOR_MESSAGE,
+  NestedWriteAssertionError,
+  NestedWriteError,
+  VibORMErrorCode,
+} from "@errors";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
 import type { PreparedGuardFailure } from "../../types";
@@ -272,7 +277,16 @@ export function batches(
       stopped ??= statements.find(
         (statement) => statement.stops && !statement.probe
       );
-      throw stopped?.stops ? new Stopped(stopped) : error;
+      // Every premise holds again once asked alone: what the call believed is what it runs again on; where it believed nothing, the unit's stop is all there is to say.
+      stopped ??= statements.find(
+        (statement) => statement.stops && statement.believed
+      );
+      throw stopped?.stops
+        ? new Stopped(stopped)
+        : new NestedWriteError(NESTED_WRITE_ASSERTION_FLOOR_MESSAGE, "", {
+            code: VibORMErrorCode.NESTED_WRITE_ASSERTION_FAILED,
+            cause: error as Error,
+          });
     }
   };
   return { holds: false, loose: true, send, end: async () => undefined };
