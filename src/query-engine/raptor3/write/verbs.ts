@@ -352,10 +352,8 @@ export function verbs(store: Store) {
       else if (old) leave(row!, edge, old);
     }
     const remove = first("delete");
-    // The row a delete names is whichever the relation reaches: not told apart from the row a connect names, or an update of the member reads.
-    const reads =
-      remove &&
-      (first("connect") ? "connect" : !held && first("update") && "update");
+    // The row a delete names is whichever the row's own key reaches: not told apart from the row a connect names, which the same key would name next.
+    const reads = remove && held && first("connect") && "connect";
     if (reads)
       throw new NestedWriteError(
         `Nested operation '${reads}' on relation '${edge.name}' depends on an earlier 'delete' target write in the same nested write. Split these operations into separate queries.`,
