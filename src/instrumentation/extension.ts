@@ -1,12 +1,9 @@
 import { sanitizeErrorForLogging } from "@errors";
-import { OFFICIAL_INSTRUMENTATION_NAME } from "@extensions/chain";
-import {
-  type LifecycleUnit,
-  type ObservationCompletion,
-  type ObserveHandler,
-  readProtectedLifecycleCompletionFacts,
-  readProtectedLifecycleFacts,
-  registerTrustedProtectedObserver,
+import type {
+  LifecycleUnit,
+  ObservationCompletion,
+  ObservedFacts,
+  ObserveHandler,
 } from "@extensions/observation";
 import type {
   CacheBackendFacts,
@@ -50,11 +47,21 @@ import type {
   TracingSpan,
 } from "./types";
 
-/** The exact official contribution accepted by every concrete client schema. */
+const NAME = "viborm.instrumentation";
+
+/** The contribution accepted by every concrete client schema. */
 export type OfficialInstrumentationExtension = {
-  readonly name: typeof OFFICIAL_INSTRUMENTATION_NAME;
+  readonly name: typeof NAME;
   readonly observe: ObserveHandler;
+  readonly observes: OfficialObservationCapability;
 };
+
+/** The facts of each unit being observed, as its observer was handed them. */
+const observed = new WeakMap<LifecycleUnit, ObservedFacts>();
+const readProtectedLifecycleFacts = (unit: LifecycleUnit) =>
+  observed.get(unit)?.read();
+const readProtectedLifecycleCompletionFacts = (unit: LifecycleUnit) =>
+  observed.get(unit)?.completion();
 
 /**
  * Each registered capability's context. Core holds only the neutral
@@ -65,7 +72,7 @@ const instrumentationContexts = new WeakMap<
   InstrumentationContext
 >();
 
-/** Create VibORM's fixed-name instrumentation extension. */
+/** Create VibORM's instrumentation extension. */
 export function instrumentation<const Config>(
   config: Config & InstrumentationConfig & ExactInstrumentationConfig<Config>
 ): OfficialInstrumentationExtension {
@@ -81,17 +88,16 @@ export function instrumentation<const Config>(
     wants: (need: ObservationNeed) => wants(context, need),
     warn: (notice: WarningNotice) => warn(context, notice),
   });
-  const handler: ObserveHandler =
-    function officialInstrumentationObserver(): undefined {
-      return undefined;
-    };
   instrumentationContexts.set(capability, context);
-  registerTrustedProtectedObserver(handler, capability, (unit, proceed) =>
-    observeOfficialInstrumentation(context, unit, proceed)
-  );
   return Object.freeze({
-    name: OFFICIAL_INSTRUMENTATION_NAME,
-    observe: handler,
+    name: NAME,
+    observe(unit, proceed, facts) {
+      // Handed no facts, it is not the observer core asks: it does nothing.
+      if (!facts) return undefined;
+      observed.set(unit, facts);
+      return observeOfficialInstrumentation(context, unit, proceed);
+    },
+    observes: capability,
   });
 }
 

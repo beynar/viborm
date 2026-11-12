@@ -1,5 +1,8 @@
 import type { LifecycleUnit } from "@extensions/observation";
-import { runProtectedObservers } from "@extensions/observation";
+import {
+  registerFactsObserver,
+  runProtectedObservers,
+} from "@extensions/observation";
 import type {
   CacheUnitFacts,
   LifecycleDispatch,
@@ -85,6 +88,14 @@ vi.mock("@opentelemetry/api", () => {
 
 import { instrumentation } from "@src/instrumentation/extension";
 
+/** The extension as a chain admits it: its observer is the one handed facts. */
+function admitted(
+  extension: OfficialInstrumentationExtension
+): OfficialInstrumentationExtension {
+  registerFactsObserver(extension.observe, extension.observes);
+  return extension;
+}
+
 function runObserved<Result>(
   extension: OfficialInstrumentationExtension,
   unit: LifecycleUnit,
@@ -93,7 +104,7 @@ function runObserved<Result>(
 ): Promise<Result> {
   return runProtectedObservers(
     unit,
-    [{ extension: extension.name, handler: extension.observe }],
+    [{ extension: extension.name, handler: admitted(extension).observe }],
     child,
     undefined,
     () => facts

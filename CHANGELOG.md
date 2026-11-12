@@ -28,6 +28,10 @@ it fits one batch.
 - **`getRowKey(model)`.** A model's primary key fields in constraint order,
   and the compound key's name. `viborm/client` also exports the type
   `NoExtraOperationKeys`.
+- **`observes`, beside `observe`.** One extension per client declares the facts
+  its observer needs (statement text, parameters, driver identity, cache
+  outcomes) and receives them as a third argument. `viborm/instrumentation` is
+  built on it and no longer registers a private identity.
 - **Several `on()` on one client.** Each runs its own hooks, in the order they
   were applied. A second `on()` was refused before.
 
@@ -36,6 +40,9 @@ it fits one batch.
 - **`viborm/ordering` on SurrealDB brings its own SurrealQL.** The driver no
   longer holds code for it: it writes a `joined()` value from the list the
   extension gives it.
+- **The name `viborm.instrumentation` is no longer reserved.** A copy of the
+  extension under another name is refused only where the client already
+  carries one that declares `observes`.
 - **The name `viborm.on` is no longer reserved.** `on()` is an extension like
   any other.
 - **Nested writes send fewer statements.** A write reads what it needs

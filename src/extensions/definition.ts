@@ -29,6 +29,7 @@ import type {
   RuntimeModelMethodContribution,
 } from "./methods";
 import type { ObserveHandler } from "./observation";
+import type { OfficialObservationCapability } from "./official-facts";
 import type {
   GenericQueryHandler,
   QueryHandlerMap,
@@ -60,6 +61,8 @@ export interface RuntimeExtensionDefinition {
   readonly query?: RuntimeQueryContribution;
   readonly statement?: RuntimeExtensionFunction;
   readonly observe?: RuntimeExtensionFunction;
+  /** What `observe` is handed facts for, as the definition wrote it. */
+  readonly observes?: OfficialObservationCapability;
   readonly written?: RuntimeExtensionFunction;
   readonly client?: RuntimeClientMethodContribution;
   readonly model?: RuntimeModelMethodContribution;
@@ -92,6 +95,7 @@ const DEFINITION_KEYS = new Set([
   "query",
   "statement",
   "observe",
+  "observes",
   "written",
   "client",
   "model",
@@ -455,6 +459,17 @@ export function normalizeExtensionDefinition(
     rawObserve === undefined
       ? undefined
       : requireFunction(rawObserve, "observe", name);
+  const observes = ownKeys.includes("observes")
+    ? (readOwn(value, "observes", name) as OfficialObservationCapability)
+    : undefined;
+  if (
+    observes !== undefined &&
+    !(isRecord(observes) && isFunction(observes.wants) && observe)
+  )
+    extensionError(
+      `Extension "${name}" observes must be an object with a wants function, beside an observe handler.`,
+      name
+    );
   const rawWritten = ownKeys.includes("written")
     ? readOwn(value, "written", name)
     : undefined;
@@ -500,6 +515,7 @@ export function normalizeExtensionDefinition(
     ...(query ? { query } : {}),
     ...(statement ? { statement } : {}),
     ...(observe ? { observe } : {}),
+    ...(observes ? { observes } : {}),
     ...(written ? { written } : {}),
     ...(client ? { client } : {}),
     ...(model ? { model } : {}),
@@ -642,6 +658,7 @@ type ExtensionMembers<
   readonly query?: GenericQueryHandler | QueryHandlerMap<C, X["rows"]>;
   readonly statement?: StatementHandler;
   readonly observe?: ObserveHandler;
+  readonly observes?: OfficialObservationCapability;
   readonly written?: WrittenHandler;
   readonly controls?: ControlsContribution;
   readonly rows?: RowsContribution;

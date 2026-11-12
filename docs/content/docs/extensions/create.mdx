@@ -296,10 +296,47 @@ Units cover operations, statements, batches, transactions, savepoints,
 connections, and cache work. Completion includes status,
 duration, a sanitized error summary, and commit certainty where applicable.
 
-Observers never receive SQL, parameters, rows, results, cache keys, drivers, or
-raw errors. Their throws, rejected promises, and returned promises cannot alter
-or delay the application operation. Their synchronous JavaScript still runs on
-the application thread, so keep it small.
+An observer receives no SQL, parameters, rows, results, cache keys, drivers,
+or raw errors unless its definition declares `observes` (below). Its throws,
+rejected promises, and returned promises cannot alter or delay the application
+operation. Its synchronous JavaScript still runs on the application thread, so
+keep it small.
+
+### Receive statement text and other facts with `observes`
+
+One extension per client can declare what its observer needs of each unit.
+Core then produces those facts, and only those, and hands them to the observer
+as a third argument:
+
+```ts
+const tracing = defineExtension({
+  name: "tracing",
+  observes: {
+    observesLifecycle: true,
+    diagnostics: undefined,
+    // Asked each time core is about to produce a fact.
+    wants: (need) => need === "statement" || need === "parameters",
+    // A warning core raises; `false` lets it fall back to console.warn.
+    warn: () => false,
+  },
+  observe(unit, proceed, facts) {
+    const known = facts?.read(); // the statement's text, parameters, driver
+    void proceed().then(() => {
+      const settled = facts?.completion(); // its failure, when it ended
+      record(unit, known, settled);
+    });
+  },
+});
+```
+
+`wants(need)` answers for `"operation"`, `"statement"`, `"transaction"`,
+`"savepoint"`, `"connect"`, `"disconnect"`, `"cache"`, `"cache-outcomes"`,
+`"parameters"`, `"query-log"` and `"error-log"`. A fact nobody wants is not
+produced: a parameter snapshot is taken only when `"parameters"` is wanted.
+`diagnostics` says whether thrown errors may carry SQL and parameters. A
+second extension that declares `observes` on the same client is refused.
+[`viborm/instrumentation`](/docs/extensions/instrumentation) is built on this
+declaration.
 
 ## Receive the rows a write wrote with `written`
 

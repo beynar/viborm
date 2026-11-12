@@ -69,9 +69,21 @@ export type ObservationCompletionFactsReader = () =>
 
 export type ObservationUnit = LifecycleUnit;
 
+/**
+ * What the observer of a definition that declares `observes` reads of the
+ * unit it is called for: the facts core produced for what it said it wants,
+ * and, once the unit settled, the facts of its completion.
+ */
+export interface ObservedFacts {
+  read(): OfficialLifecycleFacts | undefined;
+  completion(): OfficialLifecycleCompletionFacts | undefined;
+}
+
 export type ObserveHandler = (
   unit: ObservationUnit,
-  proceed: () => Promise<ObservationCompletion>
+  proceed: () => Promise<ObservationCompletion>,
+  /** Present only where the definition declares `observes`. */
+  facts?: ObservedFacts
 ) => unknown;
 
 type TrustedProtectedObserver = (
@@ -120,13 +132,43 @@ export function registerOfficialInstrumentationChain(
   officialCapabilitiesByChain.set(chain, capability);
 }
 
-/** Register one package-owned observer identity without publishing a marker. */
+/** One observer that is handed facts, and what core asks of its declaration. */
 export function registerTrustedProtectedObserver(
   handler: CallableFunction,
   capability: OfficialObservationCapability,
   observer: TrustedProtectedObserver
 ): void {
   trustedObservers.set(handler, { capability, observer });
+}
+
+/**
+ * The observer of a definition that declares `observes`: it is handed the
+ * facts of each unit, and core asks its declaration what to produce.
+ */
+export function registerFactsObserver(
+  handler: ObserveHandler,
+  capability: OfficialObservationCapability
+): void {
+  registerTrustedProtectedObserver(handler, capability, (unit, proceed) =>
+    handler(unit, proceed, {
+      read: () => readProtectedLifecycleFacts(unit),
+      completion: () => readProtectedLifecycleCompletionFacts(unit),
+    })
+  );
+}
+
+/** Read facts only for the exact frozen unit created by this runner. */
+export function readProtectedLifecycleFacts(
+  unit: LifecycleUnit
+): OfficialLifecycleFacts | undefined {
+  return lifecycleFacts.get(unit)?.facts;
+}
+
+/** Read completion facts projected by core after the child settled. */
+export function readProtectedLifecycleCompletionFacts(
+  unit: LifecycleUnit
+): OfficialLifecycleCompletionFacts | undefined {
+  return lifecycleFacts.get(unit)?.completion;
 }
 
 /** Recognize the exact package-owned handler identity and nothing else. */
@@ -163,20 +205,6 @@ export function prewarmProtectedObservers(
     const readiness = prewarmTrustedObserver(registration.capability);
     if (readiness !== undefined) return readiness;
   }
-}
-
-/** Read facts only for the exact frozen unit created by this runner. */
-export function readProtectedLifecycleFacts(
-  unit: LifecycleUnit
-): OfficialLifecycleFacts | undefined {
-  return lifecycleFacts.get(unit)?.facts;
-}
-
-/** Read completion facts projected by core after the child settled. */
-export function readProtectedLifecycleCompletionFacts(
-  unit: LifecycleUnit
-): OfficialLifecycleCompletionFacts | undefined {
-  return lifecycleFacts.get(unit)?.completion;
 }
 
 /**

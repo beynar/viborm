@@ -37,14 +37,13 @@ import type {
 import {
   getOfficialInstrumentationChainCapability,
   getTrustedProtectedObserverCapability,
+  type ObserveHandler,
+  registerFactsObserver,
   registerOfficialInstrumentationChain,
 } from "./observation";
 import { appendResultFields, type ResolvedResultFields } from "./result";
 import type { RowsBinding } from "./rows";
 import { rowsRuntime } from "./rows-slot";
-
-/** The fixed name admission reserves for the official instrumentation extension. */
-export const OFFICIAL_INSTRUMENTATION_NAME = "viborm.instrumentation";
 
 export interface ResolvedExtensionHandler<
   Handler extends CallableFunction = CallableFunction,
@@ -498,19 +497,21 @@ export function appendResolvedExtension(
     isAlreadyPresent: false,
     duplicateMessage: `Extension "${OFFICIAL_DEFAULT_OMIT_NAME}" is already present on this client.`,
   });
-  const incomingOfficial = getTrustedProtectedObserverCapability(
-    definition.observe
-  );
+  // The one definition whose observer is handed facts: core asks its
+  // declaration what to produce.
+  const incomingOfficial = definition.observes;
   const existingOfficial = getOfficialInstrumentationChainCapability(chain);
-  assertOfficialExtensionAdmission({
-    definitionName: definition.name,
-    officialName: OFFICIAL_INSTRUMENTATION_NAME,
-    label: "instrumentation",
-    hasIdentity: incomingOfficial !== undefined,
-    isAlreadyPresent: existingOfficial !== undefined,
-    duplicateMessage:
-      "The official instrumentation extension is already present on this client.",
-  });
+  if (incomingOfficial !== undefined) {
+    if (existingOfficial !== undefined)
+      extensionError(
+        `Extension "${definition.name}" declares observes, which another extension on this client already declares: one observer is handed facts.`,
+        definition.name
+      );
+    registerFactsObserver(
+      definition.observe as ObserveHandler,
+      incomingOfficial
+    );
+  }
   if (
     chain?.extensions.some((extension) => extension.name === definition.name)
   ) {
