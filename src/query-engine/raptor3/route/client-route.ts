@@ -5,8 +5,8 @@
  * private prepared-operation boundary. It owns exactly one decision: which
  * driver an existing owner supplied for this run, and therefore which of the
  * two transaction grants the candidate receives. It owns no lifecycle —
- * request transforms, default omit, the extension chain, interceptors, the
- * official cache, raw SQL, transactions, arrays, observers and introspection
+ * request transforms, the client's omit, the extension chain, interceptors,
+ * stored answers, raw SQL, transactions, arrays, observers and introspection
  * stay with their current owners, and this route is reached only through the
  * ordinary `PendingOperation` those owners already drive.
  *
@@ -50,7 +50,7 @@ export interface RoutedCandidateOperation {
    * The payload this operation runs: the candidate's ONE admission of the
    * client-prepared input (post request transform, post default omit). The
    * same object the statements are built from, so the interceptor's `input`
-   * and the cache key describe the query that actually runs.
+   * and the key of the call describe the query that actually runs.
    */
   readonly preparedArgs: Record<string, unknown>;
   /**
@@ -113,7 +113,7 @@ interface RouteWriteOutcome {
 }
 
 /**
- * Hand the candidate the client's own cache-invalidation rail.
+ * Hand the candidate the client's own write-outcome rail.
  *
  * The durable phase of a write is a TRANSPORT fact — a segment acknowledged, or
  * a dispatch whose rollback the driver cannot prove — so the transport states
@@ -302,7 +302,7 @@ async function runWriteCandidate<T>(
  *
  * The route decides WHICH SITUATION it is in and states it; it never decides
  * whether an envelope is needed. `writeOutcome` is not a fourth situation: it
- * is the client's cache-invalidation rail, carried to the transport that is
+ * is the client's write-outcome rail, carried to the transport that is
  * the only thing able to say when a write became durable.
  */
 function runCandidate(

@@ -188,7 +188,7 @@ export interface CallValues {
  * lowering: a control's value, or a field of it along `path`; with no
  * control, the call's one instant. `null` is absent: a parameter never lowers
  * to `IS NULL`. Its own fields are its spelling (`{ control, path }` or
- * `{ now: true }`), which no literal of a declaration can be, so a cache key
+ * `{ now: true }`), which no literal of a declaration can be, so a key
  * over declarations tells the two apart.
  */
 export class Parameter {
@@ -250,7 +250,7 @@ export class Condition {
  * column of the row `up` relation bodies above the one the value is compared
  * in (`0`, the same row; an `$exists` body counts as one). Never past the
  * predicate it is written in, nor across a recursive or polymorphic
- * relation. Its own fields are its spelling, so a cache key reads it as
+ * relation. Its own fields are its spelling, so a key over it reads it as
  * plain data.
  */
 export class OuterColumn {
@@ -267,7 +267,7 @@ export class OuterColumn {
  * `{ $exists: { <model>: <where> } }` in a domain predicate: whether some row
  * of `model` the call may see matches `where`. It reads no column of the row
  * it judges (an uncorrelated `EXISTS`), so a statement can evaluate it once.
- * Its own field is its spelling, with the model by name, so a cache key over
+ * Its own field is its spelling, with the model by name, so a key over
  * declarations reads it as plain data.
  */
 export class Existence {

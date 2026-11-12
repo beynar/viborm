@@ -109,3 +109,57 @@ describe("extension imports", () => {
     expect(privateImportsOf(name).length).toBeGreaterThan(0);
   });
 });
+
+/**
+ * The engine knows no extension: it names the points it asks at, never what
+ * answers. No word of its sources, comments included, is an extension's name
+ * or an extension's own vocabulary (`engine-rewrite-plan.md`, "terminé").
+ */
+const EXTENSION_WORD =
+  /official|permission|\bcach|\bactor|tenant|ordering's|ordering extension|respac|rekey|soft.?delet|instrumentation|viborm[./]|\bhook/i;
+
+/** A module of one of the extensions, by its path. */
+const EXTENSION_MODULE =
+  /(^|\/)(on|ordering|permissions|soft-delete|cache|instrumentation)(\/|$)/;
+
+function engineLinesNaming(folder: string): string[] {
+  const found: string[] = [];
+  for (const entry of readdirSync(join(SRC, folder), { withFileTypes: true })) {
+    const path = join(folder, entry.name);
+    if (entry.isDirectory()) found.push(...engineLinesNaming(path));
+    else if (entry.name.endsWith(".ts"))
+      for (const [at, line] of readFileSync(join(SRC, path), "utf8")
+        .split("\n")
+        .entries())
+        if (EXTENSION_WORD.test(line))
+          found.push(`${path}:${at + 1} ${line.trim()}`);
+  }
+  return found;
+}
+
+describe("the engine", () => {
+  test("names no extension, in code or in comments", () => {
+    expect(engineLinesNaming("query-engine/raptor3")).toEqual([]);
+  });
+
+  test("imports nothing of an extension", () => {
+    const imports: string[] = [];
+    const scan = (folder: string) => {
+      for (const entry of readdirSync(join(SRC, folder), {
+        withFileTypes: true,
+      })) {
+        const path = join(folder, entry.name);
+        if (entry.isDirectory()) scan(path);
+        else if (entry.name.endsWith(".ts"))
+          for (const [, , , from] of readFileSync(
+            join(SRC, path),
+            "utf8"
+          ).matchAll(IMPORT))
+            if (EXTENSION_MODULE.test(from!))
+              imports.push(`${path} imports "${from}"`);
+      }
+    };
+    scan("query-engine/raptor3");
+    expect(imports).toEqual([]);
+  });
+});

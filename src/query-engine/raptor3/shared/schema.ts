@@ -230,7 +230,7 @@ export class EngineSchema {
     raw: unknown
   ): Arguments {
     const schema = this.registry.getModelSchemas(model).args[operation];
-    // A value an official extension computes in the statement (`InsertValue`)
+    // A value the statement computes (`InsertValue`)
     // is no payload: it is set aside here and written as it is. A field kept
     // as stored (`Stored`) is set aside too, so no generated update value
     // (`updatedAt()`) fills it, and is then not written at all.

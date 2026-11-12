@@ -112,7 +112,7 @@ export type Leaf = {
    *
    * The fields beside it are a projection of this object's state, which SQL
    * lowering and row decoding read; a codec owner such as
-   * `result/cache-value-codecs.ts` is addressed by the object itself and must
+   * a result value codec is addressed by the object itself and must
    * never re-dispatch on `type`, which would be a second scalar-meaning
    * authority (g4/unit03/note.md FU.6 B-1c). Absent on the leaves no declared
    * scalar produces — `_count`, `exist`, a non-decimal `_avg`, `_distance` —
@@ -703,7 +703,7 @@ function foldConditions(
  * (`nulls`: field to whether its value is null), each null test of such a
  * field replaced by its outcome and the combinators simplified as
  * {@link foldConditions} does: the values a write sets fold into its
- * judgement (permissions plan §11.2 F2), so an arm on a key it leaves null does not
+ * judgement, so an arm on a key it leaves null does not
  * reach the statement. Only the row's own columns: a relation reads other
  * rows, and is kept as it is.
  */
@@ -1010,7 +1010,7 @@ function sameRange(left: RelationPredicate, right: RelationPredicate): boolean {
  * body the disjunction of theirs in their order; `undefined` where no two
  * merge, so a connective with nothing to merge keeps its own structure. The
  * merged relation states one subquery (and one recursive walk) where each
- * arm stated its own: the acceptance policy's three ancestor walks per
+ * arm stated its own: an acceptance rule's three ancestor walks per
  * document level become two.
  */
 function mergeQuantifiers(
@@ -1828,7 +1828,7 @@ const ALIAS_LIKE_NAME = /(?:^|_)q\d+(?:_|$)/;
 const resemblesAlias = (name: string) => ALIAS_LIKE_NAME.test(name);
 function hasAliasLikeNames(schema: EngineSchema): boolean {
   // Physical names are immutable for the schema lifetime, shared by every
-  // bound actor view. Scan them once, not for each operation's Queries.
+  // bound view. Scan them once, not for each operation's Queries.
   return memo(aliasLikeSchemas, schema, () => {
     for (const [model, slots] of schema.index) {
       if (resemblesAlias(model["~"].names.sql!)) return true;
@@ -1990,7 +1990,7 @@ export abstract class Queries {
   /**
    * The domain predicate a lowering-time read takes for `model`: the call's
    * own outside every layer, under `judgement` for a write; inside one, the
-   * defaults' without the layers lowering, which a policy's traversal only
+   * defaults' without the layers lowering, which a layer's traversal only
    * reads.
    */
   protected scope(
@@ -2150,7 +2150,7 @@ export abstract class Queries {
    * adapter's representation of it — schema and dialect only — so rebuilding a
    * fresh frozen object (and a fresh enum `Set`) on every projection of every
    * operation was pure repetition (rule 1). Nothing consumes a leaf by
-   * identity: the decoder, the cache codec and the shape readers all read its
+   * identity: the decoder, the result codec and the shape readers all read its
    * fields.
    */
   protected scalarShape(model: AnyModel, field: string): Leaf {

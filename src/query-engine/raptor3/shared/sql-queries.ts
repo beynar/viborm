@@ -254,7 +254,7 @@ export class SqlQueries extends Queries {
       );
     const materialized = new Set<SharedBody>();
     let query = settle(new Set(), undefined, materialized);
-    // A walk its author states selective (the teams the actor belongs to,
+    // A walk its author states selective (the teams a member belongs to,
     // through their subteams), read only inside bodies computed over their
     // whole tables, walks once per row of each in place: it is computed
     // once as a set instead, from the few rows it reaches back from. Read in
@@ -335,7 +335,7 @@ export class SqlQueries extends Queries {
       for (const slot of slots) slot.settle(sql.empty);
     // A relation body is inlined where it reads no other shared body: a
     // nested one, inlined into every use of every body that reads it,
-    // multiplies the plan (a 40-model policy's `can`: 9.8 s materialized,
+    // multiplies the plan (one row domain over 40 models: 9.8 s materialized,
     // 113 s inlined, 11 s inlining the leaves only).
     // By the slots a stated body settled to, not by text: a table may be
     // named like a body. The same pass finds the aliases each body joins
@@ -816,7 +816,7 @@ export class SqlQueries extends Queries {
   /**
    * What a declared junction's link rows may hold while a layer's predicates
    * lower here, where a positive test reads them ({@link setBound}), so a walk
-   * reads its tenant's links rather than filtering the whole table's. Only a
+   * reads its bound's links rather than filtering the whole table's. Only a
    * bound over columns both of a link's keys hold: their foreign keys make them
    * the joined rows' own, so it changes no answer. Over any other column a link
    * may disagree with the rows it joins, and a bound would drop it. A generated
@@ -900,8 +900,8 @@ export class SqlQueries extends Queries {
    * (`commands/index.ts`) minted `q0, q1, … q10000` for the SAME
    * `findUnique`, so its statement text was unique per call — measured as an
    * obstacle by the cutover protocol (`g4/cutover/protocol.md` §7.2) and a
-   * guaranteed miss for any transport that caches by statement text
-   * (PostgreSQL named statements, `mysql2`'s prepare cache, D1/PlanetScale).
+   * guaranteed miss for any transport that keeps statements by their text
+   * (PostgreSQL named statements, `mysql2`'s prepared ones, D1/PlanetScale).
    *
    * The statement owners are {@link select}, {@link aggregated},
    * {@link grouped}, {@link selectSeries} and {@link junction} — every method
@@ -2487,7 +2487,7 @@ export class SqlQueries extends Queries {
       this.#frames.pop();
     }
     if (predicate.link) {
-      // A policy's own rule reads what it states; a caller's filter is a test
+      // A layer's own rule reads what it states; a caller's filter is a test
       // of a column a direct read of it could hide.
       if (!this.#lowersLayer)
         this.refuseHiddenLinkRow(edge, predicate.linkFields!, "filter");
@@ -2682,7 +2682,7 @@ export class SqlQueries extends Queries {
     );
     // A flag join keeps SQLite from flattening the derived table each level
     // of a nested filter reads from on D1, adding the level's height to every
-    // level above it (a three-arm policy at 15 levels passes depth 100).
+    // level above it (a three-arm rule at 15 levels passes depth 100).
     const table =
       joined?.from ??
       (a.capabilities.boundsExpressionDepth === true

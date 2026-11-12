@@ -57,9 +57,8 @@ export interface InsertValueContext {
  * left the field out, not admitted as data. `compute` answers one value per
  * row it is asked about (the indexes of `rows` whose field holds this
  * instance), each a plain value or an SQL expression the INSERT evaluates.
- * An `update`'s data may hold one too (an official extension's call, never a
- * caller's payload): set aside from admission, its expression is the SET's.
- * The official ordering extension's appended and moved keys are the ones.
+ * An `update`'s data may hold one too: set aside from admission, its
+ * expression is the SET's.
  */
 export abstract class InsertValue {
   abstract compute(
@@ -69,12 +68,11 @@ export abstract class InsertValue {
 }
 
 /**
- * An update value keeping the field as stored (an official extension's
- * call, never a caller's payload): set aside at admission as any
+ * An update value keeping the field as stored: set aside at admission as any
  * `InsertValue`, so no generated update value (`updatedAt()`) fills it,
  * then dropped from the data (an update left with nothing to write is one
- * that writes nothing), and not judged as a field the write writes.
- * Ordering's own writes place a row; they do not change it.
+ * that writes nothing), and not judged as a field the write writes. A write
+ * that places a row without changing it keeps the row's instant so.
  */
 export class Stored extends InsertValue {
   compute(): never {
@@ -83,13 +81,12 @@ export class Stored extends InsertValue {
 }
 
 /**
- * An `updateMany` value read from a derived table the UPDATE joins (an
- * official extension's call, never a caller's payload): `join` answers that
- * table, aliased, and the condition matching it to the row written, over the
+ * An `updateMany` value read from a derived table the UPDATE joins: `join`
+ * answers that table, aliased, and the condition matching it to the row written, over the
  * target's columns qualified by `target`; `compute` answers the SET
  * expression over the table's columns. The engine joins it (`UPDATE … FROM`,
  * MySQL's `UPDATE … JOIN`), so one statement writes each row its own value
- * and the source is read once, before any row changes. Respacing's keys.
+ * and the source is read once, before any row changes.
  */
 export abstract class JoinedValue extends InsertValue {
   abstract join(
@@ -115,9 +112,8 @@ export interface JoinedEntry {
 }
 
 /**
- * Each engine's renderer, by its schema then its driver's adapter: an
- * official extension that writes a statement of its own (ordering's
- * respacing) names tables and columns and binds values as the engine's
- * queries do, without importing the engine into its entry.
+ * Each engine's renderer, by its schema then its driver's adapter: what
+ * spells a model for a fragment written by hand (`$sql`) names tables and
+ * columns and binds values as the engine's queries do.
  */
 export const renderers = new WeakMap<object, WeakMap<object, Queries>>();

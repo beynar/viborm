@@ -65,7 +65,7 @@ export type MemberRollback = <T>(
   context: QueryExecutionContext
 ) => Promise<T>;
 
-/** Where a write says what it left durable: the cache listens. */
+/** Where a write says what it left durable, to what listens for it. */
 export interface WriteOutcomeSeam {
   readonly committedSegment?: () => Promise<void>;
   readonly mayBeVisible?: () => Promise<void>;

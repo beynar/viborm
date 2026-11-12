@@ -83,8 +83,8 @@ export function parseValidated<S extends VibSchema>(
  * later. What is left is a SHAPE CHECK, and a shape check has one home.
  *
  * The key set mirrors the deleted `assertUpsertKeys` exactly, including the five optional
- * names. `cache` is absent from both: the client strips it before the engine
- * (`client.ts`), so it never arrives.
+ * names. A control is absent from both: the client strips controls before the
+ * engine (`client.ts`), so none arrives.
  */
 export const upsertEnvelopeSchema = object(
   {

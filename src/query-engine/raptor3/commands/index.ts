@@ -57,7 +57,7 @@ export interface PreparedRead {
   readonly single: boolean;
   /**
    * The read owner's own publication for zero rows: `null` (a row), `[]` (the
-   * set), `{}` (an aggregate record), `0` (`count`), `false` (`exist`). A cache
+   * set), `{}` (an aggregate record), `0` (`count`), `false` (`exist`). A
    * result codec reads the public value's kind here instead of assuming the row
    * shape is the value's shape — `count` publishes `3`, never `{_count: 3}`.
    */
@@ -88,7 +88,7 @@ function publishedFacts(value: Read): PreparedRead {
 /**
  * One admitted operation, before any execution.
  *
- * The client lifecycle is admission-first by construction — a cache must key
+ * The client lifecycle is admission-first by construction — a stored answer must key
  * before it can look up, and an interceptor must see the payload before it calls
  * `proceed()` — so admission, the prepared read shape and the cardinality are
  * published here, exactly once, and execution consumes that same construction
