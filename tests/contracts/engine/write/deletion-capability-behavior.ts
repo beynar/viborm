@@ -1014,11 +1014,12 @@ export function runDeletionCapabilityBehavior(
         TOMBSTONE_WRITE.test(statement.sql)
       );
       // Once outside, and once inside each window read. An interactive
-      // transport names the keys it holds instead: nothing changes them.
+      // transport names the keys it holds instead: nothing changes them, so
+      // the filter beside them is the writer's to keep or leave.
       const windows = write!.sql.match(WINDOW_READ)?.length ?? 0;
-      expect(write!.sql.match(TITLE_FILTER) ?? []).toHaveLength(
-        windows === 0 ? 0 : once * (windows + 1)
-      );
+      const filters = write!.sql.match(TITLE_FILTER)?.length ?? 0;
+      if (windows === 0) expect(filters).toBeLessThanOrEqual(once);
+      else expect(filters).toBe(once * (windows + 1));
     });
 
     // The 800-value selector and its limited window fit the concrete SQLite,

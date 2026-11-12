@@ -39,6 +39,7 @@ import {
 } from "@query-engine/raptor3/shared/schema";
 import type { Operation } from "@query-engine/types";
 import type { AnyModel } from "@schema/model";
+import { producedSource, producedWhere } from "./produced";
 import { admitProjected } from "./projected";
 
 /** Equal gates shared, so a projection carries one member per distinct gate. */
@@ -100,6 +101,9 @@ export class PreparedDomain {
    * A call's arguments admitted with the projection keys this domain
    * declares kept beside the schema's.
    */
+  /** The row a write would leave, judged in the statement that writes it. */
+  readonly producedSource = producedSource;
+  readonly producedWhere = producedWhere;
   admit(
     schema: EngineSchema,
     model: AnyModel,

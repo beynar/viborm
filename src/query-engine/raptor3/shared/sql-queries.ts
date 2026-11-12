@@ -92,7 +92,6 @@ import {
   type LoweringFrame,
   memberRead,
   NO_GATES,
-  NO_RELATIONS,
   type OperationPredicate,
   type OrderJoins,
   type OrderTerm,
@@ -114,7 +113,6 @@ import {
   type Read,
   ROOT_CANDIDATES,
   type RowCondition,
-  readsAny,
   readsRelation,
   readUpdate,
   relations,
@@ -132,7 +130,6 @@ import {
   states,
   type TestedColumns,
   throughDerived,
-  wholeValue,
 } from "./query";
 import { type CallScope, Parameter, type RowPurpose } from "./row-scope";
 import { RawRows, RowsOf } from "./rows-of";
@@ -181,7 +178,7 @@ export class SqlQueries extends Queries {
    * it is read under, and per field whether the value the write sets is
    * null, where the write states it.
    */
-  #known:
+  known:
     | { readonly alias: string; readonly nulls: ReadonlyMap<string, boolean> }
     | undefined;
   /**
@@ -779,8 +776,10 @@ export class SqlQueries extends Queries {
    * repeated body its WHERE (and its produced row's judgement) lowers is one
    * `WITH` member ahead of the `UPDATE` or `DELETE`, as a read's is.
    */
-  sharing(build: () => Sql): Sql {
-    return this.#sharing(build)!;
+  sharing(build: () => Sql): Sql;
+  sharing(build: () => Sql | undefined): Sql | undefined;
+  sharing(build: () => Sql | undefined): Sql | undefined {
+    return this.#sharing(build);
   }
   /** `build`'s statement, sharing its bodies where the adapter does. */
   #sharing(build: () => Sql | undefined): Sql | undefined {
@@ -1462,85 +1461,12 @@ export class SqlQueries extends Queries {
       : a.expressions.divide(base, operand);
   }
   /**
-   * The rows of `model` a write produces, as ONE FROM item read under
-   * `alias`: every stored field, each row's value as `row` lowers it (NULL
-   * where it says nothing). The model's own columns type them, through an
-   * empty read of the table, so a bound value takes its column's type where
-   * PostgreSQL would resolve a bare parameter as text; how the rows follow
-   * it is the dialect's (`setOperations.typedRows`), so a chunk is bounded
-   * by its binds alone.
-   */
-  #producedRows(
-    model: AnyModel,
-    rows: readonly ((field: string) => Sql | undefined)[],
-    alias: string
-  ): Sql {
-    const a = this.adapter;
-    const fields = this.schema.storedFields(model);
-    const typed = this.alias();
-    const from = this.table(model, typed);
-    const head = assembleAdapterSelect(a, {
-      columns: sql.join(
-        fields.map((field) => this.column(model, field, typed)),
-        ", "
-      ),
-      from,
-      where: a.literals.false(),
-    });
-    return a.setOperations.typedRows(
-      {
-        head,
-        from,
-        table: this.table(model),
-        alias: typed,
-        columns: fields.map((field) => this.columnName(model, field)),
-      },
-      rows.map((row) => fields.map((field) => row(field) ?? a.literals.null())),
-      alias
-    );
-  }
-  /**
-   * `judged` over the produced row `from` reads (and, for each `acyclic`
-   * relation, the row outside its own subtree), as the adapter's assertion:
-   * 1, or the statement that carries it fails before it writes. `undefined`
-   * where nothing is left to judge: the call drops every layer `judged` is
-   * made of (R6).
-   */
-  #holds(
-    model: AnyModel,
-    judged: Pick<PreparedSelector, "model" | "predicate"> | undefined,
-    alias: string,
-    nulls: ReadonlyMap<string, boolean>,
-    from?: Sql,
-    acyclic: readonly string[] = NO_RELATIONS
-  ): Sql | undefined {
-    const a = this.adapter;
-    const outer = this.#known;
-    this.#known = { alias, nulls };
-    let lowered: Sql | undefined;
-    try {
-      lowered = judged && this.lowerSelector(judged, alias);
-    } finally {
-      this.#known = outer;
-    }
-    const conditions = [
-      ...(lowered === undefined ? [] : [lowered]),
-      ...acyclic.map((relation) =>
-        this.#outsideOwnSubtree(model, relation, alias)
-      ),
-    ];
-    if (conditions.length === 0) return undefined;
-    return a.subqueries.scalar(
-      a.assertions.holds(a.operators.and(...conditions), from)
-    );
-  }
-  /**
    * The row read as `alias` does not reach itself through `relation`, a
    * to-one relation of its model to itself: no row its new target leads to,
    * that target included, is the row. The walk is physical, read under no
    * domain: a cycle through a row the caller cannot see is still a cycle.
    */
-  #outsideOwnSubtree(model: AnyModel, relation: string, alias: string): Sql {
+  outsideOwnSubtree(model: AnyModel, relation: string, alias: string): Sql {
     const a = this.adapter;
     const edge = this.schema.membership(model, relation);
     const { cte, cteName, walk, childColumns } = this.#walk(
@@ -1559,160 +1485,6 @@ export class SqlQueries extends Queries {
           childColumns.map((name) => a.identifiers.column(walk, name))
         ),
       })}`
-    );
-  }
-  /**
-   * The SELECT an INSERT of `rows` reads its values from when the rows it
-   * creates are judged (R4): each row a value of the derived table, kept
-   * where `judged` holds of it and failing the statement where it does not,
-   * before any row is written or any constraint is checked. One statement:
-   * nothing it writes is visible to its own judgement.
-   */
-  producedSource(
-    model: AnyModel,
-    columns: readonly string[],
-    rows: readonly Input[],
-    judged: PreparedSelector
-  ): Sql | undefined {
-    const a = this.adapter;
-    const alias = this.alias();
-    const written = new Set(columns);
-    const from = this.#producedRows(
-      model,
-      rows.map(
-        (row) => (field) =>
-          written.has(field)
-            ? this.fieldValue(model, field, row[field])
-            : undefined
-      ),
-      alias
-    );
-    // A field's nullness folds where every row states the same one; a field
-    // no row writes is null in each.
-    const nulls = new Map<string, boolean>();
-    for (const field of this.schema.storedFields(model)) {
-      const states = new Set(
-        rows.map((row) => {
-          const value = written.has(field) ? row[field] : null;
-          return value instanceof Sql
-            ? undefined
-            : value === null || value === undefined;
-        })
-      );
-      const [state] = states;
-      if (states.size === 1 && state !== undefined) nulls.set(field, state);
-    }
-    return this.#sharing(() => {
-      const guard = this.#holds(model, judged, alias, nulls);
-      if (guard === undefined) return undefined;
-      return assembleAdapterSelect(a, {
-        columns: sql.join(
-          columns.map((field) => this.column(model, field, alias)),
-          ", "
-        ),
-        from,
-        where: sql`${guard} = 1`,
-      });
-    });
-  }
-  /**
-   * The WHERE of an UPDATE of `model` assigning `values` that judges the
-   * rows it produces (R4): the keys of the rows `candidates` selects
-   * (lowered at the alias it is handed; the first `limit` in key order),
-   * read ONCE, before the statement writes any of them, each group of one
-   * key kept where its produced row's assertion holds (the row as it stands
-   * with the assignments applied, typed as {@link producedRows}): 1, or the
-   * statement fails before it writes.
-   *
-   * An aggregate is computed over the rows its WHERE kept, so a row the
-   * update does not write is never judged: a guard in a select list or a
-   * WHERE is not, since PostgreSQL and MySQL flatten an `IN` subquery and
-   * order its conditions by cost (measured: a viewed row's refused guard
-   * raised before the predicate that excludes it). A set read once is
-   * judged against the rows as they stand before the write, never against
-   * a row the statement wrote earlier: SQLite and MySQL evaluate an
-   * UPDATE's own SET row by row (measured: a team's lead demoted early made
-   * its other members' new rows unwritable). On MySQL, which refuses to read
-   * the written table from its own subquery, the set is a derived table,
-   * materialized before the write (`#capped`'s form). `undefined` where
-   * nothing is left to judge.
-   */
-  producedWhere(
-    model: AnyModel,
-    candidates: (alias: string) => Sql | undefined,
-    values: Input,
-    judged: PreparedSelector | undefined,
-    acyclic: readonly string[] = NO_RELATIONS,
-    limit?: number
-  ): Sql | undefined {
-    if (judged === undefined && acyclic.length === 0) return undefined;
-    const a = this.adapter;
-    const row = this.alias();
-    const produced = this.alias();
-    const current = (field: string) => this.column(model, field, row);
-    const rowKeys = this.schema.keys(model);
-    // A value only the database computes (a list append, an exact
-    // decimal's multiply or divide) has no value to judge: it is refused
-    // where the judgement reads it (`updateValue`), and stands as it was
-    // where nothing does, since no answer depends on it.
-    const unread = (field: string) =>
-      !(
-        this.namesUpdate(model, field, values[field]) ||
-        (judged?.predicate &&
-          readsAny(judged.predicate, new Set([field]), rowKeys)) ||
-        acyclic.some((relation) => {
-          const edge = this.schema.membership(model, relation);
-          return (
-            edge.kind === "reference" &&
-            edge.pairs.some((pair) => pair.source === field)
-          );
-        })
-      );
-    const from = this.#producedRows(
-      model,
-      [
-        (field) =>
-          values[field] === undefined || unread(field)
-            ? current(field)
-            : this.updateValue(model, field, values[field], current(field)),
-      ],
-      produced
-    );
-    const nulls = new Map<string, boolean>();
-    for (const [field, value] of Object.entries(values)) {
-      if (value === undefined) continue;
-      const whole = wholeValue(value);
-      if (whole && !(whole.value instanceof Sql))
-        nulls.set(field, whole.value === null);
-    }
-    const judgedSet = (): Sql | undefined => {
-      const guard = this.#holds(model, judged, produced, nulls, from, acyclic);
-      if (guard === undefined) return undefined;
-      const keys = this.keyOrder(model).map(current);
-      return assembleAdapterSelect(a, {
-        columns: sql.join(keys, ", "),
-        from: this.table(model, row),
-        where: candidates(row),
-        groupBy: sql.join(keys, ", "),
-        having: sql`${a.aggregates.min(guard)} = 1`,
-        ...(limit !== undefined && {
-          orderBy: this.#ascendingKeys(model, row),
-          limit: this.value(limit),
-        }),
-      });
-    };
-    const set = this.#sharing(judgedSet);
-    if (set === undefined) return undefined;
-    const table = model["~"].names.sql!;
-    return a.operators.in(
-      rowValue(
-        this.keyOrder(model).map((field) => this.column(model, field, table))
-      ),
-      a.subqueries.scalar(
-        a.capabilities.supportsMutationTargetInSubquery
-          ? set
-          : throughDerived(a, set, this.alias())
-      )
     );
   }
   /**
@@ -1780,7 +1552,7 @@ export class SqlQueries extends Queries {
     if (predicate.kind === "layer") {
       let resolved = this.resolve(predicate);
       if (resolved === undefined) return undefined;
-      const known = this.#known;
+      const known = this.known;
       if (known !== undefined && alias === known.alias)
         resolved = foldKnownNulls(resolved, known.nulls);
       // A stack, made at the first layer this `Queries` lowers: what reads
@@ -1900,7 +1672,7 @@ export class SqlQueries extends Queries {
       };
     return {
       where,
-      suffix: sql`${adapter.clauses.orderBy(this.#ascendingKeys(model))} ${adapter.clauses.limit(this.value(limit))}`,
+      suffix: sql`${adapter.clauses.orderBy(this.ascendingKeys(model))} ${adapter.clauses.limit(this.value(limit))}`,
     };
   }
   /**
@@ -1953,7 +1725,7 @@ export class SqlQueries extends Queries {
       ...(limit === undefined
         ? {}
         : {
-            orderBy: this.#ascendingKeys(model, inner),
+            orderBy: this.ascendingKeys(model, inner),
             limit: this.value(limit),
           }),
     });
@@ -1967,7 +1739,7 @@ export class SqlQueries extends Queries {
     );
   }
   /** `<key> ASC, …` in {@link keyOrder}, the keys addressed through `alias`. */
-  #ascendingKeys(model: AnyModel, alias?: string): Sql {
+  ascendingKeys(model: AnyModel, alias?: string): Sql {
     return sql.join(
       this.keyOrder(model).map((field) =>
         this.adapter.orderBy.asc(this.column(model, field, alias))

@@ -400,7 +400,8 @@ export class Writer {
       throw new UnsupportedOperationError(
         `Cannot create a '${model["~"].names.ts!}' row that writes no field: its placement is judged on the values it writes.`
       );
-    const select = placed && q.producedSource(model, fields, rows, placed);
+    const select =
+      placed && q.domain!.producedSource(q, model, fields, rows, placed);
     // Rows that hold what another row alone may hold are passed by.
     const skip = skips
       ? mutations.skipDuplicates(q.columnName(model, fields[0]!))
@@ -470,7 +471,8 @@ export class Writer {
       const produced =
         judged &&
         q.domain &&
-        q.producedWhere(
+        q.domain.producedWhere(
+          q,
           model,
           (alias) => this.#among(question, selector, alias),
           set!,

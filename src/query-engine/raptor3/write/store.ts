@@ -1323,9 +1323,22 @@ export class Store {
       edge,
       from,
       to,
-      keys: [this.#key(from), this.#key(to)],
+      keys: [this.#end(edge.sourceSide, from), this.#end(edge.targetSide, to)],
       through,
     });
+  }
+  /**
+   * What a link holds of the row at one of its ends: the fields the junction
+   * references there, which are the row's key or values no other row has.
+   * Asked of the row, so a row known by its key alone is read.
+   */
+  #end(side: Junction["sourceSide"], row: Row): Input {
+    return Object.fromEntries(
+      side.members.map((pair) => [
+        pair.referencedField,
+        row[pair.referencedField],
+      ])
+    );
   }
   /** `from`'s links through a junction go: the one to `to`, or every one but those to the rows `kept`. */
   unlink(edge: Junction, from: Row, to?: Row, kept: readonly Row[] = []): void {
@@ -1336,9 +1349,9 @@ export class Store {
       to,
       kept,
       keys: [
-        this.#key(from),
-        to && this.#key(to),
-        kept.map((row) => this.#key(row)),
+        this.#end(edge.sourceSide, from),
+        to && this.#end(edge.targetSide, to),
+        kept.map((row) => this.#end(edge.targetSide, row)),
       ],
     });
   }
