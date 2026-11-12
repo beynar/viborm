@@ -238,6 +238,8 @@ export class Store {
   readonly #inserted = new WeakMap<Row, number>();
   /** What is computed of a row where it is written, by field. */
   readonly #computes = new WeakMap<Row, Input>();
+  /** A row as the statement that read it whole said it. */
+  readonly #raw = new WeakMap<Input, Input>();
   #meta = new WeakMap<Row, Meta>();
   #known = new Map<string, Row>();
   #log: Entry[] = [];
@@ -414,6 +416,8 @@ export class Store {
             sent!.rows,
             true
           ) as Input[];
+          for (const [at, row] of rows.entries())
+            this.#raw.set(row, sent!.rows[at]!);
           for (const [id, question] of asked)
             this.#answers.set(id, {
               question,
@@ -726,6 +730,7 @@ export class Store {
       answer.rows.map((values) => {
         const row = this.#intern(model, values, question);
         const meta = this.#meta.get(row)!;
+        this.#raw.set(row, this.#raw.get(values)!);
         // A row taken to be there, now read: what the call wrote of it stands.
         if (meta.partial) {
           Object.assign(row, { ...values, ...row });
@@ -1275,6 +1280,15 @@ export class Store {
   ): void {
     // A row the database passed by is no row of the call's.
     const there = rows.filter((row) => !this.#meta.get(row)!.passed);
+    // A row read whole and not written since has said what is read of itself alone.
+    const said = there.map((row) => !this.#changed(row) && this.#raw.get(row));
+    if (
+      said.every(Boolean) &&
+      projection.fields.every((field) => field.kind === "scalar")
+    ) {
+      take(said as Input[]);
+      return;
+    }
     this.#note({
       kind: "read",
       model,
@@ -1469,7 +1483,11 @@ export class Store {
           (entry.kind === "update" || entry.kind === "delete") &&
           entry.row === row
       );
-      if (first && writer.counts && (holds || !(this.#handed || writes > 1)))
+      if (
+        first &&
+        writer.counts(first.kind) &&
+        (holds || !(this.#handed || writes > 1))
+      )
         confirms.set(first, question);
       else ask(question, id, "presumed");
     }
@@ -1724,18 +1742,29 @@ export class Store {
         const mine = run.length === 1 ? own.get(entry) : undefined;
         if (!mine && own.has(entry)) told.delete(own.get(entry)!.read);
         const read = mine?.read;
+        let asked = false;
         steps.push({
-          write: async () => [
-            await writer.update(
-              under(entry),
-              this.#said(entry.set),
-              run.map((next) => this.#said(next.key)),
-              read?.projection ??
-                (hears.length > 0 ? writer.key(model) : undefined),
-              confirms.has(entry)
-            ),
-          ],
-          take: read ? tells(read, mine!.place) : take,
+          write: async () => {
+            const set = this.#said(entry.set);
+            const first =
+              hears.length > 0 &&
+              writer.computes(under(entry), this.#said(entry.key), set);
+            asked = Boolean(first);
+            return [
+              ...(first ? [first] : []),
+              await writer.update(
+                under(entry),
+                set,
+                run.map((next) => this.#said(next.key)),
+                read?.projection ??
+                  (hears.length > 0 && !first ? writer.key(model) : undefined),
+                confirms.has(entry)
+              ),
+            ];
+          },
+          take: read
+            ? tells(read, mine!.place)
+            : (sent) => take(asked ? sent.slice(0, 1) : sent),
         });
       } else if (entry.kind === "delete") {
         const { model } = entry.question;

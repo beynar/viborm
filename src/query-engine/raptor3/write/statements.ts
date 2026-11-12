@@ -495,11 +495,35 @@ export class Writer {
     // the call can count them, where the provider's own count would count
     // what a cascade changed besides.
     if (projection) {
-      if (!capabilities.supportsReturning) outside();
       statement = this.#operation.answering(model, statement, projection);
     } else if (counted && capabilities.countsCascadedChanges)
       statement = sql`${statement} ${mutations.returning(sql.raw("1"))}`;
     return { model, sql: statement, stops };
+  }
+  /**
+   * The key the database will compute of the row `key` names, asked of the
+   * row before it is written, where no write says what it wrote: the row is
+   * held until then.
+   */
+  computes(question: Question, key: Input, set: Input): Statement | undefined {
+    const q = this.#q;
+    const { model } = question;
+    const { capabilities, identifiers } = this.#operation.driver.adapter;
+    if (capabilities.supportsReturning) return undefined;
+    const table = model["~"].names.sql!;
+    const { where } = this.#limited(question, this.selector(question, [key]), [
+      key,
+    ]);
+    const fields = this.#operation.schema.keys(model).map((field) => {
+      const column = q.column(model, field, table);
+      const value =
+        field in set ? q.updateValue(model, field, set[field], column) : column;
+      return sql`${value} AS ${identifiers.escape(field)}`;
+    });
+    return {
+      model,
+      sql: sql`SELECT ${sql.join(fields, ", ")} FROM ${q.table(model)} WHERE ${where} FOR UPDATE`,
+    };
   }
   /**
    * The rows a question names are removed: the rows `keys` names, where the
@@ -521,7 +545,6 @@ export class Writer {
       return named.suffix ? sql`${removal} ${named.suffix}` : removal;
     });
     if (projection) {
-      if (!capabilities.supportsReturning) outside();
       statement = this.#operation.answering(model, statement, projection);
     } else if (counted && capabilities.countsCascadedChanges)
       statement = sql`${statement} ${mutations.returning(sql.raw("1"))}`;
@@ -688,9 +711,9 @@ export class Writer {
       ),
     };
   }
-  /** Whether a write of rows by their keys says how many of them it found. */
-  get counts(): boolean {
-    return this.#operation.driver.dialect !== "mysql";
+  /** Whether a write of rows by their keys says how many of them it found: MySQL counts the rows an update changed. */
+  counts(kind: string): boolean {
+    return kind === "delete" || this.#operation.driver.dialect !== "mysql";
   }
   /** What opens and closes the place a unit keeps the keys the database decides in it. */
   scratch(
