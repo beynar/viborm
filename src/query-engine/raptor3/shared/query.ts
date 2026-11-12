@@ -541,19 +541,20 @@ export type PreparedPredicate =
     }
   | {
       /**
-       * One layer's domain predicate for `model`, the unit R6 judges: per
-       * call, its conditions fold (kept per outcome in `folded`), then a value
-       * it still reads that is absent makes it false where its control is
-       * required on `model` and drops it otherwise. While it lowers, its
-       * relation reads take every other layer at its default and never this
-       * one (R5).
+       * One layer's domain predicate for `model`, the unit R6 judges: what
+       * made it says what it is for a call (`resolve`: `undefined` where the
+       * call drops it), over the row read under `alias` where one is given.
+       * While it lowers, its relation reads take every other layer at its
+       * default and never this one (R5).
        */
       readonly kind: "layer";
       readonly layer: number;
       readonly model: string;
       readonly predicate: PreparedPredicate;
-      readonly conditions: readonly Condition[];
-      readonly folded: Map<string, Folded>;
+      readonly resolve: (
+        queries: Queries,
+        alias?: string
+      ) => PreparedPredicate | undefined;
     }
   | {
       readonly kind: "operation";
@@ -626,163 +627,6 @@ export type BoundOperation = Omit<
 export function states(predicate: PreparedPredicate): boolean {
   if (predicate.kind === "layer") return states(predicate.predicate);
   return predicate.kind !== "and" || predicate.predicates.some(states);
-}
-/** A layer's predicate under one outcome of its conditions. */
-interface Folded {
-  readonly predicate: PreparedPredicate;
-  /** The parameters it still reads, `spread` where one is a whole list. */
-  readonly parameters: readonly (readonly [Parameter, boolean])[];
-}
-const ALWAYS_TRUE: PreparedPredicate = freeze({ kind: "always", value: true });
-/**
- * `predicate` with the leaves `known` answers for replaced by their outcome
- * and the logical combinators simplified, so a false arm goes with every
- * parameter inside it. `deep` folds the body of a relation too, which keeps
- * its quantifier: for an outcome that holds whatever row is read.
- */
-function fold(
-  predicate: PreparedPredicate,
-  known: (leaf: PreparedPredicate) => boolean | undefined,
-  deep: boolean
-): PreparedPredicate {
-  switch (predicate.kind) {
-    case "condition":
-    case "operation": {
-      const outcome = known(predicate);
-      if (outcome === undefined) return predicate;
-      return outcome ? ALWAYS_TRUE : VACUOUS_FALSE;
-    }
-    case "and":
-    case "or": {
-      const conjunction = predicate.kind === "and";
-      const kept: PreparedPredicate[] = [];
-      for (const member of predicate.predicates) {
-        const folded = fold(member, known, deep);
-        if (folded.kind !== "always") kept.push(folded);
-        else if (folded.value !== conjunction) return folded;
-      }
-      if (kept.length === 0) return conjunction ? ALWAYS_TRUE : VACUOUS_FALSE;
-      if (
-        kept.length === predicate.predicates.length &&
-        kept.every((member, index) => member === predicate.predicates[index])
-      )
-        return predicate;
-      // A dropped arm may have held two quantifiers over one relation apart.
-      const merged = deep ? mergeQuantifiers(predicate.kind, kept) : undefined;
-      return merged?.length === 1 && !conjunction
-        ? merged[0]!
-        : freeze({ kind: predicate.kind, predicates: freeze(merged ?? kept) });
-    }
-    case "not": {
-      const folded = fold(predicate.predicate, known, deep);
-      if (folded.kind === "always")
-        return folded.value ? VACUOUS_FALSE : ALWAYS_TRUE;
-      return folded === predicate.predicate
-        ? predicate
-        : freeze({ kind: "not", predicate: folded });
-    }
-    case "relation":
-    case "exists": {
-      if (!(deep && predicate.predicate)) return predicate;
-      const folded = fold(predicate.predicate, known, deep);
-      // No row matches a false body; a true one still needs a row to exist.
-      if (
-        predicate.kind === "exists" &&
-        folded.kind === "always" &&
-        !folded.value
-      )
-        return VACUOUS_FALSE;
-      if (folded === predicate.predicate) return predicate;
-      if (predicate.kind === "relation")
-        return freeze({ ...predicate, predicate: folded });
-      return freeze({
-        kind: "exists",
-        model: predicate.model,
-        ...(folded.kind !== "always" && { predicate: folded }),
-      });
-    }
-    default:
-      return predicate;
-  }
-}
-/** `predicate` with every condition replaced by its outcome. */
-const foldConditions = (
-  predicate: PreparedPredicate,
-  holds: (condition: Condition) => boolean
-): PreparedPredicate =>
-  fold(
-    predicate,
-    (leaf) => (leaf.kind === "condition" ? holds(leaf.condition) : undefined),
-    true
-  );
-/**
- * `predicate` over a produced row whose fields' nullness the write states
- * (`nulls`: field to whether its value is null), each null test of such a
- * field replaced by its outcome: the values a write sets fold into its
- * judgement, so an arm on a key it leaves null does not reach the statement.
- * Only the row's own columns: a relation reads other rows, and is kept as it
- * is.
- */
-export const foldKnownNulls = (
-  predicate: PreparedPredicate,
-  nulls: ReadonlyMap<string, boolean>
-): PreparedPredicate =>
-  fold(
-    predicate,
-    (leaf) => {
-      if (leaf.kind !== "operation") return;
-      const { target, operand } = leaf;
-      return leaf.operator === "equals" &&
-        target.kind === "column" &&
-        target.path === undefined &&
-        operand?.kind === "value" &&
-        operand.value === null &&
-        target.scalar.physical.scalar["~"].state.type !== "json"
-        ? nulls.get(target.scalar.field)
-        : undefined;
-    },
-    false
-  );
-/** Every parameter and condition a layer's predicate reads. */
-export function callReads(
-  predicate: PreparedPredicate,
-  parameters: Map<Parameter, boolean>,
-  conditions: Set<Condition>
-): void {
-  switch (predicate.kind) {
-    case "condition":
-      conditions.add(predicate.condition);
-      return;
-    case "and":
-    case "or":
-      for (const member of predicate.predicates)
-        callReads(member, parameters, conditions);
-      return;
-    case "not":
-      callReads(predicate.predicate, parameters, conditions);
-      return;
-    case "relation":
-      if (predicate.link) callReads(predicate.link, parameters, conditions);
-      if (predicate.predicate)
-        callReads(predicate.predicate, parameters, conditions);
-      return;
-    case "exists":
-      if (predicate.predicate)
-        callReads(predicate.predicate, parameters, conditions);
-      return;
-    case "operation":
-      for (const operand of [predicate.operand, ...(predicate.operands ?? [])])
-        if (operand?.kind === "parameter")
-          parameters.set(operand.parameter, operand.spread === true);
-      if (
-        predicate.value instanceof Parameter &&
-        !parameters.has(predicate.value)
-      )
-        parameters.set(predicate.value, false);
-      return;
-    default:
-      return;
-  }
 }
 /**
  * An `OR` whose every arm is one value equality on the same plain column, as
@@ -895,7 +739,7 @@ function sameRange(left: RelationPredicate, right: RelationPredicate): boolean {
  * arm stated its own: an acceptance rule's three ancestor walks per
  * document level become two.
  */
-function mergeQuantifiers(
+export function mergeQuantifiers(
   kind: "and" | "or",
   arms: readonly PreparedPredicate[]
 ): PreparedPredicate[] | undefined {
@@ -1068,7 +912,7 @@ export function own(source: Record<string, unknown>, key: string): unknown {
 export const CURSOR_ORDER_REFUSAL =
   "Cursor pagination supports direct scalar sort directions only; relation and vector-distance orderBy are not supported.";
 /** A disjunction of nothing is FALSE; it is the one predicate that says so. */
-const VACUOUS_FALSE: PreparedPredicate = freeze({
+export const VACUOUS_FALSE: PreparedPredicate = freeze({
   kind: "always",
   value: false,
 });
@@ -1778,27 +1622,6 @@ function withoutLinkKey(map: Input): Input {
   return rest;
 }
 
-/**
- * `node`'s predicate with its conditions folded as `key` says (one digit per
- * condition), and the parameters it still reads: once per key and node.
- */
-function foldedLayer(
-  node: Extract<PreparedPredicate, { kind: "layer" }>,
-  key: string
-): Folded {
-  const predicate =
-    node.conditions.length === 0
-      ? node.predicate
-      : foldConditions(
-          node.predicate,
-          (condition) => key[node.conditions.indexOf(condition)] === "1"
-        );
-  const parameters = new Map<Parameter, boolean>();
-  callReads(predicate, parameters, new Set());
-  const folded = { predicate, parameters: [...parameters] };
-  node.folded.set(key, folded);
-  return folded;
-}
 /** Generated boolean sets must not inherit a provider's linear expression depth. */
 export function balancedOr<T>(
   items: readonly T[],
@@ -1898,7 +1721,7 @@ export abstract class Queries {
     const scope = this.scope(model, purpose, judgement);
     return scope && !this.#drops(scope.predicate) ? scope : undefined;
   }
-  protected get values(): CallValues | undefined {
+  get values(): CallValues | undefined {
     return this.#call?.rows.values;
   }
   #instantOf: (() => Date) | undefined;
@@ -1906,35 +1729,8 @@ export abstract class Queries {
    * The call's one instant: a domain that reads it lowers for its call. Made
    * when first read, so a `Queries` whose domain reads no value makes none.
    */
-  protected get instant(): () => Date {
+  get instant(): () => Date {
     return (this.#instantOf ??= () => this.#call!.instant());
-  }
-  /**
-   * A layer's predicate for this call: its conditions folded, then R6 for
-   * the values it still reads; `undefined` where it drops.
-   */
-  protected resolve(
-    node: Extract<PreparedPredicate, { kind: "layer" }>
-  ): PreparedPredicate | undefined {
-    const values = this.values;
-    const { conditions } = node;
-    let key = "";
-    // biome-ignore lint/style/useForOf: no iterator on a per-statement path (E5.1, measured).
-    for (let index = 0; index < conditions.length; index++)
-      key += conditions[index]!.holds(values, this.instant) ? "1" : "0";
-    const folded = node.folded.get(key) ?? foldedLayer(node, key);
-    let dropped = false;
-    const { parameters } = folded;
-    // biome-ignore lint/style/useForOf: no iterator on a per-statement path (E5.1, measured).
-    for (let index = 0; index < parameters.length; index++) {
-      const [parameter, spread] = parameters[index]!;
-      const value = parameter.read(values, this.instant);
-      if (value !== undefined && (!spread || Array.isArray(value))) continue;
-      if (values?.required(parameter.control!, node.model))
-        return VACUOUS_FALSE;
-      dropped = true;
-    }
-    return dropped ? undefined : folded.predicate;
   }
   /**
    * The ONE provider continuation for a physical value of `type`, bound to
@@ -2413,7 +2209,7 @@ export abstract class Queries {
   /** Whether the call drops every layer `predicate` is made of (R6). */
   #drops(predicate: PreparedPredicate | undefined): boolean {
     if (predicate?.kind === "layer")
-      return this.resolve(predicate) === undefined;
+      return predicate.resolve(this) === undefined;
     return (
       predicate?.kind === "and" &&
       predicate.predicates.length > 0 &&
@@ -3734,7 +3530,7 @@ export abstract class Queries {
   #hidesRows(model: AnyModel, purpose: RowPurpose): boolean {
     const holds = (predicate: PreparedPredicate): boolean => {
       if (predicate.kind === "layer") {
-        const resolved = this.resolve(predicate);
+        const resolved = predicate.resolve(this);
         return resolved === undefined || holds(resolved);
       }
       if (predicate.kind === "and") return predicate.predicates.every(holds);

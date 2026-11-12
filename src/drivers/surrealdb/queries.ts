@@ -69,14 +69,14 @@ export class SurrealQueries extends Queries {
   resolved(
     node: Extract<PreparedPredicate, { kind: "layer" }>
   ): PreparedPredicate | undefined {
-    return this.resolve(node);
+    return node.resolve(this);
   }
 
   layer(
     node: Extract<PreparedPredicate, { kind: "layer" }>,
     lower: (resolved: PreparedPredicate) => Sql
   ): Sql | undefined {
-    const resolved = this.resolve(node);
+    const resolved = node.resolve(this);
     if (resolved === undefined) return undefined;
     const excluded = (this.excluded ??= []);
     excluded.push(node.layer);

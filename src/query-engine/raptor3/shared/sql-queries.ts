@@ -85,7 +85,6 @@ import {
   type FlagMember,
   type FlagPlan,
   firstRow,
-  foldKnownNulls,
   freeze,
   isAggregate,
   isParameterOperand,
@@ -1549,11 +1548,8 @@ export class SqlQueries extends Queries {
    */
   #lowerStated(predicate: PreparedPredicate, alias?: string): Sql | undefined {
     if (predicate.kind === "layer") {
-      let resolved = this.resolve(predicate);
+      const resolved = predicate.resolve(this, alias);
       if (resolved === undefined) return undefined;
-      const known = this.known;
-      if (known !== undefined && alias === known.alias)
-        resolved = foldKnownNulls(resolved, known.nulls);
       // A stack, made at the first layer this `Queries` lowers: what reads
       // it reads it while it lowers (the selectors' memo keys its content).
       const excluded = (this.excluded ??= []);

@@ -9,7 +9,6 @@
 
 import { ForbiddenError } from "@errors";
 import {
-  callReads,
   type DeclaredEvidence,
   type FieldGate,
   freeze,
@@ -24,7 +23,6 @@ import {
 import type {
   CallRows,
   CallScope,
-  Condition,
   LazyRelations,
   ModelVerbs,
   RowDomain,
@@ -40,6 +38,7 @@ import {
 import type { Operation } from "@query-engine/types";
 import type { AnyModel } from "@schema/model";
 import { evidence, gatedDocument, gateHolds } from "./gates";
+import { layerOf } from "./layers";
 import { producedSource, producedWhere } from "./produced";
 import { admitProjected } from "./projected";
 import { readsAny } from "./reads";
@@ -442,24 +441,6 @@ function verbInputs(verbs: ModelVerbs, judgement: RowJudgement): Input[] {
       ...(judgement.marks ? [verbs.delete] : []),
     ]),
   ];
-}
-
-/** `predicate` as `model`'s domain predicate of `layer`. */
-function layerOf(
-  layer: number,
-  model: string,
-  predicate: PreparedPredicate
-): PreparedPredicate {
-  const conditions = new Set<Condition>();
-  callReads(predicate, new Map(), conditions);
-  return freeze({
-    kind: "layer",
-    layer,
-    model,
-    predicate,
-    conditions: freeze([...conditions]),
-    folded: new Map(),
-  });
 }
 
 /**

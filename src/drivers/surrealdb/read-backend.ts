@@ -3471,17 +3471,14 @@ export class SurrealReadBackend implements ReadBackend {
           return sql.raw("");
         });
         if (!found) continue;
-        const left = inner.filter((_, at) => at !== position);
+        const left: PreparedPredicate = {
+          kind: "and",
+          predicates: inner.filter((_, at) => at !== position),
+        };
         const others = arms.filter((_, at) => at !== index);
-        const kept: PreparedPredicate[] = left.length
-          ? [
-              ...others,
-              {
-                ...arm,
-                predicate: { kind: "and", predicates: left },
-                folded: new Map(),
-              },
-            ]
+        // What is left of the layer is what it resolved to for this call, less the arm taken.
+        const kept: PreparedPredicate[] = left.predicates.length
+          ? [...others, { ...arm, predicate: left, resolve: () => left }]
           : others;
         return {
           ...(found as NonNullable<typeof found>),
