@@ -608,6 +608,8 @@ export class Store {
     const keys = this.operation.schema.keys(model);
     // Most rows have one key.
     if (keys.length === 1) return `${model["~"].names.ts}:${values[keys[0]!]}`;
+    // A row of a model without a key is no other row the call knows.
+    if (keys.length === 0) return `${model["~"].names.ts}#${++this.#made}`;
     return `${model["~"].names.ts}:${this.operation.schema
       .keys(model)
       .map((field) => String(values[field]))

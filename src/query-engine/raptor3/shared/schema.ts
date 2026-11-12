@@ -178,6 +178,8 @@ const createQueryViews = (): QueryViews => ({
   defaultProjections: new WeakMap(),
 });
 
+const NO_KEY: readonly string[] = [];
+
 export class EngineSchema {
   readonly index;
   readonly registry;
@@ -620,8 +622,9 @@ export class EngineSchema {
     }
     return admitted;
   }
+  /** The fields of a model's row key: none where the model has no key. */
   keys(model: AnyModel): readonly string[] {
-    return getModelKeyCatalog(model).rowKey!.fields;
+    return getModelKeyCatalog(model).rowKey?.fields ?? NO_KEY;
   }
   identity(model: AnyModel, row: Input): Input {
     const identity: Input = {};
