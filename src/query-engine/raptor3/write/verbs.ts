@@ -293,7 +293,7 @@ export function verbs(store: Store) {
           { meta: { operation: by.verb, conflictsWith: verb } }
         );
     }
-    store.update(row, takes, undefined, edge);
+    store.update(row, takes, undefined, edge, false, parent);
   };
   /** The one link a relation that reaches one row holds is every link of the row that holds it. */
   const leave = (parent: Row, edge: Membership, row: Row) =>

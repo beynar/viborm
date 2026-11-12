@@ -899,10 +899,21 @@ export class Store {
     for (const [field, value] of Object.entries(row))
       if (value instanceof InsertValue) computed[field] = value;
     this.#computes.set(row, computed);
+    const scalars = model["~"].state.scalars;
     const decided = [
-      ...this.operation.schema
-        .keys(model)
-        .filter((field) => row[field] === undefined),
+      ...new Set([
+        ...this.operation.schema
+          .keys(model)
+          .filter((field) => row[field] === undefined),
+        // A value the database counts for the row, where the call leaves it out.
+        ...this.operation.schema
+          .storedFields(model)
+          .filter(
+            (field) =>
+              row[field] === undefined &&
+              scalars[field]?.["~"].state.autoGenerate?.kind === "increment"
+          ),
+      ]),
       ...Object.keys(computed),
     ];
     for (const field of decided)
@@ -1018,14 +1029,16 @@ export class Store {
   }
   /**
    * A row takes `set`: `writes` says what the caller wrote of it, `joined` the
-   * relation it is made a member of, or leaves, by this write.
+   * relation it is made a member of, or leaves, by this write, and `of` the
+   * row it is made a member of.
    */
   update(
     row: Row,
     set: Input,
     writes?: readonly string[],
     joined?: Membership,
-    removes = false
+    removes = false,
+    of?: Row
   ): void {
     if (Object.keys(set).length === 0) return;
     const meta = this.#meta.get(row)!;
@@ -1042,10 +1055,13 @@ export class Store {
           : readUpdate(value);
       meta.wrote.add(field);
       // What the database computes of a row is its to say; so is what a row written after it decides. A row the call creates is written first as it stood.
+      const made = meta.at ?? Number.POSITIVE_INFINITY;
       const later =
-        update.kind === "value" &&
-        update.value instanceof Pending &&
-        update.value.at > (meta.at ?? Number.POSITIVE_INFINITY);
+        (update.kind === "value" &&
+          update.value instanceof Pending &&
+          update.value.at > made) ||
+        // So is what it holds of a row the call creates after it: that row is not there when this one is inserted.
+        (of !== undefined && (this.#meta.get(of)?.at ?? -1) > made);
       if (update.kind !== "value" || later) {
         const born = this.#computes.get(row);
         const stood = row[field];
