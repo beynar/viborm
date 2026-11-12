@@ -131,6 +131,9 @@ type Entry = (
   | {
       readonly kind: "read";
       readonly model: AnyModel;
+      readonly rows: readonly Row[];
+      /** Of one row, read as this says: the statement that writes the row may answer it. */
+      readonly projection?: PreparedProjection;
       readonly queries: () => Query[];
     }
 ) & { take?(sent: Sent[], queries?: Query[]): void };
@@ -464,10 +467,12 @@ export class Store {
   /**
    * A question that names one row by values no other row has, of a row the
    * call knows by them: answered by what the call knows, where that says.
+   * Where it does not say of a row the call wrote, only the database can,
+   * once that is written: `true`.
    */
-  #recalled(question: Question): Row[] | undefined {
+  #recalled(question: Question): Row[] | boolean {
     const pins = this.writer.selector(question).uniqueValues;
-    if (!(question.unique && pins)) return undefined;
+    if (!(question.unique && pins)) return false;
     for (const row of this.#known.values()) {
       if (
         this.#meta.get(row)!.model !== question.model ||
@@ -478,10 +483,10 @@ export class Store {
       )
         continue;
       const answers = this.#holds(row, question, undefined);
-      if (answers === undefined) return undefined;
+      if (answers === undefined) return this.#changed(row);
       return answers ? [row] : [];
     }
-    return undefined;
+    return false;
   }
   #changed(row: Row): boolean {
     const meta = this.#meta.get(row)!;
@@ -547,9 +552,9 @@ export class Store {
     const answer =
       fresh && !late ? { question, rows: [] } : this.#answers.get(id);
     if (!answer) {
-      const known = late
-        ? undefined
-        : (this.#recalled(question) ?? this.#presume(id, question));
+      const recalled = !late && this.#recalled(question);
+      if (recalled === true) return this.#rows(question, true);
+      const known = recalled || (!late && this.#presume(id, question));
       if (known) return known;
       // Asked of the row as it stands now, whatever the call writes of it next.
       this.#missed.set(id, {
@@ -753,8 +758,29 @@ export class Store {
       this.operation.scope?.rows.tombstones?.has(model["~"].names.ts!)
     )
       outside();
-    this.writable(question);
     const later: Later = {};
+    // Where no statement both writes rows and answers with them so, they are read, then written by their keys.
+    if (
+      projection &&
+      !this.operation.answersInStatement(
+        model,
+        projection,
+        set ? "update" : "delete",
+        set
+      )
+    ) {
+      const rows = this.rows(question);
+      const take = (read: Input[]) => {
+        later.sent = { rows: read, rowCount: read.length };
+      };
+      if (!set) this.series(model, rows, projection, "updateMany", take);
+      for (const row of rows)
+        if (set) this.update(row, set, question.writes);
+        else this.delete(row);
+      if (set) this.series(model, rows, projection, "updateMany", take);
+      return later;
+    }
+    this.writable(question);
     this.#note({
       kind: "all",
       question,
@@ -806,15 +832,18 @@ export class Store {
   read(
     row: Row,
     projection: PreparedProjection,
-    take: (rows: Input[], query: Query) => void
+    take: (rows: Input[]) => void
   ): void {
     const { model } = this.#meta.get(row)!;
-    const one = (key: Input) => this.writer.one(model, key, projection);
     this.#note({
       kind: "read",
       model,
-      queries: () => [one(this.#said(this.#key(row)))],
-      take: ([sent], queries) => take(sent!.rows, queries?.[0] ?? one({})),
+      rows: [row],
+      projection,
+      queries: () => [
+        this.writer.one(model, this.#said(this.#key(row)), projection),
+      ],
+      take: ([sent]) => take(sent!.rows),
     });
   }
   /** Rows read by their keys as `projection` says, in their order, where the call's writes stand when this is asked. */
@@ -828,6 +857,7 @@ export class Store {
     this.#note({
       kind: "read",
       model,
+      rows,
       queries: () =>
         this.operation.seriesQueries(
           projection,
@@ -856,16 +886,98 @@ export class Store {
     const last = to === log.length;
     /** Where this unit keeps the keys the database decides in it: it cannot hear them and go on. */
     let scratch: { id: string; model: AnyModel } | undefined;
+    const span = log.slice(this.#sent, to);
+    /** The rows of which another statement needs what the database decides. */
+    const needed = new Set<Row>();
+    const needs = (...values: (Input | undefined)[]) => {
+      for (const each of values)
+        for (const value of Object.values(each ?? {}))
+          if (value instanceof Pending) needed.add(value.row);
+    };
+    let writes = 0;
+    for (const entry of span) {
+      if (!(entry.kind === "none" || entry.kind === "read")) writes++;
+      if (entry.kind === "insert")
+        needs(
+          Object.fromEntries(
+            Object.entries(entry.row).filter(
+              ([, value]) => (value as Pending)?.row !== entry.row
+            )
+          )
+        );
+      else if (entry.kind === "update") needs(entry.key, entry.set);
+      else if (entry.kind === "delete") needs(entry.key);
+      else if (entry.kind === "link" || entry.kind === "unlink")
+        needs(entry.keys[0], entry.keys[1], ...(entry.keys[2] ?? []));
+      else if (entry.kind === "read")
+        needs(...entry.rows.map((row) => this.#key(row)));
+    }
     // A unit after the first asks again of the rows the call has not written.
     const passed = (row: Row | undefined) =>
       this.#sent > 0 && row && this.#changed(row);
+    /** The writes that say themselves whether the row they were taken to find is there. */
+    const confirms = new Map<Entry, Question>();
     for (const [id, { question, row, at }] of this.#presumed) {
       if (at > to || (holds ? this.#asserted.has(id) : passed(row))) continue;
       this.#asserted.add(id);
-      steps.push({
-        write: () => [writer.asks(question, undefined, "presumed")],
-      });
+      // The first write of a row taken to be there says whether it is,
+      // where nothing else is written if it is not.
+      const first = span.find(
+        (entry) =>
+          (entry.kind === "update" || entry.kind === "delete") &&
+          entry.row === row
+      );
+      if (first && writer.counts && (holds || writes === 1))
+        confirms.set(first, question);
+      else
+        steps.push({
+          write: () => [writer.asks(question, undefined, "presumed")],
+        });
     }
+    /**
+     * The question a write of rows by their keys is written under: rows the
+     * call found were found members; a row it took to be there is still to
+     * be one.
+     */
+    const under = (entry: Extract<Entry, { kind: "update" | "delete" }>) =>
+      confirms.has(entry)
+        ? entry.question
+        : {
+            ...entry.question,
+            member: undefined,
+            through: entry.question.member?.edge ?? entry.question.through,
+          };
+    /** Refuses where a write that says whether its row is there found none. */
+    const confirmed = (entry: Entry, sent: Sent) => {
+      const question = confirms.get(entry);
+      if (question && sent.rowCount === 0 && sent.rows.length === 0)
+        throw createFailureError(
+          writer.absent(question),
+          question.model["~"].names.ts!,
+          this.operation.operation
+        );
+    };
+    /** The read of one row that follows `at`, where the statement that writes the row may answer it. */
+    const answered = (
+      at: number,
+      row: Row,
+      effect: "insert" | "update" | "delete",
+      written?: Input
+    ) => {
+      const next = log[at];
+      return at < to &&
+        next?.kind === "read" &&
+        next.projection &&
+        next.rows[0] === row &&
+        this.operation.answersInStatement(
+          this.#meta.get(row)!.model,
+          next.projection,
+          effect,
+          written
+        )
+        ? next
+        : undefined;
+    };
     if (!holds)
       for (const [answer, at] of this.#used)
         for (const values of at > to ? [] : answer.rows) {
@@ -892,8 +1004,16 @@ export class Store {
       };
       const take = (sent: Sent[], queries?: Query[]) => {
         this.#heard.set(place, sent);
+        confirmed(entry, sent[0]!);
         entry.take?.(sent, queries);
       };
+      /** Tells the read a write answered what the write said. */
+      const told =
+        (read: Entry | undefined, from: number) => (sent: Sent[]) => {
+          this.#heard.set(from, sent);
+          confirmed(entry, sent[0]!);
+          read?.take?.(sent);
+        };
       if (entry.kind === "insert") {
         const { model } = this.#meta.get(entry.row)!;
         const { decided } = entry;
@@ -906,36 +1026,50 @@ export class Store {
             )
           );
         const rows = [entry.row];
-        // A row whose key the database decides is written alone: its statement says the key.
+        // A row of which the database decides what another statement needs is written alone: its statement says it.
+        const alone = (row: Row, keys: readonly string[]) =>
+          keys.length > 0 && needed.has(row);
         beside<Extract<Entry, { kind: "insert" }>>((next) => {
           const fits =
             next.kind === "insert" &&
-            decided.length + next.decided.length === 0 &&
+            !(alone(entry.row, decided) || alone(next.row, next.decided)) &&
             this.#meta.get(next.row)!.model === model &&
             next.relation === entry.relation &&
             writer.beside(model, rows.map(settled), settled(next.row));
           if (fits) rows.push(next.row);
           return fits;
         });
-        if (decided.length > 0 && last && !holds)
+        const hears = alone(entry.row, decided);
+        const read =
+          rows.length === 1 && !hears
+            ? answered(at + 1, entry.row, "insert")
+            : undefined;
+        if (read) at++;
+        if (hears && last && !holds)
           scratch ??= { id: crypto.randomUUID(), model };
         steps.push({
           write: async () => {
-            const insert = (keyed: boolean) =>
+            const insert = (returns?: PreparedProjection) =>
               writer.insert(
                 model,
                 rows.map((row) => this.#said(settled(row))),
                 entry.relation,
-                keyed
+                returns
               );
             const kept =
               scratch &&
-              writer.kept(scratch.id, `${place}`, decided, await insert(false));
-            if (!kept) return [await insert(decided.length > 0)];
+              hears &&
+              writer.kept(scratch.id, `${place}`, decided, await insert());
+            if (!kept)
+              return [
+                await insert(
+                  read?.projection ?? (hears ? writer.key(model) : undefined)
+                ),
+              ];
             entry.row[decided[0]!] = kept.value;
             return kept.statements;
           },
-          take,
+          take: read ? told(read, place + 1) : hears ? take : undefined,
         });
       } else if (entry.kind === "update") {
         const { model } = entry.question;
@@ -945,31 +1079,42 @@ export class Store {
             next.kind === "update" &&
             next.set === entry.set &&
             next.question.model === model &&
-            hears.length === 0
+            hears.length === 0 &&
+            !(confirms.has(entry) || confirms.has(next))
         );
+        const read =
+          run.length === 1 && hears.length === 0
+            ? answered(at + 1, entry.row, "update", entry.set)
+            : undefined;
+        if (read) at++;
         steps.push({
           write: async () => [
             await writer.update(
-              entry.question,
+              under(entry),
               this.#said(entry.set),
               run.map((next) => this.#said(next.key)),
-              hears.length > 0 ? writer.key(model) : undefined
+              read?.projection ??
+                (hears.length > 0 ? writer.key(model) : undefined)
             ),
           ],
-          take,
+          take: read ? told(read, place + 1) : take,
         });
       } else if (entry.kind === "delete") {
         const { model } = entry.question;
         const run = beside<Extract<Entry, { kind: "delete" }>>(
-          (next) => next.kind === "delete" && next.question.model === model
+          (next) =>
+            next.kind === "delete" &&
+            next.question.model === model &&
+            !(confirms.has(entry) || confirms.has(next))
         );
         steps.push({
           write: () => [
             writer.remove(
-              entry.question,
+              under(entry),
               run.map((next) => this.#said(next.key))
             ),
           ],
+          take,
         });
       } else if (entry.kind === "all")
         steps.push({
@@ -1015,6 +1160,29 @@ export class Store {
           write: () => [writer.none(entry.question, entry.stops)],
         });
       else {
+        // A row read as it goes is answered by the statement that removes it.
+        const removal = log[at + 1];
+        if (
+          at + 1 < to &&
+          removal?.kind === "delete" &&
+          answered(at, removal.row, "delete")
+        ) {
+          at++;
+          steps.push({
+            write: () => [
+              writer.remove(
+                under(removal),
+                [this.#said(removal.key)],
+                entry.projection
+              ),
+            ],
+            take: (sent) => {
+              confirmed(removal, sent[0]!);
+              take(sent);
+            },
+          });
+          continue;
+        }
         let queries: Query[];
         steps.push({
           write: () => {

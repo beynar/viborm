@@ -3,9 +3,12 @@
  * database itself and answered at once. No transport, no provider, no row
  * scope, no word about what is known when.
  */
-import { NestedWriteError, UnsupportedOperationError } from "@errors";
+import {
+  NestedWriteError,
+  NotFoundError,
+  UnsupportedOperationError,
+} from "@errors";
 import type { AnyModel } from "@schema/model";
-import type { Query } from "../shared/query";
 import { parseStamped } from "../shared/row-scope";
 import type { Arguments, Input } from "../shared/schema";
 import type { Membership } from "../shared/storage";
@@ -475,10 +478,12 @@ export function verbs(store: Store) {
   const answering = (model: AnyModel, row: Row, args: Arguments) => {
     const projection = q.prepareProjection(model, args);
     let value: unknown;
-    store.read(row, projection, (rows: Input[], query: Query) => {
-      q.assertExpectedRows(query, rows.length);
+    store.read(row, projection, (rows) => {
+      // A row the call wrote and cannot read is no row of its own.
+      if (rows.length === 0)
+        throw new NotFoundError(model["~"].names.ts!, operation.operation);
       [value] = q.decodeResult(rows, operation.operation, (read) =>
-        q.decodeProjection(query.shape, read)
+        q.decodeProjection(projection.shape, read)
       );
     });
     return () => value;

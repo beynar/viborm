@@ -128,20 +128,11 @@ export class Writer {
       }
     );
   }
-  /**
-   * The rows a write names, as its statement says them: among the members of
-   * the question's row, where it has one. Rows the call knows by their `keys`
-   * were found members already.
-   */
-  #among(
-    question: Question,
-    selector: PreparedSelector,
-    alias: string,
-    keys?: unknown
-  ) {
+  /** The rows a write names, as its statement says them: among the members of the question's row, where it has one. */
+  #among(question: Question, selector: PreparedSelector, alias: string) {
     const named = this.#q.lowerSelector(selector, alias);
     const { member } = question;
-    if (!member || keys) return named;
+    if (!member) return named;
     const members = this.#q.memberWhere(member.edge, member.of, alias);
     return named
       ? this.#operation.driver.adapter.operators.and(members, named)
@@ -149,7 +140,7 @@ export class Writer {
   }
   #limited(question: Question, selector: PreparedSelector, keys: unknown) {
     const { model, member } = question;
-    return member && !keys
+    return member
       ? { where: this.#among(question, selector, model["~"].names.sql!) }
       : this.#q.lowerMutationLimit(
           model,
@@ -270,7 +261,7 @@ export class Writer {
     model: AnyModel,
     values: Input[],
     relation?: string,
-    keyed = false
+    returns?: PreparedProjection
   ): Promise<Statement> {
     const q = this.#q;
     const { capabilities, mutations } = this.#operation.driver.adapter;
@@ -294,12 +285,10 @@ export class Writer {
         : mutations.insertDefault(q.table(model));
     return {
       model,
-      // It says the key the database decides, where the provider returns what it wrote.
+      // It answers with the row it wrote, where the provider returns what it wrote.
       sql:
-        keyed && capabilities.supportsReturning
-          ? sql`${insert} ${mutations.returning(
-              sql.join(q.lowerProjection(this.#projection(model, false)), ", ")
-            )}`
+        returns && capabilities.supportsReturning
+          ? this.#operation.answering(model, insert, returns)
           : insert,
       ...(select && {
         probe: select,
@@ -338,16 +327,18 @@ export class Writer {
         q.domain &&
         q.producedWhere(
           model,
-          (alias) => this.#among(question, selector, alias, keys),
+          (alias) => this.#among(question, selector, alias),
           set!,
           q.domain.produced(model, judged, Object.keys(set!)),
           q.domain.cycles(model, judged),
           limit
         );
+      const edge = question.member?.edge ?? question.through;
       if (produced)
-        stops = question.member
-          ? nestedRefusal(question.verb!, question.member.edge.name)
-          : this.#operation.refusalOf(model, judged);
+        stops =
+          edge && question.verb
+            ? nestedRefusal(question.verb, edge.name)
+            : this.#operation.refusalOf(model, judged);
       const named = produced
         ? { where: produced, suffix: undefined }
         : this.#limited(question, selector, keys);
@@ -508,6 +499,10 @@ export class Writer {
         )
       ),
     };
+  }
+  /** Whether a write of rows by their keys says how many of them it found. */
+  get counts(): boolean {
+    return this.#operation.driver.dialect !== "mysql";
   }
   /** What opens and closes the place a unit keeps the keys the database decides in it. */
   scratch(
