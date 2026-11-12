@@ -161,6 +161,15 @@ describe("G2.9 generated-result progress [commands]", () => {
           operation: "create",
           scalarType: "int",
           reason: "the value is not a canonical integer",
+          // The statement was acknowledged before its answer was read: the
+          // failure says the row stands (1.14.0 said nothing of it).
+          recordSeriesProgress: {
+            atomicity: "segment",
+            phase: "result",
+            committedSegments: 1,
+            completedMembers: 0,
+            committedWriteMembers: 1,
+          },
         },
         diagnostic
       );

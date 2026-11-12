@@ -1955,6 +1955,12 @@ export class Store {
       if (rows)
         for (const row of rows) needed.set(row, (needed.get(row) ?? 0) + 1);
     };
+    /** Whether a statement other than the read of a row needs what the database decides of it: its read needs it too where its key is the database's to say. */
+    const wanted = (row: Row) =>
+      (needed.get(row) ?? 0) >
+      (Object.values(this.#key(row)).some((value) => value instanceof Pending)
+        ? 1
+        : 0);
     let writes = 0;
     // What is noted after this unit needs what the database decides in it too.
     for (let at = this.#sent; at < log.length; at++) {
@@ -2360,7 +2366,7 @@ export class Store {
           rows.push((log[end++] as typeof entry).row);
         let read = mine?.read ?? answered(end, rows, "insert");
         // Another statement needs what the database decides of the row: its statement says it beside the answer, where it can.
-        const both = Boolean(mine) && (needed.get(entry.row) ?? 0) > 1;
+        const both = Boolean(mine) && wanted(entry.row);
         if (
           mine &&
           both &&
@@ -2369,8 +2375,7 @@ export class Store {
           told?.delete(mine.read);
           read = undefined;
         } else if (mine) rows = [entry.row];
-        else if (read && !rows.some((row) => (needed.get(row) ?? 0) > 1))
-          at = end;
+        else if (read && !rows.some(wanted)) at = end;
         else {
           read = undefined;
           rows = [entry.row];
