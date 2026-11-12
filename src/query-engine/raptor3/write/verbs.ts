@@ -641,16 +641,21 @@ export function verbs(store: Store) {
       );
     },
     delete(parent, edge, where) {
-      store.delete(
-        store.one({
-          model: edge.target,
-          where,
-          unique: true,
-          member: { edge, of: parent },
-          intent: "delete",
-          verb: "delete",
-        })
-      );
+      const row = store.one({
+        model: edge.target,
+        where,
+        unique: true,
+        member: { edge, of: parent },
+        intent: "delete",
+        verb: "delete",
+      });
+      // The link to the row it is deleted through goes first, where the database would not take it with the row: the links other rows hold are what may still refuse.
+      const kept =
+        edge.kind === "junction" &&
+        (edge.targetSide.onDelete ?? "cascade") !== "cascade";
+      if (kept && !store.writer.marks(edge.target))
+        store.unlink(edge, parent, row);
+      store.delete(row);
     },
     updateMany(parent, edge, { where, data }) {
       const values = paired(data as Input, stated(data as Input));
@@ -675,7 +680,25 @@ export function verbs(store: Store) {
         const rows = members(parent, edge, where as Input, ask);
         const outer = several;
         several = rows.length;
-        for (const row of rows) write(edge.target, row, values);
+        for (const [at, row] of rows.entries())
+          write(
+            edge.target,
+            row,
+            // Each row is written of its own copy of what the caller wrote: what a default fills is that row's own.
+            at === 0
+              ? values
+              : store.copy(
+                  `${edge.name} ${Object.values(schema.identity(edge.target, row)).join()}`,
+                  () =>
+                    paired(
+                      parseStamped(
+                        operation.scope?.rows.stamps ?? new Map(),
+                        () => schema.update(edge.target, stated(values), true)
+                      ),
+                      stated(values)
+                    )
+                )
+          );
         several = outer;
       }
     },

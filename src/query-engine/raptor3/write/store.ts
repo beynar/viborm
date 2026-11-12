@@ -1672,13 +1672,16 @@ export class Store {
       this.#asserted.add(id);
       // The first write of a row taken to be there says whether it is,
       // where nothing else is written if it is not.
+      // A link of the row the call takes away before it writes the row is no longer there to say the row was a member.
       const first = span.find(
         (entry) =>
-          (entry.kind === "update" || entry.kind === "delete") &&
-          entry.row === row
+          ((entry.kind === "update" || entry.kind === "delete") &&
+            entry.row === row) ||
+          (entry.kind === "unlink" && entry.to === row)
       );
       if (
         first &&
+        first.kind !== "unlink" &&
         writer.counts(first.kind) &&
         (holds || !(this.#handed || writes > 1))
       )
