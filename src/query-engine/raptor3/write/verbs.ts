@@ -190,6 +190,25 @@ export function verbs(store: Store) {
   /** What the row that holds a relation's key takes of the row it reaches. */
   const reaching = (edge: Membership, row: Row): Input =>
     referencing(edge, row, "source");
+  /**
+   * What a row the call found takes when its membership is written: that,
+   * and what every update of its model takes, admitted once for the call.
+   */
+  const moved = (row: Row, edge: Membership, takes: Input): Input => {
+    if (fresh.has(row)) return takes;
+    const model = edge.target;
+    return {
+      ...store.values(
+        model,
+        "update",
+        store.copy(`moved ${model["~"].names.ts}`, () =>
+          schema.update(model, {}, true)
+        ),
+        takes
+      ),
+      ...takes,
+    };
+  };
   /** What empties a relation on the row that holds it. */
   const cleared = (edge: Membership): Input =>
     Object.fromEntries(
@@ -293,13 +312,13 @@ export function verbs(store: Store) {
           { meta: { operation: by.verb, conflictsWith: verb } }
         );
     }
-    store.update(row, takes, undefined, edge, false, parent);
+    store.update(row, moved(row, edge, takes), undefined, edge, false, parent);
   };
   /** The one link a relation that reaches one row holds is every link of the row that holds it. */
   const leave = (parent: Row, edge: Membership, row: Row) =>
     edge.kind === "junction"
       ? store.unlink(edge, parent, edge.many ? row : undefined)
-      : store.update(row, cleared(edge), undefined, edge);
+      : store.update(row, moved(row, edge, cleared(edge)), undefined, edge);
   const make = (
     model: AnyModel,
     data: Input,
@@ -750,12 +769,12 @@ export function verbs(store: Store) {
           edge.name
         );
         if (edge.kind === "junction") store.link(edge, parent, found);
-      } else
-        write(
-          edge.target,
-          store.one({ ...named, member: { edge, of: parent } }),
-          update as Input
-        );
+      } else {
+        const row = store.one({ ...named, member: { edge, of: parent } });
+        // An update that says nothing writes nothing: the row is only asked to be there.
+        if (Object.keys(stated(update as Input)).length > 0)
+          write(edge.target, row, update as Input);
+      }
     },
     connectOrCreate(parent, edge, { where, create, $through }) {
       const asked: Question = {
