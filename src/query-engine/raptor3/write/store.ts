@@ -858,6 +858,7 @@ export class Store {
       kind: "read",
       model,
       rows,
+      projection,
       queries: () =>
         this.operation.seriesQueries(
           projection,
@@ -887,12 +888,14 @@ export class Store {
     /** Where this unit keeps the keys the database decides in it: it cannot hear them and go on. */
     let scratch: { id: string; model: AnyModel } | undefined;
     const span = log.slice(this.#sent, to);
-    /** The rows of which another statement needs what the database decides. */
-    const needed = new Set<Row>();
+    /** The rows of which other statements need what the database decides, and how many do. */
+    const needed = new Map<Row, number>();
     const needs = (...values: (Input | undefined)[]) => {
+      const rows = new Set<Row>();
       for (const each of values)
         for (const value of Object.values(each ?? {}))
-          if (value instanceof Pending) needed.add(value.row);
+          if (value instanceof Pending) rows.add(value.row);
+      for (const row of rows) needed.set(row, (needed.get(row) ?? 0) + 1);
     };
     let writes = 0;
     for (const entry of span) {
@@ -954,10 +957,10 @@ export class Store {
           this.operation.operation
         );
     };
-    /** The read of one row that follows `at`, where the statement that writes the row may answer it. */
+    /** The read of rows that follows `at`, where the statement that writes those rows may answer it. */
     const answered = (
       at: number,
-      row: Row,
+      rows: readonly Row[],
       effect: "insert" | "update" | "delete",
       written?: Input
     ) => {
@@ -965,9 +968,10 @@ export class Store {
       return at < to &&
         next?.kind === "read" &&
         next.projection &&
-        next.rows[0] === row &&
+        next.rows.length === rows.length &&
+        next.rows.every((row, place) => row === rows[place]) &&
         this.operation.answersInStatement(
-          this.#meta.get(row)!.model,
+          next.model,
           next.projection,
           effect,
           written
@@ -1022,26 +1026,31 @@ export class Store {
                 !(value instanceof Pending && value.row === row)
             )
           );
-        const rows = [entry.row];
-        // A row of which the database decides what another statement needs is written alone: its statement says it.
-        const alone = (row: Row, keys: readonly string[]) =>
-          keys.length > 0 && needed.has(row);
-        beside<Extract<Entry, { kind: "insert" }>>((next) => {
-          const fits =
-            next.kind === "insert" &&
-            !(alone(entry.row, decided) || alone(next.row, next.decided)) &&
-            this.#meta.get(next.row)!.model === model &&
-            next.relation === entry.relation &&
-            writer.beside(model, rows.map(settled), settled(next.row));
-          if (fits) rows.push(next.row);
-          return fits;
-        });
-        const hears = alone(entry.row, decided);
-        const read =
-          rows.length === 1 && !hears
-            ? answered(at + 1, entry.row, "insert")
-            : undefined;
-        if (read) at++;
+        const fits = (rows: Row[], next: Entry | undefined) =>
+          next?.kind === "insert" &&
+          this.#meta.get(next.row)!.model === model &&
+          next.relation === entry.relation &&
+          writer.beside(model, rows.map(settled), settled(next.row));
+        let rows = [entry.row];
+        // The rows written side by side that the read after them asks for, and nothing else of what the database decides of them: their statement answers it.
+        let end = at + 1;
+        while (end < to && fits(rows, log[end]))
+          rows.push((log[end++] as typeof entry).row);
+        let read = answered(end, rows, "insert");
+        if (read && !rows.some((row) => (needed.get(row) ?? 0) > 1)) at = end;
+        else {
+          read = undefined;
+          rows = [entry.row];
+          // A row of which the database decides what another statement needs is written alone: its statement says it.
+          beside<typeof entry>((next) => {
+            const joins =
+              fits(rows, next) &&
+              !(needed.has(entry.row) || needed.has(next.row));
+            if (joins) rows.push(next.row);
+            return joins;
+          });
+        }
+        const hears = !read && needed.has(entry.row);
         if (hears && last && !holds)
           scratch ??= { id: crypto.randomUUID(), model };
         steps.push({
@@ -1066,7 +1075,7 @@ export class Store {
             entry.row[decided[0]!] = kept.value;
             return kept.statements;
           },
-          take: read ? told(read, place + 1) : hears ? take : undefined,
+          take: read ? told(read, at) : hears ? take : undefined,
         });
       } else if (entry.kind === "update") {
         const { model } = entry.question;
@@ -1081,7 +1090,7 @@ export class Store {
         );
         const read =
           run.length === 1 && hears.length === 0
-            ? answered(at + 1, entry.row, "update", entry.set)
+            ? answered(at + 1, [entry.row], "update", entry.set)
             : undefined;
         if (read) at++;
         steps.push({
@@ -1162,7 +1171,7 @@ export class Store {
         if (
           at + 1 < to &&
           removal?.kind === "delete" &&
-          answered(at, removal.row, "delete")
+          answered(at, [removal.row], "delete")
         ) {
           at++;
           steps.push({
