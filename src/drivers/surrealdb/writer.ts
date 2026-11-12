@@ -22,10 +22,7 @@ import {
 } from "@query-engine/raptor3/shared/query";
 import type { RowJudgement } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
-import {
-  nestedRefusal,
-  SqlOperationContext,
-} from "@query-engine/raptor3/shared/sql-operation-context";
+import { SqlOperationContext } from "@query-engine/raptor3/shared/sql-operation-context";
 import {
   linkJudgement,
   linkMembers,
@@ -628,9 +625,12 @@ export class SurrealWriter extends Writer {
   ): PreparedGuardFailure | undefined {
     if (!(judgement && this.#q.domain)) return undefined;
     const edge = question.member?.edge ?? question.through;
-    return edge && question.verb
-      ? nestedRefusal(question.verb, edge.name)
-      : this.operation.refusalOf(question.model, judgement);
+    return this.#q.domain.refusal(
+      this.operation.operation,
+      question.model,
+      judgement,
+      edge && question.verb ? [question.verb, edge.name] : undefined
+    );
   }
 
   override async insert(
@@ -679,10 +679,12 @@ export class SurrealWriter extends Writer {
       model,
       sql: statement,
       ...(judged && {
-        stops:
-          relation === undefined
-            ? this.operation.refusalOf(model)
-            : nestedRefusal("create", relation),
+        stops: this.#q.domain!.refusal(
+          this.operation.operation,
+          model,
+          undefined,
+          relation === undefined ? undefined : ["create", relation]
+        ),
       }),
     };
   }

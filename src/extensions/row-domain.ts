@@ -35,7 +35,7 @@ import {
   type Input,
   memo,
 } from "@query-engine/raptor3/shared/schema";
-import type { Operation } from "@query-engine/types";
+import type { Operation, PreparedGuardFailure } from "@query-engine/types";
 import type { AnyModel } from "@schema/model";
 import { evidence, gatedDocument, gateHolds } from "./gates";
 import { layerOf } from "./layers";
@@ -315,6 +315,47 @@ export class PreparedDomain {
         : queries.andSelectors(model, parts);
     });
     return prepared;
+  }
+  /**
+   * What a write of `operation` says when the row it would leave is refused:
+   * `nested`, the verb and the relation it is written through.
+   */
+  refusal(
+    operation: string,
+    model: AnyModel,
+    judgement?: RowJudgement,
+    nested?: readonly [verb: string, relation: string]
+  ): PreparedGuardFailure {
+    if (nested)
+      return {
+        kind: "nestedWrite",
+        relation: nested[1],
+        message: `Cannot ${nested[0]} relation '${nested[1]}': the record it writes is not permitted.`,
+        raceable: false,
+      };
+    const forbidden: PreparedGuardFailure = {
+      kind: "forbidden",
+      message: `${operation} produced a row that is not permitted.`,
+      raceable: false,
+    };
+    const layers = judgement && this.rows.verbs?.get(model["~"].names.ts!);
+    if (!(judgement && layers)) return forbidden;
+    const moved = judgement.writes.filter((field) =>
+      layers.some((layer) => layer?.moves.has(field) === true)
+    );
+    if (moved.length === 0) return forbidden;
+    const relations = model["~"].state.relations;
+    const through = judgement.writes.filter(
+      (field) =>
+        Object.hasOwn(relations, field) &&
+        relations[field]!["~"].state.foreignKey?.fields.some((key) =>
+          moved.includes(key)
+        ) === true
+    );
+    return {
+      ...forbidden,
+      reason: `the row it would leave, judged again because it writes ${moved.join(", ")}${through.length > 0 ? ` (through ${through.join(", ")})` : ""}, is refused`,
+    };
   }
   readonly #produced = new Map<string, PreparedSelector | null>();
   /**

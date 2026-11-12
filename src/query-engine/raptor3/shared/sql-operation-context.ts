@@ -24,7 +24,7 @@ import {
   compileBindBudgetChunks,
   normalizedBindParameterLimit,
 } from "../../bind-budget";
-import type { PreparedBatchOperation, PreparedGuardFailure } from "../../types";
+import type { PreparedBatchOperation } from "../../types";
 import type { Sent, Statement } from "../write/send";
 import { InsertValue } from "./insert-value";
 import {
@@ -39,7 +39,7 @@ import {
   throughDerived,
 } from "./query";
 import { type EngineBackend, engineBackend } from "./query-backend";
-import type { CallScope, RowJudgement } from "./row-scope";
+import type { CallScope } from "./row-scope";
 import {
   type EngineSchema,
   type Input,
@@ -81,19 +81,6 @@ export type ExecutionBinding =
       readonly writeOutcome?: WriteOutcomeSeam;
     }
   | { readonly kind: "standalone"; readonly writeOutcome?: WriteOutcomeSeam };
-
-/** A nested write's refusal of the row it produces. */
-export function nestedRefusal(
-  verb: string,
-  relation: string
-): PreparedGuardFailure {
-  return {
-    kind: "nestedWrite",
-    relation,
-    message: `Cannot ${verb} relation '${relation}': the record it writes is not permitted.`,
-    raceable: false,
-  };
-}
 
 export class SqlOperationContext {
   readonly schema: EngineSchema;
@@ -497,34 +484,6 @@ export class SqlOperationContext {
         query: sql`${statement} ${a.mutations.returning(sql.raw("*"))}`,
       },
     ])} ${answer}`;
-  }
-
-  /** What a write says when the row it would leave is refused. */
-  refusalOf(model: AnyModel, judgement?: RowJudgement): PreparedGuardFailure {
-    const forbidden: PreparedGuardFailure = {
-      kind: "forbidden",
-      message: `${this.operation} produced a row that is not permitted.`,
-      raceable: false,
-    };
-    const layers =
-      judgement && this.scope?.rows.domain.verbs?.get(model["~"].names.ts!);
-    if (!(judgement && layers)) return forbidden;
-    const moved = judgement.writes.filter((field) =>
-      layers.some((layer) => layer?.moves.has(field) === true)
-    );
-    if (moved.length === 0) return forbidden;
-    const relations = model["~"].state.relations;
-    const through = judgement.writes.filter(
-      (field) =>
-        Object.hasOwn(relations, field) &&
-        relations[field]!["~"].state.foreignKey?.fields.some((key) =>
-          moved.includes(key)
-        ) === true
-    );
-    return {
-      ...forbidden,
-      reason: `the row it would leave, judged again because it writes ${moved.join(", ")}${through.length > 0 ? ` (through ${through.join(", ")})` : ""}, is refused`,
-    };
   }
 }
 

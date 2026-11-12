@@ -27,7 +27,6 @@ import type {
 import { Parameter, type RowJudgement } from "../shared/row-scope";
 import type { Input } from "../shared/schema";
 import type { SqlOperationContext } from "../shared/sql-operation-context";
-import { nestedRefusal } from "../shared/sql-operation-context";
 import type { SqlQueries } from "../shared/sql-queries";
 import { linkJudgement, linkMembers, type Membership } from "../shared/storage";
 import type { Sent, Statement } from "./send";
@@ -526,10 +525,12 @@ export class Writer {
           : insert,
       ...(select && {
         probe: select,
-        stops:
-          relation === undefined
-            ? this.operation.refusalOf(model)
-            : nestedRefusal("create", relation),
+        stops: q.domain!.refusal(
+          this.operation.operation,
+          model,
+          undefined,
+          relation === undefined ? undefined : ["create", relation]
+        ),
       }),
     };
   }
@@ -572,10 +573,12 @@ export class Writer {
         );
       const edge = question.member?.edge ?? question.through;
       if (produced)
-        stops =
-          edge && question.verb
-            ? nestedRefusal(question.verb, edge.name)
-            : this.operation.refusalOf(model, judged);
+        stops = q.domain!.refusal(
+          this.operation.operation,
+          model,
+          judged,
+          edge && question.verb ? [question.verb, edge.name] : undefined
+        );
       const named = produced
         ? { where: produced, suffix: undefined }
         : this.#limited(question, selector, keys);
