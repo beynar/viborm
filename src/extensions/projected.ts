@@ -1,9 +1,14 @@
 import { ValidationError } from "@errors";
+import { namedGatedFields } from "@query-engine/raptor3/shared/query";
+import type {
+  Arguments,
+  EngineSchema,
+  Input,
+} from "@query-engine/raptor3/shared/schema";
+import type { Operation } from "@query-engine/types";
 import type { AnyModel } from "@schema/model";
 import { isPlainRecord } from "@schema/relation/terminal";
-import type { Operation } from "../../types";
-import { namedGatedFields, type PreparedDomain } from "./query";
-import type { Arguments, EngineSchema, Input } from "./schema";
+import type { PreparedDomain } from "./row-domain";
 
 /**
  * Projection keys a domain declares, admitted beside the shared schema (K5).

@@ -42,7 +42,6 @@ import {
   type RawQueryKind,
   type WriteOutcomeNotifications,
 } from "@extensions/query";
-import { callRows } from "@extensions/rows";
 import {
   createOperationExecutionContext,
   createRawOperationInstrumentationFacts,
@@ -148,8 +147,7 @@ function settleRawRows(
   if (binding !== undefined) {
     const name = model["~"].names.ts!;
     const placed = lookupPlacedControls(chain, name, "findMany");
-    facts = callRows(
-      binding,
+    facts = binding.call(
       name,
       placed.length === 0
         ? undefined

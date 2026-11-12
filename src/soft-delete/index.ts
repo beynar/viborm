@@ -2,6 +2,7 @@
 
 import type { OperationPayload } from "../client/exports"; // public today
 import { ClientInitializationError } from "../errors"; // viborm's own class
+import { withRows } from "../extensions/rows-runtime";
 import type {
   ClientSchema,
   ClientTypeState,
@@ -129,6 +130,7 @@ function definitionOf<
   Config extends SoftDeleteConfig,
   C extends Governed<Config>,
 >(config: Config, schema: ClientSchema<C>) {
+  withRows();
   return {
     name: NAME,
     controls: { mode: { oneOf: ["soft", "hard"] } }, // deletion places it on managed deletes

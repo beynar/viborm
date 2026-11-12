@@ -11,22 +11,18 @@ import type {
   ExecutionBinding,
   OperationContext,
 } from "../shared/operation-context";
-import { admitProjected } from "../shared/projected";
-import type { Leaf, ProjectionShape, Read } from "../shared/query";
-import { PreparedDomain, type Queries } from "../shared/query";
+import type { Leaf, ProjectionShape, Queries, Read } from "../shared/query";
 import { type EngineBackend, engineBackend } from "../shared/query-backend";
 import {
   type CallRows,
   type CallScope,
   parseStamped,
-  type RowDomain,
 } from "../shared/row-scope";
 import {
   type Arguments,
   type EngineConfig,
   EngineSchema,
   isReadOperation,
-  memo,
   type Operation,
 } from "../shared/schema";
 import { SqlOperationContext } from "../shared/sql-operation-context";
@@ -152,8 +148,7 @@ class PreparedCommand implements PreparedOperation {
     // The call's one instant lives with the prepared call, so a replan and
     // every occurrence it re-admits share it.
     let instant: Date | undefined;
-    this.#scope =
-      rows && callScope(queries, rows, () => (instant ??= new Date()));
+    this.#scope = rows?.prepare(queries, () => (instant ??= new Date()));
     this.#config = config;
     this.#schema = schema;
     this.#queries = queries;
@@ -184,8 +179,7 @@ class PreparedCommand implements PreparedOperation {
     const domain = this.#scope?.domain;
     const admit = domain?.projects
       ? () =>
-          admitProjected(
-            domain,
+          domain.admit(
             this.#schema,
             this.#model,
             this.#operation,
@@ -352,46 +346,6 @@ const sharedEngines = new WeakMap<
   }
 >();
 
-/**
- * Each row domain a call selects, prepared once per query owner. A prepared
- * domain derives only from the domain, that owner (its adapter and result
- * parser) and its defaults, so clients sharing the owner share it too; a
- * client without `rows` never reaches the map. The domain alone keys it: a
- * chain's binding builds each domain with its one default domain.
- */
-const preparedDomains = new WeakMap<
-  Queries,
-  WeakMap<RowDomain, PreparedDomain>
->();
-
-function preparedDomain(
-  queries: Queries,
-  rows: RowDomain,
-  defaults?: PreparedDomain
-): PreparedDomain {
-  const byDomain = memo(preparedDomains, queries, () => new WeakMap());
-  return memo(
-    byDomain,
-    rows,
-    () => new PreparedDomain(rows, queries, defaults)
-  );
-}
-
-/** One call's row facts, its domains prepared for `queries`. */
-function callScope(
-  queries: Queries,
-  rows: CallRows,
-  instant: () => Date
-): CallScope {
-  const defaults = preparedDomain(queries, rows.defaults);
-  return {
-    rows,
-    domain: preparedDomain(queries, rows.domain, defaults),
-    defaults,
-    instant,
-  };
-}
-
 function sharedQueries(config: EngineConfig): Queries {
   const { adapter, result, backend } = config.driver;
   const createQueries = (
@@ -465,7 +419,7 @@ export function createCommandEngine(config: EngineConfig) {
       throw new UnsupportedOperationError(
         "$rows() needs a driver bound to its database (a MySQL namespace): a caller's CTE could otherwise stand for a table its rows read"
       );
-    const scope = rows && callScope(queries, rows, instant);
+    const scope = rows?.prepare(queries, instant);
     const gated = scope?.domain.projected(model)?.gates;
     if (gated !== undefined && gated.size > 0)
       throw new UnsupportedOperationError(

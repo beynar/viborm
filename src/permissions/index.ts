@@ -12,6 +12,7 @@
 import type { OperationPayload } from "../client/exports"; // public today
 import { ForbiddenError } from "../errors";
 import type { RowsVerbs } from "../extensions/controls";
+import { withRows } from "../extensions/rows-runtime";
 import type {
   ClientSchema,
   ClientTypeState,
@@ -884,6 +885,7 @@ export function permissions<
 export function permissions<const Config extends PermissionsConfig>(
   config: Config & DeclarationCheck<Config>
 ): Policy<Config> {
+  withRows();
   const actor = actorContract(config.actor);
   const compile = (schema: Schema) => compilePolicy(config, schema, actor);
   // Public compile() remains an independent inspection result. Application

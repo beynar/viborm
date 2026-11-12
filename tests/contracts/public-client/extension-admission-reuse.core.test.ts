@@ -1,10 +1,14 @@
 import { createClient } from "@drivers/sqlite3";
 import { ClientInitializationError } from "@errors";
 import { normalizeExtensionDefinition } from "@extensions/definition";
+import { withRows } from "@extensions/rows-runtime";
 import { s } from "@schema";
 import { v } from "@validation";
 import { createSchemaRegistry } from "@validation/builder";
 import { expect, test } from "vitest";
+
+// These definitions are stated as plain objects: what reads their rows is brought here.
+withRows();
 
 function frozenRows(predicate: Readonly<Record<string, unknown>>) {
   return Object.freeze({

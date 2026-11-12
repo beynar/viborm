@@ -9,7 +9,6 @@ import type { AnyRelation } from "@schema/relation/types";
 import type { SchemaRegistryLookup } from "@validation/types";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { errorCause } from "../errors/diagnostic-safety";
-import { admitRows } from "./admission";
 import type {
   ControlsContribution,
   DataContribution,
@@ -42,6 +41,8 @@ import type {
 } from "./request";
 import { type RuntimeResultContribution, snapshotResult } from "./result";
 import type { ResultDefinition, ResultInference } from "./result-types";
+import { withRows } from "./rows-runtime";
+import { rowsRuntime } from "./rows-slot";
 import type { StatementHandler } from "./statement";
 
 type RuntimeExtensionFunction = (...args: never[]) => unknown;
@@ -476,7 +477,7 @@ export function normalizeExtensionDefinition(
   validateNamedPolicies({ rows: value.rows, deletion, data }, schema, name);
   const rows =
     schema && value.rows
-      ? admitRows(value.rows, schema, name, registry)
+      ? rowsRuntime().admitRows(value.rows, schema, name, registry)
       : value.rows;
   const order =
     value.order === undefined
@@ -793,6 +794,8 @@ export function defineExtension<S extends Schema>(): DefineExtensionBinder<S>;
 export function defineExtension(
   ...definitions: [] | [definition: ClientExtension]
 ): unknown {
+  // What a definition declares of rows is read by what this brings.
+  withRows();
   if (definitions.length === 0) {
     return (schemaDefinition: ExtensionDefinitionInput) =>
       normalizeExtensionDefinition(schemaDefinition);

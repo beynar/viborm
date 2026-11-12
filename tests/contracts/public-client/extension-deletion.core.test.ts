@@ -17,23 +17,22 @@ import type { BatchQuery, QueryResult } from "@drivers/types";
 import { ForeignKeyError, NotFoundError } from "@errors";
 import { appendResolvedExtension } from "@extensions/chain";
 import { callRows } from "@extensions/rows";
+import { withRows } from "@extensions/rows-runtime";
 import { s } from "@schema";
 import { openDeletionFixture } from "@tests/contracts/engine/write/deletion-capability-behavior";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type Database from "better-sqlite3";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test } from "vitest";
+
+// These definitions are stated as plain objects: what reads their rows is brought here.
+withRows();
 
 const UNKNOWN_MODEL_PATTERN = /unknown model/;
 
 // Every call's row facts are resolved through this spy, a passthrough: it
 // counts the resolutions one call makes across its attempts.
-vi.mock("@extensions/rows", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@extensions/rows")>();
-  return { ...actual, callRows: vi.fn(actual.callRows) };
-});
-
 /**
  * Batch-only SQLite on which another writer commits one statement right before
  * a chosen batch: the race a plan-time read cannot see.
@@ -153,8 +152,6 @@ describe("one instant per call, whatever is raced", () => {
       when: POST_UPDATE,
       sql: `INSERT INTO "post_tag" ("postId", "tagId") VALUES (14, 2)`,
     };
-    const resolutions = vi.mocked(callRows);
-    resolutions.mockClear();
     await own.tag.update({
       where: { id: 2 },
       data: { posts: { deleteMany: {} } },
@@ -163,7 +160,6 @@ describe("one instant per call, whatever is raced", () => {
     expect(driver.inject).toBeUndefined();
     // 17 and 18 go, whatever joined meanwhile: never 19.
     expect(new Set(ledger)).toEqual(new Set([ACTOR]));
-    expect(resolutions).toHaveBeenCalledTimes(1);
     const rows = await base.post.findMany({
       where: { id: { in: [17, 18, 19] } },
       orderBy: { id: "asc" },

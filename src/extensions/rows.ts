@@ -21,6 +21,7 @@ import {
   rowsModes,
 } from "./controls";
 import type { RuntimeExtensionDefinition } from "./definition";
+import { prepareCall } from "./row-domain";
 
 type Predicates = RowsContribution["models"][string][string];
 
@@ -59,6 +60,11 @@ export interface RowsBinding {
   readonly bindsStamps: boolean;
   /** Whether a call must pass a control to touch a model directly. */
   readonly required: RequiredOn;
+  /** One call's row facts, from the controls it admitted ({@link callRows}). */
+  readonly call: (
+    model: string,
+    controls: AdmittedControls | undefined
+  ) => CallRows;
 }
 
 type RequiredOn = (control: string, model: string) => boolean;
@@ -649,7 +655,12 @@ export function bindRows(
     collectStampReferences(entry.update, stampReferences);
   }
   const physical = domains.map((domain) =>
-    Object.freeze({ domain, defaults, ...(stamps && { stamps }) })
+    Object.freeze({
+      domain,
+      defaults,
+      ...(stamps && { stamps }),
+      prepare: prepareCall,
+    })
   );
   // A lazy entry's predicates are not known yet: its calls carry their values.
   const lazy = declared.some(isLazy);
@@ -665,7 +676,7 @@ export function bindRows(
     [domain.root, domain.related, domain.confine ?? NO_CONFINE].some((models) =>
       [...models.values()].some(readsCall)
     );
-  return Object.freeze({
+  const binding: RowsBinding = Object.freeze({
     members,
     deletion: deletion ?? NO_DELETION,
     physical,
@@ -676,7 +687,9 @@ export function bindRows(
     parametric: domains.map((domain) => reads(domain) || reads(defaults)),
     bindsStamps: stampReferences.size > 0,
     required: requiredOn(controls),
+    call: (model, admitted) => callRows(binding, model, admitted),
   });
+  return binding;
 }
 
 /**

@@ -25,6 +25,7 @@ import {
   NotFoundError,
   ValidationError,
 } from "@errors";
+import { withRows } from "@extensions/rows-runtime";
 import {
   createClient,
   defineExtension,
@@ -39,6 +40,9 @@ import { v } from "@src/validation";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, expectTypeOf, test } from "vitest";
+
+// These definitions are stated as plain objects: what reads their rows is brought here.
+withRows();
 
 const user = s.model({
   id: s.string().id(),

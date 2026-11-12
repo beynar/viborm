@@ -22,7 +22,6 @@ import {
   type QueryInterceptionMode,
   type WriteOutcomeRegistration,
 } from "@extensions/query";
-import { callRows } from "@extensions/rows";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
 import type { CacheResultCodec } from "./cache-flow";
@@ -572,10 +571,7 @@ export class PendingOperation<T>
   /** The row facts this call's admitted controls resolve to, if any. */
   #callRows() {
     const binding = this.#engine.extensionChain?.callRows;
-    return (
-      binding &&
-      callRows(binding, this.#modelName, this.#inputPreparation?.controls)
-    );
+    return binding?.call(this.#modelName, this.#inputPreparation?.controls);
   }
 
   /**

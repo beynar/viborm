@@ -40,12 +40,8 @@ import {
   registerOfficialInstrumentationChain,
 } from "./observation";
 import { appendResultFields, type ResolvedResultFields } from "./result";
-import {
-  bindRows,
-  checkingLazyReferences,
-  type RowsBinding,
-  undeclaredControlReferencesOf,
-} from "./rows";
+import type { RowsBinding } from "./rows";
+import { rowsRuntime } from "./rows-slot";
 import {
   OFFICIAL_ON_NAME,
   officialWritesOf,
@@ -553,7 +549,14 @@ export function appendResolvedExtension(
       : placeControls(effectiveDefinition);
   // A definition may name its own controls and those an earlier extension
   // declares: order owns a reference, so one value serves every extension.
-  for (const control of undeclaredControlReferencesOf(effectiveDefinition)) {
+  // Only a declaration of rows, data or deletion names a control it does not declare.
+  const declares =
+    effectiveDefinition.rows ??
+    effectiveDefinition.data ??
+    effectiveDefinition.deletion;
+  for (const control of declares
+    ? rowsRuntime().undeclaredControlReferencesOf(effectiveDefinition)
+    : []) {
     if (chain?.controls?.names.has(control) !== true) {
       extensionError(
         `Extension "${definition.name}" references undeclared control "${control}".`,
@@ -608,7 +611,7 @@ export function appendResolvedExtension(
       ? chain?.rows
       : Object.freeze([
           ...(chain?.rows ?? []),
-          checkingLazyReferences(
+          rowsRuntime().checkingLazyReferences(
             effectiveDefinition.rows,
             (control) =>
               ownControls.has(control) || declaredHere?.has(control) === true,
@@ -650,7 +653,7 @@ export function appendResolvedExtension(
     data === chain?.data &&
     order === chain?.order
       ? chain?.callRows
-      : bindRows(rows, deletion, data, controls, order);
+      : rowsRuntime().bindRows(rows, deletion, data, controls, order);
   const result =
     effectiveDefinition.result === undefined
       ? chain?.result

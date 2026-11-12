@@ -1,5 +1,5 @@
 import { parseProviding } from "@validation/primitives/object";
-import type { PreparedDomain } from "./query";
+import type { PreparedDomain, Queries } from "./query";
 import type { Input } from "./schema";
 
 /**
@@ -172,6 +172,8 @@ export interface CallRows {
   readonly stamps?: ReadonlyMap<string, ModelStamps>;
   /** What the domains' parameters read; absent when no predicate names one. */
   readonly values?: CallValues;
+  /** These facts as the engine reads them through one query owner: what states them says how. */
+  readonly prepare: (queries: Queries, instant: () => Date) => CallScope;
 }
 
 /** A call's admitted controls, and how an absent value resolves (R6). */
