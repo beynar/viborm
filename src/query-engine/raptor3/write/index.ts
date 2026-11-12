@@ -118,27 +118,25 @@ async function sent(
   let answer: unknown;
   let store = new Store(operation, transport);
   try {
-    try {
-      answer = await store.run(call(store, model, args, raw));
-    } catch (error) {
-      // A row created because none was there, refused because another writer made it meanwhile; a row read without holding it, gone since: where the unit that failed can be undone whole, the call is made again, once.
-      const lost = error instanceof Lost;
-      if (
-        !(lost || store.raced(error)) ||
-        store.segments > 0 ||
-        (binding?.kind === "borrowed-transaction" && !lent)
-      )
-        throw lost ? error.failure : error;
-      await transport.end(lost ? error.failure : error).catch(() => undefined);
-      phase = "pending";
-      transport = open();
-      store = new Store(operation, transport);
+    for (let again = false; ; again = true)
       try {
         answer = await store.run(call(store, model, args, raw));
-      } catch (again) {
-        throw again instanceof Lost ? again.failure : again;
+        break;
+      } catch (error) {
+        // A row created because none was there, refused because another writer made it meanwhile; a row read without holding it, gone since: where the unit that failed can be undone whole, the call is made again, once.
+        const failure = error instanceof Lost ? error.failure : error;
+        if (
+          again ||
+          !(failure !== error || store.raced(error)) ||
+          store.segments > 0 ||
+          (binding?.kind === "borrowed-transaction" && !lent)
+        )
+          throw failure;
+        await transport.end(failure).catch(() => undefined);
+        phase = "pending";
+        transport = open();
+        store = new Store(operation, transport);
       }
-    }
   } catch (error) {
     await transport.end(error);
     const loose = unproven.has(error as object);

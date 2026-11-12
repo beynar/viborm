@@ -2348,12 +2348,12 @@ export class Store {
               break;
             all.push(next.row);
           }
-          const asked = stop > end && answered(stop, all, "insert");
+          const asked = answered(stop, all, "insert");
           if (asked && !all.some((row) => (needed.get(row) ?? 0) > 1))
             series = { read: asked, stop, parts: [] };
         }
         const part = mine ? undefined : series;
-        let read = mine?.read ?? part?.read ?? answered(end, rows, "insert");
+        let read = mine?.read ?? part?.read;
         // Another statement needs what the database decides of the row: its statement says it beside the answer, where it can.
         const both = Boolean(mine) && (needed.get(entry.row) ?? 0) > 1;
         if (
@@ -2368,10 +2368,7 @@ export class Store {
           // The read stands after the last of them.
           at = end === part.stop ? end : end - 1;
           if (end === part.stop) series = undefined;
-        } else if (read && !rows.some((row) => (needed.get(row) ?? 0) > 1))
-          at = end;
-        else {
-          read = undefined;
+        } else {
           rows = [entry.row];
           // A row of which the database decides what another statement needs is written alone: its statement says it.
           beside<typeof entry>((next) => {
@@ -2423,7 +2420,7 @@ export class Store {
             take(sent);
             if (!read) return;
             if (!part) {
-              tells(read, mine?.place ?? at)(sent);
+              tells(read, mine!.place)(sent);
               return;
             }
             part.parts.push(...sent);
