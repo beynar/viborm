@@ -74,10 +74,7 @@ import {
   resolveSchemaOrThrow,
 } from "@schema/validation/validator";
 import { createResolvedSchemaRegistry } from "@validation/builder";
-import {
-  executeArrayTransaction,
-  runOutcomeTransaction,
-} from "./array-transaction";
+import { executeArrayTransaction } from "./array-transaction";
 import { getOfficialDefaultOmitChainCapability } from "./default-omit-chain";
 import type {
   OfficialDefaultOmitExtension,
@@ -1235,7 +1232,7 @@ export class VibORM<C extends VibORMConfig> {
       const body = async (txDriver: AnyDriver) =>
         input(view(engine.bind(txDriver, chain, outcomes)));
       return outcomes
-        ? runOutcomeTransaction(
+        ? extensionHost().runOutcomeTransaction(
             engine.driver,
             outcomes,
             engine.transactionWriteOutcomes,

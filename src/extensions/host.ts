@@ -3,6 +3,10 @@
  * definition and never by the client (`host-slot.ts`).
  */
 import {
+  executeInterceptedArray,
+  runOutcomeTransaction,
+} from "@client/array-transaction-intercepted";
+import {
   admitArrayQueries,
   createArrayDeferred,
   readArrayQuery,
@@ -39,11 +43,13 @@ export const EXTENSION_HOST = Object.freeze({
   createArrayDeferred,
   decomposeQueryCoordinationFailure,
   decomposeWriteOutcomePublicationFailure,
+  executeInterceptedArray,
   executePreparedQuery,
   getOfficialInstrumentationChainCapability,
   planResultFields,
   prewarmProtectedObservers,
   readArrayQuery,
+  runOutcomeTransaction,
   runProtectedObservers,
   sendUnit,
   TransactionWriteOutcomes,
