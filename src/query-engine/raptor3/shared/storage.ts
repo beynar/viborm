@@ -296,13 +296,6 @@ export function buildPhysicalFieldView(
   )!;
 }
 
-export function storedFields(
-  schema: EngineSchema,
-  model: AnyModel
-): readonly string[] {
-  return schema.storedFields(model);
-}
-
 export function buildStoredFieldsView(
   schema: EngineSchema,
   model: AnyModel

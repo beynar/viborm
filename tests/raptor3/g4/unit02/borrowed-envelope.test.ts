@@ -4,7 +4,7 @@
  *
  * These checks construct the binding the CORRECTED route will pass — the
  * caller's own transaction driver plus a `memberRollback` grant, with no region
- * opened by the caller — because `src/query-engine/raptor3/route/client-route.ts`
+ * opened by the caller — because `src/query-engine/raptor3/commands/index.ts`
  * is the G4-03 author's file and still wraps every write itself (note §11.3).
  * They therefore pin the candidate's own behavior, side by side with the shipped
  * engine's, for both outcomes the divergence record names.

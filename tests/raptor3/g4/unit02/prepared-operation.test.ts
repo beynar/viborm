@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { NotFoundError, ValidationError } from "@errors";
-import { createCandidateRoute } from "@query-engine/raptor3/route/client-route";
+import { createCommandEngine } from "@query-engine/raptor3/commands";
 import type { ReadOperation } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -133,8 +133,14 @@ describe("G4-02 prepared operation boundary", () => {
         where: { id: 1 },
         data: { name: "Grace" },
       });
-      const route = createCandidateRoute(worldSchema, world.driver);
-      const otherRoute = createCandidateRoute(worldSchema, otherWorld.driver);
+      const route = createCommandEngine({
+        schema: worldSchema,
+        driver: world.driver,
+      });
+      const otherRoute = createCommandEngine({
+        schema: worldSchema,
+        driver: otherWorld.driver,
+      });
       const requests = [
         {
           route,
@@ -161,13 +167,13 @@ describe("G4-02 prepared operation boundary", () => {
       world.driver.reset();
       otherWorld.driver.reset();
       const prepared = requests.map((request) => {
-        const handle = request.route.operation(
-          worldSchema.author,
-          request.operation,
+        const handle = request.route.prepare(
+          "author",
+          request.operation as never,
           request.args
         );
-        const admitted = handle.preparedArgs;
-        const statement = handle.buildStatement();
+        const admitted = handle.args;
+        const statement = handle.read?.statement;
         const codec = routedCodec(handle);
         assert.ok(statement);
         assert.deepEqual(admitted.select, request.args.select);
@@ -182,7 +188,7 @@ describe("G4-02 prepared operation boundary", () => {
       await Promise.all(
         prepared.map(
           async ({ request, handle, admitted, statement, codec }) => {
-            const value = await handle.execute({
+            const value = await handle.run({
               context: { model: "author", operation: request.operation },
               engineDriver: request.driver,
               driverOverride: undefined,
@@ -195,8 +201,8 @@ describe("G4-02 prepared operation boundary", () => {
               codec.materialize(codec.snapshot(value)),
               request.expected
             );
-            assert.equal(handle.preparedArgs, admitted);
-            assert.equal(handle.buildStatement(), statement);
+            assert.equal(handle.args, admitted);
+            assert.equal(handle.read?.statement, statement);
             assert.equal(routedCodec(handle), codec);
           }
         )

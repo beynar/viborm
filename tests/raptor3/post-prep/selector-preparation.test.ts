@@ -174,11 +174,10 @@ describe("post-G3 selector preparation", () => {
       new SQLiteAdapter()
     );
     const prepared = queries.prepareSelector(schema.row, { id: 1 });
-    const identity = queries.identitySelector(schema.row, { id: 1 });
     const excluded = queries.excludeIdentities(schema.row, [{ id: 1 }]);
     const included = queries.includeIdentities(schema.row, [{ id: 1 }]);
     const conjoined = queries.andSelectors(schema.row, [prepared, included]);
-    const scopes = [prepared, identity, excluded, included, conjoined];
+    const scopes = [prepared, excluded, included, conjoined];
 
     for (const [index, selector] of scopes.entries()) {
       for (const other of scopes.slice(index + 1)) {
@@ -190,7 +189,7 @@ describe("post-G3 selector preparation", () => {
     }
 
     prepared.facts.fields.add("leaked");
-    assert.equal(identity.facts.fields.has("leaked"), false);
+    assert.equal(excluded.facts.fields.has("leaked"), false);
 
     const firstRelation = queries.prepareSelector(schema.row, {
       tenant: { is: { id: "t1" } },
@@ -235,7 +234,6 @@ describe("post-G3 selector preparation", () => {
     assert.equal(comparison.mock.calls.length, 0);
     assert.equal(existence.mock.calls.length, 0);
     assert.equal(queries.alias(), "q1");
-    assert.equal(queries.selectorFacts(prepared), prepared.facts);
     assert.equal(prepared.uniqueKey, undefined);
     assert.deepEqual(exactCompound.uniqueKey, {
       kind: "compoundUnique",

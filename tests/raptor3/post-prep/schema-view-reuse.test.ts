@@ -3,7 +3,6 @@ import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import {
   bindMembership,
   physicalField,
-  storedFields,
 } from "@query-engine/raptor3/shared/storage";
 import { s } from "@schema";
 import { describe, it } from "vitest";
@@ -22,8 +21,8 @@ describe("post-G3 immutable schema views", () => {
     assert.equal(physicalField(schema, board, "id"), id);
     assert.equal(Object.isFrozen(id), true);
 
-    const fields = storedFields(schema, board);
-    assert.equal(storedFields(schema, board), fields);
+    const fields = schema.storedFields(board);
+    assert.equal(schema.storedFields(board), fields);
     assert.equal(Object.isFrozen(fields), true);
 
     const posts = bindMembership(schema, board, "items", "post");

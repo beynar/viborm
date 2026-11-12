@@ -27,16 +27,15 @@ import assert from "node:assert/strict";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { type BatchQuery, type Dialect, Driver } from "@drivers";
-import type { QueryResult } from "@drivers/types";
 import { SQLite3Driver } from "@drivers/sqlite3";
+import type { QueryResult } from "@drivers/types";
+import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { hydrateSchemaNames, s } from "@schema";
+import { createClient } from "@src/index";
 import {
   createModelRegistry,
   TestQueryEngine,
 } from "@tests/fixtures/query-engine";
-import { createCandidateRoute } from "@query-engine/raptor3/route/client-route";
-import { hydrateSchemaNames, s } from "@schema";
-import type { Sql } from "@sql";
-import { createClient } from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import Database from "better-sqlite3";
@@ -121,7 +120,9 @@ afterEach(async () => {
   for (const database of opened.splice(0)) database.close();
 });
 
-function bareEngine(driver: Driver<never, never> | ProbeDriver): TestQueryEngine {
+function bareEngine(
+  driver: Driver<never, never> | ProbeDriver
+): TestQueryEngine {
   const registry = createModelRegistry(schema, createSchemaRegistry(schema));
   return new TestQueryEngine(driver as never, registry);
 }
@@ -191,11 +192,14 @@ describe("C-01 round 3 — the statement the engine publishes is the one it runs
       ["create", { data: { email: "a@b.test", name: "A" } }],
       ["update", { where: { id: 1 }, data: { name: "B" } }],
       ["delete", { where: { id: 1 } }],
-      ["upsert", {
-        where: { id: 1 },
-        create: { email: "a@b.test", name: "A" },
-        update: { name: "B" },
-      }],
+      [
+        "upsert",
+        {
+          where: { id: 1 },
+          create: { email: "a@b.test", name: "A" },
+          update: { name: "B" },
+        },
+      ],
       ["createMany", { data: [{ email: "a@b.test", name: "A" }] }],
       ["updateMany", { where: {}, data: { name: "B" } }],
       ["deleteMany", { where: {} }],
@@ -234,16 +238,17 @@ describe("C-01 round 3 — the statement the engine publishes is the one it runs
   it("prepareSingle publishes exactly what prepareBatch publishes, for a read", async () => {
     const driver = new ProbeDriver();
     const registry = createModelRegistry(schema, createSchemaRegistry(schema));
-    const route = createCandidateRoute(schema, driver as never, {
-      index: registry.relations,
-      registry: registry.schemas,
+    const route = createCommandEngine({
+      schema,
+      driver: driver as never,
+      resolved: { index: registry.relations, registry: registry.schemas },
     });
     const args = { where: { name: "Ada" }, select: { id: true, age: true } };
     const single = route
-      .operation(author, "findMany", args)
+      .prepare("author", "findMany", args)
       .prepareSingle(undefined as never);
     const batch = await route
-      .operation(author, "findMany", args)
+      .prepare("author", "findMany", args)
       .prepareBatch(undefined as never);
     assert.ok(single && batch);
     assert.equal(single.queries.length, 1);
@@ -258,12 +263,12 @@ describe("C-01 round 3 — the statement the engine publishes is the one it runs
     // And it is the statement the same operation publishes to `build()`.
     assert.equal(
       single.queries[0]?.sql,
-      route.operation(author, "findMany", args).buildStatement()?.toStatement("?")
+      route.prepare("author", "findMany", args).read?.statement.toStatement("?")
     );
     // A write publishes no single package at all.
     assert.equal(
       route
-        .operation(author, "create", { data: { email: "a@b.test", name: "A" } })
+        .prepare("author", "create", { data: { email: "a@b.test", name: "A" } })
         .prepareSingle(undefined as never),
       undefined
     );
@@ -272,13 +277,11 @@ describe("C-01 round 3 — the statement the engine publishes is the one it runs
   it("an array $transaction member runs the statement the same read builds", async () => {
     const { client, driver } = await liveWorld();
     const args = { where: { name: "Ada" }, select: { id: true } };
-    const built = (
-      client as unknown as {
-        $transaction(members: readonly PromiseLike<unknown>[]): Promise<
-          unknown[]
-        >;
-      }
-    );
+    const built = client as unknown as {
+      $transaction(
+        members: readonly PromiseLike<unknown>[]
+      ): Promise<unknown[]>;
+    };
     const results = await built.$transaction([
       client.author.findMany(args),
       client.author.count({}),
@@ -297,9 +300,9 @@ describe("C-01 round 3 — the statement the engine publishes is the one it runs
   it("refuses a malformed array member before anything is dispatched", async () => {
     const { client, driver } = await liveWorld();
     const array = client as unknown as {
-      $transaction(members: readonly PromiseLike<unknown>[]): Promise<
-        unknown[]
-      >;
+      $transaction(
+        members: readonly PromiseLike<unknown>[]
+      ): Promise<unknown[]>;
     };
     let raised: unknown;
     try {
@@ -338,9 +341,10 @@ describe("C-01 round 3 — the statement the engine publishes is the one it runs
       { id: 1, name: "Arnaud", email: "a@b.test", age: null },
       { id: 2, name: "Albert", email: "c@d.test", age: null },
     ];
-    assert.deepEqual(await engine.prepare(author, "findMany", { take: -2 }), [
-      ...driver.rows,
-    ].reverse());
+    assert.deepEqual(
+      await engine.prepare(author, "findMany", { take: -2 }),
+      [...driver.rows].reverse()
+    );
     driver.rows = [{ id: 1, name: "Arnaud", email: "a@b.test", age: null }];
     assert.deepEqual(
       await engine.prepare(author, "findFirst", {}),

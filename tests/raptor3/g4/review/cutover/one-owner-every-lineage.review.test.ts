@@ -4,7 +4,7 @@
  * The replacing invariant the unit claims is: "every client lineage installs the
  * route in `VibORM`'s constructor and `bind()` forwards it — there is exactly one
  * operation owner and no routeless path". The note proves it by grep
- * (`client.ts:489` builds `createCandidateRoute(...)` unconditionally). These cells
+ * (`client.ts:489` builds `createCommandEngine(...)` unconditionally). These cells
  * prove it by observation instead, on the three lineages a client can reach:
  * the root view, a callback `$transaction`, and an array `$transaction([...])`.
  *

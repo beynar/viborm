@@ -2320,17 +2320,6 @@ export abstract class Queries {
       this.#scopes = scopes;
     }
   }
-  selectorFacts(selector: PreparedSelector): SelectorFacts {
-    return selector.facts;
-  }
-  identitySelector(model: AnyModel, identity: Input): PreparedSelector {
-    const facts = newSelectorFacts();
-    return freeze({
-      model,
-      facts,
-      predicate: this.identityPredicate(model, identity, facts),
-    });
-  }
   /** One row's identity as prepared meaning: its key fields' equalities. */
   private identityPredicate(
     model: AnyModel,

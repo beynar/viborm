@@ -54,7 +54,7 @@ import {
   readPendingCacheResult,
 } from "@query-engine/pending-operation";
 import { QueryEngine } from "@query-engine/query-engine";
-import { createCandidateRoute } from "@query-engine/raptor3/route/client-route";
+import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { renderers } from "@query-engine/raptor3/shared/insert-value";
 import {
   baseOperation,
@@ -793,9 +793,10 @@ export class VibORM<C extends VibORMConfig> {
     // validates and registers nothing a second time (B-3).
     this.#engine = new QueryEngine(
       config.driver,
-      createCandidateRoute(this.#schema, config.driver, {
-        index: relations,
-        registry: schemaRegistry,
+      createCommandEngine({
+        schema: this.#schema,
+        driver: config.driver,
+        resolved: { index: relations, registry: schemaRegistry },
       })
     );
     if (config.findUniqueBatching === true)

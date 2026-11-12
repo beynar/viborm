@@ -2,7 +2,7 @@
  * RQ-05 — the live recursive cache codec, entered through the real route.
  *
  * The live cache path is `routedCodec()` of a routed operation
- * (`raptor3/route/client-route.ts`): `cacheCodec` composes one value codec per
+ * (`raptor3/commands/index.ts`): `cacheCodec` composes one value codec per
  * published shape through `shapeCodec`, from the official owners in
  * `result/cache-value-codecs.ts`. Every route cell below asks THAT codec for a
  * prepared read of an admitted recursive projection, and feeds it values the
@@ -40,7 +40,7 @@ import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { CacheConfigurationError } from "@errors";
-import { createCandidateRoute } from "@query-engine/raptor3/route/client-route";
+import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { CacheSnapshotFailure } from "@query-engine/result/cache-snapshot-structure";
 import {
   compileScalarCodec,
@@ -119,7 +119,7 @@ async function world() {
     meta: { index, nested: { id } },
     bytes: new Uint8Array([index, 255 - index]),
   }));
-  const route = createCandidateRoute(schema, driver);
+  const route = createCommandEngine({ schema, driver });
   return {
     /** The executed read, through the shipped client: the decoder's own value. */
     read: (
@@ -131,7 +131,7 @@ async function world() {
     codec: (
       args: Record<string, unknown>,
       operation: "findMany" | "findUnique" = "findMany"
-    ) => routedCodec(route.operation(node as never, operation, args)),
+    ) => routedCodec(route.prepare("node", operation, args)),
   };
 }
 
@@ -319,11 +319,11 @@ function deepChain(levels: number, depth: number | false) {
   closers.push(async () => {
     database.close();
   });
-  const route = createCandidateRoute(
+  const route = createCommandEngine({
     schema,
-    new SQLite3Driver({ client: database })
-  );
-  const operation = route.operation(node as never, "findMany", {
+    driver: new SQLite3Driver({ client: database }),
+  });
+  const operation = route.prepare("node", "findMany", {
     where: { id: "root" },
     select: {
       id: true,

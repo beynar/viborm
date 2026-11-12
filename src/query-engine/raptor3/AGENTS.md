@@ -3,8 +3,8 @@
 The central plan in `docs/architecture/raptor3-implementation-plan.md` governs
 this explicitly authorized clean-sheet rewrite. Since the C-01 cutover
 (Arnaud's decision D-10, 2026-09-16) this directory IS the production engine:
-`VibORM`'s constructor builds `createCandidateRoute(...)` for every client, so
-the route is the one operation owner behind the unchanged public API rather
+`VibORM`'s constructor builds `createCommandEngine(...)` for every client, so
+that engine is the one operation owner behind the unchanged public API rather
 than a selectable alternative, and the legacy engine it replaced has been
 deleted. It is still not a fallback, and nothing here is exported from the
 package entry.
@@ -906,11 +906,11 @@ Named retention: TWO modules from the shipped `query-engine/` tree are imported
 at runtime, and these are ALL of them, so a legacy scan does not have to
 re-derive the list. (Only that tree: `@errors`, `@sql`, `@schema/**`,
 `@validation/**`, `@adapters/**` and `@drivers/**` are ordinary boundaries the
-brief keeps available, and `@client/client` reaches `route/client-route.ts`.)
+brief keeps available, and `@client/client` reaches `commands/index.ts`.)
 `query-engine/bind-budget.ts` (`shared/operation-context.ts`) is a pure `Sql`
 chunker over the driver's normalized verified bind capacity, shared by the
 deleted engines and the candidate alike — a neutral boundary, not the shipped
-engine. `result/cache-value-codecs.ts` (`route/client-route.ts`) is the official
+engine. `result/cache-value-codecs.ts` is the official
 cache value-codec owner and imports no compiler, lowerer, executor or result
 parser. The schema-to-`ValidationError` admission owner `shared/schema.ts` reads
 was the third until follow-up F-2 moved it INTO this tree: it is
@@ -1239,7 +1239,7 @@ of `disconnect`/`delete`/`update` is the one family `uniqueSelectorConjuncts`
 target — and a bulk member's `where` never asks. `SelectionSource.unique` points
 at the predicate instead of restating the classification.
 
-The candidate's client route (`route/client-route.ts` `runCandidate`) states
+A prepared operation's `run` (`commands/index.ts`) states
 WHICH SITUATION an operation is in and never whether an envelope is needed. A
 root operation is `standalone` — no borrowed driver, no grant. An existing array
 owner's sequential fallback (`driverOverride`) gets the exact borrowed driver

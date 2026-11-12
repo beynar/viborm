@@ -16,9 +16,9 @@ import type { ResolvedExtensionChain } from "@extensions/chain";
 import type { TransactionWriteOutcomes } from "@extensions/query";
 import { QueryEngine } from "@query-engine/query-engine";
 import {
-  type ClientOperationRoute,
-  createCandidateRoute,
-} from "@query-engine/raptor3/route/client-route";
+  type CommandEngine,
+  createCommandEngine,
+} from "@query-engine/raptor3/commands";
 import { type Operation, QueryEngineError } from "@query-engine/types";
 import type { Model } from "@schema/model";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
@@ -49,14 +49,15 @@ export function createModelRegistry(
 function provisionedRoute(
   driver: AnyDriver,
   registry: TestModelRegistry
-): ClientOperationRoute {
+): CommandEngine {
   const schema: Record<string, Model<any>> = {};
   for (const model of registry.relations.keys()) {
     schema[model["~"].names.ts ?? "unknown"] = model;
   }
-  return createCandidateRoute(schema, driver, {
-    index: registry.relations,
-    registry: registry.schemas,
+  return createCommandEngine({
+    schema,
+    driver,
+    resolved: { index: registry.relations, registry: registry.schemas },
   });
 }
 
@@ -68,7 +69,7 @@ export class TestQueryEngine extends QueryEngine {
     scopeId?: symbol,
     extensionChain?: ResolvedExtensionChain,
     transactionWriteOutcomes?: TransactionWriteOutcomes,
-    route: ClientOperationRoute = provisionedRoute(driver, registry)
+    route: CommandEngine = provisionedRoute(driver, registry)
   ) {
     super(
       driver,

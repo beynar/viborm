@@ -38,7 +38,7 @@ import {
   UnsupportedOperationError,
 } from "@errors";
 import { validateCacheableOperation } from "@query-engine/cache-flow";
-import { createCandidateRoute } from "@query-engine/raptor3/route/client-route";
+import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { hydrateSchemaNames, s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type Database from "better-sqlite3";
@@ -122,7 +122,7 @@ async function world() {
       },
     ],
   });
-  const route = createCandidateRoute(schema, driver);
+  const route = createCommandEngine({ schema, driver });
   closers.push(async () => {
     await client.$disconnect();
     database.close();
@@ -141,7 +141,7 @@ describe("FC-04 — the route's cached-result vocabulary boundary", () => {
         `${operation}: the cache layer no longer offers this verb`
       );
       const codec = routedCodec(
-        route.operation(author as never, operation, { ...args })
+        route.prepare("author", operation as never, { ...args })
       );
       const value = await model[operation]!({ ...args });
       assert.notEqual(
@@ -185,7 +185,7 @@ describe("FC-04 — the route's cached-result vocabulary boundary", () => {
   it("both …OrThrow names are served by the read their base verb admits to", async () => {
     const { client, route } = await world();
     const codec = routedCodec(
-      route.operation(author as never, "findUniqueOrThrow", {
+      route.prepare("author", "findUniqueOrThrow", {
         where: { id: 1 },
       })
     );
@@ -201,7 +201,7 @@ describe("FC-04 — the route's cached-result vocabulary boundary", () => {
     // `null`; the `…OrThrow` name inherits that codec, absent arm included.
     assert.equal(codec.materialize(codec.snapshot(null)), null);
     const base = routedCodec(
-      route.operation(author as never, "findUnique", { where: { id: 1 } })
+      route.prepare("author", "findUnique", { where: { id: 1 } })
     );
     assert.deepEqual(base.snapshot(located), codec.snapshot(located));
 
@@ -209,7 +209,7 @@ describe("FC-04 — the route's cached-result vocabulary boundary", () => {
     // against the `findFirst` its base verb admits to, absent arm included.
     const firstOrder = { orderBy: { id: "asc" } } as const;
     const firstCodec = routedCodec(
-      route.operation(author as never, "findFirstOrThrow", { ...firstOrder })
+      route.prepare("author", "findFirstOrThrow", { ...firstOrder })
     );
     const first = await client.author.findFirstOrThrow({ ...firstOrder });
     assert.deepEqual(first, {
@@ -221,7 +221,7 @@ describe("FC-04 — the route's cached-result vocabulary boundary", () => {
     assert.deepEqual(firstCodec.materialize(firstCodec.snapshot(first)), first);
     assert.equal(firstCodec.materialize(firstCodec.snapshot(null)), null);
     const firstBase = routedCodec(
-      route.operation(author as never, "findFirst", { ...firstOrder })
+      route.prepare("author", "findFirst", { ...firstOrder })
     );
     assert.deepEqual(firstBase.snapshot(first), firstCodec.snapshot(first));
   });
@@ -229,7 +229,7 @@ describe("FC-04 — the route's cached-result vocabulary boundary", () => {
   it("a verb the cache layer never offers reaches the retained boundary, before anything runs", async () => {
     const { driver, route } = await world();
     driver.sent.length = 0;
-    const operation = route.operation(author as never, "create", {
+    const operation = route.prepare("author", "create", {
       data: { id: 9, name: "Dee", age: 20, joinedAt: new Date() },
     });
     assert.throws(
