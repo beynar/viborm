@@ -77,6 +77,11 @@ class Pending {
   }
 }
 const UNHEARD = Symbol("a value the database has not said yet");
+/** A value as text, whatever numbers it holds. */
+const text = (value: unknown): string =>
+  JSON.stringify(value, (_, each) =>
+    typeof each === "bigint" ? `${each}n` : each
+  );
 /** Thrown where a call that must be one unit is more than one. */
 export const SEVERAL = Symbol("more than one unit");
 
@@ -337,7 +342,7 @@ export class Store {
         : undefined;
     const group = (question: Question) =>
       pins(question) &&
-      JSON.stringify([
+      text([
         question.model["~"].names.ts,
         question.through?.name,
         question.intent,
@@ -626,30 +631,27 @@ export class Store {
       for (const pair of member.edge.pairs)
         if (member.of[pair.source] === undefined) return [];
     const after = late ? this.#log.length : 0;
-    const id = JSON.stringify(
-      [
-        model["~"].names.ts,
-        question.where,
-        question.unique,
-        member && [
-          member.edge.name,
-          this.#name(member.edge.source, member.of),
-          // What makes a row a member, where the row it is a member of holds it.
-          member.edge.kind === "reference" && [
-            ...member.edge.pairs.map((pair) => String(member.of[pair.source])),
-            member.edge.discriminator?.side === "source" &&
-              member.of[member.edge.discriminator.field],
-          ],
+    const id = text([
+      model["~"].names.ts,
+      question.where,
+      question.unique,
+      member && [
+        member.edge.name,
+        this.#name(member.edge.source, member.of),
+        // What makes a row a member, where the row it is a member of holds it.
+        member.edge.kind === "reference" && [
+          ...member.edge.pairs.map((pair) => String(member.of[pair.source])),
+          member.edge.discriminator?.side === "source" &&
+            member.of[member.edge.discriminator.field],
         ],
-        question.intent,
-        question.writes,
-        question.through?.name,
-        question.limit,
-        question.except?.map((key) => this.#name(model, key)),
-        after,
       ],
-      (_, value) => (typeof value === "bigint" ? `${value}n` : value)
-    );
+      question.intent,
+      question.writes,
+      question.through?.name,
+      question.limit,
+      question.except?.map((key) => this.#name(model, key)),
+      after,
+    ]);
     // The members of a row the call creates are the rows it made members itself.
     const answer =
       fresh && !late ? { question, rows: [] } : this.#answers.get(id);
@@ -1282,7 +1284,7 @@ export class Store {
       believed: "presumed" | "read",
       key?: Input
     ) => {
-      const group = JSON.stringify([
+      const group = text([
         believed,
         question.model["~"].names.ts,
         question.member ? own : question.through?.name,
@@ -1423,7 +1425,7 @@ export class Store {
           if (passed(this.#known.get(this.#name(model, values)))) continue;
           ask(
             answer.question,
-            JSON.stringify(answer.question.where),
+            text(answer.question.where),
             "read",
             schema.identity(model, values)
           );

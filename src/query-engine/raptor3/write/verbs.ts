@@ -67,6 +67,18 @@ export function verbs(store: Store) {
     }
     return takes;
   };
+  /** Whether what was written of a field leaves it another value than it holds. */
+  const moves = (held: unknown, written: unknown): boolean => {
+    if (written === undefined) return false;
+    if (written === null || typeof written !== "object")
+      return String(written) !== String(held);
+    const { set, increment, decrement, multiply, divide } = written as Input;
+    if (set !== undefined) return String(set) !== String(held);
+    return !(
+      [increment ?? 0, decrement ?? 0].every((by) => Number(by) === 0) &&
+      [multiply ?? 1, divide ?? 1].every((by) => Number(by) === 1)
+    );
+  };
   /** How many rows the call's own verb writes, where it writes several. */
   let several = 1;
 
@@ -274,6 +286,35 @@ export function verbs(store: Store) {
     if (refused) throw refused;
     const relations = relationsOf(model, data);
     const said = schema.scalars(model, stated(data));
+    // A row that takes another key, and writes a relation whose members hold that key: no member may be left behind, unless the database makes them follow.
+    for (const { edge } of relations) {
+      if (edge.kind !== "reference" || edge.owner !== "target") continue;
+      const moved = edge.pairs.filter((pair) =>
+        moves(row[pair.source], said[pair.source])
+      );
+      for (const { source } of moved)
+        if (moves(null, said[source]) === false)
+          throw new NestedWriteError(
+            `Cannot update relation key field '${source}' to null while mutating relation '${edge.name}'. A null reference names no row for that relation to point at.`,
+            edge.name,
+            { meta: { operation: "update", field: source } }
+          );
+      if (
+        moved.length > 0 &&
+        edge.reference &&
+        edge.reference.onUpdate !== "cascade" &&
+        !edge.pairs.some((pair) => row[pair.source] === null)
+      )
+        store.none(
+          { model: edge.target, member: { edge, of: { ...row } } },
+          {
+            kind: "nestedWrite",
+            relation: edge.name,
+            message: `Cannot update relation '${edge.name}' with onUpdate('${edge.reference.onUpdate ?? "restrict"}') while the current relation is occupied.`,
+            raceable: false,
+          }
+        );
+    }
     const held = relations
       .filter(({ edge }) => holds(edge))
       .map(({ edge, payload }) => single(row, model, edge, payload, said));
@@ -517,9 +558,13 @@ export function verbs(store: Store) {
           },
           set
         );
-      else
-        for (const row of members(parent, edge, where as Input, ask))
-          write(edge.target, row, values);
+      else {
+        const rows = members(parent, edge, where as Input, ask);
+        const outer = several;
+        several = rows.length;
+        for (const row of rows) write(edge.target, row, values);
+        several = outer;
+      }
     },
     deleteMany(parent, edge, where) {
       store.all({
@@ -645,11 +690,14 @@ export function verbs(store: Store) {
       // A member that cannot give its key up cannot be taken out.
       if (store.rows(others).length > 0)
         throw new NestedWriteError(
-          `Cannot set relation '${edge.name}' because foreign key field(s) ${edge.pairs
-            .map((pair) => pair.target)
-            .join(
-              ", "
-            )} are required: rows removed from the set cannot be disconnected. Delete them instead.`,
+          `Cannot set relation '${edge.name}' because foreign key field(s) ${[
+            ...(edge.discriminator?.side === "target"
+              ? [edge.discriminator.field]
+              : []),
+            ...edge.pairs.map((pair) => pair.target),
+          ].join(
+            ", "
+          )} are required: rows removed from the set cannot be disconnected. Delete them instead.`,
           edge.name
         );
     } else store.all(others, cleared(edge));
