@@ -21,13 +21,23 @@
  * | count-aggregate-window            | count, aggregate, groupBy                        |
  * | scalar-roundtrip, decimal-exactness | bigint past 2^53, decimal, timestamps, bytes, JSON |
  * | client-raw                        | $queryRaw with bindings                          |
+ * | cursor-pagination, distinct       | a root cursor in key order, with distinct        |
+ * | string-filter, json-filter        | LIKE metacharacters, insensitive, JSON paths     |
  *
  * Every other contract writes as its subject (nested writes, upserts,
  * ordering, polymorphic writes, raw indexes, migrations) and is refused on
  * Snowflake: `snowflake-client.core.test.ts` pins those refusals.
+ *
+ * What the driver states of the SQL API — several partitions, a 202 then
+ * polls, a cancel — is read from the exchanges themselves (`recording`), not
+ * assumed from the statement sent.
  */
 
-import { createClient, SnowflakeDriver } from "@drivers/snowflake";
+import {
+  createClient,
+  SnowflakeDriver,
+  type SnowflakeDriverOptions,
+} from "@drivers/snowflake";
 import { SnowflakeAuthenticator } from "@drivers/snowflake/auth";
 import { SnowflakeTransport } from "@drivers/snowflake/transport";
 import { QueryError, VibORMErrorCode } from "@errors";
@@ -49,6 +59,11 @@ interface Credentials {
 const raw = process.env.SNOWFLAKE_TEST_CREDENTIALS;
 const credentials: Credentials | undefined = raw ? JSON.parse(raw) : undefined;
 const SCHEMA = `VIBORM_TEST_${Date.now().toString(36).toUpperCase()}`;
+/** How Snowflake's history names a statement that ended in failure. */
+const FAILED = /^FAILED/;
+const STOPPED = /timeout|cancel/i;
+/** A second schema, holding the target of a key out of `SCHEMA`. */
+const ELSEWHERE = `${SCHEMA}_X`;
 
 const author = s
   .model({
@@ -118,7 +133,17 @@ const authorTag = s
   .id(["authorId", "tagId"])
   .map("AUTHOR_TAGS");
 
-const schema = { author, post, tag, authorTag, place };
+const note = s
+  .model({
+    id: s.int().id(),
+    body: s.string().unique(),
+    kind: s.string().nullable(),
+    at: s.dateTime().nullable(),
+    data: s.json().nullable(),
+  })
+  .map("NOTES");
+
+const schema = { author, post, tag, authorTag, place, note };
 
 const SEED = [
   `CREATE SCHEMA "${SCHEMA}"`,
@@ -145,9 +170,51 @@ const SEED = [
     (6, 2, 'hole-boundary', 175, 0, NULL, NULL, '[0.5, 0.5, 0]', 4::FLOAT),
     (7, 3, 'west-dateline', -175, 0, NULL, NULL, '[0, 0, 1]', 5::FLOAT)`,
   `INSERT INTO "${SCHEMA}"."AUTHOR_TAGS" VALUES (1, 1), (1, 2), (2, 2)`,
+  `CREATE TABLE "${SCHEMA}"."NOTES" ("id" NUMBER(9,0) NOT NULL PRIMARY KEY, "body" VARCHAR NOT NULL UNIQUE, "kind" VARCHAR DEFAULT 'memo', "at" TIMESTAMP_NTZ(9) DEFAULT CURRENT_TIMESTAMP(), "data" VARIANT)`,
+  // A Snowflake string literal escapes with a backslash: this template's
+  // 'a\\\\b' is the SQL 'a\\b', the text a\b.
+  `INSERT INTO "${SCHEMA}"."NOTES" ("id", "body", "data") SELECT column1, column2, PARSE_JSON(column3) FROM VALUES
+    (1, '50% off', '{"k":2}'),
+    (2, '5_0', '{"k":[1,null]}'),
+    (3, 'a\\\\b', '{"k":"3"}'),
+    (4, 'A%b', '{"s":"hello","arr":[1,2]}'),
+    (5, 'plain', NULL)`,
+  `CREATE TABLE "${SCHEMA}"."REVISIONS" ("noteId" NUMBER(9,0) NOT NULL REFERENCES "${SCHEMA}"."NOTES" ("id"), "rev" NUMBER(9,0) NOT NULL, "body" VARCHAR, PRIMARY KEY ("noteId", "rev"))`,
+  `CREATE SCHEMA "${ELSEWHERE}"`,
+  `CREATE TABLE "${ELSEWHERE}"."CUSTOMERS" ("id" NUMBER(9,0) NOT NULL PRIMARY KEY)`,
+  `CREATE TABLE "${SCHEMA}"."INVOICES" ("id" NUMBER(9,0) NOT NULL PRIMARY KEY, "customerId" NUMBER(9,0) REFERENCES "${ELSEWHERE}"."CUSTOMERS" ("id"))`,
 ];
 
-function transport(credentials: Credentials): SnowflakeTransport {
+/** One request the driver sent, and the status Snowflake answered. */
+interface Exchange {
+  readonly method: string;
+  readonly path: string;
+  readonly status: number;
+}
+
+/** A `fetch` that records each exchange. */
+function recording() {
+  const exchanges: Exchange[] = [];
+  const send = async (input: string, init: RequestInit) => {
+    const response = await fetch(input, init);
+    const url = new URL(input);
+    exchanges.push({
+      method: init.method ?? "GET",
+      path: `${url.pathname}${url.search}`,
+      status: response.status,
+    });
+    return response;
+  };
+  return { exchanges, fetch: send };
+}
+
+function transport(
+  credentials: Credentials,
+  send: (input: string, init: RequestInit) => Promise<Response> = (
+    input,
+    init
+  ) => fetch(input, init)
+): SnowflakeTransport {
   return new SnowflakeTransport({
     baseUrl: `https://${credentials.account.toLowerCase()}.snowflakecomputing.com`,
     authenticator: new SnowflakeAuthenticator({
@@ -161,11 +228,14 @@ function transport(credentials: Credentials): SnowflakeTransport {
       ...(credentials.role ? { role: credentials.role } : {}),
     },
     parameters: { TIMEZONE: "UTC" },
-    fetch: (input, init) => fetch(input, init),
+    fetch: send,
   });
 }
 
-function client(credentials: Credentials) {
+function client(
+  credentials: Credentials,
+  options: Pick<SnowflakeDriverOptions, "fetch" | "timeout" | "parameters"> = {}
+) {
   return createClient({
     schema,
     account: credentials.account,
@@ -175,6 +245,7 @@ function client(credentials: Credentials) {
     database: credentials.database,
     namespace: SCHEMA,
     ...(credentials.role ? { role: credentials.role } : {}),
+    ...options,
   });
 }
 
@@ -188,6 +259,7 @@ describe.skipIf(credentials === undefined)("Snowflake, a real account", () => {
 
   afterAll(async () => {
     await sql?.run(`DROP SCHEMA IF EXISTS "${SCHEMA}" CASCADE`, undefined);
+    await sql?.run(`DROP SCHEMA IF EXISTS "${ELSEWHERE}" CASCADE`, undefined);
   }, 120_000);
 
   it("pages each author's posts: take, negative take and skip", async () => {
@@ -308,37 +380,112 @@ describe.skipIf(credentials === undefined)("Snowflake, a real account", () => {
   });
 
   it("reads a result of several partitions, in order", async () => {
-    const rows = await db!.$queryRaw<{ N: number }>`
+    const { exchanges, fetch: send } = recording();
+    const rows = await client(credentials!, { fetch: send }).$queryRaw<{
+      N: number;
+    }>`
       SELECT SEQ4() AS N, RANDSTR(64, RANDOM()) AS PAD
       FROM TABLE(GENERATOR(ROWCOUNT => 200000)) ORDER BY N`;
     expect(rows).toHaveLength(200_000);
     expect(rows.every((row, index) => row.N === index)).toBe(true);
+    // The result did come in partitions past the first, each read.
+    const partitions = exchanges.filter((exchange) =>
+      exchange.path.includes("partition=")
+    );
+    expect(partitions.length).toBeGreaterThan(0);
+    expect(partitions.every((exchange) => exchange.status === 200)).toBe(true);
   });
 
   it("polls a statement Snowflake answers 202 to, past its 45 s", async () => {
-    const [row] = await db!.$queryRaw<{ DONE: string }>`
+    const { exchanges, fetch: send } = recording();
+    const [row] = await client(credentials!, { fetch: send }).$queryRaw<{
+      DONE: string;
+    }>`
       SELECT SYSTEM$WAIT(50) AS DONE`;
     expect(row!.DONE).toContain("waited");
+    // Snowflake did answer 202, and the driver polled until the result.
+    expect(exchanges[0]).toMatchObject({ method: "POST", status: 202 });
+    expect(exchanges.at(-1)).toMatchObject({ method: "GET", status: 200 });
   }, 120_000);
 
-  it("cancels a statement past the driver's timeout", async () => {
-    const timed = createClient({
-      schema,
-      account: credentials!.account,
-      username: credentials!.user,
-      privateKey: credentials!.privateKey,
-      warehouse: credentials!.warehouse,
-      database: credentials!.database,
-      namespace: SCHEMA,
+  /** What Snowflake's history says of the statements tagged `tag`. */
+  async function history(tag: string) {
+    for (let attempt = 0; ; attempt++) {
+      const rows = await db!.$queryRaw<{
+        STATUS: string;
+        MESSAGE: string | null;
+      }>`
+        SELECT EXECUTION_STATUS AS STATUS, ERROR_MESSAGE AS MESSAGE
+        FROM TABLE(INFORMATION_SCHEMA.QUERY_HISTORY_BY_USER(RESULT_LIMIT => 100))
+        WHERE QUERY_TAG = ${tag}`;
+      // The history records a statement's end a little after it.
+      if (
+        (rows.length > 0 && rows.every((row) => row.STATUS !== "RUNNING")) ||
+        attempt === 10
+      )
+        return rows;
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+  }
+
+  it("answers a timeout past the driver's timeout, and Snowflake stops the statement", async () => {
+    const tag = `${SCHEMA}_TIMEOUT`;
+    const { exchanges, fetch: send } = recording();
+    const failure = await client(credentials!, {
       timeout: 5,
-      ...(credentials!.role ? { role: credentials!.role } : {}),
-    });
-    const failure = await timed.$queryRaw`SELECT SYSTEM$WAIT(60) AS DONE`.catch(
+      fetch: send,
+      parameters: { QUERY_TAG: tag },
+    }).$queryRaw`SELECT SYSTEM$WAIT(60) AS DONE`.catch(
       (error: unknown) => error
     );
     expect(failure).toBeInstanceOf(QueryError);
     expect(failure).toMatchObject({ code: VibORMErrorCode.QUERY_TIMEOUT });
-  }, 60_000);
+    // Snowflake answers no handle before its first 202 (45 s): the statement's
+    // own timeout, sent with it, is what stops it there.
+    expect(
+      exchanges.some((exchange) => exchange.path.endsWith("/cancel"))
+    ).toBe(false);
+    expect(await history(tag)).toEqual([
+      expect.objectContaining({
+        STATUS: expect.stringMatching(FAILED),
+        MESSAGE: expect.stringMatching(STOPPED),
+      }),
+    ]);
+  }, 90_000);
+
+  it("cancels a statement it abandons after Snowflake's 202, and Snowflake stops it", async () => {
+    const tag = `${SCHEMA}_CANCEL`;
+    const { exchanges, fetch: send } = recording();
+    const tagged = new SnowflakeTransport({
+      baseUrl: `https://${credentials!.account.toLowerCase()}.snowflakecomputing.com`,
+      authenticator: new SnowflakeAuthenticator({
+        account: credentials!.account,
+        username: credentials!.user,
+        privateKey: credentials!.privateKey,
+      }),
+      context: {
+        warehouse: credentials!.warehouse,
+        ...(credentials!.role ? { role: credentials!.role } : {}),
+      },
+      parameters: { TIMEZONE: "UTC", QUERY_TAG: tag },
+      fetch: send,
+    });
+    // No server-side timeout: past the 202 at 45 s, only the cancel stops it.
+    await tagged
+      .run(
+        "SELECT SYSTEM$WAIT(90) AS DONE",
+        undefined,
+        AbortSignal.timeout(50_000)
+      )
+      .catch((error: unknown) => error);
+    expect(exchanges[0]).toMatchObject({ method: "POST", status: 202 });
+    expect(
+      exchanges.filter((exchange) => exchange.path.endsWith("/cancel"))
+    ).toEqual([expect.objectContaining({ method: "POST", status: 200 })]);
+    expect(await history(tag)).toEqual([
+      expect.objectContaining({ STATUS: expect.stringMatching(FAILED) }),
+    ]);
+  }, 120_000);
 
   const PARIS = { longitude: 2.352_221_9, latitude: 48.856_614 };
   const LONDON = { longitude: -0.1276, latitude: 51.5072 };
@@ -477,6 +624,141 @@ describe.skipIf(credentials === undefined)("Snowflake, a real account", () => {
     ).toEqual([{ id: 3 }]);
   });
 
+  it("pages with a root cursor in the key's order, ascending, descending and with distinct", async () => {
+    const ids = (rows: readonly { id: number }[]) => rows.map((row) => row.id);
+    expect(
+      ids(
+        await db!.post.findMany({
+          cursor: { id: 2 },
+          orderBy: { id: "asc" },
+          select: { id: true },
+        })
+      )
+    ).toEqual([2, 3, 4, 5, 6]);
+    expect(
+      ids(
+        await db!.post.findMany({
+          cursor: { id: 3 },
+          orderBy: { id: "desc" },
+          select: { id: true },
+        })
+      )
+    ).toEqual([3, 2, 1]);
+    expect(
+      ids(
+        await db!.post.findMany({
+          cursor: { id: 2 },
+          orderBy: { id: "asc" },
+          distinct: ["authorId"],
+          select: { id: true },
+        })
+      )
+    ).toEqual([2, 5, 6]);
+    expect(
+      ids(
+        await db!.post.findMany({
+          orderBy: { id: "asc" },
+          distinct: ["authorId"],
+          skip: 1,
+          take: 1,
+          select: { id: true },
+        })
+      )
+    ).toEqual([5]);
+  });
+
+  it("refuses the recursive walk VibORM would write, which is why recursive filters are refused", async () => {
+    // A recursive filter's form: a WITH RECURSIVE inside a correlated EXISTS,
+    // its members joined by UNION, no column list.
+    const failure = await db!
+      .$queryRawUnsafe(
+        'SELECT "q0"."id" FROM "AUTHORS" AS "q0" WHERE EXISTS (WITH RECURSIVE "w" AS (SELECT "q0"."id" AS "k" UNION SELECT "w"."k" + 1 FROM "w" WHERE "w"."k" < 3) SELECT 1 FROM "w" WHERE "w"."k" = 2)'
+      )
+      .catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(QueryError);
+    expect(failure).toMatchObject({
+      message: expect.stringContaining("invalid Recursive CTE"),
+    });
+  });
+
+  it("reads two levels of nested relations", async () => {
+    const authors = await db!.author.findMany({
+      orderBy: { id: "asc" },
+      select: {
+        id: true,
+        posts: {
+          orderBy: { id: "asc" },
+          take: 1,
+          select: { id: true, author: { select: { name: true } } },
+        },
+      },
+    });
+    expect(authors).toEqual([
+      { id: 1, posts: [{ id: 1, author: { name: "Ada" } }] },
+      { id: 2, posts: [{ id: 5, author: { name: "Bob" } }] },
+      { id: 3, posts: [] },
+    ]);
+  });
+
+  it("reads instants before 1970, non-finite doubles and NULL members exactly", async () => {
+    const [row] = await db!.$queryRaw<Record<string, unknown>>`
+      SELECT '1969-12-31 23:59:58.5'::TIMESTAMP_NTZ AS NTZ,
+        '1900-01-01 00:00:00'::TIMESTAMP_LTZ AS LTZ,
+        '1969-12-31 22:30:00 -01:30'::TIMESTAMP_TZ AS TZ,
+        '1969-12-31'::DATE AS D,
+        ${Number.POSITIVE_INFINITY}::FLOAT AS PINF,
+        ${Number.NEGATIVE_INFINITY}::FLOAT AS NINF,
+        ${Number.NaN}::FLOAT AS NOT_A_NUMBER,
+        ARRAY_CONSTRUCT(1, NULL) AS LIST,
+        OBJECT_CONSTRUCT_KEEP_NULL('a', NULL) AS DOC`;
+    expect(row).toEqual({
+      NTZ: "1969-12-31T23:59:58.500000000Z",
+      LTZ: "1900-01-01T00:00:00.000000000Z",
+      TZ: "1969-12-31T22:30:00.000000000-01:30",
+      D: "1969-12-31",
+      PINF: Number.POSITIVE_INFINITY,
+      NINF: Number.NEGATIVE_INFINITY,
+      NOT_A_NUMBER: Number.NaN,
+      LIST: [1, null],
+      DOC: { a: null },
+    });
+  });
+
+  it("filters text with LIKE's metacharacters, insensitively, and JSON at a path; omits", async () => {
+    const ids = async (where: NoteWhere) =>
+      (
+        await db!.note.findMany({
+          where,
+          orderBy: { id: "asc" },
+          select: { id: true },
+        })
+      ).map((row) => row.id);
+    expect(await ids({ body: { contains: "%" } })).toEqual([1, 4]);
+    expect(await ids({ body: { startsWith: "5_" } })).toEqual([2]);
+    expect(await ids({ body: { contains: "\\" } })).toEqual([3]);
+    expect(await ids({ body: { endsWith: "_0" } })).toEqual([2]);
+    expect(await ids({ body: { equals: "a%B", mode: "insensitive" } })).toEqual(
+      [4]
+    );
+    expect(
+      await ids({ body: { contains: "OFF", mode: "insensitive" } })
+    ).toEqual([1]);
+    // An array and a string at the path are not numbers, and fail nothing.
+    expect(await ids({ data: { path: ["k"], gt: 1 } })).toEqual([1]);
+    expect(await ids({ data: { path: ["k"], equals: "3" } })).toEqual([3]);
+    expect(
+      await ids({ data: { path: ["s"], string_contains: "ell" } })
+    ).toEqual([4]);
+    expect(await ids({ data: { path: ["arr"], array_contains: [2] } })).toEqual(
+      [4]
+    );
+    const omitted = await db!.note.findUnique({
+      where: { id: 1 },
+      omit: { data: true, at: true },
+    });
+    expect(omitted).toEqual({ id: 1, body: "50% off", kind: "memo" });
+  });
+
   it("introspects the schema, its declared keys as relations", async () => {
     const result = await introspectSchema({
       driver: new SnowflakeDriver({
@@ -488,10 +770,29 @@ describe.skipIf(credentials === undefined)("Snowflake, a real account", () => {
         namespace: SCHEMA,
         ...(credentials!.role ? { role: credentials!.role } : {}),
       }),
-      light: true,
     });
-    expect(Object.keys(result.document.models)).toEqual(
-      expect.arrayContaining(["AUTHORS", "POSTS", "TAGS", "PLACES"])
+    const { models } = result.document;
+    expect(Object.keys(models)).toEqual(
+      expect.arrayContaining(["AUTHORS", "POSTS", "TAGS", "PLACES", "NOTES"])
+    );
+    // Declared keys: a single primary key, a compound one, a unique key, and
+    // the defaults Snowflake states.
+    expect(models.AUTHORS!.fields.id).toMatchObject({ type: "int", id: true });
+    expect(models.REVISIONS!.ids).toEqual([
+      expect.objectContaining({ fields: ["noteId", "rev"] }),
+    ]);
+    expect(models.NOTES!.fields).toMatchObject({
+      body: { type: "string", unique: true },
+      kind: { type: "string", nullable: true, default: "memo" },
+      at: { type: "datetime", generate: { kind: "now" } },
+    });
+    // A key into another schema is said, not read as a relation here.
+    expect(result.skipped).toContainEqual(
+      expect.objectContaining({
+        kind: "foreignKey",
+        table: "INVOICES",
+        reason: expect.stringContaining(`${ELSEWHERE}.CUSTOMERS`),
+      })
     );
     expect(result.document.models.PLACES!.fields).toMatchObject({
       location: { type: "point" },
@@ -509,6 +810,10 @@ describe.skipIf(credentials === undefined)("Snowflake, a real account", () => {
     );
   });
 });
+
+type NoteWhere = NonNullable<
+  Parameters<ReturnType<typeof client>["note"]["findMany"]>[0]
+>["where"];
 
 type PlaceWhere = NonNullable<
   Parameters<ReturnType<typeof client>["place"]["findMany"]>[0]

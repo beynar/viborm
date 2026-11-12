@@ -271,18 +271,22 @@ export class SnowflakeMigrationDriver extends MigrationDriver {
       if (onUpdate) foreignKey.onUpdate = onUpdate;
       byTable.get(first.fk_table_name)?.foreignKeys.push(foreignKey);
     }
-    await this.vectorTypes(executeRaw, scope, [...byTable.values()]);
+    await this.vectorTypes(executeRaw, (table) => `${scope}.${quote(table)}`, [
+      ...byTable.values(),
+    ]);
     return { tables: [...byTable.values()] };
   }
 
   /**
    * `INFORMATION_SCHEMA` names a vector column `VECTOR` and nothing more;
    * `SHOW COLUMNS` states its element type and dimension, read here into
-   * `vector(float, 3)` / `vector(int, 3)`.
+   * `vector(float, 3)` / `vector(int, 3)`. It is asked of each table holding
+   * one: `SHOW COLUMNS` answers at most 10,000 rows, which a whole schema
+   * can pass.
    */
   private async vectorTypes(
     executeRaw: ExecuteRaw,
-    scope: string,
+    qualified: (table: string) => string,
     tables: readonly TableDef[]
   ): Promise<void> {
     const vectors = tables.flatMap((table) =>
@@ -290,18 +294,16 @@ export class SnowflakeMigrationDriver extends MigrationDriver {
         .filter((column) => column.type === "vector")
         .map((column) => ({ table: table.name, column }))
     );
-    if (vectors.length === 0) return;
-    const { rows } = await executeRaw<{
-      table_name: string;
-      column_name: string;
-      data_type: string;
-    }>(`SHOW COLUMNS IN SCHEMA ${scope}`);
-    const declared = new Map(
-      rows.map((row) => [
-        `${row.table_name}\0${row.column_name}`,
-        row.data_type,
-      ])
-    );
+    const declared = new Map<string, string>();
+    for (const table of new Set(vectors.map((vector) => vector.table))) {
+      const { rows } = await executeRaw<{
+        table_name: string;
+        column_name: string;
+        data_type: string;
+      }>(`SHOW COLUMNS IN TABLE ${qualified(table)}`);
+      for (const row of rows)
+        declared.set(`${row.table_name}\0${row.column_name}`, row.data_type);
+    }
     for (const { table, column } of vectors) {
       let parsed: unknown;
       try {

@@ -326,7 +326,8 @@ describe("introspectSchema on Snowflake", () => {
       'SHOW PRIMARY KEYS IN SCHEMA "SALES"."PUBLIC"',
       'SHOW UNIQUE KEYS IN SCHEMA "SALES"."PUBLIC"',
       'SHOW IMPORTED KEYS IN SCHEMA "SALES"."PUBLIC"',
-      'SHOW COLUMNS IN SCHEMA "SALES"."PUBLIC"',
+      // One table holds vectors: SHOW COLUMNS caps a whole schema at 10,000.
+      'SHOW COLUMNS IN TABLE "SALES"."PUBLIC"."ORDERS"',
     ]);
   });
 
