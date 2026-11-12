@@ -25,6 +25,7 @@ import {
   type PreparedProjection,
   type Query,
   readUpdate,
+  returningSafeProjection,
 } from "../shared/query";
 import type { EngineSchema, Input } from "../shared/schema";
 import type { SqlOperationContext } from "../shared/sql-operation-context";
@@ -109,6 +110,14 @@ type Entry = (
       readonly projection?: PreparedProjection;
     }
   | {
+      /** The row a question names takes `set`; where there is none, `row` is created. */
+      readonly kind: "either";
+      readonly question: Question;
+      readonly row: Input;
+      readonly set: Input;
+      readonly projection: PreparedProjection;
+    }
+  | {
       readonly kind: "link";
       readonly edge: Junction;
       readonly from: Row;
@@ -189,12 +198,14 @@ export class Store {
   #known = new Map<string, Row>();
   #log: Entry[] = [];
   #missed = new Map<string, { question: Question; after: number }>();
-  #presumed = new Map<string, { question: Question; row: Row; at: number }>();
+  #presumed = new Map<string, { question: Question; row?: Row; at: number }>();
   #used = new Map<Answer, number>();
   /** What the database may hold of a model beyond what the call knows: every field of its rows, or those named. */
   #stale = new Map<AnyModel, Set<string> | true>();
   #again = false;
   #made = 0;
+  /** The call's unit is handed over: what the call hears of it comes too late to stop it. */
+  #handed = false;
   constructor(operation: SqlOperationContext, transport: Transport) {
     this.operation = operation;
     this.writer = new Writer(operation);
@@ -263,10 +274,11 @@ export class Store {
   }
   /** Runs the verbs, and hands their unit over instead of sending it. */
   async prepare<T>(work: () => () => T) {
+    this.#handed = true;
     const answer = await this.#settle(work);
     const written: { statements: Statement[]; step: Step }[] = [];
     try {
-      for (const step of this.#steps(this.#log.length, false))
+      for (const step of this.#steps(this.#log.length))
         written.push({ statements: await step.write(), step });
     } catch (error) {
       // None of its statements may wait for what the database says.
@@ -781,6 +793,13 @@ export class Store {
       return later;
     }
     this.writable(question);
+    // A row that must be there is asked for where what the write says of it comes too late.
+    if (question.must && this.#handed)
+      this.#presumed.set(`all:${this.#log.length}`, {
+        question,
+        row: undefined,
+        at: this.#log.length,
+      });
     this.#note({
       kind: "all",
       question,
@@ -792,6 +811,59 @@ export class Store {
     });
     this.#spoil(model, set && Object.keys(set));
     if (!set) this.#cascades(model);
+    return later;
+  }
+  /**
+   * The row a question names takes `set`; where there is none, a row is
+   * created of what was `admitted`. None where no one statement says so.
+   */
+  either(
+    question: Question,
+    admitted: Input,
+    raw: Input,
+    set: Input,
+    projection: PreparedProjection
+  ): Later | undefined {
+    const { model } = question;
+    const q = this.operation.queries;
+    const { capabilities } = this.operation.driver.adapter;
+    const selector = this.writer.selector(question);
+    const pins = selector.uniqueValues;
+    const row = this.values(model, "create", admitted, raw);
+    const fields = Object.keys(set);
+    if (
+      !(
+        capabilities.supportsTargetedUpsert &&
+        capabilities.supportsReturning &&
+        selector.uniqueKey &&
+        pins
+      ) ||
+      selector.scoped ||
+      q.domain?.produced(model) ||
+      fields.length === 0 ||
+      this.operation.schema.keys(model).some((key) => key in set) ||
+      // The row created is the one the question would name.
+      !selector.uniqueKey.fields.every(
+        (field) =>
+          (row[field] === null || typeof row[field] !== "object") &&
+          Object.is(row[field], pins.get(field))
+      ) ||
+      !fields.every((field) => q.namesUpdate(model, field, set[field])) ||
+      !this.operation.answersInStatement(model, projection, "update", set)
+    )
+      return undefined;
+    const later: Later = {};
+    this.#note({
+      kind: "either",
+      question,
+      row,
+      set,
+      projection,
+      take: ([sent]) => {
+        later.sent = sent;
+      },
+    });
+    this.#spoil(model);
     return later;
   }
   /** `to` is made a member of `from`'s through a junction. */
@@ -878,7 +950,7 @@ export class Store {
    * believed must still hold, then every write not sent yet, in order. Rows
    * written the same way side by side travel in one statement.
    */
-  #steps(to: number, alone = true): Step[] {
+  #steps(to: number): Step[] {
     const { writer } = this;
     const { schema } = this.operation;
     const { holds } = this.#transport;
@@ -930,7 +1002,7 @@ export class Store {
           (entry.kind === "update" || entry.kind === "delete") &&
           entry.row === row
       );
-      if (first && writer.counts && (holds || (alone && writes === 1)))
+      if (first && writer.counts && (holds || !(this.#handed || writes > 1)))
         confirms.set(first, question);
       else
         steps.push({
@@ -957,6 +1029,58 @@ export class Store {
           this.operation.operation
         );
     };
+    /**
+     * The reads of one row its own write answers: the write just before it,
+     * or an earlier one where the read asks only what the row itself holds
+     * and nothing noted between them can change the row.
+     */
+    const own = new Map<
+      Entry,
+      { read: Extract<Entry, { kind: "read" }>; place: number }
+    >();
+    const told = new Set<Entry>();
+    for (let place = this.#sent; place < to; place++) {
+      const read = log[place]!;
+      if (!(read.kind === "read" && read.projection && read.rows.length === 1))
+        continue;
+      const [row] = read.rows;
+      const { model } = read;
+      for (let at = place - 1; at >= this.#sent; at--) {
+        const entry = log[at]!;
+        if (
+          (entry.kind === "insert" || entry.kind === "update") &&
+          entry.row === row
+        ) {
+          if (
+            !own.has(entry) &&
+            (at === place - 1 || returningSafeProjection(read.projection)) &&
+            (entry.kind === "insert" || entry.hears.length === 0) &&
+            this.operation.answersInStatement(
+              model,
+              read.projection,
+              entry.kind,
+              entry.kind === "update" ? entry.set : undefined
+            )
+          ) {
+            own.set(entry, { read, place });
+            told.add(read);
+          }
+          break;
+        }
+        // What may change the row between its write and its read.
+        const touched =
+          entry.kind === "all" || entry.kind === "either"
+            ? entry.question.model
+            : entry.kind === "delete" || entry.kind === "update"
+              ? this.#meta.get(entry.row)!.model
+              : undefined;
+        if (
+          touched === model ||
+          (touched && dependentsOf(schema, touched).has(model))
+        )
+          break;
+      }
+    }
     /** The read of rows that follows `at`, where the statement that writes those rows may answer it. */
     const answered = (
       at: number,
@@ -1009,7 +1133,7 @@ export class Store {
         entry.take?.(sent, queries);
       };
       /** Tells the read a write answered what the write said. */
-      const told =
+      const tells =
         (read: Entry | undefined, from: number) => (sent: Sent[]) => {
           this.#heard.set(from, sent);
           confirmed(entry, sent[0]!);
@@ -1032,12 +1156,19 @@ export class Store {
           next.relation === entry.relation &&
           writer.beside(model, rows.map(settled), settled(next.row));
         let rows = [entry.row];
+        const mine = own.get(entry);
         // The rows written side by side that the read after them asks for, and nothing else of what the database decides of them: their statement answers it.
         let end = at + 1;
-        while (end < to && fits(rows, log[end]))
+        while (!mine && end < to && fits(rows, log[end]))
           rows.push((log[end++] as typeof entry).row);
-        let read = answered(end, rows, "insert");
-        if (read && !rows.some((row) => (needed.get(row) ?? 0) > 1)) at = end;
+        let read = mine?.read ?? answered(end, rows, "insert");
+        if (mine && (needed.get(entry.row) ?? 0) > 1) {
+          // Another statement needs what the database decides of the row: it is heard, and read after.
+          told.delete(mine.read);
+          read = undefined;
+        } else if (mine) rows = [entry.row];
+        else if (read && !rows.some((row) => (needed.get(row) ?? 0) > 1))
+          at = end;
         else {
           read = undefined;
           rows = [entry.row];
@@ -1045,7 +1176,7 @@ export class Store {
           beside<typeof entry>((next) => {
             const joins =
               fits(rows, next) &&
-              !(needed.has(entry.row) || needed.has(next.row));
+              !(needed.has(entry.row) || needed.has(next.row) || own.has(next));
             if (joins) rows.push(next.row);
             return joins;
           });
@@ -1075,7 +1206,11 @@ export class Store {
             entry.row[decided[0]!] = kept.value;
             return kept.statements;
           },
-          take: read ? told(read, at) : hears ? take : undefined,
+          take: read
+            ? tells(read, mine?.place ?? at)
+            : hears
+              ? take
+              : undefined,
         });
       } else if (entry.kind === "update") {
         const { model } = entry.question;
@@ -1086,13 +1221,11 @@ export class Store {
             next.set === entry.set &&
             next.question.model === model &&
             hears.length === 0 &&
-            !(confirms.has(entry) || confirms.has(next))
+            !(confirms.has(entry) || confirms.has(next) || own.has(next))
         );
-        const read =
-          run.length === 1 && hears.length === 0
-            ? answered(at + 1, [entry.row], "update", entry.set)
-            : undefined;
-        if (read) at++;
+        const mine = run.length === 1 ? own.get(entry) : undefined;
+        if (!mine && own.has(entry)) told.delete(own.get(entry)!.read);
+        const read = mine?.read;
         steps.push({
           write: async () => [
             await writer.update(
@@ -1103,7 +1236,7 @@ export class Store {
                 (hears.length > 0 ? writer.key(model) : undefined)
             ),
           ],
-          take: read ? told(read, place + 1) : take,
+          take: read ? tells(read, mine!.place) : take,
         });
       } else if (entry.kind === "delete") {
         const { model } = entry.question;
@@ -1136,6 +1269,18 @@ export class Store {
           ],
           take,
         });
+      else if (entry.kind === "either")
+        steps.push({
+          write: async () => [
+            await writer.either(
+              entry.question,
+              this.#said(entry.row),
+              this.#said(entry.set),
+              entry.projection
+            ),
+          ],
+          take,
+        });
       else if (entry.kind === "link") {
         const run = beside<Extract<Entry, { kind: "link" }>>(
           (next) => next.kind === "link" && next.edge === entry.edge
@@ -1165,7 +1310,7 @@ export class Store {
         steps.push({
           write: () => [writer.none(entry.question, entry.stops)],
         });
-      else {
+      else if (!told.has(entry)) {
         // A row read as it goes is answered by the statement that removes it.
         const removal = log[at + 1];
         if (

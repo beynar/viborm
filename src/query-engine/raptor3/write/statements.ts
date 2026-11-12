@@ -389,6 +389,54 @@ export class Writer {
       statement = sql`${statement} ${mutations.returning(sql.raw("1"))}`;
     return { model, sql: statement };
   }
+  /**
+   * The row a question names by one of its model's keys takes `set`; where
+   * there is none, `row` is created. It answers with the row as `projection`
+   * says.
+   */
+  async either(
+    question: Question,
+    row: Input,
+    set: Input,
+    projection: PreparedProjection
+  ): Promise<Statement> {
+    const q = this.#q;
+    const { model } = question;
+    const {
+      identifiers,
+      mutations,
+      set: assignments,
+    } = this.#operation.driver.adapter;
+    const insert = await this.insert(model, [row]);
+    const table = model["~"].names.sql!;
+    const conflict = mutations.onConflict(
+      sql.join(
+        this.selector(question).uniqueKey!.fields.map((field) =>
+          identifiers.escape(q.columnName(model, field))
+        ),
+        ", "
+      ),
+      mutations.onConflictUpdate(
+        sql.join(
+          Object.entries(set).map(([field, value]) =>
+            assignments.assign(
+              q.column(model, field),
+              q.updateValue(model, field, value, q.column(model, field, table))
+            )
+          ),
+          ", "
+        )
+      )
+    );
+    return {
+      model,
+      sql: this.#operation.answering(
+        model,
+        sql`${insert.sql} ${conflict}`,
+        projection
+      ),
+    };
+  }
   /** Whether the call's writes of the rows a question names are judged beyond what it may see. */
   judges(question: Question): boolean {
     return Boolean(

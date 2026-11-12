@@ -322,11 +322,9 @@ export function verbs(store: Store) {
         writes: writes(edge.target, values),
         verb: "updateMany",
       };
+      const set = store.values(edge.target, "update", values, stated(values));
       // Rows that take the same fields are written at once; rows of which a relation or a key is written are each written as an update writes its row.
-      if (
-        relationsOf(edge.target, values).length === 0 &&
-        !schema.keys(edge.target).some((key) => values[key] !== undefined)
-      )
+      if (plain(edge.target, values, set))
         store.all(
           {
             model: edge.target,
@@ -334,7 +332,7 @@ export function verbs(store: Store) {
             member: { edge, of: parent },
             ...ask,
           },
-          store.values(edge.target, "update", values, stated(values))
+          set
         );
       else
         for (const row of members(parent, edge, where as Input, ask))
@@ -474,20 +472,32 @@ export function verbs(store: Store) {
         nested[verb]!(parent, edge, entry as Input);
   }
 
-  /** The call's row, read as the caller asked once the writes before this are sent. */
-  const answering = (model: AnyModel, row: Row, args: Arguments) => {
+  /** One row as the caller asked for it: none is no row of the call's. */
+  const one = (model: AnyModel, args: Arguments) => {
     const projection = q.prepareProjection(model, args);
-    let value: unknown;
-    store.read(row, projection, (rows) => {
-      // A row the call wrote and cannot read is no row of its own.
+    const said = (rows: Input[]) => {
       if (rows.length === 0)
         throw new NotFoundError(model["~"].names.ts!, operation.operation);
-      [value] = q.decodeResult(rows, operation.operation, (read) =>
+      return q.decodeResult(rows, operation.operation, (read) =>
         q.decodeProjection(projection.shape, read)
-      );
+      )[0];
+    };
+    return { projection, said };
+  };
+  /** The call's row, read as the caller asked once the writes before this are sent. */
+  const answering = (model: AnyModel, row: Row, args: Arguments) => {
+    const { projection, said } = one(model, args);
+    let value: unknown;
+    store.read(row, projection, (rows) => {
+      value = said(rows);
     });
     return () => value;
   };
+  /** Whether a write of rows of `model` writes nothing but what `set` says of them, and no key: one statement names the rows itself. */
+  const plain = (model: AnyModel, data: Input, set: Input) =>
+    relationsOf(model, data).length === 0 &&
+    Object.keys(set).length > 0 &&
+    !schema.keys(model).some((key) => set[key] !== undefined);
   /** A verb over many rows answers with them as the caller selected them, or with their number. */
   const many = (model: AnyModel, args: Arguments) => {
     const select = args.select as Input | undefined;
@@ -523,13 +533,20 @@ export function verbs(store: Store) {
     },
     update(model: AnyModel, args: Arguments, raw: Input) {
       const data = paired(args.data as Input, raw.data);
-      const row = store.one({
+      const question: Question = {
         model,
         where: args.where as Input,
         unique: true,
         intent: "update",
         writes: writes(model, data),
-      });
+      };
+      const set = store.values(model, "update", data, stated(data));
+      if (plain(model, data, set)) {
+        const { projection, said } = one(model, args);
+        const later = store.all({ ...question, must: true }, set, projection);
+        return () => said(later.sent!.rows);
+      }
+      const row = store.one(question);
       write(model, row, data);
       return answering(model, row, args);
     },
@@ -546,13 +563,9 @@ export function verbs(store: Store) {
         intent: "update",
         writes: writes(model, data),
       };
-      const plain = !relations.some(({ edge }) => holds(edge));
+      const beside = !relations.some(({ edge }) => holds(edge));
       const set = store.values(model, "update", data, stated(data));
-      // Nothing but the rows is written, and no key: one statement names them itself.
-      if (
-        relations.length === 0 &&
-        !schema.keys(model).some((key) => set[key] !== undefined)
-      ) {
+      if (plain(model, data, set)) {
         const later = store.all(question, set, projection);
         return () =>
           projection
@@ -562,7 +575,7 @@ export function verbs(store: Store) {
       const rows = store.rows(question);
       several = rows.length;
       // Rows that take the same values are written side by side, before what their relations ask.
-      if (plain)
+      if (beside)
         for (const row of rows) store.update(row, set, question.writes);
       for (const [at, row] of rows.entries()) {
         // Each row is written of its own copy of what the caller wrote: what a default fills is that row's own.
@@ -577,7 +590,7 @@ export function verbs(store: Store) {
                   raw.data
                 )
               );
-        if (plain)
+        if (beside)
           for (const { edge, payload } of relationsOf(model, own))
             relate(row, edge, payload);
         else write(model, row, own);
@@ -588,28 +601,48 @@ export function verbs(store: Store) {
       if (args.targetWhere || args.setWhere) outside();
       const update = paired(args.update as Input, raw.update);
       const create = paired(args.create as Input, raw.create);
-      const [found] = store.rows({
+      const question: Question = {
         model,
         where: args.where as Input,
         unique: true,
         intent: "update",
         writes: writes(model, update),
-      });
+      };
+      if (
+        relationsOf(model, create).length +
+          relationsOf(model, update).length ===
+        0
+      ) {
+        const { projection, said } = one(model, args);
+        const later = store.either(
+          question,
+          create,
+          stated(create),
+          store.values(model, "update", update, stated(update)),
+          projection
+        );
+        if (later) return () => said(later.sent!.rows);
+      }
+      const [found] = store.rows(question);
       // An update that says nothing asks nothing of the row found.
       if (found && Object.keys(stated(update)).length > 0)
         write(model, found, update);
       return answering(model, found ?? make(model, create, {}), args);
     },
     delete(model: AnyModel, args: Arguments) {
-      const row = store.one({
-        model,
-        where: args.where as Input,
-        unique: true,
-        intent: "delete",
-      });
-      const answer = answering(model, row, args);
-      store.delete(row);
-      return answer;
+      const { projection, said } = one(model, args);
+      const later = store.all(
+        {
+          model,
+          where: args.where as Input,
+          unique: true,
+          intent: "delete",
+          must: true,
+        },
+        undefined,
+        projection
+      );
+      return () => said(later.sent!.rows);
     },
     deleteMany(model: AnyModel, args: Arguments) {
       const { projection, decoded } = many(model, args);
