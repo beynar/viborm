@@ -13,7 +13,7 @@ import {
   UnsupportedOperationError,
   ValidationError,
 } from "@errors";
-import { defineExtension } from "@extensions/definition";
+import { defineExtension } from "@extensions/define";
 import { s } from "@schema";
 import { sql } from "@sql";
 import { permissions } from "@src/permissions";

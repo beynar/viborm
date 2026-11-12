@@ -16,13 +16,7 @@ import type {
   TransactionOptions,
 } from "@drivers/shared/transaction-options";
 import { ClientInitializationError, isVibORMError } from "@errors";
-import {
-  appendResolvedExtension,
-  lookupPlacedControls,
-  lookupResolvedExtensionHandlers,
-  type ResolvedExtensionChain,
-} from "@extensions/chain";
-import { bindControls, uncacheableRead } from "@extensions/controls";
+import type { ResolvedExtensionChain } from "@extensions/chain";
 import type {
   ClientExtension,
   ContextualExtensionDefinition,
@@ -31,25 +25,25 @@ import type {
   SchemaBoundExtensionAdmission,
 } from "@extensions/definition";
 import {
-  type AccumulatedExtensionState,
-  bindExtensionMethods,
-  type DelegateState,
-  type EmptyClientExtensionState,
-  type EnableExtensionCache,
-  type ExtensionMethods,
-  type ExtensionModelClient,
-  type ExtensionStateConstraint,
-  type ExtensionStateContributionOf,
-  type HasExtensionCache,
-  type HasResultConsumingExtension,
-  type MergeModelMethods,
+  extensionHost,
+  getOfficialInstrumentationChainCapability,
+  lookupPlacedControls,
+  lookupResolvedExtensionHandlers,
+} from "@extensions/host-slot";
+import type {
+  AccumulatedExtensionState,
+  DelegateState,
+  EmptyClientExtensionState,
+  EnableExtensionCache,
+  ExtensionMethods,
+  ExtensionModelClient,
+  ExtensionStateConstraint,
+  ExtensionStateContributionOf,
+  HasExtensionCache,
+  HasResultConsumingExtension,
+  MergeModelMethods,
 } from "@extensions/methods";
-import { getOfficialInstrumentationChainCapability } from "@extensions/observation";
-import { TransactionWriteOutcomes } from "@extensions/query";
-import { applyRequestTransforms } from "@extensions/request";
-import { planResultFields } from "@extensions/result";
 import type { ResultInference } from "@extensions/result-types";
-import { watchWrite } from "@extensions/written";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { enableFindUniqueBatching } from "@query-engine/find-unique-batch";
 import {
@@ -84,10 +78,10 @@ import {
   executeArrayTransaction,
   runOutcomeTransaction,
 } from "./array-transaction";
-import {
-  getOfficialDefaultOmitChainCapability,
-  type OfficialDefaultOmitExtension,
-  type OfficialDefaultOmitRequestContribution,
+import { getOfficialDefaultOmitChainCapability } from "./default-omit-chain";
+import type {
+  OfficialDefaultOmitExtension,
+  OfficialDefaultOmitRequestContribution,
 } from "./default-omit-extension";
 import {
   applyClientOmit,
@@ -893,7 +887,7 @@ export class VibORM<C extends VibORMConfig> {
       assertNonEmptyUniqueWhere(modelNameStr, operation, omittedArgs);
       callArgs = omittedArgs;
       if (resultFields === undefined) return omittedArgs;
-      const fields = planResultFields(
+      const fields = extensionHost().planResultFields(
         resultFields,
         this.#relations,
         model,
@@ -919,7 +913,7 @@ export class VibORM<C extends VibORMConfig> {
         const transformed =
           requestHandlers === undefined
             ? controlFreeArgs
-            : applyRequestTransforms(
+            : extensionHost().applyRequestTransforms(
                 modelNameStr,
                 operation,
                 controlFreeArgs,
@@ -949,7 +943,7 @@ export class VibORM<C extends VibORMConfig> {
                 officialCache.scope
               );
             return written
-              ? watchWrite(
+              ? extensionHost().watchWrite(
                   written,
                   { model: modelNameStr, operation, args: callArgs! },
                   controls,
@@ -1059,7 +1053,7 @@ export class VibORM<C extends VibORMConfig> {
       pendingOperation,
       async (execute, driverOverride) => {
         const cacheResult = readPendingCacheResult(pendingOperation);
-        const refused = uncacheableRead(
+        const refused = extensionHost().uncacheableRead(
           engine.extensionChain?.controls?.all ?? [],
           cacheResult.controls,
           modelName,
@@ -1162,7 +1156,7 @@ export class VibORM<C extends VibORMConfig> {
     const chain = engine.extensionChain;
     const methods =
       chain &&
-      bindExtensionMethods(chain, (prior, extension) =>
+      extensionHost().bindExtensionMethods(chain, (prior, extension) =>
         this.#createViewProxy<object>(
           engine,
           clientOmit,
@@ -1173,7 +1167,7 @@ export class VibORM<C extends VibORMConfig> {
               ? (values: Readonly<Record<string, unknown>>) =>
                   rebuild!(
                     engine.withBound(
-                      bindControls(
+                      extensionHost().bindControls(
                         chain.controls?.all ?? [],
                         extension,
                         values,
@@ -1232,7 +1226,7 @@ export class VibORM<C extends VibORMConfig> {
         chain?.retry ||
         chain?.route ||
         (chain?.observe.length ?? 0) > 0
-          ? new TransactionWriteOutcomes()
+          ? new (extensionHost().TransactionWriteOutcomes)()
           : undefined;
       const view = (
         bound: QueryEngine
@@ -1295,7 +1289,7 @@ export class VibORM<C extends VibORMConfig> {
               | ((client: VibORMClient<ViewConfig, X>) => unknown)
           ) => {
             if (typeof extension === "function") return extension(view);
-            const extensionChain = appendResolvedExtension(
+            const extensionChain = extensionHost().appendResolvedExtension(
               chain,
               extension,
               this.#schema,

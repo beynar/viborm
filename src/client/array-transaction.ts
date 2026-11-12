@@ -12,19 +12,12 @@ import {
   retainWriteOutcomeFailure,
 } from "@errors";
 import {
-  admitArrayQueries,
-  createArrayDeferred,
-  readArrayQuery,
-} from "@extensions/array-admission";
-import {
+  decomposeQueryCoordinationFailure,
+  extensionHost,
   prewarmProtectedObservers,
   runProtectedObservers,
-} from "@extensions/observation";
-import {
-  decomposeQueryCoordinationFailure,
-  TransactionWriteOutcomes,
-  type WriteOutcome,
-} from "@extensions/query";
+} from "@extensions/host-slot";
+import type { TransactionWriteOutcomes, WriteOutcome } from "@extensions/query";
 import type { QueryEngine } from "@query-engine/query-engine";
 import {
   readTransactionOperation,
@@ -254,7 +247,7 @@ async function executeInterceptedArray(
     engine.extensionChain?.observe
   );
   if (observerReadiness !== undefined) await observerReadiness;
-  const outcomes = new TransactionWriteOutcomes();
+  const outcomes = new (extensionHost().TransactionWriteOutcomes)();
   const slots = operations.map(createArraySlot);
   startArrayOperationObservers(slots, engine);
   try {
@@ -278,7 +271,7 @@ async function executeInterceptedArray(
   for (const slot of slots) {
     slot.owner.stagePackageWriteOutcomes(slot.operation, outcomes);
   }
-  const admissionFailures = await admitArrayQueries(
+  const admissionFailures = await extensionHost().admitArrayQueries(
     slots,
     outcomes,
     (slot, child, control) =>
@@ -318,7 +311,7 @@ function createArraySlot(operation: TransactionOperationCapability): ArraySlot {
     operation,
     owner: transactionOperationOwner(operation),
     admitted: false,
-    child: createArrayDeferred<unknown>(),
+    child: extensionHost().createArrayDeferred<unknown>(),
   };
 }
 
@@ -329,7 +322,7 @@ function startArrayOperationObservers(
   const observers = engine.extensionChain?.observe;
   if (observers === undefined || observers.length === 0) return;
   for (const slot of slots) {
-    const observation = createArrayDeferred<unknown>();
+    const observation = extensionHost().createArrayDeferred<unknown>();
     slot.observation = observation;
     if (!slot.owner.hasObservation(slot.operation))
       throw new InvalidTransactionInputError();
@@ -433,7 +426,7 @@ function executeInterceptedFallback(
         const slot = slots[index]!;
         startFallbackCore(slot, transactionDriver);
         try {
-          values.push(await readArrayQuery(slot));
+          values.push(await extensionHost().readArrayQuery(slot));
         } catch (error) {
           const firstFailure = decomposeQueryCoordinationFailure(error);
           const childFailure =
@@ -447,7 +440,7 @@ function executeInterceptedFallback(
             slots[later]!.child.reject(childFailure);
           }
           const laterOutcomes = await Promise.allSettled(
-            slots.slice(index + 1).map(readArrayQuery)
+            slots.slice(index + 1).map(extensionHost().readArrayQuery)
           );
           for (const outcome of laterOutcomes) {
             if (outcome.status !== "rejected") continue;

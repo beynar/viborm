@@ -13,19 +13,19 @@ import {
   InvalidTransactionInputError,
   retainWriteOutcomeFailure,
 } from "@errors";
-import {
-  lookupPlacedControls,
-  lookupResolvedExtensionHandlers,
-} from "@extensions/chain";
-import { type AdmittedControls, admitControls } from "@extensions/controls";
-import { observeOperation } from "@extensions/observation";
+import type { AdmittedControls } from "@extensions/controls";
 import {
   executePreparedQuery,
-  type PreparedModelQueryContext,
-  type QueryInterceptionMode,
-  type WriteOutcomeRegistration,
+  extensionHost,
+  lookupPlacedControls,
+  lookupResolvedExtensionHandlers,
+  observeOperation,
+} from "@extensions/host-slot";
+import type {
+  PreparedModelQueryContext,
+  QueryInterceptionMode,
+  WriteOutcomeRegistration,
 } from "@extensions/query";
-import { sendUnit } from "@extensions/units";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
 import type { CacheResultCodec } from "./cache-flow";
@@ -488,7 +488,7 @@ export class PendingOperation<T>
       const admission =
         placed.length === 0
           ? undefined
-          : admitControls(
+          : extensionHost().admitControls(
               this.#modelName,
               this.#operation,
               this.#args,
@@ -813,7 +813,7 @@ export class PendingOperation<T>
     )
       return run(driverOverride, committedWriteSegment, writeMayBeVisible);
     const operation = String(this.#options.originalOperation);
-    return sendUnit(
+    return extensionHost().sendUnit(
       chain,
       { model: this.#modelName, operation },
       () => this.#resolveArgs(),

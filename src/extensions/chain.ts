@@ -155,32 +155,12 @@ export interface ResolvedExtensionChain {
   readonly observe: readonly ResolvedExtensionHandler[];
 }
 
-/** Return the precompiled array itself; lookup scans and merges nothing. */
-export function lookupResolvedExtensionHandlers(
-  chain: ResolvedExtensionChain | undefined,
-  component: "request" | "query",
-  model: string | undefined,
-  operation: string
-): readonly ResolvedOperationHandler[] | undefined {
-  if (chain === undefined) return undefined;
-  const lookup = chain[component];
-  const global = lookup.global.length === 0 ? undefined : lookup.global;
-  if (model === undefined) {
-    return component === "query" ? global : undefined;
-  }
-  return lookup.models[model]?.[operation] ?? global;
-}
+import { NO_CONTROLS } from "./host-slot";
 
-/** The controls one (model, operation) accepts; the shared empty list when none. */
-export function lookupPlacedControls(
-  chain: ResolvedExtensionChain | undefined,
-  model: string,
-  operation: string
-): readonly ResolvedControl[] {
-  return chain?.controls?.placed(model, operation) ?? NO_CONTROLS;
-}
-
-const NO_CONTROLS: readonly ResolvedControl[] = Object.freeze([]);
+export {
+  lookupPlacedControls,
+  lookupResolvedExtensionHandlers,
+} from "./host-slot";
 
 function resolvedHandler(
   extension: Pick<ResolvedExtension, "name">,

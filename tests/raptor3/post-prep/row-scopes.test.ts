@@ -18,7 +18,7 @@ import { ASSERTION_MARKER } from "@drivers/error-mapping";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { NotFoundError, UniqueConstraintError } from "@errors";
-import { defineExtension } from "@extensions/definition";
+import { defineExtension } from "@extensions/define";
 import { PreparedDomain } from "@extensions/row-domain";
 import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";

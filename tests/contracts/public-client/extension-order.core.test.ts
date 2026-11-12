@@ -11,7 +11,7 @@ import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
 import { createClient } from "@client/client";
 import { ClientInitializationError } from "@errors";
-import { defineExtension } from "@extensions/definition";
+import { defineExtension } from "@extensions/define";
 import { s } from "@schema";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";

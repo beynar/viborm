@@ -19,7 +19,7 @@ import {
   QueryError,
 } from "../errors";
 import { ValidationError } from "../errors/validation";
-import { defineExtension } from "../extensions/definition";
+import { defineExtension } from "../extensions/define";
 import type {
   ClientSchema,
   ClientTypeState,

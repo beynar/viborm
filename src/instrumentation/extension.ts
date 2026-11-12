@@ -1,4 +1,5 @@
 import { sanitizeErrorForLogging } from "@errors";
+import { withHost } from "@extensions/host";
 import type {
   LifecycleUnit,
   ObservationCompletion,
@@ -76,6 +77,7 @@ const instrumentationContexts = new WeakMap<
 export function instrumentation<const Config>(
   config: Config & InstrumentationConfig & ExactInstrumentationConfig<Config>
 ): OfficialInstrumentationExtension {
+  withHost();
   const context = createInstrumentationContext(config);
   const capability: OfficialObservationCapability = Object.freeze({
     observesLifecycle:

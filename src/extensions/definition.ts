@@ -42,7 +42,6 @@ import type {
 } from "./request";
 import { type RuntimeResultContribution, snapshotResult } from "./result";
 import type { ResultDefinition, ResultInference } from "./result-types";
-import { withRows } from "./rows-runtime";
 import { rowsRuntime } from "./rows-slot";
 import type { StatementHandler } from "./statement";
 import type { RetryHandler, RouteHandler, TransactionHandler } from "./units";
@@ -602,7 +601,7 @@ function admitOrder(
 }
 const UNORDERED_SCALARS = new Set(["json", "vector", "point", "blob"]);
 
-type ExtensionConfig<S extends Schema> = {
+export type ExtensionConfig<S extends Schema> = {
   readonly schema: S;
   readonly driver: AnyDriver;
 };
@@ -689,7 +688,7 @@ type ExtensionMembers<
   ) => ExtensionMethodRecord;
 };
 
-type SchemaGenericExtensionDefinition = Omit<
+export type SchemaGenericExtensionDefinition = Omit<
   ContextualExtensionDefinition<
     ExtensionConfig<Schema>,
     EmptyClientExtensionState
@@ -827,26 +826,3 @@ export type DefineExtensionBinder<S extends Schema> = <
     > &
     ResultInference<ExtensionConfig<S>, Record<never, never>, Fields>
 ) => SchemaBoundExtension<NoInfer<Definition>>;
-
-export function defineExtension<
-  const Definition extends SchemaGenericExtensionDefinition,
->(
-  definition: Definition &
-    ExactExtensionDefinition<
-      Definition,
-      ExtensionConfig<Schema>,
-      EmptyClientExtensionState
-    >
-): NoInfer<Definition>;
-export function defineExtension<S extends Schema>(): DefineExtensionBinder<S>;
-export function defineExtension(
-  ...definitions: [] | [definition: ClientExtension]
-): unknown {
-  // What a definition declares of rows is read by what this brings.
-  withRows();
-  if (definitions.length === 0) {
-    return (schemaDefinition: ExtensionDefinitionInput) =>
-      normalizeExtensionDefinition(schemaDefinition);
-  }
-  return normalizeExtensionDefinition(definitions[0]);
-}

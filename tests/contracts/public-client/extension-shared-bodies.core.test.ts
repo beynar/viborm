@@ -20,7 +20,7 @@
 
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { createClient } from "@client/client";
-import { defineExtension } from "@extensions/definition";
+import { defineExtension } from "@extensions/define";
 import { s } from "@schema";
 import { v } from "@src/validation";
 import { runSharedBodiesBehavior } from "@tests/contracts/public-client/shared-bodies-behavior";

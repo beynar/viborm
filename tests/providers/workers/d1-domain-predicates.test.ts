@@ -24,7 +24,7 @@ import { env } from "cloudflare:test";
 import { createClient } from "@client/client";
 import type { D1Database } from "@cloudflare/workers-types";
 import { NotFoundError, UniqueConstraintError } from "@errors";
-import { defineExtension } from "@extensions/definition";
+import { defineExtension } from "@extensions/define";
 import { Queries } from "@query-engine/raptor3/shared/query";
 import { D1Driver } from "@src/drivers/d1";
 import { createMigrationClient } from "@src/migrations/client";

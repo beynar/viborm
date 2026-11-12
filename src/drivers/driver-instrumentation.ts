@@ -9,11 +9,14 @@ import {
   VibORMErrorCode,
 } from "@errors";
 import {
+  extensionHost,
   getOfficialInstrumentationChainCapability,
-  type LifecycleUnitKind,
-  type ObservationCompletionFactsReader,
   observeDriverLifecycle,
   observeStatement,
+} from "@extensions/host-slot";
+import type {
+  LifecycleUnitKind,
+  ObservationCompletionFactsReader,
 } from "@extensions/observation";
 import type {
   LifecycleBoundary,
@@ -23,7 +26,6 @@ import type {
   StatementExecution,
   StatementFacts,
 } from "@extensions/official-facts";
-import { applyStatementTransforms } from "@extensions/statement";
 import type { QueryBackend } from "@query-engine/raptor3/shared/query-backend";
 import type { Operation } from "@query-engine/types";
 import type { Sql } from "@sql";
@@ -409,7 +411,7 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
         context,
         fallbackOperation
       );
-      transformed = applyStatementTransforms(
+      transformed = extensionHost().applyStatementTransforms(
         query,
         executionContext.model,
         executionContext.operation ?? fallbackOperation,

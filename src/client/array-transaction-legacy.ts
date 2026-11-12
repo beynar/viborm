@@ -9,7 +9,7 @@ import type {
   TransactionOptions,
 } from "@drivers/shared/transaction-options";
 import { InvalidTransactionInputError } from "@errors";
-import { prewarmProtectedObservers } from "@extensions/observation";
+import { prewarmProtectedObservers } from "@extensions/host-slot";
 import type { QueryEngine } from "@query-engine/query-engine";
 import {
   type TransactionOperationCapability,

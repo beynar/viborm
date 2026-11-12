@@ -2,7 +2,7 @@
 
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { defineExtension } from "@extensions/definition";
+import { defineExtension } from "@extensions/define";
 import { s } from "@schema";
 import { permissions } from "@src/permissions";
 import { v } from "@src/validation";

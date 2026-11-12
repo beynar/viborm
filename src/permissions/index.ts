@@ -11,7 +11,7 @@
 
 import type { OperationPayload, RowsVerbs } from "../client/exports";
 import { ForbiddenError } from "../errors";
-import { defineExtension } from "../extensions/definition";
+import { defineExtension } from "../extensions/define";
 import type {
   ClientSchema,
   ClientTypeState,

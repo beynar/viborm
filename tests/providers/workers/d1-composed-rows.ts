@@ -16,7 +16,7 @@
 
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { defineExtension } from "@extensions/definition";
+import { defineExtension } from "@extensions/define";
 import { s } from "@schema";
 import { v } from "@src/validation";
 import type { RecordingD1 } from "./d1-statements";

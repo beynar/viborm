@@ -42,6 +42,14 @@ it fits one batch.
 
 ### Changed
 
+- **An application that applies no extension no longer carries the code that
+  runs extensions**: about 12 kB gzip less in a PostgreSQL application.
+  `defineExtension()`, the new `defineHooks()` (the same without the code that
+  reads `rows`, `data`, `deletion` and `order`), every official extension and
+  the new `enableExtensions()` bring it. **Breaking for one case**: a bare
+  object literal passed to `$extends` in a program that calls none of them is
+  refused with a `ClientInitializationError` that says so. Build it with
+  `defineHooks()` or `defineExtension()`, or call `enableExtensions()` once.
 - **`viborm/ordering` on SurrealDB brings its own SurrealQL.** The driver no
   longer holds code for it: it writes a `joined()` value from the list the
   extension gives it.

@@ -28,9 +28,9 @@ describeIf("pg Driver: transaction point", () => {
         },
       });
       const tenant = (client: Pick<typeof db, "$queryRaw">) =>
-        client.$queryRaw<
-          { tenant: string | null }[]
-        >`SELECT current_setting('app.tenant', true) AS tenant`;
+        client.$queryRaw<{
+          tenant: string | null;
+        }>`SELECT current_setting('app.tenant', true) AS tenant`;
 
       expect(await db.$transaction((tx) => tenant(tx))).toEqual([
         { tenant: "acme" },

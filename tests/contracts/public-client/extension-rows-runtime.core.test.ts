@@ -1,8 +1,6 @@
 import { ClientInitializationError } from "@errors";
-import {
-  defineExtension,
-  normalizeExtensionDefinition,
-} from "@extensions/definition";
+import { defineExtension } from "@extensions/define";
+import { normalizeExtensionDefinition } from "@extensions/definition";
 import { s } from "@schema";
 import { createSchemaRegistry } from "@validation/builder";
 import { expect, test } from "vitest";

@@ -40,20 +40,40 @@ const measured = client.$extends(timing);
 the same schema, driver, and pool. Extension names must be non-empty and unique
 inside one chain.
 
-### Build every definition with `defineExtension()`
+### What brings the extension code into your program
 
-`defineExtension()` checks the definition, and it brings the code that reads
-`rows`, `data`, `deletion` and `order` declarations into your program. A client
-no such extension is applied to does not carry that code, so an application
-that only reads and writes pays nothing for it.
+`$extends` is a method of every client, but the code that checks and runs
+extensions is not part of the client. Building a definition brings it:
 
-This has one consequence for authors. A plain object that declares `rows`,
-`data`, `deletion` or `order` and was never passed to `defineExtension()` is
-refused when it is applied:
+| You call | It brings |
+|---|---|
+| `defineExtension(definition)` | The code that runs extensions, and the code that reads `rows`, `data`, `deletion` and `order` |
+| `defineHooks(definition)` | The code that runs extensions only: for a definition that declares none of those four |
+| An official extension (`on()`, `softDelete()`, `cache()`, ...) | What that extension needs |
+| `enableExtensions()` | The code that runs extensions, for a program that passes object literals to `$extends` and builds no definition |
+
+An application that applies no extension carries none of this code: about
+12 kB gzip less in a PostgreSQL application.
+
+This has two consequences for authors.
+
+A definition applied in a program where nothing above was called is refused:
 
 ```ts
-// Refused with ClientInitializationError: nothing brought what reads `rows`.
-client.$extends({ name: "archiving", rows: { /* ... */ } });
+// Refused with ClientInitializationError in a program that calls none of the
+// functions above: nothing brought the code that runs extensions.
+client.$extends({ name: "trace", statement: ({ statement }) => statement });
+
+// Accepted.
+client.$extends(defineHooks({ name: "trace", statement: ({ statement }) => statement }));
+```
+
+A plain object that declares `rows`, `data`, `deletion` or `order` needs
+`defineExtension()`, which brings what reads them:
+
+```ts
+// Refused: nothing brought what reads `rows`.
+client.$extends(defineHooks({ name: "archiving", rows: { /* ... */ } }));
 
 // Accepted.
 client.$extends(defineExtension({ name: "archiving", rows: { /* ... */ } }));
@@ -70,9 +90,15 @@ const archiving = (models: string[]) => (client: typeof base) =>
   });
 ```
 
-Definitions that declare none of these four capabilities (`request`, `query`,
-`statement`, `observe`, `client`, `model`, `controls`, `result`) are accepted
-either way. The official extensions bring the same code themselves.
+An object literal written inside `$extends(...)` is typed from the client it
+is applied to, which a definition built apart is not. To keep that, write the
+literal in place and call `enableExtensions()` once in your program:
+
+```ts
+import { enableExtensions } from "viborm";
+
+enableExtensions();
+```
 
 :::tip
 Use the official [`instrumentation()`](/docs/extensions/instrumentation)
