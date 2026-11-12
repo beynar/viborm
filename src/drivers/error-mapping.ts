@@ -77,14 +77,15 @@ const MYSQL_INVALID_JSON_TEXT = 3141;
 // text the adapter stringified, which cannot raise "malformed JSON".
 const JSON_ACCESS_SIGNATURE = /json(?!_each\(\?\)\))|->/i;
 
-// SurrealDB and Snowflake raise no batch assertion: nothing they run can
-// collide with one, so they state no signature.
-const FOREIGN_ASSERTION_SIGNATURE: Readonly<Partial<Record<Dialect, RegExp>>> =
-  {
-    postgresql: /[/%]/,
-    mysql: JSON_ACCESS_SIGNATURE,
-    sqlite: JSON_ACCESS_SIGNATURE,
-  };
+const FOREIGN_ASSERTION_SIGNATURE: Record<Dialect, RegExp> = {
+  postgresql: /[/%]/,
+  mysql: JSON_ACCESS_SIGNATURE,
+  sqlite: JSON_ACCESS_SIGNATURE,
+  // It raises no batch assertion: nothing it runs can collide with one.
+  surrealql: /(?!)/,
+  // It runs no batch, and VibORM writes nothing there.
+  snowflake: /(?!)/,
+};
 
 /**
  * Report whether an ordinary statement can raise the same provider error as a
@@ -107,7 +108,7 @@ export function batchMayContainAssertionCollision(
       if (ownedAssertions && !ownedAssertions.has(index)) return true;
       continue;
     }
-    if (signature?.test(statement.sql)) return true;
+    if (signature.test(statement.sql)) return true;
   }
   return false;
 }

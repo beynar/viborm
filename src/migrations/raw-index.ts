@@ -31,12 +31,13 @@ import type { IndexDef } from "./types";
  * none: VibORM writes no DDL there.
  */
 export const RAW_INDEX_TEMPLATE_KEY: Readonly<
-  Partial<Record<Dialect, keyof RawIndexTemplates>>
+  Record<Dialect, keyof RawIndexTemplates | undefined>
 > = {
   postgresql: "pg",
   mysql: "mysql",
   sqlite: "sqlite",
   surrealql: "surrealdb",
+  snowflake: undefined,
 };
 
 /** What a SQL database's catalog comment starts with when VibORM wrote it. */
