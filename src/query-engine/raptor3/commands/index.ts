@@ -34,6 +34,7 @@ import {
 } from "../shared/schema";
 import { SqlOperationContext } from "../shared/sql-operation-context";
 import { SqlQueries } from "../shared/sql-queries";
+import { OUTSIDE as IMAGE_OUTSIDE, prepareCall, writeCall } from "../write";
 import { Commands, type PhysicalPlan } from "./commands";
 
 /** PROTOTYPE: the verbs the plan is asked about. */
@@ -324,6 +325,40 @@ class PreparedCommand implements PreparedOperation {
         );
       // PROTOTYPE: the second foundation, statements over sets of rows. It
       // takes a call inside its caller's transaction too.
+      // PROTOTYPE: the image. It takes a call inside its caller's transaction too.
+      if (process.env.VIBORM_PHYSICAL_PLAN === "image") {
+        if (!writes || this.#config.driver.backend) return;
+        const tally = (line: string) => {
+          if (line === "planned") {
+            const counted = globalThis as { plannedCreates?: number };
+            counted.plannedCreates = (counted.plannedCreates ?? 0) + 1;
+          }
+          ledger(line);
+        };
+        return () =>
+          writeCall(
+            this.#context(false, attribution, binding) as SqlOperationContext,
+            this.#config.driver,
+            this.#model,
+            this.args,
+            this.#rawArgs,
+            binding
+          ).then(
+            (answer) => {
+              tally("planned");
+              return answer;
+            },
+            (error) => {
+              // A call found outside wrote nothing: the shipped engine runs it.
+              if (error !== IMAGE_OUTSIDE) {
+                tally("planned");
+                throw error;
+              }
+              tally("declined: outside the image");
+              return this.#body(this.#context(false, attribution, binding));
+            }
+          );
+      }
       if (process.env.VIBORM_PHYSICAL_PLAN === "sets") {
         if (!writes || this.#config.driver.backend) return;
         const tally = (line: string) => {
@@ -503,12 +538,15 @@ class PreparedCommand implements PreparedOperation {
     const context = this.#context(true, attribution);
     // PROTOTYPE: the second foundation hands its one unit to the array's owner.
     if (
-      process.env.VIBORM_PHYSICAL_PLAN === "sets" &&
+      (process.env.VIBORM_PHYSICAL_PLAN === "sets" ||
+        process.env.VIBORM_PHYSICAL_PLAN === "image") &&
       PLANNED.includes(this.#operation) &&
       !this.#config.driver.backend
     )
       try {
-        const unit = await prepareSets(
+        const unit = await (process.env.VIBORM_PHYSICAL_PLAN === "image"
+          ? prepareCall
+          : prepareSets)(
           context as SqlOperationContext,
           this.#config.driver,
           this.#model,
@@ -519,7 +557,7 @@ class PreparedCommand implements PreparedOperation {
         counted.plannedCreates = (counted.plannedCreates ?? 0) + 1;
         return unit;
       } catch (error) {
-        if (error !== OUTSIDE) throw error;
+        if (error !== OUTSIDE && error !== IMAGE_OUTSIDE) throw error;
       }
     try {
       await this.#body(context);
