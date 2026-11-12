@@ -174,33 +174,39 @@ export class Writer {
       : { kind: "notFound", message: "", raceable };
   }
   /**
-   * A statement that stops its unit unless the question still names a row:
+   * A statement that stops its unit unless each question still names a row:
    * the one `key` names, where given. It stops on what the call `believed`,
    * or, where the row must be there, on the call's refusal itself.
    */
   asks(
-    question: Question,
+    questions: readonly Question[],
     key: Input | undefined,
     believed: "presumed" | "read"
   ): Statement {
-    const { model } = question;
-    const probe = this.#q.select(
-      model,
-      { take: 1 },
-      this.#membership(question),
-      {
-        projection: this.#projection(model, false),
-        selector: this.selector(question),
-        ...(key && { identity: key }),
-      }
-    ).sql;
+    const { assertions, operators } = this.#operation.driver.adapter;
+    const [question] = questions;
+    const { model } = question!;
+    const probes = questions.map(
+      (each) =>
+        this.#q.select(model, { take: 1 }, this.#membership(each), {
+          projection: this.#projection(model, false),
+          selector: this.selector(each),
+          ...(key && { identity: key }),
+        }).sql
+    );
+    const [probe] = probes;
     return {
-      sql: this.#operation.driver.adapter.assertions.exists(probe),
-      probe,
-      premise: "exists",
-      believed: believed === "presumed" && question.must ? undefined : believed,
+      sql:
+        probes.length === 1
+          ? assertions.exists(probe!)
+          : assertions.holds(
+              operators.and(...probes.map((each) => operators.exists(each)))
+            ),
+      ...(probes.length === 1 && { probe, premise: "exists" as const }),
+      believed:
+        believed === "presumed" && question!.must ? undefined : believed,
       // Also what an owner that cannot run the call again reports.
-      stops: this.absent(question, believed === "read"),
+      stops: this.absent(question!, believed === "read"),
       model,
     };
   }

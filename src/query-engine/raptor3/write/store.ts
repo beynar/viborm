@@ -992,6 +992,8 @@ export class Store {
       this.#sent > 0 && row && this.#changed(row);
     /** The writes that say themselves whether the row they were taken to find is there. */
     const confirms = new Map<Entry, Question>();
+    /** The rows taken to be there that one statement asks for: those sought the same way. */
+    const asked = new Map<string, Question[]>();
     for (const [id, { question, row, at }] of this.#presumed) {
       if (at > to || (holds ? this.#asserted.has(id) : passed(row))) continue;
       this.#asserted.add(id);
@@ -1004,10 +1006,24 @@ export class Store {
       );
       if (first && writer.counts && (holds || !(this.#handed || writes > 1)))
         confirms.set(first, question);
-      else
-        steps.push({
-          write: () => [writer.asks(question, undefined, "presumed")],
-        });
+      else {
+        const { member } = question;
+        const group = JSON.stringify([
+          question.model["~"].names.ts,
+          member ? id : question.through?.name,
+          question.verb,
+          question.intent,
+          question.writes,
+        ]);
+        if (!asked.has(group)) {
+          const together: Question[] = [];
+          asked.set(group, together);
+          steps.push({
+            write: () => [writer.asks(together, undefined, "presumed")],
+          });
+        }
+        asked.get(group)!.push(question);
+      }
     }
     /**
      * The question a write of rows by their keys is written under: rows the
@@ -1111,7 +1127,7 @@ export class Store {
           steps.push({
             write: () => [
               writer.asks(
-                answer.question,
+                [answer.question],
                 schema.identity(model, values),
                 "read"
               ),
@@ -1215,11 +1231,19 @@ export class Store {
       } else if (entry.kind === "update") {
         const { model } = entry.question;
         const { hears } = entry;
+        const fields = Object.keys(entry.set);
         const run = beside<Extract<Entry, { kind: "update" }>>(
           (next) =>
             next.kind === "update" &&
-            next.set === entry.set &&
             next.question.model === model &&
+            // Rows that take the same values, written the same way.
+            Object.keys(next.set).length === fields.length &&
+            fields.every((field) =>
+              Object.is(next.set[field], entry.set[field])
+            ) &&
+            next.question.intent === entry.question.intent &&
+            next.question.through === entry.question.through &&
+            next.question.verb === entry.question.verb &&
             hears.length === 0 &&
             !(confirms.has(entry) || confirms.has(next) || own.has(next))
         );
