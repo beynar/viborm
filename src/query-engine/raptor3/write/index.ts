@@ -122,12 +122,14 @@ export async function prepareCall(
     end: async () => undefined,
   });
   try {
-    const { unit, answer } = await store.prepare(call(store, model, args, raw));
+    const { statements, answer } = await store.prepare(
+      call(store, model, args, raw)
+    );
     return {
-      queries: unit.statements.map((statement) =>
+      queries: statements.map((statement) =>
         prepared(operation, driver, statement)
       ),
-      guards: unit.statements.flatMap((statement, queryIndex) =>
+      guards: statements.flatMap((statement, queryIndex) =>
         statement.stops
           ? [
               {
@@ -144,10 +146,7 @@ export async function prepareCall(
             ]
           : []
       ),
-      parseResult: (results) => {
-        unit.heard(results as never);
-        return answer();
-      },
+      parseResult: (results) => answer(results as never),
     };
   } catch (error) {
     if (error !== SEVERAL) throw error;
