@@ -50,7 +50,7 @@ export const assertInvariant = (value: unknown, reason: string): void => {
  * it — another owner's sentence, which no cell may attribute to this site.
  */
 const FAILURE_OWNER = `import { InvalidScalarResult } from "./query";
-export class OperationContext {
+export class SqlOperationContext {
   failure(error: unknown, phase: string, member?: object): unknown {
     if (error instanceof InvalidScalarResult)
       return new QueryEngineError(
@@ -72,9 +72,9 @@ export class OperationContext {
  * The two carrying shapes, plus the premise's own zero-argument `failure()`,
  * which is a different member and carries nothing.
  */
-const EXECUTION = `import { OperationContext } from "../shared/operation-context";
+const EXECUTION = `import { SqlOperationContext } from "../shared/sql-operation-context";
 export class CommandExecution {
-  runSeries(ctx: OperationContext, member: object): void {
+  runSeries(ctx: SqlOperationContext, member: object): void {
     const failure = new NestedWriteError(
       \`Cannot \${this.kind} relation '\${this.edge}': parent record changed across a committed segment.\`
     );
@@ -149,7 +149,7 @@ const fixture = (owner = FAILURE_OWNER) => {
   git(root, "init", "--quiet", "--initial-branch=main");
   write(root, "src/old-engine/messages.ts", SHIPPED);
   write(root, `${ENGINE}/shared/invariant.ts`, INVARIANT_OWNER);
-  write(root, `${ENGINE}/shared/operation-context.ts`, owner);
+  write(root, `${ENGINE}/shared/sql-operation-context.ts`, owner);
   write(root, `${ENGINE}/commands/execution.ts`, EXECUTION);
   write(root, "src/query-engine/result/result-shape.ts", BUILDERS);
   write(root, `${ENGINE}/shared/query.ts`, PROJECTION);
