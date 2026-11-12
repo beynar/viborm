@@ -697,9 +697,9 @@ export class Store {
       .filter((field) => row[field] === undefined);
     for (const field of decided)
       row[field] = new Pending(row, field, `@${++this.#made}`);
+    // A row created under a key another has is the database's to refuse.
     const name = this.#name(model, row);
-    if (this.#known.has(name)) outside();
-    this.#known.set(name, row);
+    if (!this.#known.has(name)) this.#known.set(name, row);
     this.#meta.set(row, { model, made: true, wrote: new Set() });
     this.#note({
       kind: "insert",
@@ -782,6 +782,7 @@ export class Store {
           : { intent: "update", writes }
       ),
       take: ([sent]) => {
+        if (hears.length === 0) return;
         const [said] = this.writer.keys(model, sent!.rows);
         for (const field of hears) row[field] = said?.[field];
       },
@@ -1040,7 +1041,29 @@ export class Store {
     /** The writes that say themselves whether the row they were taken to find is there. */
     const confirms = new Map<Entry, Question>();
     /** The rows taken to be there that one statement asks for: those sought the same way. */
-    const asked = new Map<string, Question[]>();
+    const asked = new Map<string, [Question, Input?][]>();
+    /** Adds a row to ask for to the statement that asks for those sought the same way. */
+    const ask = (
+      question: Question,
+      own: string,
+      believed: "presumed" | "read",
+      key?: Input
+    ) => {
+      const group = JSON.stringify([
+        believed,
+        question.model["~"].names.ts,
+        question.member ? own : question.through?.name,
+        question.verb,
+        question.intent,
+        question.writes,
+      ]);
+      if (!asked.has(group)) {
+        const together: [Question, Input?][] = [];
+        asked.set(group, together);
+        steps.push({ write: () => [writer.asks(together, believed)] });
+      }
+      asked.get(group)!.push([question, key]);
+    };
     for (const [id, { question, row, at }] of this.#presumed) {
       if (at > to || (holds ? this.#asserted.has(id) : passed(row))) continue;
       this.#asserted.add(id);
@@ -1053,24 +1076,7 @@ export class Store {
       );
       if (first && writer.counts && (holds || !(this.#handed || writes > 1)))
         confirms.set(first, question);
-      else {
-        const { member } = question;
-        const group = JSON.stringify([
-          question.model["~"].names.ts,
-          member ? id : question.through?.name,
-          question.verb,
-          question.intent,
-          question.writes,
-        ]);
-        if (!asked.has(group)) {
-          const together: Question[] = [];
-          asked.set(group, together);
-          steps.push({
-            write: () => [writer.asks(together, undefined, "presumed")],
-          });
-        }
-        asked.get(group)!.push(question);
-      }
+      else ask(question, id, "presumed");
     }
     /**
      * The question a write of rows by their keys is written under: rows the
@@ -1082,10 +1088,21 @@ export class Store {
       member: confirms.get(entry)?.member,
       through: entry.question.member?.edge ?? entry.question.through,
     });
-    /** Refuses where a write that says whether its row is there found none. */
+    /** Whether two writes of rows by their keys may be one statement: rows found, or rows taken to be members of the same row. */
+    const mates = (entry: Entry, next: Entry) => {
+      const [a, b] = [confirms.get(entry)?.member, confirms.get(next)?.member];
+      return (
+        confirms.has(entry) === confirms.has(next) &&
+        a?.of === b?.of &&
+        a?.edge === b?.edge &&
+        !own.has(next)
+      );
+    };
+    /** Refuses where a write that says whether its rows are there found fewer. */
+    const sizes = new Map<Entry, number>();
     const confirmed = (entry: Entry, sent: Sent) => {
       const question = confirms.get(entry);
-      if (question && sent.rowCount === 0 && sent.rows.length === 0)
+      if (question && writer.count(sent) < (sizes.get(entry) ?? 1))
         throw createFailureError(
           writer.absent(question),
           question.model["~"].names.ts!,
@@ -1171,15 +1188,12 @@ export class Store {
         for (const values of at > to ? [] : answer.rows) {
           const { model } = answer.question;
           if (passed(this.#known.get(this.#name(model, values)))) continue;
-          steps.push({
-            write: () => [
-              writer.asks(
-                [answer.question],
-                schema.identity(model, values),
-                "read"
-              ),
-            ],
-          });
+          ask(
+            answer.question,
+            JSON.stringify(answer.question.where),
+            "read",
+            schema.identity(model, values)
+          );
         }
     for (let at = this.#sent; at < to; at++) {
       const entry = log[at]!;
@@ -1225,8 +1239,13 @@ export class Store {
         while (!mine && end < to && fits(rows, log[end]))
           rows.push((log[end++] as typeof entry).row);
         let read = mine?.read ?? answered(end, rows, "insert");
-        if (mine && (needed.get(entry.row) ?? 0) > 1) {
-          // Another statement needs what the database decides of the row: it is heard, and read after.
+        // Another statement needs what the database decides of the row: its statement says it beside the answer, where it can.
+        const both = Boolean(mine) && (needed.get(entry.row) ?? 0) > 1;
+        if (
+          mine &&
+          both &&
+          !(holds && returningSafeProjection(mine.read.projection!))
+        ) {
           told.delete(mine.read);
           read = undefined;
         } else if (mine) rows = [entry.row];
@@ -1244,7 +1263,7 @@ export class Store {
             return joins;
           });
         }
-        const hears = !read && needed.has(entry.row);
+        const hears = (both || !read) && needed.has(entry.row);
         if (hears && last && !holds)
           scratch ??= { id: crypto.randomUUID(), model };
         steps.push({
@@ -1254,11 +1273,13 @@ export class Store {
                 model,
                 rows.map((row) => this.#said(settled(row))),
                 entry.relation,
-                returns
+                returns,
+                Boolean(read) && hears
               );
             const kept =
               scratch &&
               hears &&
+              !read &&
               writer.kept(scratch.id, `${place}`, decided, await insert());
             if (!kept)
               return [
@@ -1269,11 +1290,10 @@ export class Store {
             entry.row[decided[0]!] = kept.value;
             return kept.statements;
           },
-          take: read
-            ? tells(read, mine?.place ?? at)
-            : hears
-              ? take
-              : undefined,
+          take: (sent) => {
+            if (hears) take(sent);
+            if (read) tells(read, mine?.place ?? at)(sent);
+          },
         });
       } else if (entry.kind === "update") {
         const { model } = entry.question;
@@ -1292,8 +1312,9 @@ export class Store {
             next.question.through === entry.question.through &&
             next.question.verb === entry.question.verb &&
             hears.length === 0 &&
-            !(confirms.has(entry) || confirms.has(next) || own.has(next))
+            mates(entry, next)
         );
+        sizes.set(entry, run.length);
         const mine = run.length === 1 ? own.get(entry) : undefined;
         if (!mine && own.has(entry)) told.delete(own.get(entry)!.read);
         const read = mine?.read;
@@ -1304,7 +1325,8 @@ export class Store {
               this.#said(entry.set),
               run.map((next) => this.#said(next.key)),
               read?.projection ??
-                (hears.length > 0 ? writer.key(model) : undefined)
+                (hears.length > 0 ? writer.key(model) : undefined),
+              confirms.has(entry)
             ),
           ],
           take: read ? tells(read, mine!.place) : take,
@@ -1315,13 +1337,16 @@ export class Store {
           (next) =>
             next.kind === "delete" &&
             next.question.model === model &&
-            !(confirms.has(entry) || confirms.has(next))
+            mates(entry, next)
         );
+        sizes.set(entry, run.length);
         steps.push({
           write: () => [
             writer.remove(
               under(entry),
-              run.map((next) => this.#said(next.key))
+              run.map((next) => this.#said(next.key)),
+              undefined,
+              confirms.has(entry)
             ),
           ],
           take,

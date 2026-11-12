@@ -190,15 +190,14 @@ export class Writer {
    * or, where the row must be there, on the call's refusal itself.
    */
   asks(
-    questions: readonly Question[],
-    key: Input | undefined,
+    asked: readonly (readonly [Question, Input?])[],
     believed: "presumed" | "read"
   ): Statement {
     const { assertions, operators } = this.#operation.driver.adapter;
-    const [question] = questions;
-    const { model } = question!;
-    const probes = questions.map(
-      (each) =>
+    const [[question]] = asked as [[Question]];
+    const { model } = question;
+    const probes = asked.map(
+      ([each, key]) =>
         this.#q.select(model, { take: 1 }, this.#membership(each), {
           projection: this.#projection(model, false),
           selector: this.selector(each),
@@ -214,10 +213,9 @@ export class Writer {
               operators.and(...probes.map((each) => operators.exists(each)))
             ),
       ...(probes.length === 1 && { probe, premise: "exists" as const }),
-      believed:
-        believed === "presumed" && question!.must ? undefined : believed,
+      believed: believed === "presumed" && question.must ? undefined : believed,
       // Also what an owner that cannot run the call again reports.
-      stops: this.absent(question!, believed === "read"),
+      stops: this.absent(question, believed === "read"),
       model,
     };
   }
@@ -278,7 +276,8 @@ export class Writer {
     model: AnyModel,
     values: Input[],
     relation?: string,
-    returns?: PreparedProjection
+    returns?: PreparedProjection,
+    keyed = false
   ): Promise<Statement> {
     const q = this.#q;
     const { capabilities, mutations } = this.#operation.driver.adapter;
@@ -305,7 +304,13 @@ export class Writer {
       // It answers with the row it wrote, where the provider returns what it wrote.
       sql:
         returns && capabilities.supportsReturning
-          ? this.#operation.answering(model, insert, returns)
+          ? this.#operation.answering(
+              model,
+              insert,
+              returns,
+              // With its key beside, where the call needs both.
+              keyed ? q.lowerProjection(this.#projection(model, false)) : []
+            )
           : insert,
       ...(select && {
         probe: select,
@@ -325,7 +330,8 @@ export class Writer {
     question: Question,
     values: Input,
     keys?: readonly Input[],
-    projection?: PreparedProjection
+    projection?: PreparedProjection,
+    counted = !keys
   ): Promise<Statement> {
     const q = this.#q;
     const { model } = question;
@@ -377,7 +383,7 @@ export class Writer {
     if (projection) {
       if (!capabilities.supportsReturning) outside();
       statement = this.#operation.answering(model, statement, projection);
-    } else if (!keys && capabilities.countsCascadedChanges)
+    } else if (counted && capabilities.countsCascadedChanges)
       statement = sql`${statement} ${mutations.returning(sql.raw("1"))}`;
     return { model, sql: statement, stops };
   }
@@ -388,7 +394,8 @@ export class Writer {
   remove(
     question: Question,
     keys?: readonly Input[],
-    projection?: PreparedProjection
+    projection?: PreparedProjection,
+    counted = !keys
   ): Statement {
     const q = this.#q;
     const { model } = question;
@@ -402,7 +409,7 @@ export class Writer {
     if (projection) {
       if (!capabilities.supportsReturning) outside();
       statement = this.#operation.answering(model, statement, projection);
-    } else if (!keys && capabilities.countsCascadedChanges)
+    } else if (counted && capabilities.countsCascadedChanges)
       statement = sql`${statement} ${mutations.returning(sql.raw("1"))}`;
     return { model, sql: statement };
   }
