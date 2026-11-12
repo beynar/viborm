@@ -1,6 +1,10 @@
+import type { AnyModel } from "@schema/model";
 import { parseProviding } from "@validation/primitives/object";
-import type { PreparedDomain, Queries } from "./query";
-import type { Input } from "./schema";
+import type { PreparedGuardFailure } from "../../types";
+import type { Writer } from "../write/statements";
+import type { PreparedDomain, PreparedSelector, Queries } from "./query";
+import type { EngineSchema, Input } from "./schema";
+import type { Membership } from "./storage";
 
 /**
  * `where` inputs per model (its TS name), as admission left them: a value the
@@ -121,6 +125,34 @@ export interface Tombstone {
 }
 
 /**
+ * What the models that keep the rows they delete write instead, by model,
+ * and what a kept row meets where the database would have refused its
+ * removal: said by what declares the keeping.
+ */
+export interface Tombstones extends ReadonlyMap<string, Tombstone> {
+  /** What a row of `model` takes instead of going; none where its model removes its rows. */
+  marks(writer: Writer, model: AnyModel): Input | undefined;
+  /** Among the rows that still reference a kept row, the one a call reaches it through restricts nothing. */
+  referenced(
+    schema: EngineSchema,
+    edge: Membership | undefined,
+    of?: Input
+  ): true | { readonly slot: string; readonly identity: Input };
+  /** What a kept row is refused with where a row still references it. */
+  restriction(
+    schema: EngineSchema,
+    model: AnyModel
+  ): PreparedGuardFailure | undefined;
+  /** The rows of `model` a visible member still references, one member excepted by identity. */
+  selector(
+    queries: Queries,
+    model: AnyModel,
+    visible: PreparedDomain | undefined,
+    except?: { readonly slot: string; readonly identity: Input }
+  ): PreparedSelector;
+}
+
+/**
  * A model's stamps: what the call's extensions write on every create, and on
  * every update, tombstones too. Each is scalar `data` input, as declared with
  * the call's control values put in: constants and, on an update, the field's
@@ -167,7 +199,7 @@ export interface CallRows {
    * Per managed model, what its deletes write; absent when the call deletes
    * physically (its controls match the declaration's `removeWhen`).
    */
-  readonly tombstones?: ReadonlyMap<string, Tombstone>;
+  readonly tombstones?: Tombstones;
   /** Per model (its TS name), the fields its creates and updates write. */
   readonly stamps?: ReadonlyMap<string, ModelStamps>;
   /** What the domains' parameters read; absent when no predicate names one. */

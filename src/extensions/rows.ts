@@ -21,6 +21,7 @@ import {
   rowsModes,
 } from "./controls";
 import type { RuntimeExtensionDefinition } from "./definition";
+import { Kept } from "./kept";
 import { prepareCall } from "./row-domain";
 
 type Predicates = RowsContribution["models"][string][string];
@@ -633,7 +634,7 @@ export function bindRows(
       )
     ]!;
   const tombstones =
-    deletion === undefined ? undefined : new Map(Object.entries(deletion));
+    deletion === undefined ? undefined : new Kept(Object.entries(deletion));
   const stamps =
     data === undefined
       ? undefined

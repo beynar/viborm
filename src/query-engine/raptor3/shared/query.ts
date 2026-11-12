@@ -436,7 +436,7 @@ export function throughDerived(
     from: adapter.subqueries.correlate(query, alias),
   });
 }
-function newSelectorFacts(exact = true): SelectorFacts {
+export function newSelectorFacts(exact = true): SelectorFacts {
   return {
     fields: new Set(),
     equals: new Map(),
@@ -1999,7 +1999,7 @@ export abstract class Queries {
     }
   }
   /** One row's identity as prepared meaning: its key fields' equalities. */
-  private identityPredicate(
+  identityPredicate(
     model: AnyModel,
     identity: Input,
     facts: SelectorFacts
@@ -2067,50 +2067,6 @@ export abstract class Queries {
       model,
       facts,
       predicate: this.#capturedSet(model, identities, facts),
-    });
-  }
-  /**
-   * The rows of `model` that a visible member still references through one of
-   * `slots` — the rows a hard delete meets the database's restrict on. A
-   * member is visible when it satisfies its model's inputs in `visible`; one
-   * member may be excepted by identity: the parent a nested delete keeps its
-   * link to, whose own membership a hard delete removes first.
-   */
-  referenced(
-    model: AnyModel,
-    slots: readonly string[],
-    visible: PreparedDomain | undefined,
-    except?: { readonly slot: string; readonly identity: Input }
-  ): PreparedSelector {
-    const predicates = slots.map((slot): PreparedPredicate => {
-      const edge = bindMembership(this.schema, model, slot);
-      const arms: PreparedPredicate[] = [];
-      const domain = visible?.selector(edge.target, "related")?.predicate;
-      if (domain) arms.push(domain);
-      if (except?.slot === slot)
-        arms.push(
-          this.combine("NOT", [
-            // The member's own facts: a premise states them, nothing plans on them.
-            this.identityPredicate(
-              edge.target,
-              except.identity,
-              newSelectorFacts(false)
-            ),
-          ])
-        );
-      // Visibility is the given domain's, never the lowering call's own.
-      return Object.freeze({
-        kind: "relation",
-        edge,
-        quantifier: "some",
-        predicate: arms.length === 0 ? undefined : this.combine("AND", arms),
-        unscoped: true,
-      });
-    });
-    return Object.freeze({
-      model,
-      facts: newSelectorFacts(false),
-      predicate: this.combine("OR", predicates),
     });
   }
   /** One captured set's rows, as the disjunction of their own identities. */
@@ -2261,7 +2217,7 @@ export abstract class Queries {
    * nothing to `NOT` and nothing to `OR`, and only `OR` turns "no surviving
    * arm" into a condition — the vacuous FALSE.
    */
-  protected combine(
+  combine(
     key: "AND" | "OR" | "NOT",
     arms: readonly PreparedPredicate[]
   ): PreparedPredicate {

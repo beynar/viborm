@@ -78,7 +78,7 @@ export interface Question {
 }
 
 export class Writer {
-  protected readonly operation: SqlOperationContext;
+  readonly operation: SqlOperationContext;
   readonly #q: SqlQueries;
   #projections: Map<AnyModel, PreparedProjection[]> | undefined;
   /** Asks the database in the call's unit, where what it says is heard before the next statement is written. */
@@ -171,10 +171,10 @@ export class Writer {
     // Of the rows the write takes: the first of them, where it takes no more.
     return q.andSelectors(model, [
       limit === undefined || only ? chosen : q.window(chosen, limit),
-      q.referenced(
+      scope!.rows.tombstones!.selector(
+        q,
         model,
-        this.operation.schema.restrictingSlots(model),
-        this.operation.scope?.defaults,
+        scope!.defaults,
         referenced === true ? undefined : referenced
       ),
     ]);
@@ -400,21 +400,7 @@ export class Writer {
    * rows it deletes; none where it removes them.
    */
   marks(model: AnyModel): Input | undefined {
-    const { scope, schema } = this.operation;
-    const mark = scope?.rows.tombstones?.get(model["~"].names.ts!);
-    if (!(scope && mark)) return undefined;
-    // A kept row is updated: it takes what every update of its model takes.
-    return this.values(
-      model,
-      "update",
-      schema.update(
-        model,
-        mark.at === undefined
-          ? mark.assign
-          : { ...mark.assign, [mark.at]: scope.instant() }
-      ),
-      {}
-    );
+    return this.operation.scope?.rows.tombstones?.marks(this, model);
   }
   /**
    * Among the rows that still reference a kept row, the one the call reaches
@@ -422,32 +408,18 @@ export class Writer {
    * have taken it first.
    */
   referenced(member: Question["member"], of?: Input): Question["referenced"] {
-    const { schema } = this.operation;
-    const edge = member?.edge;
-    const slot =
-      edge &&
-      schema
-        .restrictingSlots(edge.target)
-        .find(
-          (name) =>
-            schema.index.get(edge.target)?.get(name)?.edge ===
-              edge.scope.edge &&
-            !(edge.target === edge.source && name === edge.name)
-        );
-    return slot ? { slot, identity: of! } : true;
+    return this.operation.scope!.rows.tombstones!.referenced(
+      this.operation.schema,
+      member?.edge,
+      of
+    );
   }
   /** What a kept row is refused with where a row still references it as the database would refuse its removal. */
   restriction(model: AnyModel): PreparedGuardFailure | undefined {
-    const slots = this.operation.schema.restrictingSlots(model);
-    return slots.length > 0
-      ? {
-          kind: "foreignKey",
-          message: `Cannot delete '${model["~"].names.ts!}' record: a related record still references it through one of its relations whose foreign key restricts deletes: ${slots
-            .map((slot) => `'${slot}'`)
-            .join(", ")}.`,
-          raceable: false,
-        }
-      : undefined;
+    return this.operation.scope!.rows.tombstones!.restriction(
+      this.operation.schema,
+      model
+    );
   }
   /** Whether `row` travels in the statement that inserts `count` rows of these `columns`: the same columns, within what the provider binds in one statement. */
   beside(
