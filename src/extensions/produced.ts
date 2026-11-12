@@ -58,6 +58,37 @@ function producedRows(
   );
 }
 /**
+ * The row read as `alias` does not reach itself through `relation`, a
+ * to-one relation of its model to itself: no row its new target leads to,
+ * that target included, is the row. The walk is physical, read under no
+ * domain: a cycle through a row the caller cannot see is still a cycle.
+ */
+function outsideOwnSubtree(
+  q: SqlQueries,
+  model: AnyModel,
+  relation: string,
+  alias: string
+): Sql {
+  const a = q.adapter;
+  const { cte, cteName, walk, childColumns } = q.walk(
+    q.schema.membership(model, relation),
+    alias,
+    { depth: false, self: false },
+    false
+  );
+  return a.filters.none(
+    sql`${cte} ${assembleAdapterSelect(a, {
+      columns: sql.raw("1"),
+      from: a.identifiers.aliased(a.identifiers.escape(cteName), walk),
+      where: q.sameRow(
+        model,
+        alias,
+        childColumns.map((name) => a.identifiers.column(walk, name))
+      ),
+    })}`
+  );
+}
+/**
  * `judged` over the produced row `from` reads (and, for each `acyclic`
  * relation, the row outside its own subtree), as the adapter's assertion:
  * 1, or the statement that carries it fails before it writes. `undefined`
@@ -84,7 +115,7 @@ function holds(
   }
   const conditions = [
     ...(lowered === undefined ? [] : [lowered]),
-    ...acyclic.map((relation) => q.outsideOwnSubtree(model, relation, alias)),
+    ...acyclic.map((relation) => outsideOwnSubtree(q, model, relation, alias)),
   ];
   if (conditions.length === 0) return undefined;
   return a.subqueries.scalar(

@@ -1459,33 +1459,6 @@ export class SqlQueries extends Queries {
       : a.expressions.divide(base, operand);
   }
   /**
-   * The row read as `alias` does not reach itself through `relation`, a
-   * to-one relation of its model to itself: no row its new target leads to,
-   * that target included, is the row. The walk is physical, read under no
-   * domain: a cycle through a row the caller cannot see is still a cycle.
-   */
-  outsideOwnSubtree(model: AnyModel, relation: string, alias: string): Sql {
-    const a = this.adapter;
-    const edge = this.schema.membership(model, relation);
-    const { cte, cteName, walk, childColumns } = this.#walk(
-      edge,
-      alias,
-      { depth: false, self: false },
-      false
-    );
-    return a.filters.none(
-      sql`${cte} ${assembleAdapterSelect(a, {
-        columns: sql.raw("1"),
-        from: a.identifiers.aliased(a.identifiers.escape(cteName), walk),
-        where: this.#sameRow(
-          model,
-          alias,
-          childColumns.map((name) => a.identifiers.column(walk, name))
-        ),
-      })}`
-    );
-  }
-  /**
    * A read's own candidates: `selector` (absent: every row) under `purpose`.
    * Reads consume only the predicate, so the conjunction carries no facts:
    * the key-preserving form, {@link candidates}, is the write lookups'.
@@ -2529,7 +2502,7 @@ export class SqlQueries extends Queries {
         // or a LATERAL: MySQL answers every outer row from one evaluation of a
         // wrapped correlated recursive CTE wherever the EXISTS is not flattened.
         // The walk owns membership and visibility; the reader joins by key.
-        const { cte, cteName, walk, childColumns } = this.#walk(
+        const { cte, cteName, walk, childColumns } = this.walk(
           edge,
           parentAlias ?? "",
           closure
@@ -2537,7 +2510,7 @@ export class SqlQueries extends Queries {
         const query = sql`${cte} ${a.subqueries.existsCheck(
           sql`${a.identifiers.aliased(a.identifiers.escape(cteName), walk)} ${a.joins.inner(
             this.table(edge.target, childAlias),
-            this.#sameRow(
+            this.sameRow(
               edge.target,
               childAlias,
               childColumns.map((name) => a.identifiers.column(walk, name))
@@ -2952,7 +2925,7 @@ export class SqlQueries extends Queries {
                 a.joins.inner(
                   this.table(model, reached),
                   a.operators.and(
-                    this.#sameRow(model, reached, keyColumns.map(carried)),
+                    this.sameRow(model, reached, keyColumns.map(carried)),
                     ...related(reached)
                   )
                 ),
@@ -4981,7 +4954,7 @@ export class SqlQueries extends Queries {
       .map((field) => this.column(model, field, alias));
   }
   /** The complete-key join of one model alias to carried key columns. */
-  #sameRow(model: AnyModel, alias: string, carried: readonly Sql[]): Sql {
+  sameRow(model: AnyModel, alias: string, carried: readonly Sql[]): Sql {
     const a = this.adapter;
     return a.operators.and(
       ...this.#rowKey(model, alias).map((column, index) =>
@@ -5099,7 +5072,7 @@ export class SqlQueries extends Queries {
    * hop is an index probe (10× the acceptance fixture: an `accessGrant` read
    * 124 → 785 ms with the start row alone).
    */
-  #walk(
+  walk(
     edge: Membership,
     parentAlias: string,
     start:
@@ -5206,7 +5179,7 @@ export class SqlQueries extends Queries {
       current = this.alias();
       reread = a.joins.inner(
         this.table(model, current),
-        this.#sameRow(model, current, childColumns.map(carried))
+        this.sameRow(model, current, childColumns.map(carried))
       );
     }
     const next = this.alias();
@@ -5290,7 +5263,7 @@ export class SqlQueries extends Queries {
       parentColumns,
       childColumns,
       depthColumn,
-    } = this.#walk(relation.edge, parentAlias, {
+    } = this.walk(relation.edge, parentAlias, {
       depth: recurrence.depth,
       edges: true,
       selector: relation.arguments.selector,
@@ -5328,7 +5301,7 @@ export class SqlQueries extends Queries {
     ]);
     const idTable = a.subqueries.correlate(distinctIds, ids);
     const table = this.table(model, node);
-    const sameNode = this.#sameRow(
+    const sameNode = this.sameRow(
       model,
       node,
       idColumns.map((name) => a.identifiers.column(ids, name))
@@ -5409,7 +5382,7 @@ export class SqlQueries extends Queries {
       from: joins
         ? sql`${walked} ${a.joins.inner(
             this.table(model, edgeChild),
-            this.#sameRow(model, edgeChild, childColumns.map(edgeColumn))
+            this.sameRow(model, edgeChild, childColumns.map(edgeColumn))
           )}`
         : walked,
       orderBy: sql.join(
