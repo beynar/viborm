@@ -871,23 +871,21 @@ export function verbs(store: Store) {
         nested.create!(parent, edge, create as Input, true, $through as Input);
       }
     },
-    connect(parent, edge, entries) {
-      // The rows a list names are named before any of them is joined: joining one may give it another key, and a row named twice is joined once.
-      const rows = new Map(
-        (entries as unknown as Input[]).map(({ $through, ...where }) => [
-          store.one({
-            model: edge.target,
-            where,
-            unique: true,
-            through: edge,
-            intent: "join",
-            verb: "connect",
-          }),
-          $through as Input,
-        ])
+    connect(parent, edge, { $through, ...where }) {
+      join(
+        parent,
+        edge,
+        store.one({
+          model: edge.target,
+          where,
+          unique: true,
+          through: edge,
+          intent: "join",
+          verb: "connect",
+        }),
+        "connect",
+        $through as Input
       );
-      for (const [row, through] of rows)
-        join(parent, edge, row, "connect", through);
     },
     create(parent, edge, data, arm = false, through = data.$through as Input) {
       const row = make(edge.target, data, born(parent, edge), edge.name, arm);
@@ -990,9 +988,22 @@ export function verbs(store: Store) {
       set(parent, edge, list(payload.set) as Input[]);
     for (const verb of Object.keys(nested).slice(2)) {
       const entries = list(payload[verb]) as Input[];
-      if (verb === "connect" && entries.length > 0)
-        nested.connect!(parent, edge, entries as unknown as Input);
-      else for (const entry of entries) nested[verb]!(parent, edge, entry);
+      // A row a list of connects names twice is named once: joining it may give it another key, by which the second would not find it.
+      const once =
+        verb === "connect"
+          ? new Map(
+              entries.map((entry) => {
+                const { $through: _, ...where } = entry;
+                return [
+                  JSON.stringify(where, (_key, value) =>
+                    typeof value === "bigint" ? `${value}n` : value
+                  ),
+                  entry,
+                ];
+              })
+            ).values()
+          : entries;
+      for (const entry of once) nested[verb]!(parent, edge, entry);
     }
   }
 

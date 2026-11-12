@@ -6,6 +6,7 @@
 
 import {
   adapterConstraints,
+  assembleAdapterSelect,
   getAdapterInternals,
 } from "@adapters/adapter-internals";
 import {
@@ -599,7 +600,8 @@ export class Writer {
   computes(question: Question, key: Input, set: Input): Statement | undefined {
     const q = this.#q;
     const { model } = question;
-    const { capabilities, identifiers } = this.#operation.driver.adapter;
+    const { adapter } = this.#operation.driver;
+    const { capabilities, identifiers } = adapter;
     if (capabilities.supportsReturning) return undefined;
     const table = model["~"].names.sql!;
     const { where } = this.#limited(question, this.selector(question, [key]), [
@@ -610,9 +612,8 @@ export class Writer {
       const column = q.column(model, field, table);
       const value =
         field in set ? q.updateValue(model, field, set[field], column) : column;
-      return sql`${value} AS ${identifiers.escape(q.columnName(model, field))}`;
+      return identifiers.aliased(value, q.columnName(model, field));
     });
-    const row = sql`SELECT ${sql.join(columns, ", ")} FROM ${q.table(model)} WHERE ${where}`;
     const source = "__viborm_computed";
     const read = q.select(model, {}, undefined, {
       projection: this.#projection(model, false),
@@ -620,7 +621,17 @@ export class Writer {
     });
     return {
       model,
-      sql: sql`WITH ${identifiers.escape(source)} AS (${capabilities.supportsRowLocks ? sql`${row} FOR UPDATE` : row}) ${read.sql}`,
+      sql: sql`${adapter.cte.with([
+        {
+          name: source,
+          query: assembleAdapterSelect(adapter, {
+            columns: sql.join(columns, ", "),
+            from: q.table(model),
+            where,
+            forUpdate: true,
+          }),
+        },
+      ])} ${read.sql}`,
     };
   }
   /**
@@ -745,6 +756,10 @@ export class Writer {
       stops,
       model,
     };
+  }
+  /** What the row a question names holds of `field`, as a statement reads it. */
+  located(question: Question, field: string): Sql {
+    return this.#q.locatedValue(question.model, field, this.selector(question));
   }
   /** One row read by its key, as `projection` says. */
   one(model: AnyModel, key: Input, projection: PreparedProjection): Query {

@@ -69,6 +69,8 @@ interface Meta {
   at?: number;
   /** Nothing is known of it but its key: it was taken to be there. */
   partial?: true;
+  /** It was taken to be there by values that are not its key: the question that names it. */
+  readonly named?: string;
   /** The call removed it. */
   gone?: true;
   /** The call changed its key. */
@@ -97,19 +99,23 @@ class Pending {
   readonly at: number;
   /** What the database will compute, written as it will compute it, where the call knows what it computes it of. */
   readonly spell?: () => unknown;
+  /** No write of the call decides it: it is what the row holds, never heard and always written as what reads it. */
+  readonly named: boolean;
   readonly #name: string;
   constructor(
     row: Row,
     field: string,
     name: string,
     at: number,
-    spell?: () => unknown
+    spell?: () => unknown,
+    named = false
   ) {
     this.row = row;
     this.field = field;
     this.#name = name;
     this.at = at;
     this.spell = spell;
+    this.named = named;
   }
   toString(): string {
     return this.#name;
@@ -560,8 +566,9 @@ export class Store {
       const said = value instanceof Pending ? value.row[value.field] : value;
       // What cannot be heard before the unit goes on is written as the database will compute it.
       if (said instanceof Pending) {
-        if (this.#transport.holds || !said.spell) throw UNHEARD;
-        heard[field] = said.spell();
+        if (!said.named && (this.#transport.holds || !said.spell))
+          throw UNHEARD;
+        heard[field] = said.spell!();
       } else if (said !== undefined) heard[field] = said;
     }
     return heard;
@@ -614,7 +621,14 @@ export class Store {
       }
       for (const pair of pairs) {
         if (!(pair.target in row && pair.source in member.of)) return undefined;
-        if (!same(row[pair.target], member.of[pair.source])) return false;
+        const [holds, held] = [row[pair.target], member.of[pair.source]];
+        // A value only the database holds is the same as itself, and its to compare with any other.
+        if (
+          holds !== held &&
+          (holds instanceof Pending || held instanceof Pending)
+        )
+          return undefined;
+        if (!same(holds, held)) return false;
       }
     } else if (member) {
       const linked = this.#linked(member.edge as Junction, member.of, row);
@@ -675,16 +689,20 @@ export class Store {
     const { model } = question;
     const pins = this.writer.selector(question).uniqueValues;
     const keys = schema.keys(model);
+    if (!(question.must && question.unique && pins) || this.#concrete.has(id))
+      return undefined;
+    // A row named by values no other row has, that are not its key: its key is what the database holds of it, written wherever it is needed as what reads it there. Not of a member, nor where a write may not read the table it writes.
+    const named = !keys.every((field) => pins.has(field));
     if (
-      !(question.must && question.unique && pins) ||
-      this.#concrete.has(id) ||
-      !keys.every((field) => pins.has(field))
+      named &&
+      (question.member ||
+        question.through ||
+        !this.operation.driver.adapter.capabilities
+          .supportsMutationTargetInSubquery)
     )
       return undefined;
-    const key = Object.fromEntries(
-      keys.map((field) => [field, pins.get(field)])
-    );
-    const name = this.#name(model, key);
+    const key = Object.fromEntries(pins);
+    const name = named ? `${id}` : this.#name(model, key);
     let row = this.#known.get(name);
     if (!row) {
       const fields = schema.storedFields(model);
@@ -704,11 +722,23 @@ export class Store {
         },
       });
       row = partial;
+      if (named)
+        for (const field of keys)
+          if (!(field in held))
+            held[field] = new Pending(
+              partial,
+              field,
+              `@${++this.#made}`,
+              this.#log.length,
+              () => this.writer.located(question, field),
+              true
+            );
       this.#known.set(name, row);
       this.#meta.set(row, {
         model,
         question,
         partial: true,
+        named: named ? id : undefined,
         wrote: new Set(),
       });
     }
@@ -1164,6 +1194,18 @@ export class Store {
     const { model } = meta;
     const key = this.#key(row);
     const keys = this.operation.schema.keys(model);
+    // A row named by what it holds is no longer named so once the call writes that, or its key: it is read.
+    if (
+      meta.named !== undefined &&
+      Object.keys(set).some(
+        (field) =>
+          keys.includes(field) ||
+          this.writer.selector(meta.question!).uniqueValues?.has(field)
+      )
+    ) {
+      this.#concrete.add(meta.named);
+      this.#again = true;
+    }
     const hears: string[] = [];
     const before = { ...row };
     let computed = false;
@@ -1978,6 +2020,14 @@ export class Store {
           }
         );
     };
+    /** Whether a write is of a row the call names by what the question that found it says, its key being the database's to say. */
+    const unkeyed = (entry: Entry) =>
+      "row" in entry && this.#meta.get(entry.row)?.named !== undefined;
+    /** The keys a write of rows names them by; none where the question does. */
+    const keyed = (run: readonly { row: Row; key: Input }[]) =>
+      unkeyed(run[0] as Entry)
+        ? undefined
+        : run.map((next) => this.#said(next.key));
     /** Whether two writes of rows by their keys may be one statement: rows found, or rows taken to be members of the same row. */
     const mates = (entry: Entry, next: Entry) => {
       const [a, b] = [confirms.get(entry)?.member, confirms.get(next)?.member];
@@ -1985,7 +2035,8 @@ export class Store {
         confirms.has(entry) === confirms.has(next) &&
         a?.of === b?.of &&
         a?.edge === b?.edge &&
-        !(own.has(next) || spare.has(next) || spare.has(entry))
+        !(own.has(next) || spare.has(next) || spare.has(entry)) &&
+        !(unkeyed(entry) || unkeyed(next))
       );
     };
     /** Refuses where a write that says whether its rows are there found fewer. */
@@ -2324,7 +2375,7 @@ export class Store {
               await writer.update(
                 named,
                 set,
-                run.map((next) => this.#said(next.key)),
+                keyed(run),
                 read?.projection ??
                   kept?.projection ??
                   (hears.length > 0 && !first ? writer.key(model) : undefined),
@@ -2354,12 +2405,7 @@ export class Store {
         steps.push({
           confirms: confirms.has(entry),
           write: () => [
-            writer.remove(
-              named,
-              run.map((next) => this.#said(next.key)),
-              undefined,
-              confirms.has(entry)
-            ),
+            writer.remove(named, keyed(run), undefined, confirms.has(entry)),
           ],
           take: (sent) => {
             take(sent);
