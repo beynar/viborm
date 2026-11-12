@@ -1,7 +1,8 @@
 /**
- * G4-02 CLOSURE review — adversarial probes against obligation 3a, the
- * "THIRD shipped key owner" mirror (`EngineSchema.keyTransitionRefusal`,
- * `shared/schema.ts:243-292`, consulted from `commands.ts`'s upsert branch).
+ * G4-02 CLOSURE review — adversarial probes written against obligation 3a,
+ * the mirror of the shipped engine's third key owner. That mirror is gone
+ * (2026-11-12): the key's one rule is asked where the update arm runs. The
+ * cells below still hold, because none of them reached the mirror's sentence.
  *
  * The author's five differential cells (note §R4.3) all address the row by its
  * own key or by a non-key unique, with a single-member reference key. These

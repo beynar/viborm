@@ -1537,11 +1537,10 @@ NEITHER engine — `UpsertOperation.ts:496` gates `updateLegality` on
 `updateHasRelations` and `commands/commands.ts` mirrors it on `namesRelation` —
 so `set` wins there on both. That is parity, stated here so the next reader does
 not take it for a regression and widen the gate. `connect`, `connectOrCreate`
-and a `deleteMany` member carry no update payload and ask nothing. Where the post-transition key value has to be named at analysis (a
-child-held relation whose single-member reference key is the key being
-rewritten, with the locator's discriminator pinning the pre-value), the
-transition owner `EngineSchema.keyTransitionRefusal` answers first, in its own
-sentence, so neither arm of an upsert writes.
+and a `deleteMany` member carry no update payload and ask nothing. The shipped engine had a third owner, a key
+transition named at analysis, that refused both arms of an upsert in a sentence
+of its own. It is gone (2026-11-12): the key's rule is asked where the update
+arm runs, so a missing row is created and a found row answers the one sentence.
 
 A multi-statement write as an array member on a batch-only driver is PACKAGED
 and committed, not refused. The shipped route's insertId-scratch refusal is

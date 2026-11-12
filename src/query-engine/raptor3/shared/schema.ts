@@ -213,10 +213,8 @@ export class EngineSchema {
   }
   admit(model: AnyModel, operation: Operation, raw: unknown): Arguments {
     const admitted = this.#admitArguments(model, operation, raw);
-    // WHERE the shipped engine states the key's portability contract, mirrored:
-    // `update`/`updateMany` assert at admission (`assertPortablePrimaryKeyUpdateInput`
-    // from their own validator); an `upsert` asserts on its FOUND arm and only
-    // when the update payload names relations, which `Commands` attaches there.
+    // What a key may be rewritten with is judged where an update is admitted;
+    // an upsert's update arm is judged where it runs, on the row found.
     if (operation === "update" || operation === "updateMany") {
       const refusal = this.keyPortabilityRefusal(model, admitted.data);
       if (refusal) throw refusal;
@@ -335,84 +333,6 @@ export class EngineSchema {
       if (update.divide === 0 || update.divide === 0n)
         return new UnsupportedOperationError(
           `Cannot divide primary key field '${keyField}' by zero.`
-        );
-    }
-    return undefined;
-  }
-  /**
-   * The key TRANSITION's own refusal — the shipped engine's THIRD key owner,
-   * and a different question from {@link keyPortabilityRefusal}.
-   *
-   * A child-held relation written beside a key update forces the parent's
-   * POST-transition key value to be named at ANALYSIS: the child rows this
-   * payload writes reference it, and the compiler builds their FK before any
-   * row is located. The shipped engine names it in
-   * `RecordUpdateCompilerState.interpretReferencedKeyTransition`
-   * (`write-engine/RecordUpdateCompiler.ts:3319` ->
-   * `operations/mutation-identity.ts:357`), reached from the `UpsertOperation`
-   * CONSTRUCTOR (`:480`) — so for an upsert it runs before either arm is
-   * selected, and a payload whose post-value cannot be computed is refused
-   * with the transition's own sentence rather than the validator's, before
-   * either arm writes anything. Two payloads cannot be computed, and they are
-   * the two `getSafeUpdatedScalarValue` refuses (`mutation-identity.ts:298`,
-   * `:336`): a key naming anything other than exactly one operation, which is
-   * R-D2 (c)'s `set`-beside-an-operator shape and answers `:187`'s sentence,
-   * and a `divide` by zero, which has no value at all.
-   *
-   * Its three structural conditions are the shipped ones, measured
-   * (`upsert-key-portability.test.ts`, the third describe):
-   *
-   * - the relation is CHILD-held and references the key being rewritten. That
-   *   fact is NOT re-derived here: the command tree already records it while it
-   *   expands the payload (`RelationBody.relation` ->
-   *   `RecordCommand.transitions`), and this method reads that list. A
-   *   parent-held relation beside the same `divide` builds no transition, and
-   *   both engines answer the validator's sentence;
-   * - the reference key has exactly ONE member (`RecordUpdateCompiler.ts:3310`
-   *   `referencedFields.length === 1`, whose comment is explicit that "a
-   *   compound one falls through to the per-member compile-time source rather
-   *   than borrowing member zero's answer") — a compound reference key reaches
-   *   the validator's sentence on both engines;
-   * - the locator's DISCRIMINATOR pins the pre-value as a literal, which is
-   *   what makes the transition nameable at analysis. `pinned` is the prepared
-   *   selector's `facts.keys` — the `key: true` columns, which are the shipped
-   *   `pinnedTargetValues` entries (`write-engine/shared.ts:154-166`) — never
-   *   its `facts.equals`, which also collects an extended `where`'s filter half
-   *   and its `AND`/`OR`/`NOT` arms.
-   *
-   * A payload naming exactly one computable operation — `set`, or an
-   * arithmetic one the provider can carry — builds its transition and is not
-   * this owner's business; the found arm's {@link keyPortabilityRefusal} is
-   * what still judges the operator's portability, exactly as shipped.
-   */
-  keyTransitionRefusal(
-    model: AnyModel,
-    data: unknown,
-    pinned: ReadonlyMap<string, unknown>,
-    transitions: readonly Extract<Membership, { kind: "reference" }>[]
-  ): Error | undefined {
-    if (!isRecord(data)) return undefined;
-    for (const keyField of this.keys(model)) {
-      if (!pinned.has(keyField)) continue;
-      const update = data[keyField];
-      if (!isRecord(update)) continue;
-      if (
-        !transitions.some(
-          (edge) =>
-            edge.pairs.length === 1 && edge.pairs[0]!.source === keyField
-        )
-      )
-        continue;
-      const named = KEY_UPDATE_OPERATIONS.filter(
-        (operation) => update[operation] !== undefined
-      );
-      if (named.length !== 1)
-        return new UnsupportedOperationError(
-          `Cannot determine the updated primary key for model '${model["~"].names.ts!}' because field '${keyField}' uses an unsupported operation.`
-        );
-      if (update.divide === 0 || update.divide === 0n)
-        return new UnsupportedOperationError(
-          "Cannot divide a primary key by zero."
         );
     }
     return undefined;
