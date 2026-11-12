@@ -862,21 +862,23 @@ export function verbs(store: Store) {
         nested.create!(parent, edge, create as Input, true, $through as Input);
       }
     },
-    connect(parent, edge, { $through, ...where }) {
-      join(
-        parent,
-        edge,
-        store.one({
-          model: edge.target,
-          where,
-          unique: true,
-          through: edge,
-          intent: "join",
-          verb: "connect",
-        }),
-        "connect",
-        $through as Input
+    connect(parent, edge, entries) {
+      // The rows a list names are named before any of them is joined: joining one may give it another key, and a row named twice is joined once.
+      const rows = new Map(
+        (entries as unknown as Input[]).map(({ $through, ...where }) => [
+          store.one({
+            model: edge.target,
+            where,
+            unique: true,
+            through: edge,
+            intent: "join",
+            verb: "connect",
+          }),
+          $through as Input,
+        ])
       );
+      for (const [row, through] of rows)
+        join(parent, edge, row, "connect", through);
     },
     create(parent, edge, data, arm = false, through = data.$through as Input) {
       const row = make(edge.target, data, born(parent, edge), edge.name, arm);
@@ -977,9 +979,12 @@ export function verbs(store: Store) {
         nested[verb]!(parent, edge, entry as Input);
     if (payload.set !== undefined)
       set(parent, edge, list(payload.set) as Input[]);
-    for (const verb of Object.keys(nested).slice(2))
-      for (const entry of list(payload[verb]))
-        nested[verb]!(parent, edge, entry as Input);
+    for (const verb of Object.keys(nested).slice(2)) {
+      const entries = list(payload[verb]) as Input[];
+      if (verb === "connect" && entries.length > 0)
+        nested.connect!(parent, edge, entries as unknown as Input);
+      else for (const entry of entries) nested[verb]!(parent, edge, entry);
+    }
   }
 
   /** One row as the caller asked for it: none is no row of the call's. */
