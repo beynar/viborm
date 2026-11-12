@@ -257,6 +257,119 @@ export interface JudgedWrite {
   readonly model: AnyModel;
   readonly refusal: PreparedGuardFailure;
 }
+/**
+ * The write language of a backend that writes through the shipped command
+ * layer: what a write means, written in the backend's own language. The
+ * engine's own write path asks nothing of it.
+ */
+export interface WriteLanguage {
+  createMany(
+    model: AnyModel,
+    given: Input[],
+    projection?: PreparedProjection,
+    skipDuplicates?: boolean,
+    single?: () => Error,
+    refusal?: PreparedGuardFailure
+  ): Promise<unknown>;
+  upsertOne(
+    model: AnyModel,
+    given: Input,
+    updates: Input,
+    target: readonly string[],
+    projection?: PreparedProjection,
+    single?: () => Error,
+    upserted?: (created: boolean) => void,
+    found?: Query
+  ): Promise<unknown>;
+  updateMany(
+    model: AnyModel,
+    selector: PreparedSelector,
+    given: Input,
+    limit?: number,
+    projection?: PreparedProjection,
+    single?: () => Error,
+    captured?: readonly Input[]
+  ): Promise<unknown>;
+  deleteMany(
+    model: AnyModel,
+    selector: PreparedSelector,
+    limit?: number,
+    projection?: PreparedProjection,
+    single?: () => Error
+  ): Promise<unknown>;
+  insert(
+    model: AnyModel,
+    given: Input,
+    demanded: ReadonlySet<string>,
+    member: Member,
+    operation?: string,
+    producer?: object,
+    membership?: MembershipParent,
+    refusal?: PreparedGuardFailure,
+    answer?: StatementAnswer
+  ): Promise<Input>;
+  updateLocated(
+    model: AnyModel,
+    selector: PreparedSelector,
+    given: Input,
+    projection: PreparedProjection,
+    missing: () => Error,
+    operation?: string,
+    refusal?: PreparedGuardFailure,
+    answer?: StatementAnswer
+  ): Promise<Input>;
+  update(
+    model: AnyModel,
+    current: Input,
+    given: Input,
+    member: Member,
+    operation?: string,
+    demanded?: ReadonlySet<string>,
+    missing?: () => Error,
+    judgement?: RowJudgement,
+    refusal?: PreparedGuardFailure,
+    answer?: StatementAnswer
+  ): Promise<Input>;
+  updateRows(
+    model: AnyModel,
+    identities: readonly Input[],
+    values: Input,
+    member: Member,
+    operation: string,
+    judgement: RowJudgement | undefined,
+    refusal: PreparedGuardFailure | undefined
+  ): Promise<void>;
+  link(
+    edge: Extract<Membership, { kind: "junction" }>,
+    values: Input,
+    member: Member,
+    captured?: Input,
+    written?: Input
+  ): Promise<void>;
+  linkMany(
+    edge: Extract<Membership, { kind: "junction" }>,
+    rows: readonly Input[],
+    member: Member
+  ): Promise<void>;
+  remove(
+    edge: Membership,
+    source: Input | undefined,
+    target: Input | undefined,
+    keep: Input[],
+    member: Member
+  ): Promise<void>;
+  mutateMembers(
+    edge: Membership,
+    parent: Input,
+    selector: PreparedSelector,
+    values: Input | undefined,
+    member: Member
+  ): Promise<void>;
+  delete(model: AnyModel, row: Input, member: Member): Promise<void>;
+}
+// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: a context that writes in its own language states these; the SQL context states none.
+export interface OperationContext extends WriteLanguage {}
+
 export abstract class OperationContext {
   readonly queries: Queries;
   readonly driver: AnyDriver;
@@ -1860,95 +1973,10 @@ export abstract class OperationContext {
       )) as { count: number }
     ).count;
   }
-  abstract createMany(
-    model: AnyModel,
-    given: Input[],
-    projection?: PreparedProjection,
-    skipDuplicates?: boolean,
-    single?: () => Error,
-    refusal?: PreparedGuardFailure
-  ): Promise<unknown>;
-  abstract upsertOne(
-    model: AnyModel,
-    given: Input,
-    updates: Input,
-    target: readonly string[],
-    projection?: PreparedProjection,
-    single?: () => Error,
-    upserted?: (created: boolean) => void,
-    found?: Query
-  ): Promise<unknown>;
-  abstract updateMany(
-    model: AnyModel,
-    selector: PreparedSelector,
-    given: Input,
-    limit?: number,
-    projection?: PreparedProjection,
-    single?: () => Error,
-    captured?: readonly Input[]
-  ): Promise<unknown>;
-  abstract deleteMany(
-    model: AnyModel,
-    selector: PreparedSelector,
-    limit?: number,
-    projection?: PreparedProjection,
-    single?: () => Error
-  ): Promise<unknown>;
-  protected abstract closeScratch(): void;
-  abstract insert(
-    model: AnyModel,
-    given: Input,
-    demanded: ReadonlySet<string>,
-    member: Member,
-    operation?: string,
-    producer?: object,
-    membership?: MembershipParent,
-    refusal?: PreparedGuardFailure,
-    answer?: StatementAnswer
-  ): Promise<Input>;
-  abstract updateLocated(
-    model: AnyModel,
-    selector: PreparedSelector,
-    given: Input,
-    projection: PreparedProjection,
-    missing: () => Error,
-    operation?: string,
-    refusal?: PreparedGuardFailure,
-    answer?: StatementAnswer
-  ): Promise<Input>;
-  abstract update(
-    model: AnyModel,
-    current: Input,
-    given: Input,
-    member: Member,
-    operation?: string,
-    demanded?: ReadonlySet<string>,
-    missing?: () => Error,
-    judgement?: RowJudgement,
-    refusal?: PreparedGuardFailure,
-    answer?: StatementAnswer
-  ): Promise<Input>;
-  abstract updateRows(
-    model: AnyModel,
-    identities: readonly Input[],
-    values: Input,
-    member: Member,
-    operation: string,
-    judgement: RowJudgement | undefined,
-    refusal: PreparedGuardFailure | undefined
-  ): Promise<void>;
-  abstract link(
-    edge: Extract<Membership, { kind: "junction" }>,
-    values: Input,
-    member: Member,
-    captured?: Input,
-    written?: Input
-  ): Promise<void>;
-  abstract linkMany(
-    edge: Extract<Membership, { kind: "junction" }>,
-    rows: readonly Input[],
-    member: Member
-  ): Promise<void>;
+  /** Closes what a unit kept of the values the database decided in it: nothing where it kept none. */
+  protected closeScratch(): void {
+    // Nothing kept.
+  }
   async captureMembership(
     edge: Extract<Membership, { kind: "junction" }>,
     addressed: Input
@@ -1979,22 +2007,7 @@ export abstract class OperationContext {
     }
     return captured;
   }
-  abstract remove(
-    edge: Membership,
-    source: Input | undefined,
-    target: Input | undefined,
-    keep: Input[],
-    member: Member
-  ): Promise<void>;
   protected refusal({ model, refusal }: JudgedWrite): Error {
     return createFailureError(refusal, model["~"].names.ts!, this.operation);
   }
-  abstract mutateMembers(
-    edge: Membership,
-    parent: Input,
-    selector: PreparedSelector,
-    values: Input | undefined,
-    member: Member
-  ): Promise<void>;
-  abstract delete(model: AnyModel, row: Input, member: Member): Promise<void>;
 }

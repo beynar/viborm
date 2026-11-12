@@ -16,7 +16,6 @@ import {
   UniqueConstraintError,
   UnsupportedOperationError,
 } from "@errors";
-import type { Selection } from "@query-engine/raptor3/commands/selection";
 import { dividesByZero } from "@query-engine/raptor3/shared/decimal";
 import {
   InsertValue,
@@ -49,6 +48,7 @@ import { writeSinks } from "@query-engine/write-sinks";
 import { getModelKeyCatalog } from "@schema/model/keys";
 import { Sql, sql } from "@sql";
 import { Decimal, RecordId } from "surrealdb";
+import type { Selection } from "./commands/selection";
 import { SurrealQueries } from "./queries";
 import {
   isOneValue,

@@ -1,16 +1,23 @@
 import { NestedWriteError, UnsupportedOperationError } from "@errors";
-import type { ResolvedSlot } from "@schema/validation/relation-resolution";
-import { writeSinks } from "../../write-sinks";
-import { unreachable } from "../shared/invariant";
-import type { PreparedSelector, SelectorFacts } from "../shared/query";
-import { entries, type Input, record } from "../shared/schema";
+import { unreachable } from "@query-engine/raptor3/shared/invariant";
+import type {
+  PreparedSelector,
+  SelectorFacts,
+} from "@query-engine/raptor3/shared/query";
+import {
+  entries,
+  type Input,
+  record,
+} from "@query-engine/raptor3/shared/schema";
 import {
   bindMembership,
   linkJudgement,
   linkMembers,
   type Membership,
   storedFields,
-} from "../shared/storage";
+} from "@query-engine/raptor3/shared/storage";
+import { writeSinks } from "@query-engine/write-sinks";
+import type { ResolvedSlot } from "@schema/validation/relation-resolution";
 import { Assignments, type FieldValue, type Origin } from "./assignments";
 import type {
   AbsenceRequirement,

@@ -24,7 +24,6 @@ import {
   UnsupportedOperationError,
   VibORMErrorCode,
 } from "@errors";
-import { Commands } from "@query-engine/raptor3/commands/commands";
 import { queryBackend } from "@query-engine/raptor3/shared/query-backend";
 import type { Sql } from "@sql";
 import {
@@ -50,6 +49,7 @@ import type {
 import { refuseUnknownDriverConfigKeys } from "../shared/driver-options";
 import { createTransactionCleanupError } from "../shared/transactions";
 import type { QueryExecutionContext, QueryResult } from "../types";
+import { Commands } from "./commands/commands";
 import { SurrealOperationContext } from "./operation-context";
 import { SurrealQueries } from "./queries";
 import {

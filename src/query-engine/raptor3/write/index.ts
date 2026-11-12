@@ -24,11 +24,8 @@ import {
   type Transport,
   unproven,
 } from "./send";
-import { outside } from "./statements";
 import { SEVERAL, Store } from "./store";
 import { verbs } from "./verbs";
-
-export { OUTSIDE } from "./statements";
 
 /** The verbs of one call, run on a store. */
 const call =
@@ -41,7 +38,6 @@ const call =
   () => {
     const { operation } = store;
     const verb = verbs(store)[operation.operation as "create"];
-    if (!verb) outside();
     return verb(model, args, raw as Input);
   };
 

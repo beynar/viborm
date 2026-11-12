@@ -24,13 +24,6 @@ import type { SqlQueries } from "../shared/sql-queries";
 import { linkJudgement, linkMembers, type Membership } from "../shared/storage";
 import type { Sent, Statement } from "./send";
 
-/** Thrown, before anything is written, by a call the new write path does not cover yet: the shipped engine runs it. */
-export const OUTSIDE = Symbol("outside what the new write path covers");
-export const outside = (): never => {
-  if (process.env.VIBORM_IMAGE_ONLY) throw new Error("outside the image");
-  throw OUTSIDE;
-};
-
 export type Junction = Extract<Membership, { kind: "junction" }>;
 
 /** A question: the rows of a model a filter names, among the members of a row where it says so. */

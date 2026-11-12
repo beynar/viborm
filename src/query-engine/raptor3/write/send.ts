@@ -134,12 +134,6 @@ export function dialogue(
           at
         )
         .catch((error) => {
-          if (process.env.VIBORM_DEBUG_SQL)
-            console.error(
-              "FAILED",
-              transport._prepare(statement.sql, at).sql,
-              error?.cause ?? error
-            );
           if (typeof error === "object" && error)
             refusedBy.set(error, statement);
           throw statement.stops && error instanceof NestedWriteAssertionError
@@ -233,14 +227,6 @@ export function batches(
             operation.attribution
           );
     } catch (error) {
-      if (process.env.VIBORM_DEBUG_SQL)
-        console.error(
-          "BATCH FAILED",
-          (error as Error)?.cause ?? error,
-          statements.map((each) =>
-            driver._prepare(each.sql, operation.attribution).sql.slice(0, 400)
-          )
-        );
       // A unit that stops itself is undone; one that fails otherwise may have been made.
       if (!(error instanceof NestedWriteAssertionError)) loose(error);
       // The statement that stopped the batch is the one the provider points

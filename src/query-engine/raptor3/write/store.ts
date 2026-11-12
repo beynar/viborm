@@ -318,17 +318,6 @@ export class Store {
       } catch (error) {
         if (!(error instanceof Stopped)) throw error;
         const { stops, believed, model } = error.statement;
-        if (process.env.VIBORM_DEBUG_SQL) {
-          const prepared = this.operation.driver._prepare(
-            error.statement.sql,
-            this.operation.attribution
-          );
-          console.error(
-            "STOPPED",
-            prepared.sql,
-            JSON.stringify(prepared.params)
-          );
-        }
         // The call may not leave the row it would write, a row that must be
         // there is not, or what it wrote before cannot be taken back.
         if (!believed || this.#delivered > 0)

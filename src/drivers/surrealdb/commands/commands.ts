@@ -6,26 +6,34 @@ import {
   UniqueConstraintError,
   UnsupportedOperationError,
 } from "@errors";
-import type { AnyModel } from "@schema/model";
-import { createFailureError } from "../../batch-error-attribution";
-import type { PreparedGuardFailure } from "../../types";
-import { writeSinks } from "../../write-sinks";
-import { InsertValue, Stored } from "../shared/insert-value";
-import type { OperationContext } from "../shared/operation-context";
+import { createFailureError } from "@query-engine/batch-error-attribution";
+import { InsertValue, Stored } from "@query-engine/raptor3/shared/insert-value";
+import type { OperationContext } from "@query-engine/raptor3/shared/operation-context";
 import {
   InvalidScalarResult,
   type PreparedSelector,
   returningSafeProjection,
   type SelectorFacts,
-} from "../shared/query";
+} from "@query-engine/raptor3/shared/query";
 import {
   type ModelStamps,
   Parameter,
   type RowJudgement,
   type RowPurpose,
-} from "../shared/row-scope";
-import { type Arguments, entries, type Input, record } from "../shared/schema";
-import { type Membership, physicalField } from "../shared/storage";
+} from "@query-engine/raptor3/shared/row-scope";
+import {
+  type Arguments,
+  entries,
+  type Input,
+  record,
+} from "@query-engine/raptor3/shared/schema";
+import {
+  type Membership,
+  physicalField,
+} from "@query-engine/raptor3/shared/storage";
+import type { PreparedGuardFailure } from "@query-engine/types";
+import { writeSinks } from "@query-engine/write-sinks";
+import type { AnyModel } from "@schema/model";
 import {
   Assignments,
   type FieldValue,

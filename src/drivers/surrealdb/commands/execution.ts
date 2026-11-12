@@ -6,17 +6,9 @@ import {
   UnsupportedOperationError,
 } from "@errors";
 import {
-  type AnyModel,
-  getModelKeyCatalog,
-  type OrderedModelKey,
-} from "@schema/model";
-import { Sql } from "@sql";
-import {
   compileBindBudgetChunks,
   normalizedBindParameterLimit,
-} from "../../bind-budget";
-import type { PreparedGuardFailure } from "../../types";
-import { writeSinks } from "../../write-sinks";
+} from "@query-engine/bind-budget";
 import {
   type Member,
   type MembershipParent,
@@ -24,21 +16,34 @@ import {
   type ObservationPremise,
   type OperationContext,
   type StatementAnswer,
-} from "../shared/operation-context";
+} from "@query-engine/raptor3/shared/operation-context";
 import {
   type PreparedProjection,
   type PreparedSelector,
   type Query,
   returningSafeProjection,
-} from "../shared/query";
-import { parseStamped } from "../shared/row-scope";
-import { type Arguments, entries, type Input, record } from "../shared/schema";
+} from "@query-engine/raptor3/shared/query";
+import { parseStamped } from "@query-engine/raptor3/shared/row-scope";
+import {
+  type Arguments,
+  entries,
+  type Input,
+  record,
+} from "@query-engine/raptor3/shared/schema";
 import {
   type Membership,
   physicalField,
   storedFields,
-} from "../shared/storage";
-import type { TransportAttempt } from "../shared/transport-attempt";
+} from "@query-engine/raptor3/shared/storage";
+import type { TransportAttempt } from "@query-engine/raptor3/shared/transport-attempt";
+import type { PreparedGuardFailure } from "@query-engine/types";
+import { writeSinks } from "@query-engine/write-sinks";
+import {
+  type AnyModel,
+  getModelKeyCatalog,
+  type OrderedModelKey,
+} from "@schema/model";
+import { Sql } from "@sql";
 import type { Assignments } from "./assignments";
 import { CommandAttempt } from "./command-attempt";
 import type {

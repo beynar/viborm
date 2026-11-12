@@ -1,13 +1,16 @@
-import { type AnyModel, getModelKeyCatalog } from "@schema/model";
 import type {
   PreparedProjection,
   PreparedSelector,
   SelectorFacts,
-} from "../shared/query";
-import type { RowJudgement, RowPurpose } from "../shared/row-scope";
-import type { Input } from "../shared/schema";
-import type { Membership } from "../shared/storage";
-import { storedFields } from "../shared/storage";
+} from "@query-engine/raptor3/shared/query";
+import type {
+  RowJudgement,
+  RowPurpose,
+} from "@query-engine/raptor3/shared/row-scope";
+import type { Input } from "@query-engine/raptor3/shared/schema";
+import type { Membership } from "@query-engine/raptor3/shared/storage";
+import { storedFields } from "@query-engine/raptor3/shared/storage";
+import { type AnyModel, getModelKeyCatalog } from "@schema/model";
 import { Assignments, type Origin } from "./assignments";
 import type { CommandExecution } from "./execution";
 

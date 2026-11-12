@@ -805,9 +805,6 @@ export function verbs(store: Store) {
       join(parent, edge, row, "set", through[at]);
   };
   function relate(parent: Row, edge: Membership, payload: Input): void {
-    const asked = Object.keys(payload).filter(
-      (verb) => payload[verb] !== undefined && payload[verb] !== false
-    );
     // In the order the verbs take effect, whatever order they were written in.
     for (const verb of ["disconnect", "delete"])
       for (const entry of list(payload[verb]))

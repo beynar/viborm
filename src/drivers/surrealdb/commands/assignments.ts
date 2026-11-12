@@ -1,8 +1,11 @@
 import { NestedWriteError, UnsupportedOperationError } from "@errors";
+import {
+  type SelectorFacts,
+  wholeValue,
+} from "@query-engine/raptor3/shared/query";
+import type { Input } from "@query-engine/raptor3/shared/schema";
+import type { Membership } from "@query-engine/raptor3/shared/storage";
 import type { AnyModel } from "@schema/model";
-import { type SelectorFacts, wholeValue } from "../shared/query";
-import type { Input } from "../shared/schema";
-import type { Membership } from "../shared/storage";
 
 export type Origin = {
   relation: string;
