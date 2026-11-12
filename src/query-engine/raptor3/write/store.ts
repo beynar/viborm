@@ -975,15 +975,40 @@ export class Store {
         : undefined;
     const returns = projection ?? watched;
     const marks = set ? undefined : this.writer.marks(model);
+    const stops = marks && this.writer.restriction(model);
     const later: Later = {};
-    // Where no statement both writes rows and answers with them so, they are read, then written by their keys.
+    // Where no statement both writes rows and answers with them so, they are
+    // read, then written by their keys; and so are rows that are kept where
+    // one may be refused: the rows asked of are the rows written.
     if (
       marks
-        ? watched
+        ? watched || stops
         : returns &&
           !this.operation.answersInStatement(model, returns, kind, set)
     ) {
       const rows = this.rows(question);
+      if (stops && !watched && rows.length > 0) {
+        this.none(
+          {
+            model,
+            only: rows.map((row) => this.#key(row)),
+            referenced: true,
+          },
+          stops
+        );
+        const take = (read: Input[]) => {
+          later.sent = { rows: read, rowCount: read.length };
+        };
+        // They answer as they were, like rows that go.
+        if (projection)
+          this.series(model, rows, projection, "updateMany", take);
+        else take(rows);
+        for (const row of rows) {
+          this.update(row, marks!, undefined, undefined, true);
+          this.#meta.get(row)!.gone = true;
+        }
+        return later;
+      }
       const take = (read: Input[]) => {
         later.sent = { rows: read, rowCount: read.length };
       };
@@ -998,11 +1023,7 @@ export class Store {
       if (set) answer();
       return later;
     }
-    if (marks) {
-      const stops = this.writer.restriction(model);
-      if (stops) this.none({ ...question, referenced: true }, stops);
-      return this.all(question, marks, projection);
-    }
+    if (marks) return this.all(question, marks, projection);
     this.writable(question);
     // A row that must be there is asked for where what the write says of it comes too late.
     if (question.must && this.#handed)

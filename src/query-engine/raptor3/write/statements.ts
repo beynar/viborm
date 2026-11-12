@@ -64,6 +64,8 @@ export interface Question {
   readonly referenced?:
     | true
     | { readonly slot: string; readonly identity: Input };
+  /** No other rows than those with these keys. */
+  readonly only?: readonly Input[];
   /** Rows left out, by their key. */
   readonly except?: readonly Input[];
 }
@@ -90,8 +92,9 @@ export class Writer {
   selector(question: Question, keys?: readonly Input[]): PreparedSelector {
     const q = this.#q;
     const { model } = question;
-    const named = keys
-      ? q.includeIdentities(model, keys)
+    const only = keys ?? question.only;
+    const named = only
+      ? q.includeIdentities(model, only)
       : q.prepareSelector(model, question.where, question.unique ?? false);
     const { referenced } = question;
     const more = [

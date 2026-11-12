@@ -340,7 +340,21 @@ export function verbs(store: Store) {
         edge.name,
         { meta: { operation: reads, conflictsWith: "delete" } }
       );
-    const old = remove && current({ intent: "delete", verb: "delete" }, remove);
+    const removal = { intent: "delete", verb: "delete" } as const;
+    const old =
+      remove &&
+      // The row's own key names a member: one the call cannot delete is a refusal, seen or not.
+      (held &&
+      of &&
+      edge.kind === "reference" &&
+      edge.pairs.every((pair) => (of[pair.source] ?? null) !== null)
+        ? store.one({
+            model: target,
+            where: remove === true ? undefined : remove,
+            member: { edge, of },
+            ...removal,
+          })
+        : current(removal, remove));
     if (old) {
       // A row the row itself references goes once the row no longer does.
       if (held) {
@@ -708,8 +722,7 @@ export function verbs(store: Store) {
     updateMany(model: AnyModel, args: Arguments, raw: Input) {
       const data = paired(args.data as Input, raw.data);
       const { projection, decoded, again } = many(model, args);
-      if (args.limit === 0 || Object.keys(data).length === 0)
-        return () => (projection ? [] : { count: 0 });
+      if (args.limit === 0) return () => (projection ? [] : { count: 0 });
       const relations = relationsOf(model, data);
       const question: Question = {
         model,
