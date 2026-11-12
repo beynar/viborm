@@ -2436,7 +2436,12 @@ export class SqlQueries extends Queries {
       // A layer's own rule reads what it states; a caller's filter is a test
       // of a column a direct read of it could hide.
       if (!this.#lowersLayer)
-        this.refuseHiddenLinkRow(edge, predicate.linkFields!, "filter");
+        this.domain?.refuseHiddenLinkRow(
+          this,
+          edge,
+          predicate.linkFields!,
+          "filter"
+        );
       const held = this.lowerPredicate(predicate.link, linkAlias);
       nested = nested ? a.operators.and(nested, held) : held;
     }

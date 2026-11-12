@@ -959,7 +959,7 @@ export class Writer {
     // A written column is a write to the model: what would judge or observe a direct write refuses it.
     if (
       through &&
-      (q.restrictsLinkWrite(model) ||
+      (q.domain?.restrictsLinkWrite(q, model) ||
         scope?.rows.stamps?.has(name) ||
         sink?.wants(name, "create") ||
         sink?.wants(name, "update"))

@@ -3169,7 +3169,13 @@ export abstract class Queries {
       }
       const evidence = projected?.keys.get(name);
       if (evidence !== undefined) {
-        this.#projectEvidence(evidence, name, selection, fields, prepared);
+        this.domain!.projectEvidence(
+          evidence,
+          name,
+          selection,
+          fields,
+          prepared
+        );
         continue;
       }
       if (!model["~"].state.relations[name]) {
@@ -3235,41 +3241,6 @@ export abstract class Queries {
     });
     if (shared) defaults.set(model, projection);
     return projection;
-  }
-  /**
-   * A declared projection key (K5): `true` reports every declared name, a
-   * list the names it gives, in declared order. Admission refused any other
-   * value. With `ordered`, the last name that holds, `null` where `read` does
-   * not; else one boolean per name.
-   */
-  #projectEvidence(
-    evidence: DeclaredEvidence,
-    name: string,
-    selection: unknown,
-    fields: Record<string, Shape | Leaf>,
-    prepared: PreparedProjectionField[]
-  ): void {
-    const names =
-      selection === true
-        ? evidence.names
-        : evidence.names.filter(([held]) =>
-            (selection as readonly string[]).includes(held)
-          );
-    fields[name] = evidence.ordered
-      ? freeze({
-          kind: "scalar",
-          type: "enum",
-          nullable: true,
-          enumValues: new Set(names.map(([held]) => held)),
-        })
-      : freeze({
-          kind: "object",
-          nullable: false,
-          fields: freeze(
-            Object.fromEntries(names.map(([held]) => [held, BOOLEAN_LEAF]))
-          ),
-        });
-    prepared.push(freeze({ kind: "evidence", name, evidence, names }));
   }
   /**
    * A to-many node's decoded shape. A negative `take` runs the reversed window
@@ -3358,7 +3329,7 @@ export abstract class Queries {
     const named = Object.entries(record(record(asked).select))
       .filter(([, wanted]) => wanted === true)
       .map(([field]) => field);
-    this.refuseHiddenLinkRow(edge, named, "read");
+    this.domain?.refuseHiddenLinkRow(this, edge, named, "read");
     return {
       nested: rest,
       linkRow: freeze({
@@ -3375,59 +3346,6 @@ export abstract class Queries {
       }),
     };
   }
-  /** Whether this call's `purpose` domain of `model` can leave a row out. */
-  #hidesRows(model: AnyModel, purpose: RowPurpose): boolean {
-    const holds = (predicate: PreparedPredicate): boolean => {
-      if (predicate.kind === "layer") {
-        const resolved = predicate.resolve(this);
-        return resolved === undefined || holds(resolved);
-      }
-      if (predicate.kind === "and") return predicate.predicates.every(holds);
-      return predicate.kind === "always" && predicate.value;
-    };
-    const domain = this.domainOf(model, purpose);
-    return domain?.predicate !== undefined && !holds(domain.predicate);
-  }
-  /**
-   * Whether this call's extensions judge writes to a junction model: its rows,
-   * its verbs. A link is written with neither read nor judged, so a `$through`
-   * write through it is refused where a direct write would have been judged.
-   */
-  restrictsLinkWrite(model: AnyModel): boolean {
-    return (
-      this.#hidesRows(model, "root") ||
-      this.#hidesRows(model, "related") ||
-      this.domain?.rows.verbs
-        ?.get(model["~"].names.ts!)
-        ?.some((verbs) => verbs !== undefined) === true
-    );
-  }
-  /**
-   * What a direct read of the junction model would hide stays hidden from a
-   * `$through` that reads it, or that tests it, which is the same disclosure one
-   * row at a time. Not honoured in the statement: a target row the hop reached
-   * has no faithful answer for a link its reader may not see, so the call is
-   * refused before any statement.
-   */
-  protected refuseHiddenLinkRow(
-    edge: Membership,
-    fields: readonly string[],
-    use: "read" | "filter"
-  ): void {
-    const model = (edge as Extract<Membership, { kind: "junction" }>).declared!
-      .model;
-    const name = model["~"].names.ts;
-    if (this.#hidesRows(model, "root") || this.#hidesRows(model, "related"))
-      throw new UnsupportedOperationError(
-        `Cannot ${use} $through of relation '${edge.name}': this client restricts which '${name}' rows a call may read. Read the links through the '${name}' delegate.`
-      );
-    const gates = this.domain?.projected(model)?.gates;
-    const gated = gates && fields.find((field) => gates.has(field));
-    if (gated !== undefined)
-      throw new UnsupportedOperationError(
-        `Cannot ${use} $through.${gated} of relation '${edge.name}': this client gates that field of '${name}'. Read it through the '${name}' delegate.`
-      );
-  }
   #prepareRelationProjection(
     edge: Membership,
     selection: unknown,
@@ -3442,7 +3360,12 @@ export abstract class Queries {
         ? (taken.where?.$through as Input | undefined)
         : undefined;
     if (linkWhere)
-      this.refuseHiddenLinkRow(edge, Object.keys(linkWhere), "filter");
+      this.domain?.refuseHiddenLinkRow(
+        this,
+        edge,
+        Object.keys(linkWhere),
+        "filter"
+      );
     const nested = linkWhere
       ? { ...taken, where: withoutLinkKey(taken.where as Input) }
       : taken;

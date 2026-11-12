@@ -51,7 +51,12 @@ export class SurrealQueries extends Queries {
     filter: { readonly linkFields?: readonly string[] }
   ): void {
     if (!this.lowersLayer)
-      this.refuseHiddenLinkRow(edge, filter.linkFields!, "filter");
+      this.domain?.refuseHiddenLinkRow(
+        this,
+        edge,
+        filter.linkFields!,
+        "filter"
+      );
   }
 
   override under(domain: PreparedDomain, call?: CallScope): Queries {
