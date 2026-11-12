@@ -44,11 +44,7 @@ export {
   renderSchemaType,
   validateOperationPayload,
 } from "./client/schema-introspection.js";
-export type {
-  NoControls,
-  PlacedControl,
-  RowsVerbs,
-} from "./extensions/controls.js";
+export type { NoControls, PlacedControl } from "./extensions/controls.js";
 export {
   type ClientExtension,
   defineExtension,

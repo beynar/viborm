@@ -11,6 +11,8 @@
 
 import type { OperationPayload } from "../client/exports"; // public today
 import { ForbiddenError } from "../errors";
+// The one type the public entry does not export yet.
+import type { RowsVerbs } from "../extensions/controls";
 import { defineExtension } from "../extensions/definition";
 import type {
   ClientSchema,
@@ -18,7 +20,6 @@ import type {
   ExtendedClient,
   ExtensionState,
   MergeExtensionState,
-  RowsVerbs,
   VibORMClient,
   VibORMConfig,
 } from "../index";

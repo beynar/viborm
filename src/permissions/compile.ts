@@ -15,7 +15,8 @@
 // names no engine structure; the entry hands it to the chain.
 
 import { ClientInitializationError } from "../errors";
-import type { RowsVerbs, VibORMConfig } from "../index";
+import type { RowsVerbs } from "../extensions/controls";
+import type { VibORMConfig } from "../index";
 import { type ActorContract, actorContract, refuse } from "./actor";
 import { FALSE, type PolicyModel, type Rule, type Where } from "./rules";
 
