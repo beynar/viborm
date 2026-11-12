@@ -327,12 +327,22 @@ describe("G4-02 prepared operation boundary", () => {
     // on first use and memoised, so a sentinel that were not the same object
     // on a second read would make this boundary either swallow a real refusal
     // or leak its own control-flow sentence to the caller — both silent, and
-    // neither visible to any other registered cell. A nested write whose plan
-    // needs a row it has not read yet is the shape that raises it.
+    // neither visible to any other registered cell. A nested write that goes
+    // one way or another by a row that is not the call's own is the shape
+    // that raises it: its unit cannot be stated before that row is read.
     for (let repeat = 0; repeat < 4; repeat++) {
       const prepared = await engine.prepareBatch("author", "update", {
         where: { id: 1 },
-        data: { posts: { update: [{ where: { id: 10 }, data: { rank: 9 } }] } },
+        data: {
+          posts: {
+            connectOrCreate: [
+              {
+                where: { id: 77 },
+                create: { id: 77, title: "made", rank: 1 },
+              },
+            ],
+          },
+        },
       });
       assert.equal(
         prepared,
@@ -350,7 +360,16 @@ describe("G4-02 prepared operation boundary", () => {
       assert.ok(packaged, "a static read did not package");
       await engine.prepareBatch("author", "update", {
         where: { id: 1 },
-        data: { posts: { update: [{ where: { id: 10 }, data: { rank: 9 } }] } },
+        data: {
+          posts: {
+            connectOrCreate: [
+              {
+                where: { id: 77 },
+                create: { id: 77, title: "made", rank: 1 },
+              },
+            ],
+          },
+        },
       });
     }
   });

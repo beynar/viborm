@@ -8,6 +8,7 @@ import { bindExecutionTransactionPhases } from "@drivers/execution-context";
 import {
   attachRecordSeriesProgress,
   isVibORMError,
+  TransactionError,
   UniqueConstraintError,
 } from "@errors";
 import type { AnyModel } from "@schema/model";
@@ -161,28 +162,48 @@ export async function prepareCall(
     const { statements, answer } = await store.prepare(
       call(store, model, args, raw)
     );
+    const guards = statements.flatMap((statement, queryIndex) =>
+      statement.stops
+        ? [
+            {
+              queryIndex,
+              premise: statement.premise ?? ("exists" as const),
+              // A statement that judges its own rows is pointed at by its place.
+              probe: statement.premise
+                ? statement.probe!
+                : operation.driver.adapter.clauses.select(sql`1`),
+              failure: statement.stops,
+              model: statement.model["~"].names.ts!,
+              operation: operation.operation,
+            },
+          ]
+        : []
+    );
     return {
       queries: statements.map((statement) =>
         prepared(operation, driver, statement)
       ),
-      guards: statements.flatMap((statement, queryIndex) =>
-        statement.stops
-          ? [
+      // A unit nothing can stop names no guard.
+      ...(guards.length > 0 && { guards }),
+      parseResult: (results) => {
+        // A unit answered short is its driver's failure, said as such.
+        for (let at = 0; at < statements.length; at++)
+          if (!results[at])
+            throw new TransactionError(
+              `Driver '${driver.driverName}' omitted the prepared result for operation '${operation.operation}'.`,
               {
-                queryIndex,
-                premise: statement.premise ?? "exists",
-                // A statement that judges its own rows is pointed at by its place.
-                probe: statement.premise
-                  ? statement.probe!
-                  : operation.driver.adapter.clauses.select(sql`1`),
-                failure: statement.stops,
-                model: statement.model["~"].names.ts!,
-                operation: operation.operation,
-              },
-            ]
-          : []
-      ),
-      parseResult: (results) => answer(results as never),
+                meta: {
+                  model: operation.modelName,
+                  operation: operation.operation,
+                },
+              }
+            );
+        try {
+          return answer(results as never);
+        } catch (error) {
+          throw operation.failure(error);
+        }
+      },
     };
   } catch (error) {
     if (error !== SEVERAL) throw error;

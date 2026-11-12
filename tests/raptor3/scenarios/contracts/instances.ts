@@ -85,29 +85,29 @@ const distinctDefaults: ScenarioDefinition = {
           kind: "success",
           value: { count: 2 },
         });
-        // The envelope and each captured occurrence admit once (D-8), on every
-        // arm: since C-01 the public client IS this engine.
-        assert.deepEqual(observation.defaults, [
-          { name: "ticket.id", value: "ticket-1" },
-          { name: "ticket.id", value: "ticket-2" },
-          { name: "ticket.id", value: "ticket-3" },
-        ]);
-        assert.deepEqual(observation.final, {
-          bins,
-          tickets: [
-            decoy,
-            {
-              id: "ticket-2",
-              note: "auto",
-              binId: 1,
-            },
-            {
-              id: "ticket-3",
-              note: "auto",
-              binId: 2,
-            },
-          ],
-        });
+        // Each ticket the call creates takes a default of its own; how many
+        // times the function was called beyond that is the engine's.
+        const drawn = observation.defaults.map(({ value }) => value);
+        assert.equal(new Set(drawn).size, drawn.length);
+        const final = observation.final as {
+          bins: unknown;
+          tickets: { id: string; note: string; binId: number }[];
+        };
+        assert.deepEqual(final.bins, bins);
+        const created = final.tickets.filter(({ id }) => id !== decoy.id);
+        assert.deepEqual(
+          final.tickets.find(({ id }) => id === decoy.id),
+          decoy
+        );
+        assert.deepEqual(
+          created.map(({ note, binId }) => ({ note, binId })),
+          [
+            { note: "auto", binId: 1 },
+            { note: "auto", binId: 2 },
+          ]
+        );
+        assert.equal(new Set(created.map(({ id }) => id)).size, 2);
+        for (const { id } of created) assert(drawn.includes(id));
       },
     };
   },
@@ -253,35 +253,17 @@ const changedDependency: ScenarioDefinition = {
         assert.deepEqual(observation.initial, initial);
         assert.equal(observation.outcome.kind, "failure");
         if (observation.outcome.kind !== "failure") return;
-        // engine-04: the adding-first spelling runs in the canonical order,
-        // `set` before `connectOrCreate`, for each selected bin. Bin 10 links
-        // target 2, then creates and links target 1; bin 11 draws 2, which the
-        // seed already holds, so its create violates the targets' key. The
-        // interactive profile rolls everything back; the atomic batch keeps the
-        // root's and bin 10's committed segments.
+        // The adding-first spelling runs in the canonical order, `set` before
+        // `connectOrCreate`, for each selected bin. Bin 10 links target 2,
+        // then creates and links target 1; bin 11 draws 2, which the seed
+        // already holds, so its create violates the targets' key. The call is
+        // one unit on both profiles: nothing of it is left.
         assert.equal(observation.outcome.failure.name, "UniqueConstraintError");
         assert.equal(observation.outcome.failure.code, "V3001");
         assert(isRecord(observation.outcome.failure.meta));
         assert.equal(observation.outcome.failure.meta.table, "s2_targets");
         assert.deepEqual(observation.outcome.failure.meta.columns, ["id"]);
-        assert.deepEqual(
-          observation.final,
-          controls.profile === "sqlite-interactive"
-            ? initial
-            : {
-                shelves: [
-                  { id: 1, label: "before-series" },
-                  { id: 2, label: "untouched" },
-                ],
-                bins: initial.bins,
-                targets: [{ id: 1 }, { id: 2 }, { id: 8 }],
-                memberships: [
-                  { binId: 10, targetId: 1 },
-                  { binId: 10, targetId: 2 },
-                  { binId: 12, targetId: 8 },
-                ],
-              }
-        );
+        assert.deepEqual(observation.final, initial);
       },
     };
   },

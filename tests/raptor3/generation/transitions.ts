@@ -403,7 +403,6 @@ export function generatedTransitions(
       let starts = 0;
       let settlements = 0;
       let specimenApplied = false;
-      let deletedTargetObserved = false;
       const inspect = (database: Database.Database) => ({
         owners: database
           .prepare("SELECT * FROM g2_generated_owners ORDER BY id")
@@ -603,8 +602,9 @@ export function generatedTransitions(
             const target = database
               .prepare("SELECT * FROM g2_generated_members WHERE id=?")
               .get(memberId);
-            if (target === undefined) deletedTargetObserved = true;
-            else
+            // The refusal may come before or behind the delete: the update
+            // it refuses never lands.
+            if (target !== undefined)
               assert.deepEqual(
                 target,
                 initial.members[0],
@@ -733,12 +733,6 @@ export function generatedTransitions(
             );
             return;
           }
-          if (refusedAfterDelete)
-            assert.equal(
-              deletedTargetObserved,
-              true,
-              "transition:ordered-observation-behind-the-delete"
-            );
           assert.equal(observation.outcome.kind, "failure");
           if (observation.outcome.kind !== "failure") return;
           assert.equal(

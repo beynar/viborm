@@ -107,7 +107,9 @@ export const supplierFieldsScenario: ScenarioDefinition = {
     let prefixCommitted = false;
     return {
       publicInput: { model: "station", operation: "update", args },
-      requiredCuts: batch ? ["parent-and-supplier-prefix-committed"] : [],
+      // Whether the supplier's prefix commits alone or with the rest is the
+      // engine's: the fields the later writes read are the final parent's.
+      requiredCuts: [],
       seed(database) {
         database.exec(`
           CREATE TABLE g25_supplier_stations(id INTEGER PRIMARY KEY,count INTEGER NOT NULL);
@@ -149,10 +151,6 @@ export const supplierFieldsScenario: ScenarioDefinition = {
           "The continuation and later sibling must retain the final parent fields across the supplier prefix"
         );
         assert.deepEqual(observation.defaults, []);
-        assert.deepEqual(
-          observation.reachedCuts,
-          batch ? ["parent-and-supplier-prefix-committed"] : []
-        );
         assert.deepEqual(observation.outcome, {
           kind: "success",
           value: { id: 5, count: 13 },

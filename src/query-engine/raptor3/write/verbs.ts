@@ -553,8 +553,11 @@ export function verbs(store: Store) {
     }
     const either = first("connectOrCreate") as Input | undefined;
     if (either) {
-      const [found] = store.rows(sought(either.where, "connectOrCreate"));
+      const asked = sought(either.where, "connectOrCreate");
+      const [found] = store.rows(asked);
       const through = either.$through as Input | undefined;
+      // A row created because none was found is created while none is there.
+      if (!found) store.absent(asked);
       supplied = found
         ? adopt(found, "connectOrCreate", through)
         : create(either.create as Input, true, through);
@@ -718,17 +721,21 @@ export function verbs(store: Store) {
         );
     },
     connectOrCreate(parent, edge, { where, create, $through }) {
-      const [row] = store.rows({
+      const asked: Question = {
         model: edge.target,
         where: where as Input,
         unique: true,
         through: edge,
         intent: "join",
         verb: "connectOrCreate",
-      });
+      };
+      const [row] = store.rows(asked);
       if (row) join(parent, edge, row, "connectOrCreate", $through as Input);
-      else
+      else {
+        // A row created because none was found is created while none is there.
+        store.absent(asked);
         nested.create!(parent, edge, create as Input, true, $through as Input);
+      }
     },
     connect(parent, edge, { $through, ...where }) {
       join(

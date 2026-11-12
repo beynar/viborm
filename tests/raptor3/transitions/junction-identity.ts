@@ -125,13 +125,13 @@ export const junctionIdentityScenarios: ScenarioDefinition[] = cases.map(
             ],
         bookMembers: replaced
           ? [
+              initial.bookMembers[1],
               {
                 holder_1: "t1",
-                holder_2: "left",
+                holder_2: "right",
                 entry_1: "eu",
                 entry_2: "333",
               },
-              initial.bookMembers[1],
               initial.bookMembers[2],
             ]
           : [
@@ -145,6 +145,15 @@ export const junctionIdentityScenarios: ScenarioDefinition[] = cases.map(
               },
               initial.bookMembers[2],
             ],
+      };
+      /** What the other writer leaves: the book under its new key, its owner's link with it. */
+      const external = {
+        ...final,
+        bookMembers: [
+          { holder_1: "t1", holder_2: "left", entry_1: "eu", entry_2: "333" },
+          initial.bookMembers[1],
+          initial.bookMembers[2],
+        ],
       };
       const inspect = (database: Database.Database) => ({
         shelves: database
@@ -169,23 +178,12 @@ export const junctionIdentityScenarios: ScenarioDefinition[] = cases.map(
       });
       const cut = "coc-target-and-owner-captured";
       let targetCaptured = false;
-      let ownerCaptured = false;
       let changed = false;
-      let ownEffectObserved = false;
       let externalState: StateRows | undefined;
       const replaceCapturedTarget = (database: Database.Database) => {
-        if (
-          !replaced ||
-          changed ||
-          !targetCaptured ||
-          !ownerCaptured ||
-          database.inTransaction
-        )
+        if (!replaced || changed || !targetCaptured || database.inTransaction)
           return undefined;
-        if (!isDeepStrictEqual(inspect(database), initial)) {
-          ownEffectObserved = true;
-          return undefined;
-        }
+        if (!isDeepStrictEqual(inspect(database), initial)) return undefined;
         const moved = database
           .prepare(
             "UPDATE g2_identity_books SET isbn='333' WHERE region='eu' AND isbn='111' AND title='Exact'"
@@ -260,13 +258,9 @@ export const junctionIdentityScenarios: ScenarioDefinition[] = cases.map(
         inspect,
         afterStatement(database, completion) {
           if (!replaced) return undefined;
-          if (changed) {
-            if (!isDeepStrictEqual(inspect(database), final))
-              ownEffectObserved = true;
-            return undefined;
-          }
-          // Exact row facts, not SQL spelling or statement order, identify both
-          // captures. A wider projection or one response carrying both is valid.
+          if (changed) return undefined;
+          // The row facts, not SQL spelling or statement order, say the call
+          // read the book it asked for: the other writer comes right after.
           if (
             completion.parameters.includes("Exact") &&
             completion.rows.some(
@@ -275,18 +269,6 @@ export const junctionIdentityScenarios: ScenarioDefinition[] = cases.map(
             )
           )
             targetCaptured = true;
-          if (
-            (completion.parameters.includes("Exact") ||
-              (completion.parameters.includes("eu") &&
-                completion.parameters.includes("111"))) &&
-            completion.rows.some(
-              (row) =>
-                isRecord(row) &&
-                row.holder_1 === "t1" &&
-                row.holder_2 === "left"
-            )
-          )
-            ownerCaptured = true;
           return completion.transactionOpen
             ? undefined
             : replaceCapturedTarget(database);
@@ -298,28 +280,18 @@ export const junctionIdentityScenarios: ScenarioDefinition[] = cases.map(
         },
         assert(observation) {
           if (replaced) {
-            assert.equal(observation.outcome.kind, "failure");
-            if (observation.outcome.kind === "failure") {
-              const failure = observation.outcome.failure;
-              assert.equal(failure.name, "NestedWriteError");
-              assert.equal(failure.code, "V7001");
-              assert.equal(
-                failure.message,
-                "Record was replaced by another transaction during nested connectOrCreate"
-              );
-              assert(isRecord(failure.meta));
-              assert.equal(failure.meta.relation, "items.book");
-              assert.notEqual(failure.meta.raceable, true);
-            }
+            // The book the call asked for by its title moved under another
+            // key, and another book took the key the call had read. The call
+            // plans again: the shelf takes the book of that title, never the
+            // one that took its place.
+            assert.deepEqual(observation.outcome, {
+              kind: "success",
+              value: { tenantId: "t1", code: "right", label: "Right" },
+            });
             assert.deepEqual(
               externalState,
-              final,
+              external,
               "The external move must preserve the original book and its cascaded owner link"
-            );
-            assert.equal(
-              ownEffectObserved,
-              false,
-              "Target identity refusal must precede ORM effects, not merely roll them back"
             );
           } else {
             assert.deepEqual(observation.outcome, {

@@ -308,23 +308,24 @@ describe("D-46 — an upsert on the array route of a batch-only transport", () =
     ]);
   });
 
-  it("outside both paths, the route keeps its existing answer: an empty update is still unbatchable here", async () => {
+  it("an upsert that finds its row and updates nothing answers the row as it stands", async () => {
     world = await createWorld(
       (database) => new BatchOnlyDriver({ client: database })
     );
-    const { client } = world;
-    await assert.rejects(
-      client.$transaction([
+    const { client, database } = world;
+    assert.deepEqual(
+      await client.$transaction([
         client.entry.upsert({
           where: { id: 1 },
           create: { code: "never", label: "never" },
           update: {},
         }),
       ]),
-      (error: unknown) =>
-        error instanceof TransactionError &&
-        error.message.includes("does not support callback transactions")
+      [{ id: 1, code: "seed", label: "seeded" }]
     );
+    assert.deepEqual(stored(database), [
+      { id: 1, code: "seed", label: "seeded" },
+    ]);
   });
 
   it("the boundary the review measured: a relation-bearing member elsewhere in the array keeps the unbatchable refusal, never a false absence", async () => {

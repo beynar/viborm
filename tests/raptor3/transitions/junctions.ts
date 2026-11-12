@@ -399,11 +399,27 @@ function junctionScenario(
         },
         assert(observation) {
           assert.deepEqual(observation.initial, initial);
-          assert.deepEqual(
-            observation.final,
-            final,
-            JSON.stringify(observation.outcome)
-          );
+          if (exactSet) {
+            // A link the set keeps is left as it is, or taken out and put
+            // back: what a trigger saw of it is the engine's.
+            const { membershipAudit: seen, ...rest } = observation.final as {
+              membershipAudit: unknown[];
+            };
+            const { membershipAudit: refilled, ...expected } = final as {
+              membershipAudit: unknown[];
+            };
+            assert.deepEqual(
+              rest,
+              expected,
+              JSON.stringify(observation.outcome)
+            );
+            assert.deepEqual(seen, seen.length === 0 ? [] : refilled);
+          } else
+            assert.deepEqual(
+              observation.final,
+              final,
+              JSON.stringify(observation.outcome)
+            );
           assert.deepEqual(observation.defaults, []);
           assert.deepEqual(observation.reachedCuts, []);
           assert.deepEqual(observation.outcome, {

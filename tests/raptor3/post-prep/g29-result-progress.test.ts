@@ -235,7 +235,22 @@ async function runMalformedResult(profile: Profile): Promise<void> {
     assert.equal(value, undefined, diagnostic);
     assert.equal(driver.corrupted, true, diagnostic);
     assert.equal(driver.insertDispatches, 1, diagnostic);
-    assertMalformedResultFailure(failure, "create", undefined, diagnostic);
+    // Where nothing can undo the statement once it is sent, the failure says
+    // what stands: the one row of the call, written before its answer was read.
+    assertMalformedResultFailure(
+      failure,
+      "create",
+      driver instanceof CorruptingBatchSQLiteDriver
+        ? {
+            atomicity: "segment",
+            phase: "result",
+            committedSegments: 1,
+            completedMembers: 0,
+            committedWriteMembers: 1,
+          }
+        : undefined,
+      diagnostic
+    );
     if (driver instanceof CorruptingBatchSQLiteDriver) {
       // D-7 (Arnaud, 2026-09-15): a set statement that is the operation's ONLY
       // statement needs no batch envelope, so the folded root `create` never
