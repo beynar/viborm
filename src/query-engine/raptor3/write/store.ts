@@ -732,8 +732,10 @@ export class Store {
       const recalled = !late && this.#recalled(question);
       if (recalled === true) return this.#rows(question, true);
       // What the call recalls of a row it only read is asked again where its writes are sent, where nothing held what it read.
-      const read = recalled && recalled.filter((row) => !this.#changed(row));
-      if (read && read.length > 0)
+      const read = Array.isArray(recalled)
+        ? recalled.filter((row) => !this.#changed(row))
+        : [];
+      if (read.length > 0)
         this.#used.set({ question, rows: read }, this.#log.length);
       const known = recalled || (!late && this.#presume(id, question));
       if (known) return known;
