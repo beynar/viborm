@@ -16,7 +16,6 @@ const CENSUS: Readonly<Record<string, string>> = {
   // Statements only SQL's plan writes: this driver answers these in its own.
   "an assignment spelled apart from its statement": NEVER_ASKED,
   "a condition spelled apart from its statement": NEVER_ASKED,
-  locks: "NEVER: supportsRowLocks is false, so the engine takes no lock here",
   "a read over a write's own rows": NEVER_ASKED,
   "a write that reads before it writes, in a batch":
     "NEVER: a call here is sent in a transaction, where each answer is heard",
