@@ -183,7 +183,7 @@ export class SurrealQueries extends Queries {
   override select(
     model: AnyModel,
     args: Partial<Arguments>,
-    membership?: { edge: Membership; parent: Input; outside?: boolean },
+    membership?: { edge: Membership; parent: Input },
     controls: SelectControls = {}
   ): Query {
     if (controls.source) refuse("a read over a write's own rows");
@@ -199,9 +199,7 @@ export class SurrealQueries extends Queries {
       : given;
     // A path reads a record's members without scanning the table holding them.
     const path =
-      membership?.edge.kind === "junction" &&
-      !membership.edge.declared &&
-      !membership.outside
+      membership?.edge.kind === "junction" && !membership.edge.declared
         ? this.lowering.membersOf(membership.edge, membership.parent)
         : undefined;
     // A whole key stated as values is the record itself, read without a filter.
@@ -216,13 +214,7 @@ export class SurrealQueries extends Queries {
         : undefined;
     const conditions = () => [
       ...(membership && !path
-        ? [
-            this.lowering.member(
-              membership.edge,
-              membership.parent,
-              membership.outside
-            ),
-          ]
+        ? [this.lowering.member(membership.edge, membership.parent)]
         : []),
       ...(identity && !record ? [this.lowering.identity(model, identity)] : []),
       ...(controls.unless?.predicate

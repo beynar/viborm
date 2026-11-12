@@ -198,8 +198,6 @@ export class SqlOperationContext {
    * prepares for, and its rows decoded and decided once.
    */
   async publish(read: Read, missing?: () => Error): Promise<unknown> {
-    if (this.#owner === "batch-preparation")
-      return this.publishPrepared(read, missing);
     const positional =
       this.#owner === "standalone" && read.value.kind === "collection"
         ? resolvePositionalResultDriver(this.driver)

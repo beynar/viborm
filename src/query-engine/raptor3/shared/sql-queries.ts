@@ -3277,34 +3277,6 @@ export class SqlQueries extends Queries {
   ): Sql {
     return this.#membershipWhere(edge, alias, parent, held);
   }
-  /**
-   * The rows OUTSIDE a membership, in three-valued logic: a member-side
-   * column left NULL, or a parent that holds no key, is outside — where a
-   * plain negation of {@link memberWhere} would answer NULL and select nothing
-   * (an ordered observation's found requirement, N1).
-   */
-  outsideWhere(edge: Membership, parent: Input, alias: string): Sql {
-    const a = this.adapter;
-    const inside = this.#membershipWhere(edge, alias, parent);
-    if (edge.kind !== "reference") return a.operators.not(inside);
-    const unbound = edge.pairs.some(
-      (pair) =>
-        parent[pair.source] === null || parent[pair.source] === undefined
-    );
-    if (unbound) return sql`1 = 1`;
-    const columns = [
-      ...(edge.discriminator?.side === "target"
-        ? [edge.discriminator.field]
-        : []),
-      ...edge.pairs.map((pair) => pair.target),
-    ];
-    return a.operators.or(
-      a.operators.not(inside),
-      ...columns.map((field) =>
-        a.operators.isNull(this.column(edge.target, field, alias))
-      )
-    );
-  }
   #membershipWhere(
     edge: Membership,
     target: string,
@@ -3917,7 +3889,7 @@ export class SqlQueries extends Queries {
   override select(
     model: AnyModel,
     args: Partial<Arguments>,
-    membership?: { edge: Membership; parent: Input; outside?: boolean },
+    membership?: { edge: Membership; parent: Input },
     controls: SqlSelectControls = {}
   ): Query {
     if (!this.sharesBodies)
@@ -3932,9 +3904,7 @@ export class SqlQueries extends Queries {
   #select(
     model: AnyModel,
     args: Partial<Arguments>,
-    membership:
-      | { edge: Membership; parent: Input; outside?: boolean }
-      | undefined,
+    membership: { edge: Membership; parent: Input } | undefined,
     controls: SqlSelectControls
   ): Query {
     const alias = this.#rootAlias();
@@ -4030,9 +4000,7 @@ export class SqlQueries extends Queries {
   #selectWhere(
     model: AnyModel,
     alias: string,
-    membership:
-      | { edge: Membership; parent: Input; outside?: boolean }
-      | undefined,
+    membership: { edge: Membership; parent: Input } | undefined,
     filter: Sql | undefined,
     unless: Sql | undefined,
     cursor: Sql | undefined,
@@ -4040,11 +4008,7 @@ export class SqlQueries extends Queries {
   ): Sql | undefined {
     const where: Sql[] = [];
     if (membership)
-      where.push(
-        membership.outside
-          ? this.outsideWhere(membership.edge, membership.parent, alias)
-          : this.memberWhere(membership.edge, membership.parent, alias)
-      );
+      where.push(this.memberWhere(membership.edge, membership.parent, alias));
     if (filter) where.push(filter);
     if (unless) where.push(unless);
     if (cursor) where.push(cursor);

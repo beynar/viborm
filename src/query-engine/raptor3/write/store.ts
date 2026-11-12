@@ -370,15 +370,7 @@ export class Store {
         // What the call took for granted is asked for real; what it read is read again.
         if (believed === "presumed")
           for (const id of this.#presumed.keys()) this.#concrete.add(id);
-        // In a unit that holds what it reads, what it read without holding and lost is read again in another unit: this one may go on seeing what it saw.
-        else if (this.#transport.holds)
-          throw new Lost(
-            createFailureError(
-              stops!,
-              model["~"].names.ts!,
-              this.operation.operation
-            )
-          );
+        // Only a unit that holds nothing of what it reads asks again what it read: it plans again on what the database says now, three times at most.
         else if (++races > 3)
           throw new NotFoundError(
             model["~"].names.ts!,
@@ -1765,6 +1757,8 @@ export class Store {
   }
   /** Refuses where no part of the call's unit can be undone alone. */
   attempts(rows: string): void {
+    // A unit handed over hears nothing of its parts: it cannot be one unit.
+    if (this.#handed) throw SEVERAL;
     if (!this.#transport.attempt)
       throw new UnsupportedOperationError(
         `skipDuplicates cannot skip ${rows} on driver '${this.operation.driver.driverName}' in this scope; a member savepoint is required.`,

@@ -3398,7 +3398,7 @@ export abstract class Queries {
   abstract select(
     model: AnyModel,
     args: Partial<Arguments>,
-    membership?: { edge: Membership; parent: Input; outside?: boolean },
+    membership?: { edge: Membership; parent: Input },
     controls?: SelectControls
   ): Query;
   abstract read(

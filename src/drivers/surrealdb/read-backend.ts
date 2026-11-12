@@ -1625,13 +1625,13 @@ export class SurrealReadBackend implements ReadBackend {
     return stored(model["~"].state.scalars[field]?.["~"].state, value);
   }
 
-  /** The target rows of `edge` for this parent, or those outside them. */
-  member(edge: Membership, parent: Input, outside = false): Sql {
+  /** The target rows of `edge` for this parent. */
+  member(edge: Membership, parent: Input): Sql {
     if (edge.kind === "junction") {
       const list = edge.declared
         ? this.#declaredOf(edge, parent)
         : this.membersOf(edge, parent);
-      return sql`id ${sql.raw(outside ? "NOT IN" : "IN")} ${list}`;
+      return sql`id IN ${list}`;
     }
     const reached = reference(edge);
     const held = reached.pairs.map(({ source }) => parent[source]);
@@ -1641,8 +1641,8 @@ export class SurrealReadBackend implements ReadBackend {
       (discriminator?.side === "source" &&
         parent[discriminator.field] !== discriminator.value)
     )
-      return sql.raw(outside ? "true" : "false");
-    const test = sql.join(
+      return sql.raw("false");
+    return sql.join(
       [
         ...reached.pairs.map(
           ({ target }, index) =>
@@ -1656,7 +1656,6 @@ export class SurrealReadBackend implements ReadBackend {
       ],
       " AND "
     );
-    return outside ? sql`!(${test})` : test;
   }
 
   /**
