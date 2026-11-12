@@ -4525,6 +4525,20 @@ export class SqlQueries extends Queries {
     identities: Input[],
     operation: "createMany" | "updateMany" = "createMany"
   ): Query {
+    if (!this.sharesBodies)
+      return this.#selectSeries(prepared, identities, operation);
+    let query: Query | undefined;
+    const statement = this.#sharingBodies(() => {
+      query = this.#selectSeries(prepared, identities, operation);
+      return query.sql;
+    });
+    return statement === query!.sql ? query! : { ...query!, sql: statement };
+  }
+  #selectSeries(
+    prepared: PreparedProjection,
+    identities: Input[],
+    operation: "createMany" | "updateMany"
+  ): Query {
     const model = prepared.model;
     const alias = this.#rootAlias();
     const projection = this.lowerProjection(prepared, alias);

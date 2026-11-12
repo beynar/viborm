@@ -340,15 +340,19 @@ export function verbs(store: Store) {
     // The rows whose key this one holds are there before it.
     const held = relations
       .filter(({ edge }) => holds(edge))
-      .map(({ edge, payload }) =>
-        single(undefined, model, edge, payload, said)
-      );
+      .map(({ edge, payload }) => ({
+        edge,
+        ...single(undefined, model, edge, payload, said),
+      }));
+    // What the relation it is created through gives the row, a relation it holds does not give it another value of.
     const takes = Object.assign(
       {},
       relation === undefined
         ? given
         : once("create", model, said, given, relation, true),
-      ...held.map((own) => own.takes)
+      ...held.map((own) =>
+        once("create", model, given, own.takes, own.edge.name)
+      )
     );
     const row = store.insert(model, data, stated(data), relation, takes);
     made.set(row, !arm);
@@ -454,7 +458,11 @@ export function verbs(store: Store) {
     const takes = Object.assign(
       {},
       given && once("update", model, said, given, relation!, true),
-      ...singles.map((each) => each.takes)
+      ...singles.map((each, at) =>
+        given
+          ? once("update", model, given, each.takes, own[at]!.edge.name)
+          : each.takes
+      )
     );
     // A key the row takes of a relation it holds is as much another key as one the caller wrote.
     for (const { edge } of relations)

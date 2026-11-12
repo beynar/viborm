@@ -596,6 +596,14 @@ export class Store {
     const name = this.#name(meta.model, row);
     if (question.except?.some((key) => this.#name(meta.model, key) === name))
       return false;
+    // A value the row holds that is not the one asked for: it does not answer, whose ever member it is.
+    for (const [field, value] of facts.equals)
+      if (
+        Object.hasOwn(row, field) &&
+        !(row[field] instanceof Pending) &&
+        !same(row[field], value)
+      )
+        return false;
     if (member?.edge.kind === "reference") {
       const { discriminator, pairs } = member.edge;
       // Of the variant the relation reaches.
@@ -1106,7 +1114,12 @@ export class Store {
         edge.kind !== "reference" ||
         edge.owner !== "target" ||
         edge.reference?.onUpdate !== "cascade" ||
-        edge.pairs.every((pair) => before[pair.source] === row[pair.source])
+        // What the row does not hold, no write of the call gave it.
+        edge.pairs.every(
+          (pair) =>
+            !Object.hasOwn(row, pair.source) ||
+            before[pair.source] === row[pair.source]
+        )
       )
         continue;
       for (const child of [...this.#known.values()]) {
@@ -1869,6 +1882,18 @@ export class Store {
     };
     /** The rows taken to be there after the unit began: each asked for at its place, in the order of their places. */
     const later: [number, () => void][] = [];
+    /** Whether the unit writes, before a place, what may make a row the member a question says: the row it is a member of, or a link of its relation. */
+    const made = (question: Question, at: number) =>
+      question.member !== undefined &&
+      log
+        .slice(this.#sent, at)
+        .some((entry) =>
+          "row" in entry
+            ? entry.row === question.member!.of
+            : entry.kind === "link" &&
+              question.member!.edge.kind === "junction" &&
+              entry.edge.table === question.member!.edge.table
+        );
     for (const [id, { question, row, at }] of this.#presumed) {
       if (at > to || (holds ? this.#asserted.has(id) : passed(row))) continue;
       this.#asserted.add(id);
@@ -1888,13 +1913,8 @@ export class Store {
         (holds || !(this.#handed || writes > 1))
       )
         confirms.set(first, question);
-      // A member of a row the unit writes before is asked for behind that write, which may be what makes it one.
-      else if (
-        question.member &&
-        log
-          .slice(this.#sent, at)
-          .some((entry) => "row" in entry && entry.row === question.member!.of)
-      )
+      // A member is asked for behind what the unit writes that may make it one.
+      else if (made(question, at))
         later.push([at, () => ask(question, id, "presumed", undefined, at)]);
       else ask(question, id, "presumed");
     }
@@ -1953,7 +1973,7 @@ export class Store {
         confirms.has(entry) === confirms.has(next) &&
         a?.of === b?.of &&
         a?.edge === b?.edge &&
-        !own.has(next)
+        !(own.has(next) || spare.has(next) || spare.has(entry))
       );
     };
     /** Refuses where a write that says whether its rows are there found fewer. */
@@ -1977,12 +1997,20 @@ export class Store {
       { read: Extract<Entry, { kind: "read" }>; place: number }
     >();
     const told = new Set<Entry>();
+    /**
+     * The reads of one row that find it gone are answered by what the row's
+     * own write said of it: something noted between them may remove the row,
+     * and the call answers with the row it wrote.
+     */
+    const spare = new Map<Entry, Extract<Entry, { kind: "read" }>>();
+    const spared = new Map<Entry, Sent>();
     for (let place = this.#sent; place < to; place++) {
       const read = log[place]!;
       if (!(read.kind === "read" && read.projection && read.rows.length === 1))
         continue;
       const [row] = read.rows;
       const { model } = read;
+      let changed = false;
       for (let at = place - 1; at >= this.#sent; at--) {
         const entry = log[at]!;
         if (
@@ -1990,7 +2018,7 @@ export class Store {
           entry.row === row
         ) {
           if (
-            !own.has(entry) &&
+            !(own.has(entry) || spare.has(entry)) &&
             (at === place - 1 || returningSafeProjection(read.projection)) &&
             (entry.kind === "insert" || entry.hears.length === 0) &&
             this.operation.answersInStatement(
@@ -2000,8 +2028,12 @@ export class Store {
               entry.kind === "update" ? entry.set : undefined
             )
           ) {
-            own.set(entry, { read, place });
-            told.add(read);
+            if (changed) {
+              if (entry.kind === "update") spare.set(entry, read);
+            } else {
+              own.set(entry, { read, place });
+              told.add(read);
+            }
           }
           break;
         }
@@ -2016,7 +2048,7 @@ export class Store {
           touched === model ||
           (touched && dependentsOf(schema, touched).has(model))
         )
-          break;
+          changed = true;
       }
     }
     /** The read of rows that follows `at`, where the statement that writes those rows may answer it. */
@@ -2063,15 +2095,17 @@ export class Store {
               ].map((field) => [field, values[field]])
             )
           );
-        if (keys.length > 0)
-          ask(
-            answer.question,
-            text(where),
-            "read",
-            keys.length === 1 ? keys[0] : keys
-          );
+        const key = keys.length === 1 ? keys[0] : keys;
+        if (keys.length === 0) continue;
+        if (made(answer.question, at))
+          later.push([
+            at,
+            () => ask(answer.question, text(where), "read", key, at),
+          ]);
+        else ask(answer.question, text(where), "read", key);
       }
     }
+    later.sort(([a], [b]) => a - b);
     /** A read of every row a run of inserts creates, whatever their shapes: each of their statements answers its part. */
     let series:
       | {
@@ -2248,6 +2282,7 @@ export class Store {
         const mine = run.length === 1 ? own.get(entry) : undefined;
         if (!mine && own.has(entry)) told.delete(own.get(entry)!.read);
         const read = mine?.read;
+        const kept = hears.length === 0 ? spare.get(entry) : undefined;
         let asked = false;
         let named: Question | undefined;
         steps.push({
@@ -2266,6 +2301,7 @@ export class Store {
                 set,
                 run.map((next) => this.#said(next.key)),
                 read?.projection ??
+                  kept?.projection ??
                   (hears.length > 0 && !first ? writer.key(model) : undefined),
                 confirms.has(entry)
               ),
@@ -2274,6 +2310,7 @@ export class Store {
           take: read
             ? tells(read, mine!.place)
             : (sent) => {
+                if (kept) spared.set(kept, sent.at(-1)!);
                 take(asked ? sent.slice(0, 1) : sent);
                 if (writer.counts("update"))
                   consumed(named!, run.length, sent.at(-1));
@@ -2431,7 +2468,13 @@ export class Store {
               model: entry.model,
             }));
           },
-          take: (sent) => take(sent, queries),
+          take: (sent) =>
+            take(
+              spared.has(entry) && sent.every((each) => each.rows.length === 0)
+                ? [spared.get(entry)!]
+                : sent,
+              queries
+            ),
         });
       }
     }
