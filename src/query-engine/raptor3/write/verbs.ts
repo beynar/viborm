@@ -241,7 +241,7 @@ export function verbs(store: Store) {
       ...schema.scalars(
         model,
         store.copy(`moved ${model["~"].names.ts}`, () =>
-          schema.update(model, {}, true)
+          schema.update(model, {})
         )
       ),
       ...takes,
@@ -828,7 +828,7 @@ export function verbs(store: Store) {
                     paired(
                       parseStamped(
                         operation.scope?.rows.stamps ?? new Map(),
-                        () => schema.update(edge.target, stated(values), true)
+                        () => schema.update(edge.target, stated(values))
                       ),
                       stated(values)
                     )
@@ -1223,7 +1223,7 @@ export function verbs(store: Store) {
             : store.copy(`${at}`, () =>
                 paired(
                   parseStamped(operation.scope?.rows.stamps ?? new Map(), () =>
-                    schema.update(model, raw.data as Input, true)
+                    schema.update(model, raw.data as Input)
                   ),
                   raw.data
                 )

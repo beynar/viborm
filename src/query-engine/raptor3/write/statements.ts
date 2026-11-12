@@ -385,7 +385,7 @@ export class Writer {
         written =
           kind === "create"
             ? schema.createValues(model, kept)
-            : schema.update(model, kept, true);
+            : schema.update(model, kept);
       source = { ...admitted };
       for (const field in kept) source[field] = written[field];
       Object.assign(source, computed);
@@ -412,8 +412,7 @@ export class Writer {
         model,
         mark.at === undefined
           ? mark.assign
-          : { ...mark.assign, [mark.at]: scope.instant() },
-        true
+          : { ...mark.assign, [mark.at]: scope.instant() }
       ),
       {}
     );
@@ -1010,7 +1009,7 @@ export class Writer {
         through && Object.keys(through).length > 0
           ? (
               await this.computed(model, [
-                schema.scalars(model, schema.update(model, through, true)),
+                schema.scalars(model, schema.update(model, through)),
               ])
             )[0]
           : undefined,

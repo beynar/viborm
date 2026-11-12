@@ -18,7 +18,7 @@ import type { NormalizedRecurrence } from "@validation/relations/recurrence";
 import type { VibSchema } from "@validation/types";
 import { isRecord } from "@validation/value-guards";
 import { InsertValue, Stored } from "./insert-value";
-import { parseValidated, upsertEnvelopeSchema } from "./parse-boundary";
+import { parseValidated } from "./parse-boundary";
 import type { Leaf, PreparedProjection } from "./query";
 import {
   buildMembershipView,
@@ -212,10 +212,7 @@ export class EngineSchema {
     this.registry = createResolvedSchemaRegistry(schema, this.index);
   }
   admit(model: AnyModel, operation: Operation, raw: unknown): Arguments {
-    const admitted =
-      operation === "upsert"
-        ? this.#upsert(model, raw)
-        : this.#admitArguments(model, operation, raw);
+    const admitted = this.#admitArguments(model, operation, raw);
     // WHERE the shipped engine states the key's portability contract, mirrored:
     // `update`/`updateMany` assert at admission (`assertPortablePrimaryKeyUpdateInput`
     // from their own validator); an `upsert` asserts on its FOUND arm and only
@@ -276,14 +273,6 @@ export class EngineSchema {
     };
     for (const field of kept) delete data[field];
     return { ...admitted, data };
-  }
-  /**
-   * Does this payload name a relation of the model? One spelling, asked by the
-   * upsert's create arm below and by the found-arm key-portability gate in
-   * `commands.ts`.
-   */
-  namesRelation(model: AnyModel, data: Input): boolean {
-    return model["~"].relationNames.some((name) => data[name] !== undefined);
   }
   /**
    * The row key's PORTABILITY contract for the two operators phase 2 made
@@ -428,97 +417,6 @@ export class EngineSchema {
     }
     return undefined;
   }
-  #upsert(model: AnyModel, raw: unknown): Arguments {
-    const envelope = parseValidated(
-      upsertEnvelopeSchema,
-      raw,
-      "upsert",
-      "",
-      model
-    );
-    const schemas = this.registry.getModelSchemas(model);
-    const createHasRelations = this.namesRelation(model, envelope.create);
-    const updateScalars = Object.fromEntries(
-      Object.entries(envelope.update).filter(
-        ([name]) => !model["~"].relationNames.includes(name)
-      )
-    );
-    const where = parseValidated(
-      schemas.core.whereUniqueExtended,
-      envelope.where,
-      "upsert",
-      "where",
-      model
-    );
-    const scalarCreate = createHasRelations
-      ? undefined
-      : parseValidated(
-          schemas.core.scalarCreate,
-          envelope.create,
-          "upsert",
-          "create",
-          model
-        );
-    const update = parseValidated(
-      schemas.core.scalarUpdate,
-      updateScalars,
-      "upsert",
-      "update",
-      model
-    );
-    const projection = parseValidated(
-      schemas.core.upsertProjection,
-      {
-        select: envelope.select,
-        include: envelope.include,
-        omit: envelope.omit,
-      },
-      "upsert",
-      "",
-      model
-    );
-    const conditions: Pick<Arguments, "targetWhere" | "setWhere"> = {
-      targetWhere: undefined,
-      setWhere: undefined,
-    };
-    for (const field of ["targetWhere", "setWhere"] as const) {
-      const input = envelope[field];
-      if (input === undefined) continue;
-      const parsed = parseValidated(
-        schemas.core.where,
-        input,
-        "upsert",
-        field,
-        model
-      );
-      if (isRecord(parsed) && Object.keys(parsed).length)
-        conditions[field] = record(parsed);
-    }
-    const create = createHasRelations
-      ? parseValidated(
-          schemas.core.create,
-          envelope.create,
-          "create",
-          "data",
-          model
-        )
-      : scalarCreate;
-    const admittedUpdate = this.update(
-      model,
-      envelope.update,
-      false,
-      record(update)
-    );
-    // Operation dispatch supplies the correlation: upsert owns create/update, not data.
-    return record({
-      ...envelope,
-      ...record(projection),
-      ...conditions,
-      where,
-      create,
-      update: admittedUpdate,
-    }) as Arguments;
-  }
   /**
    * Scalar values admitted as a create admits them, field by field through
    * each field's own create schema: a partial source (the fields a stamp
@@ -586,41 +484,17 @@ export class EngineSchema {
       );
     });
   }
-  update(
-    model: AnyModel,
-    source: Input,
-    captured: boolean,
-    envelope?: Input
-  ): Input {
-    const schemas = this.registry.getModelSchemas(model);
-    if (captured)
-      return record(
-        parseValidated(schemas.core.update, source, "updateMany", "data", model)
-      );
-    const admitted = { ...(envelope ?? source) };
-    const names = Object.keys(source).filter((name) =>
-      model["~"].relationNames.includes(name)
+  /** What an update writes of a row, admitted as an update's data is. */
+  update(model: AnyModel, source: Input): Input {
+    return record(
+      parseValidated(
+        this.registry.getModelSchemas(model).core.update,
+        source,
+        "updateMany",
+        "data",
+        model
+      )
     );
-    const isVariant = (name: string) =>
-      model["~"].state.relations[name]!["~"].state.target.kind === "variants";
-    // Admission phases are ordinary relations then carriers, retaining raw order within each.
-    for (const name of names.sort(
-      (a, b) => Number(isVariant(a)) - Number(isVariant(b))
-    )) {
-      if (source[name] !== undefined) {
-        admitted[name] = parseValidated(
-          (isVariant(name)
-            ? schemas.polymorphic[name]!
-            : schemas.relations[name]!
-          ).update,
-          source[name],
-          "update",
-          `data.${name}`,
-          model
-        );
-      }
-    }
-    return admitted;
   }
   /** The fields of a model's row key: none where the model has no key. */
   keys(model: AnyModel): readonly string[] {
