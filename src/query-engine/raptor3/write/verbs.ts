@@ -383,8 +383,23 @@ export function verbs(store: Store) {
         );
     };
     // A row that takes another key, and writes a relation whose members hold that key: no member may be left behind, unless the database makes them follow.
+    const keys = schema.keys(model);
     for (const { edge } of relations) {
       if (edge.kind !== "reference" || edge.owner !== "target") continue;
+      // What the database computes of a field that is not the row's key is not told to the rows that take it.
+      for (const { source } of edge.pairs)
+        if (
+          said[source] !== undefined &&
+          !keys.includes(source) &&
+          readUpdate(said[source]).kind !== "value"
+        )
+          throw new NestedWriteError(
+            `Cannot update relation key field '${source}' with a non-literal operation while mutating relation '${edge.name}'. Use a literal value or '{ set: ... }'.`,
+            edge.name,
+            {
+              meta: { operation: "update", field: source, relation: edge.name },
+            }
+          );
       const moved = edge.pairs.filter((pair) =>
         moves(row[pair.source], said[pair.source])
       );

@@ -65,6 +65,8 @@ interface Meta {
   gone?: true;
   /** The call changed its key. */
   moved?: true;
+  /** What it held before the call gave it another key. */
+  stood?: Input;
   /** The database passed it by: it was one too many. */
   passed?: true;
   /** The fields the call wrote of it. */
@@ -699,6 +701,20 @@ export class Store {
   /** The rows a question names. */
   rows(question: Question): Row[] {
     this.writable(question);
+    // The members of a row the call gave another key, where the database does not make them follow, are those it had under the key it had: asked as of then, ahead of what the call writes.
+    const { member } = question;
+    const stood = member && this.#meta.get(member.of)?.stood;
+    if (
+      stood &&
+      member.edge.kind === "reference" &&
+      member.edge.owner === "target" &&
+      member.edge.reference &&
+      member.edge.reference.onUpdate !== "cascade"
+    )
+      return this.#rows(
+        { ...question, member: { ...member, of: stood } },
+        false
+      );
     return this.#rows(question, this.#spoiled(question));
   }
   /** Whether the row a junction's members are members of says what its links hold of it: asked of the row, so a row known by its key alone is read. */
@@ -1101,6 +1117,15 @@ export class Store {
         if (keys.includes(field)) hears.push(field);
       }
     }
+    if (
+      keys.some(
+        (field) =>
+          field in set &&
+          (row[field] instanceof Pending ||
+            String(row[field]) !== String(before[field]))
+      )
+    )
+      meta.stood ??= before;
     // A row is known by the key it has now: the key it had names no row the call knows of.
     if (keys.some((field) => field in set)) {
       this.#left.add(this.#name(model, before));
@@ -1692,7 +1717,8 @@ export class Store {
       question: Question,
       own: string,
       believed: "presumed" | "read",
-      key?: Input | Input[]
+      key?: Input | Input[],
+      place?: number
     ) => {
       const group = text([
         believed,
@@ -1701,6 +1727,7 @@ export class Store {
         question.verb,
         question.intent,
         question.writes,
+        place,
       ]);
       if (!asked.has(group)) {
         const together: [Question, (Input | Input[])?][] = [];
@@ -1709,6 +1736,8 @@ export class Store {
       }
       asked.get(group)!.push([question, key]);
     };
+    /** The rows taken to be there after the unit began: each asked for at its place. */
+    const later: [number, () => void][] = [];
     for (const [id, { question, row, at }] of this.#presumed) {
       if (at > to || (holds ? this.#asserted.has(id) : passed(row))) continue;
       this.#asserted.add(id);
@@ -1728,6 +1757,9 @@ export class Store {
         (holds || !(this.#handed || writes > 1))
       )
         confirms.set(first, question);
+      // Asked where the call took it to be there: behind what the unit writes before, which may be what makes it so.
+      else if (at > this.#sent)
+        later.push([at, () => ask(question, id, "presumed", undefined, at)]);
       else ask(question, id, "presumed");
     }
     /**
@@ -1914,6 +1946,7 @@ export class Store {
     for (let at = this.#sent; at < to; at++) {
       const entry = log[at]!;
       const place = at;
+      for (const [when, emit] of later) if (when === at) emit();
       begins.push([steps.length, entry]);
       /** The entries that follow `entry` and travel with it. */
       const beside = <T extends Entry>(same: (next: T) => boolean): T[] => {
