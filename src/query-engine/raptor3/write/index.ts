@@ -27,7 +27,7 @@ import {
   type Transport,
   unproven,
 } from "./send";
-import { SEVERAL, Store } from "./store";
+import { Lost, SEVERAL, Store } from "./store";
 import { verbs } from "./verbs";
 
 /** The verbs of one call, run on a store. */
@@ -95,18 +95,23 @@ export async function writeCall(
     try {
       answer = await store.run(call(store, model, args, raw));
     } catch (error) {
-      // A row created because none was there, refused because another writer made it meanwhile: where the unit that failed can be undone whole, the call is made again, once, and finds the row.
+      // A row created because none was there, refused because another writer made it meanwhile; a row read without holding it, gone since: where the unit that failed can be undone whole, the call is made again, once.
+      const lost = error instanceof Lost;
       if (
-        !store.raced(error) ||
+        !(lost || store.raced(error)) ||
         store.segments > 0 ||
         (binding?.kind === "borrowed-transaction" && !lent)
       )
-        throw error;
-      await transport.end(error).catch(() => undefined);
+        throw lost ? error.failure : error;
+      await transport.end(lost ? error.failure : error).catch(() => undefined);
       phase = "pending";
       transport = open();
       store = new Store(operation, transport);
-      answer = await store.run(call(store, model, args, raw));
+      try {
+        answer = await store.run(call(store, model, args, raw));
+      } catch (again) {
+        throw again instanceof Lost ? again.failure : again;
+      }
     }
   } catch (error) {
     await transport.end(error);

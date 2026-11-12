@@ -25,7 +25,7 @@ import {
   normalizedBindParameterLimit,
 } from "../../bind-budget";
 import type { PreparedBatchOperation, PreparedGuardFailure } from "../../types";
-import { InsertValue } from "./insert-value";
+import { InsertValue, type InsertValueContext } from "./insert-value";
 import {
   GatedFieldRefusal,
   InvalidScalarResult,
@@ -337,8 +337,12 @@ export class SqlOperationContext {
     ).map(({ statement }) => queries.get(statement)!);
   }
 
-  /** The rows with every value an extension computes put in. */
-  async computed(model: AnyModel, rows: Input[]): Promise<Input[]> {
+  /** The rows with every value an extension computes put in; `read` asks the database in the call's unit, where it can be heard before the rows are written. */
+  async computed(
+    model: AnyModel,
+    rows: Input[],
+    read?: InsertValueContext["read"]
+  ): Promise<Input[]> {
     let computed: Input[] | undefined;
     const fields = new Map<string, { value: InsertValue; at: number[] }>();
     for (const [index, row] of rows.entries())
@@ -357,6 +361,7 @@ export class SqlOperationContext {
           field,
           queries: this.queries,
           dialect: this.driver.dialect as SqlDialect,
+          read,
         },
         at
       );

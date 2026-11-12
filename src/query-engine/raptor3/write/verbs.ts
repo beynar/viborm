@@ -201,19 +201,19 @@ export function verbs(store: Store) {
     referencing(edge, row, "source");
   /**
    * What a row the call found takes when its membership is written: that,
-   * and what every update of its model takes, admitted once for the call.
+   * and what its model gives every update, admitted once for the call. Not
+   * what is written of a row a caller updates: a membership is no update of
+   * the row's own.
    */
   const moved = (row: Row, edge: Membership, takes: Input): Input => {
     if (fresh.has(row)) return takes;
     const model = edge.target;
     return {
-      ...store.values(
+      ...schema.scalars(
         model,
-        "update",
         store.copy(`moved ${model["~"].names.ts}`, () =>
           schema.update(model, {}, true)
-        ),
-        takes
+        )
       ),
       ...takes,
     };
@@ -642,7 +642,7 @@ export function verbs(store: Store) {
     }
     const either = first("connectOrCreate") as Input | undefined;
     if (either) {
-      const asked = sought(either.where, "connectOrCreate");
+      const asked = { ...sought(either.where, "connectOrCreate"), makes: true };
       const [found] = store.rows(asked);
       const through = either.$through as Input | undefined;
       // A row created because none was found is created while none is there: its own key says so, or the call asks again.
@@ -660,6 +660,7 @@ export function verbs(store: Store) {
           intent: "update",
           writes: writes(target, upsert.update as Input),
           verb: "upsert",
+          makes: true,
         },
         upsert.where as Input | undefined
       );
@@ -814,7 +815,7 @@ export function verbs(store: Store) {
         verb: "upsert",
       };
       // The row the filter names, whose ever it is: one that is another row's is not taken, nor made again.
-      const [found] = store.rows({ ...named, through: edge });
+      const [found] = store.rows({ ...named, through: edge, makes: true });
       if (!found) nested.create!(parent, edge, create as Input, true);
       // A row the call creates has no member yet: the row its upsert finds becomes one.
       else if (made.has(parent)) {
@@ -842,6 +843,7 @@ export function verbs(store: Store) {
         through: edge,
         intent: "join",
         verb: "connectOrCreate",
+        makes: true,
       };
       const [row] = store.rows(asked);
       if (row) join(parent, edge, row, "connectOrCreate", $through as Input);
@@ -1177,7 +1179,7 @@ export function verbs(store: Store) {
         );
         if (later) return () => said(later.sent!.rows);
       }
-      const [found] = store.rows(question);
+      const [found] = store.rows({ ...question, makes: true });
       // Updated where found, and where it holds what the call asks of it besides.
       const where = args.where as Input;
       const asked = {

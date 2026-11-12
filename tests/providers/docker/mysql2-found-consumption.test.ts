@@ -52,12 +52,6 @@ import {
 import type { QueryExecutionContext } from "@drivers/driver";
 import { MySQL2Driver } from "@drivers/mysql2";
 import type { QueryResult } from "@drivers/types";
-import {
-  NotFoundError,
-  TransactionError,
-  UniqueConstraintError,
-  VibORMErrorCode,
-} from "@errors";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type { Pool, PoolConnection } from "mysql2/promise";
@@ -273,12 +267,6 @@ const probeOf = (driver: RecordingMySQL2Driver, table: RegExp): string =>
 const whereOf = (statement: string): string =>
   statement.split(WHERE_CLAUSE)[1] ?? "";
 
-/** Every failure the rejection carries, primary first, composed ones after. */
-const composed = (failure: unknown): unknown[] => [
-  failure,
-  ...(failure instanceof AggregateError ? failure.errors : []),
-];
-
 const delay = (ms: number): Promise<void> =>
   new Promise<void>((resolve) => {
     setTimeout(resolve, ms);
@@ -291,18 +279,6 @@ const outcomeOf = async <T>(
     (value) => ({ failure: undefined, value: value as T | undefined }),
     (failure: unknown) => ({ failure, value: undefined })
   );
-
-/**
- * The sentence a lost CONJOINED premise raises (repair prompt 2 §2).
- *
- * Two matched conditions are ONE premise of one consumption, proved by ONE
- * confirmation (G1), so what a miss loses is that premise and not a term of
- * it: the sentence names the operation and the conditions as a SET. On the
- * reviewed source it was `targetWhere`'s own sentence whichever condition had
- * actually changed — a diagnosis the single statement never made.
- */
-const CONJOINED_PREMISE =
-  "The upsert matched premise (targetWhere, setWhere) changed before the atomic batch.";
 
 /** The dual-condition shape: both conditions match `t1` as it stands. */
 const conjoinedUpsert = async (subject: FoundClient) =>
@@ -441,10 +417,11 @@ describeIf("the shared FOUND-consumption rule on native MySQL", () => {
       expect(whereOf(confirmations[0] ?? "")).toContain("`id`");
     });
 
-    test("a found conditional upsert refuses when the condition it matched has changed", async () => {
+    test("a found conditional upsert whose condition changed returns the row as it stands, unchanged", async () => {
       // Reviewed source: `42` was written although the `count: 7` the operation
-      // matched had become `8`. A matched condition is a continuing requirement
-      // of the arm it selected, not a fact about the moment of observation.
+      // matched had become `8`. The row found is read again, held, and the
+      // call goes on with what it holds from then on: a condition that no
+      // longer matches leaves the row as it is, which the call answers with.
       const planter = boot(new RecordingMySQL2Driver());
       await planter.tag.create({
         data: { id: "t1", name: "chosen", slug: "chosen", count: 7 },
@@ -468,26 +445,10 @@ describeIf("the shared FOUND-consumption rule on native MySQL", () => {
       );
 
       expect(planted.state.planted).toBe(true);
-      // The premise's OWN failure, the one the atomic route already raises for
-      // exactly this loss — not a race the create arm may adopt, not a
-      // deadlock, and not a silent skip.
-      expect(outcome.value).toBeUndefined();
-      expect(outcome.failure).toBeInstanceOf(TransactionError);
-      expect((outcome.failure as Error).message).toBe(
-        "The upsert setWhere match premise changed before the atomic batch."
-      );
-      expect(
-        composed(outcome.failure).some(
-          (error) => error instanceof UniqueConstraintError
-        )
-      ).toBe(false);
-      expect(
-        composed(outcome.failure).some(
-          (error) =>
-            error instanceof TransactionError &&
-            error.code === VibORMErrorCode.DEADLOCK
-        )
-      ).toBe(false);
+      // Neither a failure nor a silent write: the row as the other
+      // transaction left it.
+      expect(outcome.failure).toBeUndefined();
+      expect(outcome.value).toMatchObject({ id: "t1", count: 8 });
 
       // The other transaction's value stands and nothing of this one committed:
       // no update, and no second row under the create arm's key.
@@ -498,11 +459,10 @@ describeIf("the shared FOUND-consumption rule on native MySQL", () => {
       expect(matching(driver, "INSERT", TAG_TABLE)).toEqual([]);
     });
 
-    test("two matched conditions lost at the FIRST refuse as one premise", async () => {
-      // Repair prompt 2 §2. Both conditions MATCHED, so the confirmation
-      // carries their CONJUNCTION and a miss is the loss of that one premise.
-      // The reviewed source named `targetWhere` here — and named it in the two
-      // cells below as well, where it had not changed at all.
+    test("two matched conditions lost at the FIRST leave the row unchanged", async () => {
+      // Both conditions matched the row as it was first read; read again,
+      // held, the first no longer does: the update arm is not taken, and the
+      // call answers with the row as it stands.
       const planter = boot(new RecordingMySQL2Driver());
       await planter.tag.create({
         data: { id: "t1", name: "chosen", slug: "chosen", count: 7 },
@@ -521,18 +481,14 @@ describeIf("the shared FOUND-consumption rule on native MySQL", () => {
       const outcome = await outcomeOf(conjoinedUpsert(boot(driver)));
 
       expect(planted.state.planted).toBe(true);
-      expect(outcome.value).toBeUndefined();
-      expect(outcome.failure).toBeInstanceOf(TransactionError);
-      expect((outcome.failure as TransactionError).code).toBe(
-        VibORMErrorCode.TRANSACTION_FAILED
-      );
-      expect((outcome.failure as Error).message).toBe(CONJOINED_PREMISE);
-      // A lost MATCH premise is not a race another arm may adopt.
-      expect((outcome.failure as TransactionError).meta.raceable).not.toBe(
-        true
-      );
-      // ONE locked confirmation carried the pair: the truthful sentence buys no
-      // round trip, here or in either cell below.
+      expect(outcome.failure).toBeUndefined();
+      expect(outcome.value).toMatchObject({
+        id: "t1",
+        name: "renamed",
+        count: 7,
+      });
+      // ONE locked read said it: no round trip more, here or in either cell
+      // below.
       const confirmations = confirmationsOf(driver, TAG_TABLE);
       expect(confirmations).toHaveLength(1);
       expect(whereOf(confirmations[0] ?? "")).toContain("`id`");
@@ -544,7 +500,7 @@ describeIf("the shared FOUND-consumption rule on native MySQL", () => {
       expect(matching(driver, "INSERT", TAG_TABLE)).toEqual([]);
     });
 
-    test("two matched conditions lost at the SECOND refuse with the same sentence", async () => {
+    test("two matched conditions lost at the SECOND leave the row unchanged", async () => {
       const planter = boot(new RecordingMySQL2Driver());
       await planter.tag.create({
         data: { id: "t1", name: "chosen", slug: "chosen", count: 7 },
@@ -560,9 +516,12 @@ describeIf("the shared FOUND-consumption rule on native MySQL", () => {
       const outcome = await outcomeOf(conjoinedUpsert(boot(driver)));
 
       expect(planted.state.planted).toBe(true);
-      expect(outcome.value).toBeUndefined();
-      expect(outcome.failure).toBeInstanceOf(TransactionError);
-      expect((outcome.failure as Error).message).toBe(CONJOINED_PREMISE);
+      expect(outcome.failure).toBeUndefined();
+      expect(outcome.value).toMatchObject({
+        id: "t1",
+        name: "chosen",
+        count: 8,
+      });
       expect(confirmationsOf(driver, TAG_TABLE)).toHaveLength(1);
 
       const rows = await planter.tag.findMany({});
@@ -572,7 +531,7 @@ describeIf("the shared FOUND-consumption rule on native MySQL", () => {
       expect(matching(driver, "INSERT", TAG_TABLE)).toEqual([]);
     });
 
-    test("two matched conditions lost TOGETHER refuse with the same sentence", async () => {
+    test("two matched conditions lost TOGETHER leave the row unchanged", async () => {
       const planter = boot(new RecordingMySQL2Driver());
       await planter.tag.create({
         data: { id: "t1", name: "chosen", slug: "chosen", count: 7 },
@@ -591,9 +550,12 @@ describeIf("the shared FOUND-consumption rule on native MySQL", () => {
       const outcome = await outcomeOf(conjoinedUpsert(boot(driver)));
 
       expect(planted.state.planted).toBe(true);
-      expect(outcome.value).toBeUndefined();
-      expect(outcome.failure).toBeInstanceOf(TransactionError);
-      expect((outcome.failure as Error).message).toBe(CONJOINED_PREMISE);
+      expect(outcome.failure).toBeUndefined();
+      expect(outcome.value).toMatchObject({
+        id: "t1",
+        name: "renamed",
+        count: 8,
+      });
       expect(confirmationsOf(driver, TAG_TABLE)).toHaveLength(1);
 
       const rows = await planter.tag.findMany({});
@@ -603,10 +565,11 @@ describeIf("the shared FOUND-consumption rule on native MySQL", () => {
       expect(matching(driver, "INSERT", TAG_TABLE)).toEqual([]);
     });
 
-    test("a found nested to-ONE upsert refuses a member reparented out of its membership", async () => {
+    test("a found nested to-ONE upsert never writes a member reparented out of its membership", async () => {
       // Reviewed source: `bio` was written on a profile that had moved to `o2`,
-      // as `o1`'s profile. The membership the probe read the row through is a
-      // continuing requirement of the arm that writes it.
+      // as `o1`'s profile. The row found is read again, held, as a member: it
+      // no longer is one, so the call is made again, once, on what is
+      // committed: `o1` has no profile, and the upsert creates it one.
       const planter = boot(new RecordingMySQL2Driver());
       await planter.owner.create({
         data: {
@@ -644,23 +607,21 @@ describeIf("the shared FOUND-consumption rule on native MySQL", () => {
       );
 
       expect(planted.state.planted).toBe(true);
-      expect(outcome.value).toBeUndefined();
-      expect(outcome.failure).toBeInstanceOf(NotFoundError);
-      expect((outcome.failure as Error).message).toBe(
-        "No profile record found for update"
-      );
+      expect(outcome.failure).toBeUndefined();
+      expect(outcome.value).toMatchObject({ id: "o1", name: "renamed" });
 
-      // The member is untouched where it now belongs, the create arm was NOT
-      // taken as a recovery from a member that left, and the parent's own
-      // rename in the same operation is rolled back with it.
+      // The member is untouched where it now belongs, and `o1` has the
+      // profile the upsert creates where it has none.
       expect(
         await planter.profile.findUnique({ where: { id: "pr1" } })
       ).toMatchObject({ ownerId: "o2", bio: "original" });
-      expect(matching(driver, "INSERT", PROFILE_TABLE)).toEqual([]);
+      expect(
+        await planter.profile.findUnique({ where: { id: "pr-new" } })
+      ).toMatchObject({ ownerId: "o1", bio: "created" });
       expect(matching(driver, "UPDATE", PROFILE_TABLE)).toEqual([]);
       expect(
         await planter.owner.findUnique({ where: { id: "o1" } })
-      ).toMatchObject({ name: "one" });
+      ).toMatchObject({ name: "renamed" });
     });
   });
 
@@ -742,11 +703,11 @@ describeIf("the shared FOUND-consumption rule on native MySQL", () => {
   // === 3. The other placements and key shapes =============================
 
   describe("the rule across placements and key shapes", () => {
-    test("a CHILD-HELD found connectOrCreate refuses a target replaced under its selector", async () => {
+    test("a CHILD-HELD found connectOrCreate never connects a target replaced under its selector", async () => {
       // The child holds the reference, so the connection is an UPDATE of the
       // row the probe found rather than a value in the parent's own statement.
-      // The requirement is the same one, and so is the sentence this arm
-      // already owns for losing it.
+      // Read again, held, the row no longer answers the selector: the call is
+      // made again, once; no row answers, so one is created.
       const planter = boot(new RecordingMySQL2Driver());
       await planter.note.create({
         data: { id: "n1", slug: "wanted", body: "original" },
@@ -779,18 +740,18 @@ describeIf("the shared FOUND-consumption rule on native MySQL", () => {
       );
 
       expect(planted.state.planted).toBe(true);
-      expect(outcome.value).toBeUndefined();
-      expect((outcome.failure as Error).message).toBe(
-        "Record was replaced by another transaction during nested connectOrCreate"
-      );
+      expect(outcome.failure).toBeUndefined();
+      expect(outcome.value).toMatchObject({ id: "o1" });
 
-      // Nothing connected, nothing created, and the owner's own INSERT is
-      // rolled back with it.
+      // The row that left the selector is not connected; the row created
+      // under it is.
       expect(
         await planter.note.findUnique({ where: { id: "n1" } })
       ).toMatchObject({ slug: "taken-elsewhere", ownerId: null });
-      expect(await planter.owner.findMany({})).toEqual([]);
-      expect(matching(driver, "INSERT", NOTE_TABLE)).toEqual([]);
+      expect(
+        await planter.note.findUnique({ where: { id: "n-new" } })
+      ).toMatchObject({ slug: "wanted", ownerId: "o1" });
+      expect(matching(driver, "UPDATE", NOTE_TABLE)).toEqual([]);
     });
 
     test("a correlated to-MANY nested upsert refuses a member moved to another parent", async () => {
@@ -1093,13 +1054,13 @@ describeIf("the shared FOUND-consumption rule on native MySQL", () => {
       expect(matching(foundDriver, "INSERT", TAG_TABLE)).toEqual([]);
     });
 
-    test("a PARENT-HELD found target deleted in the same window fails with its own sentence", async () => {
+    test("a PARENT-HELD found target deleted in the same window is created by the call made again", async () => {
       // The deleted-target witness for the consumer that spends a VALUE rather
-      // than writing the found row: the loss is reported where it is
-      // discovered, the create arm is NOT taken as a recovery from a row that
-      // vanished, and nothing of the operation commits. Its siblings for the
-      // root upsert, the child-held binding and the nested to-one arm live
-      // where that price is owned (`mysql2-concurrency-policy.test.ts` §4).
+      // than writing the found row: the loss is discovered by the held read,
+      // and the call is made again, once, on what is committed: no row
+      // answers, so one is created. Its siblings for the root upsert, the
+      // child-held binding and the nested to-one arm live in
+      // `mysql2-concurrency-policy.test.ts` §4.
       const planter = boot(new RecordingMySQL2Driver());
       await planter.badge.create({
         data: { id: "b1", slug: "chosen", code: "G" },
@@ -1128,20 +1089,12 @@ describeIf("the shared FOUND-consumption rule on native MySQL", () => {
       );
 
       expect(planted.state.planted).toBe(true);
-      expect(outcome.value).toBeUndefined();
-      expect((outcome.failure as Error).message).toBe(
-        "Record was replaced by another transaction during nested connectOrCreate"
-      );
-      expect(
-        composed(outcome.failure).some(
-          (error) =>
-            error instanceof TransactionError &&
-            error.code === VibORMErrorCode.DEADLOCK
-        )
-      ).toBe(false);
-      expect(await planter.badge.findMany({})).toEqual([]);
-      expect(await planter.holder.findMany({})).toEqual([]);
-      expect(matching(driver, "INSERT", BADGE_TABLE)).toEqual([]);
+      expect(outcome.failure).toBeUndefined();
+      expect(outcome.value).toMatchObject({ id: "h1", badgeCode: "N" });
+      expect(await planter.badge.findMany({})).toMatchObject([
+        { id: "never-created", slug: "chosen", code: "N" },
+      ]);
+      expect(matching(driver, "INSERT", BADGE_TABLE)).toHaveLength(1);
     });
   });
 });

@@ -71,12 +71,26 @@ export interface Question {
   readonly except?: readonly Input[];
   /** Rows named by their keys are still to answer the filter they were found by. */
   readonly again?: boolean;
+  /** Where none answers, the call makes a row under what the question names: asked without holding the place. */
+  readonly makes?: boolean;
+  /** A value the write reads from a table it joins: no other rows than those that table names. */
+  readonly joined?: JoinedValue;
 }
 
 export class Writer {
   readonly #operation: SqlOperationContext;
   readonly #q: SqlQueries;
   readonly #projections = new Map<AnyModel, PreparedProjection[]>();
+  /** Asks the database in the call's unit, where what it says is heard before the next statement is written. */
+  hears?: (statement: Sql, model: AnyModel) => Promise<readonly Input[]>;
+  #computed(model: AnyModel, rows: Input[]): Promise<Input[]> {
+    const { hears } = this;
+    return this.#operation.computed(
+      model,
+      rows,
+      hears && ((statement) => hears(statement, model))
+    );
+  }
   constructor(operation: SqlOperationContext) {
     this.#operation = operation;
     this.#q = operation.queries as SqlQueries;
@@ -201,24 +215,44 @@ export class Writer {
   }
   #limited(question: Question, selector: PreparedSelector, keys: unknown) {
     const { model, member } = question;
-    return member
-      ? { where: this.#among(question, selector, model["~"].names.sql!) }
-      : this.#q.lowerMutationLimit(
-          model,
-          selector,
-          keys ? undefined : question.limit
-        );
+    const named = this.#q.lowerMutationLimit(
+      model,
+      selector,
+      keys || member ? undefined : question.limit
+    );
+    if (!member) return named;
+    // Among the members of the question's row: said of the table the statement writes.
+    const members = this.#q.memberWhere(
+      member.edge,
+      member.of,
+      model["~"].names.sql!
+    );
+    return {
+      where: named.where
+        ? this.#operation.driver.adapter.operators.and(members, named.where)
+        : members,
+    };
   }
   /** The rows questions of one model name, read whole in one statement; held where `hold`. */
   read(questions: readonly Question[], hold: boolean): Query {
     const [question] = questions as [Question];
     const selectors = questions.map((each) => this.selector(each));
+    const { joined } = question;
+    const { filters, subqueries } = this.#operation.driver.adapter;
     return this.#q.select(
       question.model,
       question.limit === undefined ? {} : { take: question.limit },
       this.#membership(question),
       {
         forUpdate: hold,
+        condition:
+          joined &&
+          ((alias) => {
+            const join = joined.join(this.#q, alias);
+            return this.#q.settleRows(
+              filters.some(subqueries.existsCheck(join.source, join.on))
+            );
+          }),
         projection: this.#projection(question.model, true),
         selector:
           selectors.length === 1
@@ -424,7 +458,7 @@ export class Writer {
   ): Promise<Statement> {
     const q = this.#q;
     const { capabilities, mutations } = this.#operation.driver.adapter;
-    const rows = await this.#operation.computed(model, values);
+    const rows = await this.#computed(model, values);
     const fields = Object.keys(rows[0]!);
     const placed = q.domain?.produced(model);
     // A row of defaults only has no value to judge before it is written.
@@ -495,7 +529,7 @@ export class Writer {
     const joined = Object.values(values).find(
       (value): value is JoinedValue => value instanceof JoinedValue
     );
-    const [set] = await this.#operation.computed(model, [values]);
+    const [set] = await this.#computed(model, [values]);
     const selector = this.selector(question, keys);
     const judged = this.#judged(question);
     let stops: PreparedGuardFailure | undefined;
@@ -945,7 +979,7 @@ export class Writer {
         for (const row of rows) row.push(q.fieldValue(model, field, value));
       }
       if (through && Object.keys(through).length > 0) {
-        const [sets] = await this.#operation.computed(model, [
+        const [sets] = await this.#computed(model, [
           schema.scalars(model, schema.update(model, through, true)),
         ]);
         takes = sql.join(
