@@ -112,6 +112,12 @@ export function dialogue(
             at
           )
           .catch((error) => {
+            if (process.env.VIBORM_DEBUG_SQL)
+              console.error(
+                "FAILED",
+                transport._prepare(statement.sql, at).sql,
+                error?.cause ?? error
+              );
             throw statement.stops && error instanceof NestedWriteAssertionError
               ? new Stopped(statement)
               : error;

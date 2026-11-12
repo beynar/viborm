@@ -335,12 +335,19 @@ export class Store {
     }
     for (const asked of groups.values()) {
       const [[, first]] = asked as [[string, Question]];
-      const query = this.writer.read(
-        asked.map(([, question]) => question),
-        this.#transport.holds
-      );
+      let query: Query;
       steps.push({
-        write: () => [{ sql: query.sql, model: first.model }],
+        // Asked of the row it is asked of as the database has said it by then.
+        write: () => {
+          query = this.writer.read(
+            asked.map(([, { member, ...question }]) => ({
+              ...question,
+              member: member && { ...member, of: this.#said(member.of) },
+            })),
+            this.#transport.holds
+          );
+          return [{ sql: query.sql, model: first.model }];
+        },
         take: ([sent]) => {
           const rows = this.operation.queries.decodeQuery(
             query,
@@ -620,7 +627,18 @@ export class Store {
       // Asked of the row as it stands now, whatever the call writes of it next.
       this.#missed.set(id, {
         question: member
-          ? { ...question, member: { ...member, of: { ...member.of } } }
+          ? {
+              ...question,
+              member: {
+                ...member,
+                of: Object.fromEntries(
+                  (member.edge.kind === "reference"
+                    ? member.edge.pairs.map((pair) => pair.source)
+                    : this.operation.schema.keys(member.edge.source)
+                  ).map((field) => [field, member.of[field]])
+                ),
+              },
+            }
           : question,
         after,
       });
