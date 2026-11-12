@@ -83,12 +83,21 @@ class Pending {
   readonly field: string;
   /** Where the call notes the write that decides it. */
   readonly at: number;
+  /** What the database will compute, written as it will compute it, where the call knows what it computes it of. */
+  readonly spell?: () => unknown;
   readonly #name: string;
-  constructor(row: Row, field: string, name: string, at: number) {
+  constructor(
+    row: Row,
+    field: string,
+    name: string,
+    at: number,
+    spell?: () => unknown
+  ) {
     this.row = row;
     this.field = field;
     this.#name = name;
     this.at = at;
+    this.spell = spell;
   }
   toString(): string {
     return this.#name;
@@ -468,8 +477,11 @@ export class Store {
     const heard: Input = {};
     for (const [field, value] of Object.entries(values)) {
       const said = value instanceof Pending ? value.row[value.field] : value;
-      if (said instanceof Pending) throw UNHEARD;
-      if (said !== undefined) heard[field] = said;
+      // What cannot be heard before the unit goes on is written as the database will compute it.
+      if (said instanceof Pending) {
+        if (this.#transport.holds || !said.spell) throw UNHEARD;
+        heard[field] = said.spell();
+      } else if (said !== undefined) heard[field] = said;
     }
     return heard;
   }
@@ -1000,11 +1012,22 @@ export class Store {
       }
       if (update.kind === "value") row[field] = update.value;
       else {
+        const stood = row[field];
+        const q = this.operation.queries;
         row[field] = new Pending(
           row,
           field,
           `@${++this.#made}`,
-          this.#log.length
+          this.#log.length,
+          stood === undefined || stood instanceof Pending
+            ? undefined
+            : () =>
+                q.updateValue(
+                  model,
+                  field,
+                  value,
+                  q.fieldValue(model, field, stood)
+                )
         );
         if (keys.includes(field)) hears.push(field);
       }
