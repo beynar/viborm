@@ -646,7 +646,9 @@ export function verbs(store: Store) {
       const [found] = store.rows(asked);
       const through = either.$through as Input | undefined;
       // A row created because none was found is created while none is there: its own key says so, or the call asks again.
-      if (!(found || keyed(asked, either.create as Input))) store.absent(asked);
+      if (!found)
+        if (keyed(asked, either.create as Input)) store.created(asked);
+        else store.absent(asked);
       supplied = found
         ? adopt(found, "connectOrCreate", through)
         : create(either.create as Input, true, through);
@@ -845,7 +847,8 @@ export function verbs(store: Store) {
       if (row) join(parent, edge, row, "connectOrCreate", $through as Input);
       else {
         // A row created because none was found is created while none is there: its own key says so, or the call asks again.
-        if (!keyed(asked, create as Input)) store.absent(asked);
+        if (keyed(asked, create as Input)) store.created(asked);
+        else store.absent(asked);
         nested.create!(parent, edge, create as Input, true, $through as Input);
       }
     },
@@ -1190,6 +1193,7 @@ export function verbs(store: Store) {
       const matched =
         !found || guards.length === 0 || store.rows(asked).length > 0;
       if (!matched) store.absent(asked);
+      if (!found && keyed(question, create)) store.created(question);
       // A row created because none was found may be refused for the key the call named: what declares the rows says what that means.
       const key = store.writer.selector(question).uniqueKey;
       const refuses =

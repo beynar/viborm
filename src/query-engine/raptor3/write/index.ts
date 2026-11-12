@@ -57,17 +57,21 @@ export async function writeCall(
   // The transaction says how far its commit went; the seam hears it once.
   let phase: "pending" | "ready" | "committed" = "pending";
   const at = contextOf(operation, model);
-  let transport: Transport;
-  if (binding?.kind === "borrowed-transaction") {
-    const lent = binding.operationRegion;
-    transport = dialogue(
-      operation,
-      binding.driver,
-      lent && ((body) => lent(body, at)),
-      binding.memberRollback
-    );
-  } else if (driver.supportsTransactions)
-    transport = dialogue(operation, driver, (body) =>
+  const lent =
+    binding?.kind === "borrowed-transaction"
+      ? binding.operationRegion
+      : undefined;
+  /** The unit the call is sent in: one of its own, or the one its caller lends it. */
+  const open = (): Transport => {
+    if (binding?.kind === "borrowed-transaction")
+      return dialogue(
+        operation,
+        binding.driver,
+        lent && ((body) => lent(body, at)),
+        binding.memberRollback
+      );
+    if (!driver.supportsTransactions) return batches(operation, driver);
+    return dialogue(operation, driver, (body) =>
       driver.withTransaction(
         body,
         undefined,
@@ -83,11 +87,27 @@ export async function writeCall(
           : at
       )
     );
-  else transport = batches(operation, driver);
+  };
+  let transport = open();
   let answer: unknown;
-  const store = new Store(operation, transport);
+  let store = new Store(operation, transport);
   try {
-    answer = await store.run(call(store, model, args, raw));
+    try {
+      answer = await store.run(call(store, model, args, raw));
+    } catch (error) {
+      // A row created because none was there, refused because another writer made it meanwhile: where the unit that failed can be undone whole, the call is made again, once, and finds the row.
+      if (
+        !store.raced(error) ||
+        store.segments > 0 ||
+        (binding?.kind === "borrowed-transaction" && !lent)
+      )
+        throw error;
+      await transport.end(error).catch(() => undefined);
+      phase = "pending";
+      transport = open();
+      store = new Store(operation, transport);
+      answer = await store.run(call(store, model, args, raw));
+    }
   } catch (error) {
     await transport.end(error);
     const loose = unproven.has(error as object);

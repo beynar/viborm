@@ -307,6 +307,7 @@ export class Store {
       this.#made = 0;
       this.#members = [];
       this.#says = [];
+      this.#absences = [];
       this.#left = new Set();
       let answer: (() => T) | undefined;
       let refused: { error: unknown } | undefined;
@@ -1551,6 +1552,25 @@ export class Store {
   #says: ((failure: unknown) => unknown)[] = [];
   saying(say: (failure: unknown) => unknown): void {
     this.#says.push(say);
+  }
+  /** The keys rows were created under because the call found none there. */
+  #absences: {
+    model: AnyModel;
+    key: NonNullable<ReturnType<Writer["selector"]>["uniqueKey"]>;
+  }[] = [];
+  /** A row is created under the key a question named, because none answered it. */
+  created(question: Question): void {
+    const key = this.writer.selector(question).uniqueKey;
+    if (key) this.#absences.push({ model: question.model, key });
+  }
+  /** Whether a failure is the database refusing such a row for its key: another writer made it since. */
+  raced(failure: unknown): boolean {
+    return (
+      failure instanceof UniqueConstraintError &&
+      this.#absences.some(({ model, key }) =>
+        this.writer.refusedFor(model, key, failure)
+      )
+    );
   }
   /** A row of the call's own rows begins: what is written until the next is its. */
   member(): void {
