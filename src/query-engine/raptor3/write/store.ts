@@ -2119,7 +2119,7 @@ export class Store {
         confirms.has(entry) === confirms.has(next) &&
         a?.of === b?.of &&
         a?.edge === b?.edge &&
-        !own.has(next) &&
+        !(own.has(next) || spare?.has(next) || spare?.has(entry)) &&
         !(unkeyed(entry) || unkeyed(next))
       );
     };
@@ -2144,12 +2144,20 @@ export class Store {
       { read: Extract<Entry, { kind: "read" }>; place: number }
     >();
     let told: Set<Entry> | undefined;
+    /**
+     * The reads of one row that find it gone are answered by what the row's
+     * own write said of it: something noted between them may remove the row,
+     * and the call answers with the row it wrote.
+     */
+    let spare: Map<Entry, Extract<Entry, { kind: "read" }>> | undefined;
+    let spared: Map<Entry, Sent> | undefined;
     for (let place = this.#sent; place < to; place++) {
       const read = log[place]!;
       if (!(read.kind === "read" && read.projection && read.rows.length === 1))
         continue;
       const [row] = read.rows;
       const { model } = read;
+      let changed = false;
       for (let at = place - 1; at >= this.#sent; at--) {
         const entry = log[at]!;
         if (
@@ -2157,7 +2165,7 @@ export class Store {
           entry.row === row
         ) {
           if (
-            !own.has(entry) &&
+            !(own.has(entry) || spare?.has(entry)) &&
             (at === place - 1 || returningSafeProjection(read.projection)) &&
             (entry.kind === "insert" || entry.hears.length === 0) &&
             this.operation.answersInStatement(
@@ -2167,12 +2175,17 @@ export class Store {
               entry.kind === "update" ? entry.set : undefined
             )
           ) {
-            own.set(entry, { read, place });
-            (told ??= new Set()).add(read);
+            if (changed) {
+              if (entry.kind === "update")
+                (spare ??= new Map()).set(entry, read);
+            } else {
+              own.set(entry, { read, place });
+              (told ??= new Set()).add(read);
+            }
           }
           break;
         }
-        // What may change the row between its write and its read: the read is asked.
+        // What may change the row between its write and its read.
         const touched =
           entry.kind === "all" || entry.kind === "either"
             ? entry.question.model
@@ -2183,7 +2196,7 @@ export class Store {
           touched === model ||
           (touched && dependentsOf(schema, touched).has(model))
         )
-          break;
+          changed = true;
       }
     }
     /** The read of rows that follows `at`, where the statement that writes those rows may answer it. */
@@ -2405,6 +2418,7 @@ export class Store {
         const mine = run.length === 1 ? own.get(entry) : undefined;
         if (!mine && own.has(entry)) told?.delete(own.get(entry)!.read);
         const read = mine?.read;
+        const kept = hears.length === 0 ? spare?.get(entry) : undefined;
         let asked = false;
         let named: Question | undefined;
         push({
@@ -2423,6 +2437,7 @@ export class Store {
                 set,
                 keyed(run),
                 read?.projection ??
+                  kept?.projection ??
                   (hears.length > 0 && !first ? writer.key(model) : undefined),
                 // Counted where its count is what says the rows were there, or still answered.
                 confirms.has(entry) || named.again
@@ -2432,6 +2447,7 @@ export class Store {
           take: read
             ? tells(read, mine!.place)
             : (sent) => {
+                if (kept) (spared ??= new Map()).set(kept, sent.at(-1)!);
                 take(asked ? sent.slice(0, 1) : sent);
                 if (writer.counts("update"))
                   consumed(named!, run.length, sent.at(-1));
@@ -2543,7 +2559,13 @@ export class Store {
               model: entry.model,
             }));
           },
-          take: (sent) => take(sent, queries),
+          take: (sent) =>
+            take(
+              spared?.has(entry) && sent.every((each) => each.rows.length === 0)
+                ? [spared.get(entry)!]
+                : sent,
+              queries
+            ),
         });
       }
     }
