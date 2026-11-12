@@ -28,7 +28,7 @@ import { type AnyModel, getModelKeyCatalog } from "@schema/model";
 import type { Sql } from "@sql";
 import { createFailureError } from "../../batch-error-attribution";
 import type { PreparedGuardFailure } from "../../types";
-import { type WriteKind, type WriteSink, writeSinks } from "../../write-sinks";
+import { type WriteKind, type WriteWatch, writeSinks } from "../../write-sinks";
 import { InsertValue, JoinedValue } from "../shared/insert-value";
 import {
   type PreparedProjection,
@@ -261,9 +261,8 @@ function dependentsOf(schema: EngineSchema, model: AnyModel): Set<AnyModel> {
 export class Store {
   readonly operation: SqlOperationContext;
   readonly writer: Writer;
-  /** What asked to see the rows the call writes, and what it is shown of them once every write is made. */
-  readonly #sink: WriteSink | undefined;
-  readonly #shown: Parameters<WriteSink["wrote"]>[] = [];
+  /** What watches this run of the call's writes, where something asked to see rows. */
+  readonly watch: WriteWatch | undefined;
   readonly #transport: Transport;
   /** What the database answered, by question: kept from one run of the verbs to the next. */
   readonly #answers = new Map<string, Answer>();
@@ -308,25 +307,10 @@ export class Store {
   constructor(operation: SqlOperationContext, transport: Transport) {
     this.operation = operation;
     this.writer = new (operation.backend?.writer ?? Writer)(operation);
-    this.#sink = writeSinks.get(operation.attribution);
+    this.watch = writeSinks.get(operation.attribution)?.attempt();
     this.#transport = transport;
     if (transport.holds)
       this.writer.hears = (sql, model) => this.#hear({ sql, model });
-  }
-  /** Whether something asked to see the rows the call `kind`s of the model named. */
-  wants(name: string, kind: WriteKind): boolean {
-    return this.#sink?.wants(name, kind) === true;
-  }
-  /** Rows the call wrote, kept for what asked to see them: the call's own before those its relations reach. */
-  shows(name: string, kind: WriteKind, rows: readonly object[], nested = true) {
-    if (rows.length === 0) return;
-    if (nested) this.#shown.push([name, kind, rows, true]);
-    else this.#shown.unshift([name, kind, rows, false]);
-  }
-  /** Every write of the call is made: what asked is shown its rows. */
-  shown(): void {
-    for (const each of this.#shown) this.#sink!.wrote(...each);
-    this.#sink?.done();
   }
   /** Asks the database in the call's unit, once what was written before is sent. */
   #hear = async (statement: Statement): Promise<Input[]> =>
@@ -1124,11 +1108,12 @@ export class Store {
   #seen(row: Row, kind: WriteKind): void {
     const { model } = this.#meta.get(row)!;
     const name = model["~"].names.ts!;
-    if (!this.wants(name, kind)) return;
+    const { watch } = this;
+    if (!watch?.wants(name, kind)) return;
     const q = this.operation.queries;
     const projection = q.prepareProjection(model, {});
     this.read(row, projection, (rows) =>
-      this.shows(name, kind, q.decodeProjection(projection.shape, rows))
+      watch.shows(name, kind, q.decodeProjection(projection.shape, rows))
     );
   }
   /** The question a write of one row the call knows is written under: what found it, and what the write is. */
@@ -1379,7 +1364,7 @@ export class Store {
     const kind = set ? "update" : "delete";
     // Rows written through a relation are shown whole to what asked to see them.
     const watched =
-      question.verb && this.wants(name, kind)
+      question.verb && this.watch?.wants(name, kind)
         ? q.prepareProjection(model, {})
         : undefined;
     const returns = projection ?? watched;
@@ -1495,7 +1480,11 @@ export class Store {
       take: ([sent]) => {
         later.sent = sent;
         if (watched)
-          this.shows(name, kind, q.decodeProjection(watched.shape, sent!.rows));
+          this.watch!.shows(
+            name,
+            kind,
+            q.decodeProjection(watched.shape, sent!.rows)
+          );
       },
     });
     this.#spoil(model, set && Object.keys(set));
@@ -1544,7 +1533,8 @@ export class Store {
     const later: Later = {};
     // Which of the two it was is told to what asked: by the statement itself where the provider marks a row it created, else by asking for the row just before it.
     const name = model["~"].names.ts!;
-    const asked = this.wants(name, "create") || this.wants(name, "update");
+    const asked =
+      this.watch?.wants(name, "create") || this.watch?.wants(name, "update");
     const marker =
       asked && returningSafeProjection(projection)
         ? this.operation.driver.adapter.mutations.upserted

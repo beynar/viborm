@@ -98,22 +98,69 @@ export function watchWrite(
   if (watches.length === 0) return cached;
   let told = false;
   let heard: WriteOutcome | undefined;
+  const wants = (model: string, kind: WriteKind) =>
+    watches.some((watch) => watch.wants(model, kind));
   writeSinks.set(context, {
-    done() {
-      told = true;
-      const outcome = heard;
-      if (outcome) late(() => publishWriteOutcomes(settled, outcome));
-    },
-    wants: (model, kind) => watches.some((watch) => watch.wants(model, kind)),
-    wrote(model, kind, rows, nested) {
-      for (const watch of watches)
-        if (watch.wants(model, kind))
-          watch.rows(
-            model,
-            kind,
-            rows as Readonly<Record<string, unknown>>[],
-            nested
+    wants,
+    attempt() {
+      // What this run wrote, the call's own rows before those its relations reach.
+      const shown: [string, WriteKind, readonly object[], boolean][] = [];
+      return {
+        wants,
+        shows(model, kind, rows) {
+          if (rows.length > 0) shown.push([model, kind, rows, true]);
+        },
+        own(queries, model, args, kinds) {
+          const name = model["~"].names.ts!;
+          if (!kinds.some((kind) => wants(name, kind))) return undefined;
+          const select = args.select as Record<string, unknown> | undefined;
+          const { scalars } = model["~"].state;
+          const beside = Object.entries(select ?? {}).filter(
+            ([field, selected]) => selected && !Object.hasOwn(scalars, field)
           );
+          return {
+            // Whole rows, beside what the caller selected of their relations.
+            projection: queries.prepareProjection(
+              model,
+              beside.length > 0 ? { include: Object.fromEntries(beside) } : {}
+            ),
+            cut(rows, kind) {
+              if (kind && wants(name, kind) && rows.length > 0)
+                shown.unshift([
+                  name,
+                  kind,
+                  rows.map((row) =>
+                    Object.fromEntries(
+                      Object.entries(row).filter(([field]) =>
+                        Object.hasOwn(scalars, field)
+                      )
+                    )
+                  ),
+                  false,
+                ]);
+              if (select)
+                for (const row of rows)
+                  for (const field of Object.keys(row))
+                    if (!select[field]) delete row[field];
+              return rows;
+            },
+          };
+        },
+        done() {
+          for (const [model, kind, rows, nested] of shown)
+            for (const watch of watches)
+              if (watch.wants(model, kind))
+                watch.rows(
+                  model,
+                  kind,
+                  rows as Readonly<Record<string, unknown>>[],
+                  nested
+                );
+          told = true;
+          const outcome = heard;
+          if (outcome) late(() => publishWriteOutcomes(settled, outcome));
+        },
+      };
     },
   });
   return Object.freeze({

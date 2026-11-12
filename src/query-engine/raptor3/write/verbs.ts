@@ -1015,49 +1015,9 @@ export function verbs(store: Store) {
     }
   }
 
-  /**
-   * The call's own rows, where something asked to see rows written so: read
-   * whole beside what the caller selected, shown, then cut back to what the
-   * caller asked.
-   */
-  const showing = (model: AnyModel, args: Arguments, kinds: WriteKind[]) => {
-    const name = model["~"].names.ts!;
-    if (!kinds.some((kind) => store.wants(name, kind))) return undefined;
-    const select = args.select as Input | undefined;
-    const { scalars } = model["~"].state;
-    const beside = Object.entries(select ?? {}).filter(
-      ([field, selected]) => selected && !Object.hasOwn(scalars, field)
-    );
-    return {
-      projection: q.prepareProjection(
-        model,
-        beside.length > 0 ? { include: Object.fromEntries(beside) } : {}
-      ),
-      cut(rows: Input[], kind: WriteKind | undefined) {
-        if (kind && store.wants(name, kind))
-          store.shows(
-            name,
-            kind,
-            rows.map((row) =>
-              Object.fromEntries(
-                Object.entries(row).filter(([field]) =>
-                  Object.hasOwn(scalars, field)
-                )
-              )
-            ),
-            false
-          );
-        if (select)
-          for (const row of rows)
-            for (const field of Object.keys(row))
-              if (!select[field]) delete row[field];
-        return rows;
-      },
-    };
-  };
   /** One row as the caller asked for it: none is no row of the call's. `kinds`: what the call may do to it. */
   const one = (model: AnyModel, args: Arguments, kinds: WriteKind[]) => {
-    const shows = showing(model, args, kinds);
+    const shows = store.watch?.own(q, model, args, kinds);
     const projection = shows?.projection ?? q.prepareProjection(model, args);
     const said = (rows: Input[], kind = kinds[0]) => {
       if (rows.length === 0)
@@ -1096,7 +1056,7 @@ export function verbs(store: Store) {
   /** A verb over many rows answers with them as the caller selected them, or with their number. */
   const many = (model: AnyModel, args: Arguments, kind: WriteKind) => {
     const select = args.select as Input | undefined;
-    const shows = showing(model, args, [kind]);
+    const shows = store.watch?.own(q, model, args, [kind]);
     const projection =
       shows?.projection ?? (select && q.prepareProjection(model, { select }));
     const decoded = (rows: Input[]) => {

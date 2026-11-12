@@ -168,7 +168,7 @@ async function sent(
         await operation.stateWriteOutcome(seam?.mayBeVisible, failure);
     throw failure;
   }
-  store.shown();
+  store.watch?.done();
   try {
     await transport.end();
   } catch (error) {
@@ -259,7 +259,7 @@ export async function prepareCall(
             );
         try {
           const value = answer(results as never);
-          store.shown();
+          store.watch?.done();
           return value;
         } catch (error) {
           throw operation.failure(error);
