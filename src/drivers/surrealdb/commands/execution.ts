@@ -227,7 +227,7 @@ function keyedMatches(
 /** Interprets the prepared command tree through one replaceable execution attempt. */
 export class CommandExecution {
   readonly commands: Commands;
-  readonly context;
+  readonly context: OperationContext;
   #currentAttempt: CommandAttempt;
   readonly #entered = new Set<CommandOccurrence>();
   /** The result the root record's own statement answers, where it may ({@link complete}). */
@@ -1280,7 +1280,7 @@ export class CommandExecution {
       ),
       shared!,
       member,
-      first.operation,
+      first.operation!,
       first.located!.judgement,
       this.#refusal(first)
     );

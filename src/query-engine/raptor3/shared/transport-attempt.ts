@@ -65,17 +65,12 @@ export class TransportAttempt {
    * own and no statement ever names a table its own segment did not create.
    */
   scratchId?: string;
-  nextField = 0;
   #publications: ScratchPublication[] | undefined;
   #carriedValues: Map<Sql, unknown> | undefined;
   #producers: Map<BatchQuery, object> | undefined;
   #premises: Map<BatchQuery, AssertedPremise> | undefined;
   #judged: Map<BatchQuery, JudgedWrite> | undefined;
   #members: Set<Member> | undefined;
-  /** Record one produced value this unit stored in its scratch (D-58). */
-  publishScratchValue(publication: ScratchPublication): void {
-    (this.#publications ??= []).push(publication);
-  }
   /** The values this unit stored; the attempt keeps none of them. */
   drainScratchPublications(): readonly ScratchPublication[] {
     const published = this.#publications ?? NO_PUBLICATIONS;
@@ -100,21 +95,9 @@ export class TransportAttempt {
     const carried = this.#carriedValues;
     return carried?.has(value) ? carried.get(value) : value;
   }
-  /** Attribute one queued INSERT to the producer whose row it writes. */
-  recordInsertProducer(insert: BatchQuery, producer: object): void {
-    (this.#producers ??= new Map()).set(insert, producer);
-  }
   /** Record the failure one queued assertion raises when it disagrees. */
   assertPremise(assertion: BatchQuery, premise: AssertedPremise): void {
     (this.#premises ??= new Map()).set(assertion, premise);
-  }
-  /**
-   * Record the refusal one queued WRITE raises when the row it produces is
-   * not permitted: the statement fails on its own assertion before it
-   * writes (R4). It is a write, never a premise ({@link holdsWrite}).
-   */
-  judgeWrite(write: BatchQuery, judged: JudgedWrite): void {
-    (this.#judged ??= new Map()).set(write, judged);
   }
   /** The judged writes recorded so far; this attempt keeps none of them. */
   drainJudgedWrites(): Map<BatchQuery, JudgedWrite> {

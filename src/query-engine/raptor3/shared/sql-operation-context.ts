@@ -687,17 +687,6 @@ export class SqlOperationContext extends OperationContext {
     );
   }
   /**
-   * The refusal of a write of `model` whose statement refused the row it
-   * would produce: the root's own, or `refusal` for a nested write.
-   */
-  refused(
-    model: AnyModel,
-    judgement?: RowJudgement,
-    refusal = this.#updateRefusal(model, judgement)
-  ): Error {
-    return this.refusal({ model, refusal });
-  }
-  /**
    * PROTOTYPE: what a root write of `model` reports where its statement
    * refuses the row it would produce, as the data a unit's owner rebuilds
    * the error from.
