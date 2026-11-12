@@ -19,6 +19,7 @@
  */
 import { NotFoundError } from "@errors";
 import type { AnyModel } from "@schema/model";
+import type { Sql } from "@sql";
 import { createFailureError } from "../../batch-error-attribution";
 import type { PreparedGuardFailure } from "../../types";
 import { type WriteKind, type WriteSink, writeSinks } from "../../write-sinks";
@@ -117,6 +118,8 @@ type Entry = (
       readonly row: Input;
       readonly set: Input;
       readonly projection: PreparedProjection;
+      /** What says, of the row answered, that the statement created it. */
+      readonly marker?: Sql;
     }
   | {
       readonly kind: "link";
@@ -912,7 +915,8 @@ export class Store {
         for (const field of hears) row[field] = said?.[field];
       },
     });
-    if (meta.question?.verb && !removes) this.#seen(row, "update");
+    // A kept row that goes is seen as the update it is.
+    if (meta.question?.verb) this.#seen(row, "update");
   }
   /** A row is removed: marked, where its model keeps the rows it deletes. */
   delete(row: Row): void {
@@ -920,7 +924,7 @@ export class Store {
     const { model, question } = meta;
     const marks = this.writer.marks(model);
     // As it was before it goes.
-    if (question?.verb) this.#seen(row, "delete");
+    if (question?.verb && !marks) this.#seen(row, "delete");
     if (marks) {
       // A kept row leaves the rows that reference it in place: where the database would have refused its removal, the mark is refused too.
       const stops = this.writer.restriction(model);
@@ -999,14 +1003,14 @@ export class Store {
         const take = (read: Input[]) => {
           later.sent = { rows: read, rowCount: read.length };
         };
-        // They answer as they were, like rows that go.
-        if (projection)
-          this.series(model, rows, projection, "updateMany", take);
-        else take(rows);
         for (const row of rows) {
           this.update(row, marks!, undefined, undefined, true);
           this.#meta.get(row)!.gone = true;
         }
+        // They answer as their marks leave them.
+        if (projection)
+          this.series(model, rows, projection, "updateMany", take);
+        else take(rows);
         return later;
       }
       const take = (read: Input[]) => {
@@ -1077,7 +1081,6 @@ export class Store {
         pins
       ) ||
       selector.scoped ||
-      this.sink ||
       q.domain?.produced(model) ||
       fields.length === 0 ||
       this.operation.schema.keys(model).some((key) => key in set) ||
@@ -1092,14 +1095,37 @@ export class Store {
     )
       return undefined;
     const later: Later = {};
+    // Which of the two it was is told to what asked: by the statement itself where the provider marks a row it created, else by asking for the row just before it.
+    const { sink } = this;
+    const marker =
+      sink && returningSafeProjection(projection)
+        ? this.operation.driver.adapter.mutations.upserted
+        : undefined;
+    let created: boolean | undefined;
+    if (sink && !marker)
+      this.#note({
+        kind: "read",
+        model,
+        rows: [],
+        queries: () => [this.writer.read([question], false)],
+        take: ([sent]) => {
+          created = sent!.rows.length === 0;
+        },
+      });
     this.#note({
       kind: "either",
       question,
       row,
       set,
       projection,
+      marker,
       take: ([sent]) => {
         later.sent = sent;
+        for (const said of marker ? sent!.rows : []) {
+          created = said.__viborm_inserted === true;
+          said.__viborm_inserted = undefined;
+        }
+        sink?.upserted(created!);
       },
     });
     this.#spoil(model);
@@ -1564,7 +1590,8 @@ export class Store {
               entry.question,
               this.#said(entry.row),
               this.#said(entry.set),
-              entry.projection
+              entry.projection,
+              entry.marker
             ),
           ],
           take,

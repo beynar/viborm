@@ -487,7 +487,8 @@ export class Writer {
     question: Question,
     row: Input,
     set: Input,
-    projection: PreparedProjection
+    projection: PreparedProjection,
+    marker?: Sql
   ): Promise<Statement> {
     const q = this.#q;
     const { model } = question;
@@ -522,7 +523,8 @@ export class Writer {
       sql: this.#operation.answering(
         model,
         sql`${insert.sql} ${conflict}`,
-        projection
+        projection,
+        marker ? [identifiers.aliased(marker, "__viborm_inserted")] : []
       ),
     };
   }

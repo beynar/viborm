@@ -172,7 +172,10 @@ export function verbs(store: Store) {
         )
           ? [
               name,
-              ...(edge.kind === "reference" && holds(edge)
+              // The columns of a relation of variants are no field of their own.
+              ...(edge.kind === "reference" &&
+              holds(edge) &&
+              !edge.discriminator
                 ? edge.pairs.map((pair) => pair.source)
                 : []),
             ]
@@ -778,7 +781,11 @@ export function verbs(store: Store) {
       };
       const related =
         relationsOf(model, create).length + relationsOf(model, update).length;
-      if (related + guards.length === 0) {
+      // An update that says nothing writes nothing: no statement that would write what every update takes.
+      if (
+        related + guards.length === 0 &&
+        Object.keys(stated(update)).length > 0
+      ) {
         const { projection, said } = one(model, args);
         const later = store.either(
           question,
@@ -800,12 +807,14 @@ export function verbs(store: Store) {
           where: { ...where, AND: [...list(where.AND), ...guards] },
         }).length > 0;
       // An update that says nothing asks nothing of the row found.
-      if (found && matched && Object.keys(stated(update)).length > 0)
+      const updates =
+        found && matched && Object.keys(stated(update)).length > 0;
+      if (updates)
         write(model, found, update, relationsOf(model, update).length > 0);
       const answer = answering(model, found ?? make(model, create, {}), args);
       return () => {
-        // Which of the two it was is told once the call's writes are made.
-        store.sink?.upserted(!found);
+        // Which of the two it was is told once the call's writes are made: neither where it wrote nothing.
+        if (!found || updates) store.sink?.upserted(!found);
         return answer();
       };
     },
