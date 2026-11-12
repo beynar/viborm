@@ -89,6 +89,9 @@ deliberately small so the query protocol is visible.
 | Rewrite materialized SQL | `statement` | Synchronous trusted `Sql → Sql` transform |
 | Record lifecycle completion | `observe` | Protected, failure-contained observation |
 | Receive the rows a write wrote | `written` | A watch per write call: which rows, the rows, then the commit |
+| Make a failed call again | `retry` | Asked when a call outside a transaction failed with nothing written |
+| Send a read to another driver | `route` | Asked before a read outside a transaction; a driver, or nothing |
+| Run SQL as a transaction opens | `transaction` | Called first in every transaction, with a function that runs a statement |
 | Add client methods | `client` | Factory returning dollar-prefixed functions |
 | Add model methods | `model` | Per-model factory returning functions |
 | Accept a new call argument | `controls` | Declared values, checked once; only your handlers see them |
@@ -386,6 +389,45 @@ const outbox = defineExtension({
 A call that fails calls neither `rows` nor `settled`. Several extensions can
 declare `written`; each watch is told in the order the extensions were applied.
 [`viborm/on`](/docs/extensions/on) is built on this point.
+
+## Decide how a call is sent with `retry`, `route` and `transaction`
+
+```ts
+const resilience = defineExtension({
+  name: "resilience",
+  // A call that failed, with nothing written: make it again?
+  retry: (error, attempt, { model, operation }) =>
+    attempt < 3 && isRetryableError(error),
+  // A read outside a transaction: send it to another driver?
+  route: ({ model, operation, args }) =>
+    operation.startsWith("find") ? replica : undefined,
+  // First in every transaction.
+  transaction: async (run) => {
+    await run(sql`SET LOCAL app.tenant = ${tenant}`);
+  },
+});
+```
+
+- **`retry(error, attempt, call)`** is asked when a call sent outside a
+  transaction failed and nothing of it was written. `true` makes the call
+  again, and `attempt` counts from 1. Bound it yourself: VibORM asks as long as
+  you answer `true`. It is never asked for a call inside a transaction (the
+  transaction is the caller's to make again), for a member of
+  `$transaction([...])`, or for a write that committed or may have. A write
+  sent as one statement outside a transaction that fails is held to be
+  possibly made, so it is not asked either: reads are asked, and writes whose
+  own transaction rolled back.
+- **`route(read)`** is asked before each read outside a transaction. Return a
+  driver to send the read there, or nothing to leave it where it goes. The
+  driver must be of the client's dialect and hold the same schema. Writes,
+  reads inside a transaction and raw queries are never routed. The first
+  extension that answers a driver wins.
+- **`transaction(run)`** is called as each transaction opens, before anything
+  else runs in it: a `$transaction` callback, an array run in a transaction,
+  and the transaction a multi-statement write opens for itself. `run` executes
+  a statement there and resolves to its rows. What it throws fails the
+  transaction. A savepoint is no transaction. A driver that sends a unit as
+  one batch (D1, neon-http) opens none, so the point does not run there.
 
 ## Declare arguments with `controls`
 

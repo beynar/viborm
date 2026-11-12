@@ -12,6 +12,12 @@ export type {
   OfficialObservationCapability as ObservesDeclaration,
 } from "./official-facts";
 export type { WriteOutcome } from "./query";
+export type {
+  RetryHandler,
+  RouteHandler,
+  TransactionHandler,
+  UnitCall,
+} from "./units";
 export type { StatementContext, StatementHandler } from "./statement";
 export type {
   WriteKind,

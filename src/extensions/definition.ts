@@ -45,6 +45,7 @@ import type { ResultDefinition, ResultInference } from "./result-types";
 import { withRows } from "./rows-runtime";
 import { rowsRuntime } from "./rows-slot";
 import type { StatementHandler } from "./statement";
+import type { RetryHandler, RouteHandler, TransactionHandler } from "./units";
 import type { WrittenHandler } from "./written";
 
 type RuntimeExtensionFunction = (...args: never[]) => unknown;
@@ -64,6 +65,9 @@ export interface RuntimeExtensionDefinition {
   /** What `observe` is handed facts for, as the definition wrote it. */
   readonly observes?: OfficialObservationCapability;
   readonly written?: RuntimeExtensionFunction;
+  readonly retry?: RuntimeExtensionFunction;
+  readonly route?: RuntimeExtensionFunction;
+  readonly transaction?: RuntimeExtensionFunction;
   readonly client?: RuntimeClientMethodContribution;
   readonly model?: RuntimeModelMethodContribution;
   readonly controls?: ControlsContribution;
@@ -97,6 +101,9 @@ const DEFINITION_KEYS = new Set([
   "observe",
   "observes",
   "written",
+  "retry",
+  "route",
+  "transaction",
   "client",
   "model",
   "controls",
@@ -477,6 +484,14 @@ export function normalizeExtensionDefinition(
     rawWritten === undefined
       ? undefined
       : requireFunction(rawWritten, "written", name);
+  const units: {
+    retry?: RuntimeExtensionFunction;
+    route?: RuntimeExtensionFunction;
+    transaction?: RuntimeExtensionFunction;
+  } = {};
+  for (const point of ["retry", "route", "transaction"] as const)
+    if (ownKeys.includes(point))
+      units[point] = requireFunction(readOwn(value, point, name), point, name);
   const rawClient = ownKeys.includes("client")
     ? readOwn(value, "client", name)
     : undefined;
@@ -517,6 +532,7 @@ export function normalizeExtensionDefinition(
     ...(observe ? { observe } : {}),
     ...(observes ? { observes } : {}),
     ...(written ? { written } : {}),
+    ...units,
     ...(client ? { client } : {}),
     ...(model ? { model } : {}),
     ...(controls ? { controls } : {}),
@@ -660,6 +676,9 @@ type ExtensionMembers<
   readonly observe?: ObserveHandler;
   readonly observes?: OfficialObservationCapability;
   readonly written?: WrittenHandler;
+  readonly retry?: RetryHandler;
+  readonly route?: RouteHandler;
+  readonly transaction?: TransactionHandler;
   readonly controls?: ControlsContribution;
   readonly rows?: RowsContribution;
   readonly deletion?: DeletionContribution;

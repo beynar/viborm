@@ -32,6 +32,11 @@ it fits one batch.
   its observer needs (statement text, parameters, driver identity, cache
   outcomes) and receives them as a third argument. `viborm/instrumentation` is
   built on it and no longer registers a private identity.
+- **`retry`, `route` and `transaction`: three points where an extension decides
+  how a call is sent.** Make a failed call again when nothing of it was
+  written, send a read outside a transaction to another driver (a read
+  replica), and run statements first in every transaction (`SET LOCAL` for row
+  level security).
 - **Several `on()` on one client.** Each runs its own hooks, in the order they
   were applied. A second `on()` was refused before.
 

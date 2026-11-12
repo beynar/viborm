@@ -1229,6 +1229,8 @@ export class VibORM<C extends VibORMConfig> {
         chain?.hasQueryHandlers ||
         chain?.hasCache ||
         chain?.written ||
+        chain?.retry ||
+        chain?.route ||
         (chain?.observe.length ?? 0) > 0
           ? new TransactionWriteOutcomes()
           : undefined;

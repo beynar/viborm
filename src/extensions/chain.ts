@@ -141,6 +141,10 @@ export interface ResolvedExtensionChain {
   readonly result?: ResolvedResultFields;
   /** Every `written` declaration, in chain order: what watches a write call. */
   readonly written?: readonly ResolvedOperationHandler[];
+  /** Every `retry`, `route` and `transaction` declaration, in chain order. */
+  readonly retry?: readonly ResolvedExtensionHandler[];
+  readonly route?: readonly ResolvedExtensionHandler[];
+  readonly transaction?: readonly ResolvedExtensionHandler[];
   readonly extensions: readonly ResolvedExtension[];
   readonly hasCache: boolean;
   readonly hasRequestHandlers: boolean;
@@ -302,6 +306,23 @@ function appendFlatHandler(
   const handlers = previous ? [...previous] : [];
   handlers.push(resolvedHandler(extension, handler));
   return Object.freeze(handlers);
+}
+
+/** The chain's `retry`, `route` and `transaction` lists with a definition's own appended: a point nobody declares is absent. */
+function unitHandlers(
+  chain: ResolvedExtensionChain | undefined,
+  extension: Pick<ResolvedExtension, "name">,
+  definition: RuntimeExtensionDefinition
+): Pick<ResolvedExtensionChain, "retry" | "route" | "transaction"> {
+  const lists: Record<string, readonly ResolvedExtensionHandler[]> = {};
+  for (const point of ["retry", "route", "transaction"] as const) {
+    const handler = definition[point];
+    const list = handler
+      ? appendFlatHandler(chain?.[point], extension, handler)
+      : chain?.[point];
+    if (list) lists[point] = list;
+  }
+  return lists;
 }
 
 function appendObserver(
@@ -663,6 +684,7 @@ export function appendResolvedExtension(
     ...(callRows === undefined ? {} : { callRows }),
     ...(result === undefined ? {} : { result }),
     ...(written === undefined ? {} : { written }),
+    ...unitHandlers(chain, resolved, effectiveDefinition),
     extensions,
     hasCache: incomingCache !== undefined || chain?.hasCache === true,
     hasRequestHandlers: hasCompiledHandlers(request),

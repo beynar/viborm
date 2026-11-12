@@ -20,7 +20,10 @@ import {
   ungatedStatementExecution,
 } from "./driver-instrumentation";
 import { normalizeDriverError } from "./error-mapping";
-import { appendExecutionTransactionPhases } from "./execution-context";
+import {
+  appendExecutionTransactionPhases,
+  getExecutionExtensionChain,
+} from "./execution-context";
 import {
   assertNormalizedBatchResults,
   assertNormalizedQueryResult,
@@ -630,7 +633,22 @@ export abstract class DriverTransactionBase<
       async (tx) => {
         txDriver = this.createTransactionBoundDriver(tx, executionContext);
         const boundDriver = txDriver;
-        const scopedBody = () => this.runTransactionBody(() => fn(boundDriver));
+        // What the call's extensions run as a transaction opens, before its body.
+        // A savepoint opens none.
+        const opened = this.inTransaction
+          ? undefined
+          : getExecutionExtensionChain(context)?.transaction;
+        const body = opened
+          ? async () => {
+              for (const { handler } of opened)
+                await handler(
+                  async (statement: Sql) =>
+                    (await boundDriver._execute(statement, context)).rows
+                );
+              return fn(boundDriver);
+            }
+          : () => fn(boundDriver);
+        const scopedBody = () => this.runTransactionBody(body);
         const runBody = () =>
           timeoutMs === undefined
             ? scopedBody()

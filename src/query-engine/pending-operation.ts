@@ -25,6 +25,7 @@ import {
   type QueryInterceptionMode,
   type WriteOutcomeRegistration,
 } from "@extensions/query";
+import { sendUnit } from "@extensions/units";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
 import type { CacheResultCodec } from "./cache-flow";
@@ -795,13 +796,32 @@ export class PendingOperation<T>
     committedWriteSegment?: CommittedWriteSegmentNotification,
     writeMayBeVisible?: WriteMayBeVisibleNotification
   ): Promise<T> {
-    return this.#deferredExecution
-      ? this.#deferredExecution(
-          driverOverride,
-          committedWriteSegment,
-          writeMayBeVisible
-        )
-      : this.#run(driverOverride, committedWriteSegment, writeMayBeVisible);
+    const run = (
+      driver: AnyDriver | undefined,
+      committed?: CommittedWriteSegmentNotification,
+      mayBeVisible?: WriteMayBeVisibleNotification
+    ) =>
+      this.#deferredExecution
+        ? this.#deferredExecution(driver, committed, mayBeVisible)
+        : this.#run(driver, committed, mayBeVisible);
+    const chain = this.#engine.extensionChain;
+    // A call inside a transaction, or a member of an array, is its owner's.
+    if (
+      !(chain?.retry || chain?.route) ||
+      driverOverride !== undefined ||
+      this.#engine.transactionWriteOutcomes !== undefined
+    )
+      return run(driverOverride, committedWriteSegment, writeMayBeVisible);
+    const operation = String(this.#options.originalOperation);
+    return sendUnit(
+      chain,
+      { model: this.#modelName, operation },
+      () => this.#resolveArgs(),
+      !isReadOperation(operation),
+      run,
+      committedWriteSegment,
+      writeMayBeVisible
+    );
   }
 
   /**
