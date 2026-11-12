@@ -18,7 +18,7 @@ import {
 } from "../errors";
 import { ValidationError } from "../errors/validation";
 import type { OrderTerm } from "../extensions/controls";
-import { withRows } from "../extensions/rows-runtime";
+import { defineExtension } from "../extensions/definition";
 import type {
   ClientSchema,
   ClientTypeState,
@@ -1164,7 +1164,8 @@ function definitionOf<
   C extends Governed<Config>,
   X extends ExtensionState,
 >(config: Config, client: VibORMClient<C, X>) {
-  withRows();
+  // `defineExtension` brings what reads the declarations made here.
+  defineExtension();
   const admitted = admit(client.$schema, config);
   // Respacing renders with the client's driver: the scope a method is given
   // has none.

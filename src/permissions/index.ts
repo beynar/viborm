@@ -11,14 +11,14 @@
 
 import type { OperationPayload } from "../client/exports"; // public today
 import { ForbiddenError } from "../errors";
-import type { RowsVerbs } from "../extensions/controls";
-import { withRows } from "../extensions/rows-runtime";
+import { defineExtension } from "../extensions/definition";
 import type {
   ClientSchema,
   ClientTypeState,
   ExtendedClient,
   ExtensionState,
   MergeExtensionState,
+  RowsVerbs,
   VibORMClient,
   VibORMConfig,
 } from "../index";
@@ -885,7 +885,8 @@ export function permissions<
 export function permissions<const Config extends PermissionsConfig>(
   config: Config & DeclarationCheck<Config>
 ): Policy<Config> {
-  withRows();
+  // `defineExtension` brings what reads the declarations made here.
+  defineExtension();
   const actor = actorContract(config.actor);
   const compile = (schema: Schema) => compilePolicy(config, schema, actor);
   // Public compile() remains an independent inspection result. Application
