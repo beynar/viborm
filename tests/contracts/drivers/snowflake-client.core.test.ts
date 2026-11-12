@@ -16,6 +16,7 @@ import {
   VibORMErrorCode,
 } from "@errors";
 import { s } from "@schema";
+import { ordering, orderingKey } from "@src/ordering";
 import { permissions } from "@src/permissions";
 import { v } from "@src/validation";
 import {
@@ -519,6 +520,10 @@ const pair = s
   .id(["a", "b"])
   .map("PAIRS");
 
+const card = s
+  .model({ id: s.int().id(), rank: s.string().schema(orderingKey) })
+  .map("CARDS");
+
 function docs() {
   return createClient({
     schema: { doc, pair },
@@ -584,9 +589,39 @@ describe("Snowflake root pages and filters", () => {
       }),
       db.doc.count({ cursor: { id: 2 }, orderBy: { title: "asc" } }),
       db.pair.findMany({ cursor: { a_b: { a: 1, b: 2 } } }),
+      // No order stated: the one an extension gives the model is the order.
+      ordering({ card: { key: "rank" } })(
+        createClient({
+          schema: { card },
+          account: "myorg-acct",
+          token: "t",
+          host: server.url,
+        })
+      ).card.findMany({ cursor: { id: 2 } }),
     ])
       await expect(read).rejects.toBeInstanceOf(UnsupportedOperationError);
     expect(server.requests).toEqual([]);
+  });
+
+  it("reads a nested relation in Snowflake's form under an extension's domain too", async () => {
+    const gated = client()
+      .$extends(
+        permissions({
+          actor: v.object({ userId: v.number() }),
+          models: {
+            author: { read: true },
+            post: { read: true },
+            tag: { read: true },
+          },
+        })
+      )
+      .$as({ userId: 1 });
+    await gated.author.findMany({ include: { posts: { take: 2 } } });
+    const [sent] = server.statements();
+    // The uncorrelated page numbered per key, not the correlated LIMIT
+    // Snowflake refuses.
+    expect(sent!.statement).toContain("QUALIFY");
+    expect(sent!.statement).toContain("WITHIN GROUP");
   });
 
   it("reads a JSON number at a path with AS_DOUBLE, which no other member fails", async () => {

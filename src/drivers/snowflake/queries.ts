@@ -42,12 +42,15 @@ import type { SnowflakeAdapter } from "@adapters/databases/snowflake/snowflake-a
 import { UnsupportedOperationError } from "@errors";
 import type {
   Leaf,
+  PreparedDomain,
   PreparedProjection,
   PreparedProjectionField,
   PreparedRelationProjection,
   ProjectionShape,
+  Queries,
   Read,
 } from "@query-engine/raptor3/shared/query";
+import type { CallScope } from "@query-engine/raptor3/shared/row-scope";
 import type {
   Arguments,
   ReadOperation,
@@ -81,7 +84,22 @@ export class SnowflakeQueries extends SqlQueries {
   declare readonly adapter: SnowflakeAdapter;
 
   /**
-   * A root `cursor` ordered by the model's single-field key alone: the SQL
+   * Under a domain (an extension's rows, order or permissions) the reads stay
+   * Snowflake's: the SQL backend's `under` answers its own class.
+   */
+  override under(domain: PreparedDomain, call?: CallScope): Queries {
+    return new SnowflakeQueries(
+      this.schema,
+      this.adapter,
+      this.result,
+      domain,
+      call
+    );
+  }
+
+  /**
+   * A root `cursor` ordered by the model's single-field key alone (the
+   * caller's order, else the one an extension gives the model): the SQL
    * backend then compares that key with one uncorrelated scalar subquery,
    * which Snowflake evaluates (measured, ascending and descending, with
    * `distinct` too). A longer order compares a row of keys with a
@@ -107,7 +125,8 @@ export class SnowflakeQueries extends SqlQueries {
   ): boolean {
     const [key, ...more] = this.keyOrder(model);
     if (key === undefined || more.length > 0) return false;
-    const terms = Array.isArray(orderBy) ? orderBy : orderBy ? [orderBy] : [];
+    const order = orderBy ?? this.defaultOrder(model);
+    const terms = Array.isArray(order) ? order : order ? [order] : [];
     return [cursor, ...terms].every(
       (term) =>
         isRecord(term) && Object.keys(term).every((field) => field === key)

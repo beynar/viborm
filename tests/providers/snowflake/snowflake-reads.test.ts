@@ -43,6 +43,8 @@ import { SnowflakeTransport } from "@drivers/snowflake/transport";
 import { QueryError, VibORMErrorCode } from "@errors";
 import { introspectSchema } from "@migrations/introspect";
 import { s } from "@schema";
+import { permissions } from "@src/permissions";
+import { v } from "@src/validation";
 import { GEO_POINT_EARTH_RADIUS_METERS } from "@validation/primitives/geo-area-codec";
 import type { GeoPoint } from "@validation/primitives/geo-values";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -679,6 +681,36 @@ describe.skipIf(credentials === undefined)("Snowflake, a real account", () => {
     expect(failure).toMatchObject({
       message: expect.stringContaining("invalid Recursive CTE"),
     });
+  });
+
+  it("reads nested relations under an extension's domain", async () => {
+    const gated = db!
+      .$extends(
+        permissions({
+          actor: v.object({ userId: v.number() }),
+          models: {
+            author: { read: true },
+            post: { read: { title: { startsWith: "a" } } },
+            tag: { read: true },
+            authorTag: { read: true },
+            place: { read: true },
+            note: { read: true },
+          },
+        })
+      )
+      .$as({ userId: 1 });
+    const authors = await gated.author.findMany({
+      orderBy: { id: "asc" },
+      select: {
+        id: true,
+        posts: { orderBy: { id: "desc" }, take: 2, select: { id: true } },
+      },
+    });
+    expect(authors).toEqual([
+      { id: 1, posts: [{ id: 4 }, { id: 3 }] },
+      { id: 2, posts: [] },
+      { id: 3, posts: [] },
+    ]);
   });
 
   it("reads two levels of nested relations", async () => {

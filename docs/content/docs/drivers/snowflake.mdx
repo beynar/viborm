@@ -150,7 +150,8 @@ And with an `UnsupportedOperationError`, before anything is sent:
 - a recursive filter (`recurse` in a `where`, the caller's or a permission
   rule's): Snowflake refuses the recursive walk VibORM writes ("is an invalid
   Recursive CTE", measured);
-- a root `cursor` ordered by anything but the model's single-field key: the
+- a root `cursor` ordered by anything but the model's single-field key (an
+  order an extension such as `viborm/ordering` gives the model counts): the
   comparison would need a multi-column subquery, which Snowflake refuses
   (measured); order by the key, or page with `skip`;
 - in a nested relation: `cursor`, `distinct`, an order by a related row or a
