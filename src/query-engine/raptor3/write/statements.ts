@@ -196,23 +196,25 @@ export class Writer {
     const { assertions, operators } = this.#operation.driver.adapter;
     const [[question]] = asked as [[Question]];
     const { model } = question;
-    const probes = asked.map(
-      ([each, key]) =>
-        this.#q.select(model, { take: 1 }, this.#membership(each), {
-          projection: this.#projection(model, false),
-          selector: this.selector(each),
-          ...(key && { identity: key }),
-        }).sql
+    const asking = ([each, key]: readonly [Question, Input?], more?: Sql) =>
+      this.#q.select(model, { take: 1 }, this.#membership(each), {
+        projection: this.#projection(model, false),
+        selector: this.selector(each),
+        ...(key && { identity: key }),
+        ...(more && { condition: more }),
+      }).sql;
+    // One row answers where every question names one.
+    const [first, ...others] = asked as [[Question, Input?]];
+    const probe = asking(
+      first,
+      others.length > 0
+        ? operators.and(...others.map((each) => operators.exists(asking(each))))
+        : undefined
     );
-    const [probe] = probes;
     return {
-      sql:
-        probes.length === 1
-          ? assertions.exists(probe!)
-          : assertions.holds(
-              operators.and(...probes.map((each) => operators.exists(each)))
-            ),
-      ...(probes.length === 1 && { probe, premise: "exists" as const }),
+      sql: assertions.exists(probe),
+      probe,
+      premise: "exists",
       believed: believed === "presumed" && question.must ? undefined : believed,
       // Also what an owner that cannot run the call again reports.
       stops: this.absent(question, believed === "read"),
