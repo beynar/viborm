@@ -2192,7 +2192,6 @@ export abstract class Queries {
       predicate: Object.freeze({ kind: "window", selector, limit }),
     });
   }
-  abstract lockAll(selector: PreparedSelector): Query;
   /**
    * A combinator, unless the model declares a field by that name: validation
    * extends its three combinator entries with the model's own fields, so a

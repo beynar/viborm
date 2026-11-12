@@ -136,10 +136,6 @@ export class SurrealQueries extends Queries {
     return refuse("a condition spelled apart from its statement");
   }
 
-  override lockAll(): Query {
-    return refuse("locks");
-  }
-
   spelling(model: AnyModel, dialect: Dialect): ModelSql {
     const low = this.lowering;
     return {

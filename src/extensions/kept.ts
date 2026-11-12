@@ -4,18 +4,24 @@
  * its removal. The engine asks the call's tombstones; this module, loaded
  * with the extensions that declare a deletion, answers.
  */
+import { assembleAdapterSelect } from "@adapters/adapter-internals";
 import type {
   PreparedDomain,
   PreparedPredicate,
   PreparedSelector,
   Queries,
+  Query,
 } from "@query-engine/raptor3/shared/query";
-import { newSelectorFacts } from "@query-engine/raptor3/shared/query";
+import {
+  COUNT_LEAF,
+  newSelectorFacts,
+} from "@query-engine/raptor3/shared/query";
 import type {
   Tombstone,
   Tombstones,
 } from "@query-engine/raptor3/shared/row-scope";
 import type { EngineSchema, Input } from "@query-engine/raptor3/shared/schema";
+import type { SqlQueries } from "@query-engine/raptor3/shared/sql-queries";
 import {
   bindMembership,
   type Membership,
@@ -73,6 +79,30 @@ export class Kept extends Map<string, Tombstone> implements Tombstones {
           raceable: false,
         }
       : undefined;
+  }
+  /**
+   * Every row of `selector` locked, answered as ONE row: the inner read takes
+   * the row locks (`FOR UPDATE`), and the count over it, which must consume
+   * every row, is all that crosses the wire. Locking a million candidates
+   * then costs one row back, not a million keys.
+   */
+  lock(queries: Queries, selector: PreparedSelector): Query {
+    const q = queries as SqlQueries;
+    const a = q.adapter;
+    const inner = q.rootAlias();
+    const locked = assembleAdapterSelect(a, {
+      columns: a.literals.true(),
+      from: q.table(selector.model, inner),
+      where: q.lowerSelector(selector, inner),
+      forUpdate: true,
+    });
+    return {
+      sql: assembleAdapterSelect(a, {
+        columns: a.identifiers.aliased(a.aggregates.count(), "_count"),
+        from: a.subqueries.correlate(locked, q.alias()),
+      }),
+      shape: { kind: "object", fields: { _count: COUNT_LEAF } },
+    };
   }
   /**
    * The rows a hard delete meets the database's restrict on. A member is

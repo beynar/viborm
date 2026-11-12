@@ -915,7 +915,7 @@ export class SqlQueries extends Queries {
    * the parent's scope, which is why the nested relation projection, the
    * correlated count and the cursor window mint plain {@link alias}es.
    */
-  #rootAlias(): string {
+  rootAlias(): string {
     this.#nextAlias = 0;
     this.#rows.clear();
     return this.alias();
@@ -1023,7 +1023,7 @@ export class SqlQueries extends Queries {
    * alias, so no name the caller chooses meets one the lowering writes.
    */
   rowsOf(model: AnyModel, alias: string): Sql {
-    const row = this.#rootAlias();
+    const row = this.rootAlias();
     const domain = this.domainOf(model, "root");
     // Every table pinned: the caller's text around it may define a CTE named
     // like a table the domain reads, which would otherwise stand for it.
@@ -1641,29 +1641,6 @@ export class SqlQueries extends Queries {
     return {
       where,
       suffix: sql`${adapter.clauses.orderBy(this.ascendingKeys(model))} ${adapter.clauses.limit(this.value(limit))}`,
-    };
-  }
-  /**
-   * Every row of `selector` locked, answered as ONE row: the inner read takes
-   * the row locks (`FOR UPDATE`), and the count over it, which must consume
-   * every row, is all that crosses the wire. Locking a million candidates
-   * then costs one row back, not a million keys.
-   */
-  override lockAll(selector: PreparedSelector): Query {
-    const a = this.adapter;
-    const inner = this.#rootAlias();
-    const locked = assembleAdapterSelect(a, {
-      columns: a.literals.true(),
-      from: this.table(selector.model, inner),
-      where: this.lowerSelector(selector, inner),
-      forUpdate: true,
-    });
-    return {
-      sql: assembleAdapterSelect(a, {
-        columns: a.identifiers.aliased(a.aggregates.count(), "_count"),
-        from: a.subqueries.correlate(locked, this.alias()),
-      }),
-      shape: { kind: "object", fields: { _count: COUNT_LEAF } },
     };
   }
   /**
@@ -3899,7 +3876,7 @@ export class SqlQueries extends Queries {
     membership: { edge: Membership; parent: Input } | undefined,
     controls: SqlSelectControls
   ): Query {
-    const alias = this.#rootAlias();
+    const alias = this.rootAlias();
     if (controls.source === undefined) this.#rows.set(alias, model);
     // The shipped owner sequence, and the reason it is stated here: when one
     // call violates two contracts at once, the refusal the caller sees is the
@@ -4112,7 +4089,7 @@ export class SqlQueries extends Queries {
         // Existence is order-blind and `exist` admits only `where`: the
         // filtered table itself, with no total order to sort or scan by.
         const a = this.adapter;
-        const alias = this.#rootAlias();
+        const alias = this.rootAlias();
         const rows = assembleAdapterSelect(a, {
           columns: a.literals.true(),
           from: this.table(model, alias),
@@ -4230,7 +4207,7 @@ export class SqlQueries extends Queries {
     shape: (alias: string) => Extract<Shape, { kind: "object" }>
   ): Query {
     const a = this.adapter;
-    const inner = this.#rootAlias();
+    const inner = this.rootAlias();
     // The default order only decides which rows a page holds.
     const page = this.#page(model, this.#ordered(model, args), inner, "root");
     const filter = this.lowerWhere(model, args.where, inner);
@@ -4426,7 +4403,7 @@ export class SqlQueries extends Queries {
     operation: "createMany" | "updateMany"
   ): Query {
     const model = prepared.model;
-    const alias = this.#rootAlias();
+    const alias = this.rootAlias();
     const projection = this.lowerProjection(prepared, alias);
     const predicates = identities.map((identity) =>
       this.lowerIdentity(model, identity, alias)
@@ -5455,7 +5432,7 @@ export class SqlQueries extends Queries {
   }
   grouped(model: AnyModel, args: Arguments): Query {
     const a = this.adapter;
-    const alias = this.#rootAlias();
+    const alias = this.rootAlias();
     // The ONE `by` authority. Admission normalises `by` to an array and
     // refuses its duplicates; the grouped read computes the grouped column SET
     // once and hands it to the two owners that have to know it — `having` and

@@ -2,7 +2,7 @@ import type { AnyModel } from "@schema/model";
 import { parseProviding } from "@validation/primitives/object";
 import type { PreparedGuardFailure } from "../../types";
 import type { Writer } from "../write/statements";
-import type { PreparedDomain, PreparedSelector, Queries } from "./query";
+import type { PreparedDomain, PreparedSelector, Queries, Query } from "./query";
 import type { EngineSchema, Input } from "./schema";
 import type { Membership } from "./storage";
 
@@ -143,6 +143,8 @@ export interface Tombstones extends ReadonlyMap<string, Tombstone> {
     schema: EngineSchema,
     model: AnyModel
   ): PreparedGuardFailure | undefined;
+  /** Every row of `selector` locked, answered as one row. */
+  lock(queries: Queries, selector: PreparedSelector): Query;
   /** The rows of `model` a visible member still references, one member excepted by identity. */
   selector(
     queries: Queries,

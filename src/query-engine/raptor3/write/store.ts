@@ -1498,7 +1498,10 @@ export class Store {
           model,
           rows: [],
           queries: () => [
-            q.lockAll(this.writer.selector({ ...question, intent: "delete" })),
+            this.operation.scope!.rows.tombstones!.lock(
+              q,
+              this.writer.selector({ ...question, intent: "delete" })
+            ),
           ],
         });
       if (stops)
