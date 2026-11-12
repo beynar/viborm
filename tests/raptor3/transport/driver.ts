@@ -8,7 +8,7 @@ import type {
   QueryResult,
 } from "@drivers/types";
 import type { StatementCompletion } from "../harness/protocol";
-import { Recorder } from "../harness/recorder";
+import type { Recorder } from "../harness/recorder";
 import { observeFailure } from "../harness/sqlite-world";
 import type { TransportProfileId } from "../profiles";
 
@@ -34,6 +34,32 @@ export interface ActorScript {
   /** A unique public value in the actor's first dispatched request. */
   firstParameter: string;
   replies: readonly Reply[];
+  /**
+   * What each request of the actor is owed, whatever the engine packs into
+   * it: a script that states the transport's answers and not the engine's
+   * packaging. Where present, `replies` is not read.
+   */
+  answers?: (
+    via: Reply["via"],
+    queries: readonly BatchQuery[],
+    position: number
+  ) => Reply;
+}
+
+/** Whether a statement's parameters carry `value`: as one of them, or inside a list bound as one parameter. */
+export function carries(
+  parameters: readonly unknown[] | undefined,
+  value: string
+): boolean {
+  return (parameters ?? []).some(
+    (parameter) =>
+      parameter === value ||
+      (Array.isArray(parameter) && parameter.includes(value)) ||
+      // A PostgreSQL array literal.
+      (typeof parameter === "string" &&
+        parameter.startsWith("{") &&
+        parameter.includes(`"${value}"`))
+  );
 }
 
 /** Replies are supplied by fixtures; this driver neither evaluates nor answers SQL. */
@@ -143,9 +169,7 @@ export class ScriptedTransport extends Driver<object, object> {
         knownActor
           ? actor.name === knownActor
           : !this.positions.has(actor.name) &&
-            queries.some((query) =>
-              query.params?.includes(actor.firstParameter)
-            )
+            queries.some((query) => carries(query.params, actor.firstParameter))
       );
       assert.equal(
         matches.length,
@@ -155,7 +179,8 @@ export class ScriptedTransport extends Driver<object, object> {
       script = matches[0]!;
       this.correlations.set(correlationId, script.name);
       const position = this.positions.get(script.name) ?? 0;
-      const expected = script.replies[position];
+      const expected =
+        script.answers?.(via, queries, position) ?? script.replies[position];
       assert(expected, `Unscripted redispatch by ${script.name}`);
       reply = expected;
       assert.equal(
@@ -308,7 +333,7 @@ export class ScriptedTransport extends Driver<object, object> {
         await wait();
         continue;
       }
-      assert(this.released++ < 2_000, "Transport completion budget exceeded");
+      assert(this.released++ < 2000, "Transport completion budget exceeded");
       const name = this.recorder.release([...this.pending.keys()]);
       const release = this.pending.get(name)!;
       this.pending.delete(name);
@@ -327,12 +352,20 @@ export class ScriptedTransport extends Driver<object, object> {
 
   finish(): void {
     if (this.harnessFailure !== undefined) throw this.harnessFailure;
+    // A script that states what each request is owed has no count to meet:
+    // it is held to having been asked.
     for (const script of this.actorScripts)
-      assert.equal(
-        this.positions.get(script.name),
-        script.replies.length,
-        `g3-transport:reply-consumption; Unconsumed explicit replies: ${script.name}`
-      );
+      if (script.answers)
+        assert(
+          (this.positions.get(script.name) ?? 0) > 0,
+          `g3-transport:reply-consumption; No request by ${script.name}`
+        );
+      else
+        assert.equal(
+          this.positions.get(script.name),
+          script.replies.length,
+          `g3-transport:reply-consumption; Unconsumed explicit replies: ${script.name}`
+        );
     assert.equal(
       this.correlations.size,
       this.actorScripts.length,
