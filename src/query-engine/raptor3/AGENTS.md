@@ -173,7 +173,7 @@ judged write or the first whose own `SELECT` source is refused when asked
 again (`#queueJudged`, `TransportAttempt.judgeWrite`). A set update whose
 candidates state the old row's judgement in the same statement does not
 state it again over a new row that differs only in fields it does not read
-(`readsAny`): the answer is the old row's. A value only the database
+(`readsAny`, `src/extensions/reads.ts`): the answer is the old row's. A value only the database
 computes (a list append, an exact decimal's multiply or divide) has no
 value to judge: it is refused before any statement where the judgement
 reads it, and stands where nothing does; a row of defaults only is refused
@@ -1534,7 +1534,8 @@ Two facts, then, not one absolute. At every position the predicate IS asked,
 shipped ones from the same owner: no per-verb branch, no second walk. And a root
 `upsert` whose update payload names NO relation judges the key payload on
 NEITHER engine — `UpsertOperation.ts:496` gates `updateLegality` on
-`updateHasRelations` and `commands/commands.ts` mirrors it on `namesRelation` —
+`updateHasRelations` and the root `upsert` verb (`write/verbs.ts`) mirrors it
+on whether its update names a relation —
 so `set` wins there on both. That is parity, stated here so the next reader does
 not take it for a regression and widen the gate. `connect`, `connectOrCreate`
 and a `deleteMany` member carry no update payload and ask nothing. The shipped engine had a third owner, a key
