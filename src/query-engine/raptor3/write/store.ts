@@ -2038,28 +2038,55 @@ export class Store {
               question.member!.edge.kind === "junction" &&
               entry.edge.table === question.member!.edge.table
         );
-    for (const [id, { question, row, at }] of this.#presumed) {
-      if (at > to || (holds ? this.#asserted?.has(id) : passed(row))) continue;
-      (this.#asserted ??= new Set()).add(id);
-      // The first write of a row taken to be there says whether it is,
-      // where nothing else is written if it is not.
-      // A link of the row the call takes away before it writes the row is no longer there to say the row was a member.
+    /** The rows taken to be there that this unit hears of, in the order the call took them. */
+    const taken = [...this.#presumed].filter(
+      ([id, { row, at }]) =>
+        !(at > to || (holds ? this.#asserted?.has(id) : passed(row)))
+    );
+    // The first write of a row taken to be there says whether it is,
+    // where nothing else is written if it is not.
+    // A link of the row the call takes away before it writes the row is no longer there to say the row was a member.
+    const says = taken.map(([, { row }]) => {
       const first = span.find(
         (entry) =>
           ((entry.kind === "update" || entry.kind === "delete") &&
             entry.row === row) ||
           (entry.kind === "unlink" && entry.to === row)
       );
-      if (
-        first &&
+      return first &&
         first.kind !== "unlink" &&
         writer.counts(first.kind) &&
         (holds || !(this.#handed || writes > 1))
-      )
+        ? first
+        : undefined;
+    });
+    // Where two rows the call took to be there are both missing, the first it took is the one said so: a row is asked for behind the write that says an earlier one is there. That write must be the unit's first, and take nothing of the row asked for; else the earlier row is asked for too.
+    for (let place = says.length, asked = false, held = false; place-- > 0; ) {
+      if (asked && (held || says[place] !== log[this.#sent]))
+        says[place] = undefined;
+      const { through } = taken[place]![1].question;
+      asked ||= !says[place];
+      held ||=
+        !says[place] &&
+        through?.kind === "reference" &&
+        through.owner === "source";
+    }
+    let behind = 0;
+    for (const [place, [id, { question, at }]] of taken.entries()) {
+      (this.#asserted ??= new Set()).add(id);
+      const first = says[place];
+      if (first) {
         confirms.set(first, question);
+        behind = this.#sent + 1;
+        continue;
+      }
       // A member is asked for behind what the unit writes that may make it one.
-      else if (made(question, at))
-        later.push([at, () => ask(question, id, "presumed", undefined, at)]);
+      const from = Math.max(made(question, at) ? at : 0, behind);
+      if (from > 0)
+        later.push([
+          from,
+          () => ask(question, id, "presumed", undefined, from),
+        ]);
       else ask(question, id, "presumed");
     }
     /**
@@ -2572,6 +2599,8 @@ export class Store {
         });
       }
     }
+    // What is asked for behind the unit's last write.
+    for (const [, run] of later) run();
     if (scratch) {
       const { open, close } = writer.scratch(scratch.id, scratch.model);
       steps.unshift({ write: () => open });
