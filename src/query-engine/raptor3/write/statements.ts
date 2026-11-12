@@ -208,7 +208,8 @@ export class Writer {
     const named = this.#q.lowerSelector(selector, alias);
     const { member } = question;
     if (!member) return named;
-    const members = this.#q.memberWhere(member.edge, member.of, alias);
+    // A write holds the links it reads its rows' membership from: one that goes while the statement waits is no longer read.
+    const members = this.#q.memberWhere(member.edge, member.of, alias, true);
     return named
       ? this.#operation.driver.adapter.operators.and(members, named)
       : members;
@@ -225,7 +226,8 @@ export class Writer {
     const members = this.#q.memberWhere(
       member.edge,
       member.of,
-      model["~"].names.sql!
+      model["~"].names.sql!,
+      true
     );
     return {
       where: named.where
@@ -288,14 +290,16 @@ export class Writer {
   asks(
     asked: readonly (readonly [Question, (Input | Input[])?])[],
     believed: "presumed" | "read",
-    heard = false
+    heard = false,
+    held = true
   ): Statement {
     const q = this.#q;
     const { assertions, operators } = this.#operation.driver.adapter;
     const [[question]] = asked as [[Question]];
     const { model } = question;
     // The rows asked for are held from there to the end of their unit, where the database holds rows: what is written after stands on them.
-    const lock = this.#operation.driver.adapter.capabilities.supportsRowLocks;
+    const lock =
+      held && this.#operation.driver.adapter.capabilities.supportsRowLocks;
     const asking = (
       [each, key]: readonly [Question, (Input | Input[])?],
       more?: Sql

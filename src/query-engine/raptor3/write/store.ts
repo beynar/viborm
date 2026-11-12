@@ -1869,7 +1869,9 @@ export class Store {
       own: string,
       believed: "presumed" | "read",
       key?: Input | Input[],
-      place?: number
+      place?: number,
+      // In a unit that hears each answer, every row asked for is held; in one sent whole, the rows the unit gives another row a reference to.
+      held = holds || question.intent === "join"
     ) => {
       const group = text([
         believed,
@@ -1879,14 +1881,22 @@ export class Store {
         question.intent,
         question.writes,
         place,
+        held,
       ]);
       if (!asked.has(group)) {
         const together: [Question, (Input | Input[])?][] = [];
         asked.set(group, together);
-        steps.push({ write: () => [writer.asks(together, believed, holds)] });
+        steps.push({
+          write: () => [writer.asks(together, believed, holds, held)],
+        });
       }
       asked.get(group)!.push([question, key]);
     };
+    /** The first write of each row, in the whole call. */
+    const firsts = new Map<Row, Entry>();
+    for (const entry of log)
+      if ("row" in entry && !firsts.has(entry.row))
+        firsts.set(entry.row, entry);
     /** The rows taken to be there after the unit began: each asked for at its place, in the order of their places. */
     const later: [number, () => void][] = [];
     /** Whether the unit writes, before a place, what may make a row the member a question says: the row it is a member of, or a link of its relation. */
@@ -1930,11 +1940,6 @@ export class Store {
      * call found were found members; a row it took to be there is still to
      * be one.
      */
-    /** The first write of each row, in the whole call. */
-    const firsts = new Map<Row, Entry>();
-    for (const entry of log)
-      if ("row" in entry && !firsts.has(entry.row))
-        firsts.set(entry.row, entry);
     const under = (
       entry: Extract<Entry, { kind: "update" | "delete" }>,
       run: readonly Extract<Entry, { kind: "update" | "delete" }>[] = [entry]
@@ -2104,12 +2109,25 @@ export class Store {
           );
         const key = keys.length === 1 ? keys[0] : keys;
         if (keys.length === 0) continue;
+        // A unit that writes nothing but the rows it read, each once, says again in each write what the row was found by; any other holds the rows it read from where it asks for them.
+        const held = !(
+          writes === answer.rows.length &&
+          answer.rows.every((values) => {
+            const first = firsts.get(
+              this.#known.get(this.#name(model, values))!
+            );
+            return (
+              (first?.kind === "update" || first?.kind === "delete") &&
+              span.includes(first)
+            );
+          })
+        );
         if (made(answer.question, at))
           later.push([
             at,
-            () => ask(answer.question, text(where), "read", key, at),
+            () => ask(answer.question, text(where), "read", key, at, held),
           ]);
-        else ask(answer.question, text(where), "read", key);
+        else ask(answer.question, text(where), "read", key, undefined, held);
       }
     }
     later.sort(([a], [b]) => a - b);

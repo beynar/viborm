@@ -152,13 +152,15 @@ checked, so the error reports the acknowledged effects alongside the
 result-phase failure rather than claiming a rollback that no longer exists. A
 check after dispatch cannot undo a committed batch.
 
-A nested captured series is bounded the same way on every driver: the filter
-selects the worklist once, and a qualifying row that joins after that boundary
-is not adopted into it. The identity, parent and relation-membership
-requirements are still enforced at their own consumption boundaries, so a
-member that loses or changes its membership is not consumed either way.
-`SELECT … FOR UPDATE` locks the rows it reads; it does not exclude rows that
-appear afterwards, and no driver here claims that it does.
+A nested `updateMany` or `deleteMany` that writes nothing under the members it
+names is one statement on every driver: its filter and the membership are read
+when it runs, once. It holds the junction links it reads the membership from,
+so a member that left the relation before it ran is not written, and one that
+joined is. Where each member has writes of its own under it, the call reads the
+members first; the unit that writes them asks for them again and holds them, so
+a member that changed before the unit stops it before any write and the call
+plans again once. `SELECT … FOR UPDATE` locks the rows it reads; it does not
+exclude rows that appear afterwards, and no driver here claims that it does.
 
 ### MySQL, locally qualified
 
