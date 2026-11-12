@@ -1355,10 +1355,13 @@ export class Store {
   ): void {
     // A row the database passed by is no row of the call's.
     const there = rows.filter((row) => !this.#meta.get(row)!.passed);
-    // A row read whole and not written since has said what is read of itself alone.
-    const said = there.map((row) => !this.#changed(row) && this.#raw.get(row));
+    // A row read whole has said what is read of itself alone, while the call has written nothing: a write of any row may change it where the database makes it follow.
+    const said = there.map((row) => this.#raw.get(row));
     if (
       said.every(Boolean) &&
+      this.#log.every(
+        (entry) => entry.kind === "read" || entry.kind === "none"
+      ) &&
       projection.fields.every((field) => field.kind === "scalar")
     ) {
       take(said as Input[]);
