@@ -170,11 +170,12 @@ type Entry = (
       readonly projection?: PreparedProjection;
     }
   | {
-      /** Rows created where none holds what one of them alone may hold. */
+      /** Rows created at once: `passes`, only where none holds what one of them alone may hold. */
       readonly kind: "skipping";
       readonly model: AnyModel;
       readonly rows: readonly Input[];
       readonly projection?: PreparedProjection;
+      readonly passes: boolean;
     }
   | {
       /** The row a question names takes `set`; where there is none, `row` is created. */
@@ -1869,12 +1870,13 @@ export class Store {
   skipping(
     model: AnyModel,
     rows: readonly (readonly [Input, Input, Input?])[],
-    projection?: PreparedProjection
+    projection?: PreparedProjection,
+    passes = true
   ): Later | undefined {
     const { mutations } = this.operation.driver.adapter;
     // None where no one statement passes such rows by, or answers with those it wrote.
     if (
-      mutations.skipDuplicatesStrategy !== "sql" ||
+      (passes && mutations.skipDuplicatesStrategy !== "sql") ||
       (projection &&
         !this.operation.answersInStatement(model, projection, "insert"))
     )
@@ -1890,6 +1892,7 @@ export class Store {
         )
       ),
       projection,
+      passes,
       take: (sent) => {
         const said = sent.flatMap((each) => each.rows);
         later.sent = {
@@ -2659,7 +2662,7 @@ export class Store {
           undefined,
           entry.projection,
           undefined,
-          true
+          entry.passes
         )
       )
     );

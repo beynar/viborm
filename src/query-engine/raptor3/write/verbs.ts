@@ -1066,9 +1066,9 @@ export function verbs(store: Store) {
     model: AnyModel,
     row: Row,
     args: Arguments,
-    kind?: WriteKind
+    kind?: WriteKind,
+    { projection, said } = one(model, args, kind ? [kind] : [])
   ) => {
-    const { projection, said } = one(model, args, kind ? [kind] : []);
     let value: unknown;
     store.read(row, projection, (rows) => {
       value = said(rows);
@@ -1123,7 +1123,13 @@ export function verbs(store: Store) {
   return {
     create(model: AnyModel, args: Arguments, raw: Input) {
       const data = paired(args.data as Input, raw.data);
-      return answering(model, make(model, data, {}), args, "create");
+      const shown = one(model, args, ["create"]);
+      // A row that is nothing but itself is written at once, where its statement says what the call answers.
+      const later =
+        relationsOf(model, data).length === 0 &&
+        store.skipping(model, [[data, stated(data)]], shown.projection, false);
+      if (later) return () => shown.said(later.sent!.rows);
+      return answering(model, make(model, data, {}), args, "create", shown);
     },
     createMany(model: AnyModel, args: Arguments, raw: Input) {
       const entries = paired(list(args.data) as Input[], list(raw.data));
@@ -1131,23 +1137,27 @@ export function verbs(store: Store) {
       // A unit handed over that writes nothing is no unit.
       if (entries.length === 0 && store.handed)
         throw new QueryEngineError("No data to insert for createMany.");
+      const bearing = entries.some(
+        (data) => relationsOf(model, data).length > 0
+      );
+      // Rows that are nothing but themselves are written at once, where one statement says what the call answers: and passes duplicates by, where it is asked to.
+      const later = bearing
+        ? undefined
+        : store.skipping(
+            model,
+            entries.map((data) => [data, stated(data)]),
+            projection,
+            args.skipDuplicates === true
+          );
+      if (later) {
+        // Each is one of the call's own rows, written where their statement is: of rows passed by, none is known to be.
+        if (!args.skipDuplicates) for (const _ of entries) store.member();
+        return () =>
+          projection
+            ? decoded(later.sent!.rows)
+            : { count: later.sent!.rowCount };
+      }
       if (args.skipDuplicates) {
-        const bearing = entries.some(
-          (data) => relationsOf(model, data).length > 0
-        );
-        // Rows that are nothing but themselves are written at once, where one statement passes duplicates by.
-        const later = bearing
-          ? undefined
-          : store.skipping(
-              model,
-              entries.map((data) => [data, stated(data)]),
-              projection
-            );
-        if (later)
-          return () =>
-            projection
-              ? decoded(later.sent!.rows)
-              : { count: later.sent!.rowCount };
         // Else each row, with what hangs on it, is undone alone where it is one too many.
         const rows: Row[] = [];
         for (const data of entries)
