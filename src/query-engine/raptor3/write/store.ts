@@ -676,6 +676,11 @@ export class Store {
     else if (stale) for (const field of fields) stale.add(field);
     else this.#stale.set(model, new Set(fields));
   }
+  /** Whether a question reads any of `fields` of the rows it names. */
+  reads(question: Question, fields: readonly string[]): boolean {
+    const { facts } = this.writer.selector(question);
+    return fields.some((field) => facts.fields.has(field));
+  }
   /** The rows a question names. */
   rows(question: Question): Row[] {
     this.writable(question);

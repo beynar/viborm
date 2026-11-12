@@ -499,7 +499,16 @@ export function verbs(store: Store) {
     if (first("create")) supplied = create(first("create"), false);
     if (first("connect")) {
       const [where, through] = named(first("connect"));
-      supplied = adopt(store.one(sought(where, "connect")), "connect", through);
+      const question = sought(where, "connect");
+      const found = store.one(question);
+      // The row itself is found as its own data leaves it, and its own data takes the key it would be found for: neither comes first.
+      if (found === row && store.reads(question, Object.keys(said)))
+        throw new NestedWriteError(
+          `Nested operation 'connect' on relation '${edge.name}' depends on an earlier 'update' target write in the same nested write. Split these operations into separate queries.`,
+          edge.name,
+          { meta: { operation: "connect", conflictsWith: "update" } }
+        );
+      supplied = adopt(found, "connect", through);
     }
     const either = first("connectOrCreate") as Input | undefined;
     if (either) {
