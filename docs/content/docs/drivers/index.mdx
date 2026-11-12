@@ -134,23 +134,23 @@ have changed — takes the boundary: what is written so far is dispatched first
 
 ### Captured-set mutations, per route
 
-A selected `updateMany` or `deleteMany` captures the identities it will mutate
-and then consumes them. **Both routes give the same answer**: the consuming
-statement carries the captured identities AND the statement's own original
-selector, so a row that stopped matching between the capture and the effect is
-not mutated — on an interactive transaction (`pg`, `postgres`, `pglite`,
-`bun-sql`, `mysql2`, `planetscale`, the three SQLite drivers) and on the
-batch-only routes (`neon-http`, `d1`) alike. When fewer rows are affected than
-were captured, the answer is the `selected-row cardinality changed` error.
+A selected `updateMany` or `deleteMany` on a provider that cannot return the
+rows it writes reads the rows it will write, then writes them. **Both routes
+give the same answer**: a row that stopped matching between the read and the
+write is not written. On an interactive transaction (`pg`, `postgres`,
+`pglite`, `bun-sql`, `mysql2`, `planetscale`, the three SQLite drivers) the
+rows are held from the read to the write. On the batch-only routes
+(`neon-http`, `d1`) the batch first asks again for the rows the call read, and
+the writing statement names those rows and repeats the call's own filter. A
+change seen before the batch writes makes the call plan again. When the write
+itself takes fewer rows than were read, the answer is the
+`selected-row cardinality changed` error.
 
-Where the two routes still differ is what a failure at that point leaves
-behind, and the difference is the transport's, not the rule's. On an
-interactive transaction the operation's owner rolls back and nothing is
-committed. On a batch-only route the batch that carried the mutation has
-already been acknowledged when the count is checked, so the error reports the
-acknowledged effects alongside the result-phase failure rather than claiming a
-rollback that no longer exists. A check after dispatch cannot undo a committed
-batch.
+What that error leaves behind is the transport's. On a batch-only route the
+batch that carried the write has already been acknowledged when the count is
+checked, so the error reports the acknowledged effects alongside the
+result-phase failure rather than claiming a rollback that no longer exists. A
+check after dispatch cannot undo a committed batch.
 
 A nested captured series is bounded the same way on every driver: the filter
 selects the worklist once, and a qualifying row that joins after that boundary

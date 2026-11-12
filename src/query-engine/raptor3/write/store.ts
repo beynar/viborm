@@ -20,6 +20,7 @@
 import {
   NestedWriteError,
   NotFoundError,
+  TransactionError,
   UniqueConstraintError,
   UnsupportedOperationError,
 } from "@errors";
@@ -302,6 +303,7 @@ export class Store {
       this.#made = 0;
       this.#members = [];
       this.#says = [];
+      this.#left = new Set();
       let answer: (() => T) | undefined;
       let refused: { error: unknown } | undefined;
       try {
@@ -709,8 +711,22 @@ export class Store {
       )
     );
   }
+  /** The keys the call moved a row away from: no row has one of them until the call makes one. */
+  #left = new Set<string>();
   #rows(question: Question, late: boolean): Row[] {
     const { model, member } = question;
+    if (this.#left.size > 0 && question.unique) {
+      const pins = this.writer.selector(question).uniqueValues;
+      const keys = this.operation.schema.keys(model);
+      const name =
+        pins &&
+        keys.every((field) => pins.has(field)) &&
+        this.#name(
+          model,
+          Object.fromEntries(keys.map((field) => [field, pins.get(field)]))
+        );
+      if (name && this.#left.has(name) && !this.#known.has(name)) return [];
+    }
     const fresh = member && this.#meta.get(member.of)?.made;
     // What makes a row a member is read of the row it is a member of.
     if (member?.edge.kind === "reference" && !fresh)
@@ -945,6 +961,8 @@ export class Store {
     const { model, question } = this.#meta.get(row)!;
     return {
       model,
+      // What the row was found by: said again by its first write where nothing holds what the call read.
+      where: question?.where,
       member: question?.member,
       through: question?.through,
       verb: question?.verb,
@@ -1060,8 +1078,11 @@ export class Store {
         if (keys.includes(field)) hears.push(field);
       }
     }
-    // A row is known by the key it has now.
+    // A row is known by the key it has now: the key it had names no row the call knows of.
     if (keys.some((field) => field in set)) {
+      const left = this.#name(model, before);
+      if (this.#known.get(left) === row) this.#known.delete(left);
+      this.#left.add(left);
       this.#known.set(this.#name(model, row), row);
       meta.moved = true;
       this.#cascades(model);
@@ -1693,11 +1714,49 @@ export class Store {
      * call found were found members; a row it took to be there is still to
      * be one.
      */
-    const under = (entry: Extract<Entry, { kind: "update" | "delete" }>) => ({
+    /** The first write of each row, in the whole call. */
+    const firsts = new Map<Row, Entry>();
+    for (const entry of log)
+      if ("row" in entry && !firsts.has(entry.row))
+        firsts.set(entry.row, entry);
+    const under = (
+      entry: Extract<Entry, { kind: "update" | "delete" }>,
+      run: readonly Extract<Entry, { kind: "update" | "delete" }>[] = [entry]
+    ) => ({
       ...entry.question,
       member: confirms.get(entry)?.member,
       through: entry.question.member?.edge ?? entry.question.through,
+      // Where nothing holds what the call read, the first write of the rows it read says again what they were found by.
+      again:
+        !holds &&
+        run.every(
+          (each) =>
+            each.question.where === entry.question.where &&
+            firsts.get(each.row) === each &&
+            !this.#meta.get(each.row)?.made
+        ),
     });
+    /**
+     * Rows the call read and named again by what they were found by: where
+     * the write took fewer, some stopped answering after the unit asked, and
+     * the unit is made. The call says so, with what stands.
+     */
+    const consumed = (
+      question: Question,
+      rows: number,
+      sent: Sent | undefined
+    ) => {
+      if (question.again && sent && writer.count(sent) < rows)
+        throw new TransactionError(
+          `${question.verb ?? this.operation.operation} selected-row cardinality changed during its locked mutation.`,
+          {
+            meta: {
+              model: this.operation.modelName,
+              operation: this.operation.operation,
+            },
+          }
+        );
+    };
     /** Whether two writes of rows by their keys may be one statement: rows found, or rows taken to be members of the same row. */
     const mates = (entry: Entry, next: Entry) => {
       const [a, b] = [confirms.get(entry)?.member, confirms.get(next)?.member];
@@ -1993,6 +2052,7 @@ export class Store {
         if (!mine && own.has(entry)) told.delete(own.get(entry)!.read);
         const read = mine?.read;
         let asked = false;
+        let named: Question | undefined;
         steps.push({
           write: async () => {
             const set = this.#said(entry.set);
@@ -2000,10 +2060,11 @@ export class Store {
               hears.length > 0 &&
               writer.computes(under(entry), this.#said(entry.key), set);
             asked = Boolean(first);
+            named = under(entry, run);
             return [
               ...(first ? [first] : []),
               await writer.update(
-                under(entry),
+                named,
                 set,
                 run.map((next) => this.#said(next.key)),
                 read?.projection ??
@@ -2014,7 +2075,11 @@ export class Store {
           },
           take: read
             ? tells(read, mine!.place)
-            : (sent) => take(asked ? sent.slice(0, 1) : sent),
+            : (sent) => {
+                take(asked ? sent.slice(0, 1) : sent);
+                if (writer.counts("update"))
+                  consumed(named!, run.length, sent.at(-1));
+              },
         });
       } else if (entry.kind === "delete") {
         const { model } = entry.question;
@@ -2025,16 +2090,20 @@ export class Store {
             mates(entry, next)
         );
         sizes.set(entry, run.length);
+        const named = under(entry, run);
         steps.push({
           write: () => [
             writer.remove(
-              under(entry),
+              named,
               run.map((next) => this.#said(next.key)),
               undefined,
               confirms.has(entry)
             ),
           ],
-          take,
+          take: (sent) => {
+            take(sent);
+            consumed(named, run.length, sent[0]);
+          },
         });
       } else if (entry.kind === "all")
         steps.push({

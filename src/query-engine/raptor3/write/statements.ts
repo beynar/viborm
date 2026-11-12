@@ -69,6 +69,8 @@ export interface Question {
   readonly only?: readonly Input[];
   /** Rows left out, by their key. */
   readonly except?: readonly Input[];
+  /** Rows named by their keys are still to answer the filter they were found by. */
+  readonly again?: boolean;
 }
 
 export class Writer {
@@ -106,8 +108,19 @@ export class Writer {
     const q = this.#q;
     const { model } = question;
     const only = keys ?? question.only;
-    const named = only
-      ? q.includeIdentities(model, only)
+    const known = only && q.includeIdentities(model, only);
+    // The filter is said again beside the keys; one that reads other rows, only where a write may read its own table.
+    const found =
+      known && question.again && question.where !== undefined
+        ? q.prepareSelector(model, question.where, false)
+        : undefined;
+    const named = known
+      ? found &&
+        (found.facts.reads.length === 0 ||
+          this.#operation.driver.adapter.capabilities
+            .supportsMutationTargetInSubquery)
+        ? q.andSelectors(model, [known, found])
+        : known
       : q.prepareSelector(model, question.where, question.unique ?? false);
     const { referenced, limit } = question;
     const own = question.except?.length

@@ -109,7 +109,7 @@ export function dialogue(
 ): Transport {
   let entered: Promise<AnyDriver> | undefined;
   let unit: Promise<unknown> | undefined;
-  let leave: (failed?: unknown) => void;
+  let leave: ((failed?: unknown) => void) | undefined;
   const enter = () =>
     (entered ??= new Promise<AnyDriver>((inside, refused) => {
       unit = open!(
@@ -174,7 +174,8 @@ export function dialogue(
     }),
     async end(failed) {
       if (!entered) return;
-      leave(failed);
+      // A unit that could not be opened has nothing to leave: what refused it is what failed.
+      leave?.(failed);
       // What the unit says of its own undoing is said with what undid it.
       const said = await unit!.then(
         () => failed,
