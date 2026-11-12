@@ -38,21 +38,33 @@ export function verbs(store: Store) {
   };
   const stated = (admitted: Input): Input =>
     (said.get(admitted) ?? {}) as Input;
-  /** The rows a `create` of the call makes: of what they hold, the caller said everything. */
-  const fresh = new WeakSet<Row>();
+  /** The rows the call makes. Of those a `create` makes (`true`), the caller said everything they hold. */
+  const made = new WeakMap<Row, boolean>();
+  const fresh = { has: (row: Row) => made.get(row) === true };
   /** A field of a row is decided once: by what was written of the row, or by one relation. */
   const once = (
     kind: "create" | "update",
     model: AnyModel,
     own: Input,
     takes: Input,
-    relation: string
+    relation: string,
+    owned = false
   ) => {
-    for (const field of Object.keys(takes))
-      if (own[field] !== undefined)
-        throw new UnsupportedOperationError(
-          `${kind} assigns conflicting values to column '${q.columnName(model, field)}' through relation '${relation}'.`
-        );
+    for (const [field, value] of Object.entries(takes)) {
+      const written = own[field] as Input | undefined;
+      if (written === undefined) continue;
+      // The same value said twice is said once.
+      const plain =
+        written !== null && typeof written === "object" && "set" in written
+          ? written.set
+          : written;
+      if (typeof value !== "object" && Object.is(plain, value)) continue;
+      throw new UnsupportedOperationError(
+        owned
+          ? `Relation '${relation}' owns '${Object.keys(takes).join(", ")}'; omit it from nested create and update data.`
+          : `${kind} assigns conflicting values to column '${q.columnName(model, field)}' through relation '${relation}'.`
+      );
+    }
     return takes;
   };
   /** How many rows the call's own verb writes, where it writes several. */
@@ -235,11 +247,11 @@ export function verbs(store: Store) {
       {},
       relation === undefined
         ? given
-        : once("create", model, said, given, relation),
+        : once("create", model, said, given, relation, true),
       ...held.map((own) => own.takes)
     );
     const row = store.insert(model, data, stated(data), relation, takes);
-    if (!arm) fresh.add(row);
+    made.set(row, !arm);
     for (const own of held) for (const next of own.then) next();
     for (const { edge, payload } of relations)
       if (!holds(edge))
@@ -252,7 +264,10 @@ export function verbs(store: Store) {
     model: AnyModel,
     row: Row,
     data: Input,
-    portable = true
+    portable = true,
+    /** What it takes to become the member of a row, through that relation. */
+    given?: Input,
+    relation?: string
   ): void => {
     // What a key may be rewritten with is the key's rule, wherever it is asked.
     const refused = portable && schema.keyPortabilityRefusal(model, data);
@@ -262,7 +277,11 @@ export function verbs(store: Store) {
     const held = relations
       .filter(({ edge }) => holds(edge))
       .map(({ edge, payload }) => single(row, model, edge, payload, said));
-    const takes = Object.assign({}, ...held.map((own) => own.takes));
+    const takes = Object.assign(
+      {},
+      given && once("update", model, said, given, relation!, true),
+      ...held.map((own) => own.takes)
+    );
     store.update(
       row,
       {
@@ -539,9 +558,20 @@ export function verbs(store: Store) {
         verb: "upsert",
       };
       // The row the filter names, whose ever it is: one that is another row's is not taken, nor made again.
-      if (store.rows({ ...named, through: edge }).length === 0)
-        nested.create!(parent, edge, create as Input, true);
-      else
+      const [found] = store.rows({ ...named, through: edge });
+      if (!found) nested.create!(parent, edge, create as Input, true);
+      // A row the call creates has no member yet: the row its upsert finds becomes one.
+      else if (made.has(parent)) {
+        write(
+          edge.target,
+          found,
+          update as Input,
+          true,
+          born(parent, edge),
+          edge.name
+        );
+        if (edge.kind === "junction") store.link(edge, parent, found);
+      } else
         write(
           edge.target,
           store.one({ ...named, member: { edge, of: parent } }),
