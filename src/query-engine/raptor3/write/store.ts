@@ -124,6 +124,8 @@ type Entry = (
       readonly from: Row;
       readonly to: Row;
       readonly keys: readonly [Input, Input];
+      /** What was written of the link itself, where a model holds it. */
+      readonly through?: Input;
     }
   | {
       readonly kind: "unlink";
@@ -426,12 +428,19 @@ export class Store {
     const name = this.#name(meta.model, row);
     if (question.except?.some((key) => this.#name(meta.model, key) === name))
       return false;
-    if (member?.edge.kind === "reference")
-      for (const pair of member.edge.pairs) {
+    if (member?.edge.kind === "reference") {
+      const { discriminator, pairs } = member.edge;
+      // Of the variant the relation reaches.
+      if (discriminator) {
+        const holder = discriminator.side === "target" ? row : member.of;
+        if (!(discriminator.field in holder)) return undefined;
+        if (holder[discriminator.field] !== discriminator.value) return false;
+      }
+      for (const pair of pairs) {
         if (!(pair.target in row && pair.source in member.of)) return undefined;
         if (!same(row[pair.target], member.of[pair.source])) return false;
       }
-    else if (member) {
+    } else if (member) {
       const linked = this.#linked(member.edge as Junction, member.of, row);
       if (linked === false) return false;
       if (linked === undefined && !was) return was && undefined;
@@ -465,10 +474,14 @@ export class Store {
       if (entry.edge.table !== edge.table) continue;
       const [a, b] =
         entry.edge.source === edge.source ? [from, to] : [to, from];
-      if (entry.from !== a) continue;
-      if (entry.kind === "link" && entry.to === b) linked = true;
-      if (
-        entry.kind === "unlink" &&
+      const side = entry.edge.uniqueSide;
+      if (entry.kind === "link") {
+        if (entry.from === a && entry.to === b) linked = true;
+        // The one link a row of that side holds took another row.
+        else if (side === "source" ? entry.from === a : side && entry.to === b)
+          linked = false;
+      } else if (
+        entry.from === a &&
         (entry.to === b || !(entry.to || entry.kept.includes(b)))
       )
         linked = false;
@@ -608,8 +621,11 @@ export class Store {
           member.edge.name,
           this.#name(member.edge.source, member.of),
           // What makes a row a member, where the row it is a member of holds it.
-          member.edge.kind === "reference" &&
-            member.edge.pairs.map((pair) => String(member.of[pair.source])),
+          member.edge.kind === "reference" && [
+            ...member.edge.pairs.map((pair) => String(member.of[pair.source])),
+            member.edge.discriminator?.side === "source" &&
+              member.of[member.edge.discriminator.field],
+          ],
         ],
         question.intent,
         question.writes,
@@ -637,7 +653,12 @@ export class Store {
                 ...member,
                 of: Object.fromEntries(
                   (member.edge.kind === "reference"
-                    ? member.edge.pairs.map((pair) => pair.source)
+                    ? [
+                        ...member.edge.pairs.map((pair) => pair.source),
+                        ...(member.edge.discriminator?.side === "source"
+                          ? [member.edge.discriminator.field]
+                          : []),
+                      ]
                     : this.operation.schema.keys(member.edge.source)
                   ).map((field) => [field, member.of[field]])
                 ),
@@ -721,14 +742,18 @@ export class Store {
     const heard = this.#heard.get(this.#log.push(entry) - 1);
     if (heard) entry.take?.(heard);
   }
-  /** A row created: what was admitted of what the caller wrote of it, and what it is given to be a member. */
+  /** A row created: what was admitted of what the caller wrote of it, and what it `takes` of the rows it references. */
   insert(
     model: AnyModel,
     admitted: Input,
     raw?: Input,
-    relation?: string
+    relation?: string,
+    takes?: Input
   ): Row {
-    const row: Row = this.values(model, "create", admitted, raw);
+    const row: Row = {
+      ...this.values(model, "create", admitted, { ...raw, ...takes }),
+      ...takes,
+    };
     // A key the database decides is known once the row's statement is heard.
     const decided = this.operation.schema
       .keys(model)
@@ -1059,14 +1084,15 @@ export class Store {
     this.#spoil(model);
     return later;
   }
-  /** `to` is made a member of `from`'s through a junction. */
-  link(edge: Junction, from: Row, to: Row): void {
+  /** `to` is made a member of `from`'s through a junction: `through` is what was written of the link itself. */
+  link(edge: Junction, from: Row, to: Row, through?: Input): void {
     this.#note({
       kind: "link",
       edge,
       from,
       to,
       keys: [this.#key(from), this.#key(to)],
+      through,
     });
   }
   /** `from`'s links through a junction go: the one to `to`, or every one but those to the rows `kept`. */
@@ -1523,8 +1549,15 @@ export class Store {
           take,
         });
       else if (entry.kind === "link") {
-        const run = beside<Extract<Entry, { kind: "link" }>>(
-          (next) => next.kind === "link" && next.edge === entry.edge
+        // Links of a junction that only joins two rows travel together.
+        const plain = (link: typeof entry) =>
+          !(link.through || link.edge.declared || link.edge.uniqueSide);
+        const run = beside<typeof entry>(
+          (next) =>
+            next.kind === "link" &&
+            next.edge === entry.edge &&
+            plain(entry) &&
+            plain(next)
         );
         steps.push({
           write: () =>
@@ -1533,7 +1566,8 @@ export class Store {
               run.map(
                 (next) =>
                   [this.#said(next.keys[0]), this.#said(next.keys[1])] as const
-              )
+              ),
+              entry.through
             ),
         });
       } else if (entry.kind === "unlink")

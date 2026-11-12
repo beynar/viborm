@@ -5,9 +5,11 @@
  */
 
 import { getAdapterInternals } from "@adapters/adapter-internals";
+import { NestedWriteError, UnsupportedOperationError } from "@errors";
 import type { AnyModel } from "@schema/model";
 import { type Sql, sql } from "@sql";
 import type { PreparedGuardFailure } from "../../types";
+import { writeSinks } from "../../write-sinks";
 import { InsertValue, JoinedValue } from "../shared/insert-value";
 import { nestedRefusal } from "../shared/operation-context";
 import type {
@@ -19,7 +21,7 @@ import { Parameter, type RowJudgement } from "../shared/row-scope";
 import type { Input } from "../shared/schema";
 import type { SqlOperationContext } from "../shared/sql-operation-context";
 import type { SqlQueries } from "../shared/sql-queries";
-import { linkJudgement, type Membership } from "../shared/storage";
+import { linkJudgement, linkMembers, type Membership } from "../shared/storage";
 import type { Sent, Statement } from "./send";
 
 /** Thrown, before anything is written, by a call the new write path does not cover yet: the shipped engine runs it. */
@@ -706,33 +708,130 @@ export class Writer {
       ? sent.rows.length
       : sent.rowCount;
   }
-  /** The links that make each second row a member of the first one's through a junction, added where they are not there. */
-  link(
+  /**
+   * The links that make each second row a member of the first one's through
+   * a junction, added where they are not there. A link a model holds is a row
+   * of that model: it takes the model's defaults and what was written of it,
+   * `through`, and one that is there takes what was written. Where one side
+   * holds a single link, the link that side holds takes the other row.
+   */
+  async link(
     edge: Junction,
-    pairs: readonly (readonly [Input, Input])[]
-  ): Statement[] {
+    pairs: readonly (readonly [Input, Input])[],
+    through?: Input
+  ): Promise<Statement[]> {
     const q = this.#q;
-    const { identifiers, mutations } = this.#operation.driver.adapter;
-    const sides = [edge.sourceSide, edge.targetSide];
-    const columns = sides.flatMap((side) =>
-      side.members.map((pair) => pair.junctionField)
+    const { schema, scope, attribution } = this.#operation;
+    const { identifiers, mutations, set } = this.#operation.driver.adapter;
+    const { uniqueSide, declared } = edge;
+    const members = linkMembers(edge);
+    const columns = members.map(({ pair }) => pair.junctionField);
+    const rows = pairs.map((pair) =>
+      members.map(({ side, pair: member }) =>
+        q.fieldValue(
+          side.model,
+          member.referencedField,
+          pair[side === edge.sourceSide ? 0 : 1][member.referencedField]
+        )
+      )
     );
-    return mutations
-      .insertAbsent(
-        identifiers.table(edge.table),
-        columns,
-        pairs.map((pair) =>
-          sides.flatMap((side, at) =>
-            side.members.map((member) =>
-              q.fieldValue(
-                side.model,
-                member.referencedField,
-                pair[at]![member.referencedField]
-              )
-            )
+    let takes: Sql | undefined;
+    const model = declared?.model;
+    if (model) {
+      const name = model["~"].names.ts!;
+      const missing = schema
+        .linkRequired(model, new Set(columns))
+        .filter((field) => through?.[field] === undefined);
+      if (missing.length > 0)
+        throw new NestedWriteError(
+          `Cannot link relation '${edge.name}': '${name}' requires ${missing.map((field) => `$through.${field}`).join(", ")}, which a link cannot fill.`,
+          edge.name
+        );
+      const sink = writeSinks.get(attribution);
+      // A written column is a write to the model: what would judge or observe a direct write refuses it.
+      if (
+        through &&
+        (q.restrictsLinkWrite(model) ||
+          scope?.rows.stamps?.has(name) ||
+          sink?.wants(name, "create") ||
+          sink?.wants(name, "update"))
+      )
+        throw new UnsupportedOperationError(
+          `Cannot write $through of relation '${edge.name}': this client's extensions judge or observe writes to '${name}'. Write the row through the '${name}' delegate.`
+        );
+      for (const [field, value] of Object.entries({
+        ...schema.createValues(
+          model,
+          Object.fromEntries(
+            schema
+              .linkDefaults(model, new Set(columns))
+              .filter((field) => !(through && field in through))
+              .map((field) => [field, undefined])
           )
         ),
-        columns
+        ...through,
+      })) {
+        columns.push(schema.physicalField(model, field).name);
+        for (const row of rows) row.push(q.fieldValue(model, field, value));
+      }
+      if (through && Object.keys(through).length > 0) {
+        const [sets] = await this.#operation.computed(
+          model,
+          [schema.scalars(model, schema.update(model, through, true))],
+          false
+        );
+        takes = sql.join(
+          Object.entries(sets!).map(([field, value]) =>
+            q.updateAssignment(model, field, value)
+          ),
+          ", "
+        );
+      }
+    }
+    const table = identifiers.table(edge.table);
+    const side = (name: "source" | "target") =>
+      edge[`${name}Side`].members.map((pair) => pair.junctionField);
+    const other =
+      uniqueSide && side(uniqueSide === "source" ? "target" : "source");
+    return rows
+      .flatMap((row) =>
+        other
+          ? // The link that side holds takes the other row, unless it holds it.
+            mutations.insertAbsent(
+              table,
+              columns,
+              [row],
+              side(uniqueSide!),
+              sql.join(
+                other.map((column) =>
+                  set.assign(
+                    identifiers.escape(column),
+                    row[columns.indexOf(column)]!
+                  )
+                ),
+                ", "
+              ),
+              this.#operation.driver.adapter.operators.and(
+                ...other.map((column) =>
+                  this.#operation.driver.adapter.operators.eq(
+                    identifiers.column(edge.table, column),
+                    row[columns.indexOf(column)]!
+                  )
+                )
+              )
+            )
+          : []
+      )
+      .concat(
+        other
+          ? []
+          : mutations.insertAbsent(
+              table,
+              columns,
+              rows,
+              declared?.key ?? members.map(({ pair }) => pair.junctionField),
+              takes
+            )
       )
       .map((statement) => ({ sql: statement, model: edge.source }));
   }
