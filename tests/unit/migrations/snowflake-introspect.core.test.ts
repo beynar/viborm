@@ -7,15 +7,15 @@
  * What it proves: a foreign key the catalog DECLARES — Snowflake enforces none
  * — becomes the document's relation; each Snowflake type becomes the scalar
  * that reads it exactly; a view and a type with no scalar are said, not
- * dropped silently; and a push is refused before it sends anything.
+ * dropped silently; a key out of the schema is said, not read as a local
+ * relation; and every migration command is refused before it sends anything.
  */
 
 import { createClient, SnowflakeDriver } from "@drivers/snowflake";
 import { MigrationError, VibORMErrorCode } from "@errors";
 import { createMigrationClient } from "@migrations";
-import { admitLiveMigrationCapability } from "@migrations/admission";
-import { getMigrationDriver } from "@migrations/drivers";
 import { introspectSchema } from "@migrations/introspect";
+import { MemoryEstateStorage } from "@migrations/storage/memory";
 import { s } from "@schema";
 import {
   type FakeColumn,
@@ -25,8 +25,6 @@ import {
   startFakeSnowflake,
 } from "@tests/fixtures/snowflake-server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-
-const READ_STATEMENT = /^(SELECT|SHOW) /;
 
 const text = (name: string): FakeColumn => ({ name, type: "text" });
 const fixed = (name: string): FakeColumn => ({ name, type: "fixed", scale: 0 });
@@ -101,14 +99,36 @@ const CATALOG: Row[] = [
   column("ORDERS", "EMBEDDING", "VECTOR", true),
   column("ORDERS", "SIGNATURE", "VECTOR", true),
   column("ORDERS", "FLOOR_PLAN", "GEOMETRY", true),
+  column("ORDERS", "CRM_CUSTOMER_ID", "NUMBER", true, {
+    precision: 38,
+    scale: 0,
+  }),
+  column("ORDERS", "ARCHIVED_ID", "NUMBER", true, { precision: 38, scale: 0 }),
+];
+
+/** One `SHOW IMPORTED KEYS` row: ORDERS's key into `[database, schema]`. */
+const importedKey = (
+  [database, schema]: [string, string],
+  column: string,
+  name: string
+) => [
+  database,
+  schema,
+  "CUSTOMERS",
+  "ID",
+  "SALES",
+  "PUBLIC",
+  "ORDERS",
+  column,
+  "1",
+  name,
+  "NO ACTION",
+  "NO ACTION",
 ];
 
 let server: FakeSnowflake;
-/** A schema with no table yet: what a push would start from. */
-let empty = false;
 
 function answer({ statement }: FakeStatement) {
-  if (empty && !statement.includes("CURRENT_DATABASE()")) return rows([], []);
   if (statement.includes("CURRENT_DATABASE()"))
     return rows([text("database"), text("schema")], [["SALES", "PUBLIC"]]);
   if (statement.includes("INFORMATION_SCHEMA.TABLES"))
@@ -164,9 +184,11 @@ function answer({ statement }: FakeStatement) {
   if (statement.startsWith("SHOW IMPORTED KEYS"))
     return rows(
       [
+        text("pk_database_name"),
         text("pk_schema_name"),
         text("pk_table_name"),
         text("pk_column_name"),
+        text("fk_database_name"),
         text("fk_schema_name"),
         text("fk_table_name"),
         text("fk_column_name"),
@@ -176,18 +198,11 @@ function answer({ statement }: FakeStatement) {
         text("delete_rule"),
       ],
       [
-        [
-          "PUBLIC",
-          "CUSTOMERS",
-          "ID",
-          "PUBLIC",
-          "ORDERS",
-          "CUSTOMER_ID",
-          "1",
-          "FK_ORDERS_CUSTOMER",
-          "NO ACTION",
-          "NO ACTION",
-        ],
+        importedKey(["SALES", "PUBLIC"], "CUSTOMER_ID", "FK_ORDERS_CUSTOMER"),
+        // Every database has a PUBLIC schema, and a CUSTOMERS table may be in
+        // both: this key is not into SALES.PUBLIC.CUSTOMERS.
+        importedKey(["CRM", "PUBLIC"], "CRM_CUSTOMER_ID", "FK_ORDERS_CRM"),
+        importedKey(["SALES", "ARCHIVE"], "ARCHIVED_ID", "FK_ORDERS_ARCHIVE"),
       ]
     );
   return rows([], []);
@@ -201,7 +216,6 @@ function driver() {
 }
 
 beforeEach(async () => {
-  empty = false;
   server = await startFakeSnowflake(answer);
 });
 
@@ -268,6 +282,17 @@ describe("introspectSchema on Snowflake", () => {
           name: "FLOOR_PLAN",
           reason: expect.stringContaining("planar"),
         }),
+        // A key out of the schema is said, never read as a local relation.
+        expect.objectContaining({
+          kind: "foreignKey",
+          table: "ORDERS",
+          reason: expect.stringContaining("CRM.PUBLIC.CUSTOMERS"),
+        }),
+        expect.objectContaining({
+          kind: "foreignKey",
+          table: "ORDERS",
+          reason: expect.stringContaining("SALES.ARCHIVE.CUSTOMERS"),
+        }),
       ])
     );
     expect(result.warnings).toEqual(
@@ -323,14 +348,17 @@ describe("migrations on Snowflake", () => {
   const url = () =>
     `snowflake://READER@myorg-acct/SALES/PUBLIC?host=${encodeURIComponent(server.url)}`;
 
-  it("refuses every command that could write, before it sends anything", () => {
-    const migrationDriver = getMigrationDriver(
-      new SnowflakeDriver({ databaseUrl: url(), token: "t" })
-    );
-    for (const requirement of ["effectful", "batch"] as const) {
+  it("refuses the migration client, so every command, before it reads storage or sends anything", () => {
+    const client = createClient({ schema, databaseUrl: url(), token: "t" });
+    const storage = new MemoryEstateStorage();
+    for (const options of [
+      undefined,
+      { storage },
+      { tables: ["ITEMS"] },
+    ] as const) {
       const failure = (() => {
         try {
-          admitLiveMigrationCapability(migrationDriver, requirement, "push");
+          createMigrationClient(client, options as never);
         } catch (error) {
           return error;
         }
@@ -338,25 +366,11 @@ describe("migrations on Snowflake", () => {
       expect(failure).toBeInstanceOf(MigrationError);
       expect(failure).toMatchObject({
         code: VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+        message: expect.stringContaining(
+          "Snowflake has no migrations: VibORM only reads a Snowflake warehouse."
+        ),
       });
     }
-    // A read-only command reads.
-    admitLiveMigrationCapability(migrationDriver, "read-only", "status");
     expect(server.requests).toEqual([]);
-  });
-
-  it("refuses a push preview at its first DDL statement, having only read", async () => {
-    empty = true;
-    const client = createClient({ schema, databaseUrl: url(), token: "t" });
-    const failure = await createMigrationClient(client)
-      .push({ dryRun: true })
-      .catch((error: unknown) => error);
-    expect(failure).toBeInstanceOf(MigrationError);
-    expect(failure).toMatchObject({
-      message:
-        "Snowflake cannot create a table here: VibORM only reads a Snowflake warehouse.",
-    });
-    for (const sent of server.statements())
-      expect(sent.statement).toMatch(READ_STATEMENT);
   });
 });

@@ -64,10 +64,10 @@ interface KeyRow {
 }
 
 interface ImportedKeyRow {
+  pk_database_name: string;
   pk_schema_name: string;
   pk_table_name: string;
   pk_column_name: string;
-  fk_schema_name: string;
   fk_table_name: string;
   fk_column_name: string;
   key_sequence: number;
@@ -247,19 +247,22 @@ export class SnowflakeMigrationDriver extends MigrationDriver {
         name: name.split("\0")[1]!,
         columns: keys.map((key) => key.column_name),
       });
-    // A key into another schema names a table this snapshot does not hold.
-    const local = imported.rows.filter(
-      (row) => row.fk_schema_name === schema && row.pk_schema_name === schema
-    );
     for (const [name, keys] of byConstraint(
-      local,
+      imported.rows,
       (row) => `${row.fk_table_name}\0${row.fk_name}`
     )) {
       const first = keys[0]!;
+      // A key into another database or schema references a table of its own
+      // name there, not this schema's: it keeps that qualified name, which no
+      // table here holds, and introspection lists it in `skipped`.
+      const local =
+        first.pk_database_name === database && first.pk_schema_name === schema;
       const foreignKey: ForeignKeyDef = {
         name: name.split("\0")[1]!,
         columns: keys.map((key) => key.fk_column_name),
-        referencedTable: first.pk_table_name,
+        referencedTable: local
+          ? first.pk_table_name
+          : `${first.pk_database_name}.${first.pk_schema_name}.${first.pk_table_name}`,
         referencedColumns: keys.map((key) => key.pk_column_name),
       };
       const onDelete = RULES[first.delete_rule ?? ""];
