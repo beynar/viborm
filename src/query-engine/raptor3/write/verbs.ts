@@ -59,20 +59,31 @@ export function verbs(store: Store) {
   /** The row a relation is asked of holds the key of the row it reaches. */
   const holds = (edge: Membership) =>
     edge.kind === "reference" && edge.owner === "source";
+  /** What a row holds to reference another: what the other holds of each field it is referenced by, which names no row where it is null. */
+  const referencing = (
+    edge: Membership,
+    row: Row,
+    held: "source" | "target"
+  ): Input => {
+    if (edge.kind !== "reference") return {};
+    const referenced = held === "source" ? "target" : "source";
+    return Object.fromEntries(
+      edge.pairs.map((pair) => {
+        if (row[pair[referenced]] === null)
+          throw new NestedWriteError(
+            `Cannot connect relation '${edge.name}': the located target's referenced field '${pair[referenced]}' is null.`,
+            edge.name
+          );
+        return [pair[held], row[pair[referenced]]];
+      })
+    );
+  };
   /** What a row born a member of `parent`'s holds: nothing where the membership is not the row's to hold. */
   const born = (parent: Row, edge: Membership): Input =>
-    edge.kind === "reference"
-      ? Object.fromEntries(
-          edge.pairs.map((pair) => [pair.target, parent[pair.source]])
-        )
-      : {};
+    referencing(edge, parent, "target");
   /** What the row that holds a relation's key takes of the row it reaches. */
   const reaching = (edge: Membership, row: Row): Input =>
-    edge.kind === "reference"
-      ? Object.fromEntries(
-          edge.pairs.map((pair) => [pair.source, row[pair.target]])
-        )
-      : {};
+    referencing(edge, row, "source");
   /** What empties a relation on the row that holds it. */
   const cleared = (edge: Membership): Input =>
     edge.clearability.kind === "columns"

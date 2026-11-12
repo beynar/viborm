@@ -202,6 +202,8 @@ export class Store {
   #used = new Map<Answer, number>();
   /** What the database may hold of a model beyond what the call knows: every field of its rows, or those named. */
   #stale = new Map<AnyModel, Set<string> | true>();
+  /** The models the call wrote a row of, and the junctions it wrote a link of. */
+  #touched = new Set<AnyModel | string>();
   #again = false;
   #made = 0;
   /** The call's unit is handed over: what the call hears of it comes too late to stop it. */
@@ -221,6 +223,7 @@ export class Store {
       this.#presumed = new Map();
       this.#used = new Map();
       this.#stale = new Map();
+      this.#touched = new Set();
       this.#again = false;
       this.#made = 0;
       let answer: (() => T) | undefined;
@@ -545,13 +548,23 @@ export class Store {
     const { model, member } = question;
     if (member && this.#meta.get(member.of)?.moved) return true;
     const stale = this.#stale.get(model);
-    if (!stale || stale === true) return Boolean(stale);
+    if (stale === true) return true;
     const { facts } = this.writer.selector(question);
     return (
-      facts.reads.length > 0 ||
-      [...stale].some((field) => facts.fields.has(field)) ||
-      (member?.edge.kind === "reference" &&
-        member.edge.pairs.some((pair) => stale.has(pair.target)))
+      (stale !== undefined &&
+        (facts.reads.length > 0 ||
+          [...stale].some((field) => facts.fields.has(field)) ||
+          (member?.edge.kind === "reference" &&
+            member.edge.pairs.some((pair) => stale.has(pair.target))))) ||
+      // A filter that reads other rows reads what the call wrote of them.
+      facts.reads.some((read) =>
+        read.path.some(
+          (edge) =>
+            this.#touched.has(edge.target) ||
+            this.#stale.has(edge.target) ||
+            (edge.kind === "junction" && this.#touched.has(edge.table))
+        )
+      )
     );
   }
   /** The database may hold what the call does not know of `model`: of `fields`, or of its rows whole. */
@@ -680,6 +693,9 @@ export class Store {
   }
   /** Notes a write, told what the database said of it where a run before this one sent it. */
   #note(entry: Entry): void {
+    if ("row" in entry && entry.kind !== "either")
+      this.#touched.add(this.#meta.get(entry.row)!.model);
+    else if ("edge" in entry) this.#touched.add(entry.edge.table);
     const heard = this.#heard.get(this.#log.push(entry) - 1);
     if (heard) entry.take?.(heard);
   }
@@ -732,6 +748,45 @@ export class Store {
       this.#spoil(other);
   }
   /**
+   * The rows the call knows that reference `row` by what it held `before`
+   * hold what it holds now, where the database makes them follow: and so do
+   * the rows that reference those.
+   */
+  #follow(row: Row, before: Row): void {
+    const { schema } = this.operation;
+    const { model } = this.#meta.get(row)!;
+    for (const name of model["~"].relationNames) {
+      if ("members" in schema.index.get(model)!.get(name)!.edge) continue;
+      const edge = schema.membership(model, name);
+      if (
+        edge.kind !== "reference" ||
+        edge.owner !== "target" ||
+        edge.reference?.onUpdate !== "cascade" ||
+        edge.pairs.every((pair) => before[pair.source] === row[pair.source])
+      )
+        continue;
+      for (const child of [...this.#known.values()]) {
+        const meta = this.#meta.get(child)!;
+        if (
+          meta.model !== edge.target ||
+          !edge.pairs.every(
+            (pair) =>
+              Object.hasOwn(child, pair.target) &&
+              String(child[pair.target]) === String(before[pair.source])
+          )
+        )
+          continue;
+        const was = { ...child };
+        for (const pair of edge.pairs) child[pair.target] = row[pair.source];
+        if (schema.keys(meta.model).some((key) => was[key] !== child[key])) {
+          this.#known.set(this.#name(meta.model, child), child);
+          meta.moved = true;
+        }
+        this.#follow(child, was);
+      }
+    }
+  }
+  /**
    * A row takes `set`: `writes` says what the caller wrote of it, `joined` the
    * relation it is made a member of, or leaves, by this write.
    */
@@ -747,6 +802,7 @@ export class Store {
     const key = this.#key(row);
     const keys = this.operation.schema.keys(model);
     const hears: string[] = [];
+    const before = { ...row };
     for (const [field, value] of Object.entries(set)) {
       const update =
         value instanceof Pending
@@ -767,6 +823,7 @@ export class Store {
       meta.moved = true;
       this.#cascades(model);
     }
+    this.#follow(row, before);
     // A row the call creates is inserted as it stands in the end.
     if (meta.made) return;
     this.#note({
