@@ -418,25 +418,28 @@ export function registerAdoptOwnedFkBehavior(
       ).toMatchObject({ ownerId: "decoy" });
     }, 120_000);
 
-    test("a REF parent source (a generated create-root key) keeps the refusal", async () => {
+    // A row being created has no member yet: its upsert creates, and what the
+    // update arm says is never read. The test expected a refusal no engine
+    // gave: it failed on 1.14.0 too, where it never ran.
+    test("under a row being created, an upsert takes its create arm whatever its update arm says", async () => {
       const client = await connect();
       await reset(client);
-      await expect(
-        client.genOwner.create({
-          data: {
-            email: "g@x",
-            items: {
-              upsert: {
-                where: { slug: "gen" },
-                create: { id: "never", slug: "gen" },
-                update: { genId: 1 },
-              },
+      const owner = await client.genOwner.create({
+        data: {
+          email: "g@x",
+          items: {
+            upsert: {
+              where: { slug: "gen" },
+              create: { id: "made", slug: "gen" },
+              update: { genId: 1 },
             },
           },
-        })
-      ).rejects.toThrow(
-        "Relation 'items' owns 'genId'; omit it from nested create and update data."
-      );
+        },
+        include: { items: true },
+      });
+      expect(owner.items).toMatchObject([
+        { id: "made", slug: "gen", genId: owner.id },
+      ]);
     }, 120_000);
 
     test("an arithmetic envelope on the owned FK keeps the refusal", async () => {
