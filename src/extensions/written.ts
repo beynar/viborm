@@ -115,14 +115,22 @@ export function watchWrite(
           if (!kinds.some((kind) => wants(name, kind))) return undefined;
           const select = args.select as Record<string, unknown> | undefined;
           const { scalars } = model["~"].state;
-          const beside = Object.entries(select ?? {}).filter(
-            ([field, selected]) => selected && !Object.hasOwn(scalars, field)
-          );
+          // What the caller asked for beside the row's own fields: what its
+          // selection names that is no scalar, and what it includes.
+          const beside: Record<string, unknown> = {
+            ...Object.fromEntries(
+              Object.entries(select ?? {}).filter(
+                ([field, selected]) =>
+                  selected && !Object.hasOwn(scalars, field)
+              )
+            ),
+            ...args.include,
+          };
           return {
-            // Whole rows, beside what the caller selected of their relations.
+            // Whole rows, beside those.
             projection: queries.prepareProjection(
               model,
-              beside.length > 0 ? { include: Object.fromEntries(beside) } : {}
+              Object.keys(beside).length > 0 ? { include: beside } : {}
             ),
             cut(rows, kind) {
               if (kind && wants(name, kind) && rows.length > 0)
@@ -141,7 +149,8 @@ export function watchWrite(
               if (select)
                 for (const row of rows)
                   for (const field of Object.keys(row))
-                    if (!select[field]) delete row[field];
+                    if (!(select[field] || Object.hasOwn(beside, field)))
+                      delete row[field];
               return rows;
             },
           };

@@ -245,6 +245,31 @@ export function runOnBehavior(provider: OnProvider): void {
         expect(calls[0]!.rows).toEqual([post("p1", "u1", 3)]);
       });
 
+      test("an include rides along too: the caller keeps the relation it included, the hook the row alone", async () => {
+        const { db, calls } = await open();
+        const updated = await db.post.update({
+          where: { id: "p1" },
+          data: { views: 2 },
+          include: { author: { select: { name: true } } },
+        });
+        expect(updated).toEqual({
+          ...post("p1", "u1", 2),
+          author: { name: "Ada" },
+        });
+        expect(calls[0]!.rows).toEqual([post("p1", "u1", 2)]);
+        const created = await db.user.create({
+          data: {
+            id: "u7",
+            email: "g@example.com",
+            name: "Gil",
+            posts: { create: [{ id: "p7", title: "title p7" }] },
+          },
+          include: { posts: { select: { id: true } } },
+        });
+        expect(created.posts).toEqual([{ id: "p7" }]);
+        expect(calls[1]!.rows.map((row) => row.id)).toEqual(["u7"]);
+      });
+
       test("updateMany: exactly the rows it matched, after the write", async () => {
         const { db, calls } = await open();
         expect(
