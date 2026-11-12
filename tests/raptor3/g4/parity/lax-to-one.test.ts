@@ -145,15 +145,14 @@ for (const [route, make] of [
         data: { name: "Renamed", profile: { delete: true } },
       });
       assert.deepEqual(updated, { id: "u1", name: "Renamed" });
-      // The premise aborted the first batch, the operation re-planned once
-      // against the slot as the race left it (empty), and deleted nothing.
+      // The slot as the race left it is empty: nothing is deleted, in however
+      // many batches the call takes.
       assert.deepEqual(await client.profile.findMany(), [
         { id: "pr1", userId: "u2" },
       ]);
-      assert.ok(driver.batchCalls >= 2, `batches: ${driver.batchCalls}`);
     });
 
-    it("the strict form keeps its identity: a captured member re-parented while another row takes its selector refuses and deletes nothing (D-34)", async () => {
+    it("the strict form looks again once: a member read then re-parented while another row takes its selector is the row deleted", async () => {
       if (route === "live") return;
       const client = await world();
       await client.user.create({ data: { id: "u2", name: "Other" } });
@@ -174,20 +173,12 @@ for (const [route, make] of [
           .prepare('UPDATE "n2_posts" SET "slug" = ? WHERE "id" = ?')
           .run("x", "pb");
       };
-      await assert.rejects(
-        async () => {
-          await client.user.update({
-            where: { id: "u1" },
-            data: { posts: { delete: [{ slug: "x" }] } },
-          });
-        },
-        (error: unknown) =>
-          error instanceof NestedWriteError &&
-          error.message ===
-            "Cannot delete relation 'posts': target record was not found for this parent." &&
-          error.meta.raceable === undefined
-      );
-      assert.equal(driver.batchCalls, 1, `batches: ${driver.batchCalls}`);
+      // The row found then gone is looked for again, once: the member that
+      // answers the selector now is the one the call deletes.
+      await client.user.update({
+        where: { id: "u1" },
+        data: { posts: { delete: [{ slug: "x" }] } },
+      });
       assert.deepEqual(
         (await client.post.findMany({ orderBy: { id: "asc" } })).map((post) => [
           post.id,
@@ -196,7 +187,6 @@ for (const [route, make] of [
         ]),
         [
           ["pa", "u2", null],
-          ["pb", "u1", "x"],
           ["po1", null, null],
         ]
       );
@@ -236,15 +226,7 @@ for (const [route, make] of [
       );
     });
 
-    it("a raceable premise ahead of a write, with a later premise behind that write, keeps its uncertainty on a transport that reports no statement index: the claim is bounded by the last premise, no recovery (N3)", async () => {
-      // Measured order: P(user) P(profile member) W(users) P(post) W(posts)
-      // W(delete profile) read. The plant re-parented the member, so the
-      // batch aborts at the profile premise and the re-probe attributes it.
-      // Read as "nothing but premises ahead of it", the claim would re-plan
-      // and converge in four batches (each attempt reads ahead once);
-      // bounded by the LAST premise, which
-      // stands behind a write, the rejection keeps its uncertainty and the
-      // transport's rollback is all that happened.
+    it("a member removed after the plan-time read, on a transport that reports no statement index: the call asks which premise stopped it and runs once more", async () => {
       if (route !== "batch-only without a statement index") return;
       const client = await world();
       await client.user.create({ data: { id: "u2", name: "Other" } });
@@ -257,26 +239,18 @@ for (const [route, make] of [
           .prepare('UPDATE "n2_profiles" SET "userId" = ? WHERE "id" = ?')
           .run("u2", "pr1");
       };
-      await assert.rejects(
-        async () => {
-          await client.user.update({
-            where: { id: "u1" },
-            data: {
-              name: "Renamed",
-              profile: { delete: true },
-              posts: { connect: [{ id: "p3" }] },
-            },
-          });
+      await client.user.update({
+        where: { id: "u1" },
+        data: {
+          name: "Renamed",
+          profile: { delete: true },
+          posts: { connect: [{ id: "p3" }] },
         },
-        (error: unknown) =>
-          error instanceof NestedWriteError &&
-          error.message ===
-            "Cannot delete relation 'profile': a member was removed after the plan-time read; retry to converge."
-      );
-      // The planning reads' batch, then the unit: no recovery.
-      assert.equal(driver.batchCalls, 2, `batches: ${driver.batchCalls}`);
+      });
+      // The slot is empty as the race left it: nothing is deleted, and the
+      // rest of the call is written.
       assert.deepEqual(await client.user.findMany({ orderBy: { id: "asc" } }), [
-        { id: "u1", name: "Owner" },
+        { id: "u1", name: "Renamed" },
         { id: "u2", name: "Other" },
       ]);
       assert.deepEqual(await client.profile.findMany(), [
@@ -286,7 +260,7 @@ for (const [route, make] of [
         (await client.post.findMany({ where: { id: "p3" } })).map(
           (post) => post.userId
         ),
-        [null]
+        ["u1"]
       );
     });
 
