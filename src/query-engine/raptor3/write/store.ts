@@ -559,11 +559,34 @@ export class Store {
       .map((field) => String(values[field]))
       .join("|")}`;
   }
+  /** What a row holds that makes other rows its members through a relation: asked of the row as it stands now, whatever the call writes of it next. */
+  #of({ edge, of }: NonNullable<Question["member"]>): Input {
+    return Object.fromEntries(
+      (edge.kind === "reference"
+        ? [
+            ...edge.pairs.map((pair) => pair.source),
+            ...(edge.discriminator?.side === "source"
+              ? [edge.discriminator.field]
+              : []),
+          ]
+        : // What a link holds of the row: its key, or the fields the junction references of it.
+          [
+            ...new Set([
+              ...this.operation.schema.keys(edge.source),
+              ...edge.sourceSide.members.map((pair) => pair.referencedField),
+            ]),
+          ]
+      ).map((field) => [field, of[field]])
+    );
+  }
   /** A question as a statement asks it: of a row it names the members of, what only the database holds written as what reads it. */
   #asked<Q extends Question>(question: Q): Q {
     const { member } = question;
     return member
-      ? { ...question, member: { ...member, of: this.#said(member.of) } }
+      ? {
+          ...question,
+          member: { ...member, of: this.#said(this.#of(member)) },
+        }
       : question;
   }
   /** A row's key as it stands now. */
@@ -927,31 +950,7 @@ export class Store {
       // Asked of the row as it stands now, whatever the call writes of it next.
       this.#missed.set(id, {
         question: member
-          ? {
-              ...question,
-              member: {
-                ...member,
-                of: Object.fromEntries(
-                  (member.edge.kind === "reference"
-                    ? [
-                        ...member.edge.pairs.map((pair) => pair.source),
-                        ...(member.edge.discriminator?.side === "source"
-                          ? [member.edge.discriminator.field]
-                          : []),
-                      ]
-                    : // What a link holds of the row: its key, or the fields the junction references of it.
-                      [
-                        ...new Set([
-                          ...this.operation.schema.keys(member.edge.source),
-                          ...member.edge.sourceSide.members.map(
-                            (pair) => pair.referencedField
-                          ),
-                        ]),
-                      ]
-                  ).map((field) => [field, member.of[field]])
-                ),
-              },
-            }
+          ? { ...question, member: { ...member, of: this.#of(member) } }
           : question,
         after,
       });
@@ -2399,7 +2398,8 @@ export class Store {
                 read?.projection ??
                   kept?.projection ??
                   (hears.length > 0 && !first ? writer.key(model) : undefined),
-                confirms.has(entry)
+                // Counted where its count is what says the rows were there, or still answered.
+                confirms.has(entry) || named.again
               ),
             ];
           },
@@ -2425,7 +2425,12 @@ export class Store {
         steps.push({
           confirms: confirms.has(entry),
           write: () => [
-            writer.remove(named, keyed(run), undefined, confirms.has(entry)),
+            writer.remove(
+              named,
+              keyed(run),
+              undefined,
+              confirms.has(entry) || named.again
+            ),
           ],
           take: (sent) => {
             take(sent);
