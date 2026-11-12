@@ -10,6 +10,7 @@ import {
   UnsupportedOperationError,
 } from "@errors";
 import type { AnyModel } from "@schema/model";
+import { getModelKeyCatalog } from "@schema/model/keys";
 import { Stored } from "../shared/insert-value";
 import { parseStamped } from "../shared/row-scope";
 import type { Arguments, Input } from "../shared/schema";
@@ -79,6 +80,24 @@ export function verbs(store: Store) {
     return !(
       [increment ?? 0, decrement ?? 0].every((by) => Number(by) === 0) &&
       [multiply ?? 1, divide ?? 1].every((by) => Number(by) === 1)
+    );
+  };
+  /**
+   * The row what was written of a row names: by its whole key, or by the one
+   * other set of fields no two rows may share that it states whole. None
+   * where it names none, or more than one.
+   */
+  const spelled = (model: AnyModel, own: Input): Input | undefined => {
+    const whole = (fields: readonly string[]) =>
+      fields.every((field) => (own[field] ?? null) !== null)
+        ? Object.fromEntries(fields.map((field) => [field, own[field]]))
+        : undefined;
+    const named = getModelKeyCatalog(model)
+      .addressableKeys.filter((key) => key.kind !== "primary")
+      .map((key) => whole(key.fields))
+      .filter((values) => values !== undefined);
+    return (
+      whole(schema.keys(model)) ?? (named.length === 1 ? named[0] : undefined)
     );
   };
   /** How many rows the call's own verb writes, where it writes several. */
@@ -662,18 +681,47 @@ export function verbs(store: Store) {
     },
     createMany(parent, edge, { data, skipDuplicates }) {
       const rows = list(data) as Input[];
-      if (skipDuplicates) {
-        // Rows that hold their own membership, and nothing but themselves, are written at once.
-        if (
-          edge.kind !== "reference" ||
-          rows.some((row) => relationsOf(edge.target, row).length > 0)
-        )
-          outside();
+      if (!skipDuplicates) {
+        for (const entry of rows) nested.create!(parent, edge, entry);
+        return;
+      }
+      const bare = (row: Input) => relationsOf(edge.target, row).length === 0;
+      // Under another write, duplicates are passed by only where a part of the unit can be undone alone.
+      store.attempts("nested createMany rows");
+      // Rows that hold their own membership, and nothing but themselves, are written at once.
+      if (
+        edge.kind === "reference" &&
+        rows.every(bare) &&
         store.skipping(
           edge.target,
           rows.map((row) => [row, stated(row), born(parent, edge)])
-        );
-      } else for (const entry of rows) nested.create!(parent, edge, entry);
+        )
+      )
+        return;
+      for (const row of rows) {
+        let made: Row | undefined;
+        const written = store.attempt(() => {
+          made = make(edge.target, row, born(parent, edge), edge.name);
+          return made;
+        }, "nested createMany rows");
+        if (edge.kind !== "junction") continue;
+        // A row passed by is not a membership passed by: the row it names is made a member, where it names one and asks nothing else. A member one row alone may have stays whose it is.
+        const named =
+          !(written || edge.uniqueSide) &&
+          bare(row) &&
+          spelled(edge.target, stated(row));
+        const member = written
+          ? made
+          : named &&
+            store.rows({
+              model: edge.target,
+              where: named,
+              through: edge,
+              intent: "join",
+              verb: "createMany",
+            })[0];
+        if (member) store.link(edge, parent, member, row.$through as Input);
+      }
     },
   };
   /** A set: the rows it names are the relation's members, and no other. */
@@ -799,17 +847,34 @@ export function verbs(store: Store) {
       if (entries.length === 0 && store.handed)
         throw new QueryEngineError("No data to insert for createMany.");
       if (args.skipDuplicates) {
-        if (entries.some((data) => relationsOf(model, data).length > 0))
-          outside();
-        const later = store.skipping(
-          model,
-          entries.map((data) => [data, stated(data)]),
-          projection
+        const bearing = entries.some(
+          (data) => relationsOf(model, data).length > 0
         );
-        return () =>
-          projection
-            ? decoded(later.sent!.rows)
-            : { count: later.sent!.rowCount };
+        // Rows that are nothing but themselves are written at once, where one statement passes duplicates by.
+        const later = bearing
+          ? undefined
+          : store.skipping(
+              model,
+              entries.map((data) => [data, stated(data)]),
+              projection
+            );
+        if (later)
+          return () =>
+            projection
+              ? decoded(later.sent!.rows)
+              : { count: later.sent!.rowCount };
+        // Else each row, with what hangs on it, is undone alone where it is one too many.
+        const rows: Row[] = [];
+        for (const data of entries)
+          store.attempt(
+            () => {
+              const row = make(model, data, {});
+              rows.push(row);
+              return row;
+            },
+            bearing ? "rows involving nested writes" : "duplicate rows"
+          );
+        return again(rows, "createMany");
       }
       return again(
         entries.map((data) => make(model, data, {})),

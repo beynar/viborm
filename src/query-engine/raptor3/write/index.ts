@@ -53,7 +53,8 @@ export async function writeCall(
     transport = dialogue(
       operation,
       binding.driver,
-      lent && ((body) => lent(body, at))
+      lent && ((body) => lent(body, at)),
+      binding.memberRollback
     );
   } else if (driver.supportsTransactions)
     transport = dialogue(operation, driver, (body) =>

@@ -17,7 +17,11 @@
  * to be there, that row's question is asked for real and the verbs run
  * again: it is the verbs that refuse, of an image that is right.
  */
-import { NotFoundError } from "@errors";
+import {
+  NotFoundError,
+  UniqueConstraintError,
+  UnsupportedOperationError,
+} from "@errors";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
 import { createFailureError } from "../../batch-error-attribution";
@@ -33,7 +37,13 @@ import {
 import type { EngineSchema, Input } from "../shared/schema";
 import type { SqlOperationContext } from "../shared/sql-operation-context";
 import type { Membership } from "../shared/storage";
-import { type Sent, type Statement, Stopped, type Transport } from "./send";
+import {
+  refusedBy,
+  type Sent,
+  type Statement,
+  Stopped,
+  type Transport,
+} from "./send";
 import { type Junction, outside, type Question, Writer } from "./statements";
 
 /** A row the call knows: what it holds, as far as the call knows it. */
@@ -51,6 +61,8 @@ interface Meta {
   gone?: true;
   /** The call changed its key. */
   moved?: true;
+  /** The database passed it by: it was one too many. */
+  passed?: true;
   /** The fields the call wrote of it. */
   readonly wrote: Set<string>;
 }
@@ -164,12 +176,19 @@ type Entry = (
       readonly projection?: PreparedProjection;
       readonly queries: () => Query[];
     }
-) & { take?(sent: Sent[], queries?: Query[]): void };
+) & {
+  take?(sent: Sent[], queries?: Query[]): void;
+  /** The part of the unit it is written in, where that part is undone alone if its first row is refused: `root` on that row's own write. */
+  attempt?: number;
+  root?: boolean;
+};
 
 /** Statements of a unit, written when it is sent, and where their answers are told. */
 interface Step {
   write(): Statement[] | Promise<Statement[]>;
   take?(sent: Sent[]): void;
+  attempt?: number;
+  root?: boolean;
 }
 
 interface Answer {
@@ -222,7 +241,10 @@ export class Store {
   #meta = new WeakMap<Row, Meta>();
   #known = new Map<string, Row>();
   #log: Entry[] = [];
-  #missed = new Map<string, { question: Question; after: number }>();
+  #missed = new Map<string, { question?: Question; after: number }>();
+  /** Whether each part undone alone was written, once sent; and the part being noted. */
+  readonly #outcomes = new Map<number, boolean>();
+  #attempting: number | undefined;
   #presumed = new Map<string, { question: Question; row?: Row; at: number }>();
   #used = new Map<Answer, number>();
   /** What the database may hold of a model beyond what the call knows: every field of its rows, or those named. */
@@ -308,6 +330,7 @@ export class Store {
           );
         else this.#answers.clear();
         this.#asserted.clear();
+        this.#outcomes.clear();
         this.#sent = 0;
       }
     }
@@ -361,7 +384,7 @@ export class Store {
         question.writes,
       ]);
     for (const [id, { question, after: asked }] of this.#missed) {
-      if (asked !== after) continue;
+      if (asked !== after || !question) continue;
       const key = group(question) || id;
       groups.set(key, [...(groups.get(key) ?? []), [id, question]]);
     }
@@ -768,6 +791,7 @@ export class Store {
   }
   /** Notes a write, told what the database said of it where a run before this one sent it. */
   #note(entry: Entry): void {
+    entry.attempt = this.#attempting;
     if ("row" in entry && entry.kind !== "either")
       this.#touched.add(this.#meta.get(entry.row)!.model);
     else if (entry.kind === "skipping") this.#touched.add(entry.model);
@@ -1235,19 +1259,64 @@ export class Store {
     kind: "createMany" | "updateMany",
     take: (rows: Input[]) => void
   ): void {
+    // A row the database passed by is no row of the call's.
+    const there = rows.filter((row) => !this.#meta.get(row)!.passed);
     this.#note({
       kind: "read",
       model,
-      rows,
+      rows: there,
       projection,
       queries: () =>
         this.operation.seriesQueries(
           projection,
-          rows.map((row) => this.#said(this.#key(row))),
+          there.map((row) => this.#said(this.#key(row))),
           kind
         ),
       take: (sent) => take(sent.flatMap((each) => each.rows)),
     });
+  }
+  /** Refuses where no part of the call's unit can be undone alone. */
+  attempts(rows: string): void {
+    if (!this.#transport.attempt)
+      throw new UnsupportedOperationError(
+        `skipDuplicates cannot skip ${rows} on driver '${this.operation.driver.driverName}' in this scope; a member savepoint is required.`,
+        { meta: { operation: this.operation.operation } }
+      );
+  }
+  /**
+   * A row created, with what hangs on it, unless the database refuses the row
+   * for holding what another row alone may hold: then nothing of it is
+   * written, and the call goes on. Answers whether it was written.
+   */
+  attempt(work: () => Row, rows: string): boolean {
+    this.attempts(rows);
+    const from = this.#log.length;
+    this.#attempting = from;
+    let made: Row;
+    try {
+      made = work();
+    } finally {
+      this.#attempting = undefined;
+    }
+    const part = this.#log.slice(from);
+    const root = part.find(
+      (entry) => entry.kind === "insert" && entry.row === made
+    );
+    if (root) root.root = true;
+    const written = this.#outcomes.get(from);
+    // Only the database can say: once the part is sent.
+    if (written === undefined) {
+      this.#missed.set(`attempt:${from}`, { after: this.#log.length });
+      return true;
+    }
+    if (!written)
+      for (const entry of part)
+        if (entry.kind === "insert")
+          Object.assign(this.#meta.get(entry.row)!, {
+            gone: true,
+            passed: true,
+          });
+    return written;
   }
   /** How many of the rows the call created the database said it wrote. */
   written(rows: readonly Row[]): number {
@@ -1269,14 +1338,15 @@ export class Store {
     model: AnyModel,
     rows: readonly (readonly [Input, Input, Input?])[],
     projection?: PreparedProjection
-  ): Later {
+  ): Later | undefined {
     const { mutations } = this.operation.driver.adapter;
+    // None where no one statement passes such rows by, or answers with those it wrote.
     if (
       mutations.skipDuplicatesStrategy !== "sql" ||
       (projection &&
         !this.operation.answersInStatement(model, projection, "insert"))
     )
-      outside();
+      return undefined;
     const later: Later = {};
     this.#note({
       kind: "skipping",
@@ -1506,13 +1576,21 @@ export class Store {
             schema.identity(model, values)
           );
         }
+    /** Where the steps of each entry begin. */
+    const begins: [number, Entry][] = [];
     for (let at = this.#sent; at < to; at++) {
       const entry = log[at]!;
       const place = at;
+      begins.push([steps.length, entry]);
       /** The entries that follow `entry` and travel with it. */
       const beside = <T extends Entry>(same: (next: T) => boolean): T[] => {
         const run = [entry as T];
-        while (at + 1 < to && same(log[at + 1] as T)) run.push(log[++at] as T);
+        while (
+          at + 1 < to &&
+          log[at + 1]!.attempt === entry.attempt &&
+          same(log[at + 1] as T)
+        )
+          run.push(log[++at] as T);
         return run;
       };
       const take = (sent: Sent[], queries?: Query[]) => {
@@ -1790,6 +1868,10 @@ export class Store {
         });
       }
     }
+    // The steps of a part undone alone are told apart, and the write of its first row among them.
+    for (const [at, [from, entry]] of begins.entries())
+      for (const step of steps.slice(from, begins[at + 1]?.[0]))
+        Object.assign(step, { attempt: entry.attempt, root: entry.root });
     if (scratch) {
       const { open, close } = writer.scratch(scratch.id, scratch.model);
       steps.unshift({ write: () => open });
@@ -1803,14 +1885,16 @@ export class Store {
    * has not said yet is written once what stands before it is sent and
    * heard.
    */
-  async #deliver(steps: Step[], last: boolean): Promise<void> {
+  async #deliver(
+    steps: Step[],
+    last: boolean,
+    within?: Transport["send"]
+  ): Promise<void> {
+    const send = within ?? this.#transport.send;
     let waiting: { statements: Statement[]; step: Step }[] = [];
     const flush = async (end: boolean) => {
       const statements = waiting.flatMap((written) => written.statements);
-      const sent =
-        statements.length > 0
-          ? await this.#transport.send(statements, end)
-          : [];
+      const sent = statements.length > 0 ? await send(statements, end) : [];
       let at = 0;
       for (const { statements: own, step } of waiting) {
         step.take?.(sent.slice(at, at + own.length));
@@ -1818,7 +1902,16 @@ export class Store {
       }
       waiting = [];
     };
-    for (const step of steps) {
+    for (let at = 0; at < steps.length; at++) {
+      const step = steps[at]!;
+      // A part undone alone is sent alone: whether it was written is noted.
+      if (!within && step.attempt !== undefined) {
+        await flush(false);
+        const part = [step];
+        while (steps[at + 1]?.attempt === step.attempt) part.push(steps[++at]!);
+        this.#outcomes.set(step.attempt, await this.#attempted(part));
+        continue;
+      }
       let statements: Statement[];
       try {
         statements = await step.write();
@@ -1830,5 +1923,35 @@ export class Store {
       waiting.push({ statements, step });
     }
     await flush(last);
+  }
+  /** Sends a part of the unit that is undone alone where the database refuses its first row as one too many: whether it was written. */
+  async #attempted(part: Step[]): Promise<boolean> {
+    let first: Statement | undefined;
+    const told = part.map((step) =>
+      step.root
+        ? {
+            ...step,
+            write: async () => {
+              const statements = await step.write();
+              [first] = statements;
+              return statements;
+            },
+          }
+        : step
+    );
+    try {
+      await this.#transport.attempt!((send) =>
+        this.#deliver(told, false, send)
+      );
+      return true;
+    } catch (error) {
+      if (
+        error instanceof UniqueConstraintError &&
+        first &&
+        refusedBy.get(error) === first
+      )
+        return false;
+      throw error;
+    }
   }
 }

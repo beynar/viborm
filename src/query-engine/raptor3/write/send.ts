@@ -12,6 +12,7 @@ import { NestedWriteAssertionError } from "@errors";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
 import type { PreparedGuardFailure } from "../../types";
+import type { MemberRollback } from "../shared/operation-context";
 import type { Input } from "../shared/schema";
 import type { SqlOperationContext } from "../shared/sql-operation-context";
 
@@ -56,7 +57,15 @@ export interface Transport {
   send(statements: readonly Statement[], last: boolean): Promise<Sent[]>;
   /** Ends the unit: undone where the call `failed`. */
   end(failed?: unknown): Promise<void>;
+  /**
+   * Sends what `body` sends as a part of the unit that is undone alone where
+   * it fails. None where the unit has no such part.
+   */
+  attempt?<T>(body: (send: Transport["send"]) => Promise<T>): Promise<T>;
 }
+
+/** The statement the database refused, by the error it refused it with. */
+export const refusedBy = new WeakMap<object, Statement>();
 
 /** The context one statement is sent under: the operation's, named for the model it touches. */
 export const contextOf = (
@@ -78,7 +87,9 @@ export const contextOf = (
 export function dialogue(
   operation: SqlOperationContext,
   driver: AnyDriver,
-  open?: (body: (inside: AnyDriver) => Promise<void>) => Promise<unknown>
+  open?: (body: (inside: AnyDriver) => Promise<void>) => Promise<unknown>,
+  /** Undoes a part of the unit alone, where the unit is not the call's own to open. */
+  rollback?: MemberRollback
 ): Transport {
   let entered: Promise<AnyDriver> | undefined;
   let unit: Promise<unknown> | undefined;
@@ -94,43 +105,65 @@ export function dialogue(
       );
       unit.catch(refused);
     }));
+  const run = async (
+    transport: AnyDriver,
+    statements: readonly Statement[]
+  ): Promise<Sent[]> => {
+    const answers: Sent[] = [];
+    for (const statement of statements) {
+      const at = contextOf(operation, statement.model);
+      // What the call believed is asked, not asserted: a dialogue hears
+      // the answer, and a statement that fails would undo its unit.
+      const sent = await transport
+        ._execute<Input>(
+          statement.believed ? statement.probe! : statement.sql,
+          at
+        )
+        .catch((error) => {
+          if (process.env.VIBORM_DEBUG_SQL)
+            console.error(
+              "FAILED",
+              transport._prepare(statement.sql, at).sql,
+              error?.cause ?? error
+            );
+          if (typeof error === "object" && error)
+            refusedBy.set(error, statement);
+          throw statement.stops && error instanceof NestedWriteAssertionError
+            ? new Stopped(statement)
+            : error;
+        });
+      if (
+        statement.believed &&
+        sent.rows.length > 0 !== (statement.premise === "exists")
+      )
+        throw new Stopped(statement);
+      answers.push(sent);
+    }
+    return answers;
+  };
   return {
     holds: true,
     async send(statements, last) {
-      const transport =
+      return run(
         !open || (last && !entered && statements.length === 1)
           ? driver
-          : await enter();
-      const answers: Sent[] = [];
-      for (const statement of statements) {
-        const at = contextOf(operation, statement.model);
-        // What the call believed is asked, not asserted: a dialogue hears
-        // the answer, and a statement that fails would undo its unit.
-        const sent = await transport
-          ._execute<Input>(
-            statement.believed ? statement.probe! : statement.sql,
-            at
-          )
-          .catch((error) => {
-            if (process.env.VIBORM_DEBUG_SQL)
-              console.error(
-                "FAILED",
-                transport._prepare(statement.sql, at).sql,
-                error?.cause ?? error
-              );
-            throw statement.stops && error instanceof NestedWriteAssertionError
-              ? new Stopped(statement)
-              : error;
-          });
-        if (
-          statement.believed &&
-          sent.rows.length > 0 !== (statement.premise === "exists")
-        )
-          throw new Stopped(statement);
-        answers.push(sent);
-      }
-      return answers;
+          : await enter(),
+        statements
+      );
     },
+    ...((open || rollback) && {
+      async attempt(body) {
+        const within = (inner: AnyDriver) =>
+          body((statements) => run(inner, statements));
+        return open
+          ? (await enter()).withTransaction(
+              within,
+              undefined,
+              operation.attribution
+            )
+          : rollback!(within, operation.attribution);
+      },
+    }),
     async end(failed) {
       if (!entered) return;
       leave(failed);
