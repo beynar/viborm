@@ -79,11 +79,19 @@ export interface SnowflakeDriverOptions {
   readonly role?: string;
   /** Seconds a statement may run before Snowflake and the driver stop it. */
   readonly timeout?: number;
-  /** Where the API lives, when not `https://<account>.snowflakecomputing.com`. */
+  /**
+   * Where the API lives, when not `https://<account>.snowflakecomputing.com`
+   * (a proxy, a test server): the token goes wherever it says.
+   */
   readonly host?: string;
   /** The `fetch` to send with: a Worker's, a proxy's, a test's. */
-  readonly fetch?: typeof fetch;
-  /** Session parameters added to every statement's. `TIMEZONE` stays UTC. */
+  readonly fetch?: (input: string, init: RequestInit) => Promise<Response>;
+  /**
+   * Session parameters added to every statement's: `QUERY_TAG`,
+   * `USE_CACHED_RESULT` and `CLIENT_RESULT_CHUNK_SIZE`, in any case. Any other
+   * is refused: the driver decodes results in the formats and the time zone
+   * it fixes, one statement at a time.
+   */
   readonly parameters?: Readonly<Record<string, string>>;
 }
 
@@ -116,12 +124,47 @@ const SESSION = {
   TIMEZONE: "UTC",
 } as const;
 
+/**
+ * The session parameters a caller may set (keys compared lower-cased, as the
+ * SQL API documents them): none changes how a value is printed, which rows a
+ * result holds, or how many statements run.
+ */
+const CALLER_PARAMETERS = new Set([
+  "query_tag",
+  "use_cached_result",
+  "client_result_chunk_size",
+]);
+
 const TRAILING_SLASHES = /\/+$/;
 
 function configuration(message: string): ClientInitializationError {
   return new ClientInitializationError(message, {
     meta: { driver: "snowflake", operation: "configuration" },
   });
+}
+
+function callerParameters(
+  parameters: Readonly<Record<string, string>> = {}
+): Readonly<Record<string, string>> {
+  for (const key of Object.keys(parameters))
+    if (!CALLER_PARAMETERS.has(key.toLowerCase()))
+      throw configuration(
+        `VibORM does not pass the Snowflake session parameter ${key}: it decodes results in the formats and the time zone it fixes, and runs one statement at a time. It passes QUERY_TAG, USE_CACHED_RESULT and CLIENT_RESULT_CHUNK_SIZE.`
+      );
+  return parameters;
+}
+
+/**
+ * The API's URL for an account. The account is the host's first labels, and
+ * the URL must name exactly that host: a path, a user, a port, a query or a
+ * pasted URL in it would send the token elsewhere.
+ */
+function accountUrl(account: string): string {
+  const url = `https://${account.toLowerCase()}.snowflakecomputing.com`;
+  if (URL.canParse(url) && new URL(url).origin === url) return url;
+  throw configuration(
+    `The Snowflake account ${JSON.stringify(account)} is not an account identifier: write ORGNAME-ACCOUNTNAME, or a locator such as xy12345.us-east-1, with no scheme, path or port. Pass host for any other endpoint.`
+  );
 }
 
 /** The fields a `snowflake://` URL names. */
@@ -220,6 +263,8 @@ export class SnowflakeDriver extends Driver<
 
   readonly #options: SnowflakeDriverOptions;
   readonly #context: SnowflakeContext;
+  readonly #baseUrl: string;
+  readonly #parameters: Readonly<Record<string, string>>;
 
   constructor(options: SnowflakeDriverOptions = {}) {
     super("snowflake", "snowflake");
@@ -248,6 +293,11 @@ export class SnowflakeDriver extends Driver<
         "The Snowflake timeout is a positive whole number of seconds."
       );
     this.#options = resolved;
+    this.#baseUrl = (resolved.host ?? accountUrl(resolved.account)).replace(
+      TRAILING_SLASHES,
+      ""
+    );
+    this.#parameters = { ...callerParameters(resolved.parameters), ...SESSION };
     this.#context = {
       ...(resolved.warehouse ? { warehouse: resolved.warehouse } : {}),
       ...(resolved.database ? { database: resolved.database } : {}),
@@ -279,14 +329,11 @@ export class SnowflakeDriver extends Driver<
         "This runtime has no fetch: pass one as the Snowflake driver's fetch option."
       );
     return new SnowflakeTransport({
-      baseUrl: (
-        options.host ??
-        `https://${account.toLowerCase()}.snowflakecomputing.com`
-      ).replace(TRAILING_SLASHES, ""),
+      baseUrl: this.#baseUrl,
       authenticator,
       context: this.#context,
       ...(options.timeout === undefined ? {} : { timeout: options.timeout }),
-      parameters: { ...options.parameters, ...SESSION },
+      parameters: this.#parameters,
       // A Worker's fetch must be called unbound from the global.
       fetch: (input, init) => send(input, init),
     });

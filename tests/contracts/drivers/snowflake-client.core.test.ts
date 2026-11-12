@@ -517,6 +517,83 @@ describe("Snowflake failures", () => {
     // Snowflake's own code is a provider detail: disclosed only on request.
   });
 
+  it("refuses, before any request, a session parameter that changes what the driver decodes", () => {
+    const refused: Record<string, string>[] = [
+      { DATE_OUTPUT_FORMAT: "YYYYMMDD" },
+      { binary_output_format: "BASE64" },
+      { timezone: "America/New_York" },
+      { MULTI_STATEMENT_COUNT: "0" },
+      { Rows_Per_ResultSet: "2" },
+    ];
+    for (const parameters of refused)
+      expect(() =>
+        createClient({
+          schema,
+          account: "myorg-acct",
+          token: "t",
+          host: server.url,
+          parameters,
+        })
+      ).toThrow(ClientInitializationError);
+    expect(server.requests).toHaveLength(0);
+  });
+
+  it("passes a harmless session parameter beside the UTC session", async () => {
+    const db = createClient({
+      schema,
+      account: "myorg-acct",
+      token: "t",
+      host: server.url,
+      parameters: { QUERY_TAG: "reports" },
+    });
+    await db.$queryRaw`SELECT 1`;
+    expect(server.statements()[0]!.parameters).toEqual({
+      QUERY_TAG: "reports",
+      TIMEZONE: "UTC",
+    });
+  });
+
+  it("refuses, before any request, an account that would send the token to another host", async () => {
+    const sent: string[] = [];
+    const send = (input: string) => {
+      sent.push(String(input));
+      return Promise.reject(new Error("not sent"));
+    };
+    for (const account of [
+      "evil.example/x",
+      "https://myorg-acct.snowflakecomputing.com",
+      "evil.example?",
+      "evil.example#",
+      "user@evil.example",
+      "evil.example:8443",
+    ]) {
+      expect(() =>
+        createClient({ schema, account, token: "t", fetch: send })
+      ).toThrow(ClientInitializationError);
+      expect(() =>
+        createClient({
+          schema,
+          databaseUrl: `snowflake://u@${encodeURIComponent(account)}/DB`,
+          token: "t",
+          fetch: send,
+        })
+      ).toThrow(ClientInitializationError);
+    }
+    // The documented forms reach their own host.
+    for (const [account, host] of [
+      ["MyOrg-Acct", "myorg-acct.snowflakecomputing.com"],
+      ["xy12345.us-east-1", "xy12345.us-east-1.snowflakecomputing.com"],
+      [
+        "xy12345.us-east-1.privatelink",
+        "xy12345.us-east-1.privatelink.snowflakecomputing.com",
+      ],
+    ]) {
+      await createClient({ schema, account, token: "t", fetch: send })
+        .$queryRaw`SELECT 1`.catch(() => undefined);
+      expect(new URL(sent.at(-1)!).host).toBe(host);
+    }
+  });
+
   it("reads a refused credential as a configuration failure", async () => {
     server.failNext(401);
     const failure = await client()

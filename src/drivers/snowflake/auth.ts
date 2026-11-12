@@ -122,7 +122,8 @@ export function pkcs1ToPkcs8(pkcs1: Uint8Array): Uint8Array<ArrayBuffer> {
 
 /** The private key a PEM holds, as the PKCS#8 bytes WebCrypto imports. */
 export function privateKeyBytes(pem: string): Uint8Array<ArrayBuffer> {
-  const match = PEM.exec(pem);
+  // An environment variable often holds the PEM's line breaks as "\n".
+  const match = PEM.exec(pem.replaceAll("\\n", "\n"));
   if (!match)
     throw configuration(
       "The Snowflake private key must be a PEM block: -----BEGIN PRIVATE KEY----- (PKCS#8) or -----BEGIN RSA PRIVATE KEY----- (PKCS#1)."
@@ -162,6 +163,10 @@ async function importPrivateKey(key: string | CryptoKey): Promise<CryptoKey> {
 
 /** `SHA256:` and the base64 SHA-256 of the public key's DER encoding. */
 export async function publicKeyFingerprint(key: CryptoKey): Promise<string> {
+  if (!key.extractable)
+    throw configuration(
+      "The Snowflake private key's CryptoKey is not extractable: the driver reads its modulus and exponent to compute the fingerprint Snowflake checks. Import it with extractable set to true, or pass the PEM."
+    );
   const jwk = await crypto.subtle.exportKey("jwk", key);
   const publicKey = await crypto.subtle.importKey(
     "jwk",

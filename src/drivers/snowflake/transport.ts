@@ -82,6 +82,8 @@ function isRows(value: unknown): value is unknown[][] {
 }
 
 const MAX_POLL_MS = 2000;
+/** How long a cancel may hold the caller's error back. */
+const CANCEL_MS = 2000;
 const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
 
 /** A failure Snowflake answered, as the error mapping reads it. */
@@ -256,12 +258,17 @@ export class SnowflakeTransport {
     }
   }
 
-  /** Stop a statement; a failure to stop it is not the caller's failure. */
+  /**
+   * Stop a statement, waiting at most `CANCEL_MS` for Snowflake to say so: a
+   * failure to stop it is not the caller's failure, and the caller's deadline
+   * must not wait on it.
+   */
   async cancel(handle: string): Promise<void> {
     try {
       await this.#request(
         `/api/v2/statements/${encodeURIComponent(handle)}/cancel`,
-        { method: "POST" }
+        { method: "POST" },
+        AbortSignal.timeout(CANCEL_MS)
       );
     } catch {
       // The statement's own timeout ends it anyway.

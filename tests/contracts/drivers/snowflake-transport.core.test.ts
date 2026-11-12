@@ -127,6 +127,24 @@ describe("Snowflake SQL API transport", () => {
     expect(server!.statements()[0]!.timeout).toBe(1);
   });
 
+  it("answers the timeout within a bounded wait when the cancel never answers", async () => {
+    const client = await transport(
+      () => ({ rowType: [column], partitions: [[["1"]]], pending: 10_000 }),
+      { timeout: 1 }
+    );
+    server!.holdCancels();
+    const started = Date.now();
+    const failure = await client
+      .run("SELECT SYSTEM$WAIT(10)", undefined)
+      .catch((error: unknown) => error);
+    expect(failure).toMatchObject({ code: VibORMErrorCode.QUERY_TIMEOUT });
+    // 1 s of timeout, then at most 2 s for the cancel.
+    expect(Date.now() - started).toBeLessThan(4500);
+    expect(
+      server!.requests.some((request) => request.path.endsWith("/cancel"))
+    ).toBe(true);
+  }, 10_000);
+
   it("refuses a 200 that does not state its rows, rather than answering none", async () => {
     const meta = {
       numRows: 1,

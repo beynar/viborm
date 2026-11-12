@@ -74,6 +74,8 @@ export interface FakeSnowflake {
   statements(): FakeStatement[];
   /** Answer the next `count` POSTs with this HTTP status before handling them. */
   failNext(status: number, count?: number): void;
+  /** Leave every later cancel request unanswered. */
+  holdCancels(): void;
   close(): Promise<void>;
 }
 
@@ -136,6 +138,7 @@ export async function startFakeSnowflake(
   const running = new Map<string, Running>();
   const failures: number[] = [];
   let handles = 0;
+  let holdCancels = false;
 
   const server: Server = createServer((request, response) => {
     const chunks: Buffer[] = [];
@@ -198,6 +201,7 @@ export async function startFakeSnowflake(
       }
       const cancel = CANCEL.exec(url.pathname);
       if (request.method === "POST" && cancel) {
+        if (holdCancels) return; // left open
         json(200, { code: "000604", message: "Statement canceled." });
         return;
       }
@@ -247,6 +251,9 @@ export async function startFakeSnowflake(
         .map((request) => request.body!),
     failNext: (status, count = 1) => {
       for (let index = 0; index < count; index++) failures.push(status);
+    },
+    holdCancels: () => {
+      holdCancels = true;
     },
     close: () =>
       new Promise<void>((resolve) => {

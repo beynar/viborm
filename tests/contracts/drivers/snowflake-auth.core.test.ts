@@ -12,6 +12,7 @@ import {
   privateKeyBytes,
   SnowflakeAuthenticator,
 } from "@drivers/snowflake/auth";
+import { ClientInitializationError } from "@errors";
 import { beforeAll, describe, expect, it } from "vitest";
 
 const RSA = { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" } as const;
@@ -166,6 +167,36 @@ describe("Snowflake credentials", () => {
     expect(
       () => new SnowflakeAuthenticator({ account: "a", privateKey: pkcs8Pem })
     ).toThrow("needs the username");
+  });
+
+  it("reads a PEM whose line breaks an environment variable holds as \\n", async () => {
+    const { token } = await new SnowflakeAuthenticator({
+      account: "a",
+      username: "u",
+      privateKey: pkcs8Pem.replaceAll("\n", "\\n"),
+    }).authorization();
+    expect((await decode(token)).verified).toBe(true);
+  });
+
+  it("refuses a CryptoKey it cannot read the public half of, with a configuration error", async () => {
+    const key = await crypto.subtle.importKey(
+      "pkcs8",
+      privateKeyBytes(pkcs8Pem),
+      RSA,
+      false,
+      ["sign"]
+    );
+    const failure = await new SnowflakeAuthenticator({
+      account: "a",
+      username: "u",
+      privateKey: key,
+    })
+      .authorization()
+      .catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(ClientInitializationError);
+    expect(failure).toMatchObject({
+      message: expect.stringContaining("not extractable"),
+    });
   });
 
   it("refuses an encrypted key and a PEM that is not a private key, before any request", async () => {

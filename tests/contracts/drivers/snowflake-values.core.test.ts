@@ -47,6 +47,21 @@ describe("Snowflake bindings", () => {
     });
   });
 
+  it("binds an integer past NUMBER's 38 digits as its double, and a non-finite double as the text Snowflake reads", () => {
+    expect(encodeBinding(1e40)).toEqual({ type: "REAL", value: "1e+40" });
+    expect(encodeBinding(-1e38)).toEqual({ type: "REAL", value: "-1e+38" });
+    // Snowflake refuses a REAL "inf" (measured), and reads the text as FLOAT.
+    expect(encodeBinding(Number.POSITIVE_INFINITY)).toEqual({
+      type: "TEXT",
+      value: "inf",
+    });
+    expect(encodeBinding(Number.NEGATIVE_INFINITY)).toEqual({
+      type: "TEXT",
+      value: "-inf",
+    });
+    expect(encodeBinding(Number.NaN)).toEqual({ type: "TEXT", value: "NaN" });
+  });
+
   it("binds a Date as a UTC TIMESTAMP_TZ in nanoseconds", () => {
     expect(encodeBinding(new Date("2024-01-02T03:04:05.678Z"))).toEqual({
       type: "TIMESTAMP_TZ",
@@ -135,6 +150,17 @@ describe("Snowflake answers", () => {
       a: [1, null],
     });
     expect(decodeValue(column("array"), "[]")).toEqual([]);
+    // Snowflake prints a SQL NULL inside an array as `undefined` (measured).
+    expect(decodeValue(column("array"), "[\n  1,\n  undefined\n]")).toEqual([
+      1,
+      null,
+    ]);
+    expect(
+      decodeValue(
+        column("variant"),
+        '{"a":["undefined","x\\" undefined"],"b":undefined}'
+      )
+    ).toEqual({ a: ["undefined", 'x" undefined'], b: null });
     expect(decodeValue(column("object"), '"text"')).toBe("text");
   });
 

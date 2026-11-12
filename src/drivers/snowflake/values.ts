@@ -55,6 +55,11 @@ const NANOS_PER_MILLISECOND = 1_000_000n;
 const OFFSET_BIAS = 1440;
 const NOT_HEX = /[^0-9a-fA-F]/;
 const INTEGER = /^-?\d+$/;
+/**
+ * A JSON string, or the `undefined` Snowflake prints for a SQL NULL inside an
+ * array (`ARRAY_CONSTRUCT(1, NULL)` prints `[1, undefined]`).
+ */
+const UNDEFINED_MEMBER = /"(?:[^"\\]|\\.)*"|\bundefined\b/g;
 
 function hex(bytes: Uint8Array): string {
   let text = "";
@@ -93,11 +98,15 @@ export function encodeBinding(value: unknown): SnowflakeBinding {
     case "bigint":
       return { type: "FIXED", value: value.toString() };
     case "number":
-      if (Number.isInteger(value))
+      // NUMBER holds 38 digits: a larger integer double binds as the double.
+      if (Number.isInteger(value) && Math.abs(value) < 1e38)
         return { type: "FIXED", value: BigInt(value).toString() };
-      if (Number.isNaN(value)) return { type: "REAL", value: "NaN" };
+      // Snowflake refuses a REAL "inf", and reads a text one as FLOAT.
       if (!Number.isFinite(value))
-        return { type: "REAL", value: value > 0 ? "inf" : "-inf" };
+        return {
+          type: "TEXT",
+          value: Number.isNaN(value) ? "NaN" : value > 0 ? "inf" : "-inf",
+        };
       // The shortest text that reads back as this double.
       return { type: "REAL", value: String(value) };
     default:
@@ -239,7 +248,13 @@ export function decodeValue(column: SnowflakeColumn, value: unknown): unknown {
     case "map":
     case "vector":
       try {
-        return JSON.parse(value);
+        return JSON.parse(
+          value.includes("undefined")
+            ? value.replace(UNDEFINED_MEMBER, (token) =>
+                token === "undefined" ? "null" : token
+              )
+            : value
+        );
       } catch {
         throw malformed(column.type.toUpperCase(), value);
       }
