@@ -137,7 +137,7 @@ export const G3P03_MYSQL_CONTRACT_TESTS = Object.freeze(
   Object.keys(G3P03_MYSQL_CONTRACT_COUNTS)
 );
 export const G3P04_CONTRACT_COUNTS = Object.freeze({
-  "tests/raptor3/prep/suppression-replay.test.ts": 5,
+  "tests/raptor3/prep/suppression-replay.test.ts": 7,
 });
 export const G3P04_CONTRACT_TESTS = Object.freeze(
   Object.keys(G3P04_CONTRACT_COUNTS)
@@ -222,7 +222,7 @@ export const POST_G3_SELECTOR_PREPARATION_TESTS = Object.freeze(
 // children locks once, then checks, then tombstones (+1 on each of three
 // drivers).
 export const POST_G3_DELETION_SITE_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/deletion-sites.test.ts": 111,
+  "tests/raptor3/post-prep/deletion-sites.test.ts": 126,
 });
 export const POST_G3_DELETION_SITE_TESTS = Object.freeze(
   Object.keys(POST_G3_DELETION_SITE_COUNTS)
@@ -248,7 +248,7 @@ export const POST_G3_DELETION_SITE_TESTS = Object.freeze(
 // SQLite substrates, and one prepared predicate for 10,000 actors (+49);
 // the composed chain's SQL against its pre-K1 golden (W-K1e, +1).
 export const POST_G3_ROW_SCOPE_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/row-scopes.test.ts": 174,
+  "tests/raptor3/post-prep/row-scopes.test.ts": 183,
 });
 export const POST_G3_ROW_SCOPE_TESTS = Object.freeze(
   Object.keys(POST_G3_ROW_SCOPE_COUNTS)
@@ -627,7 +627,7 @@ export const G4_UNIT01_AUTHOR_COUNTS = Object.freeze({
   "tests/raptor3/g4/unit01/repair2.test.ts": 22,
   "tests/raptor3/g4/unit01/repair3.test.ts": 14,
   "tests/raptor3/g4/unit01/repairs.test.ts": 13,
-  "tests/raptor3/g4/unit01/variants.test.ts": 3,
+  "tests/raptor3/g4/unit01/variants.test.ts": 4,
 });
 export const G4_UNIT01_AUTHOR_TESTS = Object.freeze(
   Object.keys(G4_UNIT01_AUTHOR_COUNTS)
