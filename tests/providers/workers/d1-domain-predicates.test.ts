@@ -23,7 +23,7 @@
 import { env } from "cloudflare:test";
 import { createClient } from "@client/client";
 import type { D1Database } from "@cloudflare/workers-types";
-import { NotFoundError, UniqueConstraintError } from "@errors";
+import { UniqueConstraintError } from "@errors";
 import { defineExtension } from "@extensions/define";
 import { Queries } from "@query-engine/raptor3/shared/query";
 import { D1Driver } from "@src/drivers/d1";
@@ -95,11 +95,15 @@ describe("D1: unique keys under a bound domain (W-K2c, DC10/DC11)", () => {
       tenant,
     }) as const;
 
-  test("a row moved to another tenant after the unlocked probe is not overwritten: the upsert is not found", async () => {
+  test("a row moved to another tenant after the unlocked probe is not overwritten: the upsert plans again and its key is taken", async () => {
     const { base, db, recorder } = await opened();
     recorder.before(ON_POST, MOVE_TO_GLOBEX, [1], 1);
+    // The batch asks again for the row the call read, finds it gone and the
+    // call plans again: no row of its tenant has the key, another tenant's
+    // has. The answer is the one the next test gives for such a key (1.14.0
+    // answered NotFoundError here).
     expect(await failure(db.post.upsert(upsert(1, "acme")))).toBeInstanceOf(
-      NotFoundError
+      UniqueConstraintError
     );
     // The move landed between the operation's statements, not after it.
     expect(recorder.armed).toBe(false);
@@ -199,7 +203,7 @@ describe("D1: one prepared predicate for every call value (W-K2a)", () => {
 });
 
 describe("D1: tenancy, soft delete and an optional control: SQL unchanged (W-K1e)", () => {
-  test("every statement of 27 calls matches the D1 golden recorded before K1/K2, the driver's derived-table relation filters unwrapped", async () => {
+  test("every statement of 27 calls matches the D1 golden, the driver's derived-table relation filters unwrapped", async () => {
     const recorder = new RecordingD1(env.DB);
     const transcript = await composedRowsTranscript(
       new D1Driver({ database: recorder.database }),

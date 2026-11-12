@@ -86,13 +86,13 @@ const [user, post] = await client.$transaction([
 ```
 
 Every operation in this array must be plannable up front. That includes a
-relation-bearing `createMany` whose members read nothing another member wrote,
-and a nested create whose parent key the database generates: the whole array
-commits together, and if any statement fails — a later member of a record
-series included — nothing in the array is written.
+relation-bearing `createMany`, even one whose later row looks for a row an
+earlier row creates (the call knows the rows it creates), and a nested create
+whose parent key the database generates: the whole array commits together,
+and if any statement fails nothing in the array is written.
 
-A record series whose later member must read what an earlier member wrote (for
-example a `connectOrCreate` on a row the first member creates) cannot be planned
+An operation that must read what only the database can say after one of its
+own writes (rows a cascade or a trigger may have changed) cannot be planned
 into one batch. It is refused with a `TransactionError` (`V5001`) before the
 batch is submitted, because `$transaction([...])` promises one atomic commit.
 
