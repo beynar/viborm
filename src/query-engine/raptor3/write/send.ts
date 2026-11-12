@@ -177,7 +177,14 @@ export function batches(
       // asked again together, then each judgement; where all still hold, it
       // is the first that judged its rows amid the batch's writes.
       const index = error.meta.statementIndex;
-      let stopped = typeof index === "number" ? statements[index] : undefined;
+      const stopping = statements.filter((statement) => statement.stops);
+      // The one statement that may stop the batch is the one that did.
+      let stopped =
+        typeof index === "number"
+          ? statements[index]
+          : stopping.length === 1
+            ? stopping[0]
+            : undefined;
       if (!stopped) {
         const asked = statements.filter((statement) => statement.premise);
         const answers =

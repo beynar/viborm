@@ -148,8 +148,10 @@ export class Writer {
           keys ? undefined : question.limit
         );
   }
-  /** The rows a question names, read whole; held where `hold`. */
-  read(question: Question, hold: boolean): Query {
+  /** The rows questions of one model name, read whole in one statement; held where `hold`. */
+  read(questions: readonly Question[], hold: boolean): Query {
+    const [question] = questions as [Question];
+    const selectors = questions.map((each) => this.selector(each));
     return this.#q.select(
       question.model,
       question.limit === undefined ? {} : { take: question.limit },
@@ -157,7 +159,16 @@ export class Writer {
       {
         forUpdate: hold,
         projection: this.#projection(question.model, true),
-        selector: this.selector(question),
+        selector:
+          selectors.length === 1
+            ? selectors[0]
+            : {
+                model: question.model,
+                predicate: {
+                  kind: "or",
+                  predicates: selectors.map((each) => each.predicate!),
+                },
+              },
       }
     );
   }

@@ -306,20 +306,56 @@ export class Store {
       ...[...this.#missed.values()].map((missed) => missed.after)
     );
     const steps = after > this.#sent ? this.#steps(after) : [];
+    // Questions that each name one row of a model, sought the same way, are one statement.
+    const groups = new Map<string, [string, Question][]>();
+    const pins = (question: Question) =>
+      question.unique && !(question.member || question.limit)
+        ? this.writer.selector(question).uniqueValues
+        : undefined;
+    const group = (question: Question) =>
+      pins(question) &&
+      JSON.stringify([
+        question.model["~"].names.ts,
+        question.through?.name,
+        question.intent,
+        question.writes,
+      ]);
     for (const [id, { question, after: asked }] of this.#missed) {
       if (asked !== after) continue;
-      const query = this.writer.read(question, this.#transport.holds);
+      const key = group(question) || id;
+      groups.set(key, [...(groups.get(key) ?? []), [id, question]]);
+    }
+    // A row taken to be there is read with them rather than asked for after.
+    for (const [id, { question, row }] of this.#presumed) {
+      const together = row && groups.get(group(question) || "");
+      if (together) together.push([id, question]);
+    }
+    for (const asked of groups.values()) {
+      const [[, first]] = asked as [[string, Question]];
+      const query = this.writer.read(
+        asked.map(([, question]) => question),
+        this.#transport.holds
+      );
       steps.push({
-        write: () => [{ sql: query.sql, model: question.model }],
+        write: () => [{ sql: query.sql, model: first.model }],
         take: ([sent]) => {
-          this.#answers.set(id, {
-            question,
-            rows: this.operation.queries.decodeQuery(
-              query,
-              sent!.rows,
-              true
-            ) as Input[],
-          });
+          const rows = this.operation.queries.decodeQuery(
+            query,
+            sent!.rows,
+            true
+          ) as Input[];
+          for (const [id, question] of asked)
+            this.#answers.set(id, {
+              question,
+              rows:
+                asked.length === 1
+                  ? rows
+                  : rows.filter((row) =>
+                      [...pins(question)!].every(
+                        ([field, value]) => String(row[field]) === String(value)
+                      )
+                    ),
+            });
         },
       });
     }
@@ -613,7 +649,18 @@ export class Store {
   }
   /** The one row a question names, which must be there. */
   one(question: Question): Row {
+    const missed = this.#missed.size;
     const [row] = this.rows({ ...question, must: true });
+    // A question not answered yet says nothing: the verbs go on, on a row of which nothing is known.
+    if (!row && this.#missed.size > missed) {
+      const unknown: Row = {};
+      this.#meta.set(unknown, {
+        model: question.model,
+        question,
+        wrote: new Set(),
+      });
+      return unknown;
+    }
     if (!row)
       throw createFailureError(
         this.writer.absent(question),
