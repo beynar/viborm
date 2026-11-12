@@ -370,9 +370,9 @@ export interface WriteLanguage {
   ): Promise<void>;
   delete(model: AnyModel, row: Input, member: Member): Promise<void>;
 }
-// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: a context that writes in its own language states these; the SQL context states none.
 export interface OperationContext extends WriteLanguage {}
 
+// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: a context that writes in its own language states these; the SQL context states none.
 export abstract class OperationContext {
   readonly queries: Queries;
   readonly driver: AnyDriver;
