@@ -1880,13 +1880,15 @@ export class Store {
           .filter(
             (values) => !passed(this.#known.get(this.#name(model, values)))
           )
-          // By its key, and by every value of it no other row may have: what the call may have given another row to hold.
+          // By its key, and by every value of it no other row may have: what the call may have given another row to hold. A value it does not have names no row.
           .map((values) =>
             Object.fromEntries(
               [
                 ...new Set([
                   ...schema.keys(model),
-                  ...getModelKeyCatalog(model).referenceableKeys.flat(),
+                  ...getModelKeyCatalog(model)
+                    .referenceableKeys.flat()
+                    .filter((field) => (values[field] ?? null) !== null),
                 ]),
               ].map((field) => [field, values[field]])
             )
