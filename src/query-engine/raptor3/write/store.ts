@@ -725,7 +725,14 @@ export class Store {
           model,
           Object.fromEntries(keys.map((field) => [field, pins.get(field)]))
         );
-      if (name && this.#left.has(name) && !this.#known.has(name)) return [];
+      // Unless the call made a row under it since: the row that had it is known by its new key.
+      const there = name ? this.#known.get(name) : undefined;
+      if (
+        name &&
+        this.#left.has(name) &&
+        !(there && this.#name(model, there) === name)
+      )
+        return [];
     }
     const fresh = member && this.#meta.get(member.of)?.made;
     // What makes a row a member is read of the row it is a member of.
@@ -1096,9 +1103,7 @@ export class Store {
     }
     // A row is known by the key it has now: the key it had names no row the call knows of.
     if (keys.some((field) => field in set)) {
-      const left = this.#name(model, before);
-      if (this.#known.get(left) === row) this.#known.delete(left);
-      this.#left.add(left);
+      this.#left.add(this.#name(model, before));
       this.#known.set(this.#name(model, row), row);
       meta.moved = true;
       this.#cascades(model);

@@ -365,21 +365,9 @@ export function verbs(store: Store) {
     if (refused) throw refused;
     const relations = relationsOf(model, data);
     const said = schema.scalars(model, stated(data));
-    // A row that takes another key, and writes a relation whose members hold that key: no member may be left behind, unless the database makes them follow.
-    for (const { edge } of relations) {
-      if (edge.kind !== "reference" || edge.owner !== "target") continue;
-      const moved = edge.pairs.filter((pair) =>
-        moves(row[pair.source], said[pair.source])
-      );
-      for (const { source } of moved)
-        if (moves(null, said[source]) === false)
-          throw new NestedWriteError(
-            `Cannot update relation key field '${source}' to null while mutating relation '${edge.name}'. A null reference names no row for that relation to point at.`,
-            edge.name,
-            { meta: { operation: "update", field: source } }
-          );
+    /** No row may still be a member through a relation whose key the row leaves, unless the database makes its members follow. */
+    const vacant = (edge: Extract<Membership, { kind: "reference" }>) => {
       if (
-        moved.length > 0 &&
         edge.reference &&
         edge.reference.onUpdate !== "cascade" &&
         !edge.pairs.some((pair) => row[pair.source] === null)
@@ -393,6 +381,21 @@ export function verbs(store: Store) {
             raceable: false,
           }
         );
+    };
+    // A row that takes another key, and writes a relation whose members hold that key: no member may be left behind, unless the database makes them follow.
+    for (const { edge } of relations) {
+      if (edge.kind !== "reference" || edge.owner !== "target") continue;
+      const moved = edge.pairs.filter((pair) =>
+        moves(row[pair.source], said[pair.source])
+      );
+      for (const { source } of moved)
+        if (moves(null, said[source]) === false)
+          throw new NestedWriteError(
+            `Cannot update relation key field '${source}' to null while mutating relation '${edge.name}'. A null reference names no row for that relation to point at.`,
+            edge.name,
+            { meta: { operation: "update", field: source } }
+          );
+      if (moved.length > 0) vacant(edge);
     }
     const own = relations.filter(({ edge }) => holds(edge));
     const singles = own.map(({ edge, payload }) =>
@@ -417,6 +420,23 @@ export function verbs(store: Store) {
       given && once("update", model, said, given, relation!, true),
       ...singles.map((each) => each.takes)
     );
+    // A key the row takes of a relation it holds is as much another key as one the caller wrote.
+    for (const { edge } of relations)
+      if (
+        edge.kind === "reference" &&
+        edge.owner === "target" &&
+        edge.pairs.some((pair) => {
+          const next = takes[pair.source];
+          return (
+            next !== undefined &&
+            ((typeof next === "object" &&
+              next !== null &&
+              !(next instanceof Date)) ||
+              moves(row[pair.source], next))
+          );
+        })
+      )
+        vacant(edge);
     // A relation the caller wrote decides the fields the row holds it by: nothing else writes them.
     const decided = Object.fromEntries(
       own.flatMap(({ edge }) =>
