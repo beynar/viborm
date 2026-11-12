@@ -705,6 +705,23 @@ test("release CI accepts only current complete exact-main proof", async () => {
   console.log("Release CI proof: pass");
 });
 
+test("a red Snowflake provider job alone does not hold a release back", async () => {
+  // ci.yml marks that job continue-on-error: GitHub then reports the run a
+  // success while the job itself stays red, and the proof reads the jobs a
+  // release waits on, which do not include it.
+  const jobsPages = [
+    {
+      jobs: [
+        ...RELEASE_CI_JOBS.map((name) => workflowJob(name)),
+        workflowJob("Snowflake provider", { conclusion: "failure" }),
+      ],
+    },
+  ];
+  const proof = await verifyReleaseCi(verification(fixture({ jobsPages })));
+  assert.equal(proof.status, "verified");
+  assert.equal(proof.proof, "push");
+});
+
 test("release CI accepts a tree-equivalent pull-request proof", async () => {
   const pullProof = {
     attempt: 1,
