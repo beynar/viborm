@@ -737,6 +737,10 @@ export class Writer {
       ),
     };
   }
+  /** Whether a write says what it wrote. */
+  get says(): boolean {
+    return this.#operation.driver.adapter.capabilities.supportsReturning;
+  }
   /** Whether a write of rows by their keys says how many of them it found: MySQL counts the rows an update changed. */
   counts(kind: string): boolean {
     return kind === "delete" || this.#operation.driver.dialect !== "mysql";

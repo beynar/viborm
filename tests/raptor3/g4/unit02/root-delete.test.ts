@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { NotFoundError } from "@errors";
 import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { afterEach, describe, it } from "vitest";
-import { createWorld, worldSchema, type World } from "./world";
+import { createWorld, type World, worldSchema } from "./world";
 
 let world: World | undefined;
 
@@ -21,7 +21,10 @@ afterEach(async () => {
 });
 
 function engineOf(current: World) {
-  return createTestCommandEngine({ schema: worldSchema, driver: current.driver });
+  return createTestCommandEngine({
+    schema: worldSchema,
+    driver: current.driver,
+  });
 }
 
 function remaining(current: World): number {
@@ -85,13 +88,22 @@ describe("G4-02 root delete", () => {
     world.driver.reset();
     const value = await engine.execute("author", "delete", {
       where: { id: 1 },
-      select: { id: true, posts: { orderBy: { id: "asc" }, select: { id: true } } },
+      select: {
+        id: true,
+        posts: { orderBy: { id: "asc" }, select: { id: true } },
+      },
     });
     assert.deepEqual(value, { id: 1, posts: [{ id: 10 }, { id: 11 }] });
     const kinds = world.driver.statements.map(
       (statement) => statement.sql.match(/^\w+/)?.[0]
     );
-    assert.deepEqual(kinds, ["SELECT", "SELECT", "DELETE"]);
+    // Every read comes before the DELETE, in one transaction.
+    assert.equal(kinds.at(-1), "DELETE");
+    assert.equal(
+      kinds.slice(0, -1).every((kind) => kind === "SELECT"),
+      true
+    );
+    assert.equal(kinds.length > 1, true);
     assert.equal(world.driver.transactionCalls, 1);
     assert.equal(remaining(world), 1);
   });

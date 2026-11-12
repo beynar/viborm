@@ -249,6 +249,8 @@ export class Store {
   readonly #computes = new WeakMap<Row, Input>();
   /** How many times what the call wrote was made before the call ended. */
   segments = 0;
+  /** Everything the call writes was sent: what fails after is its answer. */
+  said = false;
   #members: number[] = [];
   /** A row as the statement that read it whole said it. */
   readonly #raw = new WeakMap<Input, Input>();
@@ -1431,12 +1433,14 @@ export class Store {
       return true;
     }
     if (!written)
-      for (const entry of part)
-        if (entry.kind === "insert")
-          Object.assign(this.#meta.get(entry.row)!, {
-            gone: true,
-            passed: true,
-          });
+      for (const entry of part) {
+        if (entry.kind !== "insert") continue;
+        const meta = this.#meta.get(entry.row)!;
+        Object.assign(meta, { gone: true, passed: true });
+        // The row that has its key is the one the database holds.
+        const name = this.#name(meta.model, entry.row);
+        if (this.#known.get(name) === entry.row) this.#known.delete(name);
+      }
     return written;
   }
   /** How many of the rows the call created the database said it wrote. */
@@ -1785,6 +1789,11 @@ export class Store {
           });
         }
         const hears = (both || !read) && needed.has(entry.row);
+        // A provider whose writes say nothing says one thing of a row it creates: the number it gave it.
+        if (hears && decided.length > 1 && !writer.says)
+          throw new Error(
+            "Returning generated values requires RETURNING support or one generated increment field"
+          );
         if (hears && last && !holds)
           scratch ??= { id: crypto.randomUUID(), model };
         steps.push({
@@ -2046,6 +2055,7 @@ export class Store {
     const flush = async (end: boolean) => {
       const statements = waiting.flatMap((written) => written.statements);
       const sent = statements.length > 0 ? await send(statements, end) : [];
+      this.said ||= end && !within;
       let at = 0;
       const told = waiting.map(({ statements: own, step }) => ({
         step,

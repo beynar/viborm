@@ -97,9 +97,10 @@ export async function writeCall(
     if (store.segments > 0 && !transport.holds)
       failure = attachRecordSeriesProgress(failure, {
         atomicity: "segment",
-        phase: failure === error ? "member" : "result",
+        phase: store.said ? "result" : "member",
         committedSegments: store.segments,
-        completedMembers: store.members,
+        // The row whose answer failed was written, and is not whole.
+        completedMembers: Math.max(0, store.members - Number(store.said)),
         committedWriteMembers: store.members,
         ...(loose && { mayHaveCommittedSegment: true as const }),
       });
