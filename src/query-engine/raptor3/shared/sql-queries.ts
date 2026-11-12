@@ -4538,12 +4538,13 @@ export class SqlQueries extends Queries {
         where: balancedOr(predicates, (arms) =>
           this.adapter.operators.or(...arms)
         ),
+        // The place of each row is a number the statement states: one it binds is text to a provider that is told no type, and ten sorts before two.
         orderBy: this.adapter.expressions.caseWhen(
           predicates.map((when, index) => ({
             when,
-            then: this.value(index),
+            then: sql.raw(String(index)),
           })),
-          this.value(identities.length)
+          sql.raw(String(identities.length))
         ),
       }),
       shape: prepared.shape,

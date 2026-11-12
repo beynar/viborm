@@ -143,7 +143,7 @@ export function dialogue(
             : error;
         });
       if (
-        statement.believed &&
+        (statement.believed || statement.sql === statement.probe) &&
         sent.rows.length > 0 !== (statement.premise === "exists")
       )
         throw new Stopped(statement);

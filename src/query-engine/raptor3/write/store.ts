@@ -1372,10 +1372,15 @@ export class Store {
       return later;
     }
     if (marks) {
+      // Unless the rows are read ahead of their marks: they are held as they are read.
       if (
         held &&
         this.#transport.holds &&
-        this.operation.driver.adapter.capabilities.supportsRowLocks
+        this.operation.driver.adapter.capabilities.supportsRowLocks &&
+        !(
+          returns &&
+          !this.operation.answersInStatement(model, returns, "update", marks)
+        )
       )
         this.#note({
           kind: "read",
@@ -1858,7 +1863,7 @@ export class Store {
       if (!asked.has(group)) {
         const together: [Question, (Input | Input[])?][] = [];
         asked.set(group, together);
-        steps.push({ write: () => [writer.asks(together, believed)] });
+        steps.push({ write: () => [writer.asks(together, believed, holds)] });
       }
       asked.get(group)!.push([question, key]);
     };

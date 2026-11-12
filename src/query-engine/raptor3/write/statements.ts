@@ -287,12 +287,15 @@ export class Writer {
    */
   asks(
     asked: readonly (readonly [Question, (Input | Input[])?])[],
-    believed: "presumed" | "read"
+    believed: "presumed" | "read",
+    heard = false
   ): Statement {
     const q = this.#q;
     const { assertions, operators } = this.#operation.driver.adapter;
     const [[question]] = asked as [[Question]];
     const { model } = question;
+    // The rows asked for are held from there to the end of their unit, where the database holds rows: what is written after stands on them.
+    const lock = this.#operation.driver.adapter.capabilities.supportsRowLocks;
     const asking = (
       [each, key]: readonly [Question, (Input | Input[])?],
       more?: Sql
@@ -305,6 +308,7 @@ export class Writer {
         this.#membership(each),
         {
           projection: this.#projection(model, false),
+          forUpdate: lock,
           selector: keys
             ? q.andSelectors(model, [
                 this.selector(each),
@@ -325,7 +329,8 @@ export class Writer {
         : undefined
     );
     return {
-      sql: assertions.exists(probe),
+      // Where its answer is heard, the question itself is what is sent.
+      sql: heard && lock ? probe : assertions.exists(probe),
       probe,
       premise: "exists",
       believed: believed === "presumed" && question.must ? undefined : believed,
